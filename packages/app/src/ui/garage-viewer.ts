@@ -68,8 +68,8 @@ export interface MountedGarageView {
   stats(): { readonly frames: number; readonly calls: number; readonly triangles: number };
   draw(yawDeg: number): void;
   resize(): void;
-  /** Re-merge a vehicle's kit from the loaded GLB and draw one frame; a
-   *  no-op for a team (GH-238). */
+  /** Re-merge a vehicle's or a team's kit from the loaded GLB and draw one
+   *  frame; a no-op for a model whose GLB declares no kit (GH-238, GH-826). */
   setKit(tiers: Readonly<Record<string, number>>): void;
   dispose(): void;
 }

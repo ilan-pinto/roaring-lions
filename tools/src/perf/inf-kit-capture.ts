@@ -26,8 +26,24 @@
  * Outputs under `--out`: `cells/<state>_f<facing>_z<zoom>.png`, `zoom1.0.png`
  * and `zoom2.5.png` (contact sheets, one row per facing, one column per
  * state), and `readings.json`.
+ *
+ * ## `--garage` (GH-826, the bay's turntable)
+ *
+ *   pnpm inf-kit:capture -- --garage --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]
+ *
+ * The same squad on the brigade bay's turntable (`/brigade`, `inf_squad`'s
+ * card) at three states, photographed at the default face (Home, 0 deg) and
+ * the far side (End, 180 deg), the turntable focused so it does not auto-turn:
+ * `T0` (an account with no tiers), `full` (all three tracks at tier 3, seeded,
+ * so the model MOUNTS wearing them) and `bought` (the tier-0 account, then
+ * every rung bought by clicking Buy, so the model RE-MERGES through `setKit`
+ * live). Writes `garage-<state>-<yaw>.png` under `--out`. The check: the full
+ * and bought pictures must differ from tier 0 and agree with each other, at
+ * both angles -- a bay that ignored the tiers would be three identical
+ * pictures and the run exits 1.
  */
 import { chromium, type Browser, type Page } from 'playwright';
+import { PNG } from 'pngjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -49,7 +65,7 @@ const DEFAULT_PORT = 5233;
 const UNIT = 'inf_squad';
 const MAP_ID = 'beit_sahwan_outskirts';
 
-import { STATES, mergeFailures, type Reading, type State } from './inf-kit-capture-check';
+import { STATES, differingPixels, mergeFailures, type Reading, type State } from './inf-kit-capture-check';
 
 const FACINGS = [
   { id: 'rear', label: 'flank and rear to the camera', offsetTurns: 0 },
@@ -103,15 +119,17 @@ interface TemplateObject {
 
 function usage(msg: string): never {
   console.error(`[${TAG}] ${msg}`);
-  console.error(`[${TAG}] usage: pnpm inf-kit:capture -- --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]`);
+  console.error(`[${TAG}] usage: pnpm inf-kit:capture -- [--garage] --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]`);
   process.exit(2);
 }
 
-function parseArgs(argv: readonly string[]): { out: string; gpu: ReturnType<typeof resolveGpuBackend> } {
+function parseArgs(argv: readonly string[]): { out: string; gpu: ReturnType<typeof resolveGpuBackend>; garage: boolean } {
   let out = path.join(REPO_ROOT, '.superpowers/inf-kit/ingame');
+  let garage = false;
   for (const a of argv) {
     if (a === '--') continue;
-    if (a.startsWith('--out=')) out = path.resolve(a.slice('--out='.length));
+    if (a === '--garage') garage = true;
+    else if (a.startsWith('--out=')) out = path.resolve(a.slice('--out='.length));
     else if (a.startsWith('--port=') || a.startsWith('--gpu=')) {
       // Parsed (and refused when malformed) by `claimPort` / `resolveGpuBackend`.
     } else usage(`unknown argument "${a}"`);
@@ -122,7 +140,7 @@ function parseArgs(argv: readonly string[]): { out: string; gpu: ReturnType<type
   } catch (err) {
     usage(err instanceof Error ? err.message : String(err));
   }
-  return { out, gpu };
+  return { out, gpu, garage };
 }
 
 function accountWith(tiers: Readonly<Record<string, number>>): BrigadeAccount {
@@ -411,12 +429,131 @@ function shortCommit(): string {
   }
 }
 
+// -------------------------------------------------------------- garage ----
+
+const GARAGE_STATES = [
+  { id: 'T0', label: 'tier 0', tiers: {} as Record<string, number>, buyAll: false },
+  { id: 'full', label: 'full kit, seeded', tiers: { armour: 3, sensors: 3, firepower: 3 }, buyAll: false },
+  { id: 'bought', label: 'full kit, bought live', tiers: {} as Record<string, number>, buyAll: true },
+] as const;
+const GARAGE_YAWS = [
+  ['Home', 0],
+  ['End', 180],
+] as const;
+
+/** `differingPixels` over two PNG files. */
+function differingPixelsOf(a: string, b: string): number {
+  return differingPixels(PNG.sync.read(fs.readFileSync(a)), PNG.sync.read(fs.readFileSync(b)));
+}
+
+async function runGarage(out: string, gpu: ReturnType<typeof resolveGpuBackend>, base: string): Promise<string[]> {
+  const failures: string[] = [];
+  const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(gpu) });
+  try {
+    console.log(`[${TAG}] GPU (${gpu}): ${await readUnmaskedRenderer(browser)}`);
+    const frames = (page: Page): Promise<number> =>
+      page.evaluate(() => Number(document.querySelector<HTMLElement>('.rl-garage__plate .rl-garage__model')?.dataset.frames ?? 0));
+    for (const state of GARAGE_STATES) {
+      const ctx = await browser.newContext({ viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: 1 });
+      try {
+        await ctx.addInitScript(musicOffInitScript(SILENT_AUDIO));
+        await ctx.addInitScript(garageSeedScript(GARAGE_SEED_LEDGER, accountWith(state.tiers)));
+        const page = await ctx.newPage();
+        page.setDefaultTimeout(60_000);
+        page.on('pageerror', (err) => console.log(`  [garage ${state.id}] page error: ${err.message}`));
+        page.on('console', (msg) => {
+          if (msg.type() === 'error') console.log(`  [garage ${state.id}] console.error: ${msg.text()}`);
+        });
+        await page.goto(`${base}/brigade`, { waitUntil: 'load' });
+        await page.waitForSelector('.rl-garage__card');
+        await page.click(`.rl-garage__card[data-unit="${UNIT}"]`);
+        await page.waitForFunction(
+          () => {
+            const plate = document.querySelector<HTMLElement>('.rl-garage__plate');
+            const model = plate?.querySelector<HTMLElement>('.rl-garage__model');
+            return plate?.dataset.model === 'live' && Number(model?.dataset.frames ?? 0) >= 1;
+          },
+          undefined,
+          { timeout: 90_000 }
+        );
+        if (state.buyAll) {
+          // Every rung, by the Buy button a player clicks: the model re-merges through `setKit`.
+          for (let n = 0; n < 9; n++) {
+            const before = await frames(page);
+            const clicked = await page.evaluate(() => {
+              const b = document.querySelector<HTMLButtonElement>('.rl-garage__buy-tier:not([disabled])');
+              b?.click();
+              return b !== null;
+            });
+            if (!clicked) {
+              failures.push(`${state.id}: no Buy button left after ${n} purchases`);
+              break;
+            }
+            await page.waitForFunction(
+              (f) => Number(document.querySelector<HTMLElement>('.rl-garage__plate .rl-garage__model')?.dataset.frames ?? 0) > f,
+              before,
+              { timeout: 10_000 }
+            ).catch(() => failures.push(`${state.id}: purchase ${n + 1} drew no new frame`));
+            await sleep(450);
+          }
+          const kit = await page.evaluate(() => document.querySelector<HTMLElement>('.rl-garage__plate')?.dataset.kit);
+          console.log(`[${TAG}] ${state.id}: ${await frames(page)} frames after the purchases, plate kit level ${kit}`);
+        }
+        for (const [key, deg] of GARAGE_YAWS) {
+          const before = await frames(page);
+          await page.focus('.rl-garage__plate .rl-garage__model');
+          await page.keyboard.press(key);
+          await page
+            .waitForFunction(
+              (f) => Number(document.querySelector<HTMLElement>('.rl-garage__plate .rl-garage__model')?.dataset.frames ?? 0) > f,
+              before,
+              { timeout: 10_000 }
+            )
+            .catch(() => undefined); // Home on an already-0 yaw may draw nothing new
+          await sleep(400);
+          await page.locator('.rl-garage__plate').screenshot({ path: path.join(out, `garage-${state.id}-${deg}.png`) });
+        }
+        console.log(`[${TAG}] garage ${state.id} (${state.label}): photographed`);
+      } finally {
+        await ctx.close();
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+  for (const [, deg] of GARAGE_YAWS) {
+    const f = (id: string): string => path.join(out, `garage-${id}-${deg}.png`);
+    const seeded = differingPixelsOf(f('T0'), f('full'));
+    const bought = differingPixelsOf(f('T0'), f('bought'));
+    const agree = differingPixelsOf(f('full'), f('bought'));
+    console.log(`[${TAG}] yaw ${deg}: pixels differing from tier 0 -- seeded ${seeded}, bought live ${bought}; seeded vs bought ${agree}`);
+    if (seeded < 200) failures.push(`yaw ${deg}: the seeded full kit differs from tier 0 in only ${seeded} pixels`);
+    if (bought < 200) failures.push(`yaw ${deg}: the live-bought kit differs from tier 0 in only ${bought} pixels`);
+    if (agree > 200) failures.push(`yaw ${deg}: seeded and live-bought full kit differ in ${agree} pixels`);
+  }
+  return failures;
+}
+
 const args = parseArgs(process.argv.slice(2));
 const port = await claimPort(TAG, PORT_ENV, DEFAULT_PORT);
 const cellDir = path.join(args.out, 'cells');
 fs.mkdirSync(cellDir, { recursive: true });
 const base = `http://localhost:${port}`;
 const dev = await ensureDevServer(port, REPO_ROOT, TAG);
+if (args.garage) {
+  const garageFailures: string[] = [];
+  try {
+    garageFailures.push(...(await runGarage(args.out, args.gpu, base)));
+  } finally {
+    stopDevServer(dev, TAG);
+  }
+  if (garageFailures.length > 0) {
+    console.error(`[${TAG}] GARAGE CHECK FAILED:\n  ${garageFailures.join('\n  ')}`);
+    process.exit(1);
+  }
+  console.log(`[${TAG}] garage check: PASS`);
+  process.exit(0);
+}
 const results = new Map<string, Reading & { facingTurns: number; tile: [number, number] }>();
 const failures: string[] = [];
 let gpuName: string;

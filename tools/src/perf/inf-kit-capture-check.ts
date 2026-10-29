@@ -57,3 +57,32 @@ export function mergeFailures(results: ReadonlyMap<string, Reading>, states: rea
   }
   return failures;
 }
+
+/**
+ * The part of the garage plate the three riflemen stand in, as fractions of its width and height.
+ * The kit mark (top left), the Maxed stamp (bottom right) and the turn hint (bottom left) are DOM
+ * over the model and change with the account whatever the model does, so a comparison of the
+ * model must leave them out.
+ */
+export const MODEL_REGION = { x0: 0.2, x1: 0.8, y0: 0.24, y1: 0.74 } as const;
+
+export interface Pixels {
+  readonly width: number;
+  readonly height: number;
+  /** RGBA, row-major. */
+  readonly data: ArrayLike<number>;
+}
+
+/** Pixels inside `MODEL_REGION` of `a` and `b` whose channels differ by more than 8/255; infinity for two sizes. */
+export function differingPixels(a: Pixels, b: Pixels): number {
+  if (a.width !== b.width || a.height !== b.height) return Number.POSITIVE_INFINITY;
+  const { x0, x1, y0, y1 } = MODEL_REGION;
+  let n = 0;
+  for (let y = Math.floor(a.height * y0); y < Math.ceil(a.height * y1); y++) {
+    for (let x = Math.floor(a.width * x0); x < Math.ceil(a.width * x1); x++) {
+      const i = (y * a.width + x) * 4;
+      if (Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]), Math.abs(a.data[i + 2] - b.data[i + 2])) > 8) n++;
+    }
+  }
+  return n;
+}
