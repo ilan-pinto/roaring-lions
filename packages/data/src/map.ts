@@ -87,6 +87,8 @@ export interface MapJson {
   terrain?: string;
   /** Grove species override (GH-322). Absent means the theme's own species. */
   grove?: string;
+  /** PROTOTYPE: valley walls beyond the edge. Presentation only. */
+  backdrop?: MapBackdropJson;
   /** Per-tile elevation, one digit 0-9 per tile, same dimensions as `rows`.
    *  Absent means every tile is height 0, which is every map authored before
    *  the elevation milestone. Orthogonal to the terrain symbol on purpose:
@@ -136,7 +138,54 @@ export interface ParsedTunnel {
 export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3, ridge: 4, ditch: 5 } as const;
 export type DecorKind = (typeof DECOR)[keyof typeof DECOR];
 
+/** One kit piece of a backdrop block, as a JSON module types it (`rot` and `at` are plain `number`/`number[]`
+ *  there; `parseMap` narrows them). */
+export interface MapBackdropPieceJson {
+  id: string;
+  at: number[];
+  rot: number;
+  mirror?: boolean;
+  ys?: number;
+  lift?: number;
+}
+
+/** The block as a JSON module types it: `valley` is a plain string there (a
+ *  literal union in a JSON-module type breaks every call site that passes a
+ *  map file straight to `parseMap`); `parseMap` narrows it. */
+export interface MapBackdropJson {
+  valley: string;
+  crest: number;
+  seed: number;
+  kit: string;
+  pieces: MapBackdropPieceJson[];
+}
+
+/** One placed kit piece (`packages/render/src/three/terrain/backdrop-kit.ts` places it): `at` in map tiles,
+ *  `rot` a quarter turn, `ys` the Y scale (0.75-1.35), `lift` tiles above the floor. */
+export interface MapBackdropPiece {
+  id: string;
+  at: [number, number];
+  rot: 0 | 90 | 180 | 270;
+  mirror?: boolean;
+  ys?: number;
+  lift?: number;
+}
+
+/** `map.schema.json`'s `backdrop` block: the explicit piece list of a Wadi Halam valley backdrop (GH-161), written
+ *  by `pnpm backdrop:layout` and then hand-edited. Presentation only. */
+export interface MapBackdrop {
+  valley: 'ns' | 'ew';
+  crest: number;
+  seed: number;
+  /** The kit GLB's id, `art/meshes/backdrop/<kit>.glb`. */
+  kit: string;
+  pieces: MapBackdropPiece[];
+}
+
 export interface ParsedMap {
+  /** The map's valley backdrop, or null. Presentation only -- read by the
+   *  app and the renderer, never given to Sim. */
+  backdrop?: MapBackdrop | null;
   id: string;
   width: number;
   height: number;
@@ -265,6 +314,30 @@ const LEGEND: Record<string, TerrainCell> = {
 };
 for (const sym of Object.keys(STRUCTURE_SYMBOLS)) {
   LEGEND[sym] = { blocked: 1, boulder: 0, cover: 0, decor: DECOR.none };
+}
+
+function parseBackdrop(json: MapJson): MapBackdrop | null {
+  const b = json.backdrop;
+  if (!b) return null;
+  const bad = (what: string): never => {
+    throw new Error(`map ${json.id}: backdrop ${what}`);
+  };
+  if (b.valley !== 'ns' && b.valley !== 'ew') bad(`valley must be 'ns' or 'ew', got '${b.valley}'`);
+  if (typeof b.kit !== 'string' || b.kit.length === 0) bad('kit must name a kit');
+  if (!Array.isArray(b.pieces) || b.pieces.length === 0) bad('pieces must be a non-empty list');
+  const pieces = b.pieces.map((p, i): MapBackdropPiece => {
+    if (typeof p.id !== 'string') bad(`pieces[${i}] has no id`);
+    if (!Array.isArray(p.at) || p.at.length !== 2 || !p.at.every(Number.isFinite)) bad(`pieces[${i}] (${p.id}) needs at: [x, z] in tiles`);
+    if (p.rot !== 0 && p.rot !== 90 && p.rot !== 180 && p.rot !== 270) bad(`pieces[${i}] (${p.id}) rot must be 0, 90, 180 or 270, got ${p.rot}`);
+    if (p.ys !== undefined && !(p.ys >= 0.75 && p.ys <= 1.35)) bad(`pieces[${i}] (${p.id}) ys must be 0.75-1.35, got ${p.ys}`);
+    if (p.lift !== undefined && !(Number.isFinite(p.lift) && p.lift >= 0 && p.lift <= 30)) bad(`pieces[${i}] (${p.id}) lift must be 0-30 tiles, got ${p.lift}`);
+    const out: MapBackdropPiece = { id: p.id, at: [p.at[0], p.at[1]], rot: p.rot as 0 | 90 | 180 | 270 };
+    if (p.mirror) out.mirror = true;
+    if (p.ys !== undefined) out.ys = p.ys;
+    if (p.lift !== undefined) out.lift = p.lift;
+    return out;
+  });
+  return { valley: b.valley as 'ns' | 'ew', crest: b.crest, seed: b.seed, kit: b.kit, pieces };
 }
 
 export function parseMap(json: MapJson): ParsedMap {
@@ -403,7 +476,7 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
+  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, backdrop: parseBackdrop(json), blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
 }
 
 /**

@@ -158,16 +158,21 @@ export const AO_RESOLUTION_SCALE = 0.5;
  * 3. **`depthWrite: false`.** The frame itself does not let these occlude
  *    anything -- decals, overlays, FX. Something that cannot hide what is
  *    behind it must not darken it either.
+ * 4. **`userData.rlAoExempt`.** An opt-out by name, for an asset whose
+ *    occlusion is already baked: the valley backdrop's kit (GH-161).
  *
  * Non-meshes pass: only meshes are drawn by the override material, and
  * `GTAOPass` already hides points and lines itself.
  *
- * Nothing opaque in this scene is caught by any of the three -- terrain,
+ * Nothing opaque in this scene is caught by the first three -- terrain,
  * decor, buildings, mesh units and their wrecks all carry normals and draw
  * opaque, which is exactly the set that should cast AO.
  */
 export function isAoOccluder(object: THREE.Object3D): boolean {
   if (!(object instanceof THREE.Mesh)) return true;
+  // The valley backdrop's kit bakes its own ambient occlusion into its atlas (GH-161, lead ruling of 26 Oct), so a
+  // screen-space term over it would be a second, wrong one: it opts out (`terrain/backdrop.ts`, rule 4).
+  if ((object.userData as { rlAoExempt?: unknown }).rlAoExempt === true) return false;
   if (!object.geometry.getAttribute('normal')) return false;
   const materials: THREE.Material[] = Array.isArray(object.material) ? object.material : [object.material];
   // A part-built construction clone is cut by a per-material clip plane, which the AO

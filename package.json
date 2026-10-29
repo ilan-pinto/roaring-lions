@@ -34,6 +34,8 @@
     "golden-baseline:bless": "pnpm --filter @lions/tools golden-baseline:bless",
     "gen:luts": "node tools/gen_luts.mjs",
     "encode:meshes": "pnpm --filter @lions/tools encode:meshes",
+    "backdrop:layout": "python3 tools/backdrop/layout_cli.py",
+    "backdrop:test": "python3 -m unittest discover -s tools/backdrop -p 'test_*.py'",
     "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes",
     "damage:meshes": "pnpm --filter @lions/tools damage:meshes",
     "kit:meshes": "pnpm --filter @lions/tools kit:meshes",
