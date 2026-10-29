@@ -8,13 +8,16 @@ import {
   DITCH_LIFT,
   GRASS_SCALE_MAX,
   GRASS_SCALE_MIN,
+  DECOR_SPLICE_RADIUS_TILES,
   isOpenScatterAt,
   SCATTER_DENSITY,
+  spliceDecorPlacements,
   SCATTER_ROAD_CLEAR,
   VARIANTS_PER_FAMILY,
   type DecorPlacement,
 } from './decor-place';
 import { buildRoadGraph, roadDistanceAt } from './road-graph';
+import { buildTerrainSurface } from './surface';
 import {
   DECOR_DITCH,
   DECOR_GROVE,
@@ -1017,5 +1020,163 @@ describe('the oak grove never twins; the olive grove does (NO_TWIN)', () => {
     expect(oaks.length).toBeGreaterThan(0);
     expect(perTile(oaks, 'oak')).toBe(1);
     expect(perTile(olives, 'tree')).toBe(2);
+  });
+});
+
+// -- The waterside willow pass (GH-871 P2, Task 6c) ----------------------
+
+describe('the waterside pass (R-8)', () => {
+  const WATER = { tree: 'willow', p: 0.12, reach: 1 } as const;
+  const ALWAYS = { tree: 'willow', p: 1, reach: 1 } as const;
+  const willows = (ps: readonly DecorPlacement[]): DecorPlacement[] => ps.filter((p) => p.family === 'willow');
+  /** Chebyshev distance from a tile to the 6x6 marsh at tiles 3..8. */
+  const marshDistance = (x: number, y: number): number =>
+    Math.max(Math.max(3 - x, 0, x - 8), Math.max(3 - y, 0, y - 8));
+  const TREE_ONLY: OpenScatter = {
+    tree: 'cedar', treePlain: 0.5, treeFoothill: 0.5, boulderPlain: 0, boulderFoothill: 0,
+    bush: 0, chipPlain: 0, chipFoothill: 0, chipCluster: 0, sandKeep: 1,
+  };
+
+  it('stands at least one willow on the synthetic wetland at the shipped chance', () => {
+    const ps = decorPlacements(wetland({ waterside: WATER }));
+    expect(willows(ps).length).toBeGreaterThanOrEqual(1);
+    expect(decorPlacements(wetland()).filter((p) => p.family === 'willow')).toEqual([]);
+  });
+
+  it('keeps every willow within reach 1 of the marsh, on none of its tiles', () => {
+    const input = wetland({ waterside: ALWAYS });
+    const ws = willows(decorPlacements(input));
+    // At p 1 every eligible ring tile holds one: the ring is 28 tiles, and the
+    // grove at x 0..1 lies outside it.
+    expect(ws.length).toBeGreaterThan(15);
+    for (const w of ws) {
+      const x = Math.floor(w.x);
+      const y = Math.floor(w.z);
+      expect(marshDistance(x, y), `${x},${y}`).toBe(1);
+      expect(input.decor?.[y * 12 + x]).toBe(0);
+      expect(w.scale).toBeGreaterThanOrEqual(0.85);
+      expect(w.scale).toBeLessThanOrEqual(1.15);
+    }
+    // One willow a tile.
+    expect(new Set(ws.map(tileOf)).size).toBe(ws.length);
+  });
+
+  it('stands on no road, building or cover tile', () => {
+    const base = wetland({ waterside: ALWAYS });
+    const decor = base.decor as Uint8Array;
+    const blocked = new Uint8Array(144);
+    const cover = (base.cover as Uint8Array).slice();
+    // A road on the bank column x 9, a house on (2, 4), cover on (5, 2).
+    for (let y = 0; y < 11; y++) decor[y * 12 + 9] = DECOR_ROAD;
+    blocked[4 * 12 + 2] = 1;
+    cover[2 * 12 + 5] = 1;
+    const input = { ...base, decor, blocked, cover };
+    const ws = willows(decorPlacements(input));
+    expect(ws.length).toBeGreaterThan(8);
+    const graph = buildRoadGraph(input);
+    for (const w of ws) {
+      const x = Math.floor(w.x);
+      const y = Math.floor(w.z);
+      expect(decor[y * 12 + x], `${x},${y}`).toBe(0);
+      expect(blocked[y * 12 + x]).toBe(0);
+      expect(cover[y * 12 + x]).toBe(0);
+      expect(roadDistanceAt(graph, w.x, w.z)).toBeGreaterThanOrEqual(SCATTER_ROAD_CLEAR);
+    }
+    // The three exclusions were live: each of their ring tiles held no willow.
+    const tiles = new Set(ws.map(tileOf));
+    expect(tiles.has('9,5')).toBe(false);
+    expect(tiles.has('2,4')).toBe(false);
+    expect(tiles.has('5,2')).toBe(false);
+  });
+
+  it('keeps off every tile pass 2 rolled a tree on: never two trunks on one tile', () => {
+    const input = wetland({ waterside: ALWAYS, openScatter: TREE_ONLY });
+    const ps = decorPlacements(input);
+    const cedars = ps.filter((p) => p.family === 'cedar');
+    const ws = willows(ps);
+    // Both species stand on the ring, so the skip is neither vacuous nor total.
+    const cedarRing = new Set(cedars.map(tileOf).filter((k) => {
+      const [x, y] = k.split(',').map(Number);
+      return marshDistance(x, y) === 1;
+    }));
+    expect(cedarRing.size).toBeGreaterThan(3);
+    expect(ws.length).toBeGreaterThan(3);
+    for (const w of ws) expect(cedarRing.has(tileOf(w)), `${tileOf(w)} holds a cedar and a willow`).toBe(false);
+    // And without pass 2's trees, those very tiles do take a willow.
+    const alone = new Set(willows(decorPlacements(wetland({ waterside: ALWAYS }))).map(tileOf));
+    for (const k of cedarRing) expect(alone.has(k), k).toBe(true);
+  });
+
+  it('honours reach: at reach 2 the second ring takes willows, at reach 1 it takes none', () => {
+    const one = willows(decorPlacements(wetland({ waterside: ALWAYS })));
+    const two = willows(decorPlacements(wetland({ waterside: { tree: 'willow', p: 1, reach: 2 } })));
+    expect(one.some((w) => marshDistance(Math.floor(w.x), Math.floor(w.z)) === 2)).toBe(false);
+    expect(two.some((w) => marshDistance(Math.floor(w.x), Math.floor(w.z)) === 2)).toBe(true);
+  });
+
+  it('draws nothing from the other passes differently: they are a prefix once willows are removed', () => {
+    const plain = decorPlacements(wetland({ openScatter: TREE_ONLY }));
+    const wet = decorPlacements(wetland({ openScatter: TREE_ONLY, waterside: ALWAYS }));
+    expect(wet.filter((p) => p.family !== 'willow')).toEqual(plain);
+    expect(wet.length).toBeGreaterThan(plain.length);
+  });
+
+  it('records four passes of starts, and puts the willows in the last', () => {
+    const input = wetland({ waterside: ALWAYS });
+    const built = buildDecorPlacements(input);
+    const n = 144;
+    expect(built.starts.length).toBe(4 * (n + 1));
+    expect(built.starts[4 * (n + 1) - 1]).toBe(built.placements.length);
+    const tail = built.placements.slice(built.starts[3 * (n + 1)]);
+    expect(tail.length).toBeGreaterThan(15);
+    expect(tail.every((p) => p.family === 'willow')).toBe(true);
+    expect(built.placements.filter((p) => p.family === 'willow').length).toBe(tail.length);
+  });
+
+  it('leaves a theme without waterside with an empty fourth pass', () => {
+    const built = buildDecorPlacements(wetland());
+    const n = 144;
+    expect(built.starts.length).toBe(4 * (n + 1));
+    expect(built.starts[3 * (n + 1)]).toBe(built.placements.length);
+  });
+  it('splices a reopened bank tile to the full build: the willow it rolls is planted, in pass 3', () => {
+    // A bank tile whose own waterside roll lands under 0.12, found from the
+    // stream's literal offsets (12301/12413), not read from the code, on the
+    // ring around the marsh at x 3..8, y 3..8.
+    const oracle = (x: number, y: number): number => {
+      let h = (x * 374761393 + y * 668265263) | 0;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+    };
+    let tx = -1;
+    let ty = -1;
+    for (let y = 2; y < 10 && tx < 0; y++) {
+      for (let x = 2; x < 10; x++) {
+        if (marshDistance(x, y) === 1 && oracle(x + 12301, y + 12413) < 0.12) { tx = x; ty = y; break; }
+      }
+    }
+    expect(tx, 'a ring tile that rolls a willow at 0.12').toBeGreaterThan(0);
+    const tile = ty * 12 + tx;
+    // `prev`: a wall stands there. `next`: the wall is gone and left no rubble.
+    const walled = wetland({ waterside: WATER });
+    const blocked = new Uint8Array(144);
+    blocked[tile] = 1;
+    const prevInput = { ...walled, blocked };
+    const nextInput = { ...walled, blocked: new Uint8Array(144) };
+    const prev = buildDecorPlacements(prevInput);
+    const full = buildDecorPlacements(nextInput);
+    const onTile = (b: { placements: DecorPlacement[] }): DecorPlacement[] =>
+      b.placements.filter((p) => p.family === 'willow' && Math.floor(p.z) * 12 + Math.floor(p.x) === tile);
+    expect(onTile(prev)).toEqual([]);
+    expect(onTile(full).length).toBe(1);
+    const dirty = new Uint8Array(144);
+    for (let y = 0; y < 12; y++) {
+      for (let x = 0; x < 12; x++) {
+        if (Math.abs(x - tx) <= DECOR_SPLICE_RADIUS_TILES && Math.abs(y - ty) <= DECOR_SPLICE_RADIUS_TILES) dirty[y * 12 + x] = 1;
+      }
+    }
+    const spliced = spliceDecorPlacements(prev, dirty, nextInput, buildTerrainSurface(nextInput));
+    expect(spliced.placements).toEqual(full.placements);
+    expect(Array.from(spliced.starts)).toEqual(Array.from(full.starts));
   });
 });

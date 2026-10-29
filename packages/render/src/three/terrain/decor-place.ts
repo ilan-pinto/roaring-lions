@@ -462,8 +462,9 @@ export const DECOR_SPLICE_RADIUS_TILES = 3;
 
 /**
  * A full placement list plus where each source tile's placements start, per
- * pass: the terrain-decor pass, the grass-and-sand pass and the highland
- * open-ground pass, in that order, each in row-major tile order -- exactly
+ * pass: the terrain-decor pass, the grass-and-sand pass, the highland
+ * open-ground pass and the waterside tree pass, in that order, each in
+ * row-major tile order -- exactly
  * the order `decorPlacements` has always returned. Tile `t`'s placements in
  * pass `p` are `placements[starts[p * (n + 1) + t] .. starts[p * (n + 1) + t
  * + 1])`, `n = width * height`.
@@ -488,8 +489,10 @@ export interface TiledDecorPlacements {
   readonly boulder: Uint8Array | null;
 }
 
-/** The three passes, in output order. */
-const DECOR_PASSES = 3;
+/** The four passes, in output order: terrain decor, open ground, open scatter
+ *  and the waterside tree (GH-871 R-8). The fourth emits nothing on a theme
+ *  without `waterside`. */
+const DECOR_PASSES = 4;
 
 /** Everything a per-tile emitter reads, resolved once per build. */
 interface DecorContext {
@@ -599,7 +602,9 @@ function decorContext(input: TerrainInput, density: number, surface: TerrainSurf
 function emitTile(c: DecorContext, pass: number, x: number, y: number, out: DecorPlacement[]): void {
   if (pass === 0) emitTerrainDecor(c, x, y, out);
   else if (pass === 1) emitOpenGround(c, x, y, out);
-  else if (c.extra) emitOpenScatter(c, c.extra, x, y, out);
+  else if (pass === 2) {
+    if (c.extra) emitOpenScatter(c, c.extra, x, y, out);
+  } else if (c.input.waterside) emitWaterside(c, c.input.waterside, x, y, out);
 }
 
 /** Every decor object on the map, in a stable order (see
@@ -873,6 +878,18 @@ const REED_CENTRE_STREAMS: readonly (readonly [number, number])[] = [
 const REED_SECOND_STREAM: readonly [number, number] = [10211, 10331];
 
 /**
+ * The waterside pass's streams (R-8), each an `(a, b)` pair feeding
+ * `tileHash(x + a, y + b)`; the jitter pair is also read swapped for z. None
+ * appears in `decor-place.ts`'s other passes, `prop-place.ts`, `scatter.ts` or
+ * `grove.ts` (grepped, GH-871 P2 T6c), and none is a reed stream above.
+ */
+const WATERSIDE_ROLL_STREAM: readonly [number, number] = [12301, 12413];
+const WATERSIDE_JITTER_STREAM: readonly [number, number] = [12541, 12653];
+const WATERSIDE_VARIANT_STREAM: readonly [number, number] = [12739, 12823];
+const WATERSIDE_YAW_STREAM: readonly [number, number] = [12911, 13007];
+const WATERSIDE_SCALE_STREAM: readonly [number, number] = [13121, 13229];
+
+/**
  * A `~` tile's reed mat (R-7): one clump, plus one more when its own stream
  * rolls under `REED_SECOND_P` (mean 1.5). A clump tries up to four jittered
  * centres and takes the first that is not water (`marshWaterAt < 0.5`); if all
@@ -1002,17 +1019,16 @@ function emitOpenScatter(c: DecorContext, s: OpenScatter, x: number, y: number, 
   const isBoulder = boulder ? boulder[t] !== 0 : false;
   if (familyFor(decor ? decor[t] : 0, cover[t], isBoulder, grove) !== 'open') return;
   if (nearStructureOrRoad(input, x, y)) return;
-  const foot = nearRelief(input, x, y);
-  const treeP = foot ? s.treeFoothill : s.treePlain;
+  const band = openTreeBand(input, s, x, y);
+  const { foot, treeP, roll } = band;
   const boulderP = foot ? s.boulderFoothill : s.boulderPlain;
   const chipP = foot ? s.chipFoothill : s.chipPlain;
-  const roll = tileHash(x + 4441, y + 6673);
   const scaleRoll = tileHash(x + 303, y + 7001);
   const px = x + 0.5 + (tileHash(x + 8101, y + 2207) - 0.5) * 0.7;
   const pz = y + 0.5 + (tileHash(x + 2207, y + 8101) - 0.5) * 0.7;
   let family: DecorFamily;
   let scale: number;
-  if (roll < treeP) {
+  if (band.tree) {
     family = s.tree;
     scale = 0.85 + scaleRoll * 0.3;
   } else if (roll < treeP + boulderP) {
@@ -1058,6 +1074,97 @@ function emitOpenScatter(c: DecorContext, s: OpenScatter, x: number, y: number, 
     y: surfaceWorldY(surface, px, pz),
     yawTurns: tileHash(x + 7001, y + 303),
     scale,
+  });
+}
+
+/**
+ * Pass 2's tree-band test for one tile, pure: the foothill flag, the tree
+ * probability it selects, the tile's one roll (stream 4441/6673), and whether
+ * the roll falls in the tree band. Pass 2 reads it to place a tree and the
+ * waterside pass (pass 3) reads it to keep off that tile, so the two can never
+ * disagree about which tiles hold a tree -- one trunk on a tile, never two.
+ */
+function openTreeBand(
+  input: TerrainInput,
+  s: OpenScatter,
+  x: number,
+  y: number
+): { readonly foot: boolean; readonly treeP: number; readonly roll: number; readonly tree: boolean } {
+  const foot = nearRelief(input, x, y);
+  const treeP = foot ? s.treeFoothill : s.treePlain;
+  const roll = tileHash(x + 4441, y + 6673);
+  return { foot, treeP, roll, tree: roll < treeP };
+}
+
+/** Whether pass 2 places a tree on tile `(x, y)` of `c`'s input: it runs, the
+ *  tile is plain open ground clear of every building and road, and the roll
+ *  lands in the tree band. */
+function openScatterRollsTree(c: DecorContext, x: number, y: number): boolean {
+  const s = c.extra;
+  if (!s) return false;
+  const { input, grove } = c;
+  const t = y * input.width + x;
+  if (input.blocked[t] !== 0) return false;
+  const isBoulder = input.boulder ? input.boulder[t] !== 0 : false;
+  if (familyFor(input.decor ? input.decor[t] : 0, input.cover[t], isBoulder, grove) !== 'open') return false;
+  if (nearStructureOrRoad(input, x, y)) return false;
+  return openTreeBand(input, s, x, y).tree;
+}
+
+/**
+ * Pass 3, one tile (GH-871 R-8): a tree on plain open ground within
+ * `water.reach` tiles (Chebyshev) of a `~` tile, rolled at `water.p` on its
+ * own streams, none of which another pass reads. Plain means what pass 1
+ * means by it -- `familyFor` gives `open` -- and the jittered spot clears the
+ * road and every blocked, cover, decor or boulder tile (`isOpenScatterAt`).
+ * A tile where pass 2 rolled a tree is skipped (`openScatterRollsTree`).
+ * The scale is the open tree's 0.85-1.15.
+ *
+ * It reads `decor` within `reach` and `blocked` at the tile and its eight
+ * neighbours, so a collapse's splice margin (`DECOR_SPLICE_RADIUS_TILES`)
+ * covers it; a changed `decor` array is a full rebuild.
+ */
+function emitWaterside(
+  c: DecorContext,
+  water: NonNullable<TerrainInput['waterside']>,
+  x: number,
+  y: number,
+  out: DecorPlacement[]
+): void {
+  const { input, grove, surface, graph } = c;
+  const { width, height, blocked, cover, decor, boulder } = input;
+  if (!decor) return;
+  const t = y * width + x;
+  if (blocked[t] !== 0) return;
+  const isBoulder = boulder ? boulder[t] !== 0 : false;
+  if (familyFor(decor[t], cover[t], isBoulder, grove) !== 'open') return;
+  if (tileHash(x + WATERSIDE_ROLL_STREAM[0], y + WATERSIDE_ROLL_STREAM[1]) >= water.p) return;
+  let wet = false;
+  for (let dy = -water.reach; dy <= water.reach && !wet; dy++) {
+    for (let dx = -water.reach; dx <= water.reach; dx++) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      if (decor[ny * width + nx] === DECOR_MARSH) {
+        wet = true;
+        break;
+      }
+    }
+  }
+  if (!wet) return;
+  if (openScatterRollsTree(c, x, y)) return;
+  const [jx, jz] = WATERSIDE_JITTER_STREAM;
+  const px = x + 0.5 + (tileHash(x + jx, y + jz) - 0.5) * 0.7;
+  const pz = y + 0.5 + (tileHash(x + jz, y + jx) - 0.5) * 0.7;
+  if (!isOpenScatterAt(input, graph, px, pz)) return;
+  out.push({
+    family: water.tree,
+    variant: Math.floor(tileHash(x + WATERSIDE_VARIANT_STREAM[0], y + WATERSIDE_VARIANT_STREAM[1]) * VARIANTS_PER_FAMILY),
+    x: px,
+    z: pz,
+    y: surfaceWorldY(surface, px, pz),
+    yawTurns: tileHash(x + WATERSIDE_YAW_STREAM[0], y + WATERSIDE_YAW_STREAM[1]),
+    scale: 0.85 + tileHash(x + WATERSIDE_SCALE_STREAM[0], y + WATERSIDE_SCALE_STREAM[1]) * 0.3,
   });
 }
 
