@@ -20,8 +20,9 @@
  * cannot shift both halves of the comparison together.
  */
 import { describe, expect, it } from 'vitest';
-import { paletteColor } from '@lions/data';
+import { maps, paletteColor, parseMap } from '@lions/data';
 import { TERRAIN_THEMES } from '../../packages/app/src/terrain-themes';
+import { decorFamiliesFor } from '../../packages/app/src/mesh-catalogue';
 import { labDistance } from './cvd';
 import { deltaE2000, linearHex } from './delta-e2000';
 
@@ -173,5 +174,15 @@ describe('GH-871 P2 T4: the wetland keeps its own foliage off the KDF uniform', 
     // fen.1 as oak foliage would be 9.34, under the floor: the falsification.
     expect(d(paletteColor('fen.1'))).toBeCloseTo(9.34, 1);
     expect(d(paletteColor('fen.1'))).toBeLessThan(MIN_FIGURE_GROUND_DE2000);
+  });
+
+  it('lists exactly the foliage-carrying families the Ein Qasab greybox plans to place (Task 7)', () => {
+    // The foliage-carrying families, as a LITERAL: ground-and-stone families (sand, boulder, rock, slab, ditch)
+    // carry no `foliage` role, so they are not in it.
+    const CARRIES_FOLIAGE = new Set(['tree', 'desert_tree', 'bush', 'grass', 'cedar', 'oak', 'willow', 'shrub', 'reed', 'wet_grass']);
+    const planned = [...decorFamiliesFor(parseMap(maps.ein_qasab))].filter((f) => CARRIES_FOLIAGE.has(f)).sort();
+    // Not vacuous: the wetland path ran and planned all five.
+    expect(planned.length).toBeGreaterThan(0);
+    expect(planned).toEqual([...WETLAND_FAMILIES].sort());
   });
 });

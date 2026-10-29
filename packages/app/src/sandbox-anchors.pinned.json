@@ -99,6 +99,16 @@
       26
     ]
   },
+  "ein_qasab": {
+    "friendly": [
+      4,
+      44
+    ],
+    "hostile": [
+      22,
+      12
+    ]
+  },
   "marj_perimeter": {
     "friendly": [
       24,

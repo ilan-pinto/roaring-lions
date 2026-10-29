@@ -8,6 +8,8 @@
  * wetland change that leaked onto a highland, arid or green map would fail
  * here, and so would a change to the highland map itself.
  *
+ * Wetland maps are excluded (T7): the theme is meant to move through P3-P5, and the fixture is not edited.
+ *
  * The pin is on the OUTPUT, not on the code. Every terrain tone is `quantise`d
  * to the nearest palette entry (`terrain/tones.ts`), so a new palette entry
  * nearer to some composite than the entry it used to snap to would recolour a
@@ -66,7 +68,11 @@ function digest(id: MapId): string {
   return h.digest('hex');
 }
 
-const shipped = (Object.keys(maps) as MapId[]).sort();
+/** Every shipped map whose theme is not `wetland` (GH-871 P2 T7). A wetland map is MEANT to move through
+ *  P3-P5 (art, rain, final layouts), so it cannot hold a byte pin; its checks are the marsh and greybox
+ *  tests. The 35 recorded keys are exactly the maps the wetland work must never move. */
+const wetland = (Object.keys(maps) as MapId[]).filter((id) => parseMap(maps[id]).terrain === 'wetland').sort();
+const shipped = (Object.keys(maps) as MapId[]).filter((id) => parseMap(maps[id]).terrain !== 'wetland').sort();
 
 describe('every shipped map composes byte-for-byte to its recorded terrain (GH-322, GH-871)', () => {
   if (UPDATE) {
@@ -79,8 +85,12 @@ describe('every shipped map composes byte-for-byte to its recorded terrain (GH-3
   }
   const recorded = JSON.parse(readFileSync(FIXTURE, 'utf8')) as Record<string, string>;
 
-  it('covers every shipped map, and only those', () => {
+  it('covers every shipped map that is not wetland, and only those', () => {
     expect(Object.keys(recorded).sort()).toEqual(shipped);
+    // Not vacuous: the filter excludes the wetland greybox and keeps the 35 recorded keys.
+    expect(wetland).toContain('ein_qasab');
+    expect(shipped).not.toContain('ein_qasab');
+    expect(shipped).toHaveLength(35);
   });
 
   for (const id of shipped) {

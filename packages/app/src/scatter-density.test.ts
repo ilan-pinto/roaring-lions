@@ -23,6 +23,7 @@ import {
   type TerrainInput,
 } from '@lions/render/terrain';
 import { propKindsFor } from './mesh-catalogue';
+import { terrainTonesFor } from './terrain-themes';
 
 const MAP_IDS = Object.keys(maps) as MapId[];
 
@@ -49,7 +50,16 @@ function loadInput(id: MapId): TerrainInput {
     blocked: sim.blocked,
     cover: sim.cover,
     boulder: pm.boulder,
+    // The map's own theme tones, as `ThreeRenderer` hands them to the placer: the wetland renames
+    // `grass` to `wet_grass` (GH-871 P2 T7), and `undefined` on every other theme.
+    familyRemap: terrainTonesFor(pm).familyRemap,
+    waterside: terrainTonesFor(pm).waterside,
   };
+}
+
+/** Whether a placement is grass or sand ON THIS MAP: the map's own remap decides what `grass` is drawn as. */
+function isGrassOrSand(input: TerrainInput, family: string): boolean {
+  return family === (input.familyRemap?.grass ?? 'grass') || family === 'sand';
 }
 
 function openTileCount(i: TerrainInput): number {
@@ -66,8 +76,8 @@ describe.each(MAP_IDS)('scatter density on %s', (id) => {
   const input = loadInput(id);
   // N-1's band is the UNSHED rule (dial 1). What ships is the lead's shed,
   // SCATTER_DENSITY 0.75 (2026-09-28), checked as a ratio of it just below.
-  const open = decorPlacements(input, 1).filter((p) => p.family === 'grass' || p.family === 'sand');
-  const shipped = decorPlacements(input).filter((p) => p.family === 'grass' || p.family === 'sand');
+  const open = decorPlacements(input, 1).filter((p) => isGrassOrSand(input, p.family));
+  const shipped = decorPlacements(input).filter((p) => isGrassOrSand(input, p.family));
 
   // Measured, not derived: members that land on a road, a building or off the
   // map are dropped (R-3), so a map with more edges reads under the all-open
@@ -112,5 +122,18 @@ describe.each(MAP_IDS)('prop placement on %s (ground plan 2, Task 4)', (id) => {
   it('places only kinds propKindsFor allows', () => {
     const allowed = propKindsFor(parseMap(maps[id]));
     for (const p of placements) expect(allowed.has(p.kind), p.kind).toBe(true);
+  });
+});
+
+// GH-871 P2 T7: the wetland path is exercised, not assumed. On the Ein Qasab greybox the open ground's
+// grass is drawn as `wet_grass` and nothing is drawn as `grass`, so a filter that still asks for
+// `grass` alone counts zero and the density cases above go red.
+describe('scatter density on the wetland greybox (GH-871 P2 T7)', () => {
+  const input = loadInput('ein_qasab');
+  const ps = decorPlacements(input);
+  it('renames every grass tuft to wet_grass', () => {
+    expect(input.familyRemap?.grass).toBe('wet_grass');
+    expect(ps.filter((p) => p.family === 'wet_grass').length).toBeGreaterThan(300);
+    expect(ps.filter((p) => p.family === 'grass')).toEqual([]);
   });
 });

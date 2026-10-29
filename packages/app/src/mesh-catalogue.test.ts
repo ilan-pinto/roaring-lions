@@ -355,6 +355,9 @@ describe('mesh catalogue: decor families', () => {
         // its olive override -- never against whatever the default is.
         groveFamily: terrainTonesFor(parsed).groveFamily,
         openScatter: terrainTonesFor(parsed).openScatter,
+        // The wetland's rename and waterside pass (GH-871 P2 T7): `undefined` on every other theme.
+        familyRemap: terrainTonesFor(parsed).familyRemap,
+        waterside: terrainTonesFor(parsed).waterside,
       },
     };
   }
