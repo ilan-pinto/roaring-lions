@@ -854,3 +854,128 @@ basalt village, real-player readability, and any GPU but the M3 Pro.
     - the black bale;
     - the trunk tints.
     Then P2 (wiring with stand-ins) and the P3 Meshy batch go ahead, inside 125 credits planned and 200 at most.
+
+---
+
+## 12. P2 as built (wiring with stand-ins; GH-871, 29 Oct 2026)
+
+P2 landed on `feat/wetland-p2` (plan: `docs/superpowers/plans/2026-10-29-wetland-p2.md`). It wires the theme, the `~`
+symbol and a greybox map with stand-in art, and nothing else: no packages/sim edit, no shipped map changed theme, no
+shipped map has a `~`. `pnpm test:determinism` read 107 tests on every commit, and the visual baselines, `pnpm balance`,
+`pnpm playtest`, `LADDER_CREDITS` and the 35 terrain pins did not move. The sections above stay as the design; this
+section records where the build differs from them and what it measured. Renderer notes live in
+`docs/agent-notes/terrain-rendering.md` ("The wetland theme (GH-871 P2)") and the map facts in
+`docs/agent-notes/maps-and-terrain-design.md`.
+
+### 12.1 The rulings R-1 to R-13, and how each came out
+
+| Ruling | Outcome |
+|---|---|
+| R-1 stand-ins | Built as ruled: `oak` is the cedar GLBs, `willow` the desert tree, `shrub` and `reed` the bush (two keys on one URL set, about 130 kB, P2 only), `wet_grass` the grass tuft. Each takes its own tint by key. Silhouettes are wrong by design. **P3 changes rows, never names.** |
+| R-2 ground images | `TERRAIN_GROUND_TEXTURE.wetland = 'green_basin_tile'`; `TERRAIN_SLOT_TEXTURES` is a new total per-theme table and every theme names today's shared four. P3 replaces all five names and adds their `GROUND_ALBEDOS`. |
+| R-3 `weather` | A seam: `TERRAIN_WEATHER` is total, `rain` for `wetland`, and `rendererOptionsFor` spreads it only when `rain`. Nothing reads it. P4's `rainLight` is the first reader; `theme-identity`'s `'clear'` arm is the tripwire. |
+| R-4 `propMix`, prop kinds | Not built (no honest stand-in for a bale). A wet map uses the global mixes. P3. |
+| R-5 remap is a rename | Built at the three push sites; every roll uses the original family. A rename-only test (placements equal the un-remapped input, family name aside) is falsified by remapping before `openObjectScale` (`expected 0.9374944579787553 to be less than or equal to 0.9`). `NO_TWIN` is `{cedar, oak}`. |
+| R-6 `marshWaterAt` | Built in `terrain/shared.ts` as `marshWaterAt(decor, width, height, x, z)`; `noise.ts` stayed three-free. World-anchored fBm (meander period 1.2, half-width 0.12; pool period 1, threshold 0.4; 3 octaves; seeds 6101/6203), 0.25-tile inset with a 0.1 ramp. Water share target 0.25-0.35 (S-4): 36 placements of a 6x6 marsh read mean 0.298, min 0.199, max 0.387, 29 of 36 in band; the greybox reads 0.3119. |
+| R-7 reed clumps | Built as ruled (1 clump, +1 at stream 10211/10331 under 0.5, up to 4 jittered centres, first dry one wins). On the 6x6 test marsh 50 of 54 clumps placed (7.4% dropped). On `ein_qasab`: 447 reeds, none on water. |
+| R-8 waterside pass | Built as pass 3 (`DECOR_PASSES` 4), `waterside.p` 0.12, `reach` 1, a shared `openTreeBand`/`openScatterRollsTree` so pass 2 and pass 3 never put two trunks on a tile. Fresh streams 12301/12413, 12541/12653, 12739/12823, 12911/13007, 13121/13229. 13 willows on `ein_qasab` (a `>= 5` assertion was added after review: red at `waterside.p -> 0`, `expected 0 to be greater than or equal to 5`). |
+| R-9 puddle A/B | Moved to P4, as ruled; the lead confirmed at S-6. |
+| R-10 `~` restriction | Built as a data-gate rule: `THEME_SYMBOLS` (`map.ts`), a twin literal in `validate_data.mjs`, held equal by `terrain_symbols.test.ts`. `parseMap` stays theme-agnostic. `THEME_SYMBOLS` is also exported from `@lions/data` (tools tests import it there). |
+| R-11 surface and tone | Built: `tileSurface` gives `~` the scrub albedo at 0.4; `groundTone` gives it `tones.marsh` when set. The marsh tone moved from `mud.3` to `mud.2` at S-6. |
+| R-12 greybox | Built as `ein_qasab`, with disclosed departures: boulder skirt 40 (spec about 50), hedges 156 (about 170), marsh width 5-8 (6-9), 311 `~` (about 300). Built share 1.7%. Two causeways x 13-37, continuous `r`. The west track runs past `kdf_start`. See `maps-and-terrain-design.md`. |
+| R-13 light | `day`, as ruled. The captures state it. Haze (`overcast.1` key, `hazeFar` 0.12) is not visible at zoom 1 or 0.35, so haze could not be judged; that goes to P4. |
+
+Two further facts from the build:
+- The plan's S-0 name check found no in-repo clash; a real-world collision for `ein_qasab` "cannot be ruled out" ("Ein" is
+  a common Levantine spring prefix, "Qasab" is reed). The lead approved the name at S-6. A rename would touch about eight
+  files (the map JSON, `index.ts`, `en.json`, `map-ids`, the tests).
+- The plan's splice test ("a house beside the marsh") cannot detect a pass-3-skipping splice, because a collapsed building
+  leaves rubble of cover 1-2 and never plain open ground. It was committed as an honest splice-equals-full-build test,
+  and a direct `spliceDecorPlacements` case is the real witness (red at `138 vs 139`).
+
+### 12.2 The pins that moved
+
+| Pin | Was | Now |
+|---|---|---|
+| `total_colors` (`data/palette.json`, `validate:data`) | 76 | 89 (fen 2, mud 5, overcast 5, basalt 1; all `theme_only`) |
+| ramp colours in the palette notes line | 46 | 59 |
+| `SHARED_PALETTE_HEXES.length` (`tones.test.ts`) | counted minus `karst` | minus every `theme_only` ramp; no wetland hex in the set |
+| terrain-digest pin (`terrain-defaults.test.ts`) | the 24 non-highland maps | first all 35 (the 11 highland keys added, 0 changed), then the 35 non-wetland maps after `ein_qasab` (fixture untouched since) |
+| exactly-N terrain symbols (`map.test.ts`) | ten | eleven (own describe, "the marsh symbol") |
+| `qarn_hadid_relief.test.ts` | authors every symbol | every symbol legal on its theme; legend 11, one theme-restricted |
+| `TERRAIN_SYMBOLS` (`validate_data.mjs`, `terrain_symbols.test.ts`) | without `~` | with `~`, plus the `THEME_SYMBOLS` twin |
+| relief map count (`high_ground_maps.test.ts`) | 24 | 25 (`RISES.ein_qasab = 1`); flat stays 11 |
+| `SHIPPED_MAP_IDS` (`worker/src/match/map-ids.ts`) | 35 | 36, + `ein_qasab` |
+| sandbox anchors (`sandbox-anchors.pinned.json`) | 35 keys | 36; `ein_qasab` friendly (4, 44), hostile (22, 12) |
+| `ambience.test.ts` | no `ein_qasab` | `ein_qasab: 'open'` |
+| Free Play picker (`sandbox-menu.test.ts`) | every shipped map has a card | 35 of 36; `UNLISTED_MAP_IDS` pinned to exactly `['ein_qasab']`, each entry a shipped map |
+| `theme-identity.fixture.json` | (created in Task 1 with three entries) | + one `wetland` entry (4 added lines); the three shipped entries byte-unchanged |
+| `shippedContentDigest()` | n/a | changes value (any map added does; nothing pins a literal). Old and new builds cannot share a room. |
+
+S-6 literals (each its own commit, with `Was`):
+- `fen`: `#75A659`, `#4B7135` -> `#7F9F57`, `#4F6732` (`tones.test.ts` `FEN`).
+- Wetland `marsh` tone: `mud.3` `#413327` -> `mud.2` `#584535` (`renderer-options.test.ts`, `tones.test.ts`).
+- `basalt.0`: `#4B453D` -> `#625A4D` (`tones.test.ts` `BASALT`, `wetland-readability.test.ts` boulder pin).
+- `wetland-readability.test.ts` open ground vs the KDF uniform: 18.37 -> 15.82 (floor 15.6 kept); `foliage-figure-ground.test.ts`:
+  willow 18.37 -> 15.82, `fen.1` as foliage 9.34 -> 8.44, and a NEW pin of `low` at 8.44 ("known debt: below the 12 foliage
+  floor; delete when retinted"). Reed 15.65, `wet_grass` 21.30 and oak/shrub 12.60 did not move.
+
+Unmoved, by name: determinism golden, relief, order-done, economy and wounded hashes and the snapshot format pin; `pnpm balance`;
+`pnpm playtest`; `LADDER_CREDITS`; the visual baselines (proven on CI, not locally); the 35 terrain digests.
+
+### 12.3 The census (stand-ins; not gated)
+
+`ein_qasab`, the real placer with the wetland tones: **1,416 placements, about 0.533 M triangles**. Reed 447, `wet_grass` 473,
+oak 68, shrub 176, willow 13, rock 135, boulder 64, slab 40. Triangle counts are read from the raw GLBs in `art/meshes/decor`.
+The 0.9 M ceiling (section 3) is P3's measurement with the real meshes.
+
+### 12.4 The two capture runs
+
+Both ran `pnpm ground:capture` once, one Chromium, port 5196, music off, nothing killed, with
+`--maps=ein_qasab,wadi_halam_basin,tel_marum` and `--markers=ein_qasab:causeway_s,ein_qasab:kdf_start,ein_qasab:hamlet`
+(the `--markers` flag is Task 8's tool commit). Conditions: ANGLE Metal on Apple M3 Pro, viewport 1400x900 at device scale 1,
+quality preset `high`, light `day` (no `&tod`), frame loop frozen at boot. The tick is not recorded: the tool discards the number
+its freeze script returns. 23 frames each.
+- **P2 (first look):** `/Users/ilpinto/dev/roaring-lions-ep/_coord/wet-theme/p2` (`sheet.png`, `sheet-2.png`, `sheet-3.png`,
+  `look.md`, `captures/`).
+- **P2b (after S-6):** `/Users/ilpinto/dev/roaring-lions-ep/_coord/wet-theme/p2b` (`sheet.png` with before and after side by side,
+  `sheet-1b.png` 2x crops, `sheet-2.png`, `sheet-3.png`, `look2.md`, `captures/`). The shipped-map frames (`wadi_halam_basin`,
+  `tel_marum`, 11 frames) are pixel-identical to the first run, which is the inertness witness for the shoreline. `ein_qasab`
+  call and triangle counts are identical (its elevation grid made its fringe tiles 4x4 patches already); its frames moved, mean
+  absolute delta 1.4 to 10.3. The marsh floor's lit luma rose 45 -> 58 and is still the darkest mass.
+
+### 12.5 The lead's rulings at the two looks
+
+- **First look (S-6):** fen olive-ward (less saturated, slightly darker); lift the marsh floor one step; lift `basalt.0` one
+  step; soften the stair-stepped tile edge into a ragged shoreline across tile edges (presentation only, the sim grid
+  unchanged, a new check with a constructed failing input); re-run the readability floors and report the `low` dE. Approved:
+  the overcast faces, the name `ein_qasab`, the reed tone, and moving the puddle A/B to P4. P5 items recorded.
+- **Second look:** keep `fen.0` `#7F9F57` (its final green is judged under rain light in P4), keep marsh `mud.2`, basalt and
+  the shoreline. **Hold Ein Qasab out of the Free Play list until P3's art lands**, and merge the theme work. The mechanism is
+  `UNLISTED_MAP_IDS` (smallest honest option); `/free-play/ein_qasab` and `?sandbox=ein_qasab` still boot it (dev paths), a
+  hand-built non-versus room can name it, and it is not a versus map.
+- The hue-54 target was not taken: it is unreachable under the 15.6 floor (the geometry is in the renderer notes). To go
+  further the lever is the KDF uniform's tone or the floor, which is the lead's call.
+
+### 12.6 Open items
+
+**P4 (wet ground, rain, cost):**
+- The final fen green is judged under rain light, with the marsh floor (still the darkest mass at lit luma 58) and the `low`
+  debt (8.44 against a floor of 12; retint, then delete the pin's "known debt" note).
+- The puddle-reflectance A/B (0.20-0.25 against 0.35) and KDF-on-water, as P4's first capture.
+- Haze is judged (it was invisible at zoom 1 and 0.35 in both captures).
+- Control C reads `marshWaterAt` for the water mask; its bake could replace the shoreline's vertex mixes (`marshWeightAt` is
+  written as the bake's source function).
+- The dry `THEME_WET` program assertion in `theme-identity.test.ts` ("wetland compiles the arid program") flips deliberately
+  when the wet term enters the ground shader, and the wetland digest entry is re-blessed with it.
+- `rainLight` is `RendererOptions.weather`'s first reader.
+- Known looseness in the shoreline: a marsh|fen|road T-junction corner has a one-vertex colour step, and decals on a fringe tile
+  read the tile's base tone.
+
+**P5 (maps):**
+- A named hostile seat for `ein_qasab`: the sandbox hostile anchor resolves to `causeway_n` (22, 12), not the hamlet and crest,
+  because of the contact-range heuristic.
+- The causeway doctrine pin must key on marsh wading (foot baseline wades 6 tiles, vehicle 0), not on foot avoiding an `r` tile:
+  the causeways run continuous across x 13-37, so every foot route crosses one.
+- Ein Qasab final, the distinctness and visibility reports, Jebel Matar, the `wet` and `wet-downs` scenarios, and the Free Play
+  line (delete the `UNLISTED_MAP_IDS` entry when P3's art lands).
