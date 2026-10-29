@@ -69,6 +69,8 @@ pnpm damage:meshes    # cut real damage into the WRECK_ twins (after wreck:meshe
 pnpm kit:capture      # in-game kitted-vehicle sheets, the `kit` toggle reading, the garage turntables
 pnpm validate:ui      # no colour literals AND no bare chrome strings in UI source
 pnpm ui:routes        # drive the shell: one JS realm, two missions, no reload (CI only, ~130 s there: never run it locally)
+pnpm backdrop:layout -- --map=<id> [--write]   # a map's `backdrop` piece list from the slot grammar (Wadi Halam only)
+pnpm backdrop:test    # the kit build tools' unit tests (numpy only, ~2 min; not in CI)
 pnpm balance          # headless battle sim, prints win rates
 pnpm versus:probe     # report-only: who wins a versus map when both seats attack-move (west/east, KDF/Sarim); the bar for opening a map (#561)
 ```
@@ -131,6 +133,8 @@ is the only file allowed to name one, mapping them to semantic tokens (`--ink`,
 `.rl-good`/`.rl-bad` classes. `pnpm validate:ui` rejects a hex or `rgba()`
 literal anywhere in UI source, with no allowlist — use `color-mix()` for
 translucency. Fonts are self-hosted in `assets/fonts/`; never a CDN.
+
+**A map's valley backdrop (GH-161):** an optional `backdrop` block in `data/maps/<id>.json` (`map.schema.json`): `kit` plus an explicit, hand-editable `pieces` list from `pnpm backdrop:layout`. Presentation only: the app and the renderer read it, the sim never does. A map with no block draws today's skirt to the bit, and so does one whose kit GLB fails to load (a `console.error` names the file). The kit is `art/meshes/backdrop/<kit>.glb` under the named exemption `TEXTURED_BACKDROP_EXEMPT` (pinned against `textured-backdrop.ts`); its source is `art/src/backdrop/*.blend` and `tools/backdrop/`. The runtime bakes every vertex height from the floor at load, keeps the kit out of the AO pre-pass (`userData.rlAoExempt`), and swaps to LOD1 below zoom 0.6. `tools/src/backdrop_lozenge.test.ts` is the proof that it never covers the playable rectangle: read `docs/agent-notes/terrain-rendering.md` before changing a piece or a placement.
 
 **A map's versus rules:** `data/versus/<map>.json` (`versus_rules.schema.json`), each end's camp and the income zones for a KDF v Sarim room; one file per matchup map.
 

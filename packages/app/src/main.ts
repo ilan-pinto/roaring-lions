@@ -2386,6 +2386,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // a map with no road and no building tile (`propKindsFor`), which
     // loads nothing and places nothing.
     three.loadPropMeshes(meshManifest.props),
+    // The valley backdrop kit (GH-161): only on a map whose JSON carries a `backdrop` block. The renderer
+    // swallows a failure itself (console.error naming the file, the map keeps its skirt), so it never fails
+    // the boot.
+    ...(meshManifest.backdrop !== null ? [three.loadBackdropKit(meshManifest.backdrop)] : []),
   ];
   download.total(jobs.length);
   await Promise.all(jobs.map(counted))

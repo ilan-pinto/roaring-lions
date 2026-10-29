@@ -50,6 +50,36 @@
       "enum": ["olive", "desert", "cedar"],
       "description": "Which tree species this map's 'o' grove tiles draw, overriding the terrain theme's own (arid: desert, green: olive, highland: cedar). Presentation only. Absent means the theme's species. Umm Zeitoun sets 'olive': its groves are its olive terraces by name, while the rest of the highland around them grows cedar."
     },
+    "backdrop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valley", "crest", "seed", "kit", "pieces"],
+      "description": "Valley walls drawn BEYOND the map edge instead of the flat skirt (Wadi Halam look, GH-161). Presentation only: read by the app and the renderer, never by the sim. 'valley' is the axis the valley runs along ('ns' = along the rows: walls beyond the west and east edges) and 'crest' the wall height in elevation levels, both inputs of the layout tool; 'seed' seeds the floor's mottle. 'kit' is the kit GLB (art/meshes/backdrop/<kit>.glb) and 'pieces' the explicit placement list, written by `pnpm backdrop:layout` and then hand-edited. A map with no block draws the skirt it always did.",
+      "properties": {
+        "valley": { "type": "string", "enum": ["ns", "ew"] },
+        "crest": { "type": "integer", "minimum": 8, "maximum": 80 },
+        "seed": { "type": "integer" },
+        "kit": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "pieces": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One entry per placed kit piece. 'at' is the midpoint of the piece's map-facing edge, in map tiles (outside the playable rectangle); 'rot' 0/90/180/270 stands the piece on the west/north/east/south side; 'ys' scales its height (0.75-1.35); 'lift' raises its local zero above the floor, in tiles (a crest on a wall, a terrace on a hillside).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "at", "rot"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^bd_[a-z0-9_]+$" },
+              "at": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+              "rot": { "enum": [0, 90, 180, 270] },
+              "mirror": { "type": "boolean" },
+              "ys": { "type": "number", "minimum": 0.75, "maximum": 1.35 },
+              "lift": { "type": "number", "minimum": 0, "maximum": 30 }
+            }
+          }
+        }
+      }
+    },
     "elevation": {
       "type": "array",
       "description": "Per-tile elevation, one digit 0-9 per tile, with the same dimensions as rows. Absent means every tile is height 0. Deliberately orthogonal to the terrain symbol: a symbol table can express ridges but not valleys, and elevation needs both. 0-4 is the practical authoring range -- deeper relief reads as a wall rather than as terrain -- but 0-9 is legal so a dramatic peak needs no format change.",
