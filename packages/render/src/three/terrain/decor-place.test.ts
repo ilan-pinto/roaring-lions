@@ -19,8 +19,10 @@ import {
   DECOR_DITCH,
   DECOR_GROVE,
   DECOR_KNOLL,
+  DECOR_MARSH,
   DECOR_RIDGE,
   DECOR_ROAD,
+  marshWaterAt,
   WORLD_PER_LEVEL,
 } from './shared';
 import { tileHash } from '../../tile-hash';
@@ -865,5 +867,155 @@ describe('changedDecorTiles refuses a splice across a wetland tone change (GH-87
     expect(changedDecorTiles(prev, built({ waterside: water, familyRemap: remap }), prev.density)).not.toBeNull();
     const bare = buildDecorPlacements(built({}));
     expect(changedDecorTiles(bare, built({}), bare.density)).not.toBeNull();
+  });
+});
+
+// -- The wetland (GH-871 P2, Task 6b) ------------------------------------
+
+/**
+ * A 12x12 wetland: a 6x6 marsh at tiles 3..8 (decor 6, the vehicle wall, cover
+ * 1), an open bank around it, a road along the bottom row, a 2x6 grove west of
+ * it (x 0..1, y 3..8) and two cover-1 bush tiles in the north-east corner.
+ * Every number here is a literal the tests below hold the placer to.
+ */
+function wetland(extra: Partial<TerrainInput> = {}): TerrainInput {
+  const w = 12;
+  const decor = new Uint8Array(w * w);
+  const cover = new Uint8Array(w * w);
+  const boulder = new Uint8Array(w * w);
+  for (let y = 3; y < 9; y++) {
+    for (let x = 3; x < 9; x++) {
+      decor[y * w + x] = DECOR_MARSH;
+      cover[y * w + x] = 1;
+      boulder[y * w + x] = 1;
+    }
+  }
+  for (let x = 0; x < w; x++) decor[11 * w + x] = DECOR_ROAD;
+  for (let y = 3; y < 9; y++) for (let x = 0; x < 2; x++) decor[y * w + x] = DECOR_GROVE;
+  cover[1 * w + 10] = 1;
+  cover[2 * w + 10] = 1;
+  return {
+    width: w,
+    height: w,
+    decor,
+    elevation: null,
+    blocked: new Uint8Array(w * w),
+    cover,
+    boulder,
+    groveFamily: 'oak',
+    ...extra,
+  };
+}
+
+const WET_REMAP = { grass: 'wet_grass', bush: 'shrub' } as const;
+const marshTiles = (): [number, number][] => {
+  const out: [number, number][] = [];
+  for (let y = 3; y < 9; y++) for (let x = 3; x < 9; x++) out.push([x, y]);
+  return out;
+};
+const tileOf = (p: DecorPlacement): string => `${Math.floor(p.x)},${Math.floor(p.z)}`;
+
+describe('the marsh reed mat (R-7)', () => {
+  it('places a reed on the marsh and never a boulder, which the `~` boulder mask would otherwise draw', () => {
+    const input = wetland();
+    const ps = decorPlacements(input);
+    expect(ps.filter((p) => p.family === 'reed').length).toBeGreaterThan(30);
+    expect(ps.filter((p) => p.family === 'boulder')).toEqual([]);
+    const marsh = new Set(marshTiles().map(([x, y]) => `${x},${y}`));
+    // Every placement standing on a `~` tile is a reed, and most tiles carry one.
+    const onMarsh = ps.filter((p) => marsh.has(tileOf(p)));
+    expect(onMarsh.length).toBeGreaterThan(0);
+    expect(onMarsh.every((p) => p.family === 'reed')).toBe(true);
+    const withReed = new Set(onMarsh.map(tileOf));
+    expect(withReed.size).toBeGreaterThanOrEqual(30);
+  });
+
+  it('keeps every reed centre off the open water', () => {
+    const input = wetland();
+    const reeds = decorPlacements(input).filter((p) => p.family === 'reed');
+    expect(reeds.length).toBeGreaterThan(30);
+    // Not vacuous: the marsh does hold water at this seed.
+    let waterPoints = 0;
+    for (let j = 0; j < 96; j++) {
+      for (let i = 0; i < 96; i++) {
+        if (marshWaterAt(input.decor, 12, 12, 2 + i / 12 + 0.04, 2 + j / 12 + 0.04) >= 0.5) waterPoints++;
+      }
+    }
+    expect(waterPoints).toBeGreaterThan(300);
+    for (const r of reeds) expect(marshWaterAt(input.decor, 12, 12, r.x, r.z), `${r.x},${r.z}`).toBeLessThan(0.5);
+  });
+
+  it('drops under 20% of its clumps (S-4)', () => {
+    const input = wetland();
+    let expected = 0;
+    for (const [x, y] of marshTiles()) expected += tileHash(x + 10211, y + 10331) < 0.5 ? 2 : 1;
+    const placed = decorPlacements(input).filter((p) => p.family === 'reed').length;
+    const dropped = (expected - placed) / expected;
+    console.info(`reed clumps: ${expected} expected, ${placed} placed, ${(dropped * 100).toFixed(1)}% dropped`);
+    expect(expected).toBeGreaterThan(36);
+    expect(placed).toBeLessThanOrEqual(expected);
+    expect(dropped).toBeLessThan(0.2);
+  });
+
+  it('is deterministic', () => {
+    expect(decorPlacements(wetland())).toEqual(decorPlacements(wetland()));
+  });
+});
+
+describe('the wetland family remap is a rename and nothing else (R-5)', () => {
+  const back = (p: DecorPlacement): DecorPlacement =>
+    p.family === 'wet_grass' ? { ...p, family: 'grass' } : p.family === 'shrub' ? { ...p, family: 'bush' } : p;
+
+  it('places the same objects, field for field, once the names map back', () => {
+    const plain = decorPlacements(wetland());
+    const mapped = decorPlacements(wetland({ familyRemap: WET_REMAP }));
+    expect(mapped.length).toBe(plain.length);
+    // The wetland path ran: both targets exist, and no source name survives.
+    expect(mapped.filter((p) => p.family === 'wet_grass').length).toBeGreaterThan(0);
+    expect(mapped.filter((p) => p.family === 'shrub').length).toBeGreaterThan(0);
+    expect(mapped.some((p) => p.family === 'grass' || p.family === 'bush')).toBe(false);
+    expect(plain.some((p) => p.family === 'grass')).toBe(true);
+    expect(plain.some((p) => p.family === 'bush')).toBe(true);
+    expect(mapped.map(back)).toEqual(plain);
+  });
+
+  it('keeps a wet tuft inside the grass scale band, so it never stands taller than a unit', () => {
+    const tufts = decorPlacements(wetland({ familyRemap: WET_REMAP })).filter((p) => p.family === 'wet_grass');
+    expect(tufts.length).toBeGreaterThan(0);
+    for (const p of tufts) {
+      expect(p.scale).toBeGreaterThanOrEqual(GRASS_SCALE_MIN);
+      expect(p.scale).toBeLessThanOrEqual(GRASS_SCALE_MAX);
+    }
+  });
+
+  it('remaps the highland open-scatter bush too', () => {
+    const scatter: OpenScatter = {
+      tree: 'cedar', treePlain: 0, treeFoothill: 0, boulderPlain: 0, boulderFoothill: 0,
+      bush: 0.5, chipPlain: 0, chipFoothill: 0, chipCluster: 0, sandKeep: 1,
+    };
+    const ps = decorPlacements(wetland({ familyRemap: WET_REMAP, openScatter: scatter }));
+    const plain = decorPlacements(wetland({ openScatter: scatter }));
+    expect(ps.length).toBe(plain.length);
+    // The scatter bush is a placement the cover tiles alone could not make.
+    const bare = decorPlacements(wetland({ familyRemap: WET_REMAP }));
+    expect(ps.filter((p) => p.family === 'shrub').length).toBeGreaterThan(
+      bare.filter((p) => p.family === 'shrub').length + 4
+    );
+    expect(ps.map(back)).toEqual(plain);
+  });
+});
+
+describe('the oak grove never twins; the olive grove does (NO_TWIN)', () => {
+  const perTile = (ps: readonly DecorPlacement[], family: string): number => {
+    const n = new Map<string, number>();
+    for (const p of ps) if (p.family === family) n.set(tileOf(p), (n.get(tileOf(p)) ?? 0) + 1);
+    return Math.max(0, ...n.values());
+  };
+  it('puts at most one oak on a tile, and two olives on some tile of the same ground', () => {
+    const oaks = decorPlacements(wetland({ groveFamily: 'oak' })).filter((p) => p.family === 'oak');
+    const olives = decorPlacements(wetland({ groveFamily: 'tree' })).filter((p) => p.family === 'tree');
+    expect(oaks.length).toBeGreaterThan(0);
+    expect(perTile(oaks, 'oak')).toBe(1);
+    expect(perTile(olives, 'tree')).toBe(2);
   });
 });

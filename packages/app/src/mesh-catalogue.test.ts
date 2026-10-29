@@ -372,6 +372,93 @@ describe('mesh catalogue: decor families', () => {
     });
   }
 
+  describe('a synthetic wetland map (GH-871 P2 T6b)', () => {
+    /** 12x12: a 6x6 marsh, a grove strip, a road, two cover tiles, open bank. */
+    const rows = [
+      '............',
+      '..........1.',
+      '..........1.',
+      'oo.~~~~~~...',
+      'oo.~~~~~~...',
+      'oo.~~~~~~...',
+      'oo.~~~~~~...',
+      'oo.~~~~~~...',
+      'oo.~~~~~~...',
+      '............',
+      '............',
+      'rrrrrrrrrrrr',
+    ];
+    const wet = () =>
+      parseMap({
+        id: 'wet_fixture',
+        name: 'Wet fixture',
+        width: 12,
+        height: 12,
+        terrain: 'wetland',
+        rows,
+        markers: { entry: [0, 0] },
+        zones: {},
+      } as Parameters<typeof parseMap>[0]);
+
+    function placedFor(parsed: ReturnType<typeof parseMap>): Set<string> {
+      const sim = new Sim({ seed: 20260727, width: parsed.width, height: parsed.height, capacity: 256 });
+      applyTerrain(parsed, sim);
+      const tones = terrainTonesFor(parsed);
+      const input: TerrainInput = {
+        width: sim.width,
+        height: sim.height,
+        decor: parsed.decor,
+        elevation: parsed.elevation,
+        blocked: sim.blocked,
+        cover: sim.cover,
+        boulder: sim.boulder,
+        groveFamily: tones.groveFamily,
+        openScatter: tones.openScatter,
+        familyRemap: tones.familyRemap,
+        waterside: tones.waterside,
+      };
+      return new Set(decorPlacements(input).map((p) => p.family));
+    }
+
+    it('plans the reed, the remapped families and the waterside tree, and no plain grass or bush', () => {
+      const parsed = wet();
+      const planned = decorFamiliesFor(parsed);
+      // Literals, not what the code returns: the wetland path ran.
+      for (const f of ['reed', 'wet_grass', 'shrub', 'oak', 'willow'] as const) {
+        expect(planned.has(f), f).toBe(true);
+      }
+      expect(planned.has('grass')).toBe(false);
+      expect(planned.has('bush')).toBe(false);
+    });
+
+    it('is a superset of what the real placer places on it', () => {
+      const parsed = wet();
+      const placed = placedFor(parsed);
+      expect(placed.has('reed')).toBe(true);
+      expect(placed.has('wet_grass')).toBe(true);
+      expect(placed.has('shrub')).toBe(true);
+      expect([...placed].filter((f) => !decorFamiliesFor(parsed).has(f as DecorFamilyName)).sort()).toEqual([]);
+    });
+
+    it('asks for no willow when no open ground lies within reach of the marsh', () => {
+      const tight = parseMap({
+        id: 'wet_tight',
+        name: 'Wet tight',
+        width: 3,
+        height: 3,
+        terrain: 'wetland',
+        rows: ['~~~', '~~~', '~~~'],
+        markers: { entry: [0, 0] },
+        zones: {},
+      } as Parameters<typeof parseMap>[0]);
+      const planned = decorFamiliesFor(tight);
+      expect(planned.has('reed')).toBe(true);
+      expect(planned.has('willow')).toBe(false);
+      // A marsh alone is not a boulder field, though its tiles set the boulder mask.
+      expect(planned.has('boulder')).toBe(false);
+    });
+  });
+
   it('leaves a family out when the map cannot place it', () => {
     // The saving has to be real: beit_sahwan_outskirts is arid with no knoll
     // or ridge, so it must not download a cedar, a slab or the olive; and

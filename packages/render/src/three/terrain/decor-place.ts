@@ -22,8 +22,10 @@ import {
   DECOR_DITCH,
   DECOR_GROVE,
   DECOR_KNOLL,
+  DECOR_MARSH,
   DECOR_RIDGE,
   DECOR_ROAD,
+  marshWaterAt,
 } from './shared';
 import { buildTerrainSurface, surfaceWorldY, type TerrainSurface } from './surface';
 import type { TerrainInput } from './types';
@@ -219,6 +221,30 @@ function openObjectScale(family: 'grass' | 'sand', roll: number): number {
     : 0.8 + roll * 0.4;
 }
 
+/**
+ * The family a theme draws in place of `family` (`TerrainTones.familyRemap`,
+ * GH-871 R-5). A rename, applied ONLY where a placement object is built: every
+ * roll, jitter, scale and variant is computed from the ORIGINAL family, so a
+ * wet map's placements equal what the same input gives without the remap,
+ * family name aside. Applying it earlier (before `openObjectScale`, say) would
+ * make `wet_grass` miss `GRASS_SCALE_*` and the tuft would stand taller than
+ * the units it hides.
+ */
+function remapped(c: DecorContext, family: DecorFamily): DecorFamily {
+  const remap = c.input.familyRemap;
+  if (!remap) return family;
+  if (family === 'grass') return remap.grass ?? family;
+  if (family === 'bush') return remap.bush ?? family;
+  return family;
+}
+
+/** Groves that never place a second, smaller tree on a tile. A 5.4 m cedar is
+ *  1.6x an olive, and at the olive's 1.0 a tile plus its twin the Sur grove
+ *  photographed as one closed canopy rather than as trees (GH-322, see
+ *  `DENSITY.cedar`); the wetland's 5.0 m oak is the same case to the letter
+ *  (spec 1.3, GH-871). */
+const NO_TWIN: ReadonlySet<GroveFamily> = new Set<GroveFamily>(['cedar', 'oak']);
+
 /** What `buildRoadGraph` returns for an input with no `r` tile at all: no
  *  nodes, no edges, an all-`-1` `nodeAt`, an all-zero `solid`. Building the
  *  real thing for that answer is pure waste on a map or fixture that never
@@ -322,6 +348,11 @@ function familyFor(
   // design -- so a ditch that fell through to the branch below would draw a
   // field of rocks in its trench and no ditch anywhere.
   if (decor === DECOR_DITCH) return 'ditch';
+  // BEFORE the boulder branch, for the ditch's reason again: a `~` tile sets
+  // the boulder mask too (the vehicle wall, `map.ts`), so a marsh that fell
+  // through to the branch below would draw a field of rocks where the sim
+  // says mud, and no reed anywhere.
+  if (decor === DECOR_MARSH) return 'reed';
   if (boulder) return 'boulder';
   if (decor === DECOR_ROAD) return null;
   // The theme's own species -- `TerrainTones.groveFamily`. An olive on a
@@ -759,11 +790,19 @@ function emitTerrainDecor(c: DecorContext, x: number, y: number, out: DecorPlace
     return;
   }
 
+  // A reed mat is laid by clump and kept off the open water, so it shares
+  // nothing with the single jittered object below either. Same placement as
+  // the ditch's: BELOW the density gate, where `DENSITY.reed = 1` is read.
+  if (family === 'reed') {
+    emitReedMat(c, x, y, out);
+    return;
+  }
+
   const jx = tileHash(x + 101, y + 7) - 0.5;
   const jy = tileHash(x + 13, y + 401) - 0.5;
   const scale = 0.8 + tileHash(x + 71, y + 137) * 0.4;
   out.push({
-    family,
+    family: remapped(c, family),
     variant: Math.floor(tileHash(x + 53, y + 991) * VARIANTS_PER_FAMILY),
     // WORLD space, not screen. `MeshData`'s own doc: "game tile (x, y) ->
     // (x, height, y)". `isoX`/`isoY` are the projection the CAMERA
@@ -800,8 +839,8 @@ function emitTerrainDecor(c: DecorContext, x: number, y: number, out: DecorPlace
   // tile is the theme's (`GroveFamily`). Keyed on the literal olive it
   // stopped firing on every arid map at once and thinned every desert
   // grove to one tree -- caught by this file's own twin tests.
-  // A cedar grove never twins (GH-322, see `DENSITY.cedar`).
-  if (family === grove && family !== 'cedar' && tileHash(x * 3, y * 7) > 0.62) {
+  // A cedar or an oak grove never twins (`NO_TWIN`).
+  if (family === grove && !NO_TWIN.has(grove) && tileHash(x * 3, y * 7) > 0.62) {
     const jx2 = tileHash(x + 601, y + 491) - 0.5;
     const jy2 = tileHash(x + 491, y + 601) - 0.5;
     out.push({
@@ -813,6 +852,57 @@ function emitTerrainDecor(c: DecorContext, x: number, y: number, out: DecorPlace
       yawTurns: tileHash(x + 601, y + 29),
       scale: scale * 0.68,
     });
+  }
+}
+
+/** Chance a `~` tile lays a second reed clump, on its own stream. */
+const REED_SECOND_P = 0.5;
+/** A reed clump's centre is jittered over this much of its tile (+/- half). */
+const REED_JITTER = 0.9;
+/**
+ * The (x, z) stream offsets of a reed clump's four candidate centres, clump 0
+ * then clump 1. Each pair feeds `tileHash(x + a, y + b)` for the x jitter and
+ * the swapped pair for the z jitter. None appears in `decor-place.ts`,
+ * `prop-place.ts`, `scatter.ts` or `grove.ts` (grepped, GH-871 R-7).
+ */
+const REED_CENTRE_STREAMS: readonly (readonly [number, number])[] = [
+  [10453, 10567], [10687, 10799], [10909, 11027], [11131, 11261],
+  [11383, 11489], [11593, 11701], [11813, 11923], [12041, 12157],
+];
+/** The second-clump roll's stream. */
+const REED_SECOND_STREAM: readonly [number, number] = [10211, 10331];
+
+/**
+ * A `~` tile's reed mat (R-7): one clump, plus one more when its own stream
+ * rolls under `REED_SECOND_P` (mean 1.5). A clump tries up to four jittered
+ * centres and takes the first that is not water (`marshWaterAt < 0.5`); if all
+ * four are water the clump is dropped, and the water shows through. Scale is
+ * the per-tile 0.8-1.2 roll. The mat's real footprint (about 0.8 tile) is
+ * P3's, tuned with the real mesh.
+ */
+function emitReedMat(c: DecorContext, x: number, y: number, out: DecorPlacement[]): void {
+  const { input, surface } = c;
+  const clumps = tileHash(x + REED_SECOND_STREAM[0], y + REED_SECOND_STREAM[1]) < REED_SECOND_P ? 2 : 1;
+  const scale = 0.8 + tileHash(x + 71, y + 137) * 0.4;
+  for (let k = 0; k < clumps; k++) {
+    for (let a = 0; a < 4; a++) {
+      const [ox, oy] = REED_CENTRE_STREAMS[k * 4 + a];
+      const px = x + 0.5 + (tileHash(x + ox, y + oy) - 0.5) * REED_JITTER;
+      const pz = y + 0.5 + (tileHash(x + oy, y + ox) - 0.5) * REED_JITTER;
+      if (marshWaterAt(input.decor, input.width, input.height, px, pz) >= 0.5) continue;
+      out.push({
+        family: 'reed',
+        // Clump 0 reads the single object's own variant and yaw streams, clump 1
+        // the grove twin's (a `~` tile is never a grove tile).
+        variant: Math.floor(tileHash(x + (k === 0 ? 53 : 601), y + 991) * VARIANTS_PER_FAMILY),
+        x: px,
+        z: pz,
+        y: surfaceWorldY(surface, px, pz),
+        yawTurns: tileHash(x + (k === 0 ? 617 : 601), y + 29),
+        scale,
+      });
+      break;
+    }
   }
 }
 
@@ -842,7 +932,7 @@ function emitOpenGround(c: DecorContext, x: number, y: number, out: DecorPlaceme
       if (!isOpenScatterAt(input, graph, mx, mz)) continue;
       if (clusterFamily === 'sand' && !keepSand(sandKeep, mx, mz)) continue;
       out.push({
-        family: clusterFamily,
+        family: remapped(c, clusterFamily),
         variant: Math.floor(tileHash(x * 19 + k + 8101, y * 23 + k + 5407) * VARIANTS_PER_FAMILY),
         x: mx,
         z: mz,
@@ -865,7 +955,7 @@ function emitOpenGround(c: DecorContext, x: number, y: number, out: DecorPlaceme
     const sz = y + 0.5 + jy * 0.6;
     if (isOpenScatterAt(input, graph, sx, sz) && (singletonFamily !== 'sand' || keepSand(sandKeep, sx, sz))) {
       out.push({
-        family: singletonFamily,
+        family: remapped(c, singletonFamily),
         variant: Math.floor(tileHash(x + 53, y + 991) * VARIANTS_PER_FAMILY),
         x: sx,
         z: sz,
@@ -961,7 +1051,7 @@ function emitOpenScatter(c: DecorContext, s: OpenScatter, x: number, y: number, 
     return;
   }
   out.push({
-    family,
+    family: remapped(c, family),
     variant: Math.floor(tileHash(x + 9901, y + 1301) * VARIANTS_PER_FAMILY),
     x: px,
     z: pz,
