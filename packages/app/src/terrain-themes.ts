@@ -228,7 +228,9 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     rockLit: paletteColor('overcast.3'),
     earth: paletteColor('mud.2'),
     spoil: paletteColor('mud.3'),
-    marsh: paletteColor('mud.3'),
+    // mud.2, one ramp step up from the first cut's mud.3, whose lit mean read
+    // near-black on screen; rut, spoil and trunk stay mud.3 (GH-871 P2 S-6).
+    marsh: paletteColor('mud.2'),
     low: paletteColor('fen.1'),
     trunk: paletteColor('mud.3'),
     trunkLit: paletteColor('mud.2'),

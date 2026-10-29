@@ -75,7 +75,10 @@ describe('rendererOptionsFor', () => {
     expect(o.knollTextureUrl).toBe('/textures/knoll_scree_tile.jpg');
     expect(o.terrainTones.familyRemap).toEqual({ grass: 'wet_grass', bush: 'shrub' });
     expect(o.terrainTones.waterside).toEqual({ tree: 'willow', p: 0.12, reach: 1 });
-    expect(o.terrainTones.marsh).toBe(paletteColor('mud.3'));
+    // mud.2 (#584535), lifted one step from mud.3 (#413327) at S-6; rut/spoil/trunk stay mud.3.
+    expect(o.terrainTones.marsh).toBe('#584535');
+    expect(o.terrainTones.marsh).toBe(paletteColor('mud.2'));
+    expect(o.terrainTones.rut).toBe('#413327');
   });
 
   it('gives a shipped theme no weather key at all (G-3: absent, not "clear")', () => {
