@@ -85,6 +85,12 @@ describe('Ein Qasab: the marsh (S-4)', () => {
     expect(share).toBeLessThanOrEqual(0.35);
   });
 
+  it('places willows along the banks (the waterside pass ran, G-6)', () => {
+    const willows = decorPlacements(build().input).filter((p) => p.family === 'willow');
+    // 13 are placed at this seed; the floor is a literal well under that.
+    expect(willows.length).toBeGreaterThanOrEqual(5);
+  });
+
   it('puts no reed centre on the open water, and does place reeds', () => {
     const reeds = decorPlacements(build().input).filter((p) => p.family === 'reed');
     // Not vacuous: the wetland path ran and the marsh carries a real mat.
