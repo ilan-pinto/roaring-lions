@@ -513,7 +513,7 @@ def surface_hit(zone, origin, direction, maxd=2.0):
 
 
 def pad(pc, zone, centre, d_in, u_axis, v_axis, w, h, thick, cols, rows, tex, base_off=0.0,
-        gap=0.001, rim_frac=0.35, skirt=True, rim_tex=None):
+        gap=0.001, rim_frac=0.35, skirt=True, rim_tex=None, vertex_fn=None):
     """A conformed pillow (bent pad): a w x h grid projected along `d_in` onto a zone,
     standing `thick` proud of the surface at its middle and `rim_frac * thick` at its
     edge (a rolled rim), with a skirt down to the surface. Open on its underside
@@ -544,12 +544,18 @@ def pad(pc, zone, centre, d_in, u_axis, v_axis, w, h, thick, cols, rows, tex, ba
         N.append(rowN)
     nm = sum((n for r in N for n in r), Vector()).normalized()
     O = []
+    BOFF = {}
     for j in range(rows + 1):
         row = []
         for i in range(cols + 1):
             prof = rim_frac + (1.0 - rim_frac) * math.sqrt(max(0.0, math.sin(math.pi * i / cols) * math.sin(math.pi * j / rows)))
-            row.append(H[j][i] + N[j][i] * (base_off + gap + thick * prof))
-            pc.set_thick(row[-1], gap + thick * prof)
+            if vertex_fn is None:
+                b_ij, t_ij = base_off, thick * prof
+            else:
+                b_ij, t_ij = vertex_fn(j, i, H[j][i], N[j][i])    # per-vertex base height and thickness
+            BOFF[(j, i)] = b_ij
+            row.append(H[j][i] + N[j][i] * (b_ij + gap + t_ij))
+            pc.set_thick(row[-1], gap + t_ij)
         O.append(row)
     for j in range(rows):
         for i in range(cols):
@@ -560,8 +566,8 @@ def pad(pc, zone, centre, d_in, u_axis, v_axis, w, h, thick, cols, rows, tex, ba
         for idx in range(len(loop)):
             (j0, i0), (j1, i1) = loop[idx], loop[(idx + 1) % len(loop)]
             a, b = O[j0][i0], O[j1][i1]
-            a_s = H[j0][i0] + N[j0][i0] * (base_off + gap * 0.5)
-            b_s = H[j1][i1] + N[j1][i1] * (base_off + gap * 0.5)
+            a_s = H[j0][i0] + N[j0][i0] * (BOFF[(j0, i0)] + gap * 0.5)
+            b_s = H[j1][i1] + N[j1][i1] * (BOFF[(j1, i1)] + gap * 0.5)
             pc.set_thick(a_s, 0.0015)
             pc.set_thick(b_s, 0.0015)
             pc.face([a, b, b_s, a_s], rim_tex or tex, hint=True)

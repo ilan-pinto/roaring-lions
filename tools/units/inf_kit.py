@@ -278,7 +278,7 @@ def trimmed(f, wr, bone, zlo, zhi, allow=None, pf_bone=None):
 
 # ================================================================= ARMOUR
 
-CARRIER_ROWS = [1.04, 1.12, 1.20, 1.27, 1.34, 1.42]
+CARRIER_ROWS = [1.055, 1.12, 1.20, 1.27, 1.34, 1.42]
 CARRIER_ROW_TEX = ["coyote_shade", "coyote", "coyote_shade", "coyote", "coyote_shade"]
 
 
@@ -434,10 +434,15 @@ def build_groin(f, side=None):
 # ================================================================= SENSORS
 
 MAG_Z = 0.905        # the mag pouches' centre height on the left hip
-FLIP = float(os.environ.get("INF_KIT_FLIP", "70.0"))          # a flipped-up tube: degrees up from the helmet front's normal
-EUD_T = float(os.environ.get("INF_KIT_EUD_T", "0.016"))   # spec 0.025; see the census (arms sweep the chest)
-THROAT_T = float(os.environ.get("INF_KIT_THROAT_T", "0.008"))
-YOKE_T = float(os.environ.get("INF_KIT_YOKE_T", "0.010"))
+LPVO_REAR = -0.49       # spec -0.55: moved 6 cm forward, the bowed head's NVG bridge strikes the scope's eyepiece at -0.55
+LASER_FRONT = -0.115    # the laser box's front face (spec -0.146), ahead of the moved optic
+NVG_DZ = 0.03          # the NVG mount stands this far below the helmet top (kneelIn/kneelOut: lower, and the bow drives the bridge into the throat)
+FLIP = 70.0          # a flipped-up tube: degrees up from the helmet front's normal
+EUD_T = 0.025          # the spec's thickness, with its standoff trimmed against the clips (build_eud)
+EUD_AT = (-0.045, 1.345)   # y, z on the chest
+HEADSET_AT = (0.106, 1.572, -0.03)   # inner |y| of the cup, its centre height, and its offset from the helmet centre
+THROAT_T = 0.008
+YOKE_T = 0.010
 PLATE_OFF = 0.022      # the carrier's plate: the EUD sits flat ON it (spec 3.2)
 SENSOR_OFF = 0.012     # standing off the base vest: seated either on the carrier's plate or on the bare vest
 
@@ -468,8 +473,7 @@ def helmet_front(f, z, dy=0.0):
 def build_headset(f, side):
     sg = -1.0 if side == "L" else 1.0
     pc = Piece(f.world())
-    hs = [float(x) for x in os.environ.get("INF_KIT_HS", "0.106,1.572,-0.03").split(",")]
-    inner, zc, dx = hs
+    inner, zc, dx = HEADSET_AT
     cx = f.O[0] + f.hel_c.x + dx
     cy = f.O[1] + f.hel_c.y
     # a tapered cup: 0.086 tall, 0.070 fore-aft, 0.049 proud of the head
@@ -483,7 +487,7 @@ def build_headset(f, side):
 
 
 def build_nvg_mount(f, side=None):
-    z = f.hel_top - 0.085
+    z = f.hel_top - NVG_DZ
     loc, n = helmet_front(f, z)
     pc = Piece(f.world(), open_thick=0.016)
     fr = _frame(n)
@@ -509,7 +513,7 @@ def build_ir_strobe(f, side=None):
 
 def _mount_top(f):
     """How far the NVG mount's pad stands off the helmet front at its tallest (the base's own shroud block)."""
-    loc, n = helmet_front(f, f.hel_top - 0.085)
+    loc, n = helmet_front(f, f.hel_top - NVG_DZ)
     fr = _frame(n)
     pc = Piece(f.world())
     O, H, nm = geo.pad(pc, f.zone_all, loc, -n, fr.col[1], fr.col[2], 0.076, 0.065, 0.016, 3, 2, "olive_dark", base_off=0.002)
@@ -518,7 +522,7 @@ def _mount_top(f):
 
 
 def _mono_axis(f):
-    loc, n = helmet_front(f, f.hel_top - 0.085)
+    loc, n = helmet_front(f, f.hel_top - NVG_DZ)
     return loc, n
 
 
@@ -620,12 +624,34 @@ def build_whip_long(f, side=None):
 
 
 def build_eud(f, side=None):
-    ey, ez = [float(x) for x in os.environ.get("INF_KIT_EUD", "-0.06,1.34").split(",")]
+    """A phone in a frame on the plate, as a conformed pad whose standoff is trimmed against the
+    clips: where an arm, the stock or the chin comes within reach in any key it sinks to that
+    height plus 3.5 mm (flat on the plate where nothing does: 22 + 16 mm)."""
+    ey, ez = EUD_AT
     loc, n = _front_hit(f, ey, ez)
-    pc = Piece(f.world())
     fr = _frame(n)
-    c = loc + n * (PLATE_OFF + EUD_T / 2)
-    geo.rbox(pc, c, fr, (EUD_T, 0.17, 0.09), 0.0, "olive_dark", cz_top=0.006, tex_top="glass", cap_bot=True)
+    pc = Piece(f.world(), open_thick=EUD_T)
+    pts, who = f.bank.blockers(f.prefix, "spine", (f.O[0] - 0.7, f.O[1] - 0.7, ez - 0.2), (f.O[0] + 0.7, f.O[1] + 0.7, ez + 0.2))
+    gap = 0.001
+
+    def vfn(j, i, H, N):
+        cap = PLATE_OFF + EUD_T
+        for qi, q in enumerate(pts):
+            d = Vector(q) - H
+            g = d.dot(N)
+            if g < -0.002 or g > 0.09:
+                continue
+            lat = (d - N * g).length
+            if lat > 0.045:
+                continue
+            # the sleeve and deltoid stand 10 mm proud of the upper arm: they are part of what sweeps here
+            pad_arm = 0.016 if str(who[qi]).startswith("upperarm") else 0.0
+            cap = min(cap, g - pad_arm + ALLOW_DEFAULT)
+        h_out = max(0.003, cap)
+        base = min(PLATE_OFF, h_out - 0.0015)
+        return base, h_out - base - gap
+    geo.pad(pc, f.zone_torso, loc, -n, fr.col[1], fr.col[2], 0.17, 0.09, EUD_T, 2, 2, "glass", gap=gap, rim_frac=0.9,
+            rim_tex="olive_dark", vertex_fn=vfn)
     return pc
 
 
@@ -724,26 +750,29 @@ def build_foregrip(f, side=None):
 
 
 def build_lpvo(f, side=None):
-    top = _rail_top(f, -0.50, -0.30)
+    u0 = LPVO_REAR          # the rear of the eyepiece, metres behind the muzzle (spec: 0.55 to 0.285)
+    top = _rail_top(f, u0 + 0.05, u0 + 0.25)
     ax = top + 0.040 + 0.015
     pc = Piece(f.wpn())
-    geo.lathe(pc, (-0.55, 0.0, ax), (1, 0, 0), (0, 0, 1),
+    geo.lathe(pc, (u0, 0.0, ax), (1, 0, 0), (0, 0, 1),
               [(0.0, 0.022), (0.06, 0.0150), (0.24, 0.0150), (0.265, 0.019)], 8, "coyote", cap0="glass", cap1="glass")
     # the cantilever mount, and the two turrets (elevation on top, windage on the right)
-    geo.rbox(pc, (-0.43, 0.0, ax - 0.0075 - 0.5 * (ax - 0.015 - top)), Matrix.Identity(3), (0.07, 0.022, ax - 0.015 - top), 0.0, "coyote")
-    geo.rbox(pc, (-0.40, 0.0, ax + 0.0225), Matrix.Identity(3), (0.014, 0.014, 0.017), 0.0, "coyote", cap_bot=False)
-    geo.rbox(pc, (-0.40, -0.0225, ax), Matrix.Identity(3), (0.014, 0.017, 0.014), 0.0, "coyote", cap_bot=False)
+    um = u0 + 0.12
+    geo.rbox(pc, (um, 0.0, ax - 0.0075 - 0.5 * (ax - 0.015 - top)), Matrix.Identity(3), (0.07, 0.022, ax - 0.015 - top), 0.0, "coyote")
+    geo.rbox(pc, (um + 0.03, 0.0, ax + 0.0225), Matrix.Identity(3), (0.014, 0.014, 0.017), 0.0, "coyote", cap_bot=False)
+    geo.rbox(pc, (um + 0.03, -0.0225, ax), Matrix.Identity(3), (0.014, 0.017, 0.014), 0.0, "coyote", cap_bot=False)
     return pc
 
 
 def build_laser_box(f, side=None):
-    top = _rail_top(f, -0.255, -0.146)
+    uf = LASER_FRONT         # the front face, behind the muzzle
+    top = _rail_top(f, uf - 0.109, uf)
     pc = Piece(f.wpn())
-    c = (-0.2005, 0.0, top + 0.019)
+    c = (uf - 0.0545, 0.0, top + 0.019)
     geo.rbox(pc, c, Matrix.Identity(3), (0.109, 0.069, 0.038), 0.005, "coyote")
     for sg in (-1.0, 1.0):
-        pc.face([(-0.146 + 0.0005, sg * 0.022 - 0.008, top + 0.019 - 0.008), (-0.146 + 0.0005, sg * 0.022 + 0.008, top + 0.019 - 0.008),
-                 (-0.146 + 0.0005, sg * 0.022 + 0.008, top + 0.019 + 0.008), (-0.146 + 0.0005, sg * 0.022 - 0.008, top + 0.019 + 0.008)], "glass")
+        pc.face([(uf + 0.0005, sg * 0.022 - 0.008, top + 0.019 - 0.008), (uf + 0.0005, sg * 0.022 + 0.008, top + 0.019 - 0.008),
+                 (uf + 0.0005, sg * 0.022 + 0.008, top + 0.019 + 0.008), (uf + 0.0005, sg * 0.022 - 0.008, top + 0.019 + 0.008)], "glass")
     return pc
 
 
