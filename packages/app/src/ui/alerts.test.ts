@@ -373,6 +373,20 @@ describe('alertsForTick — the cue follows the tier (polish pass F, A2)', () =>
     expect(alertsForTick(initAlertState(), [ambush(2)], [], world, 40).alerts).toEqual([]);
   });
 
+  it('our own ambush formation springing raises one minor good-news line with the finder\'s place; an enemy\'s raises nothing new (GH-859 P1a)', () => {
+    const sprung = (side: number, entity: number): SimEvent => ({ kind: 'formationSprung', tick: 0, side, group: 0, entity }) as SimEvent;
+    const a = alertsForTick(initAlertState(), [sprung(0, 2)], [], world, 40).alerts;
+    expect(a).toHaveLength(1);
+    expect(a[0]).toMatchObject({ kind: 'ambushSprung', tier: 'minor', tone: 'good', cue: 'alert.minor', at: { x: 2.5, y: 10.5 }, count: 1 });
+    expect(a[0].line).toMatchObject({ key: 'alert.ambushSprung', tone: 'good', place: ['here'] });
+    // The enemy's group springing is not news of its own: its per-unit `ambushSprung` already says "ambush".
+    expect(alertsForTick(initAlertState(), [sprung(1, 12)], [], world, 40).alerts).toEqual([]);
+    // Two of our groups in one tick: still one line, counting both.
+    const two = alertsForTick(initAlertState(), [sprung(0, 2), sprung(0, 3)], [], world, 40).alerts;
+    expect(two).toHaveLength(1);
+    expect(two[0].count).toBe(2);
+  });
+
   it('a wave, a soldier taken and a Conduct penalty sound important; a civilian taken and an arrival are silent', () => {
     const cuesOf = (m: MissionEvent) => alertsForTick(initAlertState(), [], [m], world, 40).alerts.map((a) => a.cue);
     expect(cuesOf(ev<'wave'>({ kind: 'wave', tick: 0, count: 4 }))).toEqual(['alert.important']);

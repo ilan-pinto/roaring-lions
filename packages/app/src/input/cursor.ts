@@ -50,7 +50,11 @@ export type CursorName =
   | 'barrage'
   | 'smokeScreen'
   | 'pinned'
-  | 'patrol';
+  | 'patrol'
+  /** GH-859 P1a: a combat formation is armed (R/T/Y). The verb's own sight plus the formation's glyph. */
+  | 'formationColumn'
+  | 'formationAttack'
+  | 'formationAmbush';
 
 /** What the resolution cannot know, because resolvePointer never looks at
  *  enemy positions or tile passability. The caller has both already. */
@@ -81,7 +85,17 @@ export interface CursorHints {
    *  pointer may take a waypoint (`patrolPointOk`): `ok` draws the patrol
    *  sight, `refused` the blocked cursor. Absent: not armed. */
   armedPatrol?: 'ok' | 'refused';
+  /** A combat formation is armed (GH-859 P1a): the next click spends it. The resolution passed
+   *  alongside is `resolveFormationOrder`'s. Absent: none armed. */
+  armedFormation?: 'column' | 'attack' | 'ambush';
 }
+
+/** The cursor each armed formation wears. */
+export const FORMATION_CURSOR: Readonly<Record<'column' | 'attack' | 'ambush', 'formationColumn' | 'formationAttack' | 'formationAmbush'>> = {
+  column: 'formationColumn',
+  attack: 'formationAttack',
+  ambush: 'formationAmbush',
+};
 
 /** Names that describe the target or the mode, never the actor: nothing
  *  "wins" a badge for these, because a badge would be answering a question
@@ -104,6 +118,9 @@ export type UnbadgedName =
   | 'smokeScreen'
   | 'pinned'
   | 'patrol'
+  | 'formationColumn'
+  | 'formationAttack'
+  | 'formationAmbush'
   | 'rescue'
   | 'tunnel-enter';
 
@@ -125,6 +142,10 @@ export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'pinned',
   // A mode the player chose (Lane A mock): an armed patrol reads the same whoever walks it.
   'patrol',
+  // GH-859 P1a: an armed formation is a mode the player chose too: it reads the same whoever is selected.
+  'formationColumn',
+  'formationAttack',
+  'formationAmbush',
   // GH-707: describes the target (a wounded man), and the only actor is a medic.
   'rescue',
   // GH-681: an alias of the bare `garrison` rule, which has no badged form to
@@ -161,6 +182,11 @@ const SIGHT_OF: Readonly<Partial<Record<CursorName, SightOrderId>>> = {
   // The Lane A mock's P-B "Beat" (approved 22 Oct): armed patrol, so it reads apart from
   // armed Move and Set rally, which both draw the move sight.
   patrol: 'patrol',
+  // GH-859 P1a: an armed formation draws the sight of the verb it rides (column and ambush ride
+  // `move`, the attack rides `attackMove`) plus its glyph (`vite-plugin-cursors.ts`).
+  formationColumn: 'move',
+  formationAttack: 'attackMove',
+  formationAmbush: 'move',
   // GH-707: the rescue's own sight (the Lane A mock's R-A "Plus", approved 22 Oct). It was a
   // CURSOR_ALIAS of `advance` until then, which drew a pick-up as an attack.
   rescue: 'rescue',
@@ -254,6 +280,9 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
   barrage: anim('barrage'),
   smokeScreen: anim('smokeScreen'),
   patrol: anim('patrol'),
+  formationColumn: anim('move'),
+  formationAttack: anim('attackMove'),
+  formationAmbush: anim('move'),
   smoke: anim('smoke'),
   charge: { frames: 4, intervalMs: 200 },
   demolish: { frames: 4, intervalMs: 300 },
@@ -336,6 +365,14 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // a waypoint, whatever is under the pointer -- the patrol sight where one may go, blocked where
   // `patrolPointOk` refuses (rock, a wall, off the map).
   if (hints.armedPatrol !== undefined) return hints.armedPatrol === 'ok' ? 'patrol' : 'blocked';
+  // An armed formation (GH-859 P1a) is the armed Move's argument again: the resolution is
+  // `resolveFormationOrder`'s, so it already carries the refused ground, the empty selection and
+  // (in a versus room) the no-order answer; what is under the pointer is irrelevant to a march.
+  if (hints.armedFormation !== undefined) {
+    if (res.groundRefused) return 'blocked';
+    if (res.intents.length === 0) return 'default';
+    return hints.pinned === true ? 'pinned' : FORMATION_CURSOR[hints.armedFormation];
+  }
   // An armed smoke order is the same argument one rung down (Q2): the next
   // click lays a screen whatever is under the pointer. Below armed support,
   // because only one of the two can spend the click and a support call is

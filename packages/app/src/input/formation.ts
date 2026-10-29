@@ -18,7 +18,7 @@
 import { t } from '../i18n/t';
 import { FORMATION_VERSUS_REASON_KEY } from '../net/versus-formations';
 import { formationMinMembers, formationVerb, type FormationId, type FormationView } from '../ui/formation-model';
-import { resolveMoveOrder, type IntentWorld, type Resolution } from './intents';
+import { orderDenied, resolveMoveOrder, type IntentWorld, type OrderSink, type Resolution } from './intents';
 import type { Action } from './keymap';
 
 /** Who a formation order is handed: the selection less any unit inside a building, aboard a carrier
@@ -71,4 +71,21 @@ export function resolveFormationOrder(world: IntentWorld, ctx: FormationOrderCon
 export function armFormationKey(row: readonly FormationView[], action: Action): FormationId | null {
   const view = row.find((v) => v.key === action);
   return view !== undefined && !view.inert ? view.id : null;
+}
+
+/**
+ * `issueMove` for an armed formation: resolve, dispatch every intent, show the note, drop the
+ * marker, and say no. Shared by the left click, so the click and the hover cursor (which reads
+ * `resolveFormationOrder` through `cursorAt`) are the same decision. The deny cue sounds when the
+ * order came to nothing (`orderDenied`) AND when it degraded to the plain order for want of
+ * members, since that click did not do what the armed button promised.
+ */
+export function issueFormation(world: IntentWorld, sink: OrderSink, ctx: FormationOrderContext): Resolution {
+  const res = resolveFormationOrder(world, ctx);
+  for (const intent of res.intents) sink.dispatch(intent);
+  if (res.note) sink.note(res.note.text, res.note.tone);
+  if (res.marker) sink.marker(ctx.x, ctx.y);
+  const degraded = ctx.formationsOpen && res.intents.length > 0 && ctx.ids.length < formationMinMembers(ctx.formation);
+  if (degraded || orderDenied(res, ctx.ids.length)) sink.deny();
+  return res;
 }

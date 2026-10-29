@@ -16,9 +16,10 @@
 //      tell a player. Collapsing them loses the second one entirely.
 //
 // The inputs are structural (plain fields, not a Sim), so a test can describe a
-// selection instead of building a world, and so this file needs no sim import
-// at all -- invariant 4: the HUD renders what the sim reports and mutates
-// nothing.
+// selection instead of building a world, and so this file takes no live `Sim` --
+// invariant 4: the HUD renders what the sim reports and mutates
+// nothing. (It does import `./formation-model` for the chip's formation line: a pure module whose
+// only sim contact is the compiled formation shapes.)
 
 import { t } from '../i18n/t';
 import type { RoleBucket } from './role';

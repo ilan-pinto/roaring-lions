@@ -300,11 +300,13 @@ export function anyArmed(
   armedSupport: SupportKind | null,
   armedRally: number | null,
   /** Field works (GH-277): an armed works type, the fifth source. */
-  armedWorks: string | null = null
+  armedWorks: string | null = null,
+  /** GH-859 P1a: an armed combat formation (the row's R/T/Y), the sixth source. */
+  armedFormation: string | null = null
 ): boolean {
   // F4: Set rally armed on a camp's row is the fourth source -- Escape
   // disarms it like the others.
-  return armedOrder !== null || armedSupport !== null || armedRally !== null || armedWorks !== null;
+  return armedOrder !== null || armedSupport !== null || armedRally !== null || armedWorks !== null || armedFormation !== null;
 }
 
 /**

@@ -22,6 +22,8 @@ import { WOUND_DOWN, WOUND_STABILISED, fx, type Sim, type SupportKind } from '@l
 import { isHostileSide } from '@lions/render';
 import { resolveMoveOrder, resolvePointer, type IntentWorld, type Resolution } from './intents';
 import { badgeFor, cursorFor, cursorKey, type CursorHints, type CursorName } from './cursor';
+import { resolveFormationOrder } from './formation';
+import type { FormationId } from '../ui/formation-model';
 import { roleBucket } from '../ui/role';
 import { wholeOrderPinned } from '../ui/pinned';
 
@@ -274,6 +276,11 @@ export interface CursorContext {
   /** An armed patrol (Lane A mock): may a waypoint go at this point
    *  (`patrolPointOk`)? Absent or null: not armed. */
   readonly patrolAt?: ((x: number, y: number) => boolean) | null;
+  /** An armed combat formation (GH-859 P1a): which one, who it would be handed (the caller's
+   *  `formationIds`-filtered selection) and whether formations are open in this room
+   *  (`formationsOpenIn`). The cursor reads `resolveFormationOrder`, the click's own resolver.
+   *  Absent or null: not armed. */
+  readonly armedFormation?: { readonly id: FormationId; readonly ids: number[]; readonly open: boolean } | null;
 }
 
 export interface CursorRead {
@@ -298,7 +305,11 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
   // An armed patrol is the same shape: the click places a waypoint, not an order.
   const patrolAt = ctx.armed === null && rallyAt === null ? (ctx.patrolAt ?? null) : null;
   const ids = rallyAt !== null || patrolAt !== null ? [] : ctx.ids;
-  const res = armedMove
+  // An armed formation spends the click as a march: the plain move's ground, the formation's verb.
+  const formation = ctx.armed === null && rallyAt === null && patrolAt === null ? (ctx.armedFormation ?? null) : null;
+  const res = formation !== null
+    ? resolveFormationOrder(world, { ids: formation.ids, formation: formation.id, x: p.x, y: p.y, append: false, formationsOpen: formation.open })
+    : armedMove
     ? resolveMoveOrder(world, { ids, x: p.x, y: p.y, append: false })
     : resolvePointer(world, {
         ids,
@@ -327,6 +338,7 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
     blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
     armedSmoke: ctx.armedSmoke,
     armedMove,
+    ...(formation !== null ? { armedFormation: formation.id } : {}),
     pinned: wholeOrderPinned(sim.state, orderIds),
     ...(rallyAt !== null ? { armedRally: rallyAt(p.x, p.y) ? ('ok' as const) : ('refused' as const) } : {}),
     ...(patrolAt !== null ? { armedPatrol: patrolAt(p.x, p.y) ? ('ok' as const) : ('refused' as const) } : {}),

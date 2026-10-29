@@ -5,7 +5,7 @@
 // selection outranks the ROE marks because a click that cannot fire must not
 // warn about firing.
 import { describe, expect, it } from 'vitest';
-import { ANIMATED_CURSORS, ARMED_CURSOR, CURSOR_ALIAS, SIGHT_OF, cursorFor, badgeFor, cursorKey, type CursorHints, type BadgeHints } from './cursor';
+import { ANIMATED_CURSORS, ARMED_CURSOR, CURSOR_ALIAS, SIGHT_OF, UNBADGED_NAMES, cursorFor, badgeFor, cursorKey, type CursorHints, type BadgeHints } from './cursor';
 import { ORDER_SIGHT } from '../ui/order-sight';
 import { SUPPORT, SUPPORT_KINDS } from '../ui/support-kinds';
 import type { Resolution } from './intents';
@@ -212,7 +212,7 @@ describe('attack (GH-420)', () => {
 describe('ANIMATED_CURSORS follows the approved sheet', () => {
   it('animates the wired sights at ORDER_SIGHT\'s own frame counts and rates, plus charge and demolish', () => {
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
+      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'formationAmbush', 'formationAttack', 'formationColumn', 'move', 'moveOnly', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
     );
     for (const [name, id] of Object.entries(SIGHT_OF)) {
       const spec = ORDER_SIGHT[id];
@@ -230,6 +230,9 @@ describe('ANIMATED_CURSORS follows the approved sheet', () => {
       barrage: 'barrage',
       smokeScreen: 'smokeScreen',
       patrol: 'patrol',
+      formationColumn: 'move',
+      formationAttack: 'attackMove',
+      formationAmbush: 'move',
       rescue: 'rescue',
     });
     // The two housing animations keep their shipped rates (Q1).
@@ -589,5 +592,29 @@ describe('the armed Set rally cursor (F4)', () => {
   });
   it('an armed support call still outranks it', () => {
     expect(cursorFor({ ...empty, armed: 'air_strike' }, { ...NONE, armedRally: 'ok' })).toBe('strike');
+  });
+});
+
+describe('an armed combat formation owns the cursor (GH-859 P1a)', () => {
+  const order = { kind: 'order', verb: 'move', ids: [1], x: 5, y: 5, append: false } as unknown as Resolution['intents'][number];
+  const res = (intents: Resolution['intents'], over: Partial<Resolution> = {}): Resolution => ({ intents, roe: 'free', marker: true, ...over });
+  const NO: CursorHints = { hostile: false, blocked: false };
+
+  it('wears the formation\'s own cursor, whatever is under the pointer', () => {
+    for (const [id, name] of [['column', 'formationColumn'], ['attack', 'formationAttack'], ['ambush', 'formationAmbush']] as const) {
+      expect(cursorFor(res([order]), { ...NO, armedFormation: id })).toBe(name);
+      expect(cursorFor(res([order]), { ...NO, hostile: true, armedFormation: id })).toBe(name);
+    }
+  });
+  it('reads blocked on refused ground, default with nothing to send, pinned when the whole order is', () => {
+    expect(cursorFor(res([], { groundRefused: 'blocked' }), { ...NO, armedFormation: 'attack' })).toBe('blocked');
+    expect(cursorFor(res([]), { ...NO, armedFormation: 'attack' })).toBe('default');
+    expect(cursorFor(res([order]), { ...NO, pinned: true, armedFormation: 'ambush' })).toBe('pinned');
+  });
+  it('is never badged: a mode the player chose, not an actor', () => {
+    for (const name of ['formationColumn', 'formationAttack', 'formationAmbush'] as const) {
+      expect(UNBADGED_NAMES.has(name)).toBe(true);
+      expect(cursorKey(name, 'armour')).toBe(name);
+    }
   });
 });

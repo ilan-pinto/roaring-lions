@@ -102,9 +102,9 @@ import {
   type CursorName,
   type UnbadgedName,
 } from './src/input/cursor.ts';
-import { HOTSPOT, ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type SightOrderId, type SightPaint } from './src/ui/order-sight.ts';
+import { HOTSPOT, ORDER_FAMILY_COLOR_KEY, ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type OrderFamily, type SightOrderId, type SightPaint } from './src/ui/order-sight.ts';
 import type { RoleBucket } from './src/ui/role.ts';
-import { symbolBody } from './src/ui/symbol.ts';
+import { symbolBody, type FormationSymbolId } from './src/ui/symbol.ts';
 
 interface PaletteBand {
   colors: Record<string, string>;
@@ -478,6 +478,23 @@ function roleMark(bucket: RoleBucket, colour: string): string {
   return symbolBody(bucket).replaceAll('currentColor', hex(colour));
 }
 
+/** GH-859 P1a: the armed formations' cursors. Each is its verb's sight (`SIGHT_OF`) plus the
+ *  formation's glyph, in the colour of its order family (column manoeuvre, attack offensive,
+ *  ambush control -- the HUD row's own `data-family`), haloed like the rest. The glyph rides the
+ *  sight's bottom-right quadrant, which the graticule leaves empty and which no formation cursor
+ *  spends on a role badge (they are unbadged). */
+export const FORMATION_CURSOR_GLYPH: Readonly<
+  Partial<Record<CursorName, { symbol: FormationSymbolId; family: OrderFamily }>>
+> = {
+  formationColumn: { symbol: 'formation-column', family: 'manoeuvre' },
+  formationAttack: { symbol: 'formation-attack', family: 'offensive' },
+  formationAmbush: { symbol: 'formation-ambush', family: 'control' },
+};
+
+/** Where the formation glyph sits on the 24-box: its crop box (`[0.25, -0.75, 23.25, 11.25]`)
+ *  scaled by `scale`, the crop's top-left at (`x`, `y`). */
+const FORMATION_GLYPH_PLACE = { x: 11.8, y: 16.5, scale: 0.46, boxX: 0.25, boxY: -0.75 } as const;
+
 /** One sight's paint for one variant: the aim, the order's family main and
  *  accent, and the shared warm beat, each a palette key resolved to hex. */
 function sightPaint(palette: Palette, variant: string, id: SightOrderId): SightPaint {
@@ -494,18 +511,36 @@ function sightPaint(palette: Palette, variant: string, id: SightOrderId): SightP
  *  surround (`sightFrame`, the same function the HUD's static mark comes
  *  from), then -- on a badged key -- the role mark in aim steel (Q8). The
  *  badge is haloed like the rest, at the width that survives its scale. */
-function sightBody(id: SightOrderId, frame: number, palette: Palette, variant: string, badge: RoleBucket | null): string {
+function sightBody(
+  id: SightOrderId,
+  frame: number,
+  palette: Palette,
+  variant: string,
+  badge: RoleBucket | null,
+  formation: { symbol: FormationSymbolId; family: OrderFamily } | null = null
+): string {
   const paint = sightPaint(palette, variant, id);
   const halo = hex(resolveKey(palette, variant, SIGHT_KEYS.halo));
   const ink = sightFrame(id, frame, paint);
   const place = (body: string): string =>
     `<g transform="translate(${SIGHT_BADGE.x} ${SIGHT_BADGE.y}) scale(${SIGHT_BADGE.scale})">${body}</g>`;
   const mark = badge ? roleMark(badge, paint.aim) : '';
+  // The formation glyph, in its family's colour; a cursor image has no `color` to inherit, so the
+  // ink is baked in (the role mark's own trick).
+  const f = FORMATION_GLYPH_PLACE;
+  const glyphAt = (body: string): string =>
+    `<g transform="translate(${f.x - f.boxX * f.scale} ${f.y - f.boxY * f.scale}) scale(${f.scale})">${body}</g>`;
+  const glyph =
+    formation === null
+      ? ''
+      : symbolBody(formation.symbol).replaceAll('currentColor', hex(resolveKey(palette, variant, ORDER_FAMILY_COLOR_KEY[formation.family])));
   return svgSight(
     haloOf(ink, halo, HALO_WIDTH) +
       (mark ? place(haloOf(mark, halo, HALO_WIDTH / SIGHT_BADGE.scale)) : '') +
+      (glyph ? glyphAt(haloOf(glyph, halo, HALO_WIDTH / f.scale)) : '') +
       ink +
-      (mark ? place(mark) : '')
+      (mark ? place(mark) : '') +
+      (glyph ? glyphAt(glyph) : '')
   );
 }
 
@@ -557,6 +592,10 @@ const BARE_NAMES: readonly BareCursorName[] = [
   'smokeScreen',
   // The Lane A mock's armed patrol (P-B "Beat"). Unbadged: a mode, not an actor.
   'patrol',
+  // GH-859 P1a: the three armed formations, each its verb's sight plus its glyph. Unbadged: a mode.
+  'formationColumn',
+  'formationAttack',
+  'formationAmbush',
   // GH-707: the rescue's own sight (an alias of `advance` until the Lane A mock). Unbadged.
   'rescue',
   'blocked',
@@ -704,7 +743,7 @@ function badgeColourFor(name: CursorName, c: CursorColors, o: BodyOpts = {}): st
  *  for the rest. */
 function imageFor(name: CursorName, badge: RoleBucket | null, frame: number, palette: Palette, variant: string): string {
   const sight = SIGHT_OF[name];
-  if (sight) return sightBody(sight, frame, palette, variant, badge);
+  if (sight) return sightBody(sight, frame, palette, variant, badge, FORMATION_CURSOR_GLYPH[name] ?? null);
   const c = paletteColors(deriveUiBand(palette, variant));
   const o: BodyOpts = { frame, badged: badge !== null };
   return svg(housingBody(name, c, o) + (badge ? badgeMark(badge, badgeColourFor(name, c, o)) : ''));

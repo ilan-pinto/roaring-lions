@@ -384,7 +384,7 @@ export const FORMATION_SYMBOL_IDS: readonly FormationSymbolId[] = ['formation-co
  *  orders) plus the pinned mark the lead picked at G-PIN and the two damage
  *  marks of pass C2/C4 -- and the thirteen GH-261 marks, and S-F's two
  *  support-call marks (`barrage`, `smokeScreen`), thirty-seven in all -- and the three
- *  formation marks of GH-859 P1a, forty in all. */
+ *  formation marks of GH-859 P1a, forty-two in all (39 + 3). */
 export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS, ...STATUS_IDS, ...FORMATION_SYMBOL_IDS];
 
 interface RoleGlyph {

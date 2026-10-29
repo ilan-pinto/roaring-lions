@@ -66,6 +66,12 @@ export interface BindTipOptions {
    * placement clears the bound element, same as before this option existed.
    */
   clear?: HTMLElement;
+  /**
+   * A modifier class (`rl-tip--formation`) the shared tip element wears for as long as THIS
+   * element's tip is showing, and loses when any other element shows it (the one element is
+   * shared by every tip on a host). GH-859 P1a: the formation tooltip is wider than the rest.
+   */
+  modifier?: string;
 }
 
 /** Clearance from the trigger, and from the viewport edge, in CSS pixels —
@@ -80,6 +86,8 @@ interface TipState {
    *  it is hidden. The one guard that makes sharing one element safe: a
    *  `hide` call only acts if it is still the current owner asking. */
   owner: HTMLElement | null;
+  /** The modifier class the current owner asked for, so the next owner can take it off. */
+  modifier: string | null;
 }
 
 const tipsByHost = new WeakMap<HTMLElement, TipState>();
@@ -98,7 +106,7 @@ function ensureTip(host: HTMLElement): TipState {
   el.setAttribute('role', 'tooltip');
   el.hidden = true;
   host.appendChild(el);
-  const state: TipState = { el, owner: null };
+  const state: TipState = { el, owner: null, modifier: null };
   tipsByHost.set(host, state);
   return state;
 }
@@ -222,7 +230,11 @@ function releaseEscapeListenerIfIdle(): void {
 
 // --- shared show/hide, under both bindTip and bindDelegatedTip -----------
 
-function showState(state: TipState, el: HTMLElement, html: () => string, clearEl?: HTMLElement): void {
+function showState(state: TipState, el: HTMLElement, html: () => string, clearEl?: HTMLElement, modifier?: string): void {
+  // The width class goes on BEFORE the content is placed: `positionTip` measures the box.
+  if (state.modifier !== null && state.modifier !== (modifier ?? null)) state.el.classList.remove(state.modifier);
+  if (modifier !== undefined) state.el.classList.add(modifier);
+  state.modifier = modifier ?? null;
   // Fresh every time: a live number (logistics, a chip's health) shown once
   // and never again would be a tooltip that lies the second time it opens.
   state.el.innerHTML = html();
@@ -253,7 +265,7 @@ function hideState(state: TipState, el: HTMLElement): void {
  */
 export function bindTip(el: HTMLElement, html: () => string, opts: BindTipOptions = {}): Disposer {
   const state = ensureTip(opts.host ?? document.body);
-  const show = (): void => showState(state, el, html, opts.clear);
+  const show = (): void => showState(state, el, html, opts.clear, opts.modifier);
   const hide = (): void => hideState(state, el);
   el.addEventListener('mouseenter', show);
   el.addEventListener('focus', show);

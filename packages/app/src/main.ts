@@ -91,6 +91,7 @@ import {
   firstUseHints,
   videoManifest,
   coupons,
+  formations,
 } from '@lions/data';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
@@ -218,6 +219,11 @@ import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './inpu
 import { aimFootprint, callSupport, supportAim } from './input/support-call';
 import { callRally, canRally } from './input/rally-call';
 import { beginPatrol, patrolClick, patrolPointOk, type PatrolDraft } from './input/patrol';
+import { formationIds } from './input/formation';
+import { createFormationArming } from './input/formation-arming';
+import { formationsOpenIn } from './net/versus-formations';
+import { formationRow } from './ui/formation-model';
+import { formationUnitFacts } from './ui/formation-sim';
 import { callCancelWorks, callWorks } from './input/works-call';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion, prefersSaveData } from './ui/motion';
@@ -1958,6 +1964,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     for (const registered of prepass.registered) {
       typeOf.set(registered.id, sim.addUnitType(registered));
     }
+    // GH-859 P1a: the combat formations, after the unit types and in `formations`' own order (a group row's type is
+    // an INDEX into this table). Config, not state: it moves no hash until a formation is ordered. A versus room's
+    // `buildMatchWorld` registered the same table already, so only the other worlds do it here.
+    for (const f of formations) sim.addFormationType(f);
   }
 
   // Which ROE reasons have already been narrated, so the advice attached to a
@@ -2960,6 +2970,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let patrolDraft: PatrolDraft | null = null;
   const myLiving = (): number[] =>
     renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1);
+  /** GH-859 P1a: formations are off in a versus room until P1b -- the one predicate (`net/versus-formations.ts`),
+   *  read by the HUD's row, the arming and the click's resolver alike. */
+  const formationsOpen = (): boolean => formationsOpenIn(netConfig?.mode);
+  /** Who a formation order is handed: the selected own living, less any unit inside a building, aboard a carrier or
+   *  below ground (the sim leaves those out at accept time, so leaving them out here keeps `min_members` honest). */
+  const formationOrderIds = (): number[] =>
+    formationIds(
+      myLiving(),
+      (i) => sim.state.garrisonedIn[i] >= 0,
+      (i) => sim.state.carriedBy[i] >= 0,
+      (i) => sim.state.tunnelIn[i] >= 0
+    );
   /** The mark an order leaves on the field: none while the room is paused,
    *  when the order waits and nothing was ordered (N1b lead ruling M-4). */
   const orderMarker = (x: number, y: number): void => {
@@ -3020,6 +3042,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     // F4: and an armed Set rally (the dock's `onArmRally` nulls `armedRally`).
     if (armedOrder !== null) production?.setRallyArmed(null);
+    // GH-859 P1a: and an armed formation (it owns the next click too).
+    if (armedOrder !== null) formationArming.disarm();
   };
   const orders: OrderHandlers = {
     attackMove: () => armOrder('attackMove'),
@@ -3329,6 +3353,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     commander: hudCommander,
     orders,
     armedOrder: () => armedOrder,
+    // GH-859 P1a: the formation row's buttons are the keys' own functions (`formationArming`, below).
+    formations: {
+      column: () => void formationArming.activate('column'),
+      attack: () => void formationArming.activate('attack'),
+      ambush: () => void formationArming.activate('ambush'),
+    },
+    armedFormation: () => formationArming.armed(),
+    formationsOpen,
     // `row.key` is an `input/keymap.ts` action id for every bound order and
     // the literal `'RMB'` for `attackMove` -- `isAction` tells the two apart,
     // and `bindings` (declared below, alongside the keydown listener that
@@ -3912,6 +3944,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           return;
         }
         voice.hint({ hostile: false });
+        // GH-859 P1a: an armed formation is spent by a minimap click as by the field's: it goes there.
+        if (formationArming.spend(x, y, mods.append) !== null) return;
         if (armedOrder === 'move') {
           armedOrder = null;
           issueMove(intentWorld, orderSink, myLiving(), x, y, { append: mods.append });
@@ -4235,6 +4269,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           armedOrder = null;
           patrolDraft = null;
           production?.setRallyArmed(null);
+          formationArming.disarm();
         }
       },
       // F4: Set rally on a camp's row. The same mutual exclusion: arming a
@@ -4245,6 +4280,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           armedOrder = null;
           patrolDraft = null;
           production?.setArmed(null);
+          formationArming.disarm();
         }
       },
     });
@@ -4758,6 +4794,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         dragBox.style.display = 'none';
         return;
       }
+      // GH-859 P1a: an armed formation spends this click as its march. `resolveFormationOrder` decides (the hover
+      // cursor reads the same), Shift queues, and it disarms whether or not the ground was taken.
+      if (formationArming.armed() !== null) {
+        const at = pointerPoint(pointerView, sim, p.x, p.y);
+        voice.hint({ hostile: false });
+        formationArming.spend(at.x, at.y, ev.shiftKey);
+        dragStart = null;
+        dragBox.style.display = 'none';
+        return;
+      }
       // An armed order (GH-153's order row) spends this click instead of
       // selecting with it. Attack-move resolves through `resolvePointer` with
       // the same arguments the contextmenu handler passes, so the armed
@@ -4868,6 +4914,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     return false;
   }, me);
+  /** The armed combat formation (R/T/Y or the row's buttons): armed state, the key rule and the click's spend live in
+   *  `input/formation-arming.ts`, where a spec can reach them; this only wires the world in. */
+  const formationArming = createFormationArming({
+    row: (armed) => formationRow({ formationsOpen: formationsOpen(), units: formationUnitFacts(sim, myLiving()) }, armed),
+    ids: formationOrderIds,
+    world: intentWorld,
+    sink: orderSink,
+    open: formationsOpen,
+    // Two armed modes cannot both own the next click: arming a formation disarms every other.
+    onArmed: () => {
+      armedOrder = null;
+      patrolDraft = null;
+      armedSupport = null;
+      armedWorks = null;
+      production?.setArmed(null);
+      production?.setRallyArmed(null);
+    },
+  });
   /**
    * The "Below ground" strip (GH-681): built only for a seat that OWNS a
    * route -- the Sarim seat of a KDF-v-Sarim room. Single-player and the KDF
@@ -4945,6 +5009,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       production?.setArmed(null);
       return;
     }
+    // GH-859 P1a: a right-click while a formation is armed puts it down and orders nothing.
+    if (formationArming.disarm()) return;
     // Lane A mock (Q8): a right-click while a patrol is armed drops every pending point and
     // sends nothing -- rally's rule, since a patrol is a multi-click mode like it.
     if (armedOrder === 'patrol') {
@@ -5116,6 +5182,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         break;
       case 'patrol':
         orders.patrol();
+        break;
+      // GH-859 P1a: R/T/Y arm a combat formation through the same function as the row's buttons.
+      case 'formationColumn':
+      case 'formationAttack':
+      case 'formationAmbush':
+        formationArming.press(action);
         break;
       case 'halt':
         // The four bound verbs go through `orders`, which is the very object
@@ -5305,7 +5377,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // one place this priority is decided; it hands the tracker Escape
         // first, exclusively, so there is exactly one thing a bare Escape
         // does at a time.
-        const target = escapeTarget(objectivesOpen, isDialogOpen(), anyArmed(armedOrder, armedSupport, armedRally, armedWorks));
+        const target = escapeTarget(objectivesOpen, isDialogOpen(), anyArmed(armedOrder, armedSupport, armedRally, armedWorks, formationArming.armed()));
         if (target === 'closeTracker') {
           closeObjectives();
           break;
@@ -5329,6 +5401,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         if (target === 'disarm') {
           armedOrder = null;
           patrolDraft = null;
+          formationArming.disarm();
           production?.setArmed(null);
           production?.setRallyArmed(null);
           break;
@@ -6692,12 +6765,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // cursor that predicts it can never give different answers. `cursorAt`
   // (input/pointer.ts) is also what pointer.test.ts reads at a fixed pixel.
   const mine = renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1);
+  const armedFormationNow = formationArming.armed();
   const { name, key } = cursorAt(sim, intentWorld, pp, {
     ids: mine,
     armed: armedSupport,
     confirm: altHeld,
     armedSmoke: armedOrder === 'smoke',
     armedMove: armedOrder === 'move',
+    // GH-859 P1a: the armed formation's cursor reads the click's own resolver (`resolveFormationOrder`).
+    armedFormation: armedFormationNow !== null ? { id: armedFormationNow, ids: formationOrderIds(), open: formationsOpen() } : null,
     // Lane A mock (Q9): the armed patrol's cursor reads the same `patrolPointOk` its click does.
     patrolAt:
       armedOrder === 'patrol' && patrolDraft !== null
