@@ -50,7 +50,8 @@
  * noise floor across this change while `relief` moves wholesale.
  */
 import { composite, quantise, groundTone, quantisePalette } from './tones';
-import { DECOR_RIDGE, DECOR_ROAD, hexToUnit, levelAt, pushPolygon, WORLD_PER_LEVEL } from './shared';
+import { marshWeightAt, mixTones, shoreTileMask } from './shoreline';
+import { DECOR_MARSH, DECOR_RIDGE, DECOR_ROAD, hexToUnit, levelAt, pushPolygon, WORLD_PER_LEVEL } from './shared';
 import {
   buildTerrainSurface,
   hasWall,
@@ -276,6 +277,16 @@ function groundTileEmitter(
   const faceEastColor = hexToUnit(faceEastHex);
   const faceSouthColor = hexToUnit(faceSouthHex);
 
+  // The marsh's ragged shoreline (`shoreline.ts`): only a theme that has a
+  // marsh tone, on a map that has a `~` tile, selects any tile, so every
+  // other build runs the old path below on every tile.
+  const shore = tones.marsh !== undefined ? shoreTileMask(input) : null;
+  const shoreOpen = hexToUnit(quantise(composite(background, tones.open, 1), quantisePalette(tones)));
+  const shoreMarsh =
+    tones.marsh !== undefined
+      ? hexToUnit(quantise(composite(background, tones.marsh, 1), quantisePalette(tones)))
+      : shoreOpen;
+
   /** Is the tile at `(x, y)` a `^` rock ridge? A wall between a ridge and
    *  anything lower IS the cliff face, so it takes the rock albedo. A
    *  BUILDING's wall deliberately does not: a structure footprint is not
@@ -339,7 +350,15 @@ function groundTileEmitter(
     // See `tileBaseToneHex` for the road tile's exception.
     const toneColor = hexToUnit(tileBaseToneHex(input, tones, ti, background));
 
-    if (surface.flat || isTerrace(surface, x, y)) {
+    if (shore !== null && shore[ti] !== 0 && (surface.flat || !isTerrace(surface, x, y))) {
+      // A shoreline tile: the same patch a hillside tile is (a flat map's is
+      // flat, `smoothLevel` being 0 there), its vertex colours mixed by the
+      // marsh weight at each vertex, so the tone crosses the tile edge raggedly.
+      const homeMarsh = input.decor !== null && input.decor[ti] === DECOR_MARSH;
+      pushSmoothTile(positions, colors, normals, wallAlbedo, groundUv, indices, surface, x, y, toneColor, (px, pz) =>
+        mixTones(shoreOpen, shoreMarsh, marshWeightAt(input, px, pz, homeMarsh))
+      );
+    } else if (surface.flat || isTerrace(surface, x, y)) {
       // Tile top: a flat quad at its own height, four fresh vertices, no
       // sharing with any neighbour, up normal. `flip: false` gives it an
       // up-facing (+Y) geometric normal -- see the winding note above.
@@ -414,7 +433,8 @@ function groundTileEmitter(
  * Vertices are shared WITHIN the tile (25 of them at the shipped
  * subdivision, not 4 per sub-quad) and never ACROSS tiles -- the same split
  * the palette rule has always drawn, for the same reason: one tile, one
- * colour. Two neighbouring tiles evaluate `smoothLevel`/`smoothNormal` at
+ * colour. (One exception: a marsh's shoreline tile passes `colorAt`, and each
+ * vertex carries its own mix of the open and marsh tones -- `shoreline.ts`.) Two neighbouring tiles evaluate `smoothLevel`/`smoothNormal` at
  * the identical boundary points, so their duplicated edge vertices coincide
  * to the bit in both position and normal: no crack, no shading seam, and the
  * colour still steps cleanly at the tile line where a road meets open
@@ -434,7 +454,8 @@ function pushSmoothTile(
   surface: TerrainSurface,
   x: number,
   y: number,
-  color: readonly [number, number, number]
+  color: readonly [number, number, number],
+  colorAt?: (px: number, pz: number) => readonly [number, number, number]
 ): void {
   const n = SURFACE_SUBDIVISIONS;
   const base = positions.length / 3;
@@ -443,7 +464,8 @@ function pushSmoothTile(
     for (let i = 0; i <= n; i++) {
       const px = x + i / n;
       positions.push(px, smoothLevel(surface, px, pz) * WORLD_PER_LEVEL, pz);
-      colors.push(color[0], color[1], color[2]);
+      const c = colorAt ? colorAt(px, pz) : color;
+      colors.push(c[0], c[1], c[2]);
       const nrm = smoothNormal(surface, px, pz);
       normals.push(nrm[0], nrm[1], nrm[2]);
       // Every vertex an interpolated patch emits is a TOP: rock is the `^`

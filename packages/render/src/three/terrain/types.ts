@@ -12,7 +12,9 @@ import type { GroveFamily, OpenScatter, TerrainTones } from '../../api';
 export interface MeshData {
   /** xyz triples, three.js world space: game tile (x, y) -> (x, height, y). */
   positions: Float32Array;
-  /** rgb triples in 0..1, one per vertex. Always a palette entry. */
+  /** rgb triples in 0..1, one per vertex. A palette entry, except the vertices
+   *  of a marsh's shoreline tiles, which carry a mix of the open and marsh
+   *  tones (`shoreline.ts`; wetland maps only). */
   colors: Float32Array;
   indices: Uint32Array;
   /**
