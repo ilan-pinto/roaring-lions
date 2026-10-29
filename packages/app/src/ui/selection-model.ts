@@ -23,6 +23,7 @@
 import { t } from '../i18n/t';
 import type { RoleBucket } from './role';
 import { combatBand, vehicleDamage } from './combat-state';
+import { formationChip, type FormationChipCounts, type FormationId } from './formation-model';
 
 /** The seven verbs the order row offers (patrol since the Lane A mock). Named rather than positional so the
  *  armed state, the dispatch table and the tests all say the same word. */
@@ -209,6 +210,8 @@ export interface UnitFacts {
   aboard: boolean;
   /** Active protection, where the type has any. */
   aps?: { ammo: number; magazine: number };
+  /** GH-859 P1a: the combat formation this unit stands in, if any. */
+  formation?: FormationId;
   /** Side 0 -- the player's own. Absent reads as not own, so a chip never
    *  claims kit it cannot prove (plan 2b). */
   own?: boolean;
@@ -313,6 +316,7 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
     let loaned = 0;
     let apsAmmo = 0;
     let apsMag = 0;
+    const inFormation: FormationChipCounts = {};
     for (const u of group) {
       hp += u.hp;
       hpMax += u.hpMax;
@@ -329,6 +333,7 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       if (u.aboard) aboard++;
       if (u.moving) moving++;
       if (u.onLoan) loaned++;
+      if (u.formation !== undefined) inFormation[u.formation] = (inFormation[u.formation] ?? 0) + 1;
       if (u.aps) {
         apsAmmo += u.aps.ammo;
         apsMag += u.aps.magazine;
@@ -349,6 +354,7 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       aboard,
       moving,
       aps: apsMag > 0 ? { ammo: apsAmmo, magazine: apsMag } : undefined,
+      formation: inFormation,
     });
     return {
       typeId,
@@ -383,6 +389,8 @@ interface StatusCounts {
   aboard: number;
   moving: number;
   aps?: { ammo: number; magazine: number };
+  /** GH-859 P1a: how many of the group stand in each combat formation. */
+  formation?: FormationChipCounts;
 }
 
 /** The combat states in the chip's precedence, worst first (pass C2/C4,
@@ -421,6 +429,9 @@ export function chipStatus(c: StatusCounts): { status: string; statusTone: ChipT
   const plain = (status: string): { status: string; statusTone: ChipTone; mark: null; detail: null } => ({ status, statusTone: null, mark: null, detail: null });
   if (c.aboard > 0) return plain(t('selection.chip.aboard', { n: c.aboard }));
   if (c.aps) return plain(t('selection.chip.aps', { ammo: c.aps.ammo, magazine: c.aps.magazine }));
+  // GH-859 P1a: a formation member says so, below APS and above moving; the combat states above still win.
+  const inFormation = formationChip(c.formation);
+  if (inFormation !== null) return plain(inFormation);
   if (c.moving > 0) return plain(t('selection.chip.moving', { n: c.moving }));
   return plain(t('selection.chip.holding'));
 }
