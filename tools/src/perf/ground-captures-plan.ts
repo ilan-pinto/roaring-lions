@@ -267,6 +267,64 @@ export function stopTile(rows: readonly string[], from: readonly [number, number
 }
 
 // ============================================================================
+// Infantry stops: arrival, settling, and what the squad stands on
+// ============================================================================
+
+/** A road is one lane wide and an interior water or grass tile has a one-tile margin, so a stop
+ *  only counts when the lead entity is within this many tiles of the tile's CENTRE. (The wade's
+ *  1.5 is for "somewhere in the marsh"; at 1.5 the squad is probably not on a one-lane road.) */
+export const STOP_ARRIVE_TILES = 0.3;
+/** The wade's looser tolerance, kept to tell "close but not on the tile" from "never got there". */
+export const STOP_NEAR_TILES = 1.5;
+/** Ticks between polls of the squad's position while it walks to a stop (the wade polls every 20). */
+export const STOP_POLL_TICKS = 5;
+/** Ticks stepped after arrival so the squad settles out of its stride before the frame. */
+export const STOP_SETTLE_TICKS = 20;
+/** The squad has stalled when it moved less than this many tiles over this many polls in a row. */
+export const STOP_STALL_MOVE = 0.01;
+export const STOP_STALL_POLLS = 3;
+
+/** The glyph a stop of `kind` must be standing on (`r` road, `~` water, `.` open ground). */
+export function stopGlyph(kind: StopKind): string {
+  return GLYPH[kind];
+}
+
+/** The glyph under a position in tiles (`''` off the map). */
+export function standsOn(rows: readonly string[], pos: { readonly x: number; readonly y: number }): string {
+  return rows[Math.floor(pos.y)]?.[Math.floor(pos.x)] ?? '';
+}
+
+function within(pos: { readonly x: number; readonly y: number }, tile: readonly [number, number], tol: number): boolean {
+  return Math.hypot(pos.x - (tile[0] + 0.5), pos.y - (tile[1] + 0.5)) <= tol;
+}
+
+export type StopOutcome = 'ARRIVED' | 'DID NOT SETTLE' | 'DID NOT ARRIVE';
+
+/** Within `STOP_ARRIVE_TILES` of the tile's centre is ARRIVED; within `STOP_NEAR_TILES` only, DID NOT
+ *  SETTLE (the frame is off the requested tile); further, DID NOT ARRIVE. */
+export function stopOutcome(pos: { readonly x: number; readonly y: number }, tile: readonly [number, number]): StopOutcome {
+  if (within(pos, tile, STOP_ARRIVE_TILES)) return 'ARRIVED';
+  return within(pos, tile, STOP_NEAR_TILES) ? 'DID NOT SETTLE' : 'DID NOT ARRIVE';
+}
+
+/** The squad truly stands on the stop: tight to the tile's centre AND the glyph under it is the
+ *  kind's. (The glyph check is the one that catches a tile picked wrongly or a map that moved.) */
+export function isOnStop(
+  rows: readonly string[],
+  kind: StopKind,
+  tile: readonly [number, number],
+  pos: { readonly x: number; readonly y: number }
+): boolean {
+  return stopOutcome(pos, tile) === 'ARRIVED' && standsOn(rows, pos) === GLYPH[kind];
+}
+
+/** The consecutive-stalled-polls count after a poll: one more if the squad moved under
+ *  `STOP_STALL_MOVE` tiles since the last, else back to 0. */
+export function nextStall(count: number, prev: { readonly x: number; readonly y: number }, cur: { readonly x: number; readonly y: number }): number {
+  return Math.hypot(cur.x - prev.x, cur.y - prev.y) < STOP_STALL_MOVE ? count + 1 : 0;
+}
+
+// ============================================================================
 // The rain-density label
 // ============================================================================
 

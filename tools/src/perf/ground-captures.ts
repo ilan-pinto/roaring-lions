@@ -112,12 +112,18 @@ import {
   NameClaims,
   READ_RAIN_HEIGHTS_SCRIPT,
   READ_RENDER_SCRIPT,
+  STOP_ARRIVE_TILES,
+  STOP_POLL_TICKS,
+  STOP_SETTLE_TICKS,
+  STOP_STALL_POLLS,
   STOP_ZOOM,
   TICK_STRIP_ZOOM,
   assertMotion,
   assertPresetBooted,
+  isOnStop,
   makeHeightSampler,
   halfToFloat,
+  nextStall,
   parseClip,
   parseMotion,
   parsePresets,
@@ -128,7 +134,10 @@ import {
   rainLabel,
   requestedModeFailures,
   squadScreenScript,
+  standsOn,
+  stopGlyph,
   stopName,
+  stopOutcome,
   stopTile,
   suffixedViews,
   tickName,
@@ -627,6 +636,12 @@ interface StopRecord {
   readonly nonKind: number;
   readonly arrived: boolean;
   readonly ticks: number;
+  /** `ARRIVED` (within 0.3 tile of the centre), `DID NOT SETTLE` (within 1.5) or `DID NOT ARRIVE`. */
+  readonly outcome: string;
+  /** The map glyph under the lead entity when the frame was taken (`''` off the map). */
+  readonly standsOn: string;
+  /** The squad stood on the stop: ARRIVED and `standsOn` is the kind's glyph. */
+  readonly onStop: boolean;
 }
 
 /** A frame as `cost.json` records it: its draw cost, the sim tick it was drawn at and the
@@ -820,18 +835,40 @@ interface Walk {
   readonly pos: { x: number; y: number; tick: number };
 }
 
+/** How `walkSquad` decides it is there: the wade's loose 1.5 tiles polled every 20 ticks, or a stop's
+ *  tight tolerance polled every `STOP_POLL_TICKS`, which also gives up early once the squad has
+ *  STALLED short of the tile (it will get no nearer) and, once there, steps `STOP_SETTLE_TICKS` more
+ *  so the frame is not a walking pose. */
+interface WalkMode {
+  readonly tol: number;
+  readonly pollTicks: number;
+  readonly settle: boolean;
+}
+const WADE_MODE: WalkMode = { tol: WADE_ARRIVE_TILES, pollTicks: WADE_STEP_TICKS, settle: false };
+const STOP_MODE: WalkMode = { tol: STOP_ARRIVE_TILES, pollTicks: STOP_POLL_TICKS, settle: true };
+
 /** Orders entity `id` to `tile` (a `move` Command through `sim.queueCommand`, never a state write)
  *  and steps the sim until it arrives or `WADE_TICK_CAP` ticks pass. Prints nothing: each caller
  *  words its own line. */
-async function walkSquad(page: Page, id: number, tile: readonly [number, number]): Promise<Walk> {
+async function walkSquad(page: Page, id: number, tile: readonly [number, number], mode: WalkMode = WADE_MODE): Promise<Walk> {
   await page.evaluate(stopOrderScript(id, tile));
-  let pos = JSON.parse((await page.evaluate(positionScript(id))) as string) as { x: number; y: number; tick: number };
+  const read = async (): Promise<{ x: number; y: number; tick: number }> =>
+    JSON.parse((await page.evaluate(positionScript(id))) as string) as { x: number; y: number; tick: number };
+  const step = (n: number): Promise<unknown> => page.evaluate((k) => (window as unknown as LionsWindow).__lions.step(k), n);
+  let pos = await read();
   const startTick = pos.tick;
-  while (!hasArrived(pos, tile) && pos.tick - startTick < WADE_TICK_CAP) {
-    await page.evaluate((n) => (window as unknown as LionsWindow).__lions.step(n), WADE_STEP_TICKS);
-    pos = JSON.parse((await page.evaluate(positionScript(id))) as string) as typeof pos;
+  let stall = 0;
+  while (!hasArrived(pos, tile, mode.tol) && pos.tick - startTick < WADE_TICK_CAP && stall < STOP_STALL_POLLS) {
+    await step(mode.pollTicks);
+    const next = await read();
+    if (mode.settle) stall = nextStall(stall, pos, next);
+    pos = next;
   }
-  return { arrived: hasArrived(pos, tile), spent: pos.tick - startTick, pos };
+  if (mode.settle && hasArrived(pos, tile, mode.tol)) {
+    await step(STOP_SETTLE_TICKS);
+    pos = await read();
+  }
+  return { arrived: hasArrived(pos, tile, mode.tol), spent: pos.tick - startTick, pos };
 }
 
 /** `--wade`: order the first infantry entity to the nearest `~` tile to the marker through
@@ -1002,6 +1039,12 @@ async function main(): Promise<void> {
   try {
     const gl = await readUnmaskedRenderer(browser);
     say(`[${TAG}] gl=${gl}`);
+    if (t12) {
+      say(
+        `[${TAG}] legend: drops= counts heads on screen; the rain edge cull tests the LANDING point, so a thin rim of rain ` +
+          `(up to 6 * tan 12deg = 1.28 tiles of slant) can overhang the void on the W and S edges and lose its upper air on the E and N edges`
+      );
+    }
     meta = { gl, viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: 1, passes: passes.map((p) => `${p.preset}${p.reduced ? '+reduced' : ''}`), loadAverage: os.loadavg().map((v) => Number(v.toFixed(2))) };
     for (const pass of passes) {
       if (!pass.full || t12) say(`[${TAG}] pass preset=${pass.preset} motion=${pass.reduced ? 'reduce' : 'system'}${pass.full ? ' (baseline: every view)' : ' (marker views)'}`);
@@ -1114,10 +1157,12 @@ async function main(): Promise<void> {
           // frames with the sim stepped ONE tick between them. They come after the tick-0 frames
           // (the sim has moved on) and before the wade and the stops (which step it a long way).
           if (args.ticks !== undefined) {
-            for (const view of suffixedViews(views, mapId, wanted, '')) {
-              if (view.zoom !== TICK_STRIP_ZOOM) continue;
-              for (let k = 0; k < args.ticks; k++) {
-                const tick = (await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(1))) as number;
+            // Interleaved: step ONCE, then photograph every marker at that tick, so each marker's
+            // strip is the same ticks t1..tn (the sim cannot be rewound per marker).
+            const strip = suffixedViews(views, mapId, wanted, '').filter((v) => v.zoom === TICK_STRIP_ZOOM);
+            for (let k = 0; k < args.ticks; k++) {
+              const tick = (await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(1))) as number;
+              for (const view of strip) {
                 const tv: MapView = { ...view, name: tickName(view.name, tick) };
                 const stats = await shot(page, outDir, tv, ctx);
                 if (stats.tick !== tick) throw new Error(`${TAG}: ${tv.name} was stepped to tick ${tick} but the frame reads tick ${stats.tick}`);
@@ -1149,17 +1194,32 @@ async function main(): Promise<void> {
               if (kind !== 'road' && pick.nonKind > 0) {
                 say(`  stop ${mapId} ${kind}: no interior ${kind} tile; using (${pick.tile[0]},${pick.tile[1]}) with ${pick.nonKind} non-${kind} neighbours`);
               }
-              const walk = await walkSquad(page, id, pick.tile);
+              const walk = await walkSquad(page, id, pick.tile, STOP_MODE);
+              const outcome = stopOutcome(walk.pos, pick.tile);
+              const under = standsOn(rows, walk.pos);
+              const where = `(${pick.tile[0]},${pick.tile[1]}) near ${markerName}`;
+              const at = `at (${walk.pos.x.toFixed(2)},${walk.pos.y.toFixed(2)}) on '${under}', tick ${walk.pos.tick}`;
               say(
-                walk.arrived
-                  ? `  stop ${mapId} ${kind}: entity ${id} ARRIVED at (${pick.tile[0]},${pick.tile[1]}) near ${markerName} after ${walk.spent} ticks (tick ${walk.pos.tick})`
-                  : `  stop ${mapId} ${kind}: entity ${id} DID NOT ARRIVE at (${pick.tile[0]},${pick.tile[1]}) near ${markerName} in ${walk.spent} ticks; at (${walk.pos.x.toFixed(1)},${walk.pos.y.toFixed(1)}), tick ${walk.pos.tick}`
+                outcome === 'ARRIVED'
+                  ? `  stop ${mapId} ${kind}: entity ${id} ARRIVED at ${where} after ${walk.spent} ticks, settled ${STOP_SETTLE_TICKS} (${at})`
+                  : `  stop ${mapId} ${kind}: entity ${id} ${outcome} at ${where} in ${walk.spent} ticks; ${at}`
               );
+              // The frame shows the squad where it STANDS: say so when that is not the requested kind.
+              if (under !== stopGlyph(kind)) say(`  stop ${mapId} ${kind}: NOT ON ${kind}: the lead entity stands on '${under}', not '${stopGlyph(kind)}'`);
               const view: MapView = { name: stopName(mapId, kind), x: walk.pos.x, y: walk.pos.y, zoom: STOP_ZOOM, fog: false };
               const stats = await shot(page, outDir, view, { ...ctx, track: id });
               viewCosts[view.name] = {
                 ...stats,
-                stop: { kind, tile: pick.tile, nonKind: pick.nonKind, arrived: walk.arrived, ticks: walk.spent },
+                stop: {
+                  kind,
+                  tile: pick.tile,
+                  nonKind: pick.nonKind,
+                  arrived: walk.arrived,
+                  ticks: walk.spent,
+                  outcome,
+                  standsOn: under,
+                  onStop: isOnStop(rows, kind, pick.tile, walk.pos),
+                },
               };
               took.stopFrames[kind] = (took.stopFrames[kind] ?? 0) + 1;
               say(frameLine(view.name, viewCosts[view.name]));

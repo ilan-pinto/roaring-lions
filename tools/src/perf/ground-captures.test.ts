@@ -27,8 +27,16 @@ import {
   READ_RENDER_SCRIPT,
   assertMotion,
   assertPresetBooted,
+  STOP_ARRIVE_TILES,
+  STOP_POLL_TICKS,
+  STOP_SETTLE_TICKS,
   halfToFloat,
+  isOnStop,
   makeHeightSampler,
+  nextStall,
+  standsOn,
+  stopGlyph,
+  stopOutcome,
   onScreenDropCount,
   planPasses,
   rainLabel,
@@ -708,5 +716,58 @@ describe('frameLine carries the T12 labels', () => {
     expect(frameLine('v', { ...rec, preset: 'high', zoom: 2.5, rain: { onScreen: 0, total: 6000, period: 32, visible: false } })).toContain('drops=0(hidden) P=32 total=6000');
     expect(frameLine('v', { ...rec, preset: 'high', zoom: 1, rain: null })).toContain('preset=high zoom=1 rain=none');
     expect(frameLine('v', { ...rec, squadScreen: [700.4, 451.6] })).toContain(' squad=[700,452]');
+  });
+});
+
+// Fix round 1: a stop frame must show the squad ON the requested tile, not mid-stride 1.5 tiles off.
+describe('--stops: arrival, settling and what the squad stands on', () => {
+  // x is the column, y the row: a one-lane road along y = 2 (x 1..6), water 3x3 at x 1..3, y 4..6.
+  const rows = [
+    '.........', //
+    '.........',
+    '.rrrrrr..',
+    '.........',
+    '.~~~.....',
+    '.~~~.....',
+    '.~~~.....',
+  ];
+  const road: [number, number] = [3, 2];
+  it('the tolerances and cadence are the tight ones: 0.3 tile, polled every 5 ticks, 20 to settle', () => {
+    expect(STOP_ARRIVE_TILES).toBe(0.3);
+    expect(STOP_POLL_TICKS).toBe(5);
+    expect(STOP_SETTLE_TICKS).toBe(20);
+  });
+  it('a squad 1.2 tiles from the road centre is NOT on the stop (the wade tolerance would say it was)', () => {
+    // centre of tile (3,2) is (3.5, 2.5)
+    expect(stopOutcome({ x: 4.7, y: 2.5 }, road)).toBe('DID NOT SETTLE');
+    expect(isOnStop(rows, 'road', road, { x: 4.7, y: 2.5 })).toBe(false);
+    expect(isOnStop(rows, 'road', road, { x: 3.5, y: 3.7 })).toBe(false);
+  });
+  it('within 0.3 tile of the centre is ARRIVED and on the stop; just outside is not', () => {
+    expect(stopOutcome({ x: 3.5, y: 2.5 }, road)).toBe('ARRIVED');
+    expect(stopOutcome({ x: 3.75, y: 2.5 }, road)).toBe('ARRIVED');
+    expect(isOnStop(rows, 'road', road, { x: 3.75, y: 2.5 })).toBe(true);
+    expect(stopOutcome({ x: 3.85, y: 2.5 }, road)).toBe('DID NOT SETTLE');
+    expect(stopOutcome({ x: 5.1, y: 2.5 }, road)).toBe('DID NOT ARRIVE');
+  });
+  it('reads the glyph under the lead entity, and the kind needs its own glyph (r, ~, .)', () => {
+    expect([stopGlyph('road'), stopGlyph('water'), stopGlyph('grass')]).toEqual(['r', '~', '.']);
+    expect(standsOn(rows, { x: 3.5, y: 2.5 })).toBe('r');
+    expect(standsOn(rows, { x: 2.1, y: 5.9 })).toBe('~');
+    expect(standsOn(rows, { x: 7.5, y: 0.5 })).toBe('.');
+    expect(standsOn(rows, { x: -0.5, y: 0.5 })).toBe('');
+    expect(standsOn(rows, { x: 3.5, y: 99 })).toBe('');
+  });
+  it('a squad at the tile centre but on the WRONG glyph is not on the stop (the glyph check)', () => {
+    // tile (7,0) is grass; a road stop that was handed it is tight to the centre yet not on a road
+    expect(stopOutcome({ x: 7.5, y: 0.5 }, [7, 0])).toBe('ARRIVED');
+    expect(isOnStop(rows, 'road', [7, 0], { x: 7.5, y: 0.5 })).toBe(false);
+    expect(isOnStop(rows, 'grass', [7, 0], { x: 7.5, y: 0.5 })).toBe(true);
+    expect(isOnStop(rows, 'water', [2, 5], { x: 2.5, y: 5.5 })).toBe(true);
+  });
+  it('counts consecutive polls with under 0.01 tile of movement, and resets on a step', () => {
+    expect(nextStall(0, { x: 1, y: 1 }, { x: 1.005, y: 1 })).toBe(1);
+    expect(nextStall(2, { x: 1, y: 1 }, { x: 1, y: 1 })).toBe(3);
+    expect(nextStall(2, { x: 1, y: 1 }, { x: 1.2, y: 1 })).toBe(0);
   });
 });
