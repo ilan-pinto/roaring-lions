@@ -763,6 +763,9 @@ describe('the table: 16 groups a side', () => {
     // facing and stance survived the missing row
     expect(ring.map((id) => priv(w.sim).restFacing[id])).toEqual([16384, 57344, 32768, 24576, 0, 49152]);
     expect(ring.map((id) => priv(w.sim).fmArrive[id])).toEqual([19, 19, 19, 19, 19, 19]);
+    // GH-859 P1b: the HUD's read for a degraded member -- a template order with no row; a seated member and an unordered unit are not.
+    expect(ring.map((id) => w.sim.formationDegradedOf(id))).toEqual([true, true, true, true, true, true]);
+    expect([groups[0][0], groups[15][1], ring[0] + 1000, -1].map((id) => w.sim.formationDegradedOf(id))).toEqual([false, false, false, false]);
     for (let t = 0; t < 900 && ring.some((id) => w.sim.state.moving[id] === 1); t++) tick(w);
     tick(w, 70);
     expect(ring.map((id) => w.sim.ambushRadiusSqOf(id))).toEqual([R3_SQ, R3_SQ, R3_SQ, R3_SQ, R3_SQ, R3_SQ]);

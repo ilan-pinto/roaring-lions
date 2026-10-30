@@ -24,6 +24,7 @@ import { resolveMoveOrder, resolvePointer, type IntentWorld, type Resolution } f
 import { badgeFor, cursorFor, cursorKey, type CursorHints, type CursorName } from './cursor';
 import { resolveFormationOrder } from './formation';
 import type { FormationId } from '../ui/formation-model';
+import { formationClassOfUnit } from '../ui/formation-sim';
 import { roleBucket } from '../ui/role';
 import { wholeOrderPinned } from '../ui/pinned';
 
@@ -308,7 +309,7 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
   // An armed formation spends the click as a march: the plain move's ground, the formation's verb.
   const formation = ctx.armed === null && rallyAt === null && patrolAt === null ? (ctx.armedFormation ?? null) : null;
   const res = formation !== null
-    ? resolveFormationOrder(world, { ids: formation.ids, formation: formation.id, x: p.x, y: p.y, append: false, formationsOpen: formation.open })
+    ? resolveFormationOrder(world, { ids: formation.ids, formation: formation.id, x: p.x, y: p.y, append: false, formationsOpen: formation.open, classOf: (i) => formationClassOfUnit(sim, i) })
     : armedMove
     ? resolveMoveOrder(world, { ids, x: p.x, y: p.y, append: false })
     : resolvePointer(world, {

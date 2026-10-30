@@ -5500,6 +5500,13 @@ export class Sim {
     return id >= 0 && id < this.count ? this.fmDuty[id] : 0;
   }
 
+  /** GH-859 P1b: whether `id` took a formation's shape, facing and stance in a template order but has no group row
+   *  (the table was full): a ground member of a degraded order, read from the rest facing the order wrote and `fmForget`
+   *  clears. An aircraft takes no rest facing, so it reads false. Read-only and unhashed. */
+  formationDegradedOf(id: number): boolean {
+    return id >= 0 && id < this.count && this.fmGroup[id] < 0 && this.restFacing[id] !== FM_FACING_NONE;
+  }
+
   /** Formation group read APIs for the HUD. Scalar, allocation-free. */
   formationGroupOf(id: number): number {
     return this.fmGroup[id];

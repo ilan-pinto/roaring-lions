@@ -109,6 +109,27 @@ describe('i18n keys', () => {
     // the other side of the fixture: drill "none" needs no line, so the same catalogue passes it
     expect(run(variant('column', (d) => (d.contact.drill = 'none')), rest)).toEqual([]);
   });
+  it('refuses a paced file whose en.json has no pace line, and an element on call with no call line (GH-859 P1b Task 10)', () => {
+    const { 'hud.formation.pace': _p, ...noPace } = en;
+    void _p;
+    expect(Object.keys(en)).toContain('hud.formation.pace');
+    const pace = run(variant('column', () => undefined), noPace);
+    expect(pace).toHaveLength(1);
+    expect(pace[0]).toContain('march.pace "slowest_ground" but en.json has no hud.formation.pace');
+    // A file that does not pace needs no line.
+    expect(run(variant('column', (d) => ((d.march as { pace: string }).pace = 'none')), noPace)).toEqual([]);
+    // Column has a casualty element and a contact element on call: each needs its line.
+    const { 'hud.formation.call.casualty': _c, ...noCasualty } = en;
+    void _c;
+    const call = run(variant('column', () => undefined), noCasualty);
+    expect(call).toHaveLength(1);
+    expect(call[0]).toContain('on_call "casualty" has no en.json key hud.formation.call.casualty');
+    const { 'hud.formation.call.contact': _k, ...noContact } = en;
+    void _k;
+    expect(run(variant('attack', () => undefined), noContact)).toHaveLength(1);
+    // The tooltip's other side of the rule: a catalogue with every line passes (the shipped files above).
+    expect(run(shipped)).toEqual([]);
+  });
   it('refuses a ring when en.json has no ring line', () => {
     const { 'hud.formation.shape.ring': _gone, ...rest } = en;
     void _gone;

@@ -10,8 +10,12 @@
  *
  * Mutual exclusion with `armedOrder`, a support call, a work and a rally is the caller's
  * (`onArmed`): arming a formation disarms them there, and each of them nulls this one where it arms.
+ *
+ * The arm note ("column -- click open ground (Esc cancels)") is a promise about the NEXT click, so it is taken
+ * back the moment that stops being true: on the click that spends it, on every way of putting it down, and when
+ * another formation takes its place (`retire`). A key that cannot arm (an inert button) says why and leaves
+ * whatever was armed armed; a key with no row at all says nothing.
  */
-import { t } from '../i18n/t';
 import { formationArmNote, formationReason, type FormationId, type FormationView } from '../ui/formation-model';
 import { armFormationKey, issueFormation } from './formation';
 import type { IntentWorld, OrderSink, Resolution } from './intents';
@@ -28,13 +32,17 @@ export interface FormationArmingDeps {
   open(): boolean;
   /** A formation has just been armed: disarm everything else that owns the next click. */
   onArmed(): void;
+  /** The unit's formation class (`FM_CLASS_NONE` = none), for the resolver's `min_members` count. */
+  classOf(id: number): number;
+  /** Take back a note this arming posted (the HUD feed's `retireNote`): the same text and tone it was posted with. */
+  retire(text: string, tone: 'info' | 'mute'): void;
 }
 
 export interface FormationArming {
   /** The armed formation, or null. */
   armed(): FormationId | null;
-  /** A formation key: arms it (or, pressed again, puts it down). An inert or absent button arms
-   *  nothing and says why. Returns the id now armed, or null. */
+  /** A formation key: arms it (or, pressed again, puts it down). An inert button arms nothing, says why and leaves
+   *  any other formation armed; a key with no row says nothing. Returns the id now armed, or null. */
   press(action: Action): FormationId | null;
   /** The row's button for `id` (same rules as its key). */
   activate(id: FormationId): FormationId | null;
@@ -49,28 +57,46 @@ export interface FormationArming {
 
 export function createFormationArming(deps: FormationArmingDeps): FormationArming {
   let armed: FormationId | null = null;
+  /** The arm note on the feed, if it is still the live promise. */
+  let note: string | null = null;
+
+  /** Put it down, taking the arm note back. True when one was armed. */
+  const putDown = (): boolean => {
+    const was = armed !== null;
+    armed = null;
+    if (note !== null) {
+      deps.retire(note, 'info');
+      note = null;
+    }
+    return was;
+  };
+
+  /** An inert button is drawn dim but still answers: the reason is the answer (the order row's rule). */
+  const say = (view: FormationView): void => {
+    const why = formationReason(view);
+    if (why !== null) deps.sink.note(why, 'mute');
+  };
 
   const activate = (id: FormationId): FormationId | null => {
     const view = deps.row(armed).find((v) => v.id === id);
     if (view === undefined) {
-      deps.sink.note(t('hud.formation.inert.needsTwo'), 'mute');
-      armed = null;
+      // No row (the selection shrank below two): nothing to say, and nothing left to arm.
+      putDown();
       return null;
     }
     if (view.inert) {
-      // The button is drawn dim but still answers: the reason is the answer (the order row's rule).
-      const why = formationReason(view);
-      if (why !== null) deps.sink.note(why, 'mute');
-      armed = null;
+      say(view);
       return null;
     }
     if (armed === id) {
-      armed = null;
+      putDown();
       return null;
     }
+    putDown();
     armed = id;
     deps.onArmed();
-    deps.sink.note(formationArmNote(id), 'info');
+    note = formationArmNote(id);
+    deps.sink.note(note, 'info');
     return id;
   };
 
@@ -83,29 +109,17 @@ export function createFormationArming(deps: FormationArmingDeps): FormationArmin
       const id = armFormationKey(row, action);
       if (id !== null) return activate(id);
       const view = row.find((v) => v.key === action);
-      if (view === undefined) deps.sink.note(t('hud.formation.inert.needsTwo'), 'mute');
-      else {
-        const why = formationReason(view);
-        if (why !== null) deps.sink.note(why, 'mute');
-      }
-      armed = null;
+      if (view === undefined) putDown();
+      else say(view);
       return null;
     },
-    disarm() {
-      const was = armed !== null;
-      armed = null;
-      return was;
-    },
-    drag() {
-      const was = armed !== null;
-      armed = null;
-      return was;
-    },
+    disarm: putDown,
+    drag: putDown,
     spend(x, y, append) {
       if (armed === null) return null;
       const formation = armed;
-      armed = null;
-      return issueFormation(deps.world, deps.sink, { ids: deps.ids(), formation, x, y, append, formationsOpen: deps.open() });
+      putDown();
+      return issueFormation(deps.world, deps.sink, { ids: deps.ids(), formation, x, y, append, formationsOpen: deps.open(), classOf: deps.classOf });
     },
   };
 }

@@ -31,6 +31,8 @@ export {
 } from './mission';
 export type { PlacementRefusal } from './sim';
 export { DOMAIN_AIR, DOMAIN_FOOT, DOMAIN_VEHICLE } from './sim';
+// GH-859 P1b: what a formation member is doing for its group (`Sim.formationDutyOf`), so the app reads names, not copies.
+export { FM_DUTY_NONE, FM_DUTY_WAIT, FM_DUTY_OUT, FM_DUTY_RETURN } from './sim';
 export { REGEN_FRAC } from './tuning';
 export {
   WOUND_NONE,
@@ -141,6 +143,7 @@ export {
   FM_CALL_STAY,
   FM_CALL_STRIKE,
   FM_CONTACT,
+  FM_DRILL_HALT,
   FM_MARCH,
   FM_SPRUNG,
   aircraftCallOf,

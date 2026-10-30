@@ -52,6 +52,9 @@ export interface ToolDef {
 
 /** The verbs `order` builds: every command kind but the intel two, which a versus room drops (#559 F1). */
 // setStance, build, support, cancelBuild, setRally and clearRally are excluded from ORDER_VERBS; a model verb is an N3/N4 follow-up.
+/** The `detail` of an `order` refused for its `formation` alone (GH-859 P1b, M8). */
+export const FORMATIONS_CLOSED_IN_VERSUS = 'formations-closed-in-versus';
+
 export const ORDER_VERBS = COMMAND_KINDS.filter(
   (k) => k !== 'reveal' && k !== 'callStrike' && k !== 'setStance' && k !== 'build' && k !== 'support' &&
     k !== 'cancelBuild' && k !== 'setRally' && k !== 'clearRally' &&
@@ -389,7 +392,7 @@ function sweepRefusal(ctx: ToolContext): ToolResult | null {
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape; sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack, rescue: a medic goes to treat and carry a wounded); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack, rescue: a medic goes to treat and carry a wounded); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',
@@ -423,7 +426,17 @@ const order: ToolDef = {
     if ('error' in built) return refuse(built.error, built.detail === undefined ? {} : { detail: built.detail });
     // The room's own rebuild, then ownership's verdict on this machine's world.
     const cmd = cleanCommand(built);
-    if (cmd === null || !ctx.client.precheck(cmd)) return refuse('invalid');
+    if (cmd === null) return refuse('invalid');
+    if (!ctx.client.precheck(cmd)) {
+      // GH-859 P1b (M8): the order is refused for its formation alone when the same order without one would have passed.
+      // Formations are closed in versus rooms (the lead's 29 Oct ruling: `net/versus-formations.ts`), so that is the name
+      // the refusal gives -- a bare `invalid` told an agent nothing it could act on. When the gate opens, this is where a
+      // second cause (a faction that does not field the shape) would be told apart.
+      if ('formation' in cmd && cmd.formation !== undefined && ctx.client.precheck({ ...cmd, formation: undefined } as Command)) {
+        return refuse('invalid', { detail: FORMATIONS_CLOSED_IN_VERSUS });
+      }
+      return refuse('invalid');
+    }
     if (ctx.scope === 'command') {
       const r = ctx.client.desk.submit(cmd, ctx.client.tick());
       if ('error' in r) return refuse(r.error);
