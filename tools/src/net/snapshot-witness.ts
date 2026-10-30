@@ -619,6 +619,11 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'vehicle separation (GH-421): set once, by addUnitType, when a registered type declares a footprint, so it holds its build value at every cut. ' +
       'Its RESTORE is proved by the poisoned fork like every state row. Covered by a world that registers its first footprinted type mid-match'
   ),
+  // GH-859 P1b: the fourteen formation march/call rows. Each task that makes the formation world move them
+  // deletes its own line (the census fails an exemption whose row moved: "delete this exemption").
+  ...rows('fmLeg fgLegs fgRelease fgDress fgAtCp fgPace', 'GH-859 P1b: moved by the formation world from Task 3; delete then. Covered by the formation world once Task 3 lands'),
+  ...rows('fgQuiet fgCallX fgCallY', 'GH-859 P1b: moved by the formation world from Task 4; delete then. Covered by the formation world once Task 4 lands'),
+  ...rows('fmDuty fmHomeX fmHomeY fgAway fgCalled', 'GH-859 P1b: moved by the formation world from Task 5; delete then. Covered by the formation world once Task 5 lands'),
   // ---- the runtime's top-level `state` rows (snapshot S2 Task 5), named `runtime.<row>` ----
   // The matrix's runtime worlds are versus ECONOMY rooms (no authored objectives, triggers, waves, groups, ROE zones,
   // civilians, field works or ledger) and the golden economy replay (a bare mission with an income zone and a convoy).

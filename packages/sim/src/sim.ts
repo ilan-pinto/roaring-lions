@@ -17,6 +17,7 @@ import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flo
 import { assignFormation, type FormationUnit } from './formation';
 import {
   FM_ARRIVE_AMBUSH,
+  FM_CALL_STAY,
   FM_CLASS_NONE,
   FM_DRILL_SPRING,
   FM_FACING_NONE,
@@ -26,6 +27,7 @@ import {
   FM_VERB_ATTACK,
   FM_VERB_EITHER,
   FM_VERB_MOVE,
+  aircraftCallOf,
   assignTemplate,
   compileFormation,
   formationClassOf,
@@ -411,6 +413,18 @@ export const DOMAIN_VEHICLE = 1;
  * ground can this unit be put down on" is unchanged.
  */
 export const DOMAIN_AIR = 2;
+
+/** GH-859 P1b: `fmDuty` of a formation member (Ruling 18). NONE: marching with its group. WAIT: at the
+ *  checkpoint it was told to wait at, leg still live. OUT: on a call (an aircraft sortie, a medic's
+ *  rescue). RETURN: flying or walking home from one. */
+export const FM_DUTY_NONE = 0;
+export const FM_DUTY_WAIT = 1;
+export const FM_DUTY_OUT = 2;
+export const FM_DUTY_RETURN = 3;
+/** GH-859 P1b: `fgPending` bits. DRILL is P1a's single value (a spring or a first contact: the drill runs);
+ *  CALL asks the group's aircraft and medics to answer. Both may be set. */
+export const FM_PEND_DRILL = 1;
+export const FM_PEND_CALL = 2;
 const DOMAIN_COUNT = 3;
 
 /**
@@ -688,6 +702,9 @@ export interface UnitType {
   /** GH-859 P1a: the combat-formation class, FM_CLASS_* (`formation-template.ts`), 255 = none.
    *  `formationClassOf(json, wheeled)`, read once here and never again. */
   fmClass: number;
+  /** GH-859 P1b: what an aircraft does when its group calls it, FM_CALL_STAY / STRIKE / SPOT
+   *  (`aircraftCallOf`, read once here). Every non-air type is FM_CALL_STAY: a ground unit has no call. */
+  fmCall: number;
   /**
    * Vehicle spacing (GH-421, V-R1): the hull as a capsule, Q16.16 tiles, all 0 when the type
    * declares no `mobility.footprint`. A unit separates if and only if `sepHalfWid > 0` and it is
@@ -1055,6 +1072,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     isAir,
     wheeled,
     fmClass: formationClassOf(json, wheeled),
+    fmCall: isAir ? aircraftCallOf(json) : FM_CALL_STAY,
     sepHalfLen,
     sepHalfWid,
     sepCentre,
@@ -1858,12 +1876,40 @@ export class Sim {
   private readonly fgSide: Uint8Array;
   /** Index into `formationTypes`. */
   private readonly fgType: Uint8Array;
-  /** FM_MARCH 1 or FM_SPRUNG 4; 2 (ARRIVED) and 3 (CONTACT) are reserved for P1b. */
+  /** FM_MARCH 1, FM_CONTACT 3 or FM_SPRUNG 4; 2 (ARRIVED) stays reserved and unused ("arrived" is read per member). */
   private readonly fgState: Uint8Array;
   /** A member was fired on or sprang: the group acts at the next stepFormations. */
   private readonly fgPending: Uint8Array;
   /** Members still in the group. */
   private readonly fgMembers: Uint16Array;
+  // GH-859 P1b (the march, the drills and the calls): fourteen more columns, in this order, folded under
+  // the same `fmLive` latch after a second marker word. State only until Tasks 3-5 write them.
+  /** Checkpoints in the group's route (the last is the click). */
+  private readonly fgLegs: Uint8Array;
+  /** The highest checkpoint released to march on. */
+  private readonly fgRelease: Uint8Array;
+  /** Ticks since the first member arrived at the checkpoint being dressed (counts while fgAtCp > 0). */
+  private readonly fgDress: Uint16Array;
+  /** Ticks since the group last made contact; counts only while sorties are out. */
+  private readonly fgQuiet: Uint16Array;
+  /** Members waiting at the checkpoint (FM_DUTY_WAIT). */
+  private readonly fgAtCp: Uint16Array;
+  /** Members away on a call (FM_DUTY_OUT or FM_DUTY_RETURN). */
+  private readonly fgAway: Uint16Array;
+  /** 1 while the group's sorties are out. */
+  private readonly fgCalled: Uint8Array;
+  /** The group's pace cap, Fx per tick; 0 means no cap. */
+  private readonly fgPace: Int32Array;
+  /** The contact point the group's call names, Fx tiles. */
+  private readonly fgCallX: Int32Array;
+  private readonly fgCallY: Int32Array;
+  /** Per unit: the checkpoint it is heading to. */
+  private readonly fmLeg: Uint8Array;
+  /** Per unit: FM_DUTY_*. */
+  private readonly fmDuty: Uint8Array;
+  /** Per unit: where it goes home to after a call, Fx tiles. */
+  private readonly fmHomeX: Int32Array;
+  private readonly fmHomeY: Int32Array;
   /** True once a formation has been ordered (never by registering one). hash() folds the block
    *  above only while set. */
   private fmLive = false;
@@ -2431,6 +2477,20 @@ export class Sim {
     this.fgState = new Uint8Array(FORMATION_ROWS);
     this.fgPending = new Uint8Array(FORMATION_ROWS);
     this.fgMembers = new Uint16Array(FORMATION_ROWS);
+    this.fgLegs = new Uint8Array(FORMATION_ROWS);
+    this.fgRelease = new Uint8Array(FORMATION_ROWS);
+    this.fgDress = new Uint16Array(FORMATION_ROWS);
+    this.fgQuiet = new Uint16Array(FORMATION_ROWS);
+    this.fgAtCp = new Uint16Array(FORMATION_ROWS);
+    this.fgAway = new Uint16Array(FORMATION_ROWS);
+    this.fgCalled = new Uint8Array(FORMATION_ROWS);
+    this.fgPace = new Int32Array(FORMATION_ROWS);
+    this.fgCallX = new Int32Array(FORMATION_ROWS);
+    this.fgCallY = new Int32Array(FORMATION_ROWS);
+    this.fmLeg = new Uint8Array(n);
+    this.fmDuty = new Uint8Array(n);
+    this.fmHomeX = new Int32Array(n);
+    this.fmHomeY = new Int32Array(n);
     this.sepCols = (config.width + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES;
     this.sepHead = new Int32Array(this.sepCols * ((config.height + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES));
     this.sepNext = new Int32Array(n);
@@ -4905,6 +4965,16 @@ export class Sim {
       this.fgType[g] = 0;
       this.fgState[g] = 0;
       this.fgPending[g] = 0;
+      this.fgLegs[g] = 0;
+      this.fgRelease[g] = 0;
+      this.fgDress[g] = 0;
+      this.fgQuiet[g] = 0;
+      this.fgAtCp[g] = 0;
+      this.fgAway[g] = 0;
+      this.fgCalled[g] = 0;
+      this.fgPace[g] = 0;
+      this.fgCallX[g] = 0;
+      this.fgCallY[g] = 0;
     }
   }
 
@@ -4931,7 +5001,7 @@ export class Sim {
     const g = this.fmGroup[id];
     if (g < 0 || this.fgState[g] !== FM_MARCH || this.fgPending[g] !== 0) return;
     if (this.formationTypes[this.fgType[g]].drill !== FM_DRILL_SPRING) return;
-    this.fgPending[g] = 1;
+    this.fgPending[g] = FM_PEND_DRILL;
     this.pendingEvents.push({ kind: 'formationSprung', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id });
   }
 
@@ -11989,6 +12059,21 @@ export class Sim {
       h = hashArray(h, this.fgState);
       h = hashArray(h, this.fgPending);
       h = hashArray(h, this.fgMembers);
+      h = hashWord(h, 0x464d0002); // 'FM' GH-859 P1b
+      h = hashArray(h, this.fgLegs);
+      h = hashArray(h, this.fgRelease);
+      h = hashArray(h, this.fgDress);
+      h = hashArray(h, this.fgQuiet);
+      h = hashArray(h, this.fgAtCp);
+      h = hashArray(h, this.fgAway);
+      h = hashArray(h, this.fgCalled);
+      h = hashArray(h, this.fgPace);
+      h = hashArray(h, this.fgCallX);
+      h = hashArray(h, this.fgCallY);
+      h = hashArray(h, this.fmLeg);
+      h = hashArray(h, this.fmDuty);
+      h = hashArray(h, this.fmHomeX);
+      h = hashArray(h, this.fmHomeY);
     }
     return h >>> 0;
   }
