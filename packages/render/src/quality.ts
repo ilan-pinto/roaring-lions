@@ -95,7 +95,8 @@ export interface RenderQuality {
 }
 
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
-  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 1500, ripples: false } },
+  // Was drops 1500: the P4 cost run read NET (total wet) 0.7 and 0.9 ms against low's +0.4 budget at zoom 2.5 on ein_qasab, twice (GH-871).
+  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 900, ripples: false } },
   medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true } },
   high: {
     ao: true,

@@ -14,10 +14,10 @@ describe('QUALITY_PRESETS', () => {
       // high: Was 2 (both noise chains). The lead, 23 Oct: high draws the cheaper
       // one-chain smoke (+2-3 ms median on a 110-tile screen at 2).
       // GH-871 P4 T8: every preset gains `rain`. Was: no `rain` field (nothing rained).
-      // Read only under `weather: 'rain'`, so no shipped frame moves. 6000 / 3500 / 1500
+      // Read only under `weather: 'rain'`, so no shipped frame moves. 6000 / 3500 / 900
       // drops (the lead's approved counts); ripples off on low. No `openPuddles`: the
       // lead removed the open-ground puddle terms at S-L1.
-      low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 1500, ripples: false } },
+      low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 900, ripples: false } },
       medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true } },
       // GH-777: aoScale 0.25. Was 0.5 (absent). `high` missed 60 fps at DPR 2.
       // high smokeBillboardGain: Was 0.95 (the shared default). The lead, 23 Oct:
@@ -82,12 +82,12 @@ describe('QUALITY_PRESETS', () => {
     expect(QUALITY_PRESETS.low.bloom).toBe('off');
   });
 
-  it('rain (GH-871 P4 T8, R-8): 6000 / 3500 / 1500 drops, ripples off on low, and no open-puddle flag', () => {
+  it('rain (GH-871 P4 T8, R-8): 6000 / 3500 / 900 drops, ripples off on low, and no open-puddle flag', () => {
     // Literals, not the table read back. Falsify: low.rain.drops 1500 -> 1600, or
     // an `openPuddles` field added, and the pinned table above goes red as well.
     expect(QUALITY_PRESETS.high.rain).toEqual({ drops: 6000, ripples: true });
     expect(QUALITY_PRESETS.medium.rain).toEqual({ drops: 3500, ripples: true });
-    expect(QUALITY_PRESETS.low.rain).toEqual({ drops: 1500, ripples: false });
+    expect(QUALITY_PRESETS.low.rain).toEqual({ drops: 900, ripples: false });
     for (const k of ['low', 'medium', 'high'] as const) {
       expect(Object.keys(QUALITY_PRESETS[k].rain ?? {}).sort(), k).toEqual(['drops', 'ripples']);
     }

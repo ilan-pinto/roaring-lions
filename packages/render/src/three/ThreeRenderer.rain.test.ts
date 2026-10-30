@@ -5,7 +5,7 @@
  * GLSL; this file pins what only the renderer does:
  *
  *  - the batch is built ONLY under `weather: 'rain'`, after the terrain exists, and nowhere else;
- *  - its instance count is the preset's: 6000 / 3500 / 1500, `high`'s when the quality has no
+ *  - its instance count is the preset's: 6000 / 3500 / 900, `high`'s when the quality has no
  *    opinion, none at all when a ladder step took the count to 0;
  *  - it runs on the SIM clock: two `frame(1, 0)` at one tick read the same uniforms, wall-clock time
  *    passing (`performance.now`, `Date.now`) moves nothing, a tick does;
@@ -185,7 +185,7 @@ describe('the instance count is the preset`s (R-8)', () => {
   it.each([
     ['high', 6000],
     ['medium', 3500],
-    ['low', 1500],
+    ['low', 900],
   ] as const)('%s draws %i drops', (name, drops) => {
     const { r } = setUp({ ...RAIN, quality: QUALITY_PRESETS[name] });
     expect(dropsOf(r)).toBe(drops);
@@ -207,9 +207,9 @@ describe('the instance count is the preset`s (R-8)', () => {
     expect(rainMeshes(r)).toHaveLength(0);
     r.dispose();
   });
-  it('a stepped count is honoured: low 900 (RAIN_LADDER x0.6)', () => {
-    const { r } = setUp({ ...RAIN, quality: { ...QUALITY_PRESETS.low, rain: { drops: 900, ripples: false } } });
-    expect(dropsOf(r)).toBe(900);
+  it('a stepped count is honoured: low 525 (the next RAIN_LADDER step past the shipped 900)', () => {
+    const { r } = setUp({ ...RAIN, quality: { ...QUALITY_PRESETS.low, rain: { drops: 525, ripples: false } } });
+    expect(dropsOf(r)).toBe(525);
     r.dispose();
   });
 });

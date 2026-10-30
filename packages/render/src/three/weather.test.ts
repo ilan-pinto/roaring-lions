@@ -140,7 +140,7 @@ describe('the rain count ladder (R-8, GH-871 P4 T8)', () => {
 
 describe('rainQualityOf: absent means no opinion, and high`s', () => {
   it('reads each preset`s own rain fields', () => {
-    expect(rainQualityOf(QUALITY_PRESETS.low)).toEqual({ drops: 1500, ripples: false });
+    expect(rainQualityOf(QUALITY_PRESETS.low)).toEqual({ drops: 900, ripples: false });
     expect(rainQualityOf(QUALITY_PRESETS.medium)).toEqual({ drops: 3500, ripples: true });
   });
   it('gives high`s to an absent quality and to a quality with no rain field (a test fake)', () => {
