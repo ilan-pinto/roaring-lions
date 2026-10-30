@@ -141,10 +141,11 @@ function brigade(map: string, tiers: [Tiers, Tiers], opts: { factions?: ['kdf' |
 
 /** LITERALS, never read from the code under test (CLAUDE.md). The roster
  *  registers MATCHED_TYPES types in a matched room (was 36: wounded_kdf and wounded_sarim
- *  joined it when wounds opened to versus, 23 Oct 2026); a mbt_lavi's hull.hp is
+ *  joined it when wounds opened to versus, 23 Oct 2026; was 38: `inf_medic_squad` joined it
+ *  when the medic team opened to versus, 30 Oct 2026); a mbt_lavi's hull.hp is
  *  3000 and its armour tier 1 adds 210 (data/units/kdf/mbt_lavi.json), so in
  *  Q16.16 a base Lavi reads 3000 * 65536 and a tier-1 Lavi 3210 * 65536. */
-const MATCHED_TYPES = 38;
+const MATCHED_TYPES = 39;
 const LAVI_BASE_HP = 196608000;
 const LAVI_ARMOUR1_HP = 210370560;
 const LAVI1: Tiers = { mbt_lavi: { armour: 1 } };
