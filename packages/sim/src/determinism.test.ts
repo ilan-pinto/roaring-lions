@@ -1399,7 +1399,15 @@ function formationWorld(seed: number): FormationWorldFacts {
 // 415:1:2/3' -> '117:0:1/2 169:1:1/3 277:1:2/3 351:16:1/2' (the Column is released by the clock at 117, the Attack, whose
 // aircraft are exempt from the pace and arrive first, sooner), and the Attack's contact '541:1:6:2' -> '510:1:20:2'.
 // The fork witness's scouting ticks [196, 344, 445] are UNCHANGED. Was 39544183.
-const FORMATION_WORLD_PIN = 3138870583;
+// Re-pinned 2026-10-30 (GH-859 P1b Task 5, fix round 1). A call that finds no member it could ever send now latches
+// fgCalled = 2 ("nobody to call") on its row, so a group in contact with no aircraft is scanned once and not on every
+// exchange of fire: the Column (a medic and an ambulance, no aircraft), the ring and the side-1 Column read 2 where they
+// read 0. Nothing else in the world moved: every world fact above (groups, members, ringFacing, seen, sprungBy, legs,
+// the releases, first arrival, pace, the contacts, the calls, the casualty, the duties seen, the row states after tick
+// 600 and after the last) was re-read on the new code and is UNCHANGED, and so are the fork witness's scouting ticks.
+// The halt change (an answering aircraft loses its queue) reaches no unit of this world: no halt row holds an aircraft.
+// Was 3138870583.
+const FORMATION_WORLD_PIN = 762031029;
 
 describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extended in P1b)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
