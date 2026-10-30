@@ -5193,7 +5193,7 @@ export class Sim {
    *  and `stepBeam`, the target's position). `(x, y)` is the contact point. Every call restarts the group's quiet clock.
    *  A group still marching with a drill is marked once, first writer wins (writers run in shooter-id order); the event
    *  names the first member: `formationSprung` for a ring, `formationContact` for `halt` and `press`. A group already in
-   *  contact, or sprung, with no sortie out asks for a call instead. The call bit is set only when the group has a
+   *  contact, or sprung, with no sortie out (`fgCalled` 0; 2 means it has nobody to call) asks for a call instead. The call bit is set only when the group has a
    *  contact-call element and the point is within `call_radius_tiles` of the MEMBER that reported it (not of the
    *  aircraft: Attack's stand 13 tiles back, behind a 12-tile radius). The mark is consumed at the start of the next
    *  tick (`stepFormationContact`). If every member is ordered away in between (or dies), the row is freed with the
@@ -5291,7 +5291,12 @@ export class Sim {
             this.fmDuty[i] = FM_DUTY_NONE;
             if (this.fgAway[g] > 0) this.fgAway[g]--;
           }
-          if ((pend & FM_PEND_CALL) !== 0 && this.fmAnswersCall(tpl, i)) continue; // answers the call
+          if ((pend & FM_PEND_CALL) !== 0 && this.fmAnswersCall(tpl, i)) {
+            // It answers the call, so it is not halted; but a halted group has no march to rejoin (Ruling 13): its queue goes
+            // with everyone's, and it flies to the call, comes home to `fmHome` and stops there.
+            this.wpCount[i] = 0;
+            continue;
+          }
           this.haltUnit(i);
           if (!ut.isAir && ut.moveDomain === DOMAIN_VEHICLE) {
             const face = eighthToward(cx - this.posX[i], cy - this.posY[i]);
@@ -5313,25 +5318,35 @@ export class Sim {
    *  by its type, in an element that is on call for contact, and free to take an order (not coming down). The halt
    *  drill leaves exactly these flying, because the call is about to give them somewhere to go. */
   private fmAnswersCall(tpl: CompiledFormation, i: number): boolean {
+    return this.fmCanBeCalled(tpl, i) && this.airState[i] !== AIR_LANDING;
+  }
+
+  /** Whether member `i` is, by type and element, an aircraft the contact call can ever send (a `strike` or `spot` in an
+   *  element on call for contact), whatever it is doing now. Membership only shrinks, so a group with none never will have. */
+  private fmCanBeCalled(tpl: CompiledFormation, i: number): boolean {
     const ut = this.unitTypes[this.typeIdx[i]];
-    if (!ut.isAir || ut.fmCall === FM_CALL_STAY || this.airState[i] === AIR_LANDING) return false;
+    if (!ut.isAir || ut.fmCall === FM_CALL_STAY) return false;
     return tpl.elements[tpl.elementOfClass[ut.fmClass]].onCall === FM_CALL_CONTACT;
   }
 
   /** The contact call (Ruling 12): every answering aircraft of row `g` not already away flies to the call point's
    *  tile centre, whatever its distance (it is the group's own), a `strike` as an attack-move and a `spot` as a move,
    *  never sweeping. It remembers where it was going (`fmHome`) and keeps its queue: `finishLeg` stops an `OUT`
-   *  member at the point. `fgCalled` says sorties are out, so a contact while they are (or one nobody could answer
-   *  for want of an aircraft in the group: each exchange scans again, O(count), and finds none) asks for nothing
-   *  twice; the quiet return clears it. */
+   *  member at the point. `fgCalled` 1 says sorties are out, so a contact while they are asks for nothing twice; the quiet
+   *  return clears it. `fgCalled` 2 says the group has no member that could ever be called (no `strike` or `spot` aircraft
+   *  in an element on call for contact, alive or on any duty): the latch is permanent (membership only shrinks), so a
+   *  ground-only group in a long fight is scanned once and not on every exchange of fire (G-3). The quiet return reads
+   *  only the value 1. */
   private fmCallAircraft(g: number, tpl: CompiledFormation): void {
+    let could = false;
     const tx = fx.toInt(this.fgCallX[g]);
     const ty = fx.toInt(this.fgCallY[g]);
     const gx = fx.add(fx.fromInt(tx), HALF);
     const gy = fx.add(fx.fromInt(ty), HALF);
     for (let i = 0; i < this.count; i++) {
-      if (this.fmGroup[i] !== g || this.alive[i] === 0 || this.fmDuty[i] >= FM_DUTY_OUT) continue;
-      if (!this.fmAnswersCall(tpl, i)) continue;
+      if (this.fmGroup[i] !== g || this.alive[i] === 0) continue;
+      if (this.fmCanBeCalled(tpl, i)) could = true;
+      if (this.fmDuty[i] >= FM_DUTY_OUT || !this.fmAnswersCall(tpl, i)) continue;
       const strike = this.unitTypes[this.typeIdx[i]].fmCall === FM_CALL_STRIKE;
       if (this.fmDuty[i] === FM_DUTY_WAIT) this.fmUnwait(i, g);
       this.fmHomeX[i] = this.moving[i] === 1 ? this.goalX[i] : this.posX[i];
@@ -5348,6 +5363,7 @@ export class Sim {
       this.fgCalled[g] = 1;
       this.pendingEvents.push({ kind: 'formationCall', tick: this.tickCount, side: this.fgSide[g], group: g, entity: i, call: strike ? 'strike' : 'spot' });
     }
+    if (!could) this.fgCalled[g] = 2;
   }
 
   /** Member `i` of row `g` stops waiting at a checkpoint to go on a call: it is no longer counted in `fgAtCp`, and
@@ -9283,7 +9299,8 @@ export class Sim {
         } else {
           const w = this.pickWounded(m, r.radiusSq);
           if (w < 0) {
-            // A medic still out on a call with nothing to do (it was routed when the job ended) goes home.
+            // A medic still out on a call with nothing to do (it was routed when the job ended) goes home. DEFENSIVE: a rout
+            // forgets the group first, so only a poked test reaches it today.
             if (this.fmLive && this.fmDuty[m] === FM_DUTY_OUT) this.fmReturnHome(m);
             continue;
           }
@@ -9306,8 +9323,9 @@ export class Sim {
     this.medTimer[m] = 0;
     this.moving[m] = 0;
     this.fieldRef[m] = -1;
-    // GH-859 P1b (Ruling 14): a group medic that answered a call and has nothing left to carry goes home. A routed one
-    // stays out (`stepMedics` sends it home once it is back on its feet).
+    // GH-859 P1b (Ruling 14): a group medic that answered a call and has nothing left to carry goes home. DEFENSIVE: the
+    // `routed === 0` clause and the idle-pick fallback in `stepMedics` cannot be met today, because a rout calls `fmForget`
+    // first (the medic is no longer OUT by then); they keep a routed medic from walking home should that ever change.
     if (this.fmLive && this.fmDuty[m] === FM_DUTY_OUT && this.routed[m] === 0 && this.passengers[m] === 0) this.fmReturnHome(m);
   }
 

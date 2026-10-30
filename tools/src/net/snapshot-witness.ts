@@ -278,8 +278,22 @@ export function goldenWounded(): SnapWorld {
  */
 export function goldenFormations(): SnapWorld {
   const { sim, ids } = formationSetup(FM_SEED);
-  return simWorld(sim, (t) => formationDrive(sim, t, ids));
+  // GH-859 P1b Task 5: what the `exercised` probe reads is a history (every call is over by the end of the run), so the drive
+  // notes, at each tick, which of the three answerers is on duty OUT (2) or RETURN (3): the Attack's helicopter and drone
+  // (ids.atk[5], [6]) and the Column's medic (ids.col[6]). Keyed by the sim: the probe reads A's.
+  const watched: [string, number][] = [['helicopter', ids.atk[5]], ['drone', ids.atk[6]], ['medic', ids.col[6]]];
+  const seen = { out: new Set<string>(), ret: new Set<string>() };
+  FORMATION_DUTIES_SEEN.set(sim, seen);
+  return simWorld(sim, (t) => {
+    formationDrive(sim, t, ids);
+    for (const [name, id] of watched) {
+      const duty = sim.formationDutyOf(id);
+      if (duty === 2) seen.out.add(name);
+      if (duty === 3) seen.ret.add(name);
+    }
+  });
 }
+const FORMATION_DUTIES_SEEN = new WeakMap<Sim, { out: Set<string>; ret: Set<string> }>();
 export function goldenEconomy(): SnapWorld {
   const ew = economySetup(ECONOMY_SEED);
   return {
@@ -356,22 +370,28 @@ export function worldSpecs(): WorldSpec[] {
   out.push({ id: 'golden wounded (600)', plan: goldenPlan(600), build: goldenWounded });
   out.push({
     id: 'golden formations (1100)',
-    // Cuts mid-march and mid-dress (110: a Column member waiting, the dress clock running, the pace capped), before the ring
+    // Cuts early in the march (40: the pace cap live, nobody has reached a checkpoint), mid-march and mid-dress (110: a Column member waiting, the dress clock running, the pace capped), before the ring
     // arrives (150), while the ring arms (200, 300, 350), mid-rescue (250: the Column's medic OUT) and coming home from it
     // (380), with the group found by fire and marked (445: `fgPending` set, the one column whose life crosses a tick
     // boundary), after it has sprung (450: the side-1 Column is in contact, state 3, its quiet clock restarting at every
     // exchange), mid-sortie (700: the Attack's helicopter and drone OUT) and mid-return (930: both RETURN). The horizon is
     // 150 so the last cut ends inside the 1100 ticks (GH-859 P1b Task 3 moved the spring from 404 to 445; Task 5 lengthened
     // the world from 600 to 1000 ticks for the return at 910, and the run to 1100 for the last cut).
-    plan: { Ts: [0, 110, 150, 200, 250, 300, 350, 380, 445, 450, 700, 930], horizon: 150, tailFrom: 100, end: 1100 },
+    plan: { Ts: [0, 40, 110, 150, 200, 250, 300, 350, 380, 445, 450, 700, 930], horizon: 150, tailFrom: 100, end: 1100 },
     build: goldenFormations,
     exercised: (a) => {
       const it = internals(a.sim) as unknown as { fmLive: boolean; fgState: Uint8Array; fmHomeX: Int32Array };
       if (!it.fmLive) return 'the formation world stopped ordering formations: fmLive is still false at its end';
       if (!it.fgState.some((st) => st === 3)) return 'the formation world stopped making contact: no group ends in state 3 (contact)';
-      // `fmHome` is written when a member goes out on a call and cleared only when it leaves its group, so it outlives the sortie
-      // and the rescue: the aircraft and the medic have all come home by the end of the run.
-      if (!it.fmHomeX.some((x) => x !== 0)) return 'the formation world stopped calling: no member was ever out on a sortie or a rescue (every fmHome is empty)';
+      // The calls are over by the end of the run (everyone is home), so the drive's history says who went out and who came back:
+      // each of the three answerers must have been OUT (a sortie of each kind, a rescue) and RETURN (a way home).
+      const seen = FORMATION_DUTIES_SEEN.get(a.sim);
+      if (seen === undefined) return 'the formation world kept no duty history';
+      for (const name of ['helicopter', 'drone', 'medic']) {
+        if (!seen.out.has(name)) return `the formation world stopped calling: the ${name} was never out on a call`;
+        if (!seen.ret.has(name)) return `the formation world stopped bringing its answerers home: the ${name} was never on its way back`;
+      }
+      if (!it.fmHomeX.some((x) => x !== 0)) return 'the formation world stopped calling: every fmHome is empty';
       return null;
     },
   });

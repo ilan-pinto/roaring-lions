@@ -141,6 +141,8 @@ interface Priv {
   facing: Uint16Array;
   restFacing: Uint16Array;
   fmDuty: Uint8Array;
+  fmHomeX: Int32Array;
+  fmHomeY: Int32Array;
   fmLeg: Uint8Array;
   fgState: Uint8Array;
   fgPending: Uint8Array;
@@ -355,9 +357,12 @@ describe('halt: an aircraft that will answer the call is not left waiting', () =
     expect(p.fmLeg[air]).toBe(leg);
   });
   // G-6 re-derivation (Task 5): the slow aircraft used to be left flying with its queue, so it reached a checkpoint after the
-  // halt and the test pinned that a late arrival is not held. The call now sends it on a sortie, so it reaches that checkpoint
-  // on its way HOME, ten quiet seconds on (`fmDuty` 3, then 0): the same fact about `fmMarchHold`, read later.
-  it('a slow aircraft is sent out by the call, is never counted as waiting, and is not held at the checkpoint it comes home to', () => {
+  // halt and the test pinned that a late arrival is not held. The call now sends it on a sortie, and (fix round 1, Ruling 13)
+  // the halt drops its queue with everyone's: it flies to the contact, comes home ten quiet seconds later and STOPS at the
+  // place it left, its checkpoint-1 slot, with fmLeg still 1. What stays here: it is out, never counted as waiting, and
+  // never held by the group in contact. (The late arrival at a checkpoint in a group in contact, which pinned
+  // `fmMarchHold`'s MARCH-only test, is now read in formation-calls.test.ts, in an Attack row, where queues stay.)
+  it('a slow aircraft is sent out by the call, is never counted as waiting, and stops at the place it left when it comes home', () => {
     const w = world();
     const ids = column(w, [w.jeep, w.jeep, w.inf, w.inf, w.inf, w.inf, w.airSlow], 'column_dress10', [24, 30], [24, 10]);
     const air = ids[6];
@@ -366,16 +371,19 @@ describe('halt: an aircraft that will answer the call is not left waiting', () =
     hitFromNear(w, ids);
     tick(w);
     expect(p.fgState[0]).toBe(FM_CONTACT);
-    expect([p.moving[air], p.fmDuty[air], p.fmLeg[air]]).toEqual([1, 2, 1]);
-    let arrived = -1;
-    for (let t = 0; t < 900 && arrived < 0; t++) {
+    expect([p.moving[air], p.fmDuty[air], p.fmLeg[air], p.wpCount[air]]).toEqual([1, 2, 1, 0]);
+    const home = [p.fmHomeX[air], p.fmHomeY[air]];
+    let rested = -1;
+    for (let t = 0; t < 1200 && rested < 0; t++) {
       tick(w);
       expect(p.fgAtCp[0], `tick ${w.sim.tickCount}`).toBe(0);
-      expect(p.fmDuty[air] === 0, 'out or coming home until it is through').toBe(p.fmLeg[air] > 1);
-      if (p.fmLeg[air] > 1) arrived = w.sim.tickCount;
+      expect(p.fmLeg[air], 'a halted row never takes its aircraft on to a later checkpoint').toBe(1);
+      if (p.fmDuty[air] === 0) rested = w.sim.tickCount;
     }
-    expect(arrived, 'the slow aircraft got home to checkpoint 1 and went through').toBeGreaterThan(0);
-    expect(p.fgAtCp[0]).toBe(0);
+    expect(rested, 'the slow aircraft got home').toBeGreaterThan(0);
+    expect([p.moving[air], p.wpCount[air], p.goalX[air], p.goalY[air]]).toEqual([0, 0, home[0], home[1]]);
+    tick(w, 100);
+    expect([p.moving[air], p.posX[air] >> 16 === home[0] >> 16, p.posY[air] >> 16 === home[1] >> 16]).toEqual([0, true, true]);
   });
 });
 
@@ -565,8 +573,10 @@ describe('the quiet clock', () => {
     const m = ids[3];
     w.sim.debugSplash(w.sim.state.posX[m], w.sim.state.posY[m], fx.fromInt(1), 0, fx.from(0.2), foe, -1);
     expect(p.fgQuiet[0]).toBe(0);
-    // in contact with no sortie out, a hit within reach asks for a call at the new point (Task 5 answers it)
-    expect([p.fgPending[0], p.fgCallX[0], p.fgCallY[0]]).toEqual([2, 2195456, 2392064]);
+    // G-6 re-derivation (Task 5 fix round 1): this read [2, 2195456, 2392064], "a hit within reach asks for a call at the new
+    // point". The first contact's call found no aircraft in this group (jeeps and riflemen) and latched fgCalled 2, "nobody to
+    // call", so a later hit asks for nothing and the call point stays the first contact's.
+    expect([p.fgPending[0], p.fgCallX[0], p.fgCallY[0]]).toEqual([0, 2195456, 1998848]);
     tick(w);
     expect(p.fgPending[0]).toBe(0);
     expect(p.fgQuiet[0]).toBe(1);

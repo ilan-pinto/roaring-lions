@@ -515,6 +515,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
   });
 
   for (const [label, T] of [
+    ['early in the march, the pace cap live before the first arrival', 40],
     ['mid-pace, the Column capped at the mortar\'s step', 100],
     ['mid-approach', 150],
     ['mid-dress, a member waiting and the dress clock running', 110],
@@ -565,6 +566,8 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
 
   // GH-859 P1b Task 3: one self-check per column the new cuts assert (the cut must see the column, else it is re-picked).
   for (const [label, T, column, set] of [
+    ['the pace cap, before the first arrival', 40, 'fgPace', 0],
+    ['a member\'s leg, before the first arrival', 40, 'fmLeg', 0],
     ['the pace cap', 100, 'fgPace', 0],
     ['the checkpoint count', 100, 'fgLegs', 0],
     ['a member\'s leg', 100, 'fmLeg', 0],

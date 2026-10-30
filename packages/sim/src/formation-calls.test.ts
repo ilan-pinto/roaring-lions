@@ -815,3 +815,87 @@ describe('the quiet return sends aircraft, not a medic still at his rescue', () 
     expect(p.medTarget[medic]).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+describe('a halted row: an answering aircraft loses its queue with everyone, and stops at home', () => {
+  it('four riflemen and a strike helicopter ordered up the lane; after the hit the helicopter flies out, comes home and stays', () => {
+    const w = world();
+    const ids = [w.inf, w.inf, w.inf, w.inf, w.heli].map((t) => spawnAt(w, t, 0, 24, 44));
+    w.sim.queueCommand({ kind: 'move', ids, x: at(24), y: at(10), formation: 'column' } as never);
+    tick(w, 30);
+    const p = priv(w.sim);
+    const heli = ids[4];
+    // where it is bound at the moment of the hit: checkpoint 1's slot, with two more behind it
+    const bound = [p.goalX[heli], p.goalY[heli], p.wpCount[heli]];
+    expect(bound[2]).toBeGreaterThan(0);
+    const foe = spawnAt(w, w.inf, 1, 31, 38);
+    w.sim.debugSplash(p.posX[ids[0]], p.posY[ids[0]], fx.fromInt(1), 0, fx.from(0.2), foe, -1);
+    tick(w);
+    expect(w.sim.formationStateOfGroup(0)).toBe(FM_CONTACT);
+    expect([p.fmDuty[heli], p.wpCount[heli], p.fmHomeX[heli], p.fmHomeY[heli]]).toEqual([DUTY.out, 0, bound[0], bound[1]]);
+    expect(ids.slice(0, 4).map((id) => p.wpCount[id])).toEqual([0, 0, 0, 0]);
+    tick(w, 1500);
+    // the halted riflemen never moved on (they stand on their start tiles), and the helicopter is at the slot it left, not
+    // at the group's final slot far up the lane
+    expect(ids.slice(0, 4).every((id) => tileOf(p.posY[id]) >= 43)).toBe(true);
+    expect([p.fmDuty[heli], p.moving[heli], p.wpCount[heli], p.fgAway[0]]).toEqual([DUTY.none, 0, 0, 0]);
+    expect([tileOf(p.posX[heli]), tileOf(p.posY[heli])]).toEqual([tileOf(bound[0]), tileOf(bound[1])]);
+    expect(tileOf(p.posY[heli])).toBeGreaterThan(30); // nowhere near the final slot at y 12
+  });
+});
+
+describe('fmMarchHold holds a marching row only', () => {
+  // After the fix that makes a halt drop an answering aircraft's queue, no aircraft reaches a checkpoint with a queue in a row
+  // in contact by itself (every drill but `halt` ends the dress, and `halt` clears queues), so the MARCH-only test in
+  // `fmMarchHold` is defensive. Poked, it is still pinned: an aircraft at rest with one waypoint queued arrives in a halted row.
+  it('an aircraft arriving at a checkpoint in a row in contact goes straight on and is not counted as waiting', () => {
+    const w = world();
+    const ids = [w.inf, w.inf, w.inf, w.inf, w.heli].map((t) => spawnAt(w, t, 0, 24, 44));
+    w.sim.queueCommand({ kind: 'move', ids, x: at(24), y: at(10), formation: 'column' } as never);
+    tick(w, 30);
+    const p = priv(w.sim);
+    const heli = ids[4];
+    const foe = spawnAt(w, w.inf, 1, 31, 38);
+    w.sim.debugSplash(p.posX[ids[0]], p.posY[ids[0]], fx.fromInt(1), 0, fx.from(0.2), foe, -1);
+    tick(w, 1500);
+    expect([w.sim.formationStateOfGroup(0), p.fmDuty[heli], p.wpCount[heli], p.fmLeg[heli]]).toEqual([FM_CONTACT, 0, 0, 1]);
+    const leg = p.fmLeg[heli];
+    const q = p as unknown as { wpX: Int32Array; wpY: Int32Array; wpAttack: Uint8Array; wpSweep: Uint8Array; fgRelease: Uint8Array; fgLegs: Uint8Array };
+    expect(q.fgRelease[0] < leg && leg < q.fgLegs[0], 'the halt left the dress open: a marching row would hold it here').toBe(true);
+    q.wpX[heli * 8] = p.posX[heli];
+    q.wpY[heli * 8] = p.posY[heli] - fx.fromInt(3);
+    p.wpCount[heli] = 1;
+    p.goalX[heli] = p.posX[heli];
+    p.goalY[heli] = p.posY[heli];
+    p.moving[heli] = 1;
+    tick(w, 3);
+    expect([p.fmDuty[heli], p.fgAtCp[0], p.fmLeg[heli]]).toEqual([DUTY.none, 0, leg + 1]);
+  });
+});
+
+describe('a group with nobody to call is scanned once, not on every exchange of fire (G-3)', () => {
+  it('a ground-only Column in a long fight: one scan, fgCalled 2, many exchanges', () => {
+    const w = world();
+    const ids = [w.inf, w.inf, w.inf, w.inf].map((t) => spawnAt(w, t, 0, 24, 44));
+    w.sim.queueCommand({ kind: 'move', ids, x: at(24), y: at(10), formation: 'column' } as never);
+    for (let k = 0; k < 6; k++) spawnAt(w, w.inf, 1, 33 + (k % 2), 30 + k);
+    let scans = 0;
+    const sim = w.sim as unknown as { fmCallAircraft: (g: number, tpl: unknown) => void };
+    const real = sim.fmCallAircraft.bind(w.sim);
+    sim.fmCallAircraft = (g, tpl) => {
+      scans++;
+      real(g, tpl);
+    };
+    tick(w, 300);
+    const p = priv(w.sim);
+    expect(kinds(w, 'fire').length, 'the fight went on: the control that the count is not vacuous').toBeGreaterThan(40);
+    expect(w.sim.formationStateOfGroup(0)).toBe(FM_CONTACT);
+    expect(scans).toBe(1);
+    expect(p.fgCalled[0]).toBe(2);
+    expect(calls(w)).toEqual([]);
+  });
+  it('a group with an aircraft that answers is not latched: the value is 1 while it is out, never 2', () => {
+    const { w } = called();
+    expect(priv(w.sim).fgCalled[0]).toBe(1);
+  });
+});
