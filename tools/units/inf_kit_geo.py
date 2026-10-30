@@ -30,7 +30,6 @@ import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
-ATLAS_W, ATLAS_H = 2048, 1024
 SHARP_DEG = 40.0
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -40,7 +39,7 @@ import inf_kit_parts as kp  # noqa: E402
 
 def texel_uv(name):
     px, py = kp.TEXELS[name]
-    return ((px + 0.5) / ATLAS_W, 1.0 - (py + 0.5) / ATLAS_H)
+    return ((px + 0.5) / kp.ATLAS_W, 1.0 - (py + 0.5) / kp.ATLAS_H)
 
 
 class Piece:
@@ -329,7 +328,7 @@ class Wrap:
     figure's surface, offset by the real fabric and plate thickness."""
 
     def __init__(self, zone, axis_o, axis_d, up, rows_t, cols_deg, centre_fn=None, r_out=0.9,
-                 col_span=None, dilate=(0.5, 0.5), fill_rows=None, clamp=None, ellipse=None, rlim=None, default_r=None, fill_vertical=False):
+                 col_span=None, dilate=(0.5, 0.5), fill_rows=None, clamp=None, ellipse=None, rlim=None, default_r=None, fill_vertical=False, ring_cap=False, back_plate=False):
         self.zone = zone
         self.o = Vector(axis_o)
         self.e1, self.e2, self.a = basis(axis_d, up)
@@ -344,6 +343,8 @@ class Wrap:
         self.default_r = default_r     # radius for a vertex no ray reached and no neighbour could bridge
         self.rlim = rlim               # (rmin, rmax): sampled radii are clamped (tames the base mesh's loose shards)
         self.ellipse = ellipse         # f(t) -> (ax, ay): a bridged vertex stays inside this section ellipse
+        self.back_plate = back_plate     # flatten the columns nearest 180 deg (the back) onto a plane fitted to the row back walls
+        self.ring_cap = ring_cap         # a cyclic wrap's SAMPLED radii are capped by the ring the row's own front and back walls imply
         self.clamp = clamp             # BVH: a bridged vertex stays inside its first surface from the axis
         self.R = None      # radius per vertex (without offset)
 
@@ -387,6 +388,8 @@ class Wrap:
                 if self.rlim is not None:
                     best = min(max(best, self.rlim[0]), self.rlim[1])
                 self.R[j][k] = best
+        if self.ring_cap and self.cyclic:
+            self._apply_ring_cap()
         if self.fill_vertical:
             for k in range(cols):
                 for j in range(rows - 2, -1, -1):
@@ -443,6 +446,67 @@ class Wrap:
                     elif self.default_r is not None:
                         self.R[j][k] = self.default_r
         return self.R
+
+    def _apply_ring_cap(self, side_gain=1.08):
+        """A baked figure's spine zone carries loose shards and spine-bound hands, so the outermost hit at the sides
+        of a row can stand 0.15 m beyond the body. A torso section is a rounded box, not a free curve: take the row's FRONT
+        wall (the MEDIAN sampled radius over the three columns nearest 0 deg, so one spike cannot set it) and BACK wall
+        (nearest 180 deg), let the sides stand at most `side_gain` x the larger of the two, blend with cos^2 / sin^2, and let
+        no sampled radius exceed that profile. Real radii below it (a narrow waist, a real armhole) are kept."""
+        n = len(self.cols)
+        self.ring_params = {}
+        for j, row in enumerate(self.R):
+            def wall(deg):
+                ks = sorted(range(n), key=lambda k: abs(((self.cols[k] - deg + 180.0) % 360.0) - 180.0))[:3]
+                v = sorted(row[k] for k in ks if row[k] is not None)
+                return v[len(v) // 2] if v else None
+            rf, rb = wall(0.0), wall(180.0)
+            if rf is None or rb is None:
+                continue
+            rs = side_gain * max(rf, rb)
+            self.ring_params[j] = (rf, rb, rs)
+            for k in range(n):
+                if row[k] is None:
+                    continue
+                th = math.radians(self.cols[k])
+                c2, s2 = math.cos(th) ** 2, math.sin(th) ** 2
+                row[k] = min(row[k], s2 * rs + c2 * (rf if math.cos(th) >= 0 else rb))
+        if self.back_plate:
+            self._flatten_back()
+
+    def _flatten_back(self, zmin=1.15, half_deg=24.0):
+        """The back of a vest is a plate, not a barrel: fit a plane (radius = a + b z) to the rows' back walls above `zmin` and
+        put the columns within `half_deg` of 180 deg on it, at plane / cos(angle off the back)."""
+        js = [j for j, t in enumerate(self.rows_t) if t >= zmin and j in self.ring_params]
+        if len(js) < 2:
+            return
+        a, b = np.polyfit([self.rows_t[j] for j in js], [self.ring_params[j][1] for j in js], 1)
+        for j in js:
+            plane = a * self.rows_t[j] + b
+            for k, c in enumerate(self.cols):
+                off = abs(((c - 180.0 + 180.0) % 360.0) - 180.0)
+                if off <= half_deg:
+                    self.R[j][k] = plane / math.cos(math.radians(off))
+
+    def ring_radius(self, p):
+        """The capped ring's radius at the world point `p`'s height and direction (None when the wrap has no ring cap)."""
+        if not getattr(self, "ring_params", None):
+            return None, None
+        v = Vector(p) - self.o
+        t = v.dot(self.a)
+        c = self.centre(t)
+        d = Vector(p) - c
+        d -= self.a * d.dot(self.a)
+        r = d.length
+        if r < 1e-9:
+            return None, r
+        j = int(np.argmin([abs(t - rt) for rt in self.rows_t]))
+        if j not in self.ring_params:
+            return None, r
+        rf, rb, rs = self.ring_params[j]
+        th = math.atan2(d.dot(self.e2), d.dot(self.e1))
+        c2, s2 = math.cos(th) ** 2, math.sin(th) ** 2
+        return s2 * rs + c2 * (rf if math.cos(th) >= 0 else rb), r
 
     def points(self, off):
         """Grid of world points; `off` is a number or f(j, k) -> metres outward."""

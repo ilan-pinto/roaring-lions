@@ -1,6 +1,7 @@
 /**
- * The infantry kit as SHIPPED (GH-826): `art/meshes/inf_squad.glb` and the
- * `assets/meshes/inf_squad.glb` the game loads, read back from disk.
+ * The infantry kit as SHIPPED (GH-826): `art/meshes/<team>.glb` and the
+ * `assets/meshes/<team>.glb` the game loads, read back from disk, for every team
+ * in `INFANTRY_KIT_TEAMS` (the Rifle Squad, then the Demolition squad).
  *
  * `infantry-kit-pass.test.ts` proves the graft against a fixture; this proves
  * the bytes in the tree. What it holds that nothing else does:
@@ -31,12 +32,18 @@ import { INFANTRY_KIT_FIGURE_TRIS, INFANTRY_KIT_FILE_TRIS, INFANTRY_KIT_HOSTS, K
 import { INFANTRY_KIT_TAG_ATTR, baseHash, declaredTeamTracks, drawnFigureTris, type InfantryKitTag } from './infantry-kit-pass';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
-const ART = path.join(REPO, 'art', 'meshes', 'inf_squad.glb');
-const SOURCE = path.join(REPO, 'art', 'parts', 'inf_kit', 'inf_squad.glb');
-const SHIPPED = path.join(REPO, 'assets', 'meshes', 'inf_squad.glb');
 
-/** `assets/meshes/inf_squad.glb` as encoded on main before the kit (2026-10-28): 1,758 KiB. */
-const PRE_KIT_ENCODED_BYTES = 1_799_936;
+/**
+ * What differs per team. `preKitEncodedBytes` is `assets/meshes/<team>.glb` as encoded on main before its kit.
+ * `hosts` are the role primitives its kit joins: the Demolition squad's weapon primitive is a palette one with no UVs, so
+ * its devices ride `uniform`. `leaderOnly` are the parts only the radio man carries.
+ */
+const TEAMS: Readonly<
+  Record<string, { figures: string[]; hosts: string[]; leader: string; preKitEncodedBytes: number }>
+> = {
+  inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_799_936 },
+  demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform'], leader: 'demo_b', preKitEncodedBytes: 1_018_964 },
+};
 const GROWTH_BUDGET_BYTES = 64 * 1024;
 
 type Packed = InfantryKitTag & { name: string; tris: number };
@@ -67,9 +74,14 @@ function owes(parts: ReadonlyMap<string, Packed[]>, tracks: ReadonlySet<string>)
   return problems;
 }
 
-describe('inf_squad: the kit in art/meshes', () => {
+for (const [team, spec] of Object.entries(TEAMS)) {
+const ART = path.join(REPO, 'art', 'meshes', `${team}.glb`);
+const SOURCE = path.join(REPO, 'art', 'parts', 'inf_kit', `${team}.glb`);
+const SHIPPED = path.join(REPO, 'assets', 'meshes', `${team}.glb`);
+
+describe(`${team}: the kit in art/meshes`, () => {
   const doc = plain.readBinary(readFileSync(ART));
-  const tracks = declaredTeamTracks('inf_squad');
+  const tracks = declaredTeamTracks(team);
 
   it('declares three tracks, so `owes` is not vacuous', () => {
     expect([...tracks].sort()).toEqual(['armour', 'firepower', 'sensors']);
@@ -77,7 +89,7 @@ describe('inf_squad: the kit in art/meshes', () => {
 
   it('carries a packed node per host and a part for every track and tier it owes', async () => {
     const parts = kitParts(await doc);
-    expect([...parts.keys()].sort()).toEqual(['uniform', 'weapon']);
+    expect([...parts.keys()].sort()).toEqual([...spec.hosts].sort());
     expect(owes(parts, tracks)).toEqual([]);
   });
 
@@ -92,14 +104,14 @@ describe('inf_squad: the kit in art/meshes', () => {
     const all = [...kitParts(await doc).values()].flat();
     expect(all.reduce((n, p) => n + p.tris, 0)).toBeLessThanOrEqual(INFANTRY_KIT_FILE_TRIS);
     const drawn = drawnFigureTris(all.map((p) => ({ tag: p, tris: p.tris })));
-    expect(Object.keys(drawn).sort()).toEqual(['f0', 'f1', 'f2']);
+    expect(Object.keys(drawn).sort()).toEqual([...spec.figures].sort());
     for (const n of Object.values(drawn)) expect(n).toBeLessThanOrEqual(INFANTRY_KIT_FIGURE_TRIS);
   });
 
   it('puts the radio whip and the pack on the leader only', async () => {
     const all = [...kitParts(await doc).values()].flat();
     for (const part of ['whip_short', 'whip_long', 'radio_panel', 'radio_pack']) {
-      expect(all.filter((p) => p.part === part).map((p) => p.figure)).toEqual(['f1']);
+      expect(all.filter((p) => p.part === part).map((p) => p.figure)).toEqual([spec.leader]);
     }
   });
 
@@ -151,7 +163,7 @@ describe('inf_squad: the kit in art/meshes', () => {
   });
 });
 
-describe('inf_squad: the kit in assets/meshes', () => {
+describe(`${team}: the kit in assets/meshes`, () => {
   it('is the same kit, encoded, within +64 KiB of the pre-kit file', async () => {
     const io = new NodeIO()
       .registerExtensions(ALL_EXTENSIONS)
@@ -163,7 +175,8 @@ describe('inf_squad: the kit in assets/meshes', () => {
     expect([...s.keys()].sort()).toEqual([...a.keys()].sort());
     for (const [host, parts] of a) expect(s.get(host)?.map((p) => p.name)).toEqual(parts.map((p) => p.name));
     const bytes = readFileSync(SHIPPED).length;
-    expect(bytes - PRE_KIT_ENCODED_BYTES).toBeLessThanOrEqual(GROWTH_BUDGET_BYTES);
-    expect(bytes).toBeGreaterThan(PRE_KIT_ENCODED_BYTES); // the kit is in it
+    expect(bytes - spec.preKitEncodedBytes).toBeLessThanOrEqual(GROWTH_BUDGET_BYTES);
+    expect(bytes).toBeGreaterThan(spec.preKitEncodedBytes); // the kit is in it
   });
 });
+}

@@ -919,6 +919,9 @@ PROP_TRI_CAPS = {
     "tyre_pile": 260,
     "rebar": 140,
     "wrecked_car": 400,
+    # The wetland's two Blender props (GH-871 P3).
+    "round_bale": 160,
+    "culvert_pipe": 140,
     # The tunnel pieces (GH-227, 2026-09-30, tools/terrain/export_meshy_tunnel.py).
     "tunnel_mouth": 420,
     "tunnel_mouth_collapsed": 420,

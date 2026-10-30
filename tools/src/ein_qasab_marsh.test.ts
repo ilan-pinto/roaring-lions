@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { Sim } from '../../packages/sim/src/sim';
 import { applyTerrain, maps, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
 import { decorPlacements, type TerrainInput } from '../../packages/render/src/three/terrain/index';
+import { propPlacements } from '../../packages/render/src/three/terrain/prop-place';
 import { terrainTonesFor } from '../../packages/app/src/terrain-themes';
 import { marshWaterAt } from '../../packages/render/src/three/terrain/shared';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
@@ -52,6 +53,7 @@ function build(): { sim: Sim; input: TerrainInput } {
       openScatter: tones.openScatter,
       familyRemap: tones.familyRemap,
       waterside: tones.waterside,
+      propMix: tones.propMix,
     },
   };
 }
@@ -96,6 +98,24 @@ describe('Ein Qasab: the marsh (S-4)', () => {
     // Not vacuous: the wetland path ran and the marsh carries a real mat.
     expect(reeds.length).toBeGreaterThan(200);
     for (const r of reeds) expect(marshWaterAt(map.decor, W, H, r.x, r.z), `${r.x},${r.z}`).toBeLessThan(0.5);
+  });
+});
+
+describe('Ein Qasab: the wetland props (GH-871 P3)', () => {
+  it('places the round bale and the culvert mouth, and the shared kinds beside them', () => {
+    const ps = propPlacements(build().input);
+    const count = (k: string): number => ps.filter((p) => p.kind === k).length;
+    console.info(`ein_qasab props: ${ps.length}, bale ${count('round_bale')}, culvert ${count('culvert_pipe')}`);
+    expect(count('round_bale')).toBeGreaterThan(0);
+    expect(count('culvert_pipe')).toBeGreaterThan(0);
+    expect(ps.some((p) => p.kind !== 'round_bale' && p.kind !== 'culvert_pipe')).toBe(true);
+  });
+
+  it('falsified: with the theme\'s mix removed, neither appears', () => {
+    const { input } = build();
+    const kinds = new Set(propPlacements({ ...input, propMix: undefined }).map((p) => p.kind));
+    expect(kinds.has('round_bale')).toBe(false);
+    expect(kinds.has('culvert_pipe')).toBe(false);
   });
 });
 

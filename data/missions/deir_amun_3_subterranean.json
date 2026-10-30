@@ -25,7 +25,8 @@
     { "unit": "apc_eitan", "count": 2, "at": [28, 3] },
     { "unit": "ifv_namer", "count": 1, "at": [30, 2] },
     { "unit": "mbt_lavi", "count": 1, "at": [24, 2] },
-    { "unit": "recon_drone", "count": 1, "at": [24, 4] }
+    { "unit": "recon_drone", "count": 1, "at": [24, 4] },
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 3] }
   ],
   "resources": { "logistics_start": 500, "logistics_rate_per_min": 90 },
   "objectives": [

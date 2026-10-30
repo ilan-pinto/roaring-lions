@@ -1,7 +1,7 @@
-"""Approval render 1 for the infantry upgrade kit (GH-826): `inf_squad`.
+"""Approval render 1 for the infantry upgrade kit (GH-826): `inf_squad` and, with `--team`, the other seven.
 
-    blender -b -P tools/render_inf_kit.py -- --out <dir> --mode build|turntable|grid|close \\
-        [--figure f1] [--tiers a,s,f]
+    blender -b -P tools/render_inf_kit.py -- --out <dir> --mode build|census|garage|zones|turntable|grid|close \\
+        [--team demo_squad] [--figure f1] [--tiers a,s,f]
 
 Blender only, no browser, no Meshy. Imports the SHIPPED art/meshes/inf_squad.glb,
 adds the kit (`units/inf_kit.py`), poses `idle` frame 0 and photographs it in
@@ -94,6 +94,7 @@ def run_garage(a, mode, out, arm, meshes, rows, samples):
     import numpy as np
     w, h = int(a.get("w", 1356)), int(a.get("h", 760))
     figs = list(kp.ALL)
+    team = kp.TEAM
     show = lambda tiers: inf_kit.show(rows, tiers)
     G = gar.Garage(arm, meshes, rows, figs, show, w, h, lambda: _reset_pose(arm))
     summ = G.summary()
@@ -118,10 +119,12 @@ def run_garage(a, mode, out, arm, meshes, rows, samples):
     zw, zh = int(a.get("zw", 480)), int(a.get("zh", 320))
     bpy.context.scene.render.resolution_x, bpy.context.scene.render.resolution_y = zw, zh
     zone_of = {"sensors": "head", "armour": "torso", "firepower": "weapon"}
-    which = a.get("figures", "f2,f1").split(",")
+    which = a.get("figures", "f2,f1" if kp.TEAM.id == "inf_squad" else ",".join(reversed(kp.ALL))).split(",")
     for pf in which:
         for track in kp.TRACKS:
             zone = zone_of[track]
+            if zone == "weapon" and pf not in team.armed:
+                zone = "belt"           # an unarmed man's firepower kit is the belt line
             full = {t: 3 for t in kp.TRACKS}
             show(full)
             best = None
@@ -168,18 +171,22 @@ def zone_points(arm, meshes, rows, pf, zone, track):
     """World points of one figure's zone (head: z >= 1.45; torso: the body between the
     hips and the neck; weapon: the weapon bone's own verts), kit of the track at T3 included."""
     import numpy as np
-    base = [meshes[n] for n in ("uniform", "boot", "face", "weapon")]
+    base = [meshes[n] for n in kp.TEAM.prims if n not in kp.TEAM.stage_hide]
     bo = gar.base_owner_fn(arm, list(kp.ALL))
     P, O = gar.eval_points(arm, base, bo)
     sel = O == list(kp.ALL).index(pf)
     P = P[sel]
     kit = [ob for ob, part, f, _ in rows if f == pf and part.track == track and not ob.hide_render]
     Pk = gar.eval_points(arm, kit, gar.kit_owner_fn(list(kp.ALL)))[0] if kit else np.zeros((0, 3))
+    if zone == "head":
+        Pk = Pk[(Pk[:, 2] >= 1.40) & (Pk[:, 2] <= 1.95)]       # the head close-up frames the head's kit: a 1.25 m whip would shrink it to a dot
     root = np.array(arm.data.bones[f"{pf}_root"].head_local)
     if zone == "head":
         m = P[:, 2] >= 1.45
     elif zone == "torso":
         m = (P[:, 2] >= 0.95) & (P[:, 2] <= 1.52)
+    elif zone == "belt":
+        m = (P[:, 2] >= 0.70) & (P[:, 2] <= 1.12)
     else:
         wo = meshes["weapon"]
         W, Ow = gar.eval_points(arm, [wo], gar.base_owner_fn(arm, list(kp.ALL)))
@@ -191,7 +198,8 @@ def zone_points(arm, meshes, rows, pf, zone, track):
 def kit_track_points(arm, rows, pf, track):
     import numpy as np
     kit = [ob for ob, part, f, _ in rows if f == pf and part.track == track and not ob.hide_render]
-    return gar.eval_points(arm, kit, gar.kit_owner_fn(list(kp.ALL)))[0]
+    Pk = gar.eval_points(arm, kit, gar.kit_owner_fn(list(kp.ALL)))[0]
+    return Pk[(Pk[:, 2] >= 1.40) & (Pk[:, 2] <= 1.95)] if track == "sensors" else Pk
 
 
 def parse():
@@ -207,11 +215,20 @@ def main():
     out = os.path.abspath(a["out"])
     os.makedirs(out, exist_ok=True)
     mode = a.get("mode", "build")
-    arm, meshes, mat = scn.load_squad(REPO)
+    team_id = a.get("team", "inf_squad")
+    team = kp.use_team(team_id)
+    arm, meshes, mat = scn.load_squad(REPO, team_id)
     rows = inf_kit.build(REPO, arm, meshes, mat)
     turn = bpy.data.objects.new("turn", None)
     bpy.context.collection.objects.link(turn)
     arm.parent = turn
+    with open(os.path.join(out, "wraps.json"), "w") as fh:
+        json.dump(inf_kit.REPORT, fh, indent=1)
+    for w in inf_kit.REPORT:
+        if w.get("part") == "pouch angles":
+            print("pouches", w["figure"], "nominal", w["nominal"], "turn", w["turn_deg"], "residual", w["residual_mm"], "mm")
+        elif w.get("pokes_left"):
+            print("POKE-THROUGH left:", w)
     report = tri_report(rows)
     with open(os.path.join(out, "tris.json"), "w") as fh:
         json.dump(report, fh, indent=1, sort_keys=True)
@@ -221,8 +238,13 @@ def main():
             print("OVER the per-part cap:", r)
     scn.pose(arm, a.get("pose", "idle") if a.get("pose", "idle") != "rest" else None, int(a.get("frame", 0)))
     samples = int(a.get("samples", 96))
+    if mode in ("garage", "zones", "turntable", "close"):
+        # a world-fixed ground prop (demo_squad's charge) is not part of the figures the garage turns: leave it out of the stills
+        for n in team.stage_hide:
+            meshes[n].hide_render = True
+            meshes[n].hide_viewport = True
     if mode == "build":
-        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, "inf_squad_kit.blend"))
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, f"{team_id}_kit.blend"))
         return
     if mode == "census":
         # nothing a living team draws is under the ground: the lowest vertex over EVERY key of each clip,
@@ -232,17 +254,19 @@ def main():
         inf_kit.show(rows, {t: 3 for t in kp.TRACKS})
         res = {}
         kitobs = [ob for ob, _, _, _ in rows if not ob.hide_render]
-        baseobs = [meshes[n] for n in ("uniform", "boot", "face", "weapon")]
-        for clip in ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "down"):
+        baseobs = [meshes[n] for n in team.prims]
+        census_clips = ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "down") \
+            if team_id == "inf_squad" else team.clips + ("down",)
+        for clip in census_clips:
             act = bpy.data.actions[clip]
-            keys, lo = clip_keys(act, 4)
+            keys, lo = clip_keys(act, 4, team.dense_keys)
             lo_z, who, base_lo = 9.0, None, 9.0
             for kf_ in keys:
                 arm.data.pose_position = "POSE"
                 arm.animation_data_create()
                 arm.animation_data.action = act
                 arm.animation_data.action_slot = act.slots[0] if act.slots else None
-                bpy.context.scene.frame_set(kf_)
+                scn.set_frame(kf_)
                 bpy.context.view_layer.update()
                 dg = bpy.context.evaluated_depsgraph_get()
                 for ob in kitobs:
@@ -270,7 +294,7 @@ def main():
         # development view: one figure's kit at a given zoom, several headings
         tiers = {t: int(v) for t, v in zip(kp.TRACKS, a.get("tiers", "3,3,3").split(","))}
         inf_kit.show(rows, tiers)
-        fig = a.get("figure", "f1")
+        fig = a.get("figure", kp.LEADER[0])
         zoom = float(a.get("zoom", 14))
         centre = tuple(arm.data.bones[f"{fig}_root"].head_local)
         cx, cy = centre[0], centre[1]

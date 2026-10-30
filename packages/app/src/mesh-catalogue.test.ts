@@ -53,6 +53,7 @@ import {
   PROP_MESHES,
   BACKDROP_MESHES,
   TUNNEL_PROP_KIND_NAMES,
+  WET_PROP_KIND_NAMES,
   RETIRED_MESH_FILES,
   HELD_MESH_FILES,
   claimedMeshFiles,
@@ -646,7 +647,7 @@ describe('mesh catalogue: props (ground plan 2, Task 4)', () => {
   ].sort();
 
   it('PROP_MESHES lists every PROP_KINDS entry and every file exists under art/meshes/', () => {
-    expect(ALL_PROP_KINDS).toEqual([...GROUND_PROP_KINDS, ...TUNNEL_PROP_KIND_NAMES].sort());
+    expect(ALL_PROP_KINDS).toEqual([...GROUND_PROP_KINDS, ...WET_PROP_KIND_NAMES, ...TUNNEL_PROP_KIND_NAMES].sort());
     for (const file of Object.values(PROP_MESHES)) {
       expect(existsSync(path.join(MESH_ROOT, file)), file).toBe(true);
     }
@@ -656,6 +657,16 @@ describe('mesh catalogue: props (ground plan 2, Task 4)', () => {
     expect([...propKindsFor(bareMap)]).toEqual([]);
     // beit_sahwan_outskirts carries both roads and buildings.
     expect([...propKindsFor(parseMap(maps.beit_sahwan_outskirts))].sort()).toEqual(GROUND_PROP_KINDS);
+  });
+
+  it('propKindsFor adds the bale and the culvert for exactly the maps whose theme mixes them (GH-871 P3)', () => {
+    const ein = parseMap(maps.ein_qasab);
+    expect([...propKindsFor(ein)].sort()).toEqual([...GROUND_PROP_KINDS, ...WET_PROP_KIND_NAMES].sort());
+    // falsified: every shipped map keeps the plain seven, so it never fetches the two new files
+    for (const [id, json] of Object.entries(maps)) {
+      if (id === 'ein_qasab') continue;
+      expect([...propKindsFor(parseMap(json))].filter((k) => WET_PROP_KIND_NAMES.includes(k)), id).toEqual([]);
+    }
   });
 
   it('meshPlanFor carries the tunnel pieces on every map, bare or not (GH-227)', () => {

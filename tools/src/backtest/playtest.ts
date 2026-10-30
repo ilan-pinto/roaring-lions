@@ -3530,7 +3530,14 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // on the ramp's west knoll, ROE 91 -> 94). Every plan still wins 30 of 30, no star or gate moved, ROSTER_MAX stays 30.
 // Umm Zeitoun III's two singles in cover were measured and left out: they cost one survivor at 424242, which carries into
 // Umm Zeitoun IV and drops ROSTER_MAX to 27.
-const LADDER_CREDITS = 5973;
+// 2026-10-30, GH-707 (the lead's ruling): a loaned Nemala medic team in 18 more missions' starting forces (19 of
+// 26 with First Light). 5973 -> 6201, +228, read off the printed per-mission credits: Beit Sahwan I 300 -> 310, II
+// 200 -> 210, III 280 -> 290, IV 200 -> 210; Khan Rafid III 237 -> 260 (ROE 87 -> 90); Deir Amun I 270 -> 280, III
+// 245 -> 250 (ROE 90 -> 85); Qarn Hadid I 310 -> 320, II 190 -> 210, III 219 -> 229; Umm Zeitoun II 220 -> 240, III
+// 280 -> 290; Wadi Halam II 160 -> 180, III 160 -> 190, IV 198 -> 208, V 200 -> 220. Deir Amun II and Tel Marum I
+// pay what they paid (Tel Marum I brings home 5, not 6). Seven missions were measured and left out, see
+// `tools/src/medic_every_mission.test.ts`'s `LEFT_OUT`. Every plan still wins 30 of 30 seeds, no star or gate moved.
+const LADDER_CREDITS = 6201;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3686,7 +3693,10 @@ for (const [label, got, want] of [
 // 2026-10-25, GH-421 Stage 2 merged with GH-274 item 5: 31 -> 30, same mission, read off a fresh run.
 // Umm Zeitoun II's roster out reads 16 under vehicle avoidance against main's 17, and Umm Zeitoun III
 // (22) and IV (30) inherit the one body fewer. No outcome moved.
-const ROSTER_MAX = 30;
+// 2026-10-30, GH-707 (the lead's ruling): 30 -> 31, same mission. Umm Zeitoun II brings home one more body with its
+// medic team (roster out 16 -> 17), and he carries through III into IV (22 -> 23, 30 -> 31). The medic itself is on
+// loan and goes back to the lender; it is not in the count.
+const ROSTER_MAX = 31;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);

@@ -13638,6 +13638,8 @@ export function composeTerrainFrom(
     waterside: tones.waterside,
     // GH-871 P4: set under rain only, so a dry input has no `wet` key at all.
     ...(wet ? { wet: true as const } : {}),
+    // GH-871 P3: the wetland's own yard and roadside prop mixes, read by `propPlacements`.
+    propMix: tones.propMix,
   };
   // One surface for both builders and for the diff -- each used to build its
   // own from the same `input`.

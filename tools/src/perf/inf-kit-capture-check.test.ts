@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MODEL_REGION, STATES, differingPixels, mergeFailures, type Pixels, type Reading } from './inf-kit-capture-check';
+import { DEMO_ENCODED_BASE_TRIS, DEMO_STATES, MODEL_REGION, STATES, TEAM_CHECKS, differingPixels, mergeFailures, type Pixels, type Reading } from './inf-kit-capture-check';
 
 /** The kit triangles of each state, literals from the 29 Oct art file (the redesign). */
 const KIT: Record<string, [Record<string, number>, number]> = {
@@ -30,6 +30,38 @@ describe('inf-kit capture merge check', () => {
     expect(read((m) => { m.F3.calls = 56; })).toEqual([expect.stringMatching(/F3: 56 draw calls/)]);
     expect(read((m) => { m.T0.tris = 8604; m.T0.kitTris = 0; })[0]).toMatch(/T0: 8604 triangles/);
     expect(read((m) => { delete (m as Record<string, Reading | undefined>).A3; })).toContain('A3: not captured');
+  });
+});
+
+describe('inf-kit capture merge check: demo_squad', () => {
+  // Literals from the art file (the kit's parts table, highest tier of each slot) and the Draco encode (7,206 live triangles).
+  const DEMO_KIT: Record<string, [Record<string, number>, number]> = {
+    A1: [{ armour: 1 }, 484], A2: [{ armour: 2 }, 556], A3: [{ armour: 3 }, 616],
+    S1: [{ sensors: 1 }, 160], S2: [{ sensors: 2 }, 412], S3: [{ sensors: 3 }, 572],
+    F1: [{ firepower: 1 }, 310], F2: [{ firepower: 2 }, 422], F3: [{ firepower: 3 }, 546],
+    full: [{ armour: 3, sensors: 3, firepower: 3 }, 1734],
+  };
+  const DEMO: Record<string, Reading> = {
+    T0: { tiers: {}, loaded: true, tris: 7206, kitTris: 0, meshes: 6, calls: 58 },
+    ...Object.fromEntries(Object.entries(DEMO_KIT).map(([id, [tiers, kit]]) => [id, { tiers, loaded: true, tris: 7206 + kit, kitTris: kit, meshes: 6, calls: 58 }])),
+  };
+  const readDemo = (over: (m: Record<string, Reading>) => void): string[] => {
+    const m = structuredClone(DEMO);
+    over(m);
+    return mergeFailures(new Map(Object.entries(m)), DEMO_STATES, DEMO_ENCODED_BASE_TRIS, 'demo_squad');
+  };
+  it('is registered, and passes what the art file says', () => {
+    expect(TEAM_CHECKS.demo_squad.states).toBe(DEMO_STATES);
+    expect(TEAM_CHECKS.demo_squad.baseTris).toBe(7206);
+    expect(readDemo(() => undefined)).toEqual([]);
+  });
+  it('fails on the Rifle Squad\'s numbers, a lost tier, a kit mesh or a draw call', () => {
+    expect(mergeFailures(new Map(Object.entries(DEMO)), STATES)[0]).toBeDefined();
+    expect(readDemo((m) => { m.A3.kitTris = 0; m.A3.tris = 7206; })[0]).toMatch(/A3: 0 kit triangles merged, expected 616/);
+    expect(readDemo((m) => { m.full.tris = 8172 + 1734; })[0]).toMatch(/full: 9906 triangles/);
+    expect(readDemo((m) => { m.S3.meshes = 7; })).toEqual([expect.stringMatching(/S3: 7 meshes/)]);
+    expect(readDemo((m) => { m.F3.calls = 60; })).toEqual([expect.stringMatching(/F3: 60 draw calls/)]);
+    expect(readDemo((m) => { m.T0.loaded = false; })[0]).toMatch(/T0: no demo_squad template loaded/);
   });
 });
 

@@ -950,8 +950,7 @@ describe('the marsh reed mat (R-7)', () => {
 
   it('drops under 20% of its clumps (S-4)', () => {
     const input = wetland();
-    let expected = 0;
-    for (const [x, y] of marshTiles()) expected += tileHash(x + 10211, y + 10331) < 0.5 ? 2 : 1;
+    const expected = 3 * marshTiles().length; // three clumps a tile (P3; P2 was 1.5 on average)
     const placed = decorPlacements(input).filter((p) => p.family === 'reed').length;
     const dropped = (expected - placed) / expected;
     console.info(`reed clumps: ${expected} expected, ${placed} placed, ${(dropped * 100).toFixed(1)}% dropped`);

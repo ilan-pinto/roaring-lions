@@ -291,3 +291,11 @@ The root cause underneath is a plan bug: with the `apc_kipod` gate open the `jee
 
 **Residual fragility, for the mission-author.** Under the HP model the mission is still fragile to a firepower kill on BOTH armoured guns: a firepower kill is permanent without a workshop, and then nothing in the depot force can answer a ZU-23 truck. The plan now keeps the Kipod in the fight, which is why 90 seeds win; a real player who loses both guns to RPGs early has no such answer. Not tuned here.
 
+
+## The loaned medic team in the campaign (GH-707, 30 Oct 2026)
+
+The lead's ruling: the Nemala Medic Team (`inf_medic_squad`) is free in the campaign, one loaned team in a mission's `starting_force`, as First Light fields it (PR 843). The coordinator's ruling excludes the tutorial `beit_sahwan_0_tutorial`. **That exclusion is recorded in `tools/src/medic_every_mission.test.ts`**, which also pins what every other mission must carry: one placement (not `from_ledger`, so it is a loan), clear ground, and a `wounded_evac` marker on its map (without one a medic that has treated a man holds still carrying him).
+
+The medic is NOT free of cost to a plan. Adding it shifts every later entity id by one, so every later per-entity RNG stream is re-rolled, and a plan tuned on perfect information can lose a seed it used to win. Measured with `pnpm playtest`, 26 missions: 19 field the team; **seven were left out** (`LEFT_OUT` in the test, each with its numbers): Wadi Halam I, Khan Rafid I and II and Tel Marum II (plan wins 29 of 30 seeds with the medic; Khan Rafid II also loses at 424242, 2 stars to 0), Umm Zeitoun I (credit 240 -> 238) and IV (259 -> 249), and Tel Marum III (its own line improves, but the chain drops Umm Zeitoun IV to 249 and ROSTER_MAX to 29). A left-out mission needs its plan re-solved with the medic in place, then its name leaves `LEFT_OUT`.
+
+A change to a mission shows up in a LATER mission's line through the ledger (Tel Marum III's medic moved Umm Zeitoun IV), so a regression is only attributable by taking missions out one at a time and re-running the whole `pnpm playtest` (about 5 minutes).

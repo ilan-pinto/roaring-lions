@@ -127,4 +127,9 @@ export interface TerrainInput {
    * `false` is never written, so a dry input is byte-for-byte what it was.
    */
   wet?: true;
+  /**
+   * The theme's own yard and roadside prop mixes -- `TerrainTones.propMix`, passed through by
+   * `composeTerrain` (GH-871 P3). Absent means the shared mixes. `propPlacements` reads it.
+   */
+  propMix?: TerrainTones['propMix'];
 }
