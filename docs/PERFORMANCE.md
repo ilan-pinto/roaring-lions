@@ -2953,8 +2953,9 @@ tool prints total triangles per view, not the decor's share, so the decor count 
 
 The wet map is cheaper than the basin at zoom 1 (the basin draws about 2.2x the triangles), and dearer by up to
 1.0 ms at `high` and 1.6 ms at `medium` at zoom 2.5, where the basin is almost empty and the fixed wet cost shows.
-That is inside "basin + budget" at `high` (1.0 vs 1.0) and one tenth over at `medium` (1.6 vs 0.7 + the views'
-different content); it is reported, not gated.
+Against decision 13 ("basin + the budget") that is at the line at `high` (+1.00 vs +1.0) and 0.9 ms past it at
+`medium` (+1.60 vs +0.7) and 0.8-1.1 past it at `low` zoom 2.5 (+1.2 to +1.9 vs +0.4); the views are different
+places, so it is reported, not gated. The budgeted NET rows above are the gated reading.
 
 **Draw calls.** Hiding the rain batch changes the call count by exactly -1 on every wet view of every preset
 (`ein_qasab` high 95 -> 94, 54 -> 53; medium 63 -> 62, 30 -> 29; low 60 -> 59, 27 -> 26): one batch, no WARN line.
