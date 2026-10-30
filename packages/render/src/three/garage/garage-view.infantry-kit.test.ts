@@ -70,13 +70,6 @@ vi.mock('../units/gltf-loader', () => ({
   }),
 }));
 
-// The shipped switch is OFF (`INFANTRY_KIT_ENABLED`, GH-826, 28 Oct 2026, PR 891); these tests keep the garage
-// path honest for the redesign, so the module's own constant is forced on for THIS file only.
-vi.mock('../units/infantry-kit', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../units/infantry-kit')>()),
-  INFANTRY_KIT_ENABLED: true,
-}));
-
 const { mountGarageView } = await import('./garage-view');
 
 interface FakeRendererStatic {

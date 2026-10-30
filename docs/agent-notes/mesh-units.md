@@ -684,10 +684,14 @@ for vehicles.
   by its own per-vertex thickness). `down` is informational (corpses keep base
   gear). The NVG mount stands 3 cm below the helmet top and the LPVO sits 6 cm
   forward of the spec because the bowed head's bridge struck the eyepiece.
-- **The switch is OFF (`INFANTRY_KIT_ENABLED = false`, PR 891).** A capture
-  forces it on in its own browser only (`inf-kit-capture.ts` `forceKitOn`
-  rewrites the served module in flight and refuses a run that rewrote nothing);
-  the unit tests force it with a `vi.mock` or the `kitEnabled` parameter.
+- **The switch is ON (`INFANTRY_KIT_ENABLED = true`, 29 Oct 2026).** It was
+  off from PR 891 (the first kit's boxes read as robots) until the redesign
+  (PR 896) was approved. It is the kill switch: false makes every infantry team
+  draw tier 0 and skips the per-seat `#s1` template set in `loadMeshUnit`
+  (`ThreeRenderer.seat-kit-infantry.test.ts` pins both ways). A capture still
+  forces it on in its own browser (`inf-kit-capture.ts` `forceKitOn`, a no-op
+  while it ships on); the unit tests inject either value through the
+  `kitEnabled` parameter.
 
 - **The garage turntable wears it too (GH-826).** `garage-view.ts` builds a team
   whose GLB declares kit extras the way it builds a kitted vehicle: the loaded

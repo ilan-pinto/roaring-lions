@@ -47,18 +47,20 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { KIT_BASE_COUNT_KEY, KIT_NODE_PREFIX } from './vehicle-kit';
 
 /**
- * THE switch for the infantry upgrade kit (GH-826). OFF since 28 Oct 2026:
- * the lead rejected the look of PR 885's gear (oversized boxes that read as
- * robots) and ruled it off in production until it is redesigned. While false,
- * `buildMeshUnitTemplate` hands `applyInfantryKit` NO tiers, so every infantry
- * team draws the tier-0 figure whatever the brigade has bought, in missions,
- * the sandbox and versus rooms, and `ThreeRenderer.loadMeshUnit` builds no
- * second per-seat template set. The pipeline, the GLB kit nodes and
- * `applyInfantryKit` stay compiled and tested: the tests inject `true`
- * through `buildMeshUnitTemplate`'s `kitEnabled` parameter. Vehicles' kit
+ * THE switch for the infantry upgrade kit (GH-826). ON since 29 Oct 2026: the
+ * lead rejected the look of PR 885's gear (oversized boxes that read as
+ * robots) and ruled it off on 28 Oct (PR 891); the redesign (PR 896, real gear
+ * fitted to the figure) was approved on 29 Oct and switched back on. While
+ * true, `buildMeshUnitTemplate` hands `applyInfantryKit` the brigade's bought
+ * tiers, so a kitted team draws its gear in missions, the sandbox and versus
+ * rooms, and `ThreeRenderer.loadMeshUnit` builds the second per-seat template
+ * set (`#s1`) for a room whose seats hold different kit. Setting it false is
+ * the kill switch: every infantry team then draws the tier-0 figure whatever
+ * is bought, with no second set. Tests can still inject either value through
+ * `buildMeshUnitTemplate`'s `kitEnabled` parameter. Vehicles' kit
  * (`vehicle-kit.ts`) is a separate path and is not affected.
  */
-export const INFANTRY_KIT_ENABLED: boolean = false;
+export const INFANTRY_KIT_ENABLED: boolean = true;
 
 /** The per-vertex part id on a packed kit primitive (`_RL_KIT`, lower-cased by the loader). */
 export const INFANTRY_KIT_TAG_ATTR = '_rl_kit';

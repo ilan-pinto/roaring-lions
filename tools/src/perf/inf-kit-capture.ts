@@ -5,8 +5,8 @@
  *
  * `inf_squad` photographed by the game's own camera at zoom 1.0 and 2.5, at
  * tier 0, EVERY tier of each track alone (armour, sensors, firepower: eleven
- * states with the full kit, all three at tier 3). The shipped switch is off, so
- * the browser is made to serve it ON (`forceKitOn`), for the capture only, from two facings (the flank and rear toward the
+ * states with the full kit, all three at tier 3). The browser is made to serve the
+ * switch ON (`forceKitOn`), for the capture only, from two facings (the flank and rear toward the
  * camera, and the front three-quarter). One Metal browser, opened only after
  * the last one closed; one fresh context per state, because a type's tiers are
  * fixed at BOOT (brigade D3) and reach the renderer the way a player's do:
@@ -159,11 +159,12 @@ function accountWith(tiers: Readonly<Record<string, number>>): BrigadeAccount {
 }
 
 /**
- * The shipped switch is OFF (`INFANTRY_KIT_ENABLED`, GH-826, PR 891), so a capture that wants to SEE the kit
- * forces it on for ITS OWN BROWSER ONLY: the served `infantry-kit.ts` module is rewritten in flight
- * (`= false` -> `= true`). Nothing on disk changes and no flip is committed. The count of rewrites is
- * returned so a run that never rewrote anything (a renamed constant, a different module path) is refused
- * rather than photographed as a sheet of tier-0 figures.
+ * The shipped switch is ON (`INFANTRY_KIT_ENABLED`, GH-826, since 29 Oct 2026), but a capture must not depend on
+ * that staying so: the served `infantry-kit.ts` module is rewritten in flight (`= false` -> `= true`), which is a
+ * no-op while the switch ships on and still makes the capture see the kit if it is ever killed again. Nothing on
+ * disk changes. A hit is counted when the module was served with the switch reading `true` afterwards, so a run
+ * that never saw the module (a renamed constant, a different module path) is refused rather than photographed as
+ * a sheet of tier-0 figures.
  */
 async function forceKitOn(ctx: BrowserContext): Promise<{ hits: number }> {
   const counter = { hits: 0 };
@@ -171,7 +172,7 @@ async function forceKitOn(ctx: BrowserContext): Promise<{ hits: number }> {
     const resp = await route.fetch();
     const body = await resp.text();
     const next = body.replace(/(export const INFANTRY_KIT_ENABLED[^=]*=\s*)false/, '$1true');
-    if (next !== body) counter.hits++;
+    if (/export const INFANTRY_KIT_ENABLED[^=]*=\s*true/.test(next)) counter.hits++;
     await route.fulfill({ response: resp, body: next });
   });
   return counter;
@@ -612,7 +613,7 @@ try {
         browser2,
         path.join(args.out, `zoom${zKey}${suffix}.png`),
         `inf_squad in game, zoom ${zKey}${scale > 1 ? `, ${scale}x nearest` : ''} -- tier 0, every tier of every track alone, and the full kit`,
-        `pnpm inf-kit:capture at ${commit}; ${MAP_ID} sandbox without &amp;kit, account-seeded tiers through upgradePrepass; the shipped switch (INFANTRY_KIT_ENABLED, off) forced on in this browser only, nothing committed; ` +
+        `pnpm inf-kit:capture at ${commit}; ${MAP_ID} sandbox without &amp;kit, account-seeded tiers through upgradePrepass; the shipped switch (INFANTRY_KIT_ENABLED) forced on in this browser only, nothing committed; ` +
           `rows: ${FACINGS.map((f) => f.label).join(' / ')}; tick ${CAPTURE_TICK}, frame loop frozen, zero-time repaint; ` +
           `fog, overlays and wind hidden; ${BOX[zKey].w}x${BOX[zKey].h} CSS px at DPR 1; GPU ${gpuName.replace(/[<>&]/g, '')}.`,
         STATES.map((s) => s.label),
