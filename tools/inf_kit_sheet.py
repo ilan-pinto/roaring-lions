@@ -136,6 +136,22 @@ def pair_sheet(d, out, team, a_state="none", b_state="full", headings=(0, 180), 
     print(out, sheet.size, "crop", (x0, y0, x1, y1))
 
 
+def old_new_sheet(old_d, new_d, out, label_old="old R1 full kit", label_new="new R1 full kit", state="full", headings=(0, 180), box=(346, 23, 1042, 747)):
+    """Two rounds of one team side by side: the same state, front above back, the same crop (the garage framing is identical)."""
+    cw, ch = box[2] - box[0], box[3] - box[1]
+    head = 34
+    sheet = Image.new("RGB", (cw * 2 + 6, (ch + head) * len(headings)), (20, 20, 20))
+    dr = ImageDraw.Draw(sheet)
+    f = font(19)
+    for r, h in enumerate(headings):
+        for c, (d, lab) in enumerate(((old_d, label_old), (new_d, label_new))):
+            im = Image.open(os.path.join(d, f"garage_{state}_{h:03d}.png")).convert("RGB").crop(box)
+            sheet.paste(im, (c * (cw + 6), r * (ch + head) + head))
+            dr.text((c * (cw + 6) + 8, r * (ch + head) + 6), f"{lab}  {'front' if h == 0 else 'back'}  heading {h}", fill=(255, 255, 255), font=f)
+    sheet.save(out)
+    print(out, sheet.size)
+
+
 def compare(old, new, out, label_old, label_new, scale_old=2):
     """Old kit beside the new kit at the same framing: the old capture is upscaled to the new's size."""
     o = Image.open(old).convert("RGB")
@@ -174,6 +190,9 @@ if __name__ == "__main__":
     mode = sys.argv[1]
     if mode == "garage":
         garage_sheet(sys.argv[2], int(sys.argv[3]), sys.argv[4])
+        sys.exit(0)
+    if mode == "oldnew":
+        old_new_sheet(sys.argv[2], sys.argv[3], sys.argv[4])
         sys.exit(0)
     if mode == "pair":
         pair_sheet(sys.argv[2], sys.argv[3], sys.argv[4])

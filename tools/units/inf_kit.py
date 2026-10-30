@@ -265,12 +265,12 @@ def _centre_fn(f, bone="spine"):
     return fn
 
 
-def torso_wrap(f, rows, ncols=16, span=None, fill_below=None, whole=False):
+def torso_wrap(f, rows, ncols=16, span=None, fill_below=None, whole=False, rlim=None):
     cols = [i * 360.0 / ncols for i in range(ncols)] if span is None else span
     fr = None if fill_below is None else (lambda j: rows[j] <= fill_below)
     return Wrap(f.zone_torso_all if whole else f.zone_torso, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
                 centre_fn=_centre_fn(f), col_span=None if span is None else True, fill_rows=fr, clamp=f.zone_arms, ellipse=lambda t: kp.TEAM.torso_ellipse,
-                ring_cap=kp.TEAM.torso_ring_cap)
+                ring_cap=kp.TEAM.torso_ring_cap, back_plate=kp.TEAM.carrier_back_plate and not whole, rlim=rlim)
 
 
 def trimmed(f, wr, bone, zlo, zhi, allow=None, pf_bone=None):
@@ -304,6 +304,8 @@ def build_carrier(f, side=None):
             z = wr.rows_t[j]
             plate = smoothstep(0.35, 0.65, abs(math.cos(th))) * smoothstep(1.10, 1.13, z)
             o = 0.006 + 0.016 * plate
+            if kp.TEAM.carrier_back_plate and math.cos(th) < -0.35:
+                o = 0.010            # a thin flat back plate, not a padded back
             # never touch another bone's geometry in any sampled key of the living clips (arms, hands, the stock)
             E[(j, k)] = min(o, trim.get((j, k), 9.0))
     # a soft good does not step: neighbouring vertices differ by at most 7 mm (a Lipschitz envelope of the trims)
@@ -328,7 +330,10 @@ def build_carrier(f, side=None):
         # and leaves the base's own chest rig showing, as a real carrier worn over a rig does.
         if z < 1.19 and math.cos(th) > 0.55:
             return False
+        if kp.TEAM.carrier_back_plate and z < 1.15 and math.cos(th) < -0.35:
+            return False            # the back is a plate on the upper back, not a skirt down over the baggage
         return True
+
     def shard(p):
         # a baked figure's loose shards (cloth tatters, spine-bound hands) stand beyond the ring its own front and back
         # walls imply: the cap leaves them out, so the poke-through check does not chase them (they are counted below)
@@ -360,7 +365,14 @@ def build_helmet_cover(f, side=None):
     offs = [0.003, 0.008, 0.008, 0.005]
     trim = trimmed(f, wr, "head", 1.5, 1.9)
     off = lambda j, k: min(offs[j], trim.get((j, k), 9.0))
-    P, mask, st = fit_wrap(wr, off, None, f.pts["helmet"], "helmet_cover", cap=0.012,
+    def open_face(j, k):
+        # a baked helmet is open at the face: the cover's lowest band stops where the shell does, so its rim rises over the brow
+        if j != 0 or kp.TEAM.helmet_front_trim <= 0:
+            return True
+        ang = (cols[k] + 180.0 / HELMET_COLS + 180.0) % 360.0 - 180.0
+        return abs(ang) > kp.TEAM.helmet_front_trim
+
+    P, mask, st = fit_wrap(wr, off, open_face, f.pts["helmet"], "helmet_cover", cap=0.012,
                            exempt_fn=(lambda p: f.helmet_hardware(p) or in_bracket(p)) if kp.TEAM.baked_mount else None,
                            extra_cap=lambda j, k: max(0.0, trim.get((j, k), 9.0) - off(j, k)))
     pc = Piece(f.world(), open_thick=0.01)
@@ -424,13 +436,14 @@ def build_throat(f, side=None):
 
 def build_yoke(f, side=None):
     ncol = kp.TEAM.yoke_cols            # 9 columns on the Rifle Squad; a figure whose spine zone is complete there needs fewer for the same 24 triangles
-    wr = torso_wrap(f, [1.385, 1.415, 1.448], span=[75 + i * (210.0 / (ncol - 1)) for i in range(ncol)], whole=True)   # above the vest: the whole spine zone
+    wr = torso_wrap(f, [1.385, 1.415, 1.448], span=[75 + i * (210.0 / (ncol - 1)) for i in range(ncol)], whole=True,
+                    rlim=None if kp.TEAM.yoke_rmax is None else (0.06, kp.TEAM.yoke_rmax))   # above the vest: the whole spine zone
 
     trim = trimmed(f, wr, "spine", 1.2, 1.7)
 
     def off(j, k):
         o = 0.015 + 0.005 * abs(math.sin(math.radians(wr.cols[k]))) - (0.003 if j == 2 else 0.0)
-        return min(o, trim.get((j, k), 9.0) + 0.015)
+        return min(o, trim.get((j, k), 9.0) + kp.TEAM.yoke_slack)
     P, mask, st = fit_wrap(wr, off, None, f.pts.get("torso_all", f.pts["torso"]), "yoke")
     pc = Piece(f.world(), open_thick=0.018)
     finish_wrap(pc, wr, P, mask, ["coyote", "coyote"], 0.005, "coyote", off, rim_filter=lambda a, b: a[0] == b[0] == 2,

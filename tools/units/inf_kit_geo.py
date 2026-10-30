@@ -328,7 +328,7 @@ class Wrap:
     figure's surface, offset by the real fabric and plate thickness."""
 
     def __init__(self, zone, axis_o, axis_d, up, rows_t, cols_deg, centre_fn=None, r_out=0.9,
-                 col_span=None, dilate=(0.5, 0.5), fill_rows=None, clamp=None, ellipse=None, rlim=None, default_r=None, fill_vertical=False, ring_cap=False):
+                 col_span=None, dilate=(0.5, 0.5), fill_rows=None, clamp=None, ellipse=None, rlim=None, default_r=None, fill_vertical=False, ring_cap=False, back_plate=False):
         self.zone = zone
         self.o = Vector(axis_o)
         self.e1, self.e2, self.a = basis(axis_d, up)
@@ -343,6 +343,7 @@ class Wrap:
         self.default_r = default_r     # radius for a vertex no ray reached and no neighbour could bridge
         self.rlim = rlim               # (rmin, rmax): sampled radii are clamped (tames the base mesh's loose shards)
         self.ellipse = ellipse         # f(t) -> (ax, ay): a bridged vertex stays inside this section ellipse
+        self.back_plate = back_plate     # flatten the columns nearest 180 deg (the back) onto a plane fitted to the row back walls
         self.ring_cap = ring_cap         # a cyclic wrap's SAMPLED radii are capped by the ring the row's own front and back walls imply
         self.clamp = clamp             # BVH: a bridged vertex stays inside its first surface from the axis
         self.R = None      # radius per vertex (without offset)
@@ -470,6 +471,22 @@ class Wrap:
                 th = math.radians(self.cols[k])
                 c2, s2 = math.cos(th) ** 2, math.sin(th) ** 2
                 row[k] = min(row[k], s2 * rs + c2 * (rf if math.cos(th) >= 0 else rb))
+        if self.back_plate:
+            self._flatten_back()
+
+    def _flatten_back(self, zmin=1.15, half_deg=24.0):
+        """The back of a vest is a plate, not a barrel: fit a plane (radius = a + b z) to the rows' back walls above `zmin` and
+        put the columns within `half_deg` of 180 deg on it, at plane / cos(angle off the back)."""
+        js = [j for j, t in enumerate(self.rows_t) if t >= zmin and j in self.ring_params]
+        if len(js) < 2:
+            return
+        a, b = np.polyfit([self.rows_t[j] for j in js], [self.ring_params[j][1] for j in js], 1)
+        for j in js:
+            plane = a * self.rows_t[j] + b
+            for k, c in enumerate(self.cols):
+                off = abs(((c - 180.0 + 180.0) % 360.0) - 180.0)
+                if off <= half_deg:
+                    self.R[j][k] = plane / math.cos(math.radians(off))
 
     def ring_radius(self, p):
         """The capped ring's radius at the world point `p`'s height and direction (None when the wrap has no ring cap)."""

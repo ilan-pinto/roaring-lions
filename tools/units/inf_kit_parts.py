@@ -156,6 +156,10 @@ class Team:
     stage_hide: tuple = ()             # base primitives left out of the garage / close-up / turntable stills (a world-fixed prop on the ground)
     torso_vest_lum: float = None       # fit the torso wraps to the baked vest: spine triangles whose atlas texel is darker than this (0-1)
     torso_ellipse: tuple = (0.20, 0.185)   # the section ellipse a bridged (unsampled) torso vertex stays inside
+    carrier_back_plate: bool = False   # the carrier's back is a flat upright plate (a plane fitted to the back wall), thin, upper back only
+    helmet_front_trim: float = 0.0     # degrees either side of the front where the cover's lowest band is left off (the open face of a baked helmet)
+    yoke_rmax: float = None            # cap on the yoke's radius from the spine axis (the collar, not a cape over the shoulders)
+    yoke_slack: float = 0.015          # how far past its clearance trim the yoke's offset may stand (the Rifle Squad's 15 mm)
     baked_mount: bool = False    # the helmet already carries an NVG shroud and mount: the tubes ride it, `nvg_mount` is not built
     dense_keys: bool = False     # sample every keyframe of a short clip and the clip's last frame (not a stride alone)
     notes: str = ""
@@ -178,7 +182,8 @@ TEAMS = {
             "olive_dark": (453, 730),      # olive.3  #333821  51, 55, 34
             "glass": (452, 218),           # shadow.0 #23241F  35, 36, 31
         },
-        device_role="uniform", drop=("nvg_mount",),
+        device_role="uniform", drop=("nvg_mount", "deltoid", "sleeve"),   # the lead (30 Oct): no shoulder or sleeve armour on this figure
+        carrier_back_plate=True, helmet_front_trim=60.0, yoke_rmax=0.19, yoke_slack=0.0,
         prims=("uniform", "boot", "face", "weapon", "metal", "charge"),
         bank_prims=("uniform", "weapon", "metal", "charge"),
         clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),

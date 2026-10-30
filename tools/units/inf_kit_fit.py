@@ -148,7 +148,10 @@ class Fit:
         # --- helmet
         hm = (w("head") >= 0.5) & (z >= HELMET_Z0) & mine
         hel = co[hm] - self.O
-        lo, hi = np.percentile(hel, 1, axis=0), np.percentile(hel, 99, axis=0)
+        # a baked mount stands 5 cm proud of the shell at the front and would drag the helmet's centre (and every wrap's axis)
+        # forward: measure the shell without the front-most cluster
+        meas = hel[hel[:, 0] < hel[:, 0].max() - 0.04] if kp.TEAM.baked_mount else hel
+        lo, hi = np.percentile(meas, 1, axis=0), np.percentile(meas, 99, axis=0)
         self.hel_lo, self.hel_hi = lo, hi
         self.hel_c = Vector(((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, 0.0))
         self.hel_rx, self.hel_ry = (hi[0] - lo[0]) / 2, (hi[1] - lo[1]) / 2
