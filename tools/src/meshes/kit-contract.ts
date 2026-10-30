@@ -95,35 +95,38 @@ export const infantryKitNodeName = (
 ): string => `${KIT_PREFIX}${track}_${tier}_${part}${side === undefined ? '' : `_${side}`}_${figure}`;
 
 /**
- * Triangles per NODE as approved at render 1 (26-28 Oct): the per-part column
- * of the spec re-set from what was built, because twelve parts needed to be
- * bolder than the spec's sizes for a figure 23 px tall to show them. The graft
- * refuses a node over `INFANTRY_KIT_PART_SLACK` times its row.
+ * Triangles per NODE: the 28 Oct redesign spec's per-part column ("real gear, fitted",
+ * `_coord/inf-kit/redesign-spec.md` section 3, ruling Q8: the refusal is re-based on THAT
+ * table, the render-1 names are retired). A sided part is one node per side, so its row is half
+ * the spec's pair. The graft refuses a node over `INFANTRY_KIT_PART_SLACK` times its row.
  */
 export const INFANTRY_KIT_PART_TRIS: Readonly<Record<string, number>> = {
-  antenna_long: 32,
-  antenna_short: 32,
-  assault_pack: 56,
-  collar: 48,
-  counterweight: 44,
-  eud_tablet: 56,
-  foregrip: 44,
-  grenade_pouches: 44,
-  groin_flap: 12,
-  helmet_cover: 102,
-  ir_strobe: 24,
-  mag_pouches: 36,
-  nvg_mono: 22,
-  nvg_mount: 56,
-  nvg_quad: 100,
-  optic_dot: 56,
-  optic_mag: 84,
-  plate_back: 12,
-  plate_front: 44,
-  radio_pouch: 44,
-  shoulder: 68,
-  side_plates: 44,
-  suppressor: 70,
-  upperarm_guard: 62,
-  weapon_light: 34,
+  battle_belt: 64,
+  carrier: 190,
+  counterweight: 24,
+  deltoid: 24,
+  eud: 24,
+  foregrip: 28,
+  grenade_pouches: 48,
+  groin: 32,
+  headset: 32,
+  helmet_cover: 64,
+  ir_strobe: 16,
+  laser_box: 32,
+  lpvo: 88,
+  mag_pouches: 56,
+  nvg_bino: 88,
+  nvg_mono: 52,
+  nvg_mount: 40,
+  radio_pack: 84,
+  radio_panel: 48,
+  radio_pouch: 46,
+  red_dot: 44,
+  sleeve: 40,
+  suppressor: 44,
+  throat: 28,
+  weapon_light: 28,
+  whip_long: 30,
+  whip_short: 30,
+  yoke: 32,
 };
