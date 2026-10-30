@@ -143,11 +143,11 @@ def build(window, tiles_dir, per_tile, crop=None):
     litter_img = prefilter(litter_img, TILES["oak_litter_tile"]["metres"])
     scree_img = prefilter(scree_img, TILES["basalt_scree_tile"]["metres"])
 
-    t_open = np.array(FEN0, np.float32) * sample_ratio(open_img, open_mean, 9.0, TILES["wetland_open_tile"]["gain"], 1.0, WX, WY)
-    t_grove = np.array(FEN0, np.float32) * sample_ratio(litter_img, litter_mean, 6.0, TILES["oak_litter_tile"]["gain"], 1.0, WX, WY)
-    t_marsh = np.array(MUD2, np.float32) * sample_ratio(scrub_img, scrub_mean, 6.0, TILES["wet_scrub_tile"]["gain"], SCRUB_TIER1, WX, WY)
+    t_open = np.array(FEN0, np.float32) * sample_ratio(open_img, open_mean, TILES["wetland_open_tile"]["metres"], TILES["wetland_open_tile"]["gain"], 1.0, WX, WY)
+    t_grove = np.array(FEN0, np.float32) * sample_ratio(litter_img, litter_mean, TILES["oak_litter_tile"]["metres"], TILES["oak_litter_tile"]["gain"], 1.0, WX, WY)
+    t_marsh = np.array(MUD2, np.float32) * sample_ratio(scrub_img, scrub_mean, TILES["wet_scrub_tile"]["metres"], TILES["wet_scrub_tile"]["gain"], SCRUB_TIER1, WX, WY)
     road_tone = 0.85 * np.array(MUD1, np.float32) + 0.15 * np.array(FEN0, np.float32)
-    t_road = road_tone * sample_ratio(scree_img, scree_mean, 6.0, TILES["basalt_scree_tile"]["gain"], 1.0, WX, WY)
+    t_road = road_tone * sample_ratio(scree_img, scree_mean, TILES["basalt_scree_tile"]["metres"], TILES["basalt_scree_tile"]["gain"], 1.0, WX, WY)
 
     col = t_open * (1 - grove[..., None]) + t_grove * grove[..., None]
     col = col * (1 - marsh[..., None]) + t_marsh * marsh[..., None]

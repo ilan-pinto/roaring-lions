@@ -368,7 +368,7 @@ def figcheck_page(raw_dir, meta, stats, share):
     label(im, "Spec check: a kneeling KDF figure in the marsh keeps a visible head and shoulders at zoom 1", (20, 12), 28)
     label(im, "Instrument: emission mask at 60 px/m (zoom 1 x4), 36 dry marsh points of Ein Qasab's real marsh, the real placer's reed rolls; every reed is a black occluder.", (20, 52), 16, fill=(200, 205, 210))
     label(im, "Visible fraction = figure pixels left / pixels with no reeds. Head and shoulders = the top 30% of the kneeling figure (1.28 m, so above 0.90 m), the top 28% of the standing one (1.76 m).", (20, 74), 16, fill=(200, 205, 210))
-    cols = [("none", "no reeds"), ("current", "current reeds"), ("fallback", "sheet fallback 1.1/1.0/0.9 m"), ("x1.5", "reeds x1.5 (falsifier)"), ("mass2", "2x reed mass"), ("mass3", "3x reed mass")]
+    cols = [(k, t) for k, t in (("none", "no reeds"), ("current", "current reeds"), ("fallback", "sheet fallback 1.1/1.0/0.9 m"), ("x1.5", "reeds x1.5 (falsifier)"), ("mass2", "2x reed mass (what-if)"), ("mass3", "3x reed mass (what-if)")) if k in stats["kneeling"]]
     y = 112
     for posture in ("kneeling", "standing"):
         label(im, f"{posture} figure: head and shoulders visible (body in brackets)", (20, y), 22, fill=(230, 230, 120))
@@ -395,7 +395,7 @@ def figcheck_page(raw_dir, meta, stats, share):
     for k, t in enumerate(["share of marsh", "share of the dry part"]):
         label(im, t, (520 + k * 260, y), 15, mono=True, fill=(180, 180, 180))
     y += 24
-    for key in ("plan_m1", "game_z1_m1", "plan_m2", "game_z1_m2", "plan_m3", "game_z1_m3"):
+    for key in [k for k in ("plan_m1", "game_z1_m1", "plan_m2", "game_z1_m2", "plan_m3", "game_z1_m3") if k in share]:
         v = share[key]
         view, m = key.rsplit("_m", 1)
         lab = ("plan view" if view == "plan" else "game camera, zoom 1") + f", {m}x mass" + (" (placer)" if m == "1" else "")
@@ -444,8 +444,55 @@ def contact_sheet(raw_dir, meta, tiles_dir, out, scene_ims):
     return im.crop((0, 0, W, y + sc.height + 12))
 
 
+def compare_sheet(old_raw, new_raw, old_tiles, new_tiles, census_before, census_after, extra_lines=()):
+    """R1b: the old and new open tile, the old and new R3 scene, and the numbers that moved."""
+    om, nm = json.load(open(os.path.join(old_raw, "meta.json"))), json.load(open(os.path.join(new_raw, "meta.json")))
+    old_sc, new_sc = scene_images(old_raw, om)["overview_z1"], scene_images(new_raw, nm)["overview_z1"]
+    sw_old = Image.open(os.path.join(old_tiles, "wetland_open_tile_swatch3x3.png")).convert("RGB")
+    sw_new = Image.open(os.path.join(new_tiles, "wetland_open_tile_swatch3x3.png")).convert("RGB")
+    rep_old = json.load(open(os.path.join(old_tiles, "report.json")))["wetland_open_tile"]
+    rep_new = json.load(open(os.path.join(new_tiles, "report.json")))["wetland_open_tile"]
+    W = 2 * 960 + 3 * 16
+    S = 960
+    sc_h = int(old_sc.height * 2 * 960 / (old_sc.width * 2))
+    H = 60 + S + 150 + 40 + sc_h + 40 + 330 + 30 * len(extra_lines)
+    im = Image.new("RGB", (W, H), (24, 26, 30))
+    label(im, "R1b: the open-ground tile calmed (before | after), the R3 scene (before | after), and the numbers that moved. Rain light, ACES, game camera.", (16, 12), 22)
+    y = 50
+    for k, (sw, rep, name, dims) in enumerate(
+        ((sw_old, rep_old, "BEFORE: 9 m tile, repeat 3, gain 1.25, 40% mud in 1.5 m hard-edged patches", "9 m"), (sw_new, rep_new, "AFTER: 18 m tile, repeat 6, gain 1.0, 20% mud in 0.5-1 m patches, soft edge, narrower sward spread", "18 m"))
+    ):
+        x = 16 + k * (S + 16)
+        label(im, name, (x, y), 17)
+        im.paste(sw.resize((S, S), Image.LANCZOS), (x, y + 26))
+        fg = rep["figure_ground"]["open"]
+        label(im, f"3 x 3 repeat = {3 * (9 if k == 0 else 18)} m a side.  mean {rep['mean']}  contrast {rep['contrast']:.3f} (floor 0.05)  figure-ground {fg['share_within_12']*100:.1f}% (limit 5%)  {rep['jpeg_kb']} KB", (x, y + 26 + S + 6), 15, fill=(200, 205, 210))
+    y += 26 + S + 40
+    label(im, "R3 scene at zoom 1 (native 720x410, shown x2). BEFORE: P2's 1.5 reed clumps a tile, 9 m tile.  AFTER: 3 clumps a tile, calmed 18 m tile.", (16, y), 17)
+    y += 26
+    for k, sc in enumerate((old_sc, new_sc)):
+        x = 16 + k * (S + 16)
+        im.paste(up(sc, 2).resize((S, int(sc.height * 2 * S / (sc.width * 2))), Image.NEAREST), (x, y))
+    y += sc_h + 14
+    cb, ca = census_before, census_after
+    lines = [
+        "Ein Qasab placed-decor triangles, against the 0.9 M ceiling (trees at their Meshy caps: oak 2,500, willow 2,500, shrub 600; reeds and grass measured):",
+        f"   BEFORE, 1.5 clumps a tile: {cb['p3']['total']:,} ({cb['p3']['share_of_ceiling']*100:.0f}%), reeds {cb['p3']['rows']['reed'][1]:,} in {cb['p3']['rows']['reed'][0]} placements",
+        f"   AFTER,  3 clumps a tile:   {ca['p3']['total']:,} ({ca['p3']['share_of_ceiling']*100:.0f}%), reeds {ca['p3']['rows']['reed'][1]:,} in {ca['p3']['rows']['reed'][0]} placements   (the P2 stand-in census reads {cb['p2']['total']:,} before, {ca['p2']['total']:,} after)",
+    ]
+    lines += list(extra_lines)
+    for i, t in enumerate(lines):
+        label(im, t, (16, y + i * 24), 16, mono=True if i else False)
+    return im.crop((0, 0, W, y + len(lines) * 24 + 16))
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--compare-old-raw", default=None)
+    ap.add_argument("--compare-old-tiles", default=None)
+    ap.add_argument("--census-before", default=None)
+    ap.add_argument("--census-after", default=None)
+    ap.add_argument("--old-numbers", default=None)
     ap.add_argument("--raw", required=True)
     ap.add_argument("--tiles", required=True)
     ap.add_argument("--out", required=True)
@@ -459,6 +506,7 @@ def main():
             continue
         plate(args.raw, name, meta).save(os.path.join(args.out, f"plate_{name}.png"))
         print("plate", name)
+    compare = args.compare_old_raw is not None
     tiles_panel(args.tiles).save(os.path.join(args.out, "tiles_swatches.png"))
     if "scene" in meta:
         for k, pg in scene_pages(args.raw, meta, args.out).items():
@@ -471,10 +519,24 @@ def main():
         figcheck_page(args.raw, meta, stats, share).save(os.path.join(args.out, "figcheck_and_reed_share.png"))
         numbers["figcheck"] = {p: {c: v["summary"] for c, v in d.items()} for p, d in stats.items()}
         numbers["reed_share"] = share
-    numbers["plates"] = meta["plates"]
     numbers["tiles"] = json.load(open(os.path.join(args.tiles, "report.json")))
+    if "plates" in meta:
+        numbers["plates"] = meta["plates"]
+    if args.census_after:
+        numbers["census_after"] = json.load(open(args.census_after))
+        numbers["census_before"] = json.load(open(args.census_before))
     json.dump(numbers, open(os.path.join(args.out, "numbers.json"), "w"), indent=2)
-    if "scene" in meta:
+    if compare:
+        old_n = json.load(open(args.old_numbers))
+        sh_o, sh_n = old_n["reed_share"], numbers["reed_share"]
+        fc_o, fc_n = old_n["figcheck"]["kneeling"]["current"], numbers["figcheck"]["kneeling"]["current"]
+        extra = [
+            f"Reed share of the marsh at zoom 1 (game camera): BEFORE {sh_o['game_z1_m1']['share']*100:.0f}% of the marsh ({sh_o['game_z1_m1']['share_of_dry']*100:.0f}% of the dry part), plan {sh_o['plan_m1']['share']*100:.0f}%   AFTER {sh_n['game_z1_m1']['share']*100:.0f}% ({sh_n['game_z1_m1']['share_of_dry']*100:.0f}% of the dry part), plan {sh_n['plan_m1']['share']*100:.0f}%   (water {sh_n['water_share']*100:.1f}%)",
+            f"Kneeling figure, head and shoulders visible (36 dry marsh points): BEFORE median {fc_o['head_median']*100:.0f}% min {fc_o['head_min']*100:.0f}%   AFTER median {fc_n['head_median']*100:.0f}% min {fc_n['head_min']*100:.0f}%, {fc_n['head_ge50']}/{fc_n['n']} points keep at least half",
+        ]
+        compare_sheet(args.compare_old_raw, args.raw, args.compare_old_tiles, args.tiles, json.load(open(args.census_before)), json.load(open(args.census_after)), extra).save(os.path.join(args.out, "00_contact_sheet.png"))
+        print("compare sheet")
+    elif "scene" in meta and "plates" in meta:
         contact_sheet(args.raw, meta, args.tiles, args.out, scene_images(args.raw, meta)).save(os.path.join(args.out, "00_contact_sheet.png"))
         print("contact sheet")
 

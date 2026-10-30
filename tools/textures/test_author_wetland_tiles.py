@@ -70,12 +70,19 @@ def test_open_tile_figure_ground_and_its_falsifier():
     u8 = A.to_u8(A.author_open(1024))
     share, _, _ = A.figure_ground(u8, spec, A.TONES["open"][1])
     assert share <= A.FG_LIMIT, share
-    # falsifier: the same tile with mud and sward MIXED (a blur, i.e. soft mixed edges and a
-    # blended understorey) has texels that are olive drab, and the share goes over the limit
-    mixed = A.to_u8(gaussian_filter(u8.astype(np.float32), (14, 14, 0), mode="wrap"))
-    share_mixed, _, _ = A.figure_ground(mixed, spec, A.TONES["open"][1])
-    assert share_mixed > share
-    assert share_mixed > A.FG_LIMIT, share_mixed
+    # falsifier (spec 9.2): the tile authored at a 60% mud share with soft mixed edges
+    bad = A.to_u8(A.author_open(1024, mud_share=0.6, soft=0.12))
+    share_bad, _, _ = A.figure_ground(bad, spec, A.TONES["open"][1])
+    assert share_bad > share
+    assert share_bad > A.FG_LIMIT, share_bad
+
+
+def test_open_tile_keeps_its_contrast_floor_and_the_floor_bites():
+    spec = A.TILES["wetland_open_tile"]
+    u8 = A.to_u8(A.author_open(1024))
+    assert A.visible_contrast(u8, spec) > A.MIN_VISIBLE_CONTRAST
+    # falsifier: the same image at gain 0.4 is under the floor
+    assert A.visible_contrast(u8, dict(spec, gain=0.4)) < A.MIN_VISIBLE_CONTRAST
 
 
 if __name__ == "__main__":

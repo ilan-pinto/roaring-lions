@@ -697,9 +697,8 @@ def stage_figcheck(out, win, decor_colors):
         ("current", dict(reeds=True)),
         ("fallback", dict(reeds=True, reed_fallback=True)),  # 1.1 / 1.0 / 0.9 m
         ("x1.5", dict(reeds=True, reed_scale_mul=1.5)),  # the constructed failing input: reeds 1.5x
-        # what the share target needs: 2x and 3x the mass (the share stage reads 29% at 1x)
+        # headroom beyond the placer's three clumps a tile: twice that (a what-if only)
         ("mass2", dict(reeds=True, reed_mass=2)),
-        ("mass3", dict(reeds=True, reed_mass=3)),
     ]
     zoom, ss = 1.0, 4
     ppm = R.px_per_m(zoom) * ss
@@ -785,7 +784,7 @@ def _emit(name, rgb):
     return R.emission_material(name, rgb)
 
 
-def stage_share(out, win, decor_colors, masses=(1, 2, 3)):
+def stage_share(out, win, decor_colors, masses=(1, 2)):
     """The reed share of the marsh (art-numbers 2.4: tuned in P3 until 65-75%, with 25-35% water).
     Two renders per view: the marsh tiles alone (the area P), then the marsh tiles under the
     reed mat painted white. Share = white pixels inside P / pixels of P. Measured twice: from

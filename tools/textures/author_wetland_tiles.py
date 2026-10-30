@@ -19,7 +19,7 @@ commit's job.
 The five tiles, their real-world size, texels per metre and the repeat / gain they
 will carry (art-numbers.md section 3, approved 28 Oct):
 
-    wetland_open_tile   9 x 9 m   114 texels/m   repeat 3   gain 1.25
+    wetland_open_tile   18 x 18 m 57 texels/m    repeat 6   gain 1.0   (v2, 30 Oct: was 9 m, repeat 3, gain 1.25)
     basalt_rock_tile    6 x 6 m   171 texels/m   repeat 2   gain 1
     wet_scrub_tile      6 x 6 m   171 texels/m   repeat 2   gain 2
     oak_litter_tile     6 x 6 m   171 texels/m   repeat 2   gain 1.5
@@ -61,7 +61,7 @@ from PIL import Image
 # --- the numbers -------------------------------------------------------------
 
 TILES = {
-    "wetland_open_tile": dict(metres=9.0, repeat=3, gain=1.25),
+    "wetland_open_tile": dict(metres=18.0, repeat=6, gain=1.0),
     "basalt_rock_tile": dict(metres=6.0, repeat=2, gain=1.0),
     "wet_scrub_tile": dict(metres=6.0, repeat=2, gain=2.0),
     "oak_litter_tile": dict(metres=6.0, repeat=2, gain=1.5),
@@ -150,7 +150,7 @@ def fbm(n, cells, seed, octaves=4):
         norm += amp
         amp *= 0.5
         c *= 2
-    return total / norm
+    return total / norm if norm > 0 else total
 
 
 def smoothstep(lo, hi, v):
@@ -269,72 +269,67 @@ def hex_rgb(h):
 # --- the five tiles --------------------------------------------------------------
 
 
-def author_open(n):
-    """Spring sward in hard-edged clumps over yellow-umber alluvial mud, 60/40."""
-    mpp = 9.0 / n  # metres per master px
+def author_open(n, mud_share=0.20, soft=0.035):
+    """Spring sward over yellow-umber alluvial mud, v2 (the lead's 30 Oct ruling: calmer).
+
+    v1 (commit 5671bef0a) was 9 m, 40% mud in patches 1.5 m across with hard edges, and its
+    repeat showed in plan view. v2 is 18 m (the repeat is twice as long), about 20% mud, in
+    patches of 0.5-1 m with a soft 8-10 cm edge, with the sward's light and dark and the mud's
+    darkness pulled toward the mean. The mean ratio form (`1 + gain * (texel / mean - 1)`)
+    does the rest: the lower the spread, the nearer every texel sits to the theme tone
+    `fen.0`, which is 15.8 CIEDE2000 from KDF `olive.1`, above the 12 the rule asks."""
+    mpp = TILES["wetland_open_tile"]["metres"] / n  # metres per master px
     px_per_cm = 0.01 / mpp
 
-    # The clump field: ~1.5 m features, ragged edge, thresholded to 60% sward.
-    # Seed 111 of eight tried: its largest connected mud patch is 19% of the tile
-    # (the others 22-55%), so no single patch is recognisable across the repeat.
-    field = fbm(n, 6, 111, 4) + 0.20 * fbm(n, 45, 113, 3)
-    thr = np.quantile(field, 0.40)
-    edge = smoothstep(thr - 0.004, thr + 0.004, field)  # a ~1 final texel edge
-    sward_m = edge > 0.5
+    # Patch field: ~1.3 m wavelength over 18 m (14 cells), thresholded to 20% mud so the patches
+    # are small islands, few and apart. The edge ramp is 0.035 of the field's range: soft (`soft`; the spec's falsifier is mud_share 0.6 with a wide edge).
+    field = fbm(n, 14, 121, 3) + 0.12 * fbm(n, 70, 123, 3)
+    thr = np.quantile(field, 1.0 - mud_share)
+    mud_w = smoothstep(thr - soft, thr + soft, field)  # 1 in the mud (the top `mud_share` of the field)
 
-    # Sward: dark green understorey, mid blades, light tips.
-    under = np.array([40.0, 74.0, 34.0])
-    mid = np.array([86.0, 130.0, 48.0])
-    tip = np.array([142.0, 184.0, 78.0])
-    blade = 0.5 + 0.5 * fbm(n, int(9 / (0.035)), 107, 2)  # ~3.5 cm
-    depth = 0.5 + 0.5 * fbm(n, 24, 109, 3)
-    t = np.clip(0.25 + 0.65 * blade * (0.55 + 0.6 * depth), 0, 1)[..., None]
-    sward = under + (mid - under) * np.clip(t * 1.6, 0, 1) + (tip - mid) * np.clip((t - 0.55) * 2.2, 0, 1)
-    # Fine speckle of light blade tips and dark gaps (per master px).
+    # Sward: understorey, mid blades, light tips. A narrow spread (v1: 40..142 in green).
+    under = np.array([62.0, 100.0, 44.0])
+    mid = np.array([88.0, 128.0, 52.0])
+    tip = np.array([112.0, 154.0, 66.0])
+    blade = 0.5 + 0.5 * fbm(n, int(18 / 0.04), 127, 2)  # ~4 cm
+    depth = 0.5 + 0.5 * fbm(n, 36, 129, 3)
+    t = np.clip(0.30 + 0.55 * blade * (0.6 + 0.5 * depth), 0, 1)[..., None]
+    sward = under + (mid - under) * np.clip(t * 1.5, 0, 1) + (tip - mid) * np.clip((t - 0.6) * 2.0, 0, 1)
     ii = np.arange(n, dtype=np.uint32)
-    sp = hash_u32(ii[:, None], ii[None, :], 113).astype(np.float32) / np.float32(4294967296.0)
-    sward = sward * (0.9 + 0.2 * sp[..., None])
-    sward = np.where((sp > 0.965)[..., None], tip * 1.05, sward)
+    sp = hash_u32(ii[:, None], ii[None, :], 131).astype(np.float32) / np.float32(4294967296.0)
+    sward = sward * (0.94 + 0.12 * sp[..., None])
 
-    # Mud: yellow umber, mottled, with darker wet patches and fine grain.
-    mud0 = np.array([121.0, 93.0, 64.0])
-    wet = np.array([88.0, 66.0, 46.0])
-    mott = 0.5 + 0.5 * fbm(n, 14, 127, 4)
-    grain = 0.5 + 0.5 * fbm(n, int(9 / 0.02), 131, 2)
-    mud = mud0 * (0.88 + 0.22 * mott[..., None]) * (0.94 + 0.12 * grain[..., None])
-    wetmask = smoothstep(0.62, 0.74, 0.5 + 0.5 * fbm(n, 14, 137, 3))
-    mud = mud + (wet - mud) * (wetmask * 0.8)[..., None]
-    mud = mud * (0.95 + 0.1 * sp[..., None])
+    # Mud: yellow umber, mottled, one darker wet tone, close to the sward's lightness.
+    mud0 = np.array([118.0, 96.0, 68.0])
+    wet = np.array([96.0, 78.0, 56.0])
+    mott = 0.5 + 0.5 * fbm(n, 22, 137, 3)
+    grain = 0.5 + 0.5 * fbm(n, int(18 / 0.03), 139, 2)
+    mud = mud0 * (0.92 + 0.14 * mott[..., None]) * (0.96 + 0.08 * grain[..., None])
+    wetmask = smoothstep(0.60, 0.78, 0.5 + 0.5 * fbm(n, 12, 141, 3))
+    mud = mud + (wet - mud) * (wetmask * 0.6)[..., None]
+    mud = mud * (0.97 + 0.06 * sp[..., None])
 
-    img = np.where(sward_m[..., None], sward, mud).astype(np.float32)
+    img = (sward * (1.0 - mud_w[..., None]) + mud * mud_w[..., None]).astype(np.float32)
 
-    # A dark lip where mud meets sward (a few cm of shaded stem bases), so the
-    # edge reads as a step, not as a green-brown blend.
-    dil = sward_m.copy()
-    for _ in range(int(2.5 * px_per_cm)):
-        dil = dil | np.roll(dil, 1, 0) | np.roll(dil, -1, 0) | np.roll(dil, 1, 1) | np.roll(dil, -1, 1)
-    lip = dil & ~sward_m
-    img[lip] = img[lip] * 0.62
-
-    # Straw thatch: short pale strokes lying on the sward (about 15% of it).
-    rng = Rng(139)
-    cnt = int(0.12 * (0.6 * 81.0) / (0.10 * 0.012))
+    # Straw thatch: short pale strokes on the sward, few and low in contrast.
+    rng = Rng(143)
+    cnt = int(0.07 * (0.8 * 324.0) / (0.10 * 0.012))
     x0, y0 = rng.u(cnt) * n, rng.u(cnt) * n
-    on = sward_m[(y0.astype(int) % n), (x0.astype(int) % n)]
+    on = mud_w[(y0.astype(int) % n), (x0.astype(int) % n)] < 0.2
     x0, y0 = x0[on], y0[on]
     m = len(x0)
     ang = rng.u(cnt)[:m] * math.pi
-    ln = (0.05 + 0.09 * rng.u(cnt)[:m]) / mpp
-    straw = np.array([176.0, 150.0, 92.0])[None, :] * (0.85 + 0.3 * rng.u(cnt)[:m, None])
+    ln = (0.05 + 0.08 * rng.u(cnt)[:m]) / mpp
+    straw = np.array([150.0, 134.0, 86.0])[None, :] * (0.88 + 0.24 * rng.u(cnt)[:m, None])
     strokes(img, x0, y0, ang, ln, 1.3 * px_per_cm, straw)
 
-    # Sparse basalt grit on the mud (and a few on the sward): three sizes.
-    for ci, radius_cm in enumerate((1.0, 1.6, 2.4)):
-        cnt = int(3 * 81)
+    # Sparse basalt grit, mostly on the mud.
+    for radius_cm in (1.0, 1.6, 2.4):
+        cnt = int(1.5 * 324)
         gx, gy = rng.u(cnt) * n, rng.u(cnt) * n
-        g = np.array([66.0, 66.0, 70.0])[None, :] * (0.8 + 0.5 * rng.u(cnt)[:, None])
+        g = np.array([74.0, 74.0, 78.0])[None, :] * (0.85 + 0.35 * rng.u(cnt)[:, None])
         splat(img, gx, gy, g, radius_cm * px_per_cm)
-        splat(img, gx - 0.4 * radius_cm * px_per_cm, gy - 0.4 * radius_cm * px_per_cm, np.minimum(g * 1.35, 255), 0.45 * radius_cm * px_per_cm)
+        splat(img, gx - 0.4 * radius_cm * px_per_cm, gy - 0.4 * radius_cm * px_per_cm, np.minimum(g * 1.3, 255), 0.45 * radius_cm * px_per_cm)
     return img
 
 

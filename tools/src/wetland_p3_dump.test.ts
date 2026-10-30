@@ -76,6 +76,7 @@ describe.skipIf(!OUT)('wetland p3 dump', () => {
         decorColors: tones.decorColors,
         tones: { open: tones.open, marsh: tones.marsh, road: tones.road, cover: tones.cover, rock: tones.rock, blocked: tones.blocked },
         familyCounts: all.reduce<Record<string, number>>((m, p) => ((m[p.family] = (m[p.family] ?? 0) + 1), m), {}),
+        variantCounts: all.reduce<Record<string, number>>((m, p) => ((m[`${p.family}_${p.variant}`] = (m[`${p.family}_${p.variant}`] ?? 0) + 1), m), {}),
       })
     );
   });

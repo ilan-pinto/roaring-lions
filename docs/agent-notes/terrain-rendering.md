@@ -338,11 +338,13 @@ determinism hashes and the visual baselines did not move. Each bullet below is a
   has mean 0.298, min 0.199, max 0.387 (29 of 36 in band); the greybox's is **0.3119**. Coarser periods (2.5-3.5
   tiles) gave far wider spread, so the features are about a tile across. P3 retunes with the real mesh; P4's control-C
   bake samples this same function.
-- **Reed clumps** (`emitReedMat`, pass 0): a `~` tile places one clump, plus a second when its own stream
-  (10211/10331) rolls under 0.5 (mean 1.5). Each clump tries up to four jittered centres (jitter 0.9 tile, eight
-  stream pairs 10453..12157) and takes the first whose `marshWaterAt` is below 0.5; if all four are water the clump is
-  dropped. Scale is the per-tile 0.8-1.2 roll. Measured on the 6x6 test marsh: 54 expected, 50 placed (7.4% dropped,
-  limit 20%). The footprint (about 0.8 tile) is P3's, tuned with the real mesh.
+- **Reed clumps** (`emitReedMat`, pass 0): a `~` tile places **three clumps** (`REED_CLUMPS`; P2 placed one plus a 50% second, mean 1.5, and the lead
+  ruled three on 30 Oct after the P3 R1 measurement: the reed share at zoom 1 was 29% of the marsh at 1.5 clumps and is 49% at 3, 72% of the dry part,
+  against the sheet's 65-75%). Clumps 0 and 1 keep their P2 streams, so their centres, variants and yaws are unchanged; clump 2 has its own (centres
+  13337..14143, variant 14251/14363, yaw 14479/14591, grepped unused). Each clump tries up to four jittered centres (jitter 0.9 tile, twelve
+  stream pairs 10453..14143) and takes the first whose `marshWaterAt` is below 0.5; if all four are water the clump is
+  dropped. Scale is the per-tile 0.8-1.2 roll. Measured on the 6x6 test marsh: 108 expected, 102 placed (5.6% dropped,
+  limit 20%; at 1.5 clumps it was 54 and 50). The footprint (about 0.8 tile) is P3's, tuned with the real mesh.
 - **The waterside pass is pass 3 and `DECOR_PASSES` is 4** (`emitWaterside`, R-8). A plain open tile (`familyFor` gives
   `open`, `isOpenScatterAt` allows the jittered spot) within Chebyshev `reach` (1) of a `~` tile rolls `waterside.p`
   (0.12) for a `willow`, scale 0.85-1.15. **A tile where pass 2 rolled a tree is skipped**, through a shared helper,
