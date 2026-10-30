@@ -118,6 +118,7 @@ interface Priv {
   fgPace: Int32Array;
   fgCallX: Int32Array;
   fgCallY: Int32Array;
+  sepWait: Uint8Array;
   fgState: Uint8Array;
   fgLive: Uint8Array;
   lastSeenValid: Uint8Array;
@@ -464,6 +465,49 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
     }
     expect(nextArrival).toBe(177);
     expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 237, side: 0, group: 0, leg: 1, legs: 4 });
+  });
+  it('a hull whose slot lies beyond a waiting hull is steered round it, ghosts through on the valve and is dressed in time', () => {
+    // Ruling 6 keeps a waiting hull `moving` 1, so the separation pass reads it as a mover. Three tanks with a hull
+    // footprint (half length 1.0, half width 0.5): the Column's checkpoint 1 is (24, 31) / (26, 32) / (24, 34), and
+    // the third tank, spawned ahead at (24, 30), is there at tick 72 and waits. The first tank must cross (24, 34)
+    // to reach (24, 31), so it comes up BEHIND the waiting hull. The ten-second dress keeps the wait alive.
+    const w = world();
+    const foot = w.sim.addUnitType({ ...MBT, id: 'fm3_foot', mobility: { ...MBT.mobility, footprint: { half_length_tiles: 1.0, half_width_tiles: 0.5 } } } as UnitTypeJson);
+    const ids = [spawnAt(w, foot, 0, 24, 44), spawnAt(w, foot, 0, 26, 45), spawnAt(w, foot, 0, 24, 30)];
+    order(w, ids, 'column_dress10', [24, 14]);
+    tick(w);
+    const p = priv(w.sim);
+    expect(ids.map((id) => goalTile(w.sim, id))).toEqual([[24, 31], [26, 32], [24, 34]]);
+    let waiterFrom = -1;
+    let peakWait = 0;
+    let peakAt = -1;
+    let arrived = -1;
+    let sidestep = false;
+    for (let t = 0; t < 400 && kinds(w, 'formationReleased').length === 0; t++) {
+      tick(w);
+      const now = w.sim.tickCount - 1;
+      if (waiterFrom < 0 && p.fmDuty[ids[2]] === 1) waiterFrom = now;
+      if (p.sepWait[ids[0]] > peakWait) {
+        peakWait = p.sepWait[ids[0]];
+        peakAt = now;
+      }
+      if (tileOf(p.posX[ids[0]]) === 23) sidestep = true; // it went round the waiting hull, to its west
+      // the waiting hull never moves while it is waited on
+      if (p.fmDuty[ids[2]] === 1) expect([tileOf(p.posX[ids[2]]), tileOf(p.posY[ids[2]])], `waiting hull at ${now}`).toEqual([24, 34]);
+      if (arrived < 0 && p.posX[ids[0]] === p.goalX[ids[0]] && p.posY[ids[0]] === p.goalY[ids[0]] && p.fmLeg[ids[0]] === 1) arrived = now;
+    }
+    expect(waiterFrom).toBe(72);
+    expect(sidestep).toBe(true);
+    // not a deadlock: the count peaks at the valve (SEP_VALVE_TICKS 40), the hull ghosts through, and is on its slot
+    expect([peakWait, peakAt]).toEqual([40, 185]);
+    expect(arrived).toBe(270);
+    // all present: the release is the tick after the last arrival, one tick inside the 200-tick clock (72 + 200 = 272)
+    expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 271, side: 0, group: 0, leg: 1, legs: 4 });
+    tick(w, 700);
+    expect(kinds(w, 'formationReleased').map((e) => (e as { leg: number }).leg)).toEqual([1, 2, 3]);
+    expect(ids.map((id) => p.moving[id])).toEqual([0, 0, 0]);
+    expect(ids.map((id) => goalTile(w.sim, id))).toEqual([[24, 14], [26, 15], [24, 17]]);
+    expect(ids.map((id) => [tileOf(p.posX[id]), tileOf(p.posY[id])])).toEqual([[24, 14], [26, 15], [24, 17]]);
   });
   it('a waiting attack-mover with a remembered contact stays put through the hold (it is not an idle sweeper)', () => {
     const w = world();
