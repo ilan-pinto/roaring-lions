@@ -1408,6 +1408,8 @@ export class ThreeRenderer implements Renderer {
    *  per-frame write of `uRippleAmp` consults it, so a toggle holds across a
    *  repaint. */
   private ripplesDebugHidden = false;
+  /** `opts.reducedMotion?.()`, asked once at the top of each wet write in `frame()` (R-9). */
+  private reducedNow = false;
   /** The control map's textures, bound on `groundMat` as `uControlA`/
    *  `uControlB` (and `uControlC` under rain) -- rebuilt by every
    *  `rebuildTerrain`, because a destroyed structure turns its pad back into
@@ -4106,6 +4108,11 @@ export class ThreeRenderer implements Renderer {
     // tick repeats, and the gate's zero-time repaint moves no leaf. One
     // uniform write, shared by reference with every foliage batch.
     this.sway.time.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+    // Reduced motion is asked ONCE a frame, live (a settings change mid-mission takes effect at
+    // the next frame), and the answer is shared by the rain-visibility write and the ripple
+    // amplitude write below (GH-871 P4 T9, R-9). Both are per-frame writes; the debug toggles
+    // call them between frames and read the last answer, so a show never turns motion back on.
+    this.reducedNow = this.opts.reducedMotion?.() === true;
     this.writeRippleUniforms(alpha);
     this.updateRain(alpha);
     this.updateSilhouetteOutlineWidth();
@@ -11676,7 +11683,7 @@ export class ThreeRenderer implements Renderer {
   /**
    * Whether the preset allows ripples (`RenderQuality.rain.ripples`, R-8):
    * absent means "no opinion" and reads `high`'s (`rainQualityOf`), `false` is
-   * `low`. Reduced motion is Task 9's.
+   * `low`. Reduced motion is applied in `writeRippleAmp`.
    */
   private ripplesAllowed(): boolean {
     return rainQualityOf(this.opts.quality).ripples;
@@ -11701,7 +11708,8 @@ export class ThreeRenderer implements Renderer {
    *  layer calls the moment its flag flips. */
   private writeRippleAmp(): void {
     if (!this.groundMat.wet) return;
-    this.groundMat.uniforms.uRippleAmp.value = this.ripplesAllowed() && !this.ripplesDebugHidden ? 1 : 0;
+    this.groundMat.uniforms.uRippleAmp.value =
+      this.ripplesAllowed() && !this.ripplesDebugHidden && !this.reducedNow ? 1 : 0;
   }
 
   /**
@@ -11754,12 +11762,13 @@ export class ThreeRenderer implements Renderer {
   /**
    * The rain batch's visibility, written every frame. It consults
    * `rainDebugHidden` (the `rain` layer's flag), so a hide holds across the
-   * gate's repaint. This is the seam Task 9 extends with reduced motion; until
-   * then nothing else hides it.
+   * gate's repaint, and reduced motion (`reducedNow`, R-9) stills it: the debug
+   * flag and the motion preference are ANDed, so showing the layer never turns
+   * the rain back on for a player who asked for no motion.
    */
   private writeRainVisibility(): void {
     if (this.rain === null) return;
-    this.rain.mesh.visible = !this.rainDebugHidden;
+    this.rain.mesh.visible = !this.rainDebugHidden && !this.reducedNow;
   }
 
   /**
