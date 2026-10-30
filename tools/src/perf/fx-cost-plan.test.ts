@@ -7,11 +7,13 @@ import {
   deltaRow,
   formatDelta,
   formatLoadLine,
-  formatNet,
+  formatNetLayers,
+  formatNetTotal,
   medianOf,
   netCost,
   parseCostArgs,
   parseViews,
+  totalNetCost,
   resolveWetConfigs,
   wetConfigList,
   type WetFacts,
@@ -21,6 +23,7 @@ const WET_FACTS: WetFacts = {
   rainMap: true,
   wetGround: true,
   rainBatch: true,
+  wetDefine: true,
   ripplesAllowed: true,
   reducedMotion: false,
   shadowCurrent: 2048,
@@ -30,6 +33,7 @@ const DRY_FACTS: WetFacts = {
   rainMap: false,
   wetGround: false,
   rainBatch: false,
+  wetDefine: false,
   ripplesAllowed: true,
   reducedMotion: false,
   shadowCurrent: 4096,
@@ -117,6 +121,12 @@ describe('parseCostArgs: the wet two-map mode', () => {
     expect(() => parseViews('nocolon', maps)).toThrow(/wants <map>:/);
   });
 
+  it('--views refuses the same view twice for one map', () => {
+    const maps = ['ein_qasab', 'wadi_halam_basin'];
+    expect(() => parseViews('ein_qasab:causeway_s,1;ein_qasab:causeway_s,1', maps)).toThrow(/names view "causeway_s-z1" twice for map "ein_qasab"/);
+    expect(() => parseViews('ein_qasab:causeway_s,1;wadi_halam_basin:causeway_s,1', maps)).not.toThrow();
+  });
+
   it('refuses the combinations that would read as something else', () => {
     expect(() => parseCostArgs(['--breakdown', '--maps=a,b', '--map=a'])).toThrow(/not both/);
     expect(() => parseCostArgs(['--maps=a,b'])).toThrow(/--breakdown option/);
@@ -177,6 +187,16 @@ describe('buildSchedule', () => {
   });
 });
 
+describe('the wet schedule carries wet-program in every cell', () => {
+  it('each (round, map, view) times baseline, wet-all, wet-program and shadow-full exactly once', () => {
+    const views = { A: bootViews(), B: bootViews() };
+    const steps = buildSchedule({ maps: ['A', 'B'], rounds: 2, views, configs: wetConfigList() });
+    for (const config of [BASELINE, 'wet-all', 'wet-program', 'shadow-full']) {
+      expect(steps.filter((x) => x.config === config), config).toHaveLength(2 * 2 * 3);
+    }
+  });
+});
+
 describe('resolveWetConfigs', () => {
   it('on a rain map at high every wet config resolves', () => {
     const r = resolveWetConfigs(WET_FACTS);
@@ -210,6 +230,22 @@ describe('resolveWetConfigs', () => {
     expect(resolveWetConfigs({ ...WET_FACTS, rainBatch: false }).rain).toEqual({ resolves: false, reason: 'no-rain-batch' });
   });
 
+  it('wet-program needs the compiled wet define: a dry map and a wet ground without the define are both n/a', () => {
+    expect(resolveWetConfigs(WET_FACTS)['wet-program']).toEqual({ resolves: true });
+    expect(resolveWetConfigs(DRY_FACTS)['wet-program']).toEqual({ resolves: false, reason: 'dry-map' });
+    expect(resolveWetConfigs({ ...WET_FACTS, wetDefine: false })['wet-program']).toEqual({ resolves: false, reason: 'no-wet-define' });
+  });
+
+  it('wet-program still resolves on low and under reduced motion (the program is compiled either way)', () => {
+    const low = resolveWetConfigs({ ...WET_FACTS, ripplesAllowed: false, shadowCurrent: 1024, shadowPreset: 1024 });
+    expect(low['wet-program']).toEqual({ resolves: true });
+    expect(resolveWetConfigs({ ...WET_FACTS, reducedMotion: true })['wet-program']).toEqual({ resolves: true });
+  });
+
+  it('a page with no sun says no-sun, not no-quality', () => {
+    expect(resolveWetConfigs({ ...WET_FACTS, shadowCurrent: null })['shadow-full']).toEqual({ resolves: false, reason: 'no-sun' });
+  });
+
   it('a page with no quality cannot say what the un-stepped shadow map is', () => {
     expect(resolveWetConfigs({ ...WET_FACTS, shadowPreset: null })['shadow-full']).toEqual({ resolves: false, reason: 'no-quality' });
   });
@@ -229,52 +265,87 @@ describe('deltaRow: an unresolved config prints n/a, never a 0 delta', () => {
   });
 });
 
-describe('netCost: net = gross - saving, on literals', () => {
+describe('netCost and totalNetCost: net = gross - saving, on literals', () => {
   const yes = { resolves: true } as const;
+  const dry = { resolves: false, reason: 'dry-map' } as const;
+  // base 12.0 booted; wet layers hidden 10.7 (gross 1.3); the wet PROGRAM removed 10.2 (gross 1.8);
+  // shadow at full size 12.4 (saving 0.4).
+  const input = {
+    base: 12.0,
+    wetAll: { med: 10.7, resolution: yes },
+    wetProgram: { med: 10.2, resolution: yes },
+    shadowFull: { med: 12.4, resolution: yes },
+  };
 
-  it('gross 1.30, saving 0.40 -> net 0.90 (within high\'s +1.0)', () => {
-    // base 12.0; wet layers hidden 10.7 -> gross 1.3; shadow at full size 12.4 -> saving 0.4.
-    const n = netCost({ base: 12.0, wetAll: { med: 10.7, resolution: yes }, shadowFull: { med: 12.4, resolution: yes } });
+  it('the layer net: gross 1.30, saving 0.40 -> 0.90, with no budget verdict and its caveat', () => {
+    const n = netCost(input);
     expect(n.kind).toBe('net');
     if (n.kind !== 'net') return;
     expect(n.gross).toBeCloseTo(1.3, 10);
     expect(n.saving).toBeCloseTo(0.4, 10);
     expect(n.net).toBeCloseTo(0.9, 10);
-    expect(n.stepless).toBe(false);
-    expect(formatNet('high', n)).toContain('net wet cost 0.90 ms = gross 1.30 - saving 0.40');
-    expect(formatNet('high', n)).toContain('within');
-    expect(formatNet('low', n)).toContain('OVER'); // 0.90 > +0.4
+    const text = formatNetLayers(n);
+    expect(text).toContain('NET (layers) 0.90 ms = gross 1.30 - saving 0.40');
+    expect(text).toContain('excludes the standing wet-program cost');
+    expect(text).not.toMatch(/within|OVER/);
+  });
+
+  it('the total net uses the wet-program frame: gross 1.80, saving 0.40 -> 1.40, OVER high\'s +1.0 while the layer net read 0.90', () => {
+    const n = totalNetCost(input);
+    expect(n.kind).toBe('net');
+    if (n.kind !== 'net') return;
+    expect(n.gross).toBeCloseTo(1.8, 10);
+    expect(n.saving).toBeCloseTo(0.4, 10);
+    expect(n.net).toBeCloseTo(1.4, 10);
+    expect(formatNetTotal('high', n)).toContain('NET (total wet) 1.40 ms = gross 1.80 - saving 0.40');
+    expect(formatNetTotal('high', n)).toContain('budget +1.0 ms: OVER');
+    expect(formatNetTotal('high', { ...n, net: 0.95 })).toContain('within');
+    expect(formatNetTotal('low', { ...n, net: 0.4 })).toContain('within'); // the budget is inclusive
+  });
+
+  it('the total ignores the wet-all frame and the layer net ignores the wet-program frame', () => {
+    const swapped = { ...input, wetAll: { med: 1, resolution: yes }, wetProgram: { med: 11, resolution: yes } };
+    expect(totalNetCost(swapped)).toMatchObject({ gross: 1 });
+    expect(netCost(swapped)).toMatchObject({ gross: 11 });
   });
 
   it('a step that costs nothing back (saving 0) leaves net = gross', () => {
-    const n = netCost({ base: 5, wetAll: { med: 4, resolution: yes }, shadowFull: { med: 5, resolution: yes } });
+    const n = netCost({ ...input, base: 5, wetAll: { med: 4, resolution: yes }, shadowFull: { med: 5, resolution: yes } });
     expect(n).toMatchObject({ kind: 'net', gross: 1, saving: 0, net: 1 });
   });
 
   it('low has no step: saving is a true zero, flagged, not n/a', () => {
-    const n = netCost({
+    const n = totalNetCost({
+      ...input,
       base: 8,
-      wetAll: { med: 7.7, resolution: yes },
+      wetProgram: { med: 7.7, resolution: yes },
       shadowFull: { med: 8, resolution: { resolves: false, reason: 'no-shadow-step' } },
     });
     expect(n).toMatchObject({ kind: 'net', saving: 0, stepless: true });
-    if (n.kind === 'net') expect(n.net).toBeCloseTo(0.3, 10);
+    if (n.kind === 'net') {
+      expect(n.net).toBeCloseTo(0.3, 10);
+      expect(formatNetTotal('low', n)).toContain('no shadow step on this preset');
+    }
   });
 
-  it('a dry map is n/a end to end, whatever the frames read', () => {
-    const dry = { resolves: false, reason: 'dry-map' } as const;
-    const n = netCost({ base: 10, wetAll: { med: 10, resolution: dry }, shadowFull: { med: 10, resolution: dry } });
-    expect(n).toEqual({ kind: 'na', reason: 'dry-map' });
-    expect(formatNet('high', n)).toBe('net wet cost n/a (dry-map)');
+  it('a dry map is n/a end to end for both nets, whatever the frames read', () => {
+    const d = { base: 10, wetAll: { med: 10, resolution: dry }, wetProgram: { med: 10, resolution: dry }, shadowFull: { med: 10, resolution: dry } };
+    expect(netCost(d)).toEqual({ kind: 'na', reason: 'dry-map' });
+    expect(totalNetCost(d)).toEqual({ kind: 'na', reason: 'dry-map' });
+    expect(formatNetTotal('high', totalNetCost(d))).toBe('NET (total wet) n/a (dry-map)');
+    expect(formatNetLayers(netCost(d))).toBe('NET (layers) n/a (dry-map)');
+  });
+
+  it('an unresolved wet-program makes the total n/a even when wet-all resolved', () => {
+    const n = totalNetCost({ ...input, wetProgram: { med: 0, resolution: { resolves: false, reason: 'no-wet-define' } } });
+    expect(n).toEqual({ kind: 'na', reason: 'no-wet-define' });
+    expect(netCost({ ...input, wetProgram: { med: 0, resolution: { resolves: false, reason: 'no-wet-define' } } }).kind).toBe('net');
   });
 
   it('a shadow-full that failed for any other reason makes the net n/a, not a silent zero saving', () => {
-    const n = netCost({
-      base: 10,
-      wetAll: { med: 9, resolution: yes },
-      shadowFull: { med: 10, resolution: { resolves: false, reason: 'no-quality' } },
-    });
-    expect(n).toEqual({ kind: 'na', reason: 'no-quality' });
+    const sf = { med: 10, resolution: { resolves: false, reason: 'no-quality' } } as const;
+    expect(netCost({ ...input, shadowFull: sf })).toEqual({ kind: 'na', reason: 'no-quality' });
+    expect(totalNetCost({ ...input, shadowFull: sf })).toEqual({ kind: 'na', reason: 'no-quality' });
   });
 });
 
@@ -283,8 +354,8 @@ describe('small pieces', () => {
     expect(WET_BUDGET_MS).toEqual({ high: 1.0, medium: 0.7, low: 0.4 });
   });
 
-  it('the wet config list is the baseline then rain, wet, marsh, ripples, wet-all, shadow-full', () => {
-    expect(wetConfigList()).toEqual([BASELINE, 'rain', 'wet', 'marsh', 'ripples', 'wet-all', 'shadow-full']);
+  it('the wet config list is the baseline then rain, wet, marsh, ripples, wet-all, wet-program, shadow-full', () => {
+    expect(wetConfigList()).toEqual([BASELINE, 'rain', 'wet', 'marsh', 'ripples', 'wet-all', 'wet-program', 'shadow-full']);
   });
 
   it('the load line prints both loadavgs, one decimal', () => {

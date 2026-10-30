@@ -46,9 +46,11 @@ import {
   deltaRow,
   formatDelta,
   formatLoadLine,
-  formatNet,
+  formatNetLayers,
+  formatNetTotal,
   medianOf as planMedianOf,
   netCost,
+  totalNetCost,
   parseCostArgs,
   resolveWetConfigs,
   wetConfigList,
@@ -224,6 +226,7 @@ async function installWetHarness(page: Page, frames: number): Promise<WetInstall
       rainMap: r.opts?.weather === 'rain',
       wetGround: r.groundMat?.wet === true,
       rainBatch: r.rain != null,
+      wetDefine: r.groundMat?.defines?.THEME_WET !== undefined,
       ripplesAllowed: r.ripplesAllowed() === true,
       reducedMotion: r.reducedNow === true,
       shadowCurrent,
@@ -262,6 +265,41 @@ async function installWetHarness(page: Page, frames: number): Promise<WetInstall
       ripples: layers(['ripples'], 'the ripples'),
       'wet-all': layers(['rain', 'wet', 'marsh', 'ripples'], 'the wet layers'),
     };
+    // The wet ground PROGRAM off (`wet-program`): `wet-all` only zeroes uniforms, and the compiled
+    // THEME_WET blocks (control-C fetch, rim derivatives, mix, roughness, normal) run in both of its
+    // arms. Deleting the define changes the program's cache key (three folds `defines` into it) and
+    // `needsUpdate` makes it relink; the blocks are `#ifdef THEME_WET`, so the dry ground results.
+    // The rain and the ripples are hidden too. Asserted, not assumed: the program's own cacheKey
+    // must differ from the wet one after the warm frames, or this throws instead of timing a no-op.
+    if (facts.wetGround && facts.wetDefine) {
+      const gm = r.groundMat;
+      const progKey = (): string => {
+        const prog = r.renderer.properties.get(gm).currentProgram;
+        if (!prog || typeof prog.cacheKey !== 'string') throw new Error('fx-cost: the ground material has no current program to read a cacheKey from');
+        return prog.cacheKey as string;
+      };
+      let wetKey = '';
+      const hide = layers(['rain', 'ripples'], 'the rain and the ripples');
+      cfgs['wet-program'] = {
+        off: () => {
+          if (gm.defines.THEME_WET === undefined) throw new Error('fx-cost: wet-program: the ground has no THEME_WET define to remove');
+          r.frame(1, 0); // the previous restore has not drawn yet: make the current program the wet one before reading it
+          wetKey = progKey();
+          hide.off();
+          delete gm.defines.THEME_WET;
+          gm.needsUpdate = true;
+        },
+        on: () => {
+          gm.defines.THEME_WET = '';
+          gm.needsUpdate = true;
+          hide.on();
+        },
+        check: () => {
+          const dry = progKey();
+          if (dry === wetKey) throw new Error('fx-cost: wet-program: removing THEME_WET left the same compiled program (' + dry.slice(0, 80) + '), the timing would be a no-op');
+        },
+      };
+    }
     if (sun && shadowPreset !== null && shadowCurrent !== null && shadowPreset > shadowCurrent) {
       cfgs['shadow-full'] = {
         off: () => reshape(shadowPreset),
@@ -402,12 +440,15 @@ async function runWet(): Promise<void> {
         if (rainCalls !== undefined && baseCalls !== undefined && rainCalls !== baseCalls - 1) {
           console.log(`  WARN: hiding the rain changed draw calls ${baseCalls} -> ${rainCalls}, expected exactly -1 (one instanced draw)`);
         }
-        const net = netCost({
+        const netIn = {
           base,
           wetAll: { med: byCfg['wet-all'] ? medOf('wet-all') : 0, resolution: b.res['wet-all'] as Resolution },
+          wetProgram: { med: byCfg['wet-program'] ? medOf('wet-program') : 0, resolution: b.res['wet-program'] as Resolution },
           shadowFull: { med: byCfg['shadow-full'] ? medOf('shadow-full') : 0, resolution: b.res['shadow-full'] as Resolution },
-        });
-        console.log(`  NET ${formatNet(quality, net)}`);
+        };
+        console.log(`  ${formatNetLayers(netCost(netIn))}`);
+        console.log(`  ${formatNetTotal(quality, totalNetCost(netIn))}`);
+        console.log('  note: `wet` zeroes the ripple branch as well, so the rain/wet/marsh/ripples deltas are not additive; wet-program removes the whole wet ground program and the rain and ripples.');
       }
     }
     // The whole frame against the reference map's, view slot by view slot (the plan's decision-13 target).

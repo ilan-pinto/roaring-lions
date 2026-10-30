@@ -33,9 +33,18 @@ export const WET_LAYERS = ['rain', 'wet', 'marsh', 'ripples'] as const;
 export type WetLayer = (typeof WET_LAYERS)[number];
 
 /** Every config the wet mode times beyond `baseline`, in timing order. */
-export const WET_CONFIG_NAMES = ['rain', 'wet', 'marsh', 'ripples', 'wet-all', 'shadow-full'] as const;
+export const WET_CONFIG_NAMES = ['rain', 'wet', 'marsh', 'ripples', 'wet-all', 'wet-program', 'shadow-full'] as const;
 export type WetConfigName = (typeof WET_CONFIG_NAMES)[number];
 export const BASELINE = 'baseline';
+
+/**
+ * `wet-program` is the config the budget rests on. `wet-all` only zeroes the wet UNIFORMS
+ * (`uWetAmp`, `uMarshAmp`, the ripple amplitude) and hides the rain draw, but a rain map's
+ * ground still compiles the `THEME_WET` program, whose control-C fetch, rim derivatives, mix,
+ * roughness and normal blocks run in both arms. `wet-program` removes the define and recompiles
+ * the dry ground (with the rain and the ripples hidden too), so `baseline - wet-program` is the
+ * wet package's whole cost, standing program included.
+ */
 
 /** The wet mode's config list, in the order each round times them. */
 export function wetConfigList(): readonly string[] {
@@ -156,7 +165,10 @@ export function parseViews(raw: string, maps: readonly string[]): Record<string,
     if (colon <= 0) throw new Error(`fx-cost: --views entry "${entry}" wants <map>:<locator>,<zoom>`);
     const map = entry.slice(0, colon).trim();
     if (!maps.includes(map)) throw new Error(`fx-cost: --views names map "${map}" but the run's maps are ${maps.join(', ')}`);
-    (out[map] ??= []).push(parseViewBody(entry, entry.slice(colon + 1)));
+    const view = parseViewBody(entry, entry.slice(colon + 1));
+    const list = (out[map] ??= []);
+    if (list.some((v) => v.name === view.name)) throw new Error(`fx-cost: --views names view "${view.name}" twice for map "${map}"`);
+    list.push(view);
   }
   return out;
 }
@@ -245,7 +257,15 @@ export function buildSchedule(plan: {
 // What each wet config resolves to
 // ---------------------------------------------------------------------------
 
-export type NaReason = 'dry-map' | 'no-rain-batch' | 'ripples-off' | 'reduced-motion' | 'no-shadow-step' | 'no-quality';
+export type NaReason =
+  | 'dry-map'
+  | 'no-rain-batch'
+  | 'ripples-off'
+  | 'reduced-motion'
+  | 'no-shadow-step'
+  | 'no-quality'
+  | 'no-sun'
+  | 'no-wet-define';
 export type Resolution = { readonly resolves: true } | { readonly resolves: false; readonly reason: NaReason };
 
 /** What the page reports of the renderer, read after the boot frames. */
@@ -256,6 +276,8 @@ export interface WetFacts {
   readonly wetGround: boolean;
   /** The rain batch exists (it is built by the first frame after the terrain). */
   readonly rainBatch: boolean;
+  /** `groundMat.defines.THEME_WET` is present: the wet ground PROGRAM is compiled (what `wet-program` removes). */
+  readonly wetDefine: boolean;
   /** The preset allows ripples (`RenderQuality.rain.ripples`). */
   readonly ripplesAllowed: boolean;
   readonly reducedMotion: boolean;
@@ -283,12 +305,15 @@ export function resolveWetConfigs(f: WetFacts): Record<WetConfigName, Resolution
   const ripples: Resolution = !wetGround ? no('dry-map') : f.reducedMotion ? no('reduced-motion') : !f.ripplesAllowed ? no('ripples-off') : YES;
   const shadowFull: Resolution = !f.rainMap
     ? no('dry-map')
-    : f.shadowPreset === null || f.shadowCurrent === null
-      ? no('no-quality')
-      : f.shadowPreset <= f.shadowCurrent
-        ? no('no-shadow-step')
-        : YES;
-  return { rain, wet: layer(YES), marsh: layer(YES), ripples, 'wet-all': layer(YES), 'shadow-full': shadowFull };
+    : f.shadowCurrent === null
+      ? no('no-sun')
+      : f.shadowPreset === null
+        ? no('no-quality')
+        : f.shadowPreset <= f.shadowCurrent
+          ? no('no-shadow-step')
+          : YES;
+  const wetProgram: Resolution = !wetGround ? no('dry-map') : !f.wetDefine ? no('no-wet-define') : YES;
+  return { rain, wet: layer(YES), marsh: layer(YES), ripples, 'wet-all': layer(YES), 'wet-program': wetProgram, 'shadow-full': shadowFull };
 }
 
 // ---------------------------------------------------------------------------
@@ -316,8 +341,10 @@ export function formatDelta(row: DeltaRow): string {
 export interface NetInput {
   /** The booted frame (wet layers on, the step applied), median ms. */
   readonly base: number;
-  /** The frame with all four wet layers hidden. */
+  /** The frame with all four wet layers hidden (uniforms zeroed, the wet program still compiled). */
   readonly wetAll: { readonly med: number; readonly resolution: Resolution };
+  /** The frame with the wet ground program itself removed (and the rain and ripples hidden). */
+  readonly wetProgram: { readonly med: number; readonly resolution: Resolution };
   /** The frame with the shadow map back at the preset's own size. */
   readonly shadowFull: { readonly med: number; readonly resolution: Resolution };
 }
@@ -326,35 +353,55 @@ export type NetCost =
   | { readonly kind: 'na'; readonly reason: NaReason }
   | { readonly kind: 'net'; readonly gross: number; readonly saving: number; readonly net: number; readonly stepless: boolean };
 
-/**
- * gross  = booted frame - wet-all-hidden frame        (what the wet layers cost)
- * saving = shadow-full frame - booted frame            (what the shadow step buys back)
- * net    = gross - saving                              (the wet package's cost, step credited)
- *
- * A wet-all that did not resolve makes the whole line `n/a`. A shadow-full with
- * no step to undo (`no-shadow-step`, `low`) is a true zero saving, flagged
- * `stepless`; any other unresolved shadow-full is `n/a`, never a silent 0.
- */
-export function netCost(i: NetInput): NetCost {
-  if (!i.wetAll.resolution.resolves) return { kind: 'na', reason: i.wetAll.resolution.reason };
-  const gross = i.base - i.wetAll.med;
-  const sf = i.shadowFull.resolution;
+function netFrom(base: number, off: { readonly med: number; readonly resolution: Resolution }, shadowFull: NetInput['shadowFull']): NetCost {
+  if (!off.resolution.resolves) return { kind: 'na', reason: off.resolution.reason };
+  const gross = base - off.med;
+  const sf = shadowFull.resolution;
   if (!sf.resolves) {
     if (sf.reason !== 'no-shadow-step') return { kind: 'na', reason: sf.reason };
     return { kind: 'net', gross, saving: 0, net: gross, stepless: true };
   }
-  const saving = i.shadowFull.med - i.base;
+  const saving = shadowFull.med - base;
   return { kind: 'net', gross, saving, net: gross - saving, stepless: false };
 }
 
-export function formatNet(preset: Preset, n: NetCost): string {
-  if (n.kind === 'na') return `net wet cost n/a (${n.reason})`;
+/**
+ * gross  = booted frame - the "off" frame            (what was switched off cost)
+ * saving = shadow-full frame - booted frame           (what the shadow step buys back)
+ * net    = gross - saving
+ *
+ * `netCost` is the LAYER net: "off" is `wet-all`, which leaves the compiled wet program
+ * running, so it understates the package (it excludes the standing wet-program cost). It is
+ * reported for the layer breakdown and carries no budget verdict. `totalNetCost` is the
+ * number the budgets apply to: "off" is `wet-program`.
+ *
+ * An unresolved "off" makes the line `n/a`. A shadow-full with no step to undo
+ * (`no-shadow-step`, `low`) is a true zero saving, flagged `stepless`; any other unresolved
+ * shadow-full is `n/a`, never a silent 0 saving.
+ */
+export function netCost(i: NetInput): NetCost {
+  return netFrom(i.base, i.wetAll, i.shadowFull);
+}
+
+export function totalNetCost(i: NetInput): NetCost {
+  return netFrom(i.base, i.wetProgram, i.shadowFull);
+}
+
+function netTerms(n: Extract<NetCost, { kind: 'net' }>): string {
+  return `${n.net.toFixed(2)} ms = gross ${n.gross.toFixed(2)} - saving ${n.saving.toFixed(2)}${n.stepless ? ' (no shadow step on this preset)' : ''}`;
+}
+
+/** `NET (layers)`: no budget verdict, and says why. */
+export function formatNetLayers(n: NetCost): string {
+  if (n.kind === 'na') return `NET (layers) n/a (${n.reason})`;
+  return `NET (layers) ${netTerms(n)}  [layer-toggle cost, excludes the standing wet-program cost; no budget applies]`;
+}
+
+/** `NET (total wet)`: the budget-bearing line. */
+export function formatNetTotal(preset: Preset, n: NetCost): string {
+  if (n.kind === 'na') return `NET (total wet) n/a (${n.reason})`;
   const budget = WET_BUDGET_MS[preset];
-  const verdict = n.net <= budget ? 'within' : 'OVER';
-  return (
-    `net wet cost ${n.net.toFixed(2)} ms = gross ${n.gross.toFixed(2)} - saving ${n.saving.toFixed(2)}` +
-    `${n.stepless ? ' (no shadow step on this preset)' : ''}  budget +${budget.toFixed(1)} ms: ${verdict}`
-  );
+  return `NET (total wet) ${netTerms(n)}  budget +${budget.toFixed(1)} ms: ${n.net <= budget ? 'within' : 'OVER'}`;
 }
 
 /** `os.loadavg()` before and after one preset, beside its rows. */
