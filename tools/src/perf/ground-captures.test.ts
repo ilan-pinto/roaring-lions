@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { COST_LAYERS, parseGroundCaptureArgs, roadCloseUp, viewsFor } from './ground-captures';
+import {
+  COST_LAYERS,
+  FIRST_INFANTRY_SCRIPT,
+  hasArrived,
+  nearestWaterTile,
+  parseGroundCaptureArgs,
+  positionScript,
+  reflectName,
+  reflectViews,
+  roadCloseUp,
+  viewsFor,
+  wadeCommand,
+  wadeOrderScript,
+  wadeViews,
+} from './ground-captures';
 
 describe('parseGroundCaptureArgs', () => {
   it('defaults to port 5196 and the four audit maps', () => {
@@ -96,5 +110,157 @@ describe('--markers', () => {
 describe('COST_LAYERS', () => {
   it('measures decals ahead of scorch, so the one array reads both trees', () => {
     expect(COST_LAYERS).toEqual(['scatter', 'decor', 'props', 'units', 'buildings', 'decals', 'scorch']);
+  });
+});
+
+// GH-871 P4 T6. Literal rows, literal markers: the oracles do not import their arguments.
+describe('--reflect and --wade parsing', () => {
+  // The command line the plan names, verbatim.
+  const PLAN = [
+    '--port=5196',
+    '--maps=ein_qasab,wadi_halam_basin,tel_marum',
+    '--markers=ein_qasab:causeway_s,ein_qasab:kdf_start,ein_qasab:hamlet',
+    '--reflect=0.20,0.25,0.35',
+    '--wade=ein_qasab:causeway_s',
+    '--out=/Users/ilpinto/dev/roaring-lions-ep/_coord/wet-theme/p4/look1/captures',
+  ];
+  it('accepts the plan command line, every old option unchanged', () => {
+    const a = parseGroundCaptureArgs(PLAN);
+    expect(a.port).toBe(5196);
+    expect(a.maps).toEqual(['ein_qasab', 'wadi_halam_basin', 'tel_marum']);
+    expect(a.out).toBe('/Users/ilpinto/dev/roaring-lions-ep/_coord/wet-theme/p4/look1/captures');
+    expect(a.markers).toEqual([
+      { map: 'ein_qasab', marker: 'causeway_s' },
+      { map: 'ein_qasab', marker: 'kdf_start' },
+      { map: 'ein_qasab', marker: 'hamlet' },
+    ]);
+    expect(a.reflect).toEqual([0.2, 0.25, 0.35]);
+    expect(a.wade).toEqual({ map: 'ein_qasab', marker: 'causeway_s' });
+  });
+  it('is absent without the flags, and a run without them has no extra keys', () => {
+    const a = parseGroundCaptureArgs(['--maps=ein_qasab']);
+    expect(Object.keys(a).sort()).toEqual(['decals', 'maps', 'out', 'port', 'reuse']);
+  });
+  it('refuses a reflectance outside 0..1, a repeat, an empty list and a bare --reflect', () => {
+    const base = ['--maps=a', '--markers=a:m'];
+    expect(() => parseGroundCaptureArgs([...base, '--reflect=1.5'])).toThrow(/0\.\.1/);
+    expect(() => parseGroundCaptureArgs([...base, '--reflect=x'])).toThrow(/0\.\.1/);
+    expect(() => parseGroundCaptureArgs([...base, '--reflect=0.2,0.20'])).toThrow(/twice/);
+    expect(() => parseGroundCaptureArgs([...base, '--reflect='])).toThrow(/at least one/);
+    expect(() => parseGroundCaptureArgs(['--maps=a', '--reflect=0.2'])).toThrow(/--markers/);
+  });
+  it('refuses a malformed --wade and a map the run does not photograph', () => {
+    expect(() => parseGroundCaptureArgs(['--maps=a', '--wade=a'])).toThrow(/<map>:<marker>/);
+    expect(() => parseGroundCaptureArgs(['--maps=a', '--wade=b:m'])).toThrow(/--wade names map "b"/);
+  });
+});
+
+describe('reflectViews', () => {
+  const rows = Array.from({ length: 48 }, () => '.'.repeat(48));
+  const table = { causeway_s: [22, 34], hamlet: [42, 22] } as const;
+  it('names a view per marker view and value as <view>-r<v>, and the names are all distinct', () => {
+    const views = viewsFor('m', rows, ['causeway_s'], table);
+    const extra = reflectViews('m', views, ['causeway_s'], [0.2, 0.25, 0.35]);
+    expect(extra.map((v) => v.name)).toEqual([
+      'm-causeway_s-z1-r0.2',
+      'm-causeway_s-z1-r0.25',
+      'm-causeway_s-z1-r0.35',
+      'm-causeway_s-z2.5-r0.2',
+      'm-causeway_s-z2.5-r0.25',
+      'm-causeway_s-z2.5-r0.35',
+    ]);
+    const all = [...views, ...extra].map((v) => v.name);
+    expect(new Set(all).size).toBe(all.length);
+    expect(extra.map((v) => v.reflect)).toEqual([0.2, 0.25, 0.35, 0.2, 0.25, 0.35]);
+  });
+  it('keeps the camera of the view it repeats, and leaves the plain views without a reflectance', () => {
+    const views = viewsFor('m', rows, ['hamlet'], table);
+    const extra = reflectViews('m', views, ['hamlet'], [0.25]);
+    expect(extra[0]).toEqual({ name: 'm-hamlet-z1-r0.25', x: 42, y: 22, zoom: 1, fog: false, reflect: 0.25 });
+    expect(views.every((v) => v.reflect === undefined)).toBe(true);
+  });
+  it('repeats nothing for a marker that was not asked for, or with no values', () => {
+    const views = viewsFor('m', rows, ['causeway_s', 'hamlet'], table);
+    expect(reflectViews('m', views, ['hamlet'], [0.2]).map((v) => v.name)).toEqual([
+      'm-hamlet-z1-r0.2',
+      'm-hamlet-z2.5-r0.2',
+    ]);
+    expect(reflectViews('m', views, ['hamlet'], [])).toEqual([]);
+  });
+  it('names one reflectance of one view', () => {
+    expect(reflectName('m-a-z1', 0.35)).toBe('m-a-z1-r0.35');
+  });
+});
+
+describe('nearestWaterTile', () => {
+  // x is the column, y the row.
+  const rows = [
+    '.....', //
+    '..~..',
+    '.....',
+    '~....',
+    '.....',
+  ];
+  it('picks the nearest ~ tile by distance', () => {
+    expect(nearestWaterTile(rows, [2, 0])).toEqual([2, 1]);
+    expect(nearestWaterTile(rows, [0, 4])).toEqual([0, 3]);
+  });
+  it('breaks a tie to the lowest (y, x)', () => {
+    // from (1,2), (2,1) and (0,3) are both at squared distance 2.
+    expect(nearestWaterTile(rows, [1, 2])).toEqual([2, 1]);
+    // two tiles in one row, equidistant: the lower x wins
+    expect(nearestWaterTile(['~...~'], [2, 0])).toEqual([0, 0]);
+  });
+  it('is null on a map with no ~, and a marker on a ~ tile picks itself', () => {
+    expect(nearestWaterTile(['...', '...'], [1, 1])).toBeNull();
+    expect(nearestWaterTile(rows, [2, 1])).toEqual([2, 1]);
+  });
+});
+
+describe('the wade order is a Command, never a state write (invariant 4)', () => {
+  it('builds a move Command to the centre of the tile in Q16.16', () => {
+    // tile (22, 33): (22.5, 33.5) in tiles is 1474560 and 2195456 in Q16.16
+    expect(wadeCommand([7], [22, 33])).toEqual({ kind: 'move', ids: [7], x: 1474560, y: 2195456 });
+  });
+  it('hands exactly that Command to sim.queueCommand and writes no sim state', () => {
+    const queued: unknown[] = [];
+    const writes: string[] = [];
+    const guard = (name: string): ProxyHandler<object> => ({
+      set: (_t, k) => {
+        writes.push(`${name}.${String(k)}`);
+        return true;
+      },
+    });
+    const sim = new Proxy(
+      {
+        queueCommand: (c: unknown) => queued.push(c),
+        state: new Proxy({ posX: new Proxy([], guard('posX')), alive: [] }, guard('state')),
+      },
+      guard('sim')
+    );
+    const cmd = wadeCommand([7], [22, 33]);
+    const run = new Function('window', `return ${wadeOrderScript(cmd)};`) as (w: unknown) => unknown;
+    expect(run({ __lions: { sim } })).toBe(true);
+    expect(queued).toEqual([{ kind: 'move', ids: [7], x: 1474560, y: 2195456 }]);
+    expect(writes).toEqual([]);
+  });
+  it('the reading scripts write nothing either', () => {
+    for (const script of [FIRST_INFANTRY_SCRIPT, positionScript(3)]) {
+      expect(script).not.toMatch(/queueCommand|posX\[[^\]]*\]\s*=[^=]|posY\[[^\]]*\]\s*=[^=]|\.state\s*=/);
+    }
+  });
+});
+
+describe('wade arrival and views', () => {
+  it('has arrived within 1.5 tiles of the tile centre, not beyond', () => {
+    expect(hasArrived({ x: 22.5, y: 33.5 }, [22, 33])).toBe(true);
+    expect(hasArrived({ x: 23.9, y: 33.5 }, [22, 33])).toBe(true);
+    expect(hasArrived({ x: 24.1, y: 33.5 }, [22, 33])).toBe(false);
+  });
+  it('photographs the tile at z1 and z2.5 under names of their own', () => {
+    expect(wadeViews('m', [22, 33])).toEqual([
+      { name: 'm-wade-z1', x: 22, y: 33, zoom: 1, fog: false },
+      { name: 'm-wade-z2.5', x: 22, y: 33, zoom: 2.5, fog: false },
+    ]);
   });
 });
