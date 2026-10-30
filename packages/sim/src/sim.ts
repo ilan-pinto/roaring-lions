@@ -19,9 +19,12 @@ import {
   FM_ARRIVE_AMBUSH,
   FM_CALL_STAY,
   FM_CLASS_NONE,
+  FM_CONTACT,
   FM_DRILL_SPRING,
+  FM_FACE_TRAVEL,
   FM_FACING_NONE,
   FM_MARCH,
+  FM_PACE_NONE,
   FM_SHAPE_RING,
   FM_SPRUNG,
   FM_VERB_ATTACK,
@@ -29,8 +32,11 @@ import {
   FM_VERB_MOVE,
   aircraftCallOf,
   assignTemplate,
+  checkpointsOf,
   compileFormation,
+  eighthToward,
   formationClassOf,
+  routeWalk,
   type CompiledFormation,
   type FormationJson,
   type TemplateSlot,
@@ -1379,6 +1385,10 @@ export type SimEvent =
    *  spring); `stepFormationSpring` clears the rest of the ring's stances at the start of the NEXT tick,
    *  before combat, so the ring fires from that next tick. */
   | { kind: 'formationSprung'; tick: number; side: number; group: number; entity: number }
+  /** GH-859 P1b: a marching group's checkpoint was released: every member waiting at it goes on. `leg` is the
+   *  checkpoint released (1-based, the highest released so far) and `legs` the group's checkpoint count. Pushed
+   *  by `stepFormationMarch`, on the tick after the last arrival or `dress_s` after the first one. */
+  | { kind: 'formationReleased'; tick: number; side: number; group: number; leg: number; legs: number }
   | { kind: 'strike'; tick: number; by: number; x: Fx; y: Fx; profile: number }
   | { kind: 'smokeLaid'; tick: number; by: number; x: Fx; y: Fx }
   | { kind: 'revealed'; tick: number; side: number; count: number }
@@ -1477,7 +1487,7 @@ export type SimEvent =
  *  without adding it here fails typecheck.
  */
 export const SIM_EVENT_KINDS = [
-  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung', 'formationSprung',
+  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung', 'formationSprung', 'formationReleased',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'chargeSet', 'chargeDetonated', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
   'fieldFixed', 'beam',
@@ -4162,6 +4172,9 @@ export class Sim {
     // GH-707 Task 5: medics after the bleed (a man who bled out this tick is not walked to)
     // and before movement, so the leg a medic is given walks this same tick.
     this.stepMedics();
+    // GH-859 P1b: after combat and before movement, so a checkpoint released here sends its members on this very
+    // tick, and last tick's arrivals are the ones it counts (a one-tick delay, the same for every member).
+    if (this.fmLive) this.stepFormationMarch();
     this.stepMovement();
     this.stepTransport();
     // GH-707 Task 6: aid posts count their patients down, then admit what carriers brought
@@ -4520,8 +4533,15 @@ export class Sim {
     for (let j = 0; j < this.count; j++) {
       if (this.alive[j] === 0 || this.side[j] !== side || inOrder.has(j)) continue;
       if (this.garrisonedIn[j] >= 0 || this.carriedBy[j] >= 0 || this.tunnelIn[j] >= 0) continue;
-      const x = fx.toInt(this.moving[j] === 1 ? this.goalX[j] : this.posX[j]);
-      const y = fx.toInt(this.moving[j] === 1 ? this.goalY[j] : this.posY[j]);
+      let x = fx.toInt(this.moving[j] === 1 ? this.goalX[j] : this.posX[j]);
+      let y = fx.toInt(this.moving[j] === 1 ? this.goalY[j] : this.posY[j]);
+      // GH-859 P1b (Ruling 5, spec §4.4): a formation member on a march is bound for its LAST queued tile, so
+      // that is what it reserves. One array read per member; closes Deviation 1 for formation orders only.
+      if (this.fmLive && this.fmGroup[j] >= 0 && this.wpCount[j] > 0) {
+        const k = j * MAX_WAYPOINTS + this.wpCount[j] - 1;
+        x = fx.toInt(this.wpX[k]);
+        y = fx.toInt(this.wpY[k]);
+      }
       if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
       reserved[y * this.width + x] = 1;
     }
@@ -4638,6 +4658,8 @@ export class Sim {
     let tSumX = 0;
     let tSumY = 0;
     let tCount = 0;
+    // GH-859 P1b (M6): an id named twice is one placeable member. Allocated by a template order only.
+    const tSeen = tplIdx >= 0 ? new Set<number>() : null;
     for (const id of exact ? [] : cmd.ids) {
       // A passenger is inside a vehicle and does not walk anywhere: the
       // carrier decides where it goes, and `unload` is how it gets out.
@@ -4678,7 +4700,8 @@ export class Sim {
       sumX += ix;
       sumY += iy;
       // Side 2 (civilians, neutrals) is never placed; class none ignores the order.
-      if (tplIdx >= 0 && utype.fmClass !== FM_CLASS_NONE && this.side[id] <= 1) {
+      if (tSeen !== null && utype.fmClass !== FM_CLASS_NONE && this.side[id] <= 1 && !tSeen.has(id)) {
+        tSeen.add(id);
         tSumX += ix;
         tSumY += iy;
         tCount++;
@@ -4689,14 +4712,82 @@ export class Sim {
     // through to the plain order below, and nothing here has been written yet.
     let placed: Map<number, TemplateSlot> | null = null;
     let ringRadius = 0;
+    // GH-859 P1b: the march. Slots of checkpoints 1..n-1 (the intermediate ones) in `legSlots`, checkpoint k's tile
+    // in `cpX/cpY`; `slots` and `placed` stay the FINAL checkpoint's, which is P1a's whole answer when n is 1.
+    const legSlots: Map<number, [number, number]>[] = [];
+    const cpX: number[] = [];
+    const cpY: number[] = [];
+    let travelFace = FM_FACING_NONE;
     if (tplIdx >= 0 && tCount >= this.formationTypes[tplIdx].minMembers) {
       this.fmLive = true;
       const tpl = this.formationTypes[tplIdx];
       const units: TemplateUnit[] = [];
+      const uSeen = new Set<number>();
       for (const m of members) {
         const ut = this.unitTypes[this.typeIdx[m.id]];
-        if (ut.fmClass === FM_CLASS_NONE || this.side[m.id] > 1) continue;
+        if (ut.fmClass === FM_CLASS_NONE || this.side[m.id] > 1 || uSeen.has(m.id)) continue;
+        uSeen.add(m.id);
         units.push({ id: m.id, domain: m.domain, cls: ut.fmClass, vehicle: !ut.isAir && ut.moveDomain === DOMAIN_VEHICLE, air: ut.isAir });
+      }
+      const cenX = (tSumX - (tSumX % tCount)) / tCount;
+      const cenY = (tSumY - (tSumY % tCount)) / tCount;
+      // Rulings 1 and 2: walk the lead domain's route field from the centroid to the click, and cut it into
+      // checkpoints. An appended order, a missing route or a short one is one checkpoint (P1a, whole).
+      let startX = cenX;
+      let startY = cenY;
+      const cuts: number[] = [];
+      if (cmd.append !== true) {
+        const vehicleLead = units.some((u) => u.vehicle);
+        const lead = vehicleLead ? DOMAIN_VEHICLE : DOMAIN_FOOT;
+        const [sx, sy] = this.nearestOpenTile(cenX, cenY, vehicleLead ? this.blockedVehicleMask : this.blocked);
+        const goalTx = vehicleLead ? vgx : fgx;
+        const goalTy = vehicleLead ? vgy : fgy;
+        // Read now and not kept: the next fieldFor may recycle the slot.
+        const route = routeWalk(this.fields[this.fieldFor(goalTx, goalTy, lead)].dirs, this.width, this.height, sx, sy, goalTx, goalTy);
+        if (route !== null && route.length > 0) {
+          startX = sx;
+          startY = sy;
+          for (const at of checkpointsOf(route.length, tpl.legTiles, MAX_WAYPOINTS + 1)) cuts.push(route[at]);
+        }
+      }
+      const nLegs = cuts.length > 0 ? cuts.length : 1;
+      const w = this.width;
+      let none: Uint8Array | null = null; // an intermediate checkpoint reserves nothing: one all-zero mask per order
+      let prevX = startX;
+      let prevY = startY;
+      for (let k = 0; k < nLegs - 1; k++) {
+        if (none === null) none = new Uint8Array(w * this.height);
+        const tile = cuts[k];
+        const tx2 = tile % w;
+        const ty2 = (tile - tx2) / w;
+        const [ofx, ofy] = this.nearestOpenTile(tx2, ty2);
+        const [ovx, ovy] = this.nearestOpenTile(tx2, ty2, this.blockedVehicleMask);
+        const mid = assignTemplate(
+          {
+            width: w,
+            height: this.height,
+            masks: [this.blocked, this.blockedVehicleMask],
+            origins: [
+              [ofx, ofy],
+              [ovx, ovy],
+            ],
+            clickX: ofx,
+            clickY: ofy,
+            fromX: prevX,
+            fromY: prevY,
+            units,
+            reserved: none,
+            cover: this.cover,
+          },
+          tpl,
+        );
+        const m = new Map<number, [number, number]>();
+        for (const sl of mid.slots) m.set(sl.id, [sl.x, sl.y]);
+        legSlots.push(m);
+        cpX.push(tx2);
+        cpY.push(ty2);
+        prevX = tx2;
+        prevY = ty2;
       }
       const res = assignTemplate(
         {
@@ -4709,8 +4800,8 @@ export class Sim {
           ],
           clickX: fgx,
           clickY: fgy,
-          fromX: (tSumX - (tSumX % tCount)) / tCount,
-          fromY: (tSumY - (tSumY % tCount)) / tCount,
+          fromX: prevX,
+          fromY: prevY,
           units,
           reserved: this.reservedTilesFor(this.side[units[0].id], cmd.ids),
           cover: this.cover,
@@ -4722,8 +4813,14 @@ export class Sim {
         slots.set(sl.id, [sl.x, sl.y]);
         placed.set(sl.id, sl);
       }
+      legSlots.push(slots);
+      cpX.push(fgx);
+      cpY.push(fgy);
       ringRadius = res.ringRadius;
+      // Ruling 9: `travel` is the direction of the last leg, eight-way (the slot frame is axis-quantised).
+      if (tpl.face === FM_FACE_TRAVEL) travelFace = eighthToward(fgx - prevX, fgy - prevY);
     }
+    const marching = legSlots.length > 1;
     if (placed === null && members.length > 0) {
       const n = members.length;
       const assigned = assignFormation({
@@ -4794,7 +4891,9 @@ export class Sim {
       let ufx: number;
       let ufy: number;
       let ufd: number;
-      if (slot === undefined) {
+      // On a march the goal is checkpoint 1's slot; a member with no slot there takes the checkpoint's tile.
+      const first = marching && slot !== undefined ? legSlots[0].get(id) ?? [cpX[0], cpY[0]] : slot;
+      if (slot === undefined || first === undefined) {
         if (snapped && utype.isAir) {
           ux = gx;
           uy = gy;
@@ -4822,11 +4921,11 @@ export class Sim {
         // unit's alone either way. Everyone the formation displaced takes
         // its slot's centre, because a displaced unit has no clicked point
         // of its own to keep.
-        const onClick = slot[0] === tx && slot[1] === ty;
-        ux = onClick ? gx : fx.add(fx.fromInt(slot[0]), HALF);
-        uy = onClick ? gy : fx.add(fx.fromInt(slot[1]), HALF);
-        ufx = slot[0];
-        ufy = slot[1];
+        const onClick = !marching && first[0] === tx && first[1] === ty;
+        ux = onClick ? gx : fx.add(fx.fromInt(first[0]), HALF);
+        uy = onClick ? gy : fx.add(fx.fromInt(first[1]), HALF);
+        ufx = first[0];
+        ufy = first[1];
         ufd = utype.pathDomain;
       }
       // Appending to a unit already under way queues the point instead of
@@ -4885,9 +4984,23 @@ export class Sim {
       // Any order overrides a held stance -- a patrol included. A leg the patrol
       // issues itself (`stepPatrolStance`, `patrolLeg`) is the one move that keeps it.
       if (!patrolLeg) this.stance[id] = 0;
+      if (marching) {
+        // Checkpoints 2..n queue behind the goal as ordinary waypoints; the last is the click (the exact
+        // point when the member's slot is the clicked tile, as a single-checkpoint order keeps it).
+        const base = id * MAX_WAYPOINTS;
+        for (let k = 1; k < legSlots.length; k++) {
+          const sl = legSlots[k].get(id) ?? [cpX[k], cpY[k]];
+          const onClick = k === legSlots.length - 1 && sl[0] === tx && sl[1] === ty;
+          this.wpX[base + k - 1] = onClick ? gx : fx.add(fx.fromInt(sl[0]), HALF);
+          this.wpY[base + k - 1] = onClick ? gy : fx.add(fx.fromInt(sl[1]), HALF);
+          this.wpAttack[base + k - 1] = attack;
+          this.wpSweep[base + k - 1] = sweep;
+        }
+        this.wpCount[id] = legSlots.length - 1;
+      }
       if (placed !== null) written.push(id);
     }
-    if (placed !== null && written.length > 0) this.fmJoin(tplIdx, written, placed, ringRadius);
+    if (placed !== null && written.length > 0) this.fmJoin(tplIdx, written, placed, ringRadius, legSlots.length, travelFace);
   }
 
   /** The formation id named by `cmd` as an index into `formationTypes`, or -1 when the order is today's
@@ -4908,7 +5021,14 @@ export class Sim {
   /** After a template order has written its goals: each written member takes its rest facing and
    *  arrival stance, and the group takes the lowest free row of the side (none free: a degraded order,
    *  with shape, facing and stance but no group, so no shared spring). Order-time only. */
-  private fmJoin(tplIdx: number, written: readonly number[], placed: ReadonlyMap<number, TemplateSlot>, ringRadius: number): void {
+  private fmJoin(
+    tplIdx: number,
+    written: readonly number[],
+    placed: ReadonlyMap<number, TemplateSlot>,
+    ringRadius: number,
+    legs: number,
+    travelFace: number,
+  ): void {
     const tpl = this.formationTypes[tplIdx];
     // The group takes the side of its first written id: an order is single-side by construction, as the
     // plain path assumes with `reservedTilesFor` (versus checks ownership; a mixed order is the caller's).
@@ -4925,7 +5045,8 @@ export class Sim {
     for (const id of written) {
       const sl = placed.get(id);
       const ut = this.unitTypes[this.typeIdx[id]];
-      this.restFacing[id] = sl === undefined ? FM_FACING_NONE : sl.face;
+      // `travel` is the last leg's eight-way direction (Ruling 9); an aircraft's slot has no facing at all.
+      this.restFacing[id] = sl === undefined ? FM_FACING_NONE : tpl.face === FM_FACE_TRAVEL && sl.face !== FM_FACING_NONE && travelFace !== FM_FACING_NONE ? travelFace : sl.face;
       // The stance belongs to the ring (an ambush) or to ground members (a hold); an aircraft takes none.
       let arrive = 0;
       if (!ut.isAir) {
@@ -4939,6 +5060,9 @@ export class Sim {
         this.fmGroup[id] = g;
         joined++;
       }
+      // Heading to checkpoint 1, on no duty (a P1b column; fmForget cleared them on the way out of any old group).
+      this.fmLeg[id] = 1;
+      this.fmDuty[id] = FM_DUTY_NONE;
     }
     if (g >= 0) {
       this.fgLive[g] = 1;
@@ -4947,7 +5071,41 @@ export class Sim {
       this.fgState[g] = FM_MARCH;
       this.fgPending[g] = 0;
       this.fgMembers[g] = joined;
+      this.fgLegs[g] = legs;
+      this.fgRelease[g] = 0;
+      this.fgDress[g] = 0;
+      this.fgAtCp[g] = 0;
+      this.fgPace[g] = tpl.pace === FM_PACE_NONE ? 0 : this.groupPace(g);
     }
+  }
+
+  /** The effective step of a living ground unit, `stepMovement`'s first two lines (GH-707 `speedMul`, #706 slowed
+   *  running gear) and nothing after them. Byte-identical to what `stepMovement` computed inline. */
+  private baseStep(i: number): Fx {
+    // GH-707 Task 4: a medic carrying a wounded drags or stretchers him (`speedMul`). The
+    // column is ONE for every unit without wound content, and fx.mul(x, ONE) === x exactly
+    // (bh 1, bl 0: (ah << 16) + al), so this is the identity there.
+    let step = fx.mul(this.unitTypes[this.typeIdx[i]].stepPerTick, this.speedMul[i]);
+    // #706: slowed running gear, an integer percent of the Q16.16 step, by the
+    // tree's integer-divide idiom (`fixed.ts:119`): no float is produced. The
+    // product stays far inside int32 (a step is under 0.2 tile, ~13000 raw).
+    if (this.mobilityDamaged[i] === 1) {
+      const p = step * MOB_DAMAGED_PCT;
+      step = (p - (p % 100)) / 100;
+    }
+    return step;
+  }
+
+  /** The group's pace (Ruling 8): the minimum `baseStep` over its living ground members that are not on a call,
+   *  0 when it has none. One O(count) scan, at order time and at each release. */
+  private groupPace(g: number): Fx {
+    let pace = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.alive[i] === 0 || this.fmDuty[i] >= FM_DUTY_OUT || this.unitTypes[this.typeIdx[i]].isAir) continue;
+      const step = this.baseStep(i);
+      if (pace === 0 || step < pace) pace = step;
+    }
+    return pace;
   }
 
   /** The one exit from a formation (GH-859 P1a): membership, rest facing and arrival stance go, and a
@@ -4956,7 +5114,18 @@ export class Sim {
     this.restFacing[id] = FM_FACING_NONE;
     this.fmArrive[id] = 0;
     const g = this.fmGroup[id];
+    const duty = this.fmDuty[id];
+    this.fmDuty[id] = FM_DUTY_NONE;
+    this.fmLeg[id] = 0;
+    this.fmHomeX[id] = 0;
+    this.fmHomeY[id] = 0;
     if (g < 0) return;
+    // A member leaving a dress is no longer waited for; one leaving a sortie or a rescue no longer away.
+    if (duty === FM_DUTY_WAIT) {
+      if (this.fgAtCp[g] > 0) this.fgAtCp[g]--;
+    } else if (duty >= FM_DUTY_OUT) {
+      if (this.fgAway[g] > 0) this.fgAway[g]--;
+    }
     this.fmGroup[id] = -1;
     if (this.fgMembers[g] > 0) this.fgMembers[g]--;
     if (this.fgMembers[g] === 0) {
@@ -5031,7 +5200,35 @@ export class Sim {
       if (this.alive[i] === 0 || this.moving[i] === 1) continue;
       if (this.curTarget[i] >= 0 || this.curStructure[i] >= 0 || this.mobilityKilled[i] === 1) continue;
       if (this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
+      // GH-859 P1b (Ruling 9): the rest facing waits for the final checkpoint (or for contact). A hull stopped at
+      // an intermediate one keeps the way it marched.
+      const g = this.fmGroup[i];
+      if (g >= 0 && this.fmLeg[i] < this.fgLegs[g] && this.fgState[g] !== FM_CONTACT) continue;
       if (this.facing[i] !== want) this.turnToward(i, want);
+    }
+  }
+
+  /** Before `stepMovement` (behind `fmLive`): the dress (Ruling 7). A `MARCH` row with members waiting at its
+   *  next checkpoint counts a tick of dress, and releases the checkpoint when every member present is waiting
+   *  (or away on a call) or `dress_s` has passed since the first arrival: `fgRelease` goes up, every waiting
+   *  member goes on to its next leg, the pace is read again, one event. O(rows) a tick; the one O(count) scan
+   *  runs once per released checkpoint. */
+  private stepFormationMarch(): void {
+    for (let g = 0; g < FORMATION_ROWS; g++) {
+      if (this.fgLive[g] === 0 || this.fgState[g] !== FM_MARCH || this.fgAtCp[g] === 0) continue;
+      if (this.fgDress[g] < 0xffff) this.fgDress[g]++;
+      if (this.fgAtCp[g] + this.fgAway[g] < this.fgMembers[g] && this.fgDress[g] < this.formationTypes[this.fgType[g]].dressTicks) continue;
+      this.fgRelease[g]++;
+      this.fgDress[g] = 0;
+      this.fgAtCp[g] = 0;
+      for (let i = 0; i < this.count; i++) {
+        if (this.fmGroup[i] !== g || this.fmDuty[i] !== FM_DUTY_WAIT) continue;
+        this.fmDuty[i] = FM_DUTY_NONE;
+        this.fmLeg[i]++;
+        if (this.wpCount[i] > 0) this.advanceLeg(i);
+      }
+      if (this.formationTypes[this.fgType[g]].pace !== FM_PACE_NONE) this.fgPace[g] = this.groupPace(g);
+      this.pendingEvents.push({ kind: 'formationReleased', tick: this.tickCount, side: this.fgSide[g], group: g, leg: this.fgRelease[g], legs: this.fgLegs[g] });
     }
   }
 
@@ -5050,6 +5247,36 @@ export class Sim {
   /** Members still in group row `g`, 0 for a free row. */
   formationMembersOfGroup(g: number): number {
     return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgMembers[g] : 0;
+  }
+  /** GH-859 P1b: the checkpoint row `g` is now dressing (`fgRelease + 1`, at most `fgLegs`), 0 for a free row. */
+  formationLegOfGroup(g: number): number {
+    if (g < 0 || g >= FORMATION_ROWS || this.fgLive[g] === 0) return 0;
+    const leg = this.fgRelease[g] + 1;
+    return leg > this.fgLegs[g] ? this.fgLegs[g] : leg;
+  }
+  /** GH-859 P1b: the checkpoints in row `g`'s route (the last is the click), 0 for a free row. */
+  formationLegsOfGroup(g: number): number {
+    return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgLegs[g] : 0;
+  }
+  /** GH-859 P1b: row `g`'s pace cap in `Fx` tiles a tick, 0 for no cap (or a free row). */
+  formationPaceOfGroup(g: number): Fx {
+    return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgPace[g] : 0;
+  }
+  /** GH-859 P1b: the unit that sets row `g`'s pace, recomputed on demand: the lowest id among its living ground
+   *  members not on a call whose `baseStep` is least. -1 when the row is free, has no pace or no such member. */
+  formationPaceSetterOf(g: number): number {
+    if (g < 0 || g >= FORMATION_ROWS || this.fgLive[g] === 0 || this.fgPace[g] === 0) return -1;
+    let best = -1;
+    let bestStep = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.alive[i] === 0 || this.fmDuty[i] >= FM_DUTY_OUT || this.unitTypes[this.typeIdx[i]].isAir) continue;
+      const step = this.baseStep(i);
+      if (best < 0 || step < bestStep) {
+        best = i;
+        bestStep = step;
+      }
+    }
+    return best;
   }
 
   private applyCommands(): void {
@@ -11093,16 +11320,13 @@ export class Sim {
       const goalTileX = this.goalX[i] >> 16;
       const goalTileY = this.goalY[i] >> 16;
 
-      // GH-707 Task 4: a medic carrying a wounded drags or stretchers him (`speedMul`). The
-      // column is ONE for every unit without wound content, and fx.mul(x, ONE) === x exactly
-      // (bh 1, bl 0: (ah << 16) + al), so this is the identity there.
-      let step = fx.mul(type.stepPerTick, this.speedMul[i]);
-      // #706: slowed running gear, an integer percent of the Q16.16 step, by the
-      // tree's integer-divide idiom (`fixed.ts:119`): no float is produced. The
-      // product stays far inside int32 (a step is under 0.2 tile, ~13000 raw).
-      if (this.mobilityDamaged[i] === 1) {
-        const p = step * MOB_DAMAGED_PCT;
-        step = (p - (p % 100)) / 100;
+      let step = this.baseStep(i);
+      // GH-859 P1b (Ruling 8): a marching group walks at its slowest ground member's pace. Aircraft and a unit on
+      // a call (a sortie, a rescue) are exempt. One compare per moving member, and nothing at all outside a
+      // formation world.
+      if (this.fmLive) {
+        const g = this.fmGroup[i];
+        if (g >= 0 && this.fgPace[g] > 0 && !type.isAir && this.fmDuty[i] < FM_DUTY_OUT && step > this.fgPace[g]) step = this.fgPace[g];
       }
       if (this.routed[i] === 1) {
         step = step >> ROUT_SPEED_SHIFT; // fleeing at a crouch-run
@@ -11456,33 +11680,60 @@ export class Sim {
 
   /** The unit has reached its goal: carry straight on to the next queued leg, or stop. */
   private finishLeg(i: number): void {
-    const queued = this.wpCount[i];
-    if (queued > 0) {
-      // Next leg: shift the queue down and carry straight on.
-      const base = i * MAX_WAYPOINTS;
-      this.goalX[i] = this.wpX[base];
-      this.goalY[i] = this.wpY[base];
-      this.attackMove[i] = this.wpAttack[base];
-      this.sweepOrder[i] = this.wpSweep[base];
-      for (let k = 0; k < queued - 1; k++) {
-        this.wpX[base + k] = this.wpX[base + k + 1];
-        this.wpY[base + k] = this.wpY[base + k + 1];
-        this.wpAttack[base + k] = this.wpAttack[base + k + 1];
-        this.wpSweep[base + k] = this.wpSweep[base + k + 1];
-      }
-      this.wpCount[i] = queued - 1;
-      this.fieldRef[i] = this.fieldFor(
-        fx.toInt(this.goalX[i]),
-        fx.toInt(this.goalY[i]),
-        this.domainOf(i)
-      );
-      this.engaging[i] = 0;
+    // GH-859 P1b (Ruling 6): a formation member at an intermediate checkpoint may be held for the dress.
+    if (this.fmLive && this.fmGroup[i] >= 0 && this.fmMarchHold(i)) return;
+    if (this.wpCount[i] > 0) {
+      this.advanceLeg(i);
     } else {
       this.moving[i] = 0;
       this.fieldRef[i] = -1;
       // GH-859 P1a: the formation's arrival stance, once, on the final goal only.
       if (this.fmLive && this.fmArrive[i] !== 0) this.fmArrived(i);
     }
+  }
+
+  /** Next leg: shift the queue down and carry straight on. The caller has checked `wpCount[i] > 0`. */
+  private advanceLeg(i: number): void {
+    const queued = this.wpCount[i];
+    const base = i * MAX_WAYPOINTS;
+    this.goalX[i] = this.wpX[base];
+    this.goalY[i] = this.wpY[base];
+    this.attackMove[i] = this.wpAttack[base];
+    this.sweepOrder[i] = this.wpSweep[base];
+    for (let k = 0; k < queued - 1; k++) {
+      this.wpX[base + k] = this.wpX[base + k + 1];
+      this.wpY[base + k] = this.wpY[base + k + 1];
+      this.wpAttack[base + k] = this.wpAttack[base + k + 1];
+      this.wpSweep[base + k] = this.wpSweep[base + k + 1];
+    }
+    this.wpCount[i] = queued - 1;
+    this.fieldRef[i] = this.fieldFor(
+      fx.toInt(this.goalX[i]),
+      fx.toInt(this.goalY[i]),
+      this.domainOf(i)
+    );
+    this.engaging[i] = 0;
+  }
+
+  /** GH-859 P1b, Ruling 6: whether a formation member that has reached a goal waits for the group's dress
+   *  instead of going on. `fmLeg[i]` is the checkpoint it is heading to, and none gets past `fgRelease + 1`.
+   *  Arriving at that checkpoint with checkpoints still to come, it WAITS: duty WAIT, counted once in `fgAtCp`,
+   *  `moving` still 1 and the goal unchanged, so it re-arrives each tick and returns here at one compare (every
+   *  system that acts on an idle unit leaves it alone). At a released checkpoint it goes straight on, and
+   *  `fmLeg` moves with it. A final arrival (nothing queued) is not held. */
+  private fmMarchHold(i: number): boolean {
+    if (this.wpCount[i] === 0) return false;
+    const g = this.fmGroup[i];
+    const leg = this.fmLeg[i];
+    if (leg > this.fgRelease[g] && leg < this.fgLegs[g]) {
+      if (this.fmDuty[i] !== FM_DUTY_WAIT) {
+        this.fmDuty[i] = FM_DUTY_WAIT;
+        this.fgAtCp[g]++;
+      }
+      return true;
+    }
+    this.fmLeg[i] = leg + 1;
+    return false;
   }
 
   // ------------------------------------------------------------------- upkeep

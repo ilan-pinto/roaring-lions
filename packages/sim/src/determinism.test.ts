@@ -43,6 +43,7 @@ import {
   type HeldGroundSeen,
 } from './golden-worlds.test-helper';
 import { BRACE_DROPPING, BRACE_KNEELING, BRACE_RISING, Sim, type SimEvent, type UnitTypeJson } from './sim';
+import { internals } from './snapshot';
 
 // The canary for invariants 2 and 3 (CLAUDE.md): replay 1000 ticks from a
 // fixed seed and assert the state hash is stable. Must pass before any
@@ -1258,25 +1259,57 @@ describe('determinism of a wounded world (600-tick replay, GH-707)', () => {
 // plainly mid-march (60); a side-1 Column walks into the ring (150). The test asserts each thing
 // happened, so a change that quietly stops one of them fails here and not only on the number.
 
-function formationWorld(seed: number): { hash: number; seen: Record<string, number>; groups: string; members: string; ringFacing: string; sprungBy: number } {
+interface FormationWorldFacts {
+  hash: number;
+  seen: Record<string, number>;
+  groups: string;
+  members: string;
+  ringFacing: string;
+  sprungBy: number;
+  /** Checkpoints of the Column, Attack, Ambush and side-1 Column rows, read at tick 151. */
+  legs: string;
+  /** Every `formationReleased`, as `tick:group:leg/legs`. */
+  released: string;
+  /** The tick the Column's first member waited at its first checkpoint (fgAtCp first above 0). */
+  columnFirstArrival: number;
+  /** The Column's pace, and the id that sets it, read at tick 61. */
+  columnPace: number;
+  columnSetter: number;
+}
+function formationWorld(seed: number): FormationWorldFacts {
   const { sim, ids } = formationSetup(seed);
+  const atCp = internals(sim).fgAtCp as Uint16Array;
   const seen: Record<string, number> = {};
+  const released: string[] = [];
   let groups = '';
   let members = '';
   let ringFacing = '';
   let sprungBy = -1;
+  let legs = '';
+  let columnFirstArrival = -1;
+  let columnPace = -1;
+  let columnSetter = -2;
   for (let t = 0; t < 600; t++) {
     formationDrive(sim, t, ids);
     for (const e of sim.tick()) {
       if (e.kind === 'formationSprung' || e.kind === 'ambushSprung') seen[e.kind] = (seen[e.kind] ?? 0) + 1;
       if (e.kind === 'formationSprung') sprungBy = e.entity;
+      if (e.kind === 'formationReleased') released.push(`${e.tick}:${e.group}:${e.leg}/${e.legs}`);
+    }
+    if (columnFirstArrival < 0 && atCp[0] > 0) columnFirstArrival = t;
+    if (t === 61) {
+      columnPace = sim.formationPaceOfGroup(0);
+      columnSetter = sim.formationPaceSetterOf(0);
     }
     if (t === 59) members += `${sim.formationMembersOfGroup(0)}`; // before the re-order
     if (t === 61) members += `>${sim.formationMembersOfGroup(0)}`; // after: one left by order
-    if (t === 151) groups = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationGroupOf(i)).join(',');
+    if (t === 151) {
+      groups = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationGroupOf(i)).join(',');
+      legs = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationLegsOfGroup(sim.formationGroupOf(i))).join(',');
+    }
     if (t === 380) ringFacing = ids.amb.map((i) => sim.state.facing[i]).join(',');
   }
-  return { hash: sim.hash(), seen, groups, members, ringFacing, sprungBy };
+  return { hash: sim.hash(), seen, groups, members, ringFacing, sprungBy, legs, released: released.join(' '), columnFirstArrival, columnPace, columnSetter };
 }
 
 // FORMATION_WORLD_PIN: born 2026-10-28 (GH-859 P1a), read from the first run. It moves when a
@@ -1301,8 +1334,8 @@ describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () =>
     expect(b).toEqual(a);
     // rows 0, 1, 2 on side 0 (column, attack, ambush), row 16 the first on side 1
     expect(a.groups).toBe('0,1,2,16');
-    // the Column had five members; the plain move at tick 60 took one out
-    expect(a.members).toBe('5>4');
+    // the Column had six members (the slow mortar spawned last); the plain move at tick 60 took one out
+    expect(a.members).toBe('6>5');
     // every ring member at its inward eighth-turn at tick 380 (the ring is set, the enemy not yet in): armour at
     // (40,21) south, armour at (38,26) north-east, mortar at (43,25) west, rifles at (42,22) south-west, (36,22) on the
     // cover tile south-east, and (40,27) north
@@ -1312,6 +1345,22 @@ describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () =>
     // alone: `ambushSprung` is absent, which is the point of a ring that springs together.
     expect(a.seen).toEqual({ formationSprung: 1 });
     expect(a.sprungBy).toBe(10);
+  });
+
+  it('marches: the checkpoints, the pace and the dresses are the ones the world is built to show (GH-859 P1b)', () => {
+    const a = formationWorld(FM_SEED);
+    // Column 14 steps (checkpoints at steps 8 and 14), Attack 18 steps to three, the ring `legs: false` (one), the
+    // side-1 Column 12 steps to two
+    expect(a.legs).toBe('2,3,1,2');
+    // The Column's slow mortar (id 19: five column, five attack, six ring, three foes, then it) sets the pace:
+    // 0.7 tiles a second is 2293 raw a tick, against the rifles' 2949.
+    expect(a.columnPace).toBe(2293);
+    expect(a.columnSetter).toBe(19);
+    // Four of the Column's five wait at checkpoint 1 from tick 142 and the mortar is three tiles behind: the dress
+    // is released by the clock, dress_s = 60 ticks after the first arrival (tick 202). The Attack and the side-1
+    // Column are whole at their checkpoints, and are released on the tick after the last arrival.
+    expect(a.columnFirstArrival).toBe(142);
+    expect(a.released).toBe('202:0:1/2 237:1:1/3 351:16:1/2 415:1:2/3');
   });
 
   it('the pinned hash', () => {

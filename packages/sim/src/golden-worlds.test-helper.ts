@@ -996,6 +996,9 @@ export function reliefEconomySetup(seed: number, popCap: number = RELIEF_ECO_POP
 export const FM_SEED = 0x859_0001;
 export const FM_MBT: UnitTypeJson = { ...TANK, id: 'fm_mbt', role: 'mbt' };
 export const FM_MORTAR: UnitTypeJson = { ...RIFLES, id: 'fm_mortar', role: 'artillery' };
+/** GH-859 P1b Task 3: the Column's slow member. 0.7 tiles a second against the rifles' 0.9 and the tank's 1.1, so the
+ *  Column's pace is this unit's step. It stands behind the others, so a dress waits for it. */
+export const FM_SLOW_MORTAR: UnitTypeJson = { ...RIFLES, id: 'fm_mortar_slow', role: 'artillery', mobility: { speed_tiles_s: 0.7 } };
 export interface FormationWorldIds {
   col: number[];
   atk: number[];
@@ -1012,6 +1015,7 @@ export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds
   const mbt = sim.addUnitType(FM_MBT);
   const rifles = sim.addUnitType(RIFLES);
   const mortar = sim.addUnitType(FM_MORTAR);
+  const slowMortar = sim.addUnitType(FM_SLOW_MORTAR);
   for (const f of shippedFormations()) sim.addFormationType(f);
   // Good cover one step outside the ring tile of the fifth ring member (see the pin test's literal).
   sim.setCover(36, 22, 3);
@@ -1020,12 +1024,15 @@ export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds
   const atk = [mbt, mbt, rifles, rifles, rifles].map((t) => put(t, 0, 24, 44));
   const amb = [mbt, mbt, mortar, rifles, rifles, rifles].map((t) => put(t, 0, 40, 32));
   const foe = [rifles, rifles, rifles].map((t) => put(t, 1, 40, 4));
+  // Spawned last so no P1a id moves: three tiles behind the Column, the slow member that sets its pace.
+  col.push(put(slowMortar, 0, 8, 47));
   return { sim, ids: { col, atk, amb, foe } };
 }
 export function formationDrive(sim: Sim, t: number, ids: FormationWorldIds): void {
   const at = (n: number): number => fx.from(n + 0.5);
   if (t === 0) sim.queueCommand({ kind: 'move', ids: ids.col, x: at(8), y: at(30), formation: 'column' });
-  if (t === 40) sim.queueCommand({ kind: 'attackMove', ids: ids.atk, x: at(24), y: at(26), formation: 'attack' });
+  // `sweep` is what a player's right-click sends: it makes the queued checkpoints carry the flag (wpSweep).
+  if (t === 40) sim.queueCommand({ kind: 'attackMove', ids: ids.atk, x: at(24), y: at(26), sweep: true, formation: 'attack' });
   if (t === 60) sim.queueCommand({ kind: 'move', ids: [ids.col[4]], x: at(12), y: at(34) });
   if (t === 80) sim.queueCommand({ kind: 'move', ids: ids.amb, x: at(40), y: at(24), formation: 'ambush' });
   if (t === 150) sim.queueCommand({ kind: 'move', ids: ids.foe, x: at(40), y: at(16), formation: 'column' });

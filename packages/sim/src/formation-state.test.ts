@@ -258,21 +258,27 @@ describe('the P1b columns: shape, latch and hash', () => {
     const h0 = sim.hash();
     for (const c of P1B_COLUMNS) {
       const col = typed(sim)[c.name];
+      // G-6, P1b: the march writes real values (a 4-step diagonal is one checkpoint: fgLegs 1 and fmLeg 1 here), so the
+      // value put back is the one that was there, not zero.
+      const was = col[1];
       col[1] = c.poke;
-      col[1] = 0;
+      col[1] = was;
     }
     expect(sim.hash()).toBe(h0);
   });
 });
 
-describe('the P1a formation world moves none of the fourteen', () => {
-  // This is the premise of the P1b pin story, stated precisely: the new columns hold their empty value
-  // everywhere in this world. FORMATION_WORLD_PIN still moves in Task 2, because this world is `fmLive` and so
-  // folds the marker word 0x464d0002 and fourteen zero columns into its hash; the fold is the whole move.
-  it('every new column reads its empty value at every tick of the 600, while the world is genuinely in formation', () => {
+describe('the formation world moves the columns of the march, and only those', () => {
+  // G-6, P1b Task 3: this was "moves none of the fourteen" (the premise of the Task 2 pin move). The march now writes
+  // seven of them: fgLegs fgRelease fgDress fgAtCp fgPace (rows) and fmLeg fmDuty (units). The other seven belong to the
+  // drills (fgQuiet fgCallX fgCallY) and the calls (fgAway fgCalled fmHomeX fmHomeY) and must still read empty at every tick.
+  const MARCH_COLUMNS = ['fgLegs', 'fgRelease', 'fgDress', 'fgAtCp', 'fgPace', 'fmLeg', 'fmDuty'];
+  it('the march columns each move at some tick of the 600, and the other seven read empty at every tick', () => {
+    expect(MARCH_COLUMNS).toHaveLength(7);
     const { sim, ids } = formationSetup(FM_SEED);
     let liveRowsSeen = 0;
     let scans = 0;
+    const moved = new Set<string>();
     for (let t = 0; t < 600; t++) {
       formationDrive(sim, t, ids);
       sim.tick();
@@ -280,11 +286,17 @@ describe('the P1a formation world moves none of the fourteen', () => {
       for (let g = 0; g < 32; g++) if (fgLive[g] === 1) liveRowsSeen++;
       for (const c of P1B_COLUMNS) {
         const col = typed(sim)[c.name];
-        for (let k = 0; k < col.length; k++) if (col[k] !== 0) throw new Error(`tick ${t}: ${c.name}[${k}] = ${col[k]}`);
+        const march = MARCH_COLUMNS.includes(c.name);
+        for (let k = 0; k < col.length; k++) {
+          if (col[k] === 0) continue;
+          if (march) moved.add(c.name);
+          else throw new Error(`tick ${t}: ${c.name}[${k}] = ${col[k]}`);
+        }
       }
       scans++;
     }
     expect(scans).toBe(600);
+    expect(Array.from(moved).sort()).toEqual([...MARCH_COLUMNS].sort());
     expect((internals(sim) as unknown as { fmLive: boolean }).fmLive).toBe(true);
     expect(liveRowsSeen).toBeGreaterThan(1000); // four groups for most of the run: not a vacuous scan
   });

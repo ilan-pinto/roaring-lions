@@ -356,9 +356,11 @@ export function worldSpecs(): WorldSpec[] {
   out.push({ id: 'golden wounded (600)', plan: goldenPlan(600), build: goldenWounded });
   out.push({
     id: 'golden formations (600)',
-    // Cuts before the ring arrives (150), while it arms (200, 300, 350), with the group found by fire and marked
-    // (404: `fgPending` set, the one column whose life crosses a tick boundary) and after it has sprung (420).
-    plan: { Ts: [0, 97, 150, 200, 300, 350, 404, 420], horizon: 180, tailFrom: 100, end: 600 },
+    // Cuts mid-march (97), before the ring arrives (150), mid-dress (170: a Column member waiting, the dress clock
+    // running), while the ring arms (200, 300, 350), with the group found by fire and marked (445: `fgPending` set, the
+    // one column whose life crosses a tick boundary) and after it has sprung (450). The horizon is 150 so the last
+    // cut still ends inside the 600 ticks (GH-859 P1b Task 3 moved the spring from 404 to 445).
+    plan: { Ts: [0, 97, 150, 170, 200, 300, 350, 445, 450], horizon: 150, tailFrom: 100, end: 600 },
     build: goldenFormations,
     exercised: (a) =>
       (internals(a.sim) as unknown as { fmLive: boolean }).fmLive
@@ -603,7 +605,6 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
   ...rows('placedLive stChargeTicks stChargeBy', 'placed charges (setPlacedCharge): no witness driver sets one. Covered by a world whose driver places a charge on a structure'),
   ...rows('beamTgt beamDwell beamHeat beamAt beamLock beamLive', 'beam weapons (stepBeam): no unit of any witness world carries one. Covered by a world that fields a beam unit'),
   ...rows('focusTarget focusLost', 'the attack order (right-click focus): no witness driver issues one, only attack-moves. Covered by a mirror world whose driver sends an `attack` order'),
-  ...rows('wpX wpY wpAttack wpSweep wpCount', 'queued (shift) waypoints: no witness driver appends an order. Covered by a world whose driver issues appended moves'),
   ...rows('boardGoal', 'embarking onto a transport: no witness driver issues board or air-carrier orders. Covered by a world that loads infantry into a carrier'),
   ...rows('patrolX patrolY patrolCount patrolIdx patrolLive patrolLegIds', 'patrol stances: no witness driver or placement sets one (the ambush stance, `stance` and `ambushRadiusSq`, moves in the golden formation world). Covered by a world whose units patrol'),
   ...rows('smoke smokeCooldown pendingStrikes', 'abilities reachable only from the player UI (smoke, fire-support strikes): no witness driver calls them. Covered by a world whose driver lays smoke and calls a strike'),
@@ -621,9 +622,9 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
   ),
   // GH-859 P1b: the fourteen formation march/call rows. Each task that makes the formation world move them
   // deletes its own line (the census fails an exemption whose row moved: "delete this exemption").
-  ...rows('fmLeg fgLegs fgRelease fgDress fgAtCp fgPace', 'GH-859 P1b: moved by the formation world from Task 3; delete then. Covered by the formation world once Task 3 lands'),
   ...rows('fgQuiet fgCallX fgCallY', 'GH-859 P1b: moved by the formation world from Task 4; delete then. Covered by the formation world once Task 4 lands'),
-  ...rows('fmDuty fmHomeX fmHomeY fgAway fgCalled', 'GH-859 P1b: moved by the formation world from Task 5; delete then. Covered by the formation world once Task 5 lands'),
+  // (fmDuty left this list in Task 3: a member waiting at a checkpoint is duty WAIT, so the march moves it.)
+  ...rows('fmHomeX fmHomeY fgAway fgCalled', 'GH-859 P1b: moved by the formation world from Task 5; delete then. Covered by the formation world once Task 5 lands'),
   // ---- the runtime's top-level `state` rows (snapshot S2 Task 5), named `runtime.<row>` ----
   // The matrix's runtime worlds are versus ECONOMY rooms (no authored objectives, triggers, waves, groups, ROE zones,
   // civilians, field works or ledger) and the golden economy replay (a bare mission with an income zone and a convoy).

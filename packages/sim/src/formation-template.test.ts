@@ -583,7 +583,8 @@ describe('compileFormation', () => {
     expect(c.elementOfClass).toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
   it('march.legs false compiles to legTiles 0, and a file with no march has no legs', () => {
-    const j = JSON.parse(JSON.stringify(loadFormation('ambush'))) as FormationJson;
+    // G-6, P1b: the shipped Ambush now ships `legs: false` (Ruling 3), so this reads the Column, which has checkpoints.
+    const j = JSON.parse(JSON.stringify(loadFormation('column'))) as FormationJson;
     expect(compileFormation(j).legs).toBe(true);
     expect(compileFormation(j).legTiles).toBe(8);
     (j.march as { legs: boolean }).legs = false;
@@ -591,6 +592,12 @@ describe('compileFormation', () => {
     expect([c.legs, c.legTiles, c.dressTicks, c.pace]).toEqual([false, 0, 60, 1]);
     delete (j as { march?: unknown }).march;
     expect([compileFormation(j).legs, compileFormation(j).legTiles]).toEqual([false, 0]);
+  });
+  it('the shipped Ambush marches without checkpoints (Ruling 3), with its pace and dress kept', () => {
+    const c = compileFormation(loadFormation('ambush'));
+    expect([c.legs, c.legTiles, c.dressTicks, c.pace]).toEqual([false, 0, 60, 1]);
+    // and the other two shipped files keep theirs
+    expect([compileFormation(loadFormation('column')).legTiles, compileFormation(loadFormation('attack')).legTiles]).toEqual([8, 8]);
   });
   const mutate = (f: (j: FormationJson) => void): FormationJson => {
     const j = JSON.parse(JSON.stringify(loadFormation('column'))) as FormationJson;
