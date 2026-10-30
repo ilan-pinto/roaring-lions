@@ -712,6 +712,24 @@ for vehicles.
   `pnpm inf-kit:capture -- --unit=demo_squad` holds its merge numbers
   (`TEAM_CHECKS`), `infantry-kit-shipped.test.ts` loops over every team.
 
+- **The Breach team (`breach_team`) is the third kit team (30 Oct 2026).**
+  `INFANTRY_KIT_TEAMS` carries it. What its `Team` row changes: both carbines
+  AND both left arms are bound to the SPINE (the skin has no `_weapon` bone), so
+  gun accessories ride `spine` (`weapon_bone`; the graft's per-part bone check
+  reads that), and the wraps on other bones are trimmed against them
+  (`PoseBank.rigid`). `brc_point` carries a ballistic shield on its own bone
+  `brc_point_shield` (a palette `metal` primitive with no UVs); the one new part,
+  `shield_light` (firepower tier 2, 28 triangles, on `brc_point` only), rides it.
+  No deltoid or sleeve (the lead, 30 Oct, as for the Demolition squad). Where
+  the baked pinned clip lays brc_cover's carbine into his right thigh and shin,
+  the laser box, the LPVO and the foregrip stand at `laser_front`, `lpvo_rear`
+  and `foregrip_back` found against every living clip's blockers, not the Rifle
+  Squad's. The pose bank is sampled every 2nd frame (`bank_stride`), because the
+  census walks every 2nd and a stride of 6 left a thigh strike unseen. Its radio
+  pack's plane is the median of five rays (`pack_median`), since one ray can pass
+  through a gap in the baked back. `TEAM_CHECKS.breach_team` holds the in-game
+  merge numbers (`pnpm inf-kit:capture -- --unit=breach_team`).
+
 - **The garage turntable wears it too (GH-826).** `garage-view.ts` builds a team
   whose GLB declares kit extras the way it builds a kitted vehicle: the loaded
   scene is a pristine source, each build runs on `cloneForBuild(pristine, true)`

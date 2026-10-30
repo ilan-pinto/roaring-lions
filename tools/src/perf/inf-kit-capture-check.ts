@@ -60,10 +60,31 @@ export const DEMO_STATES: readonly State[] = [
   { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 1734 },
 ];
 
+/**
+ * `breach_team` (30 Oct 2026): literals from its art file, by the same count as the two above (every part at or below the track's
+ * tier, the highest tier of each (figure, slot, side) only) and from the Draco ENCODE for the base (7,910 live triangles). Its devices
+ * ride `uniform` and `weapon`, both primitives the base already draws, so the kit costs +0 meshes.
+ */
+export const BREACH_ENCODED_BASE_TRIS = 7910;
+export const BREACH_STATES: readonly State[] = [
+  { id: 'T0', label: 'tier 0', tiers: {}, kitTris: 0 },
+  { id: 'A1', label: 'armour 1', tiers: { armour: 1 }, kitTris: 536 },
+  { id: 'A2', label: 'armour 2', tiers: { armour: 2 }, kitTris: 588 },
+  { id: 'A3', label: 'armour 3', tiers: { armour: 3 }, kitTris: 632 },
+  { id: 'S1', label: 'sensors 1', tiers: { sensors: 1 }, kitTris: 248 },
+  { id: 'S2', label: 'sensors 2', tiers: { sensors: 2 }, kitTris: 500 },
+  { id: 'S3', label: 'sensors 3', tiers: { sensors: 3 }, kitTris: 660 },
+  { id: 'F1', label: 'firepower 1', tiers: { firepower: 1 }, kitTris: 380 },
+  { id: 'F2', label: 'firepower 2', tiers: { firepower: 2 }, kitTris: 632 },
+  { id: 'F3', label: 'firepower 3', tiers: { firepower: 3 }, kitTris: 800 },
+  { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 2092 },
+];
+
 /** Per team: the states and the encoded tier-0 triangle count the merge is held against. */
 export const TEAM_CHECKS: Readonly<Record<string, { readonly baseTris: number; readonly states: readonly State[] }>> = {
   inf_squad: { baseTris: ENCODED_BASE_TRIS, states: STATES },
   demo_squad: { baseTris: DEMO_ENCODED_BASE_TRIS, states: DEMO_STATES },
+  breach_team: { baseTris: BREACH_ENCODED_BASE_TRIS, states: BREACH_STATES },
 };
 
 export function mergeFailures(

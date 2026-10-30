@@ -74,7 +74,7 @@ export const KIT_VEHICLES: readonly string[] = [
 // measure or key a kit node already skips it.
 
 /** The teams whose GLB carries kit. One at a time: each is a lane of its own. */
-export const INFANTRY_KIT_TEAMS: readonly string[] = ['inf_squad', 'demo_squad'];
+export const INFANTRY_KIT_TEAMS: readonly string[] = ['inf_squad', 'demo_squad', 'breach_team'];
 
 /** The role primitives a team's kit part may join. */
 export const INFANTRY_KIT_HOSTS: readonly string[] = ['uniform', 'weapon'];
@@ -122,6 +122,7 @@ export const INFANTRY_KIT_PART_TRIS: Readonly<Record<string, number>> = {
   radio_panel: 48,
   radio_pouch: 46,
   red_dot: 44,
+  shield_light: 28,
   sleeve: 40,
   suppressor: 44,
   throat: 28,

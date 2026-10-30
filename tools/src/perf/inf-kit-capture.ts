@@ -159,7 +159,8 @@ function accountWith(tiers: Readonly<Record<string, number>>): BrigadeAccount {
     earned_total: 0,
     paid: {},
     campaign_paid: {},
-    unlocks: [],
+    // a unit the brigade must unlock first (breach_team: 12 stars and 850) offers no Buy button until it is owned; the Rifle Squad is the starter
+    unlocks: UNIT === 'inf_squad' ? [] : [UNIT],
     upgrades: { [UNIT]: { ...tiers } },
     grants: [{ source: 'granted', amount: 5000, at: 1 }],
     coupons: [],
