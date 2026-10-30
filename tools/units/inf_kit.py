@@ -265,10 +265,10 @@ def _centre_fn(f, bone="spine"):
     return fn
 
 
-def torso_wrap(f, rows, ncols=16, span=None, fill_below=None):
+def torso_wrap(f, rows, ncols=16, span=None, fill_below=None, whole=False):
     cols = [i * 360.0 / ncols for i in range(ncols)] if span is None else span
     fr = None if fill_below is None else (lambda j: rows[j] <= fill_below)
-    return Wrap(f.zone_torso, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
+    return Wrap(f.zone_torso_all if whole else f.zone_torso, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
                 centre_fn=_centre_fn(f), col_span=None if span is None else True, fill_rows=fr, clamp=f.zone_arms, ellipse=lambda t: kp.TEAM.torso_ellipse,
                 ring_cap=kp.TEAM.torso_ring_cap)
 
@@ -424,14 +424,14 @@ def build_throat(f, side=None):
 
 def build_yoke(f, side=None):
     ncol = kp.TEAM.yoke_cols            # 9 columns on the Rifle Squad; a figure whose spine zone is complete there needs fewer for the same 24 triangles
-    wr = torso_wrap(f, [1.385, 1.415, 1.448], span=[75 + i * (210.0 / (ncol - 1)) for i in range(ncol)])
+    wr = torso_wrap(f, [1.385, 1.415, 1.448], span=[75 + i * (210.0 / (ncol - 1)) for i in range(ncol)], whole=True)   # above the vest: the whole spine zone
 
     trim = trimmed(f, wr, "spine", 1.2, 1.7)
 
     def off(j, k):
         o = 0.015 + 0.005 * abs(math.sin(math.radians(wr.cols[k]))) - (0.003 if j == 2 else 0.0)
         return min(o, trim.get((j, k), 9.0) + 0.015)
-    P, mask, st = fit_wrap(wr, off, None, f.pts["torso"], "yoke")
+    P, mask, st = fit_wrap(wr, off, None, f.pts.get("torso_all", f.pts["torso"]), "yoke")
     pc = Piece(f.world(), open_thick=0.018)
     finish_wrap(pc, wr, P, mask, ["coyote", "coyote"], 0.005, "coyote", off, rim_filter=lambda a, b: a[0] == b[0] == 2,
                 thick=lambda j, k: YOKE_T)

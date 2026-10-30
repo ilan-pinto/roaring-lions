@@ -125,6 +125,7 @@ class Fit:
             t = tris[ok]
             a, b, c = co[t[:, 0]], co[t[:, 1]], co[t[:, 2]]
             vs = co[np.unique(t)]
+            self.pts["torso_all"] = self.pts["torso"]       # the whole spine zone: the collar and yoke sit above the vest
             self.pts["torso"] = np.concatenate([vs, (a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
             self.zone_torso = geo.bvh_from(co, t)
         self.zone_helmet = zone((w("head") >= 0.5) & (z >= HELMET_Z0), "helmet")
