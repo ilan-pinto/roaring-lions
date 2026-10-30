@@ -237,6 +237,9 @@ function pickKind(mix: readonly (readonly [PropKind, number])[], hash: number): 
 export function propPlacements(input: TerrainInput, cap: number = PROP_CAP): PropPlacement[] {
   const { width, height } = input;
   const graph = cachedRoadGraph(input);
+  // The theme's own mixes when it names them (GH-871 P3), the shared ones otherwise.
+  const yardMix = input.propMix?.yard ?? YARD_MIX;
+  const roadsideMix = input.propMix?.roadside ?? ROADSIDE_MIX;
 
   let anyBuilding = false;
   for (let y = 0; y < height && !anyBuilding; y++) {
@@ -278,7 +281,7 @@ export function propPlacements(input: TerrainInput, cap: number = PROP_CAP): Pro
 
       let chosen: { x: number; z: number; mix: readonly (readonly [PropKind, number])[] } | null = null;
       if (roadsideQualifies) {
-        chosen = { x: rpx, z: rpz, mix: ROADSIDE_MIX };
+        chosen = { x: rpx, z: rpz, mix: roadsideMix };
       } else if (anyBuilding) {
         const d = minChebyshevToBuilding(input, x, y, YARD_BAND[1]);
         if (d >= YARD_BAND[0] && d <= YARD_BAND[1] && tileHash(x + 5101, y + 2903) < YARD_P) {
@@ -287,7 +290,7 @@ export function propPlacements(input: TerrainInput, cap: number = PROP_CAP): Pro
           // N-10's road-surface exclusion, at the point level -- see this
           // function's own doc comment above.
           if (roadDistanceAt(graph, cx, cz) >= ROADSIDE_BAND[0]) {
-            chosen = { x: cx, z: cz, mix: YARD_MIX };
+            chosen = { x: cx, z: cz, mix: yardMix };
           }
         }
       }

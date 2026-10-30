@@ -86,6 +86,9 @@ export type PropKindName =
   | 'tyre_pile'
   | 'rebar'
   | 'wrecked_car'
+  // The wetland's two (GH-871 P3) -- see `WET_PROP_KIND_NAMES`.
+  | 'round_bale'
+  | 'culvert_pipe'
   // The tunnel pieces (GH-227, 2026-09-30) -- see `TUNNEL_PROP_KIND_NAMES`.
   | 'tunnel_mouth'
   | 'tunnel_mouth_collapsed'
@@ -105,6 +108,12 @@ export const TUNNEL_PROP_KIND_NAMES: readonly PropKindName[] = [
   'tunnel_vent_collapsed',
   'spoil_heap',
 ];
+
+/** The wetland's two props, restated from `prop-role.ts`'s `PROP_KINDS` for the same
+ *  bundle-rule reason. NOT in `PROP_KIND_NAMES`: only a theme whose `propMix` names them
+ *  places them, so `propKindsFor` adds them for exactly those maps and a shipped map never
+ *  fetches the two files. */
+export const WET_PROP_KIND_NAMES: readonly PropKindName[] = ['round_bale', 'culvert_pipe'];
 
 /** `PropKindName`'s own members, in the same order `prop-role.ts`'s
  *  `PROP_KINDS` declares them -- used wherever this file needs "every prop
@@ -439,10 +448,9 @@ export const DECOR_MESHES: Readonly<Record<DecorFamilyName, readonly string[]>> 
   willow: ['decor/desert_tree_0.glb', 'decor/desert_tree_1.glb', 'decor/desert_tree_2.glb'],
   // P2 stand-in (GH-871): P3 replaces with `decor/shrub_<n>.glb`.
   shrub: ['decor/bush_0.glb', 'decor/bush_1.glb', 'decor/bush_2.glb'],
-  // P2 stand-in (GH-871): P3 replaces with `decor/reed_<n>.glb`.
-  reed: ['decor/bush_0.glb', 'decor/bush_1.glb', 'decor/bush_2.glb'],
-  // P2 stand-in (GH-871): P3 replaces with `decor/wet_grass_<n>.glb`.
-  wet_grass: ['decor/grass_0.glb', 'decor/grass_1.glb', 'decor/grass_2.glb'],
+  // GH-871 P3: procedural Blender, `tools/terrain/build_reeds.py` / `build_wet_grass.py`.
+  reed: ['decor/reed_0.glb', 'decor/reed_1.glb', 'decor/reed_2.glb'],
+  wet_grass: ['decor/wet_grass_0.glb', 'decor/wet_grass_1.glb', 'decor/wet_grass_2.glb'],
   rock: ['decor/rock_0.glb', 'decor/rock_1.glb', 'decor/rock_2.glb'],
   slab: ['decor/slab_0.glb', 'decor/slab_1.glb', 'decor/slab_2.glb'],
   boulder: ['decor/boulder_0.glb', 'decor/boulder_1.glb', 'decor/boulder_2.glb'],
@@ -511,6 +519,9 @@ export const PROP_MESHES: Readonly<Record<PropKindName, string>> = {
   tyre_pile: 'props/tyre_pile.glb',
   rebar: 'props/rebar.glb',
   wrecked_car: 'props/wrecked_car.glb',
+  // The wetland's two (GH-871 P3): procedural Blender, `tools/terrain/build_wetland_props.py`.
+  round_bale: 'props/round_bale.glb',
+  culvert_pipe: 'props/culvert_pipe.glb',
   // The tunnel pieces (GH-227, 2026-09-30): loaded for every map (a sandbox
   // `&tunnel` synthesises a route on a map that declares none), placed by
   // `three/tunnel-props.ts` from the sim, never by `prop-place.ts`.
@@ -966,11 +977,15 @@ function openBesideMarsh(map: ParsedMap, reach: number): boolean {
  */
 export function propKindsFor(map: ParsedMap): ReadonlySet<PropKindName> {
   const { width, height, blocked, decor } = map;
+  // A theme's own prop mix (the wetland's, GH-871 P3) adds the kinds it names to the shared seven.
+  const mixed = terrainTonesFor(map).propMix;
+  const named = new Set<PropKindName>(PROP_KIND_NAMES);
+  for (const [kind] of [...(mixed?.yard ?? []), ...(mixed?.roadside ?? [])]) named.add(kind);
   for (let t = 0; t < width * height; t++) {
-    if (decor[t] === DECOR.road) return new Set(PROP_KIND_NAMES);
+    if (decor[t] === DECOR.road) return named;
     // "Building tile" mirrors `isBuildingTile`: blocked and not a ridge --
     // the ridge is the one blocked tile that is not a structure.
-    if (blocked[t] !== 0 && decor[t] !== DECOR.ridge) return new Set(PROP_KIND_NAMES);
+    if (blocked[t] !== 0 && decor[t] !== DECOR.ridge) return named;
   }
   return new Set();
 }

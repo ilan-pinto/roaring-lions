@@ -248,6 +248,26 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     macroHue: [paletteColor('fen.0'), paletteColor('mud.2')],
     familyRemap: { grass: 'wet_grass', bush: 'shrub' },
     waterside: { tree: 'willow', p: 0.12, reach: 1 },
+    // GH-871 P3, the art-numbers sheet 2.4: the round bale is a yard object (0.30), the culvert mouth a
+    // roadside one (0.30), and the shared kinds keep their share at the sheet's lower weights. The
+    // tractor wreck (0.15 roadside, 0.10 yard) joins when its Meshy model lands; its share is left out
+    // of the weights below, so every other weight is the sheet's divided by 0.90 (yard) and 0.85 (roadside).
+    propMix: {
+      yard: [
+        ['round_bale', 6],
+        ['water_tank', 4],
+        ['satellite_dish', 2],
+        ['laundry_line', 4],
+        ['tyre_pile', 2],
+      ],
+      roadside: [
+        ['culvert_pipe', 6],
+        ['jersey_barrier', 4],
+        ['tyre_pile', 4],
+        ['wrecked_car', 1],
+        ['rebar', 2],
+      ],
+    },
     decorColors: {
       'oak:foliage': paletteColor('scrub.1'),
       'shrub:foliage': paletteColor('scrub.1'),
@@ -328,17 +348,16 @@ export const TERRAIN_GROUND_TEXTURE: Record<TerrainTheme, string> = {
   green: 'green_basin_tile',
   // GH-322's "V2": terra rossa between grey limestone chips.
   highland: 'highland_v2_tile',
-  // GH-871 R-2: a sward image, recoloured to `fen.0` by the ratio form. P3
-  // replaces this name (and adds its `GROUND_ALBEDOS` mean) in the commit that
-  // ships a wet-ground image.
-  wetland: 'green_basin_tile',
+  // GH-871 P3: the wetland's own sward image (no mud, 18 m), recoloured to
+  // `fen.0` by the ratio form; its `GROUND_ALBEDOS` row is in `terrain/mesh.ts`.
+  wetland: 'wetland_open_tile',
 };
 
 /** The four SLOT images every map's tiles sample -- rock ridge, scrub cover,
  *  grove floor, knoll scree -- as basenames in `assets/textures/`. Total, like
- *  `TERRAIN_GROUND_TEXTURE`, so a theme cannot fall back to another's. All
- *  four themes name the same four files today (GH-871 R-2); P3 gives the
- *  wetland its own five in the commit that ships them. */
+ *  `TERRAIN_GROUND_TEXTURE`, so a theme cannot fall back to another's. The
+ *  three shipped themes name the same four files; the wetland has its own
+ *  (GH-871 P3, with `wetland_open_tile` above: its five). */
 export const TERRAIN_SLOT_TEXTURES: Record<
   TerrainTheme,
   { readonly rock: string; readonly scrub: string; readonly grove: string; readonly knoll: string }
@@ -346,7 +365,7 @@ export const TERRAIN_SLOT_TEXTURES: Record<
   arid: { rock: 'rock_ground_tile', scrub: 'rough_scrub_tile', grove: 'orchard_floor_tile', knoll: 'knoll_scree_tile' },
   green: { rock: 'rock_ground_tile', scrub: 'rough_scrub_tile', grove: 'orchard_floor_tile', knoll: 'knoll_scree_tile' },
   highland: { rock: 'rock_ground_tile', scrub: 'rough_scrub_tile', grove: 'orchard_floor_tile', knoll: 'knoll_scree_tile' },
-  wetland: { rock: 'rock_ground_tile', scrub: 'rough_scrub_tile', grove: 'orchard_floor_tile', knoll: 'knoll_scree_tile' },
+  wetland: { rock: 'basalt_rock_tile', scrub: 'wet_scrub_tile', grove: 'oak_litter_tile', knoll: 'basalt_scree_tile' },
 };
 
 /** The weather a theme draws under (GH-871 R-3). A seam, not a feature: P4's

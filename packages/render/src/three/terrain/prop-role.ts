@@ -82,6 +82,10 @@ export const PROP_KINDS = [
   'tyre_pile',
   'rebar',
   'wrecked_car',
+  // The wetland's two Blender props (GH-871 P3): a wrapped silage bale and a culvert mouth.
+  // Placed only where a theme's `propMix` names them (`prop-place.ts`).
+  'round_bale',
+  'culvert_pipe',
   // The tunnel pieces (GH-227, with the A3.2 ramp set, 2026-09-30). Not
   // placed by `prop-place.ts` at all: `tunnel-props.ts` stands them on a
   // route's own points from the sim's reads, under the trail's own
@@ -116,6 +120,8 @@ export const PROP_TRI_CAPS: Readonly<Record<PropKind, number>> = {
   tyre_pile: 260,
   rebar: 140,
   wrecked_car: 400,
+  round_bale: 160,
+  culvert_pipe: 140,
   tunnel_mouth: 420,
   tunnel_mouth_collapsed: 420,
   tunnel_vent: 220,
