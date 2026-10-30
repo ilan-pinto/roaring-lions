@@ -8261,7 +8261,7 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
-    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: and one that fires on a building (selectStructureTarget picks hostile structures only; selectBreachTarget can pick a neutral wall, but returns -1 for a side a person holds, which every formation order comes from, so a breach reports no contact in play)
+    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: and one that fires on a building (selectStructureTarget picks hostile structures only; selectBreachTarget can pick a neutral wall, but returns -1 for a side a person holds, which every formation order comes from in play, so a breach reports no contact there. A bot seat that a probe or a test orders a formation for is not person-held, so there a breach on a neutral wall does report contact)
 
     const speed = PROJ_SPEED[w.cls];
     let ticks = 1;

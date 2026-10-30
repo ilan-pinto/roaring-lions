@@ -577,6 +577,9 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     // P1b Task 4: the contact columns, at the in-contact cut.
     ['the quiet clock', 560, 'fgQuiet', 0],
     ['the call point', 560, 'fgCallX', 0],
+    // GH-859 P1b final review M-2: the two columns that had no zeroing self-check.
+    ['the call point\'s row', 560, 'fgCallY', 0],
+    ['the release clock', 250, 'fgRelease', 0],
     // P1b Task 5: the calls.
     ['a member\'s duty on a rescue', 250, 'fmDuty', 0],
     ['the medic\'s home', 250, 'fmHomeX', 0],

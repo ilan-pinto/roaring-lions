@@ -1,7 +1,9 @@
 // The S4 gate's own checks (GH-859 P1b, Task 7). The gate decides whether a formation ships, so what must not
 // pass quietly is the gate. Every oracle below is a literal written by hand (the sign-test values were
 // computed once, outside the code, with Python's math.comb); nothing is imported from s4-gate.ts but the code
-// under test. Each test is seen red under a one-line mutation of s4-gate.ts, M-7a..M-7e, listed in the commit.
+// under test. The gate's main behaviours were each seen red under a one-line mutation of s4-gate.ts (the rerun
+// band ignored, the baseline clause ignored, a one-sided sign test, --seed-from ignored, the pairing guard
+// removed), listed in the messages of commits 379b05299 and 2a80a3bbd; the other tests here were not mutated one by one.
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

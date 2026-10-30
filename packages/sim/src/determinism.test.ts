@@ -317,7 +317,7 @@ describe('determinism (1000-tick replay)', () => {
     expect(seen.has(BRACE_DROPPING)).toBe(true);
     expect(seen.has(BRACE_KNEELING)).toBe(true);
     expect(seen.has(BRACE_RISING)).toBe(true);
-    expect(kneelingShots).toBeGreaterThan(100);
+    expect(kneelingShots).toBeGreaterThan(500);
     expect(standingShots).toBe(0);
   });
 
@@ -1290,6 +1290,39 @@ interface FormationWorldFacts {
   casualties: string;
   /** At the last tick: members still away (the Attack's row and the Column's), and every duty read back to NONE. */
   awayAtEnd: string;
+  /** Every tick of the run where a row's fgAtCp or fgAway disagreed with a recount of its members' duties (must be empty). */
+  censusBad: string[];
+  /** How many (tick, row) pairs the census compared with a non-zero counter, so it cannot pass by comparing zeros alone. */
+  censusLive: number;
+}
+
+/**
+ * GH-859 P1b final review M-1: the exact census. For every group row, `fgAtCp` is the number of members on duty WAIT
+ * (1) and `fgAway` the number on OUT (2) or RETURN (3), recounted from the per-unit columns. Returns one message per
+ * row that disagrees, and the number of rows whose counters were non-zero.
+ */
+function formationCensus(sim: Sim, tick: number): { bad: string[]; live: number } {
+  const p = internals(sim);
+  const group = p.fmGroup as Int16Array;
+  const duty = p.fmDuty as Uint8Array;
+  const atCp = p.fgAtCp as Uint16Array;
+  const away = p.fgAway as Uint16Array;
+  const wait = new Uint16Array(atCp.length);
+  const gone = new Uint16Array(atCp.length);
+  for (let i = 0; i < sim.entityCount; i++) {
+    const g = group[i];
+    if (g < 0) continue;
+    if (duty[i] === 1) wait[g]++;
+    else if (duty[i] === 2 || duty[i] === 3) gone[g]++;
+  }
+  const bad: string[] = [];
+  let live = 0;
+  for (let g = 0; g < atCp.length; g++) {
+    if (atCp[g] !== wait[g]) bad.push(`${tick}:${g}:atCp ${atCp[g]} != ${wait[g]}`);
+    if (away[g] !== gone[g]) bad.push(`${tick}:${g}:away ${away[g]} != ${gone[g]}`);
+    if (atCp[g] > 0 || away[g] > 0) live++;
+  }
+  return { bad, live };
 }
 function formationWorld(seed: number): FormationWorldFacts {
   const { sim, ids } = formationSetup(seed);
@@ -1310,6 +1343,8 @@ function formationWorld(seed: number): FormationWorldFacts {
   const out = new Set<number>();
   const ret = new Set<number>();
   let endStates = '';
+  const censusBad: string[] = [];
+  let censusLive = 0;
   const rowStates = (): string => [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationStateOfGroup(sim.formationGroupOf(i))).join(',');
   for (let t = 0; t < 1000; t++) {
     formationDrive(sim, t, ids);
@@ -1321,6 +1356,9 @@ function formationWorld(seed: number): FormationWorldFacts {
       if (e.kind === 'formationCall') calls.push(`${e.tick}:${e.group}:${e.entity}:${e.call}`);
       if (e.kind === 'woundedDown') casualties.push(`${e.tick}:${e.parent}`);
     }
+    const census = formationCensus(sim, t);
+    censusBad.push(...census.bad);
+    censusLive += census.live;
     for (let i = 0; i < sim.entityCount; i++) {
       const d = sim.formationDutyOf(i);
       if (d === 2) out.add(i);
@@ -1344,7 +1382,7 @@ function formationWorld(seed: number): FormationWorldFacts {
   const awayAtEnd = [0, 1, 2, 3].map((g) => `${(internals(sim).fgAway as Uint16Array)[g]}`).join(',') + ' ' + Array.from({ length: sim.entityCount }, (_, i) => sim.formationDutyOf(i)).filter((d) => d !== 0).length;
   return {
     hash: sim.hash(), seen, groups, members, ringFacing, sprungBy, legs, released: released.join(' '), columnFirstArrival, columnPace, columnSetter, contacts: contacts.join(' '),
-    endStates, finalStates: rowStates(), calls: calls.join(' '), outSeen: asc(out), returnSeen: asc(ret), casualties: casualties.join(' '), awayAtEnd,
+    endStates, finalStates: rowStates(), calls: calls.join(' '), outSeen: asc(out), returnSeen: asc(ret), casualties: casualties.join(' '), awayAtEnd, censusBad, censusLive,
   };
 }
 
@@ -1428,6 +1466,13 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
     // alone: `ambushSprung` is absent, which is the point of a ring that springs together.
     expect(a.seen).toEqual({ formationSprung: 1 });
     expect(a.sprungBy).toBe(10);
+  });
+
+  it('every tick, each row\'s fgAtCp and fgAway equal a recount of its members\' duties (GH-859 P1b final review M-1)', () => {
+    const a = formationWorld(FM_SEED);
+    expect(a.censusBad).toEqual([]);
+    // The census saw counters above zero on many ticks (waits at checkpoints, sorties and a rescue), not zeros alone.
+    expect(a.censusLive).toBeGreaterThan(500);
   });
 
   it('marches: the checkpoints, the pace and the dresses are the ones the world is built to show (GH-859 P1b)', () => {

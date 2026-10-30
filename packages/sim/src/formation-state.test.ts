@@ -1,6 +1,8 @@
-// GH-859 P1a Task 3: the formation STATE, with no behaviour behind it yet. Registering a
-// formation, the class on a unit type and the latched hash block must change nothing a world can
-// see until a formation is ordered. Every expected value is a literal.
+// GH-859 P1a Task 3, extended in P1b: the formation STATE. Registering a formation, the class on a
+// unit type and the latched hash block (the P1a columns, then the fourteen P1b columns of the march,
+// the drills and the calls, and the per-unit call class) must change nothing a world can see until a
+// formation is ordered, and once one is every column must reach the hash. The behaviour itself is
+// read in formation-march / -contact / -calls.test.ts. Every expected value is a literal.
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

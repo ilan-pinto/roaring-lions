@@ -361,7 +361,7 @@ describe('halt: an aircraft that will answer the call is not left waiting', () =
   // the halt drops its queue with everyone's: it flies to the contact, comes home ten quiet seconds later and STOPS at the
   // place it left, its checkpoint-1 slot, with fmLeg still 1. What stays here: it is out, never counted as waiting, and
   // never held by the group in contact. (The late arrival at a checkpoint in a group in contact, which pinned
-  // `fmMarchHold`'s MARCH-only test, is now read in formation-calls.test.ts, in an Attack row, where queues stay.)
+  // `fmMarchHold`'s MARCH-only test, is now read in formation-calls.test.ts, on a poked Column (halt) row: the aircraft is given one waypoint by hand.)
   it('a slow aircraft is sent out by the call, is never counted as waiting, and stops at the place it left when it comes home', () => {
     const w = world();
     const ids = column(w, [w.jeep, w.jeep, w.inf, w.inf, w.inf, w.inf, w.airSlow], 'column_dress10', [24, 30], [24, 10]);

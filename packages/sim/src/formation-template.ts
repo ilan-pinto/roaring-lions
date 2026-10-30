@@ -206,7 +206,9 @@ export function formationClassOf(json: UnitClassJson, wheeled: boolean): number 
  *  2. a weapon that can target `ground` (an absent `can_target` means ground) -> strike;
  *  3. otherwise -> spot.
  *
- * Throws `unit <id>: <field> <value>` on a value it cannot read, or on a unit that is not an aircraft.
+ * `can_target` reads the four values `unit.schema.json` allows (ground, air, structure, subterranean); only
+ * `ground` counts as a ground strike. Throws `unit <id>: <field> <value>` on a value outside that enum, or on
+ * a unit that is not an aircraft.
  */
 export function aircraftCallOf(json: UnitCallJson): number {
   const id = json.id ?? '?';
@@ -229,7 +231,7 @@ export function aircraftCallOf(json: UnitCallJson): number {
     }
     if (!Array.isArray(targets)) fail(`weapons[${i}].can_target`, targets);
     for (const t of targets) {
-      if (t !== 'ground' && t !== 'air' && t !== 'structure') fail(`weapons[${i}].can_target`, t);
+      if (t !== 'ground' && t !== 'air' && t !== 'structure' && t !== 'subterranean') fail(`weapons[${i}].can_target`, t);
       if (t === 'ground') ground = true;
     }
   });

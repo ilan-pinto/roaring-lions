@@ -264,6 +264,27 @@ describe('aircraftCallOf: the T0 census of every shipped air unit (Ruling 12)', 
     expect(aircraftCallOf({ ...base, abilities: ['kamikaze'], weapons: [{}] })).toBe(FM_CALL_STAY);
     expect(aircraftCallOf({ ...base, swarm: {}, weapons: [{}] })).toBe(FM_CALL_STAY);
   });
+  it('a subterranean target is not a ground strike, and no schema can_target value throws (GH-859 final review I-1)', () => {
+    const base = { id: 'x', mobility: { domain: 'air' } };
+    expect(aircraftCallOf({ ...base, weapons: [{ can_target: ['subterranean'] }] })).toBe(FM_CALL_SPOT);
+    expect(aircraftCallOf({ ...base, weapons: [{ can_target: ['subterranean', 'ground'] }] })).toBe(FM_CALL_STRIKE);
+    expect(aircraftCallOf({ ...base, hull: { transport_slots: 1 }, weapons: [{ can_target: ['subterranean'] }] })).toBe(FM_CALL_STAY);
+    // The enum is read from the schema file: the function must accept every value the schema allows.
+    const schema = JSON.parse(readFileSync(join(ROOT, 'data', 'schemas', 'unit.schema.json'), 'utf8')) as unknown;
+    const found: string[][] = [];
+    const walk = (node: unknown, key: string): void => {
+      if (node === null || typeof node !== 'object') return;
+      if (key === 'can_target') {
+        const items = (node as { items?: { enum?: string[] } }).items;
+        if (items?.enum) found.push(items.enum);
+      }
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) walk(v, k);
+    };
+    walk(schema, '');
+    expect(found.length, 'the schema has can_target enums').toBeGreaterThan(0);
+    expect(found[0]).toEqual(['ground', 'air', 'structure', 'subterranean']);
+    for (const list of found) for (const v of list) expect(() => aircraftCallOf({ ...base, weapons: [{ can_target: [v] }] }), v).not.toThrow();
+  });
   it('throws naming the unit on a value it cannot read', () => {
     expect(() => aircraftCallOf({ id: 'oddball', mobility: { domain: 'air' }, hull: { transport_slots: -1 } })).toThrow('unit oddball: hull.transport_slots -1');
     expect(() => aircraftCallOf({ id: 'oddball', mobility: { domain: 'air' }, weapons: [{ can_target: ['sky'] }] })).toThrow('unit oddball: weapons[0].can_target sky');
