@@ -57,6 +57,9 @@ export interface Bars {
 export const BARS_B: Bars = { pass: 55, rerun: 65, pooled: 60, baseline: 60 };
 export const BARS_C: Bars = { pass: 60, rerun: 70, pooled: 65, baseline: 65 };
 
+/** The one formation the S4 gate judges. */
+export const S4_FORMATION = 'attack';
+
 /** The sign test's significance level. */
 export const SIGN_ALPHA_PERCENT = 5;
 
@@ -209,6 +212,12 @@ export function pairingFaults(inp: GateInput): string[] {
   const sets: { label: string; base: GateInput['baseA']; arm: GateInput['armA'] }[] = [{ label: 'set A', base: inp.baseA, arm: inp.armA }];
   if ((inp.baseB === undefined) !== (inp.armB === undefined)) faults.push('set B needs both --base-b and --arm-b');
   if (inp.baseB !== undefined && inp.armB !== undefined) sets.push({ label: 'set B', base: inp.baseB, arm: inp.armB });
+  // The S4 formation is Attack, in every arm file of both sets: any other id (which also covers two files
+  // recorded under different ones) is not the pairing.
+  const armIds = new Set(sets.flatMap((s) => s.arm.flatMap((x) => (x.file.formation === null ? [] : [x.file.formation.id]))));
+  if ([...armIds].some((id) => id !== S4_FORMATION)) {
+    faults.push(`the arm files were played under formation ${[...armIds].sort().join(', ')}; S4 judges ${S4_FORMATION} alone, the same in every arm file`);
+  }
   const mergedBase: Map<string, PerSeedCell>[] = [];
   for (const s of sets) {
     const want = endsOfKind(inp.kind);

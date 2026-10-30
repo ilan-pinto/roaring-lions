@@ -110,6 +110,11 @@ describe('the verdict, per cell', () => {
     { name: '(b) base 67% and arm 68%, flips 6/7 the other way', kind: 'both', a: { ...A, base: 130, arm: 129, toward: 6, away: 7 }, verdict: 'PASS (baseline outside, not worse)', set: 'A', code: 0, p: '1.0000' },
     { name: '(b) base 67% and arm 75%, flips 20/5: the formation pushed it', kind: 'both', a: { ...A, base: 129, arm: 144, toward: 20, away: 5 }, verdict: 'TRIP', set: 'A', code: 1, p: '0.0041' },
     { name: '(b) base 80%, arm 70%, flips 3/23: significant, but away from the end: not worse', kind: 'both', a: { ...A, base: 154, arm: 134, toward: 3, away: 23 }, verdict: 'PASS (baseline outside, not worse)', set: 'A', code: 0, p: '0.0001' },
+    { name: '(b) base 68%, arm 72%, flips 12/4 (p 0.0768, above 0.05): outside before, not worse', kind: 'both', a: { ...A, base: 130, arm: 138, toward: 12, away: 4 }, verdict: 'PASS (baseline outside, not worse)', set: 'A', code: 0, p: '0.0768' },
+    { name: '(b) base 68%, arm 72%, flips 11/2 (p 0.0225, below 0.05): the formation pushed it', kind: 'both', a: { ...A, base: 130, arm: 139, toward: 11, away: 2 }, verdict: 'TRIP', set: 'A', code: 1, p: '0.0225' },
+    { name: '(b) 124 of 192 (64.6%) is still the RERUN band', kind: 'both', a: { ...A, base: 100, arm: 124, toward: 24, away: 0 }, verdict: 'RERUN', set: 'A', code: 3 },
+    { name: '(b) pooled 230 of 384 (59.9%) passes', kind: 'both', a: { ...A, base: 100, arm: 115, toward: 15, away: 0 }, b: { n: 192, base: 100, arm: 115, toward: 15, away: 0 }, verdict: 'PASS', set: 'A+B', code: 0 },
+    { name: '(b) pooled 231 of 384 (60.2%) is over 60: a 52% base trips', kind: 'both', a: { ...A, base: 100, arm: 115, toward: 15, away: 0 }, b: { n: 192, base: 100, arm: 116, toward: 16, away: 0 }, verdict: 'TRIP', set: 'A+B', code: 1 },
     { name: '(b) 57.8% at A, 62.8% pooled: the baseline clause reads the POOLED base (61.7%) and flips (15/11)', kind: 'both', a: { ...A, base: 108, arm: 111, toward: 9, away: 6 }, b: { n: 192, base: 129, arm: 130, toward: 6, away: 5 }, verdict: 'PASS (baseline outside, not worse)', set: 'A+B', code: 0 },
     { name: '(b) a base above 60% but a significant shift toward the end trips even at 66%', kind: 'both', a: { ...A, base: 116, arm: 127, toward: 12, away: 1 }, verdict: 'TRIP', set: 'A', code: 1 },
     { name: '(c) 66% is a RERUN', kind: 'friendly', a: { ...A, base: 100, arm: 127, toward: 27, away: 0 }, verdict: 'RERUN', set: 'A', code: 3 },
@@ -122,8 +127,8 @@ describe('the verdict, per cell', () => {
     { name: '(c) the hostile end formed: 66% is a RERUN, read on end 1', kind: 'hostile', a: { ...A, base: 100, arm: 127, toward: 27, away: 0 }, end: 1, verdict: 'RERUN', set: 'A', code: 3 },
   ];
   it('has the cases the ruling names (a count, so an emptied table cannot pass)', () => {
-    expect(cases).toHaveLength(22);
-    expect(cases.filter((c) => c.kind === 'both')).toHaveLength(14);
+    expect(cases).toHaveLength(27);
+    expect(cases.filter((c) => c.kind === 'both')).toHaveLength(19);
     expect(cases.filter((c) => c.kind !== 'both')).toHaveLength(8);
   });
   for (const c of cases) {
@@ -230,6 +235,19 @@ describe('the pairing guard (exit 2)', () => {
     expect(gate(input({ armA: [{ name: 'arm-a', file: file(KEY, ok.arm, null) }] })).code).toBe(2);
     expect(gate(input({ baseA: [{ name: 'base-a', file: file(KEY, ok.base, FORMED.both) }] })).code).toBe(2);
     expect(gate(input({ kind: 'friendly' })).code).toBe(2);
+  });
+  it('refuses arm files played under different formations, or under one that is not attack', () => {
+    const other = { id: 'column', ends: [true, true] as [boolean, boolean] };
+    const b = pair({ n: 192, from: 192, base: 100, arm: 104, toward: 4, away: 0 });
+    const setB = { baseB: [{ name: 'base-b', file: file(KEY, b.base, null) }] };
+    const armB = (f: PerSeedFile['formation']) => ({ ...setB, armB: [{ name: 'arm-b', file: file(KEY, b.arm, f) }] });
+    expect(gate(input(armB(FORMED.both))).code).toBe(0);
+    const mixed = gate(input(armB(other)));
+    expect(mixed.code).toBe(2);
+    expect(mixed.faults.join('\n')).toContain('attack, column');
+    const column = gate(input({ armA: [{ name: 'arm-a', file: file(KEY, ok.arm, other) }] }));
+    expect(column.code).toBe(2);
+    expect(column.faults.join('\n')).toContain('S4 judges attack alone');
   });
   it('refuses a different seat table or cap, no cells, no games, and a cell twice', () => {
     expect(gate(input({ baseA: [{ name: 'base-a', file: file(KEY, ok.base, null, { rules: 'default' }) }] })).code).toBe(2);
