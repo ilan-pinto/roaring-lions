@@ -1,11 +1,16 @@
-"""Export the P3 pieces to a SCRATCH directory through the project's own exporter and read the
-GLBs back: roles, zero materials, triangle counts against the caps, height. The R1 round
-exports nothing into `art/meshes/`; this proves the pieces WOULD export, so the export commit
-starts from bytes that are known to pass.
+"""Export the P3 pieces through the project's own exporter and read the GLBs back: roles,
+zero materials, triangle counts against the caps, height.
 
-    blender -b --factory-startup -P tools/terrain/check_wetland_export.py -- --out <scratch dir>
+    blender -b --factory-startup -P tools/terrain/export_wetland_p3.py -- --out art/meshes
 
-then, in plain python3: `python3 tools/terrain/check_wetland_export.py --read <scratch dir>`.
+writes `decor/{reed,wet_grass}_{0,1,2}.glb` and `props/{round_bale,culvert_pipe}.glb` (the
+shipped export, GH-871 P3, approved after R1d). With `--out <scratch dir>` it is a dry run, which
+is how R1 proved the pieces would export. Then, in plain python3:
+
+    python3 tools/terrain/export_wetland_p3.py --read art/meshes
+
+Every piece is procedural Blender (the builders in this directory, `.blend` sources under
+`art/src/terrain/wetland/`): no generative tool, no downloaded or paid-pack source.
 """
 import json
 import math
@@ -25,6 +30,11 @@ PROPS = ["round_bale", "culvert_pipe"]
 def export_all(out):
     import bpy
     import export_meshy_decor as decor
+
+    decor.CREDIT = (
+        "Wetland decor and props (GH-871 P3) -- code-authored geometry in Blender, no generative tool "
+        "and no source mesh; role-tagged for Roaring Lions"
+    )
     import build_reeds, build_wet_grass, build_wetland_props
     from wetland_kit import to_object
 
