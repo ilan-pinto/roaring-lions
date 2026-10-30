@@ -95,7 +95,7 @@ export interface GroundCaptureArgs {
    *  absent, so a run without it is the run it always was. */
   readonly markers?: readonly MarkerRef[];
   /** `--reflect=` (GH-871 P4 T6): the reflectances to photograph each marker view at. Absent
-   *  without the flag. Ascending as typed, no duplicates, each in 0..1. */
+   *  without the flag. In the order typed, no duplicates, each in 0..1. */
   readonly reflect?: readonly number[];
   /** `--wade=<map>:<marker>` (GH-871 P4 T6). Absent without the flag. */
   readonly wade?: MarkerRef;
@@ -416,14 +416,36 @@ interface LionsWindow {
   };
 }
 
-/** The two reflectances the ground shader is currently drawing with; `null` on a dry map. A raw
- *  string, like `STATS_SCRIPT`, so it reads the same private field the wet-ground tests do. */
-const READ_TUNING_SCRIPT = `(() => {
-  const u = window.__lions.renderer.groundMat && window.__lions.renderer.groundMat.uniforms;
+/** The two reflectances the ground shader is currently drawing with; `null` on a dry map (a
+ *  `groundMat` with no wet uniform). A raw string, like `STATS_SCRIPT`, so it reads the same private
+ *  field the wet-ground tests do. No `groundMat` object AT ALL is a different answer and THROWS: a
+ *  renamed private field must not read as "this map is dry", which would skip every `-r` frame and
+ *  still exit 0 (the G-7 run is announced once). */
+export const READ_TUNING_SCRIPT = `(() => {
+  const g = window.__lions.renderer.groundMat;
+  if (!g) throw new Error('renderer has no groundMat: tree changed');
+  const u = g.uniforms;
   const p = u && u.uPuddleReflect ? u.uPuddleReflect.value : null;
   const m = u && u.uMarshReflect ? u.uMarshReflect.value : null;
   return JSON.stringify({ puddle: p, marsh: m });
 })()`;
+
+/** A `-r<v>` frame must have been DRAWN at `v`: the reflectance read back off the uniforms (not the
+ *  one we asked for) equals the view's. Throws otherwise, naming the view. */
+export function assertReflectApplied(view: { readonly name: string; readonly reflect?: number }, frame: { readonly puddle: number | null; readonly marsh: number | null }): void {
+  if (view.reflect === undefined) return;
+  if (frame.puddle !== view.reflect || frame.marsh !== view.reflect) {
+    throw new Error(
+      `${TAG}: ${view.name} was asked for reflectance ${view.reflect} but the uniforms read puddle=${String(frame.puddle)} marsh=${String(frame.marsh)}`
+    );
+  }
+}
+
+/** The run asked for `--reflect` and took no `-r` frame anywhere: every map was dry, or none had a
+ *  marker view. A run like that has no A/B and must not exit 0. */
+export function reflectRunFailed(reflect: readonly number[] | undefined, reflectFramesTaken: number): boolean {
+  return reflect !== undefined && reflectFramesTaken === 0;
+}
 
 /** `gl.info`'s draw-call and triangle counts for exactly one settled frame:
  *  reset, draw a `frame(1, 0)` (zero elapsed presentation time, so nothing
@@ -553,7 +575,7 @@ async function shot(page: Page, out: string, view: MapView): Promise<FrameRecord
   return { ...stats, tick, puddle: tuning.puddle, marsh: tuning.marsh };
 }
 
-function frameLine(name: string, f: FrameRecord): string {
+export function frameLine(name: string, f: FrameRecord): string {
   const r = f.puddle === null ? 'dry' : `puddle=${f.puddle} marsh=${f.marsh}`;
   return `  ${name}: tick=${f.tick} ${r} calls=${f.calls} tris=${f.triangles} tex=${f.textures} geo=${f.geometries}`;
 }
@@ -709,6 +731,7 @@ async function main(): Promise<void> {
 
   const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs('metal') });
   const cost: Record<string, MapCost> = {};
+  let reflectFrames = 0;
   try {
     say(`[${TAG}] gl=${await readUnmaskedRenderer(browser)}`);
     const page = await browser.newPage({ viewport: CAPTURE_VIEWPORT, deviceScaleFactor: 1 });
@@ -780,6 +803,8 @@ async function main(): Promise<void> {
         } else {
           for (const view of reflectViews(mapId, views, wanted, args.reflect)) {
             const stats = await shot(page, outDir, view);
+            assertReflectApplied(view, stats);
+            reflectFrames++;
             viewCosts[view.name] = stats;
             say(frameLine(view.name, stats));
           }
@@ -812,6 +837,12 @@ async function main(): Promise<void> {
     await browser.close();
     fs.writeFileSync(path.join(outDir, 'cost.json'), JSON.stringify(cost, null, 2) + '\n');
     stopDevServer(server, TAG);
+  }
+  if (reflectRunFailed(args.reflect, reflectFrames)) {
+    say(
+      `[${TAG}] ERROR: --reflect was given but no -r frame was taken (no map in --maps had a marker view on wet ground): there is no A/B`
+    );
+    finish(1);
   }
   finish(0);
 }

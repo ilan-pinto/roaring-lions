@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   COST_LAYERS,
   FIRST_INFANTRY_SCRIPT,
+  READ_TUNING_SCRIPT,
+  assertReflectApplied,
+  frameLine,
+  reflectRunFailed,
   hasArrived,
   nearestWaterTile,
   parseGroundCaptureArgs,
@@ -262,5 +266,50 @@ describe('wade arrival and views', () => {
       { name: 'm-wade-z1', x: 22, y: 33, zoom: 1, fog: false },
       { name: 'm-wade-z2.5', x: 22, y: 33, zoom: 2.5, fog: false },
     ]);
+  });
+});
+
+// Fix round 1: a wrong private-field name must not read as a dry map.
+describe('the tuning read-back (GH-871 P4 T6 fix round 1)', () => {
+  const read = (renderer: unknown): unknown =>
+    JSON.parse((new Function('window', `return ${READ_TUNING_SCRIPT};`) as (w: unknown) => string)({ __lions: { renderer } }));
+  it('reads both reflectances off a wet ground material', () => {
+    const groundMat = { uniforms: { uPuddleReflect: { value: 0.25 }, uMarshReflect: { value: 0.2 } } };
+    expect(read({ groundMat })).toEqual({ puddle: 0.25, marsh: 0.2 });
+  });
+  it('reads null, null from a ground material with no wet uniform (a dry map)', () => {
+    expect(read({ groundMat: { uniforms: {} } })).toEqual({ puddle: null, marsh: null });
+    expect(read({ groundMat: {} })).toEqual({ puddle: null, marsh: null });
+  });
+  it('THROWS when there is no groundMat at all: that is a changed tree, not a dry map', () => {
+    expect(() => read({})).toThrow(/no groundMat: tree changed/);
+    expect(() => read({ ground: { uniforms: {} } })).toThrow(/no groundMat/);
+  });
+  it('a -r frame must read back the reflectance it was asked for', () => {
+    const view = { name: 'm-a-z1-r0.35', reflect: 0.35 };
+    expect(() => assertReflectApplied(view, { puddle: 0.35, marsh: 0.35 })).not.toThrow();
+    expect(() => assertReflectApplied(view, { puddle: 0.25, marsh: 0.35 })).toThrow(/asked for reflectance 0\.35.*puddle=0\.25/);
+    expect(() => assertReflectApplied(view, { puddle: 0.35, marsh: null })).toThrow(/marsh=null/);
+    expect(() => assertReflectApplied(view, { puddle: null, marsh: null })).toThrow(/puddle=null/);
+    // a plain view asks for nothing
+    expect(() => assertReflectApplied({ name: 'm-a-z1' }, { puddle: 0.25, marsh: 0.25 })).not.toThrow();
+  });
+  it('a run that asked for --reflect and took no -r frame has failed', () => {
+    expect(reflectRunFailed([0.2, 0.25], 0)).toBe(true);
+    expect(reflectRunFailed([0.2, 0.25], 6)).toBe(false);
+    expect(reflectRunFailed(undefined, 0)).toBe(false);
+  });
+});
+
+describe('frameLine', () => {
+  const rec = { calls: 12, triangles: 3456, textures: 7, geometries: 9 };
+  it('prints the tick, the reflectances and the draw cost', () => {
+    expect(frameLine('m-a-z1-r0.2', { ...rec, tick: 0, puddle: 0.2, marsh: 0.2 })).toBe(
+      '  m-a-z1-r0.2: tick=0 puddle=0.2 marsh=0.2 calls=12 tris=3456 tex=7 geo=9'
+    );
+    expect(frameLine('m-wade-z2.5', { ...rec, tick: 380, puddle: 0.25, marsh: 0.25 })).toContain('tick=380 puddle=0.25');
+    expect(frameLine('d-centre', { ...rec, tick: 0, puddle: null, marsh: null })).toBe(
+      '  d-centre: tick=0 dry calls=12 tris=3456 tex=7 geo=9'
+    );
   });
 });
