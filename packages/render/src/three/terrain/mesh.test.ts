@@ -795,9 +795,9 @@ describe('GroundMaterial({ wet: true }) -- the THEME_WET program', () => {
     for (const n of WET_UNIFORM_NAMES) expect(grab(dry)[n], n).toBeUndefined();
   });
 
-  it('starts at its authored values: reflectances 0.25, amplitudes 1, and a control C that says "no water"', () => {
+  it('starts at its authored values: reflectances 0.35 and 0.25, amplitudes 1, and a control C that says "no water"', () => {
     const u = wet.uniforms;
-    expect(u.uPuddleReflect.value).toBe(0.25);
+    expect(u.uPuddleReflect.value).toBe(0.35);
     expect(u.uMarshReflect.value).toBe(0.25);
     expect(u.uWetAmp.value).toBe(1);
     expect(u.uMarshAmp.value).toBe(1);

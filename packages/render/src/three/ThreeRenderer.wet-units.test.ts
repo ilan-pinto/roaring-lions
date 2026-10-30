@@ -205,12 +205,12 @@ describe('the decal material', () => {
     // The sky the water mixes toward is the one `applyWetUniforms` wrote, not white.
     const sky = (m.uniforms.uWetSky.value as { toArray(): number[] }).toArray();
     expect(sky).not.toEqual([1, 1, 1]);
-    expect(m.uniforms.uPuddleReflect.value).toBe(0.25);
-    r.debugSetWetTuning({ puddle: 0.35 });
     expect(m.uniforms.uPuddleReflect.value).toBe(0.35);
+    r.debugSetWetTuning({ puddle: 0.2 });
+    expect(m.uniforms.uPuddleReflect.value).toBe(0.2);
     // The marsh reflectance is the marsh's alone.
-    r.debugSetWetTuning({ marsh: 0.2 });
-    expect(m.uniforms.uPuddleReflect.value).toBe(0.35);
+    r.debugSetWetTuning({ marsh: 0.3 });
+    expect(m.uniforms.uPuddleReflect.value).toBe(0.2);
     r.dispose();
   });
 });

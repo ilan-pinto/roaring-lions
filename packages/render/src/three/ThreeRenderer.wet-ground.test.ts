@@ -398,7 +398,7 @@ describe('debugSetWetTuning (R-12: the concrete class only)', () => {
   it('writes the two reflectances, one at a time or together', () => {
     const { r } = setUp(RAIN);
     const u = priv(r).groundMat.uniforms;
-    expect(u.uPuddleReflect.value).toBe(0.25);
+    expect(u.uPuddleReflect.value).toBe(0.35);
     expect(u.uMarshReflect.value).toBe(0.25);
     r.debugSetWetTuning({ puddle: 0.2, marsh: 0.35 });
     expect(u.uPuddleReflect.value).toBe(0.2);

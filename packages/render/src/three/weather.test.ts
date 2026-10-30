@@ -95,8 +95,8 @@ describe('rainLight', () => {
 });
 
 describe('the water reflectances (R-5, GH-871 P4 T4)', () => {
-  it('start at 0.25 each, until the lead picks them from the 0.20 / 0.25 / 0.35 A/B (S-L1)', () => {
-    expect(PUDDLE_REFLECT).toBe(0.25);
+  it('are the lead`s S-L1 picks: road puddles 0.35, marsh water 0.25', () => {
+    expect(PUDDLE_REFLECT).toBe(0.35);
     expect(MARSH_REFLECT).toBe(0.25);
   });
 });
