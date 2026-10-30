@@ -8,6 +8,8 @@
 // `main.ts` is not importable here, so "the keys arm nothing in a versus room" is seen where it can
 // be: `resolveKey` turns the event into the action the keydown `case` receives, and
 // `FormationArming.press` is the call that `case` makes.
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formations, units } from '@lions/data';
 import { Sim, fx, type Command, type UnitTypeJson } from '@lions/sim';
@@ -180,7 +182,7 @@ describe('the formation row', () => {
     // A tooltip of another button replaces it and the formation width goes with it.
     hover(r.btn('ambush'));
     expect(tip.querySelector('.rl-tip__name')?.textContent).toBe('Ambush');
-    expect(tip.textContent).toContain('Faces inward. Ring radius grows with the force.');
+    expect(tip.textContent).toContain('Faces inward. Springs together on contact. Ring radius grows with the force.');
     expect(tip.querySelectorAll('.rl-formtip__legend li')[tip.querySelectorAll('.rl-formtip__legend li').length - 1]?.textContent).toBe('Kill zone');
   });
 
@@ -527,6 +529,25 @@ describe('arming, the cursor and the click', () => {
     expect(arming.activate('attack')).toBe('attack');
     expect(arming.spend(24.5, 24.5, false)?.intents).toEqual([]);
     expect(commands).toEqual([]);
+  });
+
+  it('a box-select drag puts the armed formation down, so the next click is a plain selecting click', () => {
+    const a = armingRig();
+    expect(a.arming.press('formationColumn' as never)).toBe('column');
+    expect(a.arming.drag()).toBe(true);
+    expect(a.arming.armed()).toBeNull();
+    // The click that follows spends nothing: no formation order is queued with the box's selection.
+    expect(a.arming.spend(24.5, 24.5, false)).toBeNull();
+    expect(a.commands).toEqual([]);
+    // A drag with nothing armed is a no-op and reports it.
+    expect(a.arming.drag()).toBe(false);
+  });
+
+  it('main.ts calls drag() in the box-select branch, before the selection is replaced', () => {
+    const src = readFileSync(resolve(__dirname, '../main.ts'), 'utf8');
+    const at = src.indexOf("via: 'box'");
+    expect(at).toBeGreaterThan(0);
+    expect(src.slice(Math.max(0, at - 700), at)).toContain('formationArming.drag()');
   });
 
   it('with fewer than two placeable units a key says so and arms nothing', () => {

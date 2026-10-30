@@ -245,8 +245,11 @@ export function formationFacingLine(id: FormationId): string {
   const f = shippedFormation(id).json;
   const face = `hud.formation.face.${f.arrival.face}`;
   const parts = [t(face)];
-  if (f.contact.drill === 'press') parts.push(t('hud.formation.drill.press'));
-  if (id === 'ambush') parts.push(t('hud.formation.shape.ring'));
+  // Ruling 16: composed from the file's facts. Every drill with copy speaks (the validator requires the key for each
+  // but halt and none, which P1a leaves unsaid), and the ring line follows a ring element, not the id.
+  const drill = f.contact.drill;
+  if (drill !== 'halt' && drill !== 'none') parts.push(t(`hud.formation.drill.${drill}`));
+  if (f.elements.some((el) => el.shape.kind === 'ring')) parts.push(t('hud.formation.shape.ring'));
   return parts.join(' ');
 }
 

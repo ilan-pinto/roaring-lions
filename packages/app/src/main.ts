@@ -4890,6 +4890,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       selectedWorks = hit >= 0 ? -1 : ownWorksAt(p.x, p.y);
       dispatch({ kind: 'select', ids: renderer.selection, via: 'click' });
     } else {
+      // GH-859 P1a: a box select changes the selection, so an armed formation is put down, not carried to the next click.
+      formationArming.drag();
       selectedWorks = -1;
       renderer.selection = renderer
         .unitsInScreenRect(dragStart.x, dragStart.y, p.x, p.y)

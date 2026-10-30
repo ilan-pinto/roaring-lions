@@ -40,6 +40,9 @@ export interface FormationArming {
   activate(id: FormationId): FormationId | null;
   /** Put it down without sending anything (Escape, a right-click, the minimap). True when one was armed. */
   disarm(): boolean;
+  /** A left-button drag (a box select) ended. The selection it makes is not the one the formation was armed for, and the
+   *  next click would spend the arm on it, so the drag puts the formation down. True when one was armed. */
+  drag(): boolean;
   /** The left click: send the formation to (x, y) and disarm. Null when none was armed. */
   spend(x: number, y: number, append: boolean): Resolution | null;
 }
@@ -89,6 +92,11 @@ export function createFormationArming(deps: FormationArmingDeps): FormationArmin
       return null;
     },
     disarm() {
+      const was = armed !== null;
+      armed = null;
+      return was;
+    },
+    drag() {
       const was = armed !== null;
       armed = null;
       return was;

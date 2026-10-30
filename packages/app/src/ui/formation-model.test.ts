@@ -135,7 +135,7 @@ describe('labels are accessors, resolved when asked (the ROLE_LABEL lesson)', ()
     expect(formationReason(row[0])).toBeNull();
     const one = formationRow(facts([u(INFANTRY), u(INFANTRY, false)]), null);
     expect(formationReason(one[0])).toBe('Needs two free units');
-    expect(formationBlurb('ambush')).toBe('Ring the clicked ground and hold. Every unit opens fire together.');
+    expect(formationBlurb('ambush')).toBe('Ring the clicked ground and hold. Armed units fire on what they can reach.');
   });
 
   it('every key a view names is in the catalogue', () => {
@@ -220,7 +220,7 @@ describe('the legend', () => {
   it('closes with the way the formation faces, from its file', () => {
     expect(formationFacingLine('column')).toBe('Faces the way you march.');
     expect(formationFacingLine('attack')).toBe('Faces the approach. Then press on, fighting.');
-    expect(formationFacingLine('ambush')).toBe('Faces inward. Ring radius grows with the force.');
+    expect(formationFacingLine('ambush')).toBe('Faces inward. Springs together on contact. Ring radius grows with the force.');
   });
 });
 

@@ -379,6 +379,8 @@ describe('alertsForTick — the cue follows the tier (polish pass F, A2)', () =>
     expect(a).toHaveLength(1);
     expect(a[0]).toMatchObject({ kind: 'ambushSprung', tier: 'minor', tone: 'good', cue: 'alert.minor', at: { x: 2.5, y: 10.5 }, count: 1 });
     expect(a[0].line).toMatchObject({ key: 'alert.ambushSprung', tone: 'good', place: ['here'] });
+    // Only members with a target in reach fire (measured 75-100% of the group), so the line must not say "all".
+    expect((en as Record<string, string>)['alert.ambushSprung']).toBe('<b>ambush sprung</b> — units fire on what they can reach{where, select, yes { · {place}} other {}}');
     // The enemy's group springing is not news of its own: its per-unit `ambushSprung` already says "ambush".
     expect(alertsForTick(initAlertState(), [sprung(1, 12)], [], world, 40).alerts).toEqual([]);
     // Two of our groups in one tick: still one line, counting both.
