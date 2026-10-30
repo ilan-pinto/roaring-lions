@@ -7,8 +7,11 @@ import math
 
 import numpy as np
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 
 import inf_kit_geo as geo
+import inf_kit_parts as kp
+import inf_kit_scene as scn
 
 HELMET_Z0 = 1.56      # above this, head-bound uniform verts are the helmet
 
@@ -40,6 +43,35 @@ def _base(meshes):
     tris = np.array([t.vertices[:] for t in me.loop_triangles], dtype=int)
     _CACHE[key] = (co, W, dom, tris)
     return _CACHE[key]
+
+
+_LUM = {}
+
+
+def _tri_luminance(U):
+    """Texel luminance (0-1, as stored) of each loop triangle of the `uniform` primitive, read from its baked atlas at the
+    triangle's UV centroid: the way to find a baked vest (near black) among cloth, hands and loose shards."""
+    key = id(U)
+    if key in _LUM:
+        return _LUM[key]
+    import bpy
+    me = U.data
+    img = None
+    for n in me.materials[0].node_tree.nodes:
+        if n.type == "TEX_IMAGE":
+            img = n.image
+    W, H = img.size
+    px = np.empty(W * H * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(H, W, 4)
+    uv = me.uv_layers.active.data
+    out = np.empty(len(me.loop_triangles))
+    for i, t in enumerate(me.loop_triangles):
+        u = np.mean([uv[l].uv for l in t.loops], axis=0)
+        c = px[int(np.clip(u[1] * H, 0, H - 1)), int(np.clip(u[0] * W, 0, W - 1)), :3]
+        out[i] = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    _LUM[key] = out
+    return out
 
 
 def _co(ob):
@@ -84,6 +116,17 @@ class Fit:
         z = co[:, 2]
         self.zone_all = zone(mine)
         self.zone_torso = zone(w("spine") >= 0.95, "torso")
+        self.zone_torso_all = self.zone_torso
+        if kp.TEAM.torso_vest_lum is not None:
+            # the wraps fit the BAKED VEST (near-black texels on the spine), not the whole spine zone: that zone also carries
+            # cloth tatters and spine-bound hands, which make the outermost-hit sampler draw a shapeless drape around the arms
+            lum = _tri_luminance(meshes["uniform"])
+            ok = (w("spine")[tris] >= 0.5).all(1) & tri_mine & (lum < kp.TEAM.torso_vest_lum)
+            t = tris[ok]
+            a, b, c = co[t[:, 0]], co[t[:, 1]], co[t[:, 2]]
+            vs = co[np.unique(t)]
+            self.pts["torso"] = np.concatenate([vs, (a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
+            self.zone_torso = geo.bvh_from(co, t)
         self.zone_helmet = zone((w("head") >= 0.5) & (z >= HELMET_Z0), "helmet")
         self.zone_arm = {s: zone(w(f"upperarm_{s}") >= 0.95, f"arm{s}") for s in "LR"}
         self.zone_arm_any = {s: zone(w(f"upperarm_{s}") >= 0.5) for s in "LR"}
@@ -118,7 +161,13 @@ class Fit:
         self.chest_y = (float(np.percentile(ch[:, 1], 1)), float(np.percentile(ch[:, 1], 99)))
         self.sh = {s: Vector(np.array(bones[f"{pf}_upperarm_{s}"].head_local)) for s in "LR"}
         self.el = {s: Vector(np.array(bones[f"{pf}_upperarm_{s}"].tail_local)) for s in "LR"}
-        # --- weapon, in its own frame (u forward to the muzzle, w left, v up)
+        # --- weapon, in its own frame (u forward to the muzzle, w left, v up). An unarmed figure has none.
+        self.armed = f"{pf}_weapon" in bones
+        if not self.armed:
+            self.wM = self.wu = self.ww = self.wv = self.wl = None
+            self.wlen = 0.0
+            self.wbvh = None
+            return
         Wm = meshes["weapon"]
         wco, wdom = _co(Wm), _dominant(Wm)
         wv_ = wco[wdom == f"{pf}_weapon"]
@@ -136,6 +185,63 @@ class Fit:
         self.wlen = float(proj.max() - proj.min())
         d = wv_ - muz
         self.wl = np.stack([d @ np.array(u), d @ np.array(wvec), d @ np.array(v)], axis=1)
+        # a sparse weapon (demo_squad's carbine: a handful of long faces) has no vertices at most stations, so its top, bottom
+        # and width there are read off its SURFACE: a BVH of the gun's faces in the weapon frame, ray-cast
+        self.wbvh = None
+        if kp.TEAM.weapon_by_surface:
+            me = Wm.data
+            names = {vg.index: vg.name for vg in Wm.vertex_groups}
+            dom = [names[max(vv.groups, key=lambda g: g.weight).group] for vv in me.vertices]
+            loc_v = []
+            for i, vv in enumerate(me.vertices):
+                dd = np.array(vv.co[:]) - muz
+                loc_v.append(Vector((dd @ np.array(u), dd @ np.array(wvec), dd @ np.array(v))))
+            tris = [tuple(pg.vertices) for pg in me.polygons if all(dom[i] == f"{pf}_weapon" for i in pg.vertices)]
+            self.wbvh = BVHTree.FromPolygons(loc_v, tris)
+
+    def _surface_station(self, back):
+        """(top, bottom, w_lo, w_hi) at `back` metres behind the muzzle, from vertical and sideways rays on the gun's faces."""
+        tops, bots, ws = [], [], []
+        for w in np.arange(-0.07, 0.0701, 0.005):
+            o = Vector((-back, w, 1.0))
+            hit = self.wbvh.ray_cast(o, Vector((0, 0, -1)))
+            if hit[0] is not None:
+                tops.append(hit[0].z)
+                ws.append(w)
+            hit = self.wbvh.ray_cast(Vector((-back, w, -1.0)), Vector((0, 0, 1)))
+            if hit[0] is not None:
+                bots.append(hit[0].z)
+        if not tops:
+            return None
+        return float(max(tops)), float(min(bots)), float(min(ws)), float(max(ws))
+
+    def rail_top(self, u0, u1):
+        """Highest point of the gun's surface between two stations (u negative = behind the muzzle)."""
+        best = None
+        for u in np.linspace(u0, u1, 9):
+            st = self._surface_station(-u)
+            if st is not None and (best is None or st[0] > best):
+                best = st[0]
+        return 0.06 if best is None else float(best)
+
+    def helmet_hardware(self, p, proud=0.02):
+        """True for a helmet-zone point that stands more than `proud` metres off the shell: baked NVG shroud, bracket and side
+        rails, which a real helmet cover is cut around. The shell here is the 25th-percentile radius of the helmet's own points in
+        the same height band and 30-degree sector, from the helmet's axis."""
+        if "_hel_pts" not in self.__dict__:
+            self._hel_pts = self.pts["helmet"]
+        P = self._hel_pts
+        cx, cy = self.O[0] + self.hel_c.x, self.O[1] + self.hel_c.y
+        d = P[:, :2] - np.array([cx, cy])
+        ang = np.degrees(np.arctan2(d[:, 1], d[:, 0]))
+        rad = np.hypot(d[:, 0], d[:, 1])
+        q = np.array([p[0] - cx, p[1] - cy])
+        qa = math.degrees(math.atan2(q[1], q[0]))
+        qr = float(np.hypot(*q))
+        sel = (np.abs(P[:, 2] - p[2]) <= 0.025) & (np.abs((ang - qa + 180.0) % 360.0 - 180.0) <= 30.0)
+        if sel.sum() < 6:
+            return False
+        return qr > float(np.percentile(rad[sel], 25)) + proud
 
     # frames
     def fig(self):
@@ -155,9 +261,18 @@ class Fit:
 
     def station(self, back, half=0.025):
         """(top, bottom, w_lo, w_hi) of the weapon `back` metres behind the muzzle."""
+        if self.wbvh is not None:
+            st = self._surface_station(back)
+            if st is not None:
+                return st
         s = self.wl[np.abs(self.wl[:, 0] + back) < half]
         if len(s) == 0:
             s = self.wl[np.abs(self.wl[:, 0] + back) < 0.06]
+        # a sparse barrel (demo_squad's carbine has no vertices within 6 cm of some stations): widen until it has some
+        win = 0.06
+        while len(s) == 0 and win < 0.4:
+            win *= 1.5
+            s = self.wl[np.abs(self.wl[:, 0] + back) < win]
         return float(s[:, 2].max()), float(s[:, 2].min()), float(s[:, 1].min()), float(s[:, 1].max())
 
     def section(self, zlo, zhi, bone="spine", thr=0.95):
@@ -183,14 +298,14 @@ class PoseBank:
     is carried into B's rest frame (`rest @ pose^-1 @ world`): where that vertex would be if it
     were rigid with B. Those points, over all poses, are the volume the part must stay out of."""
 
-    CLIPS = ("idle", "move", "fire", "moveFire", "kneel", "pinned")
-
     def __init__(self, arm, meshes, fits, stride=6):
         import bpy
         self.arm = arm
         self.meshes = meshes
         self.fits = fits
-        objs = [meshes["uniform"], meshes["weapon"]]
+        team = kp.TEAM
+        self.CLIPS = team.bank_clips
+        objs = [meshes[n] for n in team.bank_prims]
         self.objs = objs
         self.dom = []
         for ob in objs:
@@ -200,8 +315,15 @@ class PoseBank:
         saved = arm.data.pose_position
         for clip in self.CLIPS:
             act = bpy.data.actions[clip]
-            lo, hi = int(act.frame_range[0]), int(act.frame_range[1])
-            for fr in range(lo, hi + 1, max(1, stride)):
+            if team.dense_keys:
+                # the file's own keys: a short clip (kneelIn / kneelOut, 0..4.8) at every keyframe and its last frame, a long
+                # one on the stride plus its keys' integer frames. The Rifle Squad's bank sampled `range(lo, hi + 1, stride)`
+                # alone, which for a 4.8-frame clip is frame 0 only.
+                keys, _lo = scn.clip_keys(act, stride, dense=True)
+            else:
+                lo, hi = int(act.frame_range[0]), int(act.frame_range[1])
+                keys = list(range(lo, hi + 1, max(1, stride)))
+            for fr in keys:
                 self._pose(arm, act, fr)
                 dg = bpy.context.evaluated_depsgraph_get()
                 mats = {pb.name: np.array(pb.matrix) for pb in arm.pose.bones}
@@ -226,7 +348,7 @@ class PoseBank:
             arm.animation_data_create()
         arm.animation_data.action = act
         arm.animation_data.action_slot = act.slots[0] if act.slots else None
-        bpy.context.scene.frame_set(fr)
+        scn.set_frame(fr)
         bpy.context.view_layer.update()
 
     def blockers(self, pf, bone, lo, hi):
@@ -237,7 +359,8 @@ class PoseBank:
             self._own = {}
         for oi in range(len(self.objs)):
             if (pf, key, oi) not in self._own:
-                self._own[(pf, key, oi)] = np.array([isinstance(d, str) and d.startswith(pf + "_") and d != key for d in self.dom[oi]])
+                # every other bone of this figure, and the free-standing prop (a charge on the ground) if the file has one
+                self._own[(pf, key, oi)] = np.array([isinstance(d, str) and (d.startswith(pf + "_") or d == "prop") and d != key for d in self.dom[oi]])
         out, who = [], []
         for mats, W in self.poses:
             M = self.rest[key] @ np.linalg.inv(mats[key])
@@ -248,7 +371,7 @@ class PoseBank:
                 m = ((X >= lo) & (X <= hi)).all(1)
                 if m.any():
                     out.append(X[m])
-                    who.append(np.array([d[len(pf) + 1:] for d in self.dom[oi][own]], dtype=object)[m])
+                    who.append(np.array([d[len(pf) + 1:] if d.startswith(pf + "_") else d for d in self.dom[oi][own]], dtype=object)[m])
         if not out:
             return np.zeros((0, 3)), np.zeros(0, dtype=object)
         return np.concatenate(out), np.concatenate(who)

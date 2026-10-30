@@ -107,6 +107,35 @@ def garage_sheet(d, heading, out, cols=3, scale=0.5):
     print(out, sheet.size)
 
 
+def pair_sheet(d, out, team, a_state="none", b_state="full", headings=(0, 180), pad=110):
+    """The contact sheet for a team: tier 0 beside the full kit, front (heading 0) above back (180), at the garage framing.
+    The crop is the union of everything the kit adds (plus `pad` px) so the figures are as large as the frame allows."""
+    import numpy as np
+    ims = {(s, h): Image.open(os.path.join(d, f"garage_{s}_{h:03d}.png")).convert("RGB") for s in (a_state, b_state) for h in headings}
+    x0 = y0 = 10 ** 9
+    x1 = y1 = 0
+    for h in headings:
+        diff = np.abs(np.array(ims[(b_state, h)]).astype(int) - np.array(ims[(a_state, h)]).astype(int)).max(2) > 6
+        ys, xs = np.where(diff)
+        x0, x1, y0, y1 = min(x0, xs.min()), max(x1, xs.max()), min(y0, ys.min()), max(y1, ys.max())
+    # the T0 figures themselves, from the garage background: take the whole row band of the sand and figures
+    w, hh = ims[(a_state, headings[0])].size
+    x0, x1 = max(0, x0 - pad), min(w, x1 + pad)
+    y0, y1 = max(0, y0 - 30), min(hh, y1 + 150)
+    cw, ch = x1 - x0, y1 - y0
+    head = 34
+    sheet = Image.new("RGB", (cw * 2 + 6, (ch + head) * len(headings)), (20, 20, 20))
+    dr = ImageDraw.Draw(sheet)
+    f = font(19)
+    for r, h in enumerate(headings):
+        for c, st in enumerate((a_state, b_state)):
+            sheet.paste(ims[(st, h)].crop((x0, y0, x1, y1)), (c * (cw + 6), r * (ch + head) + head))
+            name = "tier 0" if st == "none" else "full kit (3 x tier 3)"
+            dr.text((c * (cw + 6) + 8, r * (ch + head) + 6), f"{team}  {name}  {'front' if h == 0 else 'back'}  heading {h}", fill=(255, 255, 255), font=f)
+    sheet.save(out)
+    print(out, sheet.size, "crop", (x0, y0, x1, y1))
+
+
 def compare(old, new, out, label_old, label_new, scale_old=2):
     """Old kit beside the new kit at the same framing: the old capture is upscaled to the new's size."""
     o = Image.open(old).convert("RGB")
@@ -145,6 +174,9 @@ if __name__ == "__main__":
     mode = sys.argv[1]
     if mode == "garage":
         garage_sheet(sys.argv[2], int(sys.argv[3]), sys.argv[4])
+        sys.exit(0)
+    if mode == "pair":
+        pair_sheet(sys.argv[2], sys.argv[3], sys.argv[4])
         sys.exit(0)
     if mode == "zones":
         zones_sheet(sys.argv[2], sys.argv[3], sys.argv[4])
