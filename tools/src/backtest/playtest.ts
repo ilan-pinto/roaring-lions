@@ -3574,7 +3574,11 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // 280 -> 290; Wadi Halam II 160 -> 180, III 160 -> 190, IV 198 -> 208, V 200 -> 220. Deir Amun II and Tel Marum I
 // pay what they paid (Tel Marum I brings home 5, not 6). Seven missions were measured and left out, see
 // `tools/src/medic_every_mission.test.ts`'s `LEFT_OUT`. Every plan still wins 30 of 30 seeds, no star or gate moved.
-const LADDER_CREDITS = 6201;
+// 2026-10-30, GH-707, the last seven: the loaned medic team in the seven missions PR 905 left out, each plan re-solved.
+// 6201 -> 6279, +78, read off the printed per-mission credits: Wadi Halam I 170 -> 190, Khan Rafid I 300 -> 310, Khan Rafid
+// II 215 -> 235 (ROE 90 -> 100), Tel Marum II 218 -> 228, Tel Marum III 285 -> 295, Umm Zeitoun I 240 -> 248 (ROE 100 -> 98),
+// Umm Zeitoun IV 259 -> 259. Every plan wins 30 of 30, no star or gate moved. ROSTER_MAX moves 31 -> 30 on its own line.
+const LADDER_CREDITS = 6279;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
