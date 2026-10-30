@@ -389,6 +389,13 @@
  *                 zero it), so a bare uniform write would hold only until the
  *                 gate's repaint. No `layerChecks` entry: no gated scenario
  *                 rains (`wet` is P5's).
+ * - `rain`        the falling rain's one instanced mesh (`units/rain-batch.ts`,
+ *                 GH-871 P4 T8). A FLAG (`ThreeRenderer.rainDebugHidden`) the
+ *                 per-frame visibility write (`writeRainVisibility`) consults,
+ *                 the `units` rule again: `frame()` re-derives `visible` every
+ *                 frame, so a bare write would hold only until the gate's
+ *                 repaint. Hides the streaks and their splashes, not the wet
+ *                 ground. 0 on a map that does not rain.
  *
  * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
  * follow-up 2): the large dark diagonal a first attempt at the plate read as
@@ -484,6 +491,9 @@ export const DEBUG_LAYERS = [
   'wet',
   'marsh',
   'ripples',
+  // GH-871 P4 T8: the falling rain's mesh (`units/rain-batch.ts`), behind a flag the per-frame
+  // visibility write consults. 0 on a map that does not rain. P5's `wet` scenario votes it.
+  'rain',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

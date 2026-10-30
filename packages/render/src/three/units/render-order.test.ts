@@ -29,6 +29,7 @@ import {
   FX_RENDER_ORDER,
   FX_RENDER_ORDER_ADDITIVE,
   FX_RENDER_ORDER_ABOVE,
+  RAIN_RENDER_ORDER,
   FX_RENDER_ORDER_ABOVE_ADDITIVE,
   OVERLAY_RENDER_ORDER,
   SMOKE_RENDER_ORDER,
@@ -229,5 +230,16 @@ describe('render order bands', () => {
     const table = src.slice(0, src.indexOf('export const'));
     expect(table).toMatch(/^ \* \| 0\.2 +\| `SUPPLY_ROUTE_RENDER_ORDER`/m);
     expect(table).toMatch(/^ \* \| 1\.5 +\| `SWARM_ROTOR_RENDER_ORDER`/m);
+    expect(table).toMatch(/^ \* \| 3 +\| `RAIN_RENDER_ORDER`/m);
+  });
+
+  it('RAIN_RENDER_ORDER (GH-871 P4 T8) is the FX-above band: over units, under the overlay tier, smoke and the silhouette', () => {
+    // A literal as well as the alias: moving the FX band must be a decision, not a drift.
+    expect(RAIN_RENDER_ORDER).toBe(3);
+    expect(RAIN_RENDER_ORDER).toBe(FX_RENDER_ORDER_ABOVE);
+    expect(RAIN_RENDER_ORDER).toBeGreaterThan(TURRET_RENDER_ORDER);
+    expect(RAIN_RENDER_ORDER).toBeLessThan(OVERLAY_RENDER_ORDER);
+    expect(RAIN_RENDER_ORDER).toBeLessThan(SMOKE_RENDER_ORDER);
+    expect(RAIN_RENDER_ORDER).toBeLessThan(SILHOUETTE_RENDER_ORDER);
   });
 });

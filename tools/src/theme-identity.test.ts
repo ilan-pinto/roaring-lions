@@ -232,7 +232,30 @@ function sceneFieldsOf(priv: Private): Record<string, unknown> {
   });
   orders.sort((a, b) => a - b);
 
+  // GH-871 P4 T8: the rain batch's program, ONLY when one is in the scene -- a spread of nothing on
+  // the shipped three, so their digests stay byte-identical, and a rain shader edit moves the
+  // wetland's.
+  const rainMeshes: ThreeTypes.Mesh[] = [];
+  priv.scene.traverse((o) => {
+    if (o.name === 'rain-batch') rainMeshes.push(o as ThreeTypes.Mesh);
+  });
+  const rain = rainMeshes.map((m) => {
+    const mat = m.material as ThreeTypes.ShaderMaterial;
+    const g = m.geometry as ThreeTypes.InstancedBufferGeometry;
+    return sha(
+      JSON.stringify([
+        mat.vertexShader,
+        mat.fragmentShader,
+        Object.keys(mat.uniforms).sort(),
+        [mat.transparent, mat.depthTest, mat.depthWrite, m.renderOrder, m.castShadow],
+        Object.keys(g.attributes).sort(),
+        g.instanceCount,
+      ])
+    );
+  });
+
   return {
+    ...(rain.length > 0 ? { rainProgram: rain } : {}),
     fog: sha(JSON.stringify([fogMat.fragmentShader, fogMat.vertexShader, fogMat.defines, Object.keys(fogMat.uniforms).sort()])),
     foliageLive: liveFoliage,
     foliageBuilt: sha(JSON.stringify([builtCompiled.vertexShader, builtCompiled.fragmentShader, built.customProgramCacheKey()])),
@@ -408,6 +431,13 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
       });
       it('draws the recorded scene', () => {
         expect(got.scene, JSON.stringify(got.sceneFields)).toBe(recorded[c.key].scene);
+      });
+      // GH-871 P4 T8, asserted directly as well as through the census: the rain batch exists on the
+      // wetland and on no shipped theme.
+      it('builds the rain batch only on the wetland', () => {
+        const rain = got.sceneFields.rainProgram as string[] | undefined;
+        if (SHIPPED_KEYS.includes(c.key)) expect(rain).toBeUndefined();
+        else expect(rain).toHaveLength(1);
       });
       it('boots the recorded light', () => {
         expect(got.light, JSON.stringify(got.lightFields)).toBe(recorded[c.key].light);

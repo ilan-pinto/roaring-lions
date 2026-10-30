@@ -601,7 +601,17 @@ import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
-import { RAIN_SUN_KEY, rainLight, rainShadowMapSize, type RainLight } from './weather';
+import {
+  RAIN_SPLASH_KEY,
+  RAIN_STREAK_KEY,
+  RAIN_SUN_KEY,
+  rainLight,
+  rainQualityOf,
+  rainShadowMapSize,
+  type RainLight,
+} from './weather';
+import { RainBatch } from './units/rain-batch';
+import { rainColour } from './units/rain-maths';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileYawFor } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
@@ -1383,6 +1393,17 @@ export class ThreeRenderer implements Renderer {
    *  to both mesh template loaders; assigned in the constructor, beside
    *  `groundMat`, because a field initialiser runs before the options are seen. */
   private readonly surfaceTable: SurfaceTable;
+  /** The falling rain (GH-871 P4 T8): ONE instanced draw, built lazily by the
+   *  first `frame()` after the terrain exists and only under `weather: 'rain'`
+   *  (`updateRain`), null on every other map. */
+  private rain: RainBatch | null = null;
+  /** True until the rain's height texture has been baked from the CURRENT
+   *  ground: set by every terrain rebuild, cleared by `updateRain`. */
+  private rainHeightStale = false;
+  /** The `rain` debug layer's flag (`unitsDebugHidden`'s shape): the per-frame
+   *  visibility write (`writeRainVisibility`) consults it, so a toggle holds
+   *  across a repaint. */
+  private rainDebugHidden = false;
   /** The `ripples` debug layer's flag (`unitsDebugHidden`'s shape): the
    *  per-frame write of `uRippleAmp` consults it, so a toggle holds across a
    *  repaint. */
@@ -3798,6 +3819,8 @@ export class ThreeRenderer implements Renderer {
     this.shellBatch.dispose();
     this.boltBatch.dispose();
     this.beamBatch.dispose();
+    this.rain?.dispose();
+    this.rain = null;
     this.beamSlots.clear();
     this.missileFx.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
@@ -4084,6 +4107,7 @@ export class ThreeRenderer implements Renderer {
     // uniform write, shared by reference with every foliage batch.
     this.sway.time.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
     this.writeRippleUniforms(alpha);
+    this.updateRain(alpha);
     this.updateSilhouetteOutlineWidth();
     // `threeCamera()` reconfigures the ONE camera the composer's RenderPass
     // already holds, so this call has to happen whether or not the composer
@@ -4329,6 +4353,18 @@ export class ThreeRenderer implements Renderer {
         if (!this.groundMat.wet || hidden === this.ripplesDebugHidden) return 0;
         this.ripplesDebugHidden = hidden;
         this.writeRippleAmp();
+        return 1;
+      }
+      case 'rain': {
+        // The falling rain's mesh: a FLAG the per-frame write consults
+        // (`writeRainVisibility`), the `ripples` standard -- `frame()`
+        // re-derives `visible` every frame, so a bare write would hold only
+        // until the gate's repaint. 1 when it changed, 0 when it was already
+        // there or the map does not rain.
+        const hidden = !visible;
+        if (this.opts.weather !== 'rain' || hidden === this.rainDebugHidden) return 0;
+        this.rainDebugHidden = hidden;
+        this.writeRainVisibility();
         return 1;
       }
       case 'roads':
@@ -4804,6 +4840,10 @@ export class ThreeRenderer implements Renderer {
     // writes, so there is no third place recording what is hidden.
     const unitsWereVisible = !this.unitsDebugHidden;
     const overlaysWereVisible = this.overlayBatch.mesh.visible;
+    // The falling rain is weather, not ground: the minimap's photograph shows
+    // the wet tones and the water but no streaks (spec 4.4). Restored to what it
+    // was, as the two above are.
+    const rainWasVisible = this.rain?.mesh.visible ?? false;
     try {
       // The buildings, before the photograph and not after it. `frame()`
       // stands a loaded building mesh up in `updateBuildingMeshes`, which
@@ -4830,6 +4870,7 @@ export class ThreeRenderer implements Renderer {
         // hidden for the rest of the mission.
         this.setDebugLayerVisible('units', false);
         this.setDebugLayerVisible('overlays', false);
+        if (this.rain !== null) this.rain.mesh.visible = false;
         // Defilade Task 2: a view-fitted shadow box covers only the
         // camera's ground, so the top-down photograph takes the map-wide box;
         // the next frame refits.
@@ -4865,6 +4906,7 @@ export class ThreeRenderer implements Renderer {
         // `unitsWereVisible` above.
         this.setDebugLayerVisible('overlays', overlaysWereVisible);
         this.setDebugLayerVisible('units', unitsWereVisible);
+        if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
       }
 
       const pixels = new Uint8Array(size * size * 4);
@@ -11633,13 +11675,11 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * Whether the preset allows ripples (`RenderQuality.rain.ripples`, R-8):
-   * absent means "no opinion" and ripples run, `false` is `low`. Read
-   * STRUCTURALLY because the field is Task 8's to add to `RenderQuality`; the
-   * type there replaces the cast. Reduced motion is Task 9's.
+   * absent means "no opinion" and reads `high`'s (`rainQualityOf`), `false` is
+   * `low`. Reduced motion is Task 9's.
    */
   private ripplesAllowed(): boolean {
-    const rain = (this.opts.quality as { rain?: { ripples?: boolean } } | undefined)?.rain;
-    return rain?.ripples !== false;
+    return rainQualityOf(this.opts.quality).ripples;
   }
 
   /**
@@ -11662,6 +11702,85 @@ export class ThreeRenderer implements Renderer {
   private writeRippleAmp(): void {
     if (!this.groundMat.wet) return;
     this.groundMat.uniforms.uRippleAmp.value = this.ripplesAllowed() && !this.ripplesDebugHidden ? 1 : 0;
+  }
+
+  /**
+   * The falling rain, once a frame (GH-871 P4 T8; R-7): builds the batch the first
+   * time the terrain exists, re-bakes its height texture after every terrain
+   * rebuild, then hands it the SIM clock, the camera and the pixel ratio.
+   *
+   * Built here, in `frame()`, not in the constructor (it reads the drawn ground)
+   * and not in `init()` (the GL-free harnesses never call it, and the wetland
+   * `scene` digest has to see the mesh): the first frame after `init` is
+   * "after init" for the app. Only under `weather: 'rain'`; a preset with 0
+   * drops (the last step of `RAIN_LADDER`) builds none. The time is
+   * `presentationSimMs`, never `performance.now()` or `dtMs`: a repaint at zero
+   * elapsed time reads the same uniforms and a pause freezes the rain mid-air.
+   */
+  private updateRain(alpha: number): void {
+    if (this.opts.weather !== 'rain') return;
+    if (this.rain === null) {
+      const { drops } = rainQualityOf(this.opts.quality);
+      if (drops <= 0 || this.retained.elevation === null) return;
+      this.rain = new RainBatch(this.scene, {
+        drops,
+        mapWidth: this.sim.width,
+        mapHeight: this.sim.height,
+      });
+      this.applyRainColours();
+      this.rainHeightStale = true;
+    }
+    if (this.rainHeightStale) {
+      const { elevation } = this.retained;
+      const w = this.sim.width;
+      const h = this.sim.height;
+      this.rain.bakeHeights((x, z) => groundWorldY(elevation, w, h, x, z));
+      this.rainHeightStale = false;
+    }
+    this.rain.update({
+      simSec: presentationSimMs(this.sim.tickCount, alpha) / 1000,
+      view: {
+        x: this.camera.x,
+        y: this.camera.y,
+        zoom: this.camera.zoom,
+        width: this.cssWidth,
+        height: this.cssHeight,
+      },
+      dpr: this.pixelRatio,
+    });
+    this.writeRainVisibility();
+  }
+
+  /**
+   * The rain batch's visibility, written every frame. It consults
+   * `rainDebugHidden` (the `rain` layer's flag), so a hide holds across the
+   * gate's repaint. This is the seam Task 9 extends with reduced motion; until
+   * then nothing else hides it.
+   */
+  private writeRainVisibility(): void {
+    if (this.rain === null) return;
+    this.rain.mesh.visible = !this.rainDebugHidden;
+  }
+
+  /**
+   * The rain's two colours (GH-871 P4 T8; R-7): `overcast.0` for the streak and
+   * `overcast.1` for the splash, linear, times the `hazeRadiance` of the lights
+   * this scene is lit by -- the factor the haze tint and the water's sky take --
+   * so rain sits at lit ground's scene-referred level. Under 0.9 on every
+   * preset (`RAIN_COLOUR_CEILING`), so it never blooms and `hdr-gains.ts` has no
+   * entry for it. Called once, when the batch is built.
+   */
+  private applyRainColours(): void {
+    if (this.rain === null) return;
+    const k = hazeRadiance(
+      this.resolvedLights.sunIntensity,
+      this.resolvedLights.direction.y,
+      this.resolvedLights.hemiIntensity
+    );
+    this.rain.setColors(
+      rainColour(hexToLinear(this.overlayColor(RAIN_STREAK_KEY)), k),
+      rainColour(hexToLinear(this.overlayColor(RAIN_SPLASH_KEY)), k)
+    );
   }
 
   /**
@@ -12741,6 +12860,9 @@ export class ThreeRenderer implements Renderer {
     // The terrace rule reads `sim.blocked`, which changes under this class
     // (a destroyed structure). See `refreshSurface`.
     this.refreshSurface();
+    // The rain lands on the ground that just changed (both callers, `frame()`
+    // and the minimap photograph, come through here): re-bake its heights.
+    this.rainHeightStale = true;
     this.syncBackdrop();
     if (this.terrainMesh) {
       this.scene.remove(this.terrainMesh);

@@ -645,3 +645,50 @@ describe('the wet-ground layers: wet, marsh, ripples (GH-871 P4 T4, R-10)', () =
     r.dispose();
   });
 });
+
+describe('the rain layer (GH-871 P4 T8, R-10)', () => {
+  const wetRenderer = (): ThreeRenderer =>
+    new ThreeRenderer(new Sim({ seed: 1, width: 4, height: 4, capacity: 1 }), { ...makeOpts(), weather: 'rain' });
+  const rainMesh = (r: ThreeRenderer): THREE.Object3D | undefined => {
+    let found: THREE.Object3D | undefined;
+    (r as unknown as { scene: THREE.Scene }).scene.traverse((o: THREE.Object3D) => {
+      if (o.name === 'rain-batch') found = o;
+    });
+    return found;
+  };
+
+  it('is named, and has an entry in the doc block a harness author reads', () => {
+    const src = readFileSync(fileURLToPath(new URL('./debug-layers.ts', import.meta.url)), 'utf8');
+    const doc = src.slice(0, src.indexOf('export const DEBUG_LAYERS'));
+    expect(DEBUG_LAYERS).toContain('rain');
+    expect(isDebugLayer('rain')).toBe(true);
+    expect(doc).toMatch(/^ \* - `rain` +\S/m);
+    expect(unknownDebugLayerMessage('x')).toContain('ripples, rain');
+  });
+
+  it('hides the batch behind a flag, idempotent both ways, holding across a repaint', () => {
+    const r = wetRenderer();
+    r.frame(1, 0);
+    const mesh = rainMesh(r);
+    expect(mesh, 'the wetland builds a rain mesh').toBeDefined();
+    expect(mesh?.visible).toBe(true);
+    expect(r.setDebugLayerVisible('rain', false)).toBe(1);
+    expect(mesh?.visible).toBe(false);
+    expect(r.setDebugLayerVisible('rain', false)).toBe(0);
+    r.frame(1, 0);
+    expect(mesh?.visible, 'the repaint must not undo the hide').toBe(false);
+    expect(r.setDebugLayerVisible('rain', true)).toBe(1);
+    expect(mesh?.visible).toBe(true);
+    expect(r.setDebugLayerVisible('rain', true)).toBe(0);
+    r.dispose();
+  });
+
+  it('reports 0 on a map that does not rain (and builds nothing)', () => {
+    const r = makeRenderer();
+    r.frame(1, 0);
+    expect(r.setDebugLayerVisible('rain', false)).toBe(0);
+    expect(r.setDebugLayerVisible('rain', true)).toBe(0);
+    expect(rainMesh(r)).toBeUndefined();
+    r.dispose();
+  });
+});

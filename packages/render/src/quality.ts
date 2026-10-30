@@ -80,10 +80,32 @@ export interface RenderQuality {
    * +5 ms median on a 110-tile screen at 0.95 (the lead, 23 Oct).
    */
   smokeBillboardGain?: number;
+  /**
+   * The falling rain and the ripples (GH-871 P4 T8; R-8), read only by a
+   * renderer built with `weather: 'rain'` -- no shipped map rains, so on every
+   * shipped map this field changes nothing. `drops` is the rain batch's
+   * instance count (`three/units/rain-batch.ts`; 0 builds none) and `ripples`
+   * whether the wet ground draws its rings. Absent means "no opinion" (a test
+   * fake, a caller that predates it) and reads `high`'s (`rainQualityOf`,
+   * `three/weather.ts`). The cost run steps `drops` down `RAIN_LADDER` when a
+   * preset is over its budget. There is no open-puddle flag: the lead removed
+   * the open-ground puddle terms at S-L1 (30 Oct).
+   */
+  rain?: { drops: number; ripples: boolean };
 }
 
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
-  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0 },
-  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1 },
-  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', aoScale: 0.25, fxDetail: 1, smokeBillboardGain: 0.8 },
+  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 1500, ripples: false } },
+  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true } },
+  high: {
+    ao: true,
+    smaa: true,
+    shadowMapSize: 4096,
+    bloom: 'quarter',
+    shadowFit: 'view',
+    aoScale: 0.25,
+    fxDetail: 1,
+    smokeBillboardGain: 0.8,
+    rain: { drops: 6000, ripples: true },
+  },
 };

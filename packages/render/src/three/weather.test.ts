@@ -6,7 +6,17 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { MARSH_REFLECT, PUDDLE_REFLECT, rainLight, rainShadowMapSize } from './weather';
+import {
+  MARSH_REFLECT,
+  PUDDLE_REFLECT,
+  RAIN_LADDER,
+  RAIN_PERIODS,
+  rainLadderDrops,
+  rainLight,
+  rainQualityOf,
+  rainShadowMapSize,
+} from './weather';
+import { QUALITY_PRESETS, type RenderQuality } from '../quality';
 import { TIME_OF_DAY_PRESETS } from './time-of-day';
 import { paletteHex } from './palette-hex';
 
@@ -102,11 +112,47 @@ describe('the water reflectances (R-5, GH-871 P4 T4)', () => {
 });
 
 describe('weather.ts stays three-free', () => {
-  it('imports nothing from three, and only the type of time-of-day', () => {
+  it('imports nothing from three: the quality table (itself three-free) and the type of time-of-day', () => {
     const path = fileURLToPath(new URL('./weather.ts', import.meta.url));
     const importLines = readFileSync(path, 'utf8')
       .split('\n')
       .filter((line) => /^\s*import\b/.test(line));
-    expect(importLines).toEqual(["import type { LightPreset } from './time-of-day';"]);
+    expect(importLines).toEqual([
+      "import { QUALITY_PRESETS, type RenderQuality } from '../quality';",
+      "import type { LightPreset } from './time-of-day';",
+    ]);
+  });
+});
+
+describe('the rain count ladder (R-8, GH-871 P4 T8)', () => {
+  it('is x1, x0.6, x0.35, then no falling rain', () => {
+    expect(RAIN_LADDER).toEqual([1, 0.6, 0.35, 0]);
+  });
+  it('steps high 6000 -> 3600 -> 2100 -> 0, and low 1500 -> 900 as its first step', () => {
+    expect([0, 1, 2, 3].map((s) => rainLadderDrops(6000, s))).toEqual([6000, 3600, 2100, 0]);
+    expect([0, 1, 2, 3].map((s) => rainLadderDrops(1500, s))).toEqual([1500, 900, 525, 0]);
+    expect(rainLadderDrops(3500, 1)).toBe(2100);
+    // Clamped at both ends.
+    expect(rainLadderDrops(6000, -2)).toBe(6000);
+    expect(rainLadderDrops(6000, 9)).toBe(0);
+  });
+});
+
+describe('rainQualityOf: absent means no opinion, and high`s', () => {
+  it('reads each preset`s own rain fields', () => {
+    expect(rainQualityOf(QUALITY_PRESETS.low)).toEqual({ drops: 1500, ripples: false });
+    expect(rainQualityOf(QUALITY_PRESETS.medium)).toEqual({ drops: 3500, ripples: true });
+  });
+  it('gives high`s to an absent quality and to a quality with no rain field (a test fake)', () => {
+    expect(rainQualityOf(undefined)).toEqual({ drops: 6000, ripples: true });
+    const noRain: Partial<RenderQuality> = { ...QUALITY_PRESETS.low };
+    delete noRain.rain;
+    expect(rainQualityOf(noRain as RenderQuality)).toEqual({ drops: 6000, ripples: true });
+  });
+});
+
+describe('the lattice periods', () => {
+  it('are 8, 16, 32 and 64 tiles (R-7)', () => {
+    expect(RAIN_PERIODS).toEqual([8, 16, 32, 64]);
   });
 });

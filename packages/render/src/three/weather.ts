@@ -16,6 +16,7 @@
  * mission wins); the open-ground irradiance `(sunI * sun.y + hemiI) / pi` goes
  * 0.964 -> 0.741 on `day`.
  */
+import { QUALITY_PRESETS, type RenderQuality } from '../quality';
 import type { LightPreset } from './time-of-day';
 
 /** The sun's power under rain: x0.46, on any preset (day 2.6 -> 1.196). */
@@ -108,4 +109,74 @@ export function rainLight(
  *  (4096 -> 2048, 2048 -> 1024, 1024 -> 1024). */
 export function rainShadowMapSize(size: number, steps: number): number {
   return Math.max(RAIN_SHADOW_FLOOR, size / 2 ** steps);
+}
+
+// ---------------------------------------------------------------------------
+// The falling rain (GH-871 P4 T8; R-7, R-8). `units/rain-maths.ts` is the pure
+// maths over these, `units/rain-batch.ts` the one draw.
+// ---------------------------------------------------------------------------
+
+/** Fall speed, world units (tiles) a second: 12 m/s. */
+export const RAIN_FALL_SPEED = 4.0;
+/** The slab the rain falls through, above the ground: 6 world units. */
+export const RAIN_FALL_HEIGHT = 6;
+/** The slant of a drop's path from the vertical, degrees, down-wind. */
+export const RAIN_SLANT_DEG = 12;
+/** A streak's length along its path, world units. */
+export const RAIN_STREAK_LENGTH = 0.42;
+/** A streak's width on screen, CSS pixels, at every zoom (the constant-pixel rule). */
+export const RAIN_STREAK_CSS_PX = 1.5;
+/** A streak's alpha. */
+export const RAIN_STREAK_ALPHA = 0.28;
+/** The splash ring: radius 0.04 -> 0.10 world units over 150 ms after the drop lands. */
+export const RAIN_SPLASH_R0 = 0.04;
+export const RAIN_SPLASH_R1 = 0.1;
+export const RAIN_SPLASH_MS = 150;
+/** The splash's alpha, 0.35 -> 0 over its life. */
+export const RAIN_SPLASH_ALPHA = 0.35;
+/** How far a splash ring floats over the ground it lands on, world units: a ring
+ *  is flat and a slope would bury one side of it. */
+export const RAIN_SPLASH_LIFT = 0.04;
+/** Palette keys: the streak's colour and the splash's. */
+export const RAIN_STREAK_KEY = 'overcast.0';
+export const RAIN_SPLASH_KEY = 'overcast.1';
+/** The lattice periods a box of rain can take, in tiles (R-7): the smallest that
+ *  covers the box of landing points the screen can see; the largest when none does
+ *  (a map wider than 48 tiles at the lowest zoom thins at its far corners). */
+export const RAIN_PERIODS: readonly number[] = [8, 16, 32, 64];
+/** The share a period must exceed the box by. R-7 says "footprint padded 10%"; the
+ *  box (`rain-maths.ts` `footprintBox`) already carries the exact margins a pad stands
+ *  in for -- the height of the fall seen up the screen (`H / tan(elevation)`, 10.4
+ *  tiles) and the slant (1.3), 14% to 40% of a footprint -- so no second pad. */
+export const RAIN_PERIOD_PAD = 1;
+/** The ground-height texture's resolution: texels a tile. */
+export const RAIN_HEIGHT_TEXELS_PER_TILE = 4;
+/** The bloom bar (CLAUDE.md, "Bloom"; `bloom.ts` thresholds at 1.0): the largest
+ *  scene-referred channel of a rain colour must stay under it, so rain never
+ *  blooms and `hdr-gains.ts` gets no entry. */
+export const RAIN_COLOUR_CEILING = 0.9;
+
+/**
+ * The count ladder (R-8): the fractions of a preset's `drops` the cost run
+ * steps through when the preset is over budget -- x1.0, x0.6, x0.35, then no
+ * falling rain at all (the wet ground stays). A step is a one-line edit to that
+ * preset's `drops`, committed with its measurement. On `low`, whose first step
+ * used to be the open-puddle flag, the first step is now drops 1500 -> 900: the
+ * lead removed the open-ground puddle terms at S-L1.
+ */
+export const RAIN_LADDER: readonly number[] = [1, 0.6, 0.35, 0];
+
+/** `drops` after `step` steps down `RAIN_LADDER` (0 is today's count). */
+export function rainLadderDrops(drops: number, step: number): number {
+  const f = RAIN_LADDER[Math.min(Math.max(step, 0), RAIN_LADDER.length - 1)];
+  return Math.round(drops * f);
+}
+
+/**
+ * The rain fields of a quality preset, `high`'s when it has none: an absent
+ * `quality` or an absent `quality.rain` is "no opinion" (a test fake builds no
+ * rain fields), and `high` is the frame every shipped caller has seen.
+ */
+export function rainQualityOf(quality: RenderQuality | undefined): { drops: number; ripples: boolean } {
+  return quality?.rain ?? QUALITY_PRESETS.high.rain ?? { drops: 6000, ripples: true };
 }
