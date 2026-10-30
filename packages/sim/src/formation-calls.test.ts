@@ -757,6 +757,18 @@ describe('the medic out of the way of his own job', () => {
     expect(w.sim.formationGroupOf(medic)).toBe(-1);
     expect([p.fmDuty[medic], p.fmHomeX[medic], p.fgAway[0], p.fgMembers[0]]).toEqual([0, 0, 0, 4]);
   });
+  it('a player order to a medic on his way home takes him out of the group too (RETURN counts as away until it ends)', () => {
+    const c = convoy();
+    const { w, medic } = c;
+    const p = priv(w.sim);
+    hit(w, c.squadA);
+    for (let t = 0; t < 1500 && p.fmDuty[medic] !== DUTY.ret; t++) tick(w);
+    expect([p.fmDuty[medic], p.fgAway[0], p.fgMembers[0]]).toEqual([DUTY.ret, 1, 5]);
+    w.sim.queueCommand({ kind: 'move', ids: [medic], x: at(40), y: at(40) } as never);
+    tick(w);
+    expect(w.sim.formationGroupOf(medic)).toBe(-1);
+    expect([p.fmDuty[medic], p.fmHomeY[medic], p.fgAway[0], p.fgMembers[0]]).toEqual([0, 0, 0, 4]);
+  });
   it('the last member of the row leaves while away: every counter of the row is cleared and the row is free', () => {
     const w = world();
     const ids = [[w.squad, 22, 44], [w.heli, 24, 30]].map(([t, x, y]) => spawnAt(w, t, 0, x, y));
