@@ -7112,7 +7112,7 @@ export class ThreeRenderer implements Renderer {
     // failure leaves the type with neither.
     const side1Key = templateKey(unitTypeId, 1, bySide);
     let side1Templates: MeshUnitTemplate[] | null = null;
-    // GH-826: with the kit off both seats draw the same figure, so no second set.
+    // GH-826: with the kit switched off (the kill switch) both seats draw the same figure, so no second set.
     if (INFANTRY_KIT_ENABLED && side1Key !== unitTypeId && templates.some((t) => t.kitted === true)) {
       try {
         side1Templates = await buildSet(templateKitTiers(unitTypeId, 1, this.opts.unitKitTiers, bySide));
