@@ -269,8 +269,31 @@ def hex_rgb(h):
 # --- the five tiles --------------------------------------------------------------
 
 
-def author_open(n, mud_share=0.20, soft=0.035):
-    """Spring sward over yellow-umber alluvial mud, v2 (the lead's 30 Oct ruling: calmer).
+def _share_scale(radius, dist, soft, share):
+    """The factor on the patch radii that makes the mud cover `share` of the image (bisection on a
+    subsample, 24 steps). Coverage is monotone in the factor."""
+    sub = (slice(None, None, 4), slice(None, None, 4))
+    r, d = radius[sub], dist[sub]
+    lo, hi = 0.2, 4.0
+    for _ in range(24):
+        mid = (lo + hi) / 2
+        cov = float((1.0 - smoothstep(r * mid - soft, r * mid + soft, d)).mean())
+        lo, hi = (mid, hi) if cov < share else (lo, mid)
+    return (lo + hi) / 2
+
+
+def author_open(n, mud_share=0.10, soft=0.08, macro=0.5, drift=0.04, mud_pull=0.75, grid=13):
+    """Spring sward over yellow-umber alluvial mud, v3 (the lead's second 30 Oct ruling: calmer still).
+
+    v3 over v2: 10% mud (v2 20%), a softer 0.045 edge, the mud pulled `mud_pull` of the way toward
+    the sward (v2 was full contrast), a MACRO mud-density modulation (`macro`: a 5-cell fBm added to
+    the patch field, so patches gather in some stretches of the 18 m image and vanish in others,
+    which breaks the even lattice a uniform field makes) and a gentle low-frequency drift in the
+    sward's own lightness (`drift`, about +-4%, 6 cells), which also keeps the visible contrast over the
+    0.05 floor now that the mud is a hint. All of it is inside the tile's own periodic image.
+
+    v2 notes follow.
+
 
     v1 (commit 5671bef0a) was 9 m, 40% mud in patches 1.5 m across with hard edges, and its
     repeat showed in plan view. v2 is 18 m (the repeat is twice as long), about 20% mud, in
@@ -281,11 +304,23 @@ def author_open(n, mud_share=0.20, soft=0.035):
     mpp = TILES["wetland_open_tile"]["metres"] / n  # metres per master px
     px_per_cm = 0.01 / mpp
 
-    # Patch field: ~1.3 m wavelength over 18 m (14 cells), thresholded to 20% mud so the patches
-    # are small islands, few and apart. The edge ramp is 0.035 of the field's range: soft (`soft`; the spec's falsifier is mud_share 0.6 with a wide edge).
-    field = fbm(n, 14, 121, 3) + 0.12 * fbm(n, 70, 123, 3)
-    thr = np.quantile(field, 1.0 - mud_share)
-    mud_w = smoothstep(thr - soft, thr + soft, field)  # 1 in the mud (the top `mud_share` of the field)
+    # Patches. v1 and v2 thresholded a noise field, and a few big blobs became landmarks that the
+    # eye lines up across the repeat (a faint lattice). v3 sprinkles `grid` x `grid` jittered seeds
+    # (a Poisson-like scatter, 1.4 m apart over 18 m, wrapping), and each lights a SMALL soft patch
+    # of its own radius (0.2-0.45 m, a quarter of the seeds none): no patch is bigger than the rest,
+    # so none is a landmark. `macro` modulates the radii by a 3-cell fBm of the tile's own image
+    # (about +-35%), so the density drifts across the 18 m instead of sitting even. `mud_share` scales
+    # the radii to the share asked for (measured, not assumed).
+    f1, _f2, ids = periodic_voronoi(n, grid, 161, jitter=0.9)
+    cell_m = TILES["wetland_open_tile"]["metres"] / grid
+    dist_m = f1 * cell_m
+    h = hash_u32(ids.astype(np.uint32), np.uint32(7), 163).astype(np.float32) / np.float32(4294967296.0)
+    h2 = hash_u32(ids.astype(np.uint32), np.uint32(9), 167).astype(np.float32) / np.float32(4294967296.0)
+    radius = (0.20 + 0.25 * h2) * np.where(h < 0.25, 0.0, 1.0)
+    radius = radius * (1.0 + macro * 0.9 * fbm(n, 3, 125, 2))
+    ragged = 0.30 * fbm(n, 40, 169, 3)  # the edge wanders by up to ~10 cm, so no patch is a circle
+    unit = _share_scale(radius, dist_m + ragged, soft, mud_share)
+    mud_w = 1.0 - smoothstep(radius * unit - soft, radius * unit + soft, dist_m + ragged)
 
     # Sward: understorey, mid blades, light tips. A narrow spread (v1: 40..142 in green).
     under = np.array([62.0, 100.0, 44.0])
@@ -309,6 +344,10 @@ def author_open(n, mud_share=0.20, soft=0.035):
     mud = mud + (wet - mud) * (wetmask * 0.6)[..., None]
     mud = mud * (0.97 + 0.06 * sp[..., None])
 
+    # v3: the mud sits only part of the way from the sward to full umber, and the sward drifts
+    mud = sward + (mud - sward) * mud_pull
+    drift_f = 1.0 + drift * fbm(n, 6, 151, 3)
+    sward = sward * drift_f[..., None]
     img = (sward * (1.0 - mud_w[..., None]) + mud * mud_w[..., None]).astype(np.float32)
 
     # Straw thatch: short pale strokes on the sward, few and low in contrast.

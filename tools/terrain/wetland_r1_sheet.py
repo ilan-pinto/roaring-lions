@@ -444,7 +444,7 @@ def contact_sheet(raw_dir, meta, tiles_dir, out, scene_ims):
     return im.crop((0, 0, W, y + sc.height + 12))
 
 
-def compare_sheet(old_raw, new_raw, old_tiles, new_tiles, census_before, census_after, extra_lines=()):
+def compare_sheet(old_raw, new_raw, old_tiles, new_tiles, census_before, census_after, extra_lines=(), titles=None):
     """R1b: the old and new open tile, the old and new R3 scene, and the numbers that moved."""
     om, nm = json.load(open(os.path.join(old_raw, "meta.json"))), json.load(open(os.path.join(new_raw, "meta.json")))
     old_sc, new_sc = scene_images(old_raw, om)["overview_z1"], scene_images(new_raw, nm)["overview_z1"]
@@ -457,29 +457,38 @@ def compare_sheet(old_raw, new_raw, old_tiles, new_tiles, census_before, census_
     sc_h = int(old_sc.height * 2 * 960 / (old_sc.width * 2))
     H = 60 + S + 150 + 40 + sc_h + 40 + 330 + 30 * len(extra_lines)
     im = Image.new("RGB", (W, H), (24, 26, 30))
-    label(im, "R1b: the open-ground tile calmed (before | after), the R3 scene (before | after), and the numbers that moved. Rain light, ACES, game camera.", (16, 12), 22)
+    titles = titles or dict(
+        head="R1b: the open-ground tile calmed (before | after), the R3 scene (before | after), and the numbers that moved. Rain light, ACES, game camera.",
+        old="BEFORE: 9 m tile, repeat 3, gain 1.25, 40% mud in 1.5 m hard-edged patches",
+        new="AFTER: 18 m tile, repeat 6, gain 1.0, 20% mud in 0.5-1 m patches, soft edge, narrower sward spread",
+        old_m=9, new_m=18,
+        scene="R3 scene at zoom 1 (native 720x410, shown x2). BEFORE: P2's 1.5 reed clumps a tile, 9 m tile.  AFTER: 3 clumps a tile, calmed 18 m tile.",
+    )
+    label(im, titles["head"], (16, 12), 22)
     y = 50
     for k, (sw, rep, name, dims) in enumerate(
-        ((sw_old, rep_old, "BEFORE: 9 m tile, repeat 3, gain 1.25, 40% mud in 1.5 m hard-edged patches", "9 m"), (sw_new, rep_new, "AFTER: 18 m tile, repeat 6, gain 1.0, 20% mud in 0.5-1 m patches, soft edge, narrower sward spread", "18 m"))
+        ((sw_old, rep_old, titles["old"], "old"), (sw_new, rep_new, titles["new"], "new"))
     ):
         x = 16 + k * (S + 16)
         label(im, name, (x, y), 17)
         im.paste(sw.resize((S, S), Image.LANCZOS), (x, y + 26))
         fg = rep["figure_ground"]["open"]
-        label(im, f"3 x 3 repeat = {3 * (9 if k == 0 else 18)} m a side.  mean {rep['mean']}  contrast {rep['contrast']:.3f} (floor 0.05)  figure-ground {fg['share_within_12']*100:.1f}% (limit 5%)  {rep['jpeg_kb']} KB", (x, y + 26 + S + 6), 15, fill=(200, 205, 210))
+        label(im, f"3 x 3 repeat = {3 * (titles['old_m'] if k == 0 else titles['new_m'])} m a side.  mean {rep['mean']}  contrast {rep['contrast']:.3f} (floor 0.05)  figure-ground {fg['share_within_12']*100:.1f}% (limit 5%)  {rep['jpeg_kb']} KB", (x, y + 26 + S + 6), 15, fill=(200, 205, 210))
     y += 26 + S + 40
-    label(im, "R3 scene at zoom 1 (native 720x410, shown x2). BEFORE: P2's 1.5 reed clumps a tile, 9 m tile.  AFTER: 3 clumps a tile, calmed 18 m tile.", (16, y), 17)
+    label(im, titles["scene"], (16, y), 17)
     y += 26
     for k, sc in enumerate((old_sc, new_sc)):
         x = 16 + k * (S + 16)
         im.paste(up(sc, 2).resize((S, int(sc.height * 2 * S / (sc.width * 2))), Image.NEAREST), (x, y))
     y += sc_h + 14
-    cb, ca = census_before, census_after
-    lines = [
-        "Ein Qasab placed-decor triangles, against the 0.9 M ceiling (trees at their Meshy caps: oak 2,500, willow 2,500, shrub 600; reeds and grass measured):",
-        f"   BEFORE, 1.5 clumps a tile: {cb['p3']['total']:,} ({cb['p3']['share_of_ceiling']*100:.0f}%), reeds {cb['p3']['rows']['reed'][1]:,} in {cb['p3']['rows']['reed'][0]} placements",
-        f"   AFTER,  3 clumps a tile:   {ca['p3']['total']:,} ({ca['p3']['share_of_ceiling']*100:.0f}%), reeds {ca['p3']['rows']['reed'][1]:,} in {ca['p3']['rows']['reed'][0]} placements   (the P2 stand-in census reads {cb['p2']['total']:,} before, {ca['p2']['total']:,} after)",
-    ]
+    lines = []
+    if census_before is not None:
+        cb, ca = census_before, census_after
+        lines = [
+            "Ein Qasab placed-decor triangles, against the 0.9 M ceiling (trees at their Meshy caps: oak 2,500, willow 2,500, shrub 600; reeds and grass measured):",
+            f"   BEFORE, 1.5 clumps a tile: {cb['p3']['total']:,} ({cb['p3']['share_of_ceiling']*100:.0f}%), reeds {cb['p3']['rows']['reed'][1]:,} in {cb['p3']['rows']['reed'][0]} placements",
+            f"   AFTER,  3 clumps a tile:   {ca['p3']['total']:,} ({ca['p3']['share_of_ceiling']*100:.0f}%), reeds {ca['p3']['rows']['reed'][1]:,} in {ca['p3']['rows']['reed'][0]} placements   (the P2 stand-in census reads {cb['p2']['total']:,} before, {ca['p2']['total']:,} after)",
+        ]
     lines += list(extra_lines)
     for i, t in enumerate(lines):
         label(im, t, (16, y + i * 24), 16, mono=True if i else False)
@@ -493,6 +502,7 @@ def main():
     ap.add_argument("--census-before", default=None)
     ap.add_argument("--census-after", default=None)
     ap.add_argument("--old-numbers", default=None)
+    ap.add_argument("--r1c", action="store_true")
     ap.add_argument("--raw", required=True)
     ap.add_argument("--tiles", required=True)
     ap.add_argument("--out", required=True)
@@ -522,7 +532,7 @@ def main():
     numbers["tiles"] = json.load(open(os.path.join(args.tiles, "report.json")))
     if "plates" in meta:
         numbers["plates"] = meta["plates"]
-    if args.census_after:
+    if args.census_after and args.census_before:
         numbers["census_after"] = json.load(open(args.census_after))
         numbers["census_before"] = json.load(open(args.census_before))
     json.dump(numbers, open(os.path.join(args.out, "numbers.json"), "w"), indent=2)
@@ -534,7 +544,23 @@ def main():
             f"Reed share of the marsh at zoom 1 (game camera): BEFORE {sh_o['game_z1_m1']['share']*100:.0f}% of the marsh ({sh_o['game_z1_m1']['share_of_dry']*100:.0f}% of the dry part), plan {sh_o['plan_m1']['share']*100:.0f}%   AFTER {sh_n['game_z1_m1']['share']*100:.0f}% ({sh_n['game_z1_m1']['share_of_dry']*100:.0f}% of the dry part), plan {sh_n['plan_m1']['share']*100:.0f}%   (water {sh_n['water_share']*100:.1f}%)",
             f"Kneeling figure, head and shoulders visible (36 dry marsh points): BEFORE median {fc_o['head_median']*100:.0f}% min {fc_o['head_min']*100:.0f}%   AFTER median {fc_n['head_median']*100:.0f}% min {fc_n['head_min']*100:.0f}%, {fc_n['head_ge50']}/{fc_n['n']} points keep at least half",
         ]
-        compare_sheet(args.compare_old_raw, args.raw, args.compare_old_tiles, args.tiles, json.load(open(args.census_before)), json.load(open(args.census_after)), extra).save(os.path.join(args.out, "00_contact_sheet.png"))
+        titles = None
+        if args.r1c:
+            extra = []
+            rn = numbers["tiles"]["wetland_open_tile"]
+            ro = json.load(open(os.path.join(args.compare_old_tiles, "report.json")))["wetland_open_tile"]
+            extra = [
+                f"Open tile  R1b -> R1c:  contrast {ro['contrast']:.3f} -> {rn['contrast']:.3f} (floor 0.05)   figure-ground {ro['figure_ground']['open']['share_within_12']*100:.1f}% -> {rn['figure_ground']['open']['share_within_12']*100:.1f}% (limit 5%)   mean {ro['mean']} -> {rn['mean']}",
+                f"Reeds as they were (3 clumps a tile): game-camera share {sh_n['game_z1_m1']['share']*100:.0f}% of the marsh ({sh_n['game_z1_m1']['share_of_dry']*100:.0f}% of the dry part); kneeling head+shoulders median {fc_n['head_median']*100:.0f}% min {fc_n['head_min']*100:.0f}%",
+            ]
+            titles = dict(
+                head="R1c: the open-ground tile calmed again (R1b | R1c) and the R3 scene (R1b | R1c). Reeds unchanged. Rain light, ACES, game camera.",
+                old="R1b: 18 m tile, 20% mud in 0.5-1 m patches (a noise field thresholded), soft edge",
+                new="R1c: 18 m tile, 10% mud as small irregular flecks (0.2-0.45 m), no landmark, mud 25% nearer the sward",
+                old_m=18, new_m=18,
+                scene="R3 scene at zoom 1 (native 720x410, shown x2). R1b (left) | R1c (right). Same reeds, same placer.",
+            )
+        compare_sheet(args.compare_old_raw, args.raw, args.compare_old_tiles, args.tiles, json.load(open(args.census_before)) if args.census_before else None, json.load(open(args.census_after)) if args.census_after else None, extra, titles).save(os.path.join(args.out, "00_contact_sheet.png"))
         print("compare sheet")
     elif "scene" in meta and "plates" in meta:
         contact_sheet(args.raw, meta, args.tiles, args.out, scene_images(args.raw, meta)).save(os.path.join(args.out, "00_contact_sheet.png"))
