@@ -104,6 +104,14 @@
         42
       ],
       "upgrades_to": "apc_kipod"
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        7,
+        40
+      ]
     }
   ],
   "objectives": [

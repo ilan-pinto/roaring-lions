@@ -172,6 +172,10 @@
     "plateau_east": [
       37,
       1
+    ],
+    "wounded_evac": [
+      23,
+      46
     ]
   },
   "zones": {

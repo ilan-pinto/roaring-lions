@@ -103,6 +103,10 @@
     "store_gate": [
       14,
       8
+    ],
+    "wounded_evac": [
+      23,
+      46
     ]
   },
   "zones": {

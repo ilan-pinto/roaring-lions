@@ -47,7 +47,8 @@
     { "unit": "recon_drone", "count": 1, "at": [24, 36] },
     { "unit": "inf_squad", "count": 3, "at": [24, 34], "from_ledger": true },
     { "unit": "ifv_namer", "count": 1, "at": [28, 34], "from_ledger": true },
-    { "unit": "apc_eitan", "count": 1, "at": [26, 35] }
+    { "unit": "apc_eitan", "count": 1, "at": [26, 35] },
+    { "unit": "inf_medic_squad", "count": 1, "at": [26, 33] }
   ],
   "resources": {
     "logistics_start": 500,

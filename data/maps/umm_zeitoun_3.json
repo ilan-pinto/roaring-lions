@@ -53,6 +53,10 @@
     "sarim_west": [
       3,
       14
+    ],
+    "wounded_evac": [
+      23,
+      46
     ]
   },
   "zones": {

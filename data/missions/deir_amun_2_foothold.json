@@ -27,7 +27,8 @@
     { "unit": "apc_eitan", "count": 2, "at": [28, 44] },
     { "unit": "ifv_namer", "count": 1, "at": [30, 45] },
     { "unit": "recon_drone", "count": 1, "at": [24, 43] },
-    { "unit": "inf_squad", "count": 1, "at": [25, 44], "upgrades_to": "breach_team" }
+    { "unit": "inf_squad", "count": 1, "at": [25, 44], "upgrades_to": "breach_team" },
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 43] }
   ],
   "resources": {
     "logistics_start": 400,
