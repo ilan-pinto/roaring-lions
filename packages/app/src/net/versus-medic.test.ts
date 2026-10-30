@@ -227,7 +227,7 @@ describe('a medic team in a versus room does its job (GH-707; the medic put in m
     expect(run.events).not.toContain('woundEvacuated');
     expect(run.w.sim.state.alive[man]).toBe(0); // admitted: off the board, alive in the squad again
     expect(run.w.sim.state.medState[medic]).toBe(MED_IDLE);
-  });
+  }, 60_000); // 2,600 ticks of a room: about a second idle, several times that under a loaded full run
 });
 
 describe('a room\'s win rule and a medic team (GH-707, 30 Oct 2026; the medic put in memory)', () => {
