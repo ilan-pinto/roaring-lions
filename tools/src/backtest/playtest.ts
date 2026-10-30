@@ -3693,7 +3693,10 @@ for (const [label, got, want] of [
 // 2026-10-25, GH-421 Stage 2 merged with GH-274 item 5: 31 -> 30, same mission, read off a fresh run.
 // Umm Zeitoun II's roster out reads 16 under vehicle avoidance against main's 17, and Umm Zeitoun III
 // (22) and IV (30) inherit the one body fewer. No outcome moved.
-const ROSTER_MAX = 30;
+// 2026-10-30, GH-707 (the lead's ruling): 30 -> 31, same mission. Umm Zeitoun II brings home one more body with its
+// medic team (roster out 16 -> 17), and he carries through III into IV (22 -> 23, 30 -> 31). The medic itself is on
+// loan and goes back to the lender; it is not in the count.
+const ROSTER_MAX = 31;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
