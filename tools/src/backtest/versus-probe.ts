@@ -95,6 +95,16 @@
 //   flags: --maps=<id,id|all>  --arr=<kdf/kdf,kdf/sarim,sarim/kdf>  --seeds=<n>  --cap=<seconds>
 //          --rules=<room|default>  --economy  --tunnels  --start=<k>/<s>  --pop-cap=<k>/<s>  --rate-scale=<percent>
 //          --formation=<id>  --formation-end=<friendly|hostile>
+//          --seed-from=<n>  --tunnel-cell=<off|noAnswer|answer|turtle>  --per-seed=<file>
+//
+// Seed sets, one tunnel cell, per-seed files (GH-859 P1b Task 7; the instruments of the S4 gate, `s4-gate.ts`).
+// `--seed-from=<n>` plays seeds n .. n+seeds-1 (`seedOf` is unchanged: `seedOf(n)` is the n-th game), so set A
+// is `--seed-from=0 --seeds=192` and set B `--seed-from=192 --seeds=192`. The self-check's controls keep
+// their own fixed seeds: they test the probe, not the sample. `--tunnel-cell=<cell>` (with `--tunnels`) plays
+// that one cell and no routeless twin, so a base for the S4 gate costs a quarter of a four-cell run; the
+// self-check then asks what that cell alone can prove (`tunnelSelfCheck`). `--per-seed=<file>` writes, per
+// cell and per seed, the winning END, how the game ended and its ticks, as JSON (`per-seed.ts` is the
+// schema); it is written only after the self-check passed. Stdout is unchanged without these flags.
 //
 // The formation arm (GH-859 P1a, spec 8.7). `--formation=attack` puts `formation: 'attack'` on every
 // attack-move both ends send (the verb must be the formation's own: `attack` is the one shipped
@@ -138,6 +148,7 @@
 // This file is a tool, not a test: nothing here runs under `pnpm test` but the
 // self-check's controls (versus-probe.test.ts), and nothing reads its output.
 
+import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Sim, fx, type SimEvent } from '@lions/sim';
 import { applyTerrain, doctrines, formations, maps, parseMap, units, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
@@ -148,6 +159,7 @@ import { versusForceOf, versusSpawns } from '../../../packages/app/src/net/versu
 import { MATCH_CAP_TICKS, outcomeOf, productionOf, unitCost, type MatchResult, type OutcomeProduction } from '../../../packages/app/src/net/outcome';
 import { versusRoster } from '../../../packages/app/src/net/versus-roster';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
+import { PER_SEED_SCHEMA, type PerSeedCell, type PerSeedFile } from './per-seed';
 
 /** 20 Hz, like the sim. */
 const TICKS_PER_SECOND = 20;
@@ -1113,6 +1125,14 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   const seeds = Number(flag(args, 'seeds') ?? SEEDS_DEFAULT);
   const capTicks = Math.round(Number(flag(args, 'cap') ?? CAP_TICKS_DEFAULT / TICKS_PER_SECOND) * TICKS_PER_SECOND);
   if (!Number.isInteger(seeds) || seeds < 1) throw new Error('--seeds must be a whole number of at least 1');
+  const seedFrom = Number(flag(args, 'seed-from') ?? 0);
+  if (!Number.isInteger(seedFrom) || seedFrom < 0) throw new Error('--seed-from must be a whole number of at least 0');
+  const tunnelCellArg = flag(args, 'tunnel-cell');
+  if (tunnelCellArg !== undefined && !(TUNNEL_CELLS as readonly string[]).includes(tunnelCellArg)) throw new Error(`--tunnel-cell: "${tunnelCellArg}" is not one of ${TUNNEL_CELLS.join(', ')}`);
+  if (tunnelCellArg !== undefined && !tunnels) throw new Error('--tunnel-cell picks a cell of the tunnel arm: give --tunnels too');
+  const tunnelCell = tunnelCellArg as TunnelCell | undefined;
+  const perSeed = flag(args, 'per-seed');
+  if (args.some((a) => a === '--per-seed' || a === '--per-seed=') || perSeed === '') throw new Error('--per-seed=<file> needs a file path');
   const formationArg = flag(args, 'formation');
   const endArg = flag(args, 'formation-end');
   if (formationArg === undefined && endArg !== undefined) throw new Error('--formation-end names an end for --formation: give --formation=<id> too');
@@ -1138,12 +1158,50 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   // tunnel games all pass their options through here.
   const armed: PlayFn = formation === undefined ? playFn : (m, a, sd, o) => playFn(m, a, sd, { ...o, formation });
   if (formation !== undefined) console.log(`formation arm: ${formation.id} on ${endArg === undefined ? 'both ends' : `the ${endArg} end only`}`);
-  return withOverrides(overrides, () => report({ economy, tunnels, rules, mapIds, arrangements, seeds, capTicks, overrides, playFn: armed }));
+  return withOverrides(overrides, () => report({ economy, tunnels, rules, mapIds, arrangements, seeds, seedFrom, tunnelCell, perSeed, formation, capTicks, overrides, playFn: armed }));
 }
 
-function report(r: { economy: boolean; tunnels: boolean; rules: SeatTable; mapIds: MapId[]; arrangements: Arrangement[]; seeds: number; capTicks: number; overrides: Overrides; playFn: PlayFn }): number {
-  const { economy, rules, mapIds, arrangements, seeds, capTicks, playFn } = r;
-  console.log(`versus probe (report-only): force value kdf ${valueOf('kdf')}, sarim ${valueOf('sarim')}; ${seeds} seeds per cell; cap ${capTicks / TICKS_PER_SECOND} s, decided on surviving value`);
+interface ReportArgs {
+  economy: boolean;
+  tunnels: boolean;
+  rules: SeatTable;
+  mapIds: MapId[];
+  arrangements: Arrangement[];
+  seeds: number;
+  /** The index of the first game: seeds seedFrom .. seedFrom+seeds-1. */
+  seedFrom: number;
+  tunnelCell: TunnelCell | undefined;
+  /** `--per-seed` file, written once the self-check has passed and the table is printed. */
+  perSeed: string | undefined;
+  formation: FormationArm | undefined;
+  capTicks: number;
+  overrides: Overrides;
+  playFn: PlayFn;
+}
+
+/** The per-seed rows of one cell's games, which are games `from`, `from + 1`, ... */
+function rowsOf(games: readonly Played[], from: number): PerSeedCell['rows'] {
+  return games.map((g, i) => ({ n: from + i, seed: seedOf(from + i), winner: g.winner, by: g.by, ticks: g.ticks }));
+}
+
+function writePerSeed(r: ReportArgs, cells: PerSeedCell[]): void {
+  if (r.perSeed === undefined) return;
+  const file: PerSeedFile = {
+    schema: PER_SEED_SCHEMA,
+    seedFrom: r.seedFrom,
+    seeds: r.seeds,
+    rules: r.rules,
+    capSeconds: r.capTicks / TICKS_PER_SECOND,
+    formation: r.formation === undefined ? null : { id: r.formation.id, ends: [r.formation.ends[0], r.formation.ends[1]] },
+    cells,
+  };
+  writeFileSync(r.perSeed, `${JSON.stringify(file)}\n`);
+  console.log(`per-seed file: ${r.perSeed} (${cells.length} cell(s), ${cells.reduce((s, c) => s + c.rows.length, 0)} games)`);
+}
+
+function report(r: ReportArgs): number {
+  const { economy, rules, mapIds, arrangements, seeds, seedFrom, capTicks, playFn } = r;
+  console.log(`versus probe (report-only): force value kdf ${valueOf('kdf')}, sarim ${valueOf('sarim')}; ${seeds} seeds per cell${seedFrom > 0 ? ` (seeds ${seedFrom}..${seedFrom + seeds - 1}, seedOf(${seedFrom}) = ${seedOf(seedFrom)})` : ''}; cap ${capTicks / TICKS_PER_SECOND} s, decided on surviving value`);
   console.log(`bar (GH-561): within ${FAIR_MAX_PERCENT}/${100 - FAIR_MAX_PERCENT} at ${SEEDS_DEFAULT} seeds per spawn order; open now: ${VERSUS_FAIR_MAPS.join(', ')}`);
   console.log(rules === 'room'
     ? 'seat table: room (humanHeld [true, true], seatRules of a versus config)'
@@ -1164,13 +1222,16 @@ function report(r: { economy: boolean; tunnels: boolean; rules: SeatTable; mapId
   console.log(economy
     ? `self-check: ${mapIds.length} map(s), 4 economy controls, a repeat and a built-per-side check each -- passed`
     : `self-check: ${mapIds.length} map(s), 2 controls and a repeat each -- passed`);
-  if (r.tunnels) return tunnelReport({ mapIds, arrangements, seeds, capTicks, playFn });
+  if (r.tunnels) return tunnelReport(r);
 
   console.log(`${pad('map', 24)}${pad('cell', 16)}${pad('west', 6)}${pad('east', 6)}${pad('draw', 6)}${pad('annih/stale/cap/mutual', 24)}${pad('mean min', 10)}${economy ? `${pad('built K/S', 14)}${pad('purse K/S', 14)}` : ''}reading`);
+  const perSeedCells: PerSeedCell[] = [];
   for (const id of mapIds) {
     for (const arr of arrangements) {
       const games: Played[] = [];
-      for (let n = 0; n < seeds; n++) games.push(playFn(id, arr, seedOf(n), { capTicks, rules, economy }));
+      for (let n = seedFrom; n < seedFrom + seeds; n++) games.push(playFn(id, arr, seedOf(n), { capTicks, rules, economy }));
+      const world = economy ? 'economy' : 'placed';
+      perSeedCells.push({ key: `${id} ${cellName(arr)} ${world}`, map: id, arr: arr.join('/'), world, rows: rowsOf(games, seedFrom) });
       const t = tally(games);
       const rd = reading(arr, t);
       const lean = rd.leader === null ? 'level' : `${rd.leader} ${rd.leaderPercent}%`;
@@ -1185,6 +1246,7 @@ function report(r: { economy: boolean; tunnels: boolean; rules: SeatTable; mapId
       );
     }
   }
+  writePerSeed(r, perSeedCells);
   return 0;
 }
 
@@ -1195,12 +1257,21 @@ export interface TunnelCellGames {
   routeless: Played[];
 }
 
-export function playTunnelCells(mapId: MapId, arr: Arrangement, seeds: number, capTicks: number, playFn: PlayFn = play): TunnelCellGames {
+/** `from`: the first game's index (`--seed-from`). `only`: play that one tunnel cell and no routeless twin
+ *  (`--tunnel-cell`); the cells and the twin not played stay empty arrays. */
+export interface TunnelPlayOptions {
+  from?: number;
+  only?: TunnelCell;
+}
+
+export function playTunnelCells(mapId: MapId, arr: Arrangement, seeds: number, capTicks: number, playFn: PlayFn = play, opts: TunnelPlayOptions = {}): TunnelCellGames {
   const cells = { off: [], noAnswer: [], answer: [], turtle: [] } as Record<TunnelCell, Played[]>;
   const routeless: Played[] = [];
-  for (let n = 0; n < seeds; n++) {
-    for (const c of TUNNEL_CELLS) cells[c].push(playFn(mapId, arr, seedOf(n), { capTicks, economy: true, tunnels: c }));
-    routeless.push(withoutVersusRoutes(() => playFn(mapId, arr, seedOf(n), { capTicks, economy: true })));
+  const from = opts.from ?? 0;
+  const which = opts.only === undefined ? TUNNEL_CELLS : [opts.only];
+  for (let n = from; n < from + seeds; n++) {
+    for (const c of which) cells[c].push(playFn(mapId, arr, seedOf(n), { capTicks, economy: true, tunnels: c }));
+    if (opts.only === undefined) routeless.push(withoutVersusRoutes(() => playFn(mapId, arr, seedOf(n), { capTicks, economy: true })));
   }
   return { cells, routeless };
 }
@@ -1211,13 +1282,26 @@ export function playTunnelCells(mapId: MapId, arr: Arrangement, seeds: number, c
 export function tunnelSelfCheck(mapId: MapId, arr: Arrangement, g: TunnelCellGames): string[] {
   const failures: string[] = [];
   const where = `${mapId} ${cellName(arr)}`;
+  const played = TUNNEL_CELLS.filter((c) => g.cells[c].length > 0);
+  if (played.length === 0) return [`${where}: no tunnel cell was played, so there is nothing to check`];
   const surfaced = g.cells.noAnswer.reduce((s, p) => s + (p.tun?.surfaced ?? 0), 0);
-  if (surfaced < 1) failures.push(`${where}: cell 2 (on, no answer) read no 'surfaced' event in ${g.cells.noAnswer.length} games: the Sarim plan never brought a unit up`);
+  if (g.cells.noAnswer.length > 0 && surfaced < 1) failures.push(`${where}: cell 2 (on, no answer) read no 'surfaced' event in ${g.cells.noAnswer.length} games: the Sarim plan never brought a unit up`);
+  // `--tunnel-cell` plays one cell and no twin. What one cell can prove alone: the cells that tunnel brought a
+  // unit below at least once (`entered`), and the `off` cell, whose routes are never ordered, did not.
+  if (played.length === 1) {
+    const only = played[0];
+    const entered = g.cells[only].reduce((s, p) => s + (p.tun?.entered ?? 0), 0);
+    if (only === 'off' ? entered > 0 : entered < 1) {
+      failures.push(`${where}: cell ${TUNNEL_CELL_NAME[only]} alone read ${entered} units entering a tunnel in ${g.cells[only].length} games: ${only === 'off' ? 'routes that are never ordered were used' : 'the Sarim plan never took a unit below'}`);
+    }
+  }
   const key = (p: Played): string => JSON.stringify([p.winner, p.by, p.ticks, p.econ]);
   const off = g.cells.off;
-  const differ = off.map((_p, n) => n).filter((n) => key(off[n]) !== key(g.routeless[n]));
-  if (differ.length > 0) {
-    failures.push(`${where}: cell 1 (routes registered, never ordered) differs from the routeless economy game in ${differ.length} of ${off.length} seeds (first: seed ${seedOf(differ[0])}, ${key(off[differ[0]])} against ${key(g.routeless[differ[0]])})`);
+  if (g.routeless.length > 0) {
+    const differ = off.map((_p, n) => n).filter((n) => key(off[n]) !== key(g.routeless[n]));
+    if (differ.length > 0) {
+      failures.push(`${where}: cell 1 (routes registered, never ordered) differs from the routeless economy game in ${differ.length} of ${off.length} seeds (first: seed ${seedOf(differ[0])}, ${key(off[differ[0]])} against ${key(g.routeless[differ[0]])})`);
+    }
   }
   return failures;
 }
@@ -1231,24 +1315,30 @@ function sumTun(games: readonly Played[]): TunnelRead {
 /** Sarim's wins in a faction cell (`t.wins` is by END). */
 const sarimWins = (arr: Arrangement, t: Tally): number => reading(arr, t).wins[1];
 
-function tunnelReport(r: { mapIds: MapId[]; arrangements: Arrangement[]; seeds: number; capTicks: number; playFn: PlayFn }): number {
-  const { mapIds, arrangements, seeds, capTicks, playFn } = r;
+function tunnelReport(r: ReportArgs): number {
+  const { mapIds, arrangements, seeds, seedFrom, capTicks, playFn } = r;
+  const cellsPlayed = r.tunnelCell === undefined ? TUNNEL_CELLS : [r.tunnelCell];
   console.log('tunnel arm (GH-681): the Sarim end\'s routes registered in every room; cells 1 off, 2 Sarim tunnels vs the economy plan, 3 Sarim tunnels vs the KDF answer, 4 turtle vs the KDF answer');
+  if (r.tunnelCell !== undefined) console.log(`--tunnel-cell: only cell ${TUNNEL_CELL_NAME[r.tunnelCell]} is played, and no routeless twin`);
   const all: { mapId: MapId; arr: Arrangement; g: TunnelCellGames }[] = [];
-  for (const mapId of mapIds) for (const arr of arrangements) all.push({ mapId, arr, g: playTunnelCells(mapId, arr, seeds, capTicks, playFn) });
+  for (const mapId of mapIds) for (const arr of arrangements) all.push({ mapId, arr, g: playTunnelCells(mapId, arr, seeds, capTicks, playFn, { from: seedFrom, only: r.tunnelCell }) });
   const failed = all.flatMap(({ mapId, arr, g }) => tunnelSelfCheck(mapId, arr, g));
   if (failed.length > 0) {
     console.error('TUNNEL SELF-CHECK FAILED -- the tunnel arm did not run as written, so no table is printed:');
     for (const f of failed) console.error(`  ${f}`);
     return 2;
   }
-  console.log(`tunnel self-check: ${all.length} map/spawn pair(s): cell 2 surfaced, cell 1 equal to the routeless game seed for seed -- passed`);
+  console.log(r.tunnelCell === undefined
+    ? `tunnel self-check: ${all.length} map/spawn pair(s): cell 2 surfaced, cell 1 equal to the routeless game seed for seed -- passed`
+    : `tunnel self-check: ${all.length} map/spawn pair(s): cell ${TUNNEL_CELL_NAME[r.tunnelCell]} alone ${r.tunnelCell === 'off' ? 'took no unit below' : 'took a unit below'} -- passed`);
   const proofHead = 'enter/stall/surf/raid/exit/ident/charge/coll/ckill (totals)';
   console.log(`${pad('map', 14)}${pad('spawn', 16)}${pad('cell', 18)}${pad('KDF', 5)}${pad('Sarim', 7)}${pad('draw', 6)}${pad('annih/stale/cap/mut', 21)}${pad('mean min', 10)}${pad('reading', 28)}${proofHead}`);
   const bar: string[] = [];
+  const perSeedCells: PerSeedCell[] = [];
   for (const { mapId, arr, g } of all) {
-    const tallies = {} as Record<TunnelCell, Tally>;
-    for (const c of TUNNEL_CELLS) {
+    const tallies: Partial<Record<TunnelCell, Tally>> = {};
+    for (const c of cellsPlayed) {
+      perSeedCells.push({ key: `${mapId} ${cellName(arr)} tunnel-${c}`, map: mapId, arr: arr.join('/'), world: `tunnel-${c}`, rows: rowsOf(g.cells[c], seedFrom) });
       const t = tally(g.cells[c]);
       tallies[c] = t;
       const rd = reading(arr, t);
@@ -1261,16 +1351,24 @@ function tunnelReport(r: { mapIds: MapId[]; arrangements: Arrangement[]; seeds: 
       );
     }
     const where = `${mapId} ${cellName(arr)}`;
-    const c3 = reading(arr, tallies.answer);
-    bar.push(`${where}: cell 3 ${c3.within ? 'within' : 'OUTSIDE'} ${FAIR_MAX_PERCENT}/${100 - FAIR_MAX_PERCENT} (KDF ${c3.wins[0]}, Sarim ${c3.wins[1]})`);
-    const s1 = sarimWins(arr, tallies.off);
-    const s2 = sarimWins(arr, tallies.noAnswer);
-    bar.push(`${where}: cell 2 Sarim ${s2} against cell 1 Sarim ${s1} -- ${s2 > s1 ? 'a Sarim edge' : 'NO Sarim edge'}`);
-    const s4 = sarimWins(arr, tallies.turtle);
-    bar.push(`${where}: cell 4 (turtle) Sarim ${s4} of ${seeds} -- ${s4 * 2 > seeds ? 'the turtle WINS for Sarim' : 'the turtle does not win'}`);
+    // The bar lines each need their own cells; a `--tunnel-cell` run prints the lines its cell can make.
+    if (tallies.answer) {
+      const c3 = reading(arr, tallies.answer);
+      bar.push(`${where}: cell 3 ${c3.within ? 'within' : 'OUTSIDE'} ${FAIR_MAX_PERCENT}/${100 - FAIR_MAX_PERCENT} (KDF ${c3.wins[0]}, Sarim ${c3.wins[1]})`);
+    }
+    if (tallies.off && tallies.noAnswer) {
+      const s1 = sarimWins(arr, tallies.off);
+      const s2 = sarimWins(arr, tallies.noAnswer);
+      bar.push(`${where}: cell 2 Sarim ${s2} against cell 1 Sarim ${s1} -- ${s2 > s1 ? 'a Sarim edge' : 'NO Sarim edge'}`);
+    }
+    if (tallies.turtle) {
+      const s4 = sarimWins(arr, tallies.turtle);
+      bar.push(`${where}: cell 4 (turtle) Sarim ${s4} of ${seeds} -- ${s4 * 2 > seeds ? 'the turtle WINS for Sarim' : 'the turtle does not win'}`);
+    }
   }
   console.log('the bar (lead, Q1; report-only):');
   for (const b of bar) console.log(`  ${b}`);
+  writePerSeed(r, perSeedCells);
   return 0;
 }
 
