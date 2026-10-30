@@ -444,7 +444,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     let firstArmed = -1;
     let allArmed = -1;
     let sprung = -1;
-    let pendingAtCut = -1;
+    let pendingAtCut: number[] = [];
     let contactAtCut: number[] = [];
     let paceAtCut: number[] = [];
     let dressAtCut: number[] = [];
@@ -455,7 +455,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
       if (allArmed < 0 && w.ids.amb.every((i) => w.sim.ambushRadiusSqOf(i) > 0)) allArmed = w.sim.tickCount;
       // `fgPending` has a one-tick life across a tick boundary: set while the hit tick runs, consumed at
       // the top of the next one. The state after the 445th tick holds it set.
-      if (w.sim.tickCount === 445) pendingAtCut = (it.fgPending as Uint8Array).reduce((a, b) => a + b, 0);
+      if (w.sim.tickCount === 445) pendingAtCut = [(it.fgPending as Uint8Array)[2], (it.fgPending as Uint8Array)[16]];
       // In contact (P1b Task 4): the Attack (row 1) pressing, the side-1 Column (row 16) halted, the Attack's quiet clock
       // 18 ticks on from the drill at 542 (the other two rows are still being hit and restart theirs).
       if (w.sim.tickCount === 560) {
@@ -470,9 +470,9 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
       }
     }
     expect([firstArmed, allArmed, sprung]).toEqual([196, 344, 445]);
-    // G-6 re-derivation (P1b Task 4): 1 became 6. The ring is marked with the drill and the call bit (1 + 2) and so is the
-    // side-1 Column that fired first on it (a halt drill, also 3): 3 + 3.
-    expect(pendingAtCut, 'T = 445 cuts while two groups are marked and not yet consumed').toBe(6);
+    // G-6 re-derivation (P1b Task 4): the ring's mark (row 2) was 1 and reads 3 (drill and call bit, 1 + 2); the side-1
+    // Column (row 16) that fired first on it is marked 3 too (a halt drill) and was not marked before.
+    expect(pendingAtCut, 'T = 445 cuts while two groups are marked and not yet consumed: the ring (row 2) and the side-1 Column (row 16), each drill + call').toEqual([3, 3]);
     expect(contactAtCut, 'T = 560 cuts in contact: the Attack and the Column in state 3, quiet 18, the Attack\'s call point (38.5, 16.5) recorded').toEqual([3, 3, 18, 2523136]);
     expect(paceAtCut, 'T = 100 cuts mid-march: capped at 2293 raw, two checkpoints, all five moving').toEqual([2293, 2, 1, 1, 1, 1, 1]);
     expect(dressAtCut, 'T = 170 cuts mid-dress: one waiting, dressing for 27 ticks').toEqual([1, 27, 1]);

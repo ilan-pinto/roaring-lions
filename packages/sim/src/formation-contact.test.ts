@@ -35,6 +35,8 @@ const AIR: UnitTypeJson = {
   sensors: { optics: 1, sight_tiles: 8, signature: 0.5 },
   weapons: [],
 };
+/** An aircraft too slow to keep up: it reaches a checkpoint long after the ground members. */
+const AIR_SLOW: UnitTypeJson = { ...AIR, id: 'fm4_air_slow', mobility: { domain: 'air', speed_tiles_s: 0.4 } };
 /** An unarmed enemy: something to fire at, and it fires at nobody. */
 const DUMMY: UnitTypeJson = { ...RIFLES, id: 'fm4_dummy', weapons: [], abilities: [], hull: { hp: 30000, armor: { front: 10, side: 10, rear: 10 } } };
 /** An enemy rifleman who sees and shoots to 10-11 tiles: it hits a marching rifleman (sight 8) before he can see it. */
@@ -91,6 +93,7 @@ interface World {
   mbt: number;
   inf: number;
   air: number;
+  airSlow: number;
   dummy: number;
   post: number;
   sniper: number;
@@ -105,6 +108,7 @@ function world(): World {
     mbt: sim.addUnitType(MBT),
     inf: sim.addUnitType(RIFLES),
     air: sim.addUnitType(AIR),
+    airSlow: sim.addUnitType(AIR_SLOW),
     dummy: sim.addUnitType(DUMMY),
     post: sim.addUnitType(POST),
     sniper: sim.addUnitType(SNIPER),
@@ -137,6 +141,7 @@ interface Priv {
   facing: Uint16Array;
   restFacing: Uint16Array;
   fmDuty: Uint8Array;
+  fmLeg: Uint8Array;
   fgState: Uint8Array;
   fgPending: Uint8Array;
   fgQuiet: Uint16Array;
@@ -298,13 +303,74 @@ describe('halt: nobody keeps a stale wait', () => {
     expect(p.fgDress[0]).toBeGreaterThan(0);
     // an enemy post appears in range of the lane and hits somebody
     spawnAt(w, w.post, 1, 31, w.sim.state.posY[ids[0]] >> 16);
-    untilContact(w);
-    expect(counted(w, 0)).toBe(true);
+    for (let t = 0; t < 600 && kinds(w, 'formationContact').length === 0; t++) {
+      tick(w);
+      expect(counted(w, 0), `tick ${w.sim.tickCount}: waiters and aircraft away fit in the group`).toBe(true);
+    }
+    expect(kinds(w, 'formationContact')).toHaveLength(1);
     tick(w);
+    expect(counted(w, 0)).toBe(true);
     expect(p.fgState[0]).toBe(FM_CONTACT);
     expect(ids.map((id) => p.fmDuty[id])).toEqual([0, 0, 0, 0, 0, 0]);
     expect([p.fgAtCp[0], p.fgDress[0]]).toEqual([0, 0]);
     expect(ids.map((id) => [p.moving[id], p.wpCount[id]])).toEqual([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]);
+  });
+});
+
+describe('halt: an aircraft that will answer the call is not left waiting', () => {
+  /** Two jeeps, four riflemen and an aircraft in a Column with a ten-second dress; a hostile hit lands from inside the call radius. */
+  function hitFromNear(w: World, ids: number[]): void {
+    const foe = spawnAt(w, w.inf, 1, 30, 28);
+    const m = ids[0];
+    w.sim.debugSplash(w.sim.state.posX[m], w.sim.state.posY[m], fx.fromInt(1), 0, fx.from(0.2), foe, -1);
+  }
+  const waiting = (w: World, ids: number[]): number => ids.filter((id) => priv(w.sim).fmDuty[id] === 1).length;
+  it('a waiting aircraft is cleared with the rest: count(WAIT) == fgAtCp == 0 right after the halt, and it flies on', () => {
+    const w = world();
+    const ids = column(w, [w.jeep, w.jeep, w.inf, w.inf, w.inf, w.inf, w.air], 'column_dress10', [24, 30], [24, 10]);
+    const air = ids[6];
+    const p = priv(w.sim);
+    for (let t = 0; t < 400 && p.fmDuty[air] !== 1; t++) tick(w);
+    expect(p.fmDuty[air], 'the fast aircraft is the first to wait at checkpoint 1').toBe(1);
+    expect([waiting(w, ids), p.fgAtCp[0]]).toEqual([p.fgAtCp[0], p.fgAtCp[0]]);
+    expect(p.fgAtCp[0]).toBeGreaterThan(0);
+    const leg = p.fmLeg[air];
+    hitFromNear(w, ids);
+    expect(p.fgPending[0]).toBe(3); // drill and call: the aircraft will answer, so the drill does not halt it
+    tick(w);
+    expect(p.fgState[0]).toBe(FM_CONTACT);
+    expect([waiting(w, ids), p.fgAtCp[0], p.fgDress[0]]).toEqual([0, 0, 0]);
+    expect(p.fmDuty[air]).toBe(0);
+    expect(p.moving[air]).toBe(1); // not halted: Task 5 sorties it
+    // the drill leaves `fmLeg` alone; the same tick's movement re-arrives the aircraft at its checkpoint, which no longer holds
+    // a group in contact, so it goes straight on to the next leg
+    expect(p.fmLeg[air]).toBe(leg + 1);
+    for (let t = 0; t < 40; t++) {
+      tick(w);
+      expect(p.fgAtCp[0]).toBe(0);
+      expect(waiting(w, ids)).toBe(0);
+    }
+    expect(p.fmLeg[air]).toBeGreaterThan(leg);
+  });
+  it('an aircraft that reaches a checkpoint after the halt is not held there', () => {
+    const w = world();
+    const ids = column(w, [w.jeep, w.jeep, w.inf, w.inf, w.inf, w.inf, w.airSlow], 'column_dress10', [24, 30], [24, 10]);
+    const air = ids[6];
+    const p = priv(w.sim);
+    tick(w, 5);
+    hitFromNear(w, ids);
+    tick(w);
+    expect(p.fgState[0]).toBe(FM_CONTACT);
+    expect([p.moving[air], p.fmDuty[air], p.fmLeg[air]]).toEqual([1, 0, 1]);
+    let arrived = -1;
+    for (let t = 0; t < 900 && arrived < 0; t++) {
+      tick(w);
+      expect(p.fgAtCp[0], `tick ${w.sim.tickCount}`).toBe(0);
+      expect(p.fmDuty[air]).toBe(0);
+      if (p.fmLeg[air] > 1) arrived = w.sim.tickCount;
+    }
+    expect(arrived, 'the slow aircraft got to checkpoint 1 and went through').toBeGreaterThan(0);
+    expect(p.fgAtCp[0]).toBe(0);
   });
 });
 
@@ -320,8 +386,11 @@ describe('halt: the aircraft that will not be called halt too', () => {
     untilContact(near);
     tick(near);
     // the call bit was set, so the aircraft answers (Task 5 sorties it): it is not halted by the drill
+    // G-6 re-derivation (fix round 1): this read `wpCount > 0`, true only because the aircraft was left holding duty
+    // WAIT at checkpoint 2 with a live queue. A halt now clears every waiter, aircraft included, so the aircraft goes
+    // through the checkpoint to its final slot (goal y 17, queue empty) and is still moving.
     expect(priv(near.sim).moving[nearIds[6]]).toBe(1);
-    expect(priv(near.sim).wpCount[nearIds[6]]).toBeGreaterThan(0);
+    expect([priv(near.sim).fmDuty[nearIds[6]], priv(near.sim).goalY[nearIds[6]] >> 16, priv(near.sim).fmLeg[nearIds[6]]]).toEqual([0, 17, 3]);
 
     const far = world();
     const farIds = withAir(far);
@@ -360,21 +429,32 @@ describe('press: an Attack reaching a post goes on fighting', () => {
     expect(pace).toBe(2949);
     expect(ids.some((id) => p.fmDuty[id] === 1)).toBe(true);
     const queued = ids.map((id) => p.wpCount[id]);
-    const t = untilContact(w);
+    let t = -1;
+    for (let k = 0; k < 600 && t < 0; k++) {
+      tick(w);
+      expect(counted(w, 0), `tick ${w.sim.tickCount}: waiters fit in the group`).toBe(true);
+      if (kinds(w, 'formationContact').length > 0) t = w.sim.tickCount - 1;
+    }
     expect(kinds(w, 'formationContact')).toEqual([
       { kind: 'formationContact', tick: t, side: 0, group: 0, entity: ids[0], x: w.sim.state.posX[post], y: w.sim.state.posY[post], drill: 2 },
     ]);
     expect(t).toBe(139);
     expect([w.sim.state.posX[post], w.sim.state.posY[post]]).toEqual([2064384, 1277952]);
     expect(counted(w, 0)).toBe(true);
-    tick(w);
+    for (let k = 0; k < 200; k++) {
+      tick(w);
+      expect(counted(w, 0), `tick ${w.sim.tickCount}: after the press`).toBe(true);
+      if (k === 0) {
+        expect(w.sim.formationStateOfGroup(0)).toBe(FM_CONTACT);
+        expect(ids.map((id) => p.fmDuty[id])).toEqual([0, 0, 0, 0, 0, 0]);
+        expect([p.fgAtCp[0], p.fgDress[0], p.fgRelease[0], p.fgLegs[0]]).toEqual([0, 0, 3, 4]);
+        expect(ids.map((id) => p.moving[id])).toEqual([1, 1, 1, 1, 1, 1]); // no one is halted by a press
+      }
+    }
     expect(w.sim.formationStateOfGroup(0)).toBe(FM_CONTACT);
     expect(ids.map((id) => p.fmDuty[id])).toEqual([0, 0, 0, 0, 0, 0]);
-    expect([p.fgAtCp[0], p.fgDress[0], p.fgRelease[0], p.fgLegs[0]]).toEqual([0, 0, 3, 4]);
     expect(w.sim.formationPaceOfGroup(0)).toBe(pace);
     expect(queued.some((q) => q > 0)).toBe(true);
-    expect(ids.map((id) => p.moving[id])).toEqual([1, 1, 1, 1, 1, 1]); // no one is halted by a press
-    tick(w, 200);
     expect(kinds(w, 'formationContact')).toHaveLength(1);
   });
   it('every member goes on to its final slot once the post is cleared', () => {

@@ -5270,9 +5270,13 @@ export class Sim {
         for (let i = 0; i < this.count; i++) {
           if (this.fmGroup[i] !== g) continue;
           const ut = this.unitTypes[this.typeIdx[i]];
+          // Nobody waits in a group in contact, the aircraft that will answer the call included: clear the duty BEFORE
+          // the skip (`fgAtCp` is zeroed below). `fmLeg` stays: a cleared aircraft is still heading to the checkpoint it
+          // waited at, and its next arrival (`finishLeg`, which re-arrives each tick while held) advances it, because
+          // `fmMarchHold` holds only a MARCH row.
+          if (this.fmDuty[i] === FM_DUTY_WAIT) this.fmDuty[i] = FM_DUTY_NONE;
           if (ut.isAir && (pend & FM_PEND_CALL) !== 0 && ut.fmCall !== FM_CALL_STAY) continue; // answers the call
           this.haltUnit(i);
-          if (this.fmDuty[i] === FM_DUTY_WAIT) this.fmDuty[i] = FM_DUTY_NONE;
           if (!ut.isAir && ut.moveDomain === DOMAIN_VEHICLE) {
             const face = eighthToward(cx - this.posX[i], cy - this.posY[i]);
             if (face !== FM_FACING_NONE) this.restFacing[i] = face;
@@ -7948,7 +7952,7 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
-    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: a member that opens fire reports contact at its target
+    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: a member that opens fire reports contact at its target (selectTarget is hostile-only, so every shot is at an enemy)
     // A shot is definitely being taken. Meter the surfacing burst — only a
     // unit up from a route has one; an ordinary surface unit never carries
     // volley bookkeeping.
@@ -8043,7 +8047,7 @@ export class Sim {
     this.beamTgt[k] = target;
     this.beamAt[k] = now;
     this.lastFired[shooter] = now; // a beam is a firing signature like any shot
-    if (this.fmLive) this.fmPend(shooter, this.posX[target], this.posY[target]); // GH-859 P1b: a beam never reaches fireAt
+    if (this.fmLive) this.fmPend(shooter, this.posX[target], this.posY[target]); // GH-859 P1b: a beam never reaches fireAt (its target is chosen by selectTarget: hostile-only)
     this.beamHeat[k]++;
     if (++this.beamDwell[k] >= b.dwellTicks) {
       this.beamDwell[k] = 0;
@@ -8109,7 +8113,7 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
-    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: and one that fires on a building
+    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: and one that fires on a building (selectStructureTarget picks hostile structures only; selectBreachTarget can pick a neutral wall, but returns -1 for a side a person holds, which every formation order comes from, so a breach reports no contact in play)
 
     const speed = PROJ_SPEED[w.cls];
     let ticks = 1;
@@ -11833,7 +11837,9 @@ export class Sim {
     if (this.wpCount[i] === 0) return false;
     const g = this.fmGroup[i];
     const leg = this.fmLeg[i];
-    if (leg > this.fgRelease[g] && leg < this.fgLegs[g]) {
+    // Only a row still marching dresses: a group in contact or sprung has nobody to wait for (a member that arrives at
+    // a checkpoint after the drill ran passes straight through).
+    if (this.fgState[g] === FM_MARCH && leg > this.fgRelease[g] && leg < this.fgLegs[g]) {
       if (this.fmDuty[i] !== FM_DUTY_WAIT) {
         this.fmDuty[i] = FM_DUTY_WAIT;
         this.fgAtCp[g]++;
