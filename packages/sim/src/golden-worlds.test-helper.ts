@@ -1064,8 +1064,9 @@ export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds
   // Appended after every P1a/P1b type, so no earlier type index moves.
   const heli = sim.addUnitType(FM_HELI);
   const drone = sim.addUnitType(FM_DRONE);
-  // The wounded body first: a squad registered after it resolves its `wounds.type` index at once, and one registered before it
-  // would cache the index on first use, a write into the type table the fork witness reads as a config difference.
+  // The wounded body is registered before the squads that name it. (The sim resolves `wounds.type` lazily, at the first man to
+  // fall, and caches the index on the type: a fork's fresh B has -1 where A has it filled, which both witnesses settle with
+  // `resolveLazyConfig` before they compare the config.)
   sim.addUnitType(FM_WOUNDED);
   const squad = sim.addUnitType(FM_SQUAD);
   const medic = sim.addUnitType(FM_MEDIC);
