@@ -1,7 +1,7 @@
 // GH-707, the lead's ruling of 30 Oct: every campaign mission's starting force fields ONE loaned
 // Nemala Medic Team (`inf_medic_squad`), as First Light does (PR 843). The coordinator excluded the
 // tutorial, `beit_sahwan_0_tutorial`, which teaches the basics and fields no gated unit. Seven more
-// missions were measured and left out (`LEFT_OUT`, below, each with its numbers).
+// missions were first measured and left out; their plans were re-solved (GH-707, the last seven) and `LEFT_OUT`, below, is empty.
 //
 // What this pins, read off the SHIPPED data (the missions and maps the app loads):
 //   - exactly one medic placement per campaign mission, count 1, not `from_ledger`;
@@ -23,9 +23,7 @@ const TUTORIAL = 'beit_sahwan_0_tutorial';
 // Missions the medic team was MEASURED into and then left out (the lead's stop rule: a plan below 30 of 30,
 // a slowest win past its margin, or a star or credit outcome that drops). Each is listed with why, and
 // `LEFT_OUT` is the one place to delete a name when its plan is re-solved and the medic goes in.
-const LEFT_OUT: Readonly<Record<string, string>> = {
-  umm_zeitoun_4_clearance: 'credit 259 -> 249, ROE and stars held, 5.1 -> 5.6 min',
-};
+const LEFT_OUT: Readonly<Record<string, string>> = {};
 const MEDIC = 'inf_medic_squad';
 
 const gateOf = (id: string): UnlockGate | undefined => {
@@ -38,13 +36,13 @@ const campaign = ids.filter((id) => id !== TUTORIAL);
 const fielded = campaign.filter((id) => LEFT_OUT[id] === undefined);
 
 describe('the medic team in every campaign mission', () => {
-  it('covers all 26 campaign missions: 25 field the team, 1 are listed as measured and left out', () => {
+  it('covers all 26 campaign missions: 26 field the team, 0 are listed as measured and left out', () => {
     expect(ids).toHaveLength(27);
     expect(campaign).toHaveLength(26);
     expect(ids).toContain(TUTORIAL);
     expect(Object.keys(LEFT_OUT).every((id) => campaign.includes(id))).toBe(true);
-    expect(fielded).toHaveLength(25);
-    expect(Object.keys(LEFT_OUT)).toHaveLength(1);
+    expect(fielded).toHaveLength(26);
+    expect(Object.keys(LEFT_OUT)).toHaveLength(0);
   });
 
   for (const id of fielded) {

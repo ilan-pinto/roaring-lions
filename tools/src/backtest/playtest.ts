@@ -2645,7 +2645,9 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
       const c = pic.nearest(14, 7);
       const goalX = c ? c.x : 14;
       const goalY = c ? c.y : 7;
-      const hold = new Set([...demo, ...drone, ...ids('mortar_team')]);
+      // GH-707 (30 Oct): nor the loaned medic team, which has no business at the crest. Walking it in with the push, a
+      // rifle at the crest killed it at 314 s on 424242 (a body, 10 credits, after the sniper's, 259 -> 249).
+      const hold = new Set([...demo, ...drone, ...ids('mortar_team'), ...ids('inf_medic_squad')]);
       const tankUp = ids('mbt_lavi').some(
         (u) => sim.state.alive[u] === 1 && (fx.toNumber(sim.state.posX[u]) - goalX) ** 2 + (fx.toNumber(sim.state.posY[u]) - goalY) ** 2 <= 169
       );
