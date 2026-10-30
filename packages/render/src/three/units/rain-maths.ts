@@ -83,6 +83,15 @@ export interface GroundBox {
 /** How far toward the camera (down the screen) a landing point can lie while its
  *  drop is still seen in the air above the bottom edge: `H / tan(elevation)`. */
 export const RAIN_REACH = RAIN_FALL_HEIGHT / Math.tan(ELEVATION);
+/**
+ * The reach over ground `maxGround` wu high: a landing point on higher ground puts
+ * the drop's whole fall `maxGround` higher up the screen, so it shows from
+ * `maxGround / tan(elevation)` tiles further toward the camera (about 4 tiles at the
+ * highest drawn ground, 2.3 wu). `RainBatch` passes the map's baked maximum.
+ */
+export function rainReach(maxGround: number): number {
+  return (RAIN_FALL_HEIGHT + Math.max(0, maxGround)) / Math.tan(ELEVATION);
+}
 /** How far a drop's head sits from its landing point horizontally, at most. */
 export const RAIN_SLANT_OFFSET = RAIN_FALL_HEIGHT * RAIN_SLANT_TAN;
 
@@ -95,11 +104,15 @@ export const RAIN_SLANT_OFFSET = RAIN_FALL_HEIGHT * RAIN_SLANT_TAN;
  * still shows its drop up the screen) and on every side by the slant offset, then
  * clipped to the map plus `RAIN_MAP_MARGIN` when `map` is given.
  */
-export function footprintBox(view: RainView, map?: { readonly width: number; readonly height: number }): GroundBox {
+export function footprintBox(
+  view: RainView,
+  map?: { readonly width: number; readonly height: number },
+  maxGround = 0
+): GroundBox {
   const a = view.width / (TILE_W * view.zoom * Math.SQRT2);
   const b = view.height / (TILE_H * view.zoom * Math.SQRT2);
   const half = (a + b) / Math.SQRT2;
-  const reach = RAIN_REACH / Math.SQRT2;
+  const reach = rainReach(maxGround) / Math.SQRT2;
   let minX = view.x - half - RAIN_SLANT_OFFSET;
   let maxX = view.x + half + reach + RAIN_SLANT_OFFSET;
   let minZ = view.y - half - RAIN_SLANT_OFFSET;
@@ -139,6 +152,23 @@ export function latticePeriod(box: GroundBox): number {
  */
 export function windowLow(box: GroundBox, period: number): { x: number; z: number } {
   return { x: (box.minX + box.maxX) / 2 - period / 2, z: (box.minZ + box.maxZ) / 2 - period / 2 };
+}
+
+/**
+ * The production choice, in one place: the lattice period and the window's low
+ * corner for a view on a map whose highest drawn ground is `maxGround`.
+ */
+export function rainWindow(
+  view: RainView,
+  map: { readonly width: number; readonly height: number },
+  maxGround = 0
+): { period: number; low: { x: number; z: number } } {
+  // The period from the UNCLIPPED box, so it is a property of the zoom, the viewport and the
+  // ground and never of the pan: choosing it from the box clipped to the map made P drop a step
+  // near a map edge with no zoom change (every drop jumping, density per tile 4x). The clipped
+  // box only places the window, and it is never wider than the unclipped one, so it still fits.
+  const period = latticePeriod(footprintBox(view, undefined, maxGround));
+  return { period, low: windowLow(footprintBox(view, map, maxGround), period) };
 }
 
 /** A modulus that stays in `[0, m)` for a negative `a` (JS `%` does not). */

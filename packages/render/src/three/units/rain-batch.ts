@@ -54,11 +54,9 @@ import {
 import { SWAY_DIR_X, SWAY_DIR_Z } from '../terrain/sway';
 import {
   bakeHeightTexels,
-  footprintBox,
   dropSeed,
   heightTexels,
-  latticePeriod,
-  windowLow,
+  rainWindow,
   posMod,
   RAIN_SLANT_COS,
   RAIN_SLANT_SIN,
@@ -187,6 +185,8 @@ export class RainBatch {
   private readonly mapWidth: number;
   private readonly mapHeight: number;
   private periodNow = 0;
+  /** The highest baked ground, wu: the rain's reach grows with it. */
+  private maxGround = 0;
   private disposed = false;
 
   constructor(scene: THREE.Object3D, opts: RainBatchOptions) {
@@ -278,7 +278,12 @@ export class RainBatch {
    */
   bakeHeights(sampler: (x: number, z: number) => number): void {
     const f32 = bakeHeightTexels(sampler, this.mapWidth, this.mapHeight);
-    for (let i = 0; i < f32.length; i++) this.heightData[i] = toHalfFloat(f32[i]);
+    let hi = 0;
+    for (let i = 0; i < f32.length; i++) {
+      this.heightData[i] = toHalfFloat(f32[i]);
+      if (f32[i] > hi) hi = f32[i];
+    }
+    this.maxGround = hi;
     this.heightTexture.needsUpdate = true;
   }
 
@@ -289,9 +294,8 @@ export class RainBatch {
   update(frame: RainFrame): void {
     const u = this.mesh.material.uniforms;
     u.uFall.value = posMod(RAIN_FALL_SPEED * frame.simSec, RAIN_FALL_HEIGHT);
-    const box = footprintBox(frame.view, { width: this.mapWidth, height: this.mapHeight });
-    this.periodNow = latticePeriod(box);
-    const lo = windowLow(box, this.periodNow);
+    const { period, low: lo } = rainWindow(frame.view, { width: this.mapWidth, height: this.mapHeight }, this.maxGround);
+    this.periodNow = period;
     (u.uLow.value as THREE.Vector2).set(lo.x, lo.z);
     u.uPeriod.value = this.periodNow;
     u.uStreakHalfWidth.value = streakWidthWorld(frame.view.zoom, frame.dpr) / 2;

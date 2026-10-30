@@ -26,6 +26,8 @@ import {
   latticePeriod,
   posMod,
   rainColour,
+  rainReach,
+  rainWindow,
   splashAgeMs,
   splashAlpha,
   splashRadius,
@@ -198,7 +200,7 @@ describe('the splash', () => {
 });
 
 /** The ground points a screen sees, by NDC grid and drop height: the true camera does the projecting. */
-function visibleLandings(v: RainView): { x: number; z: number; ndcx: number; ndcy: number; h: number }[] {
+function visibleLandings(v: RainView, ground = 0): { x: number; z: number; ndcx: number; ndcy: number; h: number }[] {
   const cam = updateDimetricCamera({ x: v.x, y: v.y, zoom: v.zoom }, { width: v.width, height: v.height }, new THREE.OrthographicCamera());
   const dir = new THREE.Vector3();
   cam.getWorldDirection(dir);
@@ -209,7 +211,8 @@ function visibleLandings(v: RainView): { x: number; z: number; ndcx: number; ndc
       const ndcy = -1 + j / 4;
       for (const h of [0, 1.5, 3, 4.5, 6]) {
         const p = new THREE.Vector3(ndcx, ndcy, -1).unproject(cam);
-        const t = (h - p.y) / dir.y; // along the view ray to the plane y = h
+        // The drop is `h` above ground that stands `ground` up: its head is at y = ground + h.
+        const t = (ground + h - p.y) / dir.y; // along the view ray to that plane
         const head = p.addScaledVector(dir, t);
         // The drop's landing point: its head, un-slanted (the head sits h * tan 12 upwind of it).
         out.push({ x: head.x + 0.212557 * h * 0.70710678, z: head.z - 0.212557 * h * 0.70710678, ndcx, ndcy, h });
@@ -223,9 +226,7 @@ describe('coverage: the window holds every landing point the screen can see', ()
   for (const [fx, fz] of [[24, 24], [4, 4], [44, 44], [4, 44]] as const) {
     it.each(ZOOMS)(`focus (${fx},${fz}) zoom %s: every visible drop's landing lies inside the window`, (zoom) => {
       const v = view(fx, fz, zoom);
-      const box = footprintBox(v, MAP);
-      const P = latticePeriod(box);
-      const lo = windowLow(box, P);
+      const { period: P, low: lo } = rainWindow(v, MAP);
       let checked = 0;
       for (const L of visibleLandings(v)) {
         // Rain over the map and its 8-tile skirt only (the ground ends there).
@@ -272,6 +273,68 @@ describe('coverage: the window holds every landing point the screen can see', ()
   it('chooses the smallest period that covers: boxes of side 7, 9, 31, 33 and 64', () => {
     const sq = (w: number): GroundBox => ({ minX: 0, maxX: w, minZ: 0, maxZ: w });
     expect([7, 9, 31, 33, 64].map((w) => latticePeriod(sq(w)))).toEqual([8, 16, 32, 64, 64]);
+  });
+});
+
+describe('the period is a property of the zoom and the viewport, never of the pan (fix round 1)', () => {
+  // The reviewer's finding: the period was chosen from the box CLIPPED to the map, so near a map edge the
+  // box shrank and P dropped a step with no zoom change (zoom 1.6: 64 at the centre, 32 at (44,44)).
+  const FOCI: ReadonlyArray<readonly [number, number]> = [[24, 24], [0, 0], [44, 44], [0, 44], [44, 0], [47, 47], [47, 0]];
+  for (const zoom of [1.6, 1.9, 2.0, 2.2, 1, 0.5, 2.5]) {
+    it(`zoom ${zoom}: the same period at the centre and at every corner, 1400x900 on a 48 map`, () => {
+      const centre = rainWindow(view(24, 24, zoom), MAP).period;
+      for (const [x, y] of FOCI) expect(rainWindow(view(x, y, zoom), MAP).period, `focus ${x},${y}`).toBe(centre);
+    });
+    it(`zoom ${zoom}: a one-tile pan sweep from the centre to the corner never changes it`, () => {
+      const centre = rainWindow(view(24, 24, zoom), MAP).period;
+      for (let t = 0; t <= 48; t++) {
+        expect(rainWindow(view(24 - t / 2, 24 - t / 2, zoom), MAP).period, `t=${t}`).toBe(centre);
+        expect(rainWindow(view(24 + t / 2, 24 + t / 2, zoom), MAP).period, `t=${t}`).toBe(centre);
+      }
+    });
+  }
+  it('the periods themselves (literals worked by hand): 64 at zoom 1.6-2.2 (box 42 to 33.6 wide), 32 at 2.5 (30.9)', () => {
+    expect([1.6, 1.9, 2.0, 2.2, 2.5].map((z) => rainWindow(view(24, 24, z), MAP).period)).toEqual([64, 64, 64, 64, 32]);
+  });
+  it('the window still covers every visible landing point at the corners (pan sweep, zooms 1.6 to 2.5)', () => {
+    for (const zoom of [1.6, 2.0, 2.5]) {
+      for (const [fx, fz] of FOCI) {
+        const { period: P, low: lo } = rainWindow(view(fx, fz, zoom), MAP);
+        for (const L of visibleLandings(view(fx, fz, zoom))) {
+          if (L.x < -8 || L.x > 56 || L.z < -8 || L.z > 56) continue;
+          expect(L.x).toBeGreaterThanOrEqual(lo.x - 1e-6);
+          expect(L.x).toBeLessThanOrEqual(lo.x + P + 1e-6);
+          expect(L.z).toBeGreaterThanOrEqual(lo.z - 1e-6);
+          expect(L.z).toBeLessThanOrEqual(lo.z + P + 1e-6);
+        }
+      }
+    }
+  });
+});
+
+describe('the reach grows with the ground (fix round 1, minor 2)', () => {
+  it('is (6 + g) / tan 30 deg: 10.39 on flat ground, 14.37 over the highest drawn ground (2.3 wu)', () => {
+    expect(rainReach(0)).toBeCloseTo(10.3923, 3);
+    expect(rainReach(2.3)).toBeCloseTo(14.3760, 3);
+    expect(rainReach(-5)).toBeCloseTo(10.3923, 3);
+  });
+  it('a landing point on high ground, seen up the screen, lies inside the box built with that ground', () => {
+    const g = 2.3;
+    for (const zoom of ZOOMS) {
+      const v = view(24, 24, zoom);
+      const box = footprintBox(v, undefined, g);
+      for (const L of visibleLandings(v, g)) {
+        expect(L.x).toBeLessThanOrEqual(box.maxX + 1e-6);
+        expect(L.z).toBeLessThanOrEqual(box.maxZ + 1e-6);
+        expect(L.x).toBeGreaterThanOrEqual(box.minX - 1e-6);
+        expect(L.z).toBeGreaterThanOrEqual(box.minZ - 1e-6);
+      }
+    }
+  });
+  it('and the flat-ground box would NOT hold them (the check is not vacuous)', () => {
+    const v = view(24, 24, 1);
+    const flat = footprintBox(v);
+    expect(visibleLandings(v, 2.3).some((L) => L.x > flat.maxX + 1e-6 || L.z > flat.maxZ + 1e-6)).toBe(true);
   });
 });
 

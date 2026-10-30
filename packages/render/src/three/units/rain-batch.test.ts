@@ -244,6 +244,35 @@ describe('the frame feeds the lattice and the streak width', () => {
   });
 });
 
+describe('the period never follows the pan (fix round 1: the production path, update())', () => {
+  it.each([1.6, 1.9, 2.0, 2.2])('zoom %s on a 48 map at 1400x900: uPeriod is the same from the centre to every corner', (zoom) => {
+    const h = harness();
+    const batch = new RainBatch(h.scene, { drops: 100, mapWidth: 48, mapHeight: 48 });
+    const at = (x: number, y: number): number => {
+      batch.update({ simSec: 0, view: { x, y, zoom, width: 1400, height: 900 }, dpr: 1 });
+      return batch.mesh.material.uniforms.uPeriod.value as number;
+    };
+    const centre = at(24, 24);
+    for (const [x, y] of [[0, 0], [44, 44], [0, 44], [44, 0], [47, 47]] as const) expect(at(x, y), `focus ${x},${y}`).toBe(centre);
+  });
+
+  it('the height bake raises the reach: a map with 2.3 wu ground widens the box, not the period at zoom 1.6', () => {
+    const h = harness();
+    const batch = new RainBatch(h.scene, { drops: 100, mapWidth: 48, mapHeight: 48 });
+    const u = batch.mesh.material.uniforms;
+    const view = { x: 24, y: 24, zoom: 1.6, width: 1400, height: 900 };
+    batch.update({ simSec: 0, view, dpr: 1 });
+    const flat = (u.uLow.value as THREE.Vector2).clone();
+    batch.bakeHeights(() => 2.3);
+    batch.update({ simSec: 0, view, dpr: 1 });
+    const high = u.uLow.value as THREE.Vector2;
+    // The window centre moves toward the camera by the extra reach (2.3 / tan 30 / 2 / sqrt2 per axis).
+    expect(high.x - flat.x).toBeCloseTo(2.3 / Math.tan(Math.PI / 6) / Math.SQRT2 / 2, 4);
+    expect(high.y - flat.y).toBeCloseTo(2.3 / Math.tan(Math.PI / 6) / Math.SQRT2 / 2, 4);
+    expect(u.uPeriod.value).toBe(64);
+  });
+});
+
 describe('the height texture', () => {
   it('is R16F-shaped data, four texels a tile, linear and clamped', () => {
     const { batch } = setUp();

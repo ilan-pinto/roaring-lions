@@ -98,8 +98,7 @@ describe('the rain height bake on ein_qasab', () => {
       times.push(performance.now() - t0);
     }
     const best = Math.min(...times);
-    console.info(`[rain-height-bake] ein_qasab bake ms: ${times.map((t) => t.toFixed(2)).join(', ')} (best ${best.toFixed(2)})`);
-    expect(best).toBeLessThan(BAKE_BUDGET_MS);
+    expect(best, `ein_qasab bake ms: ${times.map((t) => t.toFixed(2)).join(', ')}`).toBeLessThan(BAKE_BUDGET_MS);
   });
 
   it(`the renderer's whole bake (sample + half-float encode + upload flag) is under ${BAKE_BUDGET_MS} ms too (best of five)`, () => {
@@ -111,8 +110,7 @@ describe('the rain height bake on ein_qasab', () => {
       times.push(performance.now() - t0);
     }
     const best = Math.min(...times);
-    console.info(`[rain-height-bake] ein_qasab RainBatch.bakeHeights ms: ${times.map((t) => t.toFixed(2)).join(', ')} (best ${best.toFixed(2)})`);
-    expect(best).toBeLessThan(BAKE_BUDGET_MS);
+    expect(best, `ein_qasab RainBatch.bakeHeights ms: ${times.map((t) => t.toFixed(2)).join(', ')}`).toBeLessThan(BAKE_BUDGET_MS);
   });
 
   it('the renderer baked the SAME numbers into the texture it draws with (half floats, within 1e-3)', () => {
