@@ -113,7 +113,7 @@ function bytesDiff(a: Uint8Array, b: Uint8Array): number {
 }
 
 function cloneMap(m: ControlMap): ControlMap {
-  return { width: m.width, height: m.height, a: m.a.slice(), b: m.b.slice(), c: m.c ? m.c.slice() : null, wetBake: m.wetBake };
+  return { width: m.width, height: m.height, a: m.a.slice(), b: m.b.slice(), c: m.c ? m.c.slice() : null };
 }
 
 /**
@@ -365,20 +365,16 @@ describe('a collapse on Ein Qasab splices control C to the bytes a full wet buil
 });
 
 /**
- * The wet margin cannot be falsified on Ein Qasab: its 27 collapses move 16
- * surface tiles between them and not one changes a C texel (its relief is
- * three flat shelves and a ramp far from every building). A relief map does,
- * compiled wet: umm_zeitoun_4's warehouse, structure 1 (11 surface tiles) and
- * house 54 (2). Measured 2026-10-30, bytes of C that differ from a full build
- * after a splice at wet margin 0 / 4 / 8 / 12 / 14 / 15 / 16:
- *   structure 1:  4 / 4 / 4 / 0 / 0 / 0 / 0
- *   structure 54: 2 / 2 / 0 / 0 / 0 / 0 / 0
- * So the shipped 16 is the two-tile stencil bound with four texels of slack,
- * not a tight fit like control A and B's 4, and a margin under 12 draws the
- * wrong puddles.
+ * The wet margin's falsification lives in `control-map.test.ts` (a road beside
+ * a constructed hump). It cannot live here any more: with no puddles on open
+ * ground (the lead's S-L1 ruling) the only C bytes a surface change can move
+ * are a road's rut band, and neither Ein Qasab's collapses nor
+ * umm_zeitoun_4's warehouse (structure 1: 11 surface tiles) sit near one.
+ * What this keeps: a relief map compiled wet, collapsed, splices to the bytes
+ * of a full build at the shipped margin.
  */
-describe('the wet margin is no narrower than the surface reads (the falsification, kept)', () => {
-  function cBytesWrong(wetMargin: number): number {
+describe('a warehouse collapse on a relief map splices C to the full build at the shipped margin', () => {
+  it('umm_zeitoun_4, structure 1: the spliced C is the full build', () => {
     const r = rig('umm_zeitoun_4', true);
     const before = r.build(null);
     const map = buildControlMap(before.composed.input, before.state.surface);
@@ -389,17 +385,8 @@ describe('the wet margin is no narrower than the surface reads (the falsificatio
     let surfaceTiles = 0;
     for (const v of changed) if ((v & 2) !== 0) surfaceTiles++;
     expect(surfaceTiles, 'the warehouse reflows the smoothing field').toBeGreaterThan(5);
-    updateControlMapRegion(map, full.composed.input, changed, undefined, full.state.surface, wetMargin);
+    updateControlMapRegion(map, full.composed.input, changed, undefined, full.state.surface);
     const fresh = buildControlMap(full.composed.input, full.state.surface);
-    return bytesDiff(map.c as Uint8Array, fresh.c as Uint8Array);
-  }
-
-  it('at the shipped margin the spliced C is the full build', () => {
-    expect(cBytesWrong(WET_SPLICE_MARGIN_TEXELS)).toBe(0);
-  }, 60_000);
-
-  it('at 8 texels (one tile) it writes the wrong puddles; at 0 as well', () => {
-    expect(cBytesWrong(8)).toBeGreaterThan(0);
-    expect(cBytesWrong(0)).toBeGreaterThan(0);
+    expect(bytesDiff(map.c as Uint8Array, fresh.c as Uint8Array)).toBe(0);
   }, 60_000);
 });

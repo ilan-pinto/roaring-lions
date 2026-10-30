@@ -33,7 +33,6 @@
  * because Task 4's combined size crosses the controller's file cap, not
  * because the two halves are independent ideas.
  */
-import { hazeReferenceLevel } from '../haze';
 import { DECOR_GROVE, DECOR_KNOLL, DECOR_MARSH, DECOR_RIDGE, DECOR_ROAD, hexToLinear } from './shared';
 import { boxBlur, fbm2, valueNoise2 } from './noise';
 import { buildRoadGraph, junctionDistanceAt, roadDistanceAt, ROAD_EDGE_BEND_CYCLES, type RoadGraph } from './road-graph';
@@ -332,10 +331,6 @@ export interface ControlMap {
    * byte-for-byte today's two-texture map. See `wet-masks.ts`.
    */
   readonly c: Uint8Array | null;
-  /** What the wet bake needs to splice itself later (`updateControlMapRegion`):
-   *  the macro field (a function of the map's size alone) and the preset's
-   *  `openPuddles`. Present exactly when `c` is. */
-  readonly wetBake?: { readonly macro: MacroField; readonly openPuddles: boolean };
 }
 
 function clamp01(v: number): number {
@@ -367,7 +362,6 @@ function byteOf(v: number): number {
 export function buildControlMap(
   input: TerrainInput,
   surface?: TerrainSurface,
-  options: WetBakeOptions = {}
 ): ControlMap {
   const N = CONTROL_TEXELS_PER_TILE;
   const width = input.width * N;
@@ -376,8 +370,6 @@ export function buildControlMap(
   const b = new Uint8Array(width * height * 4);
   const graph = buildRoadGraph(input);
   const wet = input.wet === true && surface !== undefined;
-  const openPuddles = options.openPuddles !== false;
-  const macro = wet ? buildMacroField(input.width, input.height) : null;
   const c = wet ? new Uint8Array(width * height * 4) : null;
   const map: ControlMap = {
     width,
@@ -385,9 +377,8 @@ export function buildControlMap(
     a,
     b,
     c,
-    ...(macro !== null ? { wetBake: { macro, openPuddles } } : {}),
   };
-  const field = wet && macro !== null ? buildWetField(input, graph, macro, openPuddles) : null;
+  const field = wet ? buildWetField(input, graph) : null;
 
   for (let j = 0; j < height; j++) {
     for (let i = 0; i < width; i++) {
@@ -399,28 +390,13 @@ export function buildControlMap(
   return map;
 }
 
-/** What a wet bake takes beyond the input and the surface. */
-export interface WetBakeOptions {
-  /** False drops the open-ground and low-ground puddles (`RenderQuality.rain`,
-   *  R-8); roads and marsh stay. Default true. */
-  readonly openPuddles?: boolean;
-}
-
 /** The inputs control C's texels read besides the input and the surface: the
- *  macro field, the road graph, the median open level and the tile-kind
- *  decision. `input` is captured, so build a new one per input. */
-export function buildWetField(
-  input: TerrainInput,
-  graph: RoadGraph,
-  macro: MacroField,
-  openPuddles: boolean
-): WetField {
+ *  road graph and the tile-kind decision. `input` is captured, so build a new
+ *  one per input. */
+export function buildWetField(input: TerrainInput, graph: RoadGraph): WetField {
   return {
-    macro,
     graph,
-    refLevel: hazeReferenceLevel(input),
     kindAt: (tx, tz) => tileSurface(input, tx, tz).kind,
-    openPuddles,
   };
 }
 
@@ -528,9 +504,8 @@ export const CHANGED_SURFACE = 2;
  * (see `CONTROL_SPLICE_MARGIN_TEXELS`).
  *
  * On a wet map (`input.wet` and a `surface`), control C also reads the
- * surface and the map's median open level, so the answer is also `null` when
- * wetness itself differs from the snapshot or the median moved (every
- * low-ground texel on the map would change), and a tile whose smoothing field
+ * surface, so the answer is also `null` when wetness itself differs from the
+ * snapshot, and a tile whose smoothing field
  * or terrace flag changed is marked `CHANGED_SURFACE`. A mask of 0 and 1 is
  * exactly the dry answer.
  */
@@ -543,7 +518,6 @@ export function changedControlTiles(
   const wet = input.wet === true && surface !== undefined;
   if (wet !== prev.wet) return null;
   if (wet && surface !== undefined) {
-    if (prev.refLevel !== hazeReferenceLevel(input)) return null;
     if (surface.flat !== (prev.field === null)) return null;
   }
   const n = input.width * input.height;
@@ -590,7 +564,7 @@ export function updateControlMapRegion(
   }
   const N = CONTROL_TEXELS_PER_TILE;
   const { width, height } = map;
-  const wet = map.c !== null && map.wetBake !== undefined && surface !== undefined;
+  const wet = map.c !== null && surface !== undefined;
   // bit 1: rewrite A and B (and C); bit 2: rewrite C alone.
   const mark = new Uint8Array(width * height);
   for (let t = 0; t < changed.length; t++) {
@@ -613,8 +587,7 @@ export function updateControlMapRegion(
     }
   }
   const graph = buildRoadGraph(input);
-  const field =
-    wet && map.wetBake !== undefined ? buildWetField(input, graph, map.wetBake.macro, map.wetBake.openPuddles) : null;
+  const field = wet ? buildWetField(input, graph) : null;
   let written = 0;
   for (let k = 0; k < mark.length; k++) {
     if (mark[k] === 0) continue;
@@ -648,7 +621,7 @@ export function updateControlMapRegion(
  *
  * A WET map's control C also reads the surface (GH-871 P4), which a boot's
  * `setElevation` DOES change, so a wet snapshot also keeps the smoothing field
- * and terrace flag by content and the median open level; a dry snapshot keeps
+ * and terrace flag by content; a dry snapshot keeps
  * `wet: false` and nulls, and compares exactly as before.
  */
 export interface ControlInputs {
@@ -662,8 +635,6 @@ export interface ControlInputs {
   /** `surface.field` and `surface.terrace` by content; null when dry or flat. */
   readonly field: Float32Array | null;
   readonly terrace: Uint8Array | null;
-  /** `hazeReferenceLevel` of the input when wet, else 0. */
-  readonly refLevel: number;
 }
 
 /** A snapshot of `input`'s control-map inputs -- see `ControlInputs`. */
@@ -679,7 +650,6 @@ export function snapshotControlInputs(input: TerrainInput, surface?: TerrainSurf
     wet,
     field: surfaced && surface !== undefined ? surface.field.slice() : null,
     terrace: surfaced && surface !== undefined ? surface.terrace.slice() : null,
-    refLevel: wet ? hazeReferenceLevel(input) : 0,
   };
 }
 
@@ -707,7 +677,6 @@ export function controlInputsMatch(prev: ControlInputs | null, input: TerrainInp
   const wet = input.wet === true && surface !== undefined;
   if (wet !== prev.wet) return false;
   if (!wet || surface === undefined) return true;
-  if (prev.refLevel !== hazeReferenceLevel(input)) return false;
   if (surface.flat) return prev.field === null;
   return (
     prev.field !== null &&

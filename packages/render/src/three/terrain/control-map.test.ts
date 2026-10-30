@@ -4,6 +4,7 @@ import type { TerrainInput } from './types';
 import {
   buildControlMap, buildMacroField, CONTROL_TEXELS_PER_TILE as N, heightBiased, macroBlurTexels,
   macroFactor, MACRO_OCTAVES, MACRO_PERIOD_TILES, neutralTint, tileSurface, updateControlMapRegion,
+  changedControlTiles, snapshotControlInputs, WET_SPLICE_MARGIN_TEXELS,
 } from './control-map';
 import { boxBlur, fbm2 } from './noise';
 import { roadDistanceAt, buildRoadGraph } from './road-graph';
@@ -417,51 +418,81 @@ describe('updateControlMapRegion refuses a wet map it cannot keep right (GH-871 
   });
 });
 
-describe('control C -- the low-ground boost on a synthetic bowl (R-4: +6% at 2 levels below)', () => {
+describe('control C -- no low-ground boost on a synthetic bowl (the lead\'s S-L1 ruling: no puddle on open ground)', () => {
   const W = 16;
   // 16x16: an open floor in the middle (tiles 3..12), a rim around it. The rim is
-  // the majority, so the median open level is the rim's.
+  // the majority, so the median open level is the rim's; the plan boosted the
+  // floor's puddles by 6% at 2 levels below it.
   function bowl(floor: number): TerrainInput {
     const elevation = new Uint8Array(W * W);
     for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) elevation[y * W + x] = x >= 3 && x < 13 && y >= 3 && y < 13 ? floor : 2;
     return { width: W, height: W, decor: null, elevation, blocked: new Uint8Array(W * W), cover: new Uint8Array(W * W), wet: true };
   }
 
-  /** The extra open share on the floor texels that are flat in the bowl:
-   *  `floor` levels against the same map with its floor at the median. */
-  function boostAt(floor: number): { boost: number; n: number; bowlShare: number; levelShare: number } {
-    const low = bowl(floor);
-    const level = bowl(2);
-    const sLow = buildTerrainSurface(low);
-    const cLow = buildControlMap(low, sLow).c as Uint8Array;
-    const cLevel = buildControlMap(level, buildTerrainSurface(level)).c as Uint8Array;
-    const row = W * N;
-    let n = 0;
-    let gLow = 0;
-    let gLevel = 0;
-    for (let j = 3 * N; j < 13 * N; j++) {
-      for (let i = 3 * N; i < 13 * N; i++) {
-        if (smoothNormal(sLow, (i + 0.5) / N, (j + 0.5) / N)[1] <= 0.985) continue;
-        n++;
-        if (cLow[(j * row + i) * 4 + 1] >= 128) gLow++;
-        if (cLevel[(j * row + i) * 4 + 1] >= 128) gLevel++;
+  for (const floor of [0, 1, 2]) {
+    it(`C.G is 0 on every open texel of a floor ${2 - floor} level(s) below the median, flat or not`, () => {
+      const input = bowl(floor);
+      const surface = buildTerrainSurface(input);
+      const cm = buildControlMap(input, surface);
+      const c = cm.c as Uint8Array;
+      let texels = 0;
+      let flat = 0;
+      let puddled = 0;
+      for (let j = 0; j < cm.height; j++) {
+        for (let i = 0; i < cm.width; i++) {
+          texels++;
+          if (smoothNormal(surface, (i + 0.5) / N, (j + 0.5) / N)[1] > 0.985) flat++;
+          if (c[(j * cm.width + i) * 4 + 1] !== 0) puddled++;
+        }
       }
-    }
-    return { boost: (gLow - gLevel) / n, n, bowlShare: gLow / n, levelShare: gLevel / n };
+      expect(texels).toBe(16 * 16 * 64);
+      expect(flat, 'a real flat floor').toBeGreaterThan(3000);
+      expect(puddled).toBe(0);
+    });
+  }
+});
+
+describe('the wet splice margin, on a road beside a constructed hump (GH-871 P4 T7)', () => {
+  // A 24x24 map with a road across row 12 and three terraces of relief; the
+  // "after" input raises tile (11, 14) two levels. With no puddles on open
+  // ground, the road's rut band is the only place a surface change can move C.
+  const W = 24;
+  const decor = new Uint8Array(W * W);
+  for (let x = 0; x < W; x++) decor[12 * W + x] = DECOR_ROAD;
+  function relief(hump: number): TerrainInput {
+    const elevation = new Uint8Array(W * W);
+    for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) elevation[z * W + x] = x < 8 ? 0 : x < 16 ? 1 + ((x - 8) >> 2) : 3;
+    elevation[14 * W + 11] += hump;
+    return { width: W, height: W, decor, elevation, blocked: new Uint8Array(W * W), cover: new Uint8Array(W * W), wet: true };
   }
 
-  it('raises the open share on the flat floor by 0.06 +/- 0.02 at 2 levels below the median', () => {
-    const r = boostAt(0); // floor 2 levels below the rim median (2)
-    expect(r.n, 'a real flat floor').toBeGreaterThan(3000);
-    expect(r.boost, `bowl ${r.bowlShare} vs level ${r.levelShare}`).toBeGreaterThanOrEqual(0.04);
-    expect(r.boost).toBeLessThanOrEqual(0.08);
+  /** C bytes that differ from a full build after splicing the hump in at `wetMargin`. */
+  function cBytesWrong(wetMargin: number): number {
+    const a = relief(0);
+    const sa = buildTerrainSurface(a);
+    const b = relief(2);
+    const sb = buildTerrainSurface(b);
+    const map = buildControlMap(a, sa);
+    const changed = changedControlTiles(snapshotControlInputs(a, sa), b, sb) as Uint8Array;
+    expect(changed, 'a splice, not a full build').not.toBeNull();
+    let surface = 0;
+    for (const v of changed) if ((v & 2) !== 0) surface++;
+    expect(surface, 'the hump moved the smoothing field').toBeGreaterThan(0);
+    updateControlMapRegion(map, b, changed, undefined, sb, wetMargin);
+    const fresh = buildControlMap(b, sb).c as Uint8Array;
+    const got = map.c as Uint8Array;
+    let n = 0;
+    for (let i = 0; i < fresh.length; i++) if (fresh[i] !== got[i]) n++;
+    return n;
+  }
+
+  it('at the shipped margin (16 texels) the spliced C is the full build', () => {
+    expect(WET_SPLICE_MARGIN_TEXELS).toBe(16);
+    expect(cBytesWrong(WET_SPLICE_MARGIN_TEXELS)).toBe(0);
   });
 
-  it('is linear from the median: a floor 1 level below adds about half, and a floor AT the median adds nothing', () => {
-    const half = boostAt(1);
-    expect(half.n).toBeGreaterThan(3000);
-    expect(half.boost, 'one level below').toBeGreaterThan(0.01);
-    expect(half.boost).toBeLessThan(0.05);
-    expect(boostAt(2).boost, 'at the median').toBe(0);
+  it('at one tile (8 texels) or none it writes the wrong puddles (measured 2 and 2 bytes)', () => {
+    expect(cBytesWrong(8)).toBeGreaterThan(0);
+    expect(cBytesWrong(0)).toBeGreaterThan(0);
   });
 });

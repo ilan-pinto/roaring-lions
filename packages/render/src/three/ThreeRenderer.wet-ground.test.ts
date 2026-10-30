@@ -116,12 +116,14 @@ const MAP = 24;
 const FLAT_HUT = 5 * MAP + 5;
 /**
  * The relief map: three terraces rising with x (levels 0, 1/2, 3). A hut at
- * tile (12, 3) stands on a step; its collapse reflows the smoothing field and
- * moves 12 bytes of C, and still splices (a scan of the candidates, in the T4
- * report, found 5 to 14 bytes at x = 12, 15 and 16). On the flat map a collapse
- * moves none, which would make a splice test vacuous.
+ * tile (12, 11) stands on a step beside the road (row 12); its collapse
+ * reflows the smoothing field and moves 2 bytes of C, and still splices (a scan
+ * of the candidates found 0-2 bytes along the rows beside the road, and none
+ * anywhere else: with no puddles on open ground, only a road's rut band can
+ * move). On the flat map a collapse moves none, which would make a splice test
+ * vacuous.
  */
-const RELIEF_HUT = 3 * MAP + 12;
+const RELIEF_HUT = 11 * MAP + 12;
 const reliefLevels = (): Uint8Array => {
   const e = new Uint8Array(MAP * MAP);
   for (let z = 0; z < MAP; z++) for (let x = 0; x < MAP; x++) e[z * MAP + x] = x < 8 ? 0 : x < 16 ? 1 + ((x - 8) >> 2) : 3;
@@ -337,7 +339,7 @@ describe('the ripples run on the SIM clock', () => {
     const on = setUp(RAIN);
     expect(priv(on.r).groundMat.uniforms.uRippleAmp.value).toBe(1);
     on.r.dispose();
-    const quality = { colorVision: 'default', rain: { drops: 1500, ripples: false, openPuddles: true } } as unknown as RendererOptions['quality'];
+    const quality = { colorVision: 'default', rain: { drops: 1500, ripples: false } } as unknown as RendererOptions['quality'];
     const off = setUp({ ...RAIN, quality });
     off.r.frame(1, 0);
     expect(priv(off.r).groundMat.uniforms.uRippleAmp.value).toBe(0);

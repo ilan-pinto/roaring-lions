@@ -11632,16 +11632,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Whether control C bakes the open-ground and low-ground puddles
-   * (`RenderQuality.rain.openPuddles`, R-8). THE SEAM: `quality.rain` does not
-   * exist until Task 8, so every preset answers true (the bake's default);
-   * Task 8 reads the preset here and nowhere else.
-   */
-  private openPuddles(): boolean {
-    return true;
-  }
-
-  /**
    * Whether the preset allows ripples (`RenderQuality.rain.ripples`, R-8):
    * absent means "no opinion" and ripples run, `false` is `low`. Read
    * STRUCTURALLY because the field is Task 8's to add to `RenderQuality`; the
@@ -12870,7 +12860,7 @@ export class ThreeRenderer implements Renderer {
         this.controlTex.b.needsUpdate = true;
         if (this.controlTex.c !== null) this.controlTex.c.needsUpdate = true;
       } else {
-        const map = buildControlMap(composed.input, surface, { openPuddles: this.openPuddles() });
+        const map = buildControlMap(composed.input, surface);
         const control = { ...controlTexturePair(map), c: controlTextureC(map) };
         this.controlTex?.a.dispose();
         this.controlTex?.b.dispose();
