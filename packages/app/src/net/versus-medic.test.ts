@@ -12,6 +12,7 @@ import { sidesOfFactions, validateConfig, type Frame, type MatchConfig, type Mat
 import { fx, MED_IDLE, WOUND_DOWN, type Command } from '@lions/sim';
 import { runFrames, seatWorldFor } from './frame-step';
 import { buildMatchWorld, matchTick, type MatchWorld } from './match-world';
+import { outcomeOf } from './outcome';
 import { VERSUS_HELD_UNITS, versusRoster } from './versus-roster';
 
 function roomConfig(): MatchConfig {
@@ -161,7 +162,8 @@ describe('a medic team in a versus room does its job (GH-707)', () => {
         if (m.length === 0) return;
         medic = m[0];
         // A KDF rifle squad on open ground just OUTSIDE the medic's own 8-tile search (`rescue.radius_tiles`), hit until a
-        // man falls wounded and goes DOWN. A medic only walks to him on the order below, never of his own accord.
+        // man falls wounded and goes DOWN. Measured: without the order below he stays down (the camp's 12-tile dispatch does
+        // not reach him from where the medic stands), so the order is what the test proves.
         const [sx, sy] = openTileBeyond(w, medic, 10);
         const squad = w.sim.spawn(typeIdx(w, 'inf_squad'), 0, fx.from(sx + 0.5), fx.from(sy + 0.5));
         const shooter = w.bySide[1][0];
@@ -193,5 +195,18 @@ describe('a medic team in a versus room does its job (GH-707)', () => {
     expect(run.events).not.toContain('woundEvacuated');
     expect(run.w.sim.state.alive[man]).toBe(0); // admitted: off the board, alive in the squad again
     expect(run.w.sim.state.medState[medic]).toBe(MED_IDLE);
+  });
+});
+
+describe('a room\'s win rule and a medic team (GH-707, 30 Oct 2026)', () => {
+  it('on the real sim: a KDF side reduced to one medic team has lost by annihilation', () => {
+    const w = buildMatchWorld(roomConfig());
+    for (const id of w.bySide[0]) w.sim.debugKill(id);
+    w.sim.spawn(typeIdx(w, 'inf_medic_squad'), 0, fx.from(10.5), fx.from(10.5));
+    expect(living(w, 'inf_medic_squad', 0)).toHaveLength(1);
+    expect(outcomeOf(w.sim, 100)).toEqual({ kind: 'won', side: 1, by: 'annihilation' });
+    // Control: one armed rifle squad beside it keeps the side standing.
+    w.sim.spawn(typeIdx(w, 'inf_squad'), 0, fx.from(12.5), fx.from(10.5));
+    expect(outcomeOf(w.sim, 100)).toEqual({ kind: 'ongoing' });
   });
 });

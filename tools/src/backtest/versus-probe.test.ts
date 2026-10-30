@@ -611,6 +611,15 @@ describe('the rescue arm', () => {
     expect(d.rt.logisticsOf(0)).toBe(250);
   });
 
+  it('after: with nothing armed left to buy the medic is bought (the positive case); off never buys it', () => {
+    const a = room();
+    downManAt(a.w, 2);
+    expect(planRound(a.rt, a.w.sim, ['inf_medic_squad'], new Map(), 0, 'after')).toEqual(['inf_medic_squad']);
+    const b = room();
+    downManAt(b.w, 2);
+    expect(planRound(b.rt, b.w.sim, ['inf_medic_squad'], new Map(), 0, 'off')).toEqual([]);
+  });
+
   it('rescueRound sends an idle medic to the nearest man down, and not into fire, not twice, not while he carries', () => {
     const { w } = room();
     const [ax, ay] = w.anchors[w.endOfSide[0]];
@@ -622,6 +631,17 @@ describe('the rescue arm', () => {
     w.sim.tick();
     expect([w.sim.state.medState[medic], w.sim.state.medTarget[medic]]).toEqual([MED_TO_WOUNDED, near]);
     expect(rescueRound(w.sim, 0)).toBe(0); // he is on a job: not re-ordered
+  });
+
+  it('rescueRound does not order a medic who carries a man, even while his state reads idle', () => {
+    const { w } = room();
+    const [ax, ay] = w.anchors[w.endOfSide[0]];
+    const medic = w.sim.spawn(typeIdx(w, 'inf_medic_squad'), 0, fx.from(ax + 0.5), fx.from(ay + 0.5));
+    const aboard = downManAt(w, 3);
+    downManAt(w, 6);
+    expect(w.sim.embarkAtSpawn(medic, aboard)).toBe(true);
+    expect(w.sim.state.medState[medic]).toBe(0);
+    expect(rescueRound(w.sim, 0)).toBe(0);
   });
 
   it('rescueRound sends nobody to a man with an armed enemy within RESCUE_SAFE_TILES of him (a constructed failing input), and goes once it is gone', () => {

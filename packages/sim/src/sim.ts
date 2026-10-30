@@ -1415,7 +1415,7 @@ export type SimEvent =
    *  bleeds no more. */
   | { kind: 'woundStabilised'; tick: number; entity: number; medic: number }
   /** GH-707 Task 6: wounded `entity` was carried within `admit_radius` of aid structure
-   *  `structure` owned by the carrier's side `side` (the ADMITTING side, which Conduct reads)
+   *  `structure` working for the carrier's side `side` (owned by it, or a neutral camp that produces for it) (the ADMITTING side, which Conduct reads)
    *  and is under treatment there: `alive` 0, `removed` 1, no `destroyed`. */
   | { kind: 'woundAdmitted'; tick: number; entity: number; structure: number; side: number }
   /** GH-707 Task 6: admitted wounded `entity` walked back into squad `squad` (his own, or the
@@ -8456,7 +8456,7 @@ export class Sim {
   }
 
   /** GH-707: the side aid structure `s` works for -- its owner (field works), else, for a NEUTRAL
-   *  structure, the side it produces for (a versus room's KDF camp, `camp_aid`: not owned, so not a
+   *  structure, the side it produces for (a versus room's KDF camp, given an `aid` block by `standMapStructures`: not owned, so not a
    *  target and no field-works fold, yet a drop-off for its own side's wounded). -1 when neither. */
   private aidSideOf(s: number): number {
     const owner = this.stOwner[s];
@@ -8603,14 +8603,14 @@ export class Sim {
    * GONE either way; he never comes back on the board as an entity.
    */
   private dischargePatient(i: number, s: number): void {
-    const owner = this.aidSideOf(s);
+    const postSide = this.aidSideOf(s);
     const side = this.side[i];
     this.woundState[i] = WOUND_GONE;
     this.admittedAt[i] = -1;
     this.woundTimer[i] = 0;
     let squad = -1;
     const p = this.woundParent[i];
-    if (side === owner && side !== 2 && p >= 0) {
+    if (side === postSide && side !== 2 && p >= 0) {
       const ti = this.typeIdx[p];
       if (this.canRejoin(p, side, ti)) squad = p;
       else {
@@ -8625,7 +8625,7 @@ export class Sim {
       }
     }
     if (squad < 0) {
-      this.pendingEvents.push({ kind: 'woundEvacuated', tick: this.tickCount, entity: i, carrier: -1, side: owner });
+      this.pendingEvents.push({ kind: 'woundEvacuated', tick: this.tickCount, entity: i, carrier: -1, side: postSide });
       return;
     }
     this.rejoinSquad(squad);
