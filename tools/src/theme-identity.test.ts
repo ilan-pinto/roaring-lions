@@ -21,6 +21,23 @@
  *    map size (x, y); the fog pass's `uHazeFar` and `uHazeTint`; `HAZE_LOW`
  *    (haze.ts); and the renderer's `toneMappingExposure`.
  *
+ *  - scene (GH-871 P4 T1, added before any rain wiring): everything P4 can
+ *    touch that `program` and `light` cannot see. The fog pass's fragment
+ *    source, defines and uniform names; the foliage material's compiled
+ *    vertex and fragment source and cache key (the live `decor-foliage`
+ *    batches in the scene, and one built with the renderer's own sway
+ *    uniforms, so a map without trees is not a vacuous read); the decal
+ *    pool's fragment source, defines and its eight resolved linear colours in
+ *    `DECAL_PALETTE_ORDER`; `surfaceMaterialFor`'s roughness and metalness per
+ *    `SurfaceClass`; the sun's `shadow.intensity`; the ground material's
+ *    sorted uniform names and defines; a census of the scene graph (the count
+ *    of `Object3D`s by `type` and the sorted `renderOrder`s of visible
+ *    meshes); and the name of the emitter `updateVehicleAmbientFx` chooses
+ *    for a moving vehicle (`vehicleMoveEmitterName()`). It is a THIRD digest
+ *    so the `program` and `light` lines stay byte-unchanged and the fixture
+ *    only gains lines. The rain wiring (P4) must leave the three shipped
+ *    entries' `scene` byte-identical.
+ *
  * `init()` needs a live GL context, so the fog pass is slotted in the way
  * `init()` does it (`new FogOfWarPass(shroud.texture, w, h)`, then
  * `applyHaze()`), and one `frame()` runs first so the terrain rebuild has run.
@@ -47,6 +64,8 @@ import { FogOfWarPass } from '../../packages/render/src/three/fog-pass';
 import { HAZE_LOW } from '../../packages/render/src/three/haze';
 import type { GroundMaterial } from '../../packages/render/src/three/terrain/mesh';
 import type { SceneLights } from '../../packages/render/src/three/lighting';
+import { swayingFoliageMaterial, type SwayUniforms } from '../../packages/render/src/three/terrain/decor-mesh';
+import { surfaceMaterialFor, type SurfaceClass } from '../../packages/render/src/three/units/unit-surface';
 import type { ShroudTexture } from '../../packages/render/src/three/shroud-texture';
 import { rendererOptionsFor } from '../../packages/app/src/renderer-options';
 
@@ -117,6 +136,10 @@ const CASES: ReadonlyArray<{ key: string; json: MapJson; terrain: string }> = [
 const SHIPPED_KEYS = ['beit_sahwan_outskirts', 'wadi_halam_basin', 'tel_marum'];
 
 interface Private {
+  scene: ThreeTypes.Scene;
+  sway: SwayUniforms;
+  decalMaterial: ThreeTypes.ShaderMaterial;
+  vehicleMoveEmitterName(): string;
   groundMat: GroundMaterial;
   sceneLights: SceneLights;
   renderer: { toneMappingExposure: number };
@@ -127,15 +150,98 @@ interface Private {
 
 interface Identity {
   program: string;
+  scene: string;
   light: string;
   /** The values behind `light`, for a failure message that can be read. */
   lightFields: Record<string, unknown>;
+  /** The values behind `scene`, for a failure message that can be read. */
+  sceneFields: Record<string, unknown>;
   fragmentLength: number;
 }
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 /** Six decimals: a sun direction is derived from float positions. */
 const r6 = (xs: readonly number[]): number[] => xs.map((x) => Number(x.toFixed(6)));
+
+/** `onBeforeCompile` applied to three's own meshphysical chunks (the `compiled()` seam). */
+function compileOf(material: ThreeTypes.Material): { vertexShader: string; fragmentShader: string } {
+  const shader = {
+    uniforms: {} as Record<string, ThreeTypes.IUniform>,
+    vertexShader: THREE.ShaderChunk.meshphysical_vert,
+    fragmentShader: THREE.ShaderChunk.meshphysical_frag,
+  };
+  material.onBeforeCompile(shader as unknown as ThreeTypes.WebGLProgramParametersWithUniforms, {} as ThreeTypes.WebGLRenderer);
+  return { vertexShader: shader.vertexShader, fragmentShader: shader.fragmentShader };
+}
+
+/** One role that resolves to each `SurfaceClass` (`unit-surface.ts`'s role tables). */
+const SURFACE_ROLES: Readonly<Record<SurfaceClass, string>> = {
+  cloth: 'uniform',
+  leather: 'boot',
+  skin: 'face',
+  wood: 'wood',
+  gear: 'webbing',
+  gunmetal: 'metal',
+  armour: 'hull',
+  plate: 'plate',
+  rubber: 'rubber',
+  glass: 'glass',
+};
+
+/** Everything `scene` digests, as readable values (long GLSL goes in as a hash). */
+function sceneFieldsOf(priv: Private): Record<string, unknown> {
+  const fogMat = priv.fogPass!.material;
+  const decalMat = priv.decalMaterial;
+  const decalColours = (decalMat.uniforms.uColors.value as ThreeTypes.Vector3[]).map((c) => r6(c.toArray()));
+
+  // The live foliage batches (a map with trees), and one built the way the
+  // renderer builds them, from the renderer's OWN sway uniforms: a fixture
+  // with no trees must still read the foliage program.
+  const live: ThreeTypes.Material[] = [];
+  priv.scene.traverse((o) => {
+    if (o.name === 'decor-foliage') live.push((o as ThreeTypes.Mesh).material as ThreeTypes.Material);
+  });
+  const liveFoliage = live.map((m) => {
+    const c = compileOf(m);
+    return sha(JSON.stringify([c.vertexShader, c.fragmentShader, m.customProgramCacheKey()]));
+  });
+  const built = swayingFoliageMaterial(['#808080'], priv.sway);
+  const builtCompiled = compileOf(built);
+
+  const surfaces: Record<string, number[]> = {};
+  for (const cls of Object.keys(SURFACE_ROLES) as SurfaceClass[]) {
+    const base = new THREE.MeshStandardMaterial();
+    const m = surfaceMaterialFor(base, SURFACE_ROLES[cls]) as ThreeTypes.MeshStandardMaterial;
+    surfaces[cls] = [m.roughness, m.metalness];
+  }
+
+  const ground = priv.groundMat as unknown as { uniforms: Record<string, unknown>; defines: Record<string, unknown> };
+  const byType: Record<string, number> = {};
+  priv.scene.traverse((o) => {
+    byType[o.type] = (byType[o.type] ?? 0) + 1;
+  });
+  const orders: number[] = [];
+  priv.scene.traverseVisible((o) => {
+    if ((o as ThreeTypes.Mesh).isMesh) orders.push(o.renderOrder);
+  });
+  orders.sort((a, b) => a - b);
+
+  return {
+    fog: sha(JSON.stringify([fogMat.fragmentShader, fogMat.vertexShader, fogMat.defines, Object.keys(fogMat.uniforms).sort()])),
+    foliageLive: liveFoliage,
+    foliageBuilt: sha(JSON.stringify([builtCompiled.vertexShader, builtCompiled.fragmentShader, built.customProgramCacheKey()])),
+    decalProgram: sha(JSON.stringify([decalMat.fragmentShader, decalMat.defines])),
+    decalColours,
+    surfaces,
+    shadowIntensity: priv.sceneLights.sun.shadow.intensity,
+    groundUniformNames: Object.keys(ground.uniforms).sort(),
+    groundDefines: ground.defines,
+    censusByType: Object.fromEntries(Object.entries(byType).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))),
+    visibleMeshRenderOrders: sha(JSON.stringify(orders)),
+    visibleMeshCount: orders.length,
+    vehicleMoveEmitter: priv.vehicleMoveEmitterName(),
+  };
+}
 
 function identityOf(json: MapJson, weather?: 'clear'): Identity {
   const parsed = parseMap(json);
@@ -175,23 +281,36 @@ function identityOf(json: MapJson, weather?: 'clear'): Identity {
     hazeLow: HAZE_LOW,
     exposure: priv.renderer.toneMappingExposure,
   };
+  const sceneFields = sceneFieldsOf(priv);
   r.dispose();
-  return { program, light: sha(JSON.stringify(lightFields)), lightFields, fragmentLength: shader.fragmentShader.length };
+  return {
+    program,
+    scene: sha(JSON.stringify(sceneFields)),
+    light: sha(JSON.stringify(lightFields)),
+    lightFields,
+    sceneFields,
+    fragmentLength: shader.fragmentShader.length,
+  };
 }
 
 describe('the ground program and the boot light, per shipped theme (GH-871)', () => {
   if (UPDATE) {
     it('regenerates the fixture', () => {
-      const out: Record<string, { program: string; light: string }> = {};
+      // `scene` sits between `program` and `light`, so adding it only ADDS
+      // lines to the fixture (no existing line gains a comma).
+      const out: Record<string, { program: string; scene: string; light: string }> = {};
       for (const c of CASES) {
-        const { program, light } = identityOf(c.json);
-        out[c.key] = { program, light };
+        const { program, scene, light } = identityOf(c.json);
+        out[c.key] = { program, scene, light };
       }
       writeFileSync(FIXTURE, `${JSON.stringify(out, null, 2)}\n`);
     }, 120_000);
     return;
   }
-  const recorded = JSON.parse(readFileSync(FIXTURE, 'utf8')) as Record<string, { program: string; light: string }>;
+  const recorded = JSON.parse(readFileSync(FIXTURE, 'utf8')) as Record<
+    string,
+    { program: string; scene: string; light: string }
+  >;
 
   it('covers exactly the three shipped themes and the wetland fixture', () => {
     expect(Object.keys(recorded).sort()).toEqual(CASES.map((c) => c.key).sort());
@@ -217,7 +336,15 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
         const f = got.lightFields;
         expect(f.sunIntensity).toBeGreaterThan(0);
         expect(f.hemiIntensity).toBeGreaterThan(0);
-        expect(f.shadowMapSize).toEqual([4096, 4096]);
+        if (SHIPPED_KEYS.includes(c.key)) expect(f.shadowMapSize).toEqual([4096, 4096]);
+        else {
+          // The wetland case: a positive power of two (P4 Task 2 pins its value).
+          const [w, h] = f.shadowMapSize as number[];
+          for (const n of [w, h]) {
+            expect(n).toBeGreaterThan(0);
+            expect(Number.isInteger(Math.log2(n))).toBe(true);
+          }
+        }
         expect(f.hazeFar).toBeGreaterThan(0);
         expect((f.hazeTint as number[]).some((x) => x > 0)).toBe(true);
         expect(f.hazeLow).toBeGreaterThan(0);
@@ -226,12 +353,30 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
       it('draws the recorded ground program', () => {
         expect(got.program).toBe(recorded[c.key].program);
       });
+      it('read a live scene, not an empty one', () => {
+        const f = got.sceneFields;
+        // Each family of the digest saw something: a vacuous read (a missing
+        // pass, an empty pool, a bare scene) would hash the same everywhere.
+        expect((f.decalColours as number[][]).length).toBe(8);
+        expect(Object.keys(f.surfaces as object).length).toBe(10);
+        expect(f.shadowIntensity).toBeGreaterThan(0);
+        expect((f.groundUniformNames as string[]).length).toBeGreaterThan(10);
+        expect(f.visibleMeshCount).toBeGreaterThan(5);
+        expect(Object.values(f.censusByType as Record<string, number>).reduce((a, b) => a + b, 0)).toBeGreaterThan(20);
+        // The shipped value; the wetland's (P4 Task 5) is pinned by the digest.
+        if (SHIPPED_KEYS.includes(c.key)) expect(f.vehicleMoveEmitter).toBe('vehicle_dust');
+        else expect(f.vehicleMoveEmitter).toEqual(expect.any(String));
+      });
+      it('draws the recorded scene', () => {
+        expect(got.scene, JSON.stringify(got.sceneFields)).toBe(recorded[c.key].scene);
+      });
       it('boots the recorded light', () => {
         expect(got.light, JSON.stringify(got.lightFields)).toBe(recorded[c.key].light);
       });
       it("names weather: 'clear' and gets the identical program and light", () => {
         const clear = identityOf(c.json, 'clear');
         expect(clear.program).toBe(recorded[c.key].program);
+        expect(clear.scene).toBe(recorded[c.key].scene);
         expect(clear.light).toBe(recorded[c.key].light);
       });
     });

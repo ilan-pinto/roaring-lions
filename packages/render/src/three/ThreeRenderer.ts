@@ -6433,6 +6433,11 @@ export class ThreeRenderer implements Renderer {
     this.particleSystem.spawn(spec, x, y, 0, FLAT_FX_MAGNITUDE, 0, FX_LAYER_BELOW);
   }
 
+  /** The emitter a moving vehicle trails, by name (GH-871 P4: the rain swaps it; `theme-identity.test.ts` pins it). */
+  private vehicleMoveEmitterName(): string {
+    return 'vehicle_dust';
+  }
+
   /**
    * Vehicle-only ambient VFX: dust while moving, thin engine exhaust while
    * idle. Three-only, by design -- see `units/vehicle-fx.ts`'s top comment
@@ -6531,7 +6536,7 @@ export class ThreeRenderer implements Renderer {
    */
   private updateVehicleAmbientFx(dtMs: number): void {
     if (!this.particleSystem) return;
-    const dust = this.emitterLibrary.byName('vehicle_dust');
+    const dust = this.emitterLibrary.byName(this.vehicleMoveEmitterName());
     const exhaust = this.emitterLibrary.byName('vehicle_exhaust');
     const wash = this.emitterLibrary.byName('rotor_wash');
     if (!dust && !exhaust && !wash) return;
