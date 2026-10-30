@@ -1300,6 +1300,9 @@ export type PlacementRefusal = 'off_map' | 'blocked' | 'no_footing' | 'not_level
 export type RuntimeCommand = Extract<Command, { kind: 'build' | 'support' | 'cancelBuild' | 'setRally' | 'clearRally' | 'raiseWorks' | 'cancelWorks' }>;
 /** `takeRuntimeCommands`' answer when nothing is set aside: shared, frozen, no allocation. */
 const NO_RUNTIME_COMMANDS: readonly RuntimeCommand[] = Object.freeze([]);
+// applyMove's march bookkeeping for a plain order: shared, empty, never pushed to (GH-859 P1b).
+const NO_LEG_SLOTS: readonly Map<number, [number, number]>[] = Object.freeze([]);
+const NO_CHECKPOINT_TILES: readonly number[] = Object.freeze([]);
 
 /** The same command aimed at fewer units. A generic copy rather than an
  *  in-place splice, because the queued object belongs to the sender. */
@@ -4714,9 +4717,10 @@ export class Sim {
     let ringRadius = 0;
     // GH-859 P1b: the march. Slots of checkpoints 1..n-1 (the intermediate ones) in `legSlots`, checkpoint k's tile
     // in `cpX/cpY`; `slots` and `placed` stay the FINAL checkpoint's, which is P1a's whole answer when n is 1.
-    const legSlots: Map<number, [number, number]>[] = [];
-    const cpX: number[] = [];
-    const cpY: number[] = [];
+    // A plain order (tplIdx -1) allocates none of the three: they point at shared empty arrays, which nothing pushes to.
+    let legSlots: readonly Map<number, [number, number]>[] = NO_LEG_SLOTS;
+    let cpX: readonly number[] = NO_CHECKPOINT_TILES;
+    let cpY: readonly number[] = NO_CHECKPOINT_TILES;
     let travelFace = FM_FACING_NONE;
     if (tplIdx >= 0 && tCount >= this.formationTypes[tplIdx].minMembers) {
       this.fmLive = true;
@@ -4751,6 +4755,12 @@ export class Sim {
         }
       }
       const nLegs = cuts.length > 0 ? cuts.length : 1;
+      const legSlotsW: Map<number, [number, number]>[] = [];
+      const cpXW: number[] = [];
+      const cpYW: number[] = [];
+      legSlots = legSlotsW;
+      cpX = cpXW;
+      cpY = cpYW;
       const w = this.width;
       let none: Uint8Array | null = null; // an intermediate checkpoint reserves nothing: one all-zero mask per order
       let prevX = startX;
@@ -4783,9 +4793,9 @@ export class Sim {
         );
         const m = new Map<number, [number, number]>();
         for (const sl of mid.slots) m.set(sl.id, [sl.x, sl.y]);
-        legSlots.push(m);
-        cpX.push(tx2);
-        cpY.push(ty2);
+        legSlotsW.push(m);
+        cpXW.push(tx2);
+        cpYW.push(ty2);
         prevX = tx2;
         prevY = ty2;
       }
@@ -4813,9 +4823,9 @@ export class Sim {
         slots.set(sl.id, [sl.x, sl.y]);
         placed.set(sl.id, sl);
       }
-      legSlots.push(slots);
-      cpX.push(fgx);
-      cpY.push(fgy);
+      legSlotsW.push(slots);
+      cpXW.push(fgx);
+      cpYW.push(fgy);
       ringRadius = res.ringRadius;
       // Ruling 9: `travel` is the direction of the last leg, eight-way (the slot frame is axis-quantised).
       if (tpl.face === FM_FACE_TRAVEL) travelFace = eighthToward(fgx - prevX, fgy - prevY);
@@ -5123,6 +5133,8 @@ export class Sim {
     // A member leaving a dress is no longer waited for; one leaving a sortie or a rescue no longer away.
     if (duty === FM_DUTY_WAIT) {
       if (this.fgAtCp[g] > 0) this.fgAtCp[g]--;
+      // The dress clock counts while someone waits: with nobody left waiting it starts again from the next arrival.
+      if (this.fgAtCp[g] === 0) this.fgDress[g] = 0;
     } else if (duty >= FM_DUTY_OUT) {
       if (this.fgAway[g] > 0) this.fgAway[g]--;
     }

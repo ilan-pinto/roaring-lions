@@ -270,9 +270,8 @@ describe('route and checkpoints', () => {
     tick(w);
     expect(w.sim.formationLegsOfGroup(0)).toBe(9);
     expect(ids.map((id) => priv(w.sim).wpCount[id])).toEqual([8, 8]);
-    // the spacing is ceil(100 / 9) = 12: checkpoint 1 is step 12, tile (14, 2); the lead rifleman is the first on the lane
-    // behind it in the Column's file order
-    expect(goalTile(w.sim, ids[0])[1]).toBe(2);
+    // the spacing is ceil(100 / 9) = 12: checkpoint 1 is step 12 from (2, 2), the tile (14, 2), and the lead rifleman stands on it
+    expect(goalTile(w.sim, ids[0])).toEqual([14, 2]);
     expect(finalTile(w.sim, ids[0])[0]).toBe(62);
   });
   it('append: a shift-appended formation order adds one waypoint per member and is one checkpoint', () => {
@@ -443,6 +442,29 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
     expect(w.sim.formationLegOfGroup(0)).toBe(4); // capped at fgLegs
     expect(ids.map((id) => goalTile(w.sim, id))).toEqual([[24, 14], [26, 14], [24, 15], [26, 15]]);
   });
+  it('when the last waiting member leaves, the dress clock starts again from the next arrival', () => {
+    const { w, ids } = straggler();
+    const p = priv(w.sim);
+    // the first arrival waits from tick 155; after 175 ticks the dress has run 19 and that member is ordered away
+    let firstWaiter = -1;
+    for (let t = 0; t < 175; t++) {
+      tick(w);
+      if (firstWaiter < 0 && p.fgAtCp[0] === 1) firstWaiter = ids.find((id) => p.fmDuty[id] === 1) ?? -1;
+    }
+    expect(firstWaiter).toBe(ids[2]);
+    expect([p.fgAtCp[0], p.fgDress[0]]).toEqual([1, 19]);
+    w.sim.queueCommand({ kind: 'halt', ids: [firstWaiter] });
+    tick(w);
+    expect([p.fgAtCp[0], p.fgDress[0]], 'nobody waits and the clock is back at zero').toEqual([0, 0]);
+    // the next arrival (tick 177) starts a fresh clock: the release is dress_s after IT, not after the first
+    let nextArrival = -1;
+    while (kinds(w, 'formationReleased').length === 0 && w.sim.tickCount < 500) {
+      tick(w);
+      if (nextArrival < 0 && p.fgAtCp[0] > 0) nextArrival = w.sim.tickCount - 1;
+    }
+    expect(nextArrival).toBe(177);
+    expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 237, side: 0, group: 0, leg: 1, legs: 4 });
+  });
   it('a waiting attack-mover with a remembered contact stays put through the hold (it is not an idle sweeper)', () => {
     const w = world();
     const ids = [spawnAt(w, w.inf, 0, 24, 44), spawnAt(w, w.inf, 0, 24, 44), spawnAt(w, w.inf, 0, 24, 44), spawnAt(w, w.inf, 0, 24, 47)];
@@ -511,6 +533,23 @@ describe('facing: a hull keeps its marching facing until the last leg', () => {
     p.fgState[0] = 3;
     tick(w, 90);
     expect(p.facing[ids[2]]).toBe(16384);
+  });
+  it('an appended formation order still rest-faces: fmLeg passes fgLegs on the old route\'s last waypoint', () => {
+    const w = world();
+    const ids = [spawnAt(w, w.inf, 0, 24, 44), spawnAt(w, w.inf, 0, 24, 44), spawnAt(w, w.inf, 0, 24, 44)];
+    order(w, ids, undefined, [24, 30]);
+    tick(w);
+    // appended while they walk: one checkpoint, so fgLegs is 1 while the members' fmLeg moves to 2 at the old goal
+    order(w, ids, 'column_outward', [24, 14], 'move', { append: true });
+    tick(w);
+    const p = priv(w.sim);
+    expect(w.sim.formationLegsOfGroup(0)).toBe(1);
+    expect(ids.map((id) => p.restFacing[id])).toEqual([49152, 0, 16384]);
+    for (let t = 0; t < 1500 && ids.some((id) => p.moving[id] === 1); t++) tick(w);
+    tick(w, 90);
+    expect(ids.map((id) => p.moving[id])).toEqual([0, 0, 0]);
+    expect(ids.map((id) => p.fmLeg[id])).toEqual([2, 2, 2]); // past fgLegs 1
+    expect(ids.map((id) => p.facing[id])).toEqual([49152, 0, 16384]);
   });
   it('travel: a Column arriving on the diagonal faces the eighth-turn of its last leg, 8192, not the axis', () => {
     const w = world();
