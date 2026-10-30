@@ -41,7 +41,8 @@
     { "unit": "apc_eitan", "count": 2, "at": [22, 45] },
     { "unit": "mbt_lavi", "count": 1, "at": [26, 45] },
     { "unit": "mortar_team", "count": 1, "at": [24, 46] },
-    { "unit": "demo_squad", "count": 1, "at": [21, 44] }
+    { "unit": "demo_squad", "count": 1, "at": [21, 44] },
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 43] }
   ],
   "resources": {
     "logistics_start": 400,

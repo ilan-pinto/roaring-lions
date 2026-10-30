@@ -1513,7 +1513,11 @@ run(
     // Sent east too, they were pinned at (24-25,21) on three seeds of thirty, 3-4 tiles from the
     // shanty, and the Grad's rockets aimed at them landed on the demolition party as it set its
     // charges (seeds 4, 6, 8: `burn_the_ammo_point` failed at 300 s, the party dead at the cache).
-    at(104, () => sim.queueCommand({ kind: 'attackMove', ids: [...tank], ...M(36, 19) }));
+    // GH-707 (30 Oct): (36,19) -> (34,22). At (36,19) the Lavi stands a tile from the Kornet cell at (37,20), inside the
+    // gun's minimum range of it and of any picket that comes up the bank, and with the medic team in the force (every later id
+    // moved by one, the pickets' streams re-rolled) seed 22 lost the rifles, then the party, then the Lavi there. Measured on
+    // the 30 sweep seeds for the Lavi's stand: (36,19) 29/30, (30,24) 29, (28,21) 30, (32,20) 30, (33,22) 30, (35,21) 30, (34,22) 30.
+    at(104, () => sim.queueCommand({ kind: 'attackMove', ids: [...tank], ...M(34, 22) }));
     at(104, () => sim.queueCommand({ kind: 'move', ids: [...foot], ...M(21, 27) }));
     // Up the gully, one level below its banks, to the cache at its head.
     // GH-421 (vehicle separation): seed 8 sent the party at 130 s with a rifle picket coming down to
