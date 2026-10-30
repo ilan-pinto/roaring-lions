@@ -1288,7 +1288,11 @@ function formationWorld(seed: number): { hash: number; seen: Record<string, numb
 // spring on. Scouting ticks re-read on the new code: first ring member set at 196, last at 344, group
 // found at 404 (snapshot-witness.test.ts reads the same three numbers, unchanged: the spring happens
 // at the top of the tick after, which is what moved). Was 3331466982.
-const FORMATION_WORLD_PIN = 2129900778;
+// Re-pinned 2026-10-30 (GH-859 P1b Task 2): this world is `fmLive`, so hash() now folds the P1b marker word
+// 0x464d0002 and fourteen columns after the P1a block. Every one of them holds its empty value at every tick of
+// the 600 (formation-state.test.ts asserts that), so the move is the marker and the zeros and nothing else:
+// with the P1b hash lines removed the same run reads 2129900778 again. Was 2129900778.
+const FORMATION_WORLD_PIN = 16150840;
 
 describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
