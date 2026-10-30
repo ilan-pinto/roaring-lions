@@ -73,13 +73,14 @@ describe('the shipped doctrines', () => {
     expect([...byFaction('sarim').menu].sort()).toEqual([...versus, 'recoilless_team'].sort());
   });
 
-  it("KDF's menu is VERSUS_KDF's types plus yahalom_squad (LD3; ruled 15 Oct, lead, #681)", () => {
+  it("KDF's menu is VERSUS_KDF's types plus yahalom_squad (LD3; ruled 15 Oct, lead, #681) and inf_medic_squad (ruled 30 Oct, lead, GH-707)", () => {
     // On the MENU, not in the placed force: fielding one in VERSUS_KDF moved the mirror
     // (kdf/kdf) probe outside 60/40 on three open maps (PR table), and the placed force
     // is what a room fights with until production lands.
     const versus = typesOf(VERSUS_KDF);
     expect(versus).not.toContain('yahalom_squad'); // else "plus" would add nothing
-    expect([...byFaction('kdf').menu].sort()).toEqual([...versus, 'yahalom_squad'].sort());
+    expect(versus).not.toContain('inf_medic_squad');
+    expect([...byFaction('kdf').menu].sort()).toEqual([...versus, 'yahalom_squad', 'inf_medic_squad'].sort());
   });
 
   it('no menu holds loiter_drone (LD3)', () => {

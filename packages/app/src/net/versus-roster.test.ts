@@ -38,8 +38,8 @@ describe('VERSUS_HELD_UNITS (GH-698)', () => {
   });
 });
 
-describe('wounds are on in versus (the lead, 23 Oct 2026), rescue is not', () => {
-  it('a room registers the infantry with hull.wounds and both wounded types, and no rescue unit', () => {
+describe('wounds are on in versus (the lead, 23 Oct 2026), and the medic team is the only rescue unit (30 Oct 2026)', () => {
+  it('a room registers the infantry with hull.wounds and both wounded types, the medic team, and neither rescue vehicle', () => {
     const roster = versusRoster();
     const ids = new Set(roster.map((u) => u.id));
     const squad = roster.find((u) => u.id === 'inf_squad');
@@ -55,7 +55,8 @@ describe('wounds are on in versus (the lead, 23 Oct 2026), rescue is not', () =>
     }
     expect([...woundTypes].sort()).toEqual(['civilians', 'wounded_kdf', 'wounded_sarim']); // civilians go down in place
     for (const t of woundTypes) expect(ids.has(t), t).toBe(true);
-    for (const id of ['inf_medic_squad', 'veh_ambulance', 'air_medevac_heli']) expect(ids.has(id), id).toBe(false);
+    expect(ids.has('inf_medic_squad')).toBe(true);
+    for (const id of ['veh_ambulance', 'air_medevac_heli']) expect(ids.has(id), id).toBe(false);
   });
 
   it('a man down takes no population', () => {

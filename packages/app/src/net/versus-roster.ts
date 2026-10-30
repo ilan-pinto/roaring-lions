@@ -16,15 +16,19 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * Wounds are ON in versus (the lead, 23 Oct 2026, after the versus-wounds probe):
  * every infantry type a room registers keeps `hull.wounds` and `hull.figures`, and
  * `wounded_kdf` / `wounded_sarim` are registered, so a man who falls wounded goes
- * down instead of dying. Rescue stays OUT (next paragraph): a man down in a room
- * bleeds out or is overrun, nobody carries him. Both wounded types take population
- * 0 (`cost.population`), so a side's own wounded never block its builds.
+ * down instead of dying. Rescue is a KDF medic team only (next paragraph). Both
+ * wounded types take population 0 (`cost.population`), so a side's own wounded
+ * never block its builds.
  *
- * `veh_ambulance` and `air_medevac_heli` (GH-709), and `inf_medic_squad` (GH-707
- * P2): on no doctrine menu, so no versus side can field them, and each turns the
- * sim's wound hash fold on (`can_carry`, `rescue`; the medevac is an AIR carrier,
- * which turns the air fold on besides). Held with the Yanshuf until the rescue loop
- * opens to versus: only the KDF has a rescue unit, and the probe has no rescue arm.
+ * `veh_ambulance` and `air_medevac_heli` (GH-709): on no doctrine menu, so no versus
+ * side can field them, and each carries `can_carry` (the medevac is an AIR carrier,
+ * which turns the air fold on besides). Held with the Yanshuf: the lead's ruling of
+ * 30 Oct 2026 (GH-707) opened the rescue loop to versus for the Nemala Medic Team
+ * (`inf_medic_squad`) ONLY, so it left this set and joined the KDF menu
+ * (`data/doctrines/kdf.json`); the ambulance and the medevac stay out. Only the KDF
+ * has a rescue unit. Wounds were already on in versus, so registering the medic turns
+ * no new fold on; it adds one type to the roster, which moves the roster-count and
+ * hash pins in their own commit.
  *
  * `mbt_lavi_camo` and `spg_long_range` (GH-709 Phase 2), and `spg_cluster` (Phase 7):
  * credit-only store units, on no
@@ -48,7 +52,6 @@ export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
   'heli_yanshuf',
   'veh_ambulance',
   'air_medevac_heli',
-  'inf_medic_squad',
   'mbt_lavi_camo',
   'spg_cluster',
   'spg_long_range',
