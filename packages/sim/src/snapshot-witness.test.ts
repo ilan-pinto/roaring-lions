@@ -398,7 +398,12 @@ describe('snapshot format pin', () => {
     // are encoded even when empty, and this world orders no formation. With those rows taken out of
     // snapshot-schema.ts the same run reads 2452666963 again, so the move is exactly the new rows and nothing
     // else (the GH-421 method). 3512584427 is read off a fresh run.
-    expect(h >>> 0).toBe(3512584427);
+    // Was 3512584427. GH-859 P1b (Task 2) appended fourteen `state` columns (ten per-row fg* and four per-unit
+    // fm*: fgLegs fgRelease fgDress fgQuiet fgAtCp fgAway fgCalled fgPace fgCallX fgCallY fmLeg fmDuty fmHomeX
+    // fmHomeY), encoded even when empty; this world orders no formation. With those fourteen rows cut from
+    // snapshot-schema.ts the same run reads 3512584427 again, so the move is exactly the new rows. 128788725 is
+    // read off a fresh run.
+    expect(h >>> 0).toBe(128788725);
   });
 });
 
