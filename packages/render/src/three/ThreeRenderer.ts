@@ -113,7 +113,7 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
-import { setUnitSurfacePass } from './units/unit-surface';
+import { setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
@@ -232,6 +232,7 @@ import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
   createDecalMaterial,
+  decalPaletteKeysFor,
   CRATER_RIM_GAIN,
   craterRadiusTiles,
   isFadingKind,
@@ -1377,6 +1378,11 @@ export class ThreeRenderer implements Renderer {
    *  (`new GroundMaterial({ wet: true })`, GH-871 P4 T4), and a field
    *  initialiser runs before the options are seen. */
   private readonly groundMat: GroundMaterial;
+  /** The unit surface table this renderer was built with (GH-871 P4 T5): the
+   *  wet one under `weather: 'rain'`, else the shipped `SURFACE_PARAMS`. Passed
+   *  to both mesh template loaders; assigned in the constructor, beside
+   *  `groundMat`, because a field initialiser runs before the options are seen. */
+  private readonly surfaceTable: SurfaceTable;
   /** The `ripples` debug layer's flag (`unitsDebugHidden`'s shape): the
    *  per-frame write of `uRippleAmp` consults it, so a toggle holds across a
    *  repaint. */
@@ -2804,6 +2810,7 @@ export class ThreeRenderer implements Renderer {
     // GH-871 P4 T4 (R-1): the wet ground program is built under rain and
     // nowhere else; every other map builds today's `new GroundMaterial()`.
     this.groundMat = new GroundMaterial(opts.weather === 'rain' ? { wet: true } : {});
+    this.surfaceTable = surfaceTableFor(opts.weather);
     this.viewer = opts.viewerSide ?? 0;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
@@ -2908,16 +2915,23 @@ export class ThreeRenderer implements Renderer {
     // uniform objects (fix wave I-3), so the per-fragment road mix reads the
     // control map `rebuildTerrain` binds and the `roads` toggle with no
     // second write.
+    //
+    // GH-871 P4 T5: under rain the key table is `WET_DECAL_PALETTE_KEYS` (tread
+    // and tyre are prints in mud, `mud.3`), and the material is handed the
+    // ground's own `uWetSky` and `uPuddleReflect` objects, which switch the
+    // crater water on (`DECAL_WET`). Both are rain-only: a shipped map keys
+    // `DECAL_PALETTE_KEYS` and compiles the shipped decal program.
+    const decalKeys = decalPaletteKeysFor(opts.weather);
     this.decalMaterial = createDecalMaterial(
       {
-        craterBowl: this.overlayColor('shadow.0'),
-        craterLip: this.overlayColor('limestone.1'),
-        scorch: this.overlayColor('shadow.0'),
-        oil: this.overlayColor('shadow.1'),
-        rubbleA: this.overlayColor('limestone.5'),
-        rubbleB: this.overlayColor('limestone.7'),
-        tread: this.overlayColor('dust.5'),
-        tyre: this.overlayColor('limestone.6'),
+        craterBowl: this.overlayColor(decalKeys.craterBowl),
+        craterLip: this.overlayColor(decalKeys.craterLip),
+        scorch: this.overlayColor(decalKeys.scorch),
+        oil: this.overlayColor(decalKeys.oil),
+        rubbleA: this.overlayColor(decalKeys.rubbleA),
+        rubbleB: this.overlayColor(decalKeys.rubbleB),
+        tread: this.overlayColor(decalKeys.tread),
+        tyre: this.overlayColor(decalKeys.tyre),
       },
       {
         uControlB: this.groundMat.uniforms.uControlB,
@@ -2925,7 +2939,13 @@ export class ThreeRenderer implements Renderer {
         uRoadTone: this.groundMat.uniforms.uRoadTone,
         uShoulderTone: this.groundMat.uniforms.uShoulderTone,
         uRoadOn: this.groundMat.uniforms.uRoadOn,
-      }
+      },
+      this.groundMat.wet
+        ? {
+            uWetSky: this.groundMat.uniforms.uWetSky,
+            uPuddleReflect: this.groundMat.uniforms.uPuddleReflect,
+          }
+        : undefined
     );
     // Each decal writes its tone as a ratio over the ground tone under it
     // (`decalGround`, captured per stamp) and is MULTIPLIED onto the lit
@@ -6490,7 +6510,9 @@ export class ThreeRenderer implements Renderer {
 
   /** The emitter a moving vehicle trails, by name (GH-871 P4: the rain swaps it; `theme-identity.test.ts` pins it). */
   private vehicleMoveEmitterName(): string {
-    return 'vehicle_dust';
+    // Rain throws mud, not dust (R-13): low, short, `mud.2`. By NAME, like the
+    // dust: nothing dispatches by the `vehicle_move` trigger.
+    return this.opts.weather === 'rain' ? 'vehicle_mud' : 'vehicle_dust';
   }
 
   /**
@@ -7160,7 +7182,7 @@ export class ThreeRenderer implements Renderer {
     const buildSet = (tiers: Readonly<Record<string, number>> | undefined): Promise<MeshUnitTemplate[]> =>
       Promise.all(
         urls.map((url) =>
-          loadMeshUnitTemplate(url, faction, allowTextured, opts.cold === true, tiers).catch((err: unknown) => {
+          loadMeshUnitTemplate(url, faction, allowTextured, opts.cold === true, tiers, undefined, this.surfaceTable).catch((err: unknown) => {
             this.noteMeshFailure(unitTypeId, url, err);
             throw err;
           })
@@ -7374,7 +7396,7 @@ export class ThreeRenderer implements Renderer {
     kitTiers: Readonly<Record<string, number>> | undefined,
     cold: boolean
   ): Promise<VehicleMeshTemplate> {
-    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured, kitTiers, cold).catch((err: unknown) => {
+    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured, kitTiers, cold, this.surfaceTable).catch((err: unknown) => {
       this.noteMeshFailure(unitTypeId, glbUrl, err);
       throw err;
     });
@@ -12932,7 +12954,8 @@ export class ThreeRenderer implements Renderer {
       composed.decorPlacements,
       this.decorSet,
       this.sway,
-      this.opts.terrainTones.decorColors
+      this.opts.terrainTones.decorColors,
+      this.opts.weather === 'rain'
     );
     this.scene.add(freezeStatic(this.decorGroup));
 

@@ -137,6 +137,10 @@ const SHIPPED_KEYS = ['beit_sahwan_outskirts', 'wadi_halam_basin', 'tel_marum'];
 interface Private {
   scene: ThreeTypes.Scene;
   sway: SwayUniforms;
+  /** The renderer's own unit surface table and options (GH-871 P4 T5), so the
+   *  digest reads what THIS renderer was built with, not a default. */
+  surfaceTable: Parameters<typeof surfaceMaterialFor>[3];
+  opts: { weather?: string };
   decalMaterial: ThreeTypes.ShaderMaterial;
   vehicleMoveEmitterName(): string;
   groundMat: GroundMaterial;
@@ -207,13 +211,13 @@ function sceneFieldsOf(priv: Private): Record<string, unknown> {
     const c = compileOf(m);
     return sha(JSON.stringify([c.vertexShader, c.fragmentShader, m.customProgramCacheKey()]));
   });
-  const built = swayingFoliageMaterial(['#808080'], priv.sway);
+  const built = swayingFoliageMaterial(['#808080'], priv.sway, priv.opts.weather === 'rain');
   const builtCompiled = compileOf(built);
 
   const surfaces: Record<string, number[]> = {};
   for (const cls of Object.keys(SURFACE_ROLES) as SurfaceClass[]) {
     const base = new THREE.MeshStandardMaterial();
-    const m = surfaceMaterialFor(base, SURFACE_ROLES[cls]) as ThreeTypes.MeshStandardMaterial;
+    const m = surfaceMaterialFor(base, SURFACE_ROLES[cls], undefined, priv.surfaceTable) as ThreeTypes.MeshStandardMaterial;
     surfaces[cls] = [m.roughness, m.metalness];
   }
 
@@ -399,9 +403,8 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
         expect((f.groundUniformNames as string[]).length).toBeGreaterThan(10);
         expect(f.visibleMeshCount).toBeGreaterThan(5);
         expect(Object.values(f.censusByType as Record<string, number>).reduce((a, b) => a + b, 0)).toBeGreaterThan(20);
-        // The shipped value; the wetland's (P4 Task 5) is pinned by the digest.
-        if (SHIPPED_KEYS.includes(c.key)) expect(f.vehicleMoveEmitter).toBe('vehicle_dust');
-        else expect(f.vehicleMoveEmitter).toEqual(expect.any(String));
+        // The shipped value; the wetland throws mud (P4 Task 5).
+        expect(f.vehicleMoveEmitter).toBe(SHIPPED_KEYS.includes(c.key) ? 'vehicle_dust' : 'vehicle_mud');
       });
       it('draws the recorded scene', () => {
         expect(got.scene, JSON.stringify(got.sceneFields)).toBe(recorded[c.key].scene);

@@ -162,6 +162,30 @@ describe('vfxEmitters is pinned to the directory it comes from', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it('carries vehicle_mud (GH-871 P4): the rain`s spray, by name, with the plan`s numbers', () => {
+    // The renderer swaps `vehicle_dust` for it BY NAME under rain; nothing
+    // dispatches by the `vehicle_move` trigger, so an unregistered file is inert.
+    const mud = vfxEmitters.find((e) => (e as { id: string }).id === 'vehicle_mud') as
+      | { trigger: string; layer: string; particles: Record<string, unknown>[] }
+      | undefined;
+    expect(mud).toBeDefined();
+    expect(mud?.trigger).toBe('vehicle_move');
+    expect(mud?.layer).toBe('below_units');
+    expect(mud?.particles).toHaveLength(1);
+    expect(mud?.particles[0]).toMatchObject({
+      count: [2, 3],
+      lifetime_ms: [225, 350],
+      emit_over_ms: 250,
+      speed_tiles_s: [0.2, 0.5],
+      cone_deg: 35,
+      drag: 0.9,
+      size_px: [3, 5],
+      size_over_life: [0.6, 0.8, 0.9],
+      color_over_life: ['mud.2', 'mud.2', 'mud.3'],
+      alpha_over_life: [0.5, 0.3, 0],
+    });
+  });
+
   it('carries the blast emitter with the three blocks the blast reads', () => {
     // Named rather than left to the sweep above: these three fields are what
     // `blastLightSpec`, `blastShake` and `blastHitStopMs` scale, and each of

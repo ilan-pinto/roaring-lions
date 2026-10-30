@@ -7,6 +7,8 @@ import {
   surfaceClassOf,
   surfaceCloneCount,
   surfaceMaterialFor,
+  surfaceTableFor,
+  WET_SURFACE_PARAMS,
 } from './unit-surface';
 
 describe('surfaceClassOf', () => {
@@ -103,5 +105,63 @@ describe('surfaceMaterialFor', () => {
     expect(surfaceCloneCount()).toBe(before + 1);
     b.dispose();
     expect(surfaceCloneCount()).toBe(before);
+  });
+});
+
+describe('the wet surface table (GH-871 P4 T5)', () => {
+  // Oracles are LITERALS: the brief's numbers, not read back from the table.
+  it('carries the four wet roughnesses, and every other class and every metalness as shipped', () => {
+    expect(WET_SURFACE_PARAMS).toEqual({
+      cloth: { roughness: 0.8, metalness: 0 },
+      leather: { roughness: 0.7, metalness: 0 },
+      skin: { roughness: 0.6, metalness: 0 },
+      wood: { roughness: 0.8, metalness: 0 },
+      gear: { roughness: 0.8, metalness: 0 },
+      gunmetal: { roughness: 0.32, metalness: 0.45 },
+      armour: { roughness: 0.52, metalness: 0 },
+      plate: { roughness: 0.48, metalness: 0.1 },
+      rubber: { roughness: 0.96, metalness: 0 },
+      glass: { roughness: 0.2, metalness: 0 },
+    });
+  });
+
+  it('keeps the 0.45 metalness cap (no environment map)', () => {
+    for (const p of Object.values(WET_SURFACE_PARAMS)) expect(p.metalness).toBeLessThanOrEqual(0.45);
+  });
+
+  it('is the shipped table, unchanged, for a dry renderer', () => {
+    expect(SURFACE_PARAMS.cloth.roughness).toBe(0.92);
+    expect(SURFACE_PARAMS.armour.roughness).toBe(0.78);
+    expect(SURFACE_PARAMS.plate.roughness).toBe(0.7);
+    expect(SURFACE_PARAMS.gunmetal.roughness).toBe(0.42);
+    expect(surfaceTableFor(undefined)).toBe(SURFACE_PARAMS);
+    expect(surfaceTableFor('clear')).toBe(SURFACE_PARAMS);
+    expect(surfaceTableFor('rain')).toBe(WET_SURFACE_PARAMS);
+  });
+
+  it('a clone takes the table it was asked for, and the cache key includes the table', () => {
+    const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+    const wet = surfaceMaterialFor(base, 'uniform', undefined, WET_SURFACE_PARAMS) as THREE.MeshStandardMaterial;
+    const dry = surfaceMaterialFor(base, 'uniform') as THREE.MeshStandardMaterial;
+    // One base, two renderers: the second must not come back wearing the first's roughness.
+    expect(wet).not.toBe(dry);
+    expect(wet.roughness).toBe(0.8);
+    expect(dry.roughness).toBe(0.92);
+    // And each memoises on its own key.
+    expect(surfaceMaterialFor(base, 'keffiyeh', undefined, WET_SURFACE_PARAMS)).toBe(wet);
+    expect(surfaceMaterialFor(base, 'keffiyeh')).toBe(dry);
+    expect(wet.metalness).toBe(0);
+  });
+
+  it('writes the wet metal class (0.32 / 0.45) and rescales an MR map onto the wet roughness', () => {
+    const tex = new THREE.Texture();
+    const base = new THREE.MeshStandardMaterial({ roughnessMap: tex, metalnessMap: tex, roughness: 1, metalness: 1 });
+    const gun = surfaceMaterialFor(base, 'weapon', undefined, WET_SURFACE_PARAMS) as THREE.MeshStandardMaterial;
+    expect(gun.metalness).toBe(0.45);
+    expect(gun.metalnessMap).toBeNull();
+    // factor = target / the map's own mean (0.797): 0.32 / 0.797.
+    expect(gun.roughness).toBeCloseTo(0.4015056, 6);
+    const hull = surfaceMaterialFor(base, 'hull_hull', undefined, WET_SURFACE_PARAMS) as THREE.MeshStandardMaterial;
+    expect(hull.roughness).toBeCloseTo(0.6524468, 6);
   });
 });

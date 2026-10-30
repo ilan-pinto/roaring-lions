@@ -37,7 +37,7 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { rampMaterial, texturedMaterial } from '../world-materials';
-import { surfaceMaterialFor } from './unit-surface';
+import { SURFACE_PARAMS, surfaceMaterialFor, type SurfaceTable } from './unit-surface';
 import { isMeshRole, rampForRole, type MeshFaction } from './mesh-role';
 import {
   isMeshClipName,
@@ -150,7 +150,12 @@ export function buildMeshUnitTemplate(
    * (`INFANTRY_KIT_ENABLED`, on since 29 Oct 2026: GH-826); only a test passes
    * a value. When off, the kit nodes are still stripped, exactly as at tier 0.
    */
-  kitEnabled: boolean = INFANTRY_KIT_ENABLED
+  kitEnabled: boolean = INFANTRY_KIT_ENABLED,
+  /**
+   * The surface table the renderer was built with (GH-871 P4 T5: the wet one
+   * under rain). Defaults to the shipped `SURFACE_PARAMS`.
+   */
+  surfaces: SurfaceTable = SURFACE_PARAMS
 ): MeshUnitTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
@@ -182,7 +187,7 @@ export function buildMeshUnitTemplate(
       const base = texturedMaterial(loaded as THREE.Material);
       if (!materials.includes(base)) materials.push(base);
       // GH-705 Task 6: the role's own surface clone (unit-surface.ts).
-      const textured = surfaceMaterialFor(base, role);
+      const textured = surfaceMaterialFor(base, role, undefined, surfaces);
       mesh.material = textured;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -195,7 +200,7 @@ export function buildMeshUnitTemplate(
       unmapped.add(role || '(unnamed mesh)');
       return;
     }
-    const mat = surfaceMaterialFor(rampMaterial(rampForRole(role, faction)), role);
+    const mat = surfaceMaterialFor(rampMaterial(rampForRole(role, faction)), role, undefined, surfaces);
     mesh.material = mat;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -268,10 +273,12 @@ export async function loadMeshUnitTemplate(
   /** GH-826: the team's bought kit tiers. */
   kitTiers?: InfantryKitTiers,
   /** See `buildMeshUnitTemplate`: defaults to the shipped switch. */
-  kitEnabled: boolean = INFANTRY_KIT_ENABLED
+  kitEnabled: boolean = INFANTRY_KIT_ENABLED,
+  /** See `buildMeshUnitTemplate`: the renderer's surface table. */
+  surfaces: SurfaceTable = SURFACE_PARAMS
 ): Promise<MeshUnitTemplate> {
   const gltf = await (cold ? coldGltfLoader() : gltfLoader()).loadAsync(glbUrl);
-  return buildMeshUnitTemplate(gltf, faction, glbUrl, allowTextured, kitTiers, kitEnabled);
+  return buildMeshUnitTemplate(gltf, faction, glbUrl, allowTextured, kitTiers, kitEnabled, surfaces);
 }
 
 /** One living entity's mesh instance: an independent clone (own skeleton,
