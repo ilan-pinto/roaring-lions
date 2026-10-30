@@ -25,7 +25,8 @@
     { "unit": "apc_eitan", "count": 2, "at": [26, 45] },
     { "unit": "jeep_shoded", "count": 1, "at": [22, 45] },
     { "unit": "ifv_namer", "count": 1, "at": [29, 45] },
-    { "unit": "recon_drone", "count": 1, "at": [24, 44] }
+    { "unit": "recon_drone", "count": 1, "at": [24, 44] },
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 44] }
   ],
   "resources": { "logistics_start": 400, "logistics_rate_per_min": 120 },
   "structures": [{ "type": "camp", "at": [20, 38], "size": [2, 2] }],

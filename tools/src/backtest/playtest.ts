@@ -817,12 +817,30 @@ run(
     // Jeep: the close southern family, ten tiles from the start line.
     at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(22, 32) }));
     at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 23) }));
+    // The jeep's one move order at 15 s is lost if it is routed or pinned at that moment (seed 24: shot at by the
+    // patrolling technical, it stood on the family for the rest of the clock). A player re-orders a stopped jeep.
+    for (let when = 20; when <= 200; when += 5)
+      at(when, () => {
+        const j = jeep.filter((i) => sim.state.alive[i] === 1 && sim.state.moving[i] === 0 && sim.state.posY[i] > fx.from(26));
+        if (j.length > 0 && rt.objectiveStatus('get_four_in') === 'active') sim.queueCommand({ kind: 'move', ids: j, ...M(24, 23) });
+      });
 
     // Namer: the eastern family up the east flank of the ring road.
     at(0, () => {
       sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 30) });
       sim.queueCommand({ kind: 'move', ids: namer, ...M(34, 13), append: true });
     });
+    // GH-707 (30 Oct): the first of the ward's Eitans also goes up the east ring road at once, a second carrier for
+    // the eastern family, which the lane-east RPG, the mortar and the pinned family make the hardest of the three
+    // (with the medic team in the force the lane ambush took the Namer's tracks at 55 s on 424242, and the family,
+    // pinned and routed, would not board the replacement Eitan sent then: 0 stars). Whichever hull the family reaches
+    // first takes it in.
+    const eastRunner = eitan.slice(0, 1);
+    at(0, () => {
+      sim.queueCommand({ kind: 'move', ids: eastRunner, ...M(33, 30) });
+      sim.queueCommand({ kind: 'move', ids: eastRunner, ...M(34, 14), append: true });
+    });
+    at(60, () => sim.queueCommand({ kind: 'move', ids: eastRunner, ...M(24, 23) }));
     at(60, () => {
       sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 24) });
       sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23), append: true });
