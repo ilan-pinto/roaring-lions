@@ -42,7 +42,9 @@
  * ## A map with no relief takes the old path, byte for byte
  *
  * Four of the six shipped maps have no relief. `buildGround` still emits
- * exactly two triangles per tile and no side faces for those, with the same
+ * exactly two triangles per tile and no side faces for those (true of every
+ * shipped map; a wetland map's marsh fringe is the one exception, a 4x4
+ * patch per fringe tile -- `shoreline.ts`), with the same
  * vertices in the same order and the same colours -- the pre-existing code,
  * unchanged, below `if (surface.flat)`. That is what makes "nothing moved on
  * a flat map" a property rather than a hope, and it is why the `quiet`,
@@ -434,7 +436,8 @@ function groundTileEmitter(
  * subdivision, not 4 per sub-quad) and never ACROSS tiles -- the same split
  * the palette rule has always drawn, for the same reason: one tile, one
  * colour. (One exception: a marsh's shoreline tile passes `colorAt`, and each
- * vertex carries its own mix of the open and marsh tones -- `shoreline.ts`.) Two neighbouring tiles evaluate `smoothLevel`/`smoothNormal` at
+ * vertex carries its own mix of the open and marsh tones -- `shoreline.ts`.)
+ * Two neighbouring tiles evaluate `smoothLevel`/`smoothNormal` at
  * the identical boundary points, so their duplicated edge vertices coincide
  * to the bit in both position and normal: no crack, no shading seam, and the
  * colour still steps cleanly at the tile line where a road meets open

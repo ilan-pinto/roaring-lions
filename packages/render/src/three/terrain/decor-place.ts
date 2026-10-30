@@ -73,8 +73,9 @@ const DENSITY: Record<Exclude<DecorFamily, 'grass' | 'sand' | 'bush' | 'wet_gras
   // grove as one closed canopy rather than as trees.
   cedar: 0.6,
   // The wetland's grove (GH-871): the cedar's reasoning, to the letter. 0.6 a
-  // tile and NO twin, so a 5.0 m oak reads as a tree and not as a closed
-  // canopy. `wet_grass` and `shrub` are absent from this table on purpose:
+  // tile and NO twin, so an oak reads as a tree and not as a closed canopy.
+  // (P2 draws the cedar's 5.4 m GLBs as the oak's stand-in; the oak's own
+  // planned 5.0 m height is P3's.) `wet_grass` and `shrub` are absent from this table on purpose:
   // they are remap TARGETS (`TerrainTones.familyRemap`) that stand where
   // `grass` and `bush` would, so they are never looked up.
   oak: 0.6,
@@ -241,8 +242,8 @@ function remapped(c: DecorContext, family: DecorFamily): DecorFamily {
 /** Groves that never place a second, smaller tree on a tile. A 5.4 m cedar is
  *  1.6x an olive, and at the olive's 1.0 a tile plus its twin the Sur grove
  *  photographed as one closed canopy rather than as trees (GH-322, see
- *  `DENSITY.cedar`); the wetland's 5.0 m oak is the same case to the letter
- *  (spec 1.3, GH-871). */
+ *  `DENSITY.cedar`); the wetland's oak (planned 5.0 m, cedar stand-in in P2)
+ *  is the same case to the letter (spec 1.3, GH-871). */
 const NO_TWIN: ReadonlySet<GroveFamily> = new Set<GroveFamily>(['cedar', 'oak']);
 
 /** What `buildRoadGraph` returns for an input with no `r` tile at all: no

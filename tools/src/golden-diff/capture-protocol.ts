@@ -562,10 +562,11 @@ export const RELIEF_SCENARIO: Scenario = {
  *  carrying every terrain symbol legal on arid (all ten; `~` is wetland-only),
  *  elevation range 0-7 (every other map tops out at 4), and a rock wall with
  *  two ways through. That gives the showcase's own site picker
- *  (`showcaseSites`, `decal-showcase.ts`) a real `relief` candidate -- a tile whose drawn-surface normal tips far enough
- *  from vertical -- which `tel_marum`'s corridor floor (flat but for the
- *  boulders themselves) does not reliably offer near ITS friendly anchor, and
- *  a real `road` candidate from the diagonal `r` tiles this map authors. The
+ *  (`showcaseSites`, `decal-showcase.ts`) a real `relief` candidate -- a tile
+ *  whose drawn-surface normal tips far enough from vertical -- which
+ *  `tel_marum`'s corridor floor (flat but for the boulders themselves) does
+ *  not reliably offer near ITS friendly anchor, and a real `road` candidate
+ *  from the diagonal `r` tiles this map authors. The
  *  same reason `RELIEF_SCENARIO` exists for map coverage applies again here:
  *  a decal regression that only shows on sloped ground would be invisible on
  *  every flat-map scenario.

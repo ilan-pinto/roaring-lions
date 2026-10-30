@@ -130,7 +130,7 @@
         "#413327",
         "#2D241B"
       ],
-      "note": "Added for the wetland biome (GH-871 P2), revision 3: a yellower brown than the first cut, after the mood-board look. Descending brightness like every ramp: index 0 is the lightest. Terracotta is too red and limestone too pale for wet ground, so a rutted track snapped to one of them read as a dry road. `theme_only` keeps it OUT of the shared quantiser set; a theme opts in by naming it in TerrainTones.paletteRamps. Dropping the flag moves the composed terrain of shipped maps that are not wetland (recorded in the GH-871 P2 T2 report), which is why packages/app/src/terrain-defaults.test.ts pins all of them."
+      "note": "Added for the wetland biome (GH-871 P2), revision 3: a yellower brown than the first cut, after the mood-board look. Descending brightness like every ramp: index 0 is the lightest. Terracotta is too red and limestone too pale for wet ground, so a rutted track snapped to one of them read as a dry road. `theme_only` keeps it OUT of the shared quantiser set; a theme opts in by naming it in TerrainTones.paletteRamps. Dropping the flag moves the composed terrain of shipped maps that are not wetland (measured: with theme_only false, 19 of the 35 shipped maps go red in packages/app/src/terrain-defaults.test.ts), which is why that test pins all of them."
     },
     "overcast": {
       "theme_only": true,

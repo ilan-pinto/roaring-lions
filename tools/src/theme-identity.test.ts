@@ -32,7 +32,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 // `tools/` declares no `three` dependency, so it is reached through the render
 // package that does: the types from its @types/three, the runtime by the
 // very file the renderer's own `import 'three'` resolves to (so the mock below
@@ -204,7 +204,12 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
       it(`is a ${c.terrain} map`, () => {
         expect(parsed.terrain).toBe(c.terrain);
       });
-      const got = identityOf(c.json);
+      // Built in a hook, not at collection: a boot that throws fails these
+      // tests with its own message rather than the whole file at collection.
+      let got: Identity;
+      beforeAll(() => {
+        got = identityOf(c.json);
+      });
 
       it('read a real program and a live light, not an empty one', () => {
         // The injected ground GLSL ran, and every light field is non-vacuous.

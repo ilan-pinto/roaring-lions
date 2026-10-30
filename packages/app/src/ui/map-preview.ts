@@ -43,12 +43,12 @@ export type PreviewTones = Pick<TerrainTones, 'open' | 'blocked' | 'rock' | 'cov
  * Cover tiers read as the graining they are on the field; `blocked` covers
  * both buildings and rock ridge; a marsh tile (`decor` 6, when the theme has a
  * `marsh` tone) paints that tone, checked before `boulder` because a `~` tile
- * is also a vehicle wall and would otherwise read as rock; `boulder` gets the rock tone because it is
- * rock, and because on `tel_marum` the boulder corridor is a piece of terrain
- * the player has to plan around and therefore has to be able to see. Where
- * layers overlap, blocked wins over marsh wins over boulder wins over cover wins over open,
- * and a cover tier above 3 is clamped onto the last tone rather than reading
- * off the end of the ramp.
+ * is also a vehicle wall and would otherwise read as rock; `boulder` gets the
+ * rock tone because it is rock, and because on `tel_marum` the boulder
+ * corridor is a piece of terrain the player has to plan around and therefore
+ * has to be able to see. Where layers overlap, blocked wins over marsh wins
+ * over boulder wins over cover wins over open, and a cover tier above 3 is
+ * clamped onto the last tone rather than reading off the end of the ramp.
  *
  * Returns `null` when the canvas has no 2D context -- the caller decides
  * whether that is fatal (`Minimap`) or a thing to go without (the deploy

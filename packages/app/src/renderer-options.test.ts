@@ -79,6 +79,8 @@ describe('rendererOptionsFor', () => {
     expect(o.terrainTones.marsh).toBe('#584535');
     expect(o.terrainTones.marsh).toBe(paletteColor('mud.2'));
     expect(o.terrainTones.rut).toBe('#413327');
+    expect(o.terrainTones.spoil).toBe('#413327');
+    expect(o.terrainTones.trunk).toBe('#413327');
   });
 
   it('gives a shipped theme no weather key at all (G-3: absent, not "clear")', () => {
