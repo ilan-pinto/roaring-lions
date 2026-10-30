@@ -753,12 +753,16 @@ run(
     // simply fly over it -- an ambush spring that can't touch what it's aimed at
     // costs nothing. One extra leg, fired while the drone is still inbound to the
     // ATGM bank (well before it arrives at [38,25]), swings it over [13,20] and
-    // back onto its original schedule: `at(22, ...)` below is untouched, and it
+    // back onto its schedule: the alley-row leg below (28 s, see its note) is untouched by it, and it
     // still reaches the alley row on time to finish `find_the_watch`. Measured
     // robust across a 2+ second window (t=8.4-10.5) for this leg alone; outside
     // it the drone is shot down before finishing the three kr_watch posts.
     at(9, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(13, 20) }));
-    at(22, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
+    // GH-707 (30 Oct): 22 s -> 28 s. With the loaned medic team in the force every later entity id moves by one,
+    // which re-rolls the watch posts' streams, and at 22 s the drone lost seed 8 (shot down at 26.5 s with one post
+    // unidentified). Measured on the 30 sweep seeds for this leg's time: 14 s 17/30, 16 s 16, 18 s 28, 20 s 28, 22 s 29,
+    // 24 s 29, then 25 s to 32 s 30/30 each. 28 s is the middle of that plateau.
+    at(28, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
 
     at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(18, 20) }));
     at(0, () => sim.queueCommand({ kind: 'move', ids: eitan, ...M(27, 16) }));
