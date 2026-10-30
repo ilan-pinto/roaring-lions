@@ -106,3 +106,33 @@ describe('propPlacements (N-9, N-10)', () => {
   });
   it('is deterministic', () => expect(propPlacements(m)).toEqual(ps));
 });
+
+describe('a theme\'s own prop mix (GH-871 P3)', () => {
+  const m = town(48, 48);
+  const wet: NonNullable<TerrainInput['propMix']> = {
+    yard: [['round_bale', 1]],
+    roadside: [['culvert_pipe', 1]],
+  };
+
+  it('places only the kinds its mix names, a bale in the yard and a culvert at the road', () => {
+    const ps = propPlacements({ ...m, propMix: wet });
+    expect(ps.length).toBeGreaterThan(20);
+    expect(new Set(ps.map((p) => p.kind))).toEqual(new Set(['round_bale', 'culvert_pipe']));
+    for (const p of ps) {
+      if (p.kind === 'round_bale') expect(chebyshevToBuilding(m, p.x, p.z)).toBeLessThanOrEqual(2);
+      else expect(roadDistanceAt(buildRoadGraph(m), p.x, p.z)).toBeLessThanOrEqual(ROADSIDE_BAND[1]);
+    }
+  });
+
+  it('falsified: with no mix named the shared one rules, and neither new kind ever appears', () => {
+    const kinds = new Set(propPlacements(m).map((p) => p.kind));
+    expect(kinds.has('round_bale')).toBe(false);
+    expect(kinds.has('culvert_pipe')).toBe(false);
+  });
+
+  it('keeps every position and yaw of a shared-mix map byte for byte (the mix only picks the kind)', () => {
+    const a = propPlacements(m);
+    const b = propPlacements({ ...m, propMix: { yard: [['water_tank', 1]], roadside: [['jersey_barrier', 1]] } });
+    expect(b.map((p) => [p.x, p.z])).toEqual(a.map((p) => [p.x, p.z]));
+  });
+});

@@ -433,3 +433,19 @@ Record: `_coord/wadi-halam-look/` (proposal, kit spec, render-2 notes). Code: `p
 - **Cost at minimum zoom is triangles.** About 7 ns per rendered triangle there (the tiler), so LOD1 below zoom 0.6 (`LOD1_BELOW_ZOOM`, by zoom band, never distance) and half the olives (`OLIVE_SHARE_AT_MIN_ZOOM`) are what keep it near budget. `tools/src/wadi-look/parts.ts` splits a frame by part; `cost.ts` is the A/B with paired rounds; `cold.ts` boots fresh browsers with and without the kit (its request aborted).
 - **Instruments.** `capture.ts` (before/after, `--lozenge` pixel witness with a `control` shot for the page's own noise: ambient dust differs between any two captures), `cost.ts`, `parts.ts`. Own port, Metal, music off.
 - **Rebuilding the kit:** `blender -b -P tools/backdrop/build_kit.py -- --out art/src/backdrop/wadi_halam_kit.blend`, then `blender -b art/src/backdrop/wadi_halam_kit.blend -P tools/backdrop/export_kit.py -- --out art/meshes/backdrop/wadi_halam_kit.glb`, then `pnpm encode:meshes`. The atlas is byte-identical run to run (md5 `bf2af79f...` since the house swatches).
+
+## The wetland's procedural art (GH-871 P3)
+
+Reeds (`decor/reed_{0,1,2}`), winter grass (`decor/wet_grass_{0,1,2}`), the round bale and the culvert mouth (`props/`) and five ground
+tiles are code-built (`tools/terrain/build_reeds.py`, `build_wet_grass.py`, `build_wetland_props.py` over `wetland_kit.py`;
+`tools/textures/author_wetland_tiles.py`; sources under `art/src/terrain/wetland/`). `export_wetland_p3.py` writes the GLBs.
+- **Never a single-sided card.** Decor draws `FrontSide`; a blade is a 3-triangle cone or a double-sided 2-triangle ribbon.
+- **Hash, not noise.** `wetland_kit.hash01` is an FNV fold with a murmur3 finaliser (a bare FNV step left consecutive inputs 0.94
+  correlated); never `mathutils.noise`. The tile tool's numpy hash is the same mix.
+- **The ratio form decides the tile's look.** A tile is `tone * (1 + gain * (texel / mean - 1))`, so mixing a brown with the green tone
+  reads as olive drab: `author_wetland_tiles.py` prints the figure-ground share (texels within CIEDE2000 12 of KDF `olive.1`, limit 5%).
+  Mud in the open tile cost the lead's patience three rounds and is gone.
+- **A theme's prop mix** is `TerrainTones.propMix`, read by `propPlacements` through `TerrainInput.propMix`; absent means the shared
+  `YARD_MIX` / `ROADSIDE_MIX`. `propKindsFor` fetches the bale and culvert only for a map whose theme names them.
+- The R1 approval rig (`render_wetland_r1.py`, `wetland_r1_rig.py`, calibrated against three.js's light formulas) and its census,
+  ground-composite and sheet tools live beside the builders.

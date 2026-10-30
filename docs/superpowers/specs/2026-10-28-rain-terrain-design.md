@@ -979,3 +979,39 @@ its freeze script returns. 23 frames each.
   the causeways run continuous across x 13-37, so every foot route crosses one.
 - Ein Qasab final, the distinctness and visibility reports, Jebel Matar, the `wet` and `wet-downs` scenarios, and the Free Play
   line (delete the `UNLISTED_MAP_IDS` entry when P3's art lands).
+
+---
+
+## 13. P3 as built (the procedural art; GH-871, 30 Oct 2026)
+
+P3's Blender-only half landed on `art/wetland-p3` after four approval rounds (R1, R1b, R1c, R1d; the sets are under
+`_coord/wet-theme/p3-r1*`). The Meshy half (oak, willow, lentisk, tractor) waits on the key limit: those four families
+still draw their P2 stand-ins, and **Ein Qasab stays out of the Free Play list** until they land.
+
+**What shipped**
+
+| Piece | Where | Numbers |
+|---|---|---|
+| `reed_0/1/2` | `art/meshes/decor/`, `art/src/terrain/wetland/` | 388 / 390 / 382 triangles (cap 400), 1.25 / 1.10 / 1.00 m, foliage + trunk (new shoots); 2.5 m clump |
+| `wet_grass_0/1/2` | same | 198 triangles (cap 200), 0.40 / 0.38 / 0.40 m, foliage + straw in `trunk` |
+| `round_bale`, `culvert_pipe` | `art/meshes/props/` | 140 / 138 triangles (caps 160 / 140), one role each (`rubber`, `concrete`) |
+| five tiles | `art/textures/`, `assets/textures/` | `wetland_open_tile` (18 m, `tiles: 6`, `gain: 1`), `basalt_rock_tile`, `wet_scrub_tile`, `oak_litter_tile`, `basalt_scree_tile` |
+
+**Where the build differs from sections 2-3**
+- A blade is a closed or double-sided shape (3-triangle cone, 2-triangle ribbon) because the decor material is `FrontSide`; the
+  sheet's 2-triangle culms would vanish from behind. That is why a clump holds fewer elements than the sheet's counts.
+- **Three reed clumps a tile** (`REED_CLUMPS`, was 1 plus a 50% second). At 1.5 clumps the reed share at zoom 1 was 29% of the marsh;
+  at 3 it is **49% of the marsh, 72% of the dry part** (the sheet's 65-75%), the real water field reading 31.8%. A kneeling KDF
+  figure keeps its head and shoulders: median 99%, minimum 70% over 36 dry points (the falsifier, reeds x1.5, drops the minimum to 20%).
+- Ein Qasab's placed decor at the Meshy caps (oak 2,500, willow 2,500, shrub 600) is **809,940 triangles, 90% of the 0.9 M ceiling**
+  (`tools/terrain/wetland_census.py`; 635,872 at 1.5 clumps).
+- **The open tile has no mud.** R1 had 40% mud patches on a 9 m tile; the lead asked for calmer three times and then for no brown at all.
+  The shipped tile is sward only: lighter yellow-green and darker blue-green regions at 0.3-1.2 m, blade grain and a hint of yellow-green
+  straw. Contrast 0.057 (floor 0.05), figure-ground 0.3% (limit 5%). The 5% rule is what stops the dark regions going darker.
+- `TerrainTones.propMix` (new, optional): a theme's own yard and roadside prop weights. Only the wetland names it (bale 6 of 18 in the
+  yard, culvert 6 of 17 at the road); the tractor's share is left out until its model lands.
+- Scrub on cover 1 and 2 still fails the figure-ground rule (54.9% on `fen.1`, 33.2% on `scrub.1`): the tones themselves sit 8.4 and
+  12.6 from `olive.1`. That is a P4 retint, not an image fix.
+
+Load, measured statically (no browser): a wetland map's five ground JPEGs are 2.02 MiB, was 3.12 MiB with the shared set; the eight new
+GLBs are 36.7 KB Draco.
