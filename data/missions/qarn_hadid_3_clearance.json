@@ -48,7 +48,8 @@
     { "unit": "apc_eitan", "count": 2, "at": [24, 43] },
     { "unit": "sniper_team", "count": 1, "at": [22, 42] },
     { "unit": "recon_drone", "count": 1, "at": [24, 39] },
-    { "unit": "jeep_shoded", "count": 1, "at": [25, 39], "upgrades_to": "scout_shachaf", "gate_only": true }
+    { "unit": "jeep_shoded", "count": 1, "at": [25, 39], "upgrades_to": "scout_shachaf", "gate_only": true },
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 41] }
   ],
   "resources": { "logistics_start": 400, "logistics_rate_per_min": 80 },
   "objectives": [
