@@ -60,6 +60,9 @@ export interface OutcomeSim {
     readonly stepPerTick: number;
     /** An aircraft: its mobility kill is a forced landing, never field-fixed. */
     readonly isAir: boolean;
+    /** A medic's `rescue` block (null on the real sim for every other type): a rescue unit is a support unit,
+     *  never a combat unit, whatever its carbines (GH-707, the lead, 30 Oct 2026). */
+    readonly rescue?: unknown;
   }[];
 }
 
@@ -122,13 +125,16 @@ const SIDES: readonly (0 | 1)[] = [0, 1];
  *  weapon and has not had its firepower knocked out. A drone, a truck, a
  *  dozer or a hull whose guns are gone for good cannot win a fight, so it
  *  does not keep a side standing (spec §2.3: "no combat unit alive"; R-B20) --
- *  otherwise a beaten side holds the match to the 25-minute draw. */
+ *  otherwise a beaten side holds the match to the 25-minute draw. Nor does a
+ *  rescue unit (the Nemala medic team carries carbines to defend itself): a
+ *  side with only medics left has lost (GH-707, 30 Oct 2026). */
 function armedStanding(sim: OutcomeSim, side: 0 | 1): boolean {
   const { side: sides, alive, typeIdx, firepowerKilled } = sim.state;
   for (let i = 0; i < sim.entityCount; i++) {
     if (alive[i] === 0 || sides[i] !== side) continue;
     if (firepowerKilled?.[i] === 1) continue;
-    if ((sim.unitTypes[typeIdx[i]]?.weapons.length ?? 0) > 0) return true;
+    const type = sim.unitTypes[typeIdx[i]];
+    if ((type?.weapons.length ?? 0) > 0 && (type?.rescue ?? null) === null) return true;
   }
   return false;
 }
@@ -151,10 +157,10 @@ export interface ProductionWorld {
   readonly factions: readonly ['kdf' | 'sarim', 'kdf' | 'sarim'];
 }
 
-/** A unit id the shipped data knows to carry a weapon (`armedStanding`'s own test). */
+/** A unit id the shipped data knows to carry a weapon and not to be a rescue unit (`armedStanding`'s own test). */
 function armedType(id: string): boolean {
-  const u = (units as Record<string, { weapons?: readonly unknown[] } | undefined>)[id];
-  return (u?.weapons?.length ?? 0) > 0;
+  const u = (units as Record<string, { weapons?: readonly unknown[]; rescue?: unknown } | undefined>)[id];
+  return (u?.weapons?.length ?? 0) > 0 && u?.rescue === undefined;
 }
 
 /** The production half of the rule, from state both machines share: the
