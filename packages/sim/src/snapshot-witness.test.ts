@@ -414,8 +414,9 @@ describe('snapshot format pin', () => {
 // ring is still walking, once every ring member has set its ambush stance and before the group has
 // sprung, at the state after tick 444 (the group found by fire and MARKED, `fgPending` 1, the one column
 // whose life crosses a tick boundary), and after it has sprung; and, since GH-859 P1b Task 3, in the middle
-// of the march (the Column walking at the mortar's pace) and in the middle of a dress (a member waiting
-// with the dress clock running). Measured on the scouting run below: the first ring member sets its
+// of the march (the Column walking at the mortar's pace), in the middle of a dress (a member waiting
+// with the dress clock running) and, since GH-859 P1b Task 4, in contact (the side-1 Column halted at 445,
+// the Attack pressing from 542: state 3 with the quiet clock running). Measured on the scouting run below: the first ring member sets its
 // stance at tick 196, the last at 344, and the group is marked at 445 (the side-1 riflemen find the ring
 // by fire; it was 404 before the Column grew a slow member and the march began); the stances clear at the
 // start of the following tick.
@@ -435,8 +436,8 @@ const FORMATION: Golden = {
   poisonsPool: false,
 };
 
-describe('fork witness: the formation world, mid-march, mid-dress, before the ring arrives, after it arrives, after it springs', () => {
-  it('scouting: the ring arms at tick 344 and is found at 445 (mark set); 100 is mid-pace, 170 mid-dress', () => {
+describe('fork witness: the formation world, mid-march, mid-dress, before the ring arrives, after it arrives, after it springs, in contact', () => {
+  it('scouting: the ring arms at tick 344 and is found at 445 (marks set); 100 is mid-pace, 170 mid-dress, 560 in contact', () => {
     const w = FORMATION.build() as FormationWorld;
     const it = internals(w.sim);
     const column = (w.ids.col as number[]).slice(0, 5);
@@ -444,6 +445,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     let allArmed = -1;
     let sprung = -1;
     let pendingAtCut = -1;
+    let contactAtCut: number[] = [];
     let paceAtCut: number[] = [];
     let dressAtCut: number[] = [];
     for (let t = 0; t < FORMATION.ticks; t++) {
@@ -454,6 +456,12 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
       // `fgPending` has a one-tick life across a tick boundary: set while the hit tick runs, consumed at
       // the top of the next one. The state after the 445th tick holds it set.
       if (w.sim.tickCount === 445) pendingAtCut = (it.fgPending as Uint8Array).reduce((a, b) => a + b, 0);
+      // In contact (P1b Task 4): the Attack (row 1) pressing, the side-1 Column (row 16) halted, the Attack's quiet clock
+      // 18 ticks on from the drill at 542 (the other two rows are still being hit and restart theirs).
+      if (w.sim.tickCount === 560) {
+        const st = it.fgState as Uint8Array;
+        contactAtCut = [st[1], st[16], (it.fgQuiet as Uint16Array)[1], (it.fgCallX as Int32Array)[1]];
+      }
       // Mid-pace: the Column walks capped (fgPace 2293), every member still on its way to checkpoint 1.
       if (w.sim.tickCount === 100) paceAtCut = [(it.fgPace as Int32Array)[0], (it.fgLegs as Uint8Array)[0], ...column.map((i) => (it.moving as Uint8Array)[i])];
       // Mid-dress: one member waiting (duty 1) with the dress clock running; the mortar still on its way.
@@ -462,7 +470,10 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
       }
     }
     expect([firstArmed, allArmed, sprung]).toEqual([196, 344, 445]);
-    expect(pendingAtCut, 'T = 445 cuts while a group is marked and not yet sprung').toBe(1);
+    // G-6 re-derivation (P1b Task 4): 1 became 6. The ring is marked with the drill and the call bit (1 + 2) and so is the
+    // side-1 Column that fired first on it (a halt drill, also 3): 3 + 3.
+    expect(pendingAtCut, 'T = 445 cuts while two groups are marked and not yet consumed').toBe(6);
+    expect(contactAtCut, 'T = 560 cuts in contact: the Attack and the Column in state 3, quiet 18, the Attack\'s call point (38.5, 16.5) recorded').toEqual([3, 3, 18, 2523136]);
     expect(paceAtCut, 'T = 100 cuts mid-march: capped at 2293 raw, two checkpoints, all five moving').toEqual([2293, 2, 1, 1, 1, 1, 1]);
     expect(dressAtCut, 'T = 170 cuts mid-dress: one waiting, dressing for 27 ticks').toEqual([1, 27, 1]);
   });
@@ -472,8 +483,9 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     ['mid-approach', 150],
     ['mid-dress, a member waiting and the dress clock running', 170],
     ['after arrival, before the spring', 350],
-    ['found, mark set and not yet consumed (fgPending 1)', 445],
+    ['found, marks set and not yet consumed (fgPending 3 and 3)', 445],
     ['after the spring', 460],
+    ['in contact, the Attack pressing and the Column halted (state 3, the quiet clock running)', 560],
   ] as const) {
     it(`${label} (T = ${T}): every hash tick of the next 200 agrees, and so do the bytes`, () => {
       expectClean(fork(FORMATION, T), `${FORMATION.name} T=${T}`);
@@ -502,7 +514,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     expect(v.hashDivergedAt, 'the formation block is in the hash').not.toBeNull();
   });
 
-  it('the one-tick mark lost after the restore turns the fork red (T = 445, fgPending 1)', () => {
+  it('the one-tick mark lost after the restore turns the fork red (T = 445, fgPending set)', () => {
     const v = fork(FORMATION, 445, {
       mutate: (b) => {
         (internals(b.sim).fgPending as Uint8Array).fill(0);
@@ -519,6 +531,9 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     ['the dress clock', 170, 'fgDress', 0],
     ['the waiting count', 170, 'fgAtCp', 0],
     ['a member\'s waiting duty', 170, 'fmDuty', 0],
+    // P1b Task 4: the contact columns, at the in-contact cut.
+    ['the quiet clock', 560, 'fgQuiet', 0],
+    ['the call point', 560, 'fgCallX', 0],
   ] as const) {
     it(`${label} lost after the restore turns the fork red (T = ${T}, ${column} zeroed)`, () => {
       const v = fork(FORMATION, T, {
@@ -531,6 +546,17 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
       expect(fails(v)).toBe(true);
     });
   }
+
+  it('the Attack not in contact in B turns the fork red (T = 560, state 3 reset to 1)', () => {
+    const v = fork(FORMATION, 560, {
+      mutate: (b) => {
+        const st = internals(b.sim).fgState as Uint8Array;
+        expect(st[1], 'the Attack is in contact at the cut').toBe(3);
+        st[1] = 1;
+      },
+    });
+    expect(fails(v)).toBe(true);
+  });
 
   it('the group sprung early in B turns the fork red (T = 350)', () => {
     const v = fork(FORMATION, 350, {

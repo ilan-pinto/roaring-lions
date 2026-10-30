@@ -5,8 +5,8 @@
 //   - ids are unique, and each is its file's name;
 //   - `label` and `blurb` are keys in en.json;
 //   - `hud.formation.face.<face>` exists for the arrival face (`none` has nothing to say), and
-//     `hud.formation.drill.<drill>` for every drill except `halt` and `none` (P1a ships no copy
-//     for a halt: the tooltip says only what P1a does, plan Ruling 16);
+//     `hud.formation.drill.<drill>` for every drill except `none` (P1a kept `halt` out until it was true,
+//     plan Ruling 16; GH-859 P1b Task 4 makes it true, so it is required now);
 //   - a file with a ring has `hud.formation.shape.ring`;
 //   - `factions` are `kdf` or `sarim`;
 //   - `ring.radius[0] <= radius[1]`;
@@ -51,7 +51,7 @@ export function formationFailures(files, en) {
       out.push(`${file}: arrival.face "${face}" has no en.json key hud.formation.face.${face}`);
     }
     const drill = doc.contact?.drill;
-    if (typeof drill === 'string' && drill !== 'halt' && drill !== 'none' && !has(`hud.formation.drill.${drill}`)) {
+    if (typeof drill === 'string' && drill !== 'none' && !has(`hud.formation.drill.${drill}`)) {
       out.push(`${file}: contact.drill "${drill}" has no en.json key hud.formation.drill.${drill}`);
     }
     for (const f of doc.factions ?? []) {

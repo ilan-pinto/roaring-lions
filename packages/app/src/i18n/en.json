@@ -942,6 +942,7 @@
   "hud.formation.face.travel": "Faces the way you march.",
   "hud.formation.face.front": "Faces the approach.",
   "hud.formation.face.inward": "Faces inward.",
+  "hud.formation.drill.halt": "Halts and returns fire on contact.",
   "hud.formation.drill.press": "Then press on, fighting.",
   "hud.formation.drill.spring": "Springs together on contact.",
   "hud.formation.shape.ring": "Ring radius grows with the force.",

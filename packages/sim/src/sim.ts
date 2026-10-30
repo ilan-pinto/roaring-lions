@@ -17,9 +17,13 @@ import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flo
 import { assignFormation, type FormationUnit } from './formation';
 import {
   FM_ARRIVE_AMBUSH,
+  FM_CALL_CONTACT,
   FM_CALL_STAY,
   FM_CLASS_NONE,
   FM_CONTACT,
+  FM_DRILL_HALT,
+  FM_DRILL_NONE,
+  FM_DRILL_PRESS,
   FM_DRILL_SPRING,
   FM_FACE_TRAVEL,
   FM_FACING_NONE,
@@ -1385,9 +1389,14 @@ export type SimEvent =
   /** GH-859 P1a: an ambush formation's ring was discovered (a member sprang, or was fired on) and the
    *  whole group springs: `entity` is the first member to be fired on or to spring, `group` its row.
    *  Pushed once per group, when the springing is set in motion (during the tick of the hit or the
-   *  spring); `stepFormationSpring` clears the rest of the ring's stances at the start of the NEXT tick,
+   *  spring); `stepFormationContact` clears the rest of the ring's stances at the start of the NEXT tick,
    *  before combat, so the ring fires from that next tick. */
   | { kind: 'formationSprung'; tick: number; side: number; group: number; entity: number }
+  /** GH-859 P1b: a marching `halt` or `press` group made contact: `entity` is the first member to be fired on or to
+   *  fire, `x`/`y` the contact point (the source of the fire that hit it, or the target it fired at) and `drill` the
+   *  formation's `FM_DRILL_*`. Pushed once per group, on the tick of the contact; `stepFormationContact` runs the drill at
+   *  the start of the NEXT tick (a `spring` group raises `formationSprung` instead). */
+  | { kind: 'formationContact'; tick: number; side: number; group: number; entity: number; x: Fx; y: Fx; drill: number }
   /** GH-859 P1b: a marching group's checkpoint was released: every member waiting at it goes on. `leg` is the
    *  checkpoint released (1-based, the highest released so far) and `legs` the group's checkpoint count. Pushed
    *  by `stepFormationMarch`, on the tick after the last arrival or `dress_s` after the first one. */
@@ -1490,7 +1499,7 @@ export type SimEvent =
  *  without adding it here fails typecheck.
  */
 export const SIM_EVENT_KINDS = [
-  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung', 'formationSprung', 'formationReleased',
+  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung', 'formationSprung', 'formationContact', 'formationReleased',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'chargeSet', 'chargeDetonated', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
   'fieldFixed', 'beam',
@@ -4150,7 +4159,7 @@ export class Sim {
     this.stepSurfacing();
     // GH-859 P1a: a ring found out on the tick before (by fire, or by a member's own spring) springs
     // BEFORE combat reads a stance, so every member fires this tick: one tick after the hit.
-    if (this.fmLive) this.stepFormationSpring();
+    if (this.fmLive) this.stepFormationContact();
     this.stepCombat();
     // GH-859 P1a: right after combat, before anything else this tick reads a facing.
     if (this.fmLive) this.stepFormationFacing();
@@ -5173,31 +5182,107 @@ export class Sim {
     }
   }
 
-  /** A member of a `spring` group sprang, or was fired on by the enemy: mark the group to spring
-   *  together. Only a group still marching is marked, once; the event names the first. The mark is
-   *  consumed at the start of the next tick (`stepFormationSpring`). If every member is ordered away
-   *  in between (or dies), the row is freed with the mark still unconsumed: the event was pushed, no
-   *  spring follows. Accepted: the event names a discovery, which did happen. */
-  private fmPend(id: number): void {
+  /** A group member made contact (GH-859 P1b, Ruling 10): it was fired on by the enemy (`applySuppression`'s hostile
+   *  branch, the source point), it sprang (`stepCombat`, its own position), or it fired (`fireAt`, `fireAtStructure`
+   *  and `stepBeam`, the target's position). `(x, y)` is the contact point. Every call restarts the group's quiet clock.
+   *  A group still marching with a drill is marked once, first writer wins (writers run in shooter-id order); the event
+   *  names the first member: `formationSprung` for a ring, `formationContact` for `halt` and `press`. A group already in
+   *  contact, or sprung, with no sortie out asks for a call instead. The call bit is set only when the group has a
+   *  contact-call element and the point is within `call_radius_tiles` of the MEMBER that reported it (not of the
+   *  aircraft: Attack's stand 13 tiles back, behind a 12-tile radius). The mark is consumed at the start of the next
+   *  tick (`stepFormationContact`). If every member is ordered away in between (or dies), the row is freed with the
+   *  mark still unconsumed: the event was pushed, no drill follows. Accepted: the event names a contact, which did
+   *  happen. O(1) a call: the element scan is at most a handful and runs only on a first mark. */
+  private fmPend(id: number, x: Fx, y: Fx): void {
     const g = this.fmGroup[id];
-    if (g < 0 || this.fgState[g] !== FM_MARCH || this.fgPending[g] !== 0) return;
-    if (this.formationTypes[this.fgType[g]].drill !== FM_DRILL_SPRING) return;
-    this.fgPending[g] = FM_PEND_DRILL;
-    this.pendingEvents.push({ kind: 'formationSprung', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id });
+    if (g < 0) return;
+    this.fgQuiet[g] = 0;
+    if (this.fgPending[g] !== 0) return;
+    const tpl = this.formationTypes[this.fgType[g]];
+    const state = this.fgState[g];
+    if (state === FM_MARCH) {
+      if (tpl.drill === FM_DRILL_NONE) return;
+      this.fgPending[g] = this.fmCallReaches(tpl, id, x, y) ? FM_PEND_DRILL | FM_PEND_CALL : FM_PEND_DRILL;
+      this.fgCallX[g] = x;
+      this.fgCallY[g] = y;
+      if (tpl.drill === FM_DRILL_SPRING) {
+        this.pendingEvents.push({ kind: 'formationSprung', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id });
+      } else {
+        this.pendingEvents.push({ kind: 'formationContact', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id, x, y, drill: tpl.drill });
+      }
+    } else if ((state === FM_CONTACT || state === FM_SPRUNG) && this.fgCalled[g] === 0 && this.fmCallReaches(tpl, id, x, y)) {
+      this.fgPending[g] = FM_PEND_CALL;
+      this.fgCallX[g] = x;
+      this.fgCallY[g] = y;
+    }
   }
 
-  /** Before `stepCombat` (behind `fmLive`): a marked group springs as one. A mark is set by a hit
-   *  (every `applySuppression` caller runs later in the tick) or by a member's own spring inside
-   *  `stepCombat`, so by the time this runs it is the tick after, and `stepCombat` then finds every
-   *  member's stance clear: the ring opens fire one tick after it was found. O(rows), and the
-   *  spring's one O(count) scan runs once in a group's life. */
-  private stepFormationSpring(): void {
+  /** Whether a contact at (x, y) reported by member `id` can raise a call: the formation has a `contact` call
+   *  element, and the point is no further than `call_radius_tiles` from `id` itself. */
+  private fmCallReaches(tpl: CompiledFormation, id: number, x: Fx, y: Fx): boolean {
+    const r = fx.fromInt(tpl.callRadius);
+    if (distSqFx(fx.sub(x, this.posX[id]), fx.sub(y, this.posY[id])) > fx.mul(r, r)) return false;
+    for (let e = 0; e < tpl.elements.length; e++) if (tpl.elements[e].onCall === FM_CALL_CONTACT) return true;
+    return false;
+  }
+
+  /** The dress ends (a ring found while marching, a press): the last checkpoint is released and every waiting member
+   *  goes on to its next leg, as a release does but for the event. One O(count) scan, once in a group's life. */
+  private fmEndDress(g: number): void {
+    if (this.fgLegs[g] > 0) this.fgRelease[g] = this.fgLegs[g] - 1;
+    this.fgDress[g] = 0;
+    this.fgAtCp[g] = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.fmDuty[i] !== FM_DUTY_WAIT) continue;
+      this.fmDuty[i] = FM_DUTY_NONE;
+      this.fmLeg[i]++;
+      if (this.wpCount[i] > 0) this.advanceLeg(i);
+    }
+  }
+
+  /** Before `stepCombat` (behind `fmLive`): a marked group runs its drill (Ruling 11). A mark is set by a hit (every
+   *  `applySuppression` caller runs later in the tick), by a member's own spring or by a member firing inside
+   *  `stepCombat`, so by the time this runs it is the tick after, and `stepCombat` then finds every stance clear:
+   *  the ring opens fire one tick after it was found.
+   *  - `spring`: the ring's stances clear, state `SPRUNG`, dressing ends.
+   *  - `halt`: every ground member stops and drops its queue (nobody waits any more), every vehicle turns its front
+   *    toward the contact point, state `CONTACT`. An aircraft the call will not answer (`stay`, or no call raised)
+   *    halts too. The march does not resume by itself.
+   *  - `press`: state `CONTACT`, dressing ends, pace and queues stay: attack-move does the fighting.
+   *  O(rows); the drill's one O(count) scan runs once in a group's life. */
+  private stepFormationContact(): void {
     for (let g = 0; g < FORMATION_ROWS; g++) {
       if (this.fgLive[g] === 0 || this.fgPending[g] === 0) continue;
+      const pend = this.fgPending[g];
       this.fgPending[g] = 0;
-      this.fgState[g] = FM_SPRUNG;
-      for (let i = 0; i < this.count; i++) {
-        if (this.fmGroup[i] === g && this.stance[i] === 1) this.stance[i] = 0;
+      if ((pend & FM_PEND_DRILL) === 0) continue;
+      const drill = this.formationTypes[this.fgType[g]].drill;
+      if (drill === FM_DRILL_SPRING) {
+        this.fgState[g] = FM_SPRUNG;
+        for (let i = 0; i < this.count; i++) {
+          if (this.fmGroup[i] === g && this.stance[i] === 1) this.stance[i] = 0;
+        }
+        this.fmEndDress(g);
+      } else if (drill === FM_DRILL_HALT) {
+        this.fgState[g] = FM_CONTACT;
+        const cx = this.fgCallX[g];
+        const cy = this.fgCallY[g];
+        for (let i = 0; i < this.count; i++) {
+          if (this.fmGroup[i] !== g) continue;
+          const ut = this.unitTypes[this.typeIdx[i]];
+          if (ut.isAir && (pend & FM_PEND_CALL) !== 0 && ut.fmCall !== FM_CALL_STAY) continue; // answers the call
+          this.haltUnit(i);
+          if (this.fmDuty[i] === FM_DUTY_WAIT) this.fmDuty[i] = FM_DUTY_NONE;
+          if (!ut.isAir && ut.moveDomain === DOMAIN_VEHICLE) {
+            const face = eighthToward(cx - this.posX[i], cy - this.posY[i]);
+            if (face !== FM_FACING_NONE) this.restFacing[i] = face;
+          }
+        }
+        this.fgAtCp[g] = 0;
+        this.fgDress[g] = 0;
+      } else if (drill === FM_DRILL_PRESS) {
+        this.fgState[g] = FM_CONTACT;
+        this.fmEndDress(g);
       }
     }
   }
@@ -5223,11 +5308,19 @@ export class Sim {
   /** Before `stepMovement` (behind `fmLive`): the dress (Ruling 7). A `MARCH` row with members waiting at its
    *  next checkpoint counts a tick of dress, and releases the checkpoint when every member present is waiting
    *  (or away on a call) or `dress_s` has passed since the first arrival: `fgRelease` goes up, every waiting
-   *  member goes on to its next leg, the pace is read again, one event. O(rows) a tick; the one O(count) scan
-   *  runs once per released checkpoint. */
+   *  member goes on to its next leg, the pace is read again, one event. A row in contact or sprung counts the quiet
+   *  clock instead. O(rows) a tick; the one O(count) scan runs once per released checkpoint. */
   private stepFormationMarch(): void {
     for (let g = 0; g < FORMATION_ROWS; g++) {
-      if (this.fgLive[g] === 0 || this.fgState[g] !== FM_MARCH || this.fgAtCp[g] === 0) continue;
+      if (this.fgLive[g] === 0) continue;
+      const state = this.fgState[g];
+      if (state !== FM_MARCH) {
+        // The quiet clock (Ruling 13): ticks since the last contact, counted for a group in contact or sprung. Only the
+        // calls' return reads it (Task 5); every `fmPend` call restarts it.
+        if ((state === FM_CONTACT || state === FM_SPRUNG) && this.fgQuiet[g] < 0xffff) this.fgQuiet[g]++;
+        continue;
+      }
+      if (this.fgAtCp[g] === 0) continue;
       if (this.fgDress[g] < 0xffff) this.fgDress[g]++;
       if (this.fgAtCp[g] + this.fgAway[g] < this.fgMembers[g] && this.fgDress[g] < this.formationTypes[this.fgType[g]].dressTicks) continue;
       this.fgRelease[g]++;
@@ -7476,7 +7569,7 @@ export class Sim {
         }
         this.stance[i] = 0;
         this.pendingEvents.push({ kind: 'ambushSprung', tick: this.tickCount, entity: i });
-        if (this.fmLive) this.fmPend(i); // GH-859 P1a: the rest of its ring springs with it
+        if (this.fmLive) this.fmPend(i, this.posX[i], this.posY[i]); // GH-859 P1a: the rest of its ring springs with it
       }
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
@@ -7855,6 +7948,7 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
+    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: a member that opens fire reports contact at its target
     // A shot is definitely being taken. Meter the surfacing burst — only a
     // unit up from a route has one; an ordinary surface unit never carries
     // volley bookkeeping.
@@ -7949,6 +8043,7 @@ export class Sim {
     this.beamTgt[k] = target;
     this.beamAt[k] = now;
     this.lastFired[shooter] = now; // a beam is a firing signature like any shot
+    if (this.fmLive) this.fmPend(shooter, this.posX[target], this.posY[target]); // GH-859 P1b: a beam never reaches fireAt
     this.beamHeat[k]++;
     if (++this.beamDwell[k] >= b.dwellTicks) {
       this.beamDwell[k] = 0;
@@ -8014,6 +8109,7 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
+    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: and one that fires on a building
 
     const speed = PROJ_SPEED[w.cls];
     let ticks = 1;
@@ -9431,7 +9527,7 @@ export class Sim {
       this.suppFromSet[target] = 1;
       // GH-859 P1a: a ring that is fired on springs, found out. Hostile fire only: a friendly splash
       // is not the enemy.
-      if (this.fmLive) this.fmPend(target);
+      if (this.fmLive) this.fmPend(target, srcX, srcY);
     }
     let a = fx.mul(amount, type.suppResFactor);
     const vet = this.veterancy[target];

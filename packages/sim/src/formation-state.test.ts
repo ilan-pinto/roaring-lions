@@ -268,13 +268,14 @@ describe('the P1b columns: shape, latch and hash', () => {
   });
 });
 
-describe('the formation world moves the columns of the march, and only those', () => {
-  // G-6, P1b Task 3: this was "moves none of the fourteen" (the premise of the Task 2 pin move). The march now writes
-  // seven of them: fgLegs fgRelease fgDress fgAtCp fgPace (rows) and fmLeg fmDuty (units). The other seven belong to the
-  // drills (fgQuiet fgCallX fgCallY) and the calls (fgAway fgCalled fmHomeX fmHomeY) and must still read empty at every tick.
-  const MARCH_COLUMNS = ['fgLegs', 'fgRelease', 'fgDress', 'fgAtCp', 'fgPace', 'fmLeg', 'fmDuty'];
-  it('the march columns each move at some tick of the 600, and the other seven read empty at every tick', () => {
-    expect(MARCH_COLUMNS).toHaveLength(7);
+describe('the formation world moves the columns of the march and the drills, and only those', () => {
+  // G-6, P1b Task 3: this was "moves none of the fourteen" (the premise of the Task 2 pin move). The march wrote
+  // seven of them: fgLegs fgRelease fgDress fgAtCp fgPace (rows) and fmLeg fmDuty (units). G-6, P1b Task 4: the drills
+  // write three more, fgQuiet fgCallX fgCallY (the side-1 Column halts, the Attack presses). The other four belong to the
+  // calls (fgAway fgCalled fmHomeX fmHomeY) and must still read empty at every tick.
+  const MARCH_COLUMNS = ['fgLegs', 'fgRelease', 'fgDress', 'fgAtCp', 'fgPace', 'fmLeg', 'fmDuty', 'fgQuiet', 'fgCallX', 'fgCallY'];
+  it('the march and drill columns each move at some tick of the 600, and the other four read empty at every tick', () => {
+    expect(MARCH_COLUMNS).toHaveLength(10);
     const { sim, ids } = formationSetup(FM_SEED);
     let liveRowsSeen = 0;
     let scans = 0;
