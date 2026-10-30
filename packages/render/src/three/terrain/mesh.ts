@@ -353,6 +353,25 @@ export const GROUND_ALBEDOS = {
    * the blobs.
    */
   knoll_scree_tile: { tiles: 3, gain: 1, mean: [162.8, 149.5, 135.0] },
+  // -- The wetland's five (GH-871 P3). Procedural, by `tools/textures/author_wetland_tiles.py`
+  // (numpy, periodic hand-rolled noise, deterministic); each is a RATIO image, so its mean is a
+  // hair of grey-green and the theme tone sets the average. Repeats are the art-numbers sheet's.
+  /**
+   * Open ground, `wetland`: spring sward only, 18 m a side (the lead's R1b-R1d rulings: first
+   * 9 m with mud patches, then no mud at all, because he did not like brown dots). The variation
+   * is lighter yellow-green and darker blue-green grass regions at 0.3-1.2 m, blade grain and a
+   * hint of yellow-green straw. Repeat 6 tiles (18 m), gain 1: contrast 0.057 at the zoom-1 mip
+   * (floor 0.05) and 0.3% of its composed texels within CIEDE2000 12 of the KDF uniform's olive.1.
+   */
+  wetland_open_tile: { tiles: 6, gain: 1, mean: [87.7, 126.0, 52.0] },
+  /** A `^` ridge on a wetland map: wet vesicular basalt in 0.6 m columns, 6 m a side, repeat 2. */
+  basalt_rock_tile: { tiles: 2, gain: 1, mean: [65.2, 68.0, 70.7] },
+  /** Cover 1-3 and the `~` marsh floor on a wetland map: rush and bramble litter, 6 m, repeat 2, gain 2. */
+  wet_scrub_tile: { tiles: 2, gain: 2, mean: [109.2, 88.5, 57.9] },
+  /** An `o` oak grove's floor on a wetland map: leaf litter, acorn cups, moss, 6 m, repeat 2. */
+  oak_litter_tile: { tiles: 2, gain: 1.5, mean: [82.3, 63.2, 36.5] },
+  /** An `n` knoll and the road's grain on a wetland map: basalt cobbles in mud, 9 m, repeat 3. */
+  basalt_scree_tile: { tiles: 3, gain: 1, mean: [83.9, 71.8, 58.5] },
 } as const satisfies Record<
   string,
   { readonly tiles: number; readonly gain: number; readonly mean: readonly [number, number, number] }

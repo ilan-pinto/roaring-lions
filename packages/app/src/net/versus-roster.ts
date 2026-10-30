@@ -24,7 +24,14 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * P2): on no doctrine menu, so no versus side can field them, and each turns the
  * sim's wound hash fold on (`can_carry`, `rescue`; the medevac is an AIR carrier,
  * which turns the air fold on besides). Held with the Yanshuf until the rescue loop
- * opens to versus: only the KDF has a rescue unit, and the probe has no rescue arm.
+ * opens to versus: only the KDF has a rescue unit.
+ *
+ * The medic team was opened to the KDF versus menu and held again the same day (the lead, 30 Oct
+ * 2026, PR 907). The probe now has a rescue arm and the camp is a drop-off (`versus_aid`), but the
+ * fairness gate cannot judge rescue yet: the ruled buy rule delivers 0.0 medic teams a game (the
+ * opening purse is spent at tick 0), and the `opening` reading, which buys one, leaves 60/40 on
+ * Tel Marum Sarim friendly. `pnpm versus:probe -- --rescue-buy=...` and the rescue tests put the
+ * medic in a room in memory (`medic-room.test-helper.ts`); nothing shipped does.
  *
  * `mbt_lavi_camo` and `spg_long_range` (GH-709 Phase 2), and `spg_cluster` (Phase 7):
  * credit-only store units, on no

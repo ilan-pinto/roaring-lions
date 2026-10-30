@@ -17,12 +17,18 @@ import { structures as structureCatalogue, type ParsedMap } from '@lions/data';
 /**
  * Register every structure type the game knows against `sim`, then stand one
  * structure per run the map declares. Returns the type-id -> sim type-index
- * map, keyed exactly like `structures` (`@lions/data`).
+ * map, keyed exactly like `structures` (`@lions/data`). `economyRoom` is true only in a versus economy
+ * room (`buildMatchWorld`): it gives the camp its `versus_aid` block.
  */
-export function standMapStructures(sim: Sim, map: ParsedMap): ReadonlyMap<string, number> {
+export function standMapStructures(sim: Sim, map: ParsedMap, economyRoom = false): ReadonlyMap<string, number> {
   const structTypeIdx = new Map<string, number>();
   for (const [id, spec] of Object.entries(structureCatalogue)) {
-    structTypeIdx.set(id, sim.addStructureType(spec as Parameters<typeof sim.addStructureType>[0]));
+    // GH-707 (30 Oct 2026): in a versus economy room a type that declares `versus_aid` (the camp) takes it as
+    // its `aid` block, so the camp is its side's drop-off for a carried wounded man. Nowhere else: a mission's
+    // camp is registered exactly as before, and the type index is the same either way.
+    const versusAid = (spec as { versus_aid?: unknown }).versus_aid;
+    const json = economyRoom && versusAid !== undefined ? { ...spec, aid: versusAid } : spec;
+    structTypeIdx.set(id, sim.addStructureType(json as Parameters<typeof sim.addStructureType>[0]));
   }
   for (const b of map.structures) {
     const t = structTypeIdx.get(b.type);

@@ -21,6 +21,7 @@ refusal limit is 1.10x that column (ruling Q8: it is re-based on THIS table;
 render-1's part names are retired). Metres, x forward, y across, z up.
 """
 from collections import namedtuple
+from dataclasses import dataclass, field
 
 Part = namedtuple("Part", "name track tier slot figs bone role texel spec_tris real game")
 
@@ -47,7 +48,7 @@ PALETTE_KEY = {"coyote": "dust.5", "coyote_shade": "dust.6", "olive": "olive.2",
                "olive_dark": "olive.3", "glass": "shadow.0"}
 
 P = Part
-PARTS = [
+BASE_PARTS = [
     # ---- ARMOUR: the carrier and cover (T1), deltoids/throat/groin (T2), sleeves/yoke (T3)
     P("carrier", "armour", 1, None, ALL, "spine", "uniform", "coyote", 190,
       "SAPI-M 0.241 x 0.318 x 0.022 under 3 mm of fabric; cummerbund 0.15-0.18 tall",
@@ -118,6 +119,110 @@ PARTS = [
     P("grenade_pouches", "firepower", 3, None, ALL, "pelvis", "uniform", "coyote", 48,
       "frag pouch 0.075 x 0.055 x 0.110", "2 pouches 0.075 x 0.055 x 0.11 on the right rear of the belt, at 4 and 5 o'clock"),
 ]
+
+
+# ================================================================ THE TEAMS
+#
+# The Rifle Squad's table above is the TEMPLATE. Every other team is a `Team`: its own figure
+# prefixes (`demo_a`, not `f0`), its leader, which figures carry a gun, its atlas size and its five
+# pinned texels (5 x 5 solid blocks, std < 4/255, `tools/inf_kit_texels.py`), and what differs from
+# the template (parts the bake already shows, the role the devices ride, the clips its census walks).
+# `use_team(id)` rebinds `ALL` / `LEADER` / `RIFLEMEN` / `PARTS` / `TEXELS` / the atlas size IN PLACE for
+# the rest of the process, so a tool picks a team once and every `kp.X` it reads afterwards is that
+# team's. The default is `inf_squad` and leaves this module exactly as the Rifle Squad shipped it.
+
+
+@dataclass
+class Team:
+    id: str
+    figs: tuple
+    leader: tuple
+    armed: tuple                 # figures that carry `weapons[0]`'s gun: weapon-bone parts go on these only
+    atlas: tuple                 # (w, h) of the team's colour atlas
+    texels: dict
+    device_role: str = "weapon"  # the role a `weapon`-role device rides: `uniform` where the weapon primitive is a palette one
+    drop: tuple = ()             # parts the bake already shows (gear already baked in is not added twice)
+    prims: tuple = ("uniform", "boot", "face", "weapon")     # every primitive of the file the census treats as body
+    bank_prims: tuple = ("uniform", "weapon")                # primitives the wraps are trimmed against
+    clips: tuple = ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned")   # the living clips
+    bank_clips: tuple = ("idle", "move", "fire", "moveFire", "kneel", "pinned")
+    torso_ring_cap: bool = False       # cap the torso wrap's sampled radii by the ring its own front and back walls imply (loose shards, spine-bound hands)
+    weapon_by_surface: bool = False    # read the gun's top / bottom / width off its faces (a sparse gun has no vertices at most stations)
+    clear_pouches: bool = False        # turn the belt pouches to where no other bone's geometry strikes them in any key of any living clip
+    flip_deg: float = 70.0             # a flipped-up NVG tube: degrees up from the helmet front's normal
+    yoke_cols: int = 9                 # columns of the yoke horseshoe
+    nvg_lift: float = 0.0              # a baked mount: how far above the bracket's front tip the tubes and the bridge sit
+    bridge_back: float = 0.004         # a baked mount: how far behind the bracket's front tip the binocular bridge's centre sits
+    stage_hide: tuple = ()             # base primitives left out of the garage / close-up / turntable stills (a world-fixed prop on the ground)
+    torso_vest_lum: float = None       # fit the torso wraps to the baked vest: spine triangles whose atlas texel is darker than this (0-1)
+    torso_ellipse: tuple = (0.20, 0.185)   # the section ellipse a bridged (unsampled) torso vertex stays inside
+    carrier_back_plate: bool = False   # the carrier's back is a flat upright plate (a plane fitted to the back wall), thin, upper back only
+    helmet_front_trim: float = 0.0     # degrees either side of the front where the cover's lowest band is left off (the open face of a baked helmet)
+    yoke_rmax: float = None            # cap on the yoke's radius from the spine axis (the collar, not a cape over the shoulders)
+    yoke_slack: float = 0.015          # how far past its clearance trim the yoke's offset may stand (the Rifle Squad's 15 mm)
+    pack_box: bool = False             # the T3 radio pack is a flat-sided box with a lid, not a pad conformed to the back
+    baked_mount: bool = False    # the helmet already carries an NVG shroud and mount: the tubes ride it, `nvg_mount` is not built
+    dense_keys: bool = False     # sample every keyframe of a short clip and the clip's last frame (not a stride alone)
+    notes: str = ""
+
+
+_BASE_ALL, _BASE_LEADER, _BASE_RIFLEMEN = ALL, LEADER, RIFLEMEN
+
+TEAMS = {
+    "inf_squad": Team("inf_squad", ALL, LEADER, ALL, (2048, 1024), dict(TEXELS)),
+    # Demolition squad (GH-826, seven-teams spec 4.3). Two standing figures on the standard rig:
+    # demo_a is unarmed (he works the charge), demo_b carries the carbines. The helmets carry a baked NVG
+    # shroud and mount, so `nvg_mount` is not added twice. The weapon primitive has no UVs (palette), so
+    # devices ride `uniform`. The cable spool (`metal`, on demo_b's spine) and the charge (`prop`) are body.
+    "demo_squad": Team(
+        "demo_squad", ("demo_a", "demo_b"), ("demo_b",), ("demo_b",), (1024, 1024),
+        {   # 5 x 5 blocks of demo_squad.glb's own atlas; dE76 0.84 / 0.10 / 0.09 / 1.35 / 0.12
+            "coyote": (673, 743),          # dust.5   #806032  130, 96, 50
+            "coyote_shade": (805, 792),    # dust.6   #6B4F29  107, 79, 41
+            "olive": (464, 537),           # olive.2  #4E5433  78, 84, 51
+            "olive_dark": (453, 730),      # olive.3  #333821  51, 55, 34
+            "glass": (452, 218),           # shadow.0 #23241F  35, 36, 31
+        },
+        device_role="uniform", drop=("nvg_mount", "deltoid", "sleeve"),   # the lead (30 Oct): no shoulder or sleeve armour on this figure
+        carrier_back_plate=True, pack_box=True, helmet_front_trim=60.0, yoke_rmax=0.19, yoke_slack=0.0,
+        prims=("uniform", "boot", "face", "weapon", "metal", "charge"),
+        bank_prims=("uniform", "weapon", "metal", "charge"),
+        clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
+        bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
+        baked_mount=True, torso_vest_lum=0.15, torso_ellipse=(0.27, 0.26), stage_hide=("charge",), yoke_cols=6, clear_pouches=True, flip_deg=120.0, nvg_lift=0.0, bridge_back=0.04, weapon_by_surface=True, torso_ring_cap=True, dense_keys=True),
+}
+
+TEAM = TEAMS["inf_squad"]
+ATLAS_W, ATLAS_H = TEAM.atlas
+PARTS = list(BASE_PARTS)
+
+
+def _resolve(part, team):
+    figs = part.figs
+    if set(figs) == set(_BASE_ALL):
+        figs = team.figs
+    elif set(figs) == set(_BASE_LEADER):
+        figs = team.leader
+    elif set(figs) == set(_BASE_RIFLEMEN):
+        figs = tuple(f for f in team.figs if f not in team.leader)
+    if part.bone == "weapon":
+        figs = tuple(f for f in figs if f in team.armed)
+    role = team.device_role if part.role == "weapon" else part.role
+    return part._replace(figs=tuple(figs), role=role)
+
+
+def use_team(team_id):
+    """Rebind the module's tables to `team_id`'s (in place: `TEXELS` and `PARTS` keep their identity)."""
+    global ALL, LEADER, RIFLEMEN, TEAM, ATLAS_W, ATLAS_H
+    team = TEAMS[team_id]
+    TEAM = team
+    ALL, LEADER = tuple(team.figs), tuple(team.leader)
+    RIFLEMEN = tuple(f for f in team.figs if f not in team.leader)
+    ATLAS_W, ATLAS_H = team.atlas
+    TEXELS.clear()
+    TEXELS.update(team.texels)
+    PARTS[:] = [_resolve(p, team) for p in BASE_PARTS if p.name not in team.drop]
+    return team
 
 
 #: Parts built as a left and a right object. `L` is the rig's `_L` bone side,

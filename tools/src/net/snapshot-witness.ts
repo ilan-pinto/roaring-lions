@@ -2,7 +2,7 @@
 // `packages/sim/src/snapshot-witness.ts`, run over real worlds.
 //
 //   pnpm snapshot:witness                       the matrix and the coverage census
-//   pnpm snapshot:witness -- --self-check       ... and the three mutations that must turn it red (CI)
+//   pnpm snapshot:witness -- --self-check       ... and the mutations that must turn it red (CI)
 //   pnpm snapshot:witness -- --only=<substr>    the worlds whose id contains it (no census)
 //
 // WHAT IT RUNS. Every world below is played once by A, uninterrupted, to its end. At each cut
@@ -49,12 +49,14 @@
 // be listed in `SNAPSHOT_COVERAGE_EXEMPT` with a reason naming the world that would cover it; an
 // exemption whose row DID move fails too ("delete this exemption").
 //
-// THE SELF-CHECKS (`--self-check`). A witness that cannot fail proves nothing. Four mutations
+// THE SELF-CHECKS (`--self-check`). A witness that cannot fail proves nothing. Five mutations
 // of B right after the restore, each of which must turn its world red, each preceded by the
 // same series run clean: see `selfChecks`.
 
 import { fileURLToPath } from 'node:url';
 import { fx, type MissionRuntime, type Sim } from '@lions/sim';
+import { WOUND_ADMITTED } from '../../../packages/sim/src/tuning';
+import { withMedicInRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 import { doctrines, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS, matchDigest, type Faction } from '@lions/net';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
@@ -90,8 +92,10 @@ import {
   forceMixOf,
   layoutOf,
   livingOf,
+  marchersOf,
   order,
   planRound,
+  rescueRound,
   roomConfig,
   type Arrangement,
   type TunnelCell,
@@ -178,8 +182,9 @@ export function mirrorWorld(map: MapId, seed: number): SnapWorld {
  * anchor, every round the production plan queues and then every living unit attack-moves. With
  * `tunnels`, the tunnel plan is laid over it exactly as that arm lays it.
  */
-export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels?: TunnelCell): SnapWorld {
-  const m = buildMatchWorld(roomConfig(map, arr, seed));
+export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels?: TunnelCell, rescue = false): SnapWorld {
+  // The medic team is held out of versus (the lead, 30 Oct 2026): the rescue world puts it in the room in memory, to build it.
+  const m = rescue ? withMedicInRoom(() => buildMatchWorld(roomConfig(map, arr, seed))) : buildMatchWorld(roomConfig(map, arr, seed));
   const rt = m.runtime;
   if (rt === null) throw new Error(`snapshot witness: ${map} built no economy runtime`);
   for (const side of [0, 1] as const) {
@@ -190,6 +195,8 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
   const menus = [doctrines[m.factions[0]].menu, doctrines[m.factions[1]].menu] as const;
   const mixes = [forceMixOf(m.factions[0]), forceMixOf(m.factions[1])] as const;
   const plan = tunnels === undefined ? null : new TunnelPlan(m, tunnels);
+  // The squad that lost a man stays home (out of the attack-move): it must be alive to take him back.
+  const home = rescue ? standARescue(m) : -1;
   return {
     sim: m.sim,
     runtime: rt,
@@ -200,8 +207,9 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
         plan?.beforeProduction(rt);
         for (const side of sideOfEnd) planRound(rt, m.sim, menus[side], mixes[side], side);
         plan?.round(t);
-        order(m.sim, (side) => livingOf(m.sim, side).filter((id) => plan === null || !plan.holds(id)), sideOfEnd);
+        order(m.sim, (side) => marchersOf(m.sim, side, (id) => id === home || (plan !== null && plan.holds(id))), sideOfEnd);
       }
+      if (rescue && t % DECIDE_EVERY_TICKS === 0) rescueRound(m.sim, 0);
       if (plan !== null && t % DECIDE_EVERY_TICKS === 0) plan.second(t);
       plan?.beforeTick();
     },
@@ -210,6 +218,51 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
       plan?.after(ev.sim);
     },
   };
+}
+
+/**
+ * The rescue loop in a room (GH-707, 30 Oct 2026; the medic team is put in the room in memory, being held out of versus), set up before tick 0 so that it completes inside the horizon: one
+ * medic team standing at the KDF camp's exit, and, a few tiles off on open ground, a rifle squad hit until a man lies
+ * DOWN. `rescueRound` (the probe's own, run every second by the drive) sends the medic; the engine treats him, lifts
+ * him, carries him to the camp -- the room's drop-off, the one place `stProducesFor` and the `versus_aid` block meet --
+ * and the camp admits and treats him and sends him back to his squad. The rows that move here and nowhere else in a
+ * versus room: `medState`, `medTarget`, `medTimer`, `woundState`'s ADMITTED, `admittedAt`, `woundTimer`, `scars`.
+ */
+function standARescue(m: MatchWorld): number {
+  const sim = m.sim;
+  // The Sarim force is cut before tick 0 (its camp and purse stand): this world is the stretcher's walk to the camp, and
+  // the Grad battery that shelled the home squad at tick 330 would end it before the rejoin.
+  for (const id of m.bySide[1]) sim.debugKill(id);
+  const [ax, ay] = m.anchors[m.endOfSide[0]];
+  const open = (r: number): [number, number] => {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = ax + dx;
+        const y = ay + dy;
+        if (x >= 1 && y >= 1 && x < sim.width - 1 && y < sim.height - 1 && sim.blocked[y * sim.width + x] === 0) return [x, y];
+      }
+    }
+    throw new Error('snapshot witness: no open tile near the KDF anchor');
+  };
+  const idx = (id: string): number => {
+    const i = sim.unitTypes.findIndex((t) => t.id === id);
+    if (i < 0) throw new Error(`snapshot witness: the room did not register ${id}`);
+    return i;
+  };
+  const [mx, my] = open(3);
+  sim.spawn(idx('inf_medic_squad'), 0, fx.from(mx) + fx.from(1) / 2, fx.from(my) + fx.from(1) / 2);
+  const [sx, sy] = open(6);
+  const squad = sim.spawn(idx('inf_squad'), 0, fx.from(sx) + fx.from(1) / 2, fx.from(sy) + fx.from(1) / 2);
+  const before = sim.entityCount;
+  const hit = (sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage.bind(sim);
+  // Small hits, so the squad keeps most of its hp: it has to live to take him back.
+  for (let k = 0; k < 40 && sim.entityCount === before; k++) hit(squad, fx.fromInt(30), m.bySide[1][0]);
+  if (sim.entityCount === before) throw new Error('snapshot witness: the rescue world dropped no man');
+  // The hits that found a man to shed may have left the squad on its last legs: top it up to the two men still standing,
+  // so it is alive to take the third back.
+  sim.state.hp[squad] = Math.floor((sim.unitTypes[sim.state.typeIdx[squad]].hp * sim.state.figuresUp[squad]) / 3);
+  return squad;
 }
 
 /**
@@ -353,6 +406,18 @@ export function worldSpecs(): WorldSpec[] {
     id: 'tunnels tel_marum kdf/sarim 1000 (answer)',
     plan: longPlan(MIRROR_END),
     build: () => economyWorld('tel_marum', ['kdf', 'sarim'], 1000, 'answer'),
+  });
+  out.push({
+    id: 'rescue tel_marum kdf/sarim 1000',
+    // Cuts every 50 ticks: the stretcher walk, the lift, the admission and the rejoin each last a few hundred ticks.
+    plan: goldenPlan(1500),
+    build: () => economyWorld('tel_marum', ['kdf', 'sarim'], 1000, undefined, true),
+    // The world exists for a man carried to the camp, admitted, treated and sent back: a squad with a scar.
+    exercised: (a) => {
+      let scarred = 0;
+      for (let i = 0; i < a.sim.entityCount; i++) if (a.sim.state.scars[i] > 0) scarred++;
+      return scarred > 0 ? null : 'the rescue world stopped rescuing: no squad took a man back by its end';
+    },
   });
   out.push({
     id: 'stress tel_marum 256 entities 1000',
@@ -626,7 +691,7 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
   ),
   ...rows(
     'siteAlive siteType siteX siteY siteSide siteStructure buildSite stProgress constructedAt fwLive stOwner stKnown sealGen ' +
-      'auraHealRate auraHealCap auraCompAt auraRepairTicks auraAccMult unitAuraLive',
+      'auraCompAt auraRepairTicks auraAccMult unitAuraLive',
     'field works: construction sites, owned structures, their auras and the fog latch on an owned structure. No witness world builds, owns or auras a structure ' +
       '(versus never uses field works). Covered by a field-works mission world'
   ),
@@ -669,7 +734,7 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'civilian flight (the fled and evacuated latches): no witness world has a civilian. Covered by a mission world with civilians, as the sim package\'s sink world has (it witnesses the row there, not here)'
   ),
   ...rows(
-    'runtime.zoneDeductedAt runtime.roeScoreValue runtime.roeFailed runtime.roeGainTotal runtime.roeGainJudged runtime.aimedAtWounded runtime.promotedValue',
+    'runtime.zoneDeductedAt runtime.roeScoreValue runtime.roeFailed runtime.roeGainTotal runtime.aimedAtWounded runtime.promotedValue',
     'the ROE score, its zone cooldown, the shot-at-a-wounded-man set and the promotion tally: no witness world has an ROE zone, a protected target, a wound or a veterancy promotion. ' +
       'Covered by a campaign mission replay with a civic-hall zone (the ROE rows) and a promotion (promotedValue)'
   ),
@@ -678,8 +743,8 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'field works (the lazily built works list, the offers, pending charges, staked sites and raised structures): no witness world stakes a work (versus never uses field works). Covered by a field-works mission world'
   ),
   ...rows(
-    'runtime.enemyLast runtime.markedThisMission runtime.rescuedBack runtime.pendingIntelEvents runtime.riseHold runtime.risePaid',
-    'side 1\'s mission-purchase cursor (D7: no shipped mission gives side 1 a camp), the intel marks and the intel events a completed objective owes, wound rescue (GH-707, engine-only), and high-ground rises (no witness map has a rise). ' +
+    'runtime.enemyLast runtime.markedThisMission runtime.pendingIntelEvents runtime.riseHold runtime.risePaid',
+    'side 1\'s mission-purchase cursor (D7: no shipped mission gives side 1 a camp), the intel marks and the intel events a completed objective owes, and high-ground rises (no witness map has a rise). ' +
       'Covered by a campaign mission replay with a marking objective and a high-ground rise'
   ),
   ...rows(
@@ -817,6 +882,26 @@ export function selfChecks(): SelfCheck[] {
         const queue = lines[0][0].queue;
         const held = queue.length;
         queue.length = 0;
+        if (held > 0) effective.add(b.sim.tickCount);
+      },
+    },
+    {
+      // The camp as a drop-off (the lead, 30 Oct 2026): the rescue world admits its man at tick 317 and sends him back at 517.
+      // A cut at 400 lands mid-treatment, so a restore that dropped the patient's clock would send him back early. The mutation
+      // writes the value such a restore would leave an admitted man with: one tick to go. It records a cut only where a man was
+      // admitted at that moment.
+      name: 'admitted patient\'s clock cut short (rescue world)',
+      spec: { id: 'rescue tel_marum kdf/sarim 1000', plan: goldenPlan(1500), build: () => economyWorld('tel_marum', ['kdf', 'sarim'], 1000, undefined, true) },
+      plan: { Ts: [400], horizon: 300, tailFrom: 100, end: 1000 },
+      mutation: (effective) => (b) => {
+        const st = b.sim.state;
+        let held = 0;
+        for (let i = 0; i < b.sim.entityCount; i++) {
+          if (st.woundState[i] === WOUND_ADMITTED && st.woundTimer[i] > 1) {
+            st.woundTimer[i] = 1;
+            held++;
+          }
+        }
         if (held > 0) effective.add(b.sim.tickCount);
       },
     },

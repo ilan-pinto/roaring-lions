@@ -21,6 +21,10 @@ const EVERY = 1200;
  * too), which re-rolled every sign again: seed 1 went positive, and seed 2 reads negative (3 and 7 read
  * positive; 4, 5, 6, 8 and 9 pass the premise as well). If the premise test goes red after a unit or
  * formation edit, re-pick the seed here; never the sim.
+ * GH-707 (30 Oct): the medic team in 18 missions' starting forces (mission and map JSON are content too) re-rolled
+ * the sign again: seed 2 went positive. Was seed 2; seed 1 reads negative (5 does too; 3, 4, 6, 7, 8 and 9 read positive).
+ * GH-707 (30 Oct, the last seven): the medic team in seven more missions re-rolled it once more: seed 1 went positive. Was seed 1; seed 2
+ * reads negative (3 and 8 do too; 1, 4, 5, 6, 7 and 9 read positive).
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;

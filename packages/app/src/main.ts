@@ -4921,7 +4921,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (zoneContains(z, tx, ty)) return true;
     }
     return false;
-  }, me);
+  }, me, versusRoom);
   /** The armed combat formation (R/T/Y or the row's buttons): armed state, the key rule and the click's spend live in
    *  `input/formation-arming.ts`, where a spec can reach them; this only wires the world in. */
   const formationArming = createFormationArming({

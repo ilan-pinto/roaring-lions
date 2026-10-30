@@ -143,6 +143,14 @@ describe('validateCommand: rescue (GH-707)', () => {
     expect(validateCommand({ kind: 'rescue', ids: [1], target: 12 }, 0, world)).toBe(true); // an enemy's
     expect(validateCommand({ kind: 'rescue', ids: [12], target: 1 }, 1, world)).toBe(true);
   });
+  it('in a versus room only your OWN side\'s wounded are a target (the lead, 30 Oct 2026); outside it the rule above stands', () => {
+    const versus = { ...world, versus: true };
+    expect(validateCommand({ kind: 'rescue', ids: [1], target: 3 }, 0, versus)).toBe(true); // own wounded
+    expect(validateCommand({ kind: 'rescue', ids: [12], target: 15 }, 1, versus)).toBe(true); // seat 1's own
+    expect(validateCommand({ kind: 'rescue', ids: [1], target: 12 }, 0, versus)).toBe(false); // an enemy's
+    expect(validateCommand({ kind: 'rescue', ids: [12], target: 1 }, 1, versus)).toBe(false);
+    expect(validateCommand({ kind: 'rescue', ids: [1], target: 999999 }, 0, versus)).toBe(false);
+  });
   it('drops a foreign medic, no medic, or a target that does not exist', () => {
     expect(validateCommand({ kind: 'rescue', ids: [1, 12], target: 3 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'rescue', ids: [12], target: 3 }, 0, world)).toBe(false);

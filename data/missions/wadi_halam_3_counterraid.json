@@ -87,6 +87,14 @@
         8,
         22
       ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        8,
+        20
+      ]
     }
   ],
   "resources": {

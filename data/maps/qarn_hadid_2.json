@@ -36,6 +36,10 @@
   "civ_refuge": [
    10,
    44
+  ],
+  "wounded_evac": [
+    23,
+    45
   ]
  },
  "zones": {

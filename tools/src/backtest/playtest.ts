@@ -753,12 +753,16 @@ run(
     // simply fly over it -- an ambush spring that can't touch what it's aimed at
     // costs nothing. One extra leg, fired while the drone is still inbound to the
     // ATGM bank (well before it arrives at [38,25]), swings it over [13,20] and
-    // back onto its original schedule: `at(22, ...)` below is untouched, and it
+    // back onto its schedule: the alley-row leg below (28 s, see its note) is untouched by it, and it
     // still reaches the alley row on time to finish `find_the_watch`. Measured
     // robust across a 2+ second window (t=8.4-10.5) for this leg alone; outside
     // it the drone is shot down before finishing the three kr_watch posts.
     at(9, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(13, 20) }));
-    at(22, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
+    // GH-707 (30 Oct): 22 s -> 28 s. With the loaned medic team in the force every later entity id moves by one,
+    // which re-rolls the watch posts' streams, and at 22 s the drone lost seed 8 (shot down at 26.5 s with one post
+    // unidentified). Measured on the 30 sweep seeds for this leg's time: 14 s 17/30, 16 s 16, 18 s 28, 20 s 28, 22 s 29,
+    // 24 s 29, then 25 s to 32 s 30/30 each. 28 s is the middle of that plateau.
+    at(28, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
 
     at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(18, 20) }));
     at(0, () => sim.queueCommand({ kind: 'move', ids: eitan, ...M(27, 16) }));
@@ -813,12 +817,30 @@ run(
     // Jeep: the close southern family, ten tiles from the start line.
     at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(22, 32) }));
     at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 23) }));
+    // The jeep's one move order at 15 s is lost if it is routed or pinned at that moment (seed 24: shot at by the
+    // patrolling technical, it stood on the family for the rest of the clock). A player re-orders a stopped jeep.
+    for (let when = 20; when <= 200; when += 5)
+      at(when, () => {
+        const j = jeep.filter((i) => sim.state.alive[i] === 1 && sim.state.moving[i] === 0 && sim.state.posY[i] > fx.from(26));
+        if (j.length > 0 && rt.objectiveStatus('get_four_in') === 'active') sim.queueCommand({ kind: 'move', ids: j, ...M(24, 23) });
+      });
 
     // Namer: the eastern family up the east flank of the ring road.
     at(0, () => {
       sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 30) });
       sim.queueCommand({ kind: 'move', ids: namer, ...M(34, 13), append: true });
     });
+    // GH-707 (30 Oct): the first of the ward's Eitans also goes up the east ring road at once, a second carrier for
+    // the eastern family, which the lane-east RPG, the mortar and the pinned family make the hardest of the three
+    // (with the medic team in the force the lane ambush took the Namer's tracks at 55 s on 424242, and the family,
+    // pinned and routed, would not board the replacement Eitan sent then: 0 stars). Whichever hull the family reaches
+    // first takes it in.
+    const eastRunner = eitan.slice(0, 1);
+    at(0, () => {
+      sim.queueCommand({ kind: 'move', ids: eastRunner, ...M(33, 30) });
+      sim.queueCommand({ kind: 'move', ids: eastRunner, ...M(34, 14), append: true });
+    });
+    at(60, () => sim.queueCommand({ kind: 'move', ids: eastRunner, ...M(24, 23) }));
     at(60, () => {
       sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 24) });
       sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23), append: true });
@@ -1491,7 +1513,11 @@ run(
     // Sent east too, they were pinned at (24-25,21) on three seeds of thirty, 3-4 tiles from the
     // shanty, and the Grad's rockets aimed at them landed on the demolition party as it set its
     // charges (seeds 4, 6, 8: `burn_the_ammo_point` failed at 300 s, the party dead at the cache).
-    at(104, () => sim.queueCommand({ kind: 'attackMove', ids: [...tank], ...M(36, 19) }));
+    // GH-707 (30 Oct): (36,19) -> (34,22). At (36,19) the Lavi stands a tile from the Kornet cell at (37,20), inside the
+    // gun's minimum range of it and of any picket that comes up the bank, and with the medic team in the force (every later id
+    // moved by one, the pickets' streams re-rolled) seed 22 lost the rifles, then the party, then the Lavi there. Measured on
+    // the 30 sweep seeds for the Lavi's stand: (36,19) 29/30, (30,24) 29, (28,21) 30, (32,20) 30, (33,22) 30, (35,21) 30, (34,22) 30.
+    at(104, () => sim.queueCommand({ kind: 'attackMove', ids: [...tank], ...M(34, 22) }));
     at(104, () => sim.queueCommand({ kind: 'move', ids: [...foot], ...M(21, 27) }));
     // Up the gully, one level below its banks, to the cache at its head.
     // GH-421 (vehicle separation): seed 8 sent the party at 130 s with a rifle picket coming down to
@@ -2033,8 +2059,17 @@ const ledUZ1 = run(
     // (10.0 from the window, 8.9 from `uz_eye_east`, 8.1 from the missile team) and the
     // way back runs down to y=44.5 rather than past the shed to (30,42). Measured over
     // 30 seeds: the missile team is identified at ~74 s on every seed.
-    at(70, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(32, 30.5) }));
-    at(76, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(31, 44.5) }));
+    // GH-707 (30 Oct): the look is now a stand-off at (36,33), 11.8 tiles from the missile team, at 60 s, and the way
+    // back starts at 68 s (was (32,30.5) at 70 s, back at 76 s). With the medic team in the force every later id moved
+    // by one and the missile team's stream was re-rolled: on the pinned seed the drone at (32,30.5) was shot 0.8 s after
+    // it arrived (74.8 s), which cost a body (credit 240 -> 238 with the medic's own 10 counted) and sent the ground force
+    // walking at 80 s, past the knoll shed (the AT team brought it down: 'Shanty destroyed', ROE 100 -> 98). From the
+    // stand-off the drone comes home on the pinned seed (credit 248, 3 stars, ROE 98 as before) and the ground force
+    // finishes the missile team. It is an island, not a plateau: of eighteen variants tried (arrival 60 s to 72 s,
+    // return 66 s to 78 s, fifteen points from (32,30.5) out to (38,28)) only this one kept the drone alive on the
+    // pinned seed. All of them win on the 30 sweep seeds.
+    at(60, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(36, 33) }));
+    at(68, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(31, 44.5) }));
     // Only the crest is left. Loop back through the same southern corridor
     // and up the far-western column, which measures outside `manpad_north`'s
     // 13-tile envelope for its entire length -- the reverse of the design
@@ -2610,7 +2645,9 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
       const c = pic.nearest(14, 7);
       const goalX = c ? c.x : 14;
       const goalY = c ? c.y : 7;
-      const hold = new Set([...demo, ...drone, ...ids('mortar_team')]);
+      // GH-707 (30 Oct): nor the loaned medic team, which has no business at the crest. Walking it in with the push, a
+      // rifle at the crest killed it at 314 s on 424242 (a body, 10 credits, after the sniper's, 259 -> 249).
+      const hold = new Set([...demo, ...drone, ...ids('mortar_team'), ...ids('inf_medic_squad')]);
       const tankUp = ids('mbt_lavi').some(
         (u) => sim.state.alive[u] === 1 && (fx.toNumber(sim.state.posX[u]) - goalX) ** 2 + (fx.toNumber(sim.state.posY[u]) - goalY) ** 2 <= 169
       );
@@ -3530,7 +3567,18 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // on the ramp's west knoll, ROE 91 -> 94). Every plan still wins 30 of 30, no star or gate moved, ROSTER_MAX stays 30.
 // Umm Zeitoun III's two singles in cover were measured and left out: they cost one survivor at 424242, which carries into
 // Umm Zeitoun IV and drops ROSTER_MAX to 27.
-const LADDER_CREDITS = 5973;
+// 2026-10-30, GH-707 (the lead's ruling): a loaned Nemala medic team in 18 more missions' starting forces (19 of
+// 26 with First Light). 5973 -> 6201, +228, read off the printed per-mission credits: Beit Sahwan I 300 -> 310, II
+// 200 -> 210, III 280 -> 290, IV 200 -> 210; Khan Rafid III 237 -> 260 (ROE 87 -> 90); Deir Amun I 270 -> 280, III
+// 245 -> 250 (ROE 90 -> 85); Qarn Hadid I 310 -> 320, II 190 -> 210, III 219 -> 229; Umm Zeitoun II 220 -> 240, III
+// 280 -> 290; Wadi Halam II 160 -> 180, III 160 -> 190, IV 198 -> 208, V 200 -> 220. Deir Amun II and Tel Marum I
+// pay what they paid (Tel Marum I brings home 5, not 6). Seven missions were measured and left out, see
+// `tools/src/medic_every_mission.test.ts`'s `LEFT_OUT`. Every plan still wins 30 of 30 seeds, no star or gate moved.
+// 2026-10-30, GH-707, the last seven: the loaned medic team in the seven missions PR 905 left out, each plan re-solved.
+// 6201 -> 6279, +78, read off the printed per-mission credits: Wadi Halam I 170 -> 190, Khan Rafid I 300 -> 310, Khan Rafid
+// II 215 -> 235 (ROE 90 -> 100), Tel Marum II 218 -> 228, Tel Marum III 285 -> 295, Umm Zeitoun I 240 -> 248 (ROE 100 -> 98),
+// Umm Zeitoun IV 259 -> 259. Every plan wins 30 of 30, no star or gate moved. ROSTER_MAX moves 31 -> 30 on its own line.
+const LADDER_CREDITS = 6279;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3686,6 +3734,12 @@ for (const [label, got, want] of [
 // 2026-10-25, GH-421 Stage 2 merged with GH-274 item 5: 31 -> 30, same mission, read off a fresh run.
 // Umm Zeitoun II's roster out reads 16 under vehicle avoidance against main's 17, and Umm Zeitoun III
 // (22) and IV (30) inherit the one body fewer. No outcome moved.
+// 2026-10-30, GH-707 (the lead's ruling): 30 -> 31, same mission. Umm Zeitoun II brings home one more body with its
+// medic team (roster out 16 -> 17), and he carries through III into IV (22 -> 23, 30 -> 31). The medic itself is on
+// loan and goes back to the lender; it is not in the count.
+// 2026-10-30, GH-707, the last seven: 31 -> 30, same mission. With the medic team in the force Umm Zeitoun IV's sniper team
+// dies at the crest at 247 s (the re-rolled streams), one body fewer than the 31 the chain carried out before. Umm Zeitoun IV's
+// credit is 259 as before, because its medic comes home and pays for the sniper. Seeds 100-129 still win 30 of 30 there.
 const ROSTER_MAX = 30;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
