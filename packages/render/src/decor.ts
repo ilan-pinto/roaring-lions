@@ -17,4 +17,6 @@ export const TERRAIN_DECOR = {
   ridge: 4,
   /** An anti-tank ditch tile (`d`). */
   ditch: 5,
+  /** A marsh tile (`~`), wetland only. */
+  marsh: 6,
 } as const;

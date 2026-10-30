@@ -20,23 +20,39 @@
  * cannot shift both halves of the comparison together.
  */
 import { describe, expect, it } from 'vitest';
-import { paletteColor } from '@lions/data';
+import { maps, paletteColor, parseMap } from '@lions/data';
 import { TERRAIN_THEMES } from '../../packages/app/src/terrain-themes';
-import { labDistance, toLab } from './cvd';
+import { decorFamiliesFor } from '../../packages/app/src/mesh-catalogue';
+import { labDistance } from './cvd';
+import { deltaE2000, linearHex } from './delta-e2000';
 
 /** The KDF uniform's lit albedo (`mesh-role.ts`: the `olive` ramp's lift). */
 const KDF_UNIFORM_KEY = 'olive.1';
 /** What an UNTINTED foliage family draws: the decor `foliage` ramp's lift
  *  (`decor-role.ts`, `sliceFrom('olive', 0)` through `liftTone`, index 1). */
 const UNTINTED_FOLIAGE_KEY = 'olive.1';
-/** Every decor family that carries a `foliage` role. */
+/** Every decor family that carries a `foliage` role, on the shipped themes. */
 const FOLIAGE_FAMILIES = ['tree', 'desert_tree', 'bush', 'grass', 'cedar'] as const;
+/**
+ * The wetland's OWN families (GH-871 P2 T4, plan R-1). Arid and highland keep
+ * the list above, because a family a theme cannot place is not checked on it:
+ * the wetland places no `tree` or `cedar`, and arid places no `willow`. Task 7
+ * pins this list against `decorFamiliesFor(ein_qasab)`.
+ */
+const WETLAND_FAMILIES = ['oak', 'willow', 'shrub', 'reed', 'wet_grass'] as const;
 /**
  * Green is EXCLUDED by the lead's ruling: the Wadi Halam frames were mixed (the
  * Eitan reads worse on scrub), so green keeps its foliage as it was. It is
  * pinned UNMOVED below instead.
  */
 const THEMES = ['arid', 'highland'] as const;
+type Theme = (typeof THEMES)[number] | 'wetland';
+/** Each checked theme's foliage families. */
+const FAMILIES: Readonly<Record<Theme, readonly string[]>> = {
+  arid: FOLIAGE_FAMILIES,
+  highland: FOLIAGE_FAMILIES,
+  wetland: WETLAND_FAMILIES,
+};
 
 /**
  * WHAT THIS GUARD IS: a regression pin on the palette-KEY bracket, nothing
@@ -58,73 +74,13 @@ const THEMES = ['arid', 'highland'] as const;
  */
 const MIN_FIGURE_GROUND_DE76 = 15;
 
-/** A hex to LINEAR RGB, the input `labDistance` takes (the IEC 61966-2-1
- *  curve; `cvd.ts` keeps its own decoder private behind `simulate`). */
-const linearHex = (hex: string): readonly [number, number, number] => {
-  const h = hex.replace('#', '');
-  const c = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
-  return c.map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as unknown as readonly [
-    number,
-    number,
-    number,
-  ];
-};
 const linear = (key: string): readonly [number, number, number] => linearHex(paletteColor(key));
-
-/** CIEDE2000 between two linear-RGB colours (Sharma et al. 2005), on `cvd.ts`'s Lab. */
-function deltaE2000(
-  c1: readonly [number, number, number],
-  c2: readonly [number, number, number]
-): number {
-  const [L1, a1, b1] = toLab(c1);
-  const [L2, a2, b2] = toLab(c2);
-  const rad = Math.PI / 180;
-  const C1 = Math.hypot(a1, b1);
-  const C2 = Math.hypot(a2, b2);
-  const Cb7 = ((C1 + C2) / 2) ** 7;
-  const G = 0.5 * (1 - Math.sqrt(Cb7 / (Cb7 + 25 ** 7)));
-  const a1p = (1 + G) * a1;
-  const a2p = (1 + G) * a2;
-  const C1p = Math.hypot(a1p, b1);
-  const C2p = Math.hypot(a2p, b2);
-  const h1p = ((Math.atan2(b1, a1p) / rad) + 360) % 360;
-  const h2p = ((Math.atan2(b2, a2p) / rad) + 360) % 360;
-  const dLp = L2 - L1;
-  const dCp = C2p - C1p;
-  let dh = h2p - h1p;
-  if (C1p * C2p === 0) dh = 0;
-  else if (dh > 180) dh -= 360;
-  else if (dh < -180) dh += 360;
-  const dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin((dh * rad) / 2);
-  const Lbp = (L1 + L2) / 2;
-  const Cbp = (C1p + C2p) / 2;
-  let hbp = h1p + h2p;
-  if (C1p * C2p !== 0) {
-    if (Math.abs(h1p - h2p) > 180) hbp = h1p + h2p < 360 ? (hbp + 360) / 2 : (hbp - 360) / 2;
-    else hbp /= 2;
-  }
-  const T =
-    1 -
-    0.17 * Math.cos((hbp - 30) * rad) +
-    0.24 * Math.cos(2 * hbp * rad) +
-    0.32 * Math.cos((3 * hbp + 6) * rad) -
-    0.2 * Math.cos((4 * hbp - 63) * rad);
-  const dTheta = 30 * Math.exp(-(((hbp - 275) / 25) ** 2));
-  const Rc = 2 * Math.sqrt(Cbp ** 7 / (Cbp ** 7 + 25 ** 7));
-  const Sl = 1 + (0.015 * (Lbp - 50) ** 2) / Math.sqrt(20 + (Lbp - 50) ** 2);
-  const Sc = 1 + 0.045 * Cbp;
-  const Sh = 1 + 0.015 * Cbp * T;
-  const Rt = -Math.sin(2 * dTheta * rad) * Rc;
-  return Math.sqrt(
-    (dLp / Sl) ** 2 + (dCp / Sc) ** 2 + (dHp / Sh) ** 2 + Rt * (dCp / Sc) * (dHp / Sh)
-  );
-}
 
 /** The ΔE2000 floor: between scrub.0 (9.81, refused) and scrub.1 (12.60). */
 const MIN_FIGURE_GROUND_DE2000 = 12;
 
 /** The palette KEY a family's foliage resolves to on a theme (by hex). */
-function foliageHex(theme: (typeof THEMES)[number], family: string): string {
+function foliageHex(theme: Theme, family: string): string {
   return TERRAIN_THEMES[theme].decorColors?.[`${family}:foliage`] ?? paletteColor(UNTINTED_FOLIAGE_KEY);
 }
 
@@ -170,11 +126,17 @@ describe('VR-05: foliage is scrub.1, off the KDF olive (arid and highland)', () 
     expect(d('scrub.1')).toBeGreaterThanOrEqual(MIN_FIGURE_GROUND_DE2000);
   });
 
-  for (const theme of THEMES) {
+  for (const theme of [...THEMES, 'wetland'] as const) {
     it(`${theme}: every foliage tone is at least ΔE2000 ${MIN_FIGURE_GROUND_DE2000} from the KDF uniform`, () => {
       const uniform = linear(KDF_UNIFORM_KEY);
-      const tones: Array<[string, string]> = FOLIAGE_FAMILIES.map((f) => [`${f}:foliage`, foliageHex(theme, f)]);
-      tones.push(['low', TERRAIN_THEMES[theme].low]);
+      const tones: Array<[string, string]> = FAMILIES[theme].map((f) => [`${f}:foliage`, foliageHex(theme, f)]);
+      // The wetland's tussock (`low`, `fen.1`, spec 4.2) reads ΔE2000 8.44 from
+      // the uniform (9.34 before the S-6 tone round), under this floor; it is
+      // the scatter tussock, not a foliage family, and is PINNED rather than
+      // gated: see 'the wetland tussock (low) ...' below (GH-871 P2 T4, S-6).
+      if (theme !== 'wetland') tones.push(['low', TERRAIN_THEMES[theme].low]);
+      // Not vacuous: the wetland path checked its five families, each tinted.
+      if (theme === 'wetland') expect(tones).toHaveLength(5);
       for (const [name, hex] of tones) {
         const d = deltaE2000(uniform, linearHex(hex));
         expect(d, `${theme} ${name} (${hex}): ΔE2000 ${d.toFixed(2)}`).toBeGreaterThanOrEqual(MIN_FIGURE_GROUND_DE2000);
@@ -194,5 +156,49 @@ describe('VR-05: foliage is scrub.1, off the KDF olive (arid and highland)', () 
     expect(labDistance(u, linear('olive.1'))).toBeLessThan(MIN_FIGURE_GROUND_DE76);
     expect(labDistance(u, linear('olive.2'))).toBeLessThan(MIN_FIGURE_GROUND_DE76);
     expect(labDistance(u, linear('scrub.1'))).toBeGreaterThanOrEqual(MIN_FIGURE_GROUND_DE76);
+  });
+});
+
+describe('GH-871 P2 T4: the wetland keeps its own foliage off the KDF uniform', () => {
+  it('declares a tint for every one of its five families, none of them the untinted olive.1', () => {
+    const w = TERRAIN_THEMES.wetland.decorColors ?? {};
+    for (const f of WETLAND_FAMILIES) {
+      expect(w[`${f}:foliage`], `${f}:foliage`).toBeDefined();
+      expect(w[`${f}:foliage`], `${f}:foliage`).not.toBe(paletteColor(UNTINTED_FOLIAGE_KEY));
+    }
+  });
+
+  it('measures the wetland tones as the plan states them (literal ΔE2000 from olive.1)', () => {
+    const d = (hex: string) => deltaE2000(linear(KDF_UNIFORM_KEY), linearHex(hex));
+    // oak and shrub #3E5C2E: 12.60 -- the floor's own margin, 0.6 over 12.
+    expect(d('#3E5C2E')).toBeCloseTo(12.6, 1);
+    // fen.1 as oak foliage would be 8.44 (9.34 for the first cut #4B7135), under the floor: the falsification.
+    expect(d(paletteColor('fen.1'))).toBeCloseTo(8.44, 1);
+    expect(d(paletteColor('fen.1'))).toBeLessThan(MIN_FIGURE_GROUND_DE2000);
+    // the willow crown (fen.0 #7F9F57; 18.37 for the first cut #75A659): the margin over the floor
+    expect(d(foliageHex('wetland', 'willow'))).toBeCloseTo(15.82, 1);
+    // the five families' lowest, as a literal: oak and shrub at 12.60 (reed 15.65, wet_grass 21.30)
+    expect(d(foliageHex('wetland', 'reed'))).toBeCloseTo(15.65, 1);
+    expect(d(foliageHex('wetland', 'wet_grass'))).toBeCloseTo(21.3, 1);
+  });
+
+  it('pins the wetland tussock (low = fen.1) against the uniform, known debt below the 12 foliage floor', () => {
+    // known debt: below the 12 foliage floor; delete when retinted. It was 9.34 at
+    // #4B7135 and is 8.44 at #4F6732 (S-6 moved fen.1 olive-ward and less saturated).
+    // Pinned so a later ramp edit cannot move it unnoticed.
+    const d = deltaE2000(linear(KDF_UNIFORM_KEY), linearHex(TERRAIN_THEMES.wetland.low));
+    expect(TERRAIN_THEMES.wetland.low).toBe(paletteColor('fen.1'));
+    expect(d, `wetland low (${TERRAIN_THEMES.wetland.low}): ΔE2000 ${d.toFixed(2)}`).toBeCloseTo(8.44, 2);
+    expect(d).toBeLessThan(MIN_FIGURE_GROUND_DE2000);
+  });
+
+  it('lists exactly the foliage-carrying families the Ein Qasab greybox plans to place (Task 7)', () => {
+    // The foliage-carrying families, as a LITERAL: ground-and-stone families (sand, boulder, rock, slab, ditch)
+    // carry no `foliage` role, so they are not in it.
+    const CARRIES_FOLIAGE = new Set(['tree', 'desert_tree', 'bush', 'grass', 'cedar', 'oak', 'willow', 'shrub', 'reed', 'wet_grass']);
+    const planned = [...decorFamiliesFor(parseMap(maps.ein_qasab))].filter((f) => CARRIES_FOLIAGE.has(f)).sort();
+    // Not vacuous: the wetland path ran and planned all five.
+    expect(planned.length).toBeGreaterThan(0);
+    expect(planned).toEqual([...WETLAND_FAMILIES].sort());
   });
 });

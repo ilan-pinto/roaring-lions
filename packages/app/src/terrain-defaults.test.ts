@@ -1,28 +1,32 @@
 /**
- * GH-322: every map OUTSIDE the Sur highland draws exactly what it drew
- * before the highland biome existed.
+ * GH-322, widened by GH-871: every shipped map composes exactly the terrain
+ * it composed before the change under test, highland included.
  *
- * The biome is a third `terrain` value plus three optional `TerrainTones`
- * fields (`decorColors`, `openScatter`, `macroHue`) whose absence is today's
- * behaviour. That is true by construction for the code paths -- but not for
- * the PALETTE: the biome added a `karst` ramp to `data/palette.json`, and
- * every terrain tone is `quantise`d to the nearest palette entry
- * (`terrain/tones.ts`). A new entry nearer to some arid composite than the
- * entry it used to snap to would recolour that tile on a map nobody touched,
- * silently. So the pin is on the OUTPUT, not on the code: the full
- * `composeTerrain` result (ground, scatter, residual, building boxes, decor
- * and prop placements) for every non-highland shipped map, hashed, against
- * hashes recorded at `origin/main` 7dc3d134 -- the commit before the biome.
- * The ARID pins were REGENERATED for VR-05 (tussock `low` and foliage moved to
- * `scrub.1`: a deliberate change to how arid maps draw). Green maps keep
- * `origin/main`'s pins, by the lead's ruling that green keeps its foliage.
+ * The pin began (GH-322) as "every map OUTSIDE the Sur highland draws what it
+ * drew before the highland biome existed". The wetland theme (GH-871) adds
+ * another theme to the same composer, so it now pins ALL shipped maps: a
+ * wetland change that leaked onto a highland, arid or green map would fail
+ * here, and so would a change to the highland map itself.
+ *
+ * Wetland maps are excluded (T7): the theme is meant to move through P3-P5, and the fixture is not edited.
+ *
+ * The pin is on the OUTPUT, not on the code. Every terrain tone is `quantise`d
+ * to the nearest palette entry (`terrain/tones.ts`), so a new palette entry
+ * nearer to some composite than the entry it used to snap to would recolour a
+ * tile on a map nobody touched, silently. So the full `composeTerrain` result
+ * (ground, scatter, residual, building boxes, decor and prop placements) for
+ * every shipped map is hashed against a recorded fixture. The ARID pins were
+ * REGENERATED for VR-05 (tussock `low` and foliage moved to `scrub.1`: a
+ * deliberate change to how arid maps draw). Green maps keep `origin/main`'s
+ * pins, by the lead's ruling that green keeps its foliage. The highland pins
+ * were first recorded for GH-871 from the tree at b5e8f0be.
  *
  * The tones come through `rendererOptionsFor`, the app's one route from a map
  * to its `TerrainTones`, so a per-map grove override that leaked onto a map
  * without one would fail here too.
  *
- * Regenerate (only for a DELIBERATE change to how a non-highland map draws,
- * and say so in the commit): `UPDATE_TERRAIN_DEFAULTS=1 pnpm vitest run
+ * Regenerate (only for a DELIBERATE change to how a shipped map draws, and say
+ * so in the commit): `UPDATE_TERRAIN_DEFAULTS=1 pnpm vitest run
  * packages/app/src/terrain-defaults.test.ts`.
  */
 import { createHash } from 'node:crypto';
@@ -64,24 +68,32 @@ function digest(id: MapId): string {
   return h.digest('hex');
 }
 
-const nonHighland = (Object.keys(maps) as MapId[]).filter((id) => parseMap(maps[id]).terrain !== 'highland').sort();
+/** Every shipped map whose theme is not `wetland` (GH-871 P2 T7). A wetland map is MEANT to move through
+ *  P3-P5 (art, rain, final layouts), so it cannot hold a byte pin; its checks are the marsh and greybox
+ *  tests. The 35 recorded keys are exactly the maps the wetland work must never move. */
+const wetland = (Object.keys(maps) as MapId[]).filter((id) => parseMap(maps[id]).terrain === 'wetland').sort();
+const shipped = (Object.keys(maps) as MapId[]).filter((id) => parseMap(maps[id]).terrain !== 'wetland').sort();
 
-describe('non-highland maps draw byte-for-byte as before the biome (GH-322)', () => {
+describe('every shipped map composes byte-for-byte to its recorded terrain (GH-322, GH-871)', () => {
   if (UPDATE) {
     it('regenerates the fixture', () => {
       const out: Record<string, string> = {};
-      for (const id of nonHighland) out[id] = digest(id);
+      for (const id of shipped) out[id] = digest(id);
       writeFileSync(FIXTURE, `${JSON.stringify(out, null, 2)}\n`);
     }, 120_000);
     return;
   }
   const recorded = JSON.parse(readFileSync(FIXTURE, 'utf8')) as Record<string, string>;
 
-  it('covers every non-highland map, and only those', () => {
-    expect(Object.keys(recorded).sort()).toEqual(nonHighland);
+  it('covers every shipped map that is not wetland, and only those', () => {
+    expect(Object.keys(recorded).sort()).toEqual(shipped);
+    // Not vacuous: the filter excludes the wetland greybox and keeps the 35 recorded keys.
+    expect(wetland).toContain('ein_qasab');
+    expect(shipped).not.toContain('ein_qasab');
+    expect(shipped).toHaveLength(35);
   });
 
-  for (const id of nonHighland) {
+  for (const id of shipped) {
     it(`${id} composes to the recorded terrain`, () => {
       expect(digest(id)).toBe(recorded[id]);
     }, 30_000);

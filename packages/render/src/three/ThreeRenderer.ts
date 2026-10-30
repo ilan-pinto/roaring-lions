@@ -7112,7 +7112,7 @@ export class ThreeRenderer implements Renderer {
     // failure leaves the type with neither.
     const side1Key = templateKey(unitTypeId, 1, bySide);
     let side1Templates: MeshUnitTemplate[] | null = null;
-    // GH-826: with the kit off both seats draw the same figure, so no second set.
+    // GH-826: with the kit switched off (the kill switch) both seats draw the same figure, so no second set.
     if (INFANTRY_KIT_ENABLED && side1Key !== unitTypeId && templates.some((t) => t.kitted === true)) {
       try {
         side1Templates = await buildSet(templateKitTiers(unitTypeId, 1, this.opts.unitKitTiers, bySide));
@@ -13310,6 +13310,9 @@ export function composeTerrainFrom(
     // GH-322: the theme's extra open-ground decor, read only by
     // `decorPlacements`. Absent on every theme but `highland`.
     openScatter: tones.openScatter,
+    // GH-871: the wetland's remap and waterside tree. Read by the decor pass (T6b/T6c).
+    familyRemap: tones.familyRemap,
+    waterside: tones.waterside,
   };
   // One surface for both builders and for the diff -- each used to build its
   // own from the same `input`.

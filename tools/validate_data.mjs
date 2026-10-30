@@ -1378,7 +1378,10 @@ const garrisonableSymbols = new Set(
 // lists agreeing is asserted by tools/src/terrain_symbols.test.ts, which reads
 // this file's source text and regexes out the TERRAIN_SYMBOLS literal below,
 // rather than trusting a comment to keep them in sync.
-const TERRAIN_SYMBOLS = new Set(['.', '1', '2', '3', 'r', 'o', 'n', '^', 'b', 'd']);
+const TERRAIN_SYMBOLS = new Set(['.', '1', '2', '3', 'r', 'o', 'n', '^', 'b', 'd', '~']);
+// Symbols legal on one theme only (twin of map.ts's THEME_SYMBOLS, held equal by
+// tools/src/terrain_symbols.test.ts, which regexes this literal out of this file).
+const THEME_SYMBOLS = { '~': 'wetland' };
 for (const [sym, id] of structureSymbols) {
   if (TERRAIN_SYMBOLS.has(sym)) {
     failures.push(
@@ -1431,6 +1434,20 @@ for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
     }
   }
   if (Array.isArray(m.rows)) {
+    const theme = m.terrain ?? 'arid';
+    for (const [sym, only] of Object.entries(THEME_SYMBOLS)) {
+      if (theme === only) continue;
+      let first = null;
+      m.rows.forEach((row, y) => {
+        if (first === null && typeof row === 'string' && row.includes(sym)) first = `(${row.indexOf(sym)},${y})`;
+      });
+      if (first !== null) {
+        failures.push(
+          `${rel(file)}: symbol "${sym}" is legal on terrain "${only}" only, first at ${first}, ` +
+            `but this map's terrain is "${theme}"`
+        );
+      }
+    }
     if (m.rows.length !== m.height) {
       failures.push(`${rel(file)}: ${m.rows.length} rows but declared height ${m.height}`);
     }

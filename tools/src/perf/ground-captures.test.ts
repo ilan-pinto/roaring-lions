@@ -62,6 +62,37 @@ describe('viewsFor', () => {
   });
 });
 
+describe('--markers', () => {
+  it('parses <map>:<marker> pairs, and is absent without the flag', () => {
+    const a = parseGroundCaptureArgs(['--maps=ein_qasab,tel_marum', '--markers=ein_qasab:kdf_start,tel_marum:saddle']);
+    expect(a.markers).toEqual([
+      { map: 'ein_qasab', marker: 'kdf_start' },
+      { map: 'tel_marum', marker: 'saddle' },
+    ]);
+    expect(parseGroundCaptureArgs(['--maps=ein_qasab']).markers).toBeUndefined();
+  });
+  it('refuses a malformed pair and a map the run does not photograph', () => {
+    expect(() => parseGroundCaptureArgs(['--maps=a', '--markers=a'])).toThrow(/<map>:<marker>/);
+    expect(() => parseGroundCaptureArgs(['--maps=a', '--markers=b:m'])).toThrow(/map "b"/);
+  });
+  const rows = Array.from({ length: 48 }, () => '.'.repeat(48));
+  const table = { kdf_start: [4, 44], hamlet: [42, 22] } as const;
+  it('appends a z1 and a z2.5 no-fog view per named marker, centred on its tile', () => {
+    const base = viewsFor('m', rows);
+    const views = viewsFor('m', rows, ['kdf_start'], table);
+    expect(views.slice(0, base.length)).toEqual(base);
+    expect(views.slice(base.length)).toEqual([
+      { name: 'm-kdf_start-z1', x: 4, y: 44, zoom: 1, fog: false },
+      { name: 'm-kdf_start-z2.5', x: 4, y: 44, zoom: 2.5, fog: false },
+    ]);
+  });
+  it('names the marker and the map when the marker does not exist', () => {
+    expect(() => viewsFor('m', rows, ['causeway_x'], table)).toThrow(/map "m" has no marker "causeway_x"/);
+    // inherited keys are not markers
+    expect(() => viewsFor('m', rows, ['toString'], table)).toThrow(/no marker "toString"/);
+  });
+});
+
 describe('COST_LAYERS', () => {
   it('measures decals ahead of scorch, so the one array reads both trees', () => {
     expect(COST_LAYERS).toEqual(['scatter', 'decor', 'props', 'units', 'buildings', 'decals', 'scorch']);

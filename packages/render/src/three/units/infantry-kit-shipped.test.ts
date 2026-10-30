@@ -42,16 +42,14 @@ const STATES: [string, Record<string, number>, Partial<typeof BASE>][] = [
 ];
 
 /**
- * `kitEnabled` is forced ON here by default: the shipped switch is OFF
- * (`INFANTRY_KIT_ENABLED`, GH-826, 28 Oct 2026), and these tests keep the
- * pipeline honest for the redesign. Pass `SHIPPED` for the shipped switch.
+ * The builds below use the SHIPPED switch (`INFANTRY_KIT_ENABLED`, GH-826), so
+ * they also prove the shipped constant lets the kit through. Pass `false` for
+ * the kill-switch path.
  */
-const SHIPPED = 'shipped' as const;
-
-async function build(tiers?: Record<string, number>, kitEnabled: boolean | typeof SHIPPED = true) {
+async function build(tiers?: Record<string, number>, kitEnabled?: boolean) {
   const gltf = await parseGlbHeadless(GLB);
   const t =
-    kitEnabled === SHIPPED
+    kitEnabled === undefined
       ? buildMeshUnitTemplate(gltf, 'kdf', 'inf_squad.glb', true, tiers)
       : buildMeshUnitTemplate(gltf, 'kdf', 'inf_squad.glb', true, tiers, kitEnabled);
   const meshes: Record<string, THREE.SkinnedMesh> = {};
@@ -146,18 +144,31 @@ describe('inf_squad through the real loader', () => {
 describe('the shipped switch (INFANTRY_KIT_ENABLED, GH-826)', () => {
   const FULL = { armour: 3, sensors: 3, firepower: 3 };
 
-  it('is off', () => {
-    expect(INFANTRY_KIT_ENABLED).toBe(false);
+  it('is on', () => {
+    expect(INFANTRY_KIT_ENABLED).toBe(true);
   });
 
-  it('with the shipped switch, inf_squad at max tiers builds the SAME geometry as tier 0', async () => {
-    const tier0 = (await build(undefined, SHIPPED)).meshes;
-    const maxed = (await build(FULL, SHIPPED)).meshes;
+  it('with the shipped switch, inf_squad at max tiers ADDS the kit to tier 0 (literal triangle counts)', async () => {
+    const tier0 = (await build(undefined)).meshes;
+    const maxed = (await build(FULL)).meshes;
+    expect(Object.keys(maxed).sort()).toEqual(Object.keys(tier0).sort());
+    // Literals, not a recomputation of the part table: the full-kit state.
+    const FULL_KIT = { ...BASE, uniform: 8982, weapon: 2353 };
+    for (const name of Object.keys(tier0)) {
+      expect(tris(tier0[name]), `${name} tier 0`).toBe(BASE[name as keyof typeof BASE]);
+      expect(tris(maxed[name]), `${name} max`).toBe(FULL_KIT[name as keyof typeof FULL_KIT]);
+    }
+    expect(maxed.uniform.geometry.userData[KIT_BASE_COUNT_KEY]).toBe(BASE.uniform * 3);
+    expect(maxed.weapon.geometry.userData[KIT_BASE_COUNT_KEY]).toBe(BASE.weapon * 3);
+  });
+
+  it('the kill switch (false) builds the SAME geometry as tier 0, whatever is bought', async () => {
+    const tier0 = (await build(undefined, false)).meshes;
+    const maxed = (await build(FULL, false)).meshes;
     expect(Object.keys(maxed).sort()).toEqual(Object.keys(tier0).sort());
     for (const name of Object.keys(tier0)) {
       const a = tier0[name].geometry;
       const b = maxed[name].geometry;
-      // Literals: the shipped figure, not a recomputation of the part table.
       expect(tris(maxed[name]), name).toBe(BASE[name as keyof typeof BASE]);
       expect(b.index?.count, name).toBe(a.index?.count);
       for (const attr of Object.keys(a.attributes)) {
@@ -168,12 +179,14 @@ describe('the shipped switch (INFANTRY_KIT_ENABLED, GH-826)', () => {
     }
   });
 
-  it('and no kit node is left in the scene', async () => {
-    const { t } = await build(FULL, SHIPPED);
-    let kit = 0;
-    t.root.traverse((o) => {
-      if (o.name.startsWith('kit_')) kit++;
-    });
-    expect(kit).toBe(0);
+  it('and no kit node is left in the scene, switch on or off', async () => {
+    for (const enabled of [undefined, false]) {
+      const { t } = await build(FULL, enabled);
+      let kit = 0;
+      t.root.traverse((o) => {
+        if (o.name.startsWith('kit_')) kit++;
+      });
+      expect(kit).toBe(0);
+    }
   });
 });

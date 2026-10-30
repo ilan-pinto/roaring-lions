@@ -147,8 +147,8 @@ export function buildMeshUnitTemplate(
   kitTiers?: InfantryKitTiers,
   /**
    * Whether `kitTiers` is honoured. Defaults to the shipped switch
-   * (`INFANTRY_KIT_ENABLED`, off: GH-826, 28 Oct 2026); only a test passes
-   * `true`. When off, the kit nodes are still stripped, exactly as at tier 0.
+   * (`INFANTRY_KIT_ENABLED`, on since 29 Oct 2026: GH-826); only a test passes
+   * a value. When off, the kit nodes are still stripped, exactly as at tier 0.
    */
   kitEnabled: boolean = INFANTRY_KIT_ENABLED
 ): MeshUnitTemplate {

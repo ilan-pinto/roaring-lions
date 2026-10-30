@@ -7,14 +7,16 @@
 //   ^  rock ridge: impassable and blocks sight, the only non-building blocked tile
 //   b  boulder field: open ground on foot, a wall to anything wheeled or tracked
 //   d  anti-tank ditch: the same, dug rather than natural
+//   ~  marsh: the same vehicle wall, with cover 1 -- legal on `wetland` only
 //   building symbols come from data/structures.json, NOT from this file
 //
-// `b` and `d` are the symbols whose passability depends on WHO is asking, which
+// `b`, `d` and `~` are the symbols whose passability depends on WHO is asking, which
 // is why `blocked` alone cannot carry them: the sim keeps a second mask, and
 // this file supplies the extra tiles that go into it. They are ONLY that -- no
-// cover, no sight-blocking, no HP, not destructible.
+// sight-blocking, no HP, not destructible -- and `b` and `d` carry no cover
+// either (`~` carries cover 1).
 //
-// The two are mechanically IDENTICAL and differ only in what is drawn. That is
+// `b` and `d` are mechanically IDENTICAL and differ only in what is drawn. That is
 // deliberate: `d` reuses `b`'s mask rather than inventing a second one, so it
 // costs the sim nothing at all -- no new field, no new code path, no
 // determinism exposure. What separates them is the decor layer, which is
@@ -47,9 +49,9 @@ import structureCatalogue from '../../../data/structures.json';
  * tone bundle `main.ts` hands the renderer and the shape of the open-ground
  * scatter. Adding a theme is a renderer change; adding a MAP is not.
  */
-export type TerrainTheme = 'arid' | 'green' | 'highland';
+export type TerrainTheme = 'arid' | 'green' | 'highland' | 'wetland';
 
-const TERRAIN_THEMES: ReadonlySet<string> = new Set<TerrainTheme>(['arid', 'green', 'highland']);
+const TERRAIN_THEMES: ReadonlySet<string> = new Set<TerrainTheme>(['arid', 'green', 'highland', 'wetland']);
 
 /**
  * Which species a map's `o` grove tiles draw, overriding its theme's own
@@ -135,7 +137,7 @@ export interface ParsedTunnel {
  * array to the renderer directly; the mechanical half of the same tile travels
  * the normal route, through `sim.setCover`.
  */
-export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3, ridge: 4, ditch: 5 } as const;
+export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3, ridge: 4, ditch: 5, marsh: 6 } as const;
 export type DecorKind = (typeof DECOR)[keyof typeof DECOR];
 
 /** One kit piece of a backdrop block, as a JSON module types it (`rot` and `at` are plain `number`/`number[]`
@@ -307,7 +309,21 @@ export const TERRAIN_LEGEND: Record<string, TerrainCell> = {
   // something to draw that is not a rock. `ParsedMap.boulder` says a vehicle
   // is stopped; `decor` says by what.
   d: { blocked: 0, boulder: 1, cover: 0, decor: DECOR.ditch },
+  // Marsh (GH-871 P2). Cover 1, like `o`: reeds hide a man, not a tank. It uses
+  // the vehicle wall `b` and `d` already use (`boulder: 1`), so a vehicle never
+  // enters it and infantry wade it, with no sim code and no new mask. Legal on
+  // `wetland` maps only; that is a data-gate rule (tools/validate_data.mjs,
+  // THEME_SYMBOLS' twin), because `parseMap` stays theme-agnostic as it is for
+  // `b` and `d`, so unit fixtures can use `~` freely. The decor kind is
+  // presentation only and, like `ditch`, is paired with a MECHANIC.
+  '~': { blocked: 0, boulder: 1, cover: 1, decor: DECOR.marsh },
 };
+
+/** Terrain symbols that are legal on one theme only. The data gate
+ *  (tools/validate_data.mjs) refuses the symbol on any other theme and keeps a
+ *  twin literal of this table, held equal by tools/src/terrain_symbols.test.ts.
+ *  `parseMap` does not read it. */
+export const THEME_SYMBOLS: Readonly<Record<string, TerrainTheme>> = { '~': 'wetland' };
 
 const LEGEND: Record<string, TerrainCell> = {
   ...TERRAIN_LEGEND,

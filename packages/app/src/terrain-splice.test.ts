@@ -26,7 +26,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
-import { maps, parseMap, applyTerrain, structures as structureCatalogue, paletteColor, type MapId } from '@lions/data';
+import { maps, parseMap, applyTerrain, structures as structureCatalogue, paletteColor, type MapId, type MapJson } from '@lions/data';
 import { composeTerrainFrom, type ComposedTerrainBuild } from '@lions/render/three';
 import {
   buildControlMap,
@@ -54,8 +54,9 @@ interface MapRig {
   build(prev: ComposedTerrainBuild | null): ComposedTerrainBuild;
 }
 
-function rig(id: MapId): MapRig {
-  const parsed = parseMap(maps[id]);
+function rig(source: MapId | MapJson): MapRig {
+  const id = typeof source === 'string' ? source : source.id;
+  const parsed = parseMap(typeof source === 'string' ? maps[source] : source);
   const sim = new Sim({ seed: 20261010, width: parsed.width, height: parsed.height, capacity: 64 });
   applyTerrain(parsed, sim);
   const typeIdx = new Map<string, number>();
@@ -108,8 +109,9 @@ function cloneMap(m: ControlMap): ControlMap {
  * previous SPLICE (never from a fresh build), and checks every step against a
  * full rebuild of the same world.
  */
-function walkCollapses(id: MapId, structures: readonly number[]): void {
-  const r = rig(id);
+function walkCollapses(source: MapId | MapJson, structures: readonly number[]): void {
+  const id = typeof source === 'string' ? source : source.id;
+  const r = rig(source);
   let spliced = r.build(null);
   const map = buildControlMap(spliced.composed.input);
   let inputs = snapshotControlInputs(spliced.composed.input);
@@ -226,5 +228,65 @@ describe('the margins are no wider than the builders read (the falsification, ke
     updateControlMapRegion(narrow, full.composed.input, changed, CONTROL_SPLICE_MARGIN_TEXELS - 1);
     const fresh = buildControlMap(full.composed.input);
     expect(bytesDiff(narrow.a, fresh.a) + bytesDiff(narrow.b, fresh.b)).toBeGreaterThan(0);
+  }, 30_000);
+});
+
+// -- The wetland's waterside willow pass (GH-871 P2, Task 6c) -------------
+
+/**
+ * A 48x48 wetland: an 8x8 marsh at tiles 20..27 and a two-tile house (`hh`)
+ * on its west bank, the inner tile (19, 24) in the ring and the outer one two
+ * tiles out. Through the real `Sim`, as the shell collapses it.
+ *
+ * What this proves, and what it cannot: the spliced placements equal a full
+ * build, the `starts` array is the four-pass layout, and the willows really
+ * stand on the bank (so the fourth pass ran). It cannot show a splice that
+ * skipped pass 3 going red, because no real collapse changes what pass 3
+ * emits: a standing house is blocked and its rubble (`rubble_cover` 1 or 2)
+ * is cover, so the tile is not plain open ground before OR after, and a
+ * fence is drawn out of the terrain's blocked mask (`draw-mask.ts`). The
+ * falsifiable splice case is `spliceDecorPlacements` itself, in
+ * `decor-place.test.ts`, on a tile that reopens with no rubble.
+ */
+function wetlandWithHouse(): MapJson {
+  const w = 48;
+  const rows: string[] = [];
+  for (let y = 0; y < w; y++) {
+    let line = '';
+    for (let x = 0; x < w; x++) {
+      if (x >= 20 && x <= 27 && y >= 20 && y <= 27) line += '~';
+      else if (y === 24 && (x === 18 || x === 19)) line += 'h';
+      else line += '.';
+    }
+    rows.push(line);
+  }
+  return { id: 'splice_wetland', name: 'Splice Wetland', width: w, height: w, terrain: 'wetland', rows };
+}
+
+describe('a collapse beside the marsh splices the willow pass to the bytes a full rebuild makes', () => {
+  it('a house on the bank: the spliced decor equals the full build, four passes of starts', () => {
+    const json = wetlandWithHouse();
+    expect(parseMap(json).structures.map((s) => s.type)).toEqual(['house']);
+    const r = rig(json);
+    const before = r.build(null);
+    // The wetland path ran: the theme's waterside reached the placer, the marsh
+    // laid its reeds, and willows stand on the bank.
+    expect(before.composed.input.waterside).toEqual({ tree: 'willow', p: 0.12, reach: 1 });
+    expect(before.composed.decorPlacements.filter((p) => p.family === 'reed').length).toBeGreaterThan(30);
+    expect(before.composed.decorPlacements.filter((p) => p.family === 'willow').length).toBeGreaterThan(0);
+    expect(before.state.decorPlacements.starts.length).toBe(4 * (48 * 48 + 1));
+
+    expect(r.sim.structures.alive[0]).toBe(1);
+    r.sim.debugDestroyStructure(0);
+    const spliced = r.build(before);
+    const full = r.build(null);
+    expect(spliced.rebuiltTiles).toBeGreaterThan(0);
+    expect(spliced.rebuiltTiles).toBeLessThan((48 * 48) / 10);
+    expect(spliced.composed.decorPlacements).toEqual(full.composed.decorPlacements);
+    expect(Array.from(spliced.state.decorPlacements.starts)).toEqual(Array.from(full.state.decorPlacements.starts));
+    const prevObjects = new Set(before.composed.decorPlacements);
+    const reused = spliced.composed.decorPlacements.filter((p) => prevObjects.has(p)).length;
+    expect(reused).toBeGreaterThan(spliced.composed.decorPlacements.length * 0.8);
+    expect(reused).toBeLessThan(spliced.composed.decorPlacements.length);
   }, 30_000);
 });

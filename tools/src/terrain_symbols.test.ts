@@ -19,7 +19,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { TERRAIN_LEGEND } from '@lions/data';
+import { TERRAIN_LEGEND, THEME_SYMBOLS } from '@lions/data';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 
@@ -45,5 +45,34 @@ describe('the terrain legend and the data gate agree', () => {
 
   it('declares exactly the same symbols in both places', () => {
     expect(validatorSymbols().sort()).toEqual(Object.keys(TERRAIN_LEGEND).sort());
+  });
+});
+
+/** The THEME_SYMBOLS object literal, read out of the validator's source. */
+function validatorThemeSymbols(): Record<string, string> {
+  const src = readFileSync(join(ROOT, 'tools/validate_data.mjs'), 'utf8');
+  const decl = /const THEME_SYMBOLS = \{([^}]*)\}/.exec(src);
+  if (decl === null) {
+    throw new Error(
+      'could not find `const THEME_SYMBOLS = {...}` in tools/validate_data.mjs — ' +
+        'if it was renamed or reformatted, update this regex, do not delete this test'
+    );
+  }
+  const out: Record<string, string> = {};
+  for (const m of decl[1].matchAll(/'((?:\\.|[^'\\])*)'\s*:\s*'((?:\\.|[^'\\])*)'/g)) out[m[1]] = m[2];
+  return out;
+}
+
+describe('the theme-restricted symbols and the data gate agree', () => {
+  it('finds the validator literal at all, and it is not empty', () => {
+    expect(Object.keys(validatorThemeSymbols()).length).toBeGreaterThan(0);
+  });
+
+  it('holds the validator twin equal to map.ts', () => {
+    expect(validatorThemeSymbols()).toEqual({ ...THEME_SYMBOLS });
+  });
+
+  it('only restricts symbols the legend declares', () => {
+    for (const sym of Object.keys(THEME_SYMBOLS)) expect(TERRAIN_LEGEND).toHaveProperty([sym]);
   });
 });

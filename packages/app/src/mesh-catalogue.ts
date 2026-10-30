@@ -59,9 +59,14 @@ export type DecorFamilyName =
   | 'grass'
   | 'sand'
   | 'bush'
+  | 'wet_grass'
+  | 'shrub'
+  | 'reed'
   | 'tree'
   | 'desert_tree'
   | 'cedar'
+  | 'oak'
+  | 'willow'
   | 'rock'
   | 'slab'
   | 'boulder'
@@ -428,6 +433,16 @@ export const DECOR_MESHES: Readonly<Record<DecorFamilyName, readonly string[]>> 
   // GH-322: the Sur highland's Cedrus libani -- one Meshy base fitted to the
   // decor contract at 5.4 / 4.4 / 3.3 m (`tools/terrain/fit_meshy_cedar.py`).
   cedar: ['decor/cedar_0.glb', 'decor/cedar_1.glb', 'decor/cedar_2.glb'],
+  // P2 stand-in (GH-871): P3 replaces with `decor/oak_<n>.glb`.
+  oak: ['decor/cedar_0.glb', 'decor/cedar_1.glb', 'decor/cedar_2.glb'],
+  // P2 stand-in (GH-871): P3 replaces with `decor/willow_<n>.glb`.
+  willow: ['decor/desert_tree_0.glb', 'decor/desert_tree_1.glb', 'decor/desert_tree_2.glb'],
+  // P2 stand-in (GH-871): P3 replaces with `decor/shrub_<n>.glb`.
+  shrub: ['decor/bush_0.glb', 'decor/bush_1.glb', 'decor/bush_2.glb'],
+  // P2 stand-in (GH-871): P3 replaces with `decor/reed_<n>.glb`.
+  reed: ['decor/bush_0.glb', 'decor/bush_1.glb', 'decor/bush_2.glb'],
+  // P2 stand-in (GH-871): P3 replaces with `decor/wet_grass_<n>.glb`.
+  wet_grass: ['decor/grass_0.glb', 'decor/grass_1.glb', 'decor/grass_2.glb'],
   rock: ['decor/rock_0.glb', 'decor/rock_1.glb', 'decor/rock_2.glb'],
   slab: ['decor/slab_0.glb', 'decor/slab_1.glb', 'decor/slab_2.glb'],
   boulder: ['decor/boulder_0.glb', 'decor/boulder_1.glb', 'decor/boulder_2.glb'],
@@ -846,7 +861,13 @@ export function decorFamiliesFor(map: ParsedMap): Set<DecorFamilyName> {
   // the old `terrain === 'green'` ternary was: a third species broke it.
   const tones = terrainTonesFor(map);
   const extra = tones.openScatter;
+  // The theme's grass/bush remap (`TerrainTones.familyRemap`), applied wherever
+  // `decor-place.ts` pushes a placement: the catalogue fetches the family that
+  // will be drawn, and a theme that renames `grass` never draws `grass`.
+  const remap = tones.familyRemap;
+  const drawn = (f: 'grass' | 'bush'): DecorFamilyName => (f === 'grass' ? remap?.grass : remap?.bush) ?? f;
   let sawOpen = false;
+  let sawMarsh = false;
   for (let t = 0; t < width * height; t++) {
     const d = decor[t];
     // A ridge is the one blocked tile that draws decor; every other blocked
@@ -860,6 +881,13 @@ export function decorFamiliesFor(map: ParsedMap): Set<DecorFamilyName> {
       out.add('ditch');
       continue;
     }
+    // Before the boulder branch for the same reason: a `~` tile sets the
+    // boulder mask too, and `familyFor` answers `reed` first.
+    if (d === DECOR.marsh) {
+      out.add('reed');
+      sawMarsh = true;
+      continue;
+    }
     if (boulder[t] !== 0) {
       out.add('boulder');
       continue;
@@ -871,11 +899,11 @@ export function decorFamiliesFor(map: ParsedMap): Set<DecorFamilyName> {
     if (d === DECOR.grove) out.add(tones.groveFamily);
     else if (d === DECOR.knoll) out.add('rock');
     else if (d === DECOR.ridge) out.add('slab');
-    else if (cover[t] > 0) out.add('bush');
+    else if (cover[t] > 0) out.add(drawn('bush'));
     else {
       // The fallback branch rolls between the two per tile, so a map with any
       // plain open ground can produce either -- unless the theme keeps no sand.
-      out.add('grass');
+      out.add(drawn('grass'));
       if (!extra || extra.sandKeep > 0) out.add('sand');
       sawOpen = true;
     }
@@ -884,10 +912,35 @@ export function decorFamiliesFor(map: ParsedMap): Set<DecorFamilyName> {
   if (extra && sawOpen) {
     out.add(extra.tree);
     out.add('boulder');
-    out.add('bush');
+    out.add(drawn('bush'));
     out.add('rock');
   }
+  // The waterside pass (GH-871 R-8) stands a tree on plain open ground within
+  // `reach` tiles of a `~` tile. A superset: it asks for plain ground, not for
+  // the road clearance the placer also demands.
+  const water = tones.waterside;
+  if (water && sawMarsh && openBesideMarsh(map, water.reach)) out.add(water.tree);
   return out;
+}
+
+/** Whether a plain open tile (no building, boulder mask, cover or decor) lies
+ *  within Chebyshev `reach` of a marsh tile. */
+function openBesideMarsh(map: ParsedMap, reach: number): boolean {
+  const { width, height, blocked, cover, decor, boulder } = map;
+  for (let t = 0; t < width * height; t++) {
+    if (decor[t] !== DECOR.none || blocked[t] !== 0 || cover[t] !== 0 || boulder[t] !== 0) continue;
+    const x = t % width;
+    const y = (t - x) / width;
+    for (let dy = -reach; dy <= reach; dy++) {
+      for (let dx = -reach; dx <= reach; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        if (decor[ny * width + nx] === DECOR.marsh) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**

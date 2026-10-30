@@ -48,6 +48,7 @@ import {
   VEHICLE_UNIT_MESHES,
   BUILDING_MESHES,
   DECOR_MESHES,
+  type DecorFamilyName,
   VFX_MESHES,
   PROP_MESHES,
   BACKDROP_MESHES,
@@ -355,6 +356,9 @@ describe('mesh catalogue: decor families', () => {
         // its olive override -- never against whatever the default is.
         groveFamily: terrainTonesFor(parsed).groveFamily,
         openScatter: terrainTonesFor(parsed).openScatter,
+        // The wetland's rename and waterside pass (GH-871 P2 T7): `undefined` on every other theme.
+        familyRemap: terrainTonesFor(parsed).familyRemap,
+        waterside: terrainTonesFor(parsed).waterside,
       },
     };
   }
@@ -371,6 +375,93 @@ describe('mesh catalogue: decor families', () => {
       expect([...placed].filter((f) => !planned.has(f)).sort()).toEqual([]);
     });
   }
+
+  describe('a synthetic wetland map (GH-871 P2 T6b)', () => {
+    /** 12x12: a 6x6 marsh, a grove strip, a road, two cover tiles, open bank. */
+    const rows = [
+      '............',
+      '..........1.',
+      '..........1.',
+      'oo.~~~~~~...',
+      'oo.~~~~~~...',
+      'oo.~~~~~~...',
+      'oo.~~~~~~...',
+      'oo.~~~~~~...',
+      'oo.~~~~~~...',
+      '............',
+      '............',
+      'rrrrrrrrrrrr',
+    ];
+    const wet = () =>
+      parseMap({
+        id: 'wet_fixture',
+        name: 'Wet fixture',
+        width: 12,
+        height: 12,
+        terrain: 'wetland',
+        rows,
+        markers: { entry: [0, 0] },
+        zones: {},
+      } as Parameters<typeof parseMap>[0]);
+
+    function placedFor(parsed: ReturnType<typeof parseMap>): Set<string> {
+      const sim = new Sim({ seed: 20260727, width: parsed.width, height: parsed.height, capacity: 256 });
+      applyTerrain(parsed, sim);
+      const tones = terrainTonesFor(parsed);
+      const input: TerrainInput = {
+        width: sim.width,
+        height: sim.height,
+        decor: parsed.decor,
+        elevation: parsed.elevation,
+        blocked: sim.blocked,
+        cover: sim.cover,
+        boulder: sim.boulder,
+        groveFamily: tones.groveFamily,
+        openScatter: tones.openScatter,
+        familyRemap: tones.familyRemap,
+        waterside: tones.waterside,
+      };
+      return new Set(decorPlacements(input).map((p) => p.family));
+    }
+
+    it('plans the reed, the remapped families and the waterside tree, and no plain grass or bush', () => {
+      const parsed = wet();
+      const planned = decorFamiliesFor(parsed);
+      // Literals, not what the code returns: the wetland path ran.
+      for (const f of ['reed', 'wet_grass', 'shrub', 'oak', 'willow'] as const) {
+        expect(planned.has(f), f).toBe(true);
+      }
+      expect(planned.has('grass')).toBe(false);
+      expect(planned.has('bush')).toBe(false);
+    });
+
+    it('is a superset of what the real placer places on it', () => {
+      const parsed = wet();
+      const placed = placedFor(parsed);
+      expect(placed.has('reed')).toBe(true);
+      expect(placed.has('wet_grass')).toBe(true);
+      expect(placed.has('shrub')).toBe(true);
+      expect([...placed].filter((f) => !decorFamiliesFor(parsed).has(f as DecorFamilyName)).sort()).toEqual([]);
+    });
+
+    it('asks for no willow when no open ground lies within reach of the marsh', () => {
+      const tight = parseMap({
+        id: 'wet_tight',
+        name: 'Wet tight',
+        width: 3,
+        height: 3,
+        terrain: 'wetland',
+        rows: ['~~~', '~~~', '~~~'],
+        markers: { entry: [0, 0] },
+        zones: {},
+      } as Parameters<typeof parseMap>[0]);
+      const planned = decorFamiliesFor(tight);
+      expect(planned.has('reed')).toBe(true);
+      expect(planned.has('willow')).toBe(false);
+      // A marsh alone is not a boulder field, though its tiles set the boulder mask.
+      expect(planned.has('boulder')).toBe(false);
+    });
+  });
 
   it('leaves a family out when the map cannot place it', () => {
     // The saving has to be real: beit_sahwan_outskirts is arid with no knoll
@@ -401,6 +492,20 @@ describe('mesh catalogue: what has a mesh at all', () => {
     expect(Object.values(VFX_MESHES).every((f) => f.startsWith('vfx/'))).toBe(true);
   });
 
+  it('names exactly the decor families DecorFamilyName names, wetland ones included (GH-871)', () => {
+    // `satisfies` makes this object a compile-time mirror of the union: a
+    // family dropped from `DecorFamilyName` is an excess key, and one added
+    // to it and missing here is a missing key -- both fail `pnpm typecheck`.
+    const NAMES = {
+      grass: 0, sand: 0, bush: 0, wet_grass: 0, shrub: 0, reed: 0, tree: 0, desert_tree: 0,
+      cedar: 0, oak: 0, willow: 0, rock: 0, slab: 0, boulder: 0, ditch: 0,
+    } satisfies Record<DecorFamilyName, 0>;
+    expect(Object.keys(DECOR_MESHES).sort()).toEqual(Object.keys(NAMES).sort());
+    for (const f of ['oak', 'willow', 'shrub', 'reed', 'wet_grass'] as const) {
+      expect(DECOR_MESHES[f].length, f).toBe(3);
+    }
+  });
+
   it('lists three variants for every scattered decor family, and one for the ditch', () => {
     // This was `every((v) => v.length === 3)` -- a stricter rule than the
     // catalogue actually needs, and `ditch` is the first family to break it
@@ -422,6 +527,11 @@ describe('mesh catalogue: what has a mesh at all', () => {
       tree: 3,
       desert_tree: 3,
       cedar: 3,
+      oak: 3,
+      willow: 3,
+      shrub: 3,
+      reed: 3,
+      wet_grass: 3,
       rock: 3,
       slab: 3,
       boulder: 3,

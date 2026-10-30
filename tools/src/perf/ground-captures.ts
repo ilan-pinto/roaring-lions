@@ -72,6 +72,15 @@ export interface GroundCaptureArgs {
   readonly maps: readonly string[];
   readonly decals: boolean;
   readonly reuse: boolean;
+  /** `--markers=<map>:<marker>[,...]` (GH-871 P2 T8). Absent when the flag is
+   *  absent, so a run without it is the run it always was. */
+  readonly markers?: readonly MarkerRef[];
+}
+
+/** One `<map>:<marker>` pair from `--markers=`. */
+export interface MarkerRef {
+  readonly map: string;
+  readonly marker: string;
 }
 
 /** The lead's server is 5177 and the tools own 5173-5182 -- see
@@ -120,7 +129,24 @@ export function parseGroundCaptureArgs(
   // `--attach` is the spelling every other harness uses for the same thing.
   const reuse = argv.includes('--reuse') || argv.includes(ATTACH_FLAG);
 
-  return { port, out, maps, decals, reuse };
+  const rawMarkers = flag(argv, 'markers');
+  if (rawMarkers === undefined) return { port, out, maps, decals, reuse };
+  const markers: MarkerRef[] = rawMarkers
+    .split(',')
+    .map((m) => m.trim())
+    .filter((m) => m.length > 0)
+    .map((item) => {
+      const parts = item.split(':');
+      const [map, marker] = parts;
+      if (parts.length !== 2 || map === undefined || marker === undefined || map === '' || marker === '') {
+        throw new Error(`--markers wants <map>:<marker>, got "${item}"`);
+      }
+      // A marker on a map this run does not photograph would be dropped
+      // without a word; say so instead.
+      if (!maps.includes(map)) throw new Error(`--markers names map "${map}" (marker "${marker}") but --maps does not include it`);
+      return { map, marker };
+    });
+  return { port, out, maps, decals, reuse, markers };
 }
 
 export interface MapView {
@@ -158,7 +184,21 @@ export function roadCloseUp(rows: readonly string[]): [number, number] | null {
  *  measures on `<map>-centre-z0.5`. */
 const CENTRE_ZOOMS: readonly number[] = [0.35, 0.5, 1, 2.5];
 
-export function viewsFor(mapId: string, rows: readonly string[]): readonly MapView[] {
+/** The two zooms a marker is photographed at (GH-871 P2 T8): the map-scale
+ *  read and the vehicle-scale read. */
+const MARKER_ZOOMS: readonly number[] = [1, 2.5];
+
+/** `wanted` is this map's `--markers` names; `table` is the map's own
+ *  `markers` (tile x, y). A wanted name absent from the table is an error
+ *  naming both, so a typo cannot quietly photograph nothing. Both default to
+ *  empty, which leaves the views exactly as they were. The tile goes to the
+ *  camera as it is, the same way the centre and road views do (`goto`). */
+export function viewsFor(
+  mapId: string,
+  rows: readonly string[],
+  wanted: readonly string[] = [],
+  table: Readonly<Record<string, readonly [number, number]>> = {}
+): readonly MapView[] {
   const w = rows[0]?.length ?? 0;
   const h = rows.length;
   const cx = Math.floor(w / 2);
@@ -174,6 +214,17 @@ export function viewsFor(mapId: string, rows: readonly string[]): readonly MapVi
   const road = roadCloseUp(rows);
   if (road !== null) {
     views.push({ name: `${mapId}-road-z2.5-nofog`, x: road[0], y: road[1], zoom: 2.5, fog: false });
+  }
+  for (const marker of wanted) {
+    const tile = Object.prototype.hasOwnProperty.call(table, marker) ? table[marker] : undefined;
+    if (tile === undefined) {
+      throw new Error(
+        `${TAG}: map "${mapId}" has no marker "${marker}" (have: ${Object.keys(table).join(', ') || 'none'})`
+      );
+    }
+    for (const zoom of MARKER_ZOOMS) {
+      views.push({ name: `${mapId}-${marker}-z${zoom}`, x: tile[0], y: tile[1], zoom, fog: false });
+    }
   }
   return views;
 }
@@ -341,6 +392,14 @@ async function layerCost(page: Page, base: ViewStats): Promise<readonly LayerDel
   return out;
 }
 
+function markersFor(mapId: string): Readonly<Record<string, readonly [number, number]>> {
+  const table = ALL_MAPS as unknown as Record<
+    string,
+    { readonly markers?: Readonly<Record<string, readonly [number, number]>> } | undefined
+  >;
+  return table[mapId]?.markers ?? {};
+}
+
 function rowsFor(mapId: string): readonly string[] {
   const table = ALL_MAPS as unknown as Record<string, { readonly rows?: readonly string[] } | undefined>;
   const entry = table[mapId];
@@ -450,7 +509,8 @@ async function main(): Promise<void> {
             : '(none -- decorSet empty, or this build has no decorSet field)')
       );
 
-      const views = viewsFor(mapId, rows);
+      const wanted = (args.markers ?? []).filter((m) => m.map === mapId).map((m) => m.marker);
+      const views = viewsFor(mapId, rows, wanted, markersFor(mapId));
       const viewCosts: Record<string, ViewStats> = {};
       for (const view of views) {
         const stats = await shot(page, outDir, view);
