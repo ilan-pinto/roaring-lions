@@ -11,6 +11,8 @@
 // 2D context would show for opaque fills, without needing one.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parseMap } from '@lions/data';
+import { terrainTonesFor } from '../terrain-themes';
 import { paintMapTerrain, type PreviewMap, type PreviewTones } from './map-preview';
 
 interface Fill {
@@ -100,5 +102,50 @@ describe('paintMapTerrain', () => {
   it('answers null, rather than throwing, when there is no 2D context to paint into', () => {
     HTMLCanvasElement.prototype.getContext = (() => null) as unknown as HTMLCanvasElement['getContext'];
     expect(paintMapTerrain(MAP, TONES)).toBeNull();
+  });
+
+  // GH-871 P2 T6a. A `~` tile is decor 6, cover 1 AND a boulder (the vehicle
+  // wall), so without the marsh branch ahead of the boulder branch the card
+  // paints it as rock. Tones are tag strings; the stub reads the last fill.
+  describe('the marsh', () => {
+    //   (0,0) marsh: decor 6 + boulder + cover 1   -> marsh
+    //   (1,0) plain boulder (decor 0)              -> rock
+    //   (2,0) decor 6 but blocked                  -> blocked (blocked still wins)
+    const MARSH_MAP: PreviewMap = {
+      width: 3,
+      height: 1,
+      blocked: Uint8Array.from([0, 0, 1]),
+      boulder: Uint8Array.from([1, 1, 0]),
+      cover: Uint8Array.from([1, 0, 0]),
+      decor: Uint8Array.from([6, 0, 6]),
+    };
+
+    it('paints the marsh tone, not the rock tone, ahead of the boulder branch', () => {
+      paintMapTerrain(MARSH_MAP, { ...TONES, marsh: 'marsh' });
+      expect([at(0, 0), at(1, 0), at(2, 0)]).toEqual(['marsh', 'rock', 'blocked']);
+    });
+
+    it('paints a ~ tile as it always did where the theme has no marsh tone, or the map no decor', () => {
+      paintMapTerrain(MARSH_MAP, TONES);
+      expect(at(0, 0)).toBe('rock');
+      paintMapTerrain({ ...MARSH_MAP, decor: undefined }, { ...TONES, marsh: 'marsh' });
+      expect(at(0, 0)).toBe('rock');
+    });
+
+    it('is what the Free Play card and the minimap paint from a real parsed wetland map', () => {
+      // The two callers hold a ParsedMap and pass it, and terrainTonesFor's
+      // result, whole: this is that composition on a literal four-tile map.
+      const parsed = parseMap({
+        id: 'tiny_wet', name: 'Tiny wet', width: 4, height: 2, terrain: 'wetland',
+        rows: ['.~^2', '~b..'], markers: {}, zones: {},
+      });
+      const tones = terrainTonesFor(parsed);
+      expect(tones.marsh).toBeDefined();
+      paintMapTerrain(parsed, tones);
+      const want = tones.marsh;
+      expect([at(1, 0), at(0, 1)]).toEqual([want, want]);
+      expect(at(1, 1)).toBe(tones.rock); // the `b` boulder stays rock
+      expect(at(2, 0)).toBe(tones.blocked);
+    });
   });
 });

@@ -22,10 +22,16 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { maps, type MapJson } from '@lions/data';
 import { SANDBOX_FLAGS, readFlags, unknownParams } from '../sandbox-help';
 import { matchPath, stripBase } from '../shell/router';
-import { showMenu, showSandbox } from './menu';
+import { UNLISTED_MAP_IDS, showMenu, showSandbox } from './menu';
 import { parseWorld } from '../campaign';
 import worldJson from '../../../../data/campaign/world.json';
 import en from '../i18n/en.json';
+
+// The shipped maps the picker lists. Ein Qasab is held out until P3's art
+// (GH-871): a LITERAL, so these specs do not read the answer off the code
+// under test. Delete it here with the entry in menu.ts's UNLISTED_MAP_IDS.
+const HELD_OUT = 'ein_qasab';
+const listedIds = (): string[] => Object.keys(maps).filter((id) => id !== HELD_OUT);
 
 const render = (): HTMLElement => {
   const stage = document.createElement('div');
@@ -56,15 +62,39 @@ describe('the heading', () => {
 });
 
 describe('the map list', () => {
-  it('offers every map @lions/data enumerates', () => {
+  it('offers every map @lions/data enumerates, bar the held-out one', () => {
     // The guard against a hand-written list. It cannot fail while the screen
     // iterates `maps`, and goes red the moment anyone types the ids out.
-    expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(
-      Object.keys(maps).sort()
-    );
+    expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(listedIds().sort());
   });
 
-  it('offers every map shipped in data/maps/, so a new one needs no edit here', () => {
+  it('holds Ein Qasab out of the picker until P3 ships its art (GH-871)', () => {
+    // 36 maps ship; the picker lists 35. Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(36);
+    expect(Object.keys(maps)).toContain('ein_qasab');
+    const stage = render();
+    const links = mapLinks(stage);
+    expect(links).toHaveLength(35);
+    expect(links.map((a) => a.dataset.map)).not.toContain('ein_qasab');
+    // Nothing on the screen links to it either, by any spelling of the route.
+    expect(stage.innerHTML).not.toContain('ein_qasab');
+    expect(stage.querySelector('a[href*="ein_qasab"]')).toBeNull();
+  });
+
+  it('pins the unlisted set to exactly Ein Qasab', () => {
+    // Delete the pin with the entry when P3 ships.
+    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab']);
+  });
+
+  it('every unlisted id names a shipped map, so the set cannot go stale silently', () => {
+    // A stale entry (a renamed or deleted map) would hide nothing and say nothing.
+    expect(UNLISTED_MAP_IDS.size).toBeGreaterThan(0);
+    for (const id of UNLISTED_MAP_IDS) {
+      expect(Object.hasOwn(maps, id), `UNLISTED_MAP_IDS names "${id}", which is not a shipped map`).toBe(true);
+    }
+  });
+
+  it('offers every map shipped in data/maps/ bar the held-out one, so a new one needs no edit here', () => {
     // The stronger form of the same rule, and the one that answers the
     // actual requirement: a map added to data/maps/ must reach this screen.
     // Read off disk rather than through the bundle, so it also catches a map
@@ -86,7 +116,7 @@ describe('the map list', () => {
         return (json as { id: string }).id;
       });
     expect(onDisk.length).toBeGreaterThan(0);
-    expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(onDisk.sort());
+    expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(onDisk.filter((id) => id !== HELD_OUT).sort());
   });
 
   it('shows each map by its human name, never its id -- the id is what the URL takes, not what the player reads', () => {
@@ -108,8 +138,8 @@ describe('the map list', () => {
 describe('the map cards (PA-25)', () => {
   const cat = en as Record<string, string>;
 
-  it('every shipped map has a one-line description in the catalogue', () => {
-    for (const id of Object.keys(maps)) {
+  it('every listed map has a one-line description in the catalogue', () => {
+    for (const id of listedIds()) {
       const line = cat[`freePlay.map.${id}`];
       expect(line, `freePlay.map.${id}`).toBeTruthy();
       // One line: a sentence that ends and does not run on.
@@ -120,7 +150,7 @@ describe('the map cards (PA-25)', () => {
 
   it('each card carries its description beside its name', () => {
     const stage = render();
-    for (const id of Object.keys(maps)) {
+    for (const id of listedIds()) {
       const card = stage.querySelector(`a[data-map="${id}"]`);
       const want = cat[`freePlay.map.${id}`];
       // Not vacuous: an absent key must not let `undefined` equal `undefined`.
@@ -140,7 +170,7 @@ describe('the map cards (PA-25)', () => {
       const ctx = { fillStyle: '', fillRect() {} };
       HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
       const stage = render();
-      for (const [id, m] of Object.entries(maps as Record<string, MapJson>)) {
+      for (const [id, m] of Object.entries(maps as Record<string, MapJson>).filter(([k]) => k !== HELD_OUT)) {
         const c = stage.querySelector<HTMLCanvasElement>(`a[data-map="${id}"] canvas.rl-mapcard__preview`);
         expect(c, id).not.toBeNull();
         expect([c?.width, c?.height], id).toEqual([m.width, m.height]);

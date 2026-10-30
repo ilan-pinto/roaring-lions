@@ -33,7 +33,7 @@
  * because Task 4's combined size crosses the controller's file cap, not
  * because the two halves are independent ideas.
  */
-import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD, hexToLinear } from './shared';
+import { DECOR_GROVE, DECOR_KNOLL, DECOR_MARSH, DECOR_RIDGE, DECOR_ROAD, hexToLinear } from './shared';
 import { boxBlur, fbm2, valueNoise2 } from './noise';
 import { buildRoadGraph, junctionDistanceAt, roadDistanceAt, ROAD_EDGE_BEND_CYCLES, type RoadGraph } from './road-graph';
 import type { TerrainInput } from './types';
@@ -136,6 +136,10 @@ export function tileSurface(input: TerrainInput, x: number, y: number): TileSurf
   if (decorHere === DECOR_ROAD) return { kind: 'road', strength: 1 };
   if (decorHere === DECOR_GROVE) return { kind: 'grove', strength: 1 };
   if (decorHere === DECOR_KNOLL) return { kind: 'knoll', strength: 1 };
+  // A marsh tile (`~`, wetland only) is scrub at the cover-1 strength (R-11):
+  // it carries cover 1 in the sim, and the `decorHere === 0` guard below
+  // would otherwise hand it `open`. No shipped map carries decor 6.
+  if (decorHere === DECOR_MARSH) return { kind: 'scrub', strength: SCRUB_TIER_STRENGTH[0] };
   // DECOR none is 0, same reasoning as `albedoFor`: "no decor" is the
   // absence of an entry rather than a kind of its own.
   const tier = decorHere === 0 ? input.cover[ti] : 0;

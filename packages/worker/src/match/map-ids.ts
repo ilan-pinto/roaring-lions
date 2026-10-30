@@ -14,6 +14,7 @@ export const SHIPPED_MAP_IDS: readonly string[] = [
   'deir_amun',
   'deir_amun_2',
   'deir_amun_3',
+  'ein_qasab',
   'khan_rafid',
   'khan_rafid_2',
   'khan_rafid_3',

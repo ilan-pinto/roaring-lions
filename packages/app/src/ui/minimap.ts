@@ -117,6 +117,8 @@ export interface MinimapMap {
   readonly boulder: Uint8Array;
   /** Cover level 0-3. */
   readonly cover: Uint8Array;
+  /** The decor layer. Optional: the painter reads only the marsh from it. */
+  readonly decor?: Uint8Array;
   readonly markers: Readonly<Record<string, readonly [number, number]>>;
   readonly zones: Readonly<Record<string, readonly [number, number, number, number]>>;
 }

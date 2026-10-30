@@ -25,7 +25,7 @@ import type { TerrainInput } from './types';
 // -- no second parser, no transcribed copy -- just read directly rather than
 // through the package boundary render is not allowed to cross.
 import paletteJson from '../../../../../data/palette.json';
-import { DECOR_ROAD, DECOR_RIDGE } from './shared';
+import { DECOR_MARSH, DECOR_ROAD, DECOR_RIDGE } from './shared';
 
 /** Every colour in `data/palette.json`, flattened. Derived, not transcribed:
  *  a hand-copied list goes stale silently the first time the palette changes,
@@ -193,6 +193,12 @@ export function groundTone(
 
   if (decorHere === DECOR_ROAD) {
     return quantise(composite(openWash, tones.road, 0.85), palette);
+  }
+
+  // A marsh tile takes the theme's mud tone when it has one (R-11), else the
+  // open wash below, so a theme without `marsh` is byte-identical.
+  if (decorHere === DECOR_MARSH && tones.marsh !== undefined) {
+    return quantise(composite(background, tones.marsh, 1), palette);
   }
 
   return quantise(openWash, palette);

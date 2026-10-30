@@ -16,29 +16,39 @@
 // context is an answer, `null`: the deploy screen degrades to no preview
 // rather than losing its Deploy button to a canvas that could not be drawn.
 
+import { DECOR } from '@lions/data';
 import type { TerrainTones } from '@lions/render';
 import type { MinimapMap } from './minimap';
 
 /** The three layers the painter reads, and the two dimensions it needs to
  *  read them -- a structural subset of `MinimapMap` (itself a subset of the
- *  parsed map), so `main.ts`'s own `map` passes straight in. */
-export type PreviewMap = Pick<MinimapMap, 'width' | 'height' | 'blocked' | 'boulder' | 'cover'>;
+ *  parsed map), so `main.ts`'s own `map` passes straight in. `decor` is
+ *  optional: only the marsh reads it (GH-871), so a caller without the decor
+ *  layer (deploy, loading, debrief) paints exactly as before. */
+export type PreviewMap = Pick<MinimapMap, 'width' | 'height' | 'blocked' | 'boulder' | 'cover'> & {
+  readonly decor?: Uint8Array;
+};
 
 /** The four tones the painter fills with -- the SAME resolved values the
  *  battlefield is drawn with (`TerrainTones`), so neither caller can show a
- *  differently coloured version of the ground the player is about to fight on. */
-export type PreviewTones = Pick<TerrainTones, 'open' | 'blocked' | 'rock' | 'cover'>;
+ *  differently coloured version of the ground the player is about to fight on.
+ *  `marsh` is the wetland's optional fifth, read only where `decor` is set. */
+export type PreviewTones = Pick<TerrainTones, 'open' | 'blocked' | 'rock' | 'cover'> & {
+  readonly marsh?: string;
+};
 
 /**
  * The ground, once: a canvas `map.width` x `map.height`, one pixel per tile.
  *
  * Cover tiers read as the graining they are on the field; `blocked` covers
- * both buildings and rock ridge; `boulder` gets the rock tone because it is
- * rock, and because on `tel_marum` the boulder corridor is a piece of terrain
- * the player has to plan around and therefore has to be able to see. Where
- * layers overlap, blocked wins over boulder wins over cover wins over open,
- * and a cover tier above 3 is clamped onto the last tone rather than reading
- * off the end of the ramp.
+ * both buildings and rock ridge; a marsh tile (`decor` 6, when the theme has a
+ * `marsh` tone) paints that tone, checked before `boulder` because a `~` tile
+ * is also a vehicle wall and would otherwise read as rock; `boulder` gets the
+ * rock tone because it is rock, and because on `tel_marum` the boulder
+ * corridor is a piece of terrain the player has to plan around and therefore
+ * has to be able to see. Where layers overlap, blocked wins over marsh wins
+ * over boulder wins over cover wins over open, and a cover tier above 3 is
+ * clamped onto the last tone rather than reading off the end of the ramp.
  *
  * Returns `null` when the canvas has no 2D context -- the caller decides
  * whether that is fatal (`Minimap`) or a thing to go without (the deploy
@@ -57,6 +67,7 @@ export function paintMapTerrain(map: PreviewMap, tones: PreviewTones): HTMLCanva
       const i = y * map.width + x;
       let tone: string | null = null;
       if (map.blocked[i] !== 0) tone = tones.blocked;
+      else if (tones.marsh !== undefined && map.decor !== undefined && map.decor[i] === DECOR.marsh) tone = tones.marsh;
       else if (map.boulder[i] !== 0) tone = tones.rock;
       else if (map.cover[i] > 0) tone = tones.cover[Math.min(map.cover[i], 3) - 1];
       if (tone === null) continue;

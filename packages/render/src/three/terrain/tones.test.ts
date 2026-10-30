@@ -21,6 +21,7 @@
  * behaviour change shipped with no test covering it either way.
  */
 import { describe, it, expect } from 'vitest';
+import paletteFile from '../../../../../data/palette.json';
 import { composite, quantise, quantisePalette, groundTone, PALETTE_HEXES, SHARED_PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
 import type { TerrainInput } from './types';
@@ -98,6 +99,23 @@ describe('PALETTE_HEXES', () => {
 });
 
 describe('groundTone', () => {
+  it('gives a ~ tile the theme\'s marsh tone, and the open wash without the field (GH-871 R-11)', () => {
+    // mud.2 as a LITERAL (the wetland's marsh floor since S-6; was mud.3 #413327); the
+    // shared palette holds it, so quantising is a no-op.
+    const MARSH_MUD_2 = '#584535';
+    const input = flatInput(4, 4);
+    input.decor = new Uint8Array(16);
+    input.decor[5] = 6; // a marsh tile at (1, 1)
+    const withField: TerrainTones = { ...TONES, marsh: MARSH_MUD_2 };
+    expect(groundTone(input, withField, 5, PALETTE_HEXES, BACKGROUND).toUpperCase()).toBe(MARSH_MUD_2);
+    // a neighbour that is not marsh keeps the open wash
+    const open = groundTone(input, withField, 6, PALETTE_HEXES, BACKGROUND).toUpperCase();
+    expect(open).not.toBe(MARSH_MUD_2);
+    // no field: the marsh tile reads exactly as open ground
+    expect(groundTone(input, TONES, 5, PALETTE_HEXES, BACKGROUND).toUpperCase()).toBe(open);
+    expect(groundTone(input, TONES, 5, PALETTE_HEXES, BACKGROUND)).toBe(groundTone(input, TONES, 6, PALETTE_HEXES, BACKGROUND));
+  });
+
   it('returns a single tone for open ground, not a per-tile jitter (stone)', () => {
     // Swept over a wide, varied grid of tile positions -- covering many
     // distinct tileHash outputs -- rather than asserting the formula by
@@ -154,6 +172,20 @@ describe('groundTone', () => {
   });
 });
 
+// GH-871 P2: the wetland's four theme-only ramps, as LITERALS (an oracle never
+// imports its arguments from the code under test).
+// fen was ['#75A659', '#4B7135'] (hue 98) until the GH-871 P2 S-6 tone round.
+const FEN = ['#7F9F57', '#4F6732'];
+const MUD = ['#8E6F55', '#725944', '#584535', '#413327', '#2D241B'];
+const OVERCAST = ['#C4C8C9', '#9FA9B5', '#83898D', '#656B70', '#4A4F54'];
+// basalt was ['#4B453D'] until the GH-871 P2 S-6 tone round.
+const BASALT = ['#625A4D'];
+const WETLAND_HEXES = [...FEN, ...MUD, ...OVERCAST, ...BASALT];
+const luma709 = (hex: string): number => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
 describe('quantisePalette (GH-322 theme-only ramps)', () => {
   it('leaves a theme-only ramp out of the shared set, and only there', () => {
     const karst = ['#CFCBBF', '#ABA698', '#8A857A', '#6E6960', '#524E47'];
@@ -161,7 +193,44 @@ describe('quantisePalette (GH-322 theme-only ramps)', () => {
       expect(PALETTE_HEXES).toContain(hex);
       expect(SHARED_PALETTE_HEXES).not.toContain(hex);
     }
-    expect(SHARED_PALETTE_HEXES.length).toBe(PALETTE_HEXES.length - karst.length);
+    expect(SHARED_PALETTE_HEXES.length).toBe(PALETTE_HEXES.length - karst.length - WETLAND_HEXES.length);
+  });
+
+  it('keeps the thirteen wetland hexes (fen, mud, overcast, basalt) out of the shared set', () => {
+    expect(WETLAND_HEXES.length).toBe(13);
+    for (const hex of WETLAND_HEXES) {
+      expect(PALETTE_HEXES).toContain(hex);
+      expect(SHARED_PALETTE_HEXES).not.toContain(hex);
+    }
+  });
+
+  it('adds fen, mud and overcast when named, and never basalt', () => {
+    const wet = quantisePalette({ paletteRamps: ['fen', 'mud', 'overcast'] });
+    for (const hex of [...FEN, ...MUD, ...OVERCAST]) expect(wet).toContain(hex);
+    expect(wet).not.toContain(BASALT[0]);
+    expect(quantise(MUD[2], wet)).toBe(MUD[2]);
+  });
+
+  it.each([
+    ['fen', FEN],
+    ['mud', MUD],
+    ['overcast', OVERCAST],
+    ['basalt', BASALT],
+  ])('%s, as stored in data/palette.json, descends in Rec.709 luma (index 0 lightest)', (name) => {
+    const onDisk = (paletteFile.ramps as Record<string, { colors: string[] }>)[name].colors;
+    expect(onDisk.length).toBeGreaterThan(0);
+    const lumas = onDisk.map(luma709);
+    for (let i = 1; i < lumas.length; i++) expect(lumas[i]).toBeLessThan(lumas[i - 1]);
+  });
+
+  it.each([
+    ['fen', FEN],
+    ['mud', MUD],
+    ['overcast', OVERCAST],
+    ['basalt', BASALT],
+  ])('%s in data/palette.json holds exactly the literal hexes, in order', (name, literal) => {
+    const onDisk = (paletteFile.ramps as Record<string, { colors: string[] }>)[name].colors;
+    expect(onDisk.map((h) => h.toUpperCase())).toEqual(literal);
   });
 
   it('gives a theme with no paletteRamps the shared set, by identity', () => {

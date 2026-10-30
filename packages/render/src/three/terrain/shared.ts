@@ -25,6 +25,7 @@
  * one one true version.
  */
 import { TILE_W, TILE_H, ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
+import { fbm2 } from './noise';
 import type { TerrainInput } from './types';
 
 /**
@@ -45,6 +46,9 @@ export const DECOR_RIDGE = 4;
  *  vehicle-only block. `boulder` alone says a vehicle is stopped; this says by
  *  what, which is the only thing separating a `d` tile from a `b` one. */
 export const DECOR_DITCH = 5;
+/** A marsh tile (`~`). Paired with a MECHANIC, like `DECOR_DITCH`: the tile
+ *  also sets `TerrainInput.boulder` (the vehicle-only block) and carries cover 1. */
+export const DECOR_MARSH = 6;
 
 /**
  * World units of height per elevation level.
@@ -226,4 +230,96 @@ export function pushPolygon(
       indices.push(base, base + i + 1, base + i);
     }
   }
+}
+
+// -- The marsh's open water (GH-871 P2, R-6) ----------------------------
+//
+// A `~` tile is mud with reeds on it; the water is the wetter patches in it,
+// meanders and pools. It is a PRESENTATION field: the sim sees `~` as one
+// tile type (cover 1, a wall to wheels), and nothing here reaches it. Reeds
+// are kept off it (decor-place.ts), and P4's control-C bake will sample the
+// same function so the ripple lands where the reeds are not.
+//
+// Everything is in TILE units and anchored to world coordinates, not to the
+// marsh's own bounding box, so a marsh of any shape or size reads the same
+// field -- only its inset from the bank is local.
+
+/** Water is kept this far, in tiles, from any non-marsh tile: a causeway, a
+ *  bank or a road tile is never lapped. A hard zero at and inside this. */
+export const MARSH_WATER_INSET = 0.25;
+/** The weight rises from 0 to the field's value over this many tiles past the
+ *  inset, so the mask is continuous: no step at the bank. */
+export const MARSH_WATER_RAMP = 0.1;
+/** Meanders: a thin band around the isoline `MARSH_MEANDER_LEVEL` of a
+ *  low-frequency fBm. Period and octaves are `fbm2`'s own. */
+export const MARSH_MEANDER_PERIOD = 1.2;
+export const MARSH_MEANDER_LEVEL = 0;
+/** Half-width of the meander band, in the fBm's own units (not tiles). */
+export const MARSH_MEANDER_HALF = 0.12;
+/** Pools: where a second fBm exceeds this threshold. */
+export const MARSH_POOL_PERIOD = 1;
+export const MARSH_POOL_THRESHOLD = 0.4;
+const MARSH_MEANDER_SEED = 6101;
+const MARSH_POOL_SEED = 6203;
+/** Half-width of the pool edge's softening, in the pool fBm's own units. */
+const MARSH_POOL_SOFT = 0.04;
+
+function smoothstep01(lo: number, hi: number, v: number): number {
+  const t = v <= lo ? 0 : v >= hi ? 1 : (v - lo) / (hi - lo);
+  return t * t * (3 - 2 * t);
+}
+
+/** Distance in tiles from `(x, z)` to the nearest tile that is NOT a marsh
+ *  tile (out of bounds counts as not), capped at 1; 0 if the point is itself
+ *  off the marsh. Only the eight neighbours matter below the cap. */
+function marshInnerDistance(decor: Uint8Array, width: number, height: number, x: number, z: number): number {
+  const tx = Math.floor(x);
+  const tz = Math.floor(z);
+  if (tx < 0 || tz < 0 || tx >= width || tz >= height) return 0;
+  if (decor[tz * width + tx] !== DECOR_MARSH) return 0;
+  const fx = x - tx;
+  const fz = z - tz;
+  let best = 1;
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dz === 0) continue;
+      const nx = tx + dx;
+      const nz = tz + dz;
+      const marsh = nx >= 0 && nz >= 0 && nx < width && nz < height && decor[nz * width + nx] === DECOR_MARSH;
+      if (marsh) continue;
+      const gx = dx < 0 ? fx : dx > 0 ? 1 - fx : 0;
+      const gz = dz < 0 ? fz : dz > 0 ? 1 - fz : 0;
+      const d = Math.hypot(gx, gz);
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * How wet the marsh is at world point `(x, z)` in tile units, a weight in
+ * `[0, 1]`: open water where it is `>= 0.5`. Zero off the marsh, and zero
+ * within `MARSH_WATER_INSET` of any non-marsh tile.
+ *
+ * Deterministic and three-free: `fbm2` over `tileHash`, no `Math.random`.
+ * Two fields, the larger wins: a THIN BAND around an isoline of one fBm (a
+ * meander, a channel through the reeds) and a THRESHOLD of another (a pool).
+ */
+export function marshWaterAt(
+  decor: Uint8Array | null,
+  width: number,
+  height: number,
+  x: number,
+  z: number
+): number {
+  if (!decor) return 0;
+  const inner = marshInnerDistance(decor, width, height, x, z);
+  const edge = smoothstep01(MARSH_WATER_INSET, MARSH_WATER_INSET + MARSH_WATER_RAMP, inner);
+  if (edge === 0) return 0;
+  const m = fbm2(x, z, MARSH_MEANDER_PERIOD, 3, MARSH_MEANDER_SEED);
+  const band =
+    1 - smoothstep01(MARSH_MEANDER_HALF * 0.7, MARSH_MEANDER_HALF * 1.3, Math.abs(m - MARSH_MEANDER_LEVEL));
+  const p = fbm2(x, z, MARSH_POOL_PERIOD, 3, MARSH_POOL_SEED);
+  const pool = smoothstep01(MARSH_POOL_THRESHOLD - MARSH_POOL_SOFT, MARSH_POOL_THRESHOLD + MARSH_POOL_SOFT, p);
+  return Math.max(band, pool) * edge;
 }

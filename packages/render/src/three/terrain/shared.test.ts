@@ -23,8 +23,11 @@ import {
   DECOR_GROVE,
   DECOR_KNOLL,
   DECOR_RIDGE,
+  DECOR_DITCH,
+  DECOR_MARSH,
   srgbToLinear,
   hexToLinear,
+  marshWaterAt,
 } from './shared';
 import type { TerrainInput } from './types';
 
@@ -86,6 +89,11 @@ describe('DECOR_* values', () => {
     expect(DECOR_GROVE).toBe(2);
     expect(DECOR_KNOLL).toBe(3);
     expect(DECOR_RIDGE).toBe(4);
+  });
+
+  it('pins the ditch and marsh values, both paired with a mechanic', () => {
+    expect(DECOR_DITCH).toBe(5);
+    expect(DECOR_MARSH).toBe(6);
   });
 });
 
@@ -222,5 +230,122 @@ describe('srgbToLinear / hexToLinear', () => {
     expect(r).toBeCloseTo(c.r, 6);
     expect(g).toBeCloseTo(c.g, 6);
     expect(b).toBeCloseTo(c.b, 6);
+  });
+});
+
+describe('marshWaterAt (GH-871 P2, R-6)', () => {
+  const W = 12;
+  /** A W x W grid with a 6x6 marsh at tiles 3..8 -- decor 6 is the literal. */
+  const marsh = (): Uint8Array => {
+    const d = new Uint8Array(W * W);
+    for (let y = 3; y < 9; y++) for (let x = 3; x < 9; x++) d[y * W + x] = 6;
+    return d;
+  };
+  /** Oracle: the exact distance from a point to the nearest non-marsh tile
+   *  (out of bounds is not marsh), by brute force over every tile rectangle. */
+  const distToNonMarsh = (d: Uint8Array, x: number, z: number): number => {
+    let best = Infinity;
+    for (let ty = -1; ty <= W; ty++) {
+      for (let tx = -1; tx <= W; tx++) {
+        const inside = tx >= 0 && ty >= 0 && tx < W && ty < W && d[ty * W + tx] === 6;
+        if (inside) continue;
+        const gx = Math.max(tx - x, 0, x - (tx + 1));
+        const gz = Math.max(ty - z, 0, z - (ty + 1));
+        best = Math.min(best, Math.hypot(gx, gz));
+      }
+    }
+    return best;
+  };
+
+  it('is deterministic, in [0, 1], and zero with no decor layer or off the marsh', () => {
+    const d = marsh();
+    expect(marshWaterAt(null, W, W, 5.5, 5.5)).toBe(0);
+    expect(marshWaterAt(d, W, W, 1.5, 1.5)).toBe(0);
+    expect(marshWaterAt(d, W, W, -3, 40)).toBe(0);
+    let max = 0;
+    for (let i = 0; i < 400; i++) {
+      const x = 3 + (i % 20) * 0.3;
+      const z = 3 + Math.floor(i / 20) * 0.3;
+      const w = marshWaterAt(d, W, W, x, z);
+      expect(w).toBe(marshWaterAt(d, W, W, x, z));
+      expect(w).toBeGreaterThanOrEqual(0);
+      expect(w).toBeLessThanOrEqual(1);
+      max = Math.max(max, w);
+    }
+    // Not vacuous: the field is wet somewhere.
+    expect(max).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it('is exactly 0 within 0.25 tile of any non-marsh tile, and wet beyond it', () => {
+    const d = marsh();
+    let near = 0;
+    let wetInside = 0;
+    for (let j = 0; j < 12 * 16; j++) {
+      for (let i = 0; i < 12 * 16; i++) {
+        const x = (i + 0.5) / 16;
+        const z = (j + 0.5) / 16;
+        if (d[Math.floor(z) * W + Math.floor(x)] !== 6) continue;
+        const w = marshWaterAt(d, W, W, x, z);
+        if (distToNonMarsh(d, x, z) <= 0.25) {
+          near++;
+          expect(w, `(${x}, ${z})`).toBe(0);
+        } else if (w >= 0.5) wetInside++;
+      }
+    }
+    expect(near).toBeGreaterThan(100);
+    expect(wetInside).toBeGreaterThan(100);
+  });
+
+  it('holds 25-35% of a 6x6 marsh as open water, sampled 8x8 a tile', () => {
+    const d = marsh();
+    let wet = 0;
+    let total = 0;
+    for (let y = 3; y < 9; y++) {
+      for (let x = 3; x < 9; x++) {
+        for (let j = 0; j < 8; j++) {
+          for (let i = 0; i < 8; i++) {
+            total++;
+            if (marshWaterAt(d, W, W, x + (i + 0.5) / 8, y + (j + 0.5) / 8) >= 0.5) wet++;
+          }
+        }
+      }
+    }
+    const share = wet / total;
+    console.info(`marsh water share (6x6 synthetic, 8x8 a tile): ${share.toFixed(4)} (${wet}/${total})`);
+    expect(total).toBe(36 * 64);
+    expect(share).toBeGreaterThanOrEqual(0.25);
+    expect(share).toBeLessThanOrEqual(0.35);
+  });
+
+  it('is not tuned to one spot: the mean over 36 placements of a 6x6 marsh stays in the band', () => {
+    const N = 48;
+    const shares: number[] = [];
+    for (let oy = 2; oy < 38; oy += 6) {
+      for (let ox = 2; ox < 38; ox += 6) {
+        const d = new Uint8Array(N * N);
+        for (let y = oy; y < oy + 6; y++) for (let x = ox; x < ox + 6; x++) d[y * N + x] = 6;
+        let wet = 0;
+        for (let y = oy; y < oy + 6; y++) {
+          for (let x = ox; x < ox + 6; x++) {
+            for (let j = 0; j < 8; j++) {
+              for (let i = 0; i < 8; i++) {
+                if (marshWaterAt(d, N, N, x + (i + 0.5) / 8, y + (j + 0.5) / 8) >= 0.5) wet++;
+              }
+            }
+          }
+        }
+        shares.push(wet / (36 * 64));
+      }
+    }
+    const mean = shares.reduce((a, b) => a + b, 0) / shares.length;
+    const inBand = shares.filter((v) => v >= 0.25 && v <= 0.35).length;
+    console.info(
+      `marsh water share over ${shares.length} placements: mean ${mean.toFixed(3)}, ` +
+        `min ${Math.min(...shares).toFixed(3)}, max ${Math.max(...shares).toFixed(3)}, in band ${inBand}`
+    );
+    expect(shares.length).toBe(36);
+    expect(mean).toBeGreaterThan(0.25);
+    expect(mean).toBeLessThan(0.35);
+    expect(inBand).toBeGreaterThanOrEqual(24);
   });
 });

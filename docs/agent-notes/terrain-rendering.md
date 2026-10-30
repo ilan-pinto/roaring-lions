@@ -300,6 +300,123 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   no vote — because a new preset with no prior baseline has nothing to diff against yet; it exists
   so a human reviewer (not the gate) can look at it.
 
+## The wetland theme (GH-871 P2)
+
+P2 wired a fourth theme, `wetland`, with stand-in art (spec: `docs/superpowers/specs/2026-10-28-rain-terrain-design.md`,
+section 12 is "P2 as built"; plan: `docs/superpowers/plans/2026-10-29-wetland-p2.md`). Its one map is `ein_qasab`, held out of
+the Free Play list. No shipped map changed theme, so the 35 terrain pins, the three shipped `theme-identity` entries, the
+determinism hashes and the visual baselines did not move. Each bullet below is a rule a change will get wrong.
+
+- **Two per-theme tables sit beside `TERRAIN_THEMES`, both `Record<TerrainTheme, ...>` so a theme cannot fall back to
+  another's** (`packages/app/src/terrain-themes.ts`). `TERRAIN_SLOT_TEXTURES` names the four slot images a map's tiles
+  sample (`rock`, `scrub`, `grove`, `knoll`) and `rendererOptionsFor` turns them into the four `*TextureUrl` options.
+  All four themes name today's shared four files (R-2); P3 gives `wetland` its own five in the commit that ships them,
+  with five `GROUND_ALBEDOS` means. `TERRAIN_WEATHER` is `rain` for `wetland` and `clear` for the rest, and
+  `rendererOptionsFor` spreads `weather: 'rain'` only when it is `rain`. **Nothing reads `weather` until P4's
+  `rainLight`**; `theme-identity.test.ts`'s `weather: 'clear'` arm is a tripwire for that reader, and it cannot go red
+  today by design. `TERRAIN_GROUND_TEXTURE.wetland` is `green_basin_tile` (a sward image; the ratio form recolours it
+  to `fen.0`).
+- **The family remap is a RENAME at the push site, never earlier** (`TerrainTones.familyRemap`, `decor-place.ts`'s
+  `remapped`). `{ grass: 'wet_grass', bush: 'shrub' }`. Every roll, jitter, scale and variant is computed from the
+  ORIGINAL family; only the `family` field written into the placement is renamed. Remapping before `openObjectScale`
+  would make `wet_grass` miss `GRASS_SCALE_*` and the tuft would stand taller than the units it hides. The test is a
+  rename-only one: a wet map's placements equal the same input without the remap, family name aside. `NO_TWIN` is
+  `{cedar, oak}` (the oak never places a grove twin, as the cedar never does; P2 draws the 5.4 m cedar stand-in for it, the planned 5.0 m oak is P3). The remap does not touch
+  `sand`, `rock`, `slab` or `boulder`.
+- **The marsh branch goes BEFORE the boulder branch, in `familyFor` and in `decorFamiliesFor`, and that order is
+  load-bearing.** A `~` tile sets the boulder mask (the vehicle wall it shares with `b` and `d`), so a marsh that fell
+  through to `if (boulder) return 'boulder'` would draw a field of rocks where the sim says mud, and no reed anywhere.
+  It is the same reason `ditch` is checked first. The marsh branch returns `reed`.
+- **`marshWaterAt(decor, width, height, x, z)` is the one water function** (`terrain/shared.ts`, three-free: `fbm2`
+  over `tileHash`, no `Math.random`). A weight in `[0, 1]`, open water where `>= 0.5`. It is WORLD-ANCHORED, not scaled
+  to the marsh's bounding box, so a marsh of any shape reads the same and the share is a property of the field, not
+  of the map: **a new marsh map must measure its own share.** Two fields, the larger wins: a thin band around the
+  isoline of one fBm (a meander: period 1.2 tiles, half-width 0.12, 3 octaves, seed 6101) and a threshold of another
+  (a pool: period 1, threshold 0.4, soft 0.04, 3 octaves, seed 6203). Water is kept 0.25 tile inside the marsh
+  boundary with a 0.1 ramp (`MARSH_WATER_INSET`, `MARSH_WATER_RAMP`), so it never laps a causeway, a bank or a road.
+  The S-4 gate is a water share of 0.25-0.35 inside the marsh tiles. Over 36 placements of a 6x6 marsh the share
+  has mean 0.298, min 0.199, max 0.387 (29 of 36 in band); the greybox's is **0.3119**. Coarser periods (2.5-3.5
+  tiles) gave far wider spread, so the features are about a tile across. P3 retunes with the real mesh; P4's control-C
+  bake samples this same function.
+- **Reed clumps** (`emitReedMat`, pass 0): a `~` tile places one clump, plus a second when its own stream
+  (10211/10331) rolls under 0.5 (mean 1.5). Each clump tries up to four jittered centres (jitter 0.9 tile, eight
+  stream pairs 10453..12157) and takes the first whose `marshWaterAt` is below 0.5; if all four are water the clump is
+  dropped. Scale is the per-tile 0.8-1.2 roll. Measured on the 6x6 test marsh: 54 expected, 50 placed (7.4% dropped,
+  limit 20%). The footprint (about 0.8 tile) is P3's, tuned with the real mesh.
+- **The waterside pass is pass 3 and `DECOR_PASSES` is 4** (`emitWaterside`, R-8). A plain open tile (`familyFor` gives
+  `open`, `isOpenScatterAt` allows the jittered spot) within Chebyshev `reach` (1) of a `~` tile rolls `waterside.p`
+  (0.12) for a `willow`, scale 0.85-1.15. **A tile where pass 2 rolled a tree is skipped**, through a shared helper,
+  `openTreeBand`/`openScatterRollsTree`, so the two passes can never disagree about which tiles hold a tree: one trunk
+  on a tile, never two. The pass has fresh streams, grepped unused in `decor-place.ts`, `prop-place.ts`, `scatter.ts`
+  and `grove.ts`: roll 12301/12413, jitter 12541/12653, variant 12739/12823, yaw 12911/13007, scale 13121/13229. Both
+  `starts` allocations use `DECOR_PASSES`, so the splice is four-pass. A direct `spliceDecorPlacements` case (a wall
+  reopened with no rubble on a ring tile, a willow roll under 0.12 at 12301/12413) is the real pass-3 splice witness:
+  the plan's "house beside the marsh" case in `terrain-splice.test.ts` cannot catch a pass-3-skipping splice, because a
+  collapsed building leaves rubble of cover 1-2 and never plain open ground.
+- **The marsh floor and its ragged shoreline** (`terrain/tones.ts`, `terrain/control-map.ts`, `terrain/shoreline.ts`).
+  `tileSurface` gives a `~` tile `scrub` at `SCRUB_TIER_STRENGTH[0]` (0.4), after road, grove and knoll; `groundTone`
+  gives it `quantise(composite(background, tones.marsh, 1))` when `tones.marsh` is set, the open wash otherwise, so a
+  theme without the field is byte-identical. The marsh floor tone is **`mud.2`** (`#584535`). The S-6 look found the
+  tile staircase ugly, and the cause was the per-tile VERTEX COLOUR, not a control-map weight: the control map blends
+  the scrub albedo across a soft edge but carries no marsh colour. A road has no such step because its tile carries
+  the open wash and the road tone is baked into control B's distance field. So the raggedness lives in **per-vertex
+  colours on fringe tiles** (`shoreline.ts`, hooked in `ground.ts`'s `groundTileEmitter`): a fringe tile (a tile that
+  takes the marsh tone and has an opposite neighbour among its eight) is emitted as the existing 4x4
+  (`SURFACE_SUBDIVISIONS`) patch, 25 vertices, and each vertex mixes the open wash and the marsh tone by
+  `marshWeightAt`. That is the control map's own recipe: wander the query point by noise, weight the 3x3 tiles by the
+  overlap of a window centred on it, renormalise over the tiles that MAY take the tone (a road or causeway, a ridge
+  and a building pad are left out, and a vertex of such a tile is never computed). Constants: `SHORE_BAND_TILES` 0.5,
+  `SHORE_WANDER_TILES` 0.45, `SHORE_WANDER_PERIOD_TILES` 1.6, 2 octaves, seeds 6307/6409. Measured on a straight edge:
+  the 0.5 crossing swings 0.50 tile between rows, tone is exactly 1 at `x <= 7.44` and exactly 0 at `x >= 8.41` (the
+  worst-case reach past the boundary is 0.70 tile, 0.41 observed). The first cut (wander 0.35) swung only 0.39, hence
+  0.45. **It is gated twice**: the theme must have a marsh tone AND the map must have a `~` tile (`shoreTileMask`
+  returns null otherwise), so every shipped map draws its old 4-vertex quads. No shader change: `toGeometry`
+  linearises non-byte vertex colours, so the sRGB mix is converted there; nothing in the ground program, the control
+  textures or the `GroundMaterial` uniforms changed, so every theme's program digest is untouched. On a relief map the
+  fringe tiles are the patch a hillside tile already is (byte-identical positions); only a FLAT map's fringe grows,
+  from 4 to 25 vertices (a flat plane cannot crack), and that path is not exercised by `ein_qasab` (it has an
+  elevation grid). The splice radius (2 tiles) covers the one-tile dependence and a test pins splice equal to a full
+  build. Known looseness: the mix is in sRGB unit space (a linear-space mix would be a little brighter mid-band);
+  decals on a fringe tile read the tile's single base tone; the albedo-mottle edge and the colour edge follow
+  different wander noises; and **a marsh|fen|road T-junction corner has a one-vertex colour step** (`homeMarsh` is a
+  per-tile verdict; no corner test). P4's control-C weight could replace the vertex mixes; `marshWeightAt` is written
+  to be the bake's source function for that.
+- **The stand-ins (R-1), and P3 swaps rows, never names.** The five new families draw shipped GLBs in P2 and take
+  their own tint by key from `decorColors`: `oak` is `cedar_{0,1,2}` (height-true to 5.0 / 4.2 / 3.4 m; foliage
+  `scrub.1`, trunk `mud.2`), `willow` is `desert_tree_{0,1,2}` (an open crown, 2.9 m, short and said so; foliage
+  `fen.0`, trunk `mud.2`), `shrub` and `reed` are both `bush_{0,1,2}` (0.9 m; shrub foliage `scrub.1`, trunk `mud.2`;
+  reed foliage `dust.5`, trunk `scrub.1`), `wet_grass` is `grass_{0,1,2}` (foliage `grass.3`). Silhouettes are wrong
+  by design, so a capture judges TONE and PALETTE only. `shrub` and `reed` share URLs, so a wet map fetches the bush
+  GLBs twice under two keys (about 130 kB, P2 only). **P3 changes `DECOR_MESHES` rows, `TERRAIN_GROUND_TEXTURE.wetland`
+  and the `TERRAIN_SLOT_TEXTURES.wetland` row; it never renames a family id or a table key.** Census with the stand-ins
+  on `ein_qasab`: 1,416 placements, about 0.533 M triangles (reed 447, wet_grass 473, oak 68, shrub 176, willow 13,
+  rock 135, boulder 64, slab 40). The 0.9 M ceiling is P3's measurement, with the real meshes.
+- **The tone history, so the next retint knows what was tried (S-6, 29 Oct).** `fen.0` `#75A659` -> **`#7F9F57`**
+  (hue 98 -> 87, luma 150 -> 147, HSL S 0.302 -> 0.292); `fen.1` `#4B7135` -> **`#4F6732`**; the marsh floor `mud.3`
+  (`#413327`, lit mean about `#342E23`, read as burnt holes) -> **`mud.2`** (`#584535`, luma 53 -> 72; `mud.3` itself
+  untouched, and `rut`, `spoil` and `trunk` stay `mud.3`); `basalt.0` `#4B453D` -> **`#625A4D`** (luma 70 -> 91, hue
+  37). The lead asked for fen toward the mood board's hue 54. **That was unreachable under the 15.6 floor**: the floor
+  is the CIEDE2000 distance from the KDF uniform `olive.1` (`#6E7449`, hue 68, luma 112), so a green clears it by being
+  lighter or more saturated or farther in hue, and hue 54 is CLOSER to `olive.1`. Hue 54 clears only as a mustard
+  (`#9D9545`, HSL S 0.39, more saturated) or a pale straw (`#A09752`, no longer green); the mood board's own scrub
+  (`#54502B`) fails at 13.01. Hue 87 at luma 147 is the furthest olive-ward that is still darker and less saturated
+  and clears. To go further the lever is the KDF uniform's tone or the floor, not a ramp pick.
+- **Readability floors, as pinned** (`tools/src/wetland-readability.test.ts`, `foliage-figure-ground.test.ts`; all
+  CIEDE2000 against `olive.1`). The open ground `fen.0` is **15.82** (floor 15.6; was 18.37). The five wetland
+  families clear the 12 foliage floor: oak and shrub 12.60, willow 15.82, reed 15.65, wet_grass 21.30. The
+  **`low` scatter tussock (`fen.1`) is 8.44 and does NOT clear 12** (it was 9.34, spec 4.2 verbatim): a known debt,
+  pinned with `toBeCloseTo` to two digits and a "delete when retinted" note, because it is the scatter tussock and not a
+  foliage family and the wetland figure-ground gates the five families only. Darker `fen.1` candidates that would lift
+  `low` toward 12 (`#46562E` clears at 12.14) collapse into `scrub.1` (dE 2.6-4.0), which is `cover[1]` and the
+  oak/shrub foliage, so they were not taken. Side effects to watch in a capture: `fen.1` vs `scrub.1` (`cover[0]` vs
+  `cover[1]`) is 4.85 (was 7.49), and the marsh floor vs the road `mud.1` is 7.74 (was 14.30); neither is pinned. The
+  boulder tint `basalt.0` is 12.5 from `overcast.3` and 11.9 from `overcast.4`, each pinned above 10.
+- **Ein Qasab is held out of the Free Play list by `UNLISTED_MAP_IDS`** (`packages/app/src/ui/menu.ts`, a
+  `ReadonlySet` of `['ein_qasab']`; the picker's card loop skips it, so 35 of 36 maps are listed). It stays in
+  `SHIPPED_MAP_IDS` (the worker pin test forbids removal) and `/free-play/ein_qasab` and `?sandbox=ein_qasab` still
+  boot it (dev paths, by the lead's allowance); it is NOT a versus map. **Delete the entry when P3's art lands.**
+  A test pins the set to exactly `['ein_qasab']` and every entry to a shipped map. The `freePlay.map.ein_qasab` copy
+  was kept so P3 lists the card again with no copy to rewrite.
 
 ## The valley backdrop (Wadi Halam IV, GH-161)
 

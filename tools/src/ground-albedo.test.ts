@@ -170,6 +170,11 @@ describe('the ground albedo table', () => {
     const themeBlock = /TERRAIN_GROUND_TEXTURE[^=]*= \{([\s\S]*?)\};/.exec(themes);
     expect(themeBlock, 'TERRAIN_GROUND_TEXTURE not found').not.toBeNull();
     for (const m of themeBlock![1].matchAll(/'([a-z0-9_]+)'/g)) asked.add(m[1]);
+    // GH-871 P2 T4: the four slot images moved out of `renderer-options.ts`'s
+    // literals into `TERRAIN_SLOT_TEXTURES`, one row per theme.
+    const slotBlock = /TERRAIN_SLOT_TEXTURES[^=]*= \{([\s\S]*?)\n\};/.exec(themes);
+    expect(slotBlock, 'TERRAIN_SLOT_TEXTURES not found').not.toBeNull();
+    for (const m of slotBlock![1].matchAll(/'([a-z0-9_]+)'/g)) asked.add(m[1]);
     // Both halves have to be found, or this passes by looking at nothing.
     expect(asked.size, 'found no texture names in main.ts / terrain-themes.ts').toBeGreaterThanOrEqual(6);
     for (const id of asked) expect(ids, `main.ts asks for ${id}, which no GROUND_ALBEDOS entry names`).toContain(id);
