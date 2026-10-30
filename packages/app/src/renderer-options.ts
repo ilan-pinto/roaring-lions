@@ -57,6 +57,8 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
     ],
     // The theme's bundle, by identity unless the map overrides its grove.
     terrainTones: terrainTonesFor(map),
+    // PROTOTYPE (Wadi Halam look): valley walls beyond the edge.
+    ...(map.backdrop ? { backdrop: map.backdrop } : {}),
     tracerColors: [paletteColor('vfx.tracer'), paletteColor('vfx.ember')],
     // GH-149. Deliberately NOT `tracerColors` -- an arcing round is
     // ordnance, not a bullet, and drew green until now. See

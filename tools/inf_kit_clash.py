@@ -39,7 +39,7 @@ import inf_kit  # noqa: E402
 import inf_kit_parts as kp  # noqa: E402
 import inf_kit_scene as scn  # noqa: E402
 
-CLIPS = ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned")
+CLIPS = ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "down")
 TOL = 0.004      # a vertex within 4 mm of the surface is touching, not inside
 
 
@@ -49,6 +49,25 @@ def parse():
     for i in range(0, len(argv) - 1, 2):
         a[argv[i].lstrip("-")] = argv[i + 1]
     return a
+
+
+def clip_keys(act, step):
+    """Every keyframe of the clip (all channels), plus a regular stride so a sparse clip is still sampled."""
+    frames = set()
+    try:
+        for layer in act.layers:
+            for strip in layer.strips:
+                for cb in strip.channelbags:
+                    for fc in cb.fcurves:
+                        for kp_ in fc.keyframe_points:
+                            frames.add(int(round(kp_.co[0])))
+    except AttributeError:
+        for fc in getattr(act, "fcurves", []):
+            for kp_ in fc.keyframe_points:
+                frames.add(int(round(kp_.co[0])))
+    lo, hi = int(act.frame_range[0]), int(act.frame_range[1])
+    frames |= set(range(lo, hi + 1, max(1, step)))
+    return sorted(f for f in frames if lo <= f <= hi), lo
 
 
 def world_mesh(ob, dg):
@@ -93,7 +112,25 @@ def main():
     clips = a.get("clips", ",".join(CLIPS)).split(",")
     step = int(a.get("step", 2))
     arm, meshes, mat = scn.load_squad(REPO)
-    rows = inf_kit.build(REPO, arm, meshes, mat)
+    figs = a.get("figs", "f0,f1,f2").split(",")
+    only = set(a["only"].split(",")) if a.get("only") else None
+    rows = inf_kit.build(REPO, arm, meshes, mat, figs=figs, only=only)
+    # an open soft-goods shell is closed for the parity test by giving it its real depth
+    for ob, _, _, _ in rows:
+        if ob.get("rl_open"):
+            # depth per vertex = the part's own physical thickness there (attribute rl_thick)
+            att = ob.data.attributes["rl_thick"]
+            tv = np.array([d.value for d in att.data])
+            tmax = float(max(tv.max(), 1e-3))
+            vg = ob.vertex_groups.new(name="clash_t")
+            for i, t in enumerate(tv):
+                vg.add([i], max(0.02, float(t) / tmax), "REPLACE")
+            m = ob.modifiers.new("clash_solid", "SOLIDIFY")
+            m.thickness = tmax
+            m.offset = -1.0
+            m.use_even_offset = False
+            m.use_rim = True
+            m.vertex_group = "clash_t"
     base = {n: o for n, o in meshes.items() if n in ("uniform", "boot", "face", "weapon")}
     names = {}
     for n, o in base.items():
@@ -103,14 +140,15 @@ def main():
     result = {}
     for clip in clips:
         act = bpy.data.actions[clip]
-        n = int(act.frame_range[1] - act.frame_range[0])
+        keys, lo = clip_keys(act, step)
         worst = {}
-        for fr in range(0, n + 1, max(1, step)):
+        for kf_ in keys:
+            fr = kf_ - lo
             scn.pose(arm, clip, fr)
             arm.animation_data_create()
             arm.animation_data.action = act
             arm.animation_data.action_slot = act.slots[0] if act.slots else None
-            bpy.context.scene.frame_set(int(act.frame_range[0]) + fr)
+            bpy.context.scene.frame_set(kf_)
             bpy.context.view_layer.update()
             dg = bpy.context.evaluated_depsgraph_get()
             body = {nm: world_mesh(o, dg) for nm, o in base.items()}
@@ -147,6 +185,7 @@ def main():
                         key = (ob.name, f"kit:{ob2.name}")
                         if d.max() > worst.get(key, (0, 0))[0]:
                             worst[key] = (float(d.max()), fr)
+        print(f"   {clip}: {len(keys)} keys sampled")
         result[clip] = {f"{k[0]} x {k[1]}": {"depth_m": round(v[0], 4), "frame": v[1]} for k, v in sorted(worst.items())}
         print(f"== {clip}: {len(result[clip])} pairs")
         for k, v in sorted(result[clip].items(), key=lambda kv: -kv[1]["depth_m"])[:14]:

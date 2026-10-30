@@ -22,6 +22,12 @@ def load_squad(repo):
     for o in list(bpy.data.objects):
         if o.type == "MESH" and o.parent is None and o.name.startswith("Icosphere"):
             bpy.data.objects.remove(o)
+    # Main's team GLB already carries the PR 885 kit (`kit_uniform`, `kit_weapon`
+    # grafted nodes). The redesign builds its own parts on the BASE figure, so
+    # drop them: the base primitives are byte-identical to the pre-graft file.
+    for o in list(bpy.data.objects):
+        if o.type == "MESH" and o.name.startswith("kit_"):
+            bpy.data.objects.remove(o)
     arm = next(o for o in bpy.data.objects if o.type == "ARMATURE")
     meshes = {o.name: o for o in bpy.data.objects if o.type == "MESH"}
     # one material in the file: the textured bake. Set it to the game's

@@ -46,7 +46,6 @@ import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
 import {
   BAR_GROW_MS,
-  KIT_VEHICLE_TYPES,
   STAMP_MS,
   WALLET_COUNT_MS,
   cardStatus,
@@ -1158,14 +1157,24 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     bayModel?.dispose();
     bayModel = null;
   };
-  /** The bay's model wears the account's tiers as they now stand (GH-238):
-   *  only one of the eight kitted vehicles has parts to bolt on, and the
-   *  door itself does nothing for tiers that draw what is already shown. */
+  /** The bay's model wears the account's tiers as they now stand (GH-238,
+   *  GH-826). Asked for EVERY unit: whether a model has parts to bolt on is the
+   *  door's to know, from the kit its GLB declares (a vehicle's kit nodes, a
+   *  team's packed `kit_*` nodes), and it does nothing for a GLB with none and
+   *  for tiers that draw what is already shown. A hand-kept list of kitted
+   *  types here would be a second source that goes stale with the next team. */
   const syncKit = (): void => {
-    if (bayModel === null || !KIT_VEHICLE_TYPES.has(bayModel.unitId)) return;
+    if (bayModel === null) return;
     const id = bayModel.unitId;
     const u = rows.find((r) => r.u.id === id)?.u;
-    if (u !== undefined) bayModel.setKit(ownedTiers(u, state.owned));
+    if (u === undefined) return;
+    // A rebuild that throws (a kit contract error on a GLB) must not cut the
+    // purchase short: the door keeps the figure it was showing.
+    try {
+      bayModel.setKit(ownedTiers(u, state.owned));
+    } catch (err) {
+      console.warn(`garage model: ${id}'s kit could not be re-merged -- keeping the figure on show`, err);
+    }
   };
 
   function renderBay(): void {

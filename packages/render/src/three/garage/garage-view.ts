@@ -47,7 +47,11 @@
  *
  * A vehicle wears the tiers the brigade bought (`kitTiers`), merged into its
  * hosts by the SHIPPED `buildVehicleMeshTemplate`, the same as in a mission.
- * Three things about it are deliberate:
+ * So does a TEAM whose GLB declares kit extras (GH-826, `units/infantry-kit.ts`):
+ * its packed `kit_uniform` / `kit_weapon` nodes are merged by the SHIPPED
+ * `buildMeshUnitTemplate`, and `kitCeiling` reads the parts table they carry.
+ * A team whose GLB declares none is built straight from the loaded scene, as it
+ * always was, and has no `setKit`. Three things about it are deliberate:
  *
  * - **The loaded scene is a pristine source and is never built from.**
  *   `buildVehicleMeshTemplate` mutates what it is handed (kit nodes removed,
@@ -69,6 +73,7 @@
  *   compile it again.
  */
 import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { disposeAndReleaseContext, noteSharedTextures } from '../context-release';
 import { gltfLoader, setDracoDecoderPath } from '../units/gltf-loader';
 import { buildMeshUnitTemplate, disposeMeshUnitTemplate } from '../units/mesh-unit';
@@ -140,7 +145,9 @@ export interface GarageViewOptions {
   readonly colors: GarageColors;
   /** A vehicle's bought kit, by track (`armour`, `sensors`, `firepower`):
    *  the brigade account's tiers for this type. Absent reads as no kit.
-   *  Ignored for a rigged team. See "Kit" in this file's header. */
+   *  A rigged team wears its own kit the same way when its GLB declares one
+   *  (GH-826) and ignores this when it does not. See "Kit" in this file's
+   *  header. */
   readonly kitTiers?: Readonly<Record<string, number>>;
   /** A track close-up (GH-238 K11, `garage-focus.ts`): the camera keeps the
    *  turntable's own FOV and elevation and frames the part of the model the
@@ -209,11 +216,12 @@ export interface GarageView {
   /** Re-read the host's size and re-fit the camera. Draws nothing; the
    *  caller draws next. */
   resize(): void;
-  /** Re-merge the vehicle with these tiers from the pristine loaded scene
-   *  (no fetch), swap it onto the turntable at the same angle and offset,
-   *  and draw one frame. The camera and the frame do not move: they were
-   *  fitted to the maximum kit. A no-op for a rigged team, and for tiers
-   *  that draw the same parts as the model already shown. */
+  /** Re-merge the vehicle (or the kitted team) with these tiers from the
+   *  pristine loaded scene (no fetch), swap it onto the turntable at the same
+   *  angle and offset, and draw one frame. The camera and the frame do not
+   *  move: they were fitted to the maximum kit. A no-op for a team whose GLB
+   *  declares no kit, and for tiers that draw the same parts as the model
+   *  already shown. */
   setKit(tiers: Readonly<Record<string, number>>): void;
   dispose(): void;
 }
@@ -287,7 +295,8 @@ interface Staged {
   readonly model: THREE.Object3D;
   /** The node the footprint is centred by: the whole rig for a team (whose
    *  figures turn on their own bones), and the vehicle INSIDE its turntable
-   *  (so the turn axis is the footprint's centre, not the GLB's origin). */
+   *  (so the turn axis is the footprint's centre, not the GLB's origin).
+   *  A getter on a team: a kit swap puts a new rig in the old one's place. */
   readonly offset: THREE.Object3D;
   readonly cls: GarageClass;
   readonly pose: PoseSource;
@@ -298,7 +307,8 @@ interface Staged {
   /** Called once the frame is fitted: a vehicle staged at its maximum kit
    *  for the fit swaps to the bought tiers here. */
   readonly settle?: () => void;
-  /** Swap to a model built with `tiers`; returns the old model's release,
+  /** Swap to a model built with `tiers` (a vehicle's, or a team's -- the
+   *  tiers are the same record); returns the old model's release,
    *  which the caller runs AFTER drawing the new one. `null`: nothing to do. */
   readonly setKit?: (tiers: VehicleKitTiers) => (() => void) | null;
   /** A focus mount on a vehicle whose GLB carries kit for the track: the
@@ -312,64 +322,155 @@ interface Staged {
 
 function stageRigged(gltf: { scene: THREE.Group; animations: THREE.AnimationClip[] }, opts: GarageViewOptions): Staged {
   const { showcase, rest } = splitShowcase(gltf.animations);
-  const tpl = buildMeshUnitTemplate(
-    { scene: gltf.scene, animations: rest },
-    opts.faction ?? 'kdf',
-    opts.meshUrl,
-    TEXTURED_INFANTRY_TYPES.has(opts.typeId)
-  );
-  const rig = tpl.root;
-  const { source, mixer } = poseRigged(rig, { showcase, idle: tpl.clips.get('idle') ?? null });
-  const figures = lineOrder(livingFigureRoots(bonesOf(rig)));
+  // A team whose GLB declares kit extras (GH-826) is built the way a vehicle
+  // is: the loaded scene is a pristine source, every build runs on a fresh
+  // clone, and a purchase is a rebuild with no re-fetch. A team that declares
+  // none is built exactly as it always was, straight from the loaded scene,
+  // and `setKit` does not exist for it.
+  const pristine = gltf.scene;
+  const ceiling = kitCeiling(pristine);
+  const kitted = Object.keys(ceiling).length > 0;
+  const textured = TEXTURED_INFANTRY_TYPES.has(opts.typeId);
+  /** Line spacing between the figures, measured once on the first build (the
+   *  maximum kit) and handed to every later one: a figure's reach does not
+   *  depend on where it stands, so the line does not move on a purchase. */
   let spacing = 0;
-  if (figures.length > 1) {
-    // Each figure's points as offsets from its own turn axis. A figure's
-    // reach does not depend on where it stands, so one sample at the posed
-    // default serves every pair.
-    const { points, owner } = visiblePoints(rig, figures, 1500);
-    const centres = figures.map((b) => b.getWorldPosition(new THREE.Vector3()));
-    const local = figures.map(() => [] as { x: number; z: number }[]);
-    points.forEach((p, i) => {
-      const f = owner[i];
-      if (f >= 0) local[f].push({ x: p.x - centres[f].x, z: p.z - centres[f].z });
+  const build = (tiers: VehicleKitTiers | undefined): BuiltRig => {
+    const tpl = buildMeshUnitTemplate(
+      { scene: kitted ? cloneForBuild(pristine, true) : pristine, animations: rest },
+      opts.faction ?? 'kdf',
+      opts.meshUrl,
+      textured,
+      kitted ? tiers : undefined
+    );
+    const rig = tpl.root;
+    // `mountGarageView` does this once for the model it first stages; a rig
+    // swapped in by a purchase is a new object and needs it too (skinned
+    // bounds are the bind pose's, so a culled mesh would blink out mid-turn).
+    rig.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      m.frustumCulled = false;
     });
-    // `clearSpacing` sweeps the whole turn, so where it starts is moot.
-    for (let i = 1; i < figures.length; i++) spacing = Math.max(spacing, clearSpacing(local[i - 1], local[i]));
-    respaceLine(figures, spacing);
-  }
-  const turnFigures = figures.length > 0 ? figureTurner(figures) : null;
+    const { source, mixer } = poseRigged(rig, { showcase, idle: tpl.clips.get('idle') ?? null });
+    const figures = lineOrder(livingFigureRoots(bonesOf(rig)));
+    if (figures.length > 1) {
+      if (spacing === 0) {
+        // Each figure's points as offsets from its own turn axis. A figure's
+        // reach does not depend on where it stands, so one sample at the posed
+        // default serves every pair.
+        const { points, owner } = visiblePoints(rig, figures, 1500);
+        const centres = figures.map((b) => b.getWorldPosition(new THREE.Vector3()));
+        const local = figures.map(() => [] as { x: number; z: number }[]);
+        points.forEach((p, i) => {
+          const f = owner[i];
+          if (f >= 0) local[f].push({ x: p.x - centres[f].x, z: p.z - centres[f].z });
+        });
+        // `clearSpacing` sweeps the whole turn, so where it starts is moot.
+        for (let i = 1; i < figures.length; i++) spacing = Math.max(spacing, clearSpacing(local[i - 1], local[i]));
+      }
+      respaceLine(figures, spacing);
+    }
+    return {
+      rig,
+      pose: source,
+      figures,
+      turn: figures.length > 0 ? figureTurner(figures) : null,
+      key: kitKey(tiers, ceiling),
+      release: () => {
+        mixer.stopAllAction();
+        mixer.uncacheRoot(rig);
+        // A skeleton owns a bone texture once it has been drawn; the
+        // template's disposal does not know about it.
+        rig.traverse((o) => (o as THREE.SkinnedMesh).isSkinnedMesh && (o as THREE.SkinnedMesh).skeleton.dispose());
+        disposeMeshUnitTemplate(tpl);
+      },
+    };
+  };
+  // A close-up shows the figure as the mission draws it at tier 0 (it has
+  // never drawn a team's kit), so it is staged at none and never swapped.
+  const focusing = opts.focus !== undefined;
+  // Staged at the MAXIMUM kit for the fit; `settle` swaps to the bought one.
+  let current = build(kitted && !focusing ? ceiling : undefined);
   // A rig with no figure root this can name turns as one piece, on a
   // turntable whose origin is the footprint's centre.
   const turntable = new THREE.Group();
-  turntable.add(rig);
+  turntable.add(current.rig);
   const base = defaultYawDeg('figures');
+  const swap = (tiers: VehicleKitTiers): (() => void) | null => {
+    if (!kitted || focusing || kitKey(tiers, ceiling) === current.key) return null;
+    const old = current;
+    current = build(tiers);
+    // Where the footprint centring put the old rig.
+    current.rig.position.copy(old.rig.position);
+    turntable.remove(old.rig);
+    turntable.add(current.rig);
+    return old.release;
+  };
   return {
     model: turntable,
-    offset: rig,
+    get offset() {
+      return current.rig;
+    },
     cls: 'figures',
-    pose: source,
-    figures,
-    spacing,
+    get pose() {
+      return current.pose;
+    },
+    get figures() {
+      return current.figures;
+    },
+    get spacing() {
+      return spacing;
+    },
     applyYaw: (deg) => {
-      if (turnFigures) turnFigures(base + deg);
+      if (current.turn) current.turn(base + deg);
       else turntable.rotation.y = THREE.MathUtils.degToRad(base + deg);
     },
-    release: () => {
-      mixer.stopAllAction();
-      mixer.uncacheRoot(rig);
-      disposeMeshUnitTemplate(tpl);
-    },
+    ...(kitted && !focusing ? { settle: () => swap(opts.kitTiers ?? {})?.(), setKit: swap } : {}),
+    ...(kitted
+      ? {
+          sourceTextures: () => {
+            const out = new Set<THREE.Texture>();
+            pristine.traverse((o) => {
+              const m = (o as THREE.Mesh).material;
+              for (const mat of Array.isArray(m) ? m : m ? [m] : []) for (const t of texturesOf(mat)) out.add(t);
+            });
+            return out;
+          },
+        }
+      : {}),
+    release: () => current.release(),
   };
+}
+
+interface BuiltRig {
+  readonly rig: THREE.Object3D;
+  readonly pose: PoseSource;
+  readonly figures: THREE.Bone[];
+  readonly turn: ((yawDeg: number) => void) | null;
+  readonly key: string;
+  readonly release: () => void;
 }
 
 /** The highest tier of each track any kit node in `scene` carries -- the
  *  maximum kit this GLB can wear. Empty for a GLB with no kit. */
 export function kitCeiling(scene: THREE.Object3D): Record<string, number> {
   const out: Record<string, number> = {};
+  const note = (track: unknown, tier: unknown): void => {
+    if (typeof track !== 'string' || typeof tier !== 'number') return;
+    out[track] = Math.max(out[track] ?? 0, tier);
+  };
   scene.traverse((o) => {
-    const tag = (o.userData as { rl_kit?: { track?: unknown; tier?: unknown } }).rl_kit;
-    if (!tag || typeof tag.track !== 'string' || typeof tag.tier !== 'number') return;
-    out[tag.track] = Math.max(out[tag.track] ?? 0, tag.tier);
+    const tag = (o.userData as { rl_kit?: { track?: unknown; tier?: unknown; parts?: unknown } }).rl_kit;
+    if (!tag) return;
+    // A vehicle's kit node is one part and names its track and tier; a
+    // team's packed node (`kit_uniform`, `kit_weapon`) lists its parts.
+    note(tag.track, tag.tier);
+    if (Array.isArray(tag.parts)) {
+      for (const p of tag.parts as { track?: unknown; tier?: unknown }[]) if (p) note(p.track, p.tier);
+    }
   });
   return out;
 }
@@ -393,8 +494,10 @@ function kitKey(tiers: VehicleKitTiers | undefined, ceiling: Readonly<Record<str
  * the one thing shared WITH the source is every texture, since
  * `Material.clone()` keeps its maps by reference.
  */
-export function cloneForBuild(pristine: THREE.Object3D): THREE.Group {
-  const root = pristine.clone(true) as THREE.Group;
+export function cloneForBuild(pristine: THREE.Object3D, skinned = false): THREE.Group {
+  // A plain clone of a skinned mesh shares the source's skeleton and bones,
+  // so a team's copy is the skeleton-aware one (`instantiateMeshUnit`'s).
+  const root = (skinned ? cloneSkinned(pristine) : pristine.clone(true)) as THREE.Group;
   const geometries = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
   const materials = new Map<THREE.Material, THREE.Material>();
   const cloneMaterial = (m: THREE.Material): THREE.Material => {

@@ -4,8 +4,9 @@
  *   pnpm inf-kit:capture -- --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]
  *
  * `inf_squad` photographed by the game's own camera at zoom 1.0 and 2.5, at
- * tier 0, each track alone at tier 3 (armour, sensors, firepower) and the full
- * kit (all three at tier 3), from two facings (the flank and rear toward the
+ * tier 0, EVERY tier of each track alone (armour, sensors, firepower: eleven
+ * states with the full kit, all three at tier 3). The shipped switch is off, so
+ * the browser is made to serve it ON (`forceKitOn`), for the capture only, from two facings (the flank and rear toward the
  * camera, and the front three-quarter). One Metal browser, opened only after
  * the last one closed; one fresh context per state, because a type's tiers are
  * fixed at BOOT (brigade D3) and reach the renderer the way a player's do:
@@ -26,8 +27,24 @@
  * Outputs under `--out`: `cells/<state>_f<facing>_z<zoom>.png`, `zoom1.0.png`
  * and `zoom2.5.png` (contact sheets, one row per facing, one column per
  * state), and `readings.json`.
+ *
+ * ## `--garage` (GH-826, the bay's turntable)
+ *
+ *   pnpm inf-kit:capture -- --garage --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]
+ *
+ * The same squad on the brigade bay's turntable (`/brigade`, `inf_squad`'s
+ * card) at three states, photographed at the default face (Home, 0 deg) and
+ * the far side (End, 180 deg), the turntable focused so it does not auto-turn:
+ * `T0` (an account with no tiers), `full` (all three tracks at tier 3, seeded,
+ * so the model MOUNTS wearing them) and `bought` (the tier-0 account, then
+ * every rung bought by clicking Buy, so the model RE-MERGES through `setKit`
+ * live). Writes `garage-<state>-<yaw>.png` under `--out`. The check: the full
+ * and bought pictures must differ from tier 0 and agree with each other, at
+ * both angles -- a bay that ignored the tiers would be three identical
+ * pictures and the run exits 1.
  */
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { PNG } from 'pngjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -49,7 +66,7 @@ const DEFAULT_PORT = 5233;
 const UNIT = 'inf_squad';
 const MAP_ID = 'beit_sahwan_outskirts';
 
-import { STATES, mergeFailures, type Reading, type State } from './inf-kit-capture-check';
+import { STATES, differingPixels, mergeFailures, type Reading, type State } from './inf-kit-capture-check';
 
 const FACINGS = [
   { id: 'rear', label: 'flank and rear to the camera', offsetTurns: 0 },
@@ -103,15 +120,17 @@ interface TemplateObject {
 
 function usage(msg: string): never {
   console.error(`[${TAG}] ${msg}`);
-  console.error(`[${TAG}] usage: pnpm inf-kit:capture -- --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]`);
+  console.error(`[${TAG}] usage: pnpm inf-kit:capture -- [--garage] --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]`);
   process.exit(2);
 }
 
-function parseArgs(argv: readonly string[]): { out: string; gpu: ReturnType<typeof resolveGpuBackend> } {
+function parseArgs(argv: readonly string[]): { out: string; gpu: ReturnType<typeof resolveGpuBackend>; garage: boolean } {
   let out = path.join(REPO_ROOT, '.superpowers/inf-kit/ingame');
+  let garage = false;
   for (const a of argv) {
     if (a === '--') continue;
-    if (a.startsWith('--out=')) out = path.resolve(a.slice('--out='.length));
+    if (a === '--garage') garage = true;
+    else if (a.startsWith('--out=')) out = path.resolve(a.slice('--out='.length));
     else if (a.startsWith('--port=') || a.startsWith('--gpu=')) {
       // Parsed (and refused when malformed) by `claimPort` / `resolveGpuBackend`.
     } else usage(`unknown argument "${a}"`);
@@ -122,7 +141,7 @@ function parseArgs(argv: readonly string[]): { out: string; gpu: ReturnType<type
   } catch (err) {
     usage(err instanceof Error ? err.message : String(err));
   }
-  return { out, gpu };
+  return { out, gpu, garage };
 }
 
 function accountWith(tiers: Readonly<Record<string, number>>): BrigadeAccount {
@@ -137,6 +156,25 @@ function accountWith(tiers: Readonly<Record<string, number>>): BrigadeAccount {
     grants: [{ source: 'granted', amount: 5000, at: 1 }],
     coupons: [],
   };
+}
+
+/**
+ * The shipped switch is OFF (`INFANTRY_KIT_ENABLED`, GH-826, PR 891), so a capture that wants to SEE the kit
+ * forces it on for ITS OWN BROWSER ONLY: the served `infantry-kit.ts` module is rewritten in flight
+ * (`= false` -> `= true`). Nothing on disk changes and no flip is committed. The count of rewrites is
+ * returned so a run that never rewrote anything (a renamed constant, a different module path) is refused
+ * rather than photographed as a sheet of tier-0 figures.
+ */
+async function forceKitOn(ctx: BrowserContext): Promise<{ hits: number }> {
+  const counter = { hits: 0 };
+  await ctx.route(/\/infantry-kit\.ts(\?.*)?$/, async (route) => {
+    const resp = await route.fetch();
+    const body = await resp.text();
+    const next = body.replace(/(export const INFANTRY_KIT_ENABLED[^=]*=\s*)false/, '$1true');
+    if (next !== body) counter.hits++;
+    await route.fulfill({ response: resp, body: next });
+  });
+  return counter;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -268,7 +306,8 @@ async function composeSheet(
   title: string,
   footer: string,
   columns: readonly string[],
-  rows: readonly { label: string; cells: readonly string[] }[]
+  rows: readonly { label: string; cells: readonly string[] }[],
+  scale = 1
 ): Promise<void> {
   const img = (file: string): string =>
     fs.existsSync(file) ? `<img src="data:image/png;base64,${fs.readFileSync(file).toString('base64')}">` : '<div class="missing">not captured</div>';
@@ -282,7 +321,7 @@ async function composeSheet(
     th { font-weight: 600; text-align: center; }
     th.row { text-align: left; padding-right: 8px; white-space: nowrap; }
     td { padding: 0; }
-    img { display: block; }
+    img { display: block; image-rendering: pixelated; zoom: ${scale}; }
     .missing { padding: 20px; color: #6b1d1d; }
     p { margin: 8px 0 0; font-size: 12px; max-width: 1400px; }
   </style></head><body><div id="sheet"><h1>${title}</h1>
@@ -302,6 +341,7 @@ async function captureState(browser: Browser, base: string, state: State, cellDi
   try {
     await ctx.addInitScript(musicOffInitScript(SILENT_AUDIO));
     await ctx.addInitScript(garageSeedScript(GARAGE_SEED_LEDGER, accountWith(state.tiers)));
+    const forced = await forceKitOn(ctx);
     const page = await ctx.newPage();
     page.setDefaultTimeout(120_000);
     page.on('pageerror', (err) => console.log(`  [${state.id}] page error: ${err.message}`));
@@ -359,6 +399,7 @@ async function captureState(browser: Browser, base: string, state: State, cellDi
     }, CAPTURE_TICK);
     if (tickAtCapture !== CAPTURE_TICK) throw new Error(`${state.id}: captured at tick ${tickAtCapture}, not ${CAPTURE_TICK}`);
     const reading = await readMerge(page);
+    if (forced.hits === 0) throw new Error(`${state.id}: the switch was never forced on (no infantry-kit.ts rewritten)`);
 
     // Camera at the squad, per zoom; the second facing is a re-spawn on the same tile after the first was struck.
     for (let fi = 0; fi < FACINGS.length; fi++) {
@@ -411,12 +452,133 @@ function shortCommit(): string {
   }
 }
 
+// -------------------------------------------------------------- garage ----
+
+const GARAGE_STATES = [
+  { id: 'T0', label: 'tier 0', tiers: {} as Record<string, number>, buyAll: false },
+  { id: 'full', label: 'full kit, seeded', tiers: { armour: 3, sensors: 3, firepower: 3 }, buyAll: false },
+  { id: 'bought', label: 'full kit, bought live', tiers: {} as Record<string, number>, buyAll: true },
+] as const;
+const GARAGE_YAWS = [
+  ['Home', 0],
+  ['End', 180],
+] as const;
+
+/** `differingPixels` over two PNG files. */
+function differingPixelsOf(a: string, b: string): number {
+  return differingPixels(PNG.sync.read(fs.readFileSync(a)), PNG.sync.read(fs.readFileSync(b)));
+}
+
+async function runGarage(out: string, gpu: ReturnType<typeof resolveGpuBackend>, base: string): Promise<string[]> {
+  const failures: string[] = [];
+  const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(gpu) });
+  try {
+    console.log(`[${TAG}] GPU (${gpu}): ${await readUnmaskedRenderer(browser)}`);
+    const frames = (page: Page): Promise<number> =>
+      page.evaluate(() => Number(document.querySelector<HTMLElement>('.rl-garage__plate .rl-garage__model')?.dataset.frames ?? 0));
+    for (const state of GARAGE_STATES) {
+      const ctx = await browser.newContext({ viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: 1 });
+      try {
+        await ctx.addInitScript(musicOffInitScript(SILENT_AUDIO));
+        await ctx.addInitScript(garageSeedScript(GARAGE_SEED_LEDGER, accountWith(state.tiers)));
+        const forced = await forceKitOn(ctx);
+        const page = await ctx.newPage();
+        page.setDefaultTimeout(60_000);
+        page.on('pageerror', (err) => console.log(`  [garage ${state.id}] page error: ${err.message}`));
+        page.on('console', (msg) => {
+          if (msg.type() === 'error') console.log(`  [garage ${state.id}] console.error: ${msg.text()}`);
+        });
+        await page.goto(`${base}/brigade`, { waitUntil: 'load' });
+        await page.waitForSelector('.rl-garage__card');
+        await page.click(`.rl-garage__card[data-unit="${UNIT}"]`);
+        await page.waitForFunction(
+          () => {
+            const plate = document.querySelector<HTMLElement>('.rl-garage__plate');
+            const model = plate?.querySelector<HTMLElement>('.rl-garage__model');
+            return plate?.dataset.model === 'live' && Number(model?.dataset.frames ?? 0) >= 1;
+          },
+          undefined,
+          { timeout: 90_000 }
+        );
+        if (state.buyAll) {
+          // Every rung, by the Buy button a player clicks: the model re-merges through `setKit`.
+          for (let n = 0; n < 9; n++) {
+            const before = await frames(page);
+            const clicked = await page.evaluate(() => {
+              const b = document.querySelector<HTMLButtonElement>('.rl-garage__buy-tier:not([disabled])');
+              b?.click();
+              return b !== null;
+            });
+            if (!clicked) {
+              failures.push(`${state.id}: no Buy button left after ${n} purchases`);
+              break;
+            }
+            await page.waitForFunction(
+              (f) => Number(document.querySelector<HTMLElement>('.rl-garage__plate .rl-garage__model')?.dataset.frames ?? 0) > f,
+              before,
+              { timeout: 10_000 }
+            ).catch(() => failures.push(`${state.id}: purchase ${n + 1} drew no new frame`));
+            await sleep(450);
+          }
+          const kit = await page.evaluate(() => document.querySelector<HTMLElement>('.rl-garage__plate')?.dataset.kit);
+          console.log(`[${TAG}] ${state.id}: ${await frames(page)} frames after the purchases, plate kit level ${kit}`);
+        }
+        for (const [key, deg] of GARAGE_YAWS) {
+          const before = await frames(page);
+          await page.focus('.rl-garage__plate .rl-garage__model');
+          await page.keyboard.press(key);
+          await page
+            .waitForFunction(
+              (f) => Number(document.querySelector<HTMLElement>('.rl-garage__plate .rl-garage__model')?.dataset.frames ?? 0) > f,
+              before,
+              { timeout: 10_000 }
+            )
+            .catch(() => undefined); // Home on an already-0 yaw may draw nothing new
+          await sleep(400);
+          await page.locator('.rl-garage__plate').screenshot({ path: path.join(out, `garage-${state.id}-${deg}.png`) });
+        }
+        if (forced.hits === 0) failures.push(`${state.id}: the switch was never forced on (no infantry-kit.ts rewritten)`);
+        console.log(`[${TAG}] garage ${state.id} (${state.label}): photographed (switch forced on in this browser: ${forced.hits} rewrite(s))`);
+      } finally {
+        await ctx.close();
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+  for (const [, deg] of GARAGE_YAWS) {
+    const f = (id: string): string => path.join(out, `garage-${id}-${deg}.png`);
+    const seeded = differingPixelsOf(f('T0'), f('full'));
+    const bought = differingPixelsOf(f('T0'), f('bought'));
+    const agree = differingPixelsOf(f('full'), f('bought'));
+    console.log(`[${TAG}] yaw ${deg}: pixels differing from tier 0 -- seeded ${seeded}, bought live ${bought}; seeded vs bought ${agree}`);
+    if (seeded < 200) failures.push(`yaw ${deg}: the seeded full kit differs from tier 0 in only ${seeded} pixels`);
+    if (bought < 200) failures.push(`yaw ${deg}: the live-bought kit differs from tier 0 in only ${bought} pixels`);
+    if (agree > 200) failures.push(`yaw ${deg}: seeded and live-bought full kit differ in ${agree} pixels`);
+  }
+  return failures;
+}
+
 const args = parseArgs(process.argv.slice(2));
 const port = await claimPort(TAG, PORT_ENV, DEFAULT_PORT);
 const cellDir = path.join(args.out, 'cells');
 fs.mkdirSync(cellDir, { recursive: true });
 const base = `http://localhost:${port}`;
 const dev = await ensureDevServer(port, REPO_ROOT, TAG);
+if (args.garage) {
+  const garageFailures: string[] = [];
+  try {
+    garageFailures.push(...(await runGarage(args.out, args.gpu, base)));
+  } finally {
+    stopDevServer(dev, TAG);
+  }
+  if (garageFailures.length > 0) {
+    console.error(`[${TAG}] GARAGE CHECK FAILED:\n  ${garageFailures.join('\n  ')}`);
+    process.exit(1);
+  }
+  console.log(`[${TAG}] garage check: PASS`);
+  process.exit(0);
+}
 const results = new Map<string, Reading & { facingTurns: number; tile: [number, number] }>();
 const failures: string[] = [];
 let gpuName: string;
@@ -445,24 +607,27 @@ try {
     const commit = shortCommit();
     for (const zoom of ZOOMS) {
       const zKey = zoom.toFixed(1);
+      for (const [scale, suffix] of zKey === '1.0' ? ([[1, ''], [2, '_x2'], [4, '_x4']] as const) : ([[1, ''], [2, '_x2']] as const)) {
       await composeSheet(
         browser2,
-        path.join(args.out, `zoom${zKey}.png`),
-        `inf_squad in game, zoom ${zKey} -- tier 0, each track alone at tier 3, and the full kit`,
-        `pnpm inf-kit:capture at ${commit}; ${MAP_ID} sandbox without &amp;kit, account-seeded tiers through upgradePrepass; ` +
+        path.join(args.out, `zoom${zKey}${suffix}.png`),
+        `inf_squad in game, zoom ${zKey}${scale > 1 ? `, ${scale}x nearest` : ''} -- tier 0, every tier of every track alone, and the full kit`,
+        `pnpm inf-kit:capture at ${commit}; ${MAP_ID} sandbox without &amp;kit, account-seeded tiers through upgradePrepass; the shipped switch (INFANTRY_KIT_ENABLED, off) forced on in this browser only, nothing committed; ` +
           `rows: ${FACINGS.map((f) => f.label).join(' / ')}; tick ${CAPTURE_TICK}, frame loop frozen, zero-time repaint; ` +
           `fog, overlays and wind hidden; ${BOX[zKey].w}x${BOX[zKey].h} CSS px at DPR 1; GPU ${gpuName.replace(/[<>&]/g, '')}.`,
         STATES.map((s) => s.label),
-        FACINGS.map((f) => ({ label: f.id, cells: STATES.map((s) => path.join(cellDir, `${s.id}_${f.id}_z${zKey}.png`)) }))
+        FACINGS.map((f) => ({ label: f.id, cells: STATES.map((s) => path.join(cellDir, `${s.id}_${f.id}_z${zKey}.png`)) })),
+        scale
       );
-      console.log(`[${TAG}] wrote ${path.join(args.out, `zoom${zKey}.png`)}`);
+      console.log(`[${TAG}] wrote ${path.join(args.out, `zoom${zKey}${suffix}.png`)}`);
+      }
     }
   } finally {
     await browser2.close();
   }
   fs.writeFileSync(
     path.join(args.out, 'readings.json'),
-    `${JSON.stringify({ gpu: gpuName, commit: shortCommit(), states: Object.fromEntries(results) }, null, 2)}\n`
+    `${JSON.stringify({ gpu: gpuName, commit: shortCommit(), switchForcedOnInThisBrowserOnly: true, states: Object.fromEntries(results) }, null, 2)}\n`
   );
 } finally {
   stopDevServer(dev, TAG);

@@ -114,6 +114,18 @@ without an edit here. Each of the first three kinds has its own closed
     closed set, `rl_region` ids joining `data/campaign/world.json`, one
     marker per declared town) against the raw GLB bytes in its own branch.
 
+  * **Backdrop kits** (`art/meshes/backdrop/`, e.g. `wadi_halam_kit.glb`,
+    GH-161) are SKIPPED for the campaign map's reasons: a landform is not a
+    unit (no faction, no roster entry, no retired sprite), and its subject is
+    colour at a constant normal -- pale scree streaks down one scrub-green
+    face -- so the palette repaint this gate applies would be a stand-in with
+    none of the asset's content in it, and the unit-vs-unit silhouette check
+    has nothing to say about a valley wall. `tools/validate_mesh_assets.py`'s
+    `check_backdrop_meshes` checks the kit's own contract (one
+    material/image/texture and a 2048 atlas, every node `rl_textured` and a
+    named piece of the closed list, a triangle cap per piece) against the raw
+    GLB bytes in its own branch.
+
 None of `render_eitan.py`, `render_d9.py`, or `render_building.py` is
 imported for its table: each performs real work at module scope from a
 plain import -- `render_eitan.py` and `render_d9.py` both build a `VehicleSpec`
@@ -425,7 +437,7 @@ def is_skinned(glb_json):
 
 def mesh_kind(glb_path):
     """'vehicle' / 'building' / 'vfx' / 'decor' / 'props' / 'campaign' /
-    'infantry', from which subdirectory of art/meshes/ the file lives in --
+    'backdrop' / 'infantry', from which subdirectory of art/meshes/ the file lives in --
     see this file's module docstring for why path, not content, is the
     discovery signal."""
     if os.path.dirname(os.path.abspath(glb_path)) == os.path.abspath(VEHICLES_DIR):
@@ -444,6 +456,8 @@ def mesh_kind(glb_path):
         return "props"
     if top == "campaign":
         return "campaign"
+    if top == "backdrop":
+        return "backdrop"
     return "infantry"
 
 
@@ -1126,6 +1140,13 @@ def render_one(glb_path, out_root):
         # docstring's "Campaign maps" bullet. Contract-checked from the raw
         # GLB bytes by tools/validate_mesh_assets.py instead.
         print(f"MESH_GATE_WARN: {unit_id}: campaign-class mesh -- skipped by this "
+              f"gate (not a unit; see tools/render_mesh_gate.py's own docstring)")
+        return
+    if kind == "backdrop":
+        # A landform, not a unit, and colour at a constant normal: see the
+        # module docstring's "Backdrop kits" bullet. Contract-checked from
+        # the raw GLB bytes by tools/validate_mesh_assets.py instead.
+        print(f"MESH_GATE_WARN: {unit_id}: backdrop-class mesh -- skipped by this "
               f"gate (not a unit; see tools/render_mesh_gate.py's own docstring)")
         return
     glb_json = read_glb_json(glb_path)

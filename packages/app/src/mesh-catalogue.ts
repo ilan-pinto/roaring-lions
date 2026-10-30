@@ -482,6 +482,17 @@ export const CAMPAIGN_MESHES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The valley backdrop kits (GH-161), keyed by the kit id a map's
+ * `backdrop.kit` names. One GLB per kit: 19 pieces, one baked atlas, under the
+ * `TEXTURED_BACKDROP_KITS` exemption (`terrain/textured-backdrop.ts`). Fetched
+ * only on a map whose JSON carries a `backdrop` block -- every other map loads
+ * nothing here.
+ */
+export const BACKDROP_MESHES: Readonly<Record<string, string>> = {
+  wadi_halam_kit: 'backdrop/wadi_halam_kit.glb',
+};
+
+/**
  * The Meshy-sourced props (ground plan 2, Task 3 -- ART_PIPELINE §6). Keyed by
  * `PropKindName` (mirroring `PropKind`,
  * `packages/render/src/three/terrain/prop-role.ts`), the same way
@@ -619,6 +630,7 @@ export function claimedMeshFiles(): Set<string> {
   for (const files of Object.values(DECOR_MESHES)) for (const f of files) out.add(f);
   for (const f of Object.values(VFX_MESHES)) out.add(f);
   for (const f of Object.values(CAMPAIGN_MESHES)) out.add(f);
+  for (const f of Object.values(BACKDROP_MESHES)) out.add(f);
   for (const f of Object.values(PROP_MESHES)) out.add(f);
   return out;
 }
@@ -648,6 +660,8 @@ export interface MeshPlan {
   readonly buildings: ReadonlySet<string>;
   readonly decor: ReadonlySet<DecorFamilyName>;
   readonly props: ReadonlySet<PropKindName>;
+  /** The map's backdrop kit id, or null (almost every map). */
+  readonly backdrop: string | null;
 }
 
 export function meshPlanFor(
@@ -666,6 +680,7 @@ export function meshPlanFor(
     // by the sandbox on a map that declares none, and the five GLBs are
     // ~115 KB together.
     props: new Set([...propKindsFor(map), ...TUNNEL_PROP_KIND_NAMES]),
+    backdrop: map.backdrop?.kit ?? null,
   };
 }
 
@@ -683,6 +698,9 @@ export interface MeshManifest {
   readonly buildings: readonly { id: string; url: string; construction?: string }[];
   readonly decor: ReadonlyMap<string, string>;
   readonly props: ReadonlyMap<PropKindName, string>;
+  /** The backdrop kit's served URL, or null. A kit id with no entry in `BACKDROP_MESHES` is null too: the
+   *  renderer then has nothing to fetch and the map keeps its skirt. */
+  readonly backdrop: string | null;
 }
 
 export function meshManifestFor(plan: MeshPlan): MeshManifest {
@@ -705,6 +723,7 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
       )
     ),
     props: new Map([...plan.props].map((kind): [PropKindName, string] => [kind, meshUrl(PROP_MESHES[kind])])),
+    backdrop: plan.backdrop !== null && plan.backdrop in BACKDROP_MESHES ? meshUrl(BACKDROP_MESHES[plan.backdrop]) : null,
   };
 }
 
