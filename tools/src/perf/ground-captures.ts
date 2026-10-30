@@ -33,6 +33,36 @@
  *   the tick of every frame (and the reflectances it was drawn at) is in `cost.json` and on the
  *       printed line.
  *
+ * GH-871 P4 T12 adds the options of the lead's second look at the rain (S-L2). The pure half is
+ * `ground-captures-plan.ts`; the run is announced once and is expensive to repeat, so each option
+ * reads back what it asked for and FAILS LOUD:
+ *
+ *   pnpm ground:capture -- --port=5196 --maps=ein_qasab \
+ *     --markers=ein_qasab:causeway_s,ein_qasab:kdf_start,ein_qasab:hamlet --zooms=1,1.6,2.5 \
+ *     --quality=high,medium,low --ticks=6 --motion=reduce --clip=5 --stops=road,water,grass --out=...
+ *
+ *   --quality=<p>[,<p>...]  one extra boot per preset (the preset applies at boot, through the
+ *       `lions.settings` seed `musicOffInitScript` builds, never by hand); the MARKER views are
+ *       taken again as `<view>-<preset>`. The booted preset is read back (the quality's rain drop
+ *       count and the live batch's instance count: high 6,000, medium 3,500, low 900) and a
+ *       mismatch throws.
+ *   --ticks=<n>   after the baseline's frozen frames, each marker view at zoom 1.6 is followed by n
+ *       frames, the sim stepped ONE tick between them (the fall, frame to frame), named
+ *       `<view>-t<tick>`.
+ *   --motion=reduce   one more boot with `accessibility.motion = 'reduce'` (so `data-motion="reduce"`),
+ *       marker views as `<view>-reduced`; reducedMotion() must read true and the rain mesh hidden.
+ *   --clip=<s>    one Playwright `recordVideo` of the LIVE loop (not frozen) at the first marker, zoom
+ *       1.6, preset high, music off; the path is printed and is `_run.clip` in cost.json.
+ *   --stops=road,water,grass   after the baseline, the sandbox force's first infantry entity is
+ *       ordered (a `move` Command through `sim.queueCommand`, exactly as `--wade`) to a tile of
+ *       each kind near the first marker, waited for (600 ticks at most, DID NOT ARRIVE printed),
+ *       and photographed at zoom 2.5 as `<map>-squad-<kind>` with `squadScreen` in cost.json.
+ *   --zooms=1,1.6,2.5   the zooms each marker is photographed at (default 1 and 2.5, unchanged).
+ *
+ * Every frame also carries its preset, zoom, tick and the ON-SCREEN DROP DENSITY (`drops=`, with
+ * the lattice period `P=` and the preset's `total=`): the density depends on the zoom, and the
+ * lead judges the streak at the zoom it is seen at.
+ *
  * The port is `--port=<n>`, else GROUND_CAPTURE_PORT, else 5196 (5193-5199
  * only), and a port something already holds is refused before the server
  * starts (`ui-review/port.ts`) unless `--reuse` (or `--attach`) says so.
@@ -66,9 +96,10 @@
  *    special-case that; it is simply what "before Task 16" looks like here.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Page } from 'playwright';
+import { chromium, type Browser, type Page } from 'playwright';
 import { maps as ALL_MAPS } from '@lions/data';
 import type { Command } from '@lions/sim';
 import { ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
@@ -76,6 +107,37 @@ import { CAPTURE_VIEWPORT, FREEZE_FRAME_LOOP_SCRIPT, hideHudExceptCanvas } from 
 import { gpuLaunchArgs } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { ATTACH_FLAG, decidePort } from '../ui-review/port';
+import {
+  CLIP_ZOOM,
+  NameClaims,
+  READ_RAIN_HEIGHTS_SCRIPT,
+  READ_RENDER_SCRIPT,
+  STOP_ZOOM,
+  TICK_STRIP_ZOOM,
+  assertMotion,
+  assertPresetBooted,
+  makeHeightSampler,
+  halfToFloat,
+  parseClip,
+  parseMotion,
+  parsePresets,
+  parseStops,
+  parseTicks,
+  parseZooms,
+  planPasses,
+  rainLabel,
+  requestedModeFailures,
+  squadScreenScript,
+  stopName,
+  stopTile,
+  suffixedViews,
+  tickName,
+  type Pass,
+  type Preset,
+  type RainLabel,
+  type RenderRead,
+  type StopKind,
+} from './ground-captures-plan';
 
 const TAG = 'ground-capture';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -99,6 +161,18 @@ export interface GroundCaptureArgs {
   readonly reflect?: readonly number[];
   /** `--wade=<map>:<marker>` (GH-871 P4 T6). Absent without the flag. */
   readonly wade?: MarkerRef;
+  /** `--quality=` (GH-871 P4 T12): the presets to take the marker views at. Absent without the flag. */
+  readonly quality?: readonly Preset[];
+  /** `--ticks=` (T12): one-tick frames after each marker view at zoom 1.6. */
+  readonly ticks?: number;
+  /** `--motion=reduce` (T12). */
+  readonly motion?: 'reduce';
+  /** `--clip=` (T12): seconds of live loop to record. */
+  readonly clip?: number;
+  /** `--stops=` (T12): the tile kinds the first infantry entity is walked onto. */
+  readonly stops?: readonly StopKind[];
+  /** `--zooms=` (T12): the zooms each marker is photographed at. Absent keeps `MARKER_ZOOMS`. */
+  readonly zooms?: readonly number[];
 }
 
 /** One `<map>:<marker>` pair from `--markers=`. */
@@ -171,11 +245,37 @@ export function parseGroundCaptureArgs(
   }
   const rawWade = flag(argv, 'wade');
   const wade = rawWade === undefined ? undefined : parseRef('--wade', rawWade.trim(), maps);
+  const rawQuality = flag(argv, 'quality');
+  const quality = rawQuality === undefined ? undefined : parsePresets(rawQuality);
+  const rawTicks = flag(argv, 'ticks');
+  const ticks = rawTicks === undefined ? undefined : parseTicks(rawTicks);
+  const rawMotion = flag(argv, 'motion');
+  const motion = rawMotion === undefined ? undefined : parseMotion(rawMotion);
+  const rawClip = flag(argv, 'clip');
+  const clip = rawClip === undefined ? undefined : parseClip(rawClip);
+  const rawStops = flag(argv, 'stops');
+  const stops = rawStops === undefined ? undefined : parseStops(rawStops);
+  const rawZooms = flag(argv, 'zooms');
+  const zooms = rawZooms === undefined ? undefined : parseZooms(rawZooms);
+  // Each of these photographs a MARKER; without one there is nothing to apply it to.
+  for (const [name, given] of [['--quality', quality], ['--ticks', ticks], ['--motion', motion], ['--clip', clip], ['--stops', stops], ['--zooms', zooms]] as const) {
+    if (given !== undefined && markers === undefined) throw new Error(`${name} photographs the --markers views; pass --markers=<map>:<marker> too`);
+  }
+  // A tick strip is taken at zoom 1.6: refuse a run that cannot take one rather than finish with none.
+  if (ticks !== undefined && !(zooms ?? MARKER_ZOOMS).includes(TICK_STRIP_ZOOM)) {
+    throw new Error(`--ticks strips are taken at zoom ${TICK_STRIP_ZOOM}: pass --zooms=...,${TICK_STRIP_ZOOM}`);
+  }
   return {
     ...base,
     ...(markers === undefined ? {} : { markers }),
     ...(reflect === undefined ? {} : { reflect }),
     ...(wade === undefined ? {} : { wade }),
+    ...(quality === undefined ? {} : { quality }),
+    ...(ticks === undefined ? {} : { ticks }),
+    ...(motion === undefined ? {} : { motion }),
+    ...(clip === undefined ? {} : { clip }),
+    ...(stops === undefined ? {} : { stops }),
+    ...(zooms === undefined ? {} : { zooms }),
   };
 }
 
@@ -256,7 +356,8 @@ export function viewsFor(
   mapId: string,
   rows: readonly string[],
   wanted: readonly string[] = [],
-  table: Readonly<Record<string, readonly [number, number]>> = {}
+  table: Readonly<Record<string, readonly [number, number]>> = {},
+  zooms: readonly number[] = MARKER_ZOOMS
 ): readonly MapView[] {
   const w = rows[0]?.length ?? 0;
   const h = rows.length;
@@ -281,7 +382,7 @@ export function viewsFor(
         `${TAG}: map "${mapId}" has no marker "${marker}" (have: ${Object.keys(table).join(', ') || 'none'})`
       );
     }
-    for (const zoom of MARKER_ZOOMS) {
+    for (const zoom of zooms) {
       views.push({ name: `${mapId}-${marker}-z${zoom}`, x: tile[0], y: tile[1], zoom, fog: false });
     }
   }
@@ -343,6 +444,13 @@ export function wadeCommand(ids: readonly number[], tile: readonly [number, numb
  *  `STATS_SCRIPT`; the test runs it against a fake `window` whose sim state refuses a write. */
 export function wadeOrderScript(cmd: Command): string {
   return `((cmd) => { window.__lions.sim.queueCommand(cmd); return true; })(${JSON.stringify(cmd)})`;
+}
+
+/** The `--stops` order: the same `move` Command door as the wade, for entity `id` to `tile`. A
+ *  Command through `sim.queueCommand`, never a position write (invariant 4); the test runs it
+ *  against a fake `window` whose sim state refuses a write. */
+export function stopOrderScript(id: number, tile: readonly [number, number]): string {
+  return wadeOrderScript(wadeCommand([id], tile));
 }
 
 /** The first living side-0 entity whose type has role `infantry` (lowest id), or -1. Reads only. */
@@ -511,12 +619,29 @@ interface ViewStats {
   readonly geometries: number;
 }
 
+/** What `--stops` records for the frame it photographed. */
+interface StopRecord {
+  readonly kind: StopKind;
+  readonly tile: readonly [number, number];
+  /** The tile's neighbours that are not its kind: 0 means the squad truly stands in it. */
+  readonly nonKind: number;
+  readonly arrived: boolean;
+  readonly ticks: number;
+}
+
 /** A frame as `cost.json` records it: its draw cost, the sim tick it was drawn at and the
- *  reflectances the ground shader used (`null`: a dry map has neither). */
-interface FrameRecord extends ViewStats {
+ *  reflectances the ground shader used (`null`: a dry map has neither). T12 adds the labels the
+ *  lead reads a frame by: the preset, the zoom and the rain density (`null`: no rain batch). */
+export interface FrameRecord extends ViewStats {
   readonly tick: number;
   readonly puddle: number | null;
   readonly marsh: number | null;
+  readonly preset?: Preset;
+  readonly zoom?: number;
+  readonly rain?: RainLabel | null;
+  /** `--stops`: where the squad's lead entity stood on the screen, CSS px, for a contrast step. */
+  readonly squadScreen?: readonly [number, number];
+  readonly stop?: StopRecord;
 }
 
 interface Tuning {
@@ -533,6 +658,10 @@ async function readStats(page: Page): Promise<ViewStats> {
   return JSON.parse(json) as ViewStats;
 }
 
+async function readRender(page: Page): Promise<RenderRead> {
+  return JSON.parse((await page.evaluate(READ_RENDER_SCRIPT)) as string) as RenderRead;
+}
+
 async function boot(page: Page, port: number, mapId: string, extra: string): Promise<void> {
   const url = `http://localhost:${port}/?sandbox=${mapId}${extra}&renderer=three`;
   await page.goto(url, { waitUntil: 'load', timeout: 60_000 });
@@ -545,7 +674,32 @@ async function boot(page: Page, port: number, mapId: string, extra: string): Pro
   await page.evaluate(hideHudExceptCanvas);
 }
 
-async function shot(page: Page, out: string, view: MapView): Promise<FrameRecord> {
+/** The rain batch's ground-height sampler, read off the page ONCE per boot (the ground does not
+ *  move during a capture). */
+interface HeightCache {
+  sampler: ((x: number, z: number) => number) | null;
+  loaded: boolean;
+}
+
+/** What one `shot` needs beyond the camera: the pass it belongs to, the run's name register, this
+ *  boot's height cache and (for `--stops`) the entity whose screen position to record. */
+interface ShotCtx {
+  readonly pass: Pass;
+  readonly claims: NameClaims;
+  readonly cache: HeightCache;
+  readonly track?: number;
+}
+
+async function loadHeights(page: Page, cache: HeightCache): Promise<void> {
+  if (cache.loaded) return;
+  const raw = JSON.parse((await page.evaluate(READ_RAIN_HEIGHTS_SCRIPT)) as string) as { w: number; h: number; bits: number[] } | null;
+  if (raw === null) throw new Error(`${TAG}: the renderer has a rain batch but READ_RAIN_HEIGHTS_SCRIPT found none`);
+  cache.sampler = makeHeightSampler(raw.bits.map(halfToFloat), raw.w, raw.h);
+  cache.loaded = true;
+}
+
+async function shot(page: Page, out: string, view: MapView, ctx: ShotCtx): Promise<FrameRecord> {
+  ctx.claims.claim(view.name);
   const rect = await page.evaluate(
     ([x, y, zoom, fog, reflect]) => {
       const L = (window as unknown as LionsWindow).__lions;
@@ -567,17 +721,42 @@ async function shot(page: Page, out: string, view: MapView): Promise<FrameRecord
   );
   const stats = await readStats(page);
   const tuning = await readTuning(page);
-  const tick = await page.evaluate(() => (window as unknown as LionsWindow).__lions.sim.tickCount);
+  // The renderer's own answers about THIS frame. A pass that did not boot as asked throws here, on
+  // its first frame, instead of filling a sheet with frames of the wrong preset.
+  const read = await readRender(page);
+  assertPresetBooted(ctx.pass.preset, read);
+  assertMotion(ctx.pass.reduced, read);
+  if (read.rain !== null) await loadHeights(page, ctx.cache);
+  const rain = rainLabel(read, ctx.cache.sampler);
+  const squadScreen =
+    ctx.track === undefined ? undefined : (JSON.parse((await page.evaluate(squadScreenScript(ctx.track))) as string) as [number, number]);
   await page.screenshot({
     path: path.join(out, `${view.name}.png`),
     clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h },
   });
-  return { ...stats, tick, puddle: tuning.puddle, marsh: tuning.marsh };
+  return {
+    ...stats,
+    tick: read.tick,
+    puddle: tuning.puddle,
+    marsh: tuning.marsh,
+    preset: ctx.pass.preset,
+    zoom: view.zoom,
+    rain,
+    ...(squadScreen === undefined ? {} : { squadScreen }),
+  };
 }
 
 export function frameLine(name: string, f: FrameRecord): string {
   const r = f.puddle === null ? 'dry' : `puddle=${f.puddle} marsh=${f.marsh}`;
-  return `  ${name}: tick=${f.tick} ${r} calls=${f.calls} tris=${f.triangles} tex=${f.textures} geo=${f.geometries}`;
+  let line = `  ${name}: tick=${f.tick} ${r} calls=${f.calls} tris=${f.triangles} tex=${f.textures} geo=${f.geometries}`;
+  if (f.preset !== undefined) line += ` preset=${f.preset}`;
+  if (f.zoom !== undefined) line += ` zoom=${f.zoom}`;
+  if (f.rain === null) line += ' rain=none';
+  else if (f.rain !== undefined) {
+    line += ` drops=${f.rain.onScreen}${f.rain.visible ? '' : '(hidden)'} P=${f.rain.period} total=${f.rain.total}`;
+  }
+  if (f.squadScreen !== undefined) line += ` squad=[${Math.round(f.squadScreen[0])},${Math.round(f.squadScreen[1])}]`;
+  return line;
 }
 
 type LayerDelta =
@@ -634,6 +813,27 @@ interface MapCost {
   readonly decorFamiliesLoaded: Record<string, number>;
 }
 
+/** What a squad walk ended with. */
+interface Walk {
+  readonly arrived: boolean;
+  readonly spent: number;
+  readonly pos: { x: number; y: number; tick: number };
+}
+
+/** Orders entity `id` to `tile` (a `move` Command through `sim.queueCommand`, never a state write)
+ *  and steps the sim until it arrives or `WADE_TICK_CAP` ticks pass. Prints nothing: each caller
+ *  words its own line. */
+async function walkSquad(page: Page, id: number, tile: readonly [number, number]): Promise<Walk> {
+  await page.evaluate(stopOrderScript(id, tile));
+  let pos = JSON.parse((await page.evaluate(positionScript(id))) as string) as { x: number; y: number; tick: number };
+  const startTick = pos.tick;
+  while (!hasArrived(pos, tile) && pos.tick - startTick < WADE_TICK_CAP) {
+    await page.evaluate((n) => (window as unknown as LionsWindow).__lions.step(n), WADE_STEP_TICKS);
+    pos = JSON.parse((await page.evaluate(positionScript(id))) as string) as typeof pos;
+  }
+  return { arrived: hasArrived(pos, tile), spent: pos.tick - startTick, pos };
+}
+
 /** `--wade`: order the first infantry entity to the nearest `~` tile to the marker through
  *  `sim.queueCommand`, step until it arrives or `WADE_TICK_CAP` ticks pass, print which. Returns the
  *  target tile. Throws (naming the map) when there is no marker, no `~` tile or no infantry. */
@@ -653,20 +853,75 @@ async function wadeSquad(
   if (tile === null) throw new Error(`${TAG}: --wade: map "${mapId}" has no "~" tile to wade to`);
   const id = (await page.evaluate(FIRST_INFANTRY_SCRIPT)) as number;
   if (id < 0) throw new Error(`${TAG}: --wade: map "${mapId}" has no living side-0 infantry to order`);
-  await page.evaluate(wadeOrderScript(wadeCommand([id], tile)));
-  let pos = JSON.parse((await page.evaluate(positionScript(id))) as string) as { x: number; y: number; tick: number };
-  const startTick = pos.tick;
-  while (!hasArrived(pos, tile) && pos.tick - startTick < WADE_TICK_CAP) {
-    await page.evaluate((n) => (window as unknown as LionsWindow).__lions.step(n), WADE_STEP_TICKS);
-    pos = JSON.parse((await page.evaluate(positionScript(id))) as string) as typeof pos;
-  }
-  const spent = pos.tick - startTick;
+  const { arrived, spent, pos } = await walkSquad(page, id, tile);
   say(
-    hasArrived(pos, tile)
+    arrived
       ? `  wade ${mapId}: entity ${id} ARRIVED at ~ tile (${tile[0]},${tile[1]}) near ${marker} after ${spent} ticks (tick ${pos.tick})`
       : `  wade ${mapId}: entity ${id} DID NOT ARRIVE at ~ tile (${tile[0]},${tile[1]}) near ${marker} in ${spent} ticks; at (${pos.x.toFixed(1)},${pos.y.toFixed(1)}), tick ${pos.tick}`
   );
   return tile;
+}
+
+/** `--clip`: one Playwright `recordVideo` of the LIVE loop (the frame loop is NOT frozen, unlike
+ *  every other boot) at the first `--markers` entry, zoom `CLIP_ZOOM`, preset high, music off. The
+ *  file is checked to exist and to be non-empty, and the sim must have ticked while it recorded
+ *  (rain is on the sim clock: a paused sim would record still rain). */
+async function recordClip(
+  browser: Browser,
+  args: GroundCaptureArgs,
+  outDir: string,
+  say: (line: string) => void
+): Promise<{ path: string; seconds: number; map: string; marker: string; tick0: number; tick1: number }> {
+  const ref = args.markers?.[0];
+  if (ref === undefined || args.clip === undefined) throw new Error(`${TAG}: --clip needs --markers (the first names the view)`);
+  const at = markersFor(ref.map)[ref.marker];
+  if (at === undefined) throw new Error(`${TAG}: --clip: map "${ref.map}" has no marker "${ref.marker}"`);
+  const dir = path.join(outDir, 'clip');
+  fs.mkdirSync(dir, { recursive: true });
+  const context = await browser.newContext({
+    viewport: CAPTURE_VIEWPORT,
+    deviceScaleFactor: 1,
+    recordVideo: { dir, size: { width: CAPTURE_VIEWPORT.width, height: CAPTURE_VIEWPORT.height } },
+  });
+  const page = await context.newPage();
+  await page.addInitScript(musicOffInitScript({}, { quality: 'high' }));
+  const video = page.video();
+  if (video === null) throw new Error(`${TAG}: --clip: Playwright gave the page no video`);
+  const url = `http://localhost:${args.port}/?sandbox=${ref.map}&renderer=three`;
+  await page.goto(url, { waitUntil: 'load', timeout: 60_000 });
+  await page.waitForFunction(() => typeof (window as unknown as LionsWindow).__lions !== 'undefined', null, { timeout: 60_000 });
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(2500);
+  await page.evaluate(hideHudExceptCanvas);
+  await page.evaluate(
+    ([x, y, zoom]) => {
+      const L = (window as unknown as LionsWindow).__lions;
+      L.goto(x, y);
+      L.renderer.camera.zoom = zoom;
+    },
+    [at[0], at[1], CLIP_ZOOM] as const
+  );
+  const tick0 = (await readRender(page)).tick;
+  await page.waitForTimeout(args.clip * 1000);
+  const after = await readRender(page);
+  assertPresetBooted('high', after);
+  assertMotion(false, after);
+  await context.close();
+  const file = await video.path();
+  if (!fs.existsSync(file) || fs.statSync(file).size === 0) throw new Error(`${TAG}: --clip: the recording ${file} is missing or empty`);
+  say(`  clip ${ref.map}:${ref.marker} z${CLIP_ZOOM} ${args.clip}s high, live loop, ticks ${tick0} -> ${after.tick}: ${file}`);
+  return { path: file, seconds: args.clip, map: ref.map, marker: ref.marker, tick0, tick1: after.tick };
+}
+
+/** The run's conditions, recorded with every number (cost.json `_run`), only when a T12 option ran. */
+interface RunMeta {
+  readonly gl: string;
+  readonly viewport: { readonly width: number; readonly height: number };
+  readonly deviceScaleFactor: 1;
+  readonly passes: readonly string[];
+  readonly loadAverage: readonly number[];
+  readonly loadAverageAfter?: readonly number[];
+  readonly clip?: { path: string; seconds: number; map: string; marker: string; tick0: number; tick1: number };
 }
 
 async function main(): Promise<void> {
@@ -732,119 +987,221 @@ async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs('metal') });
   const cost: Record<string, MapCost> = {};
   let reflectFrames = 0;
+  const claims = new NameClaims();
+  const took = {
+    presetFrames: {} as Record<string, number>,
+    tickFrames: 0,
+    reducedFrames: 0,
+    clipPath: null as string | null,
+    stopFrames: {} as Record<string, number>,
+  };
+  const passes = planPasses({ quality: args.quality, motion: args.motion });
+  const t12 = args.quality !== undefined || args.ticks !== undefined || args.motion !== undefined || args.clip !== undefined || args.stops !== undefined;
+  let meta: RunMeta | null = null;
+  let clipTicked = true;
   try {
-    say(`[${TAG}] gl=${await readUnmaskedRenderer(browser)}`);
-    const page = await browser.newPage({ viewport: CAPTURE_VIEWPORT, deviceScaleFactor: 1 });
-    await page.addInitScript(musicOffInitScript());
-    const pageErrors: string[] = [];
-    page.on('pageerror', (err) => pageErrors.push(err.message));
+    const gl = await readUnmaskedRenderer(browser);
+    say(`[${TAG}] gl=${gl}`);
+    meta = { gl, viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: 1, passes: passes.map((p) => `${p.preset}${p.reduced ? '+reduced' : ''}`), loadAverage: os.loadavg().map((v) => Number(v.toFixed(2))) };
+    for (const pass of passes) {
+      if (!pass.full || t12) say(`[${TAG}] pass preset=${pass.preset} motion=${pass.reduced ? 'reduce' : 'system'}${pass.full ? ' (baseline: every view)' : ' (marker views)'}`);
+      // One context per pass: the preset and the motion setting apply at BOOT, from the settings
+      // seed the init script writes, so each pass is a fresh browser context (a fresh localStorage).
+      const context = await browser.newContext({ viewport: CAPTURE_VIEWPORT, deviceScaleFactor: 1 });
+      try {
+        const page = await context.newPage();
+        await page.addInitScript(musicOffInitScript({}, { quality: pass.preset }, pass.reduced ? { motion: 'reduce' } : {}));
+        const pageErrors: string[] = [];
+        page.on('pageerror', (err) => pageErrors.push(err.message));
 
-    for (const mapId of args.maps) {
-      const rows = rowsFor(mapId);
-      const extra = args.decals ? '&decals' : '';
-      await boot(page, args.port, mapId, extra);
-      const actualPort = new URL(page.url()).port;
-      if (actualPort !== String(args.port)) {
-        say(
-          `[${TAG}] ERROR: requested --port=${args.port} but the browser is on :${actualPort} -- ` +
-            `Vite's strictPort=false let it bind elsewhere; every measurement so far is against ` +
-            `the WRONG tree, refusing to continue`
-        );
-        finish(1);
-      }
-      say(`boot ${mapId}${extra} (dev server confirmed on :${actualPort})`);
+        for (const mapId of args.maps) {
+          const rows = rowsFor(mapId);
+          const extra = args.decals ? '&decals' : '';
+          const wanted = (args.markers ?? []).filter((m) => m.map === mapId).map((m) => m.marker);
+          if (!pass.full && wanted.length === 0) {
+            say(`  ${pass.preset}${pass.suffix}: ${mapId} has no --markers, its views are not repeated`);
+            continue;
+          }
+          await boot(page, args.port, mapId, extra);
+          const actualPort = new URL(page.url()).port;
+          if (actualPort !== String(args.port)) {
+            say(
+              `[${TAG}] ERROR: requested --port=${args.port} but the browser is on :${actualPort} -- ` +
+                `Vite's strictPort=false let it bind elsewhere; every measurement so far is against ` +
+                `the WRONG tree, refusing to continue`
+            );
+            finish(1);
+          }
+          say(`boot ${mapId}${extra}${pass.full ? '' : ` ${pass.suffix.slice(1)}`} (dev server confirmed on :${actualPort})`);
+          const cache: HeightCache = { sampler: null, loaded: false };
+          const ctx: ShotCtx = { pass, claims, cache };
+          const table = markersFor(mapId);
+          const views = viewsFor(mapId, rows, wanted, table, args.zooms);
 
-      const familyJson = (await page.evaluate(DECOR_FAMILY_SCRIPT)) as string;
-      const familyTotals = JSON.parse(familyJson) as Record<string, number>;
-      const familyEntries = Object.entries(familyTotals).sort(([a], [b]) => a.localeCompare(b));
-      say(
-        `  decor families LOADED (geometry tris, not placement-multiplied): ` +
-          (familyEntries.length > 0
-            ? familyEntries.map(([f, t]) => `${f}=${t}`).join(', ')
-            : '(none -- decorSet empty, or this build has no decorSet field)')
-      );
+          if (!pass.full) {
+            const mine = cost[mapId];
+            if (mine === undefined) throw new Error(`${TAG}: no baseline cost record for ${mapId}`);
+            for (const view of suffixedViews(views, mapId, wanted, pass.suffix)) {
+              const stats = await shot(page, outDir, view, ctx);
+              mine.views[view.name] = stats;
+              if (pass.reduced) took.reducedFrames++;
+              else took.presetFrames[pass.preset] = (took.presetFrames[pass.preset] ?? 0) + 1;
+              say(frameLine(view.name, stats));
+            }
+            continue;
+          }
 
-      const wanted = (args.markers ?? []).filter((m) => m.map === mapId).map((m) => m.marker);
-      const views = viewsFor(mapId, rows, wanted, markersFor(mapId));
-      const viewCosts: Record<string, FrameRecord> = {};
-      for (const view of views) {
-        const stats = await shot(page, outDir, view);
-        viewCosts[view.name] = stats;
-        say(frameLine(view.name, stats));
-      }
+          const familyJson = (await page.evaluate(DECOR_FAMILY_SCRIPT)) as string;
+          const familyTotals = JSON.parse(familyJson) as Record<string, number>;
+          const familyEntries = Object.entries(familyTotals).sort(([a], [b]) => a.localeCompare(b));
+          say(
+            `  decor families LOADED (geometry tris, not placement-multiplied): ` +
+              (familyEntries.length > 0
+                ? familyEntries.map(([f, t]) => `${f}=${t}`).join(', ')
+                : '(none -- decorSet empty, or this build has no decorSet field)')
+          );
 
-      // Layer cost is measured at a fixed centre/z1/nofog framing, set
-      // explicitly rather than inherited from whichever view was shot last
-      // (the road close-up, if the map has one, would otherwise leave the
-      // camera somewhere else entirely).
-      const w = rows[0]?.length ?? 0;
-      const h = rows.length;
-      const cx = Math.floor(w / 2);
-      const cy = Math.floor(h / 2);
-      await page.evaluate(
-        ([x, y]) => {
-          const L = (window as unknown as LionsWindow).__lions;
-          L.goto(x, y);
-          L.renderer.camera.zoom = 1;
-          L.renderer.setDebugLayerVisible('fog', false);
-          L.renderer.frame(1, 0);
-        },
-        [cx, cy] as const
-      );
-      const base = await readStats(page);
-      const layers = await layerCost(page, base);
-      // GH-871 P4 T6. After the cost block so the reflectance and the squad move nothing it
-      // measured; the reflect views first (the squad still at tick 0, as in the plain views), the
-      // tuning put back, and only then the wade.
-      if (args.reflect !== undefined && wanted.length > 0) {
-        const before = await readTuning(page);
-        if (before.puddle === null) {
-          say(`  --reflect: ${mapId} has no wet ground (no reflectance uniform), its marker views are not repeated`);
-        } else {
-          for (const view of reflectViews(mapId, views, wanted, args.reflect)) {
-            const stats = await shot(page, outDir, view);
-            assertReflectApplied(view, stats);
-            reflectFrames++;
+          const viewCosts: Record<string, FrameRecord> = {};
+          for (const view of views) {
+            const stats = await shot(page, outDir, view, ctx);
             viewCosts[view.name] = stats;
             say(frameLine(view.name, stats));
           }
+
+          // Layer cost is measured at a fixed centre/z1/nofog framing, set
+          // explicitly rather than inherited from whichever view was shot last
+          // (the road close-up, if the map has one, would otherwise leave the
+          // camera somewhere else entirely).
+          const w = rows[0]?.length ?? 0;
+          const h = rows.length;
+          const cx = Math.floor(w / 2);
+          const cy = Math.floor(h / 2);
           await page.evaluate(
-            ([puddle, marsh]) =>
-              (window as unknown as LionsWindow).__lions.renderer.debugSetWetTuning?.({ puddle, marsh }),
-            [before.puddle, before.marsh ?? before.puddle] as const
+            ([x, y]) => {
+              const L = (window as unknown as LionsWindow).__lions;
+              L.goto(x, y);
+              L.renderer.camera.zoom = 1;
+              L.renderer.setDebugLayerVisible('fog', false);
+              L.renderer.frame(1, 0);
+            },
+            [cx, cy] as const
+          );
+          const base = await readStats(page);
+          const layers = await layerCost(page, base);
+          // GH-871 P4 T6. After the cost block so the reflectance and the squad move nothing it
+          // measured; the reflect views first (the squad still at tick 0, as in the plain views), the
+          // tuning put back, and only then the wade.
+          if (args.reflect !== undefined && wanted.length > 0) {
+            const before = await readTuning(page);
+            if (before.puddle === null) {
+              say(`  --reflect: ${mapId} has no wet ground (no reflectance uniform), its marker views are not repeated`);
+            } else {
+              for (const view of reflectViews(mapId, views, wanted, args.reflect)) {
+                const stats = await shot(page, outDir, view, ctx);
+                assertReflectApplied(view, stats);
+                reflectFrames++;
+                viewCosts[view.name] = stats;
+                say(frameLine(view.name, stats));
+              }
+              await page.evaluate(
+                ([puddle, marsh]) =>
+                  (window as unknown as LionsWindow).__lions.renderer.debugSetWetTuning?.({ puddle, marsh }),
+                [before.puddle, before.marsh ?? before.puddle] as const
+              );
+            }
+          }
+          // GH-871 P4 T12. The tick strips: each marker view at the strip zoom, then `--ticks`
+          // frames with the sim stepped ONE tick between them. They come after the tick-0 frames
+          // (the sim has moved on) and before the wade and the stops (which step it a long way).
+          if (args.ticks !== undefined) {
+            for (const view of suffixedViews(views, mapId, wanted, '')) {
+              if (view.zoom !== TICK_STRIP_ZOOM) continue;
+              for (let k = 0; k < args.ticks; k++) {
+                const tick = (await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(1))) as number;
+                const tv: MapView = { ...view, name: tickName(view.name, tick) };
+                const stats = await shot(page, outDir, tv, ctx);
+                if (stats.tick !== tick) throw new Error(`${TAG}: ${tv.name} was stepped to tick ${tick} but the frame reads tick ${stats.tick}`);
+                took.tickFrames++;
+                viewCosts[tv.name] = stats;
+                say(frameLine(tv.name, stats));
+              }
+            }
+          }
+          if (args.wade !== undefined && args.wade.map === mapId) {
+            const tile = await wadeSquad(page, say, mapId, args.wade.marker, rows, table);
+            for (const view of wadeViews(mapId, tile)) {
+              const stats = await shot(page, outDir, view, ctx);
+              viewCosts[view.name] = stats;
+              say(frameLine(view.name, stats));
+            }
+          }
+          // GH-871 P4 T12. The infantry readability stops: the same first infantry entity as
+          // the wade, walked by a `move` Command to a road, an interior water and an interior
+          // grass tile near the map's first marker, photographed where it stands.
+          if (args.stops !== undefined && wanted.length > 0) {
+            const markerName = wanted[0];
+            const from = table[markerName];
+            const id = (await page.evaluate(FIRST_INFANTRY_SCRIPT)) as number;
+            if (id < 0) throw new Error(`${TAG}: --stops: map "${mapId}" has no living side-0 infantry to order`);
+            for (const kind of args.stops) {
+              const pick = stopTile(rows, from, kind);
+              if (pick === null) throw new Error(`${TAG}: --stops: map "${mapId}" has no ${kind} tile`);
+              if (kind !== 'road' && pick.nonKind > 0) {
+                say(`  stop ${mapId} ${kind}: no interior ${kind} tile; using (${pick.tile[0]},${pick.tile[1]}) with ${pick.nonKind} non-${kind} neighbours`);
+              }
+              const walk = await walkSquad(page, id, pick.tile);
+              say(
+                walk.arrived
+                  ? `  stop ${mapId} ${kind}: entity ${id} ARRIVED at (${pick.tile[0]},${pick.tile[1]}) near ${markerName} after ${walk.spent} ticks (tick ${walk.pos.tick})`
+                  : `  stop ${mapId} ${kind}: entity ${id} DID NOT ARRIVE at (${pick.tile[0]},${pick.tile[1]}) near ${markerName} in ${walk.spent} ticks; at (${walk.pos.x.toFixed(1)},${walk.pos.y.toFixed(1)}), tick ${walk.pos.tick}`
+              );
+              const view: MapView = { name: stopName(mapId, kind), x: walk.pos.x, y: walk.pos.y, zoom: STOP_ZOOM, fog: false };
+              const stats = await shot(page, outDir, view, { ...ctx, track: id });
+              viewCosts[view.name] = {
+                ...stats,
+                stop: { kind, tile: pick.tile, nonKind: pick.nonKind, arrived: walk.arrived, ticks: walk.spent },
+              };
+              took.stopFrames[kind] = (took.stopFrames[kind] ?? 0) + 1;
+              say(frameLine(view.name, viewCosts[view.name]));
+            }
+          }
+          cost[mapId] = { views: viewCosts, layers, decorFamiliesLoaded: familyTotals };
+          say(
+            `  cost ${mapId} centre z1 nofog: all calls=${base.calls} tris=${base.triangles} | ` +
+              layers
+                .map((l) => (l.calls === 'n/a' ? `${l.layer} n/a` : `${l.layer} -${l.calls} calls / -${l.triangles} tris`))
+                .join(' | ')
           );
         }
+
+        if (pageErrors.length > 0) say(`page errors: ${pageErrors.slice(0, 5).join(' | ')}`);
+      } finally {
+        await context.close();
       }
-      if (args.wade !== undefined && args.wade.map === mapId) {
-        const tile = await wadeSquad(page, say, mapId, args.wade.marker, rows, markersFor(mapId));
-        for (const view of wadeViews(mapId, tile)) {
-          const stats = await shot(page, outDir, view);
-          viewCosts[view.name] = stats;
-          say(frameLine(view.name, stats));
-        }
-      }
-      cost[mapId] = { views: viewCosts, layers, decorFamiliesLoaded: familyTotals };
-      say(
-        `  cost ${mapId} centre z1 nofog: all calls=${base.calls} tris=${base.triangles} | ` +
-          layers
-            .map((l) => (l.calls === 'n/a' ? `${l.layer} n/a` : `${l.layer} -${l.calls} calls / -${l.triangles} tris`))
-            .join(' | ')
-      );
     }
 
-    if (pageErrors.length > 0) say(`page errors: ${pageErrors.slice(0, 5).join(' | ')}`);
+    if (args.clip !== undefined) {
+      const clip = await recordClip(browser, args, outDir, say);
+      took.clipPath = clip.path;
+      clipTicked = clip.tick1 > clip.tick0;
+      meta = { ...meta, clip };
+    }
   } finally {
     await browser.close();
-    fs.writeFileSync(path.join(outDir, 'cost.json'), JSON.stringify(cost, null, 2) + '\n');
+    const out: Record<string, unknown> = { ...cost };
+    if (t12 && meta !== null) out._run = { ...meta, loadAverageAfter: os.loadavg().map((v) => Number(v.toFixed(2))) };
+    fs.writeFileSync(path.join(outDir, 'cost.json'), JSON.stringify(out, null, 2) + '\n');
     stopDevServer(server, TAG);
   }
+  const failures = requestedModeFailures(args, took);
+  if (!clipTicked) failures.push('--clip: the sim did not tick while the clip recorded (a paused sim records still rain)');
   if (reflectRunFailed(args.reflect, reflectFrames)) {
-    say(
-      `[${TAG}] ERROR: --reflect was given but no -r frame was taken (no map in --maps had a marker view on wet ground): there is no A/B`
+    failures.push(
+      '--reflect was given but no -r frame was taken (no map in --maps had a marker view on wet ground): there is no A/B'
     );
-    finish(1);
   }
-  finish(0);
+  for (const f of failures) say(`[${TAG}] ERROR: ${f}`);
+  finish(failures.length > 0 ? 1 : 0);
 }
 
 // Only when run as a script -- the test file imports this module for its
