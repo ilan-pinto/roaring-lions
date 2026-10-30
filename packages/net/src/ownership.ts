@@ -95,9 +95,12 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
       return cmd.ids.length > 0 && cmd.ids.every(own) && theirs !== undefined && theirs !== side;
     }
     case 'rescue':
-      // GH-707: own medics only, and a target that exists -- of ANY side: rescuing your own,
-      // a civilian or an enemy wounded are all orders. Whether he is down and known is the sim's.
-      return cmd.ids.length > 0 && cmd.ids.every(own) && world.sideOfEntity(cmd.target) !== undefined;
+      // GH-707: own medics only, and a target that exists. Outside versus the target may be of ANY side:
+      // rescuing your own, a civilian or an enemy wounded are all orders (Conduct pays for the last two).
+      // In a versus room it must be the seat's OWN side's (the lead, 30 Oct 2026): carrying an enemy's man
+      // off the field is not a rescue a room has a rule for. Whether he is down and known is the sim's.
+      return cmd.ids.length > 0 && cmd.ids.every(own) && world.sideOfEntity(cmd.target) !== undefined
+        && (!world.versus || world.sideOfEntity(cmd.target) === side);
     case 'callStrike':
       return !world.versus && own(cmd.caller) && onMap(cmd.x, cmd.y);
     case 'reveal':

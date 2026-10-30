@@ -1415,7 +1415,7 @@ export type SimEvent =
    *  bleeds no more. */
   | { kind: 'woundStabilised'; tick: number; entity: number; medic: number }
   /** GH-707 Task 6: wounded `entity` was carried within `admit_radius` of aid structure
-   *  `structure` owned by the carrier's side `side` (the ADMITTING side, which Conduct reads)
+   *  `structure` working for the carrier's side `side` (owned by it, or a neutral camp that produces for it) (the ADMITTING side, which Conduct reads)
    *  and is under treatment there: `alive` 0, `removed` 1, no `destroyed`. */
   | { kind: 'woundAdmitted'; tick: number; entity: number; structure: number; side: number }
   /** GH-707 Task 6: admitted wounded `entity` walked back into squad `squad` (his own, or the
@@ -8447,11 +8447,20 @@ export class Sim {
   }
 
   /** GH-707 Task 6: is structure `s` an aid post working for `side` -- standing, finished
-   *  (field works: a site under construction admits nobody), with an `aid` block, and owned
-   *  (`stOwner`) by `side`? A neutral (-1) structure is nobody's post. */
+   *  (field works: a site under construction admits nobody), with an `aid` block, and working
+   *  for `side` (`aidSideOf`: owned by it, or a neutral camp that produces for it)? A neutral
+   *  structure that produces for nobody is nobody's post. */
   private aidPostOf(s: number, side: number): boolean {
-    if (this.stAlive[s] === 0 || this.stProgress[s] !== ONE || this.stOwner[s] !== side) return false;
+    if (this.stAlive[s] === 0 || this.stProgress[s] !== ONE || this.aidSideOf(s) !== side) return false;
     return this.structureTypes[this.stTypeIdx[s]].aid !== null;
+  }
+
+  /** GH-707: the side aid structure `s` works for -- its owner (field works), else, for a NEUTRAL
+   *  structure, the side it produces for (a versus room's KDF camp, given an `aid` block by `standMapStructures`: not owned, so not a
+   *  target and no field-works fold, yet a drop-off for its own side's wounded). -1 when neither. */
+  private aidSideOf(s: number): number {
+    const owner = this.stOwner[s];
+    return owner !== -1 ? owner : this.stProducesFor[s];
   }
 
   /** GH-707 Task 6, dispatch: the friendly aid post whose `dispatch_radius` holds medic `m`
@@ -8590,18 +8599,18 @@ export class Sim {
    * nearest same-type squad of his side below full (measured from the post; ties to the lowest
    * id), and nobody else's: `rejoinSquad`. Otherwise -- an enemy's or a civilian's man (D5), a
    * squad's last man or a man downed in place (parent -1, ruling 5), or no squad to take him
-   * -- he leaves the fight alive: `woundEvacuated`, `carrier` -1, `side` the post's owner.
+   * -- he leaves the fight alive: `woundEvacuated`, `carrier` -1, `side` the post's side (`aidSideOf`).
    * GONE either way; he never comes back on the board as an entity.
    */
   private dischargePatient(i: number, s: number): void {
-    const owner = this.stOwner[s];
+    const postSide = this.aidSideOf(s);
     const side = this.side[i];
     this.woundState[i] = WOUND_GONE;
     this.admittedAt[i] = -1;
     this.woundTimer[i] = 0;
     let squad = -1;
     const p = this.woundParent[i];
-    if (side === owner && side !== 2 && p >= 0) {
+    if (side === postSide && side !== 2 && p >= 0) {
       const ti = this.typeIdx[p];
       if (this.canRejoin(p, side, ti)) squad = p;
       else {
@@ -8616,7 +8625,7 @@ export class Sim {
       }
     }
     if (squad < 0) {
-      this.pendingEvents.push({ kind: 'woundEvacuated', tick: this.tickCount, entity: i, carrier: -1, side: owner });
+      this.pendingEvents.push({ kind: 'woundEvacuated', tick: this.tickCount, entity: i, carrier: -1, side: postSide });
       return;
     }
     this.rejoinSquad(squad);

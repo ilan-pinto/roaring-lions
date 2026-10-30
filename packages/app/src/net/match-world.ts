@@ -78,7 +78,7 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // 256: see `bootBattlefield` -- `spawn` never reuses a dead unit's slot.
   const sim = new Sim({ seed: config.seed, width: map.width, height: map.height, capacity: 256, humanHeld: seatRules(config).humanHeld });
   applyTerrain(map, sim);
-  standMapStructures(sim, map);
+  standMapStructures(sim, map, economy);
 
   // Positional: entry r IS the sim's route index, so assert it (see main.ts).
   const tunnelRoutes = map.tunnels.map(tunnelRouteOf);
