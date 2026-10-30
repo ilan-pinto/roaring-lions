@@ -3,11 +3,12 @@
 // probe itself: a table from an instrument that cannot tell west from east.
 // Each test below is seen red under a one-line mutation of versus-probe.ts (the
 // header there lists them; the commit message says which was run).
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { doctrines, versusRules, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
 import { fx, MED_TO_WOUNDED, type Command } from '@lions/sim';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
+import { enterMedicRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
   RESCUE_SAFE_TILES, candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, loneSurvivorOf, main, marchersOf, order, parseArrangements, parsePair, planRescueBuy, planRound, play,
@@ -547,6 +548,10 @@ describe('the formation arm (GH-859 P1a, spec 8.7)', () => {
 
 // The rescue arm (GH-707, the lead, 30 Oct 2026). LITERALS throughout.
 describe('the rescue arm', () => {
+  // The medic team is held out of versus: this block puts it in a room in memory.
+  let leaveMedicRoom = (): void => {};
+  beforeAll(() => { leaveMedicRoom = enterMedicRoom(); });
+  afterAll(() => leaveMedicRoom());
   const room = (start?: [number, number]) => {
     const w = withOverrides(start === undefined ? {} : { start }, () => buildMatchWorld(roomConfig('tel_marum', ['kdf', 'sarim'], 1000)));
     const rt = w.runtime;
@@ -566,12 +571,11 @@ describe('the rescue arm', () => {
     expect(w.sim.entityCount, 'a man went down').toBeGreaterThan(before);
     return before;
   };
-  const menu0 = doctrines.kdf.menu;
-  const medicOnMenu = menu0.includes('inf_medic_squad');
+  const menu0 = doctrines.kdf.menu; // the same array the harness pushes the medic onto
 
   it('the plan does not count the medic team as armed: a fresh 3000 purse never buys one, though it is on the menu and carries carbines', () => {
     const { rt, w } = room([3000, 4800]);
-    expect(medicOnMenu).toBe(true);
+    expect(menu0).toContain('inf_medic_squad');
     const bought = planRound(rt, w.sim, menu0, forceMixOf('kdf'), 0, 'off');
     expect(bought).toEqual(['yahalom_squad', 'mbt_lavi', 'ifv_namer', 'apc_eitan', 'inf_squad', 'at_team']);
     expect(bought).not.toContain('inf_medic_squad');
@@ -676,4 +680,20 @@ describe('the rescue arm', () => {
     expect(() => main(['--economy', '--rescue-buy=often'])).toThrow(/not after, before, save, opening or off/);
     expect(() => main(['--rescue-buy=after'])).toThrow(/needs --economy/);
   });
+});
+
+describe('the rescue arm puts the held medic team in the room in memory, for the run only (PR 907)', () => {
+  it('--rescue-buy=opening delivers a medic team and leaves the shipped menu and held set as they were; without the flag none is delivered', () => {
+    const logged: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { logged.push(a.join(' ')); });
+    expect(doctrines.kdf.menu).not.toContain('inf_medic_squad');
+    expect(main(['--economy', '--maps=wadi_tarfan', '--seeds=1', '--arr=sarim/kdf', '--rescue-buy=opening'])).toBe(0);
+    const row = logged.find((l) => l.startsWith('wadi_tarfan')) ?? '';
+    expect(row).toMatch(/\s1\.0\/\d\.\d\s/); // med/rej: one medic team a game
+    expect(logged.some((l) => l.includes('put on the KDF menu in memory'))).toBe(true);
+    expect(doctrines.kdf.menu).not.toContain('inf_medic_squad'); // put back
+    logged.length = 0;
+    expect(main(['--economy', '--maps=wadi_tarfan', '--seeds=1', '--arr=sarim/kdf'])).toBe(0);
+    expect(logged.find((l) => l.startsWith('wadi_tarfan')) ?? '').toMatch(/\s0\.0\/0\.0\s/);
+  }, 120_000);
 });

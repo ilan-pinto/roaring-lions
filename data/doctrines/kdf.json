@@ -13,8 +13,7 @@
     "recon_drone",
     "dozer_d9",
     "heli_peten",
-    "yahalom_squad",
-    "inf_medic_squad"
+    "yahalom_squad"
   ],
   "pop_cap": 40,
   "budget": {

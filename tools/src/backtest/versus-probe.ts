@@ -96,7 +96,9 @@
 //          --rules=<room|default>  --economy  --tunnels  --start=<k>/<s>  --pop-cap=<k>/<s>  --rate-scale=<percent>
 //          --formation=<id>  --formation-end=<friendly|hostile>  --rescue-buy=<after|before|save|opening|off>
 //
-// The rescue arm (GH-707, the lead, 30 Oct 2026). A rescue unit (the Nemala medic team) is not "armed" to the plan
+// The rescue arm (GH-707, the lead, 30 Oct 2026). REPORT-ONLY: the medic team is HELD out of versus (the lead, 30 Oct
+// 2026, PR 907), so a `--rescue-buy=<mode>` run (any mode but `off`) puts it on the KDF menu IN MEMORY for that run, and
+// without the flag the medic is not in the room at all. A rescue unit (the Nemala medic team) is not "armed" to the plan
 // (its carbines do not make it a combat unit), so the combat rebuild never buys one. `planRescueBuy` buys one only when
 // its side has a man lying wounded and none living or queued: `after` the combat purchases of the round (the default,
 // and only if the purse still covers it), `before` them, or `off`. `rescueRound` orders each idle medic, every second,
@@ -156,6 +158,7 @@ import { versusForceOf, versusSpawns } from '../../../packages/app/src/net/versu
 import { MATCH_CAP_TICKS, outcomeOf, productionOf, unitCost, type MatchResult, type OutcomeProduction } from '../../../packages/app/src/net/outcome';
 import { versusRoster } from '../../../packages/app/src/net/versus-roster';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
+import { withMedicInRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 
 /** 20 Hz, like the sim. */
 const TICKS_PER_SECOND = 20;
@@ -1290,7 +1293,10 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   const withFormation: PlayFn = formation === undefined ? playFn : (m, a, sd, o) => playFn(m, a, sd, { ...o, formation });
   const armed: PlayFn = rescueArg === undefined ? withFormation : (m, a, sd, o) => withFormation(m, a, sd, { ...o, rescueBuy: rescueArg });
   if (formation !== undefined) console.log(`formation arm: ${formation.id} on ${endArg === undefined ? 'both ends' : `the ${endArg} end only`}`);
-  return withOverrides(overrides, () => report({ economy, tunnels, rules, mapIds, arrangements, seeds, capTicks, overrides, playFn: armed }));
+  const run = (): number => withOverrides(overrides, () => report({ economy, tunnels, rules, mapIds, arrangements, seeds, capTicks, overrides, playFn: armed }));
+  // The medic team is HELD out of versus (the lead, 30 Oct 2026): a rescue reading puts it on the KDF menu IN MEMORY, for this run only.
+  if (rescueArg !== undefined && rescueArg !== 'off') console.log(`rescue arm: ${rescueArg}; the medic team is put on the KDF menu in memory (shipped: held out of versus), report-only`);
+  return rescueArg !== undefined && rescueArg !== 'off' ? withMedicInRoom(run) : run();
 }
 
 function report(r: { economy: boolean; tunnels: boolean; rules: SeatTable; mapIds: MapId[]; arrangements: Arrangement[]; seeds: number; capTicks: number; overrides: Overrides; playFn: PlayFn }): number {

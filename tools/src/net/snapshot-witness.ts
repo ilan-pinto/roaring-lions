@@ -56,6 +56,7 @@
 import { fileURLToPath } from 'node:url';
 import { fx, type MissionRuntime, type Sim } from '@lions/sim';
 import { WOUND_ADMITTED } from '../../../packages/sim/src/tuning';
+import { withMedicInRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 import { doctrines, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS, matchDigest, type Faction } from '@lions/net';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
@@ -182,7 +183,8 @@ export function mirrorWorld(map: MapId, seed: number): SnapWorld {
  * `tunnels`, the tunnel plan is laid over it exactly as that arm lays it.
  */
 export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels?: TunnelCell, rescue = false): SnapWorld {
-  const m = buildMatchWorld(roomConfig(map, arr, seed));
+  // The medic team is held out of versus (the lead, 30 Oct 2026): the rescue world puts it in the room in memory, to build it.
+  const m = rescue ? withMedicInRoom(() => buildMatchWorld(roomConfig(map, arr, seed))) : buildMatchWorld(roomConfig(map, arr, seed));
   const rt = m.runtime;
   if (rt === null) throw new Error(`snapshot witness: ${map} built no economy runtime`);
   for (const side of [0, 1] as const) {
@@ -219,7 +221,7 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
 }
 
 /**
- * The rescue loop in a room (GH-707, 30 Oct 2026), set up before tick 0 so that it completes inside the horizon: one
+ * The rescue loop in a room (GH-707, 30 Oct 2026; the medic team is put in the room in memory, being held out of versus), set up before tick 0 so that it completes inside the horizon: one
  * medic team standing at the KDF camp's exit, and, a few tiles off on open ground, a rifle squad hit until a man lies
  * DOWN. `rescueRound` (the probe's own, run every second by the drive) sends the medic; the engine treats him, lifts
  * him, carries him to the camp -- the room's drop-off, the one place `stProducesFor` and the `versus_aid` block meet --
