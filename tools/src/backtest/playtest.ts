@@ -3737,7 +3737,10 @@ for (const [label, got, want] of [
 // 2026-10-30, GH-707 (the lead's ruling): 30 -> 31, same mission. Umm Zeitoun II brings home one more body with its
 // medic team (roster out 16 -> 17), and he carries through III into IV (22 -> 23, 30 -> 31). The medic itself is on
 // loan and goes back to the lender; it is not in the count.
-const ROSTER_MAX = 31;
+// 2026-10-30, GH-707, the last seven: 31 -> 30, same mission. With the medic team in the force Umm Zeitoun IV's sniper team
+// dies at the crest at 247 s (the re-rolled streams), one body fewer than the 31 the chain carried out before. Umm Zeitoun IV's
+// credit is 259 as before, because its medic comes home and pays for the sniper. Seeds 100-129 still win 30 of 30 there.
+const ROSTER_MAX = 30;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
