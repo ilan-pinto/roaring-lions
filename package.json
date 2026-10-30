@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.129.11",
+  "version": "0.129.12",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -19,6 +19,7 @@
     "balance": "pnpm --filter @lions/tools balance",
     "playtest": "pnpm --filter @lions/tools playtest",
     "versus:probe": "pnpm --filter @lions/tools versus:probe",
+    "formations:probe": "pnpm --filter @lions/tools formations:probe",
     "vehicle-health:probe": "pnpm --filter @lions/tools vehicle-health:probe",
     "snapshot:witness": "pnpm --filter @lions/tools snapshot:witness",
     "versus:breach": "pnpm --filter @lions/tools versus:breach",

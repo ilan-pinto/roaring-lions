@@ -1,0 +1,19 @@
+{
+  "id": "attack",
+  "label": "formation.attack.name",
+  "blurb": "formation.attack.blurb",
+  "factions": ["kdf", "sarim"],
+  "verb": "attackMove",
+  "min_members": 2,
+  "elements": [
+    { "classes": ["armour"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 6, "rank_depth": 3 } },
+    { "classes": ["light_vehicle", "recon"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 6, "rank_depth": 3 }, "gap": 2 },
+    { "classes": ["infantry"], "shape": { "kind": "rank", "spacing": 1, "max_lateral": 3, "rank_depth": 1 }, "gap": 1 },
+    { "classes": ["support_weapon"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 2, "rank_depth": 1 }, "gap": 3 },
+    { "classes": ["medic"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 2, "rank_depth": 2 }, "gap": 1, "standoff": 11, "on_call": "casualty" },
+    { "classes": ["aircraft"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 2, "rank_depth": 2 }, "gap": 1, "standoff": 13, "on_call": "contact" }
+  ],
+  "march": { "legs": true, "leg_tiles": 8, "pace": "slowest_ground", "dress_s": 3 },
+  "arrival": { "face": "front", "stance": "none" },
+  "contact": { "drill": "press", "call_radius_tiles": 12, "quiet_s": 10 }
+}

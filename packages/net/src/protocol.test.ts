@@ -343,6 +343,32 @@ describe('cleanCommand: build and support (N2)', () => {
   });
 });
 
+describe('cleanCommand: the formation field (GH-859 P1a)', () => {
+  it('a formation move and attack-move round-trip, unknown keys still stripped', () => {
+    const move = { kind: 'move', ids: [1, 2], x: 65536, y: 131072, formation: 'column' };
+    const atk = { kind: 'attackMove', ids: [3], x: 0, y: 0, sweep: true, append: true, formation: 'attack' };
+    expect(cleanCommand(move)).toEqual(move);
+    expect(cleanCommand(atk)).toEqual(atk);
+    expect(cleanCommand({ ...move, pad: 'x'.repeat(4000) })).toEqual(move);
+  });
+  it('a move without the field is unchanged, and carries no formation key', () => {
+    const plain = { kind: 'move', ids: [1], x: 5, y: 6 };
+    expect(cleanCommand(plain)).toEqual(plain);
+    expect(Object.keys(cleanCommand(plain) as object)).toEqual(['kind', 'ids', 'x', 'y']);
+  });
+  it('a non-string, an empty string, a 33-character id, an upper-case one and a separator each void the order', () => {
+    for (const bad of [7, '', 'a'.repeat(33), 'Column', 'a-b', '1column', null, ['column']]) {
+      expect(cleanCommand({ kind: 'move', ids: [1], x: 0, y: 0, formation: bad }), JSON.stringify(bad)).toBeNull();
+      expect(cleanCommand({ kind: 'attackMove', ids: [1], x: 0, y: 0, formation: bad }), JSON.stringify(bad)).toBeNull();
+    }
+    // the longest legal one is 32 characters
+    expect(cleanCommand({ kind: 'move', ids: [1], x: 0, y: 0, formation: 'a'.repeat(32) })).not.toBeNull();
+  });
+  it('smoke carries no formation: the key is stripped, not honoured', () => {
+    expect(cleanCommand({ kind: 'smoke', ids: [1], x: 1, y: 2, formation: 'column' })).toEqual({ kind: 'smoke', ids: [1], x: 1, y: 2 });
+  });
+});
+
 describe('cleanCommand: the line verbs (F4 Task 5b)', () => {
   it('rebuilds the clean shapes and strips unknown keys', () => {
     const pad = 'x'.repeat(4000);

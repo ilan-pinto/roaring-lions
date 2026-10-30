@@ -4,6 +4,7 @@
   "blurb": "Takes a building down with a blade instead of a shell. Unarmed, and it cannot be hurried.",
   "faction": "kdf",
   "role": "engineer",
+  "formation_class": "armour",
   "cost": { "logistics": 586, "build_time_s": 26, "population": 1 },
   "unlock": { "roe_rating_min": 87, "price": 560 },
   "hull": {

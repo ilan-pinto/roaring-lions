@@ -13,6 +13,8 @@ import type { SupportKind } from '@lions/sim';
 
 export type Action =
   | 'halt' | 'move' | 'patrol' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
+  // GH-859 P1a: the three combat formations, armed like Move (R column, T attack, Y ambush).
+  | 'formationColumn' | 'formationAttack' | 'formationAmbush'
   | 'selectAll' | 'cycleChips' | 'jumpToAlert' | 'keysOverlay' | 'idleNext'
   | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause' | 'veto'
   // S-F Task 3: the four fire-support calls, Z Q C V, in the dock's left-to-right order.
@@ -46,14 +48,20 @@ export interface ActionSpec {
 export const ACTIONS: readonly ActionSpec[] = [
   { id: 'halt', label: 'keymap.halt', key: 'h', rebindable: true },
   // L1 reopened (2026-10-11): the plain move. `m` was the obvious key and is
-  // taken by mute (h f g u o b m, ctrl+a, tab, space, f1, i, w s a d, z x c v
+  // taken by mute (h f g u o b m, ctrl+a, tab, space, f1, i, w s a d, z x c v, r t y
   // and escape are the whole of what is bound), so this sits on `n`, the key
   // beside it. Free, and not a pan or digit key.
   { id: 'move', label: 'keymap.move', key: 'n', rebindable: true },
   // Lane A mock (Q6, the lead, 22 Oct): patrol, armed like Move. `p` was free on main and on
-  // every open branch (h n f g u o b m, ctrl+a, tab, space, f1, i, w s a d, z q c v, x and
+  // every open branch (h n f g u o b m, ctrl+a, tab, space, f1, i, w s a d, z q c v, r t y, x and
   // escape are what is bound), and P is the patrol key every RTS player already knows.
   { id: 'patrol', label: 'keymap.patrol', key: 'p', rebindable: true },
+  // GH-859 P1a (the formations HUD mock, approved by the lead): R column, T attack, Y ambush, armed like
+  // Move and Patrol. Free before this (h n p f g u o b m, ctrl+a, tab, space, f1, i, w s a d, z q c v, x
+  // and escape were what was bound), and the three sit together on the keys beside the pan cluster.
+  { id: 'formationColumn', label: 'keymap.formationColumn', key: 'r', rebindable: true },
+  { id: 'formationAttack', label: 'keymap.formationAttack', key: 't', rebindable: true },
+  { id: 'formationAmbush', label: 'keymap.formationAmbush', key: 'y', rebindable: true },
   { id: 'smoke', label: 'keymap.smoke', key: 'f', rebindable: true },
   { id: 'load', label: 'keymap.load', key: 'g', rebindable: true },
   { id: 'unload', label: 'keymap.unload', key: 'u', rebindable: true },
@@ -292,11 +300,13 @@ export function anyArmed(
   armedSupport: SupportKind | null,
   armedRally: number | null,
   /** Field works (GH-277): an armed works type, the fifth source. */
-  armedWorks: string | null = null
+  armedWorks: string | null = null,
+  /** GH-859 P1a: an armed combat formation (the row's R/T/Y), the sixth source. */
+  armedFormation: string | null = null
 ): boolean {
   // F4: Set rally armed on a camp's row is the fourth source -- Escape
   // disarms it like the others.
-  return armedOrder !== null || armedSupport !== null || armedRally !== null || armedWorks !== null;
+  return armedOrder !== null || armedSupport !== null || armedRally !== null || armedWorks !== null || armedFormation !== null;
 }
 
 /**

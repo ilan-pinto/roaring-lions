@@ -16,15 +16,18 @@ const EVERY = 1200;
  * A KDF v KDF (mirror) room on tel_marum: no mission runtime. The seed is chosen for the premise test below
  * (a NEGATIVE signed digest at 1,199). The digest folds in `shippedContentDigest()` (every unit JSON), so ANY
  * edit to a shipped unit re-rolls its sign: it was seed 7 until the MANPAD warhead went 300 -> 420 (GH-868),
- * which turned the mirror digest from negative to +64810140. Seed 1 reads -811081379 on that data (2, 4, 5 and 9
- * also read negative). If the premise test goes red after a unit edit, re-pick the seed here; never the sim.
+ * which turned the mirror digest from negative to +64810140. Seed 1 read -811081379 on that data (2, 4, 5 and 9
+ * also read negative). GH-859 P1a then put the combat formations into `Content` (a new data file is content
+ * too), which re-rolled every sign again: seed 1 went positive, and seed 2 reads negative (3 and 7 read
+ * positive; 4, 5, 6, 8 and 9 pass the premise as well). If the premise test goes red after a unit or
+ * formation edit, re-pick the seed here; never the sim.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;
   const sides = sidesOfFactions([...factions]);
   const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({
-    matchId: CODE, code: CODE, seed: 1, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
+    matchId: CODE, code: CODE, seed: 2, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
     pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b-1', dataDigest: 0, snapshotEveryTicks: EVERY,
   });
   if (c === null) throw new Error('bad fixture');

@@ -39,7 +39,7 @@ import inf_kit  # noqa: E402
 import inf_kit_parts as kp  # noqa: E402
 import inf_kit_scene as scn  # noqa: E402
 
-CLIPS = ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "down")
+CLIPS = ("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "down")   # the Rifle Squad's; `--team` reads the team's own
 TOL = 0.004      # a vertex within 4 mm of the surface is touching, not inside
 
 
@@ -51,23 +51,9 @@ def parse():
     return a
 
 
-def clip_keys(act, step):
-    """Every keyframe of the clip (all channels), plus a regular stride so a sparse clip is still sampled."""
-    frames = set()
-    try:
-        for layer in act.layers:
-            for strip in layer.strips:
-                for cb in strip.channelbags:
-                    for fc in cb.fcurves:
-                        for kp_ in fc.keyframe_points:
-                            frames.add(int(round(kp_.co[0])))
-    except AttributeError:
-        for fc in getattr(act, "fcurves", []):
-            for kp_ in fc.keyframe_points:
-                frames.add(int(round(kp_.co[0])))
-    lo, hi = int(act.frame_range[0]), int(act.frame_range[1])
-    frames |= set(range(lo, hi + 1, max(1, step)))
-    return sorted(f for f in frames if lo <= f <= hi), lo
+def clip_keys(act, step, dense=False):
+    """See `inf_kit_scene.clip_keys` (kept here under its old name for `render_inf_kit.py`)."""
+    return scn.clip_keys(act, step, dense)
 
 
 def world_mesh(ob, dg):
@@ -109,10 +95,13 @@ def main():
     a = parse()
     out = os.path.abspath(a["out"])
     os.makedirs(out, exist_ok=True)
-    clips = a.get("clips", ",".join(CLIPS)).split(",")
+    team_id = a.get("team", "inf_squad")
+    team = kp.use_team(team_id)
+    # a team's census walks every living clip its file has (work, kneelIn and kneelOut included) and `down`, informational
+    clips = a.get("clips", ",".join(team.clips + ("down",) if team_id != "inf_squad" else CLIPS)).split(",")
     step = int(a.get("step", 2))
-    arm, meshes, mat = scn.load_squad(REPO)
-    figs = a.get("figs", "f0,f1,f2").split(",")
+    arm, meshes, mat = scn.load_squad(REPO, team_id)
+    figs = a.get("figs", ",".join(team.figs)).split(",")
     only = set(a["only"].split(",")) if a.get("only") else None
     rows = inf_kit.build(REPO, arm, meshes, mat, figs=figs, only=only)
     # an open soft-goods shell is closed for the parity test by giving it its real depth
@@ -131,7 +120,7 @@ def main():
             m.use_even_offset = False
             m.use_rim = True
             m.vertex_group = "clash_t"
-    base = {n: o for n, o in meshes.items() if n in ("uniform", "boot", "face", "weapon")}
+    base = {n: o for n, o in meshes.items() if n in team.prims}
     names = {}
     for n, o in base.items():
         vg = {g.index: g.name for g in o.vertex_groups}
@@ -140,15 +129,15 @@ def main():
     result = {}
     for clip in clips:
         act = bpy.data.actions[clip]
-        keys, lo = clip_keys(act, step)
+        keys, lo = clip_keys(act, step, team.dense_keys)
         worst = {}
         for kf_ in keys:
             fr = kf_ - lo
-            scn.pose(arm, clip, fr)
+            scn.pose(arm, clip, 0)
             arm.animation_data_create()
             arm.animation_data.action = act
             arm.animation_data.action_slot = act.slots[0] if act.slots else None
-            bpy.context.scene.frame_set(kf_)
+            scn.set_frame(kf_)
             bpy.context.view_layer.update()
             dg = bpy.context.evaluated_depsgraph_get()
             body = {nm: world_mesh(o, dg) for nm, o in base.items()}
@@ -161,7 +150,7 @@ def main():
                 # kit x body
                 for nm, (bco, _) in body.items():
                     bone = np.array(names[nm])
-                    sel = (bone != own) & np.array([b.startswith(pf + "_") for b in bone])
+                    sel = (bone != own) & np.array([b.startswith(pf + "_") or b == "prop" for b in bone])
                     pts = bco[sel]
                     near = pts[((pts >= bbox[0]) & (pts <= bbox[1])).all(1)]
                     if len(near) == 0:
@@ -190,6 +179,7 @@ def main():
         print(f"== {clip}: {len(result[clip])} pairs")
         for k, v in sorted(result[clip].items(), key=lambda kv: -kv[1]["depth_m"])[:14]:
             print(f"   {v['depth_m']*1000:6.1f} mm  {k}  (frame {v['frame']})")
+        result[clip + "__keys"] = len(keys)
     with open(os.path.join(out, a.get("name", "clash.json")), "w") as fh:
         json.dump(result, fh, indent=1)
 

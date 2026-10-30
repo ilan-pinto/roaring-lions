@@ -71,6 +71,10 @@
       "description": "Which voice pool answers for this unit (WP-AU1 §3). Optional: absent, it follows the role -- infantry, at_team, sniper, support, artillery -> infantry; mbt, ifv, apc, technical, recon, aa -> crew; engineer, eod -> engineer; drone, gunship -> air. Declare it only where the role is wrong, the way `mobility.wheeled` is declared where the role default is wrong. Presentation only: the sim never reads it.",
       "enum": ["infantry", "crew", "engineer", "air"]
     },
+    "formation_class": {
+      "description": "GH-859: which class a combat formation places this unit as. Optional: absent, the sim derives it (formationClassOf in packages/sim/src/formation-template.ts: a wounded role or civilian faction is `none`; a rescue block or a hull that carries only wounded is `medic`; the air domain is `aircraft`; artillery and sniper are `support_weapon`; mbt and ifv are `armour`; recon is `recon`; a wheeled hull is `light_vehicle`; the rest are `infantry`). Declare it only where that derivation is wrong, the way `mobility.wheeled` and `voice` are declared where the role default is wrong. `none` keeps a unit out of every formation.",
+      "enum": ["armour", "light_vehicle", "recon", "infantry", "support_weapon", "medic", "aircraft", "none"]
+    },
     "cost": {
       "type": "object",
       "required": [

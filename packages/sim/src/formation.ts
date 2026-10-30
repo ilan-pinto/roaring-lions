@@ -71,12 +71,20 @@ export interface Slot {
 
 /** Tiles reachable from `origin` over open tiles within WALK_DEPTH steps, in
  *  the order they were reached — the overflow order — plus a per-tile flag. */
-interface Reach {
+export interface Reach {
   order: number[];
   hit: Uint8Array;
 }
 
-function walk(mask: Uint8Array, w: number, h: number, origin: readonly [number, number]): Reach {
+/** `maxDepth` is the walk bound in steps: WALK_DEPTH for the grid, a formation's
+ *  `extent` for a template (GH-859, formation-template.ts). */
+export function walk(
+  mask: Uint8Array,
+  w: number,
+  h: number,
+  origin: readonly [number, number],
+  maxDepth: number = WALK_DEPTH
+): Reach {
   const hit = new Uint8Array(w * h);
   const order: number[] = [];
   const [ox, oy] = origin;
@@ -88,7 +96,7 @@ function walk(mask: Uint8Array, w: number, h: number, origin: readonly [number, 
     const t = queue[q];
     order.push(t);
     const d = depth[q];
-    if (d === WALK_DEPTH) continue;
+    if (d === maxDepth) continue;
     const x = t % w;
     const y = (t - x) / w;
     // N, E, S, W — fixed, so the overflow order is the same on every run.
@@ -205,27 +213,63 @@ export function assignFormation(input: FormationInput): Slot[] {
     }
   }
 
-  // Phase 2: overflow. The nearest free reachable tile in walk order, spacing
-  // dropped — behind-first: a tile AHEAD of the front rank (a positive
-  // projection onto the approach direction from the click) is taken only
-  // when nothing at or behind the click is free, so a column's tail fills
-  // the gaps between the spaced vehicles before it spills past the head.
-  // A unit that finds none keeps its origin — the one way two units can
-  // still share a tile, and it takes more units than free ground.
+  // Phase 2: overflow (overflowPlace, below): the nearest free reachable tile
+  // in walk order, spacing dropped, behind-first.
+  overflowPlace(
+    front.slice(fi).concat(rear.slice(ri)),
+    { width: w, clickX: input.clickX, clickY: input.clickY, fwdX, fwdY, reach, origins: input.origins, reserved: input.reserved, taken },
+    place,
+    (u, x, y) => out.push({ id: u.id, x, y })
+  );
+  return out;
+}
+
+/** What the behind-first overflow pass reads. */
+export interface OverflowGround {
+  width: number;
+  /** The foot-snapped click tile and the axis-quantised approach (unit vector). */
+  clickX: number;
+  clickY: number;
+  fwdX: number;
+  fwdY: number;
+  /** Per domain: the reachability walk, whose `order` is the overflow order. */
+  reach: readonly Reach[];
+  origins: readonly (readonly [number, number])[];
+  reserved: Uint8Array;
+  /** The tiles already given out. `place` must mark the tile it takes. */
+  taken: Uint8Array;
+}
+
+/**
+ * Phase 2 of the grid, lifted out unchanged so the template (formation-template.ts)
+ * shares it: the nearest free reachable tile in walk order, spacing dropped —
+ * behind-first: a tile AHEAD of the front rank (a positive projection onto the
+ * approach direction from the click) is taken only when nothing at or behind the
+ * click is free, so a column's tail fills the gaps between the spaced vehicles
+ * before it spills past the head. A unit that finds none keeps its origin
+ * (`keep`) — the one way two units can still share a tile, and it takes more
+ * units than free ground.
+ */
+export function overflowPlace<U extends { id: number; domain: number }>(
+  rest: readonly U[],
+  g: OverflowGround,
+  place: (u: U, x: number, y: number) => void,
+  keep: (u: U, x: number, y: number) => void
+): void {
+  const w = g.width;
   const ahead = (t: number): boolean => {
     const x = t % w;
     const y = (t - x) / w;
-    return (x - input.clickX) * fwdX + (y - input.clickY) * fwdY > 0;
+    return (x - g.clickX) * g.fwdX + (y - g.clickY) * g.fwdY > 0;
   };
-  const rest = front.slice(fi).concat(rear.slice(ri));
   for (let i = 0; i < rest.length; i++) {
     const u = rest[i];
-    const order = reach[u.domain].order;
+    const order = g.reach[u.domain].order;
     let placed = false;
     for (let pass = 0; pass < 2 && !placed; pass++) {
       for (let k = 0; k < order.length; k++) {
         const t = order[k];
-        if (input.reserved[t] !== 0 || taken[t] !== 0) continue;
+        if (g.reserved[t] !== 0 || g.taken[t] !== 0) continue;
         if (pass === 0 && ahead(t)) continue;
         const x = t % w;
         place(u, x, (t - x) / w);
@@ -234,9 +278,8 @@ export function assignFormation(input: FormationInput): Slot[] {
       }
     }
     if (!placed) {
-      const [ox, oy] = input.origins[u.domain];
-      out.push({ id: u.id, x: ox, y: oy });
+      const [ox, oy] = g.origins[u.domain];
+      keep(u, ox, oy);
     }
   }
-  return out;
 }

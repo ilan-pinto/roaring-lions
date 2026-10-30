@@ -128,6 +128,10 @@ def fit_wrap(wr, off, mask_fn, zone_pts, name, margin=0.0015, iters=12, tol=0.00
             stats["first_worst_mm"] = worst
         stats["pokes_left"] = len(pokes)
         stats["worst_mm"] = worst
+        if it == iters or not pokes:
+            top = sorted(pokes, key=lambda pd: -pd[1])[:10]
+            stats["worst_points"] = [{"z": round(p[2], 3), "angle": round(math.degrees(math.atan2((Vector(p) - wr.centre(Vector(p).z - wr.o.z)).dot(wr.e2), (Vector(p) - wr.centre(Vector(p).z - wr.o.z)).dot(wr.e1))), 0),
+                                      "depth_mm": round(1000 * d, 1)} for p, d in top]
         if not pokes or it == iters:
             break
         stats["iterations"] = it + 1
@@ -261,11 +265,12 @@ def _centre_fn(f, bone="spine"):
     return fn
 
 
-def torso_wrap(f, rows, ncols=16, span=None, fill_below=None):
+def torso_wrap(f, rows, ncols=16, span=None, fill_below=None, whole=False, rlim=None):
     cols = [i * 360.0 / ncols for i in range(ncols)] if span is None else span
     fr = None if fill_below is None else (lambda j: rows[j] <= fill_below)
-    return Wrap(f.zone_torso, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
-                centre_fn=_centre_fn(f), col_span=None if span is None else True, fill_rows=fr, clamp=f.zone_arms, ellipse=lambda t: (0.20, 0.185))
+    return Wrap(f.zone_torso_all if whole else f.zone_torso, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
+                centre_fn=_centre_fn(f), col_span=None if span is None else True, fill_rows=fr, clamp=f.zone_arms, ellipse=lambda t: kp.TEAM.torso_ellipse,
+                ring_cap=kp.TEAM.torso_ring_cap, back_plate=kp.TEAM.carrier_back_plate and not whole, rlim=rlim)
 
 
 def trimmed(f, wr, bone, zlo, zhi, allow=None, pf_bone=None):
@@ -299,6 +304,8 @@ def build_carrier(f, side=None):
             z = wr.rows_t[j]
             plate = smoothstep(0.35, 0.65, abs(math.cos(th))) * smoothstep(1.10, 1.13, z)
             o = 0.006 + 0.016 * plate
+            if kp.TEAM.carrier_back_plate and math.cos(th) < -0.35:
+                o = 0.010            # a thin flat back plate, not a padded back
             # never touch another bone's geometry in any sampled key of the living clips (arms, hands, the stock)
             E[(j, k)] = min(o, trim.get((j, k), 9.0))
     # a soft good does not step: neighbouring vertices differ by at most 7 mm (a Lipschitz envelope of the trims)
@@ -323,9 +330,18 @@ def build_carrier(f, side=None):
         # and leaves the base's own chest rig showing, as a real carrier worn over a rig does.
         if z < 1.19 and math.cos(th) > 0.55:
             return False
+        if kp.TEAM.carrier_back_plate and z < 1.15 and math.cos(th) < -0.35:
+            return False            # the back is a plate on the upper back, not a skirt down over the baggage
         return True
+
+    def shard(p):
+        # a baked figure's loose shards (cloth tatters, spine-bound hands) stand beyond the ring its own front and back
+        # walls imply: the cap leaves them out, so the poke-through check does not chase them (they are counted below)
+        rr, r = wr.ring_radius(p)
+        return rr is not None and r > rr + 0.012
+
     P, mask, st = fit_wrap(wr, off, masked, f.pts["torso"], "carrier", exempt=f.zone_arms,
-                           exempt_fn=lambda p: abs(p.y - f.O[1]) > 0.20,
+                           exempt_fn=lambda p: abs(p.y - f.O[1]) > 0.20 or shard(p),
                            extra_cap=lambda j, k: max(0.0, trim.get((j, k), 9.0) - off(j, k)))
     pc = Piece(f.world(), open_thick=0.022)
     finish_wrap(pc, wr, P, mask, CARRIER_ROW_TEX, 0.008, "coyote_shade", off)
@@ -336,6 +352,11 @@ HELMET_COLS = 10
 
 
 def build_helmet_cover(f, side=None):
+    if kp.TEAM.baked_mount:
+        tip, _n = baked_mount_tip(f)
+        # the baked bracket block (5 cm proud of the shell, 4 cm wide): a real cover is cut around it, so it is not "poking through"
+        # and the brow shroud plate across the front of the helmet around it (front 9.5 cm, 10 cm to either side)
+        in_bracket = lambda p: (p[0] > tip.x - 0.095 and abs(p[1] - tip.y) < 0.10 and tip.z - 0.07 < p[2] < tip.z + 0.03)
     hz = f.hel_top - 0.15 + 0.05            # the scrim band's centre
     rows = [f.hel_bot + 0.004, hz - 0.0125, hz + 0.0125, f.hel_top - 0.012]
     cols = [i * 360.0 / HELMET_COLS for i in range(HELMET_COLS)]
@@ -344,7 +365,15 @@ def build_helmet_cover(f, side=None):
     offs = [0.003, 0.008, 0.008, 0.005]
     trim = trimmed(f, wr, "head", 1.5, 1.9)
     off = lambda j, k: min(offs[j], trim.get((j, k), 9.0))
-    P, mask, st = fit_wrap(wr, off, None, f.pts["helmet"], "helmet_cover", cap=0.012,
+    def open_face(j, k):
+        # a baked helmet is open at the face: the cover's lowest band stops where the shell does, so its rim rises over the brow
+        if j != 0 or kp.TEAM.helmet_front_trim <= 0:
+            return True
+        ang = (cols[k] + 180.0 / HELMET_COLS + 180.0) % 360.0 - 180.0
+        return abs(ang) > kp.TEAM.helmet_front_trim
+
+    P, mask, st = fit_wrap(wr, off, open_face, f.pts["helmet"], "helmet_cover", cap=0.012,
+                           exempt_fn=(lambda p: f.helmet_hardware(p) or in_bracket(p)) if kp.TEAM.baked_mount else None,
                            extra_cap=lambda j, k: max(0.0, trim.get((j, k), 9.0) - off(j, k)))
     pc = Piece(f.world(), open_thick=0.01)
     geo.grid(pc, P, "olive", mask=mask, cyclic=True, row_tex=["olive", "coyote_shade", "olive"])
@@ -406,14 +435,16 @@ def build_throat(f, side=None):
 
 
 def build_yoke(f, side=None):
-    wr = torso_wrap(f, [1.385, 1.415, 1.448], span=[75 + i * (210.0 / 8) for i in range(9)])
+    ncol = kp.TEAM.yoke_cols            # 9 columns on the Rifle Squad; a figure whose spine zone is complete there needs fewer for the same 24 triangles
+    wr = torso_wrap(f, [1.385, 1.415, 1.448], span=[75 + i * (210.0 / (ncol - 1)) for i in range(ncol)], whole=True,
+                    rlim=None if kp.TEAM.yoke_rmax is None else (0.06, kp.TEAM.yoke_rmax))   # above the vest: the whole spine zone
 
     trim = trimmed(f, wr, "spine", 1.2, 1.7)
 
     def off(j, k):
         o = 0.015 + 0.005 * abs(math.sin(math.radians(wr.cols[k]))) - (0.003 if j == 2 else 0.0)
-        return min(o, trim.get((j, k), 9.0) + 0.015)
-    P, mask, st = fit_wrap(wr, off, None, f.pts["torso"], "yoke")
+        return min(o, trim.get((j, k), 9.0) + kp.TEAM.yoke_slack)
+    P, mask, st = fit_wrap(wr, off, None, f.pts.get("torso_all", f.pts["torso"]), "yoke")
     pc = Piece(f.world(), open_thick=0.018)
     finish_wrap(pc, wr, P, mask, ["coyote", "coyote"], 0.005, "coyote", off, rim_filter=lambda a, b: a[0] == b[0] == 2,
                 thick=lambda j, k: YOKE_T)
@@ -437,7 +468,7 @@ MAG_Z = 0.905        # the mag pouches' centre height on the left hip
 LPVO_REAR = -0.49       # spec -0.55: moved 6 cm forward, the bowed head's NVG bridge strikes the scope's eyepiece at -0.55
 LASER_FRONT = -0.115    # the laser box's front face (spec -0.146), ahead of the moved optic
 NVG_DZ = 0.03          # the NVG mount stands this far below the helmet top (kneelIn/kneelOut: lower, and the bow drives the bridge into the throat)
-FLIP = 70.0          # a flipped-up tube: degrees up from the helmet front's normal
+FLIP = 70.0          # a flipped-up tube: degrees up from the helmet front's normal (the Rifle Squad's; `Team.flip_deg` carries it)
 EUD_T = 0.025          # the spec's thickness, with its standoff trimmed against the clips (build_eud)
 EUD_AT = (-0.045, 1.345)   # y, z on the chest
 HEADSET_AT = (0.106, 1.572, -0.03)   # inner |y| of the cup, its centre height, and its offset from the helmet centre
@@ -511,8 +542,24 @@ def build_ir_strobe(f, side=None):
     return pc
 
 
+def baked_mount_tip(f):
+    """Where a helmet that already carries an NVG mount ends in front: the cluster of the helmet's own forward-most
+    vertices (within 2 cm of the front, above the brow). demo_squad's helmet has a 4 cm wide block there, standing
+    5 cm proud of the shell (x 0.172 against the shell's 0.126). Returns (point, forward normal)."""
+    co, mine = f.co, f.mine
+    m = mine & (f.W[f"{f.prefix}_head"] >= 0.5) & (co[:, 2] >= f.O[2] + 1.66)
+    pts = co[m]
+    xmax = pts[:, 0].max()
+    cl = pts[pts[:, 0] >= xmax - 0.02]
+    c = cl.mean(0)
+    return Vector((float(xmax), float(c[1]), float(c[2]))), Vector((1.0, 0.0, 0.0))
+
+
 def _mount_top(f):
-    """How far the NVG mount's pad stands off the helmet front at its tallest (the base's own shroud block)."""
+    """How far the NVG mount's pad stands off the helmet front at its tallest (the base's own shroud block).
+    A helmet with a baked mount adds none: the tubes ride the bake's own block."""
+    if kp.TEAM.baked_mount:
+        return 0.0
     loc, n = helmet_front(f, f.hel_top - NVG_DZ)
     fr = _frame(n)
     pc = Piece(f.world())
@@ -522,6 +569,8 @@ def _mount_top(f):
 
 
 def _mono_axis(f):
+    if kp.TEAM.baked_mount:
+        return baked_mount_tip(f)
     loc, n = helmet_front(f, f.hel_top - NVG_DZ)
     return loc, n
 
@@ -529,8 +578,12 @@ def _mono_axis(f):
 def build_nvg_mono(f, side=None):
     loc, n = _mono_axis(f)
     fr = _frame(n)
-    base = loc + n * (0.002 + 0.016 + 0.043 * 0.5) + fr.col[(2)] * 0.012
-    d = n * math.cos(math.radians(FLIP)) + Vector((0, 0, 1)) * math.sin(math.radians(FLIP))
+    if kp.TEAM.baked_mount:
+        # the tube's lower end rests on the baked bracket's top face and leans forward from it
+        base = loc + fr.col[(2)] * (0.020 + kp.TEAM.nvg_lift)
+    else:
+        base = loc + n * (0.002 + 0.016 + 0.043 * 0.5) + fr.col[(2)] * 0.012
+    d = n * math.cos(math.radians(kp.TEAM.flip_deg)) + Vector((0, 0, 1)) * math.sin(math.radians(kp.TEAM.flip_deg))
     d.normalize()
     pc = Piece(f.world())
     geo.lathe(pc, base, d, n, [(0.0, 0.022 * 1.08 / 1.08), (0.014, 0.0275), (0.123, 0.0235)], 8, "olive_dark",
@@ -550,9 +603,9 @@ def build_nvg_bino(f, side=None):
     loc, n = _mono_axis(f)
     fr = _frame(n)
     pc = Piece(f.world())
-    bc = loc + n * (_mount_top(f) + 0.0215)
+    bc = loc - n * kp.TEAM.bridge_back + fr.col[(2)] * kp.TEAM.nvg_lift if kp.TEAM.baked_mount else loc + n * (_mount_top(f) + 0.0215)
     geo.rbox(pc, bc, fr, (0.043, 0.124, 0.040), 0.0, "olive_dark", cap_bot=False)
-    d = n * math.cos(math.radians(FLIP)) + Vector((0, 0, 1)) * math.sin(math.radians(FLIP))
+    d = n * math.cos(math.radians(kp.TEAM.flip_deg)) + Vector((0, 0, 1)) * math.sin(math.radians(kp.TEAM.flip_deg))
     d.normalize()
     for sg in (-1.0, 1.0):
         base = bc + fr.col[(1)] * (sg * 0.033) + fr.col[(2)] * 0.012
@@ -655,7 +708,45 @@ def build_eud(f, side=None):
     return pc
 
 
+def _build_radio_pack_box(f):
+    """A man-pack radio as a real object (PRC-117G class in a small pack, 0.13 deep x 0.26 wide x 0.30 tall): a flat-sided body with
+    a separate lid, seated flat on the back plate. The plate's plane is read off the vest at two heights, so the box leans with the
+    back; nothing is conformed into a hump. The two shoulder straps are the Rifle Squad's."""
+    p1, _n1 = _back_hit(f, 0.0, 1.16)
+    p2, _n2 = _back_hit(f, 0.0, 1.40)
+    t = (p2 - p1).normalized()                       # up along the plate
+    out = Vector((-1.0, 0.0, 0.0))
+    nrm = (out - t * out.dot(t)).normalized()        # outward, perpendicular to the plate
+    ydir = t.cross(nrm)
+    R = Matrix(((nrm.x, ydir.x, t.x), (nrm.y, ydir.y, t.y), (nrm.z, ydir.z, t.z)))
+    loc, _n = _back_hit(f, 0.0, 1.25)
+    depth, width, height, lid_h = 0.13, 0.26, 0.30, 0.032
+    seat = 0.012                                     # the carrier's back plate is 10 mm: the pack stands on it
+    base = loc + nrm * (seat + depth / 2)
+    pc = Piece(f.world(), open_thick=None)
+    body_h = height - lid_h
+    # body: flat sides, a 6 mm bevel round the section and the top edge
+    geo.rbox(pc, base - t * (lid_h / 2), R, (depth, width, body_h), 0.006, "olive", cz_top=0.004, cap_bot=True)
+    # lid: a shallow cover standing 6 mm proud of the body all round, a darker tone
+    geo.rbox(pc, base + t * (height / 2 - lid_h / 2), R, (depth + 0.012, width + 0.012, lid_h), 0.0, "olive_dark")
+    # two shoulder straps (0.04 wide, 8 mm thick) from the pack top up over the shoulders, standing on the plate
+    for sg in (-1.0, 1.0):
+        a0, na = _back_hit(f, sg * 0.085, 1.40)
+        a1, nb = _back_hit(f, sg * 0.085, 1.45)
+        if a0 is None or a1 is None:
+            continue
+        d = (a1 - a0).normalized()
+        nn = ((na + nb) * 0.5)
+        nn = (nn - d * nn.dot(d)).normalized()
+        yy = d.cross(nn)
+        Rs = Matrix(((nn.x, yy.x, d.x), (nn.y, yy.y, d.y), (nn.z, yy.z, d.z)))
+        geo.rbox(pc, (a0 + a1) * 0.5 + nn * (0.012 + 0.004), Rs, (0.008, 0.04, (a1 - a0).length + 0.02), 0.0, "coyote_shade")
+    return pc
+
+
 def build_radio_pack(f, side=None):
+    if kp.TEAM.pack_box:
+        return _build_radio_pack_box(f)
     loc, n = _back_hit(f, 0.0, 1.25)
     pc = Piece(f.world(), open_thick=0.04)
     geo.pad(pc, f.zone_torso, loc, -n, (0, 1, 0), (0, 0, 1), 0.26, 0.30, 0.13, 6, 3, "olive", base_off=SENSOR_OFF)
@@ -708,24 +799,80 @@ def _belt_pouch(f, pc, deg, size, tex, ch, z, cz_top=0.0, off=0.03):
     R = Matrix(((d.x, t.x, 0), (d.y, t.y, 0), (d.z, t.z, 1)))
     c = Vector((f.O[0], f.O[1], z)) + d * (r + off + size[0] * 0.5)
     geo.rbox(pc, c, R, size, ch, tex, cz_top=cz_top)
+    return c, R
+
+
+def _pouch_centre(f, deg, size, z, off=0.03):
+    """Where `_belt_pouch` would put a pouch at `deg` (centre and frame), without building it."""
+    wr = _belt_wrap(f, [z - 0.02, z, z + 0.02], span=[deg - 3, deg, deg + 3])
+    wr.sample()
+    r = max(x for row in wr.R for x in row if x is not None)
+    th = math.radians(deg)
+    d = Vector((math.cos(th), math.sin(th), 0))
+    t = Vector((-math.sin(th), math.cos(th), 0))
+    R = np.array(((d.x, t.x, 0), (d.y, t.y, 0), (d.z, t.z, 1)))
+    return np.array(Vector((f.O[0], f.O[1], z)) + d * (r + off + size[0] * 0.5)), R
+
+
+def _pouch_clash(pts, c, R, size):
+    """Deepest a blocker point (another bone's vertex, in some key of a living clip) lies inside the pouch box, in metres."""
+    if len(pts) == 0:
+        return 0.0
+    h = np.array(size) / 2.0
+    loc = (pts - c) @ R
+    inside = (np.abs(loc) < h).all(1)
+    if not inside.any():
+        return 0.0
+    return float((h - np.abs(loc[inside])).min(1).max())
+
+
+def _clear_pouches(f, degs, size, z, off=0.03, ok=0.002):
+    """The pouches' angles, shifted together by the smallest turn (0, +-10, +-20 ... +-120 deg) at which no other bone's geometry
+    (forearm, hand, spine-bound baggage) comes inside any pouch in any key of any living clip: a pouch sits where it clears, as
+    a man wears it. A team whose belt line is already clear keeps the nominal angles (turn 0)."""
+    if not kp.TEAM.clear_pouches:
+        return list(degs)
+    z0 = z - 0.14
+    lo = (f.O[0] - 0.7, f.O[1] - 0.7, z0)
+    hi = (f.O[0] + 0.7, f.O[1] + 0.7, z + 0.14)
+    pts, _who = f.bank.blockers(f.prefix, "pelvis", lo, hi)
+    pts = np.array(pts)
+    best = None
+    for k in range(0, 25):
+        turn = 0 if k == 0 else (10 * ((k + 1) // 2)) * (1 if k % 2 else -1)
+        worst = 0.0
+        for dg in degs:
+            c, R = _pouch_centre(f, dg + turn, size, z, off)
+            worst = max(worst, _pouch_clash(pts, c, R, size))
+        if best is None or worst < best[0] - 1e-9:
+            best = (worst, turn)
+        if worst <= ok:
+            break
+    worst, turn = best
+    REPORT.append({"part": "pouch angles", "figure": f.prefix, "nominal": list(degs), "turn_deg": turn, "residual_mm": round(1000 * worst, 2)})
+    return [dg + turn for dg in degs]
 
 
 def build_mag_pouches(f, side=None):
     pc = Piece(f.world())
-    for deg in (270.0, 240.0):          # 9 and 8 o'clock (left hip, rear of it)
-        _belt_pouch(f, pc, deg, (0.06, 0.08, 0.12), "coyote", 0.012, MAG_Z)
+    size = (0.06, 0.08, 0.12)
+    for deg in _clear_pouches(f, (270.0, 240.0), size, MAG_Z):          # 9 and 8 o'clock (left hip, rear of it), turned where a hand or the baggage would strike them
+        _belt_pouch(f, pc, deg, size, "coyote", 0.012, MAG_Z)
     return pc
 
 
 def build_grenade_pouches(f, side=None):
     pc = Piece(f.world())
-    for deg in (120.0, 150.0):          # 4 and 5 o'clock (right rear)
-        _belt_pouch(f, pc, deg, (0.055, 0.075, 0.11), "coyote", 0.0, 0.855, cz_top=0.008)
+    size = (0.055, 0.075, 0.11)
+    for deg in _clear_pouches(f, (120.0, 150.0), size, 0.855):          # 4 and 5 o'clock (right rear), likewise
+        _belt_pouch(f, pc, deg, size, "coyote", 0.0, 0.855, cz_top=0.008)
     return pc
 
 
 def _rail_top(f, u0, u1):
     """Highest weapon point between two stations (u negative = behind the muzzle)."""
+    if f.wbvh is not None:
+        return f.rail_top(u0, u1)
     m = (f.wl[:, 0] >= u0) & (f.wl[:, 0] <= u1)
     return float(f.wl[m, 2].max()) if m.any() else 0.06
 

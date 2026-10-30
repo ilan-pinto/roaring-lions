@@ -127,6 +127,68 @@ describe('order in command scope (case 2)', () => {
 // human seat plays -- command scope, both seats `kind: 'bot'` (the arena,
 // parity with the in-process `rush`) -- and never in assist.
 const BOTS = { host: 'bot', guest: 'bot' } as const;
+// GH-859 P1a: the agent harness orders a combat formation through the same door a human's click will use.
+describe('order: the formation field (GH-859 P1a)', () => {
+  // Task 6V (the lead's ruling, 29 Oct): formations are OFF in versus rooms until P1b, and `twoSeats` is a versus room. The agent
+  // harness checks an order with the same `validateCommand` the receiver runs, so a formation order is refused before it is sent.
+  // The open-gate plumbing (stamped, framed, the same group on both sims) is witnessed in `two-client.test.ts` ("GATE OPEN").
+  it('a Column move in a versus room is refused as invalid and nothing is sent; the plain move goes through and forms no group', async () => {
+    const { loop, a, c } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const wa = a.client.world() as MatchWorld;
+    const wc = c.client.world() as MatchWorld;
+    const own = sideIds(wa, 0).slice(0, 4);
+    expect(own).toHaveLength(4);
+    // Both machines still REGISTER the formations: the sim is untouched, the door is what is shut.
+    for (const w of [wa, wc]) expect(w.sim.formationTypeCount()).toBe(3);
+    const r = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20, formation: 'column' });
+    expect(r.ok).toBe(false);
+    expect(body(r)).toEqual({ error: 'invalid' });
+    await loop.flush();
+    expect(sentBy(loop, a).filter((m) => m.t === 'cmd')).toEqual([]);
+    // The same order without the field is an ordinary order: sent, framed for both seats, no group.
+    const plain = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20 });
+    expect(plain.ok, plain.text).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd');
+    expect(sent).toHaveLength(1);
+    expect('formation' in (sent[0] as { cmd: object }).cmd).toBe(false);
+    for (const w of [wa, wc]) expect(own.map((id) => w.sim.formationGroupOf(id))).toEqual([-1, -1, -1, -1]);
+    expect(wa.sim.hash()).toBe(wc.sim.hash());
+  });
+  it('an attack formation on an attackMove is refused the same way, and the plain attackMove forms no group', async () => {
+    const { loop, a, c } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const wa = a.client.world() as MatchWorld;
+    const own = sideIds(wa, 0).slice(0, 3);
+    const r = await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20, formation: 'attack' });
+    expect(r.ok).toBe(false);
+    expect(body(r)).toEqual({ error: 'invalid' });
+    expect((await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20 })).ok).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    expect(own.map((id) => wa.sim.formationGroupOf(id))).toEqual([-1, -1, -1]);
+  });
+  it('an id nobody ships, a formation on the wrong verb or on another verb, is refused and nothing is sent', async () => {
+    const { loop, a } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const own = sideIds(a.client.world() as MatchWorld, 0)[0];
+    const cases: [Record<string, unknown>, Record<string, unknown>][] = [
+      [{ verb: 'move', ids: [own], x: 12, y: 14, formation: 'nosuch' }, { error: 'unknown formation', detail: 'one of ambush, attack, column' }],
+      [{ verb: 'move', ids: [own], x: 12, y: 14, formation: 'attack' }, { error: 'invalid', detail: 'attack is for attackMove, not move' }],
+      [{ verb: 'attackMove', ids: [own], x: 12, y: 14, formation: 'column' }, { error: 'invalid', detail: 'column is for move, not attackMove' }],
+      [{ verb: 'halt', ids: [own], formation: 'column' }, { error: 'invalid', detail: 'formation is for move and attackMove only' }],
+      [{ verb: 'smoke', ids: [own], x: 12, y: 14, formation: 'column' }, { error: 'invalid', detail: 'formation is for move and attackMove only' }],
+    ];
+    for (const [args, want] of cases) {
+      const r = await call(ctx, 'order', args);
+      expect(r.ok, JSON.stringify(args)).toBe(false);
+      expect(body(r), JSON.stringify(args)).toEqual(want);
+    }
+    await loop.flush();
+    expect(sentBy(loop, a).filter((m) => m.t === 'cmd')).toEqual([]);
+  });
+});
+
 describe('order: attackMove with sweep (N4b minors)', () => {
   it('bot against bot: sweep: true reaches the room on the frame and both sims queue it with sweep: true', async () => {
     const { loop, a, c } = await twoSeats(BOTS);

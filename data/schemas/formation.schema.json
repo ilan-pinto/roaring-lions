@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/formation.schema.json",
+  "title": "Combat formation",
+  "description": "A shape a multi-unit selection can be ordered into (GH-859, docs/superpowers/specs/2026-10-28-combat-formations-design.md). A formation places CLASSES, not unit ids: the sim derives each unit's class from its JSON (`formationClassOf`, with the optional `formation_class` override in unit.schema.json) and fits the elements below to the ground in file order, each behind the last. Every number is an integer count of tiles, seconds or files; the sim converts once at load. `label` and `blurb` are i18n KEYS in packages/app/src/i18n/en.json, never text. P1a ships `files`, `rank`, `ring` and `point`; the `march`, `contact` radius and `on_call` fields are validated and compiled now so P1b changes no schema. `pnpm validate:data` (tools/validate_formations.mjs) holds the cross-file rules this schema cannot see: unique ids matching the filename, the i18n keys exist, `rest` only last and at most once, an ambush stance only with a ring and a spring drill, at most one ring.",
+  "type": "object",
+  "required": ["id", "label", "blurb", "factions", "verb", "min_members", "elements", "arrival", "contact"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$", "description": "Also the filename. Mirrors @lions/net FORMATION_ID, the wire pattern for a command's `formation` field." },
+    "label": { "type": "string", "pattern": "^formation\\.", "description": "i18n key of the name." },
+    "blurb": { "type": "string", "pattern": "^formation\\.", "description": "i18n key of the one-line description." },
+    "factions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["kdf", "sarim"] },
+      "description": "Who may order it. The sim knows sides, not factions: the rule is validateCommand's."
+    },
+    "verb": { "enum": ["move", "attackMove", "either"], "description": "Which armed order the formation rides on; `either` lets the armed verb decide." },
+    "min_members": { "type": "integer", "minimum": 2, "description": "Fewer placeable members than this and the order is today's plain order." },
+    "elements": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Filled in this order, each behind the last.",
+      "items": { "$ref": "#/$defs/element" }
+    },
+    "march": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["legs", "leg_tiles", "pace", "dress_s"],
+      "description": "P1b. Validated and compiled in P1a; the sim reads none of it yet.",
+      "properties": {
+        "legs": { "type": "boolean" },
+        "leg_tiles": { "type": "integer", "minimum": 4, "maximum": 16 },
+        "pace": { "enum": ["slowest_ground", "none"] },
+        "dress_s": { "type": "integer", "minimum": 0, "maximum": 10 }
+      }
+    },
+    "arrival": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["face", "stance"],
+      "properties": {
+        "face": { "enum": ["front", "travel", "outward", "inward", "none"] },
+        "stance": { "enum": ["none", "hold", "ambush"] }
+      }
+    },
+    "contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["drill"],
+      "properties": {
+        "drill": { "enum": ["halt", "press", "spring", "none"] },
+        "call_radius_tiles": { "type": "integer", "minimum": 4, "maximum": 24 },
+        "quiet_s": { "type": "integer", "minimum": 2, "maximum": 30 }
+      }
+    }
+  },
+  "$defs": {
+    "class": { "enum": ["armour", "light_vehicle", "recon", "infantry", "support_weapon", "medic", "aircraft", "rest"] },
+    "element": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classes", "shape"],
+      "properties": {
+        "classes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/class" },
+          "description": "Formation classes this element takes. `rest` is every class no earlier element took; it may appear once, in the last element."
+        },
+        "shape": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "files", "depth"],
+              "properties": {
+                "kind": { "const": "files" },
+                "files": { "type": "integer", "minimum": 1, "maximum": 3 },
+                "file_gap": { "type": "integer", "minimum": 1, "default": 1, "description": "Lateral tiles between files; unused with one file. Absent reads 1." },
+                "depth": { "type": "integer", "minimum": 1 },
+                "stagger": { "type": "integer", "minimum": 0, "default": 0 }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "spacing", "max_lateral", "rank_depth"],
+              "properties": {
+                "kind": { "const": "rank" },
+                "spacing": { "type": "integer", "minimum": 1 },
+                "max_lateral": { "type": "integer", "minimum": 0, "maximum": 8 },
+                "rank_depth": { "type": "integer", "minimum": 1 }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "radius", "cover_pref"],
+              "properties": {
+                "kind": { "const": "ring" },
+                "radius": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": { "type": "integer", "minimum": 2, "maximum": 8 },
+                  "description": "[min, max] ring radius in tiles; the smallest radius that seats the members is used."
+                },
+                "cover_pref": { "type": "boolean" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "ahead"],
+              "properties": {
+                "kind": { "const": "point" },
+                "ahead": { "type": "integer", "minimum": 1, "maximum": 6 }
+              }
+            }
+          ]
+        },
+        "gap": { "type": "integer", "minimum": 0, "description": "Rows left empty between the previous element's rear and this one's front." },
+        "standoff": { "type": "integer", "minimum": 0, "description": "This element's front row is at least this many tiles behind the click (medics and aircraft hold back whatever is in front of them)." },
+        "on_call": { "enum": ["contact", "casualty", "none"], "description": "P1b. What this element does when the group calls." }
+      }
+    }
+  }
+}

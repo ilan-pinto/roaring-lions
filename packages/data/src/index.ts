@@ -77,6 +77,10 @@ import kdfDoctrine from '../../../data/doctrines/kdf.json';
 import sarimDoctrine from '../../../data/doctrines/sarim.json';
 import telMarumVersus from '../../../data/versus/tel_marum.json';
 import wadiTarfanVersus from '../../../data/versus/wadi_tarfan.json';
+// GH-859 P1a: the combat formations, registered in sorted directory order.
+import formationAmbush from '../../../data/formations/ambush.json';
+import formationAttack from '../../../data/formations/attack.json';
+import formationColumn from '../../../data/formations/column.json';
 import type { DoctrineJson, VersusRulesJson } from './versus';
 import structureCatalogue from '../../../data/structures.json';
 import couponsJson from '../../../data/coupons.json';
@@ -293,6 +297,11 @@ export const versusRules: Readonly<Record<string, VersusRulesJson>> = {
   tel_marum: telMarumVersus as unknown as VersusRulesJson,
   wadi_tarfan: wadiTarfanVersus as unknown as VersusRulesJson,
 };
+
+/** Combat formations (GH-859 P1a): data/formations/*.json against formation.schema.json, in
+ *  sorted directory order. Hand-kept, so `index.test.ts` pins it to the directory: an
+ *  unregistered file would be silently unorderable. The sim's `addFormationType` compiles each. */
+export const formations = [formationAmbush, formationAttack, formationColumn] as const;
 
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
 export const maps = {

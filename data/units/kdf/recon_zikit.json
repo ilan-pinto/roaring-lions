@@ -4,6 +4,7 @@
   "blurb": "Keeps a tunnel in sight from boulders or a house, unseen. Once found, it loses the fight.",
   "faction": "kdf",
   "role": "support",
+  "formation_class": "recon",
   "cost": { "logistics": 290, "build_time_s": 22, "population": 1 },
   "unlock": { "price": 4250 },
   "hull": { "hp": 320, "armor": { "front": 10, "side": 10, "rear": 10 }, "crew": 4, "suppression_resistance": 0.7,

@@ -693,6 +693,25 @@ for vehicles.
   while it ships on); the unit tests inject either value through the
   `kitEnabled` parameter.
 
+- **The Demolition squad (`demo_squad`) is the second kit team (30 Oct 2026).**
+  `INFANTRY_KIT_TEAMS` carries it; `tools/units/inf_kit_parts.py` has a `Team`
+  table (`use_team(id)` rebinds the manifest in place, the default stays
+  `inf_squad`), and every Blender tool takes `--team`. What its table changes:
+  figures `demo_a` (unarmed: the belt line only) and `demo_b` (carbine, radio,
+  the leader); `nvg_mount` is not built (the bake has one, the tubes ride it);
+  no deltoid or sleeve (the lead, 30 Oct: they read as a cube over the arm);
+  devices ride `uniform`, because its weapon primitive is a palette one with no
+  UVs; the torso wraps fit the BAKED VEST (spine triangles with a near-black
+  atlas texel), because its spine zone also carries cloth tatters and spine-bound
+  hands that draw a shapeless drape; the carrier's back is a flat plate, the
+  helmet cover is cut over the open face, the pack is a flat-sided box with a lid.
+  Texels are 5 x 5 blocks (`tools/inf_kit_texels.py`, pinned in the table and
+  re-searched by `test_inf_kit_parts.py`). The census counts the charge and the
+  spool as body and walks `work`, with every keyframe of the 4.8-frame
+  kneelIn/kneelOut (the Rifle Squad's integer cap read frame 0 of them).
+  `pnpm inf-kit:capture -- --unit=demo_squad` holds its merge numbers
+  (`TEAM_CHECKS`), `infantry-kit-shipped.test.ts` loops over every team.
+
 - **The garage turntable wears it too (GH-826).** `garage-view.ts` builds a team
   whose GLB declares kit extras the way it builds a kitted vehicle: the loaded
   scene is a pristine source, each build runs on `cloneForBuild(pristine, true)`

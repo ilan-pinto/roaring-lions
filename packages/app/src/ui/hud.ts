@@ -58,6 +58,18 @@ import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import { weaponName } from './weapon-name';
 import { patchChildren } from './dom-patch';
+import {
+  FORMATION_IDS,
+  classCounts,
+  formationCardLines,
+  formationLabel,
+  formationRow,
+  formationTag,
+  type FormationCounts,
+  type FormationId,
+} from './formation-model';
+import { formationMemberView, formationOfUnit, formationUnitFacts } from './formation-sim';
+import { formationGlyphHtml, formationTipHtml } from './formation-view';
 import { heldHoverTarget, heldReadout, silentInBuilding, type HeldReadout } from './held-readout';
 import { auraChipKey, type WorksCardModel } from './works-model';
 import {
@@ -200,6 +212,11 @@ const MARK_SYMBOL: Readonly<Record<ChipMark, SymbolId>> = {
   // GH-706: no symbol of its own -- the immobilised mark at half ink (statusMarkHtml).
   slowed: 'immobilised',
 };
+/** A chip fact's optional formation field: absent for a unit in none, so a plain unit's facts are unchanged. */
+function formationFact(f: FormationId | undefined): { formation?: FormationId } {
+  return f === undefined ? {} : { formation: f };
+}
+
 function markLabel(mark: ChipMark): string {
   switch (mark) {
     case 'broken':
@@ -345,6 +362,16 @@ export interface HudDeps {
   orders?: OrderHandlers;
   /** Which order is armed and waiting for a click on the map, if any. */
   armedOrder?: () => OrderId | null;
+  /** The formation row's buttons (GH-859 P1a), one handler per formation: the very objects the
+   *  keys R/T/Y call, so a button and its key are one function (as `orders`). Absent in tests that
+   *  do not exercise the row: the buttons then render and do nothing. */
+  formations?: Record<FormationId, () => void>;
+  /** Which formation is armed and waiting for a click on the map, if any. */
+  armedFormation?: () => FormationId | null;
+  /** `formationsOpenIn(netConfig?.mode)`: false in a versus room until P1b, where the row draws with
+   *  every button inert and the versus reason. Absent: open (single-player, and every test that
+   *  does not exercise the room). */
+  formationsOpen?: () => boolean;
   /** The label an order button prints for the key that does the same thing.
    *  `row.key` (from `selection-model.ts`'s `ORDERS`) is an `input/keymap.ts`
    *  ACTION id for every bound order and the literal `'RMB'` for `attackMove`
@@ -502,6 +529,12 @@ export class Hud {
   private readonly sel: HTMLDivElement;
   private readonly orderBar: HTMLDivElement;
   private readonly orderBtns = new Map<OrderId, HTMLButtonElement>();
+  /** The formation row above the order row (GH-859 P1a): built once, repainted at 4 Hz like the orders. */
+  private readonly formationBar: HTMLDivElement;
+  private readonly formationTagEl: HTMLSpanElement;
+  private readonly formationBtns = new Map<FormationId, HTMLButtonElement>();
+  /** The free, placeable units of the last painted selection by legend class: the tooltip's schematic. */
+  private formationCounts: FormationCounts = classCounts([]);
   private readonly cluster: HTMLDivElement;
   /** Which sub-group the lime frame is on, and the type ids it indexes into.
    *  Kept as an index rather than a type id so Tab has something to step, and
@@ -926,6 +959,28 @@ export class Hud {
       this.tipDisposers.push(bindTip(b, () => this.orderTipHtml(spec), { host: this.strip }));
     }
 
+    // GH-859 P1a: the formation row, led by its tag, above the order row. Built once, repainted only.
+    this.formationBar = document.createElement('div');
+    this.formationBar.className = 'rl-orders rl-orders--formation';
+    this.formationBar.style.display = 'none';
+    this.formationTagEl = document.createElement('span');
+    this.formationTagEl.className = 'rl-plate rl-label rl-orders__tag';
+    this.formationBar.appendChild(this.formationTagEl);
+    for (const id of FORMATION_IDS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'rl-btn rl-order rl-order--formation';
+      b.dataset.formation = id;
+      b.addEventListener('click', () => {
+        // The handler explains an inert button's refusal in the feed, as the order row's do.
+        this.deps.formations?.[id]();
+        b.blur(); // keep the keyboard on the battlefield
+      });
+      this.formationBtns.set(id, b);
+      this.formationBar.appendChild(b);
+      this.tipDisposers.push(bindTip(b, () => this.formationTipFor(id), { host: this.strip, modifier: 'rl-tip--formation' }));
+    }
+
     this.cluster = document.createElement('div');
     this.cluster.className = 'rl-cluster';
     this.cluster.style.display = 'none';
@@ -956,7 +1011,7 @@ export class Hud {
     });
     this.tipDisposers.push(chipTip.dispose);
     this.refreshChipTip = chipTip.refresh;
-    this.sel.append(this.orderBar, this.cluster);
+    this.sel.append(this.formationBar, this.orderBar, this.cluster);
 
     this.clock = document.createElement('div');
     // A number over the world too -- the plate through the same class rather
@@ -1277,6 +1332,7 @@ export class Hud {
     set(this.captionBox.el, this.shown('feed'));
     set(this.hint, this.shown('hint'));
     set(this.orderBar, this.shown('orders'));
+    set(this.formationBar, this.shown('orders'));
     set(this.cluster, this.shown('card'));
     set(this.clock, this.shown('clock'));
     set(this.fire, this.shown('fire'));
@@ -2361,6 +2417,7 @@ export class Hud {
     this.engagingShownFor = -1;
     if (sel.length === 0) {
       this.orderBar.style.display = 'none';
+      this.formationBar.style.display = 'none';
       this.chipTypes = [];
       this.clusterCardUnit = -1;
       // Field works: a selected own works under construction gets its card here.
@@ -2395,6 +2452,7 @@ export class Hud {
     this.cluster.style.display = '';
 
     this.renderOrders(sel);
+    this.renderFormations(sel);
     if (sel.length === 1) {
       this.chipTypes = [];
       // The card is PATCHED in place when the last render was also a card
@@ -2545,6 +2603,45 @@ export class Hud {
     return `<div class="rl-tip__head"><span class="rl-tip__name">${label}</span></div>${does}${why}`;
   }
 
+  /**
+   * The formation row (GH-859 P1a): drawn when the selection holds two or more own placeable units,
+   * with a button inert for want of members or ground (or, in a versus room, for every one).
+   * Like the order row, an inert button is not `disabled`: its handler in `main.ts` explains why.
+   */
+  private renderFormations(sel: number[]): void {
+    const sim = this.deps.sim;
+    const st = sim.state;
+    const mine = sel.filter((i) => isOwnSide(st.side[i], this.viewer));
+    const units = formationUnitFacts(sim, mine);
+    const rows = formationRow({ formationsOpen: this.deps.formationsOpen?.() ?? true, units }, this.deps.armedFormation?.() ?? null);
+    this.formationCounts = classCounts(units.filter((u) => u.free));
+    if (rows.length === 0) {
+      this.formationBar.style.display = 'none';
+      return;
+    }
+    this.formationBar.style.display = '';
+    this.formationTagEl.textContent = formationTag();
+    for (const row of rows) {
+      const btn = this.formationBtns.get(row.id);
+      if (!btn) continue;
+      btn.dataset.armed = row.armed ? '1' : '0';
+      btn.dataset.inert = row.inert ? '1' : '0';
+      if (row.reasonKey !== undefined) btn.dataset.inertReason = row.reasonKey;
+      else delete btn.dataset.inertReason;
+      btn.innerHTML =
+        `${formationGlyphHtml(row.id)}${formationLabel(row.id)} ` +
+        `<b class="rl-dim">${escapeHtml(this.deps.keyFor?.(row.key) ?? row.key)}</b>`;
+    }
+  }
+
+  /** A formation button's tooltip, read fresh at SHOW time: the schematic counts and the reason it is inert. */
+  private formationTipFor(id: FormationId): string {
+    const btn = this.formationBtns.get(id);
+    const reasonKey = btn?.dataset.inertReason;
+    const reason = btn?.dataset.inert === '1' && reasonKey !== undefined ? t(reasonKey) : null;
+    return formationTipHtml(id, this.formationCounts, reason);
+  }
+
   /** `deps.viewer`, 0 when absent. */
   private get viewer(): number {
     return this.deps.viewer ?? 0;
@@ -2582,6 +2679,8 @@ export class Hud {
         aboard: st.carriedBy[i] >= 0,
         own: isOwnSide(st.side[i], this.viewer),
         onLoan: this.deps.isOnLoan?.(i) === true,
+        // GH-859 P1a: only our own formation membership is ours to read.
+        ...(isOwnSide(st.side[i], this.viewer) ? formationFact(formationOfUnit(sim, i)) : {}),
         ...(type.hasAps
           ? { aps: { ammo: st.apsAmmo[i], magazine: type.apsMagazine } }
           : {}),
@@ -2834,6 +2933,11 @@ export class Hud {
     const beat = own ? sim.patrolCountOf(id) : 0;
     if (beat > 0 && band !== 'broken') flags.push(`<span class="rl-live">${t('hud.card.patrolling', { n: beat })}</span>`);
     else if (st.moving[id] === 1 && band !== 'broken') flags.push(t('hud.card.moving'));
+    // GH-859 P1a: a member of a combat formation says which, and what its ring is doing. Own units only.
+    if (own && band !== 'broken') {
+      const member = formationMemberView(sim, id);
+      if (member !== null) for (const l of formationCardLines(member)) flags.push(l.dim ? `<span class="rl-dim">${l.text}</span>` : l.text);
+    }
     // Field works (GH-277): what a medic station or workshop is doing for this unit, on the
     // card and never in the world. Own units only; the rate must clear field regen.
     const auraChip = own

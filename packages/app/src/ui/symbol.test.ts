@@ -6,13 +6,16 @@ import { fileURLToPath } from 'node:url';
 import { HALF_INK_CLASS, slowedSymbolSvg, SYMBOL_IDS, DINGBAT_IDS, symbolLabel, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
 
 const ORDER_IDS = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike', 'barrage', 'smokeScreen', 'patrol', 'rescue'] as const;
-const isOrder = (id: SymbolId): boolean => (ORDER_IDS as readonly string[]).includes(id);
+const FORMATION_IDS = ['formation-column', 'formation-attack', 'formation-ambush'] as const;
+// The formation marks (GH-859 P1a) draw like an order's: cropped to their own box, not the shared 24-box.
+const isOrder = (id: SymbolId): boolean => (ORDER_IDS as readonly string[]).includes(id) || (FORMATION_IDS as readonly string[]).includes(id);
 const viewBoxOf = (svg: string): number[] => (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? '').split(' ').map(Number);
 
 describe('the symbol family (G1 r2 roles, r5 orders, r2 utility marks, the pinned status mark, GH-261)', () => {
-  it('is thirty-nine distinct ids: seven roles, twelve orders (S-F: barrage, smokeScreen; Lane A: patrol; GH-707: rescue), four utility marks, three status marks, thirteen GH-261 marks', () => {
-    expect(SYMBOL_IDS).toHaveLength(39);
-    expect(new Set(SYMBOL_IDS).size).toBe(39);
+  it('is forty-two distinct ids: seven roles, twelve orders (S-F: barrage, smokeScreen; Lane A: patrol; GH-707: rescue), four utility marks, three status marks, thirteen GH-261 marks, three formation marks (GH-859)', () => {
+    expect(SYMBOL_IDS).toHaveLength(42);
+    expect(new Set(SYMBOL_IDS).size).toBe(42);
+    for (const id of FORMATION_IDS) expect(SYMBOL_IDS).toContain(id);
     expect(SYMBOL_IDS).toContain('patrol');
     expect(SYMBOL_IDS).toContain('rescue');
     expect(SYMBOL_IDS).toContain('barrage');
@@ -103,6 +106,43 @@ describe('the HUD order marks are cropped to their own surround', () => {
       expect(width / height).toBeCloseTo(w / h, 1);
       expect(svg).not.toContain('preserveAspectRatio="none"');
     }
+  });
+});
+
+describe('the formation marks (GH-859 P1a, ported from the approved mock)', () => {
+  it('draw cropped to the mock\'s box, as an order does, with the width following the aspect ratio', () => {
+    for (const id of FORMATION_IDS) {
+      const svg = symbolSvg(id, 14);
+      expect(viewBoxOf(svg)).toEqual([0.25, -0.75, 23.25, 11.25]);
+      expect(svg).toContain('width="28.93" height="14"');
+      expect(svg).toContain('rl-sym--order');
+      expect(svg).toContain(`data-symbol="${id}"`);
+    }
+  });
+
+  it('are three different drawings, filled in currentColor with no stroke', () => {
+    expect(new Set(FORMATION_IDS.map((id) => symbolBody(id))).size).toBe(3);
+    for (const id of FORMATION_IDS) expect(symbolBody(id)).toMatch(/^<path d="[^"]+" fill="currentColor"\/>$/);
+  });
+
+  it('keep every vertex inside their box', () => {
+    for (const id of FORMATION_IDS) {
+      const d = /d="([^"]+)"/.exec(symbolBody(id))?.[1] ?? '';
+      // absolute M/L vertices only; the relative h/v/a segments stay within a 2.6 square or a 0.95 disc
+      for (const m of d.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)) {
+        expect(Number(m[1])).toBeGreaterThanOrEqual(0.25);
+        expect(Number(m[1])).toBeLessThanOrEqual(23.5);
+        expect(Number(m[2])).toBeGreaterThanOrEqual(-0.75);
+        expect(Number(m[2])).toBeLessThanOrEqual(10.5);
+      }
+    }
+  });
+
+  it('carry the ring of eight and the two closing heads (ambush), and the head at the click (column, attack)', () => {
+    // each disc is two arcs: eight ring dots make sixteen
+    expect(symbolBody('formation-ambush').match(/a0\.95 0\.95 0 1 0/g)).toHaveLength(16);
+    expect(symbolBody('formation-column')).toContain('M23.5 5 L17.8 0.4 L17.8 9.6 Z');
+    expect(symbolBody('formation-attack')).toContain('M23.5 5 L18.2 0.4 L18.2 9.6 Z');
   });
 });
 

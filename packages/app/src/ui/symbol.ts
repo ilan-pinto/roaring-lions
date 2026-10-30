@@ -340,7 +340,10 @@ export type UtilityId = 'logistics' | 'intel' | 'rotateCcw' | 'rotateCw' | Dingb
  *  picked at G-PIN (28 Sep); `immobilised` and `gunOut` are the two vehicle
  *  damage marks the lead approved with pass C2/C4 (7 Oct, D5). */
 export type StatusId = 'pinned' | 'immobilised' | 'gunOut';
-export type SymbolId = RoleBucket | SightOrderId | UtilityId | StatusId;
+/** GH-859 P1a: the three combat-formation marks of the HUD's formation row (the approved mock's
+ *  `formationGlyphBody`). They draw like an order's mark: cropped to their own box, `rl-sym--order`. */
+export type FormationSymbolId = 'formation-column' | 'formation-attack' | 'formation-ambush';
+export type SymbolId = RoleBucket | SightOrderId | UtilityId | StatusId | FormationSymbolId;
 
 const ROLE_IDS: readonly RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
 const ORDER_IDS: readonly SightOrderId[] = [
@@ -374,13 +377,15 @@ export const DINGBAT_IDS: readonly DingbatId[] = [
 ];
 const UTILITY_IDS: readonly UtilityId[] = ['logistics', 'intel', 'rotateCcw', 'rotateCw', ...DINGBAT_IDS];
 const STATUS_IDS: readonly StatusId[] = ['pinned', 'immobilised', 'gunOut'];
+export const FORMATION_SYMBOL_IDS: readonly FormationSymbolId[] = ['formation-column', 'formation-attack', 'formation-ambush'];
 
 /** Seven roles, ten orders, four utility marks, three status marks: the
  *  twenty the sheet G1 approved (round 2's roles and utility marks, round 5's
  *  orders) plus the pinned mark the lead picked at G-PIN and the two damage
  *  marks of pass C2/C4 -- and the thirteen GH-261 marks, and S-F's two
- *  support-call marks (`barrage`, `smokeScreen`), thirty-seven in all. */
-export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS, ...STATUS_IDS];
+ *  support-call marks (`barrage`, `smokeScreen`), thirty-seven in all -- and the three
+ *  formation marks of GH-859 P1a, forty-two in all (39 + 3). */
+export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS, ...STATUS_IDS, ...FORMATION_SYMBOL_IDS];
 
 interface RoleGlyph {
   body: string; // unframed (the 10 px form)
@@ -450,6 +455,52 @@ const UTILITY_GLYPHS: Readonly<Record<UtilityId, UtilityGlyph>> = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// The formation marks (GH-859 P1a). Ported from the approved HUD mock's
+// `formationGlyphBody` (`_coord/formations-mock/scripts/build-mock.mts`),
+// numbers unchanged: flat filled polygons in a 24-wide, ~11-tall box, one ink
+// (`currentColor`), travel running left to right like the Move arrow.
+
+/** A square of side `s` with its top-left corner at (x, y). */
+const fsq = (x: number, y: number, s: number): string => `M${r(x)} ${r(y)} h${s} v${s} h${-s} Z`;
+/** A disc of radius `rad` about (cx, cy), as two arcs. */
+const fdot = (cx: number, cy: number, rad: number): string => circle(cx, cy, rad);
+const ftri = (a: P, b: P, c: P): string => poly([a, b, c]);
+
+/** Each mark's own crop, `[x, y, w, h]`: the mock's FORM_BOX. */
+const FORMATION_BOX: readonly [number, number, number, number] = [0.25, -0.75, 23.25, 11.25];
+
+const FORMATION_GLYPHS: Readonly<Record<FormationSymbolId, string>> = {
+  // two staggered files of squares, the head of the column an arrow
+  'formation-column': path(
+    [1, 6, 11].map((x) => fsq(x, 1.2, 2.6)).join(' ') +
+      ' ' +
+      [3.5, 8.5, 13.5].map((x) => fsq(x, 6.2, 2.6)).join(' ') +
+      ' ' +
+      ftri([23.5, 5], [17.8, 0.4], [17.8, 9.6])
+  ),
+  // a rank of heavies abreast at the front, ranks of dots behind it, the head leaning on the click
+  'formation-attack': path(
+    [0.4, 3.7, 7].map((y) => fsq(13.2, y, 2.6)).join(' ') +
+      ' ' +
+      [1.3, 3.8, 6.3, 8.8].map((y) => fdot(9.3, y, 0.95)).join(' ') +
+      ' ' +
+      [2.5, 5, 7.5].map((y) => fdot(5.6, y, 0.95)).join(' ') +
+      ' ' +
+      fdot(2, 5, 0.95) +
+      ' ' +
+      ftri([23.5, 5], [18.2, 0.4], [18.2, 9.6])
+  ),
+  // a ring of eight round the kill zone, two heads closing on it
+  'formation-ambush': path(
+    Array.from({ length: 8 }, (_v, k) => fdot(12 + 4.1 * Math.cos((k * Math.PI) / 4), 5 + 4.1 * Math.sin((k * Math.PI) / 4), 0.95)).join(' ') +
+      ' M12 3.5 L13.5 5 L12 6.5 L10.5 5 Z ' +
+      ftri([6.3, 5], [1.2, 1.4], [1.2, 8.6]) +
+      ' ' +
+      ftri([17.7, 5], [22.8, 1.4], [22.8, 8.6])
+  ),
+};
+
 function isRoleBucket(id: SymbolId): id is RoleBucket {
   return (ROLE_IDS as readonly string[]).includes(id);
 }
@@ -458,6 +509,9 @@ function isOrderId(id: SymbolId): id is SightOrderId {
 }
 function isStatusId(id: SymbolId): id is StatusId {
   return (STATUS_IDS as readonly string[]).includes(id);
+}
+function isFormationId(id: SymbolId): id is FormationSymbolId {
+  return (FORMATION_SYMBOL_IDS as readonly string[]).includes(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -513,6 +567,9 @@ export function symbolBody(id: SymbolId, opts?: { framed?: boolean; ink?: string
   if (isStatusId(id)) {
     return STATUS_GLYPHS[id];
   }
+  if (isFormationId(id)) {
+    return FORMATION_GLYPHS[id];
+  }
   const g = UTILITY_GLYPHS[id];
   return opts?.framed && g.framed ? g.framed : g.body;
 }
@@ -543,12 +600,17 @@ export function orderMarkViewBox(id: SightOrderId): [number, number, number, num
  * hotspot is (12, 12) in it.
  */
 export function symbolSvg(id: SymbolId, size: number, opts?: { framed?: boolean; className?: string }): string {
-  const order = isOrderId(id);
+  const formation = isFormationId(id);
+  const order = isOrderId(id) || formation;
   const cls = ['rl-sym', order ? 'rl-sym--order' : undefined, opts?.className].filter((c): c is string => Boolean(c)).join(' ');
   let box = VIEWBOX;
   let width = size;
   if (isOrderId(id)) {
     const [x, y, w, h] = orderMarkViewBox(id);
+    box = `${x} ${y} ${w} ${h}`;
+    width = r((size * w) / h);
+  } else if (formation) {
+    const [x, y, w, h] = FORMATION_BOX;
     box = `${x} ${y} ${w} ${h}`;
     width = r((size * w) / h);
   }

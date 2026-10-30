@@ -29,6 +29,7 @@
  * Everything the advisor writes is untrusted text and reaches the DOM through
  * `textContent` only.
  */
+import { formations } from '@lions/data';
 import { ONE, type Command } from '@lions/sim';
 import type { AdvisorMsg, AdvisorScope } from '@lions/net';
 import { t } from '../i18n/t';
@@ -76,12 +77,31 @@ interface Pending { id: number; cmd: Command; note: string }
 
 const tile = (v: number): number => Math.floor(v / ONE);
 
+/** A shipped formation's name through `t()`, read at call time (never at module load), or null for an id
+ *  nobody ships: an advisor's proposal is untrusted, and `validateCommand` drops it, so the strip words it
+ *  as the plain order rather than echo the id. */
+function formationName(id: string | undefined): string | null {
+  if (id === undefined) return null;
+  const f = formations.find((q) => q.id === id);
+  return f === undefined ? null : t(f.label);
+}
+
 /** One order in plain words, for the strip. Every word is a catalogue line. */
 export function describeCommand(cmd: Command): string {
   const n = 'ids' in cmd ? cmd.ids.length : 0;
   switch (cmd.kind) {
-    case 'move': return t('net.advisor.cmd.move', { n, x: tile(cmd.x), y: tile(cmd.y) });
-    case 'attackMove': return t('net.advisor.cmd.attackMove', { n, x: tile(cmd.x), y: tile(cmd.y) });
+    case 'move': {
+      const formation = formationName(cmd.formation);
+      return formation === null
+        ? t('net.advisor.cmd.move', { n, x: tile(cmd.x), y: tile(cmd.y) })
+        : t('net.advisor.cmd.move.formation', { n, x: tile(cmd.x), y: tile(cmd.y), formation });
+    }
+    case 'attackMove': {
+      const formation = formationName(cmd.formation);
+      return formation === null
+        ? t('net.advisor.cmd.attackMove', { n, x: tile(cmd.x), y: tile(cmd.y) })
+        : t('net.advisor.cmd.attackMove.formation', { n, x: tile(cmd.x), y: tile(cmd.y), formation });
+    }
     case 'smoke': return t('net.advisor.cmd.smoke', { n, x: tile(cmd.x), y: tile(cmd.y) });
     case 'halt': return t('net.advisor.cmd.halt', { n });
     case 'setStance':

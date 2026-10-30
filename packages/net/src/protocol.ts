@@ -147,6 +147,10 @@ const optBool = (v: unknown): boolean => v === undefined || typeof v === 'boolea
  *  `UNIT_ID_PATTERN`, which `@lions/net` cannot import; `tools/src/unit-id-pattern.test.ts`
  *  pins the two together against every shipped unit id. */
 const UNIT_ID = /^[a-z0-9_]{1,32}$/;
+/** A combat formation id on the wire (GH-859 P1a): the schema's `id` pattern, at most 32 characters.
+ *  `@lions/net` cannot import `@lions/data`, so it is mirrored here;
+ *  `tools/src/formation-id-pattern.test.ts` pins the two against every shipped formation id. */
+export const FORMATION_ID = /^[a-z][a-z0-9_]{0,31}$/;
 /** A production line index on the wire: 0 <= line < MAX_PRODUCTION_LINES (F4). */
 const isLine = (v: unknown): v is number => isInt(v) && v >= 0 && v < MAX_PRODUCTION_LINES;
 const isSupportKind = (v: unknown): v is (typeof FIRE_SUPPORT_KINDS)[number] =>
@@ -174,9 +178,12 @@ export function cleanCommand(v: unknown): Command | null {
     case 'attackMove': {
       if (ids === null || !isInt(c.x) || !isInt(c.y) || !optBool(c.append) || !optBool(c.exact)) return null;
       if (kind === 'attackMove' && !optBool(c.sweep)) return null;
+      // GH-859 P1a: a formation id is a string of the schema's pattern or absent; anything else voids the order.
+      if (c.formation !== undefined && !(isStr(c.formation) && FORMATION_ID.test(c.formation))) return null;
       const out: Record<string, unknown> = { kind, ids, x: c.x, y: c.y };
       if (c.append !== undefined) out.append = c.append;
       if (c.exact !== undefined) out.exact = c.exact;
+      if (c.formation !== undefined) out.formation = c.formation;
       if (kind === 'attackMove' && c.sweep !== undefined) out.sweep = c.sweep;
       return out as Command;
     }

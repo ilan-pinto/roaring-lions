@@ -10,8 +10,10 @@
  * the room numbers frames from 0 and knows nothing of how the sim counts.
  */
 import { applyFrame, economyRoom, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
+import { formations } from '@lions/data';
 import type { Command } from '@lions/sim';
 import { shippedContentDigest } from './content-digest';
+import { VERSUS_FORMATIONS_OPEN, formationsOpenIn } from './versus-formations';
 
 /** The slice of `Sim` the body touches. */
 export interface FrameSim {
@@ -85,6 +87,12 @@ export function runFrames(step: FrameStep, maxTicks: number): { ran: number; dro
   return { ran, dropped };
 }
 
+/** Whether `table` holds formation `id` and lists `faction` among the factions that field it (GH-859 P1a).
+ *  The table is a parameter so a test can hold a faction-gated entry the shipped three do not have. */
+export function formationFielded(table: readonly { readonly id: string; readonly factions: readonly string[] }[], faction: string, id: string): boolean {
+  return table.some((f) => f.id === id && f.factions.includes(faction));
+}
+
 /** What ownership asks of the live sim. Single-player is seat 0 on side 0
  *  (R10): the same check runs with no room, so there is one code path. */
 export function seatWorldFor(
@@ -98,6 +106,9 @@ export function seatWorldFor(
     readonly state: { readonly side: ArrayLike<number> };
     tunnelOwner(r: number): number;
   },
+  /** GH-859 P1a: whether a versus room fields formations (default: the gate, `VERSUS_FORMATIONS_OPEN`). Injectable so a test
+   *  can witness the open path, which is P1b's. */
+  versusFormationsOpen: boolean = VERSUS_FORMATIONS_OPEN,
 ): SeatWorld {
   return {
     width: sim.width,
@@ -113,6 +124,11 @@ export function seatWorldFor(
     versus: config?.mode === 'versus',
     // N3 Task 4: a KDF-v-Sarim room runs a runtime, so both seats build there.
     economy: config !== null && economyRoom(config),
+    // GH-859 P1a: a shipped formation whose factions include this seat's own (single-player: KDF) -- and none at all in a
+    // versus room while the gate is closed (the lead's ruling, 29 Oct), so a forced or stale client's formation order drops
+    // on both machines. The protocol still carries the field; P1b opens the gate.
+    formationAllowed: (seat: Seat, id: string) =>
+      formationsOpenIn(config?.mode, versusFormationsOpen) && formationFielded(formations, config?.seats[seat].faction ?? 'kdf', id),
     sideOfEntity: (id: number) => (Number.isInteger(id) && id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
   };
 }

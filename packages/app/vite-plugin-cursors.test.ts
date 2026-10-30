@@ -32,6 +32,7 @@ import {
   type CursorHints,
 } from './src/input/cursor';
 import { resolveMoveOrder, resolvePointer, type IntentWorld } from './src/input/intents';
+import { resolveFormationOrder } from './src/input/formation';
 import { HOTSPOT, ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type SightOrderId } from './src/ui/order-sight';
 import { roleBucket, type RoleBucket } from './src/ui/role';
 import { symbolBody } from './src/ui/symbol';
@@ -523,8 +524,10 @@ describe('the stadia sights -- the approved G1 r5 order cursors', () => {
   /** The default sheet's image for key at frame, as the cascade draws it. */
   const drawn = (key: string, frame: number): string => decodeSvgUri(markupOf(frameLineFor(css, key, frame)));
 
-  it('wires exactly move, attack, sweep, strike and smoke (Q2), the barrage and smoke screen (S-F), the patrol (Lane A) and the rescue (GH-707)', () => {
-    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['advance', 'barrage', 'move', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']);
+  it('wires exactly move, attack, sweep, strike and smoke (Q2), the barrage and smoke screen (S-F), the patrol (Lane A), the rescue (GH-707) and the three armed formations (GH-859)', () => {
+    expect(SIGHTS.map(([n]) => n).sort()).toEqual([
+      'advance', 'barrage', 'formationAmbush', 'formationAttack', 'formationColumn', 'move', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep',
+    ]);
   });
 
   it('draws every frame of every wired sight on the 24-box at 32 px, with the hotspot at 16 16', () => {
@@ -607,6 +610,31 @@ describe('the stadia sights -- the approved G1 r5 order cursors', () => {
     expect(hexOf(ORDER_SIGHT.attackMove.main)).toBe(raw.reserved.team.colors.hostile_text.toLowerCase());
   });
 
+  it('draws each armed formation as its verb\'s sight plus its glyph, in its family\'s colour, in the bottom-right quadrant (GH-859)', () => {
+    // Literals, not the table under test: column rides the move sight (manoeuvre, tracer lime),
+    // the attack the attack-move sight (offensive, hostile red), the ambush the move sight again
+    // with the control family's colour (team.neutral).
+    const want = [
+      ['formationColumn', 'move', 'formation-column', 'vfx.tracer'],
+      ['formationAttack', 'attackMove', 'formation-attack', 'team.hostile_text'],
+      ['formationAmbush', 'move', 'formation-ambush', 'team.neutral'],
+    ] as const;
+    for (const [name, sight, symbol, colourKey] of want) {
+      expect(SIGHT_OF[name]).toBe(sight);
+      const art = drawn(name, 0);
+      const glyph = symbolBody(symbol).replaceAll('currentColor', hexOf(colourKey));
+      expect({ name, glyph: art.includes(glyph) }).toEqual({ name, glyph: true });
+      // The glyph is placed (scaled, translated) in the lower right, after the sight's own ink.
+      expect({ name, placed: /<g transform="translate\(1[0-9.]+ 1[0-9.]+\) scale\(0\.46\)">/.test(art) }).toEqual({ name, placed: true });
+      // And it is the verb's own sight underneath, with the aim's hotspot.
+      const paint = { aim: hexOf(SIGHT_KEYS.aim), main: hexOf(ORDER_SIGHT[sight].main), accent: hexOf(ORDER_SIGHT[sight].accent), hot: hexOf(SIGHT_KEYS.hot) };
+      expect(art).toContain(sightFrame(sight, 0, paint));
+    }
+    // Two formations ride one sight and differ only by glyph: the images are told apart.
+    expect(drawn('formationColumn', 0)).not.toBe(drawn('formationAmbush', 0));
+    expect(drawn('formationColumn', 0)).not.toBe(drawn('move', 0));
+  });
+
   it('badges move and attack with the APP-6 role mark in aim steel, in the free bottom-right quadrant (Q8)', () => {
     const aim = hexOf(SIGHT_KEYS.aim);
     const badge = (bucket: RoleBucket): string =>
@@ -684,7 +712,7 @@ describe('animated cursor frames', () => {
     // A silent eighth entry (or the loss of one) would otherwise only
     // surface as a visual difference nobody happened to look for.
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
+      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'formationAmbush', 'formationAttack', 'formationColumn', 'move', 'moveOnly', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
     );
   });
 
@@ -722,8 +750,8 @@ describe('animated cursor frames', () => {
       (k) => ANIMATED_CURSORS[k.split('-')[0] as keyof typeof ANIMATED_CURSORS]
     );
     // move x8, attack x8, sweep, strike, smoke, barrage, smokeScreen, patrol, rescue,
-    // demolish x3, charge-soft
-    expect(keys.length).toBe(8 + 8 + 7 + 3 + 1);
+    // demolish x3, charge-soft, the three armed formations (GH-859)
+    expect(keys.length).toBe(8 + 8 + 7 + 3 + 1 + 3);
     for (const key of keys) {
       const anim = ANIMATED_CURSORS[key.split('-')[0] as keyof typeof ANIMATED_CURSORS];
       if (!anim) throw new Error(key);
@@ -1033,8 +1061,9 @@ describe('colour-vision variants -- team.* follows the setting (Q9)', () => {
     const tritKeys = sheet.filter((s) => s.cvd === 'tritanopia').map((s) => s.key.split('-')[0]);
     expect(tritKeys).not.toContain('advance');
     expect(tritKeys).not.toContain('strike');
-    // tritanopia swaps only team.neutral, which the housing's warn draws.
-    expect(new Set(tritKeys)).toEqual(new Set(['costly', 'charge']));
+    // tritanopia swaps only team.neutral, which the housing's warn draws -- and the ambush
+    // cursor's glyph, whose family (control) is team.neutral (GH-859).
+    expect(new Set(tritKeys)).toEqual(new Set(['costly', 'charge', 'formationAmbush']));
   });
 
   it('merges variants whose markup is byte-identical into one selector list', () => {
@@ -1281,6 +1310,17 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
       for (const hints of HINT_COMBOS) {
         const name = cursorFor(res, { ...hints, armedPatrol });
         keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
+      }
+    }
+    // An armed combat formation (GH-859 P1a): `resolveFormationOrder`'s resolution plus the hint,
+    // as `cursorAt` composes it. Open ground reads the formation's cursor.
+    for (const formation of ['column', 'attack', 'ambush'] as const) {
+      for (const ids of selections) {
+        const res = resolveFormationOrder(openGround, { ids, formation, x: 5, y: 5, append: false, formationsOpen: true });
+        for (const hints of HINT_COMBOS) {
+          const name = cursorFor(res, { ...hints, armedFormation: formation });
+          keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
+        }
       }
     }
     return keys;
