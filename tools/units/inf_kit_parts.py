@@ -160,6 +160,7 @@ class Team:
     helmet_front_trim: float = 0.0     # degrees either side of the front where the cover's lowest band is left off (the open face of a baked helmet)
     yoke_rmax: float = None            # cap on the yoke's radius from the spine axis (the collar, not a cape over the shoulders)
     yoke_slack: float = 0.015          # how far past its clearance trim the yoke's offset may stand (the Rifle Squad's 15 mm)
+    pack_box: bool = False             # the T3 radio pack is a flat-sided box with a lid, not a pad conformed to the back
     baked_mount: bool = False    # the helmet already carries an NVG shroud and mount: the tubes ride it, `nvg_mount` is not built
     dense_keys: bool = False     # sample every keyframe of a short clip and the clip's last frame (not a stride alone)
     notes: str = ""
@@ -183,7 +184,7 @@ TEAMS = {
             "glass": (452, 218),           # shadow.0 #23241F  35, 36, 31
         },
         device_role="uniform", drop=("nvg_mount", "deltoid", "sleeve"),   # the lead (30 Oct): no shoulder or sleeve armour on this figure
-        carrier_back_plate=True, helmet_front_trim=60.0, yoke_rmax=0.19, yoke_slack=0.0,
+        carrier_back_plate=True, pack_box=True, helmet_front_trim=60.0, yoke_rmax=0.19, yoke_slack=0.0,
         prims=("uniform", "boot", "face", "weapon", "metal", "charge"),
         bank_prims=("uniform", "weapon", "metal", "charge"),
         clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),

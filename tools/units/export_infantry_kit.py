@@ -48,7 +48,7 @@ import inf_kit  # noqa: E402
 import inf_kit_parts as kp  # noqa: E402
 import inf_kit_scene as scn  # noqa: E402
 
-TEAMS = {"inf_squad": "art/meshes/inf_squad.glb"}
+TEAMS = {"inf_squad": "art/meshes/inf_squad.glb", "demo_squad": "art/meshes/demo_squad.glb"}
 OUT_DIR = "art/parts/inf_kit"
 
 
@@ -104,7 +104,8 @@ def main():
     if team not in TEAMS:
         raise SystemExit(f"{team}: no kit builder (teams with one: {', '.join(TEAMS)})")
     src = os.path.join(REPO, TEAMS[team])
-    arm, meshes, mat = scn.load_squad(REPO)
+    kp.use_team(team)
+    arm, meshes, mat = scn.load_squad(REPO, team)
     # a file already grafted imports its own kit nodes: they are not the base
     for o in [o for o in bpy.data.objects if o.name.startswith("kit_")]:
         meshes.pop(o.name, None)

@@ -708,7 +708,45 @@ def build_eud(f, side=None):
     return pc
 
 
+def _build_radio_pack_box(f):
+    """A man-pack radio as a real object (PRC-117G class in a small pack, 0.13 deep x 0.26 wide x 0.30 tall): a flat-sided body with
+    a separate lid, seated flat on the back plate. The plate's plane is read off the vest at two heights, so the box leans with the
+    back; nothing is conformed into a hump. The two shoulder straps are the Rifle Squad's."""
+    p1, _n1 = _back_hit(f, 0.0, 1.16)
+    p2, _n2 = _back_hit(f, 0.0, 1.40)
+    t = (p2 - p1).normalized()                       # up along the plate
+    out = Vector((-1.0, 0.0, 0.0))
+    nrm = (out - t * out.dot(t)).normalized()        # outward, perpendicular to the plate
+    ydir = t.cross(nrm)
+    R = Matrix(((nrm.x, ydir.x, t.x), (nrm.y, ydir.y, t.y), (nrm.z, ydir.z, t.z)))
+    loc, _n = _back_hit(f, 0.0, 1.25)
+    depth, width, height, lid_h = 0.13, 0.26, 0.30, 0.032
+    seat = 0.012                                     # the carrier's back plate is 10 mm: the pack stands on it
+    base = loc + nrm * (seat + depth / 2)
+    pc = Piece(f.world(), open_thick=None)
+    body_h = height - lid_h
+    # body: flat sides, a 6 mm bevel round the section and the top edge
+    geo.rbox(pc, base - t * (lid_h / 2), R, (depth, width, body_h), 0.006, "olive", cz_top=0.004, cap_bot=True)
+    # lid: a shallow cover standing 6 mm proud of the body all round, a darker tone
+    geo.rbox(pc, base + t * (height / 2 - lid_h / 2), R, (depth + 0.012, width + 0.012, lid_h), 0.0, "olive_dark")
+    # two shoulder straps (0.04 wide, 8 mm thick) from the pack top up over the shoulders, standing on the plate
+    for sg in (-1.0, 1.0):
+        a0, na = _back_hit(f, sg * 0.085, 1.40)
+        a1, nb = _back_hit(f, sg * 0.085, 1.45)
+        if a0 is None or a1 is None:
+            continue
+        d = (a1 - a0).normalized()
+        nn = ((na + nb) * 0.5)
+        nn = (nn - d * nn.dot(d)).normalized()
+        yy = d.cross(nn)
+        Rs = Matrix(((nn.x, yy.x, d.x), (nn.y, yy.y, d.y), (nn.z, yy.z, d.z)))
+        geo.rbox(pc, (a0 + a1) * 0.5 + nn * (0.012 + 0.004), Rs, (0.008, 0.04, (a1 - a0).length + 0.02), 0.0, "coyote_shade")
+    return pc
+
+
 def build_radio_pack(f, side=None):
+    if kp.TEAM.pack_box:
+        return _build_radio_pack_box(f)
     loc, n = _back_hit(f, 0.0, 1.25)
     pc = Piece(f.world(), open_thick=0.04)
     geo.pad(pc, f.zone_torso, loc, -n, (0, 1, 0), (0, 0, 1), 0.26, 0.30, 0.13, 6, 3, "olive", base_off=SENSOR_OFF)
