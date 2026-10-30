@@ -157,6 +157,8 @@ interface Identity {
   /** The values behind `scene`, for a failure message that can be read. */
   sceneFields: Record<string, unknown>;
   fragmentLength: number;
+  /** The ground program's four digested parts, raw, for the strip test. */
+  programParts: { vertex: string; fragment: string; cacheKey: string; defines: Record<string, unknown> };
 }
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
@@ -266,6 +268,12 @@ function identityOf(json: MapJson, weather?: 'clear'): Identity {
   const program = sha(
     JSON.stringify([shader.vertexShader, shader.fragmentShader, mat.customProgramCacheKey(), mat.defines])
   );
+  const programParts = {
+    vertex: shader.vertexShader,
+    fragment: shader.fragmentShader,
+    cacheKey: mat.customProgramCacheKey(),
+    defines: { ...(mat.defines as Record<string, unknown>) },
+  };
 
   const { sun, hemisphere } = priv.sceneLights;
   const fog = priv.fogPass.uniforms;
@@ -293,8 +301,33 @@ function identityOf(json: MapJson, weather?: 'clear'): Identity {
     lightFields,
     sceneFields,
     fragmentLength: shader.fragmentShader.length,
+    programParts,
   };
 }
+
+/**
+ * The 9.1 property, on output: a wet program's source with every
+ * `#ifdef THEME_WET ... #endif` block removed. The block's leading newline goes
+ * with it (that is how `mesh.ts`'s `wetBlock` lays one down), and it matches to
+ * the FIRST `#endif`, which is why a wet block may hold no nested conditional.
+ * Written out here on purpose: an oracle must not import the strip it checks.
+ */
+function stripWetBlocks(src: string): string {
+  return src.replace(/\n#ifdef THEME_WET\n[\s\S]*?\n#endif/g, '');
+}
+
+/** The uniforms only a wet ground declares (`GroundMaterial`'s `wetUniforms`), as literals. */
+const WET_UNIFORMS = [
+  'uControlC',
+  'uMarshAmp',
+  'uMarshReflect',
+  'uPuddleReflect',
+  'uRippleAmp',
+  'uRippleTimeSec',
+  'uWetAmp',
+  'uWetRim',
+  'uWetSky',
+];
 
 describe('the ground program and the boot light, per shipped theme (GH-871)', () => {
   if (UPDATE) {
@@ -386,13 +419,40 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
     });
   }
 
-  // GH-871 P2 adds no shader term: the wetland draws the SAME ground program
-  // as arid. P4 (rain) changes this assertion deliberately. Its LIGHT differs
-  // (the haze key is `overcast.1`), and is only recorded, not compared.
+  // GH-871 P4 T4: the wetland rains, so it draws the THEME_WET ground program,
+  // which DIFFERS from arid's -- and differs by exactly its own `#ifdef`
+  // blocks, its define and its uniforms: with those removed it is arid's
+  // program byte for byte (spec 9.1, on output). Its LIGHT differs too (the
+  // haze key is `overcast.1`), and is only recorded, not compared.
   describe('the wetland fixture', () => {
-    it("draws arid's ground program, byte for byte", () => {
-      expect(recorded.wetland.program).toBe(recorded.beit_sahwan_outskirts.program);
-      expect(identityOf(WETLAND_FIXTURE).program).toBe(recorded.beit_sahwan_outskirts.program);
+    it("draws a ground program of its own, not arid's", () => {
+      expect(recorded.wetland.program).not.toBe(recorded.beit_sahwan_outskirts.program);
+      expect(identityOf(WETLAND_FIXTURE).program).not.toBe(recorded.beit_sahwan_outskirts.program);
+    });
+    it("is arid's ground program byte for byte once its THEME_WET blocks, define and uniforms are removed", () => {
+      const arid = identityOf(maps.beit_sahwan_outskirts);
+      const wet = identityOf(WETLAND_FIXTURE);
+      const p = wet.programParts;
+      // Non-vacuous: the blocks are there to remove (four of them, one per
+      // anchor), the define is set and the cache key is the wet program's.
+      expect(p.fragment.match(/#ifdef THEME_WET/g)?.length).toBe(4);
+      expect(p.vertex).not.toContain('THEME_WET');
+      expect(p.defines).toEqual({ STANDARD: '', THEME_WET: '' });
+      expect(p.cacheKey).toBe('rl-ground-wet');
+      expect(p.fragment.length).toBeGreaterThan(arid.programParts.fragment.length + 2000);
+      // The strip: sources, then the cache key and the defines.
+      const { THEME_WET: _wetDefine, ...definesWithoutWet } = p.defines;
+      void _wetDefine;
+      const stripped = sha(
+        JSON.stringify([stripWetBlocks(p.vertex), stripWetBlocks(p.fragment), p.cacheKey.replace(/-wet$/, ''), definesWithoutWet])
+      );
+      expect(stripped).toBe(recorded.beit_sahwan_outskirts.program);
+      expect(stripped).toBe(arid.program);
+      // And the uniform record: the wetland's minus the wet uniforms is arid's.
+      const names = wet.sceneFields.groundUniformNames as string[];
+      expect(WET_UNIFORMS.every((n) => names.includes(n))).toBe(true);
+      expect(names.filter((n) => !WET_UNIFORMS.includes(n))).toEqual(arid.sceneFields.groundUniformNames);
+      expect(arid.sceneFields.groundDefines).toEqual({ STANDARD: '' });
     });
     it('boots a light of its own (the haze differs by design)', () => {
       expect(recorded.wetland.light).not.toBe(recorded.beit_sahwan_outskirts.light);

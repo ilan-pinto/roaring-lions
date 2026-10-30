@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { rainLight, rainShadowMapSize } from './weather';
+import { MARSH_REFLECT, PUDDLE_REFLECT, rainLight, rainShadowMapSize } from './weather';
 import { TIME_OF_DAY_PRESETS } from './time-of-day';
 import { paletteHex } from './palette-hex';
 
@@ -91,6 +91,13 @@ describe('rainLight', () => {
     expect(rainShadowMapSize(4096, 1)).toBe(2048);
     expect(rainShadowMapSize(2048, 1)).toBe(1024);
     expect(rainShadowMapSize(1024, 1)).toBe(1024);
+  });
+});
+
+describe('the water reflectances (R-5, GH-871 P4 T4)', () => {
+  it('start at 0.25 each, until the lead picks them from the 0.20 / 0.25 / 0.35 A/B (S-L1)', () => {
+    expect(PUDDLE_REFLECT).toBe(0.25);
+    expect(MARSH_REFLECT).toBe(0.25);
   });
 });
 

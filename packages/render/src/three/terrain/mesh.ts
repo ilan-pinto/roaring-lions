@@ -56,6 +56,37 @@ import {
   SHOULDER_ALPHA,
   SHOULDER_TILES,
 } from './road-graph';
+import {
+  RIM_GRAD_FLOOR,
+  RIPPLES_PER_CELL,
+  RIPPLE_BAND_HALF_TILES,
+  RIPPLE_CELL_TILES,
+  RIPPLE_CENTRE_MARGIN_TILES,
+  RIPPLE_LIFE_S,
+  RIPPLE_PHASE_STREAM,
+  RIPPLE_REFLECT_SWING,
+  RIPPLE_RING_STRIDE,
+  RIPPLE_RING_TILES,
+  RIPPLE_TILT_TAN,
+  RIPPLE_X_STREAM,
+  RIPPLE_Z_STREAM,
+  ROUGHNESS_BASALT,
+  ROUGHNESS_OPEN,
+  ROUGHNESS_ROAD,
+  ROUGHNESS_WATER,
+  WATER_ALBEDO,
+  WATER_COVER_HI,
+  WATER_COVER_LO,
+} from './wet-shading';
+import { WATER_RIM_TILES } from './wet-masks';
+import { MARSH_REFLECT, PUDDLE_REFLECT } from '../weather';
+import {
+  TILE_HASH_MIX,
+  TILE_HASH_MX,
+  TILE_HASH_MY,
+  TILE_HASH_SHIFT_A,
+  TILE_HASH_SHIFT_B,
+} from '../../tile-hash';
 
 /**
  * Uploads `data`'s positions, colours and indices as a `BufferGeometry`.
@@ -569,6 +600,18 @@ function defaultMacro(): THREE.DataTexture {
   return macroTexture({ size: 1, data: new Uint8Array([128]) });
 }
 
+/** Control C as a texture, or null when the map has none (it is built only
+ *  under rain: `buildControlMap` allocates `c` only for a wet input). */
+export function controlTextureC(cm: ControlMap): THREE.DataTexture | null {
+  return cm.c === null ? null : controlTexture(cm.c, cm.width, cm.height);
+}
+
+/** The 1x1 control C bound before a wet map's own lands: `(0,0,0,0)` is no
+ *  marsh water and no puddle, so a wet ground with no mask draws dry. */
+function defaultControlC(): THREE.DataTexture {
+  return controlTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+}
+
 /**
  * The vertex attributes the ground geometry carries that three.js's own
  * standard shader knows nothing about, and the varyings that hand them to the
@@ -823,6 +866,136 @@ vec3 rlMacro = (1.0 + ${MACRO_LUMINANCE.toFixed(3)} * rlM)
 diffuseColor.rgb *= rlAlbedo * rlMacro;
 `;
 
+/**
+ * THE WET GROUND (GH-871 P4 Task 4). Every line below sits inside an
+ * `#ifdef THEME_WET` block (`wetBlock`), and `GroundMaterial` splices these
+ * blocks in only when it was built `{ wet: true }` -- which sets the define --
+ * so `new GroundMaterial()` compiles today's source, byte for byte, and
+ * `tools/src/theme-identity.test.ts` proves it on output: stripping every
+ * `THEME_WET` block from the wetland program reproduces arid's.
+ *
+ * NO NESTED PREPROCESSOR conditionals inside a block (the strip is a lazy match
+ * to the first `#endif`), no backticks and no dollar signs (this is a JS
+ * template literal, and `String.replace` reads `$&` in a replacement).
+ *
+ * Every term has a TS mirror in `wet-shading.ts`, the constants are
+ * interpolated from it, and `mesh.test.ts` pins that the compiled string
+ * carries them. What the terms are, and why, is that file's header.
+ *
+ * Four blocks, in the order three.js runs the chunks they follow:
+ *  - HEADER (after `<common>`): the wet uniforms, `rlRipHash` and `rlRipple`.
+ *  - COLOR (after `<color_fragment>`, behind the blend and the relief albedo):
+ *    the water and puddle surface, the rim, and the ripple's swing. Its locals
+ *    are `rlWet`-prefixed and live at `main()` scope: the roughness block reads
+ *    `rlWetCov`.
+ *  - ROUGHNESS (after `<roughnessmap_fragment>`): the per-surface roughness,
+ *    written into three's own `roughnessFactor`.
+ *  - NORMAL (after the relief normal): the ripple's tilt.
+ *
+ * `uWetSky` is `overcast.0` linear x the rain `hazeRadiance` (the
+ * constructor's `applyWetUniforms`). It is mixed into the ALBEDO, as the plan's
+ * R-5 says; the light then scales the albedo once more, so the sky term reads
+ * at about `hazeRadiance` squared. T4's report states the number.
+ */
+const f5 = (v: number): string => v.toFixed(5);
+
+const WET_HEADER_GLSL = /* glsl */ `
+uniform sampler2D uControlC;
+uniform float uPuddleReflect;
+uniform float uMarshReflect;
+uniform float uWetAmp;
+uniform float uMarshAmp;
+uniform float uRippleAmp;
+uniform float uRippleTimeSec;
+uniform vec3 uWetSky;
+uniform vec3 uWetRim;
+// tileHash in uint arithmetic (decal-pool.ts's rlHash, the same constants).
+float rlRipHash(int xi, int yi) {
+  uint h = uint(xi) * ${TILE_HASH_MX}u + uint(yi) * ${TILE_HASH_MY}u;
+  h = (h ^ (h >> ${TILE_HASH_SHIFT_A}u)) * ${TILE_HASH_MIX}u;
+  h = h ^ (h >> ${TILE_HASH_SHIFT_B}u);
+  return float(h >> 8u) / 16777216.0;
+}
+// Ripples at world xz p, sim time t: vec3(normal offset x, offset z, swing).
+vec3 rlRipple(vec2 p, float t) {
+  vec2 rlCell = floor(p / ${f5(RIPPLE_CELL_TILES)});
+  int rlCx = int(rlCell.x);
+  int rlCz = int(rlCell.y);
+  vec2 rlOff = vec2(0.0);
+  float rlSwing = 0.0;
+  for (int k = 0; k < ${RIPPLES_PER_CELL}; k++) {
+    int rlKa = k * ${RIPPLE_RING_STRIDE};
+    float rlHx = rlRipHash(rlCx + ${RIPPLE_X_STREAM[0]} + rlKa, rlCz + ${RIPPLE_X_STREAM[1]});
+    float rlHz = rlRipHash(rlCx + ${RIPPLE_Z_STREAM[0]} + rlKa, rlCz + ${RIPPLE_Z_STREAM[1]});
+    float rlHp = rlRipHash(rlCx + ${RIPPLE_PHASE_STREAM[0]} + rlKa, rlCz + ${RIPPLE_PHASE_STREAM[1]});
+    vec2 rlCentre = rlCell * ${f5(RIPPLE_CELL_TILES)} + vec2(${f5(RIPPLE_CENTRE_MARGIN_TILES)})
+      + ${f5(RIPPLE_CELL_TILES - 2 * RIPPLE_CENTRE_MARGIN_TILES)} * vec2(rlHx, rlHz);
+    float rlX = t / ${f5(RIPPLE_LIFE_S)} + rlHp;
+    float rlU = rlX - floor(rlX);
+    float rlRadius = ${f5(RIPPLE_RING_TILES)} * rlU;
+    vec2 rlDv = p - rlCentre;
+    float rlD = length(rlDv);
+    float rlBand = clamp(1.0 - abs(rlD - rlRadius) / ${f5(RIPPLE_BAND_HALF_TILES)}, 0.0, 1.0);
+    float rlS = (1.0 - rlU) * rlBand * sign(rlD - rlRadius);
+    if (rlD > 0.00001) rlOff += rlDv / rlD * (rlS * ${f5(RIPPLE_TILT_TAN)});
+    rlSwing += rlS;
+  }
+  float rlLen = length(rlOff);
+  if (rlLen > ${f5(RIPPLE_TILT_TAN)}) rlOff *= ${f5(RIPPLE_TILT_TAN)} / rlLen;
+  return vec3(rlOff, clamp(rlSwing, -1.0, 1.0));
+}
+`;
+
+const WET_COLOR_GLSL = /* glsl */ `
+vec4 rlWetC = texture2D(uControlC, rlCtlUv);
+float rlWetMarsh = rlWetC.r * uMarshAmp * uWetAmp * rlTop;
+float rlWetPud = rlWetC.g * uWetAmp * rlTop;
+float rlWetM = max(rlWetMarsh, rlWetPud);
+float rlWetRefl = (rlWetMarsh * uMarshReflect + rlWetPud * uPuddleReflect) / max(rlWetMarsh + rlWetPud, 0.0001);
+float rlWetCov = smoothstep(${f5(WATER_COVER_LO)}, ${f5(WATER_COVER_HI)}, rlWetM);
+// Ripples: water fragments only (the mask's 0.5 crossing), on the sim clock.
+vec2 rlWetOff = vec2(0.0);
+float rlWetSwing = 0.0;
+if (uRippleAmp > 0.0 && rlWetM >= 0.5) {
+  vec3 rlWetRp = rlRipple(vRlWorldXZ, uRippleTimeSec);
+  rlWetOff = rlWetRp.xy * uRippleAmp;
+  rlWetSwing = rlWetRp.z * uRippleAmp;
+}
+rlWetRefl = clamp(rlWetRefl * (1.0 + ${f5(RIPPLE_REFLECT_SWING)} * rlWetSwing), 0.0, 1.0);
+// The rim: tiles to the mask's 0.5 crossing, from the mask's own gradient in world xz.
+vec2 rlWetDx = dFdx(vRlWorldXZ);
+vec2 rlWetDy = dFdy(vRlWorldXZ);
+float rlWetDet = rlWetDx.x * rlWetDy.y - rlWetDx.y * rlWetDy.x;
+rlWetDet = abs(rlWetDet) < 0.000000000001 ? 0.000000000001 : rlWetDet;
+float rlWetGx = (dFdx(rlWetM) * rlWetDy.y - dFdy(rlWetM) * rlWetDx.y) / rlWetDet;
+float rlWetGz = (dFdy(rlWetM) * rlWetDx.x - dFdx(rlWetM) * rlWetDy.x) / rlWetDet;
+float rlWetDist = max(0.5 - rlWetM, 0.0) / max(length(vec2(rlWetGx, rlWetGz)), ${f5(RIM_GRAD_FLOOR)});
+float rlWetRim = (1.0 - smoothstep(0.0, ${f5(WATER_RIM_TILES)}, rlWetDist)) * (1.0 - rlWetCov);
+// The surface: the tone under it x WATER_ALBEDO, mixed toward the sky by the reflectance.
+vec3 rlWetWater = mix(vec3(${f5(WATER_ALBEDO)}) * diffuseColor.rgb, uWetSky, rlWetRefl);
+diffuseColor.rgb = mix(mix(diffuseColor.rgb, uWetRim, rlWetRim), rlWetWater, rlWetCov);
+`;
+
+const WET_ROUGHNESS_GLSL = /* glsl */ `
+{ float rlWetRough = mix(${f5(ROUGHNESS_OPEN)}, ${f5(ROUGHNESS_ROAD)}, rlRoadSurf);
+  rlWetRough = mix(rlWetRough, ${f5(ROUGHNESS_BASALT)}, rlW1 * rlTop);
+  rlWetRough = mix(rlWetRough, ${f5(ROUGHNESS_WATER)}, rlWetCov);
+  roughnessFactor = rlWetRough; }
+`;
+
+const WET_NORMAL_GLSL = /* glsl */ `
+normal = normalize(normal + (viewMatrix * vec4(rlWetOff.x, 0.0, rlWetOff.y, 0.0)).xyz);
+`;
+
+/** The define that switches the wet blocks on. */
+export const THEME_WET_DEFINE = 'THEME_WET';
+
+/** One wet block: a leading newline, so removing exactly this text leaves the
+ *  dry source (`\n#ifdef THEME_WET` ... `\n#endif`, no trailing newline). */
+function wetBlock(glsl: string): string {
+  return `\n#ifdef ${THEME_WET_DEFINE}\n${glsl.trim()}\n#endif`;
+}
+
 /** One quartet of uniforms per slot, each starting at its own image's numbers
  *  (`DEFAULT_ALBEDO_FOR_SLOT`) with a valid 1x1 sampler bound and a strength
  *  of 0 -- so a map with no texture, or one whose fetch failed, draws the flat
@@ -868,6 +1041,28 @@ function groundUniforms(): Record<string, THREE.IUniform> {
 }
 
 /**
+ * The uniforms only a wet ground program declares (GH-871 P4 T4). Added to the
+ * record ONLY for `{ wet: true }`, so a dry `GroundMaterial` has exactly the
+ * uniform names it always had (the `scene` digest sorts and hashes them). The
+ * reflectances start at `weather.ts`'s constants; amplitudes start at 1 (the
+ * debug layers write 0); `uWetSky` and `uWetRim` are white until
+ * `ThreeRenderer.applyWetUniforms` binds the palette's.
+ */
+function wetUniforms(): Record<string, THREE.IUniform> {
+  return {
+    uControlC: { value: defaultControlC() },
+    uPuddleReflect: { value: PUDDLE_REFLECT },
+    uMarshReflect: { value: MARSH_REFLECT },
+    uWetAmp: { value: 1 },
+    uMarshAmp: { value: 1 },
+    uRippleAmp: { value: 1 },
+    uRippleTimeSec: { value: 0 },
+    uWetSky: { value: new THREE.Vector3(1, 1, 1) },
+    uWetRim: { value: new THREE.Vector3(1, 1, 1) },
+  };
+}
+
+/**
  * The drawn ground: `MeshStandardMaterial` with the vertex palette tone
  * multiplied by the five-slot albedo blend, lit and shadowed by the scene.
  *
@@ -902,8 +1097,17 @@ function groundUniforms(): Record<string, THREE.IUniform> {
  */
 export class GroundMaterial extends THREE.MeshStandardMaterial {
   readonly uniforms: Record<string, THREE.IUniform>;
+  /** True for a wet ground (GH-871 P4): `THEME_WET` is defined, the wet
+   *  uniforms exist and the program is `rl-ground-wet`. */
+  readonly wet: boolean;
 
-  constructor() {
+  /**
+   * `new GroundMaterial()` is today's ground, byte for byte. `{ wet: true }` is
+   * built only under `RendererOptions.weather === 'rain'` (R-1) and adds the
+   * `THEME_WET` define, the wet uniforms, the four wet GLSL blocks and its own
+   * cache key.
+   */
+  constructor(options: { wet?: boolean } = {}) {
     // DoubleSide: a heightfield patch turns its back on this camera past
     // ~3.2 levels per tile of slope; measured 0 back faces on every shipped
     // map, but qarn_hadid clears the threshold by a dot product of 0.00001.
@@ -917,7 +1121,9 @@ export class GroundMaterial extends THREE.MeshStandardMaterial {
     // question are edge-on to this camera by definition, which is why they are
     // back-facing at all.
     super({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide });
-    this.uniforms = groundUniforms();
+    this.wet = options.wet === true;
+    this.uniforms = this.wet ? { ...groundUniforms(), ...wetUniforms() } : groundUniforms();
+    if (this.wet) this.defines = { ...(this.defines ?? {}), [THEME_WET_DEFINE]: '' };
     this.onBeforeCompile = (shader) => {
       for (const [name, uniform] of Object.entries(this.uniforms)) shader.uniforms[name] = uniform;
       shader.vertexShader = shader.vertexShader
@@ -933,10 +1139,30 @@ vRlWorldN = normalize(mat3(modelMatrix) * objectNormal);`
       // Relief read (`relief-read.ts`): the lighting normal is replaced after
       // three's own normal stage, and the contours and tint multiply the
       // albedo after every blend, on ground tops only.
+      //
+      // The wet blocks (`wetBlock`) are appended to the END of each of these
+      // injections and to one more anchor, and only when `wet`: a dry ground
+      // makes exactly the replacements it always did.
+      const wet = this.wet;
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', `#include <common>\n${GROUND_VARYINGS_GLSL}\n${RELIEF_FRAGMENT_GLSL}`)
-        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${RELIEF_NORMAL_GLSL}`)
-        .replace('#include <color_fragment>', `#include <color_fragment>\n${GROUND_BLEND_GLSL}\n${RELIEF_ALBEDO_GLSL}`);
+        .replace(
+          '#include <common>',
+          `#include <common>\n${GROUND_VARYINGS_GLSL}\n${RELIEF_FRAGMENT_GLSL}${wet ? wetBlock(WET_HEADER_GLSL) : ''}`
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          `#include <normal_fragment_maps>\n${RELIEF_NORMAL_GLSL}${wet ? wetBlock(WET_NORMAL_GLSL) : ''}`
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>\n${GROUND_BLEND_GLSL}\n${RELIEF_ALBEDO_GLSL}${wet ? wetBlock(WET_COLOR_GLSL) : ''}`
+        );
+      if (wet) {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <roughnessmap_fragment>',
+          `#include <roughnessmap_fragment>${wetBlock(WET_ROUGHNESS_GLSL)}`
+        );
+      }
     };
   }
 
@@ -1099,7 +1325,52 @@ vRlWorldN = normalize(mat3(modelMatrix) * objectNormal);`
     return was === want ? 0 : 1;
   }
 
+  /** Non-null only while the `wet` debug layer is hidden: the amplitude to put back. */
+  private wetStash: number | null = null;
+  /** Non-null only while the `marsh` debug layer is hidden: the amplitude to put back. */
+  private marshStash: number | null = null;
+
+  /**
+   * Backs `setDebugLayerVisible('wet', ...)`: `uWetAmp` (the puddle AND marsh
+   * water amplitude) to 0 and back. The wet TONES stay by design: the ground's
+   * palette is already the wet theme's, and the per-surface roughness stays
+   * too; what leaves is the water, the rim and the ripples (all gated by the
+   * water mask). The `macro` contract: a second hide is a no-op reporting 0, so
+   * the stash is never overwritten with the 0 just written. A dry ground has
+   * no such uniform and reports 0.
+   */
+  setWetVisible(visible: boolean): number {
+    if (!this.wet) return 0;
+    if (!visible) {
+      if (this.wetStash !== null) return 0;
+      this.wetStash = this.uniforms.uWetAmp.value as number;
+      this.uniforms.uWetAmp.value = 0;
+      return 1;
+    }
+    const stash = this.wetStash;
+    if (stash === null) return 0;
+    this.uniforms.uWetAmp.value = stash;
+    this.wetStash = null;
+    return 1;
+  }
+
+  /** Backs `setDebugLayerVisible('marsh', ...)`: `uMarshAmp`, the C.R weight, to 0 and back. */
+  setMarshVisible(visible: boolean): number {
+    if (!this.wet) return 0;
+    if (!visible) {
+      if (this.marshStash !== null) return 0;
+      this.marshStash = this.uniforms.uMarshAmp.value as number;
+      this.uniforms.uMarshAmp.value = 0;
+      return 1;
+    }
+    const stash = this.marshStash;
+    if (stash === null) return 0;
+    this.uniforms.uMarshAmp.value = stash;
+    this.marshStash = null;
+    return 1;
+  }
+
   override customProgramCacheKey(): string {
-    return 'rl-ground';
+    return this.wet ? 'rl-ground-wet' : 'rl-ground';
   }
 }

@@ -288,6 +288,7 @@ import {
   albedoMean,
   slotUniforms,
   controlTexturePair,
+  controlTextureC,
   macroTexture,
   GROUND_ALBEDOS,
   type GroundAlbedoId,
@@ -599,7 +600,7 @@ import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
-import { rainLight, rainShadowMapSize, type RainLight } from './weather';
+import { RAIN_SUN_KEY, rainLight, rainShadowMapSize, type RainLight } from './weather';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileYawFor } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
@@ -1371,14 +1372,22 @@ export class ThreeRenderer implements Renderer {
   /** Reused across rebuilds -- one lit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.MeshStandardMaterial = vertexColorMaterial();
-  /** The ground mesh's own material -- see `rebuildTerrain`. */
-  private readonly groundMat: GroundMaterial = new GroundMaterial();
-  /** The control map's two textures, bound on `groundMat` as `uControlA`/
-   *  `uControlB` -- rebuilt by every `rebuildTerrain`, because a destroyed
-   *  structure turns its pad back into open ground, and the previous pair is
-   *  disposed there. Null until the first rebuild, when the material's own
-   *  1x1 "nothing here" defaults are bound instead (`GroundMaterial`). */
-  private controlTex: { a: THREE.DataTexture; b: THREE.DataTexture } | null = null;
+  /** The ground mesh's own material -- see `rebuildTerrain`. Built in the
+   *  constructor, not here: under `weather: 'rain'` it is the wet program
+   *  (`new GroundMaterial({ wet: true })`, GH-871 P4 T4), and a field
+   *  initialiser runs before the options are seen. */
+  private readonly groundMat: GroundMaterial;
+  /** The `ripples` debug layer's flag (`unitsDebugHidden`'s shape): the
+   *  per-frame write of `uRippleAmp` consults it, so a toggle holds across a
+   *  repaint. */
+  private ripplesDebugHidden = false;
+  /** The control map's textures, bound on `groundMat` as `uControlA`/
+   *  `uControlB` (and `uControlC` under rain) -- rebuilt by every
+   *  `rebuildTerrain`, because a destroyed structure turns its pad back into
+   *  open ground, and the previous set is disposed there. Null until the
+   *  first rebuild, when the material's own 1x1 "nothing here" defaults are
+   *  bound instead (`GroundMaterial`). `c` is null on a dry map. */
+  private controlTex: { a: THREE.DataTexture; b: THREE.DataTexture; c: THREE.DataTexture | null } | null = null;
   /** What `controlTex` (and `decalGround.graph`) were last built from, so
    *  `rebuildTerrain` can skip an unchanged rebuild (fix wave I-1). */
   private controlInputs: ControlInputs | null = null;
@@ -2792,6 +2801,9 @@ export class ThreeRenderer implements Renderer {
     // `units/gltf-loader.ts` holds it for the whole module graph, because the
     // decoder is a property of the runtime rather than of any one asset.
     if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
+    // GH-871 P4 T4 (R-1): the wet ground program is built under rain and
+    // nowhere else; every other map builds today's `new GroundMaterial()`.
+    this.groundMat = new GroundMaterial(opts.weather === 'rain' ? { wet: true } : {});
     this.viewer = opts.viewerSide ?? 0;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
@@ -3131,6 +3143,7 @@ export class ThreeRenderer implements Renderer {
     this.sceneLights.sun.shadow.intensity =
       rain === null ? shadowIntensityOf(opts.lightOverride) : (opts.lightOverride?.shadow ?? rain.shadowIntensity);
     this.sceneLights.addTo(this.scene);
+    this.applyWetUniforms();
     this.shadowFitMode = (opts.quality ?? QUALITY_PRESETS.high).shadowFit ?? 'map';
     // GH-705 smoke uplift P2: the flipbook's low tier (no sparks, thinned column).
     // Set in the constructor, not `init()`, so a GL-free test can see it.
@@ -3601,6 +3614,7 @@ export class ThreeRenderer implements Renderer {
     // bound, and the macro field the constructor built.
     this.controlTex?.a.dispose();
     this.controlTex?.b.dispose();
+    this.controlTex?.c?.dispose();
     this.controlTex = null;
     this.controlInputs = null;
     this.controlMap = null;
@@ -4049,6 +4063,7 @@ export class ThreeRenderer implements Renderer {
     // tick repeats, and the gate's zero-time repaint moves no leaf. One
     // uniform write, shared by reference with every foliage batch.
     this.sway.time.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+    this.writeRippleUniforms(alpha);
     this.updateSilhouetteOutlineWidth();
     // `threeCamera()` reconfigures the ONE camera the composer's RenderPass
     // already holds, so this call has to happen whether or not the composer
@@ -4276,6 +4291,26 @@ export class ThreeRenderer implements Renderer {
         // `uMacroAmp` -- its only writers are `groundUniforms()` and that
         // method -- so the plain write holds across the gate's repaint.
         return this.groundMat.setMacroVisible(visible);
+      case 'wet':
+        // GH-871 P4 T4: the puddle and marsh water amplitude (`uWetAmp`) to 0
+        // and back (`GroundMaterial.setWetVisible`, the `macro` stash). Nothing
+        // per-frame writes it. The wet TONES stay by design. 0 on a dry map.
+        return this.groundMat.setWetVisible(visible);
+      case 'marsh':
+        // The marsh water weight (`uMarshAmp`, control C's R channel) to 0 and
+        // back (`GroundMaterial.setMarshVisible`). Puddles stay.
+        return this.groundMat.setMarshVisible(visible);
+      case 'ripples': {
+        // `uRippleAmp` to 0 and back -- but it IS written every frame
+        // (`writeRippleUniforms`: the preset and reduced motion may zero it),
+        // so a plain write would be undone by the very repaint the gate takes
+        // its second photograph on. The FLAG is what that write consults.
+        const hidden = !visible;
+        if (!this.groundMat.wet || hidden === this.ripplesDebugHidden) return 0;
+        this.ripplesDebugHidden = hidden;
+        this.writeRippleAmp();
+        return 1;
+      }
       case 'roads':
         // `uRoadOn` to 0 and back (`GroundMaterial.setRoadsVisible`), 1 when
         // it changed and 0 when it was already there. The same shape as
@@ -11575,6 +11610,88 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * Whether control C bakes the open-ground and low-ground puddles
+   * (`RenderQuality.rain.openPuddles`, R-8). THE SEAM: `quality.rain` does not
+   * exist until Task 8, so every preset answers true (the bake's default);
+   * Task 8 reads the preset here and nowhere else.
+   */
+  private openPuddles(): boolean {
+    return true;
+  }
+
+  /**
+   * Whether the preset allows ripples (`RenderQuality.rain.ripples`, R-8):
+   * absent means "no opinion" and ripples run, `false` is `low`. Read
+   * STRUCTURALLY because the field is Task 8's to add to `RenderQuality`; the
+   * type there replaces the cast. Reduced motion is Task 9's.
+   */
+  private ripplesAllowed(): boolean {
+    const rain = (this.opts.quality as { rain?: { ripples?: boolean } } | undefined)?.rain;
+    return rain?.ripples !== false;
+  }
+
+  /**
+   * The wet ground's per-frame uniforms (GH-871 P4 T4): the ripple clock and
+   * the ripple amplitude. The clock is the SIM clock, `presentationSimMs`, never
+   * `performance.now()` or accumulated `dtMs`: a repaint at zero elapsed time
+   * (the visual gate's second photograph) reads the same time and moves no
+   * ring, and a pause freezes them mid-ring. The amplitude is 0 when the preset
+   * turns ripples off or the `ripples` layer is hidden (`ripplesDebugHidden`),
+   * so the layer holds across the repaint. A dry ground has no such uniforms.
+   */
+  private writeRippleUniforms(alpha: number): void {
+    if (!this.groundMat.wet) return;
+    this.groundMat.uniforms.uRippleTimeSec.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+    this.writeRippleAmp();
+  }
+
+  /** The amplitude half of `writeRippleUniforms`, also what the `ripples`
+   *  layer calls the moment its flag flips. */
+  private writeRippleAmp(): void {
+    if (!this.groundMat.wet) return;
+    this.groundMat.uniforms.uRippleAmp.value = this.ripplesAllowed() && !this.ripplesDebugHidden ? 1 : 0;
+  }
+
+  /**
+   * The wet ground's two palette colours (GH-871 P4 T4): `uWetSky`, the water's
+   * sky, is `overcast.0` linear x the `hazeRadiance` of the lights this scene is
+   * lit by (the very factor `applyHaze` scales the haze tint with), and
+   * `uWetRim`, the bank, is `mud.3` linear. Linear, through `hexToLinear`, like
+   * every colour uniform here. Called once, after the lights are resolved; a
+   * dry ground has neither uniform.
+   */
+  private applyWetUniforms(): void {
+    if (!this.groundMat.wet) return;
+    const k = hazeRadiance(
+      this.resolvedLights.sunIntensity,
+      this.resolvedLights.direction.y,
+      this.resolvedLights.hemiIntensity
+    );
+    const [r, g, b] = hexToLinear(this.overlayColor(RAIN_SUN_KEY));
+    (this.groundMat.uniforms.uWetSky.value as THREE.Vector3).set(r * k, g * k, b * k);
+    (this.groundMat.uniforms.uWetRim.value as THREE.Vector3).fromArray(hexToLinear(this.overlayColor('mud.3')));
+  }
+
+  /**
+   * The puddle-reflectance A/B's only door (GH-871 P4, R-12): writes the two
+   * authored reflectances, `puddle` (roads and open ground) and `marsh`. On the
+   * CONCRETE class only -- never on the `Renderer` interface, never in `api.ts`,
+   * no flag reaches a player -- the `debugPreBloomLuminance` precedent;
+   * `ground:capture` calls it. A value outside 0..1 throws (it is not a
+   * reflectance); a dry ground has neither uniform and the call does nothing.
+   */
+  debugSetWetTuning(tuning: { puddle?: number; marsh?: number }): void {
+    for (const [name, v] of Object.entries(tuning)) {
+      if (!Number.isFinite(v) || (v as number) < 0 || (v as number) > 1) {
+        throw new Error(`debugSetWetTuning: ${name} must be a reflectance in 0..1, got ${String(v)}`);
+      }
+    }
+    if (!this.groundMat.wet) return;
+    if (tuning.puddle !== undefined) this.groundMat.uniforms.uPuddleReflect.value = tuning.puddle;
+    if (tuning.marsh !== undefined) this.groundMat.uniforms.uMarshReflect.value = tuning.marsh;
+  }
+
+  /**
    * Hands the fog pass its haze (ground plan 2, Task 9; N-18, R-13): the
    * preset's own haze key where it names one (dusk's `dust.1`), otherwise
    * the theme's tone (`TerrainTones.haze`); in linear, like every colour
@@ -12701,8 +12818,19 @@ export class ThreeRenderer implements Renderer {
     // each used to pay 48-80 ms for a map byte-identical to the one bound.
     // `controlInputsMatch` compares the masks by CONTENT -- see its doc
     // comment for why a reference compare is wrong in both directions.
+    //
+    // GH-871 P4 (coordinator ruling 4): control C reads the drawn SURFACE, so
+    // the surface goes to ALL FIVE control-map calls below together
+    // (`buildControlMap`, `snapshotControlInputs`, `changedControlTiles`,
+    // `updateControlMapRegion`, `controlInputsMatch`). On a dry map the surface
+    // is ignored by every one of them (`input.wet` is absent), so a shipped
+    // map's calls compute what they always did; on a wet map, dropping it from
+    // any one leaves C unbuilt, stale or wrongly reused.
+    const surface = build.state.surface;
     const controlReused =
-      this.controlTex !== null && this.decalGround !== null && controlInputsMatch(this.controlInputs, composed.input);
+      this.controlTex !== null &&
+      this.decalGround !== null &&
+      controlInputsMatch(this.controlInputs, composed.input, surface);
     const graph =
       controlReused && this.decalGround !== null ? this.decalGround.graph : buildRoadGraph(composed.input);
     if (!controlReused) {
@@ -12712,24 +12840,29 @@ export class ThreeRenderer implements Renderer {
       // map whole (`changedControlTiles`).
       const changed =
         this.controlTex !== null && this.controlMap !== null && this.controlInputs !== null
-          ? changedControlTiles(this.controlInputs, composed.input)
+          ? changedControlTiles(this.controlInputs, composed.input, surface)
           : null;
       if (changed !== null && this.controlTex !== null && this.controlMap !== null) {
-        controlTexels = updateControlMapRegion(this.controlMap, composed.input, changed);
+        controlTexels = updateControlMapRegion(this.controlMap, composed.input, changed, undefined, surface);
         this.controlTex.a.needsUpdate = true;
         this.controlTex.b.needsUpdate = true;
+        if (this.controlTex.c !== null) this.controlTex.c.needsUpdate = true;
       } else {
-        const map = buildControlMap(composed.input);
-        const control = controlTexturePair(map);
+        const map = buildControlMap(composed.input, surface, { openPuddles: this.openPuddles() });
+        const control = { ...controlTexturePair(map), c: controlTextureC(map) };
         this.controlTex?.a.dispose();
         this.controlTex?.b.dispose();
+        this.controlTex?.c?.dispose();
         this.controlTex = control;
         this.controlMap = map;
         controlTexels = map.width * map.height;
         this.groundMat.uniforms.uControlA.value = control.a;
         this.groundMat.uniforms.uControlB.value = control.b;
+        // Control C exists exactly when the input is wet (the wet material is
+        // the only one with the sampler); a dry map binds nothing here.
+        if (control.c !== null && this.groundMat.wet) this.groundMat.uniforms.uControlC.value = control.c;
       }
-      this.controlInputs = snapshotControlInputs(composed.input);
+      this.controlInputs = snapshotControlInputs(composed.input, surface);
     }
     this.lastTerrainRebuild = {
       tiles: build.rebuiltTiles,

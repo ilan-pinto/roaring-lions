@@ -30,8 +30,10 @@ import {
   slotUniforms,
   prepareGroundTexture,
   controlTextures,
+  controlTextureC,
 } from './mesh';
 import { buildControlMap, buildMacroField, HEIGHT_BLEND, MACRO_HUE, MACRO_LUMINANCE } from './control-map';
+import { buildTerrainSurface } from './surface';
 import { buildGround, WALL_ALBEDO_NONE, WALL_ALBEDO_ROCK, WALL_ALBEDO_TOP } from './ground';
 import {
   ROAD_EDGE_BEND,
@@ -745,5 +747,217 @@ describe('GroundMaterial relief read (relief-read.ts)', () => {
     const m = new GroundMaterial();
     m.setReliefMedianLevel(3);
     expect(m.uniforms.uReliefMedianY.value).toBeCloseTo(3 * (m.uniforms.uReliefLevelY.value as number), 12);
+  });
+});
+
+
+// -- The THEME_WET ground program (GH-871 P4 Task 4) ------------------------
+
+/** The wet blocks removed, the way `mesh.ts`'s `wetBlock` lays one down. An
+ *  oracle, so written out here rather than imported. */
+const stripWet = (src: string): string => src.replace(/\n#ifdef THEME_WET\n[\s\S]*?\n#endif/g, '');
+
+const WET_UNIFORM_NAMES = [
+  'uControlC', 'uMarshAmp', 'uMarshReflect', 'uPuddleReflect', 'uRippleAmp', 'uRippleTimeSec', 'uWetAmp', 'uWetRim', 'uWetSky',
+];
+
+describe('GroundMaterial({ wet: true }) -- the THEME_WET program', () => {
+  const dry = new GroundMaterial();
+  const wet = new GroundMaterial({ wet: true });
+  const dryC = compiled(dry);
+  const wetC = compiled(wet);
+
+  it('sets the define, adds the nine wet uniforms, and has its own cache key; the dry one has none of that', () => {
+    expect(wet.wet).toBe(true);
+    expect(wet.defines).toEqual({ STANDARD: '', THEME_WET: '' });
+    expect(wet.customProgramCacheKey()).toBe('rl-ground-wet');
+    for (const n of WET_UNIFORM_NAMES) expect(wet.uniforms[n], n).toBeDefined();
+    expect(dry.wet).toBe(false);
+    expect(dry.defines).toEqual({ STANDARD: '' });
+    expect(dry.customProgramCacheKey()).toBe('rl-ground');
+    for (const n of WET_UNIFORM_NAMES) expect(dry.uniforms[n], n).toBeUndefined();
+    // And `new GroundMaterial({})` / `{ wet: false }` are the dry one.
+    expect(new GroundMaterial({}).wet).toBe(false);
+    expect(new GroundMaterial({ wet: false }).customProgramCacheKey()).toBe('rl-ground');
+  });
+
+  it('hands the program the wet uniforms (the same objects), and the dry one none', () => {
+    const grab = (m: GroundMaterial): Record<string, THREE.IUniform> => {
+      const u = {} as Record<string, THREE.IUniform>;
+      m.onBeforeCompile(
+        { uniforms: u, vertexShader: THREE.ShaderChunk.meshphysical_vert, fragmentShader: THREE.ShaderChunk.meshphysical_frag } as unknown as THREE.WebGLProgramParametersWithUniforms,
+        {} as THREE.WebGLRenderer
+      );
+      return u;
+    };
+    const u = grab(wet);
+    for (const n of WET_UNIFORM_NAMES) expect(u[n], n).toBe(wet.uniforms[n]);
+    for (const n of WET_UNIFORM_NAMES) expect(grab(dry)[n], n).toBeUndefined();
+  });
+
+  it('starts at its authored values: reflectances 0.25, amplitudes 1, and a control C that says "no water"', () => {
+    const u = wet.uniforms;
+    expect(u.uPuddleReflect.value).toBe(0.25);
+    expect(u.uMarshReflect.value).toBe(0.25);
+    expect(u.uWetAmp.value).toBe(1);
+    expect(u.uMarshAmp.value).toBe(1);
+    expect(u.uRippleAmp.value).toBe(1);
+    expect(u.uRippleTimeSec.value).toBe(0);
+    expect(Array.from((u.uControlC.value as THREE.DataTexture).image.data as Uint8Array)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('changes nothing outside its own #ifdef blocks: stripped, the wet source is the dry source', () => {
+    expect(stripWet(wetC.fragmentShader)).toBe(dryC.fragmentShader);
+    expect(wetC.vertexShader).toBe(dryC.vertexShader);
+    expect(wetC.fragmentShader.match(/#ifdef THEME_WET/g)).toHaveLength(4);
+    // Non-vacuous: the wet source is much longer than the dry one.
+    expect(wetC.fragmentShader.length).toBeGreaterThan(dryC.fragmentShader.length + 3000);
+  });
+
+  it('the dry source mentions nothing wet', () => {
+    for (const word of ['THEME_WET', 'uControlC', 'rlWet', 'rlRipple', 'rlRipHash', 'uWetSky', 'roughnessFactor = ']) {
+      expect(dryC.fragmentShader, word).not.toContain(word);
+    }
+  });
+
+  it('puts every wet declaration and statement inside a block', () => {
+    // Remove the blocks and none of the wet names survive anywhere.
+    const outside = stripWet(wetC.fragmentShader);
+    for (const word of ['uControlC', 'uPuddleReflect', 'uMarshReflect', 'uWetAmp', 'uMarshAmp', 'uRippleAmp', 'uRippleTimeSec', 'uWetSky', 'uWetRim', 'rlWet', 'rlRip']) {
+      expect(outside, word).not.toContain(word);
+    }
+  });
+
+  it('lays the four blocks after the chunks they follow, in three.js order', () => {
+    const f = wetC.fragmentShader;
+    const at = (needle: string): number => {
+      const i = f.indexOf(needle);
+      expect(i, needle).toBeGreaterThan(-1);
+      return i;
+    };
+    const header = at('uniform sampler2D uControlC;');
+    const color = at('vec4 rlWetC = texture2D(uControlC, rlCtlUv);');
+    const rough = at('roughnessFactor = rlWetRough;');
+    const normal = at('normal = normalize(normal + (viewMatrix * vec4(rlWetOff.x, 0.0, rlWetOff.y, 0.0)).xyz);');
+    // header after common, before main; colour after the blend and the relief albedo.
+    expect(header).toBeLessThan(f.indexOf('void main()'));
+    expect(color).toBeGreaterThan(f.indexOf('diffuseColor.rgb *= rlAlbedo * rlMacro;'));
+    expect(color).toBeGreaterThan(f.indexOf('diffuseColor.rgb *= mix(vec3(1.0), rlTint * rlLine, rlTop); }'));
+    // roughness after the include, before the normal stage.
+    expect(rough).toBeGreaterThan(f.indexOf('#include <roughnessmap_fragment>'));
+    expect(rough).toBeLessThan(f.indexOf('#include <normal_fragment_begin>'));
+    // the tilt after the relief normal that replaces `normal`.
+    expect(normal).toBeGreaterThan(f.indexOf('rlN = rlExaggerate(rlN, uReliefSlopeGain);'));
+    // and the order main() runs them: colour, then roughness, then normal.
+    expect(color).toBeLessThan(rough);
+    expect(rough).toBeLessThan(normal);
+  });
+
+  it("is built from the mirror's constants, literally (wet-shading.ts)", () => {
+    const f = wetC.fragmentShader;
+    // Water: albedo 0.55, the coverage ramp, the reflectance mix, the rim.
+    expect(f).toContain('mix(vec3(0.55000) * diffuseColor.rgb, uWetSky, rlWetRefl)');
+    expect(f).toContain('smoothstep(0.40000, 0.60000, rlWetM)');
+    expect(f).toContain('(1.0 - smoothstep(0.0, 0.06000, rlWetDist))');
+    expect(f).toContain('max(length(vec2(rlWetGx, rlWetGz)), 0.00100)');
+    // Roughness: open 0.62, road mud 0.45, basalt 0.55, water 0.08.
+    expect(f).toContain('mix(0.62000, 0.45000, rlRoadSurf)');
+    expect(f).toContain('mix(rlWetRough, 0.55000, rlW1 * rlTop)');
+    expect(f).toContain('mix(rlWetRough, 0.08000, rlWetCov)');
+    // Ripples: 0.5-tile cells, 2 rings, 0.12 / 0.025 / 0.9, the 8-degree cap (tan = 0.14054), +-15%.
+    expect(f).toContain('floor(p / 0.50000)');
+    expect(f).toContain('k < 2;');
+    expect(f).toContain('0.12000 * rlU');
+    expect(f).toContain('abs(rlD - rlRadius) / 0.02500');
+    expect(f).toContain('t / 0.90000 + rlHp');
+    expect(f).toContain('(rlS * 0.14054)');
+    expect(f).toContain('if (rlLen > 0.14054) rlOff *= 0.14054 / rlLen;');
+    expect(f).toContain('(1.0 + 0.15000 * rlWetSwing)');
+    // The centre margin (radius + half band = 0.145) and its span (0.21).
+    expect(f).toContain('vec2(0.14500)');
+    expect(f).toContain('0.21000 * vec2(rlHx, rlHz)');
+    // The streams, fresh, and the ring stride.
+    for (const n of ['14621', '14731', '14843', '14957', '15061', '15173']) expect(f, n).toContain(n);
+    expect(f).toContain('k * 331');
+    // The tile hash, in uint, the decal pool's constants.
+    expect(f).toContain('uint(xi) * 374761393u + uint(yi) * 668265263u');
+    expect(f).toContain('(h ^ (h >> 13u)) * 1274126177u');
+    expect(f).toContain('h = h ^ (h >> 16u)');
+  });
+
+  it('takes ripples on water only, and only when the amplitude is up', () => {
+    expect(wetC.fragmentShader).toContain('if (uRippleAmp > 0.0 && rlWetM >= 0.5) {');
+  });
+
+  it('keeps the ripple branch free of derivatives and fetches, and takes them before it', () => {
+    const f = wetC.fragmentShader;
+    const branch = f.indexOf('if (uRippleAmp > 0.0 && rlWetM >= 0.5) {');
+    const close = f.indexOf('}', branch);
+    const body = f.slice(branch, close);
+    expect(body).not.toMatch(/dFd[xy]|texture2D|textureGrad/);
+    // rlRipple itself (called in the branch) holds none either.
+    const fn = f.slice(f.indexOf('vec3 rlRipple('), f.indexOf('void main()'));
+    expect(fn).not.toMatch(/dFd[xy]|texture2D|textureGrad/);
+  });
+
+  it('draws water, rim and ripples on tops only', () => {
+    expect(wetC.fragmentShader).toContain('float rlWetMarsh = rlWetC.r * uMarshAmp * uWetAmp * rlTop;');
+    expect(wetC.fragmentShader).toContain('float rlWetPud = rlWetC.g * uWetAmp * rlTop;');
+  });
+});
+
+describe('GroundMaterial wet debug stashes', () => {
+  it('wet hides uWetAmp alone, idempotently: a second hide neither re-stashes nor reports a change', () => {
+    const m = new GroundMaterial({ wet: true });
+    expect(m.setWetVisible(false)).toBe(1);
+    expect(m.uniforms.uWetAmp.value).toBe(0);
+    expect(m.uniforms.uMarshAmp.value, 'marsh untouched').toBe(1);
+    expect(m.setWetVisible(false), 'a second hide changes nothing').toBe(0);
+    // The stash survived: showing puts back 1, not the 0 the second hide would have stashed.
+    expect(m.setWetVisible(true)).toBe(1);
+    expect(m.uniforms.uWetAmp.value).toBe(1);
+    expect(m.setWetVisible(true), 'a second show changes nothing').toBe(0);
+  });
+  it('marsh hides uMarshAmp alone, idempotently', () => {
+    const m = new GroundMaterial({ wet: true });
+    expect(m.setMarshVisible(false)).toBe(1);
+    expect(m.uniforms.uMarshAmp.value).toBe(0);
+    expect(m.uniforms.uWetAmp.value, 'wet untouched').toBe(1);
+    expect(m.setMarshVisible(false)).toBe(0);
+    expect(m.setMarshVisible(true)).toBe(1);
+    expect(m.uniforms.uMarshAmp.value).toBe(1);
+    expect(m.setMarshVisible(true)).toBe(0);
+  });
+  it('restores a non-default amplitude, not a hardcoded 1', () => {
+    const m = new GroundMaterial({ wet: true });
+    m.uniforms.uWetAmp.value = 0.6;
+    m.setWetVisible(false);
+    m.setWetVisible(false);
+    m.setWetVisible(true);
+    expect(m.uniforms.uWetAmp.value).toBe(0.6);
+  });
+  it('both report 0 on a dry ground, which has no such uniform', () => {
+    const m = new GroundMaterial();
+    expect(m.setWetVisible(false)).toBe(0);
+    expect(m.setMarshVisible(false)).toBe(0);
+    expect(m.uniforms.uWetAmp).toBeUndefined();
+  });
+});
+
+describe('controlTextureC', () => {
+  it('is null for a dry map and a data texture over the bytes for a wet one', () => {
+    expect(controlTextureC(buildControlMap(tinyInput))).toBeNull();
+    const input: TerrainInput = { ...tinyInput, wet: true };
+    const map = buildControlMap(input, buildTerrainSurface(input));
+    expect(map.c).not.toBeNull();
+    const tex = controlTextureC(map);
+    expect(tex).not.toBeNull();
+    expect(tex!.image.width).toBe(4 * 8);
+    expect(tex!.image.height).toBe(4 * 8);
+    expect(tex!.colorSpace).toBe(THREE.NoColorSpace);
+    expect(tex!.magFilter).toBe(THREE.LinearFilter);
+    expect(tex!.minFilter).toBe(THREE.LinearMipmapLinearFilter);
+    expect(tex!.flipY).toBe(false);
+    expect(tex!.generateMipmaps).toBe(true);
   });
 });

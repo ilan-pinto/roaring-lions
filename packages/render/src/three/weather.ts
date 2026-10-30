@@ -34,6 +34,17 @@ export const RAIN_SKY_KEY = 'overcast.1';
 export const RAIN_HAZE_KEY = 'overcast.1';
 /** The shadow map's floor, in texels per side. */
 export const RAIN_SHADOW_FLOOR = 1024;
+/**
+ * The two water reflectances (R-5, GH-871 P4 T4), authored, not Fresnel: the
+ * share of the sky (`overcast.0`) the water surface mixes in, 0.25 each until
+ * the lead picks them from the 0.20 / 0.25 / 0.35 A/B at S-L1. `PUDDLE_REFLECT`
+ * is roads and open ground; `MARSH_REFLECT` is the marsh water. The ground
+ * material's `uPuddleReflect` / `uMarshReflect` start here, and
+ * `ThreeRenderer.debugSetWetTuning` (the A/B's only door) writes them. Task 7
+ * edits these two values and nothing else.
+ */
+export const PUDDLE_REFLECT = 0.25;
+export const MARSH_REFLECT = 0.25;
 
 /** What `rainLight` reads of a resolved light (`lighting.ts`'s `ResolvedLights`
  *  satisfies it; its `direction` is a `Vector3`, which has x, y and z). */

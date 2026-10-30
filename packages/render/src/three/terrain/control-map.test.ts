@@ -3,7 +3,7 @@ import { DECOR_GROVE, DECOR_KNOLL, DECOR_MARSH, DECOR_RIDGE, DECOR_ROAD } from '
 import type { TerrainInput } from './types';
 import {
   buildControlMap, buildMacroField, CONTROL_TEXELS_PER_TILE as N, heightBiased, macroBlurTexels,
-  macroFactor, MACRO_OCTAVES, MACRO_PERIOD_TILES, neutralTint, tileSurface,
+  macroFactor, MACRO_OCTAVES, MACRO_PERIOD_TILES, neutralTint, tileSurface, updateControlMapRegion,
 } from './control-map';
 import { boxBlur, fbm2 } from './noise';
 import { roadDistanceAt, buildRoadGraph } from './road-graph';
@@ -387,6 +387,33 @@ describe('control C -- baked only under rain (GH-871 P4 T3)', () => {
     const cm = buildControlMap(wetMarsh, buildTerrainSurface(wetMarsh));
     const c = cm.c as Uint8Array;
     for (let j = 3 * N; j < 13 * N; j++) for (let i = 0; i < W * N; i++) expect(c[(j * cm.width + i) * 4 + 1]).toBe(0);
+  });
+});
+
+describe('updateControlMapRegion refuses a wet map it cannot keep right (GH-871 P4 T4)', () => {
+  const W = 8;
+  const rows = [...fill(W, 2, '.'), ...fill(W, 4, '~'), ...fill(W, 2, '.')];
+  const dry = map(rows);
+  const wet = { ...dry, wet: true as const };
+  const changed = (): Uint8Array => {
+    const c = new Uint8Array(W * W);
+    c[3 * W + 3] = 1;
+    return c;
+  };
+
+  it('throws when the map has a control C and no surface is passed: C would be left stale, silently', () => {
+    const cm = buildControlMap(wet, buildTerrainSurface(wet));
+    expect(cm.c).not.toBeNull();
+    expect(() => updateControlMapRegion(cm, wet, changed())).toThrow(/control C.*surface/);
+    // With the surface it writes, and says how many texels.
+    expect(updateControlMapRegion(cm, wet, changed(), undefined, buildTerrainSurface(wet))).toBeGreaterThan(0);
+  });
+
+  it('a dry map needs no surface, and still takes none', () => {
+    const cm = buildControlMap(dry);
+    expect(cm.c).toBeNull();
+    expect(updateControlMapRegion(cm, dry, changed())).toBeGreaterThan(0);
+    expect(updateControlMapRegion(cm, dry, changed(), undefined, buildTerrainSurface(dry))).toBeGreaterThan(0);
   });
 });
 

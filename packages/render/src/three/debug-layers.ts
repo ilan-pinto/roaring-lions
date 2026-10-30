@@ -371,6 +371,25 @@
  * Neither gets a `layerChecks` entry: no gated scenario contains a beam, so a check there would read 0 px
  * on a healthy tree. `pnpm e6:capture` (chunk D) is where they vote.
  *
+ * THREE FOR THE WET GROUND (GH-871 P4 T4, R-10), each a stash on the
+ * `GroundMaterial`'s wet uniforms or a flag; all three report 0 on a map that
+ * does not rain (the dry ground has no such uniform):
+ *
+ * - `wet`         the puddle AND marsh water amplitude (`uWetAmp`) to 0 and
+ *                 back, the `macro` stash: a second hide reports 0 and never
+ *                 overwrites the stash with the 0 it just wrote. The wet TONES
+ *                 stay, by design (the palette is already the theme's), so
+ *                 what leaves is the water surface, its rim and its ripples.
+ * - `marsh`       the marsh water weight alone (`uMarshAmp`, control C's R
+ *                 channel) to 0 and back; puddles stay.
+ * - `ripples`     the ripple amplitude (`uRippleAmp`) to 0 and back. A FLAG
+ *                 (`ThreeRenderer.ripplesDebugHidden`) the per-frame write
+ *                 consults, the `units` rule: the frame re-derives the
+ *                 amplitude every frame (the preset and reduced motion may
+ *                 zero it), so a bare uniform write would hold only until the
+ *                 gate's repaint. No `layerChecks` entry: no gated scenario
+ *                 rains (`wet` is P5's).
+ *
  * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
  * follow-up 2): the large dark diagonal a first attempt at the plate read as
  * a shadow was the fog-of-war boundary -- `FogOfWarPass` (`../fog-pass.ts`)
@@ -459,6 +478,12 @@ export const DEBUG_LAYERS = [
   // floor on a wounded figure. Hidden is today's faint team ring and no floor. A flag the overlay
   // pass reads, plus a material write.
   'wounded-read',
+  // GH-871 P4 T4: the wet ground. `wet` and `marsh` are stashes on the ground
+  // material's wet uniforms; `ripples` is a flag the per-frame write consults.
+  // All three are 0 on a map that does not rain. P5's `wet` scenario votes them.
+  'wet',
+  'marsh',
+  'ripples',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

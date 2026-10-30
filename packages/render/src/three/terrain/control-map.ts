@@ -571,7 +571,8 @@ export function changedControlTiles(
  *
  * A wet map (`map.c` non-null) also takes `surface` and rewrites control C
  * over the union of the same region and `WET_SPLICE_MARGIN_TEXELS` around any
- * tile marked `CHANGED_SURFACE`; a map without C ignores both.
+ * tile marked `CHANGED_SURFACE`; a map without C ignores both. **A wet map with
+ * no `surface` THROWS**: it would leave C stale without a sound.
  */
 export function updateControlMapRegion(
   map: ControlMap,
@@ -581,6 +582,12 @@ export function updateControlMapRegion(
   surface?: TerrainSurface,
   wetMargin: number = WET_SPLICE_MARGIN_TEXELS
 ): number {
+  // Control C reads the drawn surface. A wet map spliced WITHOUT one would
+  // rewrite A and B and leave C silently stale (the wrong puddles under a
+  // collapsed building), so it is refused rather than degraded.
+  if (map.c !== null && surface === undefined) {
+    throw new Error('updateControlMapRegion: this map has a control C (it is wet), so the surface it was built from is required');
+  }
   const N = CONTROL_TEXELS_PER_TILE;
   const { width, height } = map;
   const wet = map.c !== null && map.wetBake !== undefined && surface !== undefined;
