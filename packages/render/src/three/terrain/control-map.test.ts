@@ -7,6 +7,8 @@ import {
 } from './control-map';
 import { boxBlur, fbm2 } from './noise';
 import { roadDistanceAt, buildRoadGraph } from './road-graph';
+import { marshWaterAt } from './shared';
+import { buildTerrainSurface, smoothNormal } from './surface';
 
 /** '.' open, 'r' road, 'o' grove, 'n' knoll, '1'-'3' cover, '#' pad, '^' ridge, '~' marsh (decor 6, cover 1). */
 function map(rows: readonly string[]): TerrainInput {
@@ -335,5 +337,104 @@ describe('macroFactor', () => {
   it('pulls hue toward the dust side when dark', () => {
     const c = macroFactor(-1, 1, bright, dark);
     expect(c[0] / c[2]).toBeGreaterThan(1);
+  });
+});
+
+describe('control C -- baked only under rain (GH-871 P4 T3)', () => {
+  const W = 16;
+  const marshRows = [...fill(W, 3, '.'), ...fill(W, 10, '~'), ...fill(W, 3, '.')];
+  const dryMarsh = map(marshRows);
+  const wetMarsh = { ...dryMarsh, wet: true as const };
+
+  it('allocates nothing without `wet`, even with a surface to read (the gate is `wet`, not "the map has a ~")', () => {
+    expect(dryMarsh.decor?.includes(6)).toBe(true); // it HAS a marsh
+    expect(buildControlMap(dryMarsh, buildTerrainSurface(dryMarsh)).c).toBeNull();
+    expect(buildControlMap(dryMarsh).c).toBeNull();
+  });
+
+  it('allocates nothing under rain without a surface, and a full RGBA texture with one', () => {
+    expect(buildControlMap(wetMarsh).c).toBeNull();
+    const cm = buildControlMap(wetMarsh, buildTerrainSurface(wetMarsh));
+    expect(cm.c).not.toBeNull();
+    expect((cm.c as Uint8Array).length).toBe(W * N * W * N * 4);
+  });
+
+  it('leaves control A and B byte-for-byte what a dry build writes', () => {
+    const dry = buildControlMap(dryMarsh);
+    const wet = buildControlMap(wetMarsh, buildTerrainSurface(wetMarsh));
+    expect(Buffer.from(wet.a).equals(Buffer.from(dry.a))).toBe(true);
+    expect(Buffer.from(wet.b).equals(Buffer.from(dry.b))).toBe(true);
+  });
+
+  it('R is marshWaterAt at the texel CENTRE, to the byte; B and A are spare, written 0', () => {
+    const cm = buildControlMap(wetMarsh, buildTerrainSurface(wetMarsh));
+    const c = cm.c as Uint8Array;
+    let water = 0;
+    for (let j = 0; j < cm.height; j++) {
+      for (let i = 0; i < cm.width; i++) {
+        const o = (j * cm.width + i) * 4;
+        const want = Math.round(marshWaterAt(wetMarsh.decor, W, W, (i + 0.5) / N, (j + 0.5) / N) * 255);
+        expect(c[o]).toBe(want);
+        expect(c[o + 2]).toBe(0);
+        expect(c[o + 3]).toBe(0);
+        if (c[o] >= 128) water++;
+      }
+    }
+    expect(water, 'the marsh really has water texels').toBeGreaterThan(200);
+  });
+
+  it('puts no puddle on a marsh tile (the marsh is water or reeds, not open ground)', () => {
+    const cm = buildControlMap(wetMarsh, buildTerrainSurface(wetMarsh));
+    const c = cm.c as Uint8Array;
+    for (let j = 3 * N; j < 13 * N; j++) for (let i = 0; i < W * N; i++) expect(c[(j * cm.width + i) * 4 + 1]).toBe(0);
+  });
+});
+
+describe('control C -- the low-ground boost on a synthetic bowl (R-4: +6% at 2 levels below)', () => {
+  const W = 16;
+  // 16x16: an open floor in the middle (tiles 3..12), a rim around it. The rim is
+  // the majority, so the median open level is the rim's.
+  function bowl(floor: number): TerrainInput {
+    const elevation = new Uint8Array(W * W);
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) elevation[y * W + x] = x >= 3 && x < 13 && y >= 3 && y < 13 ? floor : 2;
+    return { width: W, height: W, decor: null, elevation, blocked: new Uint8Array(W * W), cover: new Uint8Array(W * W), wet: true };
+  }
+
+  /** The extra open share on the floor texels that are flat in the bowl:
+   *  `floor` levels against the same map with its floor at the median. */
+  function boostAt(floor: number): { boost: number; n: number; bowlShare: number; levelShare: number } {
+    const low = bowl(floor);
+    const level = bowl(2);
+    const sLow = buildTerrainSurface(low);
+    const cLow = buildControlMap(low, sLow).c as Uint8Array;
+    const cLevel = buildControlMap(level, buildTerrainSurface(level)).c as Uint8Array;
+    const row = W * N;
+    let n = 0;
+    let gLow = 0;
+    let gLevel = 0;
+    for (let j = 3 * N; j < 13 * N; j++) {
+      for (let i = 3 * N; i < 13 * N; i++) {
+        if (smoothNormal(sLow, (i + 0.5) / N, (j + 0.5) / N)[1] <= 0.985) continue;
+        n++;
+        if (cLow[(j * row + i) * 4 + 1] >= 128) gLow++;
+        if (cLevel[(j * row + i) * 4 + 1] >= 128) gLevel++;
+      }
+    }
+    return { boost: (gLow - gLevel) / n, n, bowlShare: gLow / n, levelShare: gLevel / n };
+  }
+
+  it('raises the open share on the flat floor by 0.06 +/- 0.02 at 2 levels below the median', () => {
+    const r = boostAt(0); // floor 2 levels below the rim median (2)
+    expect(r.n, 'a real flat floor').toBeGreaterThan(3000);
+    expect(r.boost, `bowl ${r.bowlShare} vs level ${r.levelShare}`).toBeGreaterThanOrEqual(0.04);
+    expect(r.boost).toBeLessThanOrEqual(0.08);
+  });
+
+  it('is linear from the median: a floor 1 level below adds about half, and a floor AT the median adds nothing', () => {
+    const half = boostAt(1);
+    expect(half.n).toBeGreaterThan(3000);
+    expect(half.boost, 'one level below').toBeGreaterThan(0.01);
+    expect(half.boost).toBeLessThan(0.05);
+    expect(boostAt(2).boost, 'at the median').toBe(0);
   });
 });

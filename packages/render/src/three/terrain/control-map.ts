@@ -33,10 +33,13 @@
  * because Task 4's combined size crosses the controller's file cap, not
  * because the two halves are independent ideas.
  */
+import { hazeReferenceLevel } from '../haze';
 import { DECOR_GROVE, DECOR_KNOLL, DECOR_MARSH, DECOR_RIDGE, DECOR_ROAD, hexToLinear } from './shared';
 import { boxBlur, fbm2, valueNoise2 } from './noise';
 import { buildRoadGraph, junctionDistanceAt, roadDistanceAt, ROAD_EDGE_BEND_CYCLES, type RoadGraph } from './road-graph';
+import type { TerrainSurface } from './surface';
 import type { TerrainInput } from './types';
+import { marshTexel, puddleTexel, type WetField } from './wet-masks';
 
 /** Texels per tile side, in EITHER control texture. `CONTROL_TEXELS_PER_TILE
  *  x CONTROL_TEXELS_PER_TILE` texels cover one tile, so an 8x8 map is a
@@ -321,6 +324,18 @@ export interface ControlMap {
   /** knoll, road distance, junction distance, road-edge bend -- one byte
    *  each, RGBA order. */
   readonly b: Uint8Array;
+  /**
+   * Control C (GH-871 P4, R-4): R the marsh water weight, G the puddle mask,
+   * B and A spare, written 0 -- RGBA order. **Null unless the input is wet**
+   * (`TerrainInput.wet === true`) **and a surface was given**: no shipped
+   * map rains, so none allocates it, and a build with `wet` absent is
+   * byte-for-byte today's two-texture map. See `wet-masks.ts`.
+   */
+  readonly c: Uint8Array | null;
+  /** What the wet bake needs to splice itself later (`updateControlMapRegion`):
+   *  the macro field (a function of the map's size alone) and the preset's
+   *  `openPuddles`. Present exactly when `c` is. */
+  readonly wetBake?: { readonly macro: MacroField; readonly openPuddles: boolean };
 }
 
 function clamp01(v: number): number {
@@ -343,27 +358,78 @@ function byteOf(v: number): number {
  * `+/-2`-tile road-graph window queries; Task 5 measures this on the largest
  * shipped map and must keep it under 60 ms, or `rebuildTerrain` needs a
  * dirty region -- reported there, not solved here.
+ *
+ * **Control C (GH-871 P4)** is built only when `input.wet === true` AND a
+ * `surface` is given (the puddle rule reads the drawn normal and level, which
+ * a `TerrainInput` alone cannot answer). Otherwise `c` is null and nothing
+ * else about the build differs: the gate is `wet`, never "the map has a `~`".
  */
-export function buildControlMap(input: TerrainInput): ControlMap {
+export function buildControlMap(
+  input: TerrainInput,
+  surface?: TerrainSurface,
+  options: WetBakeOptions = {}
+): ControlMap {
   const N = CONTROL_TEXELS_PER_TILE;
   const width = input.width * N;
   const height = input.height * N;
   const a = new Uint8Array(width * height * 4);
   const b = new Uint8Array(width * height * 4);
   const graph = buildRoadGraph(input);
-  const map: ControlMap = { width, height, a, b };
+  const wet = input.wet === true && surface !== undefined;
+  const openPuddles = options.openPuddles !== false;
+  const macro = wet ? buildMacroField(input.width, input.height) : null;
+  const c = wet ? new Uint8Array(width * height * 4) : null;
+  const map: ControlMap = {
+    width,
+    height,
+    a,
+    b,
+    c,
+    ...(macro !== null ? { wetBake: { macro, openPuddles } } : {}),
+  };
+  const field = wet && macro !== null ? buildWetField(input, graph, macro, openPuddles) : null;
 
   for (let j = 0; j < height; j++) {
-    for (let i = 0; i < width; i++) writeControlTexel(map, input, graph, i, j);
+    for (let i = 0; i < width; i++) {
+      const roadDist = writeControlTexel(map, input, graph, i, j);
+      if (field !== null && surface !== undefined) writeWetTexel(map, input, surface, field, i, j, roadDist);
+    }
   }
 
   return map;
 }
 
+/** What a wet bake takes beyond the input and the surface. */
+export interface WetBakeOptions {
+  /** False drops the open-ground and low-ground puddles (`RenderQuality.rain`,
+   *  R-8); roads and marsh stay. Default true. */
+  readonly openPuddles?: boolean;
+}
+
+/** The inputs control C's texels read besides the input and the surface: the
+ *  macro field, the road graph, the median open level and the tile-kind
+ *  decision. `input` is captured, so build a new one per input. */
+export function buildWetField(
+  input: TerrainInput,
+  graph: RoadGraph,
+  macro: MacroField,
+  openPuddles: boolean
+): WetField {
+  return {
+    macro,
+    graph,
+    refLevel: hazeReferenceLevel(input),
+    kindAt: (tx, tz) => tileSurface(input, tx, tz).kind,
+    openPuddles,
+  };
+}
+
 /** Texel `(i, j)` of both control textures, sampled at its own centre. The
  *  one body `buildControlMap` and `updateControlMapRegion` share, so a
- *  rewritten texel cannot differ from a freshly built one by construction. */
-function writeControlTexel(map: ControlMap, input: TerrainInput, graph: RoadGraph, i: number, j: number): void {
+ *  rewritten texel cannot differ from a freshly built one by construction.
+ *  Returns the texel's road distance (tiles), which control C's road term
+ *  reads too. */
+function writeControlTexel(map: ControlMap, input: TerrainInput, graph: RoadGraph, i: number, j: number): number {
   const N = CONTROL_TEXELS_PER_TILE;
   const { a, b } = map;
   const px = (i + 0.5) / N;
@@ -383,6 +449,30 @@ function writeControlTexel(map: ControlMap, input: TerrainInput, graph: RoadGrap
   b[o + 1] = byteOf(Math.min(1, roadDist / ROAD_DISTANCE_RANGE_TILES));
   b[o + 2] = byteOf(Math.min(1, juncDist / ROAD_DISTANCE_RANGE_TILES));
   b[o + 3] = byteOf(bend);
+  return roadDist;
+}
+
+/** Texel `(i, j)` of control C, sampled at its own centre: R the marsh water,
+ *  G the puddle mask, B and A written 0. */
+function writeWetTexel(
+  map: ControlMap,
+  input: TerrainInput,
+  surface: TerrainSurface,
+  field: WetField,
+  i: number,
+  j: number,
+  roadDist: number
+): void {
+  const c = map.c;
+  if (c === null) return;
+  const N = CONTROL_TEXELS_PER_TILE;
+  const px = (i + 0.5) / N;
+  const pz = (j + 0.5) / N;
+  const o = (j * map.width + i) * 4;
+  c[o] = byteOf(marshTexel(input, px, pz));
+  c[o + 1] = byteOf(puddleTexel(input, surface, field, px, pz, roadDist));
+  c[o + 2] = 0;
+  c[o + 3] = 0;
 }
 
 /**
@@ -409,20 +499,65 @@ export const CONTROL_SPLICE_MARGIN_TEXELS = Math.ceil(
 );
 
 /**
+ * How far, in TEXELS, a changed tile's surface reaches into control C beyond
+ * its own texels -- what `updateControlMapRegion` rewrites around each tile
+ * `changedControlTiles` marks `CHANGED_SURFACE`.
+ *
+ * Derived from `surface.ts`, not measured: the puddle rule reads
+ * `smoothNormal` and `smoothLevel` at the texel, and a Catmull-Rom sample in
+ * tile `T` reads the smoothing field at columns `T - 2 .. T + 2` (the same
+ * stencil `incremental.ts` derives `SPLICE_RADIUS_TILES` = 2 from). So a tile
+ * whose field value changed reaches texels two tiles away: 2 x 8 = 16 texels.
+ * That is far wider than `CONTROL_SPLICE_MARGIN_TEXELS` (4), which is why it
+ * is a second constant rather than a bigger first one: control A and B read
+ * no surface, and raising theirs would loosen a margin
+ * `packages/app/src/terrain-splice.test.ts` pins tight.
+ */
+export const WET_SPLICE_MARGIN_TEXELS = 2 * CONTROL_TEXELS_PER_TILE;
+
+/** `changedControlTiles`'s marks: the tile's `blocked` or `cover` differ. */
+export const CHANGED_TILE = 1;
+/** ...or, on a wet map, the smoothing field or the terrace flag at the tile
+ *  differs (a collapse can re-flow the fill under a neighbouring building). */
+export const CHANGED_SURFACE = 2;
+
+/**
  * Which tiles' control-map inputs differ between `prev` and `input`
  * (`blocked`, `cover`), or `null` when the map cannot be updated in place: a
  * different size or decor array, or a changed tile that is road or ridge
  * (see `CONTROL_SPLICE_MARGIN_TEXELS`).
+ *
+ * On a wet map (`input.wet` and a `surface`), control C also reads the
+ * surface and the map's median open level, so the answer is also `null` when
+ * wetness itself differs from the snapshot or the median moved (every
+ * low-ground texel on the map would change), and a tile whose smoothing field
+ * or terrace flag changed is marked `CHANGED_SURFACE`. A mask of 0 and 1 is
+ * exactly the dry answer.
  */
-export function changedControlTiles(prev: ControlInputs, input: TerrainInput): Uint8Array | null {
+export function changedControlTiles(
+  prev: ControlInputs,
+  input: TerrainInput,
+  surface?: TerrainSurface
+): Uint8Array | null {
   if (prev.width !== input.width || prev.height !== input.height || prev.decor !== input.decor) return null;
+  const wet = input.wet === true && surface !== undefined;
+  if (wet !== prev.wet) return null;
+  if (wet && surface !== undefined) {
+    if (prev.refLevel !== hazeReferenceLevel(input)) return null;
+    if (surface.flat !== (prev.field === null)) return null;
+  }
   const n = input.width * input.height;
   const changed = new Uint8Array(n);
   for (let t = 0; t < n; t++) {
     if (prev.blocked[t] === input.blocked[t] && prev.cover[t] === input.cover[t]) continue;
     const d = input.decor ? input.decor[t] : 0;
     if (d === DECOR_ROAD || d === DECOR_RIDGE) return null;
-    changed[t] = 1;
+    changed[t] = CHANGED_TILE;
+  }
+  if (wet && surface !== undefined && !surface.flat && prev.field !== null && prev.terrace !== null) {
+    for (let t = 0; t < n; t++) {
+      if (prev.field[t] !== surface.field[t] || prev.terrace[t] !== surface.terrace[t]) changed[t] |= CHANGED_SURFACE;
+    }
   }
   return changed;
 }
@@ -433,32 +568,57 @@ export function changedControlTiles(prev: ControlInputs, input: TerrainInput): U
  * `buildControlMap(input)` when the margin covers every texel those tiles
  * reach (`CONTROL_SPLICE_MARGIN_TEXELS`, held by `packages/app/src/terrain-splice.test.ts`).
  * Returns how many texels it rewrote.
+ *
+ * A wet map (`map.c` non-null) also takes `surface` and rewrites control C
+ * over the union of the same region and `WET_SPLICE_MARGIN_TEXELS` around any
+ * tile marked `CHANGED_SURFACE`; a map without C ignores both.
  */
 export function updateControlMapRegion(
   map: ControlMap,
   input: TerrainInput,
   changed: Uint8Array,
-  margin: number = CONTROL_SPLICE_MARGIN_TEXELS
+  margin: number = CONTROL_SPLICE_MARGIN_TEXELS,
+  surface?: TerrainSurface,
+  wetMargin: number = WET_SPLICE_MARGIN_TEXELS
 ): number {
   const N = CONTROL_TEXELS_PER_TILE;
   const { width, height } = map;
+  const wet = map.c !== null && map.wetBake !== undefined && surface !== undefined;
+  // bit 1: rewrite A and B (and C); bit 2: rewrite C alone.
   const mark = new Uint8Array(width * height);
   for (let t = 0; t < changed.length; t++) {
     if (changed[t] === 0) continue;
     const x = t % input.width;
     const y = (t - x) / input.width;
-    const i0 = Math.max(0, x * N - margin);
-    const i1 = Math.min(width, (x + 1) * N + margin);
-    const j0 = Math.max(0, y * N - margin);
-    const j1 = Math.min(height, (y + 1) * N + margin);
-    for (let j = j0; j < j1; j++) mark.fill(1, j * width + i0, j * width + i1);
+    if ((changed[t] & CHANGED_TILE) !== 0) {
+      const i0 = Math.max(0, x * N - margin);
+      const i1 = Math.min(width, (x + 1) * N + margin);
+      const j0 = Math.max(0, y * N - margin);
+      const j1 = Math.min(height, (y + 1) * N + margin);
+      for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) mark[j * width + i] |= 1;
+    }
+    if (wet && (changed[t] & CHANGED_SURFACE) !== 0) {
+      const i0 = Math.max(0, x * N - wetMargin);
+      const i1 = Math.min(width, (x + 1) * N + wetMargin);
+      const j0 = Math.max(0, y * N - wetMargin);
+      const j1 = Math.min(height, (y + 1) * N + wetMargin);
+      for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) mark[j * width + i] |= 2;
+    }
   }
   const graph = buildRoadGraph(input);
+  const field =
+    wet && map.wetBake !== undefined ? buildWetField(input, graph, map.wetBake.macro, map.wetBake.openPuddles) : null;
   let written = 0;
   for (let k = 0; k < mark.length; k++) {
     if (mark[k] === 0) continue;
     const i = k % width;
-    writeControlTexel(map, input, graph, i, (k - i) / width);
+    const j = (k - i) / width;
+    if ((mark[k] & 1) !== 0) {
+      const roadDist = writeControlTexel(map, input, graph, i, j);
+      if (field !== null && surface !== undefined) writeWetTexel(map, input, surface, field, i, j, roadDist);
+    } else if (field !== null && surface !== undefined) {
+      writeWetTexel(map, input, surface, field, i, j, roadDistanceAt(graph, (i + 0.5) / N, (j + 0.5) / N));
+    }
     written++;
   }
   return written;
@@ -478,6 +638,11 @@ export function updateControlMapRegion(
  * NEW array on every call, so a reference compare would never match, and
  * `sim.cover` is the sim's own array, written IN PLACE when a structure dies
  * (the tile becomes rubble), so a reference compare would always match.
+ *
+ * A WET map's control C also reads the surface (GH-871 P4), which a boot's
+ * `setElevation` DOES change, so a wet snapshot also keeps the smoothing field
+ * and terrace flag by content and the median open level; a dry snapshot keeps
+ * `wet: false` and nulls, and compares exactly as before.
  */
 export interface ControlInputs {
   readonly width: number;
@@ -485,16 +650,29 @@ export interface ControlInputs {
   readonly decor: Uint8Array | null;
   readonly blocked: Uint8Array;
   readonly cover: Uint8Array;
+  /** True when the snapshot was of a wet input with a surface (control C). */
+  readonly wet: boolean;
+  /** `surface.field` and `surface.terrace` by content; null when dry or flat. */
+  readonly field: Float32Array | null;
+  readonly terrace: Uint8Array | null;
+  /** `hazeReferenceLevel` of the input when wet, else 0. */
+  readonly refLevel: number;
 }
 
 /** A snapshot of `input`'s control-map inputs -- see `ControlInputs`. */
-export function snapshotControlInputs(input: TerrainInput): ControlInputs {
+export function snapshotControlInputs(input: TerrainInput, surface?: TerrainSurface): ControlInputs {
+  const wet = input.wet === true && surface !== undefined;
+  const surfaced = wet && surface !== undefined && !surface.flat;
   return {
     width: input.width,
     height: input.height,
     decor: input.decor,
     blocked: input.blocked.slice(),
     cover: input.cover.slice(),
+    wet,
+    field: surfaced && surface !== undefined ? surface.field.slice() : null,
+    terrace: surfaced && surface !== undefined ? surface.terrace.slice() : null,
+    refLevel: wet ? hazeReferenceLevel(input) : 0,
   };
 }
 
@@ -505,16 +683,37 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /** True when a control map built from `input` would be byte-identical to the
- *  one `prev` was snapshotted from -- see `ControlInputs`. */
-export function controlInputsMatch(prev: ControlInputs | null, input: TerrainInput): boolean {
+ *  one `prev` was snapshotted from -- see `ControlInputs`. Pass the `surface`
+ *  on a wet map: control C reads it. */
+export function controlInputsMatch(prev: ControlInputs | null, input: TerrainInput, surface?: TerrainSurface): boolean {
+  if (
+    !(
+      prev !== null &&
+      prev.width === input.width &&
+      prev.height === input.height &&
+      prev.decor === input.decor &&
+      bytesEqual(prev.blocked, input.blocked) &&
+      bytesEqual(prev.cover, input.cover)
+    )
+  )
+    return false;
+  const wet = input.wet === true && surface !== undefined;
+  if (wet !== prev.wet) return false;
+  if (!wet || surface === undefined) return true;
+  if (prev.refLevel !== hazeReferenceLevel(input)) return false;
+  if (surface.flat) return prev.field === null;
   return (
-    prev !== null &&
-    prev.width === input.width &&
-    prev.height === input.height &&
-    prev.decor === input.decor &&
-    bytesEqual(prev.blocked, input.blocked) &&
-    bytesEqual(prev.cover, input.cover)
+    prev.field !== null &&
+    prev.terrace !== null &&
+    floatsEqual(prev.field, surface.field) &&
+    bytesEqual(prev.terrace, surface.terrace)
   );
+}
+
+function floatsEqual(a: Float32Array, b: Float32Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 /**

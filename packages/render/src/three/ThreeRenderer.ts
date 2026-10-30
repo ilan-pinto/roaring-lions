@@ -12670,7 +12670,8 @@ export class ThreeRenderer implements Renderer {
       this.opts.terrainTones,
       this.opts.resolveColor,
       this.opts.background,
-      this.drawnCrown()
+      this.drawnCrown(),
+      this.opts.weather === 'rain'
     );
     const composed = build.composed;
     this.terrainState = build.state;
@@ -13329,7 +13330,9 @@ export function composeTerrainFrom(
   /** Crown summits (`terrain/crown.ts`): the tiles drawn as a smooth dome
    *  rather than a terrace, or null for none. `elevation` must already carry
    *  their lift. */
-  crown: Uint8Array | null = null
+  crown: Uint8Array | null = null,
+  /** `opts.weather === 'rain'`: control C is baked (GH-871 P4). */
+  wet: boolean = false
 ): ComposedTerrainBuild {
   const input: TerrainInput = {
     width: sim.width,
@@ -13356,6 +13359,8 @@ export function composeTerrainFrom(
     // GH-871: the wetland's remap and waterside tree. Read by the decor pass (T6b/T6c).
     familyRemap: tones.familyRemap,
     waterside: tones.waterside,
+    // GH-871 P4: set under rain only, so a dry input has no `wet` key at all.
+    ...(wet ? { wet: true as const } : {}),
   };
   // One surface for both builders and for the diff -- each used to build its
   // own from the same `input`.

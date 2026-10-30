@@ -118,5 +118,12 @@ export interface TerrainInput {
    * by `composeTerrain` (GH-871). Absent means none. The decor pass reads
    * it.
    */
-  waterside?: TerrainTones['waterside'];
+  waterside?: TerrainTones['waterside'];  /**
+   * True when the ground is drawn under rain (GH-871 P4): `ThreeRenderer`
+   * sets it from `opts.weather === 'rain'` and from nothing else, so no
+   * shipped map carries the key at all. `buildControlMap` allocates control C
+   * (the marsh water and puddle masks) only when it is true. Absent means dry;
+   * `false` is never written, so a dry input is byte-for-byte what it was.
+   */
+  wet?: true;
 }
