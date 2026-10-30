@@ -355,18 +355,25 @@ export function worldSpecs(): WorldSpec[] {
   out.push({ id: 'golden orders (900)', plan: goldenPlan(900), build: goldenOrders });
   out.push({ id: 'golden wounded (600)', plan: goldenPlan(600), build: goldenWounded });
   out.push({
-    id: 'golden formations (600)',
-    // Cuts mid-march (97), before the ring arrives (150), mid-dress (170: a Column member waiting, the dress clock
-    // running), while the ring arms (200, 300, 350), with the group found by fire and marked (445: `fgPending` set, the
-    // one column whose life crosses a tick boundary) and after it has sprung (450: the side-1 Column is in contact,
-    // state 3, its quiet clock restarting at every exchange). The horizon is 150 so the last cut still ends inside the
-    // 600 ticks (GH-859 P1b Task 3 moved the spring from 404 to 445).
-    plan: { Ts: [0, 97, 150, 170, 200, 300, 350, 445, 450], horizon: 150, tailFrom: 100, end: 600 },
+    id: 'golden formations (1100)',
+    // Cuts mid-march and mid-dress (110: a Column member waiting, the dress clock running, the pace capped), before the ring
+    // arrives (150), while the ring arms (200, 300, 350), mid-rescue (250: the Column's medic OUT) and coming home from it
+    // (380), with the group found by fire and marked (445: `fgPending` set, the one column whose life crosses a tick
+    // boundary), after it has sprung (450: the side-1 Column is in contact, state 3, its quiet clock restarting at every
+    // exchange), mid-sortie (700: the Attack's helicopter and drone OUT) and mid-return (930: both RETURN). The horizon is
+    // 150 so the last cut ends inside the 1100 ticks (GH-859 P1b Task 3 moved the spring from 404 to 445; Task 5 lengthened
+    // the world from 600 to 1000 ticks for the return at 910, and the run to 1100 for the last cut).
+    plan: { Ts: [0, 110, 150, 200, 250, 300, 350, 380, 445, 450, 700, 930], horizon: 150, tailFrom: 100, end: 1100 },
     build: goldenFormations,
-    exercised: (a) =>
-      (internals(a.sim) as unknown as { fmLive: boolean }).fmLive
-        ? null
-        : 'the formation world stopped ordering formations: fmLive is still false at its end',
+    exercised: (a) => {
+      const it = internals(a.sim) as unknown as { fmLive: boolean; fgState: Uint8Array; fmHomeX: Int32Array };
+      if (!it.fmLive) return 'the formation world stopped ordering formations: fmLive is still false at its end';
+      if (!it.fgState.some((st) => st === 3)) return 'the formation world stopped making contact: no group ends in state 3 (contact)';
+      // `fmHome` is written when a member goes out on a call and cleared only when it leaves its group, so it outlives the sortie
+      // and the rescue: the aircraft and the medic have all come home by the end of the run.
+      if (!it.fmHomeX.some((x) => x !== 0)) return 'the formation world stopped calling: no member was ever out on a sortie or a rescue (every fmHome is empty)';
+      return null;
+    },
   });
   out.push({ id: `golden economy (${ECONOMY_TICKS})`, plan: goldenPlan(ECONOMY_TICKS), build: goldenEconomy });
   return out;
@@ -625,7 +632,7 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
   // deletes its own line (the census fails an exemption whose row moved: "delete this exemption").
   // (fgQuiet fgCallX fgCallY left this list in Task 4: a group in contact counts the quiet clock and records its call point.)
   // (fmDuty left this list in Task 3: a member waiting at a checkpoint is duty WAIT, so the march moves it.)
-  ...rows('fmHomeX fmHomeY fgAway fgCalled', 'GH-859 P1b: moved by the formation world from Task 5; delete then. Covered by the formation world once Task 5 lands'),
+  // (fmHomeX fmHomeY fgAway fgCalled left it in Task 5: the Column's medic answers a man down, the Attack's aircraft sortie.)
   // ---- the runtime's top-level `state` rows (snapshot S2 Task 5), named `runtime.<row>` ----
   // The matrix's runtime worlds are versus ECONOMY rooms (no authored objectives, triggers, waves, groups, ROE zones,
   // civilians, field works or ledger) and the golden economy replay (a bare mission with an income zone and a convoy).

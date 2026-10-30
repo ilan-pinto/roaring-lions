@@ -428,16 +428,30 @@ interface FormationWorld extends World {
   readonly ids: ReturnType<typeof formationSetup>['ids'];
 }
 const FORMATION: Golden = {
-  name: 'the formation world (600 ticks)',
-  ticks: 600,
+  name: 'the formation world (1000 ticks)',
+  ticks: 1000,
   build: () => formationSetup(FM_SEED),
   drive: (w, t) => formationDrive(w.sim, t, (w as FormationWorld).ids),
   poisonAt: [150, 350, 460],
   poisonsPool: false,
 };
 
+/** `UnitType.woundedTypeIdx` is a lazy cache the sim writes on a `unitTypes` config object at the first man to fall (GH-859 P1b Task 5
+ *  gives this world wound content): A has it filled where a man has fallen, a fresh B has -1, which `configDiff` reads as a
+ *  config row that differs. B asks the sim's own resolver for the types A has resolved (tools/src/net/snapshot-witness.ts,
+ *  `resolveLazyConfig`, does the same for the matrix); the continued hash proves the index is the same. */
+function resolveLazyConfig(b: World, a: World): void {
+  const ta = internals(a.sim).unitTypes as { woundedTypeIdx: number }[];
+  const tb = internals(b.sim).unitTypes as { woundedTypeIdx: number }[];
+  const resolve = (internals(b.sim) as unknown as { woundedTypeOf: (t: unknown) => number }).woundedTypeOf.bind(b.sim);
+  ta.forEach((t, i) => {
+    if (t.woundedTypeIdx >= 0 && tb[i].woundedTypeIdx < 0) resolve(tb[i]);
+  });
+}
+const forkFm = (T: number, extra: { poison?: boolean; mutate?: (b: World, a: World) => void } = {}): ForkVerdict<World> => fork(FORMATION, T, { afterRestore: resolveLazyConfig, ...extra });
+
 describe('fork witness: the formation world, mid-march, mid-dress, before the ring arrives, after it arrives, after it springs, in contact', () => {
-  it('scouting: the ring arms at tick 344 and is found at 445 (marks set); 100 is mid-pace, 170 mid-dress, 560 in contact', () => {
+  it('scouting: the ring arms at tick 344 and is found at 445 (marks set); 100 is mid-pace, 110 mid-dress, 560 in contact', () => {
     const w = FORMATION.build() as FormationWorld;
     const it = internals(w.sim);
     const column = (w.ids.col as number[]).slice(0, 5);
@@ -446,6 +460,13 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     let sprung = -1;
     let pendingAtCut: number[] = [];
     let contactAtCut: number[] = [];
+    // GH-859 P1b Task 5: the calls. Ids: the Column's medic is col[6], the Attack's helicopter and drone are 20 and 21.
+    const medic = (w.ids.col as number[])[6];
+    const air = [20, 21];
+    let medicOut: number[] = [];
+    let medicHome: number[] = [];
+    let sortieAtCut: number[] = [];
+    let returnAtCut: number[] = [];
     let paceAtCut: number[] = [];
     let dressAtCut: number[] = [];
     for (let t = 0; t < FORMATION.ticks; t++) {
@@ -462,41 +483,60 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
         const st = it.fgState as Uint8Array;
         contactAtCut = [st[1], st[16], (it.fgQuiet as Uint16Array)[1], (it.fgCallX as Int32Array)[1]];
       }
+      // Mid-rescue (250): the Column's medic is OUT, treating the man who went down at 180; mid-return (380): he is coming home.
+      if (w.sim.tickCount === 250) medicOut = [(it.fmDuty as Uint8Array)[medic], (it.fgAway as Uint16Array)[0], (it.fmHomeX as Int32Array)[medic], (it.fmHomeY as Int32Array)[medic]];
+      if (w.sim.tickCount === 380) medicHome = [(it.fmDuty as Uint8Array)[medic], (it.fgAway as Uint16Array)[0]];
+      // Mid-sortie (700): the Attack's helicopter and drone are OUT, the call latched, home recorded; mid-return (930): both
+      // are RETURN, the call over, still counted away, the quiet clock past its 200.
+      if (w.sim.tickCount === 700) sortieAtCut = [...air.map((i) => (it.fmDuty as Uint8Array)[i]), (it.fgAway as Uint16Array)[1], (it.fgCalled as Uint8Array)[1], (it.fmHomeX as Int32Array)[20]];
+      if (w.sim.tickCount === 930) returnAtCut = [...air.map((i) => (it.fmDuty as Uint8Array)[i]), (it.fgAway as Uint16Array)[1], (it.fgCalled as Uint8Array)[1], (it.fgQuiet as Uint16Array)[1]];
       // Mid-pace: the Column walks capped (fgPace 2293), every member still on its way to checkpoint 1.
       if (w.sim.tickCount === 100) paceAtCut = [(it.fgPace as Int32Array)[0], (it.fgLegs as Uint8Array)[0], ...column.map((i) => (it.moving as Uint8Array)[i])];
       // Mid-dress: one member waiting (duty 1) with the dress clock running; the mortar still on its way.
-      if (w.sim.tickCount === 170) {
-        dressAtCut = [(it.fgAtCp as Uint16Array)[0], (it.fgDress as Uint16Array)[0], column.filter((i) => (it.fmDuty as Uint8Array)[i] === 1).length];
+      if (w.sim.tickCount === 110) {
+        dressAtCut = [(it.fgAtCp as Uint16Array)[0], (it.fgDress as Uint16Array)[0], (w.ids.col as number[]).filter((i) => (it.fmDuty as Uint8Array)[i] === 1).length];
       }
     }
     expect([firstArmed, allArmed, sprung]).toEqual([196, 344, 445]);
     // G-6 re-derivation (P1b Task 4): the ring's mark (row 2) was 1 and reads 3 (drill and call bit, 1 + 2); the side-1
     // Column (row 16) that fired first on it is marked 3 too (a halt drill) and was not marked before.
     expect(pendingAtCut, 'T = 445 cuts while two groups are marked and not yet consumed: the ring (row 2) and the side-1 Column (row 16), each drill + call').toEqual([3, 3]);
-    expect(contactAtCut, 'T = 560 cuts in contact: the Attack and the Column in state 3, quiet 18, the Attack\'s call point (38.5, 16.5) recorded').toEqual([3, 3, 18, 2523136]);
+    // G-6 re-derivation (P1b Task 5): [3, 3, 18, 2523136]. The Attack's strike helicopter now reports the contact (tick 510, at
+    // (40.5, 16.5)), and it is still being fired on at 560, so the quiet clock reads 1 and the call point x is 2654208.
+    expect(contactAtCut, 'T = 560 cuts in contact: the Attack and the Column in state 3, the Attack\'s quiet clock at 1, its call point x 40.5').toEqual([3, 3, 1, 2654208]);
     expect(paceAtCut, 'T = 100 cuts mid-march: capped at 2293 raw, two checkpoints, all five moving').toEqual([2293, 2, 1, 1, 1, 1, 1]);
-    expect(dressAtCut, 'T = 170 cuts mid-dress: one waiting, dressing for 27 ticks').toEqual([1, 27, 1]);
+    // G-6 re-derivation (P1b Task 5): the cut was 170 with [1, 27, 1]. The Column has a medic and an ambulance now, the ambulance
+    // (a fast vehicle) reaches checkpoint 1 first at tick 58, and the dress is released by the clock at 117; 170 is past it.
+    expect(dressAtCut, 'T = 110 cuts mid-dress: one waiting, dressing for 52 ticks').toEqual([1, 52, 1]);
+    expect(medicOut, 'T = 250 cuts mid-rescue: the medic OUT, one away, its home the checkpoint (8.5, 36.5) it was walking to').toEqual([2, 1, 557056, 2392064]);
+    expect(medicHome, 'T = 380 cuts the medic coming home: RETURN, still counted away').toEqual([3, 1]);
+    expect(sortieAtCut, 'T = 700 cuts mid-sortie: both OUT, two away, the call latched, the helicopter home at x 40.5').toEqual([2, 2, 2, 1, 2654208]);
+    expect(returnAtCut, 'T = 930 cuts mid-return: both RETURN, two away, the call over, the quiet clock at 219').toEqual([3, 3, 2, 0, 219]);
   });
 
   for (const [label, T] of [
     ['mid-pace, the Column capped at the mortar\'s step', 100],
     ['mid-approach', 150],
-    ['mid-dress, a member waiting and the dress clock running', 170],
+    ['mid-dress, a member waiting and the dress clock running', 110],
     ['after arrival, before the spring', 350],
     ['found, marks set and not yet consumed (fgPending 3 and 3)', 445],
     ['after the spring', 460],
     ['in contact, the Attack pressing and the Column halted (state 3, the quiet clock running)', 560],
+    ['mid-rescue, the Column\'s medic OUT with his home recorded (duty 2)', 250],
+    ['the medic coming home (duty 3)', 380],
+    ['mid-sortie, the Attack\'s helicopter and drone OUT (duty 2, the call latched)', 700],
+    ['mid-return, both RETURN (duty 3, the call over)', 930],
   ] as const) {
     it(`${label} (T = ${T}): every hash tick of the next 200 agrees, and so do the bytes`, () => {
-      expectClean(fork(FORMATION, T), `${FORMATION.name} T=${T}`);
-      expectClean(fork(FORMATION, T, { poison: true }), `${FORMATION.name} poisoned T=${T}`);
+      expectClean(forkFm(T), `${FORMATION.name} T=${T}`);
+      expectClean(forkFm(T, { poison: true }), `${FORMATION.name} poisoned T=${T}`);
     }, 60_000);
   }
 
   it('every T = 0, 50, ... 400', () => {
     let forks = 0;
     for (let T = 0; T <= 400; T += 50) {
-      expectClean(fork(FORMATION, T), `${FORMATION.name} T=${T}`);
+      expectClean(forkFm(T), `${FORMATION.name} T=${T}`);
       forks++;
     }
     expect(forks).toBe(9);
@@ -504,7 +544,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
 
   // Self-checks: the witness must go red when a formation column is lost across the restore.
   it('a member lost from its group after the restore turns the fork red (T = 350)', () => {
-    const v = fork(FORMATION, 350, {
+    const v = forkFm(350, {
       mutate: (b) => {
         const ring = (b as FormationWorld).ids.amb[0];
         (internals(b.sim).fmGroup as Int16Array)[ring] = -1;
@@ -515,7 +555,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
   });
 
   it('the one-tick mark lost after the restore turns the fork red (T = 445, fgPending set)', () => {
-    const v = fork(FORMATION, 445, {
+    const v = forkFm(445, {
       mutate: (b) => {
         (internals(b.sim).fgPending as Uint8Array).fill(0);
       },
@@ -528,15 +568,24 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     ['the pace cap', 100, 'fgPace', 0],
     ['the checkpoint count', 100, 'fgLegs', 0],
     ['a member\'s leg', 100, 'fmLeg', 0],
-    ['the dress clock', 170, 'fgDress', 0],
-    ['the waiting count', 170, 'fgAtCp', 0],
-    ['a member\'s waiting duty', 170, 'fmDuty', 0],
+    ['the dress clock', 110, 'fgDress', 0],
+    ['the waiting count', 110, 'fgAtCp', 0],
+    ['a member\'s waiting duty', 110, 'fmDuty', 0],
     // P1b Task 4: the contact columns, at the in-contact cut.
     ['the quiet clock', 560, 'fgQuiet', 0],
     ['the call point', 560, 'fgCallX', 0],
+    // P1b Task 5: the calls.
+    ['a member\'s duty on a rescue', 250, 'fmDuty', 0],
+    ['the medic\'s home', 250, 'fmHomeX', 0],
+    ['the count away on a rescue', 250, 'fgAway', 0],
+    ['a member\'s duty on a sortie', 700, 'fmDuty', 0],
+    ['the aircraft\'s home', 700, 'fmHomeY', 0],
+    ['the count away on a sortie', 700, 'fgAway', 0],
+    ['the call latch', 700, 'fgCalled', 0],
+    ['a member\'s duty coming home', 930, 'fmDuty', 0],
   ] as const) {
     it(`${label} lost after the restore turns the fork red (T = ${T}, ${column} zeroed)`, () => {
-      const v = fork(FORMATION, T, {
+      const v = forkFm(T, {
         mutate: (b) => {
           const col = internals(b.sim)[column] as Uint8Array | Uint16Array | Int32Array;
           expect(col.some((x) => x !== 0), `${column} is non-zero at T = ${T}`).toBe(true);
@@ -548,7 +597,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
   }
 
   it('the Attack not in contact in B turns the fork red (T = 560, state 3 reset to 1)', () => {
-    const v = fork(FORMATION, 560, {
+    const v = forkFm(560, {
       mutate: (b) => {
         const st = internals(b.sim).fgState as Uint8Array;
         expect(st[1], 'the Attack is in contact at the cut').toBe(3);
@@ -559,7 +608,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
   });
 
   it('the group sprung early in B turns the fork red (T = 350)', () => {
-    const v = fork(FORMATION, 350, {
+    const v = forkFm(350, {
       mutate: (b) => {
         (internals(b.sim).fgState as Uint8Array)[2] = 4;
       },
