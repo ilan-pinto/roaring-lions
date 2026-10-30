@@ -24,6 +24,7 @@ import {
   dropSeed,
   footprintBox,
   latticePeriod,
+  mapEdgeFade,
   posMod,
   rainColour,
   rainReach,
@@ -437,5 +438,32 @@ describe('toHalfFloat rounds to nearest (the R16F texel)', () => {
     expect(back(2 ** -24)).toBe(2 ** -24);
     expect(toHalfFloat(2 ** -26)).toBe(0);
     expect(back(0.0001)).toBeCloseTo(0.0001, 7);
+  });
+});
+
+describe('the map-edge fade (GH-871 P4 T12 fix): rain stops at the edge of the world', () => {
+  it('is 1 inside, 0 on the edge and beyond, a smoothstep over the half tile between (literals)', () => {
+    expect(mapEdgeFade(24, 24, 48, 48)).toBe(1);
+    expect(mapEdgeFade(0.5, 24, 48, 48)).toBe(1);
+    expect(mapEdgeFade(0, 24, 48, 48)).toBe(0);
+    expect(mapEdgeFade(48, 24, 48, 48)).toBe(0);
+    expect(mapEdgeFade(24, 0, 48, 48)).toBe(0);
+    expect(mapEdgeFade(24, 48, 48, 48)).toBe(0);
+    expect(mapEdgeFade(-3, 24, 48, 48)).toBe(0);
+    expect(mapEdgeFade(24, 51, 48, 48)).toBe(0);
+    // 0.25 tile in: t = 0.5, smoothstep = 0.5. 0.125 in: t = 0.25 -> 0.15625. 0.375 in: 0.84375.
+    expect(mapEdgeFade(0.25, 24, 48, 48)).toBeCloseTo(0.5, 12);
+    expect(mapEdgeFade(0.125, 24, 48, 48)).toBeCloseTo(0.15625, 12);
+    expect(mapEdgeFade(47.625, 24, 48, 48)).toBeCloseTo(0.84375, 12);
+  });
+
+  it('reads the NEAREST edge, on both axes, and a non-square map keeps W and H straight', () => {
+    expect(mapEdgeFade(24, 0.25, 48, 48)).toBeCloseTo(0.5, 12);
+    expect(mapEdgeFade(47.75, 24, 48, 48)).toBeCloseTo(0.5, 12);
+    expect(mapEdgeFade(24, 47.75, 48, 48)).toBeCloseTo(0.5, 12);
+    // 64 wide, 32 tall: x = 40 is deep inside, z = 31.75 is 0.25 from the far z edge.
+    expect(mapEdgeFade(40, 31.75, 64, 32)).toBeCloseTo(0.5, 12);
+    expect(mapEdgeFade(40, 20, 64, 32)).toBe(1);
+    expect(mapEdgeFade(63.75, 16, 64, 32)).toBeCloseTo(0.5, 12);
   });
 });

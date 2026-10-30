@@ -58,6 +58,7 @@ import {
   heightTexels,
   rainWindow,
   posMod,
+  RAIN_EDGE_FADE,
   RAIN_SLANT_COS,
   RAIN_SLANT_SIN,
   RAIN_SLANT_TAN,
@@ -102,6 +103,7 @@ const float RAIN_SPLASH_R0 = ${glslFloat(RAIN_SPLASH_R0)};
 const float RAIN_SPLASH_R1 = ${glslFloat(RAIN_SPLASH_R1)};
 const float RAIN_SPLASH_LIFT = ${glslFloat(RAIN_SPLASH_LIFT)};
 const float RAIN_SPLASH_QUAD = ${glslFloat(RAIN_SPLASH_QUAD)};
+const float RAIN_EDGE_FADE = ${glslFloat(RAIN_EDGE_FADE)};
 void main() {
   // The landing point: world-anchored modulo the period, inside the window at uLow.
   vec2 land = vec2(
@@ -113,6 +115,15 @@ void main() {
   float phase = mod(aSeed.y * RAIN_H + uFall, RAIN_H);
   vKind = position.z;
   vUv = position.xy;
+  // The map edge: a drop whose LANDING point is off the map [0, W] x [0, H] is removed, and one
+  // within RAIN_EDGE_FADE tiles inside the edge thins out (the splash follows its drop).
+  float edge = min(min(land.x, uMapSize.x - land.x), min(land.y, uMapSize.y - land.y));
+  float edgeFade = smoothstep(0.0, RAIN_EDGE_FADE, edge);
+  if (edgeFade <= 0.0) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    vColor = vec4(0.0);
+    return;
+  }
   if (position.z < 0.5) {
     float h = RAIN_H - phase;
     vec3 head = vec3(land.x - RAIN_TAN * h * RAIN_WIND.x, ground + h, land.y - RAIN_TAN * h * RAIN_WIND.y);
@@ -122,7 +133,7 @@ void main() {
     vec3 fwd = -vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
     vec3 side = normalize(cross(dirMove, fwd));
     vec3 p = mix(head, tail, position.y) + side * (position.x * uStreakHalfWidth);
-    vColor = vec4(uStreakColor, RAIN_STREAK_A);
+    vColor = vec4(uStreakColor, RAIN_STREAK_A * edgeFade);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   } else {
     float ageMs = phase / RAIN_V * 1000.0;
@@ -134,7 +145,7 @@ void main() {
     float life = ageMs / RAIN_SPLASH_MS;
     float r = RAIN_SPLASH_R0 + (RAIN_SPLASH_R1 - RAIN_SPLASH_R0) * clamp(life, 0.0, 1.0);
     vec3 p = vec3(land.x, ground + RAIN_SPLASH_LIFT, land.y) + vec3(position.x, 0.0, position.y) * (r * RAIN_SPLASH_QUAD);
-    vColor = vec4(uSplashColor, RAIN_SPLASH_A * (1.0 - life));
+    vColor = vec4(uSplashColor, RAIN_SPLASH_A * (1.0 - life) * edgeFade);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
 }

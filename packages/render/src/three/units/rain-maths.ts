@@ -63,6 +63,23 @@ export const RAIN_PX_PER_WORLD_UNIT = (TILE_W * Math.SQRT2) / 2;
  *  fade the ground ends in. A box is clipped to the map plus this. */
 export const RAIN_MAP_MARGIN = 8;
 
+/** The soft fade over which rain thins to nothing at the map's edge, tiles: a drop landing this
+ *  far INSIDE the edge or more is whole, one landing on the edge or beyond it is gone. */
+export const RAIN_EDGE_FADE = 0.5;
+
+/**
+ * The map-edge fade of a drop, `0..1`, from its LANDING point (so a splash and the streak that
+ * made it agree): `smoothstep(0, RAIN_EDGE_FADE, d)` with `d` the signed distance, in tiles, from
+ * the landing point to the nearest edge of the map rectangle `[0, W] x [0, H]` (positive inside).
+ * Rain stops at the edge of the world the sim has, and does not pop. The GLSL in `rain-batch.ts`
+ * is a copy; both read `RAIN_EDGE_FADE`.
+ */
+export function mapEdgeFade(landX: number, landZ: number, mapW: number, mapH: number): number {
+  const d = Math.min(Math.min(landX, mapW - landX), Math.min(landZ, mapH - landZ));
+  const t = clamp01(d / RAIN_EDGE_FADE);
+  return t * t * (3 - 2 * t);
+}
+
 /** The camera, as the rain reads it: the focus in tiles, the zoom, and the CSS viewport. */
 export interface RainView {
   readonly x: number;

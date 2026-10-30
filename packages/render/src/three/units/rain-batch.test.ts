@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FakeWebGL2RenderingContext, fakeCanvas, makeFakeGl } from '../fake-gl';
 import { isAoOccluder } from '../post-chain';
 import { RAIN_FRAGMENT_SHADER, RAIN_SPLASH_QUAD, RAIN_VERTEX_SHADER, RainBatch, glslFloat } from './rain-batch';
-import { heightTexels, streakWidthWorld } from './rain-maths';
+import { dropLanding, heightTexels, mapEdgeFade, streakWidthWorld } from './rain-maths';
 import { RAIN_RENDER_ORDER } from './render-order';
 
 type Pass = 'main' | 'shadow' | 'ao';
@@ -342,6 +342,46 @@ describe('the GLSL carries the maths` constants (G-6)', () => {
     expect(RAIN_VERTEX_SHADER).toContain('texture2D(uHeight');
     // It reads no clock of its own: the only time is the CPU-built fall offset.
     expect(RAIN_VERTEX_SHADER).not.toMatch(/uTime|uNow/);
+  });
+});
+
+describe('the map edge (GH-871 P4 T12 fix)', () => {
+  it('the shader culls a drop that lands off the map and fades one landing near the edge', () => {
+    // The mirror's constant, as a fixed-point literal, and the shape of the cull.
+    expect(RAIN_VERTEX_SHADER).toContain('const float RAIN_EDGE_FADE = 0.50000000;');
+    expect(RAIN_VERTEX_SHADER).toContain('float edge = min(min(land.x, uMapSize.x - land.x), min(land.y, uMapSize.y - land.y));');
+    expect(RAIN_VERTEX_SHADER).toContain('float edgeFade = smoothstep(0.0, RAIN_EDGE_FADE, edge);');
+    expect(RAIN_VERTEX_SHADER).toContain('if (edgeFade <= 0.0) {');
+    // The cull comes BEFORE the streak/splash split, so a splash follows its drop's landing point.
+    expect(RAIN_VERTEX_SHADER.indexOf('if (edgeFade <= 0.0)')).toBeLessThan(RAIN_VERTEX_SHADER.indexOf('if (position.z < 0.5)'));
+    // Both alphas carry the fade.
+    expect(RAIN_VERTEX_SHADER).toContain('RAIN_STREAK_A * edgeFade');
+    expect(RAIN_VERTEX_SHADER).toContain('* edgeFade);');
+  });
+
+  it('a 48x48 map at focus (44,44), zoom 1.6: some drops are culled and some are whole (not vacuous)', () => {
+    const h = harness();
+    const batch = new RainBatch(h.scene, { drops: 6000, mapWidth: 48, mapHeight: 48 });
+    batch.update({ simSec: 0, view: { x: 44, y: 44, zoom: 1.6, width: 1400, height: 900 }, dpr: 1 });
+    const u = batch.mesh.material.uniforms;
+    const lo = u.uLow.value as THREE.Vector2;
+    const seeds = batch.mesh.geometry.getAttribute('aSeed');
+    let gone = 0;
+    let whole = 0;
+    let partial = 0;
+    for (let i = 0; i < seeds.count; i++) {
+      const land = dropLanding([seeds.getX(i), seeds.getY(i), seeds.getZ(i)], { x: lo.x, z: lo.y }, u.uPeriod.value as number);
+      const f = mapEdgeFade(land.x, land.z, 48, 48);
+      if (f === 0) gone++;
+      else if (f === 1) whole++;
+      else partial++;
+    }
+    expect(gone).toBeGreaterThan(0);
+    expect(whole).toBeGreaterThan(0);
+    expect(partial).toBeGreaterThan(0);
+    expect(gone + whole + partial).toBe(6000);
+    // The window at this edge reaches past the map: a real share of the drops is off it.
+    expect(gone).toBeGreaterThan(600);
   });
 });
 
