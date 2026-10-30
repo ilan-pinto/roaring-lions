@@ -63,10 +63,12 @@ const REPO_ROOT = path.resolve(__dirname, '../../..');
 const TAG = 'inf-kit-capture';
 const PORT_ENV = 'INF_KIT_CAPTURE_PORT';
 const DEFAULT_PORT = 5233;
-const UNIT = 'inf_squad';
+let UNIT = 'inf_squad'; // `--unit=<team>`; the merge numbers per team are in `inf-kit-capture-check.ts` `TEAM_CHECKS`
 const MAP_ID = 'beit_sahwan_outskirts';
 
-import { STATES, differingPixels, mergeFailures, type Reading, type State } from './inf-kit-capture-check';
+import { TEAM_CHECKS, differingPixels, mergeFailures, type Reading, type State } from './inf-kit-capture-check';
+
+let STATES: readonly State[] = TEAM_CHECKS.inf_squad.states;
 
 const FACINGS = [
   { id: 'rear', label: 'flank and rear to the camera', offsetTurns: 0 },
@@ -120,7 +122,7 @@ interface TemplateObject {
 
 function usage(msg: string): never {
   console.error(`[${TAG}] ${msg}`);
-  console.error(`[${TAG}] usage: pnpm inf-kit:capture -- [--garage] --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]`);
+  console.error(`[${TAG}] usage: pnpm inf-kit:capture -- [--garage] [--unit=<team>] --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]`);
   process.exit(2);
 }
 
@@ -131,6 +133,12 @@ function parseArgs(argv: readonly string[]): { out: string; gpu: ReturnType<type
     if (a === '--') continue;
     if (a === '--garage') garage = true;
     else if (a.startsWith('--out=')) out = path.resolve(a.slice('--out='.length));
+    else if (a.startsWith('--unit=')) {
+      const id = a.slice('--unit='.length);
+      if (!(id in TEAM_CHECKS)) usage(`--unit=${id}: no merge numbers for it (teams: ${Object.keys(TEAM_CHECKS).join(', ')})`);
+      UNIT = id;
+      STATES = TEAM_CHECKS[id].states;
+    }
     else if (a.startsWith('--port=') || a.startsWith('--gpu=')) {
       // Parsed (and refused when malformed) by `claimPort` / `resolveGpuBackend`.
     } else usage(`unknown argument "${a}"`);
@@ -601,7 +609,7 @@ try {
     await browser.close();
   }
 
-  failures.push(...mergeFailures(results));
+  failures.push(...mergeFailures(results, STATES, TEAM_CHECKS[UNIT].baseTris, UNIT));
 
   const browser2 = await chromium.launch({ headless: true });
   try {
@@ -612,7 +620,7 @@ try {
       await composeSheet(
         browser2,
         path.join(args.out, `zoom${zKey}${suffix}.png`),
-        `inf_squad in game, zoom ${zKey}${scale > 1 ? `, ${scale}x nearest` : ''} -- tier 0, every tier of every track alone, and the full kit`,
+        `${UNIT} in game, zoom ${zKey}${scale > 1 ? `, ${scale}x nearest` : ''} -- tier 0, every tier of every track alone, and the full kit`,
         `pnpm inf-kit:capture at ${commit}; ${MAP_ID} sandbox without &amp;kit, account-seeded tiers through upgradePrepass; the shipped switch (INFANTRY_KIT_ENABLED) forced on in this browser only, nothing committed; ` +
           `rows: ${FACINGS.map((f) => f.label).join(' / ')}; tick ${CAPTURE_TICK}, frame loop frozen, zero-time repaint; ` +
           `fog, overlays and wind hidden; ${BOX[zKey].w}x${BOX[zKey].h} CSS px at DPR 1; GPU ${gpuName.replace(/[<>&]/g, '')}.`,

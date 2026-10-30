@@ -37,6 +37,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from dimetric import palette_linear  # noqa: E402
 import inf_kit_stage as st  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "units"))
+import inf_kit_parts as kp  # noqa: E402
 
 FOV_DEG = 30.0
 ELEVATION_DEG = 12.0
@@ -156,6 +158,15 @@ def eval_points(arm, objs, owners_fn):
     return np.concatenate(P), np.concatenate(O)
 
 
+def _fig_of(name, figs):
+    """The figure a bone or kit object name belongs to: the LONGEST prefix `fig_` it starts with (`demo_a_spine`
+    -> `demo_a`; a team's free-standing `prop` bone belongs to none, so the first figure takes it)."""
+    for pf in sorted(figs, key=len, reverse=True):
+        if name == pf or name.startswith(pf + "_"):
+            return figs.index(pf)
+    return 0
+
+
 def base_owner_fn(arm, figs):
     cache = {}
 
@@ -166,14 +177,14 @@ def base_owner_fn(arm, figs):
         own = np.zeros(n, dtype=int)
         for i, v in enumerate(ob.data.vertices):
             g = max(v.groups, key=lambda g: g.weight)
-            own[i] = figs.index(names[g.group][:2]) if names[g.group][:2] in figs else 0
+            own[i] = _fig_of(names[g.group], figs)
         cache[ob.name] = own
         return own
     return fn
 
 
 def kit_owner_fn(figs):
-    return lambda ob, n: np.full(n, figs.index(ob.name[:2]))
+    return lambda ob, n: np.full(n, _fig_of(ob.name, figs))
 
 
 def place_figures(arm, figs, spacing, heading_deg):
@@ -201,7 +212,7 @@ class Garage:
         self.arm, self.figs, self.w, self.h = arm, figs, width, height
         self.pose_fn = pose_fn
         self.aspect = width / height
-        base = [meshes[n] for n in ("uniform", "boot", "face", "weapon")]
+        base = [meshes[n] for n in kp.TEAM.prims if n not in kp.TEAM.stage_hide]
         show_fn({t: 3 for t in ("armour", "sensors", "firepower")})
         pose_fn()
         kit = [ob for ob, _, _, _ in kit_rows if not ob.hide_render]
