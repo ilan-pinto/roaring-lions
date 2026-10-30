@@ -24,7 +24,6 @@ const TUTORIAL = 'beit_sahwan_0_tutorial';
 // a slowest win past its margin, or a star or credit outcome that drops). Each is listed with why, and
 // `LEFT_OUT` is the one place to delete a name when its plan is re-solved and the medic goes in.
 const LEFT_OUT: Readonly<Record<string, string>> = {
-  wadi_halam_1_fords: 'plan wins 29/30 with the medic (misses seed 25)',
   khan_rafid_1_recon: 'plan wins 29/30 with the medic (misses seed 8)',
   khan_rafid_2_foothold: 'plan loses at 424242, 2 stars to 0, and wins 29/30',
   tel_marum_2_foothold: 'plan wins 29/30 with the medic (misses seed 22)',
@@ -44,12 +43,13 @@ const campaign = ids.filter((id) => id !== TUTORIAL);
 const fielded = campaign.filter((id) => LEFT_OUT[id] === undefined);
 
 describe('the medic team in every campaign mission', () => {
-  it('covers all 26 campaign missions: 19 field the team, 7 are listed as measured and left out', () => {
+  it('covers all 26 campaign missions: 20 field the team, 6 are listed as measured and left out', () => {
     expect(ids).toHaveLength(27);
     expect(campaign).toHaveLength(26);
     expect(ids).toContain(TUTORIAL);
     expect(Object.keys(LEFT_OUT).every((id) => campaign.includes(id))).toBe(true);
-    expect(fielded).toHaveLength(19);
+    expect(fielded).toHaveLength(20);
+    expect(Object.keys(LEFT_OUT)).toHaveLength(6);
   });
 
   for (const id of fielded) {
