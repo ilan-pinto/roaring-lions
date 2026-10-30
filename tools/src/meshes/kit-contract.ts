@@ -120,6 +120,7 @@ export const INFANTRY_KIT_PART_TRIS: Readonly<Record<string, number>> = {
   nvg_mount: 40,
   radio_pack: 84,
   radio_panel: 48,
+  prism_sight: 72,
   radio_pouch: 46,
   red_dot: 44,
   shield_light: 28,

@@ -75,9 +75,9 @@ export const BREACH_STATES: readonly State[] = [
   { id: 'S2', label: 'sensors 2', tiers: { sensors: 2 }, kitTris: 500 },
   { id: 'S3', label: 'sensors 3', tiers: { sensors: 3 }, kitTris: 660 },
   { id: 'F1', label: 'firepower 1', tiers: { firepower: 1 }, kitTris: 380 },
-  { id: 'F2', label: 'firepower 2', tiers: { firepower: 2 }, kitTris: 632 },
-  { id: 'F3', label: 'firepower 3', tiers: { firepower: 3 }, kitTris: 800 },
-  { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 2092 },
+  { id: 'F2', label: 'firepower 2', tiers: { firepower: 2 }, kitTris: 592 },
+  { id: 'F3', label: 'firepower 3', tiers: { firepower: 3 }, kitTris: 760 },
+  { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 2052 },
 ];
 
 /** Per team: the states and the encoded tier-0 triangle count the merge is held against. */

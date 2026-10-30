@@ -70,8 +70,8 @@ describe('inf-kit capture merge check: breach_team', () => {
   const KIT_B: Record<string, [Record<string, number>, number]> = {
     A1: [{ armour: 1 }, 536], A2: [{ armour: 2 }, 588], A3: [{ armour: 3 }, 632],
     S1: [{ sensors: 1 }, 248], S2: [{ sensors: 2 }, 500], S3: [{ sensors: 3 }, 660],
-    F1: [{ firepower: 1 }, 380], F2: [{ firepower: 2 }, 632], F3: [{ firepower: 3 }, 800],
-    full: [{ armour: 3, sensors: 3, firepower: 3 }, 2092],
+    F1: [{ firepower: 1 }, 380], F2: [{ firepower: 2 }, 592], F3: [{ firepower: 3 }, 760],
+    full: [{ armour: 3, sensors: 3, firepower: 3 }, 2052],
   };
   const BASE: Record<string, Reading> = {
     T0: { tiers: {}, loaded: true, tris: 7910, kitTris: 0, meshes: 6, calls: 58 },
@@ -89,8 +89,8 @@ describe('inf-kit capture merge check: breach_team', () => {
   });
   it('fails on the Demolition squad\'s numbers, a lost tier, a kit mesh or a draw call', () => {
     expect(mergeFailures(new Map(Object.entries(BASE)), DEMO_STATES, DEMO_ENCODED_BASE_TRIS)[0]).toBeDefined();
-    expect(readB((m) => { m.F2.kitTris = 0; m.F2.tris = 7910; })[0]).toMatch(/F2: 0 kit triangles merged, expected 632/);
-    expect(readB((m) => { m.full.tris = 7910 + 2092 + 1; })[0]).toMatch(/full: 10003 triangles/);
+    expect(readB((m) => { m.F2.kitTris = 0; m.F2.tris = 7910; })[0]).toMatch(/F2: 0 kit triangles merged, expected 592/);
+    expect(readB((m) => { m.full.tris = 7910 + 2052 + 1; })[0]).toMatch(/full: 9963 triangles/);
     expect(readB((m) => { m.S3.meshes = 7; })).toEqual([expect.stringMatching(/S3: 7 meshes/)]);
     expect(readB((m) => { m.A1.calls = 59; })).toEqual([expect.stringMatching(/A1: 59 draw calls/)]);
     expect(readB((m) => { m.T0.loaded = false; })[0]).toMatch(/T0: no breach_team template loaded/);

@@ -174,6 +174,8 @@ class Team:
     belt_ring_cap: bool = False  # the belt wrap's sampled radii are capped by the ring its front and back walls imply (spine-bound hands and gun stand out at the hip)
     laser_front: float = None    # the laser box's front face, metres behind the muzzle (None: the Rifle Squad's -0.115)
     lpvo_rear: float = None      # the LPVO eyepiece's rear, metres behind the muzzle (None: the Rifle Squad's -0.49)
+    laser_dims: tuple = None     # (length, width, height) of the laser box when the team's is not the PEQ-15 class 0.109 x 0.069 x 0.038
+    laser_side: str = "top"      # where the laser sits on the handguard: "top", "L" (9 o'clock) or "R" (3 o'clock)
     foregrip_back: float = 0.17  # the vertical grip's station, metres behind the muzzle
     extra: tuple = ()            # parts only this team has (breach: the light on the shield)
     notes: str = ""
@@ -221,21 +223,27 @@ TEAMS["breach_team"] = Team(
         "olive_dark": (337, 990),      # olive.3  #333821  51, 57, 34
         "glass": (1228, 873),          # shadow.0 #23241F  35, 36, 31
     },
-    drop=("deltoid", "sleeve"),
     prims=("uniform", "boot", "face", "weapon", "metal"),
     bank_prims=("uniform", "weapon", "metal"),
     clips=("idle", "move", "fire", "moveFire", "pinned"),
     bank_clips=("idle", "move", "fire", "moveFire", "pinned"),
     weapon_bone="spine",
-    # brc_cover's pinned clip lays the carbine into his right thigh and shin (the base art interpenetrates there from 0.08 to 0.35 m behind
-    # the muzzle), so a rigid top-rail part anywhere in that run clashes: the laser sits at the front of the handguard, the LPVO at the
-    # stock end, the grip 0.21 behind the muzzle. Each position was found by testing it against every living clip's blockers (see the R1 notes).
-    laser_front=-0.03, lpvo_rear=-0.55, foregrip_back=0.21,
+    # GEAR ON THE REAL STATIONS OF THE CARBINE (the lead, 30 Oct, on R2: the first build put the laser 0.03 m behind the muzzle, the
+    # optic at the stock end and the grip at 0.21 m, to clear brc_cover's pinned clip, which lays the carbine into his right thigh and
+    # shin from 0.08 to 0.35 m behind the muzzle; "never gear in an unreal place"). Now: a compact laser (0.075 x 0.032 x 0.032) on the
+    # LEFT side rail of the handguard with its front face 0.12 m behind the muzzle, the light stays at 3 o'clock; the vertical grip
+    # under the front of the handguard at 0.13 m; the T2 optic is a 4x PRISM sight (ACOG class, 0.145 m) on the upper receiver instead of
+    # the 0.265 m LPVO, whose length cannot sit over the receiver without the thigh in it. Each was tested against every living clip.
+    drop=("deltoid", "sleeve", "lpvo"),
+    laser_front=-0.12, laser_dims=(0.075, 0.032, 0.032), laser_side="L", foregrip_back=0.13,
     carrier_back_plate=True, pack_box=True, pack_median=True, helmet_front_trim=60.0, yoke_rmax=0.15, yoke_slack=0.0, yoke_cols=6,
     torso_vest_lum=0.15, torso_ring_cap=True, belt_ring_cap=True, belt_rmax=0.23, belly_cos=0.25, carrier_fill=1.45, helmet_cols=8, helmet_dome=True, bank_stride=2, clear_pouches=True,
     extra=(Part("shield_light", "firepower", 2, None, ("brc_point",), "shield", "uniform", "olive_dark", 28,
                 "shield-mounted weapon light, class approximation, about 0.15 x dia 0.04",
-                "0.15 x dia 0.04 lathe on the shield's upper right edge, lens glass"),),
+                "0.15 x dia 0.04 lathe on the shield's upper right edge, lens glass"),
+           Part("prism_sight", "firepower", 2, "optic", ("brc_point", "brc_cover"), "weapon", "weapon", "coyote", 72,
+                "4x prism sight, ACOG class, about 0.145 x 0.045 x 0.058 on a 0.07 mount",
+                "0.145 long, rear eyepiece dia 0.032 to a front objective dia 0.052, on a rail mount; seated on the upper receiver, rear at 0.48 behind the muzzle"),),
 )
 
 TEAM = TEAMS["inf_squad"]

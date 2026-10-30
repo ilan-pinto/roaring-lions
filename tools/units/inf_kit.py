@@ -933,13 +933,30 @@ def build_lpvo(f, side=None):
 
 def build_laser_box(f, side=None):
     uf = LASER_FRONT if kp.TEAM.laser_front is None else kp.TEAM.laser_front         # the front face, behind the muzzle
-    top = _rail_top(f, uf - 0.109, uf)
+    L, Wd, Hh = kp.TEAM.laser_dims or (0.109, 0.069, 0.038)
+    where = kp.TEAM.laser_side
     pc = Piece(f.wpn())
-    c = (uf - 0.0545, 0.0, top + 0.019)
-    geo.rbox(pc, c, Matrix.Identity(3), (0.109, 0.069, 0.038), 0.005, "coyote")
-    for sg in (-1.0, 1.0):
-        pc.face([(uf + 0.0005, sg * 0.022 - 0.008, top + 0.019 - 0.008), (uf + 0.0005, sg * 0.022 + 0.008, top + 0.019 - 0.008),
-                 (uf + 0.0005, sg * 0.022 + 0.008, top + 0.019 + 0.008), (uf + 0.0005, sg * 0.022 - 0.008, top + 0.019 + 0.008)], "glass")
+    if where == "top":
+        top = _rail_top(f, uf - L, uf)
+        c = (uf - L / 2, 0.0, top + Hh / 2)
+        size = (L, Wd, Hh)
+    else:
+        # on the handguard's side rail: 9 o'clock (`L`, the gun's left, +w) or 3 o'clock (`R`), standing off the rail's face by half its width
+        top, bot, wlo, whi = f.station(-(uf - L / 2))
+        sgn = 1.0 if where == "L" else -1.0
+        edge = whi if where == "L" else wlo
+        c = (uf - L / 2, edge + sgn * Wd / 2, 0.5 * (top + bot) + 0.004)
+        size = (L, Wd, Hh)
+    geo.rbox(pc, c, Matrix.Identity(3), size, 0.004 if where != "top" else 0.005, "coyote")
+    # the aperture faces on the front: a visible window and an IR window, in glass
+    if where == "top":
+        for sg in (-1.0, 1.0):
+            pc.face([(uf + 0.0005, sg * 0.022 - 0.008, top + 0.019 - 0.008), (uf + 0.0005, sg * 0.022 + 0.008, top + 0.019 - 0.008),
+                     (uf + 0.0005, sg * 0.022 + 0.008, top + 0.019 + 0.008), (uf + 0.0005, sg * 0.022 - 0.008, top + 0.019 + 0.008)], "glass")
+    else:
+        for dz in (-0.008, 0.008):
+            pc.face([(uf + 0.0005, c[1] - 0.007, c[2] + dz - 0.0045), (uf + 0.0005, c[1] + 0.007, c[2] + dz - 0.0045),
+                     (uf + 0.0005, c[1] + 0.007, c[2] + dz + 0.0045), (uf + 0.0005, c[1] - 0.007, c[2] + dz + 0.0045)], "glass")
     return pc
 
 
@@ -959,6 +976,23 @@ def build_suppressor(f, side=None):
     return pc
 
 
+PRISM_REAR = -0.48     # a 4x prism sight's rear, metres behind the muzzle: over the upper receiver (the stock begins behind it)
+
+
+def build_prism_sight(f, side=None):
+    """An ACOG-class 4x prism sight, 0.145 m long: a tapered body (rear eyepiece dia 0.032, front objective dia 0.052) on a rail mount,
+    seated on the upper receiver. Lower and shorter than the 0.265 m LPVO, so it sits over the receiver and clear of the thigh in
+    the pinned clip (the lead, 30 Oct: real stations, never an unreal one)."""
+    u0 = PRISM_REAR
+    top = _rail_top(f, u0 + 0.03, u0 + 0.12)
+    ax = top + 0.040
+    pc = Piece(f.wpn())
+    geo.lathe(pc, (u0, 0.0, ax), (1, 0, 0), (0, 0, 1),
+              [(0.0, 0.016), (0.03, 0.020), (0.115, 0.020), (0.145, 0.026)], 8, "coyote", cap0="glass", cap1="glass")
+    geo.rbox(pc, (u0 + 0.075, 0.0, top + 0.5 * (ax - 0.016 - top) + 0.003), Matrix.Identity(3), (0.07, 0.030, max(0.012, ax - 0.016 - top) + 0.006), 0.0, "coyote")
+    return pc
+
+
 def build_shield_light(f, side=None):
     """A weapon light clamped on the top edge of the ballistic shield, at its right-hand end (the shooter's right is +y),
     pointing forward: 0.15 x dia 0.040 (a handheld-light class body), eight sides, the lens a glass face. Its axis sits 4 mm
@@ -975,6 +1009,7 @@ def build_shield_light(f, side=None):
 
 BUILDERS = {
     "shield_light": build_shield_light,
+    "prism_sight": build_prism_sight,
     "carrier": build_carrier,
     "helmet_cover": build_helmet_cover,
     "deltoid": build_deltoid,

@@ -51,7 +51,7 @@ const TEAMS: Readonly<
   breach_team: { figures: ['brc_point', 'brc_cover'], hosts: ['uniform', 'weapon'], leader: 'brc_cover', preKitEncodedBytes: 708_272, gunBone: 'spine', noShoulderArmour: true },
 };
 /** The parts that mount on the gun: they ride whatever bone the team's carbine is bound to. */
-const GUN_PARTS = ['red_dot', 'foregrip', 'lpvo', 'laser_box', 'weapon_light', 'suppressor'];
+const GUN_PARTS = ['red_dot', 'foregrip', 'lpvo', 'prism_sight', 'laser_box', 'weapon_light', 'suppressor'];
 const GROWTH_BUDGET_BYTES = 64 * 1024;
 
 type Packed = InfantryKitTag & { name: string; tris: number };
@@ -206,6 +206,13 @@ if (team === 'breach_team') {
       const light = all.filter((p) => p.part === 'shield_light');
       expect(light.map((p) => [p.figure, p.bone, p.track, p.tier])).toEqual([['brc_point', 'shield', 'firepower', 2]]);
       expect(light[0].tris).toBeLessThanOrEqual(Math.floor(28 * 1.1));
+    });
+
+    it('wears a 4x prism sight as its tier-2 optic, not the 0.265 m LPVO (the lead, 30 Oct: real stations on the carbine)', async () => {
+      const doc = await plain.readBinary(readFileSync(ART));
+      const all = [...kitParts(doc).values()].flat();
+      expect([...new Set(all.filter((p) => p.slot === 'optic').map((p) => `${p.part}:${p.tier}`))].sort()).toEqual(['prism_sight:2', 'red_dot:1']);
+      expect(all.some((p) => p.part === 'lpvo')).toBe(false);
     });
   });
 }
