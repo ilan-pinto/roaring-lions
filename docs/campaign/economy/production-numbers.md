@@ -90,6 +90,7 @@ In a 7-minute (420 s) mission that is the column "max per line in 420 s" (an upp
 | `inf_squad` | KDF | 15 | 292 | 28 |
 | `at_team` | KDF | 18 | 236 | 23 |
 | `mortar_team` | KDF | 18 | 209 | 23 |
+| `inf_medic_squad` | KDF | 18 | 295 | 23 |
 | `breach_team` | KDF | 20 | 306 | 21 |
 | `demo_squad` | KDF | 20 | 300 | 21 |
 | `sniper_team` | KDF | 20 | 260 | 21 |
@@ -148,3 +149,37 @@ The 10% is the rule's floor with a rate of 0, not waiting: a 640 purse buys 340 
 D7 (no enemy camp in a shipped mission) is the open design call for the campaign: the probe shows one camp on Tel Marum III
 costs a plan one seed of thirty. Whether a shipped mission should author one is the lead's, with `data/missions` held for
 the lead's own edit.
+
+## 6. The Nemala medic team at a versus camp (GH-707, the lead's ruling of 30 Oct 2026)
+
+`inf_medic_squad` is on the KDF doctrine's menu (`data/doctrines/kdf.json`, last) and buildable at a KDF camp's line in a
+versus economy room. A room prices a unit from its own JSON, so the numbers are the unit's: **295 logistics, 18 s, population 1**.
+Sarim has no rescue unit. The ambulance and the medevac stay out of every room.
+
+**Why 295 and 18 s, on the same basis as the other infantry.**
+- *The cost curve* (`special-units-design.md` §3, `validate_balance.py`): the fitted curve prices a unit of its power (0.9) at
+  271, so 295 is +8.8%, inside the +/-18% band (222 to 320). It is the same curve every priced unit sits on.
+- *Neighbours.* `inf_squad` 292 / 15 s, `at_team` 236 / 18 s, `yahalom_squad` 260 / 20 s, `mortar_team` 209 / 18 s. The medic
+  is a two-man team on the infantry build band (15-20 s), and its 295 / 18 s is 16.4 logistics per second of line against
+  `at_team` 13.1 and `inf_squad` 19.5. Twenty-three fit one line in 420 s, as for `at_team` and `mortar_team`.
+- *Price is not the lever on the fairness gate.* At the band floor (223) the Wadi Tarfan Sarim-friendly economy cell still read
+  60.4% (see the PR's table): no price inside the curve band changes the verdict.
+
+**The drop-off.** A rescued man needs somewhere to go. A room has no field works (`construct` is dropped in every versus room)
+and no `wounded_evac` marker, so the camp is the drop-off: in a versus economy room the camp type takes its `versus_aid` block
+(`data/structures.json`; admit 1.5 tiles, treat 20 s, dispatch 12 tiles) as its `aid` block (`standMapStructures`), and a NEUTRAL
+camp that produces for a side is that side's aid post (`Sim.aidSideOf`). It is not owned, so it is no target and adds no
+field-works fold. A man carried to his own camp is admitted, treated (half time if stabilised) and rejoins his squad "weaker each
+time", exactly as at a field aid post. A mission's camp is registered without the block: no campaign camp admits anybody.
+
+**Orders.** `rescue` only targets the seat's own side's wounded in a versus room (`validateCommand`, both machines), and the
+click does not offer an enemy's (`simIntentWorld`). A rescue unit does not keep a side alive (`armedStanding`) and is not
+counted as fieldable armed production (`productionFor`): a side with only medic teams left has lost.
+
+**What the probe can say** (`pnpm versus:probe -- --economy --rescue-buy=<after|before|save|opening|off>`). The plan does not buy a
+rescue unit as a combat unit. By the lead's rule (`after`) it buys one only when a man is down and the purse still covers it after
+its combat purchases; the opening purse (1500) is spent at tick 0 and income is ~0.3 logistics a second, so it never does
+(0.0 medic teams per game over 96 seeds, every cell byte-identical to the baseline). That reading cannot fail on any property of the
+unit, so the PR also prints `opening`, which buys one with the starting purse. The probe's two blobs fight in the open, a man
+down is almost always within sight of an enemy, and `rescueRound` will not send a medic into fire: a medic team delivered 1.0 a
+game and got 0.0 to 0.1 men back into a squad.
