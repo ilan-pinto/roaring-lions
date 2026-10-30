@@ -282,47 +282,26 @@ def _share_scale(radius, dist, soft, share):
     return (lo + hi) / 2
 
 
-def author_open(n, mud_share=0.10, soft=0.08, macro=0.5, drift=0.04, mud_pull=0.75, grid=13):
-    """Spring sward over yellow-umber alluvial mud, v3 (the lead's second 30 Oct ruling: calmer still).
+def author_open(n, mud_share=0.0, soft=0.08, regions=1.0, straw=1.0, grid=13, mud_pull=0.75, lift=0.05, sink=0.02, cool=0.08):
+    """Spring sward, v4 (the lead's third 30 Oct ruling: "don't like those brown dots").
 
-    v3 over v2: 10% mud (v2 20%), a softer 0.045 edge, the mud pulled `mud_pull` of the way toward
-    the sward (v2 was full contrast), a MACRO mud-density modulation (`macro`: a 5-cell fBm added to
-    the patch field, so patches gather in some stretches of the 18 m image and vanish in others,
-    which breaks the even lattice a uniform field makes) and a gentle low-frequency drift in the
-    sward's own lightness (`drift`, about +-4%, 6 cells), which also keeps the visible contrast over the
-    0.05 floor now that the mud is a hint. All of it is inside the tile's own periodic image.
-
-    v2 notes follow.
-
-
-    v1 (commit 5671bef0a) was 9 m, 40% mud in patches 1.5 m across with hard edges, and its
-    repeat showed in plan view. v2 is 18 m (the repeat is twice as long), about 20% mud, in
-    patches of 0.5-1 m with a soft 8-10 cm edge, with the sward's light and dark and the mud's
-    darkness pulled toward the mean. The mean ratio form (`1 + gain * (texel / mean - 1)`)
-    does the rest: the lower the spread, the nearer every texel sits to the theme tone
-    `fen.0`, which is 15.8 CIEDE2000 from KDF `olive.1`, above the 12 the rule asks."""
+    There is NO mud in the shipped tile (`mud_share` 0). Its variation lives in the sward itself:
+      * GRASS REGIONS: lighter, yellower stretches and darker, cooler-green ones, three scales of fBm
+        (15, 31 and 63 cells over 18 m, so 1.2, 0.6 and 0.3 m: nothing larger, so no cloud is a landmark), a lighter tail (+5% per unit of the region field) and a shorter darker one (-2% per unit): the 5% figure-ground rule is what limits how dark the dark regions may go. Lighter
+        reads yellow-green and darker reads blue-green ON PURPOSE: a dark yellow-green is the KDF
+        uniform's olive, so the darker regions lean away from olive in hue as they go down in value.
+      * blade grain (3-4 cm), per-texel speckle, and the mid / tip / understorey ramp of v2;
+      * a hint of straw-tone grass: short strokes and a few tufts in a yellow-green of the grass's own
+        hue family (not mud brown), `straw` scaling their count.
+    v1 (5671bef0a: 9 m, 40% mud, hard edges), v2 (18 m, 20% mud, soft) and v3 (10% scattered mud
+    flecks) are in git history. `mud_share` > 0 still builds v3's mud (a small soft fleck scatter) so
+    the spec's falsifier input (60% mud, soft edge) stays constructible for the figure-ground test.
+    The mean ratio form (`1 + gain * (texel / mean - 1)`) puts every texel near the theme tone
+    `fen.0`, 15.8 CIEDE2000 from KDF `olive.1`, above the 12 the rule asks."""
     mpp = TILES["wetland_open_tile"]["metres"] / n  # metres per master px
     px_per_cm = 0.01 / mpp
 
-    # Patches. v1 and v2 thresholded a noise field, and a few big blobs became landmarks that the
-    # eye lines up across the repeat (a faint lattice). v3 sprinkles `grid` x `grid` jittered seeds
-    # (a Poisson-like scatter, 1.4 m apart over 18 m, wrapping), and each lights a SMALL soft patch
-    # of its own radius (0.2-0.45 m, a quarter of the seeds none): no patch is bigger than the rest,
-    # so none is a landmark. `macro` modulates the radii by a 3-cell fBm of the tile's own image
-    # (about +-35%), so the density drifts across the 18 m instead of sitting even. `mud_share` scales
-    # the radii to the share asked for (measured, not assumed).
-    f1, _f2, ids = periodic_voronoi(n, grid, 161, jitter=0.9)
-    cell_m = TILES["wetland_open_tile"]["metres"] / grid
-    dist_m = f1 * cell_m
-    h = hash_u32(ids.astype(np.uint32), np.uint32(7), 163).astype(np.float32) / np.float32(4294967296.0)
-    h2 = hash_u32(ids.astype(np.uint32), np.uint32(9), 167).astype(np.float32) / np.float32(4294967296.0)
-    radius = (0.20 + 0.25 * h2) * np.where(h < 0.25, 0.0, 1.0)
-    radius = radius * (1.0 + macro * 0.9 * fbm(n, 3, 125, 2))
-    ragged = 0.30 * fbm(n, 40, 169, 3)  # the edge wanders by up to ~10 cm, so no patch is a circle
-    unit = _share_scale(radius, dist_m + ragged, soft, mud_share)
-    mud_w = 1.0 - smoothstep(radius * unit - soft, radius * unit + soft, dist_m + ragged)
-
-    # Sward: understorey, mid blades, light tips. A narrow spread (v1: 40..142 in green).
+    # Sward: understorey, mid blades, light tips.
     under = np.array([62.0, 100.0, 44.0])
     mid = np.array([88.0, 128.0, 52.0])
     tip = np.array([112.0, 154.0, 66.0])
@@ -334,41 +313,48 @@ def author_open(n, mud_share=0.10, soft=0.08, macro=0.5, drift=0.04, mud_pull=0.
     sp = hash_u32(ii[:, None], ii[None, :], 131).astype(np.float32) / np.float32(4294967296.0)
     sward = sward * (0.94 + 0.12 * sp[..., None])
 
-    # Mud: yellow umber, mottled, one darker wet tone, close to the sward's lightness.
-    mud0 = np.array([118.0, 96.0, 68.0])
-    wet = np.array([96.0, 78.0, 56.0])
-    mott = 0.5 + 0.5 * fbm(n, 22, 137, 3)
-    grain = 0.5 + 0.5 * fbm(n, int(18 / 0.03), 139, 2)
-    mud = mud0 * (0.92 + 0.14 * mott[..., None]) * (0.96 + 0.08 * grain[..., None])
-    wetmask = smoothstep(0.60, 0.78, 0.5 + 0.5 * fbm(n, 12, 141, 3))
-    mud = mud + (wet - mud) * (wetmask * 0.6)[..., None]
-    mud = mud * (0.97 + 0.06 * sp[..., None])
+    # Grass regions: lighter and yellower, darker and cooler.
+    reg = 0.5 * fbm(n, 15, 173, 3) + 0.3 * fbm(n, 31, 177, 3) + 0.2 * fbm(n, 63, 179, 2)
+    reg = reg / float(reg.std())  # unit spread, tails to about +-2.5
+    reg = np.clip(reg, -2.6, 2.6) * regions
+    up_, dn_ = np.clip(reg, 0, None), np.clip(reg, None, 0)
+    lum = 1.0 + lift * up_ + sink * dn_  # a lighter tail longer than the darker one
+    sward = sward * lum[..., None]
+    sward[..., 0] *= 1.0 + 0.030 * reg  # lighter: redder (yellow-green)
+    sward[..., 2] *= 1.0 - cool * reg  # darker: bluer (cool green), away from olive
 
-    # v3: the mud sits only part of the way from the sward to full umber, and the sward drifts
-    mud = sward + (mud - sward) * mud_pull
-    drift_f = 1.0 + drift * fbm(n, 6, 151, 3)
-    sward = sward * drift_f[..., None]
-    img = (sward * (1.0 - mud_w[..., None]) + mud * mud_w[..., None]).astype(np.float32)
+    img = sward.astype(np.float32)
+    mud_w = np.zeros((n, n), np.float32)
+    if mud_share > 0.0:  # v3's mud, kept only for the falsifier
+        f1, _f2, ids = periodic_voronoi(n, grid, 161, jitter=0.9)
+        cell_m = TILES["wetland_open_tile"]["metres"] / grid
+        dist_m = f1 * cell_m
+        h = hash_u32(ids.astype(np.uint32), np.uint32(7), 163).astype(np.float32) / np.float32(4294967296.0)
+        h2 = hash_u32(ids.astype(np.uint32), np.uint32(9), 167).astype(np.float32) / np.float32(4294967296.0)
+        radius = (0.20 + 0.25 * h2) * np.where(h < 0.25, 0.0, 1.0)
+        ragged = 0.30 * fbm(n, 40, 169, 3)
+        unit = _share_scale(radius, dist_m + ragged, soft, mud_share)
+        mud_w = 1.0 - smoothstep(radius * unit - soft, radius * unit + soft, dist_m + ragged)
+        mud0 = np.array([118.0, 96.0, 68.0])
+        mud = img + (mud0[None, None, :] - img) * mud_pull
+        img = img * (1.0 - mud_w[..., None]) + mud * mud_w[..., None]
 
-    # Straw thatch: short pale strokes on the sward, few and low in contrast.
+    # Straw-tone grass: short strokes, and a few small tufts of them, in a yellow-green of the
+    # grass's own hue family (R 142, G 150, B 66 reads as dry grass, not as earth).
     rng = Rng(143)
-    cnt = int(0.07 * (0.8 * 324.0) / (0.10 * 0.012))
+    cnt = max(1, int(straw * 0.05 * (324.0) / (0.10 * 0.012)))
     x0, y0 = rng.u(cnt) * n, rng.u(cnt) * n
-    on = mud_w[(y0.astype(int) % n), (x0.astype(int) % n)] < 0.2
-    x0, y0 = x0[on], y0[on]
-    m = len(x0)
-    ang = rng.u(cnt)[:m] * math.pi
-    ln = (0.05 + 0.08 * rng.u(cnt)[:m]) / mpp
-    straw = np.array([150.0, 134.0, 86.0])[None, :] * (0.88 + 0.24 * rng.u(cnt)[:m, None])
-    strokes(img, x0, y0, ang, ln, 1.3 * px_per_cm, straw)
-
-    # Sparse basalt grit, mostly on the mud.
-    for radius_cm in (1.0, 1.6, 2.4):
-        cnt = int(1.5 * 324)
-        gx, gy = rng.u(cnt) * n, rng.u(cnt) * n
-        g = np.array([74.0, 74.0, 78.0])[None, :] * (0.85 + 0.35 * rng.u(cnt)[:, None])
-        splat(img, gx, gy, g, radius_cm * px_per_cm)
-        splat(img, gx - 0.4 * radius_cm * px_per_cm, gy - 0.4 * radius_cm * px_per_cm, np.minimum(g * 1.3, 255), 0.45 * radius_cm * px_per_cm)
+    ang = rng.u(cnt) * math.pi
+    ln = (0.04 + 0.07 * rng.u(cnt)) / mpp
+    col = np.array([140.0, 150.0, 68.0])[None, :] * (0.90 + 0.20 * rng.u(cnt)[:, None])
+    strokes(img, x0, y0, ang, ln, 1.2 * px_per_cm, col)
+    tufts = max(1, int(straw * 90))
+    tx, ty = rng.u(tufts) * n, rng.u(tufts) * n
+    for k in range(5):  # five strokes fanned from each tuft's foot
+        a2 = (0.25 + 0.12 * k) * math.pi + rng.u(tufts) * 0.2
+        l2 = (0.10 + 0.08 * rng.u(tufts)) / mpp
+        c2 = np.array([150.0, 156.0, 72.0])[None, :] * (0.92 + 0.16 * rng.u(tufts)[:, None])
+        strokes(img, tx, ty, a2, l2, 1.0 * px_per_cm, c2)
     return img
 
 

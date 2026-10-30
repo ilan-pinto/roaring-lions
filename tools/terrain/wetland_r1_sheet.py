@@ -503,6 +503,7 @@ def main():
     ap.add_argument("--census-after", default=None)
     ap.add_argument("--old-numbers", default=None)
     ap.add_argument("--r1c", action="store_true")
+    ap.add_argument("--r1d", action="store_true")
     ap.add_argument("--raw", required=True)
     ap.add_argument("--tiles", required=True)
     ap.add_argument("--out", required=True)
@@ -545,15 +546,21 @@ def main():
             f"Kneeling figure, head and shoulders visible (36 dry marsh points): BEFORE median {fc_o['head_median']*100:.0f}% min {fc_o['head_min']*100:.0f}%   AFTER median {fc_n['head_median']*100:.0f}% min {fc_n['head_min']*100:.0f}%, {fc_n['head_ge50']}/{fc_n['n']} points keep at least half",
         ]
         titles = None
-        if args.r1c:
+        if args.r1c or args.r1d:
             extra = []
             rn = numbers["tiles"]["wetland_open_tile"]
             ro = json.load(open(os.path.join(args.compare_old_tiles, "report.json")))["wetland_open_tile"]
             extra = [
-                f"Open tile  R1b -> R1c:  contrast {ro['contrast']:.3f} -> {rn['contrast']:.3f} (floor 0.05)   figure-ground {ro['figure_ground']['open']['share_within_12']*100:.1f}% -> {rn['figure_ground']['open']['share_within_12']*100:.1f}% (limit 5%)   mean {ro['mean']} -> {rn['mean']}",
+                f"Open tile  {'R1c -> R1d' if args.r1d else 'R1b -> R1c'}:  contrast {ro['contrast']:.3f} -> {rn['contrast']:.3f} (floor 0.05)   figure-ground {ro['figure_ground']['open']['share_within_12']*100:.1f}% -> {rn['figure_ground']['open']['share_within_12']*100:.1f}% (limit 5%)   mean {ro['mean']} -> {rn['mean']}",
                 f"Reeds as they were (3 clumps a tile): game-camera share {sh_n['game_z1_m1']['share']*100:.0f}% of the marsh ({sh_n['game_z1_m1']['share_of_dry']*100:.0f}% of the dry part); kneeling head+shoulders median {fc_n['head_median']*100:.0f}% min {fc_n['head_min']*100:.0f}%",
             ]
             titles = dict(
+                head="R1d: no mud in the open tile (R1c | R1d), and the R3 scene (R1c | R1d). Reeds unchanged. Rain light, ACES, game camera.",
+                old="R1c: 18 m tile, 10% mud as small irregular flecks (0.2-0.45 m), no landmark, mud 25% nearer the sward",
+                new="R1d: 18 m tile, no mud at all. Variation is in the grass: lighter / darker regions, blade grain, a hint of yellow-green straw",
+                old_m=18, new_m=18,
+                scene="R3 scene at zoom 1 (native 720x410, shown x2). R1c (left) | R1d (right). Same reeds, same placer.",
+            ) if args.r1d else dict(
                 head="R1c: the open-ground tile calmed again (R1b | R1c) and the R3 scene (R1b | R1c). Reeds unchanged. Rain light, ACES, game camera.",
                 old="R1b: 18 m tile, 20% mud in 0.5-1 m patches (a noise field thresholded), soft edge",
                 new="R1c: 18 m tile, 10% mud as small irregular flecks (0.2-0.45 m), no landmark, mud 25% nearer the sward",

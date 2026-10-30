@@ -85,6 +85,18 @@ def test_open_tile_keeps_its_contrast_floor_and_the_floor_bites():
     assert A.visible_contrast(u8, dict(spec, gain=0.4)) < A.MIN_VISIBLE_CONTRAST
 
 
+def test_open_tile_has_no_brown_in_it():
+    # the lead, 30 Oct: "don't like those brown dots". A texel is brown when its green does not
+    # exceed its red; no texel of the sward does, the straw-tone grass (G/R about 1.07) included.
+    def brown_share(u8):
+        f = u8.astype(np.float64)
+        return float(np.mean(f[..., 1] <= f[..., 0]))
+
+    assert brown_share(A.to_u8(A.author_open(1024))) == 0.0
+    # falsifier: the same tile with 10% mud puts several percent of its texels over the line
+    assert brown_share(A.to_u8(A.author_open(1024, mud_share=0.10, mud_pull=1.0))) > 0.02
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
