@@ -2059,8 +2059,17 @@ const ledUZ1 = run(
     // (10.0 from the window, 8.9 from `uz_eye_east`, 8.1 from the missile team) and the
     // way back runs down to y=44.5 rather than past the shed to (30,42). Measured over
     // 30 seeds: the missile team is identified at ~74 s on every seed.
-    at(70, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(32, 30.5) }));
-    at(76, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(31, 44.5) }));
+    // GH-707 (30 Oct): the look is now a stand-off at (36,33), 11.8 tiles from the missile team, at 60 s, and the way
+    // back starts at 68 s (was (32,30.5) at 70 s, back at 76 s). With the medic team in the force every later id moved
+    // by one and the missile team's stream was re-rolled: on the pinned seed the drone at (32,30.5) was shot 0.8 s after
+    // it arrived (74.8 s), which cost a body (credit 240 -> 238 with the medic's own 10 counted) and sent the ground force
+    // walking at 80 s, past the knoll shed (the AT team brought it down: 'Shanty destroyed', ROE 100 -> 98). From the
+    // stand-off the drone comes home on the pinned seed (credit 248, 3 stars, ROE 98 as before) and the ground force
+    // finishes the missile team. It is an island, not a plateau: of eighteen variants tried (arrival 60 s to 72 s,
+    // return 66 s to 78 s, fifteen points from (32,30.5) out to (38,28)) only this one kept the drone alive on the
+    // pinned seed. All of them win on the 30 sweep seeds.
+    at(60, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(36, 33) }));
+    at(68, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(31, 44.5) }));
     // Only the crest is left. Loop back through the same southern corridor
     // and up the far-western column, which measures outside `manpad_north`'s
     // 13-tile envelope for its entire length -- the reverse of the design
