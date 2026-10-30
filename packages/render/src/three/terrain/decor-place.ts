@@ -861,8 +861,10 @@ function emitTerrainDecor(c: DecorContext, x: number, y: number, out: DecorPlace
   }
 }
 
-/** Chance a `~` tile lays a second reed clump, on its own stream. */
-const REED_SECOND_P = 0.5;
+/** Clumps a `~` tile lays (GH-871 P3, the lead's ruling of 30 Oct): three, where P2 laid one plus a
+ *  50% second (mean 1.5). The measured reed share of the marsh at zoom 1 was 29% at 1.5 and the sheet's
+ *  target is 65-75% of the dry part; the model is capped at 400 triangles, so the count is the lever. */
+const REED_CLUMPS = 3;
 /** A reed clump's centre is jittered over this much of its tile (+/- half). */
 const REED_JITTER = 0.9;
 /**
@@ -874,9 +876,12 @@ const REED_JITTER = 0.9;
 const REED_CENTRE_STREAMS: readonly (readonly [number, number])[] = [
   [10453, 10567], [10687, 10799], [10909, 11027], [11131, 11261],
   [11383, 11489], [11593, 11701], [11813, 11923], [12041, 12157],
+  // Clump 2 (P3), fresh pairs grepped unused in packages/render and packages/app.
+  [13337, 13441], [13567, 13691], [13799, 13913], [14029, 14143],
 ];
-/** The second-clump roll's stream. */
-const REED_SECOND_STREAM: readonly [number, number] = [10211, 10331];
+/** Clump 2's variant and yaw streams (clumps 0 and 1 read the single object's and the grove twin's). */
+const REED_THIRD_VARIANT_STREAM: readonly [number, number] = [14251, 14363];
+const REED_THIRD_YAW_STREAM: readonly [number, number] = [14479, 14591];
 
 /**
  * The waterside pass's streams (R-8), each an `(a, b)` pair feeding
@@ -891,8 +896,7 @@ const WATERSIDE_YAW_STREAM: readonly [number, number] = [12911, 13007];
 const WATERSIDE_SCALE_STREAM: readonly [number, number] = [13121, 13229];
 
 /**
- * A `~` tile's reed mat (R-7): one clump, plus one more when its own stream
- * rolls under `REED_SECOND_P` (mean 1.5). A clump tries up to four jittered
+ * A `~` tile's reed mat (R-7, three clumps since P3): a clump tries up to four jittered
  * centres and takes the first that is not water (`marshWaterAt < 0.5`); if all
  * four are water the clump is dropped, and the water shows through. Scale is
  * the per-tile 0.8-1.2 roll. The mat's real footprint (about 0.8 tile) is
@@ -900,9 +904,8 @@ const WATERSIDE_SCALE_STREAM: readonly [number, number] = [13121, 13229];
  */
 function emitReedMat(c: DecorContext, x: number, y: number, out: DecorPlacement[]): void {
   const { input, surface } = c;
-  const clumps = tileHash(x + REED_SECOND_STREAM[0], y + REED_SECOND_STREAM[1]) < REED_SECOND_P ? 2 : 1;
   const scale = 0.8 + tileHash(x + 71, y + 137) * 0.4;
-  for (let k = 0; k < clumps; k++) {
+  for (let k = 0; k < REED_CLUMPS; k++) {
     for (let a = 0; a < 4; a++) {
       const [ox, oy] = REED_CENTRE_STREAMS[k * 4 + a];
       const px = x + 0.5 + (tileHash(x + ox, y + oy) - 0.5) * REED_JITTER;
@@ -911,12 +914,18 @@ function emitReedMat(c: DecorContext, x: number, y: number, out: DecorPlacement[
       out.push({
         family: 'reed',
         // Clump 0 reads the single object's own variant and yaw streams, clump 1
-        // the grove twin's (a `~` tile is never a grove tile).
-        variant: Math.floor(tileHash(x + (k === 0 ? 53 : 601), y + 991) * VARIANTS_PER_FAMILY),
+        // the grove twin's (a `~` tile is never a grove tile), clump 2 its own.
+        variant:
+          k === 2
+            ? Math.floor(tileHash(x + REED_THIRD_VARIANT_STREAM[0], y + REED_THIRD_VARIANT_STREAM[1]) * VARIANTS_PER_FAMILY)
+            : Math.floor(tileHash(x + (k === 0 ? 53 : 601), y + 991) * VARIANTS_PER_FAMILY),
         x: px,
         z: pz,
         y: surfaceWorldY(surface, px, pz),
-        yawTurns: tileHash(x + (k === 0 ? 617 : 601), y + 29),
+        yawTurns:
+          k === 2
+            ? tileHash(x + REED_THIRD_YAW_STREAM[0], y + REED_THIRD_YAW_STREAM[1])
+            : tileHash(x + (k === 0 ? 617 : 601), y + 29),
         scale,
       });
       break;

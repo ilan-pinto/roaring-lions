@@ -338,11 +338,13 @@ determinism hashes and the visual baselines did not move. Each bullet below is a
   has mean 0.298, min 0.199, max 0.387 (29 of 36 in band); the greybox's is **0.3119**. Coarser periods (2.5-3.5
   tiles) gave far wider spread, so the features are about a tile across. P3 retunes with the real mesh; P4's control-C
   bake samples this same function.
-- **Reed clumps** (`emitReedMat`, pass 0): a `~` tile places one clump, plus a second when its own stream
-  (10211/10331) rolls under 0.5 (mean 1.5). Each clump tries up to four jittered centres (jitter 0.9 tile, eight
-  stream pairs 10453..12157) and takes the first whose `marshWaterAt` is below 0.5; if all four are water the clump is
-  dropped. Scale is the per-tile 0.8-1.2 roll. Measured on the 6x6 test marsh: 54 expected, 50 placed (7.4% dropped,
-  limit 20%). The footprint (about 0.8 tile) is P3's, tuned with the real mesh.
+- **Reed clumps** (`emitReedMat`, pass 0): a `~` tile places **three clumps** (`REED_CLUMPS`; P2 placed one plus a 50% second, mean 1.5, and the lead
+  ruled three on 30 Oct after the P3 R1 measurement: the reed share at zoom 1 was 29% of the marsh at 1.5 clumps and is 49% at 3, 72% of the dry part,
+  against the sheet's 65-75%). Clumps 0 and 1 keep their P2 streams, so their centres, variants and yaws are unchanged; clump 2 has its own (centres
+  13337..14143, variant 14251/14363, yaw 14479/14591, grepped unused). Each clump tries up to four jittered centres (jitter 0.9 tile, twelve
+  stream pairs 10453..14143) and takes the first whose `marshWaterAt` is below 0.5; if all four are water the clump is
+  dropped. Scale is the per-tile 0.8-1.2 roll. Measured on the 6x6 test marsh: 108 expected, 102 placed (5.6% dropped,
+  limit 20%; at 1.5 clumps it was 54 and 50). The footprint (about 0.8 tile) is P3's, tuned with the real mesh.
 - **The waterside pass is pass 3 and `DECOR_PASSES` is 4** (`emitWaterside`, R-8). A plain open tile (`familyFor` gives
   `open`, `isOpenScatterAt` allows the jittered spot) within Chebyshev `reach` (1) of a `~` tile rolls `waterside.p`
   (0.12) for a `willow`, scale 0.85-1.15. **A tile where pass 2 rolled a tree is skipped**, through a shared helper,
@@ -431,3 +433,19 @@ Record: `_coord/wadi-halam-look/` (proposal, kit spec, render-2 notes). Code: `p
 - **Cost at minimum zoom is triangles.** About 7 ns per rendered triangle there (the tiler), so LOD1 below zoom 0.6 (`LOD1_BELOW_ZOOM`, by zoom band, never distance) and half the olives (`OLIVE_SHARE_AT_MIN_ZOOM`) are what keep it near budget. `tools/src/wadi-look/parts.ts` splits a frame by part; `cost.ts` is the A/B with paired rounds; `cold.ts` boots fresh browsers with and without the kit (its request aborted).
 - **Instruments.** `capture.ts` (before/after, `--lozenge` pixel witness with a `control` shot for the page's own noise: ambient dust differs between any two captures), `cost.ts`, `parts.ts`. Own port, Metal, music off.
 - **Rebuilding the kit:** `blender -b -P tools/backdrop/build_kit.py -- --out art/src/backdrop/wadi_halam_kit.blend`, then `blender -b art/src/backdrop/wadi_halam_kit.blend -P tools/backdrop/export_kit.py -- --out art/meshes/backdrop/wadi_halam_kit.glb`, then `pnpm encode:meshes`. The atlas is byte-identical run to run (md5 `bf2af79f...` since the house swatches).
+
+## The wetland's procedural art (GH-871 P3)
+
+Reeds (`decor/reed_{0,1,2}`), winter grass (`decor/wet_grass_{0,1,2}`), the round bale and the culvert mouth (`props/`) and five ground
+tiles are code-built (`tools/terrain/build_reeds.py`, `build_wet_grass.py`, `build_wetland_props.py` over `wetland_kit.py`;
+`tools/textures/author_wetland_tiles.py`; sources under `art/src/terrain/wetland/`). `export_wetland_p3.py` writes the GLBs.
+- **Never a single-sided card.** Decor draws `FrontSide`; a blade is a 3-triangle cone or a double-sided 2-triangle ribbon.
+- **Hash, not noise.** `wetland_kit.hash01` is an FNV fold with a murmur3 finaliser (a bare FNV step left consecutive inputs 0.94
+  correlated); never `mathutils.noise`. The tile tool's numpy hash is the same mix.
+- **The ratio form decides the tile's look.** A tile is `tone * (1 + gain * (texel / mean - 1))`, so mixing a brown with the green tone
+  reads as olive drab: `author_wetland_tiles.py` prints the figure-ground share (texels within CIEDE2000 12 of KDF `olive.1`, limit 5%).
+  Mud in the open tile cost the lead's patience three rounds and is gone.
+- **A theme's prop mix** is `TerrainTones.propMix`, read by `propPlacements` through `TerrainInput.propMix`; absent means the shared
+  `YARD_MIX` / `ROADSIDE_MIX`. `propKindsFor` fetches the bale and culvert only for a map whose theme names them.
+- The R1 approval rig (`render_wetland_r1.py`, `wetland_r1_rig.py`, calibrated against three.js's light formulas) and its census,
+  ground-composite and sheet tools live beside the builders.

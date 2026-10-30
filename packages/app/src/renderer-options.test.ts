@@ -66,13 +66,14 @@ describe('rendererOptionsFor', () => {
     expect(wet.terrain).toBe('wetland');
     const o = rendererOptionsFor(wet, HIGH, '/');
     expect(o.terrainTones).toBe(TERRAIN_THEMES.wetland);
-    expect(o.groundTextureUrl).toBe('/textures/green_basin_tile.jpg');
+    // P3: the wetland's own five images. Was green_basin_tile.
+    expect(o.groundTextureUrl).toBe('/textures/wetland_open_tile.jpg');
     expect(o.weather).toBe('rain');
-    // R-2: the four slot images are today's shared four, under the wetland row.
-    expect(o.rockTextureUrl).toBe('/textures/rock_ground_tile.jpg');
-    expect(o.scrubTextureUrl).toBe('/textures/rough_scrub_tile.jpg');
-    expect(o.groveTextureUrl).toBe('/textures/orchard_floor_tile.jpg');
-    expect(o.knollTextureUrl).toBe('/textures/knoll_scree_tile.jpg');
+    // Was rock_ground_tile, rough_scrub_tile, orchard_floor_tile and knoll_scree_tile (R-2's shared four).
+    expect(o.rockTextureUrl).toBe('/textures/basalt_rock_tile.jpg');
+    expect(o.scrubTextureUrl).toBe('/textures/wet_scrub_tile.jpg');
+    expect(o.groveTextureUrl).toBe('/textures/oak_litter_tile.jpg');
+    expect(o.knollTextureUrl).toBe('/textures/basalt_scree_tile.jpg');
     expect(o.terrainTones.familyRemap).toEqual({ grass: 'wet_grass', bush: 'shrub' });
     expect(o.terrainTones.waterside).toEqual({ tree: 'willow', p: 0.12, reach: 1 });
     // mud.2 (#584535), lifted one step from mud.3 (#413327) at S-6; rut/spoil/trunk stay mud.3.

@@ -119,4 +119,9 @@ export interface TerrainInput {
    * it.
    */
   waterside?: TerrainTones['waterside'];
+  /**
+   * The theme's own yard and roadside prop mixes -- `TerrainTones.propMix`, passed through by
+   * `composeTerrain` (GH-871 P3). Absent means the shared mixes. `propPlacements` reads it.
+   */
+  propMix?: TerrainTones['propMix'];
 }

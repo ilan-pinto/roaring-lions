@@ -24,6 +24,8 @@ import type { BackdropSpec } from './three/terrain/backdrop';
 // Three-free too (`three/units/building-fit.ts` imports nothing).
 import type { SupportAirPlan } from './three/support-air';
 import type { BuildingFit } from './three/units/building-fit';
+// A closed string union, no runtime (`prop-role.ts` imports only the palette).
+import type { PropKind } from './three/terrain/prop-role';
 // Three-free too (`three/units/kit-template-key.ts` imports nothing).
 import type { KitTiers, KitTiersBySide } from './three/units/kit-template-key';
 
@@ -142,6 +144,16 @@ export interface TerrainTones {
    * waterside tree, and open ground carries only what `openScatter` names.
    */
   waterside?: { readonly tree: GroveFamily; readonly p: number; readonly reach: number };
+  /**
+   * The theme's own weighted prop mixes, `[kind, weight]` each (GH-871 P3): what a yard tile and a
+   * roadside tile place. Absent: `prop-place.ts`'s shared `YARD_MIX` / `ROADSIDE_MIX`, exactly as
+   * before the field existed, so no shipped theme declares it. The wetland names the round bale
+   * (a yard object) and the culvert mouth (a roadside one) beside the shared kinds.
+   */
+  propMix?: {
+    readonly yard: readonly (readonly [PropKind, number])[];
+    readonly roadside: readonly (readonly [PropKind, number])[];
+  };
   /**
    * The resolved hex of the theme's marsh tone, the colour a `~` mud tile
    * draws on the ground. Absent: the shared ground tone, unchanged.
