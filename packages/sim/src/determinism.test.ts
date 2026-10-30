@@ -1325,7 +1325,17 @@ function formationWorld(seed: number): FormationWorldFacts {
 // 0x464d0002 and fourteen columns after the P1a block. Every one of them holds its empty value at every tick of
 // the 600 (formation-state.test.ts asserts that), so the move is the marker and the zeros and nothing else:
 // with the P1b hash lines removed the same run reads 2129900778 again. Was 2129900778.
-const FORMATION_WORLD_PIN = 16150840;
+// Re-pinned 2026-10-30 (GH-859 P1b Task 3, the march). The world marches now: checkpoints every eight steps of the
+// route (legs 2,3,1,2), dresses (four of the Column's five wait at checkpoint 1 from tick 142 and are released by the
+// clock at 202; the Attack and the side-1 Column are released on the tick after their last arrival), a pace cap
+// (the Column's slow mortar, id 19, sets 2293 raw a tick), the final reservation, the travel facing, the shipped
+// Ambush with `legs: false`, and a sweeping Attack (wpSweep). The world itself changed in two ways: the Column
+// gained the slow mortar (spawned last, so no P1a id moved) and the Attack order carries `sweep: true`. Every
+// P1a world fact was re-read on the new code: groups '0,1,2,16', ringFacing '16384,57344,32768,24576,8192,49152',
+// seen {formationSprung: 1} and sprungBy 10 are UNCHANGED; members '5>4' became '6>5' (the extra Column member);
+// the fork witness's scouting ticks [196, 344, 404] became [196, 344, 445] (the ring is found 41 ticks later).
+// Was 16150840.
+const FORMATION_WORLD_PIN = 332225713;
 
 describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
