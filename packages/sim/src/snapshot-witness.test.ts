@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FM_SEED,
   ORDERS_SEED,
   RELIEF_SEED,
   RUN_SEED,
   ordersDrive,
+  formationDrive,
+  formationSetup,
   ordersSetup,
   reliefDrive,
   reliefSetup,
@@ -390,6 +393,108 @@ describe('snapshot format pin', () => {
     // exactly those five bytes out of the new bytes reproduces 923693936.
     // Was 3686246844 (main, S2's header) and 1168014221 (GH-421's appended separation rows): both together,
     // read off a fresh run. With the separation rows taken out of the table it reads 3686246844 again.
-    expect(h >>> 0).toBe(2452666963);
+    // Was 2452666963. GH-859 P1a (combat formations) appended nine `state` columns (fmGroup, restFacing,
+    // fmArrive and the six per-row fg* columns, FORMATION_ROWS 32) and the `fmLive` scalar to the table; they
+    // are encoded even when empty, and this world orders no formation. With those rows taken out of
+    // snapshot-schema.ts the same run reads 2452666963 again, so the move is exactly the new rows and nothing
+    // else (the GH-421 method). 3512584427 is read off a fresh run.
+    expect(h >>> 0).toBe(3512584427);
+  });
+});
+
+// ---- the formation world (GH-859 P1a Task 4) -------------------------------------------------
+//
+// The 600-tick world that orders a Column, an Attack and an Ambush ring (golden-worlds.test-helper.ts,
+// FORMATION_WORLD_PIN's replay), cut at the four moments the formation columns do something: while the
+// ring is still walking, once every ring member has set its ambush stance and before the group has
+// sprung, at the state after tick 403 (the group found by fire and MARKED, `fgPending` 1, the one column
+// whose life crosses a tick boundary), and after it has sprung. Measured on the scouting run below: the
+// first ring member sets its stance at tick 196, the last at 344, and the group is marked at 404 (the
+// side-1 riflemen find the ring by fire); the stances clear at the start of the following tick.
+// Every formation column is `state` (none is `scratch`), so nothing here is poisoned that was not
+// before; the proof is that each restored world agrees with the uninterrupted one at every hash tick
+// of the next 200 and re-encodes to the same bytes.
+
+interface FormationWorld extends World {
+  readonly ids: ReturnType<typeof formationSetup>['ids'];
+}
+const FORMATION: Golden = {
+  name: 'the formation world (600 ticks)',
+  ticks: 600,
+  build: () => formationSetup(FM_SEED),
+  drive: (w, t) => formationDrive(w.sim, t, (w as FormationWorld).ids),
+  poisonAt: [150, 350, 420],
+  poisonsPool: false,
+};
+
+describe('fork witness: the formation world, cut before the ring arrives, after it arrives, after it springs', () => {
+  it('scouting: the ring arms at tick 344 and is found at 404 (mark set), so 150, 350, 404 and 420 are the moments', () => {
+    const w = FORMATION.build() as FormationWorld;
+    let firstArmed = -1;
+    let allArmed = -1;
+    let sprung = -1;
+    let pendingAtCut = -1;
+    for (let t = 0; t < FORMATION.ticks; t++) {
+      FORMATION.drive(w, t);
+      for (const e of w.sim.tick()) if (e.kind === 'formationSprung') sprung = w.sim.tickCount;
+      if (firstArmed < 0 && w.ids.amb.some((i) => w.sim.ambushRadiusSqOf(i) > 0)) firstArmed = w.sim.tickCount;
+      if (allArmed < 0 && w.ids.amb.every((i) => w.sim.ambushRadiusSqOf(i) > 0)) allArmed = w.sim.tickCount;
+      // `fgPending` has a one-tick life across a tick boundary: set while the hit tick runs, consumed at
+      // the top of the next one. The state after the 404th tick holds it set.
+      if (w.sim.tickCount === 404) pendingAtCut = (internals(w.sim).fgPending as Uint8Array).reduce((a, b) => a + b, 0);
+    }
+    expect([firstArmed, allArmed, sprung]).toEqual([196, 344, 404]);
+    expect(pendingAtCut, 'T = 404 cuts while a group is marked and not yet sprung').toBe(1);
+  });
+
+  for (const [label, T] of [
+    ['mid-approach', 150],
+    ['after arrival, before the spring', 350],
+    ['found, mark set and not yet consumed (fgPending 1)', 404],
+    ['after the spring', 420],
+  ] as const) {
+    it(`${label} (T = ${T}): every hash tick of the next 200 agrees, and so do the bytes`, () => {
+      expectClean(fork(FORMATION, T), `${FORMATION.name} T=${T}`);
+      expectClean(fork(FORMATION, T, { poison: true }), `${FORMATION.name} poisoned T=${T}`);
+    }, 60_000);
+  }
+
+  it('every T = 0, 50, ... 400', () => {
+    let forks = 0;
+    for (let T = 0; T <= 400; T += 50) {
+      expectClean(fork(FORMATION, T), `${FORMATION.name} T=${T}`);
+      forks++;
+    }
+    expect(forks).toBe(9);
+  }, 60_000);
+
+  // Self-checks: the witness must go red when a formation column is lost across the restore.
+  it('a member lost from its group after the restore turns the fork red (T = 350)', () => {
+    const v = fork(FORMATION, 350, {
+      mutate: (b) => {
+        const ring = (b as FormationWorld).ids.amb[0];
+        (internals(b.sim).fmGroup as Int16Array)[ring] = -1;
+      },
+    });
+    expect(fails(v)).toBe(true);
+    expect(v.hashDivergedAt, 'the formation block is in the hash').not.toBeNull();
+  });
+
+  it('the one-tick mark lost after the restore turns the fork red (T = 404, fgPending 1)', () => {
+    const v = fork(FORMATION, 404, {
+      mutate: (b) => {
+        (internals(b.sim).fgPending as Uint8Array).fill(0);
+      },
+    });
+    expect(fails(v)).toBe(true);
+  });
+
+  it('the group sprung early in B turns the fork red (T = 350)', () => {
+    const v = fork(FORMATION, 350, {
+      mutate: (b) => {
+        (internals(b.sim).fgState as Uint8Array)[2] = 4;
+      },
+    });
+    expect(fails(v)).toBe(true);
   });
 });

@@ -90,7 +90,7 @@ export interface AlertLine {
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'kill' | 'wounded' | 'conductGain' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply' | 'production';
+  kind: 'unitLost' | 'kill' | 'wounded' | 'conductGain' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'ambushSprung' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply' | 'production';
   tier: AlertTier;
   /** Good or bad, as the minimap ring wears it (VR-36): the line's own tone
    *  where there is a line, and for a lineless alert the tone its line would
@@ -562,6 +562,9 @@ export function alertsForTick(
   const seen = new Set<number>();
   let pinnedAt: number | null = null;
   let ambushed = false;
+  /** GH-859 P1a: where our own ambush formation sprang this tick (its first finder), and how many. */
+  const sprungOwn: { x: number; y: number }[] = [];
+  let sprungOwnCount = 0;
   const tunnelsFound: number[] = [];
   let tunnelsAnnounced = state.tunnelsAnnounced;
   /** VR-37: the first of ours a round was aimed at this tick -- where an
@@ -650,6 +653,17 @@ export function alertsForTick(
       // `entity` is the ambusher: one of ours springing is good news. No
       // position: pointing the minimap at a hidden enemy would be x-ray.
       if (!isOwnSide(world.sideOf(e.entity), viewer)) ambushed = true;
+      continue;
+    }
+    // GH-859 P1a: an ambush formation of OURS sprang together. An enemy's raises nothing new --
+    // the per-unit `ambushSprung` above already says "ambush" for it -- and the event carries
+    // no position of theirs to point at (x-ray). `entity` is OUR unit that found the enemy.
+    if (e.kind === 'formationSprung') {
+      if (isOwnSide(e.side, viewer)) {
+        sprungOwnCount++;
+        const at = world.posOf(e.entity);
+        if (at !== null) sprungOwn.push(at);
+      }
       continue;
     }
     if (e.kind !== 'fire' && e.kind !== 'impact') continue;
@@ -852,6 +866,19 @@ export function alertsForTick(
       at,
       marks: at === null ? [] : [at],
       count: 1,
+    });
+  }
+  if (sprungOwnCount > 0) {
+    const at = sprungOwn[0] ?? null;
+    alerts.push({
+      kind: 'ambushSprung',
+      tier: 'minor',
+      tone: 'good',
+      line: { key: 'alert.ambushSprung', params: {}, tone: 'good', place: at === null ? [] : [world.placeOf(at.x, at.y)] },
+      cue: ALERT_CUE.minor,
+      at,
+      marks: at === null ? [] : [at],
+      count: sprungOwnCount,
     });
   }
   alerts.push(...downs);

@@ -16,6 +16,8 @@ import { t } from '../i18n/t';
 import type { CommandSink } from '../input/intents';
 import { leaveHref } from '../ui/leave-copy';
 import { routes } from '../shell/links';
+import { formationsOpenIn } from './versus-formations';
+import type { Command } from '@lions/sim';
 
 export interface RoomPauseCall {
   /** Send `pause` to the room. */
@@ -188,15 +190,35 @@ export function dockHeld(status: () => TransportStatus, onBlocked: () => void): 
   };
 }
 
+/** A move or attack-move delivered as a plain order: the `formation` field removed, everything else the same
+ *  (GH-859 P1a: formations are off in versus rooms until P1b). A new object -- the caller's command is never
+ *  mutated -- and any other command comes back as the SAME object. */
+export function withoutFormation(cmd: Command): Command {
+  if ((cmd.kind !== 'move' && cmd.kind !== 'attackMove') || !('formation' in cmd)) return cmd;
+  const plain = { ...cmd };
+  delete plain.formation;
+  return plain;
+}
+
 /** The sink a room's intents are applied to: commands go on to the transport
  *  unless the room is paused, when each is dropped (never buffered, so nothing
  *  waits to be sent at the resume) and `onBlocked` hears of it. The status is
- *  read per command, so the answer is the one the moment of the click had. */
-export function roomOrderSink(status: () => TransportStatus, sink: CommandSink, onBlocked: () => void): CommandSink {
+ *  read per command, so the answer is the one the moment of the click had.
+ *
+ *  GH-859 P1a: while formations are closed in a room of this `mode` (a versus room, until P1b) a move or
+ *  attack-move goes out as a plain order, not dropped. `mode` has no default, so a caller has to say which room it is. */
+export function roomOrderSink(
+  status: () => TransportStatus,
+  sink: CommandSink,
+  onBlocked: () => void,
+  mode: 'versus' | 'sandbox' | undefined,
+  versusFormationsOpen?: boolean
+): CommandSink {
+  const open = formationsOpenIn(mode, versusFormationsOpen);
   return {
     queueCommand(cmd) {
       if (ordersWait(status())) onBlocked();
-      else sink.queueCommand(cmd);
+      else sink.queueCommand(open ? cmd : withoutFormation(cmd));
     },
   };
 }

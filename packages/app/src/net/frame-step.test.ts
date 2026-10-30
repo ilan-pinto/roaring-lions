@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { LocalTransport, isSnapshotTick, matchDigest, validateCommand, type Frame, type MatchConfig, type MatchTransport, type TransportStatus } from '@lions/net';
 import type { Command } from '@lions/sim';
-import { runFrames, seatWorldFor } from './frame-step';
+import { formationFielded, runFrames, seatWorldFor } from './frame-step';
 import { shippedContentDigest } from './content-digest';
 
 /** The digest of THIS client's own content (L4), as a test hands it in. The
@@ -287,6 +287,47 @@ describe('seatWorldFor', () => {
     const w = seatWorldFor(cfg, sim);
     expect([w.factionOfSeat(0), w.factionOfSeat(1)]).toEqual(['kdf', 'sarim']);
     expect([w.tunnelOwner(0), w.tunnelOwner(1), w.tunnelOwner(NaN)]).toEqual([1, -1, -1]);
+  });
+  it('GH-859 P1a: formationAllowed is the shipped table, by the seat\'s faction (single-player: KDF)', () => {
+    const sim = fakeSim();
+    const solo = seatWorldFor(null, sim);
+    for (const id of ['column', 'attack', 'ambush']) expect(solo.formationAllowed(0, id), id).toBe(true);
+    for (const id of ['nosuch', '', 'COLUMN']) expect(solo.formationAllowed(0, id), id).toBe(false);
+    // A sandbox room is not a versus room: the shipped table, by each seat's faction.
+    const box = config({ mode: 'sandbox' });
+    box.seats[1] = { ...box.seats[1], side: 1, faction: 'sarim' };
+    const wb = seatWorldFor(box, sim);
+    expect([wb.formationAllowed(0, 'column'), wb.formationAllowed(1, 'column'), wb.formationAllowed(1, 'nosuch')]).toEqual([true, true, false]);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'nosuch' }, 1, wb)).toBe(false);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, wb)).toBe(true);
+  });
+  it('GH-859 P1a (W3): a versus room fields NO formation while the gate is closed, for every shipped id and either seat', () => {
+    const sim = fakeSim();
+    const cfg = config({ mode: 'versus' });
+    cfg.seats[1] = { ...cfg.seats[1], side: 1, faction: 'sarim' };
+    const w = seatWorldFor(cfg, sim);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);
+    // ... so a forced or stale client's formation order vanishes at the ownership check, and the same order without the field passes it
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, w)).toBe(false);
+    expect(validateCommand({ kind: 'attackMove', ids: [4], x: 0, y: 0, formation: 'attack' }, 1, w)).toBe(false);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0 }, 1, w)).toBe(true);
+  });
+  it('GH-859 P1a: with the gate open (P1b\'s path) a versus room runs the TABLE logic, by the seat\'s faction', () => {
+    const sim = fakeSim();
+    const cfg = config({ mode: 'versus' });
+    cfg.seats[1] = { ...cfg.seats[1], side: 1, faction: 'sarim' };
+    const w = seatWorldFor(cfg, sim, true);
+    expect([w.formationAllowed(0, 'column'), w.formationAllowed(1, 'column'), w.formationAllowed(1, 'nosuch')]).toEqual([true, true, false]);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, w)).toBe(true);
+    // single-player ignores the versus gate either way
+    expect(seatWorldFor(null, sim, false).formationAllowed(0, 'column')).toBe(true);
+  });
+  it('GH-859 P1a: the faction clause bites on a table that has a faction-gated formation', () => {
+    const table = [{ id: 'both', factions: ['kdf', 'sarim'] }, { id: 'kdf_only', factions: ['kdf'] }];
+    expect(formationFielded(table, 'kdf', 'kdf_only')).toBe(true);
+    expect(formationFielded(table, 'sarim', 'kdf_only')).toBe(false);
+    expect(formationFielded(table, 'sarim', 'both')).toBe(true);
+    expect(formationFielded(table, 'kdf', 'absent')).toBe(false);
   });
   it('N3 Task 4: economy is economyRoom(config) -- off in single-player, a co-op room and a mirror; on KDF v Sarim', () => {
     const sim = fakeSim();

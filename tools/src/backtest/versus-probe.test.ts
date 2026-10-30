@@ -6,11 +6,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { doctrines, versusRules, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
-import { fx } from '@lions/sim';
+import { fx, type Command } from '@lions/sim';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
 import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
-  candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, loneSurvivorOf, main, parseArrangements, parsePair, planRound, play,
+  candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, loneSurvivorOf, main, order, parseArrangements, parsePair, planRound, play,
   reading, roomConfig, seedOf, selfCheck, tally, withOverrides, world, type Played, type PlayFn,
   TUNNEL_CELLS, playTunnelCells, tunnelSelfCheck, withoutVersusRoutes,
 } from './versus-probe';
@@ -487,4 +487,60 @@ describe('the tunnel arm (GH-681, T5)', () => {
       err.mockRestore();
     }
   }, FULL_GAMES_TIMEOUT_MS);
+});
+
+describe('the formation arm (GH-859 P1a, spec 8.7)', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  /** Two squads a side on open ground of a real versus world; returns what `order` queued and the world. */
+  function ordered(formation: Parameters<typeof order>[3]) {
+    const { sim, typeOf } = world('tel_marum', 1000);
+    const squad = typeOf.get('inf_squad') ?? -1;
+    const ids: [number[], number[]] = [[], []];
+    for (const side of [0, 1] as const) {
+      for (let k = 0; k < 2; k++) ids[side].push(sim.spawn(squad, side, fx.from(10 + 30 * side), fx.from(10 + 2 * k)));
+    }
+    const queued: Command[] = [];
+    const queue = sim.queueCommand.bind(sim);
+    sim.queueCommand = (c: Command) => { queued.push(c); queue(c); };
+    order(sim, (side) => ids[side], [0, 1], formation);
+    sim.tick();
+    return { sim, ids, queued };
+  }
+
+  it('names the formation on the carrying end\'s attack-moves only, and the sim forms exactly that end', () => {
+    const both = ordered({ id: 'attack', ends: [true, true] });
+    expect(both.queued.map((c) => (c.kind === 'attackMove' ? c.formation : 'x'))).toEqual(['attack', 'attack']);
+    expect(both.ids.flat().map((id) => both.sim.formationGroupOf(id) >= 0)).toEqual([true, true, true, true]);
+
+    const friendly = ordered({ id: 'attack', ends: [true, false] });
+    expect(friendly.queued.map((c) => (c.kind === 'attackMove' ? c.formation : 'x'))).toEqual(['attack', undefined]);
+    expect(friendly.ids.flat().map((id) => friendly.sim.formationGroupOf(id) >= 0)).toEqual([true, true, false, false]);
+
+    const none = ordered(undefined);
+    expect(none.queued.every((c) => c.kind === 'attackMove' && !('formation' in c))).toBe(true);
+    expect(none.ids.flat().map((id) => none.sim.formationGroupOf(id) >= 0)).toEqual([false, false, false, false]);
+  });
+
+  it('rides on every game the run plays, controls included, and --formation-end picks the end', () => {
+    const seen: (unknown)[] = [];
+    const spy: PlayFn = (m, a, sd, o) => { seen.push(o?.formation); return play(m, a, sd, o); };
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(main(['--maps=tel_marum', '--seeds=1', '--arr=kdf/kdf', '--formation=attack'], spy)).toBe(0);
+    expect(seen.length).toBeGreaterThanOrEqual(4);
+    expect(seen.every((f) => JSON.stringify(f) === JSON.stringify({ id: 'attack', ends: [true, true] }))).toBe(true);
+    seen.length = 0;
+    expect(main(['--maps=tel_marum', '--seeds=1', '--arr=kdf/kdf', '--formation=attack', '--formation-end=hostile'], spy)).toBe(0);
+    expect(seen.every((f) => JSON.stringify(f) === JSON.stringify({ id: 'attack', ends: [false, true] }))).toBe(true);
+    seen.length = 0;
+    expect(main(['--maps=tel_marum', '--seeds=1', '--arr=kdf/kdf'], spy)).toBe(0);
+    expect(seen.every((f) => f === undefined)).toBe(true);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('refuses what would silently play a plain order', () => {
+    expect(() => main(['--formation=nosuch'])).toThrow(/not a shipped formation/);
+    expect(() => main(['--formation=ambush'])).toThrow(/move formation/);
+    expect(() => main(['--formation-end=friendly'])).toThrow(/give --formation/);
+    expect(() => main(['--formation=attack', '--formation-end=both'])).toThrow(/friendly or hostile/);
+  });
 });

@@ -1,0 +1,20 @@
+{
+  "id": "column",
+  "label": "formation.column.name",
+  "blurb": "formation.column.blurb",
+  "factions": ["kdf", "sarim"],
+  "verb": "move",
+  "min_members": 2,
+  "elements": [
+    { "classes": ["recon"], "shape": { "kind": "point", "ahead": 3 } },
+    { "classes": ["armour"], "shape": { "kind": "files", "files": 2, "file_gap": 2, "depth": 3, "stagger": 1 } },
+    { "classes": ["light_vehicle"], "shape": { "kind": "files", "files": 2, "file_gap": 2, "depth": 3, "stagger": 1 }, "gap": 2 },
+    { "classes": ["infantry"], "shape": { "kind": "files", "files": 2, "file_gap": 2, "depth": 1 }, "gap": 1 },
+    { "classes": ["support_weapon"], "shape": { "kind": "files", "files": 2, "file_gap": 2, "depth": 1 } },
+    { "classes": ["medic"], "shape": { "kind": "files", "files": 1, "depth": 2 }, "gap": 1, "on_call": "casualty" },
+    { "classes": ["aircraft"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 2, "rank_depth": 2 }, "gap": 2, "on_call": "contact" }
+  ],
+  "march": { "legs": true, "leg_tiles": 8, "pace": "slowest_ground", "dress_s": 3 },
+  "arrival": { "face": "travel", "stance": "none" },
+  "contact": { "drill": "halt", "call_radius_tiles": 12, "quiet_s": 10 }
+}

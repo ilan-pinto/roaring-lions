@@ -189,6 +189,8 @@ describe('the type register: theme.css', () => {
       '.rl-versus__link',
       // the advisor's shell command (N4a): code to paste, read character by character
       '.rl-versus__advisor-command',
+      // the formation tooltip's legend counts (GH-859 P1a, the approved mock): a numeric column
+      '.rl-formtip__legend li b',
       ':root',
     ]);
     const seen: string[] = [];

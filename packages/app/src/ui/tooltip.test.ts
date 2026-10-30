@@ -35,6 +35,27 @@ function stubSize(el: HTMLElement, width: number, height: number): () => void {
   };
 }
 
+describe('bindTip modifier (GH-859 P1a)', () => {
+  it('puts the modifier class on the shared tip while its element shows, and takes it off for the next owner', () => {
+    const wide = document.createElement('button');
+    const plain = document.createElement('button');
+    document.body.append(wide, plain);
+    const off1 = bindTip(wide, () => 'wide', { modifier: 'rl-tip--formation' });
+    const off2 = bindTip(plain, () => 'plain');
+    wide.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(tip()?.classList.contains('rl-tip--formation')).toBe(true);
+    plain.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(tip()?.textContent).toBe('plain');
+    expect(tip()?.classList.contains('rl-tip--formation')).toBe(false);
+    wide.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(tip()?.classList.contains('rl-tip--formation')).toBe(true);
+    off1();
+    off2();
+    wide.remove();
+    plain.remove();
+  });
+});
+
 describe('bindTip', () => {
   it('shows on hover and on focus, and hides on both partners', () => {
     const el = document.createElement('button');

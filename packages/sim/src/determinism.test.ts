@@ -10,6 +10,7 @@ import {
   ECONOMY_SEED,
   ECONOMY_RALLY_TILE_X,
   ECONOMY_TICKS,
+  FM_SEED,
   HILL_CORE,
   ORDERS_SEED,
   RELIEF_ECO_B_ORDER_TICK,
@@ -26,6 +27,8 @@ import {
   WW_SQUAD,
   economyAdvance,
   economyDrive,
+  formationDrive,
+  formationSetup,
   economySetup,
   noteHeldGround,
   ordersDrive,
@@ -1243,5 +1246,71 @@ describe('determinism of a wounded world (600-tick replay, GH-707)', () => {
 
   it('the pinned hash', () => {
     expect(woundedWorld(WW_SEED).hash).toBe(WOUNDED_WORLD_PIN);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// FORMATION_WORLD_PIN (GH-859 P1a Task 4): a NEW pin, not a moved one. No other replay in this file
+// orders a formation, so the deferred `fmLive` block (the group table and the three per-unit
+// columns) is outside all of them; this is the replay that sees it. A 600-tick fight with the three
+// SHIPPED data/formations files and test-local unit types: side 0 orders a Column (tick 0), an
+// Attack attack-move (40) and an Ambush ring about (40,24) (80), and re-orders one Column member
+// plainly mid-march (60); a side-1 Column walks into the ring (150). The test asserts each thing
+// happened, so a change that quietly stops one of them fails here and not only on the number.
+
+function formationWorld(seed: number): { hash: number; seen: Record<string, number>; groups: string; members: string; ringFacing: string; sprungBy: number } {
+  const { sim, ids } = formationSetup(seed);
+  const seen: Record<string, number> = {};
+  let groups = '';
+  let members = '';
+  let ringFacing = '';
+  let sprungBy = -1;
+  for (let t = 0; t < 600; t++) {
+    formationDrive(sim, t, ids);
+    for (const e of sim.tick()) {
+      if (e.kind === 'formationSprung' || e.kind === 'ambushSprung') seen[e.kind] = (seen[e.kind] ?? 0) + 1;
+      if (e.kind === 'formationSprung') sprungBy = e.entity;
+    }
+    if (t === 59) members += `${sim.formationMembersOfGroup(0)}`; // before the re-order
+    if (t === 61) members += `>${sim.formationMembersOfGroup(0)}`; // after: one left by order
+    if (t === 151) groups = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationGroupOf(i)).join(',');
+    if (t === 380) ringFacing = ids.amb.map((i) => sim.state.facing[i]).join(',');
+  }
+  return { hash: sim.hash(), seen, groups, members, ringFacing, sprungBy };
+}
+
+// FORMATION_WORLD_PIN: born 2026-10-28 (GH-859 P1a), read from the first run. It moves when a
+// formation rule, column or fold changes, and with the three files' JSON; say why in the commit
+// that moves it. P1b re-pins it (march, calls and its columns join the world).
+// Re-pinned 2026-10-28, same day, before the branch left the worktree (sim-guard review S1): the
+// ring-spring pass moved to BEFORE stepCombat, so a ring found by fire opens fire one tick after the
+// hit and not two, and the fight the side-1 riflemen start in this replay runs a tick earlier from the
+// spring on. Scouting ticks re-read on the new code: first ring member set at 196, last at 344, group
+// found at 404 (snapshot-witness.test.ts reads the same three numbers, unchanged: the spring happens
+// at the top of the tick after, which is what moved). Was 3331466982.
+const FORMATION_WORLD_PIN = 2129900778;
+
+describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () => {
+  it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
+    const a = formationWorld(FM_SEED);
+    const b = formationWorld(FM_SEED);
+    expect(b).toEqual(a);
+    // rows 0, 1, 2 on side 0 (column, attack, ambush), row 16 the first on side 1
+    expect(a.groups).toBe('0,1,2,16');
+    // the Column had five members; the plain move at tick 60 took one out
+    expect(a.members).toBe('5>4');
+    // every ring member at its inward eighth-turn at tick 380 (the ring is set, the enemy not yet in): armour at
+    // (40,21) south, armour at (38,26) north-east, mortar at (43,25) west, rifles at (42,22) south-west, (36,22) on the
+    // cover tile south-east, and (40,27) north
+    expect(a.ringFacing).toBe('16384,57344,32768,24576,8192,49152');
+    // one group spring, set off by the first armour to be fired on (id 10: five column, five attack, then the ring).
+    // The side-1 riflemen find the ring by fire before anyone walks into a member's radius, so no member springs
+    // alone: `ambushSprung` is absent, which is the point of a ring that springs together.
+    expect(a.seen).toEqual({ formationSprung: 1 });
+    expect(a.sprungBy).toBe(10);
+  });
+
+  it('the pinned hash', () => {
+    expect(formationWorld(FM_SEED).hash).toBe(FORMATION_WORLD_PIN);
   });
 });

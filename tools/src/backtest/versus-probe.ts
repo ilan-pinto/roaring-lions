@@ -94,6 +94,14 @@
 //   pnpm versus:probe -- --tunnels                    the tunnel arm's four cells, both rules-file maps
 //   flags: --maps=<id,id|all>  --arr=<kdf/kdf,kdf/sarim,sarim/kdf>  --seeds=<n>  --cap=<seconds>
 //          --rules=<room|default>  --economy  --tunnels  --start=<k>/<s>  --pop-cap=<k>/<s>  --rate-scale=<percent>
+//          --formation=<id>  --formation-end=<friendly|hostile>
+//
+// The formation arm (GH-859 P1a, spec 8.7). `--formation=attack` puts `formation: 'attack'` on every
+// attack-move both ends send (the verb must be the formation's own: `attack` is the one shipped
+// attack-move formation); `--formation-end=friendly|hostile` puts it on ONE end's orders only, so the
+// other end plays the plain game. (b) both ends must stay inside 60/40 on every offered cell; (c) the
+// formation end's edge is reported against the proposed cap of 65%. Without the flag nothing is named:
+// the baseline game, byte for byte, with the formations REGISTERED (`world`, and `buildMatchWorld`).
 //
 // THE SELF-CHECK, and the mutation that turns it red. Before any table it plays
 // two CONTROLS per map and one repeat, on the table it reads, and refuses to
@@ -132,7 +140,7 @@
 
 import { fileURLToPath } from 'node:url';
 import { Sim, fx, type SimEvent } from '@lions/sim';
-import { applyTerrain, doctrines, maps, parseMap, units, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
+import { applyTerrain, doctrines, formations, maps, parseMap, units, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
 import { VERSUS_FAIR_MAPS, seatRules, sidesOfFactions, validateConfig, type Faction, type MatchConfig, type SpawnEnd } from '@lions/net';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
@@ -228,6 +236,8 @@ export interface PlayOptions {
   /** The tunnel arm's cell (`--tunnels`, GH-681): an economy game with the
    *  Sarim tunnel plan and/or the KDF answer laid over it. Implies `economy`. */
   tunnels?: TunnelCell;
+  /** GH-859 P1a: the formation arm. Absent is the baseline game. */
+  formation?: FormationArm;
 }
 
 /** A versus room's config for a cell, as a room mints it (LD1: the side
@@ -254,6 +264,10 @@ export function world(mapId: MapId, seed: number, humanHeld?: readonly [boolean,
   const typeOf = new Map<string, number>();
   // A room's roster, not the shipped one: `VERSUS_HELD_UNITS` stays out (GH-698).
   for (const u of versusRoster()) typeOf.set(u.id, sim.addUnitType(u as never));
+  // GH-859 P1a: the combat formations, registered after the unit types as `buildMatchWorld` does. Config:
+  // it moves no hash until an order names one, so the no-formation arm stays the baseline's game, seed for
+  // seed -- and a registered world is the only place the byte-identity claim (spec 8.1) can be read.
+  for (const f of formations) sim.addFormationType(f);
   return { sim, typeOf, map };
 }
 
@@ -282,12 +296,22 @@ export function centroid(sim: Sim, side: number): [number, number] | null {
  *  end's side first. `idsOf(side)` names who is ordered: the spawned force in
  *  a placed-force game, every living unit of the side (the built ones too) in
  *  an economy game. */
-export function order(sim: Sim, idsOf: (side: 0 | 1) => number[], sideOfEnd: readonly [0 | 1, 0 | 1]): void {
-  for (const side of sideOfEnd) {
+export function order(sim: Sim, idsOf: (side: 0 | 1) => number[], sideOfEnd: readonly [0 | 1, 0 | 1], formation?: FormationArm): void {
+  sideOfEnd.forEach((side, end) => {
     const target = centroid(sim, side === 0 ? 1 : 0);
     const ids = idsOf(side).filter((id) => sim.state.alive[id] === 1);
-    if (target && ids.length > 0) sim.queueCommand({ kind: 'attackMove', ids, x: target[0], y: target[1] });
-  }
+    // GH-859 P1a: `formation` is the arm, absent in the baseline; the end that carries it adds the field
+    // to the very same attack-move, so the two arms differ in nothing else.
+    const named = formation !== undefined && formation.ends[end] ? { formation: formation.id } : {};
+    if (target && ids.length > 0) sim.queueCommand({ kind: 'attackMove', ids, x: target[0], y: target[1], ...named });
+  });
+}
+
+/** The formation arm (`--formation=<id>`, `--formation-end=<friendly|hostile>`): the id every attack-move of
+ *  the carrying end names. `ends` is indexed like `sideOfEnd`: friendly first. */
+export interface FormationArm {
+  id: string;
+  ends: readonly [boolean, boolean];
 }
 
 /** The shipped role of a unit's type ('infantry', 'armour', ...), '' when it has none. */
@@ -334,7 +358,7 @@ export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts:
     for (const id of placed) if (id !== keep) sim.debugKill(id);
   }
   for (let t = 0; t < capTicks; t++) {
-    if (t % ORDER_EVERY_TICKS === 0) order(sim, (side) => force.bySide[side], sideOfEnd);
+    if (t % ORDER_EVERY_TICKS === 0) order(sim, (side) => force.bySide[side], sideOfEnd, opts.formation);
     sim.tick();
     if (sim.tickCount % DECIDE_EVERY_TICKS === 0) {
       const o = outcomeOf(sim, sim.tickCount);
@@ -470,7 +494,7 @@ export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number
         for (const side of sideOfEnd) planRound(runtime, w.sim, menus[side], mixes[side], side);
       }
       tp?.round(t);
-      order(w.sim, (side) => livingOf(w.sim, side).filter((id) => tp === null || !tp.holds(id)), sideOfEnd);
+      order(w.sim, (side) => livingOf(w.sim, side).filter((id) => tp === null || !tp.holds(id)), sideOfEnd, opts.formation);
     }
     if (tp !== null && t % DECIDE_EVERY_TICKS === 0) tp.second(t);
     tp?.beforeTick();
@@ -1089,6 +1113,17 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   const seeds = Number(flag(args, 'seeds') ?? SEEDS_DEFAULT);
   const capTicks = Math.round(Number(flag(args, 'cap') ?? CAP_TICKS_DEFAULT / TICKS_PER_SECOND) * TICKS_PER_SECOND);
   if (!Number.isInteger(seeds) || seeds < 1) throw new Error('--seeds must be a whole number of at least 1');
+  const formationArg = flag(args, 'formation');
+  const endArg = flag(args, 'formation-end');
+  if (formationArg === undefined && endArg !== undefined) throw new Error('--formation-end names an end for --formation: give --formation=<id> too');
+  if (endArg !== undefined && endArg !== 'friendly' && endArg !== 'hostile') throw new Error(`--formation-end: "${endArg}" is not friendly or hostile`);
+  let formation: FormationArm | undefined;
+  if (formationArg !== undefined) {
+    const f = formations.find((x) => x.id === formationArg);
+    if (f === undefined) throw new Error(`--formation: "${formationArg}" is not a shipped formation (${formations.map((x) => x.id).join(', ')})`);
+    if (f.verb !== 'attackMove') throw new Error(`--formation: "${formationArg}" is a ${f.verb} formation, and the probe sends attack-moves: the sim would play it as a plain order`);
+    formation = { id: f.id, ends: [endArg !== 'hostile', endArg !== 'friendly'] };
+  }
   const startArg = flag(args, 'start');
   const popArg = flag(args, 'pop-cap');
   const rateArg = flag(args, 'rate-scale');
@@ -1099,7 +1134,11 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   };
   if (overrides.rateScalePercent !== undefined && !(Number.isInteger(overrides.rateScalePercent) && overrides.rateScalePercent >= 0)) throw new Error('--rate-scale must be a whole percent');
   if (!economy && Object.keys(overrides).length > 0) throw new Error('--start, --pop-cap and --rate-scale sweep the economy: they need --economy');
-  return withOverrides(overrides, () => report({ economy, tunnels, rules, mapIds, arrangements, seeds, capTicks, overrides, playFn }));
+  // The arm rides on the game function, so every cell and control plays it: the placed-force, economy and
+  // tunnel games all pass their options through here.
+  const armed: PlayFn = formation === undefined ? playFn : (m, a, sd, o) => playFn(m, a, sd, { ...o, formation });
+  if (formation !== undefined) console.log(`formation arm: ${formation.id} on ${endArg === undefined ? 'both ends' : `the ${endArg} end only`}`);
+  return withOverrides(overrides, () => report({ economy, tunnels, rules, mapIds, arrangements, seeds, capTicks, overrides, playFn: armed }));
 }
 
 function report(r: { economy: boolean; tunnels: boolean; rules: SeatTable; mapIds: MapId[]; arrangements: Arrangement[]; seeds: number; capTicks: number; overrides: Overrides; playFn: PlayFn }): number {

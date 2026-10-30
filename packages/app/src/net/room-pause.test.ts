@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { PAUSES_PER_SEAT, WsTransport, type MatchConfig, type SocketLike } from '@lions/net';
-import { applyIntent, type PlayerIntent } from '../input/intents';
+import { applyIntent, type CommandSink, type PlayerIntent } from '../input/intents';
+import type { Command } from '@lions/sim';
 import type { TransportStatus } from '@lions/net';
 import { t } from '../i18n/t';
 import { leaveCopy } from '../ui/leave-copy';
 import { routes } from '../shell/links';
-import { BLOCKED_CUE_GAP_MS, blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
+import { BLOCKED_CUE_GAP_MS, blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered, withoutFormation } from './room-pause';
+import { formationsOpenIn } from './versus-formations';
 
 // N1b task 8, R-B17: the room silently ignores a pause it refuses, so the
 // client decides from its own count (the last `paused` it saw) whether to ask
@@ -266,7 +268,7 @@ describe('orders wait while the room is paused', () => {
   it('a command attempt under a pause never reaches transport.send, and notes the reason; after the resume commands flow', () => {
     const { t, cmds, recv } = room();
     let blocked = 0;
-    const sink = roomOrderSink(() => t.status(), t, () => { blocked++; });
+    const sink = roomOrderSink(() => t.status(), t, () => { blocked++; }, 'versus');
     const order: PlayerIntent = { kind: 'order', verb: 'move', ids: [3], x: 5, y: 6, append: false };
 
     applyIntent(sink, order, MAP);
@@ -294,7 +296,7 @@ describe('orders wait while the room is paused', () => {
     const { t, recv } = room();
     recv({ t: 'paused', seat: 1, remainingMs: 90000, pausesLeft: [3, 2] });
     let blocked = 0;
-    applyIntent(roomOrderSink(() => t.status(), t, () => { blocked++; }), { kind: 'select', ids: [1], via: 'click' }, MAP);
+    applyIntent(roomOrderSink(() => t.status(), t, () => { blocked++; }, 'versus'), { kind: 'select', ids: [1], via: 'click' }, MAP);
     expect(blocked).toBe(0);
   });
 
@@ -302,6 +304,7 @@ describe('orders wait while the room is paused', () => {
     const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
     const dispatch = main.slice(main.indexOf('const dispatch = (intent: PlayerIntent)'), main.indexOf('intentListeners.push((intent) => voice.observe'));
     expect(dispatch).toContain('roomOrderSink(() => room.status(), transport');
+    expect(dispatch).toContain('netConfig?.mode');
     expect(dispatch).toContain('blockedNotes?.blocked()');
     expect(dispatch).toContain('if (refused)');
     expect(dispatch).toContain('for (const fn of intentListeners)');
@@ -406,5 +409,79 @@ describe('dockHeld', () => {
       status = s;
       expect([held(), blocked]).toEqual([false, 2]);
     }
+  });
+});
+
+// GH-859 P1a (the lead's ruling, 29 Oct): formations are off in versus rooms until P1b. The sender half: a versus room's
+// orders leave as plain orders. W1 = the strip bites; W2 = single-player and an open gate leave the field alone.
+describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
+  const LIVE = (): TransportStatus => ({ kind: 'live', behind: 0 });
+  const collect = (): { sink: CommandSink; got: Command[] } => {
+    const got: Command[] = [];
+    return { got, sink: { queueCommand: (c) => { got.push(c); } } };
+  };
+  const move = (): Command => ({ kind: 'move', ids: [3, 4], x: 1 << 16, y: 2 << 16, formation: 'column', append: true });
+  const attackMove = (): Command => ({ kind: 'attackMove', ids: [3], x: 5 << 16, y: 6 << 16, formation: 'attack' });
+
+  it('W1: a versus room delivers move and attackMove with NO formation key, and every other field intact', () => {
+    const { sink, got } = collect();
+    const out = roomOrderSink(LIVE, sink, () => {}, 'versus');
+    // the orders DID carry a formation going in, so the strip is not vacuous
+    expect('formation' in move() && 'formation' in attackMove()).toBe(true);
+    out.queueCommand(move());
+    out.queueCommand(attackMove());
+    expect(got).toHaveLength(2);
+    for (const c of got) expect('formation' in c).toBe(false);
+    expect(got[0]).toEqual({ kind: 'move', ids: [3, 4], x: 1 << 16, y: 2 << 16, append: true });
+    expect(got[1]).toEqual({ kind: 'attackMove', ids: [3], x: 5 << 16, y: 6 << 16 });
+  });
+
+  it('W1: the caller\'s command object is not mutated, and any other command passes through as the same object', () => {
+    const { sink, got } = collect();
+    const out = roomOrderSink(LIVE, sink, () => {}, 'versus');
+    const mv = move();
+    out.queueCommand(mv);
+    expect(mv).toEqual(move());
+    expect(got[0]).not.toBe(mv);
+    const halt: Command = { kind: 'halt', ids: [3] };
+    const plain: Command = { kind: 'move', ids: [3], x: 0, y: 0 };
+    out.queueCommand(halt);
+    out.queueCommand(plain);
+    expect(got[1]).toBe(halt);
+    expect(got[2]).toBe(plain);
+    expect(withoutFormation(mv)).toEqual({ kind: 'move', ids: [3, 4], x: 1 << 16, y: 2 << 16, append: true });
+  });
+
+  it('W1: a paused versus room still drops the order and says so (the strip does not change the pause)', () => {
+    const { sink, got } = collect();
+    let blocked = 0;
+    const out = roomOrderSink(() => ({ kind: 'paused', seat: 0, untilMs: 5 }), sink, () => { blocked++; }, 'versus');
+    out.queueCommand(move());
+    expect([got.length, blocked]).toEqual([0, 1]);
+  });
+
+  it('W2: a sandbox room, and a versus room with the gate opened (P1b\'s path), deliver the formation unchanged', () => {
+    const sandbox = collect();
+    roomOrderSink(LIVE, sandbox.sink, () => {}, 'sandbox').queueCommand(move());
+    expect(sandbox.got[0]).toEqual(move());
+    const open = collect();
+    const o = roomOrderSink(LIVE, open.sink, () => {}, 'versus', true);
+    o.queueCommand(move());
+    o.queueCommand(attackMove());
+    expect(open.got).toEqual([move(), attackMove()]);
+  });
+
+  it('W2: single-player has no room, so its sink is the transport itself and the order carries the formation', () => {
+    const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
+    expect(main).toContain('room === null ? transport : roomOrderSink(');
+    expect(main).toContain(': roomOrderSink(() => room.status(), transport');
+    // The unwrapped path: main.ts hands the transport itself to the intent layer, so a formation order reaches it whole.
+    const { sink, got } = collect();
+    sink.queueCommand(attackMove());
+    expect(got[0]).toEqual({ kind: 'attackMove', ids: [3], x: 5 << 16, y: 6 << 16, formation: 'attack' });
+    expect('formation' in got[0]).toBe(true);
+    expect(formationsOpenIn(undefined)).toBe(true);
+    expect(formationsOpenIn(null)).toBe(true);
+    expect(formationsOpenIn('sandbox')).toBe(true);
   });
 });

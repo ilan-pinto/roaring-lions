@@ -65,6 +65,7 @@ import { forkWitnessSeries, stateRowsMoved, type SeriesForkVerdict, type Witness
 import {
   ECONOMY_SEED,
   ECONOMY_TICKS,
+  FM_SEED,
   RELIEF_SEED,
   ORDERS_SEED,
   RUN_SEED,
@@ -72,6 +73,8 @@ import {
   economyAdvance,
   economyDrive,
   economySetup,
+  formationDrive,
+  formationSetup,
   ordersDrive,
   ordersSetup,
   reliefDrive,
@@ -267,6 +270,16 @@ export function goldenOrders(): SnapWorld {
 export function goldenWounded(): SnapWorld {
   return simWorld(woundedSetup(WW_SEED), () => undefined);
 }
+/**
+ * The formation world of FORMATION_WORLD_PIN (GH-859 P1a): a Column, an Attack and an Ambush ring ordered on the
+ * shipped formation files, and a side-1 Column walking into the ring. A versus room carries no formation (the
+ * lead's versus-off ruling, GH-859: `net/versus-formations.ts`), so this single-player world is the only one in
+ * which the group table, the rest facings, the arrival flags and `fmLive` move.
+ */
+export function goldenFormations(): SnapWorld {
+  const { sim, ids } = formationSetup(FM_SEED);
+  return simWorld(sim, (t) => formationDrive(sim, t, ids));
+}
 export function goldenEconomy(): SnapWorld {
   const ew = economySetup(ECONOMY_SEED);
   return {
@@ -341,6 +354,17 @@ export function worldSpecs(): WorldSpec[] {
   out.push({ id: 'golden relief (900)', plan: goldenPlan(900), build: goldenRelief });
   out.push({ id: 'golden orders (900)', plan: goldenPlan(900), build: goldenOrders });
   out.push({ id: 'golden wounded (600)', plan: goldenPlan(600), build: goldenWounded });
+  out.push({
+    id: 'golden formations (600)',
+    // Cuts before the ring arrives (150), while it arms (200, 300, 350), with the group found by fire and marked
+    // (404: `fgPending` set, the one column whose life crosses a tick boundary) and after it has sprung (420).
+    plan: { Ts: [0, 97, 150, 200, 300, 350, 404, 420], horizon: 180, tailFrom: 100, end: 600 },
+    build: goldenFormations,
+    exercised: (a) =>
+      (internals(a.sim) as unknown as { fmLive: boolean }).fmLive
+        ? null
+        : 'the formation world stopped ordering formations: fmLive is still false at its end',
+  });
   out.push({ id: `golden economy (${ECONOMY_TICKS})`, plan: goldenPlan(ECONOMY_TICKS), build: goldenEconomy });
   return out;
 }
@@ -581,7 +605,7 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
   ...rows('focusTarget focusLost', 'the attack order (right-click focus): no witness driver issues one, only attack-moves. Covered by a mirror world whose driver sends an `attack` order'),
   ...rows('wpX wpY wpAttack wpSweep wpCount', 'queued (shift) waypoints: no witness driver appends an order. Covered by a world whose driver issues appended moves'),
   ...rows('boardGoal', 'embarking onto a transport: no witness driver issues board or air-carrier orders. Covered by a world that loads infantry into a carrier'),
-  ...rows('stance ambushRadiusSq patrolX patrolY patrolCount patrolIdx patrolLive patrolLegIds', 'stances (ambush, patrol): no witness driver or placement sets one. Covered by a world whose units patrol or ambush'),
+  ...rows('patrolX patrolY patrolCount patrolIdx patrolLive patrolLegIds', 'patrol stances: no witness driver or placement sets one (the ambush stance, `stance` and `ambushRadiusSq`, moves in the golden formation world). Covered by a world whose units patrol'),
   ...rows('smoke smokeCooldown pendingStrikes', 'abilities reachable only from the player UI (smoke, fire-support strikes): no witness driver calls them. Covered by a world whose driver lays smoke and calls a strike'),
   ...rows('airWant', 'air carriers (GH-698): the air units of the witness worlds are drones, which never take a load or unload order. Covered by an air-carrier world'),
   ...rows(

@@ -21,7 +21,9 @@ export interface CommandSink {
 
 export type PlayerIntent =
   | { kind: 'select'; ids: number[]; via: 'click' | 'box' | 'group' }
-  | { kind: 'order'; verb: 'move' | 'attackMove'; ids: number[]; x: number; y: number; append: boolean }
+  /** `formation` (GH-859 P1a): the id of a shipped combat formation the units form around the click
+   *  (`input/formation.ts`). Absent for a plain order. */
+  | { kind: 'order'; verb: 'move' | 'attackMove'; ids: number[]; x: number; y: number; append: boolean; formation?: string }
   /** Targeted fire (GH-420): these units shoot THIS unit when they can, and
    *  close on it until they can. Only the right-click on an identified enemy
    *  makes one; the sim queues the `attack` command it names. */
@@ -97,6 +99,7 @@ export function applyIntent(sink: CommandSink, intent: PlayerIntent, map: MapSiz
         x: clampToMap(fx.from(intent.x), map.width),
         y: clampToMap(fx.from(intent.y), map.height),
         append: intent.append,
+        ...(intent.formation !== undefined ? { formation: intent.formation } : {}),
       });
       return;
     case 'attack':

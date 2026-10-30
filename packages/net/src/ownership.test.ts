@@ -14,8 +14,33 @@ const world: SeatWorld = {
   tunnelOwner: (id) => (id === 0 ? 1 : -1),
   versus: false,
   economy: false,
+  // Formations by literal: `column` for both seats, `sarim_only` for seat 1 alone.
+  formationAllowed: (seat, id) => id === 'column' || (id === 'sarim_only' && seat === 1),
 };
 const F = 65536;
+
+describe('validateCommand: the formation field (GH-859 P1a)', () => {
+  const move = (formation?: string): Command => ({ kind: 'move', ids: [1, 2], x: 10 * F, y: 10 * F, ...(formation === undefined ? {} : { formation }) });
+  it('a formation the seat may order passes, for move and attackMove', () => {
+    expect(validateCommand(move('column'), 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'attackMove', ids: [1], x: F, y: F, formation: 'column' }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'move', ids: [11], x: F, y: F, formation: 'sarim_only' }, 1, world)).toBe(true);
+  });
+  it('an id nobody ships, or one the seat\'s faction does not field, drops the order', () => {
+    expect(validateCommand(move('nosuch'), 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'attackMove', ids: [1], x: F, y: F, formation: 'nosuch' }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'move', ids: [1], x: F, y: F, formation: 'sarim_only' }, 0, world)).toBe(false);
+  });
+  it('without the field nothing is asked of the formation table', () => {
+    expect(validateCommand(move(), 0, { ...world, formationAllowed: () => false })).toBe(true);
+  });
+  it('smoke is untouched: it has no such field and the table is never asked', () => {
+    const asked: string[] = [];
+    const spy = { ...world, formationAllowed: (_s: number, id: string) => (asked.push(id), false) };
+    expect(validateCommand({ kind: 'smoke', ids: [1], x: F, y: F }, 0, spy)).toBe(true);
+    expect(asked).toEqual([]);
+  });
+});
 
 describe('validateCommand', () => {
   it('accepts an order naming only the seat\'s own units', () => {

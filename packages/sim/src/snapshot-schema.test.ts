@@ -150,7 +150,7 @@ function show(v: unknown): string {
 // listed; reclassifying a property is a deliberate edit to BOTH places.
 const CONFIG = [
   'width', 'height', 'capacity', 'seed', 'unitTypes', 'structureTypes', 'boulder', 'hasBoulders', 'openGrid',
-  'humanHeldBySide', 'tnPoints', 'tnTiles', 'state', 'structures', 'works', 'sepCols',
+  'humanHeldBySide', 'tnPoints', 'tnTiles', 'state', 'structures', 'works', 'sepCols', 'formationTypes',
 ];
 const DERIVED = ['fields'];
 const SCRATCH = [

@@ -45,6 +45,17 @@ describe('buildMatchWorld', () => {
       expect(w.sim.hash()).toBe(pin);
     }
   });
+  it('GH-859 P1a: the shipped formations are registered, in the shipped order, in a mirror room and an economy room alike', () => {
+    for (const fs of [['kdf', 'kdf'], ['kdf', 'sarim']] as const) {
+      const w = buildMatchWorld(config('wadi_tarfan', [fs[0], fs[1]]));
+      // literal: ambush, attack, column is the sorted directory order, and a group row stores an INDEX into it.
+      expect(w.sim.formationTypeCount(), fs.join('/')).toBe(3);
+      const own = Array.from({ length: w.sim.entityCount }, (_, i) => i).filter((i) => w.sim.state.side[i] === 0 && w.sim.state.alive[i] === 1).slice(0, 3);
+      w.sim.queueCommand({ kind: 'move', ids: own, x: 24 * 65536, y: 24 * 65536, formation: 'column' });
+      w.sim.tick();
+      expect(w.sim.formationTypeOfGroup(0), fs.join('/')).toBe(2);
+    }
+  });
   it('N2: a versus world holds both seats (seatRules), so neither side auto-breaches', () => {
     const w = buildMatchWorld(config('wadi_tarfan', ['kdf', 'kdf']));
     expect([w.sim.isHumanHeld(0), w.sim.isHumanHeld(1), w.sim.isHumanHeld(2)]).toEqual([true, true, false]);

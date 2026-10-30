@@ -321,6 +321,11 @@ describe('keymap', () => {
     it('is false when nothing is armed', () => {
       expect(anyArmed(null, null, null)).toBe(false);
     });
+    it('is true while a combat formation is armed (GH-859 P1a), and Escape then disarms; false without one', () => {
+      expect(anyArmed(null, null, null, null, 'attack')).toBe(true);
+      expect(escapeTarget(false, false, anyArmed(null, null, null, null, 'ambush'))).toBe('disarm');
+      expect(anyArmed(null, null, null, null, null)).toBe(false);
+    });
     it('is true while Set rally is armed for any camp (F4) -- line 0 included', () => {
       expect(anyArmed(null, null, 0)).toBe(true);
       expect(anyArmed(null, null, 2)).toBe(true);

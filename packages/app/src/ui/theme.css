@@ -2829,6 +2829,24 @@ body[data-outcome-beat] .rl-aar {
   opacity: 1;
 }
 
+/* GH-859 P1a (the approved formations HUD mock): the formation row sits above the order row,
+   led by a quiet caps tag the way the card's ARMAMENT label is. Semantic tokens only. */
+.rl-orders--formation {
+  align-items: center;
+}
+.rl-orders__tag {
+  margin-right: var(--s1);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  color: var(--ink-mute);
+  padding: 0 var(--s2);
+  border: 1px solid transparent;
+}
+.rl-orders--formation .rl-label {
+  margin: 0;
+}
+
 /* Wraps upward: the cluster is anchored at the bottom, so a second row of
    chips grows into the map rather than off the bottom of the screen. */
 /* Row gap is one step wider than the column gap (F3 Task 8, C2): a second row's
@@ -4056,6 +4074,46 @@ body[data-outcome-beat] .rl-aar {
   align-items: center;
   gap: var(--s1);
   color: var(--ink-dim);
+}
+/* GH-859 P1a: the formation tooltip is wider than the shared 14.375rem so the schematic and its
+   legend sit side by side (`tooltip.ts`'s `modifier` puts the class on the one shared element). */
+.rl-tip--formation {
+  width: 19rem;
+}
+.rl-formtip {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-start;
+  margin: var(--s1h) 0;
+  padding: var(--s1h) var(--s1);
+  background: var(--well);
+  border: 1px solid var(--panel-rule);
+}
+.rl-formtip__svg {
+  flex: none;
+}
+.rl-formtip__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--t-s);
+  color: var(--ink);
+  flex: 1;
+  min-width: 0;
+}
+.rl-formtip__legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  line-height: 1.5;
+}
+.rl-formtip__legend li span {
+  flex: 1;
+  color: var(--ink-mute);
+}
+.rl-formtip__legend li b {
+  font-family: var(--font-mono);
+  font-weight: 600;
 }
 
 /* Box-select marquee. Drawn in DOM over the canvas, so it is styled here with

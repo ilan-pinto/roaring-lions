@@ -1,4 +1,4 @@
-import { MAX_EVAC_POINTS, MAX_PATROL_WAYPOINTS, MAX_SITES } from './tuning';
+import { FORMATION_ROWS, MAX_EVAC_POINTS, MAX_PATROL_WAYPOINTS, MAX_SITES } from './tuning';
 
 // The snapshot schema (net sim snapshot, stage 1, Task 2): the ONE table that
 // gives every own property of `Sim` exactly one class and a shape. The encoder
@@ -343,7 +343,20 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'sepLive', cls: 'state', kind: SCALAR },
   // Written by the blocker test and consumed in the same call chain, every use.
   { name: 'sepHitStationary', cls: 'scratch', kind: SCALAR },
-
+  // GH-859 P1a combat formations, APPENDED. Group membership, the rest facing and the arrival stance
+  // are per-unit state; the group table is per-row state; `fmLive` is the hash latch (a scalar, state).
+  { name: 'fmGroup', cls: 'state', kind: typed('Int16Array', 'capacity') },
+  { name: 'restFacing', cls: 'state', kind: typed('Uint16Array', 'capacity') },
+  { name: 'fmArrive', cls: 'state', kind: typed('Uint8Array', 'capacity') },
+  { name: 'fgLive', cls: 'state', kind: typed('Uint8Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgSide', cls: 'state', kind: typed('Uint8Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgType', cls: 'state', kind: typed('Uint8Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgState', cls: 'state', kind: typed('Uint8Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgPending', cls: 'state', kind: typed('Uint8Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgMembers', cls: 'state', kind: typed('Uint16Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fmLive', cls: 'state', kind: SCALAR },
+  // Compiled formation files, registered by the match config (like `unitTypes`).
+  { name: 'formationTypes', cls: 'config', kind: obj('array') },
 ];
 
 /** `Rng`'s only own property: one mulberry32 word per entity slot. */
