@@ -1275,12 +1275,17 @@ interface FormationWorldFacts {
   /** The Column's pace, and the id that sets it, read at tick 61. */
   columnPace: number;
   columnSetter: number;
+  /** Every `formationContact`, as `tick:group:entity:drill` (GH-859 P1b Task 4). */
+  contacts: string;
+  /** The four rows' states at the end of the 600 ticks (Column, Attack, Ambush, side-1 Column). */
+  endStates: string;
 }
 function formationWorld(seed: number): FormationWorldFacts {
   const { sim, ids } = formationSetup(seed);
   const atCp = internals(sim).fgAtCp as Uint16Array;
   const seen: Record<string, number> = {};
   const released: string[] = [];
+  const contacts: string[] = [];
   let groups = '';
   let members = '';
   let ringFacing = '';
@@ -1295,6 +1300,7 @@ function formationWorld(seed: number): FormationWorldFacts {
       if (e.kind === 'formationSprung' || e.kind === 'ambushSprung') seen[e.kind] = (seen[e.kind] ?? 0) + 1;
       if (e.kind === 'formationSprung') sprungBy = e.entity;
       if (e.kind === 'formationReleased') released.push(`${e.tick}:${e.group}:${e.leg}/${e.legs}`);
+      if (e.kind === 'formationContact') contacts.push(`${e.tick}:${e.group}:${e.entity}:${e.drill}`);
     }
     if (columnFirstArrival < 0 && atCp[0] > 0) columnFirstArrival = t;
     if (t === 61) {
@@ -1309,7 +1315,8 @@ function formationWorld(seed: number): FormationWorldFacts {
     }
     if (t === 380) ringFacing = ids.amb.map((i) => sim.state.facing[i]).join(',');
   }
-  return { hash: sim.hash(), seen, groups, members, ringFacing, sprungBy, legs, released: released.join(' '), columnFirstArrival, columnPace, columnSetter };
+  const endStates = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationStateOfGroup(sim.formationGroupOf(i))).join(',');
+  return { hash: sim.hash(), seen, groups, members, ringFacing, sprungBy, legs, released: released.join(' '), columnFirstArrival, columnPace, columnSetter, contacts: contacts.join(' '), endStates };
 }
 
 // FORMATION_WORLD_PIN: born 2026-10-28 (GH-859 P1a), read from the first run. It moves when a
@@ -1335,7 +1342,18 @@ function formationWorld(seed: number): FormationWorldFacts {
 // seen {formationSprung: 1} and sprungBy 10 are UNCHANGED; members '5>4' became '6>5' (the extra Column member);
 // the fork witness's scouting ticks [196, 344, 404] became [196, 344, 445] (the ring is found 41 ticks later).
 // Was 16150840.
-const FORMATION_WORLD_PIN = 332225713;
+// Re-pinned 2026-10-30 (GH-859 P1b Task 4, contact and the drills). The world makes contact twice. The side-1 Column,
+// ordered at 150, opens fire on the ring from 444 (the first member to shoot, id 16, reports its target) and HALTS: every
+// member stopped with an empty queue, state 3, the vehicles' rest facing toward the fire; the ring is found by that
+// fire on the same tick and springs as before. The Attack, sweeping up the map, meets the side-1 riflemen near
+// (38.5, 16.5) at tick 541 (id 6) and PRESSES: state 3, dressing over, pace and queues kept. Both groups read state 3
+// at the end of the 600 ticks, and the three drill columns (fgQuiet fgCallX fgCallY) are written for the first time:
+// a group in contact counts the quiet clock and records the call point. The mark of the ring now also carries the
+// call bit (the ring has a contact-call aircraft element and the fire came from inside the call radius): 3, not 1,
+// at the cut after tick 444. Every earlier world fact is UNCHANGED: groups, members, legs, ringFacing, seen, sprungBy,
+// the Column's pace and first arrival, and all four releases. No post was added: the world already holds the
+// contacts the task asks for. Was 332225713.
+const FORMATION_WORLD_PIN = 39544183;
 
 describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
@@ -1371,6 +1389,16 @@ describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () =>
     // Column are whole at their checkpoints, and are released on the tick after the last arrival.
     expect(a.columnFirstArrival).toBe(142);
     expect(a.released).toBe('202:0:1/2 237:1:1/3 351:16:1/2 415:1:2/3');
+  });
+
+  it('makes contact twice: the side-1 Column halts and the Attack presses (GH-859 P1b Task 4)', () => {
+    const a = formationWorld(FM_SEED);
+    // tick:group:entity:drill. Row 16 (the side-1 Column, drill halt = 1) at 444 by its first rifleman, id 16 (five
+    // column, five attack, six ring, then the foe riflemen 16..18); row 1 (the Attack, drill press = 2) at 541 by id 6,
+    // the second tank, on the side-1 riflemen near (38.5, 16.5).
+    expect(a.contacts).toBe('444:16:16:1 541:1:6:2');
+    // Column marching still (its last leg done, nothing hit it), Attack in contact, ring sprung, side-1 Column in contact
+    expect(a.endStates).toBe('1,3,4,3');
   });
 
   it('the pinned hash', () => {
