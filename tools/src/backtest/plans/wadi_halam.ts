@@ -91,6 +91,9 @@ export const wadiHalam1Plan: Plan = (sim, rt, ids, at) => {
   const spike = ids('at_team');
   const jeep = ids('jeep_shoded');
   const apc = ids('apc_eitan');
+  // GH-707 (30 Oct): the loaned medic team stays where it stands. The periodic re-anchor below sweeps "everything of
+  // side 0 but the Spike and the APC" to the anchor, which walked it into the grove with the squads and lost seed 25.
+  const medic = ids('inf_medic_squad');
   const ANCHOR = M(10.5, 24);
   const BANK = M(12, 24);
   const STANDOFF = M(4, 24);
@@ -123,7 +126,7 @@ export const wadiHalam1Plan: Plan = (sim, rt, ids, at) => {
   for (let when = 130; when <= 320; when += 45) {
     at(when, () => {
       const cur: number[] = [];
-      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !spike.includes(i) && !apc.includes(i)) cur.push(i);
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !spike.includes(i) && !apc.includes(i) && !medic.includes(i)) cur.push(i);
       sim.queueCommand({ kind: 'attackMove', ids: cur, ...ANCHOR });
       sim.queueCommand({ kind: 'attackMove', ids: spike.filter((i) => sim.state.alive[i] === 1), ...STANDOFF });
     });

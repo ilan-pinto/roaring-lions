@@ -85,6 +85,14 @@
         1,
         20
       ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        3,
+        23
+      ]
     }
   ],
   "objectives": [

@@ -231,10 +231,10 @@ describe('the map the design specifies', () => {
     expect(totalHp).toBe(13_500);
   });
 
-  it('sits every one of its 25 markers on passable ground', () => {
+  it('sits every one of its 26 markers on passable ground', () => {
     const { map } = load(MAP);
     const names = Object.keys(MAP.markers ?? {});
-    expect(names).toHaveLength(25);
+    expect(names).toHaveLength(26);
     for (const name of names) {
       const [x, y] = marker(name);
       expect(map.blocked[y * map.width + x], `${name} at (${x},${y})`).toBe(0);
