@@ -6,9 +6,10 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
 
 <!-- CLAUDE.md lines 506-531, section "Dev instruments" -->
 
-- **`qarn_hadid` is the terrain map** — the only one carrying all ten terrain
-  symbols, and the only place `3` (cover 3) and `d` (the anti-tank ditch) are
-  authored at all; both had ZERO tiles anywhere before it. Sandbox-only until 2026-09-07; it now carries the three Qarn Hadid missions
+- **`qarn_hadid` is the terrain map** — the one that authors every terrain
+  symbol legal on its theme (corrected 2026-10-30: it is NOT the only place `3` or `d` appears;
+  by tile count `b` is on 24 shipped maps, `d` on 6, `3` on 4, and `~` on one, `ein_qasab`;
+  when it was first authored, `3` (cover 3) and `d` (the anti-tank ditch) had ZERO tiles anywhere). Sandbox-only until 2026-09-07; it now carries the three Qarn Hadid missions
   (Act II's interlude between Tel Marum and Umm Zeitoun, `docs/campaign/qarn_hadid/`),
   with the arc's own sight and route facts pinned in
   `tools/src/qarn_hadid_doctrine.test.ts` beside the relief test. Its shape is one idea: a rock wall across the middle with TWO ways

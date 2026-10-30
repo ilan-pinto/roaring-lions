@@ -13310,7 +13310,7 @@ export function composeTerrainFrom(
     // GH-322: the theme's extra open-ground decor, read only by
     // `decorPlacements`. Absent on every theme but `highland`.
     openScatter: tones.openScatter,
-    // GH-871: the wetland's remap and waterside tree. Inert until Task 6.
+    // GH-871: the wetland's remap and waterside tree. Read by the decor pass (T6b/T6c).
     familyRemap: tones.familyRemap,
     waterside: tones.waterside,
   };

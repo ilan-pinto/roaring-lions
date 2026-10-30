@@ -43,7 +43,7 @@
       "type": "string",
       "enum": ["arid", "green", "highland", "wetland"],
       "default": "arid",
-      "description": "Terrain theme: which tone bundle and ground texture the renderer draws this map with. Presentation only -- it never reaches the sim, exactly like the decor layer. 'arid' is the Sahar limestone-and-dust look every map before Naharin uses; 'green' is the Naharin river basin; 'highland' is the Sur front (GH-322): terra rossa earth between grey limestone, cedars on the slopes, scree and outcrops. validate_data.mjs requires 'highland' on every map a Sur mission uses. 'wetland' is a Levantine valley in the early-spring flush, where rain belongs to the theme (Free Play only, GH-871). Adding a theme is a renderer change; adding a map that uses one is not."
+      "description": "Terrain theme: which tone bundle and ground texture the renderer draws this map with. Presentation only -- it never reaches the sim, exactly like the decor layer. 'arid' is the Sahar limestone-and-dust look every map before Naharin uses; 'green' is the Naharin river basin; 'highland' is the Sur front (GH-322): terra rossa earth between grey limestone, cedars on the slopes, scree and outcrops. validate_data.mjs requires 'highland' on every map a Sur mission uses. 'wetland' is a Levantine valley in the early-spring flush, where rain belongs to the theme (held out of the Free Play picker until P3, see UNLISTED_MAP_IDS in packages/app/src/ui/menu.ts; GH-871). Adding a theme is a renderer change; adding a map that uses one is not."
     },
     "grove": {
       "type": "string",

@@ -321,7 +321,7 @@ determinism hashes and the visual baselines did not move. Each bullet below is a
   ORIGINAL family; only the `family` field written into the placement is renamed. Remapping before `openObjectScale`
   would make `wet_grass` miss `GRASS_SCALE_*` and the tuft would stand taller than the units it hides. The test is a
   rename-only one: a wet map's placements equal the same input without the remap, family name aside. `NO_TWIN` is
-  `{cedar, oak}` (the 5.0 m oak never places a grove twin, as the cedar never does). The remap does not touch
+  `{cedar, oak}` (the oak never places a grove twin, as the cedar never does; P2 draws the 5.4 m cedar stand-in for it, the planned 5.0 m oak is P3). The remap does not touch
   `sand`, `rock`, `slab` or `boulder`.
 - **The marsh branch goes BEFORE the boulder branch, in `familyFor` and in `decorFamiliesFor`, and that order is
   load-bearing.** A `~` tile sets the boulder mask (the vehicle wall it shares with `b` and `d`), so a marsh that fell

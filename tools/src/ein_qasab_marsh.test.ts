@@ -180,13 +180,20 @@ describe('Ein Qasab: a vehicle can leave the verge and reach the hamlet, over a 
     return null;
   }
 
-  it('crosses a causeway tile and never touches a building tile', () => {
+  it('keeps a vehicle out of the marsh, over a causeway, while a foot soldier wades', () => {
     const { sim } = build();
     const path = route(sim.blockedVehicle, sim.elevation, [4, 44], [42, 22]);
     expect(path).not.toBeNull();
     const p = path ?? [];
     expect(p.length).toBeGreaterThan(40);
-    expect(p.some(([x, y]) => (y === 12 || y === 34) && x >= 13 && x <= 37)).toBe(true);
-    for (const [x, y] of p) expect(WALLS.has(symbolAt(x, y)) && symbolAt(x, y) !== '^', `(${x},${y})`).toBe(false);
+    // The marsh is a wall to anything wheeled or tracked: not one tile of the vehicle path is `~`.
+    for (const [x, y] of p) expect(symbolAt(x, y), `vehicle path tile (${x},${y})`).not.toBe('~');
+    // The path still has to cross: it takes a causeway (`r`) row.
+    expect(p.some(([x, y]) => symbolAt(x, y) === 'r')).toBe(true);
+    // A soldier on foot may wade, and the shortcut through the marsh is real.
+    const foot = route(sim.blocked, sim.elevation, [4, 44], [42, 22]) ?? [];
+    expect(foot.length).toBeGreaterThan(0);
+    expect(foot.some(([x, y]) => symbolAt(x, y) === '~'), 'foot path wades a marsh tile').toBe(true);
+    expect(foot.length).toBeLessThan(p.length);
   });
 });

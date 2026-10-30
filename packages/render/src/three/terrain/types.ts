@@ -110,13 +110,13 @@ export interface TerrainInput {
   /**
    * The theme's grass/bush remap -- `TerrainTones.familyRemap`, passed
    * through by `composeTerrain` (GH-871). Absent means no remap: grass and
-   * bush draw as themselves. Inert until the decor pass reads it.
+   * bush draw as themselves. The decor pass reads it.
    */
   familyRemap?: TerrainTones['familyRemap'];
   /**
    * The theme's waterside tree -- `TerrainTones.waterside`, passed through
-   * by `composeTerrain` (GH-871). Absent means none. Inert until the decor
-   * pass reads it.
+   * by `composeTerrain` (GH-871). Absent means none. The decor pass reads
+   * it.
    */
   waterside?: TerrainTones['waterside'];
 }
