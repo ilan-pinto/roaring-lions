@@ -18,8 +18,8 @@
  *    `compiled()` seam), plus `customProgramCacheKey()` and `defines`.
  *  - light: the sun's intensity, colour (r, g, b) and direction; the
  *    hemisphere's intensity, sky colour and ground colour; the sun's shadow
- *    map size (x, y); the fog pass's `uHazeFar` and `uHazeTint`; `HAZE_LOW`
- *    (haze.ts); and the renderer's `toneMappingExposure`.
+ *    map size (x, y); the fog pass's `uHazeFar` and `uHazeTint`; its own
+ *    `hazeLow` (the value compiled into its source); and the renderer's `toneMappingExposure`.
  *
  *  - scene (GH-871 P4 T1, added before any rain wiring): everything P4 can
  *    touch that `program` and `light` cannot see. The fog pass's fragment
@@ -39,7 +39,7 @@
  *    entries' `scene` byte-identical.
  *
  * `init()` needs a live GL context, so the fog pass is slotted in the way
- * `init()` does it (`new FogOfWarPass(shroud.texture, w, h)`, then
+ * `init()` does it (`createFogPass()`, then
  * `applyHaze()`), and one `frame()` runs first so the terrain rebuild has run.
  *
  * Regenerate (only for a DELIBERATE change to a shipped theme's program or
@@ -61,7 +61,6 @@ import { Sim } from '@lions/sim';
 import { maps, parseMap, applyTerrain, type MapJson } from '@lions/data';
 import { ThreeRenderer } from '../../packages/render/src/three/ThreeRenderer';
 import { FogOfWarPass } from '../../packages/render/src/three/fog-pass';
-import { HAZE_LOW } from '../../packages/render/src/three/haze';
 import type { GroundMaterial } from '../../packages/render/src/three/terrain/mesh';
 import type { SceneLights } from '../../packages/render/src/three/lighting';
 import { swayingFoliageMaterial, type SwayUniforms } from '../../packages/render/src/three/terrain/decor-mesh';
@@ -145,6 +144,7 @@ interface Private {
   renderer: { toneMappingExposure: number };
   shroud: ShroudTexture;
   fogPass: FogOfWarPass | null;
+  createFogPass(): FogOfWarPass;
   applyHaze(): void;
 }
 
@@ -250,8 +250,9 @@ function identityOf(json: MapJson, weather?: 'clear'): Identity {
   // `weather: 'clear'` is a seam P4 reads (GH-871): naming it must change nothing.
   const r = new ThreeRenderer(sim, { ...rendererOptionsFor(parsed, HIGH, '/'), ...(weather ? { weather } : {}) });
   const priv = r as unknown as Private;
-  // What `init()` does with the fog pass, minus the GL-dependent rest.
-  priv.fogPass = new FogOfWarPass(priv.shroud.texture, sim.width, sim.height);
+  // What `init()` does with the fog pass, minus the GL-dependent rest: the
+  // very method `init()` calls, so a rain-only option reaches this pass too.
+  priv.fogPass = priv.createFogPass();
   r.frame(1, 0);
   priv.applyHaze();
 
@@ -278,7 +279,9 @@ function identityOf(json: MapJson, weather?: 'clear'): Identity {
     shadowMapSize: [sun.shadow.mapSize.x, sun.shadow.mapSize.y],
     hazeFar: fog.uHazeFar.value,
     hazeTint: r6(fog.uHazeTint.value.toArray()),
-    hazeLow: HAZE_LOW,
+    // The pass's own value (GH-871 P4 T2), not the `haze.ts` import: a wet
+    // `HAZE_LOW` is compiled into the pass and would be invisible to the import.
+    hazeLow: priv.fogPass.hazeLow,
     exposure: priv.renderer.toneMappingExposure,
   };
   const sceneFields = sceneFieldsOf(priv);
@@ -373,7 +376,8 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
       it('boots the recorded light', () => {
         expect(got.light, JSON.stringify(got.lightFields)).toBe(recorded[c.key].light);
       });
-      it("names weather: 'clear' and gets the identical program and light", () => {
+      // The wetland rains by default, so naming 'clear' there DOES change it (below).
+      it.runIf(SHIPPED_KEYS.includes(c.key))("names weather: 'clear' and gets the identical program and light", () => {
         const clear = identityOf(c.json, 'clear');
         expect(clear.program).toBe(recorded[c.key].program);
         expect(clear.scene).toBe(recorded[c.key].scene);
@@ -392,6 +396,29 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
     });
     it('boots a light of its own (the haze differs by design)', () => {
       expect(recorded.wetland.light).not.toBe(recorded.beit_sahwan_outskirts.light);
+    });
+    it("names weather: 'clear' and gets the dry light: nothing rains", () => {
+      // The seam's other side: `rendererOptionsFor` sets 'rain' for this
+      // theme, and an explicit 'clear' overrides it back to today's path.
+      const f = identityOf(WETLAND_FIXTURE, 'clear').lightFields;
+      expect(f.shadowMapSize).toEqual([4096, 4096]);
+      expect(f.sunIntensity).toBe(2.6);
+      expect(f.hemiIntensity).toBe(0.9);
+      expect(f.hazeLow).toBe(0.06);
+    });
+    it('boots the rain light (GH-871 P4 T2), as literals', () => {
+      const got = identityOf(WETLAND_FIXTURE);
+      const f = got.lightFields;
+      // Under rain the shadow map is one step down from high's 4096, by design.
+      expect(f.shadowMapSize).toEqual([2048, 2048]);
+      expect(f.sunIntensity as number).toBeCloseTo(1.196, 9);
+      expect(f.hemiIntensity).toBe(1.35);
+      expect(f.hazeFar).toBe(0.26);
+      expect(f.hazeLow).toBe(0.1);
+      expect(f.exposure).toBe(1);
+      expect(got.sceneFields.shadowIntensity).toBe(0.45);
+      // And the scene digest moved with the fog source (hazeLow is compiled in).
+      expect(recorded.wetland.scene).not.toBe(recorded.beit_sahwan_outskirts.scene);
     });
   });
 });

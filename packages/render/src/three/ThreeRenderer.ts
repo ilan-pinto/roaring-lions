@@ -599,6 +599,7 @@ import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
+import { rainLight, rainShadowMapSize, type RainLight } from './weather';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileYawFor } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
@@ -1176,6 +1177,9 @@ export class ThreeRenderer implements Renderer {
    *  -- kept so the haze's tint is scaled by the very sun and sky that light
    *  the ground it is mixed over (R-13), not by the table's copy of them. */
   private readonly resolvedLights: ResolvedLights;
+  /** `rainLight`'s settings under `weather: 'rain'` (GH-871 P4), else null: the
+   *  haze and the fog pass read the rain's key, far and low from here. */
+  private readonly rainSettings: RainLight | null;
   /** `hazeReferenceLevel` of the last terrain rebuild's input (N-19): the
    *  map's median open-ground level, 0 on a flat map. */
   private hazeRefLevel = 0;
@@ -3099,17 +3103,33 @@ export class ThreeRenderer implements Renderer {
     // (and the haze follows, since `applyHaze` reads these lights). Absent,
     // `withLightOverride` hands back the same object, so day is still
     // `DAY_LIGHTS` itself.
+    // GH-871 P4 T2 (R-1, R-2): under `weather: 'rain'` the resolved lights go
+    // through `rainLight` FIRST, then the mission's override (the mission
+    // wins). Any other `weather`, `'clear'` included, is today's path.
+    const baseLights = this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset);
+    const rain =
+      opts.weather === 'rain'
+        ? rainLight(baseLights, this.lightPreset, (key) => this.overlayColor(key))
+        : null;
+    this.rainSettings = rain;
     this.resolvedLights = withLightOverride(
-      this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset),
+      rain === null
+        ? baseLights
+        : {
+            ...rain.lights,
+            direction: new THREE.Vector3(...rain.lights.direction),
+          },
       opts.lightOverride
     );
+    const baseShadowMap = (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize;
     this.sceneLights = createSceneLights(
       sim.width,
       sim.height,
-      (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize,
+      rain === null ? baseShadowMap : rainShadowMapSize(baseShadowMap, rain.shadowStep),
       this.resolvedLights
     );
-    this.sceneLights.sun.shadow.intensity = shadowIntensityOf(opts.lightOverride);
+    this.sceneLights.sun.shadow.intensity =
+      rain === null ? shadowIntensityOf(opts.lightOverride) : (opts.lightOverride?.shadow ?? rain.shadowIntensity);
     this.sceneLights.addTo(this.scene);
     this.shadowFitMode = (opts.quality ?? QUALITY_PRESETS.high).shadowFit ?? 'map';
     // GH-705 smoke uplift P2: the flipbook's low tier (no sparks, thinned column).
@@ -3257,7 +3277,7 @@ export class ThreeRenderer implements Renderer {
     // reads as `readBuffer.depthTexture` is that pass's own depth. The chain
     // does NOT take ownership (see `PostChain.setFogPass`), so `dispose()`
     // releases this one.
-    this.fogPass = new FogOfWarPass(this.shroud.texture, this.sim.width, this.sim.height);
+    this.fogPass = this.createFogPass();
     this.post.setFogPass(this.fogPass);
     this.applyBackdropFog();
     // Ground plan 2, Task 9: the dust haze lives in the same pass (R-14).
@@ -11567,14 +11587,32 @@ export class ThreeRenderer implements Renderer {
   private applyHaze(): void {
     if (this.fogPass === null) return;
     const p = this.lightPreset;
-    const hex = p.hazeKey !== null ? this.overlayColor(p.hazeKey) : this.opts.terrainTones.haze;
+    // Under rain the haze takes the rain's key and far (R-2), whatever the
+    // preset or the theme says; `lightOverride` reaches it through the lights.
+    const rain = this.rainSettings;
+    const hazeKey = rain !== null ? rain.hazeKey : p.hazeKey;
+    const hex = hazeKey !== null ? this.overlayColor(hazeKey) : this.opts.terrainTones.haze;
     const [r, g, b] = hexToLinear(hex);
     const k = hazeRadiance(
       this.resolvedLights.sunIntensity,
       this.resolvedLights.direction.y,
       this.resolvedLights.hemiIntensity
     );
-    this.fogPass.setHaze({ tint: [r * k, g * k, b * k], far: p.hazeFar, refLevel: this.hazeRefLevel });
+    this.fogPass.setHaze({ tint: [r * k, g * k, b * k], far: rain !== null ? rain.hazeFar : p.hazeFar, refLevel: this.hazeRefLevel });
+  }
+
+  /** The fog pass, built the way `init()` builds it. Under rain the low-lying
+   *  haze is 0.10 (`RAIN_HAZE_LOW`, a compile-time option); otherwise the pass
+   *  is built with no option at all and its source is today's. A method so a
+   *  GL-free test (`tools/src/theme-identity.test.ts`) builds the same pass. */
+  private createFogPass(): FogOfWarPass {
+    const rain = this.rainSettings;
+    return new FogOfWarPass(
+      this.shroud.texture,
+      this.sim.width,
+      this.sim.height,
+      rain === null ? undefined : { hazeLow: rain.hazeLow }
+    );
   }
 
   /** A dawn or dusk preset as lights: its sun direction (`sunDirectionFor`),
