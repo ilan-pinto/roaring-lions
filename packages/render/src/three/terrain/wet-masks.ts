@@ -4,10 +4,10 @@
  *
  * Pure and three-free, like `shared.ts` (`marshWaterAt`) and `surface.ts`. The
  * import list is pinned by `wet-masks.test.ts`: this file may read the tile
- * hash, the haze maths, the marsh function, the road graph, the surface and the
- * input type, and nothing else. In particular it does NOT import
- * `control-map.ts` (which imports it): the macro field and the tile-kind
- * decision arrive in a `WetField`, built by `control-map.ts`'s `buildWetField`.
+ * hash, the marsh function, the road graph, the surface and the input type,
+ * and nothing else. In particular it does NOT import `control-map.ts` (which
+ * imports it): the tile-kind decision arrives in a `WetField`, built by
+ * `control-map.ts`'s `buildWetField`.
  *
  * **R (marsh water)** is `marshWaterAt` at the texel CENTRE, as is. The reed
  * placer rejects a clump centre where that same function reads `>= 0.5`

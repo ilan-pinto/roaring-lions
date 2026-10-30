@@ -11686,7 +11686,7 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * The puddle-reflectance A/B's only door (GH-871 P4, R-12): writes the two
-   * authored reflectances, `puddle` (roads and open ground) and `marsh`. On the
+   * authored reflectances, `puddle` (roads) and `marsh`. On the
    * CONCRETE class only -- never on the `Renderer` interface, never in `api.ts`,
    * no flag reaches a player -- the `debugPreBloomLuminance` precedent;
    * `ground:capture` calls it. A value outside 0..1 throws (it is not a

@@ -22,8 +22,8 @@
  *  - SURFACE: `waterAlbedo(floor, reflect, sky)` = the tone under it x
  *    `WATER_ALBEDO` (0.55), mixed toward the sky by the REFLECTANCE. The
  *    reflectance is authored (R-5), not Fresnel (physical Fresnel here is 0.05
- *    and reads as nothing, spec 4.3): `uPuddleReflect` for roads and open
- *    ground, `uMarshReflect` for the marsh, weighted by which mask is the
+ *    and reads as nothing, spec 4.3): `uPuddleReflect` for roads,
+ *    `uMarshReflect` for the marsh, weighted by which mask is the
  *    stronger. `sky` is `uWetSky`, `overcast.0` x the rain `hazeRadiance`.
  *  - RIM: a `WATER_RIM_TILES` (0.06) band of `mud.3` on the land side of every
  *    water edge. The shader has a mask, not a distance field, so the distance
@@ -92,7 +92,7 @@ export const RIPPLE_REFLECT_SWING = 0.15;
  * `tileHash`. FRESH: grepped unused across `terrain/`, `decal-*.ts`, `units/`
  * and the render, app, sim and data sources (30 Oct 2026). Taken so far: the
  * reed and waterside placers' streams (`decor-place.ts`, below 13,300) and
- * control C's three puddle streams (`wet-masks.ts`, below 14,600). Ring `k`
+ * control C's one puddle stream (`wet-masks.ts`, below 14,200). Ring `k`
  * adds `k * RIPPLE_RING_STRIDE` to `a`.
  */
 export const RIPPLE_X_STREAM: readonly [number, number] = [14621, 14731];

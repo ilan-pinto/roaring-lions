@@ -374,7 +374,11 @@ describe('a collapse on Ein Qasab splices control C to the bytes a full wet buil
  * of a full build at the shipped margin.
  */
 describe('a warehouse collapse on a relief map splices C to the full build at the shipped margin', () => {
-  it('umm_zeitoun_4, structure 1: the spliced C is the full build', () => {
+  // A SMOKE test, not a falsification: this collapse is nowhere near a road, so
+  // it moves no byte of C (the margin's falsification is in control-map.test.ts).
+  // It proves the splice path runs on a wet relief map and that C, which holds
+  // real road puddles here, comes out of it equal to a full build.
+  it('umm_zeitoun_4, structure 1: splice smoke test, C equals the full build', () => {
     const r = rig('umm_zeitoun_4', true);
     const before = r.build(null);
     const map = buildControlMap(before.composed.input, before.state.surface);
@@ -387,6 +391,9 @@ describe('a warehouse collapse on a relief map splices C to the full build at th
     expect(surfaceTiles, 'the warehouse reflows the smoothing field').toBeGreaterThan(5);
     updateControlMapRegion(map, full.composed.input, changed, undefined, full.state.surface);
     const fresh = buildControlMap(full.composed.input, full.state.surface);
+    let puddleBytes = 0;
+    for (let o = 1; o < (fresh.c as Uint8Array).length; o += 4) if ((fresh.c as Uint8Array)[o] >= 128) puddleBytes++;
+    expect(puddleBytes, 'C is built and holds road puddles, so the comparison is not of two empty maps').toBeGreaterThan(0);
     expect(bytesDiff(map.c as Uint8Array, fresh.c as Uint8Array)).toBe(0);
   }, 60_000);
 });

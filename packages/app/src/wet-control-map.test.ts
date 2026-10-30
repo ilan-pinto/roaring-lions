@@ -84,7 +84,7 @@ describe('control C on ein_qasab', () => {
 
   /** Shares over C's texels. `byte >= 128` is a channel at or over 0.5. */
   function shares() {
-    let marshN = 0, marshWater = 0, roadN = 0, roadPuddle = 0, openN = 0, openPuddle = 0, elsewherePuddle = 0, openOver = 0;
+    let marshN = 0, marshWater = 0, roadN = 0, roadPuddle = 0, openN = 0, openPuddle = 0, elsewherePuddle = 0;
     for (let j = 0; j < cm.height; j++) {
       for (let i = 0; i < cm.width; i++) {
         const o = (j * cm.width + i) * 4;
@@ -101,11 +101,10 @@ describe('control C on ein_qasab', () => {
         } else if (input.blocked[t] === 0 && input.decor !== null && input.decor[t] === 0 && input.cover[t] === 0) {
           openN++;
           if (puddle) openPuddle++;
-          if (c[o + 1] >= 128) openOver++;
         } else if (puddle) elsewherePuddle++;
       }
     }
-    return { marsh: marshWater / marshN, road: roadPuddle / roadN, open: openPuddle / openN, elsewherePuddle, marshN, roadN, openN, openOver };
+    return { marsh: marshWater / marshN, road: roadPuddle / roadN, open: openPuddle / openN, elsewherePuddle, marshN, roadN, openN };
   }
 
   it('measures a real map: tens of thousands of marsh and open texels, thousands of road texels', () => {
@@ -132,8 +131,7 @@ describe('control C on ein_qasab', () => {
     const s = shares();
     // non-vacuous: the open population is large, and the share of road is real
     expect(s.openN, 'open texels measured').toBeGreaterThan(90000);
-    expect(s.openOver, `open texels with G >= 128 (of ${s.openN})`).toBe(0);
-    expect(s.open).toBe(0);
+    expect(s.open, `open texels with G >= 128 (of ${s.openN})`).toBe(0);
     expect(s.road, 'the road keeps its puddles').toBeGreaterThan(0.25);
   });
 
