@@ -49,8 +49,10 @@ KNUCKLE_PAD = (0.072, 0.012, 0.0018)
 FINGER_X = (-0.0355, -0.0120, 0.0120, 0.0355)   # index .. little, thumb at -x
 KNUCKLE_Y = (0.104, 0.107, 0.103, 0.095)        # the knuckle arc; middle: 0.107 + 0.087 = 0.194
 FINGER_Z = -0.0045           # the finger axis sits palm-side of the palm's mid-plane
-TRIANGLE_CAP = 256
-FIST_CAP = 48
+TRIANGLE_CAP = 400           # the lead's ruling after R0b (max detail); the spec said 256
+FIST_CAP = 64               # the corpse fist: the spec said 48
+PALM_SIDES = 12
+FINGER_SIDES = 7
 
 
 class Mesh:
@@ -97,10 +99,15 @@ def _poly(n, w, h, phase_deg=0.0):
     return out
 
 
+def _ngon(n, w, h):
+    """An even n-gon whose flats reach exactly w/2 and h/2."""
+    half = 180.0 / n
+    c = math.cos(math.radians(half))
+    return [(x / c, y / c) for (x, y) in _poly(n, w, h, half)]
+
+
 def _octagon(w, h):
-    """An 8-gon whose flats reach exactly w/2 and h/2."""
-    c = math.cos(math.radians(22.5))
-    return [(x / c, y / c) for (x, y) in _poly(8, w, h, 22.5)]
+    return _ngon(8, w, h)
 
 
 def _ring_normals(P, C, axis):
@@ -253,7 +260,7 @@ POSES = {
 
 #: Where the proxy sits along the hand's y, as a distance from the middle knuckle (grip: the strap's front face; the
 #: others: the circle's centre from the wrist). Tuned against the real carbine (see the R0b numbers).
-PROXY_Y = {"grip": -0.004, "support": 0.074, "handle": 0.085}
+PROXY_Y = {"grip": -0.004, "support": 0.070, "handle": 0.085}
 
 
 def default_proxy(pose, s=1.0):
@@ -359,7 +366,7 @@ def build(pose="grip", side="R", S=REF_STATURE, proxy=None, kind="living", verbo
         K = np.array((FINGER_X[i] * s, KNUCKLE_Y[i] * s, FINGER_Z * s))
         L = FINGER_LEN[i] * s
         lens = [L * f for f in PHALANX]
-        radius = FINGER_W[i] * s * FINGER_T / 2.0
+        radius = FINGER_W[i] * s * FINGER_T / 2.0 * math.cos(math.pi / FINGER_SIDES) * 1.04   # the palmar flat of a 7-gon, at the swollen knuckle
         ceil = P["ceil"]
         if i == 0 and pose == "grip":
             ang, hit = [0.0, 0.0, 0.0], [False] * 3          # the trigger finger lies straight along the receiver
@@ -374,7 +381,7 @@ def build(pose="grip", side="R", S=REF_STATURE, proxy=None, kind="living", verbo
             dirs = [Rz @ d for d in dirs]
             uvec = Rz @ uvec
         w0 = FINGER_W[i] * s
-        widths = [w0, w0 * 1.03, w0 * 0.97, w0 * 0.92]
+        widths = [w0, w0 * 1.07, w0 * 1.02, w0 * 0.92]       # the PIP and DIP knuckles swell a little
         fingers.append(dict(K=K, pts=pts, dirs=dirs, widths=widths, angles=ang, hit=hit, radius=radius, u=uvec))
 
     # ---------------------------------------------------------------- palm and back: 3 bands + cap
@@ -387,7 +394,7 @@ def build(pose="grip", side="R", S=REF_STATURE, proxy=None, kind="living", verbo
     rings = []
     for k in range(4):
         pts = []
-        for (a, b) in _octagon(br[k] * s, th[k] * s):
+        for (a, b) in _ngon(PALM_SIDES, br[k] * s, th[k] * s):
             y = ys[k] * s if k < 3 else arc(a) * s
             pts.append(np.array((a + xc[k] * s, y, b)))
         rings.append(pts)
@@ -414,7 +421,7 @@ def build(pose="grip", side="R", S=REF_STATURE, proxy=None, kind="living", verbo
     # ---------------------------------------------------------------- fingers (index may be its own part: the trigger finger)
     for i, f in enumerate(fingers):
         grp = "index" if (i == 0 and pose == "grip") else f"finger{i}"
-        _tube(m, grp, f["pts"], f["dirs"], f["widths"], FINGER_T, 0.006 * s, s, n=(4 if i == 3 else 5), phase=(45.0 if i == 3 else 90.0), u=f["u"])
+        _tube(m, grp, f["pts"], f["dirs"], f["widths"], FINGER_T, 0.006 * s, s, n=FINGER_SIDES, phase=90.0, u=f["u"])
 
     # ---------------------------------------------------------------- thumb: CMC at the palm's radial edge
     tp = P["thumb"]
@@ -435,16 +442,18 @@ def build(pose="grip", side="R", S=REF_STATURE, proxy=None, kind="living", verbo
     n2 = _unit(zdown - np.dot(zdown, d1) * d1)
     d2 = rot(d1, n2, tp["ip"])
     p2 = p1 + d2 * THUMB_LEN[1] * s
-    tpts = np.array([cmc, mcp, p1, p2])
+    tpts = np.array([cmc, cmc + (mcp - cmc) * 0.5, mcp, p1, p2])
     w = THUMB_W * s
-    _thumb_tube(m, tpts, [meta, d1, d2], [w * 1.25, w * 1.08, w * 0.98, w * TIP_TAPER], s)
+    # the thenar mound: the metacarpal's middle is the fat part, a muscle pad wider than the thumb it feeds
+    _thumb_tube(m, tpts, [meta, meta, d1, d2], [w * 1.25, w * 1.70, w * 1.08, w * 0.98, w * TIP_TAPER], s)
 
     # ---------------------------------------------------------------- cuff: a funnel that ends IN the palm's wrist ring
     # (the same 8 points, the same smooth normals, so the glove has no seam there: the sleeve overlaps the flared end)
     cw, ch = WRIST[0] * s, WRIST[1] * s
     hem = CUFF_HEM * s
-    ringA = [np.array((a, -0.030 * s, b)) for (a, b) in _octagon(cw + 2 * hem, ch + 2 * hem)]
-    _loft(m, "cuff", [ringA, rings[0]])
+    ringA1 = [np.array((a, -0.0255 * s, b)) for (a, b) in _ngon(PALM_SIDES, cw + 2 * hem, ch + 2 * hem)]
+    ringA0 = [np.array((a * 0.93, -0.030 * s, b * 0.90)) for (a, _y, b) in ringA1]       # the rolled lip: the mouth turns in
+    _loft(m, "cuff", [ringA0, ringA1, rings[0]])
 
     # ---------------------------------------------------------------- mirror for the left hand
     verts, tris = m.arrays()
@@ -470,15 +479,16 @@ def _mirror_proxy(p):
     return p      # the proxies are extruded along x, so a mirror does not change their (y, z) shape
 
 
-def _thumb_tube(m, pts, dirs, widths, s, n=5):
-    """The thumb: the metacarpal's root (buried in the palm's thenar mass), the MCP joint, the IP joint and
-    the tip. The flat of the thumb faces the palm."""
+def _thumb_tube(m, pts, dirs, widths, s, n=FINGER_SIDES):
+    """The thumb, five rings: the metacarpal's root (buried in the palm), the thenar mound (the fat middle of the
+    metacarpal), the MCP joint, the IP joint, the tip. The flat of the thumb faces the palm."""
     rings = []
     rings.append(_ring3(pts[0] - dirs[0] * 0.004 * s, dirs[0], widths[0], n))
-    for k in (1, 2):
+    rings.append(_ring3(pts[1], dirs[1], widths[1], n, thick_ratio=0.72))      # the mound is wide and low
+    for k in (2, 3):
         rings.append(_ring3(pts[k], _unit(dirs[k - 1] + dirs[k]), widths[k], n))
-    rings.append(_ring3(pts[3] - dirs[2] * 0.0030, dirs[2], widths[3] * 0.80, n))
-    _loft(m, "thumb", rings, apex=pts[3])
+    rings.append(_ring3(pts[4] - dirs[3] * 0.0030, dirs[3], widths[4] * 0.80, n))
+    _loft(m, "thumb", rings, apex=pts[4])
 
 
 def _ring3(C, d, width, n, thick_ratio=0.9):
@@ -492,14 +502,14 @@ def _ring3(C, d, width, n, thick_ratio=0.9):
 
 
 def _fist(side, s):
-    """The corpse's fist: an 8-sided closed fist and a thumb lump, at most 48 triangles."""
+    """The corpse's fist: a 12-sided closed fist and a thumb lump, at most 64 triangles."""
     m = Mesh()
     ys = (0.0, 0.040, 0.082)
     br = (0.060, 0.088, 0.082)
     th = (0.034, 0.060, 0.056)
     rings = []
     for k in range(3):
-        rings.append([np.array((a, ys[k] * s, b)) for (a, b) in _octagon(br[k] * s, th[k] * s)])
+        rings.append([np.array((a, ys[k] * s, b)) for (a, b) in _ngon(12, br[k] * s, th[k] * s)])
     _loft(m, "fist", rings, apex=np.array((0.0, 0.098 * s, -0.004 * s)))
     # thumb lump: a 4-triangle tetrahedron on the radial side
     b0 = m.vert((-0.040 * s, 0.040 * s, -0.012 * s))

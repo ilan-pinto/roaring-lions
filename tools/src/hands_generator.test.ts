@@ -1,15 +1,18 @@
 /**
- * The hand generator (`tools/units/hands.py`, numpy only) under the spec's caps (GH-826 F1, spec
- * 1.1): at most 256 triangles a living hand, 48 a corpse fist, 0.194 m long and 0.094 m across the
+ * The hand generator (`tools/units/hands.py`, numpy only) under its caps (GH-826 F1, spec 1.1, as
+ * ruled after R0b, 31 Oct 2026: the lead's max-detail rule raised the spec's 256 to 400 triangles a
+ * living hand and 48 to 64 a corpse fist; departure 17): 0.194 m long and 0.094 m across the
  * palm at S = 1.778, deterministic to the byte, scaled by S / 1.778.
  *
  * It runs the generator in a child `python3` (stdlib + numpy, as the backdrop gate does), so no
  * Blender is needed. The mesh checks on the BYTES (`mesh_hands.test.ts`, `kdf_carbine_part.test.ts`)
  * are the independent ones; this file pins what the generator itself promises.
  *
- * FALSIFICATION (run, red, put back): `TRIANGLE_CAP` lowered to 100 in the child makes `build`
- * exit with its refusal, which the last test asserts; and the 0.094 palm is pinned here against the
- * numbers in the spec, so a mutated `PALM_BREADTH` (x 1.25 in the palm rings) reads 0.118.
+ * FALSIFICATION (run, red, put back): the cap is pinned at the hand's own size, so it can fail from
+ * both sides. `TRIANGLE_CAP` lowered to 396, one under the 397 a hand is, makes `build` exit with its
+ * refusal; `FIST_CAP` lowered to 63 refuses the 64-triangle fist; a hand with an extra ring on every
+ * finger (+14 each, 453 triangles) breaks the 400 cap; and the 0.094 palm is pinned against the
+ * numbers in the spec, so a mutated palm (x 1.25 in the palm rings) reads 0.1175.
  */
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -58,19 +61,28 @@ print(json.dumps(out))
 
   it('runs', () => { expect(r.status, r.err).toBe(0); });
 
-  it('is at most 256 triangles a living hand, in every pose and on both sides', () => {
+  it('is at most 400 triangles a living hand, in every pose and on both sides', () => {
     for (const k of ['gripR', 'gripL', 'supportL', 'supportR', 'handleL', 'handleR']) {
-      expect(d[k].tris, k).toBeLessThanOrEqual(256);
-      expect(d[k].tris, k).toBeGreaterThan(200);                // a modelled hand, not a stub
+      expect(d[k].tris, k).toBeLessThanOrEqual(400);
+      expect(d[k].tris, k).toBeGreaterThan(350);                // the detail is spent, not a stub: 397
     }
   });
 
+  it('spends it on seven-sided fingers, a twelve-sided palm, a thenar mound and a lipped cuff', () => {
+    const g = d.gripR.groups;
+    expect(g.palm).toBe(84);                                    // 12 sides: 3 bands of 24 + the 12-triangle cap
+    expect(g.index).toBe(49);                                   // 7 sides: 3 bands of 14 + the 7-triangle tip
+    expect(g.finger1).toBe(49);
+    expect(g.thumb).toBe(63);                                   // 4 bands: root, mound, MCP, IP, tip
+    expect(g.cuff).toBe(48);                                    // 2 bands: the turned-in lip, then the funnel into the wrist
+  });
+
   it('keeps the index finger a part of its own on the firing hand (the trigger finger bone)', () => {
-    expect(d.gripR.groups.index).toBeGreaterThan(20);
+    expect(d.gripR.groups.index).toBeGreaterThan(40);
     expect(d.supportL.groups.index).toBeUndefined();
   });
 
-  it('is at most 48 triangles a corpse fist', () => { expect(d.fist.tris).toBeLessThanOrEqual(48); });
+  it('is at most 64 triangles a corpse fist', () => { expect(d.fist.tris).toBeLessThanOrEqual(64); expect(d.fist.tris).toBeGreaterThan(55); });
 
   it('is 0.194 m from the wrist crease to the middle fingertip, extended', () => {
     expect(d.extended_hand_length).toBeCloseTo(0.194, 4);
@@ -90,9 +102,39 @@ print(json.dumps(out))
 
   it('builds the left hand as the right hand mirrored in x', () => { expect(d.mirror_err).toBeLessThan(1e-12); });
 
-  it('refuses over its triangle cap instead of shipping it', () => {
+  it('refuses over its triangle cap instead of shipping it, and the cap sits exactly on the hand', () => {
     const over = py(HEAD + `H.TRIANGLE_CAP = 100; H.build('grip','R')`);
     expect(over.status).not.toBe(0);
     expect(over.err).toMatch(/triangles, the cap is 100/);
+    // one under the hand's own 397 refuses, the hand's own size passes: the cap is live, not slack
+    const one = py(HEAD + `H.TRIANGLE_CAP = 396; H.build('grip','R')`);
+    expect(one.status).not.toBe(0);
+    expect(one.err).toMatch(/397 triangles, the cap is 396/);
+    const exact = py(HEAD + `H.TRIANGLE_CAP = 397; print(H.build('grip','R')['triangles'])`);
+    expect(exact.out.trim()).toBe('397');
+  });
+
+  it('refuses a corpse fist over its own cap', () => {
+    const tight = py(HEAD + `H.FIST_CAP = 63; H.build('x','R',kind='fist')`);
+    expect(tight.status).not.toBe(0);
+    expect(tight.err).toMatch(/fist 64 triangles, the cap is 63/);
+  });
+
+  it('breaks the cap when a finger gains a ring (the detail that would not fit)', () => {
+    const extra = py(HEAD + `
+import numpy as np
+orig = H._tube
+def fatter(mesh, group, pts, dirs, widths, *a, **k):
+    # an extra ring at every knuckle: split each phalanx in two
+    P = [pts[0]]
+    D = []
+    W = [widths[0]]
+    for i in range(1, len(pts)):
+        P += [(pts[i-1] + pts[i]) / 2.0, pts[i]]; D += [dirs[i-1], dirs[i-1]]; W += [widths[i-1], widths[i]]
+    return orig(mesh, group, np.array(P), D, W, *a, **k)
+H._tube = fatter
+H.build('grip','R')`);
+    expect(extra.status).not.toBe(0);
+    expect(extra.err).toMatch(/triangles, the cap is 400/);
   });
 });

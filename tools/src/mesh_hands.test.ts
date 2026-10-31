@@ -1,6 +1,7 @@
 /**
  * Hand proportion (GH-826 F1, spec 1.10): L x W x T, the visible forearm, hand over forearm, the
- * hung elbow height. The instrument is `mesh_hands.ts`; the bands are the spec's literals.
+ * hung elbow height. The instrument is `mesh_hands.ts`; the bands are the spec's literals (the cap is 400
+ * since R0b, departure 17).
  *
  * STEP 1 STATE. No shipped figure has a hand bone yet, so two things are read here:
  *  - `art/parts/hands/hands_probe.glb`, the generator's own hands on the bones the hands pass will
@@ -51,7 +52,7 @@ describe('the generator\'s hands, on bones', () => {
     expect(r.lengthWithFingerM).toBeLessThan(HAND_BANDS.lengthWithFingerM[1]);
   });
 
-  it('stays at or under 256 triangles a living hand and 48 a corpse fist', () => {
+  it('stays at or under 400 triangles a living hand and 64 a corpse fist', () => {
     const glb = readGlb(PROBE);
     const tri = new Map<string, number>();
     for (const n of glb.json.nodes ?? []) {
@@ -61,9 +62,9 @@ describe('the generator\'s hands, on bones', () => {
       const fig = n.name.slice(0, 2);
       tri.set(fig, (tri.get(fig) ?? 0) + count);
     }
-    for (const fig of ['p0', 'p1', 'p2']) expect(tri.get(fig), fig).toBeLessThanOrEqual(256);
-    expect(tri.get('p3')).toBeLessThanOrEqual(48);
-    expect(tri.get('p0')).toBeGreaterThan(200);              // not a hollow pass: this is a modelled hand
+    for (const fig of ['p0', 'p1', 'p2']) expect(tri.get(fig), fig).toBeLessThanOrEqual(400);
+    expect(tri.get('p3')).toBeLessThanOrEqual(64);
+    expect(tri.get('p0')).toBeGreaterThan(350);              // not a hollow pass: this is a modelled hand
   });
 });
 
