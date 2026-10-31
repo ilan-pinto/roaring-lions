@@ -3,10 +3,13 @@ import { DECOR_GROVE, DECOR_KNOLL, DECOR_MARSH, DECOR_RIDGE, DECOR_ROAD } from '
 import type { TerrainInput } from './types';
 import {
   buildControlMap, buildMacroField, CONTROL_TEXELS_PER_TILE as N, heightBiased, macroBlurTexels,
-  macroFactor, MACRO_OCTAVES, MACRO_PERIOD_TILES, neutralTint, tileSurface,
+  macroFactor, MACRO_OCTAVES, MACRO_PERIOD_TILES, neutralTint, tileSurface, updateControlMapRegion,
+  changedControlTiles, snapshotControlInputs, WET_SPLICE_MARGIN_TEXELS,
 } from './control-map';
 import { boxBlur, fbm2 } from './noise';
 import { roadDistanceAt, buildRoadGraph } from './road-graph';
+import { marshWaterAt } from './shared';
+import { buildTerrainSurface, smoothNormal } from './surface';
 
 /** '.' open, 'r' road, 'o' grove, 'n' knoll, '1'-'3' cover, '#' pad, '^' ridge, '~' marsh (decor 6, cover 1). */
 function map(rows: readonly string[]): TerrainInput {
@@ -335,5 +338,161 @@ describe('macroFactor', () => {
   it('pulls hue toward the dust side when dark', () => {
     const c = macroFactor(-1, 1, bright, dark);
     expect(c[0] / c[2]).toBeGreaterThan(1);
+  });
+});
+
+describe('control C -- baked only under rain (GH-871 P4 T3)', () => {
+  const W = 16;
+  const marshRows = [...fill(W, 3, '.'), ...fill(W, 10, '~'), ...fill(W, 3, '.')];
+  const dryMarsh = map(marshRows);
+  const wetMarsh = { ...dryMarsh, wet: true as const };
+
+  it('allocates nothing without `wet`, even with a surface to read (the gate is `wet`, not "the map has a ~")', () => {
+    expect(dryMarsh.decor?.includes(6)).toBe(true); // it HAS a marsh
+    expect(buildControlMap(dryMarsh, buildTerrainSurface(dryMarsh)).c).toBeNull();
+    expect(buildControlMap(dryMarsh).c).toBeNull();
+  });
+
+  it('allocates nothing under rain without a surface, and a full RGBA texture with one', () => {
+    expect(buildControlMap(wetMarsh).c).toBeNull();
+    const cm = buildControlMap(wetMarsh, buildTerrainSurface(wetMarsh));
+    expect(cm.c).not.toBeNull();
+    expect((cm.c as Uint8Array).length).toBe(W * N * W * N * 4);
+  });
+
+  it('leaves control A and B byte-for-byte what a dry build writes', () => {
+    const dry = buildControlMap(dryMarsh);
+    const wet = buildControlMap(wetMarsh, buildTerrainSurface(wetMarsh));
+    expect(Buffer.from(wet.a).equals(Buffer.from(dry.a))).toBe(true);
+    expect(Buffer.from(wet.b).equals(Buffer.from(dry.b))).toBe(true);
+  });
+
+  it('R is marshWaterAt at the texel CENTRE, to the byte; B and A are spare, written 0', () => {
+    const cm = buildControlMap(wetMarsh, buildTerrainSurface(wetMarsh));
+    const c = cm.c as Uint8Array;
+    let water = 0;
+    for (let j = 0; j < cm.height; j++) {
+      for (let i = 0; i < cm.width; i++) {
+        const o = (j * cm.width + i) * 4;
+        const want = Math.round(marshWaterAt(wetMarsh.decor, W, W, (i + 0.5) / N, (j + 0.5) / N) * 255);
+        expect(c[o]).toBe(want);
+        expect(c[o + 2]).toBe(0);
+        expect(c[o + 3]).toBe(0);
+        if (c[o] >= 128) water++;
+      }
+    }
+    expect(water, 'the marsh really has water texels').toBeGreaterThan(200);
+  });
+
+  it('puts no puddle on a marsh tile (the marsh is water or reeds, not open ground)', () => {
+    const cm = buildControlMap(wetMarsh, buildTerrainSurface(wetMarsh));
+    const c = cm.c as Uint8Array;
+    for (let j = 3 * N; j < 13 * N; j++) for (let i = 0; i < W * N; i++) expect(c[(j * cm.width + i) * 4 + 1]).toBe(0);
+  });
+});
+
+describe('updateControlMapRegion refuses a wet map it cannot keep right (GH-871 P4 T4)', () => {
+  const W = 8;
+  const rows = [...fill(W, 2, '.'), ...fill(W, 4, '~'), ...fill(W, 2, '.')];
+  const dry = map(rows);
+  const wet = { ...dry, wet: true as const };
+  const changed = (): Uint8Array => {
+    const c = new Uint8Array(W * W);
+    c[3 * W + 3] = 1;
+    return c;
+  };
+
+  it('throws when the map has a control C and no surface is passed: C would be left stale, silently', () => {
+    const cm = buildControlMap(wet, buildTerrainSurface(wet));
+    expect(cm.c).not.toBeNull();
+    expect(() => updateControlMapRegion(cm, wet, changed())).toThrow(/control C.*surface/);
+    // With the surface it writes, and says how many texels.
+    expect(updateControlMapRegion(cm, wet, changed(), undefined, buildTerrainSurface(wet))).toBeGreaterThan(0);
+  });
+
+  it('a dry map needs no surface, and still takes none', () => {
+    const cm = buildControlMap(dry);
+    expect(cm.c).toBeNull();
+    expect(updateControlMapRegion(cm, dry, changed())).toBeGreaterThan(0);
+    expect(updateControlMapRegion(cm, dry, changed(), undefined, buildTerrainSurface(dry))).toBeGreaterThan(0);
+  });
+});
+
+describe('control C -- no low-ground boost on a synthetic bowl (the lead\'s S-L1 ruling: no puddle on open ground)', () => {
+  const W = 16;
+  // 16x16: an open floor in the middle (tiles 3..12), a rim around it. The rim is
+  // the majority, so the median open level is the rim's; the plan boosted the
+  // floor's puddles by 6% at 2 levels below it.
+  function bowl(floor: number): TerrainInput {
+    const elevation = new Uint8Array(W * W);
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) elevation[y * W + x] = x >= 3 && x < 13 && y >= 3 && y < 13 ? floor : 2;
+    return { width: W, height: W, decor: null, elevation, blocked: new Uint8Array(W * W), cover: new Uint8Array(W * W), wet: true };
+  }
+
+  for (const floor of [0, 1, 2]) {
+    it(`C.G is 0 on every open texel of a floor ${2 - floor} level(s) below the median, flat or not`, () => {
+      const input = bowl(floor);
+      const surface = buildTerrainSurface(input);
+      const cm = buildControlMap(input, surface);
+      const c = cm.c as Uint8Array;
+      let texels = 0;
+      let flat = 0;
+      let puddled = 0;
+      for (let j = 0; j < cm.height; j++) {
+        for (let i = 0; i < cm.width; i++) {
+          texels++;
+          if (smoothNormal(surface, (i + 0.5) / N, (j + 0.5) / N)[1] > 0.985) flat++;
+          if (c[(j * cm.width + i) * 4 + 1] !== 0) puddled++;
+        }
+      }
+      expect(texels).toBe(16 * 16 * 64);
+      expect(flat, 'a real flat floor').toBeGreaterThan(3000);
+      expect(puddled).toBe(0);
+    });
+  }
+});
+
+describe('the wet splice margin, on a road beside a constructed hump (GH-871 P4 T7)', () => {
+  // A 24x24 map with a road across row 12 and three terraces of relief; the
+  // "after" input raises tile (11, 14) two levels. With no puddles on open
+  // ground, the road's rut band is the only place a surface change can move C.
+  const W = 24;
+  const decor = new Uint8Array(W * W);
+  for (let x = 0; x < W; x++) decor[12 * W + x] = DECOR_ROAD;
+  function relief(hump: number): TerrainInput {
+    const elevation = new Uint8Array(W * W);
+    for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) elevation[z * W + x] = x < 8 ? 0 : x < 16 ? 1 + ((x - 8) >> 2) : 3;
+    elevation[14 * W + 11] += hump;
+    return { width: W, height: W, decor, elevation, blocked: new Uint8Array(W * W), cover: new Uint8Array(W * W), wet: true };
+  }
+
+  /** C bytes that differ from a full build after splicing the hump in at `wetMargin`. */
+  function cBytesWrong(wetMargin: number): number {
+    const a = relief(0);
+    const sa = buildTerrainSurface(a);
+    const b = relief(2);
+    const sb = buildTerrainSurface(b);
+    const map = buildControlMap(a, sa);
+    const changed = changedControlTiles(snapshotControlInputs(a, sa), b, sb) as Uint8Array;
+    expect(changed, 'a splice, not a full build').not.toBeNull();
+    let surface = 0;
+    for (const v of changed) if ((v & 2) !== 0) surface++;
+    expect(surface, 'the hump moved the smoothing field').toBeGreaterThan(0);
+    updateControlMapRegion(map, b, changed, undefined, sb, wetMargin);
+    const fresh = buildControlMap(b, sb).c as Uint8Array;
+    const got = map.c as Uint8Array;
+    let n = 0;
+    for (let i = 0; i < fresh.length; i++) if (fresh[i] !== got[i]) n++;
+    return n;
+  }
+
+  it('at the shipped margin (16 texels) the spliced C is the full build', () => {
+    expect(WET_SPLICE_MARGIN_TEXELS).toBe(16);
+    expect(cBytesWrong(WET_SPLICE_MARGIN_TEXELS)).toBe(0);
+  });
+
+  it('at one tile (8 texels) or none it writes the wrong puddles (measured 2 and 2 bytes)', () => {
+    expect(cBytesWrong(8)).toBeGreaterThan(0);
+    expect(cBytesWrong(0)).toBeGreaterThan(0);
   });
 });

@@ -113,7 +113,8 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
-import { setUnitSurfacePass } from './units/unit-surface';
+import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
+import { rainRimNow, setRainRimGain } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
@@ -232,6 +233,7 @@ import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
   createDecalMaterial,
+  decalPaletteKeysFor,
   CRATER_RIM_GAIN,
   craterRadiusTiles,
   isFadingKind,
@@ -288,6 +290,7 @@ import {
   albedoMean,
   slotUniforms,
   controlTexturePair,
+  controlTextureC,
   macroTexture,
   GROUND_ALBEDOS,
   type GroundAlbedoId,
@@ -599,6 +602,17 @@ import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
+import {
+  RAIN_SPLASH_KEY,
+  RAIN_STREAK_KEY,
+  RAIN_SUN_KEY,
+  rainLight,
+  rainQualityOf,
+  rainShadowMapSize,
+  type RainLight,
+} from './weather';
+import { RainBatch } from './units/rain-batch';
+import { rainColour } from './units/rain-maths';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileYawFor } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
@@ -1176,6 +1190,9 @@ export class ThreeRenderer implements Renderer {
    *  -- kept so the haze's tint is scaled by the very sun and sky that light
    *  the ground it is mixed over (R-13), not by the table's copy of them. */
   private readonly resolvedLights: ResolvedLights;
+  /** `rainLight`'s settings under `weather: 'rain'` (GH-871 P4), else null: the
+   *  haze and the fog pass read the rain's key, far and low from here. */
+  private readonly rainSettings: RainLight | null;
   /** `hazeReferenceLevel` of the last terrain rebuild's input (N-19): the
    *  map's median open-ground level, 0 on a flat map. */
   private hazeRefLevel = 0;
@@ -1367,14 +1384,40 @@ export class ThreeRenderer implements Renderer {
   /** Reused across rebuilds -- one lit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.MeshStandardMaterial = vertexColorMaterial();
-  /** The ground mesh's own material -- see `rebuildTerrain`. */
-  private readonly groundMat: GroundMaterial = new GroundMaterial();
-  /** The control map's two textures, bound on `groundMat` as `uControlA`/
-   *  `uControlB` -- rebuilt by every `rebuildTerrain`, because a destroyed
-   *  structure turns its pad back into open ground, and the previous pair is
-   *  disposed there. Null until the first rebuild, when the material's own
-   *  1x1 "nothing here" defaults are bound instead (`GroundMaterial`). */
-  private controlTex: { a: THREE.DataTexture; b: THREE.DataTexture } | null = null;
+  /** The ground mesh's own material -- see `rebuildTerrain`. Built in the
+   *  constructor, not here: under `weather: 'rain'` it is the wet program
+   *  (`new GroundMaterial({ wet: true })`, GH-871 P4 T4), and a field
+   *  initialiser runs before the options are seen. */
+  private readonly groundMat: GroundMaterial;
+  /** The unit surface table this renderer was built with (GH-871 P4 T5): the
+   *  wet one under `weather: 'rain'`, else the shipped `SURFACE_PARAMS`. Passed
+   *  to both mesh template loaders; assigned in the constructor, beside
+   *  `groundMat`, because a field initialiser runs before the options are seen. */
+  private readonly surfaceTable: SurfaceTable;
+  /** The falling rain (GH-871 P4 T8): ONE instanced draw, built lazily by the
+   *  first `frame()` after the terrain exists and only under `weather: 'rain'`
+   *  (`updateRain`), null on every other map. */
+  private rain: RainBatch | null = null;
+  /** True until the rain's height texture has been baked from the CURRENT
+   *  ground: set by every terrain rebuild, cleared by `updateRain`. */
+  private rainHeightStale = false;
+  /** The `rain` debug layer's flag (`unitsDebugHidden`'s shape): the per-frame
+   *  visibility write (`writeRainVisibility`) consults it, so a toggle holds
+   *  across a repaint. */
+  private rainDebugHidden = false;
+  /** The `ripples` debug layer's flag (`unitsDebugHidden`'s shape): the
+   *  per-frame write of `uRippleAmp` consults it, so a toggle holds across a
+   *  repaint. */
+  private ripplesDebugHidden = false;
+  /** `opts.reducedMotion?.()`, asked once a frame in `frame()`, before both wet writes (the ripple amplitude and the rain's visibility) (R-9). */
+  private reducedNow = false;
+  /** The control map's textures, bound on `groundMat` as `uControlA`/
+   *  `uControlB` (and `uControlC` under rain) -- rebuilt by every
+   *  `rebuildTerrain`, because a destroyed structure turns its pad back into
+   *  open ground, and the previous set is disposed there. Null until the
+   *  first rebuild, when the material's own 1x1 "nothing here" defaults are
+   *  bound instead (`GroundMaterial`). `c` is null on a dry map. */
+  private controlTex: { a: THREE.DataTexture; b: THREE.DataTexture; c: THREE.DataTexture | null } | null = null;
   /** What `controlTex` (and `decalGround.graph`) were last built from, so
    *  `rebuildTerrain` can skip an unchanged rebuild (fix wave I-1). */
   private controlInputs: ControlInputs | null = null;
@@ -2788,6 +2831,10 @@ export class ThreeRenderer implements Renderer {
     // `units/gltf-loader.ts` holds it for the whole module graph, because the
     // decoder is a property of the runtime rather than of any one asset.
     if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
+    // GH-871 P4 T4 (R-1): the wet ground program is built under rain and
+    // nowhere else; every other map builds today's `new GroundMaterial()`.
+    this.groundMat = new GroundMaterial(opts.weather === 'rain' ? { wet: true } : {});
+    this.surfaceTable = surfaceTableFor(opts.weather);
     this.viewer = opts.viewerSide ?? 0;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
@@ -2892,16 +2939,23 @@ export class ThreeRenderer implements Renderer {
     // uniform objects (fix wave I-3), so the per-fragment road mix reads the
     // control map `rebuildTerrain` binds and the `roads` toggle with no
     // second write.
+    //
+    // GH-871 P4 T5: under rain the key table is `WET_DECAL_PALETTE_KEYS` (tread
+    // and tyre are prints in mud, `mud.3`), and the material is handed the
+    // ground's own `uWetSky` and `uPuddleReflect` objects, which switch the
+    // crater water on (`DECAL_WET`). Both are rain-only: a shipped map keys
+    // `DECAL_PALETTE_KEYS` and compiles the shipped decal program.
+    const decalKeys = decalPaletteKeysFor(opts.weather);
     this.decalMaterial = createDecalMaterial(
       {
-        craterBowl: this.overlayColor('shadow.0'),
-        craterLip: this.overlayColor('limestone.1'),
-        scorch: this.overlayColor('shadow.0'),
-        oil: this.overlayColor('shadow.1'),
-        rubbleA: this.overlayColor('limestone.5'),
-        rubbleB: this.overlayColor('limestone.7'),
-        tread: this.overlayColor('dust.5'),
-        tyre: this.overlayColor('limestone.6'),
+        craterBowl: this.overlayColor(decalKeys.craterBowl),
+        craterLip: this.overlayColor(decalKeys.craterLip),
+        scorch: this.overlayColor(decalKeys.scorch),
+        oil: this.overlayColor(decalKeys.oil),
+        rubbleA: this.overlayColor(decalKeys.rubbleA),
+        rubbleB: this.overlayColor(decalKeys.rubbleB),
+        tread: this.overlayColor(decalKeys.tread),
+        tyre: this.overlayColor(decalKeys.tyre),
       },
       {
         uControlB: this.groundMat.uniforms.uControlB,
@@ -2909,7 +2963,13 @@ export class ThreeRenderer implements Renderer {
         uRoadTone: this.groundMat.uniforms.uRoadTone,
         uShoulderTone: this.groundMat.uniforms.uShoulderTone,
         uRoadOn: this.groundMat.uniforms.uRoadOn,
-      }
+      },
+      this.groundMat.wet
+        ? {
+            uWetSky: this.groundMat.uniforms.uWetSky,
+            uPuddleReflect: this.groundMat.uniforms.uPuddleReflect,
+          }
+        : undefined
     );
     // Each decal writes its tone as a ratio over the ground tone under it
     // (`decalGround`, captured per stamp) and is MULTIPLIED onto the lit
@@ -3099,18 +3159,35 @@ export class ThreeRenderer implements Renderer {
     // (and the haze follows, since `applyHaze` reads these lights). Absent,
     // `withLightOverride` hands back the same object, so day is still
     // `DAY_LIGHTS` itself.
+    // GH-871 P4 T2 (R-1, R-2): under `weather: 'rain'` the resolved lights go
+    // through `rainLight` FIRST, then the mission's override (the mission
+    // wins). Any other `weather`, `'clear'` included, is today's path.
+    const baseLights = this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset);
+    const rain =
+      opts.weather === 'rain'
+        ? rainLight(baseLights, this.lightPreset, (key) => this.overlayColor(key))
+        : null;
+    this.rainSettings = rain;
     this.resolvedLights = withLightOverride(
-      this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset),
+      rain === null
+        ? baseLights
+        : {
+            ...rain.lights,
+            direction: new THREE.Vector3(...rain.lights.direction),
+          },
       opts.lightOverride
     );
+    const baseShadowMap = (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize;
     this.sceneLights = createSceneLights(
       sim.width,
       sim.height,
-      (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize,
+      rain === null ? baseShadowMap : rainShadowMapSize(baseShadowMap, rain.shadowStep),
       this.resolvedLights
     );
-    this.sceneLights.sun.shadow.intensity = shadowIntensityOf(opts.lightOverride);
+    this.sceneLights.sun.shadow.intensity =
+      rain === null ? shadowIntensityOf(opts.lightOverride) : (opts.lightOverride?.shadow ?? rain.shadowIntensity);
     this.sceneLights.addTo(this.scene);
+    this.applyWetUniforms();
     this.shadowFitMode = (opts.quality ?? QUALITY_PRESETS.high).shadowFit ?? 'map';
     // GH-705 smoke uplift P2: the flipbook's low tier (no sparks, thinned column).
     // Set in the constructor, not `init()`, so a GL-free test can see it.
@@ -3257,7 +3334,7 @@ export class ThreeRenderer implements Renderer {
     // reads as `readBuffer.depthTexture` is that pass's own depth. The chain
     // does NOT take ownership (see `PostChain.setFogPass`), so `dispose()`
     // releases this one.
-    this.fogPass = new FogOfWarPass(this.shroud.texture, this.sim.width, this.sim.height);
+    this.fogPass = this.createFogPass();
     this.post.setFogPass(this.fogPass);
     this.applyBackdropFog();
     // Ground plan 2, Task 9: the dust haze lives in the same pass (R-14).
@@ -3581,6 +3658,7 @@ export class ThreeRenderer implements Renderer {
     // bound, and the macro field the constructor built.
     this.controlTex?.a.dispose();
     this.controlTex?.b.dispose();
+    this.controlTex?.c?.dispose();
     this.controlTex = null;
     this.controlInputs = null;
     this.controlMap = null;
@@ -3744,6 +3822,8 @@ export class ThreeRenderer implements Renderer {
     this.shellBatch.dispose();
     this.boltBatch.dispose();
     this.beamBatch.dispose();
+    this.rain?.dispose();
+    this.rain = null;
     this.beamSlots.clear();
     this.missileFx.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
@@ -4029,6 +4109,15 @@ export class ThreeRenderer implements Renderer {
     // tick repeats, and the gate's zero-time repaint moves no leaf. One
     // uniform write, shared by reference with every foliage batch.
     this.sway.time.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+    // Reduced motion is asked ONCE a frame, live (a settings change mid-mission takes effect at
+    // the next frame), and the answer is shared by the rain-visibility write and the ripple
+    // amplitude write below (GH-871 P4 T9, R-9). Both are per-frame writes; the debug toggles
+    // call them between frames and read the last answer, so a show never turns motion back on.
+    // Rain-only: both writes are (a dry map has no rain and no ripples), so a dry renderer does no new
+    // per-frame work; `reducedNow` stays false there. The wound ring asks for itself, elsewhere.
+    this.reducedNow = this.opts.weather === 'rain' && this.opts.reducedMotion?.() === true;
+    this.writeRippleUniforms(alpha);
+    this.updateRain(alpha);
     this.updateSilhouetteOutlineWidth();
     // `threeCamera()` reconfigures the ONE camera the composer's RenderPass
     // already holds, so this call has to happen whether or not the composer
@@ -4256,6 +4345,38 @@ export class ThreeRenderer implements Renderer {
         // `uMacroAmp` -- its only writers are `groundUniforms()` and that
         // method -- so the plain write holds across the gate's repaint.
         return this.groundMat.setMacroVisible(visible);
+      case 'wet':
+        // GH-871 P4 T4: the puddle and marsh water amplitude (`uWetAmp`) to 0
+        // and back (`GroundMaterial.setWetVisible`, the `macro` stash). Nothing
+        // per-frame writes it. The wet TONES stay by design. 0 on a dry map.
+        return this.groundMat.setWetVisible(visible);
+      case 'marsh':
+        // The marsh water weight (`uMarshAmp`, control C's R channel) to 0 and
+        // back (`GroundMaterial.setMarshVisible`). Puddles stay.
+        return this.groundMat.setMarshVisible(visible);
+      case 'ripples': {
+        // `uRippleAmp` to 0 and back -- but it IS written every frame
+        // (`writeRippleUniforms`: the preset and reduced motion may zero it),
+        // so a plain write would be undone by the very repaint the gate takes
+        // its second photograph on. The FLAG is what that write consults.
+        const hidden = !visible;
+        if (!this.groundMat.wet || hidden === this.ripplesDebugHidden) return 0;
+        this.ripplesDebugHidden = hidden;
+        this.writeRippleAmp();
+        return 1;
+      }
+      case 'rain': {
+        // The falling rain's mesh: a FLAG the per-frame write consults
+        // (`writeRainVisibility`), the `ripples` standard -- `frame()`
+        // re-derives `visible` every frame, so a bare write would hold only
+        // until the gate's repaint. 1 when it changed, 0 when it was already
+        // there or the map does not rain.
+        const hidden = !visible;
+        if (this.opts.weather !== 'rain' || hidden === this.rainDebugHidden) return 0;
+        this.rainDebugHidden = hidden;
+        this.writeRainVisibility();
+        return 1;
+      }
       case 'roads':
         // `uRoadOn` to 0 and back (`GroundMaterial.setRoadsVisible`), 1 when
         // it changed and 0 when it was already there. The same shape as
@@ -4729,6 +4850,10 @@ export class ThreeRenderer implements Renderer {
     // writes, so there is no third place recording what is hidden.
     const unitsWereVisible = !this.unitsDebugHidden;
     const overlaysWereVisible = this.overlayBatch.mesh.visible;
+    // The falling rain is weather, not ground: the minimap's photograph shows
+    // the wet tones and the water but no streaks (spec 4.4). Restored to what it
+    // was, as the two above are.
+    const rainWasVisible = this.rain?.mesh.visible ?? false;
     try {
       // The buildings, before the photograph and not after it. `frame()`
       // stands a loaded building mesh up in `updateBuildingMeshes`, which
@@ -4755,6 +4880,7 @@ export class ThreeRenderer implements Renderer {
         // hidden for the rest of the mission.
         this.setDebugLayerVisible('units', false);
         this.setDebugLayerVisible('overlays', false);
+        if (this.rain !== null) this.rain.mesh.visible = false;
         // Defilade Task 2: a view-fitted shadow box covers only the
         // camera's ground, so the top-down photograph takes the map-wide box;
         // the next frame refits.
@@ -4790,6 +4916,7 @@ export class ThreeRenderer implements Renderer {
         // `unitsWereVisible` above.
         this.setDebugLayerVisible('overlays', overlaysWereVisible);
         this.setDebugLayerVisible('units', unitsWereVisible);
+        if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
       }
 
       const pixels = new Uint8Array(size * size * 4);
@@ -6433,6 +6560,13 @@ export class ThreeRenderer implements Renderer {
     this.particleSystem.spawn(spec, x, y, 0, FLAT_FX_MAGNITUDE, 0, FX_LAYER_BELOW);
   }
 
+  /** The emitter a moving vehicle trails, by name (GH-871 P4: the rain swaps it; `theme-identity.test.ts` pins it). */
+  private vehicleMoveEmitterName(): string {
+    // Rain throws mud, not dust (R-13): low, short, `mud.2`. By NAME, like the
+    // dust: nothing dispatches by the `vehicle_move` trigger.
+    return this.opts.weather === 'rain' ? 'vehicle_mud' : 'vehicle_dust';
+  }
+
   /**
    * Vehicle-only ambient VFX: dust while moving, thin engine exhaust while
    * idle. Three-only, by design -- see `units/vehicle-fx.ts`'s top comment
@@ -6470,7 +6604,10 @@ export class ThreeRenderer implements Renderer {
    * `onFire`'s "rather than Pixi's `!type.isSoft`" comment above, and
    * `unitOverlayRadiusPx(type.isSoft)` in `updateOverlays`) -- true for
    * every rifle squad, team and demo squad, false for every tank/APC/
-   * technical/dozer, so infantry never reaches either spawn call below.
+   * dozer, so infantry never reaches either spawn call below. A hull under
+   * `SOFT_ARMOR_LIMIT` (30 mm front) is SOFT and is skipped by the
+   * `if (type.isSoft) continue` below: the `technical` (front armour 15) is
+   * soft, so it never sprays dust or mud.
    *
    * Reads only `Sim.state.alive`/`typeIdx`/`facing` (read-only, per
    * invariant 4) plus this class's own presentation arrays. Writes nothing
@@ -6531,7 +6668,7 @@ export class ThreeRenderer implements Renderer {
    */
   private updateVehicleAmbientFx(dtMs: number): void {
     if (!this.particleSystem) return;
-    const dust = this.emitterLibrary.byName('vehicle_dust');
+    const dust = this.emitterLibrary.byName(this.vehicleMoveEmitterName());
     const exhaust = this.emitterLibrary.byName('vehicle_exhaust');
     const wash = this.emitterLibrary.byName('rotor_wash');
     if (!dust && !exhaust && !wash) return;
@@ -7100,7 +7237,7 @@ export class ThreeRenderer implements Renderer {
     const buildSet = (tiers: Readonly<Record<string, number>> | undefined): Promise<MeshUnitTemplate[]> =>
       Promise.all(
         urls.map((url) =>
-          loadMeshUnitTemplate(url, faction, allowTextured, opts.cold === true, tiers).catch((err: unknown) => {
+          loadMeshUnitTemplate(url, faction, allowTextured, opts.cold === true, tiers, undefined, this.surfaceTable).catch((err: unknown) => {
             this.noteMeshFailure(unitTypeId, url, err);
             throw err;
           })
@@ -7314,7 +7451,7 @@ export class ThreeRenderer implements Renderer {
     kitTiers: Readonly<Record<string, number>> | undefined,
     cold: boolean
   ): Promise<VehicleMeshTemplate> {
-    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured, kitTiers, cold).catch((err: unknown) => {
+    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured, kitTiers, cold, this.surfaceTable).catch((err: unknown) => {
       this.noteMeshFailure(unitTypeId, glbUrl, err);
       throw err;
     });
@@ -11550,6 +11687,183 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * Whether the preset allows ripples (`RenderQuality.rain.ripples`, R-8):
+   * absent means "no opinion" and reads `high`'s (`rainQualityOf`), `false` is
+   * `low`. Reduced motion is applied in `writeRippleAmp`.
+   */
+  private ripplesAllowed(): boolean {
+    return rainQualityOf(this.opts.quality).ripples;
+  }
+
+  /**
+   * The wet ground's per-frame uniforms (GH-871 P4 T4): the ripple clock and
+   * the ripple amplitude. The clock is the SIM clock, `presentationSimMs`, never
+   * `performance.now()` or accumulated `dtMs`: a repaint at zero elapsed time
+   * (the visual gate's second photograph) reads the same time and moves no
+   * ring, and a pause freezes them mid-ring. The amplitude is 0 when the preset
+   * turns ripples off or the `ripples` layer is hidden (`ripplesDebugHidden`),
+   * so the layer holds across the repaint. A dry ground has no such uniforms.
+   */
+  private writeRippleUniforms(alpha: number): void {
+    if (!this.groundMat.wet) return;
+    this.groundMat.uniforms.uRippleTimeSec.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+    this.writeRippleAmp();
+  }
+
+  /** The amplitude half of `writeRippleUniforms`, also what the `ripples`
+   *  layer calls the moment its flag flips. */
+  private writeRippleAmp(): void {
+    if (!this.groundMat.wet) return;
+    this.groundMat.uniforms.uRippleAmp.value =
+      this.ripplesAllowed() && !this.ripplesDebugHidden && !this.reducedNow ? 1 : 0;
+  }
+
+  /**
+   * The falling rain, once a frame (GH-871 P4 T8; R-7): builds the batch the first
+   * time the terrain exists, re-bakes its height texture after every terrain
+   * rebuild, then hands it the SIM clock, the camera and the pixel ratio.
+   *
+   * Built here, in `frame()`, not in the constructor (it reads the drawn ground)
+   * and not in `init()` (the GL-free harnesses never call it, and the wetland
+   * `scene` digest has to see the mesh): the first frame after `init` is
+   * "after init" for the app. Only under `weather: 'rain'`; a preset with 0
+   * drops (the last step of `RAIN_LADDER`) builds none. The time is
+   * `presentationSimMs`, never `performance.now()` or `dtMs`: a repaint at zero
+   * elapsed time reads the same uniforms and a pause freezes the rain mid-air.
+   */
+  private updateRain(alpha: number): void {
+    if (this.opts.weather !== 'rain') return;
+    if (this.rain === null) {
+      const { drops } = rainQualityOf(this.opts.quality);
+      if (drops <= 0 || this.retained.elevation === null) return;
+      this.rain = new RainBatch(this.scene, {
+        drops,
+        mapWidth: this.sim.width,
+        mapHeight: this.sim.height,
+      });
+      this.applyRainColours();
+      this.rainHeightStale = true;
+    }
+    if (this.rainHeightStale) {
+      const { elevation } = this.retained;
+      const w = this.sim.width;
+      const h = this.sim.height;
+      this.rain.bakeHeights((x, z) => groundWorldY(elevation, w, h, x, z));
+      this.rainHeightStale = false;
+    }
+    this.rain.update({
+      simSec: presentationSimMs(this.sim.tickCount, alpha) / 1000,
+      view: {
+        x: this.camera.x,
+        y: this.camera.y,
+        zoom: this.camera.zoom,
+        width: this.cssWidth,
+        height: this.cssHeight,
+      },
+      dpr: this.pixelRatio,
+    });
+    this.writeRainVisibility();
+  }
+
+  /**
+   * The rain batch's visibility, written every frame. It consults
+   * `rainDebugHidden` (the `rain` layer's flag), so a hide holds across the
+   * gate's repaint, and reduced motion (`reducedNow`, R-9) stills it: the debug
+   * flag and the motion preference are ANDed, so showing the layer never turns
+   * the rain back on for a player who asked for no motion.
+   */
+  private writeRainVisibility(): void {
+    if (this.rain === null) return;
+    this.rain.mesh.visible = !this.rainDebugHidden && !this.reducedNow;
+  }
+
+  /**
+   * The rain's two colours (GH-871 P4 T8; R-7): `overcast.0` for the streak and
+   * `overcast.1` for the splash, linear, times the `hazeRadiance` of the lights
+   * this scene is lit by -- the factor the haze tint and the water's sky take --
+   * so rain sits at lit ground's scene-referred level. Under 0.9 on every
+   * preset (`RAIN_COLOUR_CEILING`), so it never blooms and `hdr-gains.ts` has no
+   * entry for it. Called once, when the batch is built.
+   */
+  private applyRainColours(): void {
+    if (this.rain === null) return;
+    const k = hazeRadiance(
+      this.resolvedLights.sunIntensity,
+      this.resolvedLights.direction.y,
+      this.resolvedLights.hemiIntensity
+    );
+    this.rain.setColors(
+      rainColour(hexToLinear(this.overlayColor(RAIN_STREAK_KEY)), k),
+      rainColour(hexToLinear(this.overlayColor(RAIN_SPLASH_KEY)), k)
+    );
+  }
+
+  /**
+   * The wet ground's two palette colours (GH-871 P4 T4): `uWetSky`, the water's
+   * sky, is `overcast.0` linear x the `hazeRadiance` of the lights this scene is
+   * lit by (the very factor `applyHaze` scales the haze tint with), and
+   * `uWetRim`, the bank, is `mud.3` linear. Linear, through `hexToLinear`, like
+   * every colour uniform here. Called once, after the lights are resolved; a
+   * dry ground has neither uniform.
+   */
+  private applyWetUniforms(): void {
+    if (!this.groundMat.wet) return;
+    const k = hazeRadiance(
+      this.resolvedLights.sunIntensity,
+      this.resolvedLights.direction.y,
+      this.resolvedLights.hemiIntensity
+    );
+    const [r, g, b] = hexToLinear(this.overlayColor(RAIN_SUN_KEY));
+    (this.groundMat.uniforms.uWetSky.value as THREE.Vector3).set(r * k, g * k, b * k);
+    (this.groundMat.uniforms.uWetRim.value as THREE.Vector3).fromArray(hexToLinear(this.overlayColor('mud.3')));
+  }
+
+  /**
+   * The puddle-reflectance A/B's only door (GH-871 P4, R-12): writes the two
+   * authored reflectances, `puddle` (roads) and `marsh`. On the
+   * CONCRETE class only -- never on the `Renderer` interface, never in `api.ts`,
+   * no flag reaches a player -- the `debugPreBloomLuminance` precedent;
+   * `ground:capture` calls it. A value outside 0..1 throws (it is not a
+   * reflectance); a dry ground has neither uniform and the call does nothing.
+   */
+  debugSetWetTuning(tuning: { puddle?: number; marsh?: number }): void {
+    for (const [name, v] of Object.entries(tuning)) {
+      if (!Number.isFinite(v) || (v as number) < 0 || (v as number) > 1) {
+        throw new Error(`debugSetWetTuning: ${name} must be a reflectance in 0..1, got ${String(v)}`);
+      }
+    }
+    if (!this.groundMat.wet) return;
+    if (tuning.puddle !== undefined) this.groundMat.uniforms.uPuddleReflect.value = tuning.puddle;
+    if (tuning.marsh !== undefined) this.groundMat.uniforms.uMarshReflect.value = tuning.marsh;
+  }
+
+  /**
+   * The rain rim's calibration knob (GH-871 P4 PR 914): writes the ONE shared gain
+   * uniform every KDF figure's rim material reads (`units/rain-rim.ts`), so a single
+   * call moves every figure on screen. On the CONCRETE class only -- never on the
+   * `Renderer` interface, never in `api.ts`, no flag reaches a player -- the
+   * `debugSetWetTuning` precedent; `ground:capture --rim=` calls it and repaints at
+   * zero elapsed time. A non-finite or negative gain throws. A renderer that does not
+   * rain builds no rim material, so the write moves nothing on it (`debugRainRim().built`
+   * says so, and the tool fails loud on it).
+   */
+  debugSetRainRim(gain: number): void {
+    setRainRimGain(gain);
+  }
+
+  /** What the rim shaders read now: the effective `gain` (0 while the `unit-surface` debug layer is off), the
+   *  `wanted` gain the knob holds, the `power`, and whether this renderer has built at least one rim material. */
+  debugRainRim(): { gain: number; power: number; wanted: number; built: boolean } {
+    const now = rainRimNow();
+    return {
+      gain: now.gain,
+      power: now.power,
+      wanted: now.wanted,
+      built: this.opts.weather === 'rain' && rainRimCloneCount() > 0,
+    };
+  }
+
+  /**
    * Hands the fog pass its haze (ground plan 2, Task 9; N-18, R-13): the
    * preset's own haze key where it names one (dusk's `dust.1`), otherwise
    * the theme's tone (`TerrainTones.haze`); in linear, like every colour
@@ -11562,14 +11876,32 @@ export class ThreeRenderer implements Renderer {
   private applyHaze(): void {
     if (this.fogPass === null) return;
     const p = this.lightPreset;
-    const hex = p.hazeKey !== null ? this.overlayColor(p.hazeKey) : this.opts.terrainTones.haze;
+    // Under rain the haze takes the rain's key and far (R-2), whatever the
+    // preset or the theme says; `lightOverride` reaches it through the lights.
+    const rain = this.rainSettings;
+    const hazeKey = rain !== null ? rain.hazeKey : p.hazeKey;
+    const hex = hazeKey !== null ? this.overlayColor(hazeKey) : this.opts.terrainTones.haze;
     const [r, g, b] = hexToLinear(hex);
     const k = hazeRadiance(
       this.resolvedLights.sunIntensity,
       this.resolvedLights.direction.y,
       this.resolvedLights.hemiIntensity
     );
-    this.fogPass.setHaze({ tint: [r * k, g * k, b * k], far: p.hazeFar, refLevel: this.hazeRefLevel });
+    this.fogPass.setHaze({ tint: [r * k, g * k, b * k], far: rain !== null ? rain.hazeFar : p.hazeFar, refLevel: this.hazeRefLevel });
+  }
+
+  /** The fog pass, built the way `init()` builds it. Under rain the low-lying
+   *  haze is 0.10 (`RAIN_HAZE_LOW`, a compile-time option); otherwise the pass
+   *  is built with no option at all and its source is today's. A method so a
+   *  GL-free test (`tools/src/theme-identity.test.ts`) builds the same pass. */
+  private createFogPass(): FogOfWarPass {
+    const rain = this.rainSettings;
+    return new FogOfWarPass(
+      this.shroud.texture,
+      this.sim.width,
+      this.sim.height,
+      rain === null ? undefined : { hazeLow: rain.hazeLow }
+    );
   }
 
   /** A dawn or dusk preset as lights: its sun direction (`sunDirectionFor`),
@@ -12569,6 +12901,9 @@ export class ThreeRenderer implements Renderer {
     // The terrace rule reads `sim.blocked`, which changes under this class
     // (a destroyed structure). See `refreshSurface`.
     this.refreshSurface();
+    // The rain lands on the ground that just changed (both callers, `frame()`
+    // and the minimap photograph, come through here): re-bake its heights.
+    this.rainHeightStale = true;
     this.syncBackdrop();
     if (this.terrainMesh) {
       this.scene.remove(this.terrainMesh);
@@ -12627,7 +12962,8 @@ export class ThreeRenderer implements Renderer {
       this.opts.terrainTones,
       this.opts.resolveColor,
       this.opts.background,
-      this.drawnCrown()
+      this.drawnCrown(),
+      this.opts.weather === 'rain'
     );
     const composed = build.composed;
     this.terrainState = build.state;
@@ -12657,8 +12993,19 @@ export class ThreeRenderer implements Renderer {
     // each used to pay 48-80 ms for a map byte-identical to the one bound.
     // `controlInputsMatch` compares the masks by CONTENT -- see its doc
     // comment for why a reference compare is wrong in both directions.
+    //
+    // GH-871 P4 (coordinator ruling 4): control C reads the drawn SURFACE, so
+    // the surface goes to ALL FIVE control-map calls below together
+    // (`buildControlMap`, `snapshotControlInputs`, `changedControlTiles`,
+    // `updateControlMapRegion`, `controlInputsMatch`). On a dry map the surface
+    // is ignored by every one of them (`input.wet` is absent), so a shipped
+    // map's calls compute what they always did; on a wet map, dropping it from
+    // any one leaves C unbuilt, stale or wrongly reused.
+    const surface = build.state.surface;
     const controlReused =
-      this.controlTex !== null && this.decalGround !== null && controlInputsMatch(this.controlInputs, composed.input);
+      this.controlTex !== null &&
+      this.decalGround !== null &&
+      controlInputsMatch(this.controlInputs, composed.input, surface);
     const graph =
       controlReused && this.decalGround !== null ? this.decalGround.graph : buildRoadGraph(composed.input);
     if (!controlReused) {
@@ -12668,24 +13015,29 @@ export class ThreeRenderer implements Renderer {
       // map whole (`changedControlTiles`).
       const changed =
         this.controlTex !== null && this.controlMap !== null && this.controlInputs !== null
-          ? changedControlTiles(this.controlInputs, composed.input)
+          ? changedControlTiles(this.controlInputs, composed.input, surface)
           : null;
       if (changed !== null && this.controlTex !== null && this.controlMap !== null) {
-        controlTexels = updateControlMapRegion(this.controlMap, composed.input, changed);
+        controlTexels = updateControlMapRegion(this.controlMap, composed.input, changed, undefined, surface);
         this.controlTex.a.needsUpdate = true;
         this.controlTex.b.needsUpdate = true;
+        if (this.controlTex.c !== null) this.controlTex.c.needsUpdate = true;
       } else {
-        const map = buildControlMap(composed.input);
-        const control = controlTexturePair(map);
+        const map = buildControlMap(composed.input, surface);
+        const control = { ...controlTexturePair(map), c: controlTextureC(map) };
         this.controlTex?.a.dispose();
         this.controlTex?.b.dispose();
+        this.controlTex?.c?.dispose();
         this.controlTex = control;
         this.controlMap = map;
         controlTexels = map.width * map.height;
         this.groundMat.uniforms.uControlA.value = control.a;
         this.groundMat.uniforms.uControlB.value = control.b;
+        // Control C exists exactly when the input is wet (the wet material is
+        // the only one with the sampler); a dry map binds nothing here.
+        if (control.c !== null && this.groundMat.wet) this.groundMat.uniforms.uControlC.value = control.c;
       }
-      this.controlInputs = snapshotControlInputs(composed.input);
+      this.controlInputs = snapshotControlInputs(composed.input, surface);
     }
     this.lastTerrainRebuild = {
       tiles: build.rebuiltTiles,
@@ -12755,7 +13107,8 @@ export class ThreeRenderer implements Renderer {
       composed.decorPlacements,
       this.decorSet,
       this.sway,
-      this.opts.terrainTones.decorColors
+      this.opts.terrainTones.decorColors,
+      this.opts.weather === 'rain'
     );
     this.scene.add(freezeStatic(this.decorGroup));
 
@@ -13286,7 +13639,9 @@ export function composeTerrainFrom(
   /** Crown summits (`terrain/crown.ts`): the tiles drawn as a smooth dome
    *  rather than a terrace, or null for none. `elevation` must already carry
    *  their lift. */
-  crown: Uint8Array | null = null
+  crown: Uint8Array | null = null,
+  /** `opts.weather === 'rain'`: control C is baked (GH-871 P4). */
+  wet: boolean = false
 ): ComposedTerrainBuild {
   const input: TerrainInput = {
     width: sim.width,
@@ -13313,6 +13668,8 @@ export function composeTerrainFrom(
     // GH-871: the wetland's remap and waterside tree. Read by the decor pass (T6b/T6c).
     familyRemap: tones.familyRemap,
     waterside: tones.waterside,
+    // GH-871 P4: set under rain only, so a dry input has no `wet` key at all.
+    ...(wet ? { wet: true as const } : {}),
     // GH-871 P3: the wetland's own yard and roadside prop mixes, read by `propPlacements`.
     propMix: tones.propMix,
   };

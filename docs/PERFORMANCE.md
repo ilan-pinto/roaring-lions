@@ -2872,3 +2872,162 @@ start 2-12 (one preliminary run at 54 agreed within 0.4 ms). Instrument:
   at DPR 2, a 1.5 pixel-ratio cap, decor LOD) are the lead's call. Full tables:
   `_coord/frame-829/report.md`.
 - Not measured: a live fight, tick time, other GPUs, a real compositor.
+
+## Wetland P4: the wet layers (GH-871 P4 T11, 2026-10-30)
+
+What the wet package costs on `ein_qasab` (rain map: wet ground program, rain batch, ripples, marsh, height bake)
+against the dry `wadi_halam_basin`, per preset. Instrument: `tools/src/perf/fx-cost.ts --breakdown` (the wet
+configs, `tools/src/perf/fx-cost-plan.ts`). **Run under heavy load: the 1-minute load average was 18-77 for every
+run below, never under 4, on a machine with other sessions' work on it. Read every number as loaded.** The one
+quiet-machine rerun the S-C rule asks for was not possible: the load did not fall during this task.
+
+**Conditions.** Apple M3 Pro, `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)` (confirmed
+through `WEBGL_debug_renderer_info`), headless Chromium, tab visible, music off, CSS 1440x900 at DPR 2 (2880x1800),
+`ein_qasab` views `causeway_s` at zoom 1 / 1.6 / 2.5, `wadi_halam_basin` booted centre at zoom 1 / 1.6 / 2.5, 29
+entities, parked, 12 interleaved rounds x 20 readPixels-synced frames, median (p95 in the raw output), the tool's
+own port 5211, one browser. Each row is `config - baseline`, in ms, so a layer that costs shows as the NEGATIVE of
+its "hidden" row. Resolution (the tool prints `n/a` for anything it could not time, and none of the wet rows
+was `n/a` on `ein_qasab` except `ripples` on `low`, which has ripples off, and `shadow-full` on `low`, whose
+shadow map is not stepped): facts on `ein_qasab` were `rainMap, wetGround, rainBatch, wetDefine` all true on all
+three presets, `false` on the basin; no WARN line, no `n/a` row beyond those two.
+
+**Budget row: `NET (total wet)`** = (baseline - the frame with the wet ground program removed) - (shadow-full frame
+- baseline). `gross` is therefore the whole standing cost of the wet package (program, rain, ripples), `saving` the
+shadow map the wet maps no longer pay for (`high` 4096 -> 2048, `medium` 2048 -> 1024, `low` unchanged). Budget:
+`high` <= +1.0 ms, `medium` <= +0.7, `low` <= +0.4. `NET (layers)` (toggling the four layers only) is reported
+beside it and is not gated.
+
+| preset | view | gross | shadow saving | **NET (total wet)** | budget | NET (layers) |
+|---|---|---|---|---|---|---|
+| high | z1 | 1.00 | 0.40 | **0.60** | 1.0 | 0.30 |
+| high | z1.6 | 0.80 | 0.30 | **0.50** | 1.0 | 0.30 |
+| high | z2.5 | 0.80 | 0.60 | **0.20** | 1.0 | -0.10 |
+| medium | z1 | 0.40 | 0.40 | **0.00** | 0.7 | -0.20 |
+| medium | z1.6 | 0.60 | 0.00 | **0.60** | 0.7 | 0.10 |
+| medium | z2.5 | 0.50 | 0.30 | **0.20** | 0.7 | -0.10 |
+| low, drops 1500, run 1 | z1 / z1.6 / z2.5 | 0.40 / -0.20 / 0.70 | none (1024 -> 1024) | **0.40 / -0.20 / 0.70** | 0.4 | 0.20 / -0.20 / 0.50 |
+| low, drops 1500, run 2 | z1 / z1.6 / z2.5 | 0.10 / 0.30 / 0.90 | none | **0.10 / 0.30 / 0.90** | 0.4 | -0.10 / 0.20 / 0.70 |
+| low, **drops 900 (shipped)**, run 3 | z1 / z1.6 / z2.5 | 0.40 / 0.20 / 0.20 | none | **0.40 / 0.20 / 0.20** | 0.4 | 0.20 / 0.00 / 0.00 |
+
+Load average (1 min, start -> end of the run): high 18.7 -> 34.3, medium 34.3 -> 24.3 (same run 1; whole run 18.7
+-> 37.6), low run 1 24.3 -> 37.5, low run 2 30.4 -> 44.6, low run 3 49.8 -> 53.3 (71.8 in the middle). `high` and
+`medium` are inside budget on all three views.
+
+**`low` and the ladder.** `low` at 1500 drops read over budget at zoom 2.5 in both of two runs (0.70, 0.90 ms
+against 0.4). It was judged real, not load: in each run the wet-program frame was below the baseline in 10 of 12
+paired rounds at zoom 2.5, the layers that differ between the two arms are the rain batch (-0.4 / -0.5 ms when
+hidden at zoom 2.5) and the ground program, and the other two views read inside budget. The first ladder step was
+taken: **`low` drops 1500 -> 900** (commit `Was drops 1500`). With 900 drops, zoom 2.5 reads 0.20 and zoom 1.6 0.20.
+Zoom 1 reads 0.40, which the tool prints as `OVER` because 13.6 vs 14.0 ms is 0.4 plus floating-point residue
+against a 0.4 budget: it is AT the budget at the tool's 0.1 ms resolution (and under load 50-77), not past it, so
+no second step was taken. If a quiet machine reads zoom 1 above 0.4, the next step is 900 -> 525.
+
+**One at a time** (`config - baseline`, ms; z1 / z1.6 / z2.5; hiding a layer that costs reads negative).
+`wet` zeroes the ripple branch as well, so the rows are not additive.
+
+| preset | rain | wet | marsh | ripples | wet-all | wet-program | shadow-full |
+|---|---|---|---|---|---|---|---|
+| high | -0.40 / -0.40 / -0.50 | 0.10 / -0.20 / -0.20 | 0.30 / -0.20 / 0.00 | 0.00 / -0.40 / -0.10 | -0.70 / -0.60 / -0.50 | -1.00 / -0.80 / -0.80 | 0.40 / 0.30 / 0.60 |
+| medium | -0.40 / -0.10 / -0.40 | 0.00 / -0.20 / 0.00 | 0.00 / -0.10 / 0.10 | -0.10 / 0.00 / -0.10 | -0.20 / -0.10 / -0.20 | -0.40 / -0.60 / -0.50 | 0.40 / 0.00 / 0.30 |
+| low, 1500, run 1 | 0.10 / 0.10 / -0.40 | 0.00 / 0.70 / -0.10 | 0.00 / 0.50 / -0.30 | n/a (ripples off) | -0.20 / 0.20 / -0.50 | -0.40 / 0.20 / -0.70 | n/a |
+| low, 1500, run 2 | 0.10 / -0.10 / -0.50 | 0.30 / 0.00 / -0.20 | 0.40 / -0.10 / 0.00 | n/a | 0.10 / -0.20 / -0.70 | -0.10 / -0.30 / -0.90 | n/a |
+| low, 900, run 3 | -0.20 / 0.00 / 0.00 | 0.10 / 0.00 / 0.30 | 0.00 / -0.10 / 0.10 | n/a | -0.20 / 0.00 / 0.00 | -0.40 / -0.20 / -0.20 | n/a |
+
+Against the spec 6 estimates (rain +0.5 to +1.0 at `high`): the rain batch reads 0.4-0.5 ms at `high`, wet ground
+and marsh are inside noise (about 0.3 ms), ripples are inside noise, and the standing wet program (the part the
+layer toggles miss) is the largest single row, 0.8-1.0 ms at `high`. Per-round spread of a single row is about
+1 ms under this load, so a row of 0.3 ms or less is not distinguishable from zero.
+
+**Whole frame, `ein_qasab` against `wadi_halam_basin`** (baseline medians, ms; decision 13: wet <= basin + the
+budget). **Measured with P3's real art** (`f4bad02ff`), not the 0.533 M-triangle stand-in the plan expected: the
+tool prints total triangles per view, not the decor's share, so the decor count itself is **not measured here**
+(the whole-view triangles are: `ein_qasab` causeway_s 1718k / 1082k / 704k at `high` against basin 3940k / 1861k /
+1041k). The views are different places on different maps, so this is read crudely.
+
+| preset | z1 (ein vs basin) | z1.6 | z2.5 |
+|---|---|---|---|
+| high | 19.50 vs 20.50 (-1.00) | 18.00 vs 17.50 (+0.50) | 17.20 vs 16.20 (+1.00) |
+| medium | 15.90 vs 17.10 (-1.20) | 14.90 vs 14.00 (+0.90) | 14.20 vs 12.60 (+1.60) |
+| low, 1500 (run 1) | 12.60 vs 13.90 (-1.30) | 11.40 vs 11.10 (+0.30) | 10.90 vs 9.40 (+1.50) |
+| low, 900 (run 3) | 14.00 vs 15.20 (-1.20) | 12.60 vs 12.00 (+0.60) | 11.80 vs 10.60 (+1.20) |
+
+The wet map is cheaper than the basin at zoom 1 (the basin draws about 2.2x the triangles), and dearer by up to
+1.0 ms at `high` and 1.6 ms at `medium` at zoom 2.5, where the basin is almost empty and the fixed wet cost shows.
+Against decision 13 ("basin + the budget") that is at the line at `high` (+1.00 vs +1.0) and 0.9 ms past it at
+`medium` (+1.60 vs +0.7) and 0.8-1.1 past it at `low` zoom 2.5 (+1.2 to +1.9 vs +0.4); the views are different
+places, so it is reported, not gated. The budgeted NET rows above are the gated reading.
+
+**Draw calls.** Hiding the rain batch changes the call count by exactly -1 on every wet view of every preset
+(`ein_qasab` high 95 -> 94, 54 -> 53; medium 63 -> 62, 30 -> 29; low 60 -> 59, 27 -> 26): one batch, no WARN line.
+The basin has `rainBatch: false`, so the rain adds 0 there. **Not measured by the tool:** programs (+1 rain, +4
+permutations expected), textures (+2 expected: control C and the height texture), and the height-bake time
+(`tools/src/rain-height-bake.test.ts` pins it under 5 ms, best of five; it passed alone at load 46-76 and failed
+once inside the full parallel suite at load 45-76, a timing flake).
+
+**rAF cadence.** With the app loop live, every `ein_qasab` and basin view on every preset reads **16.70 ms median,
+16.7-16.8 p95**, with 0.0% of frames over 20 ms, except the basin at `high` zoom 1 on run 1 (4.3% over 20 ms, one
+load spike: load average 51 at that moment). The GH-829 reading therefore holds: the frames are vsync-bound, the
+synced medians above (10-20 ms) are serialised GPU latency, not the live cadence. The cadence check goes red when
+it should: `--burn=2` (two extra frames per rAF) reads **50.0 ms median, 50.1 p95, 99.3-99.7% of frames over 20 ms**
+on `ein_qasab` `high` (load 44-54), against 16.7 without.
+
+**Bloom census** (`pnpm perf:bloom-census -- --only=ein_qasab --quality=medium,high`, ANGLE/Metal, load 48-61, max
+quiet-pixel value, ceiling 0.9): `ein_qasab` whole 0.318 (`medium`) / 0.318 (`high`); force view 0.333 / 0.263;
+p99 0.15-0.20; fraction above 1.0 is 0. The wet frame stays well under 0.9. The census exited 1 on its separate
+`aftermath` block (a `qarn_hadid` decal scene), which is not the wet map: max 3.03-3.30 caused by pooled muzzle-flash
+lights, 0.51-0.55 with them hidden, as the tool's own attribution says; it is not a P4 finding and the wet
+numbers above do not depend on it.
+
+Not measured: a quiet machine (load never under 18), any other GPU, a live fight on the wet map, tick time, the
+program and texture counts, the decor triangle count on its own. Also not in these tables (found at the final review): the control-C bake, about 205 ms on `ein_qasab` under
+rain, probably paid twice at boot and again on a mid-mission road or ridge tile change (a parked frame never sees it); and enemy and
+civilian readability under rain (the rain lift is KDF-only). Raw output: `_coord/wet-theme/p4/cost/` (run1,
+run2-low, run3-low900, run4-burn2, bloom-census).
+
+### Final tip re-run (b7f872f5e)
+
+The one remaining cost re-run, at the final tip of the branch (`b7f872f5e`: includes the rain keep-fraction density
+change and the KDF rain lift that postdate the tables above; the flat lift was later replaced by a Fresnel rim light, PR 914, a few ALU operations in the KDF unit fragment that this run did not cost), on a **quiet machine**. Same instrument and conditions as
+the tables above (Apple M3 Pro, `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)`, headless
+Chromium, 1440x900 CSS at DPR 2, 12 interleaved rounds x 20 readPixels-synced frames, median, port 5211, music off,
+29 entities, `low` at 900 drops as it shipped before this step). Load average (1 min): `uptime` 4.57 before and 3.15
+after; the tool's lines: high 4.7 -> 5.2, medium 5.2 -> 3.4, low 3.4 -> 3.1 (cadence reads 2.6-4.9). Every load
+reading is under 8. All three presets booted with `rainMap, wetGround, rainBatch, wetDefine` true on `ein_qasab` and
+false on the basin; no WARN line; the rain toggle changed the draw-call count by exactly -1 on every wet view; the rAF
+cadence read 16.70 ms median, 16.7-16.8 p95, 0.0% over 20 ms on every view of every preset. The per-round spread of a
+single row is about 0.5 ms here (it was about 1 ms under the earlier load), so these are the cleaner reads.
+
+| preset | view | gross | shadow saving | **NET (total wet)** | budget | verdict | NET (layers) |
+|---|---|---|---|---|---|---|---|
+| high | z1 | 0.60 | 0.40 | **0.20** | 1.0 | within | 0.10 |
+| high | z1.6 | 0.80 | 0.30 | **0.50** | 1.0 | within | 0.40 |
+| high | z2.5 | 0.60 | 0.40 | **0.20** | 1.0 | within | 0.20 |
+| medium | z1 | 0.60 | 0.10 | **0.50** | 0.7 | within | 0.10 |
+| medium | z1.6 | 0.70 | -0.20 | **0.90** | 0.7 | **OVER** | 0.70 |
+| medium | z2.5 | 1.00 | 0.00 | **1.00** | 0.7 | **OVER** | 0.60 |
+| low, 900 drops | z1 | 0.50 | none (1024 -> 1024) | **0.50** | 0.4 | **OVER** | 0.10 |
+| low, 900 drops | z1.6 | 0.50 | none | **0.50** | 0.4 | **OVER** | 0.40 |
+| low, 900 drops | z2.5 | 0.40 | none | **0.40** | 0.4 | at budget (the tool prints OVER on float residue) | 0.10 |
+
+`low` read over its +0.4 ms budget at two of three views on a quiet machine, so the second ladder step was taken in
+the commit after this run: **`low` drops 900 -> 525** (`render: low rain drops 900 -> 525, second ladder step`, which
+carries `Was drops 900`). It was **not re-measured** (the re-run budget is spent). The rain layer alone reads -0.3 /
+-0.4 / -0.2 ms on `low` and the standing wet program -0.5 / -0.5 / -0.4, so the step can recover at most the rain
+row's share, and `low` may still read about 0.1 ms over at zoom 1 and 1.6. **`medium` is over its +0.7 ms budget at
+zoom 1.6 (0.90) and 2.5 (1.00)**, which the earlier loaded run had read as 0.60 and 0.20; no step was taken for it
+(outside the re-run's decision rule), and it is reported for the controller. `medium` zoom 1.6 also shows a negative
+shadow saving (-0.20: the stepped 1024 map read slower than the full 2048 one), which is inside the noise.
+
+**One at a time** (`config - baseline`, ms; z1 / z1.6 / z2.5).
+
+| preset | rain | wet | marsh | ripples | wet-all | wet-program | shadow-full |
+|---|---|---|---|---|---|---|---|
+| high | -0.20 / -0.60 / -0.40 | -0.20 / -0.10 / 0.30 | -0.20 / -0.20 / 0.10 | -0.20 / -0.30 / 0.00 | -0.50 / -0.70 / -0.60 | -0.60 / -0.80 / -0.60 | 0.40 / 0.30 / 0.40 |
+| medium | -0.20 / -0.40 / -0.60 | -0.20 / -0.20 / -0.30 | -0.10 / -0.10 / -0.30 | -0.10 / -0.20 / -0.20 | -0.20 / -0.50 / -0.60 | -0.60 / -0.70 / -1.00 | 0.10 / -0.20 / 0.00 |
+| low, 900 | -0.30 / -0.40 / -0.20 | -0.30 / -0.40 / -0.10 | -0.20 / -0.30 / -0.10 | n/a (ripples off) | -0.10 / -0.40 / -0.10 | -0.50 / -0.50 / -0.40 | n/a (no shadow step) |
+
+Whole frame, `ein_qasab` against `wadi_halam_basin` (baseline medians, ms, ein vs basin): high 17.80 vs 18.70 (-0.90) /
+16.50 vs 15.80 (+0.70) / 15.40 vs 14.50 (+0.90); medium 14.20 vs 15.00 (-0.80) / 13.30 vs 12.50 (+0.80) / 12.60 vs
+11.20 (+1.40); low 11.80 vs 12.60 (-0.80) / 10.80 vs 10.00 (+0.80) / 9.70 vs 8.60 (+1.10). Raw output:
+`_coord/wet-theme/p4/cost/run4-final.txt` (with `uptime-run4-before.txt`, `uptime-run4-after.txt`). The earlier tables
+above are kept; their loaded readings of `medium` (inside budget) did not reproduce on the quiet machine.

@@ -19,8 +19,17 @@ import * as THREE from 'three';
 import {
   CRATER_BOWL_ALPHA,
   CRATER_LIP_ALPHA,
+  craterHeight,
   craterRadiusTiles,
+  craterWaterCover,
+  craterWaterSample,
   createDecalMaterial,
+  DECAL_FRAGMENT_SHADER,
+  DECAL_FRAGMENT_SHADER_WET,
+  decalPaletteKeysFor,
+  decalWetFragmentShader,
+  DECAL_PALETTE_KEYS,
+  WET_DECAL_PALETTE_KEYS,
   decalAlpha,
   decalMultiplier,
   DECAL_LIFT_CAP,
@@ -58,6 +67,7 @@ import { decalGroundY } from './ground-height';
 import { buildTerrainSurface, isTerrace, surfaceWorldY } from './terrain/surface';
 import { scorchRadiusTiles } from './scorch-decals';
 import { hexToLinear, MARK_EPSILON, WORLD_PER_LEVEL } from './terrain/shared';
+import { waterAlbedo } from './terrain/wet-shading';
 import { ROAD_DISTANCE_RANGE_TILES } from './terrain/control-map';
 import { ROAD_EDGE_BEND, ROAD_EDGE_FALLOFF, ROAD_HALF_WIDTH, SHOULDER_ALPHA, SHOULDER_TILES } from './terrain/road-graph';
 import { tileHash } from '../tile-hash';
@@ -739,3 +749,117 @@ describe('the conforming grid on relief (fix wave I-4)', () => {
  *  retired centre hold (the shape of qarn_hadid's 0.62 wu ridge foot). */
 const RIDGE_FOOT_WORST_WU = 0.03;
 const RIDGE_FOOT_OLD_MIN_WU = 0.3;
+
+describe('the wet decals (GH-871 P4 T5): mud prints and crater water', () => {
+  // Oracles are literals.
+  it('keys the palette as it always did, and tread and tyre to mud.3 under rain only', () => {
+    expect(DECAL_PALETTE_KEYS).toEqual({
+      craterBowl: 'shadow.0',
+      craterLip: 'limestone.1',
+      scorch: 'shadow.0',
+      oil: 'shadow.1',
+      rubbleA: 'limestone.5',
+      rubbleB: 'limestone.7',
+      tread: 'dust.5',
+      tyre: 'limestone.6',
+    });
+    expect(WET_DECAL_PALETTE_KEYS).toEqual({ ...DECAL_PALETTE_KEYS, tread: 'mud.3', tyre: 'mud.3' });
+    expect(decalPaletteKeysFor(undefined)).toBe(DECAL_PALETTE_KEYS);
+    expect(decalPaletteKeysFor('clear')).toBe(DECAL_PALETTE_KEYS);
+    expect(decalPaletteKeysFor('rain')).toBe(WET_DECAL_PALETTE_KEYS);
+  });
+
+  it('craterHeight: the bowl floor is -0.25 radii, and the rim peaks above 0', () => {
+    expect(craterHeight(0, 0, 0.3, 0.25, 0.12)).toBe(-0.25);
+    // seed 0, on the +s axis: no wobble (sin 0), so rw = 0.6: -0.25 * (1 - (0.6/0.84)^2).
+    expect(craterHeight(0.6, 0, 0, 0.25, 0.12)).toBeCloseTo(-0.12244898, 7);
+    // On the rim ridge (rw 0.88) the bowl term is 0 and the rim is at its peak.
+    expect(craterHeight(0.88, 0, 0, 0.25, 0.12)).toBeCloseTo(0.12 + -0.25 * Math.max(1 - (0.88 / 0.84) ** 2, 0), 7);
+    // Flat (0, 0) shape: no relief at all.
+    expect(craterHeight(0.5, 0.2, 0.7, 0, 0)).toBe(0);
+  });
+
+  it('craterWaterCover: full below -0.14, half at -0.12, none above -0.10', () => {
+    expect(craterWaterCover(-0.25)).toBe(1);
+    expect(craterWaterCover(-0.14)).toBe(1);
+    expect(craterWaterCover(-0.12)).toBeCloseTo(0.5, 12);
+    expect(craterWaterCover(-0.1)).toBe(0);
+    expect(craterWaterCover(0.05)).toBe(0);
+  });
+
+  it('craterWaterSample lays the ground-shader water over the dry sample', () => {
+    const ground = [0.1, 0.2, 0.3] as const;
+    const sky = [0.8, 0.7, 0.6] as const;
+    // (1 - 0.25) * 0.55 * ground + 0.25 * sky, by hand.
+    const water = [0.24125, 0.2575, 0.27375];
+    const full = craterWaterSample(0.4, [0, 0, 0], 1, ground, 0.25, sky, 0.55);
+    full.colour.forEach((c, i) => expect(c).toBeCloseTo(water[i], 12));
+    expect(full.alpha).toBeCloseTo(0.9, 12);
+    const none = craterWaterSample(0.4, [0.5, 0.5, 0.5], 0, ground, 0.25, sky, 0.55);
+    expect(none).toEqual({ alpha: 0.4, colour: [0.5, 0.5, 0.5] });
+    const half = craterWaterSample(0.4, [0, 0, 0], 0.5, ground, 0.25, sky, 0.55);
+    expect(half.colour[0]).toBeCloseTo(0.120625, 12);
+    expect(half.colour[2]).toBeCloseTo(0.136875, 12);
+    expect(half.alpha).toBeCloseTo(0.65, 12);
+    // And it is the SAME surface the ground draws: wet-shading's `waterAlbedo`.
+    const ground2 = waterAlbedo(ground, 0.25, sky);
+    full.colour.forEach((c, i) => expect(c).toBeCloseTo(ground2[i], 12));
+  });
+
+  const palette = {
+    craterBowl: '#23241F', craterLip: '#E6D8BE', scorch: '#23241F', oil: '#14150F',
+    rubbleA: '#A28C6E', rubbleB: '#75624A', tread: '#806032', tyre: '#8C7659',
+  };
+  const wetUniforms = { uWetSky: { value: new THREE.Vector3(0.3, 0.4, 0.5) }, uPuddleReflect: { value: 0.25 } };
+  const dryMat = createDecalMaterial(palette);
+  const wetMat = createDecalMaterial(palette, undefined, wetUniforms);
+
+  it('the shipped material is the shipped program: no define, no wet uniform, no wet GLSL', () => {
+    expect(dryMat.fragmentShader).toBe(DECAL_FRAGMENT_SHADER);
+    expect(dryMat.defines).toEqual({});
+    expect(dryMat.uniforms.uWetSky).toBeUndefined();
+    expect(dryMat.uniforms.uPuddleReflect).toBeUndefined();
+    expect(dryMat.fragmentShader).not.toContain('DECAL_WET');
+    expect(dryMat.fragmentShader).not.toContain('rlCraterWater');
+    expect(dryMat.fragmentShader).not.toContain('uWetSky');
+  });
+
+  it('the wet program is the shipped one plus five blocks behind DECAL_WET', () => {
+    expect(wetMat.defines).toEqual({ DECAL_WET: '' });
+    expect(wetMat.fragmentShader).toBe(DECAL_FRAGMENT_SHADER_WET);
+    const blocks = wetMat.fragmentShader.match(/\n#ifdef DECAL_WET\n[\s\S]*?\n#endif/g) ?? [];
+    // Non-vacuous: all five blocks are there before the strip is compared.
+    expect(blocks).toHaveLength(5);
+    expect(wetMat.fragmentShader.replace(/\n#ifdef DECAL_WET\n[\s\S]*?\n#endif/g, '')).toBe(DECAL_FRAGMENT_SHADER);
+    // The vertex program is not touched at all.
+    expect(wetMat.vertexShader).toBe(dryMat.vertexShader);
+  });
+
+  it('shares the ground`s own uniform objects by reference, so one write moves both', () => {
+    expect(wetMat.uniforms.uWetSky).toBe(wetUniforms.uWetSky);
+    expect(wetMat.uniforms.uPuddleReflect).toBe(wetUniforms.uPuddleReflect);
+    wetUniforms.uPuddleReflect.value = 0.35;
+    expect(wetMat.uniforms.uPuddleReflect.value).toBe(0.35);
+    wetUniforms.uPuddleReflect.value = 0.25;
+  });
+
+  it('carries the water`s constants, interpolated from the names the mirror reads', () => {
+    const src = wetMat.fragmentShader;
+    expect(src).toContain('rlCraterWater = 1.0 - smoothstep(-0.140000, -0.100000, craterHeight(vOffset, seed));');
+    expect(src).toContain('vec3 rlWaterCol = mix(vec3(0.550000) * ground, uWetSky, uPuddleReflect);');
+    expect(src).toContain('a = mix(a, 0.900000, rlCraterWater);');
+    expect(src).toContain('gst *= 1.0 - rlCraterWater;');
+    // The water is laid after the ground tone it divides by, and before the ratio.
+    const iGround = src.indexOf('vec3 ground = mix(mix(vGround');
+    const iWater = src.indexOf('vec3 rlWaterCol');
+    const iRatio = src.indexOf('vec3 ratio = colour / max(ground');
+    expect(iGround).toBeGreaterThan(0);
+    expect(iWater).toBeGreaterThan(iGround);
+    expect(iRatio).toBeGreaterThan(iWater);
+  });
+
+  it('refuses a splice whose anchor is gone, instead of shipping a lake that never draws', () => {
+    expect(() => decalWetFragmentShader(DECAL_FRAGMENT_SHADER.replace('int ci = 0;', ''))).toThrow(/int ci = 0;/);
+    expect(() => decalWetFragmentShader(DECAL_FRAGMENT_SHADER.replace('uniform float uRoadOn;', ''))).toThrow(/uRoadOn/);
+  });
+});

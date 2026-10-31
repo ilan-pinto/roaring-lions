@@ -205,6 +205,7 @@ import collapseFlash from '../../../data/vfx/collapse_flash.json';
 import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 import rotorWash from '../../../data/vfx/rotor_wash.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
+import vehicleMud from '../../../data/vfx/vehicle_mud.json';
 import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
 import vehicleDamagedSmoke from '../../../data/vfx/vehicle_damaged_smoke.json';
 import armorRicochet from '../../../data/vfx/armor_ricochet.json';
@@ -578,6 +579,9 @@ export const vfxEmitters = [
   collapseFlash,
   tunnelCollapse,
   vehicleDust,
+  // GH-871 P4: what a vehicle throws on a map that rains, in place of `vehicle_dust`;
+  // swapped BY NAME in the renderer (nothing dispatches by the `vehicle_move` trigger).
+  vehicleMud,
   vehicleExhaust,
   // Pass C2/C4 (P3): a living vehicle with a mobility or firepower kill.
   vehicleDamagedSmoke,

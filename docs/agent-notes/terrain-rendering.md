@@ -449,3 +449,93 @@ tiles are code-built (`tools/terrain/build_reeds.py`, `build_wet_grass.py`, `bui
   `YARD_MIX` / `ROADSIDE_MIX`. `propKindsFor` fetches the bale and culvert only for a map whose theme names them.
 - The R1 approval rig (`render_wetland_r1.py`, `wetland_r1_rig.py`, calibrated against three.js's light formulas) and its census,
   ground-composite and sheet tools live beside the builders.
+
+## The wetland theme (GH-871 P4)
+
+P4 made the wetland WET: a wet ground program, a control texture for the water, ripples, wet sway, mud prints and crater water,
+plus the rain's light and the falling rain (the last two are in `renderer.md`). Spec: `docs/superpowers/specs/2026-10-28-rain-terrain-design.md`,
+section 14 is "P4 as built"; plan: `docs/superpowers/plans/2026-10-30-wetland-p4.md`. No shipped map rains, so the 35 terrain digests, the
+three shipped `theme-identity` entries, the determinism hashes and the visual baselines did not move. Each bullet below is a rule a change
+will get wrong.
+
+- **One switch: `RendererOptions.weather === 'rain'`.** Control C, the `THEME_WET` ground, `rainLight`, the wet fog, the wet sway, the
+  wet decal palette and crater water, the wet unit surfaces, `vehicle_mud` and the rain batch all key on it, and on nothing else. The
+  theme id never reaches the renderer: `TERRAIN_WEATHER` (app) turns `wetland` into `rain`, and a renderer built with
+  `weather: 'clear'` gets the dry path whatever the theme (the shipped three pin it). Never key a wet term on the theme, on "the map has a `~`" or on a map id.
+- **Control C is a third control texture, RGBA8 at `CONTROL_TEXELS_PER_TILE` 8, and exists only when `TerrainInput.wet` is true AND a
+  `TerrainSurface` was given** (`terrain/control-map.ts`, `terrain/wet-masks.ts`). **R is the marsh water weight**: `marshWaterAt` at the
+  texel CENTRE, as is. The reed placer rejects a centre where that function reads `>= 0.5`, so the POINT contract holds (see the reed-agreement rule below: it is not strict on the texels). **G is the road puddles ONLY**: a band of unsigned road distance
+  `PUDDLE_RUT_HALF_BAND` (0.12 tile) either side of `RUT_OFFSET`, where a per-texel rut noise passes (`PUDDLE_RUT_FILL` 0.56, stream
+  14011/14153, mapped through its own empirical CDF so a share is a share). **B and A are spare, written 0.** The lead removed the
+  open-ground puddle term and the low-ground boost at S-L1 (30 Oct): the plan's 4-8% open-ground share and the +6% bowl boost are gone,
+  `G == 0` on every texel off a road, and `RenderQuality.rain` has no `openPuddles`. Both masks are SOFT, with the 0.5 crossing at the rule's
+  edge; a share is the fraction of texels with `>= 0.5`. Measured on `ein_qasab`: marsh 0.3119 (band 0.25-0.35), road puddles 0.2948
+  (band 0.25-0.35; the first bake read 0.4005 at fill 0.75 and the S-3 gate took the second round). The bake is about 205 ms on
+  `ein_qasab`, wet only. One predicate, `neverWater`, zeroes G: a pad, a `^` top, a crown, a terrace top, a slope over 10 degrees.
+- **Control C's splice has its own margin and reads the surface.** `WET_SPLICE_MARGIN_TEXELS` is 16 (two tiles at 8 texels, the Catmull-Rom
+  stencil `incremental.ts` derives `SPLICE_RADIUS_TILES` 2 from), a second constant beside `CONTROL_SPLICE_MARGIN_TEXELS` 4 on purpose:
+  A and B read no surface, and raising theirs would loosen a margin `terrain-splice.test.ts` pins tight. `changedControlTiles` marks
+  `CHANGED_SURFACE` where the smoothing field or the terrace flag differs (a collapse can re-flow the fill under a neighbour). **The surface
+  (`build.state.surface`) must reach all five functions together**: `buildControlMap`, `snapshotControlInputs`, `changedControlTiles`,
+  `updateControlMapRegion` and `controlInputsMatch` (`rebuildTerrain` does). A missed one silently stales the puddles, so
+  **`updateControlMapRegion` THROWS when `map.c !== null` and no surface is given**; the other three degrade to a full build. A road-tile or
+  ridge change still forces a full bake. Only the 16-texel margin's falsification needs a map with a hump beside a road
+  (`ein_qasab`'s sweep cannot go red on it; the constructed road-beside-hump fixture falsifies 8 and 0, not 12).
+- **`THEME_WET` is a compile-time define, and its strip property is the 9.1 pin.** `new GroundMaterial()` compiles today's source byte for
+  byte; `new GroundMaterial({ wet: true })` sets the define, adds the wet uniforms and the cache key `rl-ground-wet`, and splices four
+  blocks (`wetBlock`): HEADER (after `<common>`: uniforms, `rlRipHash`, `rlRipple`), COLOR (after `<color_fragment>`), ROUGHNESS (after
+  `<roughnessmap_fragment>`) and NORMAL (after the relief normal). `theme-identity.test.ts` proves, on output, that the wetland program
+  with every `\n#ifdef THEME_WET ... \n#endif` block, the define, the `-wet` cache-key suffix and the wet uniforms removed IS arid's
+  program. **Every wet line lives inside its `#ifdef`**; the strip is a lazy match to the FIRST `#endif`, so a block may hold no nested
+  conditional, and (it is a JS template literal) no backticks and no dollar signs. Every term has a TS mirror in `terrain/wet-shading.ts`
+  and the GLSL is built FROM its constants; `mesh.test.ts` pins that the compiled string carries each. Some terms have no mirror (the
+  reflectance weighting, the rim's `(1 - cover)`, the composite order, the 2x2 gradient solve) and are covered by string-contains tests
+  only: a swap of two of them would pass.
+- **The surface term.** On ground TOPS (`rlTop`) `m = max(R * uMarshAmp, G) * uWetAmp`; coverage is a smoothstep over `WATER_COVER_LO..HI`
+  (0.4..0.6). The water albedo is the tone under it x `WATER_ALBEDO` (0.55), mixed toward `uWetSky` by the reflectance, the
+  reflectance weighted by which mask is the stronger. A 0.06-tile rim of `mud.3` (`uWetRim`) edges every water mask on the LAND side; the
+  distance to the 0.5 crossing is read off the mask's own gradient (`dFdx/dFdy`), so it hugs about one texel and may spawn a sliver at a
+  terrace wall. Roughness is written into three's own `roughnessFactor`: open 0.62, road mud 0.45, basalt top 0.55, water 0.08; the wet
+  program writes 0.62 on walls and non-top fragments where dry keeps 1.0 (wet only, by design).
+- **The reflectances are authored, not Fresnel, and they are on the DRAWN scale.** `PUDDLE_REFLECT` 0.35 (road puddles, and the crater
+  water, which shares the uniform) and `MARSH_REFLECT` 0.25 (`weather.ts`), picked by the lead from the 0.20/0.25/0.35 A/B at S-L1. They
+  seed `uPuddleReflect` / `uMarshReflect`; `ThreeRenderer.debugSetWetTuning` (a concrete-class method, never on `Renderer`) is the A/B's
+  only door. **`uWetSky` is `overcast.0` linear x `hazeRadiance`, mixed into the ALBEDO, and the light then scales the albedo by about the same
+  factor again**: the sky is lit twice by design, so the effective sky share is about `reflect x 0.74` and the drawn water reads about 26%
+  dimmer than the T3 readability proxy models. The lead chose 0.35/0.25 by eye on that scale. Dropping the extra `hazeRadiance` factor (an
+  honest-model refactor) would brighten every pool, change the approved look, and needs a recapture. Do not "fix" it in passing.
+- **Ripples** (`wet-shading.ts`, mirrored in the header block): on water fragments only (`m >= 0.5`), on the SIM clock
+  (`uRippleTimeSec = presentationSimMs / 1000`, never `performance.now()` or accumulated `dtMs`: a repaint at zero elapsed time moves no
+  ring and a pause freezes them mid-ring). The plane is cut into 0.5-tile cells, 2 rings a cell from `tileHash` on fresh streams
+  (x 14621/14731, z 14843/14957, phase 15061/15173, ring stride 331), 0.12-tile rings, 0.9 s life, each centre kept clear of the cell edge
+  so no ring crosses a cell, the summed normal tilt CAPPED at 8 degrees and the reflectance swung +-15%. Off on `low`
+  (`quality.rain.ripples`), off under reduced motion, off with the `ripples` layer hidden: `writeRippleAmp` ANDs all three each frame.
+- **Wet sway** (`terrain/sway.ts`, `terrain/decor-mesh.ts`): a compile-time variant of the foliage chunk, amplitude x `RAIN_SWAY_AMP` 1.5
+  and gust `RAIN_SWAY_GUST` 1.8, on the same sim clock, under its own cache key `rl-foliage-sway-wet`. `buildDecorMesh(..., wet)` hands
+  only the foliage role the variant; a shipped renderer's chunk is untouched. The `scene` digest cannot see it (the harness builds no
+  decor GLBs), so `decor-mesh.test.ts` compares the compiled programs directly and `ThreeRenderer.wet-units.test.ts` asserts the flag
+  reaches the call site. Reduced motion neither adds nor removes sway: the shipped sway rule stands.
+- **Decals** (`decal-maths.ts`, `decal-pool.ts`): under rain `tread` and `tyre` resolve to `mud.3` (`WET_DECAL_PALETTE_KEYS`; the other six
+  keys are today's), and the decal program gains a `DECAL_WET` define with five spliced blocks (`decalWetFragmentShader`, each behind
+  `#ifdef DECAL_WET`, `spliceAfter` throws when an anchor is not unique). **Crater water** stands where the crater height is below
+  `CRATER_WATER_LEVEL` (-0.12 radii, ramp `CRATER_WATER_EDGE` 0.02, opacity `CRATER_WATER_ALPHA` 0.9, about the inner 72% of the lip's
+  inner radius): the ground tone x 0.55 mixed toward the sky by the puddle reflectance, the rim relief off (`gst *= 1 - rlCraterWater`).
+  It shares the GROUND's own `uWetSky` / `uPuddleReflect` uniform objects by reference, so `debugSetWetTuning` and `applyWetUniforms`
+  move it with the puddles, and it follows `PUDDLE_REFLECT` (0.35). It ignores the `wet` debug layer and draws over already-wet pixels.
+- **Debug layers.** `wet` (`uWetAmp` to 0: the wet TONES stay, by design, so the layer shows what leaves is the water surface), `marsh`
+  (`uMarshAmp`, the C.R weight), `ripples` and `rain` (both FLAGS the per-frame writes consult, the `unitsDebugHidden` standard). All four
+  report 0 on a map that does not rain.
+
+**Rules a change will get wrong**
+- **`groundMat` is built in the constructor, not as a field initialiser.** A field initialiser runs before the options are seen, and the
+  wet program is `new GroundMaterial({ wet: true })` only under rain. Moving it back silently gives a wet map the dry ground.
+- **The reed agreement is the point contract, not strict.** `marshWaterAt` at a reed's POINT is `< 0.5` at every reed, but the control-C
+  texel under it reads water for a few: 56 of 897 reeds (6.2%) with P3's three clumps a tile, bound 8% (72), and each such reed needs a
+  dry neighbour texel (at most 2 reeds have a 3x3 patch around a dry pinhole). The test falsifies at the texel corner. A strict
+  version needs a placer change, which moves P2's reed set and P3's.
+- **The wetland map stays out of the 35 terrain digests**, and the `wetland` `theme-identity` entry moves deliberately with a `Was` in the
+  commit (`program` 770e1d73 -> 0ce466f4 at T4; `scene` eight times; `light` once; the Was values are in the spec's section 14). A shipped entry moving is a bug, not a bless.
+- **Do not re-add an open-ground or low-ground puddle without the lead.** The share tests assert `G == 0` off a road.
+- **Wet GLSL changes need a GPU compile.** There is no GLSL validator in the test run; the first real compile was S-L1's capture. After
+  touching a wet block, read it for ES 3.00 by hand and take one `ground:capture` view (the house browser rules apply).
+- **A new control-C reader must use the texel CENTRE** (`(i + 0.5) / N`), as `marshTexel` and `puddleTexel` do.
