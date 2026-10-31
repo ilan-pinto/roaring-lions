@@ -48,6 +48,12 @@ import {
   vehicleTickScript,
   READ_RAIN_HEIGHTS_SCRIPT,
   READ_RENDER_SCRIPT,
+  READ_RIM_SCRIPT,
+  RIM_GAIN_MAX,
+  assertRimApplied,
+  parseRim,
+  rimName,
+  rimViews,
   assertMotion,
   assertPresetBooted,
   STOP_ARRIVE_TILES,
@@ -402,7 +408,7 @@ describe('T12 option parsing', () => {
   });
   it('a run without the T12 flags has none of their keys', () => {
     const a = parseGroundCaptureArgs(['--maps=ein_qasab', '--markers=ein_qasab:hamlet']);
-    for (const k of ['quality', 'ticks', 'motion', 'clip', 'stops', 'zooms', 'vehicle']) expect(k in a).toBe(false);
+    for (const k of ['quality', 'ticks', 'motion', 'clip', 'stops', 'zooms', 'vehicle', 'rim']) expect(k in a).toBe(false);
   });
   it('refuses a bad value of each', () => {
     const base = ['--maps=a', '--markers=a:m', '--zooms=1,1.6'];
@@ -1108,5 +1114,104 @@ describe('--vehicle: a run with no vehicle, or a stationary one, fails', () => {
   it('a clean run and a run that never asked are both empty', () => {
     expect(requestedModeFailures(asked, { ...none, vehicleFrames: 6 })).toEqual([]);
     expect(requestedModeFailures({}, { ...none, vehicleNoVehicle: ['x'], vehicleNotMoving: ['y'] })).toEqual([]);
+  });
+});
+
+describe('--rim: the rain-rim gains each stop frame is repainted at (GH-871 P4 PR 914)', () => {
+  const base = ['--maps=ein_qasab', '--markers=ein_qasab:causeway_s', '--stops=road,water,grass'];
+
+  it('parses gains in the order typed, 0 as a control, and no duplicates', () => {
+    expect(parseRim('0.2,0.4,0.8')).toEqual([0.2, 0.4, 0.8]);
+    expect(parseRim(' 0 , 0.5 ')).toEqual([0, 0.5]);
+    expect(parseRim('0.4')).toEqual([0.4]);
+    expect(parseRim(String(RIM_GAIN_MAX))).toEqual([8]);
+    expect(RIM_GAIN_MAX).toBe(8);
+  });
+
+  it('refuses a bad gain, a repeat (0.4 and 0.40 are one number and one file name), and an empty list', () => {
+    expect(() => parseRim('-0.1')).toThrow(/--rim wants gains in 0\.\.8, got "-0\.1"/);
+    expect(() => parseRim('8.5')).toThrow(/0\.\.8/);
+    expect(() => parseRim('NaN')).toThrow(/0\.\.8/);
+    expect(() => parseRim('Infinity')).toThrow(/0\.\.8/);
+    expect(() => parseRim('half')).toThrow(/got "half"/);
+    expect(() => parseRim('0.4,0.40')).toThrow(/names 0\.4 twice \("0\.40"\)/);
+    expect(() => parseRim('')).toThrow(/at least one gain/);
+    expect(() => parseRim(',')).toThrow(/at least one gain/);
+  });
+
+  it('is absent without the flag, adds exactly the one key `rim` to a line, and needs --stops', () => {
+    expect('rim' in parseGroundCaptureArgs(base)).toBe(false);
+    const withIt = parseGroundCaptureArgs([...base, '--rim=0.2,0.4']);
+    expect(withIt.rim).toEqual([0.2, 0.4]);
+    expect(Object.keys(withIt).filter((k) => !(k in parseGroundCaptureArgs(base)))).toEqual(['rim']);
+    expect(() => parseGroundCaptureArgs(['--maps=ein_qasab', '--markers=ein_qasab:causeway_s', '--rim=0.4'])).toThrow(/--rim repaints the --stops frames/);
+    expect(() => parseGroundCaptureArgs(['--maps=ein_qasab', '--rim=0.4'])).toThrow(/--stops/);
+    expect(() => parseGroundCaptureArgs([...base, '--rim=0.4,0.4'])).toThrow(/twice/);
+  });
+
+  it('every old option parses as it did beside it (the key sets of the T6 and T12 lines, pinned)', () => {
+    const t6 = parseGroundCaptureArgs(['--maps=ein_qasab', '--markers=ein_qasab:causeway_s', '--reflect=0.25', '--wade=ein_qasab:causeway_s']);
+    expect(Object.keys(t6).sort()).toEqual(['decals', 'maps', 'markers', 'out', 'port', 'reflect', 'reuse', 'wade']);
+    const t12 = parseGroundCaptureArgs(T12_LINE);
+    expect(Object.keys(t12).sort()).toEqual(['clip', 'decals', 'maps', 'markers', 'motion', 'out', 'port', 'quality', 'reuse', 'stops', 'ticks', 'zooms']);
+    expect(Object.keys(parseGroundCaptureArgs([...T12_LINE, '--rim=0.4'])).sort()).toEqual([...Object.keys(t12), 'rim'].sort());
+  });
+
+  it('names a repainted frame <stop frame>-rim<g>, and every name in a run is distinct', () => {
+    expect(rimName('ein_qasab-squad-road', 0.4)).toBe('ein_qasab-squad-road-rim0.4');
+    expect(rimName('ein_qasab-squad-water', 0)).toBe('ein_qasab-squad-water-rim0');
+    const view = { name: stopName('ein_qasab', 'grass'), x: 26.5, y: 36.5, zoom: 2.5, fog: false };
+    const views = rimViews(view, [0, 0.2, 0.4, 0.8]);
+    expect(views.map((v) => v.name)).toEqual([
+      'ein_qasab-squad-grass-rim0',
+      'ein_qasab-squad-grass-rim0.2',
+      'ein_qasab-squad-grass-rim0.4',
+      'ein_qasab-squad-grass-rim0.8',
+    ]);
+    expect(views.map((v) => v.rim)).toEqual([0, 0.2, 0.4, 0.8]);
+    // The camera is the stop frame's own: the repaint is of the same frozen view.
+    for (const v of views) expect([v.x, v.y, v.zoom, v.fog]).toEqual([26.5, 36.5, 2.5, false]);
+    // All three stops, plain frame plus every gain: one claim each, no collision.
+    const claims = new NameClaims();
+    for (const kind of ['road', 'water', 'grass'] as const) {
+      const plain = { name: stopName('ein_qasab', kind) };
+      claims.claim(plain.name);
+      for (const v of rimViews(plain, [0.2, 0.4, 0.8])) claims.claim(v.name);
+    }
+    expect(claims.size).toBe(12);
+  });
+
+  it('a frame must read back the gain it was asked for, and a renderer with no rim material fails loud', () => {
+    const read = { gain: 0.4, power: 3, built: true };
+    expect(() => assertRimApplied('m-squad-road-rim0.4', 0.4, read)).not.toThrow();
+    expect(() => assertRimApplied('m-squad-road-rim0.8', 0.8, read)).toThrow(/asked for rim gain 0\.8 but the uniform reads 0\.4/);
+    expect(() => assertRimApplied('m-squad-road-rim0.4', 0.4, { ...read, built: false })).toThrow(/no rim material/);
+    expect(() => assertRimApplied('m-squad-road-rim0', 0, { ...read, gain: 0 })).not.toThrow();
+    expect(() => assertRimApplied('m-squad-road-rim0.4', 0.4, { ...read, gain: Number.NaN })).toThrow(/reads NaN/);
+  });
+
+  it('READ_RIM_SCRIPT reads debugRainRim off the renderer and THROWS on a tree without it', () => {
+    const run = (renderer: unknown): unknown =>
+      JSON.parse((new Function('window', `return ${READ_RIM_SCRIPT};`) as (w: unknown) => string)({ __lions: { renderer } }));
+    expect(run({ debugRainRim: () => ({ gain: 0.4, power: 3, built: true }) })).toEqual({ gain: 0.4, power: 3, built: true });
+    expect(() => run({})).toThrow(/no debugRainRim/);
+  });
+
+  it('a requested gain that took no frame fails the run, one gain does not excuse another', () => {
+    const none = { presetFrames: {}, tickFrames: 0, reducedFrames: 0, clipPath: null, stopFrames: {}, vehicleFrames: 0, vehicleNoVehicle: [] as string[], vehicleNotMoving: [] as string[] };
+    expect(requestedModeFailures({ rim: [0.2, 0.4] }, none)).toHaveLength(2);
+    expect(requestedModeFailures({ rim: [0.2, 0.4] }, { ...none, rimFrames: { '0.2': 3 } })).toEqual([
+      '--rim=0.4 was given but no rim 0.4 frame was taken (no --stops frame was taken)',
+    ]);
+    expect(requestedModeFailures({ rim: [0.2, 0.4] }, { ...none, rimFrames: { '0.2': 3, '0.4': 3 } })).toEqual([]);
+    expect(requestedModeFailures({}, none)).toEqual([]);
+  });
+
+  it('frameLine prints the gain read back, and nothing for a plain frame', () => {
+    const rec = { calls: 12, triangles: 3456, textures: 7, geometries: 9, tick: 420, puddle: 0.35, marsh: 0.25, squadScreen: [700, 450] as const };
+    expect(frameLine('m-squad-road-rim0.8', { ...rec, rim: { gain: 0.8, power: 3, built: true } })).toBe(
+      '  m-squad-road-rim0.8: tick=420 puddle=0.35 marsh=0.25 calls=12 tris=3456 tex=7 geo=9 squad=[700,450] rim=0.8'
+    );
+    expect(frameLine('m-squad-road', rec)).not.toContain('rim=');
   });
 });

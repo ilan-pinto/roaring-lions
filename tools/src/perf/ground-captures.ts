@@ -59,6 +59,21 @@
  *       and photographed at zoom 2.5 as `<map>-squad-<kind>` with `squadScreen` in cost.json.
  *   --zooms=1,1.6,2.5   the zooms each marker is photographed at (default 1 and 2.5, unchanged).
  *
+ * GH-871 P4 PR 914 adds the rain-rim calibration (the lead's ruling 1: a thin Fresnel rim light on KDF
+ * figures under rain replaces the flat lift), so ONE browser run can show several gains:
+ *
+ *   pnpm ground:capture -- --port=5196 --maps=ein_qasab --markers=ein_qasab:causeway_s \
+ *     --stops=road,water,grass --rim=0.2,0.4,0.8 --out=...
+ *
+ *   --rim=<g>[,<g>...]   needs --stops. After each stop's plain frame (drawn at the shipped default
+ *       gain, as before) the SAME frozen view is repainted at each gain, at zero elapsed time as
+ *       `--reflect` is: `ThreeRenderer.debugSetRainRim(g)` (a concrete-class method reached through
+ *       `__lions.renderer`, never the `Renderer` interface), a repaint, then `debugRainRim()` read
+ *       back and compared with the request (a mismatch, or a renderer with no rim material, THROWS).
+ *       The frames are named `<map>-squad-<kind>-rim<g>`, and the gain and `squadScreen` are in
+ *       `cost.json`. The knob is put back to the shipped default after each stop. Cropping to 4x
+ *       around `squadScreen` is the run child's job, not this tool's.
+ *
  * GH-871 P4 S-L2 ruling 4 adds the one ordered vehicle, for the mud spray:
  *
  *   --vehicle[=<marker>]   after the stops, the sandbox force's first LIVING side-0 vehicle (a unit type
@@ -159,6 +174,11 @@ import {
   rainLabel,
   requestedModeFailures,
   squadScreenScript,
+  READ_RIM_SCRIPT,
+  assertRimApplied,
+  parseRim,
+  rimViews,
+  type RimRead,
   standsOn,
   stopGlyph,
   stopName,
@@ -216,6 +236,8 @@ export interface GroundCaptureArgs {
   readonly stops?: readonly StopKind[];
   /** `--zooms=` (T12): the zooms each marker is photographed at. Absent keeps `MARKER_ZOOMS`. */
   readonly zooms?: readonly number[];
+  /** `--rim=` (GH-871 P4 PR 914): the rain-rim gains each `--stops` frame is repainted at. Absent without the flag. */
+  readonly rim?: readonly number[];
   /** `--vehicle[=<marker>]` (S-L2 ruling 4): the marker to drive towards, `null` for each map's first
    *  `--markers` entry. Absent without the flag. */
   readonly vehicle?: { readonly marker: string | null };
@@ -303,6 +325,8 @@ export function parseGroundCaptureArgs(
   const stops = rawStops === undefined ? undefined : parseStops(rawStops);
   const rawZooms = flag(argv, 'zooms');
   const zooms = rawZooms === undefined ? undefined : parseZooms(rawZooms);
+  const rawRim = flag(argv, 'rim');
+  const rim = rawRim === undefined ? undefined : parseRim(rawRim);
   const rawVehicle = flag(argv, 'vehicle');
   const vehicle =
     rawVehicle !== undefined ? { marker: parseVehicleMarker(rawVehicle) } : argv.includes('--vehicle') ? { marker: null } : undefined;
@@ -310,6 +334,8 @@ export function parseGroundCaptureArgs(
   for (const [name, given] of [['--quality', quality], ['--ticks', ticks], ['--motion', motion], ['--clip', clip], ['--stops', stops], ['--zooms', zooms], ['--vehicle', vehicle]] as const) {
     if (given !== undefined && markers === undefined) throw new Error(`${name} photographs the --markers views; pass --markers=<map>:<marker> too`);
   }
+  // The rim repaints the settled squad frames: with no --stops there is nothing to repaint.
+  if (rim !== undefined && stops === undefined) throw new Error('--rim repaints the --stops frames; pass --stops=road,water,grass too');
   // A named marker must be one the run has: a typo must not quietly drive nowhere.
   if (typeof vehicle?.marker === 'string' && !(markers ?? []).some((m) => m.marker === vehicle.marker)) {
     throw new Error(`--vehicle=${vehicle.marker} names a marker that is not in --markers (have: ${(markers ?? []).map((m) => m.marker).join(', ')})`);
@@ -330,6 +356,7 @@ export function parseGroundCaptureArgs(
     ...(stops === undefined ? {} : { stops }),
     ...(zooms === undefined ? {} : { zooms }),
     ...(vehicle === undefined ? {} : { vehicle }),
+    ...(rim === undefined ? {} : { rim }),
   };
 }
 
@@ -368,6 +395,9 @@ export interface MapView {
   /** GH-871 P4 T6: when present the view is drawn at this puddle and marsh reflectance
    *  (`debugSetWetTuning`). Absent leaves the tuning as the map booted it. */
   readonly reflect?: number;
+  /** GH-871 P4 PR 914: when present the view is drawn at this rain-rim gain (`debugSetRainRim`) and the
+   *  gain is read back and asserted. Absent leaves the knob as it was. */
+  readonly rim?: number;
 }
 
 /** The audit's rule: the road tile with the most road inside Chebyshev radius
@@ -578,6 +608,8 @@ interface LionsWindow {
       setDebugLayerVisible(name: string, visible: boolean): number;
       /** ThreeRenderer's concrete-class test knob (R-12): NOT on the `Renderer` interface. */
       debugSetWetTuning?(tuning: { puddle?: number; marsh?: number }): void;
+      /** ThreeRenderer's rain-rim calibration knob (GH-871 P4 PR 914): also concrete-class only. */
+      debugSetRainRim?(gain: number): void;
       /** Private on the class, a plain property at runtime; read for the reflectance a frame was
        *  drawn at. `uniforms` carries no wet uniforms on a dry map. */
       groundMat?: { uniforms?: Record<string, { value: number } | undefined> };
@@ -709,6 +741,8 @@ export interface FrameRecord extends ViewStats {
   /** `--stops`: where the squad's lead entity stood on the screen, CSS px, for a contrast step. */
   readonly squadScreen?: readonly [number, number];
   readonly stop?: StopRecord;
+  /** `--rim`: the rain rim as READ BACK after the frame was drawn (gain, power, built). */
+  readonly rim?: RimRead;
 }
 
 /** What `--vehicle` records for one shot, in `cost.json` `<map>.vehicle.shots`. */
@@ -761,6 +795,10 @@ async function readTuning(page: Page): Promise<Tuning> {
   return JSON.parse((await page.evaluate(READ_TUNING_SCRIPT)) as string) as Tuning;
 }
 
+async function readRim(page: Page): Promise<RimRead> {
+  return JSON.parse((await page.evaluate(READ_RIM_SCRIPT)) as string) as RimRead;
+}
+
 async function readStats(page: Page): Promise<ViewStats> {
   const json = (await page.evaluate(STATS_SCRIPT)) as string;
   return JSON.parse(json) as ViewStats;
@@ -809,8 +847,14 @@ async function loadHeights(page: Page, cache: HeightCache): Promise<void> {
 async function shot(page: Page, out: string, view: MapView, ctx: ShotCtx): Promise<FrameRecord> {
   ctx.claims.claim(view.name);
   const rect = await page.evaluate(
-    ([x, y, zoom, fog, reflect]) => {
+    ([x, y, zoom, fog, reflect, rim]) => {
       const L = (window as unknown as LionsWindow).__lions;
+      if (rim !== null) {
+        if (typeof L.renderer.debugSetRainRim !== 'function') {
+          throw new Error('renderer has no debugSetRainRim: this tree predates GH-871 P4 PR 914');
+        }
+        L.renderer.debugSetRainRim(rim);
+      }
       if (reflect !== null) {
         if (typeof L.renderer.debugSetWetTuning !== 'function') {
           throw new Error('renderer has no debugSetWetTuning: this tree predates GH-871 P4 T4');
@@ -825,7 +869,7 @@ async function shot(page: Page, out: string, view: MapView, ctx: ShotCtx): Promi
       const c = L.renderer.canvas.getBoundingClientRect();
       return { x: c.x, y: c.y, w: c.width, h: c.height };
     },
-    [view.x, view.y, view.zoom, view.fog, view.reflect ?? null] as const
+    [view.x, view.y, view.zoom, view.fog, view.reflect ?? null, view.rim ?? null] as const
   );
   const stats = await readStats(page);
   const tuning = await readTuning(page);
@@ -836,6 +880,9 @@ async function shot(page: Page, out: string, view: MapView, ctx: ShotCtx): Promi
   assertMotion(ctx.pass.reduced, read);
   if (read.rain !== null) await loadHeights(page, ctx.cache);
   const rain = rainLabel(read, ctx.cache.sampler);
+  // A `-rim<g>` frame must have been DRAWN at g: read the shared uniform back off the renderer.
+  const rimRead = view.rim === undefined ? undefined : await readRim(page);
+  if (view.rim !== undefined && rimRead !== undefined) assertRimApplied(view.name, view.rim, rimRead);
   const squadScreen =
     ctx.track === undefined ? undefined : (JSON.parse((await page.evaluate(squadScreenScript(ctx.track))) as string) as [number, number]);
   await page.screenshot({
@@ -851,6 +898,7 @@ async function shot(page: Page, out: string, view: MapView, ctx: ShotCtx): Promi
     zoom: view.zoom,
     rain,
     ...(squadScreen === undefined ? {} : { squadScreen }),
+    ...(rimRead === undefined ? {} : { rim: rimRead }),
   };
 }
 
@@ -864,6 +912,7 @@ export function frameLine(name: string, f: FrameRecord): string {
     line += ` drops=${f.rain.onScreen}${f.rain.visible ? '' : '(hidden)'} P=${Number(f.rain.period.toFixed(1))} keep=${Number(f.rain.keep.toFixed(2))} total=${f.rain.total}`;
   }
   if (f.squadScreen !== undefined) line += ` squad=[${Math.round(f.squadScreen[0])},${Math.round(f.squadScreen[1])}]`;
+  if (f.rim !== undefined) line += ` rim=${f.rim.gain}`;
   return line;
 }
 
@@ -1253,9 +1302,10 @@ async function main(): Promise<void> {
     vehicleFrames: 0,
     vehicleNoVehicle: [] as string[],
     vehicleNotMoving: [] as string[],
+    rimFrames: {} as Record<string, number>,
   };
   const passes = planPasses({ quality: args.quality, motion: args.motion });
-  const t12 = args.quality !== undefined || args.ticks !== undefined || args.motion !== undefined || args.clip !== undefined || args.stops !== undefined || args.vehicle !== undefined;
+  const t12 = args.quality !== undefined || args.ticks !== undefined || args.motion !== undefined || args.clip !== undefined || args.stops !== undefined || args.vehicle !== undefined || args.rim !== undefined;
   let meta: RunMeta | null = null;
   let clipTicked = true;
   try {
@@ -1431,21 +1481,34 @@ async function main(): Promise<void> {
               if (under !== stopGlyph(kind)) say(`  stop ${mapId} ${kind}: NOT ON ${kind}: the lead entity stands on '${under}', not '${stopGlyph(kind)}'`);
               const view: MapView = { name: stopName(mapId, kind), x: walk.pos.x, y: walk.pos.y, zoom: STOP_ZOOM, fog: false };
               const stats = await shot(page, outDir, view, { ...ctx, track: id });
-              viewCosts[view.name] = {
-                ...stats,
-                stop: {
-                  kind,
-                  tile: pick.tile,
-                  nonKind: pick.nonKind,
-                  arrived: walk.arrived,
-                  ticks: walk.spent,
-                  outcome,
-                  standsOn: under,
-                  onStop: isOnStop(rows, kind, pick.tile, walk.pos),
-                },
+              const stopRecord: StopRecord = {
+                kind,
+                tile: pick.tile,
+                nonKind: pick.nonKind,
+                arrived: walk.arrived,
+                ticks: walk.spent,
+                outcome,
+                standsOn: under,
+                onStop: isOnStop(rows, kind, pick.tile, walk.pos),
               };
+              viewCosts[view.name] = { ...stats, stop: stopRecord };
               took.stopFrames[kind] = (took.stopFrames[kind] ?? 0) + 1;
               say(frameLine(view.name, viewCosts[view.name]));
+              // GH-871 P4 PR 914. The same frozen view, repainted at each rim gain (zero elapsed time, the
+              // sim not stepped, the camera and the squad where the plain frame left them), then the
+              // knob put back so the NEXT stop's plain frame is at the shipped default again.
+              if (args.rim !== undefined) {
+                const before = await readRim(page);
+                for (const rimView of rimViews(view, args.rim)) {
+                  const gain = rimView.rim;
+                  const rimStats = await shot(page, outDir, rimView, { ...ctx, track: id });
+                  viewCosts[rimView.name] = { ...rimStats, stop: stopRecord };
+                  took.rimFrames[String(gain)] = (took.rimFrames[String(gain)] ?? 0) + 1;
+                  say(frameLine(rimView.name, viewCosts[rimView.name]));
+                }
+                await page.evaluate((g) => (window as unknown as LionsWindow).__lions.renderer.debugSetRainRim?.(g), before.gain);
+                assertRimApplied(`${view.name} (the knob put back)`, before.gain, await readRim(page));
+              }
             }
           }
           // S-L2 ruling 4. After the stops: one ordered vehicle, stepped a tick at a time, for the mud spray.

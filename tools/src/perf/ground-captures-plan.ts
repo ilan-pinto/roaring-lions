@@ -156,6 +156,67 @@ export function stopName(mapId: string, kind: StopKind): string {
   return `${mapId}-squad-${kind}`;
 }
 
+/** The largest rim gain `--rim` accepts: the retired flat lift was 0.4, and past 8 is a typo (3.0 already
+ *  puts the rim's brightest pixel at 20 x the road). */
+export const RIM_GAIN_MAX = 8;
+
+/**
+ * `--rim=0.2,0.4,0.8` (GH-871 P4 PR 914): the rain-rim gains each `--stops` frame is repainted at, in
+ * the order typed. `0` is allowed (a rim-off control frame). Two values that are the same NUMBER (`0.4`
+ * and `0.40`) are refused: they would name the same file, and the second would overwrite the first.
+ */
+export function parseRim(raw: string): number[] {
+  const out: number[] = [];
+  for (const item of items(raw)) {
+    const v = Number(item);
+    if (!Number.isFinite(v) || v < 0 || v > RIM_GAIN_MAX) throw new Error(`--rim wants gains in 0..${RIM_GAIN_MAX}, got "${item}"`);
+    if (out.includes(v)) throw new Error(`--rim names ${v} twice ("${item}"): the frames would share a file name`);
+    out.push(v);
+  }
+  if (out.length === 0) throw new Error('--rim wants at least one gain, e.g. --rim=0.2,0.4,0.8');
+  return out;
+}
+
+/** `<stop frame>-rim<g>`: the suffix is what keeps two gains of one stop in two files. */
+export function rimName(frameName: string, gain: number): string {
+  return `${frameName}-rim${gain}`;
+}
+
+/** One repainted copy of a `--stops` frame's view per gain: the same camera, named `<view>-rim<g>`, carrying the gain
+ *  `shot` writes through `debugSetRainRim` and reads back. */
+export function rimViews<V extends { readonly name: string }>(view: V, gains: readonly number[]): (V & { readonly rim: number })[] {
+  return gains.map((gain) => ({ ...view, name: rimName(view.name, gain), rim: gain }));
+}
+
+/** What `ThreeRenderer.debugRainRim()` answers. */
+export interface RimRead {
+  readonly gain: number;
+  readonly power: number;
+  readonly built: boolean;
+}
+
+/** The renderer's own answer about the rim, read off the page. A tree without the method THROWS (a
+ *  renamed or missing knob must not read as "no rim", which would skip every frame and exit 0). */
+export const READ_RIM_SCRIPT = `(() => {
+  const r = window.__lions.renderer;
+  if (typeof r.debugRainRim !== 'function') throw new Error('renderer has no debugRainRim: this tree predates GH-871 P4 PR 914');
+  return JSON.stringify(r.debugRainRim());
+})()`;
+
+/**
+ * A `-rim<g>` frame must have been DRAWN at `g`: the gain read back off the shared uniform (not the one
+ * we asked for) equals the request, and at least one rim material exists to read it (a wet map, a KDF
+ * figure built). Throws otherwise, naming the frame.
+ */
+export function assertRimApplied(frame: string, requested: number, read: RimRead): void {
+  if (!read.built) {
+    throw new Error(`ground-capture: ${frame} asked for rim gain ${requested} but the renderer has no rim material (is the map wet, and a KDF figure drawn?)`);
+  }
+  if (read.gain !== requested) {
+    throw new Error(`ground-capture: ${frame} was asked for rim gain ${requested} but the uniform reads ${String(read.gain)}`);
+  }
+}
+
 /** The views of a pass other than the baseline: the marker views only, each renamed with the
  *  pass's suffix. `isMarkerView` is `ground-captures.ts`' own test of "a marker view" (the name
  *  starts `<map>-<marker>-z`). */
@@ -197,6 +258,7 @@ export function requestedModeFailures(
     readonly clip?: number;
     readonly stops?: readonly StopKind[];
     readonly vehicle?: unknown;
+    readonly rim?: readonly number[];
   },
   took: {
     readonly presetFrames: Readonly<Record<string, number>>;
@@ -208,6 +270,8 @@ export function requestedModeFailures(
     readonly vehicleFrames: number;
     readonly vehicleNoVehicle: readonly string[];
     readonly vehicleNotMoving: readonly string[];
+    /** `--rim`: the frames taken per gain (absent means none). */
+    readonly rimFrames?: Readonly<Record<string, number>>;
   }
 ): string[] {
   const out: string[] = [];
@@ -221,6 +285,9 @@ export function requestedModeFailures(
   if (asked.clip !== undefined && took.clipPath === null) out.push(`--clip=${asked.clip} was given but no clip was written`);
   for (const k of asked.stops ?? []) {
     if ((took.stopFrames[k] ?? 0) === 0) out.push(`--stops=${k} was given but no ${k} stop frame was taken`);
+  }
+  for (const g of asked.rim ?? []) {
+    if ((took.rimFrames?.[String(g)] ?? 0) === 0) out.push(`--rim=${g} was given but no rim ${g} frame was taken (no --stops frame was taken)`);
   }
   if (asked.vehicle !== undefined) {
     for (const m of took.vehicleNoVehicle) out.push(`--vehicle: NO VEHICLE on map ${m}: no living side-0 wheeled vehicle to order`);
