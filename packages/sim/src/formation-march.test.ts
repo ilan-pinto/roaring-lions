@@ -473,7 +473,7 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
     // to reach (24, 32), so it comes up BEHIND the waiting hull. The ten-second dress keeps the wait alive.
     const w = world();
     const foot = w.sim.addUnitType({ ...MBT, id: 'fm3_foot', mobility: { ...MBT.mobility, footprint: { half_length_tiles: 1.0, half_width_tiles: 0.5 } } } as UnitTypeJson);
-    const ids = [spawnAt(w, foot, 0, 24, 44), spawnAt(w, foot, 0, 26, 45), spawnAt(w, foot, 0, 24, 30)];
+    const ids = [spawnAt(w, foot, 0, 24, 46), spawnAt(w, foot, 0, 26, 43), spawnAt(w, foot, 0, 24, 30)];
     order(w, ids, 'column_dress10', [24, 14]);
     tick(w);
     const p = priv(w.sim);
@@ -499,10 +499,10 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
     expect(waiterFrom).toBe(90);
     expect(sidestep).toBe(true);
     // not a deadlock: the count peaks at the valve (SEP_VALVE_TICKS 40), the hull ghosts through, and is on its slot
-    expect([peakWait, peakAt]).toEqual([40, 167]);
-    expect(arrived).toBe(252);
-    // all present: the release is the tick after the last arrival, well inside the 200-tick clock (90 + 200 = 290)
-    expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 253, side: 0, group: 0, leg: 1, legs: 4 });
+    expect([peakWait, peakAt]).toEqual([40, 203]);
+    expect(arrived).toBe(288);
+    // all present: the release is the tick after the last arrival, one tick inside the 200-tick clock (90 + 200 = 290)
+    expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 289, side: 0, group: 0, leg: 1, legs: 4 });
     tick(w, 700);
     expect(kinds(w, 'formationReleased').map((e) => (e as { leg: number }).leg)).toEqual([1, 2, 3]);
     expect(ids.map((id) => p.moving[id])).toEqual([0, 0, 0]);
