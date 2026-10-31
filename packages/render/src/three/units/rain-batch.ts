@@ -54,6 +54,7 @@ import {
 import { SWAY_DIR_X, SWAY_DIR_Z } from '../terrain/sway';
 import {
   bakeHeightTexels,
+  dropKeepSeed,
   dropSeed,
   heightTexels,
   rainWindow,
@@ -78,6 +79,8 @@ export const RAIN_SPLASH_QUAD = 1.25;
 
 const VERTEX = /* glsl */ `
 attribute vec3 aSeed;
+attribute float aKeep;
+uniform float uKeep;
 uniform float uFall;
 uniform vec2 uLow;
 uniform float uPeriod;
@@ -105,6 +108,14 @@ const float RAIN_SPLASH_LIFT = ${glslFloat(RAIN_SPLASH_LIFT)};
 const float RAIN_SPLASH_QUAD = ${glslFloat(RAIN_SPLASH_QUAD)};
 const float RAIN_EDGE_FADE = ${glslFloat(RAIN_EDGE_FADE)};
 void main() {
+  // The keep fraction (S-L2 ruling 2): an instance whose static keep seed is at or above uKeep is
+  // collapsed off-screen like the map-edge cull below, drop and splash together. uKeep is a
+  // function of the zoom and the viewport alone (rain-maths.ts rainKeep), 1 when nothing is thinned.
+  if (aKeep >= uKeep) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    vColor = vec4(0.0);
+    return;
+  }
   // The landing point: world-anchored modulo the period, inside the window at uLow.
   vec2 land = vec2(
     uLow.x + mod(aSeed.x * uPeriod - uLow.x, uPeriod),
@@ -196,6 +207,7 @@ export class RainBatch {
   private readonly mapWidth: number;
   private readonly mapHeight: number;
   private periodNow = 0;
+  private keepNow = 1;
   /** The highest baked ground, wu: the rain's reach grows with it. */
   private maxGround = 0;
   private disposed = false;
@@ -221,6 +233,11 @@ export class RainBatch {
     const seedAttr = new THREE.InstancedBufferAttribute(seeds, 3);
     seedAttr.setUsage(THREE.StaticDrawUsage);
     geometry.setAttribute('aSeed', seedAttr);
+    const keepSeeds = new Float32Array(opts.drops);
+    for (let i = 0; i < opts.drops; i++) keepSeeds[i] = dropKeepSeed(i);
+    const keepAttr = new THREE.InstancedBufferAttribute(keepSeeds, 1);
+    keepAttr.setUsage(THREE.StaticDrawUsage);
+    geometry.setAttribute('aKeep', keepAttr);
     geometry.instanceCount = opts.drops;
 
     const w = heightTexels(opts.mapWidth);
@@ -239,6 +256,8 @@ export class RainBatch {
         uFall: { value: 0 },
         uLow: { value: new THREE.Vector2() },
         uPeriod: { value: 8 },
+        // Nothing thinned until the first `update` computes the fraction for the view.
+        uKeep: { value: 1 },
         uMapSize: { value: new THREE.Vector2(opts.mapWidth, opts.mapHeight) },
         uHeight: { value: this.heightTexture },
         uStreakHalfWidth: { value: streakWidthWorld(1, 1) / 2 },
@@ -276,6 +295,11 @@ export class RainBatch {
     return this.periodNow;
   }
 
+  /** The keep fraction the last `update` chose, `(0, 1]`. */
+  get keep(): number {
+    return this.keepNow;
+  }
+
   /** The two LINEAR colours (already scaled by the lights' `hazeRadiance`). */
   setColors(streak: readonly [number, number, number], splash: readonly [number, number, number]): void {
     (this.mesh.material.uniforms.uStreakColor.value as THREE.Vector3).set(streak[0], streak[1], streak[2]);
@@ -299,14 +323,16 @@ export class RainBatch {
   }
 
   /**
-   * The per-frame uniforms: the fall offset (SIM clock), the window and the lattice
-   * period, the streak's constant-pixel half width. Everything else is static.
+   * The per-frame uniforms: the fall offset (SIM clock), the window, the lattice
+   * period and the keep fraction, the streak's constant-pixel half width. Everything else is static.
    */
   update(frame: RainFrame): void {
     const u = this.mesh.material.uniforms;
     u.uFall.value = posMod(RAIN_FALL_SPEED * frame.simSec, RAIN_FALL_HEIGHT);
-    const { period, low: lo } = rainWindow(frame.view, { width: this.mapWidth, height: this.mapHeight }, this.maxGround);
+    const { period, low: lo, keep } = rainWindow(frame.view, { width: this.mapWidth, height: this.mapHeight }, this.maxGround);
     this.periodNow = period;
+    this.keepNow = keep;
+    u.uKeep.value = keep;
     (u.uLow.value as THREE.Vector2).set(lo.x, lo.z);
     u.uPeriod.value = this.periodNow;
     u.uStreakHalfWidth.value = streakWidthWorld(frame.view.zoom, frame.dpr) / 2;

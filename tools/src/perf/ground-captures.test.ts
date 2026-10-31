@@ -578,7 +578,7 @@ describe('halfToFloat and the height sampler', () => {
 describe('the on-screen drop count (the per-frame density label)', () => {
   const flat = (): number => 0;
   const at = (x: number, y: number, zoom: number, low: number, period: number, mapW = 48) =>
-    onScreenDropCount({ drops: 6000, low: { x: low, z: low }, period, fall: 0, mapW, mapH: mapW, view: { x, y, zoom, width: 1400, height: 900 }, ground: flat });
+    onScreenDropCount({ drops: 6000, low: { x: low, z: low }, period, keep: 1, fall: 0, mapW, mapH: mapW, view: { x, y, zoom, width: 1400, height: 900 }, ground: flat });
   // Hand check. 6,000 drops over a 64 x 64 window is 1.46 a tile^2. At zoom 1.6 the 1400x900 canvas
   // shows 1400/(64 * 1.6 * sqrt 2) * 2 = 19.3 across and 900 * sin 30 / (32 * 1.6 * sqrt 2) * 2 = 12.4 up
   // the screen, a ground diamond of 19.3 x 24.8 = 479 tiles^2: about 700 drops. At zoom 0.35 the whole
@@ -603,8 +603,17 @@ describe('the on-screen drop count (the per-frame density label)', () => {
     // the same window on a map 1,000 wide has no edge to cull at: the count is the open-ground one
     expect(at(44, 44, 1.6, 9.5498, 64, 1000)).toBeGreaterThan(2 * corner);
   });
+  it('a keep fraction of 0 draws nothing and 0.5 about half (the instances whose keep seed is under it)', () => {
+    const count = (keep: number): number =>
+      onScreenDropCount({ drops: 6000, low: { x: -8, z: -8 }, period: 64, keep, fall: 0, mapW: 48, mapH: 48, view: { x: 24, y: 24, zoom: 0.35, width: 1400, height: 900 }, ground: flat });
+    expect(count(0)).toBe(0);
+    const whole = count(1);
+    expect(whole).toBeGreaterThan(3200);
+    expect(count(0.5)).toBeGreaterThan(whole * 0.45);
+    expect(count(0.5)).toBeLessThan(whole * 0.55);
+  });
   it('a drop count of 0 is 0', () => {
-    expect(onScreenDropCount({ drops: 0, low: { x: 0, z: 0 }, period: 64, fall: 0, mapW: 48, mapH: 48, view: { x: 24, y: 24, zoom: 1, width: 1400, height: 900 }, ground: flat })).toBe(0);
+    expect(onScreenDropCount({ drops: 0, low: { x: 0, z: 0 }, period: 64, keep: 1, fall: 0, mapW: 48, mapH: 48, view: { x: 24, y: 24, zoom: 1, width: 1400, height: 900 }, ground: flat })).toBe(0);
   });
 });
 
@@ -616,7 +625,7 @@ describe('the render read-back (GH-871 P4 T12)', () => {
         { documentElement: { dataset: { motion: 'reduce', ...extra } } }
       )
     ) as RenderRead;
-  const rain = { drops: 3500, mesh: { visible: false, material: { uniforms: { uFall: { value: 1.5 }, uLow: { value: { x: -4, y: -5 } }, uPeriod: { value: 64 } } } }, mapWidth: 48, mapHeight: 48 };
+  const rain = { drops: 3500, mesh: { visible: false, material: { uniforms: { uFall: { value: 1.5 }, uLow: { value: { x: -4, y: -5 } }, uPeriod: { value: 64 }, uKeep: { value: 0.36 } } } }, mapWidth: 48, mapHeight: 48 };
   const renderer = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
     opts: { weather: 'rain', quality: { rain: { drops: 3500 } }, reducedMotion: () => true },
     cssWidth: 1400,
@@ -631,7 +640,7 @@ describe('the render read-back (GH-871 P4 T12)', () => {
       qualityDrops: 3500,
       reduced: true,
       motionAttr: 'reduce',
-      rain: { drops: 3500, visible: false, period: 64, fall: 1.5, low: { x: -4, z: -5 }, mapW: 48, mapH: 48 },
+      rain: { drops: 3500, visible: false, period: 64, keep: 0.36, fall: 1.5, low: { x: -4, z: -5 }, mapW: 48, mapH: 48 },
       view: { x: 22, y: 34, zoom: 1.6, width: 1400, height: 900 },
       tick: 7,
     });
@@ -646,6 +655,9 @@ describe('the render read-back (GH-871 P4 T12)', () => {
     expect(() => read(renderer({ camera: undefined }))).toThrow(/camera/);
     expect(() => read(renderer({ rain: { drops: 1, mesh: {} } }))).toThrow(/rain\.mesh\.material\.uniforms/);
     expect(() => read(renderer({ rain: { ...rain, mapWidth: undefined } }))).toThrow(/mapWidth/);
+    // the keep uniform is part of the mirror now: a batch without it must not read as keep 1
+    const noKeep = { ...rain, mesh: { ...rain.mesh, material: { uniforms: { uFall: { value: 1 }, uLow: { value: { x: 0, y: 0 } }, uPeriod: { value: 64 } } } } };
+    expect(() => read(renderer({ rain: noKeep }))).toThrow(/uKeep/);
   });
   it('the height read finds none on a dry map and throws without texels on a wet one', () => {
     const run = (r: unknown): unknown => JSON.parse((new Function('window', `return ${READ_RAIN_HEIGHTS_SCRIPT};`) as (w: unknown) => string)({ __lions: { renderer: r } }));
@@ -661,7 +673,7 @@ describe('the assertions: a pass must READ BACK what it asked for', () => {
     qualityDrops: 6000,
     reduced: false,
     motionAttr: 'system',
-    rain: { drops: 6000, visible: true, period: 64, fall: 0, low: { x: 0, z: 0 }, mapW: 48, mapH: 48 },
+    rain: { drops: 6000, visible: true, period: 64, keep: 1, fall: 0, low: { x: 0, z: 0 }, mapW: 48, mapH: 48 },
     view: { x: 0, y: 0, zoom: 1, width: 1400, height: 900 },
     tick: 0,
     ...over,
@@ -698,22 +710,28 @@ describe('the assertions: a pass must READ BACK what it asked for', () => {
   it('rainLabel is null without a batch, 0 on screen while hidden, and refuses a batch without heights', () => {
     expect(rainLabel(wet({ rain: null }), null)).toBeNull();
     const hidden = wet({ rain: { ...wet().rain!, visible: false } });
-    expect(rainLabel(hidden, () => 0)).toEqual({ onScreen: 0, total: 6000, period: 64, visible: false });
+    expect(rainLabel(hidden, () => 0)).toEqual({ onScreen: 0, total: 6000, period: 64, keep: 1, visible: false });
     expect(() => rainLabel(wet(), null)).toThrow(/height texels were not read/);
     const label = rainLabel(wet({ view: { x: 24, y: 24, zoom: 1.6, width: 1400, height: 900 }, rain: { ...wet().rain!, low: { x: -4.3258, z: -4.3258 } } }), () => 0);
     expect(label?.total).toBe(6000);
     expect(label?.onScreen).toBeGreaterThan(650);
     expect(label?.onScreen).toBeLessThan(770);
+    // the keep fraction thins the count: a quarter of the instances is a quarter of the heads on screen (+-20%: a random thinning of ~700)
+    const quarter = rainLabel(wet({ view: { x: 24, y: 24, zoom: 1.6, width: 1400, height: 900 }, rain: { ...wet().rain!, low: { x: -4.3258, z: -4.3258 }, keep: 0.25 } }), () => 0);
+    expect(quarter?.keep).toBe(0.25);
+    expect(quarter!.onScreen).toBeGreaterThan(label!.onScreen * 0.25 * 0.8);
+    expect(quarter!.onScreen).toBeLessThan(label!.onScreen * 0.25 * 1.2);
   });
 });
 
 describe('frameLine carries the T12 labels', () => {
   const rec = { calls: 12, triangles: 3456, textures: 7, geometries: 9, tick: 4, puddle: 0.25, marsh: 0.25 };
   it('appends the preset, the zoom and the density; a record without them prints as before', () => {
-    expect(frameLine('v', { ...rec, preset: 'medium', zoom: 1.6, rain: { onScreen: 410, total: 3500, period: 64, visible: true } })).toBe(
-      '  v: tick=4 puddle=0.25 marsh=0.25 calls=12 tris=3456 tex=7 geo=9 preset=medium zoom=1.6 drops=410 P=64 total=3500'
+    expect(frameLine('v', { ...rec, preset: 'medium', zoom: 1.6, rain: { onScreen: 410, total: 3500, period: 64, keep: 0.36, visible: true } })).toBe(
+      '  v: tick=4 puddle=0.25 marsh=0.25 calls=12 tris=3456 tex=7 geo=9 preset=medium zoom=1.6 drops=410 P=64 keep=0.36 total=3500'
     );
-    expect(frameLine('v', { ...rec, preset: 'high', zoom: 2.5, rain: { onScreen: 0, total: 6000, period: 32, visible: false } })).toContain('drops=0(hidden) P=32 total=6000');
+    expect(frameLine('v', { ...rec, preset: 'high', zoom: 2.5, rain: { onScreen: 0, total: 6000, period: 32, keep: 1, visible: false } })).toContain('drops=0(hidden) P=32 keep=1 total=6000');
+    expect(frameLine('v', { ...rec, preset: 'high', zoom: 1.6, rain: { onScreen: 1190, total: 6000, period: 41.149, keep: 0.7045, visible: true } })).toContain('drops=1190 P=41.1 keep=0.7 total=6000');
     expect(frameLine('v', { ...rec, preset: 'high', zoom: 1, rain: null })).toContain('preset=high zoom=1 rain=none');
     expect(frameLine('v', { ...rec, squadScreen: [700.4, 451.6] })).toContain(' squad=[700,452]');
   });

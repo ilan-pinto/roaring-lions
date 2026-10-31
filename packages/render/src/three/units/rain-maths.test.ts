@@ -18,15 +18,20 @@ import {
   RAIN_SLANT_TAN,
   bakeHeightTexels,
   colourClearsBloom,
+  dropKeepSeed,
   dropLanding,
   dropPhase,
   dropPosition,
   dropSeed,
+  clippedFootprintArea,
+  footprintAreaOnMap,
   footprintBox,
+  footprintExtent,
   latticePeriod,
   mapEdgeFade,
   posMod,
   rainColour,
+  rainKeep,
   rainReach,
   rainWindow,
   splashAgeMs,
@@ -242,24 +247,27 @@ describe('coverage: the window holds every landing point the screen can see', ()
     });
   }
 
-  it('without the map clip the box still holds the whole unclipped footprint at zoom 1 (period 64)', () => {
+  it('without the map clip the box still holds the whole unclipped footprint at zoom 1 (period 59.9, the box itself)', () => {
     const v = view(24, 24, 1);
     const box = footprintBox(v);
-    expect(latticePeriod(box)).toBe(64);
-    const lo = windowLow(box, 64);
+    const P = latticePeriod(box);
+    // Half side (15.47 + 19.89) / sqrt2 = 25.0; the box is 2 x 25.0 + reach 7.35 + 2 x slant 1.27 = 59.9.
+    expect(P).toBeCloseTo(59.899, 3);
+    const lo = windowLow(box, P);
     for (const L of visibleLandings(v)) {
       expect(L.x).toBeGreaterThanOrEqual(lo.x - 1e-6);
-      expect(L.x).toBeLessThanOrEqual(lo.x + 64 + 1e-6);
+      expect(L.x).toBeLessThanOrEqual(lo.x + P + 1e-6);
       expect(L.z).toBeGreaterThanOrEqual(lo.z - 1e-6);
-      expect(L.z).toBeLessThanOrEqual(lo.z + 64 + 1e-6);
+      expect(L.z).toBeLessThanOrEqual(lo.z + P + 1e-6);
     }
   });
 
   it('the period per zoom on a 48 map, mid-map, 1400x900 (literals worked by hand)', () => {
-    // 0.35 and 0.5: the footprint outgrows the map, so the box is the map plus 8 each side: 64.
-    // 1: half-side (15.47 + 19.89) / sqrt2 = 25.0, plus reach 7.35 and slant 1.27 each: 61.2.
-    // 1.6: 42.0.  2.5: 30.9.
-    expect(ZOOMS.map((z) => latticePeriod(footprintBox(view(24, 24, z), MAP)))).toEqual([64, 64, 64, 64, 32]);
+    // 0.35 and 0.5: the footprint outgrows the map, so the box is the map plus 8 each side: 64 (the cap).
+    // 1: half-side (15.47 + 19.89) / sqrt2 = 25.0, plus reach 7.35 and slant 1.27 each: 59.9, the box itself.
+    // 1.6: 41.15.  2.5: 29.90.  (R-7 snapped these to 64, 64, 64, 64, 32; S-L2 ruling 2 made it continuous.)
+    const periods = ZOOMS.map((z) => rainWindow(view(24, 24, z), MAP).period);
+    for (const [got, want] of periods.map((g, i) => [g, [64, 64, 59.899, 41.149, 29.899][i]] as const)) expect(got).toBeCloseTo(want, 3);
   });
 
   it('the reach is the fall height seen up the screen: 6 / tan(30 deg) = 10.39', () => {
@@ -271,9 +279,12 @@ describe('coverage: the window holds every landing point the screen can see', ()
     expect(latticePeriod(wide)).toBe(64);
   });
 
-  it('chooses the smallest period that covers: boxes of side 7, 9, 31, 33 and 64', () => {
+  it('takes the box itself, clamped to [8, 64]: boxes of side 7, 9, 31, 33, 64 and 100', () => {
     const sq = (w: number): GroundBox => ({ minX: 0, maxX: w, minZ: 0, maxZ: w });
-    expect([7, 9, 31, 33, 64].map((w) => latticePeriod(sq(w)))).toEqual([8, 16, 32, 64, 64]);
+    expect([7, 9, 31, 33, 64, 100].map((w) => latticePeriod(sq(w)))).toEqual([8, 9, 31, 33, 64, 64]);
+  });
+  it('is the larger side: a box 20 wide and 40 tall takes 40', () => {
+    expect(latticePeriod({ minX: 0, maxX: 20, minZ: 0, maxZ: 40 })).toBe(40);
   });
 });
 
@@ -294,8 +305,9 @@ describe('the period is a property of the zoom and the viewport, never of the pa
       }
     });
   }
-  it('the periods themselves (literals worked by hand): 64 at zoom 1.6-2.2 (box 42 to 33.6 wide), 32 at 2.5 (30.9)', () => {
-    expect([1.6, 1.9, 2.0, 2.2, 2.5].map((z) => rainWindow(view(24, 24, z), MAP).period)).toEqual([64, 64, 64, 64, 32]);
+  it('the periods themselves (literals worked by hand): the box side, 41.15 at zoom 1.6 down to 29.90 at 2.5', () => {
+    const got = [1.6, 1.9, 2.0, 2.2, 2.5].map((z) => rainWindow(view(24, 24, z), MAP).period);
+    [41.149, 36.215, 34.899, 32.626, 29.899].forEach((want, i) => expect(got[i]).toBeCloseTo(want, 3));
   });
   it('the window still covers every visible landing point at the corners (pan sweep, zooms 1.6 to 2.5)', () => {
     for (const zoom of [1.6, 2.0, 2.5]) {
@@ -465,5 +477,160 @@ describe('the map-edge fade (GH-871 P4 T12 fix): rain stops at the edge of the w
     expect(mapEdgeFade(40, 31.75, 64, 32)).toBeCloseTo(0.5, 12);
     expect(mapEdgeFade(40, 20, 64, 32)).toBe(1);
     expect(mapEdgeFade(63.75, 16, 64, 32)).toBeCloseTo(0.5, 12);
+  });
+});
+
+describe('the keep seeds (S-L2 ruling 2)', () => {
+  const N = 6000;
+  const keeps = Array.from({ length: N }, (_, i) => dropKeepSeed(i));
+  it('are in [0,1), the same every time, spread flat (a quarter in each quartile +-10%)', () => {
+    for (const k of keeps) expect(k >= 0 && k < 1).toBe(true);
+    expect(dropKeepSeed(17)).toBe(dropKeepSeed(17));
+    for (const [lo, hi] of [[0, 0.25], [0.25, 0.5], [0.5, 0.75], [0.75, 1]] as const) {
+      const q = keeps.filter((k) => k >= lo && k < hi).length / N;
+      expect(q, `[${lo}, ${hi})`).toBeGreaterThan(0.225);
+      expect(q, `[${lo}, ${hi})`).toBeLessThan(0.275);
+    }
+  });
+  it('are independent of where a drop lands and how high it falls (correlation with the three position seeds under 0.05)', () => {
+    const seeds = Array.from({ length: N }, (_, i) => dropSeed(i));
+    const corr = (a: readonly number[], b: readonly number[]): number => {
+      const ma = a.reduce((t, v) => t + v, 0) / a.length;
+      const mb = b.reduce((t, v) => t + v, 0) / b.length;
+      let ab = 0;
+      let aa = 0;
+      let bb = 0;
+      for (let i = 0; i < a.length; i++) {
+        ab += (a[i] - ma) * (b[i] - mb);
+        aa += (a[i] - ma) ** 2;
+        bb += (b[i] - mb) ** 2;
+      }
+      return ab / Math.sqrt(aa * bb);
+    };
+    for (let axis = 0; axis < 3; axis++) {
+      expect(Math.abs(corr(keeps, seeds.map((s) => s[axis]))), `axis ${axis}`).toBeLessThan(0.05);
+    }
+  });
+  it('a kept set is nested: raising the keep fraction only ever adds instances', () => {
+    const at = (k: number): Set<number> => new Set(keeps.flatMap((s, i) => (s < k ? [i] : [])));
+    const a = at(0.3);
+    const b = at(0.6);
+    for (const i of a) expect(b.has(i)).toBe(true);
+    expect(b.size).toBeGreaterThan(a.size);
+  });
+});
+
+describe('the footprint clipped to the map (clippedFootprintArea), hand-worked', () => {
+  it('a screen smaller than the map, wholly inside it, is its own footprint 4ab: zoom 2.5 = 4 x 6.19 x 7.96 = 197', () => {
+    // a = 1400 / (64 x 2.5 x sqrt2) = 6.187; b = 900 / (32 x 2.5 x sqrt2) = 7.955; 4ab = 196.9.
+    expect(clippedFootprintArea({ zoom: 2.5, width: 1400, height: 900 }, MAP, 64)).toBeCloseTo(196.9, 0);
+  });
+  it('a screen larger than the map is the whole map: zoom 0.35 = 48 x 48 = 2304', () => {
+    expect(clippedFootprintArea({ zoom: 0.35, width: 1400, height: 900 }, MAP, 64)).toBeCloseTo(2304, 6);
+  });
+  it('a zoom between: the turned rectangle cuts the square`s corners (zoom 0.75 is 1839 of the 2189 that 4ab alone gives)', () => {
+    // a = 20.6, b = 26.5 at zoom 0.75: 4ab = 2189 before the clip; the clip against the 48 square takes 350 of it.
+    expect(clippedFootprintArea({ zoom: 0.75, width: 1400, height: 900 }, MAP, 64)).toBeCloseTo(1839, -1);
+  });
+  it('a footprint moved wholly off the map is 0, and moved half way off keeps half', () => {
+    const v = { zoom: 2.5, width: 1400, height: 900 };
+    expect(clippedFootprintArea(v, MAP, 64, 100, 100)).toBe(0);
+    expect(clippedFootprintArea(v, MAP, 64, -100, 0)).toBe(0);
+    // Slid along x until its far corner is past the map's edge: 4ab = 197 loses a corner triangle.
+    const slid = clippedFootprintArea(v, MAP, 64, 17, 0);
+    expect(slid).toBeLessThan(196.9);
+    expect(slid).toBeGreaterThan(150);
+  });
+  it('is clipped to the lattice window on a map wider than the window: a 200 map at zoom 0.35 shows 64 x 64 = 4096 (less 2 tiles of corner the turned rectangle misses)', () => {
+    const a = clippedFootprintArea({ zoom: 0.35, width: 1400, height: 900 }, { width: 200, height: 200 }, 64);
+    expect(a).toBeLessThanOrEqual(4096);
+    expect(a).toBeGreaterThan(4090);
+  });
+  it('is 0 for a view of no size', () => {
+    expect(clippedFootprintArea({ zoom: 2.5, width: 0, height: 0 }, MAP, 64)).toBe(0);
+  });
+});
+
+describe('the area whose drops are in view (footprintAreaOnMap), against a brute-force walk of the map', () => {
+  /**
+   * The same definition, written the other way round: each 0.25-tile cell of the map, at 32 heights
+   * through the fall, is a landing point; it is in view when its head's ground point, un-moved by the
+   * height's shift, lies inside the rectangle |along (1,-1)/sqrt2| <= a, |along (-1,-1)/sqrt2| <= b.
+   */
+  function bruteArea(zoom: number): number {
+    const a = 1400 / (64 * zoom * Math.SQRT2);
+    const b = 900 / (32 * zoom * Math.SQRT2);
+    const towards = 1 / (Math.SQRT2 * Math.tan(Math.PI / 6));
+    const tan12 = Math.tan((12 * Math.PI) / 180);
+    let inView = 0;
+    const K = 32;
+    for (let k = 0; k < K; k++) {
+      const h = ((k + 0.5) / K) * 6;
+      const sx = h * (towards + tan12 * Math.SQRT1_2);
+      const sz = h * (towards - tan12 * Math.SQRT1_2);
+      for (let i = 0; i < 192; i++) {
+        for (let j = 0; j < 192; j++) {
+          const dx = (i + 0.5) / 4 - 24 - sx;
+          const dz = (j + 0.5) / 4 - 24 - sz;
+          const along = (dx - dz) * Math.SQRT1_2;
+          const up = (-dx - dz) * Math.SQRT1_2;
+          if (Math.abs(along) <= a && Math.abs(up) <= b) inView++;
+        }
+      }
+    }
+    return inView / K / 16;
+  }
+  it.each([0.35, 0.5, 0.75, 0.9, 1, 1.25, 1.6, 2.5])('zoom %s: within 1.5% of the walk', (zoom) => {
+    const got = footprintAreaOnMap({ zoom, width: 1400, height: 900 }, MAP, 64);
+    const want = bruteArea(zoom);
+    expect(Math.abs(got / want - 1), `${got.toFixed(1)} against ${want.toFixed(1)}`).toBeLessThan(0.015);
+  });
+  it('the shift matters where the map cuts the screen: zoom 0.9 shows 1,394 tiles of drops, not the 1,462 of the plain footprint', () => {
+    const plain = clippedFootprintArea({ zoom: 0.9, width: 1400, height: 900 }, MAP, 64);
+    const seen = footprintAreaOnMap({ zoom: 0.9, width: 1400, height: 900 }, MAP, 64);
+    expect(plain).toBeCloseTo(1462, -1);
+    expect(seen).toBeCloseTo(1394, -1);
+    expect(seen).toBeLessThan(plain * 0.97);
+  });
+});
+
+describe('the keep fraction (S-L2 ruling 2): literals worked by hand', () => {
+  // keep = min(1, 0.2 x P^2 / A).
+  it('zoom 0.35: 0.2 x 64^2 / 2304 = 0.3556', () => {
+    expect(rainKeep({ zoom: 0.35, width: 1400, height: 900 }, MAP, 64)).toBeCloseTo(0.35556, 4);
+  });
+  it('zoom 1.6 (P 41.15): 0.2 x 41.149^2 / 481 = 0.704', () => {
+    expect(rainKeep({ zoom: 1.6, width: 1400, height: 900 }, MAP, 41.149)).toBeCloseTo(0.704, 2);
+  });
+  it('zoom 2.5 over the highest ground (P 32.7, A 197): 0.2 x 32.7^2 / 197 = 1.086, so 1: a screen that cannot hold the count keeps all it has', () => {
+    expect(rainKeep({ zoom: 2.5, width: 1400, height: 900 }, MAP, 32.7)).toBe(1);
+  });
+  it('is never above 1 and never below 0 over every zoom, either ground', () => {
+    for (const g of [0, 2.3]) {
+      for (let z = 0.35; z <= 2.5001; z += 0.05) {
+        const v = view(24, 24, z);
+        const k = rainWindow(v, MAP, g).keep;
+        expect(k).toBeGreaterThan(0);
+        expect(k).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+  it('is a function of the zoom and the viewport, never the focus: rainWindow returns the same keep from every corner', () => {
+    for (const z of ZOOMS) {
+      const centre = rainWindow(view(24, 24, z), MAP).keep;
+      for (const [x, y] of [[0, 0], [44, 44], [0, 44], [44, 0], [47, 47], [10.37, 31.9]] as const) {
+        expect(rainWindow(view(x, y, z), MAP).keep, `z${z} focus ${x},${y}`).toBe(centre);
+      }
+    }
+  });
+  it('the extent is the unclipped box side to the last digit, whatever the focus (the period must not follow the pan at the 15th digit)', () => {
+    for (const z of ZOOMS) {
+      const e = footprintExtent(view(24, 24, z), 0);
+      for (const [x, y] of [[0, 0], [44, 44], [10.37, 31.9], [47.1, 3.3]] as const) {
+        const b = footprintBox(view(x, y, z));
+        expect(b.maxX - b.minX).toBeCloseTo(e, 9);
+        expect(rainWindow(view(x, y, z), MAP).period).toBe(rainWindow(view(24, 24, z), MAP).period);
+      }
+    }
   });
 });

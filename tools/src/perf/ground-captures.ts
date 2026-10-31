@@ -768,7 +768,7 @@ export function frameLine(name: string, f: FrameRecord): string {
   if (f.zoom !== undefined) line += ` zoom=${f.zoom}`;
   if (f.rain === null) line += ' rain=none';
   else if (f.rain !== undefined) {
-    line += ` drops=${f.rain.onScreen}${f.rain.visible ? '' : '(hidden)'} P=${f.rain.period} total=${f.rain.total}`;
+    line += ` drops=${f.rain.onScreen}${f.rain.visible ? '' : '(hidden)'} P=${Number(f.rain.period.toFixed(1))} keep=${Number(f.rain.keep.toFixed(2))} total=${f.rain.total}`;
   }
   if (f.squadScreen !== undefined) line += ` squad=[${Math.round(f.squadScreen[0])},${Math.round(f.squadScreen[1])}]`;
   return line;

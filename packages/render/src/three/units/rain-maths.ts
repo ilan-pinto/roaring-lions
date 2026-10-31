@@ -18,9 +18,26 @@
  * (`windowLow`; R-7 centres it on the focus, and the box centre is the focus
  * moved toward the camera by the reach, which is what keeps a drop's wrap outside
  * the screen). A pan therefore moves no drop: it slides the window, and a drop
- * only changes (by exactly one `P`) when it crosses the window's edge. A `P`
- * step (a zoom across a threshold) reshuffles every drop once; that is the only
- * reshuffle, and accepted.
+ * only changes (by exactly one `P`) when it crosses the window's edge.
+ *
+ * ## The period is continuous, and a keep fraction holds the density (S-L2 ruling 2)
+ *
+ * R-7 snapped `P` to {8, 16, 32, 64}. The S-L2 capture showed what that costs: the on-screen
+ * count was 1,417 at zoom 1, 645 at 1.6 and 1,200 at 2.5, and nearly doubled at the step
+ * 64 -> 32 (a pop). The lead's ruling: hold the density steady across zoom. Two parts:
+ *
+ *  - `P` is now the box itself, clamped to [8, 64] (`latticePeriod`): a pure function of the zoom,
+ *    the viewport and the ground, never of the pan, and never smaller than the box (the
+ *    coverage guarantee). A zoom now SLIDES the drops (`s * P` moves with `P`) where it used to
+ *    reshuffle them in one step; accepted, continuity beats a pop. There is no step any more.
+ *  - Each instance owns a static `seedKeep` in `[0,1)` (`dropKeepSeed`, a fresh tile-hash
+ *    stream) and the shader removes an instance whose seed is `>= uKeep`. `rainKeep` computes
+ *    `uKeep = min(1, F * P^2 / A)` on the CPU, with `F = RAIN_DENSITY_FRACTION` and `A` the
+ *    ground area a screen centred on the map shows (`footprintAreaOnMap`). The lattice holds
+ *    `N * A_screen / P^2` drops on screen at keep 1, so the kept count is `N * F` wherever `A / P^2`
+ *    is at least `F`, and falls short of it only where the screen is too small to hold that many
+ *    (the highest zoom over the highest ground, 8% short). Because `uKeep` falls out of the zoom,
+ *    the viewport and the map alone, a pan neither changes it nor the period.
  *
  * ## The fall
  *
@@ -35,10 +52,12 @@ import { tileHash } from '../../tile-hash';
 import { SWAY_DIR_X, SWAY_DIR_Z } from '../terrain/sway';
 import {
   RAIN_COLOUR_CEILING,
+  RAIN_DENSITY_FRACTION,
   RAIN_FALL_HEIGHT,
   RAIN_FALL_SPEED,
   RAIN_HEIGHT_TEXELS_PER_TILE,
-  RAIN_PERIODS,
+  RAIN_PERIOD_MAX,
+  RAIN_PERIOD_MIN,
   RAIN_PERIOD_PAD,
   RAIN_SLANT_DEG,
   RAIN_SPLASH_ALPHA,
@@ -112,6 +131,15 @@ export function rainReach(maxGround: number): number {
 /** How far a drop's head sits from its landing point horizontally, at most. */
 export const RAIN_SLANT_OFFSET = RAIN_FALL_HEIGHT * RAIN_SLANT_TAN;
 
+/** The camera's ground footprint, half-extents in tiles: `a` along `(1,-1)/sqrt2` (screen right)
+ *  and `b` along `(-1,-1)/sqrt2` (up the screen). A function of the zoom and the viewport. */
+export function footprintHalfExtents(view: Pick<RainView, 'zoom' | 'width' | 'height'>): { a: number; b: number } {
+  return {
+    a: view.width / (TILE_W * view.zoom * Math.SQRT2),
+    b: view.height / (TILE_H * view.zoom * Math.SQRT2),
+  };
+}
+
 /**
  * The ground the rain must cover to fill the screen: every LANDING point whose
  * drop (anywhere on its 0..H fall) can be seen. That is the camera's ground
@@ -126,8 +154,7 @@ export function footprintBox(
   map?: { readonly width: number; readonly height: number },
   maxGround = 0
 ): GroundBox {
-  const a = view.width / (TILE_W * view.zoom * Math.SQRT2);
-  const b = view.height / (TILE_H * view.zoom * Math.SQRT2);
+  const { a, b } = footprintHalfExtents(view);
   const half = (a + b) / Math.SQRT2;
   const reach = rainReach(maxGround) / Math.SQRT2;
   let minX = view.x - half - RAIN_SLANT_OFFSET;
@@ -153,13 +180,29 @@ export function footprintBox(
 }
 
 /**
- * The lattice period: the smallest of `RAIN_PERIODS` that covers `box` (its larger
- * side times `RAIN_PERIOD_PAD`); the largest when none does.
+ * The side of the UNCLIPPED box (`footprintBox` without a map), computed from the zoom, the viewport
+ * and the ground alone. It is the box's `maxX - minX` written out, because that difference taken
+ * from the box itself carries the focus's rounding (1e-15 tiles), and a period that follows the pan
+ * at the 15th digit is a period that follows the pan.
  */
+export function footprintExtent(view: Pick<RainView, 'zoom' | 'width' | 'height'>, maxGround = 0): number {
+  const { a, b } = footprintHalfExtents(view);
+  const half = (a + b) / Math.SQRT2;
+  return 2 * half + rainReach(maxGround) / Math.SQRT2 + 2 * RAIN_SLANT_OFFSET;
+}
+
+/**
+ * The lattice period for a box side: that side times `RAIN_PERIOD_PAD`, clamped to
+ * `[RAIN_PERIOD_MIN, RAIN_PERIOD_MAX]` (continuous, S-L2 ruling 2; R-7 snapped it to
+ * {8, 16, 32, 64}). Never smaller than the box unless the box passes the largest period.
+ */
+export function latticePeriodFor(side: number): number {
+  return Math.min(RAIN_PERIOD_MAX, Math.max(RAIN_PERIOD_MIN, side * RAIN_PERIOD_PAD));
+}
+
+/** The period that covers `box` (its larger side): `latticePeriodFor`. */
 export function latticePeriod(box: GroundBox): number {
-  const need = Math.max(box.maxX - box.minX, box.maxZ - box.minZ) * RAIN_PERIOD_PAD;
-  for (const p of RAIN_PERIODS) if (p >= need) return p;
-  return RAIN_PERIODS[RAIN_PERIODS.length - 1];
+  return latticePeriodFor(Math.max(box.maxX - box.minX, box.maxZ - box.minZ));
 }
 
 /**
@@ -172,20 +215,132 @@ export function windowLow(box: GroundBox, period: number): { x: number; z: numbe
 }
 
 /**
- * The production choice, in one place: the lattice period and the window's low
- * corner for a view on a map whose highest drawn ground is `maxGround`.
+ * The area, in tiles squared, of the camera's ground footprint moved by `(shiftX, shiftZ)` and
+ * clipped to the map and to the `period` square about the map's centre (the part of a very wide map
+ * the lattice can fill). The footprint is a `2a x 2b` rectangle turned 45 degrees
+ * (`footprintHalfExtents`) centred on the middle of the MAP: this function never sees where the
+ * camera actually is, which is what keeps `rainKeep` independent of the pan. Sutherland-Hodgman
+ * against the four sides of an axis-aligned rectangle, then the shoelace formula.
+ */
+export function clippedFootprintArea(
+  view: Pick<RainView, 'zoom' | 'width' | 'height'>,
+  map: { readonly width: number; readonly height: number },
+  period: number,
+  shiftX = 0,
+  shiftZ = 0
+): number {
+  const { a, b } = footprintHalfExtents(view);
+  const cx = map.width / 2 + shiftX;
+  const cz = map.height / 2 + shiftZ;
+  const u = Math.SQRT1_2;
+  // A corner is `sa` right-halves and `sb` up-halves from the centre: right (u, -u), up (-u, -u).
+  const corner = (sa: number, sb: number): [number, number] => [cx + u * (sa * a - sb * b), cz - u * (sa * a + sb * b)];
+  let poly: Array<[number, number]> = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];
+  const x0 = Math.max(0, map.width / 2 - period / 2);
+  const x1 = Math.min(map.width, map.width / 2 + period / 2);
+  const z0 = Math.max(0, map.height / 2 - period / 2);
+  const z1 = Math.min(map.height, map.height / 2 + period / 2);
+  // Each plane keeps `nx * x + nz * z >= d`.
+  const planes: ReadonlyArray<readonly [number, number, number]> = [
+    [1, 0, x0],
+    [-1, 0, -x1],
+    [0, 1, z0],
+    [0, -1, -z1],
+  ];
+  for (const [nx, nz, d] of planes) {
+    const input = poly;
+    poly = [];
+    for (let i = 0; i < input.length; i++) {
+      const p = input[i];
+      const q = input[(i + 1) % input.length];
+      const dp = nx * p[0] + nz * p[1] - d;
+      const dq = nx * q[0] + nz * q[1] - d;
+      if (dp >= 0) poly.push(p);
+      if (dp >= 0 !== (dq >= 0)) {
+        const t = dp / (dp - dq);
+        poly.push([p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]);
+      }
+    }
+    if (poly.length === 0) return 0;
+  }
+  let twice = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    twice += p[0] * q[1] - q[0] * p[1];
+  }
+  return Math.abs(twice) / 2;
+}
+
+/** The heights, evenly through the fall, `footprintAreaOnMap` averages over (midpoint rule). */
+export const RAIN_AREA_SAMPLES = 8;
+
+/**
+ * The ground area, in tiles squared, whose drops a screen centred on the middle of the map has in
+ * view at one instant: the mean over the fall of the landing points whose HEAD is on screen.
+ *
+ * A head `h` above its landing point shows where a ground point `h / tan(elevation)` further from
+ * the camera would, and sits `h * tan(slant)` up-wind of where it lands, so the landing points seen
+ * at height `h` are the footprint moved by `h * ((1,1) / (sqrt2 tan(elevation)) + tan(slant) *
+ * wind)`. A drop is at every height of its fall equally often (the phase is uniform), so the count
+ * on screen is the lattice density times the MEAN of those moved footprints' area on the map. Where
+ * the footprint sits inside the map the shift changes nothing; where it is cut by the map (zooms
+ * below about 1.3 on a 48 map) the moved footprints lose area to the edge, and the plain footprint
+ * overstates what is seen by up to 25% (measured: 140 drops where 180 were asked, at zoom 0.9).
+ */
+export function footprintAreaOnMap(
+  view: Pick<RainView, 'zoom' | 'width' | 'height'>,
+  map: { readonly width: number; readonly height: number },
+  period: number
+): number {
+  const towards = 1 / (Math.SQRT2 * Math.tan(ELEVATION));
+  let sum = 0;
+  for (let k = 0; k < RAIN_AREA_SAMPLES; k++) {
+    const h = ((k + 0.5) / RAIN_AREA_SAMPLES) * RAIN_FALL_HEIGHT;
+    sum += clippedFootprintArea(
+      view,
+      map,
+      period,
+      h * (towards + RAIN_SLANT_TAN * SWAY_DIR_X),
+      h * (towards + RAIN_SLANT_TAN * SWAY_DIR_Z)
+    );
+  }
+  return sum / RAIN_AREA_SAMPLES;
+}
+
+/**
+ * The keep fraction `uKeep` in `(0, 1]`: an instance whose `dropKeepSeed` is below it is drawn. At a
+ * lattice `period` the window holds every drop spread over `period^2` tiles, so a screen showing
+ * `A = footprintAreaOnMap` tiles of the map holds `N * A / period^2` of them; keeping the share
+ * `RAIN_DENSITY_FRACTION * period^2 / A` leaves `N * RAIN_DENSITY_FRACTION` on screen at every zoom
+ * (S-L2 ruling 2). Never above 1: a screen too small to hold that many keeps every drop it has.
+ * A pure function of the zoom, the viewport, the map and the period -- never the pan.
+ */
+export function rainKeep(
+  view: Pick<RainView, 'zoom' | 'width' | 'height'>,
+  map: { readonly width: number; readonly height: number },
+  period: number
+): number {
+  const area = footprintAreaOnMap(view, map, period);
+  if (area <= 0) return 1;
+  return Math.min(1, (RAIN_DENSITY_FRACTION * period * period) / area);
+}
+
+/**
+ * The production choice, in one place: the lattice period, the window's low corner and the keep
+ * fraction for a view on a map whose highest drawn ground is `maxGround`.
  */
 export function rainWindow(
   view: RainView,
   map: { readonly width: number; readonly height: number },
   maxGround = 0
-): { period: number; low: { x: number; z: number } } {
+): { period: number; low: { x: number; z: number }; keep: number } {
   // The period from the UNCLIPPED box, so it is a property of the zoom, the viewport and the
   // ground and never of the pan: choosing it from the box clipped to the map made P drop a step
   // near a map edge with no zoom change (every drop jumping, density per tile 4x). The clipped
   // box only places the window, and it is never wider than the unclipped one, so it still fits.
-  const period = latticePeriod(footprintBox(view, undefined, maxGround));
-  return { period, low: windowLow(footprintBox(view, map, maxGround), period) };
+  const period = latticePeriodFor(footprintExtent(view, maxGround));
+  return { period, low: windowLow(footprintBox(view, map, maxGround), period), keep: rainKeep(view, map, period) };
 }
 
 /** A modulus that stays in `[0, m)` for a negative `a` (JS `%` does not). */
@@ -203,6 +358,17 @@ export const RAIN_SEED_STREAMS: readonly [number, number] = [15401, 15527];
 export function dropSeed(i: number): [number, number, number] {
   const [a, b] = RAIN_SEED_STREAMS;
   return [tileHash(i, a), tileHash(i, b), tileHash(i + 7919, a + b)];
+}
+
+/**
+ * The seed of instance `i`'s keep fraction, in `[0,1)`: a fresh tile-hash stream (offsets 9973 and
+ * 16183, grepped unused across `packages/` and `tools/`), independent of the three position seeds.
+ * The shader keeps the instance while this is below `uKeep`; the mirror does the same.
+ */
+export const RAIN_KEEP_STREAM: readonly [number, number] = [9973, 16183];
+export function dropKeepSeed(i: number): number {
+  const [a, b] = RAIN_KEEP_STREAM;
+  return tileHash(i + a, b);
 }
 
 /** Where a drop lands: the lattice point, in world x and z. */

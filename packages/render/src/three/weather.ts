@@ -140,10 +140,20 @@ export const RAIN_SPLASH_LIFT = 0.04;
 /** Palette keys: the streak's colour and the splash's. */
 export const RAIN_STREAK_KEY = 'overcast.0';
 export const RAIN_SPLASH_KEY = 'overcast.1';
-/** The lattice periods a box of rain can take, in tiles (R-7): the smallest that
- *  covers the box of landing points the screen can see; the largest when none does
- *  (a map wider than 48 tiles at the lowest zoom thins at its far corners). */
-export const RAIN_PERIODS: readonly number[] = [8, 16, 32, 64];
+/** The smallest and the largest lattice period, tiles (R-7, as amended by S-L2 ruling 2): the
+ *  period is no longer snapped to {8, 16, 32, 64} but continuous in between, the box of landing
+ *  points the screen can see itself (`latticePeriod`), so the drops a screen holds change smoothly
+ *  with the zoom and a keep fraction (`rainKeep`) can hold their number. The largest still binds:
+ *  a map wider than 48 tiles at the lowest zoom thins at its far corners. */
+export const RAIN_PERIOD_MIN = 8;
+export const RAIN_PERIOD_MAX = 64;
+/** The on-screen drop count the rain holds at every zoom, as a share of a preset's `drops` (S-L2
+ *  ruling 2): 0.2, so 1,200 of high's 6,000, 700 of medium's 3,500 and 180 of low's 900. It is
+ *  the most every zoom can reach: with the period at the box (`latticePeriod`) the lattice holds
+ *  `area / P^2` of its drops on screen, 0.22 at the highest zoom on flat ground and 0.184 over
+ *  the highest drawn ground (2.3 wu), so 0.2 is reachable to within 8% everywhere and exact
+ *  (keep < 1) wherever the screen is wider. */
+export const RAIN_DENSITY_FRACTION = 0.2;
 /** The share a period must exceed the box by. R-7 says "footprint padded 10%"; the
  *  box (`rain-maths.ts` `footprintBox`) already carries the exact margins a pad stands
  *  in for -- the height of the fall seen up the screen (`H / tan(elevation)`, 10.4

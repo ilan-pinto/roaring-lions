@@ -10,7 +10,9 @@ import {
   MARSH_REFLECT,
   PUDDLE_REFLECT,
   RAIN_LADDER,
-  RAIN_PERIODS,
+  RAIN_DENSITY_FRACTION,
+  RAIN_PERIOD_MAX,
+  RAIN_PERIOD_MIN,
   rainLadderDrops,
   rainLight,
   rainQualityOf,
@@ -151,8 +153,12 @@ describe('rainQualityOf: absent means no opinion, and high`s', () => {
   });
 });
 
-describe('the lattice periods', () => {
-  it('are 8, 16, 32 and 64 tiles (R-7)', () => {
-    expect(RAIN_PERIODS).toEqual([8, 16, 32, 64]);
+describe('the lattice periods and the density hold', () => {
+  it('the period runs continuously from 8 to 64 tiles (R-7 snapped it to 8, 16, 32, 64; S-L2 ruling 2)', () => {
+    expect([RAIN_PERIOD_MIN, RAIN_PERIOD_MAX]).toEqual([8, 64]);
+  });
+  it('the density fraction is 0.2 of a preset`s drops: 1,200 of 6,000, 700 of 3,500, 180 of 900', () => {
+    expect(RAIN_DENSITY_FRACTION).toBe(0.2);
+    expect([6000, 3500, 900].map((n) => n * RAIN_DENSITY_FRACTION)).toEqual([1200, 700, 180]);
   });
 });

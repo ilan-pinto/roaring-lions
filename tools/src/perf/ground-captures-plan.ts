@@ -20,7 +20,7 @@
  *    as the renderer's OWN `opts.reducedMotion()` answer and the rain mesh's `visible` flag.
  */
 import { dimetricCamera } from '../../../packages/render/src/three/camera';
-import { mapEdgeFade, dropLanding, dropPosition, dropSeed } from '../../../packages/render/src/three/units/rain-maths';
+import { mapEdgeFade, dropKeepSeed, dropLanding, dropPosition, dropSeed } from '../../../packages/render/src/three/units/rain-maths';
 import { RAIN_FALL_SPEED } from '../../../packages/render/src/three/weather';
 
 // ============================================================================
@@ -366,9 +366,11 @@ export function makeHeightSampler(
 export interface DensityInput {
   /** The instance count (`RainBatch.drops`). */
   readonly drops: number;
-  /** `uLow`, `uPeriod`, `uFall` as the shader read them on the frame just drawn. */
+  /** `uLow`, `uPeriod`, `uKeep`, `uFall` as the shader read them on the frame just drawn. */
   readonly low: { readonly x: number; readonly z: number };
   readonly period: number;
+  /** `uKeep`: an instance whose `dropKeepSeed` is at or above it is not drawn (S-L2 ruling 2). */
+  readonly keep: number;
   readonly fall: number;
   readonly mapW: number;
   readonly mapH: number;
@@ -381,7 +383,7 @@ export interface DensityInput {
 /**
  * How many drops have their HEAD on screen: every seed's lattice landing point and fall phase from
  * the batch's uniforms, the head from `dropPosition` (the CPU mirror of the vertex shader), the
- * drop kept when `mapEdgeFade` leaves it any alpha, and its head projected through the real
+ * drop kept when its keep seed is under `uKeep` (the ruling's density hold) and `mapEdgeFade` leaves it any alpha, and its head projected through the real
  * dimetric camera (`updateDimetricCamera`) into the canvas rectangle. Occlusion is not modelled
  * (a roof hiding a drop still counts) and the seeds are the maths' float64 ones, where the page's
  * are float32: the count is exact for the geometry, not a pixel readback.
@@ -395,6 +397,7 @@ export function onScreenDropCount(input: DensityInput): number {
   const tSec = input.fall / RAIN_FALL_SPEED;
   let n = 0;
   for (let i = 0; i < input.drops; i++) {
+    if (dropKeepSeed(i) >= input.keep) continue;
     const seed = dropSeed(i);
     const land = dropLanding(seed, input.low, input.period);
     if (mapEdgeFade(land.x, land.z, input.mapW, input.mapH) <= 0) continue;
@@ -427,6 +430,7 @@ export interface RenderRead {
     readonly drops: number;
     readonly visible: boolean;
     readonly period: number;
+    readonly keep: number;
     readonly fall: number;
     readonly low: { readonly x: number; readonly z: number };
     readonly mapW: number;
@@ -455,10 +459,10 @@ export const READ_RENDER_SCRIPT = `(() => {
   if (r.rain) {
     need(r.rain.mesh && r.rain.mesh.material && r.rain.mesh.material.uniforms, 'rain.mesh.material.uniforms');
     const u = r.rain.mesh.material.uniforms;
-    need(u.uFall && u.uLow && u.uPeriod, 'rain uniforms uFall/uLow/uPeriod');
+    need(u.uFall && u.uLow && u.uPeriod && u.uKeep, 'rain uniforms uFall/uLow/uPeriod/uKeep');
     need(typeof r.rain.mapWidth === 'number' && typeof r.rain.mapHeight === 'number', 'rain.mapWidth/mapHeight');
     rain = {
-      drops: r.rain.drops, visible: r.rain.mesh.visible === true, period: u.uPeriod.value, fall: u.uFall.value,
+      drops: r.rain.drops, visible: r.rain.mesh.visible === true, period: u.uPeriod.value, keep: u.uKeep.value, fall: u.uFall.value,
       low: { x: u.uLow.value.x, z: u.uLow.value.y }, mapW: r.rain.mapWidth, mapH: r.rain.mapHeight,
     };
   }
@@ -500,6 +504,8 @@ export interface RainLabel {
   readonly total: number;
   /** The lattice period P, tiles. */
   readonly period: number;
+  /** The keep fraction `uKeep`, `(0, 1]`. */
+  readonly keep: number;
   readonly visible: boolean;
 }
 
@@ -509,9 +515,9 @@ export function rainLabel(read: RenderRead, heights: ((x: number, z: number) => 
   if (heights === null) throw new Error('ground-capture: the renderer has a rain batch but its height texels were not read');
   const r = read.rain;
   const onScreen = r.visible
-    ? onScreenDropCount({ drops: r.drops, low: r.low, period: r.period, fall: r.fall, mapW: r.mapW, mapH: r.mapH, view: read.view, ground: heights })
+    ? onScreenDropCount({ drops: r.drops, low: r.low, period: r.period, keep: r.keep, fall: r.fall, mapW: r.mapW, mapH: r.mapH, view: read.view, ground: heights })
     : 0;
-  return { onScreen, total: r.drops, period: r.period, visible: r.visible };
+  return { onScreen, total: r.drops, period: r.period, keep: r.keep, visible: r.visible };
 }
 
 /**

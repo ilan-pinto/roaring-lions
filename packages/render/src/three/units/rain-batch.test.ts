@@ -159,7 +159,7 @@ describe('the geometry and the material (S-5)', () => {
     const { batch } = setUp();
     const m = batch.mesh;
     expect(m.geometry.getAttribute('normal')).toBeUndefined();
-    expect(Object.keys(m.geometry.attributes).sort()).toEqual(['aSeed', 'position']);
+    expect(Object.keys(m.geometry.attributes).sort()).toEqual(['aKeep', 'aSeed', 'position']);
     expect(m.castShadow).toBe(false);
     expect(m.receiveShadow).toBe(false);
     expect(m.material.transparent).toBe(true);
@@ -190,6 +190,48 @@ describe('the geometry and the material (S-5)', () => {
     for (let i = 0; i < seeds.count; i++) {
       for (const v of [seeds.getX(i), seeds.getY(i), seeds.getZ(i)]) expect(v >= 0 && v < 1).toBe(true);
     }
+  });
+});
+
+describe('the keep fraction (S-L2 ruling 2)', () => {
+  it('every instance owns a keep seed in [0,1), static, and the uniform starts at 1 (nothing thinned)', () => {
+    const { batch } = setUp(1234);
+    const keep = batch.mesh.geometry.getAttribute('aKeep');
+    expect(keep.count).toBe(1234);
+    expect(keep.itemSize).toBe(1);
+    let below = 0;
+    for (let i = 0; i < keep.count; i++) {
+      expect(keep.getX(i) >= 0 && keep.getX(i) < 1).toBe(true);
+      if (keep.getX(i) < 0.5) below++;
+    }
+    expect(below / 1234).toBeGreaterThan(0.45);
+    expect(below / 1234).toBeLessThan(0.55);
+    const fresh = new RainBatch(harness().scene, { drops: 10, mapWidth: 24, mapHeight: 24 });
+    expect(fresh.mesh.material.uniforms.uKeep.value).toBe(1);
+    expect(fresh.keep).toBe(1);
+  });
+
+  it('update() writes the keep fraction for the view: 1 where the screen cannot hold the count, below 1 where it can', () => {
+    const { batch } = setUp();
+    const u = batch.mesh.material.uniforms;
+    // A 24-tile map at zoom 2.5: the screen shows the whole 24 x 24 map and more, the lattice holds 6,000 on 576
+    // tiles of it at P=29.9, and 0.2 of the instances is a share well under all of them.
+    batch.update({ simSec: 0, view: { x: 12, y: 12, zoom: 2.5, width: 1400, height: 900 }, dpr: 1 });
+    expect(u.uKeep.value).toBe(batch.keep);
+    expect(batch.keep).toBeLessThan(1);
+    expect(batch.keep).toBeGreaterThan(0);
+  });
+
+  it('the shader carries the keep attribute, the uniform and the collapse, ahead of every other cull', () => {
+    expect(RAIN_VERTEX_SHADER).toContain('attribute float aKeep;');
+    expect(RAIN_VERTEX_SHADER).toContain('uniform float uKeep;');
+    expect(RAIN_VERTEX_SHADER).toContain('if (aKeep >= uKeep) {');
+    // Collapsed off-screen like the map-edge cull, so the splash follows its drop, and before the
+    // landing point and the edge cull are even computed.
+    const i = RAIN_VERTEX_SHADER.indexOf('if (aKeep >= uKeep) {');
+    expect(RAIN_VERTEX_SHADER.slice(i, i + 140)).toContain('gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
+    expect(i).toBeLessThan(RAIN_VERTEX_SHADER.indexOf('vec2 land = vec2('));
+    expect(i).toBeLessThan(RAIN_VERTEX_SHADER.indexOf('if (edgeFade <= 0.0)'));
   });
 });
 
@@ -256,20 +298,25 @@ describe('the period never follows the pan (fix round 1: the production path, up
     for (const [x, y] of [[0, 0], [44, 44], [0, 44], [44, 0], [47, 47]] as const) expect(at(x, y), `focus ${x},${y}`).toBe(centre);
   });
 
-  it('the height bake raises the reach: a map with 2.3 wu ground widens the box, not the period at zoom 1.6', () => {
+  it('the height bake raises the reach: a map with 2.3 wu ground widens the box, and the period with it, by exactly the extra reach', () => {
     const h = harness();
     const batch = new RainBatch(h.scene, { drops: 100, mapWidth: 48, mapHeight: 48 });
     const u = batch.mesh.material.uniforms;
     const view = { x: 24, y: 24, zoom: 1.6, width: 1400, height: 900 };
     batch.update({ simSec: 0, view, dpr: 1 });
     const flat = (u.uLow.value as THREE.Vector2).clone();
+    const flatPeriod = u.uPeriod.value as number;
+    const flatKeep = u.uKeep.value as number;
     batch.bakeHeights(() => 2.3);
     batch.update({ simSec: 0, view, dpr: 1 });
     const high = u.uLow.value as THREE.Vector2;
-    // The window centre moves toward the camera by the extra reach (2.3 / tan 30 / 2 / sqrt2 per axis).
-    expect(high.x - flat.x).toBeCloseTo(2.3 / Math.tan(Math.PI / 6) / Math.SQRT2 / 2, 4);
-    expect(high.y - flat.y).toBeCloseTo(2.3 / Math.tan(Math.PI / 6) / Math.SQRT2 / 2, 4);
-    expect(u.uPeriod.value).toBe(64);
+    // The box grows toward the camera by the extra reach (2.3 / tan 30 / sqrt2 = 2.817 per axis) and the
+    // period is the box, so the window's low corner (its centre less half its side) stays where it was.
+    expect((u.uPeriod.value as number) - flatPeriod).toBeCloseTo(2.3 / Math.tan(Math.PI / 6) / Math.SQRT2, 4);
+    expect(high.x).toBeCloseTo(flat.x, 4);
+    expect(high.y).toBeCloseTo(flat.y, 4);
+    // A sparser lattice puts fewer drops on screen, so the keep fraction rises to hold the same count.
+    expect(u.uKeep.value as number).toBeGreaterThan(flatKeep);
   });
 });
 
