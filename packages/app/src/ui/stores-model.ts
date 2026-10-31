@@ -52,8 +52,8 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 }
 
 /** What one campaign pays at most, measured: `pnpm playtest`'s optimal-play
- *  ladder pin (`LADDER_CREDITS` in tools/src/backtest/playtest.ts, 5,953 over
- *  the 26 missions in `world.json`), and pinned to it as text by
+ *  ladder pin (`LADDER_CREDITS` in tools/src/backtest/playtest.ts, 6,929 over
+ *  the 29 missions in `world.json`), and pinned to it as text by
  *  `tools/src/campaign_credits.test.ts`, so a ladder re-pin that forgets this
  *  copy goes red. Since GH-330 a new campaign pays again, so this is a PER
  *  CAMPAIGN figure, not a lifetime: every credit price is reachable by play in
@@ -80,10 +80,13 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 5961: GH-865 (2026-10-28), Sarim ATGM cells moved into cover 2 in three missions, +12; reasons beside `LADDER_CREDITS`.
 // Was 5973: GH-707 (2026-10-30), a loaned medic team in 18 more missions' starting forces; +228, per-mission reasons beside `LADDER_CREDITS`.
 // Was 6201: GH-707 (2026-10-30), the loaned medic team in the last seven missions; +78, per-mission reasons beside `LADDER_CREDITS`.
-export const CAMPAIGN_CREDITS = 6279;
+// Was 6279: GH-912 (2026-10-31), the three Ein Qasab missions, +650 (250 + 250 + 150); reasons beside `LADDER_CREDITS`.
+export const CAMPAIGN_CREDITS = 6929;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
-export const LADDER_MISSIONS = 26;
+// Was 26: GH-912 (2026-10-31), the ladder is over 29 missions now (`pnpm playtest` prints "credit ladder: 6929 over 29
+// missions"); left at 26 the mean pay would read 267 where the ladder's own mean is 239.
+export const LADDER_MISSIONS = 29;
 
 /** What the screen and the derivation both read. Every field is the account
  *  or the ledger as it stands; nothing is a fixture. */
