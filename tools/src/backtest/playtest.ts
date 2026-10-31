@@ -3618,7 +3618,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // 6201 -> 6279, +78, read off the printed per-mission credits: Wadi Halam I 170 -> 190, Khan Rafid I 300 -> 310, Khan Rafid
 // II 215 -> 235 (ROE 90 -> 100), Tel Marum II 218 -> 228, Tel Marum III 285 -> 295, Umm Zeitoun I 240 -> 248 (ROE 100 -> 98),
 // Umm Zeitoun IV 259 -> 259. Every plan wins 30 of 30, no star or gate moved. ROSTER_MAX moves 31 -> 30 on its own line.
-const LADDER_CREDITS = 6279;
+// 2026-10-31, GH-912 (Ein Qasab, the flood week): 6279 -> 6929, +650, the three new missions and nothing else, read off
+// the printed per-mission credits: Ein Qasab I 250 (ROE 100, three stars, 79 s), II 250 (ROE 90, three stars, 6.6 min),
+// III 150 (ROE 70, two stars, 6.2 min). Every shipped mission pays what it paid (byte-identical run lines); the ladder
+// is now over 29 missions. No star gate moved: the three open after missions 5, 13 and 19 of the flattened order and
+// Ein Qasab sits at 22 to 24; the Conduct gates all still open at 1. ROSTER_MAX stays 30.
+const LADDER_CREDITS = 6929;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
