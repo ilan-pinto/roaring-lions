@@ -38,6 +38,8 @@ import { Picture, living } from './player-picture';
 import { PLAN_CHILD, startPlanSweep, drainPlanSweeps, reportToParent, type GateRecord } from './plan-sweep';
 import { wadiHalam1Plan, wadiHalam2Plan, wadiHalam3Plan, wadiHalam4Plan, wadiHalam5Plan } from './plans/wadi_halam';
 import { firstLightPlan } from './plans/beit_sahwan';
+import { EIN_QASAB_PLANS } from './plans/ein_qasab';
+import { playOrderOf } from './play-order';
 import { telMarum3Plan } from './plans/tel_marum';
 import { e6Remetz, countBeams, isRemetz, remetzReport } from './plans/e6-remetz';
 
@@ -425,7 +427,7 @@ run(
 // Option C makes is that it is now a primary, so `checkEnd` finally reads it.
 passiveAcrossSeeds('wadi_halam_4_village', 'wadi_halam_4_village (no orders)', 'defeat', wh3);
 
-run('wadi_halam_5_depot', wadiHalam5Plan, wh4);
+const wh5 = run('wadi_halam_5_depot', wadiHalam5Plan, wh4);
 
 // F1 / ruling R2(b): gate-open probe -- apc_kipod (stars_min 44) reached via
 // gateLedger(wh4, 22), proving the mission's fresh jeep_shoded placement
@@ -459,6 +461,44 @@ run(
 // start and the auto-search radius is two, so nothing here was ever close
 // enough to test that.
 passiveAcrossSeeds('wadi_halam_5_depot', 'wadi_halam_5_depot (no orders)', 'defeat', wh4);
+
+// --- Naharin: Ein Qasab, the flood week (GH-912) --------------------------------------------------
+//
+// The town opens after `wadi_halam_3_counterraid` (world.json's `unlock`), so Ein Qasab I is played on Wadi
+// Halam III's ledger, `wh3`, and Wadi Halam IV keeps `wh3` as before: the app merges every mission's output into
+// one ledger, and the order after III is the player's. Plans: `plans/ein_qasab.ts`, shared with `eq_ladder.ts`.
+//
+// - I: a failable primary (`get_the_carriers_home`, 300 s). The passive control loses on it. The plan's third star
+//   is the carrying secondary `find_the_reed_cell`; `eq_causeway_rpg` is marked by the drone.
+// - II: a failable primary (`burn_the_barn`, 300 s), field works (one `kdf_outpost`, raised at t=1), and a
+//   `drone_swarm` wave at 215 s. Third star: the carrying secondary `mark_the_saddle_truck`.
+// - III reads the marks I and II leave. Two plans run: on the ledger the chain hands it (the three tags forwarded),
+//   and on the same ledger with `intel.marked_positions` emptied. Both must win: if the carry made III unwinnable
+//   either way the carry would be a trap. The difference between them is `eq_ladder.ts`'s carry probe.
+const eq1 = run('ein_qasab_1_recon', EIN_QASAB_PLANS.ein_qasab_1_recon, wh3, 'victory', 'ein_qasab_1_recon', 3);
+passiveAcrossSeeds('ein_qasab_1_recon', 'ein_qasab_1_recon (no orders)', 'defeat', wh3);
+const eq2 = run('ein_qasab_2_foothold', EIN_QASAB_PLANS.ein_qasab_2_foothold, eq1, 'victory', 'ein_qasab_2_foothold', 3);
+passiveAcrossSeeds('ein_qasab_2_foothold', 'ein_qasab_2_foothold (no orders)', 'defeat', eq1);
+const eq3 = run('ein_qasab_3_buildup', EIN_QASAB_PLANS.ein_qasab_3_buildup, eq2, 'victory', 'ein_qasab_3_buildup', 2);
+passiveAcrossSeeds('ein_qasab_3_buildup', 'ein_qasab_3_buildup (no orders)', 'defeat', eq2);
+run('ein_qasab_3_buildup', EIN_QASAB_PLANS.ein_qasab_3_buildup, { ...eq2, 'intel.marked_positions': [] }, 'victory', 'ein_qasab_3_buildup (no marks)', 2);
+void eq3;
+
+// Report only: the same three plans entered from Wadi Halam V's ledger, the "after the whole of Wadi Halam" order
+// the player is free to choose (the town's unlock is Wadi Halam III, not V). The three entries are taken out of
+// `runLog` once printed, so the plan sweep does not gate them: a miss here is a line, never an exit code.
+{
+  const before = process.exitCode;
+  let ledger = wh5;
+  for (const id of ['ein_qasab_1_recon', 'ein_qasab_2_foothold', 'ein_qasab_3_buildup'] as const) {
+    const label = `${id} (after wadi_halam_5_depot, report only)`;
+    const m = { result: 'ongoing', stars: 0, roeScore: 0, credits: 0 } as NonNullable<Parameters<typeof run>[10]>;
+    ledger = run(id, EIN_QASAB_PLANS[id], ledger, 'victory', label, 0, undefined, new Set(), undefined, undefined, m);
+    runLog.pop();
+    console.log(`${label}: ${m.result.toUpperCase()}, ROE ${m.roeScore}, stars ${m.stars}, credits ${m.credits}, ${(m.minutes ?? 0).toFixed(1)} min`);
+  }
+  process.exitCode = before;
+}
 
 // --- Beit Sahwan IV: Subterranean --------------------------------------------
 
@@ -3596,11 +3636,20 @@ if (ladderCredits !== LADDER_CREDITS) {
 // second pinned number: a later plan that re-pins the ladder moves all of these
 // with it and has nothing new to chase.
 const campaignWorld = parseWorld(world);
+// The order the campaign is PLAYED in (`play-order.ts`): world.json's listed order with every town gate
+// respected. Ein Qasab is listed first in Naharin and opens after Wadi Halam III, so the listed order made every
+// credit walk read "is not open in world order".
+const playOrderResult = playOrderOf(campaignWorld, missionOrder);
+if (playOrderResult.stuck.length > 0) {
+  console.error(`credits: FAILED — no listed mission is open before ${playOrderResult.stuck.join(', ')}; the walk cannot stand`);
+  process.exitCode = 1;
+}
+const playOrder = playOrderResult.order;
 function walkCampaign(start: BrigadeAccount, credits: ReadonlyMap<string, number>): { account: BrigadeAccount; paid: number } {
   let account = start;
   let ledger: LedgerData = {};
   let paid = 0;
-  for (const missionId of missionOrder) {
+  for (const missionId of playOrder) {
     const value = credits.get(missionId) ?? 0;
     const r = payVictory(account, campaignWorld, missionId, ledger, value, 0);
     if (r.scope !== 'campaign') {
