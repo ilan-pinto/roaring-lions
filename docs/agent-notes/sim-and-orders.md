@@ -567,7 +567,7 @@ of every number are the ledger `_coord/formations-p1b-progress.md` and the repor
   - M-8: pressing the armed formation's own button after it went inert leaves it armed.
   - The march-frame work for versus: mirror the formation frame between the ends. Scratch-arm the Beit mirror first.
   - Deep vehicle overlap +47% (GH-421).
-  - Qarn Hadid III's open-loop playtest plan (the t=75 west leg is cut off by the t=110 redirect at the paced speed).
+  - Qarn Hadid III's open-loop playtest plan (the t=75 west leg is cut off by the t=110 redirect at the paced speed). Resolved by P1c: the Attack has no pace, `formations:playtest` Qarn Hadid III Attack is 30/30 (3.7 min).
 
 ## Formations P1c (GH-859)
 
@@ -601,7 +601,20 @@ model. The S4 re-run and the decision to open versus are written up separately.
   shipped formation files: the mirror seed went 2 -> 1) were re-derived. The golden canaries (flat, relief, orders), the economy,
   runtime-digest and wounded pins and `LADDER_CREDITS` did not move. `pnpm balance` (the diagnosis's scratch run with both changes): only the two "Attack formation buys no ratio step"
   rows move, and both pass.
-- **What P1c leaves open.** (c): a formed end beats the probe's loose attack-move, mostly because the Attack keeps its helicopter at
-  the back on call while a plain order flies it on the front row (the loose end's helicopter dies at 7.1 s, the formed one at 47.3 s);
-  the lead ruled the loose side orders its aircraft separately in S4 (Q2). tel_marum's south end (south start, north saddle) is map and
-  seat content, re-seated after P1c (Q3).
+- **S4 after P1c (192 seeds paired, set B for the RERUN cells, all four groups including tunnels cell 3; HEAD `acc51a850`).**
+  The no-formation mirror replay is byte-identical to T8's. **11 of 48 cell-arm verdicts TRIP** (L0: 13 of 36, tunnels unplayed), so
+  versus stays CLOSED (`VERSUS_FORMATIONS_OPEN` false). Tel Marum's six: (b) mirror 60.7% west, placed and economy Sarim-friendly
+  70.3 / 69.8%, tunnels Sarim-friendly 62.2%, and (c) hostile tunnels both seats (67.7 / 76.0%). Five are not Tel Marum: (c) mirror
+  Beit friendly 66.9 and hostile 75.5%, mirror wadi_tarfan hostile 70.8%, tunnels wadi_tarfan (b) Sarim-friendly 65.6% and (c) friendly
+  KDF-friendly 80.7% (base 47.9%, flips 75/12). All of placed and economy (c), and every (b) cell outside tel_marum and the tunnels
+  wadi seat, pass. Files: `_coord/formations-p1c/s4run/`.
+- **The (c) comparator (lead Q2, applied literally).** The probe's loose end of a one-end arm orders its aircraft with a separate
+  attack-move (`versus-probe.ts` `order()`; the per-seed file records `formation.looseAir: 'separate'` and the gate refuses an older
+  one-end file). It does not close the trips: at 96 seeds Beit friendly 78.1 -> 72.9, Beit hostile 64.6 -> 76.0, wadi identical
+  (the loose aircraft land in the same place either way). The reading the diagnosis measured is the other one: the FORMED end's
+  aircraft ordered plainly beside the formation (scratch, not committed). Under it the (c) mirror friendly and tunnels friendly cells
+  all pass and wadi hostile passes (49.5%), but Beit hostile (66.4% pooled) and the Tel Marum hostile cells (65.4 mirror, 67.7 / 71.4
+  tunnels) still TRIP. Whatever the comparator, versus does not open on this layout.
+- **What P1c leaves open.** tel_marum's south end (south start, north saddle) is map and seat content, re-seated after P1c (lead Q3,
+  `mission-author`); the (c) comparator (lead's call, above); the tunnels wadi_tarfan (b)/(c) trips, which no earlier run saw
+  because the tunnels group was never played at L0; the P0 plain-order floored centroid (base-game chirality, moves every pin).
