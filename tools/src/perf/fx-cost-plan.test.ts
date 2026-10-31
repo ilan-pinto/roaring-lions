@@ -9,8 +9,16 @@ import {
   formatLoadLine,
   formatNetLayers,
   formatNetTotal,
+  PROBE_PREFIX,
+  PROGRAM_PROBES,
+  RAIN_PROBES,
+  RAIN_SHADER_PROBES,
+  blockPairedNet,
   medianOf,
   netCost,
+  pairedMedian,
+  pairedTotalNet,
+  quantileOf,
   parseCostArgs,
   parseViews,
   totalNetCost,
@@ -366,5 +374,87 @@ describe('small pieces', () => {
     expect(medianOf([3, 1, 2])).toBe(2);
     expect(medianOf([4, 1, 3, 2])).toBe(3);
     expect(() => medianOf([])).toThrow();
+  });
+});
+
+describe('--pairs, --probes, --configs (GH-871 cheap-wet follow-up)', () => {
+  const wet = ['--breakdown', '--maps=ein_qasab'];
+
+  it('default to the P4 design: no pairs, no probes, every config', () => {
+    const a = parseCostArgs(wet);
+    expect(a.pairs).toBeNull();
+    expect(a.probes).toEqual([]);
+    expect(a.configs).toBeNull();
+    expect(wetConfigList(a.probes, a.configs)).toEqual([BASELINE, 'rain', 'wet', 'marsh', 'ripples', 'wet-all', 'wet-program', 'shadow-full']);
+  });
+
+  it('--pairs=8x6 is eight ABBA blocks of six frames; a bad shape is refused by name', () => {
+    expect(parseCostArgs([...wet, '--pairs=8x6']).pairs).toEqual({ blocks: 8, frames: 6 });
+    for (const bad of ['8', '1x6', '8x0', 'axb', '8x6x2']) expect(() => parseCostArgs([...wet, `--pairs=${bad}`]), bad).toThrow(/--pairs wants/);
+    expect(() => parseCostArgs(['--breakdown', '--pairs=8x6'])).toThrow(/--maps/);
+  });
+
+  it('--probes names known probes only, in order, and adds a probe: config per name after the built-ins', () => {
+    const a = parseCostArgs([...wet, '--probes=full,lite,rain-n1000,rain-nodepth']);
+    expect(a.probes).toEqual(['full', 'lite', 'rain-n1000', 'rain-nodepth']);
+    expect(wetConfigList(a.probes, null).slice(-4)).toEqual(['probe:full', 'probe:lite', 'probe:rain-n1000', 'probe:rain-nodepth']);
+    expect(PROBE_PREFIX).toBe('probe:');
+    expect(() => parseCostArgs([...wet, '--probes=full,nonsense'])).toThrow(/known: .*full/);
+    expect(() => parseCostArgs(['--breakdown', '--probes=full'])).toThrow(/--maps/);
+  });
+
+  it('--configs keeps only the named built-ins, and refuses one that does not exist', () => {
+    const a = parseCostArgs([...wet, '--configs=wet-program,rain']);
+    expect(wetConfigList([], a.configs)).toEqual([BASELINE, 'rain', 'wet-program']);
+    expect(() => parseCostArgs([...wet, '--configs=wet-prog'])).toThrow(/known: rain/);
+  });
+
+  it('every probe table entry is a distinct, nameable thing (literals for the shipped tiers)', () => {
+    expect(PROGRAM_PROBES.full).toEqual({ rim: 'gradient', ripples: true, roughness: 'full' });
+    expect(PROGRAM_PROBES['mask-rw-rip']).toEqual({ rim: 'mask', ripples: true, roughness: 'water' });
+    expect(PROGRAM_PROBES['off-rw']).toEqual({ rim: 'off', ripples: false, roughness: 'water' });
+    const names = [...Object.keys(PROGRAM_PROBES), ...Object.keys(RAIN_PROBES), ...Object.keys(RAIN_SHADER_PROBES)];
+    expect(new Set(names).size).toBe(names.length);
+  });
+});
+
+describe('the paired estimators: a drift slow against a round cancels', () => {
+  it('pairedMedian is the median of per-round differences, not the difference of medians', () => {
+    // A drift of +1 ms a round hits both arms; config is 0.5 cheaper in every round.
+    const base = [10, 11, 12, 13, 14];
+    const cfg = [9.5, 10.5, 11.5, 12.5, 13.5];
+    expect(pairedMedian(cfg, base)).toBe(-0.5);
+    // The old form (median of cfg minus median of base) agrees here, so also a case where it does not:
+    // the config arm is timed in the late, slow rounds only.
+    expect(medianOf([12, 13, 14]) - medianOf([10, 11, 12])).toBe(2);
+    // Where the two forms DISAGREE: per-round diffs 1, -1, 6 have median 1; the medians 2 and 3 differ by -1.
+    expect(pairedMedian([1, 2, 10], [0, 3, 4])).toBe(1);
+    expect(medianOf([1, 2, 10]) - medianOf([0, 3, 4])).toBe(-1);
+    expect(() => pairedMedian([1, 2], [1])).toThrow(/equal lengths/);
+  });
+
+  it('pairedTotalNet: gross from wet-program, saving from shadow-full, net = gross - saving; null when wet-program did not run', () => {
+    const n = pairedTotalNet({ base: [10, 10, 10], off: [9.5, 9.4, 9.6], shadowFull: [10.2, 10.1, 10.3] });
+    expect(n?.gross).toBeCloseTo(0.5, 9);
+    expect(n?.saving).toBeCloseTo(0.2, 9);
+    expect(n?.net).toBeCloseTo(0.3, 9);
+    expect(pairedTotalNet({ base: [10], off: null, shadowFull: null })).toBeNull();
+    expect(pairedTotalNet({ base: [10, 10], off: [9, 9], shadowFull: null })?.saving).toBe(0);
+  });
+
+  it('blockPairedNet: the off arm is the cheaper one (gross = -median diff), shadow-full the dearer (saving = median diff)', () => {
+    const n = blockPairedNet({ offDiffs: [-0.4, -0.6, -0.5], shadowFullDiffs: [0.1, 0.3, 0.2] });
+    expect(n?.gross).toBeCloseTo(0.5, 9);
+    expect(n?.saving).toBeCloseTo(0.2, 9);
+    expect(n?.net).toBeCloseTo(0.3, 9);
+    expect(blockPairedNet({ offDiffs: null, shadowFullDiffs: [0.1] })).toBeNull();
+    expect(blockPairedNet({ offDiffs: [-1], shadowFullDiffs: null })?.net).toBe(1);
+  });
+
+  it('quantileOf is nearest rank on the sorted data', () => {
+    expect(quantileOf([5, 1, 3, 2, 4], 0.5)).toBe(3);
+    expect(quantileOf([5, 1, 3, 2, 4], 0)).toBe(1);
+    expect(quantileOf([5, 1, 3, 2, 4], 1)).toBe(5);
+    expect(() => quantileOf([], 0.5)).toThrow(/no readings/);
   });
 });
