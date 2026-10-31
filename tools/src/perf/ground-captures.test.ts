@@ -55,6 +55,14 @@ import {
   parseRim,
   rimName,
   rimViews,
+  READ_MAX,
+  READ_SAMPLES,
+  assertReadApplied,
+  layersScript,
+  parseRead,
+  readName,
+  readRepaints,
+  sunShadowScript,
   assertMotion,
   assertPresetBooted,
   STOP_ARRIVE_TILES,
@@ -1222,5 +1230,82 @@ describe('--rim: the rain-rim gains each stop frame is repainted at (GH-871 P4 P
       '  m-squad-road-rim0.8: tick=420 puddle=0.35 marsh=0.25 calls=12 tris=3456 tex=7 geo=9 squad=[700,450] rim=0.8'
     );
     expect(frameLine('m-squad-road', rec)).not.toContain('rim=');
+  });
+});
+
+describe('--read: the KDF readability sweep (GH-871 cheap-wet follow-up)', () => {
+  it('parses name:rim/power/exposure/contrast, trailing fields defaulting to the control', () => {
+    expect(parseRead('none:0')).toEqual([{ name: 'none', rimGain: 0, rimPower: 3, exposure: 1, contrast: 1 }]);
+    expect(parseRead('a:0.6/1.5/8/1.3,b:0.4')).toEqual([
+      { name: 'a', rimGain: 0.6, rimPower: 1.5, exposure: 8, contrast: 1.3 },
+      { name: 'b', rimGain: 0.4, rimPower: 3, exposure: 1, contrast: 1 },
+    ]);
+  });
+  it('refuses a repeat, a bad name, a bad number and a value out of range, naming it', () => {
+    expect(() => parseRead('a:0,a:1')).toThrow(/names "a" twice/);
+    expect(() => parseRead('1a:0')).toThrow(/letters, digits/);
+    expect(() => parseRead('a')).toThrow(/wants <name>/);
+    expect(() => parseRead('a:x')).toThrow(/not a number/);
+    expect(() => parseRead('a:0/3/1/1/9')).toThrow(/1 to 4/);
+    expect(() => parseRead('a:0/3/0/1')).toThrow(/exposure/);
+    expect(() => parseRead('a:0/3/17/1')).toThrow(/exposure/);
+    expect(() => parseRead('a:0/3/1/0')).toThrow(/contrast/);
+    expect(() => parseRead('a:-1')).toThrow(/rim gain/);
+    expect(() => parseRead('')).toThrow(/at least one/);
+    expect(() => parseRead(Array.from({ length: READ_MAX + 1 }, (_, i) => `t${i}:0`).join(','))).toThrow(/max 24/);
+  });
+  it('--read needs --stops (there is nothing else to sweep) and --markers', () => {
+    expect(() => parseGroundCaptureArgs(['--maps=ein_qasab', '--markers=ein_qasab:a', '--read=none:0'])).toThrow(/--stops/);
+    const a = parseGroundCaptureArgs(['--maps=ein_qasab', '--markers=ein_qasab:a', '--stops=road', '--read=none:0,x:0.6/3/8/1.3']);
+    expect(a.read?.map((t) => t.name)).toEqual(['none', 'x']);
+  });
+  it('names the frames so no two collide: samples, looks and the ground', () => {
+    expect(readName('m-squad-road', { kind: 'm', treatment: 'k8', sample: 3 })).toBe('m-squad-road-read-m-k8-s3');
+    expect(readName('m-squad-road', { kind: 'r', treatment: 'k8' })).toBe('m-squad-road-read-r-k8');
+    expect(readName('m-squad-road', 'g')).toBe('m-squad-road-read-g');
+    const names = new Set<string>();
+    for (let j = 0; j < READ_SAMPLES; j++) names.add(readName('s', { kind: 'm', treatment: 't', sample: j }));
+    expect(names.size).toBe(READ_SAMPLES);
+  });
+  it('the samples sit at different repaint counts (the pose cycles, so one count would compare poses)', () => {
+    expect(READ_SAMPLES).toBe(6);
+    expect(Array.from({ length: READ_SAMPLES }, (_, j) => readRepaints(j))).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+  it('a frame drawn with other knobs than it asked for throws, and so does one with no rim material', () => {
+    const t = { name: 'k8', rimGain: 0.6, rimPower: 3, exposure: 8, contrast: 1.3 };
+    const now = { rimGain: 0.6, rimPower: 3, exposure: 8, contrast: 1.3, built: true };
+    expect(() => assertReadApplied('f', t, now)).not.toThrow();
+    expect(() => assertReadApplied('f', t, { ...now, exposure: 4 })).toThrow(/uniforms read/);
+    expect(() => assertReadApplied('f', t, { ...now, contrast: 1 })).toThrow(/uniforms read/);
+    expect(() => assertReadApplied('f', t, { ...now, built: false })).toThrow(/no rim material/);
+  });
+  it('a requested treatment that took no frame fails the run', () => {
+    const none = { presetFrames: {}, tickFrames: 0, reducedFrames: 0, clipPath: null, stopFrames: {}, vehicleFrames: 0, vehicleNoVehicle: [], vehicleNotMoving: [] };
+    const asked = { read: parseRead('none:0,k8:0/3/8/1.3') };
+    expect(requestedModeFailures(asked, none)).toHaveLength(2);
+    expect(requestedModeFailures(asked, { ...none, readFrames: { none: 7, k8: 7 } })).toEqual([]);
+    expect(requestedModeFailures(asked, { ...none, readFrames: { none: 7 } })).toHaveLength(1);
+  });
+  it('the page scripts: layers hide by name and report the change; the sun shadow stores the first intensity and puts it back', () => {
+    const changed: string[] = [];
+    const sun = { isDirectionalLight: true, castShadow: true, shadow: { intensity: 0.45 } };
+    const win: Record<string, unknown> = {
+      __lions: {
+        renderer: {
+          setDebugLayerVisible: (n: string, v: boolean) => (changed.push(`${n}=${v}`), 1),
+          scene: { traverse: (f: (o: unknown) => void) => f(sun) },
+        },
+      },
+    };
+    const run = (src: string): unknown => new Function('window', `return ${src}`)(win);
+    expect(JSON.parse(run(layersScript({ rain: false, units: false })) as string)).toEqual({ rain: 1, units: 1 });
+    expect(changed).toEqual(['rain=false', 'units=false']);
+    expect(run(sunShadowScript(0))).toBe(0);
+    expect(sun.shadow.intensity).toBe(0);
+    expect(run(sunShadowScript(null))).toBe(0.45);
+    expect(sun.shadow.intensity).toBe(0.45);
+    // A second off/on does not store the 0.
+    run(sunShadowScript(0));
+    expect(run(sunShadowScript(null))).toBe(0.45);
   });
 });

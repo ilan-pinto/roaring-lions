@@ -177,9 +177,19 @@ import {
   READ_RIM_SCRIPT,
   assertRimApplied,
   assertRimRestored,
+  parseRead,
   parseRim,
   rimViews,
   type RimRead,
+  READ_RAIN_READ_SCRIPT,
+  assertReadApplied,
+  layersScript,
+  READ_SAMPLES,
+  readName,
+  readRepaints,
+  sunShadowScript,
+  type RainReadNow,
+  type ReadTreatment,
   standsOn,
   stopGlyph,
   stopName,
@@ -239,6 +249,8 @@ export interface GroundCaptureArgs {
   readonly zooms?: readonly number[];
   /** `--rim=` (GH-871 P4 PR 914): the rain-rim gains each `--stops` frame is repainted at. Absent without the flag. */
   readonly rim?: readonly number[];
+  /** `--read=` (GH-871 cheap-wet): the KDF readability treatments each `--stops` frame is swept through. Absent without the flag. */
+  readonly read?: readonly ReadTreatment[];
   /** `--vehicle[=<marker>]` (S-L2 ruling 4): the marker to drive towards, `null` for each map's first
    *  `--markers` entry. Absent without the flag. */
   readonly vehicle?: { readonly marker: string | null };
@@ -328,6 +340,9 @@ export function parseGroundCaptureArgs(
   const zooms = rawZooms === undefined ? undefined : parseZooms(rawZooms);
   const rawRim = flag(argv, 'rim');
   const rim = rawRim === undefined ? undefined : parseRim(rawRim);
+  const rawRead = flag(argv, 'read');
+  const read = rawRead === undefined ? undefined : parseRead(rawRead);
+  if (read !== undefined && stops === undefined) throw new Error('--read sweeps the --stops frames; pass --stops=road,water,grass too');
   const rawVehicle = flag(argv, 'vehicle');
   const vehicle =
     rawVehicle !== undefined ? { marker: parseVehicleMarker(rawVehicle) } : argv.includes('--vehicle') ? { marker: null } : undefined;
@@ -358,6 +373,7 @@ export function parseGroundCaptureArgs(
     ...(zooms === undefined ? {} : { zooms }),
     ...(vehicle === undefined ? {} : { vehicle }),
     ...(rim === undefined ? {} : { rim }),
+    ...(read === undefined ? {} : { read }),
   };
 }
 
@@ -399,6 +415,16 @@ export interface MapView {
   /** GH-871 P4 PR 914: when present the view is drawn at this rain-rim gain (`debugSetRainRim`) and the
    *  gain is read back and asserted. Absent leaves the knob as it was. */
   readonly rim?: number;
+  /** GH-871 cheap-wet: the KDF readability treatment this frame is drawn with (`debugSetRainRead`), read back and asserted. */
+  readonly read?: ReadTreatment;
+  /** Debug layers set before the frame and put back (to visible) after the screenshot, by name. */
+  readonly layers?: Readonly<Record<string, boolean>>;
+  /** True: the sun's shadow intensity is 0 for this frame (restored after the screenshot). */
+  readonly sunShadowOff?: boolean;
+  /** Repaints before the screenshot (default 2). A squad that has moved cycles through SIX poses under repeated
+   *  `frame(1, 0)` (measured, 1 Nov 2026: consecutive repaints differ in ~7,000 px, k and k+6 are bit-identical), so
+   *  the `--read` sweep takes several samples per treatment at different repaint counts. */
+  readonly repaints?: number;
 }
 
 /** The audit's rule: the road tile with the most road inside Chebyshev radius
@@ -611,6 +637,7 @@ interface LionsWindow {
       debugSetWetTuning?(tuning: { puddle?: number; marsh?: number }): void;
       /** ThreeRenderer's rain-rim calibration knob (GH-871 P4 PR 914): also concrete-class only. */
       debugSetRainRim?(gain: number): void;
+      debugSetRainRead?(p: Omit<ReadTreatment, 'name'>): void;
       /** Private on the class, a plain property at runtime; read for the reflectance a frame was
        *  drawn at. `uniforms` carries no wet uniforms on a dry map. */
       groundMat?: { uniforms?: Record<string, { value: number } | undefined> };
@@ -847,8 +874,11 @@ async function loadHeights(page: Page, cache: HeightCache): Promise<void> {
 
 async function shot(page: Page, out: string, view: MapView, ctx: ShotCtx): Promise<FrameRecord> {
   ctx.claims.claim(view.name);
+  // A layer or the sun's shadow set for this frame only: written before the frames, put back after the screenshot.
+  if (view.layers !== undefined) await page.evaluate(layersScript(view.layers));
+  if (view.sunShadowOff === true) await page.evaluate(sunShadowScript(0));
   const rect = await page.evaluate(
-    ([x, y, zoom, fog, reflect, rim]) => {
+    ([x, y, zoom, fog, reflect, rim, read, repaints]) => {
       const L = (window as unknown as LionsWindow).__lions;
       if (rim !== null) {
         if (typeof L.renderer.debugSetRainRim !== 'function') {
@@ -862,15 +892,22 @@ async function shot(page: Page, out: string, view: MapView, ctx: ShotCtx): Promi
         }
         L.renderer.debugSetWetTuning({ puddle: reflect, marsh: reflect });
       }
+      if (read !== null) {
+        if (typeof L.renderer.debugSetRainRead !== 'function') {
+          throw new Error('renderer has no debugSetRainRead: this tree predates the readability sweep');
+        }
+        const { name: _name, ...knobs } = read;
+        void _name;
+        L.renderer.debugSetRainRead(knobs);
+      }
       L.goto(x, y);
       L.renderer.camera.zoom = zoom;
       L.renderer.setDebugLayerVisible('fog', fog);
-      L.renderer.frame(1, 0);
-      L.renderer.frame(1, 0);
+      for (let k = 0; k < repaints; k++) L.renderer.frame(1, 0);
       const c = L.renderer.canvas.getBoundingClientRect();
       return { x: c.x, y: c.y, w: c.width, h: c.height };
     },
-    [view.x, view.y, view.zoom, view.fog, view.reflect ?? null, view.rim ?? null] as const
+    [view.x, view.y, view.zoom, view.fog, view.reflect ?? null, view.rim ?? null, view.read ?? null, view.repaints ?? 2] as const
   );
   const stats = await readStats(page);
   const tuning = await readTuning(page);
@@ -878,7 +915,8 @@ async function shot(page: Page, out: string, view: MapView, ctx: ShotCtx): Promi
   // its first frame, instead of filling a sheet with frames of the wrong preset.
   const read = await readRender(page);
   assertPresetBooted(ctx.pass.preset, read);
-  assertMotion(ctx.pass.reduced, read);
+  // A frame that hides the rain on purpose (the `--read` measurement frames) cannot be asked whether it shows it.
+  if (view.layers?.rain !== false) assertMotion(ctx.pass.reduced, read);
   if (read.rain !== null) await loadHeights(page, ctx.cache);
   const rain = rainLabel(read, ctx.cache.sampler);
   // A `-rim<g>` frame must have been DRAWN at g: read the shared uniform back off the renderer.
@@ -886,10 +924,14 @@ async function shot(page: Page, out: string, view: MapView, ctx: ShotCtx): Promi
   if (view.rim !== undefined && rimRead !== undefined) assertRimApplied(view.name, view.rim, rimRead);
   const squadScreen =
     ctx.track === undefined ? undefined : (JSON.parse((await page.evaluate(squadScreenScript(ctx.track))) as string) as [number, number]);
+  // A `-read-` frame must have been DRAWN with the treatment it names: the knobs read back off the renderer.
+  if (view.read !== undefined) assertReadApplied(view.name, view.read, JSON.parse((await page.evaluate(READ_RAIN_READ_SCRIPT)) as string) as RainReadNow);
   await page.screenshot({
     path: path.join(out, `${view.name}.png`),
     clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h },
   });
+  if (view.sunShadowOff === true) await page.evaluate(sunShadowScript(null));
+  if (view.layers !== undefined) await page.evaluate(layersScript(Object.fromEntries(Object.keys(view.layers).map((k) => [k, true]))));
   return {
     ...stats,
     tick: read.tick,
@@ -901,6 +943,58 @@ async function shot(page: Page, out: string, view: MapView, ctx: ShotCtx): Promi
     ...(squadScreen === undefined ? {} : { squadScreen }),
     ...(rimRead === undefined ? {} : { rim: rimRead }),
   };
+}
+
+/**
+ * `--read` for one `--stops` frame (GH-871 cheap-wet, task 2): the same frozen view photographed
+ *
+ *  - per treatment, `READ_SAMPLES` measurement frames `-read-m-<t>-s<j>` (rain hidden, the sun's shadow off), each
+ *    after a different number of repaints, and one look frame `-read-r-<t>` (rain on, shadows on);
+ *  - LAST, `-read-g`: the same view with the units hidden (rain hidden, shadow off).
+ *
+ * Why several samples: under repeated `frame(1, 0)` a squad that has moved cycles through six poses (cause not
+ * found), so a single frame per treatment compares poses as much as treatments. Why `-read-g` last: hiding the
+ * units and showing them again restarts their animation. Every measurement frame is its own mask against
+ * `-read-g`: a pixel is the figure's iff it differs from the same pixel with no units, whatever the treatment and
+ * whatever the pose. The knobs are put back to what the run found them at, read through `debugRainRead`.
+ */
+async function readSweep(
+  page: Page,
+  out: string,
+  view: MapView,
+  ctx: ShotCtx,
+  treatments: readonly ReadTreatment[],
+  viewCosts: Record<string, FrameRecord>,
+  stopRecord: StopRecord,
+  took: { readFrames: Record<string, number> },
+  say: (line: string) => void
+): Promise<void> {
+  const first = treatments[0] as ReadTreatment;
+  const before = JSON.parse((await page.evaluate(READ_RAIN_READ_SCRIPT)) as string) as RainReadNow;
+  const take = async (v: MapView, label: string): Promise<void> => {
+    const stats = await shot(page, out, v, ctx);
+    viewCosts[v.name] = { ...stats, stop: stopRecord };
+    took.readFrames[label] = (took.readFrames[label] ?? 0) + 1;
+    say(frameLine(v.name, viewCosts[v.name] as FrameRecord));
+  };
+  const named = (what: Parameters<typeof readName>[1]): string => readName(view.name, what);
+  for (const t of treatments) {
+    for (let j = 0; j < READ_SAMPLES; j++) {
+      await take({ ...view, name: named({ kind: 'm', treatment: t.name, sample: j }), read: t, layers: { rain: false }, sunShadowOff: true, repaints: readRepaints(j) }, t.name);
+    }
+    await take({ ...view, name: named({ kind: 'r', treatment: t.name }), read: t }, t.name);
+  }
+  await take({ ...view, name: named('g'), read: first, layers: { rain: false, units: false }, sunShadowOff: true, repaints: 2 }, first.name);
+  await page.evaluate(
+    (b) =>
+      (window as unknown as LionsWindow).__lions.renderer.debugSetRainRead?.({
+        rimGain: b.rimGain,
+        rimPower: b.rimPower,
+        exposure: b.exposure,
+        contrast: b.contrast,
+      }),
+    before
+  );
 }
 
 export function frameLine(name: string, f: FrameRecord): string {
@@ -1304,9 +1398,10 @@ async function main(): Promise<void> {
     vehicleNoVehicle: [] as string[],
     vehicleNotMoving: [] as string[],
     rimFrames: {} as Record<string, number>,
+    readFrames: {} as Record<string, number>,
   };
   const passes = planPasses({ quality: args.quality, motion: args.motion });
-  const t12 = args.quality !== undefined || args.ticks !== undefined || args.motion !== undefined || args.clip !== undefined || args.stops !== undefined || args.vehicle !== undefined || args.rim !== undefined;
+  const t12 = args.quality !== undefined || args.ticks !== undefined || args.motion !== undefined || args.clip !== undefined || args.stops !== undefined || args.vehicle !== undefined || args.rim !== undefined || args.read !== undefined;
   let meta: RunMeta | null = null;
   let clipTicked = true;
   try {
@@ -1511,6 +1606,9 @@ async function main(): Promise<void> {
                 await page.evaluate((g) => (window as unknown as LionsWindow).__lions.renderer.debugSetRainRim?.(g), before.wanted);
                 assertRimRestored(view.name, before, await readRim(page));
               }
+              // GH-871 cheap-wet task 2. The readability sweep of the same frozen view (after the rim frames,
+              // whose knob it does not touch; it restores the treatment knobs it found).
+              if (args.read !== undefined) await readSweep(page, outDir, view, { ...ctx, track: id }, args.read, viewCosts, stopRecord, took, say);
             }
           }
           // S-L2 ruling 4. After the stops: one ordered vehicle, stepped a tick at a time, for the mud spray.
