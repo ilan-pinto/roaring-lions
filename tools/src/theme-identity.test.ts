@@ -64,7 +64,7 @@ import { FogOfWarPass } from '../../packages/render/src/three/fog-pass';
 import type { GroundMaterial } from '../../packages/render/src/three/terrain/mesh';
 import type { SceneLights } from '../../packages/render/src/three/lighting';
 import { swayingFoliageMaterial, type SwayUniforms } from '../../packages/render/src/three/terrain/decor-mesh';
-import { surfaceMaterialFor, type SurfaceClass } from '../../packages/render/src/three/units/unit-surface';
+import { figureLiftFor, surfaceMaterialFor, type SurfaceClass, type SurfaceTable } from '../../packages/render/src/three/units/unit-surface';
 import type { ShroudTexture } from '../../packages/render/src/three/shroud-texture';
 import { rendererOptionsFor } from '../../packages/app/src/renderer-options';
 
@@ -214,11 +214,21 @@ function sceneFieldsOf(priv: Private): Record<string, unknown> {
   const built = swayingFoliageMaterial(['#808080'], priv.sway, priv.opts.weather === 'rain');
   const builtCompiled = compileOf(built);
 
+  // Built the way `mesh-unit.ts` builds a KDF figure (`figureLiftFor`), so the rain lift's emissive
+  // (GH-871 P4 S-L2) is read. It is appended ONLY when non-zero: a shipped renderer's entry stays
+  // `[roughness, metalness]` and its digest byte-identical.
   const surfaces: Record<string, number[]> = {};
   for (const cls of Object.keys(SURFACE_ROLES) as SurfaceClass[]) {
     const base = new THREE.MeshStandardMaterial();
-    const m = surfaceMaterialFor(base, SURFACE_ROLES[cls], undefined, priv.surfaceTable) as ThreeTypes.MeshStandardMaterial;
-    surfaces[cls] = [m.roughness, m.metalness];
+    const m = surfaceMaterialFor(
+      base,
+      SURFACE_ROLES[cls],
+      undefined,
+      priv.surfaceTable,
+      figureLiftFor(priv.surfaceTable as SurfaceTable, 'kdf')
+    ) as ThreeTypes.MeshStandardMaterial;
+    const lit = m.emissive.getHex() !== 0;
+    surfaces[cls] = lit ? [m.roughness, m.metalness, ...r6(m.emissive.toArray())] : [m.roughness, m.metalness];
   }
 
   const ground = priv.groundMat as unknown as { uniforms: Record<string, unknown>; defines: Record<string, unknown> };

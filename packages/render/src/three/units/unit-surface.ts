@@ -31,6 +31,12 @@
  * first `dispose` drops it from the registry and the memo -- see `registry`
  * for the leak a strong one caused.
  *
+ * The RAIN LIFT (GH-871 P4 S-L2 ruling 3): under rain a KDF figure's clones
+ * also carry a small self-lit term, `emissive = overcast.1 x kdfFigureLift`
+ * (see `WET_SURFACE_PARAMS`). It rides the same clone, memo, debug toggle and
+ * disposer as the roughness, and exists only when the table asks for it, so a
+ * shipped renderer's clones are exactly today's.
+ *
  * Known limit: a scar clone (`vehicle-damage`) or a running-gear clone
  * (`running-gear-binding`) is cut with `Material.clone()` from the surface
  * clone and copies the roughness/metalness in force when it was cut; it is
@@ -41,6 +47,8 @@
  * and presentation-only.
  */
 import * as THREE from 'three';
+import { paletteHex } from '../palette-hex';
+import { RAIN_SKY_KEY } from '../weather';
 
 export interface SurfaceParams {
   readonly roughness: number;
@@ -78,8 +86,37 @@ export const SURFACE_PARAMS: Readonly<Record<SurfaceClass, SurfaceParams>> = {
   glass: { roughness: 0.2, metalness: 0 },
 };
 
-/** A table of surface params, one per class: the shipped one or the wet one. */
-export type SurfaceTable = Readonly<Record<SurfaceClass, SurfaceParams>>;
+/**
+ * A table of surface params, one per class: the shipped one or the wet one.
+ * `kdfFigureLift` is the rain lift's gain (see `WET_SURFACE_PARAMS`); ABSENT on
+ * the shipped table, and absent means no lift, no emissive write, and no change
+ * to a clone's cache key.
+ */
+export type SurfaceTable = Readonly<Record<SurfaceClass, SurfaceParams>> & {
+  readonly kdfFigureLift?: number;
+};
+
+/**
+ * The rain lift's gain (GH-871 P4 S-L2 ruling 3, calibrated in
+ * `tools/src/wet-unit-lift.test.ts`): a KDF figure's surfaces gain a self-lit
+ * `emissive = overcast.1 x 0.4` under rain, the cold sheen of a wet surface
+ * answering the overcast sky.
+ *
+ * Why a CONSTANT colour and not the albedo (the cheaper-looking `emissive =
+ * colour x gain`): the S-L2 readability frames read the KDF squad at CIEDE2000
+ * 8.2 / 9.0 on the wet road and 4.0 / 6.4 in marsh water (floor 15.6) because
+ * the figures are near black (mean pixel (15, 10, 5), the Meshy camouflage bake
+ * averages 0.066 linear luminance), and the lead's second method reads the
+ * DARKEST 15% of the figure. An emissive proportional to the texel lifts a
+ * near-black texel by almost nothing; a constant lifts every texel by the same
+ * radiance, so both methods move. A cold colour also keeps clear of the green
+ * grass, where the figure is already 30.7 and a warm albedo-proportional lift
+ * of the same brightness fell to 19 (the figure reaching the ground's own
+ * lightness). 0.4 is the smallest grid step at which the model clears road and
+ * marsh water at 18.6 (the floor plus a margin of 3) and grass at 20; at 0.30
+ * the road misses (18.3).
+ */
+export const RAIN_KDF_FIGURE_LIFT = 0.4;
 
 /**
  * The wet table (GH-871 P4, T5): what a unit's surface answers under rain.
@@ -95,7 +132,17 @@ export const WET_SURFACE_PARAMS: SurfaceTable = {
   armour: { roughness: 0.52, metalness: 0 },
   plate: { roughness: 0.48, metalness: 0.1 },
   gunmetal: { roughness: 0.32, metalness: 0.45 },
+  kdfFigureLift: RAIN_KDF_FIGURE_LIFT,
 };
+
+/**
+ * The emissive gain a figure of `faction` takes from `table`: the table's
+ * `kdfFigureLift` for `'kdf'`, else 0. Vehicles never ask (their loader passes
+ * no lift), and the shipped table has none.
+ */
+export function figureLiftFor(table: SurfaceTable, faction: string): number {
+  return faction === 'kdf' ? (table.kdfFigureLift ?? 0) : 0;
+}
 
 /** The table a renderer built with `weather` uses: `'rain'` is the wet one,
  *  anything else (absent, `'clear'`) is the shipped one. */
@@ -140,6 +187,9 @@ interface SurfaceEntry {
   readonly mat: THREE.MeshStandardMaterial;
   readonly off: { roughness: number; metalness: number; metalnessMap: THREE.Texture | null };
   readonly on: { roughness: number; metalness: number; metalnessMap: THREE.Texture | null };
+  /** The rain lift's emissive, off and on. ABSENT on every clone made with no
+   *  lift, so `writeSurface` never touches `emissive` for a shipped renderer. */
+  readonly emissive?: { readonly off: THREE.Color; readonly on: THREE.Color };
 }
 
 /**
@@ -167,6 +217,7 @@ function writeSurface(e: SurfaceEntry, on: boolean): void {
   e.mat.metalness = v.metalness;
   e.mat.metalnessMap = v.metalnessMap;
   if (mapChanged) e.mat.needsUpdate = true;
+  if (e.emissive) e.mat.emissive.copy(on ? e.emissive.on : e.emissive.off);
 }
 
 function track(entry: SurfaceEntry): void {
@@ -191,9 +242,11 @@ function untrack(entry: SurfaceEntry): void {
  */
 const clones = new WeakMap<THREE.Material, Map<string, THREE.MeshStandardMaterial>>();
 
-/** `class/roughness/metalness`: the clone memo's key (the table is part of it). */
-function cacheKey(cls: SurfaceClass, p: SurfaceParams): string {
-  return `${cls}/${p.roughness}/${p.metalness}`;
+/** `class/roughness/metalness`: the clone memo's key (the table is part of it).
+ *  A lifted clone appends `/lift<gain>`; an unlifted one keeps today's key. */
+function cacheKey(cls: SurfaceClass, p: SurfaceParams, lift: number): string {
+  const base = `${cls}/${p.roughness}/${p.metalness}`;
+  return lift > 0 ? `${base}/lift${lift}` : base;
 }
 
 /**
@@ -201,13 +254,17 @@ function cacheKey(cls: SurfaceClass, p: SurfaceParams): string {
  * role or a non-standard material, else the memoised clone for its class.
  * `fresh` receives every clone made, so the template can dispose it. `table`
  * is the one the renderer was built with (`surfaceTableFor(opts.weather)`);
- * absent, the shipped `SURFACE_PARAMS`.
+ * absent, the shipped `SURFACE_PARAMS`. `lift` is the rain lift's gain
+ * (`figureLiftFor`): above 0 the clone also carries `emissive = overcast.1 x
+ * lift`, and the memo keeps a lifted and an unlifted clone apart; 0 (the
+ * default) is exactly today's clone.
  */
 export function surfaceMaterialFor(
   base: THREE.Material,
   role: string,
   fresh?: (m: THREE.Material) => void,
-  table: SurfaceTable = SURFACE_PARAMS
+  table: SurfaceTable = SURFACE_PARAMS,
+  lift = 0
 ): THREE.Material {
   const std = base as THREE.MeshStandardMaterial;
   const cls = surfaceClassOf(role);
@@ -218,7 +275,7 @@ export function surfaceMaterialFor(
     clones.set(base, perClass);
   }
   const p = table[cls];
-  const key = cacheKey(cls, p);
+  const key = cacheKey(cls, p, lift);
   const hit = perClass.get(key);
   if (hit) {
     // A second template built from the same loaded original (whose first
@@ -232,6 +289,7 @@ export function surfaceMaterialFor(
   }
   const mat = std.clone();
   const mapped = mat.roughnessMap !== null;
+  const emissiveOff = std.emissive.clone();
   const entry: SurfaceEntry = {
     mat,
     off: { roughness: std.roughness, metalness: std.metalness, metalnessMap: std.metalnessMap },
@@ -240,6 +298,14 @@ export function surfaceMaterialFor(
       metalness: p.metalness,
       metalnessMap: p.metalness > 0 ? null : std.metalnessMap,
     },
+    ...(lift > 0
+      ? {
+          emissive: {
+            off: emissiveOff,
+            on: emissiveOff.clone().add(new THREE.Color(paletteHex(RAIN_SKY_KEY)).multiplyScalar(lift)),
+          },
+        }
+      : {}),
   };
   entryOf.set(mat, entry);
   track(entry);

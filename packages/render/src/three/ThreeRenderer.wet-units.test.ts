@@ -19,7 +19,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
-import { SURFACE_PARAMS, WET_SURFACE_PARAMS } from './units/unit-surface';
+import { SURFACE_PARAMS, WET_SURFACE_PARAMS, type SurfaceTable } from './units/unit-surface';
+import { buildMeshUnitTemplate } from './units/mesh-unit';
+import * as THREE from 'three';
 import { hexToLinear } from './terrain/shared';
 import vehicleDust from '../../../../data/vfx/vehicle_dust.json';
 import vehicleMud from '../../../../data/vfx/vehicle_mud.json';
@@ -164,6 +166,39 @@ describe('both mesh loaders get the renderer`s own surface table', () => {
     expect(calls.unit).toHaveLength(1);
     expect(calls.vehicle[0][5]).toBe(want);
     expect(calls.unit[0][6]).toBe(want);
+    r.dispose();
+  });
+});
+
+describe('the rain lift reaches a KDF figure built with the renderer`s own table (GH-871 P4 S-L2 ruling 3)', () => {
+  /** A `GLTFLoader`-shaped KDF scene: a uniform, a boot and a weapon, each in a known blue. */
+  function figure(): { scene: THREE.Group; animations: THREE.AnimationClip[] } {
+    const scene = new THREE.Group();
+    for (const role of ['uniform', 'boot', 'weapon']) {
+      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color: 0x336699 }));
+      mesh.name = role;
+      mesh.userData = { rl_role: role };
+      scene.add(mesh);
+    }
+    return { scene, animations: [] };
+  }
+  it.each(CASES)('weather %s', (_name, extra, wet) => {
+    const { r } = setUp(extra);
+    const table = priv(r).surfaceTable as SurfaceTable;
+    expect(table.kdfFigureLift).toBe(wet ? 0.4 : undefined);
+    const t = buildMeshUnitTemplate(figure(), 'kdf', 'x.glb', false, undefined, undefined, table);
+    expect(t.materials).toHaveLength(3);
+    for (const m of t.materials) {
+      const e = (m as THREE.MeshStandardMaterial).emissive.toArray();
+      // overcast.1 #9FA9B5, linear, x 0.4 under rain; black otherwise (literals).
+      if (wet) {
+        expect(e[0]).toBeCloseTo(0.13868, 4);
+        expect(e[1]).toBeCloseTo(0.1587, 4);
+        expect(e[2]).toBeCloseTo(0.18483, 4);
+      } else {
+        expect(e).toEqual([0, 0, 0]);
+      }
+    }
     r.dispose();
   });
 });

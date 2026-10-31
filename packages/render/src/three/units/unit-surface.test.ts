@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import {
+  figureLiftFor,
   MR_MAP_ROUGHNESS_MEAN,
   setUnitSurfacePass,
   SURFACE_PARAMS,
@@ -110,7 +111,7 @@ describe('surfaceMaterialFor', () => {
 
 describe('the wet surface table (GH-871 P4 T5)', () => {
   // Oracles are LITERALS: the brief's numbers, not read back from the table.
-  it('carries the four wet roughnesses, and every other class and every metalness as shipped', () => {
+  it('carries the four wet roughnesses, and every other class and every metalness as shipped, plus the rain lift gain', () => {
     expect(WET_SURFACE_PARAMS).toEqual({
       cloth: { roughness: 0.8, metalness: 0 },
       leather: { roughness: 0.7, metalness: 0 },
@@ -122,11 +123,15 @@ describe('the wet surface table (GH-871 P4 T5)', () => {
       plate: { roughness: 0.48, metalness: 0.1 },
       rubber: { roughness: 0.96, metalness: 0 },
       glass: { roughness: 0.2, metalness: 0 },
+      kdfFigureLift: 0.4,
     });
   });
 
   it('keeps the 0.45 metalness cap (no environment map)', () => {
-    for (const p of Object.values(WET_SURFACE_PARAMS)) expect(p.metalness).toBeLessThanOrEqual(0.45);
+    const { kdfFigureLift, ...classes } = WET_SURFACE_PARAMS;
+    expect(kdfFigureLift).toBe(0.4);
+    expect(Object.keys(classes)).toHaveLength(10);
+    for (const p of Object.values(classes)) expect(p.metalness).toBeLessThanOrEqual(0.45);
   });
 
   it('is the shipped table, unchanged, for a dry renderer', () => {
@@ -163,5 +168,77 @@ describe('the wet surface table (GH-871 P4 T5)', () => {
     expect(gun.roughness).toBeCloseTo(0.4015056, 6);
     const hull = surfaceMaterialFor(base, 'hull_hull', undefined, WET_SURFACE_PARAMS) as THREE.MeshStandardMaterial;
     expect(hull.roughness).toBeCloseTo(0.6524468, 6);
+  });
+});
+
+describe('the rain lift (GH-871 P4 S-L2 ruling 3)', () => {
+  // Oracles are LITERALS: overcast.1 is #9FA9B5, linear (0.34670, 0.39676, 0.46207); x 0.4 below.
+  const LIFT = [0.13868, 0.1587, 0.18483] as const;
+  const emissive = (m: THREE.Material): number[] => (m as THREE.MeshStandardMaterial).emissive.toArray();
+
+  it('the shipped table has no lift, and only a KDF figure asks for the wet one', () => {
+    expect('kdfFigureLift' in SURFACE_PARAMS).toBe(false);
+    expect(figureLiftFor(SURFACE_PARAMS, 'kdf')).toBe(0);
+    expect(figureLiftFor(WET_SURFACE_PARAMS, 'kdf')).toBe(0.4);
+    expect(figureLiftFor(WET_SURFACE_PARAMS, 'enemy')).toBe(0);
+    expect(figureLiftFor(WET_SURFACE_PARAMS, 'civilian')).toBe(0);
+  });
+
+  it('a lifted clone carries emissive = overcast.1 x 0.4 on top of the base`s own emissive, and the base is untouched', () => {
+    const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0, emissive: new THREE.Color(0.01, 0.02, 0.03) });
+    const m = surfaceMaterialFor(base, 'uniform', undefined, WET_SURFACE_PARAMS, 0.4);
+    const e = emissive(m);
+    expect(e[0]).toBeCloseTo(0.01 + LIFT[0], 4);
+    expect(e[1]).toBeCloseTo(0.02 + LIFT[1], 4);
+    expect(e[2]).toBeCloseTo(0.03 + LIFT[2], 4);
+    expect(emissive(base)).toEqual([expect.closeTo(0.01, 6), expect.closeTo(0.02, 6), expect.closeTo(0.03, 6)]);
+  });
+
+  it('a clone made with no lift leaves emissive exactly as the base had it (nothing written)', () => {
+    const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+    for (const table of [SURFACE_PARAMS, WET_SURFACE_PARAMS]) {
+      const m = surfaceMaterialFor(base, 'uniform', undefined, table);
+      expect(emissive(m)).toEqual([0, 0, 0]);
+    }
+  });
+
+  it('the cache key includes the lift: one base, lifted / unlifted / dry in either order, no cross-contamination', () => {
+    const lifted = [0.13868, 0.1587, 0.18483];
+    for (const order of [['wet', 'dry', 'wetLifted'], ['wetLifted', 'dry', 'wet'], ['dry', 'wetLifted', 'wet']] as const) {
+      const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+      const got: Record<string, THREE.Material> = {};
+      for (const k of order) {
+        got[k] =
+          k === 'dry'
+            ? surfaceMaterialFor(base, 'uniform')
+            : surfaceMaterialFor(base, 'uniform', undefined, WET_SURFACE_PARAMS, k === 'wetLifted' ? 0.4 : 0);
+      }
+      expect(new Set(Object.values(got)).size, order.join('>')).toBe(3);
+      expect(emissive(got.dry)).toEqual([0, 0, 0]);
+      expect(emissive(got.wet)).toEqual([0, 0, 0]);
+      for (let i = 0; i < 3; i++) expect(emissive(got.wetLifted)[i]).toBeCloseTo(lifted[i], 4);
+      expect((got.dry as THREE.MeshStandardMaterial).roughness).toBe(0.92);
+      expect((got.wet as THREE.MeshStandardMaterial).roughness).toBe(0.8);
+      expect((got.wetLifted as THREE.MeshStandardMaterial).roughness).toBe(0.8);
+      // A second request for each returns the memo.
+      expect(surfaceMaterialFor(base, 'keffiyeh', undefined, WET_SURFACE_PARAMS, 0.4)).toBe(got.wetLifted);
+      expect(surfaceMaterialFor(base, 'keffiyeh', undefined, WET_SURFACE_PARAMS, 0)).toBe(got.wet);
+    }
+  });
+
+  it('the unit-surface debug toggle takes the lift off and puts it back', () => {
+    const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+    const m = surfaceMaterialFor(base, 'boot', undefined, WET_SURFACE_PARAMS, 0.4);
+    const plain = surfaceMaterialFor(base, 'boot');
+    try {
+      setUnitSurfacePass(false);
+      expect(emissive(m)).toEqual([0, 0, 0]);
+      expect((m as THREE.MeshStandardMaterial).roughness).toBe(0.85);
+      setUnitSurfacePass(true);
+      expect(emissive(m)[2]).toBeCloseTo(LIFT[2], 4);
+      expect(emissive(plain)).toEqual([0, 0, 0]);
+    } finally {
+      setUnitSurfacePass(true);
+    }
   });
 });
