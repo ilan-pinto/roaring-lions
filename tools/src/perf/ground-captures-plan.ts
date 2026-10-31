@@ -32,11 +32,11 @@ export const PRESET_IDS: readonly Preset[] = ['high', 'medium', 'low'];
 
 /**
  * The drop count each preset must boot with: the SHIPPED ladder (`RAIN_LADDER` after the cost
- * run's first step, low 1,500 -> 900). A literal on purpose: it is the oracle the booted renderer is
+ * run's two steps, low 1,500 -> 900 -> 525). A literal on purpose: it is the oracle the booted renderer is
  * read back against, and `ground-captures.test.ts` pins it to `QUALITY_PRESETS` so a deliberate
  * ladder move turns that one test red, not the capture.
  */
-export const EXPECTED_RAIN_DROPS: Readonly<Record<Preset, number>> = { high: 6000, medium: 3500, low: 900 };
+export const EXPECTED_RAIN_DROPS: Readonly<Record<Preset, number>> = { high: 6000, medium: 3500, low: 525 };
 
 /** The zoom the tick strip is photographed at (the sheet's page 2). */
 export const TICK_STRIP_ZOOM = 1.6;

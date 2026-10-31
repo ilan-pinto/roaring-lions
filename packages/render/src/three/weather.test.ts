@@ -142,7 +142,7 @@ describe('the rain count ladder (R-8, GH-871 P4 T8)', () => {
 
 describe('rainQualityOf: absent means no opinion, and high`s', () => {
   it('reads each preset`s own rain fields', () => {
-    expect(rainQualityOf(QUALITY_PRESETS.low)).toEqual({ drops: 900, ripples: false });
+    expect(rainQualityOf(QUALITY_PRESETS.low)).toEqual({ drops: 525, ripples: false });
     expect(rainQualityOf(QUALITY_PRESETS.medium)).toEqual({ drops: 3500, ripples: true });
   });
   it('gives high`s to an absent quality and to a quality with no rain field (a test fake)', () => {
@@ -157,8 +157,8 @@ describe('the lattice periods and the density hold', () => {
   it('the period runs continuously from 8 to 64 tiles (R-7 snapped it to 8, 16, 32, 64; S-L2 ruling 2)', () => {
     expect([RAIN_PERIOD_MIN, RAIN_PERIOD_MAX]).toEqual([8, 64]);
   });
-  it('the density fraction is 0.22 of a preset`s drops: 1,320 of 6,000, 770 of 3,500, 198 of 900', () => {
+  it('the density fraction is 0.22 of a preset`s drops: 1,320 of 6,000, 770 of 3,500, 115.5 of 525', () => {
     expect(RAIN_DENSITY_FRACTION).toBe(0.22);
-    [6000, 3500, 900].forEach((n, i) => expect(n * RAIN_DENSITY_FRACTION).toBeCloseTo([1320, 770, 198][i], 9));
+    [6000, 3500, 525].forEach((n, i) => expect(n * RAIN_DENSITY_FRACTION).toBeCloseTo([1320, 770, 115.5][i], 9));
   });
 });

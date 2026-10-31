@@ -148,7 +148,7 @@ export const RAIN_SPLASH_KEY = 'overcast.1';
 export const RAIN_PERIOD_MIN = 8;
 export const RAIN_PERIOD_MAX = 64;
 /** The on-screen drop count the rain holds at every zoom, as a share of a preset's `drops` (S-L2
- *  ruling 2): 0.22, so 1,320 of high's 6,000, 770 of medium's 3,500 and 198 of low's 900 (the
+ *  ruling 2): 0.22, so 1,320 of high's 6,000, 770 of medium's 3,500 and 115.5 of low's 525 (the
  *  lead's 1,400 scaled by the preset total is 0.233; +-20% of that is the band the tests assert).
  *  It is about the most every zoom can reach: with the period at the box (`latticePeriod`) the
  *  lattice holds `area / P^2` of its drops on screen, 0.22 at the highest zoom on flat ground,

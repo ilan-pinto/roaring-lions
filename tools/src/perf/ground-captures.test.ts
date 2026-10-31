@@ -428,8 +428,8 @@ describe('T12 option parsing', () => {
 });
 
 describe('the shipped ladder, pinned', () => {
-  it('EXPECTED_RAIN_DROPS is the ladder QUALITY_PRESETS ships (6000 / 3500 / 900)', () => {
-    expect(EXPECTED_RAIN_DROPS).toEqual({ high: 6000, medium: 3500, low: 900 });
+  it('EXPECTED_RAIN_DROPS is the ladder QUALITY_PRESETS ships (6000 / 3500 / 525)', () => {
+    expect(EXPECTED_RAIN_DROPS).toEqual({ high: 6000, medium: 3500, low: 525 });
     expect(QUALITY_PRESETS.high.rain?.drops).toBe(EXPECTED_RAIN_DROPS.high);
     expect(QUALITY_PRESETS.medium.rain?.drops).toBe(EXPECTED_RAIN_DROPS.medium);
     expect(QUALITY_PRESETS.low.rain?.drops).toBe(EXPECTED_RAIN_DROPS.low);
@@ -706,16 +706,16 @@ describe('the assertions: a pass must READ BACK what it asked for', () => {
     tick: 0,
     ...over,
   });
-  it('a booted preset must carry the ladder step: 6000, 3500, 900', () => {
+  it('a booted preset must carry the ladder step: 6000, 3500, 525', () => {
     expect(() => assertPresetBooted('high', wet())).not.toThrow();
     expect(() => assertPresetBooted('medium', wet({ qualityDrops: 3500, rain: { ...wet().rain!, drops: 3500 } }))).not.toThrow();
-    expect(() => assertPresetBooted('low', wet({ qualityDrops: 900, rain: { ...wet().rain!, drops: 900 } }))).not.toThrow();
+    expect(() => assertPresetBooted('low', wet({ qualityDrops: 525, rain: { ...wet().rain!, drops: 525 } }))).not.toThrow();
     // asked for medium, booted high
     expect(() => assertPresetBooted('medium', wet())).toThrow(/booted for medium \(rain drops 3500\) but the renderer's quality carries 6000/);
     // quality right but the live batch is the wrong size, or absent on a wet map
     expect(() => assertPresetBooted('high', wet({ rain: { ...wet().rain!, drops: 1500 } }))).toThrow(/batch has 1500 instances/);
     expect(() => assertPresetBooted('high', wet({ rain: null }))).toThrow(/no rain batch/);
-    // the pre-ladder low (1500) is a mismatch against the shipped 900
+    // the pre-ladder low (1500) is a mismatch against the shipped 525
     expect(() => assertPresetBooted('low', wet({ qualityDrops: 1500 }))).toThrow(/quality carries 1500/);
     // a dry map has no batch to check
     expect(() => assertPresetBooted('high', wet({ weather: 'clear', rain: null }))).not.toThrow();
