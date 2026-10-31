@@ -347,10 +347,21 @@ export function nextStall(count: number, prev: { readonly x: number; readonly y:
 // ============================================================================
 
 /** The ticks after the order the vehicle is photographed at, and the zooms (two views a tick). */
-export const VEHICLE_TICKS: readonly number[] = [20, 40, 60];
+export const VEHICLE_TICKS: readonly number[] = [20, 60, 120];
 export const VEHICLE_ZOOMS: readonly number[] = [1.6, 2.5];
-/** A vehicle moved less than this many tiles over the last tick is NOT MOVING (no spray). */
-export const VEHICLE_MOVING_MIN = 0.01;
+/** Moving is read over this many ticks, not one: a single tick's delta is noisy (a Lavi covers ~0.275 tile per 5). */
+export const VEHICLE_WINDOW_TICKS = 5;
+/** A vehicle that moved less than this many tiles over the `VEHICLE_WINDOW_TICKS` window is NOT MOVING (no spray). */
+export const VEHICLE_MOVING_MIN = 0.05;
+/**
+ * The presentation time of one rendered frame during the vehicle run, ms, and the frames drawn per
+ * 50 ms sim tick. `__lions.step(1)` is one tick but only ONE frame at whatever `lastFrameMs` the
+ * (frozen) rAF loop last saw (about 16.7 ms), so the dust accumulator, which runs on frame time,
+ * would see a third of the live presentation time. The run therefore draws three 16.667 ms frames a
+ * tick, the 60 Hz the live loop draws.
+ */
+export const VEHICLE_FRAME_DT_MS = 1000 / 60;
+export const VEHICLE_FRAMES_PER_TICK = 3;
 /** The road target is at least this many tiles from the vehicle, and at least `VEHICLE_RUN_MARGIN`
  *  times as far as the hull can drive in `VEHICLE_TICKS`' last tick, so it is still driving at the last shot. */
 export const VEHICLE_MIN_DISTANCE = 10;
@@ -424,24 +435,75 @@ export function vehicleRoadTile(
   return far ?? near;
 }
 
-/** How the vehicle moved over the last tick: the tiles, the tiles a second, and whether it is moving. */
+/** How the vehicle moved over a window of ticks: the tiles, the tiles a tick and a second, and whether it is moving. */
 export interface VehicleMotion {
+  readonly windowTicks: number;
+  readonly tiles: number;
   readonly tilesPerTick: number;
   readonly speedTilesPerSec: number;
   readonly moving: boolean;
 }
 
-/** From the position before the last tick and the position after it. Moving is `>= VEHICLE_MOVING_MIN` tile that tick. */
-export function vehicleMotion(prev: { readonly x: number; readonly y: number }, cur: { readonly x: number; readonly y: number }): VehicleMotion {
+/** From the position `windowTicks` ago and the position now. Moving is `>= VEHICLE_MOVING_MIN` tile over the window. */
+export function vehicleMotion(
+  prev: { readonly x: number; readonly y: number },
+  cur: { readonly x: number; readonly y: number },
+  windowTicks: number = VEHICLE_WINDOW_TICKS
+): VehicleMotion {
   const d = Math.hypot(cur.x - prev.x, cur.y - prev.y);
-  return { tilesPerTick: d, speedTilesPerSec: d * VEHICLE_TICK_HZ, moving: d >= VEHICLE_MOVING_MIN };
+  return { windowTicks, tiles: d, tilesPerTick: d / windowTicks, speedTilesPerSec: (d / windowTicks) * VEHICLE_TICK_HZ, moving: d >= VEHICLE_MOVING_MIN };
+}
+
+/** The motion at tick `k` after the order, from `history[i]` = the hull's position `i` ticks after it
+ *  (`history[0]` = at the order): the window is `history[k - W]` to `history[k]`. Throws when the history
+ *  does not reach back a whole window (a shot before tick W would measure nothing). */
+export function vehicleMotionAt(history: readonly { readonly x: number; readonly y: number }[], k: number): VehicleMotion {
+  if (k < VEHICLE_WINDOW_TICKS || history[k] === undefined) {
+    throw new Error(`ground-capture: --vehicle: no ${VEHICLE_WINDOW_TICKS}-tick window ends at tick ${k} (history has ${history.length} positions)`);
+  }
+  return vehicleMotion(history[k - VEHICLE_WINDOW_TICKS], history[k]);
+}
+
+/**
+ * Presentation time for the stepped vehicle run. Installed once before the order and removed in a
+ * `finally`: wraps `renderer.frame` as an OWN property so a frame handed any dt but 0 is drawn with
+ * `VEHICLE_FRAME_DT_MS` (the `step(n)` hook hands `lastFrameMs`, whatever the frozen rAF loop last saw),
+ * while the zero-time repaints of `shot()` (dt 0) stay zero. A second install throws.
+ */
+export const VEHICLE_FRAME_WRAP_SCRIPT = `(() => {
+  const r = window.__lions.renderer;
+  if (Object.prototype.hasOwnProperty.call(r, 'frame')) throw new Error('ground-capture: renderer.frame is already wrapped');
+  if (typeof r.frame !== 'function') throw new Error('ground-capture: renderer.frame is missing: tree changed');
+  const orig = r.frame.bind(r);
+  r.frame = (a, dt) => orig(a, dt === 0 ? 0 : ${VEHICLE_FRAME_DT_MS});
+  return true;
+})()`;
+
+/** Removes the wrapper and returns whether the instance still has its own `frame` (it must not). */
+export const VEHICLE_FRAME_UNWRAP_SCRIPT = `(() => {
+  const r = window.__lions.renderer;
+  delete r.frame;
+  return Object.prototype.hasOwnProperty.call(r, 'frame');
+})()`;
+
+/** One sim tick as the live loop draws it: `step(1)` (one tick and one frame) plus
+ *  `VEHICLE_FRAMES_PER_TICK - 1` more frames, then the tick and the hull `id`'s position, one round trip. */
+export function vehicleTickScript(id: number): string {
+  return `(() => {
+  const L = window.__lions;
+  L.step(1);
+  for (let i = 1; i < ${VEHICLE_FRAMES_PER_TICK}; i++) L.renderer.frame(1, ${VEHICLE_FRAME_DT_MS});
+  const s = L.sim.state;
+  return JSON.stringify({ x: s.posX[${id}] / 65536, y: s.posY[${id}] / 65536, tick: L.sim.tickCount });
+})()`;
 }
 
 /**
  * The first living side-0 vehicle (lowest id) as JSON, or `null`. A vehicle is a unit type whose
  * RESOLVED `wheeled` is true (the authored `mobility.wheeled`, else `!FOOT_ROLES.has(role)`: rocket_battery
- * and dozer_d9 are wheeled, manpad_team is not, so the ROLE alone is wrong both ways) and that is not
- * air (a rotor throws no mud). Reads the same `sim.unitTypes[typeIdx]` table as FIRST_INFANTRY_SCRIPT.
+ * and dozer_d9 are wheeled, manpad_team is not, so the ROLE alone is wrong both ways), that is not
+ * air (a rotor throws no mud) and that is not SOFT (`updateVehicleAmbientFx` skips `type.isSoft`: armour
+ * front under the sim's limit, so a jeep, technical, gun truck or rocket truck never sprays). Reads the same `sim.unitTypes[typeIdx]` table as FIRST_INFANTRY_SCRIPT.
  * `stepPerTick` is the type's Q16.16 step over 65536: tiles a tick at full speed.
  */
 export const FIRST_VEHICLE_SCRIPT = `(() => {
@@ -449,7 +511,7 @@ export const FIRST_VEHICLE_SCRIPT = `(() => {
   for (let i = 0; i < sim.entityCount; i++) {
     if (sim.state.alive[i] !== 1 || sim.state.side[i] !== 0) continue;
     const type = sim.unitTypes[sim.state.typeIdx[i]];
-    if (type.wheeled === true && type.isAir !== true) {
+    if (type.wheeled === true && type.isAir !== true && type.isSoft !== true) {
       return JSON.stringify({ id: i, typeId: type.id, stepPerTick: type.stepPerTick / 65536 });
     }
   }
@@ -485,7 +547,8 @@ export function vehicleLegend(): string {
   return (
     `legend: --vehicle: the first living side-0 wheeled vehicle is ordered by a move Command to a road tile at least 10 tiles ` +
     `(more for a fast hull) from where it stands, nearest the marker; frames <view>-vehicle-t<n> at ${VEHICLE_ZOOMS.map((z) => `z${z}`).join(' and ')} ` +
-    `on ticks ${VEHICLE_TICKS.join(', ')} after the order, the camera on the hull; moving= is its last-tick travel >= ${VEHICLE_MOVING_MIN} tile`
+    `on ticks ${VEHICLE_TICKS.join(', ')} after the order, the camera on the hull, ${VEHICLE_FRAMES_PER_TICK} frames of ${VEHICLE_FRAME_DT_MS.toFixed(1)} ms a tick; ` +
+    `moving= is its travel >= ${VEHICLE_MOVING_MIN} tile over ${VEHICLE_WINDOW_TICKS} ticks. vehicle_mud sprites are 3-5 px, alpha <= 0.5: small and faint by design`
   );
 }
 

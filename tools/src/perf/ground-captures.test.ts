@@ -27,18 +27,25 @@ import {
   FIRST_VEHICLE_SCRIPT,
   NameClaims,
   VEHICLE_EMITTER_SCRIPT,
+  VEHICLE_FRAMES_PER_TICK,
+  VEHICLE_FRAME_DT_MS,
+  VEHICLE_FRAME_UNWRAP_SCRIPT,
+  VEHICLE_FRAME_WRAP_SCRIPT,
   VEHICLE_MIN_DISTANCE,
   VEHICLE_MOVING_MIN,
   VEHICLE_TICKS,
   VEHICLE_TICK_HZ,
+  VEHICLE_WINDOW_TICKS,
   VEHICLE_ZOOMS,
   assertVehicleEmitter,
   parseVehicleMarker,
   vehicleLegend,
   vehicleMinDistance,
   vehicleMotion,
+  vehicleMotionAt,
   vehicleName,
   vehicleRoadTile,
+  vehicleTickScript,
   READ_RAIN_HEIGHTS_SCRIPT,
   READ_RENDER_SCRIPT,
   assertMotion,
@@ -877,35 +884,39 @@ describe('--vehicle: the road tile', () => {
   });
   it('the minimum distance is 10, and grows with a fast hull so it is still driving on the last shot', () => {
     expect(VEHICLE_MIN_DISTANCE).toBe(10);
-    expect(vehicleMinDistance(0.05)).toBe(10); // 0.05 * 60 * 1.25 = 3.75
-    expect(vehicleMinDistance(0.2)).toBe(15); // 0.2 * 60 * 1.25 = 15
-    expect(vehicleMinDistance(0.25)).toBe(19); // 18.75 rounded up
+    expect(vehicleMinDistance(0.05)).toBe(10); // 0.05 * 120 * 1.25 = 7.5
+    expect(vehicleMinDistance(0.2)).toBe(30); // 0.2 * 120 * 1.25 = 30
+    expect(vehicleMinDistance(0.15)).toBe(23); // 22.5 rounded up
   });
 });
 
-describe('--vehicle: a vehicle is a unit type whose resolved mobility.wheeled is true (FOOT_ROLES alone is wrong)', () => {
-  // The literal unit-type table, in id order: the roles are the ones CLAUDE.md warns about.
+describe('--vehicle: a vehicle is a wheeled, non-air, non-soft unit type (the renderer sprays only !isSoft hulls)', () => {
+  // The literal unit-type table, in id order. isSoft is the sim's armour-front-under-30 mm answer.
   const types = [
-    { id: 'rifle_squad', role: 'infantry', wheeled: false, isAir: false, stepPerTick: 6554 },
-    { id: 'manpad_team', role: 'aa', wheeled: false, isAir: false, stepPerTick: 6554 },
-    { id: 'drone', role: 'drone', wheeled: true, isAir: true, stepPerTick: 13107 },
-    { id: 'rocket_battery', role: 'artillery', wheeled: true, isAir: false, stepPerTick: 9830 },
-    { id: 'mbt', role: 'mbt', wheeled: true, isAir: false, stepPerTick: 6554 },
+    { id: 'rifle_squad', role: 'infantry', wheeled: false, isAir: false, isSoft: true, stepPerTick: 6554 },
+    { id: 'manpad_team', role: 'aa', wheeled: false, isAir: false, isSoft: true, stepPerTick: 6554 },
+    { id: 'drone', role: 'drone', wheeled: true, isAir: true, isSoft: true, stepPerTick: 13107 },
+    { id: 'rocket_battery', role: 'artillery', wheeled: true, isAir: false, isSoft: true, stepPerTick: 9830 },
+    { id: 'jeep_shoded', role: 'scout', wheeled: true, isAir: false, isSoft: true, stepPerTick: 13107 },
+    { id: 'technical', role: 'aa', wheeled: true, isAir: false, isSoft: true, stepPerTick: 11796 }, // armour 15
+    { id: 'mbt_lavi', role: 'mbt', wheeled: true, isAir: false, isSoft: false, stepPerTick: 3604 }, // armour 700
   ];
   const run = (typeIdx: number[], alive: number[], side: number[]): unknown => {
     const sim = { entityCount: typeIdx.length, unitTypes: types, state: { typeIdx, alive, side } };
     return JSON.parse((new Function('window', `return ${FIRST_VEHICLE_SCRIPT};`) as (w: unknown) => string)({ __lions: { sim } }));
   };
-  it('skips infantry, a manpad (role aa, wheeled false) and an air hull, and takes the rocket truck', () => {
-    // entities: rifle, manpad, drone, rocket_battery, mbt
-    expect(run([0, 1, 2, 3, 4], [1, 1, 1, 1, 1], [0, 0, 0, 0, 0])).toEqual({ id: 3, typeId: 'rocket_battery', stepPerTick: 9830 / 65536 });
+  const lavi = { id: 6, typeId: 'mbt_lavi', stepPerTick: 3604 / 65536 };
+  it('skips infantry, a manpad (role aa, wheeled false), an air hull and every SOFT wheeled hull, and takes the Lavi', () => {
+    // entities: rifle, manpad, drone, rocket_battery, jeep, technical, mbt_lavi
+    expect(run([0, 1, 2, 3, 4, 5, 6], [1, 1, 1, 1, 1, 1, 1], [0, 0, 0, 0, 0, 0, 0])).toEqual({ ...lavi, id: 6 });
   });
   it('skips the dead and the other side, and the first LIVING vehicle wins', () => {
-    expect(run([3, 4], [0, 1], [0, 0])).toEqual({ id: 1, typeId: 'mbt', stepPerTick: 6554 / 65536 });
-    expect(run([3, 4], [1, 1], [1, 0])).toEqual({ id: 1, typeId: 'mbt', stepPerTick: 6554 / 65536 });
+    expect(run([6, 6], [0, 1], [0, 0])).toEqual({ ...lavi, id: 1 });
+    expect(run([6, 6], [1, 1], [1, 0])).toEqual({ ...lavi, id: 1 });
   });
-  it('is null when only foot units, a manpad and an air hull are alive (NO VEHICLE)', () => {
+  it('is null (NO VEHICLE) when only foot units, a manpad, an air hull and soft trucks are alive', () => {
     expect(run([0, 1, 2], [1, 1, 1], [0, 0, 0])).toBeNull();
+    expect(run([3, 4, 5], [1, 1, 1], [0, 0, 0])).toBeNull(); // rocket truck, jeep, technical: wheeled but soft
     expect(run([], [], [])).toBeNull();
   });
   it('reads, and writes nothing', () => {
@@ -948,34 +959,112 @@ describe('--vehicle is a Command, never a state write (invariant 4)', () => {
   });
 });
 
-describe('--vehicle: whether it is moving is read, never assumed', () => {
-  it('moving is a last-tick travel of at least 0.01 tile, and the speed is tiles a tick times the sim\'s 20 Hz', () => {
-    expect(VEHICLE_MOVING_MIN).toBe(0.01);
+describe('--vehicle: whether it is moving is read over a 5-tick window, never assumed', () => {
+  it('moving is a travel of at least 0.05 tile over 5 ticks; the speed comes from the same window at the sim\'s 20 Hz', () => {
+    expect(VEHICLE_MOVING_MIN).toBe(0.05);
+    expect(VEHICLE_WINDOW_TICKS).toBe(5);
     expect(VEHICLE_TICK_HZ).toBe(TICKS_PER_SECOND);
-    const m = vehicleMotion({ x: 10, y: 5 }, { x: 10.15, y: 5 });
+    // a Lavi-ish 0.275 tile in 5 ticks: 0.055 tile a tick, 1.1 tiles a second
+    const m = vehicleMotion({ x: 10, y: 5 }, { x: 10.275, y: 5 });
     expect(m.moving).toBe(true);
-    expect(m.tilesPerTick).toBeCloseTo(0.15, 10);
-    expect(m.speedTilesPerSec).toBeCloseTo(3, 10);
-    expect(vehicleMotion({ x: 0, y: 0 }, { x: 0.03, y: 0.04 }).tilesPerTick).toBeCloseTo(0.05, 10);
+    expect(m.windowTicks).toBe(5);
+    expect(m.tiles).toBeCloseTo(0.275, 10);
+    expect(m.tilesPerTick).toBeCloseTo(0.055, 10);
+    expect(m.speedTilesPerSec).toBeCloseTo(1.1, 10);
+    expect(vehicleMotion({ x: 0, y: 0 }, { x: 0.3, y: 0.4 }).tiles).toBeCloseTo(0.5, 10);
   });
-  it('a hull that moved 0.005 tile, or not at all, is NOT moving', () => {
-    expect(vehicleMotion({ x: 10, y: 5 }, { x: 10.005, y: 5 }).moving).toBe(false);
-    expect(vehicleMotion({ x: 10, y: 5 }, { x: 10, y: 5 })).toEqual({ tilesPerTick: 0, speedTilesPerSec: 0, moving: false });
-    expect(vehicleMotion({ x: 10, y: 5 }, { x: 10, y: 5.015625 }).moving).toBe(true); // 2^-6, exact in binary
+  it('a hull that moved 0.04 tile in the window, or not at all, is NOT moving', () => {
+    expect(vehicleMotion({ x: 10, y: 5 }, { x: 10.04, y: 5 }).moving).toBe(false);
+    expect(vehicleMotion({ x: 10, y: 5 }, { x: 10, y: 5 })).toEqual({ windowTicks: 5, tiles: 0, tilesPerTick: 0, speedTilesPerSec: 0, moving: false });
+    expect(vehicleMotion({ x: 10, y: 5 }, { x: 10, y: 5.0625 }).moving).toBe(true); // 2^-4, exact in binary
+  });
+  it('reads the window from the position history: a one-tick glitch (no step on the last tick) still reads moving', () => {
+    // positions at ticks 0..6: the hull creeps 0.06 a tick, but tick 6 repeats tick 5 (a stalled step)
+    const h = [10, 10.06, 10.12, 10.18, 10.24, 10.3, 10.3].map((x) => ({ x, y: 5 }));
+    expect(vehicleMotionAt(h, 6).moving).toBe(true); // 10.3 - 10.06 = 0.24 over ticks 1..6
+    expect(vehicleMotionAt(h, 6).tiles).toBeCloseTo(0.24, 10);
+    expect(vehicleMotionAt(h, 5).tiles).toBeCloseTo(0.3, 10);
+  });
+  it('a stationary hull fails the window however long the history, and a window that does not fit throws', () => {
+    const still = Array.from({ length: 30 }, () => ({ x: 10, y: 5 }));
+    expect(vehicleMotionAt(still, 20).moving).toBe(false);
+    expect(() => vehicleMotionAt(still.slice(0, 4), 3)).toThrow(/no 5-tick window/);
+    expect(() => vehicleMotionAt(still.slice(0, 10), 20)).toThrow(/no 5-tick window/);
+  });
+});
+
+describe('--vehicle: the stepped run draws three 60 Hz frames a tick (the frame dt is controlled, not whatever rAF last saw)', () => {
+  // A renderer whose frame() records the dt it is finally called with; step(1) is one tick and ONE frame at a stale dt.
+  const make = () => {
+    const calls: number[] = [];
+    const proto = { frame(_a: number, dt: number) { calls.push(dt); } };
+    const r = Object.create(proto) as Record<string, unknown>;
+    const sim = { tickCount: 100, state: { posX: [0, 3 * 65536], posY: [0, 5 * 65536] } };
+    const L = {
+      renderer: r,
+      sim,
+      step: (n: number) => {
+        sim.tickCount += n;
+        (r.frame as (a: number, dt: number) => void)(1, 100); // the stale lastFrameMs of a frozen rAF loop
+        return sim.tickCount;
+      },
+    };
+    const run = (script: string): unknown => (new Function('window', `return ${script};`) as (w: unknown) => unknown)({ __lions: L });
+    return { calls, r, run };
+  };
+  it('constants: 60 Hz frames, three a tick', () => {
+    expect(VEHICLE_FRAME_DT_MS).toBeCloseTo(16.6667, 4);
+    expect(VEHICLE_FRAMES_PER_TICK).toBe(3);
+  });
+  it('the wrapper turns any non-zero dt into 16.667 ms and keeps a zero-time repaint at 0', () => {
+    const { calls, r, run } = make();
+    run(VEHICLE_FRAME_WRAP_SCRIPT);
+    (r.frame as (a: number, dt: number) => void)(1, 100);
+    (r.frame as (a: number, dt: number) => void)(1, 0);
+    (r.frame as (a: number, dt: number) => void)(1, 7);
+    expect(calls).toEqual([VEHICLE_FRAME_DT_MS, 0, VEHICLE_FRAME_DT_MS]);
+  });
+  it('one tick is step(1) plus two more frames: three frames of 16.667 ms, the tick, and the hull position', () => {
+    const { calls, run } = make();
+    run(VEHICLE_FRAME_WRAP_SCRIPT);
+    const out = JSON.parse(run(vehicleTickScript(1)) as string);
+    expect(out).toEqual({ x: 3, y: 5, tick: 101 });
+    expect(calls).toEqual([VEHICLE_FRAME_DT_MS, VEHICLE_FRAME_DT_MS, VEHICLE_FRAME_DT_MS]);
+  });
+  it('without the wrapper the first frame keeps the stale dt (what the wrapper exists to fix)', () => {
+    const { calls, run } = make();
+    run(vehicleTickScript(1));
+    expect(calls).toEqual([100, VEHICLE_FRAME_DT_MS, VEHICLE_FRAME_DT_MS]);
+  });
+  it('a second install throws, and the unwrap deletes the own property and reports it gone (false)', () => {
+    const { r, run } = make();
+    run(VEHICLE_FRAME_WRAP_SCRIPT);
+    expect(Object.prototype.hasOwnProperty.call(r, 'frame')).toBe(true);
+    expect(() => run(VEHICLE_FRAME_WRAP_SCRIPT)).toThrow(/already wrapped/);
+    expect(run(VEHICLE_FRAME_UNWRAP_SCRIPT)).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(r, 'frame')).toBe(false);
+  });
+  it('the unwrap reports true when the instance still has its own frame (a wrapper that could not be removed)', () => {
+    const { r, run } = make();
+    Object.defineProperty(r, 'frame', { value: () => undefined, configurable: false });
+    expect(run(VEHICLE_FRAME_UNWRAP_SCRIPT)).toBe(true);
+  });
+  it('the tick script writes no state', () => {
+    expect(vehicleTickScript(3)).not.toMatch(/queueCommand|posX\[[^\]]*\]\s*=[^=]|\.state\s*=/);
   });
 });
 
 describe('--vehicle: names, shots and the emitter', () => {
   it('names a frame <map>-<marker>-z<zoom>-vehicle-t<n>, and the six shots are distinct from the strip frames', () => {
     expect(vehicleName('m', 'causeway_s', 1.6, 20)).toBe('m-causeway_s-z1.6-vehicle-t20');
-    expect(VEHICLE_TICKS).toEqual([20, 40, 60]);
+    expect(VEHICLE_TICKS).toEqual([20, 60, 120]);
     expect(VEHICLE_ZOOMS).toEqual([1.6, 2.5]);
     const c = new NameClaims();
     for (const t of VEHICLE_TICKS) for (const z of VEHICLE_ZOOMS) c.claim(vehicleName('m', 'causeway_s', z, t));
     expect(c.size).toBe(6);
     // the tick strip's own t20 frame of the same view is another file
     expect(() => c.claim(tickName('m-causeway_s-z1.6', 20))).not.toThrow();
-    expect(() => c.claim(vehicleName('m', 'causeway_s', 1.6, 40))).toThrow(/two views are named/);
+    expect(() => c.claim(vehicleName('m', 'causeway_s', 1.6, 60))).toThrow(/two views are named/);
   });
   it('under rain the emitter must be vehicle_mud: anything else throws, naming both; dry maps are not asserted', () => {
     expect(assertVehicleEmitter('rain', 'vehicle_mud')).toBe('vehicle_mud');
@@ -994,8 +1083,10 @@ describe('--vehicle: names, shots and the emitter', () => {
     const l = vehicleLegend();
     expect(l).toMatch(/^legend: --vehicle:/);
     expect(l).toContain('z1.6 and z2.5');
-    expect(l).toContain('20, 40, 60');
+    expect(l).toContain('20, 60, 120');
     expect(l).toContain('moving=');
+    expect(l).toContain('3 frames of 16.7 ms');
+    expect(l).toContain('vehicle_mud sprites are 3-5 px, alpha <= 0.5: small and faint by design');
   });
 });
 

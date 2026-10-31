@@ -62,13 +62,15 @@
  * GH-871 P4 S-L2 ruling 4 adds the one ordered vehicle, for the mud spray:
  *
  *   --vehicle[=<marker>]   after the stops, the sandbox force's first LIVING side-0 vehicle (a unit type
- *       whose resolved `wheeled` is true and that is not air: `rocket_battery` and `dozer_d9` count,
- *       `manpad_team` does not; the ROLE alone is wrong both ways) is ordered by a `move` Command
+ *       whose resolved `wheeled` is true and that is neither air nor soft (the renderer sprays only
+ *       `!isSoft` hulls): `dozer_d9` and the armoured Lavi count, `rocket_battery` (soft) and
+ *       `manpad_team` do not; the ROLE alone is wrong both ways) is ordered by a `move` Command
  *       (`sim.queueCommand`, never a state write) to a road tile at least 10 tiles away (more for a fast
  *       hull), the one nearest the marker (default the map's first `--markers` entry). The sim is then
- *       stepped one tick at a time and the hull photographed, the camera on it, at zoom 1.6 and 2.5
- *       on ticks 20, 40 and 60 after the order, as `<view>-vehicle-t<n>`. Each shot records whether the
- *       hull was MOVING (>= 0.01 tile over the last tick) and its speed, in `cost.json` `<map>.vehicle`,
+ *       stepped one tick at a time (three 16.7 ms frames a tick, as the live loop draws, through a
+ *       temporary `renderer.frame` wrapper) and the hull photographed, the camera on it, at zoom 1.6
+ *       and 2.5 on ticks 20, 60 and 120 after the order, as `<view>-vehicle-t<n>`. Each shot records
+ *       whether the hull was MOVING (>= 0.05 tile over the last 5 ticks) and its speed, in `cost.json` `<map>.vehicle`,
  *       with the emitter the renderer trails (`vehicle_mud` under rain, or the run throws). No
  *       vehicle prints NO VEHICLE and a stationary shot prints NOT MOVING; both exit non-zero.
  *
@@ -133,6 +135,10 @@ import {
   STOP_ZOOM,
   TICK_STRIP_ZOOM,
   VEHICLE_EMITTER_SCRIPT,
+  VEHICLE_FRAMES_PER_TICK,
+  VEHICLE_FRAME_DT_MS,
+  VEHICLE_FRAME_UNWRAP_SCRIPT,
+  VEHICLE_FRAME_WRAP_SCRIPT,
   VEHICLE_TICKS,
   VEHICLE_ZOOMS,
   assertMotion,
@@ -162,9 +168,10 @@ import {
   tickName,
   vehicleLegend,
   vehicleMinDistance,
-  vehicleMotion,
+  vehicleMotionAt,
   vehicleName,
   vehicleRoadTile,
+  vehicleTickScript,
   type FirstVehicle,
   type Pass,
   type Preset,
@@ -710,6 +717,9 @@ interface VehicleShot {
   readonly zoom: number;
   /** Sim ticks after the order. */
   readonly ticks: number;
+  /** The ticks `moving` and `speedTilesPerSec` were read over, and the tiles travelled in them. */
+  readonly windowTicks: number;
+  readonly windowTiles: number;
   readonly tick: number;
   readonly moving: boolean;
   readonly speedTilesPerSec: number;
@@ -733,6 +743,9 @@ interface VehicleRecord {
   readonly targetDistance: number;
   readonly minDistance: number;
   readonly orderTick: number;
+  /** The presentation time of each frame drawn during the run, ms, and the frames drawn per sim tick. */
+  readonly frameDtMs: number;
+  readonly framesPerTick: number;
   /** `renderer.vehicleMoveEmitterName()` as read from the page: `vehicle_mud` under rain. */
   readonly emitter: string;
   readonly weather: 'rain' | 'clear' | null;
@@ -1015,7 +1028,7 @@ async function driveVehicle(
   const emitter = assertVehicleEmitter(weather, await page.evaluate(VEHICLE_EMITTER_SCRIPT));
   const readPos = async (): Promise<{ x: number; y: number; tick: number }> =>
     JSON.parse((await page.evaluate(positionScript(found.id))) as string) as { x: number; y: number; tick: number };
-  let prev = await readPos();
+  const prev = await readPos();
   const from: [number, number] = [Math.floor(prev.x), Math.floor(prev.y)];
   const minDistance = vehicleMinDistance(found.stepPerTick);
   const pick = vehicleRoadTile(rows, from, markerTile, minDistance);
@@ -1025,19 +1038,25 @@ async function driveVehicle(
       (pick.kind === 'far'
         ? `${pick.distance.toFixed(1)} tiles away (>= ${minDistance})`
         : `NEAREST road tile, ${pick.distance.toFixed(1)} tiles away: none was >= ${minDistance} tiles from the vehicle`) +
-      `; emitter ${emitter} (${weather ?? 'no weather'})`
+      `; emitter ${emitter} (${weather ?? 'no weather'}); ${VEHICLE_FRAMES_PER_TICK} frames of ${VEHICLE_FRAME_DT_MS.toFixed(3)} ms per tick`
   );
   const orderTick = prev.tick;
-  await page.evaluate(vehicleOrderScript(found.id, pick.tile));
-  const last = VEHICLE_TICKS[VEHICLE_TICKS.length - 1];
+  const history: { x: number; y: number }[] = [{ x: prev.x, y: prev.y }];
   const shots: VehicleShot[] = [];
   const notMoving: string[] = [];
-  for (let k = 1; k <= last; k++) {
-    await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(1));
-    const cur = await readPos();
-    if (cur.tick !== orderTick + k) throw new Error(`${TAG}: --vehicle: stepped one tick but the sim reads tick ${cur.tick}, expected ${orderTick + k}`);
-    if (VEHICLE_TICKS.includes(k)) {
-      const motion: VehicleMotion = vehicleMotion(prev, cur);
+  // Presentation time for the stepped run (see VEHICLE_FRAME_WRAP_SCRIPT). Installed before the order,
+  // removed in the finally; the zero-time repaints of `shot()` pass through unchanged.
+  await page.evaluate(VEHICLE_FRAME_WRAP_SCRIPT);
+  let failure: unknown = null;
+  try {
+    await page.evaluate(vehicleOrderScript(found.id, pick.tile));
+    const last = VEHICLE_TICKS[VEHICLE_TICKS.length - 1];
+    for (let k = 1; k <= last; k++) {
+      const cur = JSON.parse((await page.evaluate(vehicleTickScript(found.id))) as string) as { x: number; y: number; tick: number };
+      if (cur.tick !== orderTick + k) throw new Error(`${TAG}: --vehicle: stepped one tick but the sim reads tick ${cur.tick}, expected ${orderTick + k}`);
+      history.push({ x: cur.x, y: cur.y });
+      if (!VEHICLE_TICKS.includes(k)) continue;
+      const motion: VehicleMotion = vehicleMotionAt(history, k);
       for (const zoom of VEHICLE_ZOOMS) {
         const view: MapView = { name: vehicleName(mapId, marker, zoom, k), x: cur.x, y: cur.y, zoom, fog: false };
         const stats = await shot(page, outDir, view, { ...ctx, track: found.id });
@@ -1048,6 +1067,8 @@ async function driveVehicle(
           name: view.name,
           zoom,
           ticks: k,
+          windowTicks: motion.windowTicks,
+          windowTiles: Number(motion.tiles.toFixed(4)),
           tick: cur.tick,
           moving: motion.moving,
           speedTilesPerSec: Number(motion.speedTilesPerSec.toFixed(3)),
@@ -1058,16 +1079,22 @@ async function driveVehicle(
         });
         say(frameLine(view.name, stats));
         say(
-          `    ${view.name}: moving=${motion.moving} speed=${motion.speedTilesPerSec.toFixed(2)} tiles/s (${motion.tilesPerTick.toFixed(4)} tile/tick) at (${cur.x.toFixed(2)},${cur.y.toFixed(2)})`
+          `    ${view.name}: moving=${motion.moving} speed=${motion.speedTilesPerSec.toFixed(2)} tiles/s (${motion.tiles.toFixed(3)} tile over ${motion.windowTicks} ticks) at (${cur.x.toFixed(2)},${cur.y.toFixed(2)})`
         );
         if (!motion.moving) {
           notMoving.push(view.name);
-          say(`    ${view.name}: NOT MOVING: ${motion.tilesPerTick.toFixed(4)} tile over the last tick (< 0.01): the frame shows a stationary hull`);
+          say(`    ${view.name}: NOT MOVING: ${motion.tiles.toFixed(3)} tile over the last ${motion.windowTicks} ticks (< 0.05): the frame shows a stationary hull`);
         }
       }
     }
-    prev = cur;
+  } catch (err) {
+    failure = err;
   }
+  // The next frame must be the renderer's own again: a wrapper left behind would colour every later shot.
+  // (Removed whether or not the run failed; the run's own error wins over the wrapper's.)
+  const stillWrapped = (await page.evaluate(VEHICLE_FRAME_UNWRAP_SCRIPT)) as boolean;
+  if (failure !== null) throw failure;
+  if (stillWrapped) throw new Error(`${TAG}: --vehicle: renderer.frame is still an own property after the vehicle run: the wrapper was not removed`);
   return {
     kind: 'ran',
     frames: shots.length,
@@ -1082,6 +1109,8 @@ async function driveVehicle(
       targetDistance: Number(pick.distance.toFixed(2)),
       minDistance,
       orderTick,
+      frameDtMs: Number(VEHICLE_FRAME_DT_MS.toFixed(3)),
+      framesPerTick: VEHICLE_FRAMES_PER_TICK,
       emitter,
       weather,
       shots,
