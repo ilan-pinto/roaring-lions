@@ -1015,3 +1015,158 @@ still draw their P2 stand-ins, and **Ein Qasab stays out of the Free Play list**
 
 Load, measured statically (no browser): a wetland map's five ground JPEGs are 2.02 MiB, was 3.12 MiB with the shared set; the eight new
 GLBs are 36.7 KB Draco.
+
+---
+
+## 14. P4 as built (wet ground and air; GH-871, 30-31 Oct 2026)
+
+This is section 13 of the plan that built it ("append `## 13. P4 as built`"); it is numbered 14 here because P3's "as built" took 13
+while P4 was in flight. Plan: `docs/superpowers/plans/2026-10-30-wetland-p4.md`. Branch `feat/wetland-p4`. The ledger of record is
+`_coord/wetland-p4-progress.md`; every number below is from it, from the commit messages or from `docs/PERFORMANCE.md`
+("Wetland P4: the wet layers"). The code notes are `docs/agent-notes/terrain-rendering.md` ("The wetland theme (GH-871 P4)") and
+`docs/agent-notes/renderer.md` ("The rain and the wet light (GH-871 P4)").
+
+**What shipped.** Under `RendererOptions.weather === 'rain'` and nowhere else: `rainLight` (the overcast sun, fill, haze and a stepped
+shadow map); control C (the marsh water and road-rut puddle masks) and the `THEME_WET` ground program (water surface, rim, ripples, wet
+roughness); the wet sway, mud prints and crater water; the wet unit surface table and the KDF rain lift; `vehicle_mud`; and the falling rain
+(one instanced draw). No sim edit, no GLB, no PNG. Nothing a shipped map draws changed: the 35 terrain digests, the three shipped
+`theme-identity` entries, the determinism hashes (118 tests) and the visual baselines did not move.
+
+### 14.1 The rulings, and how each came out
+
+| Ruling | Outcome |
+|---|---|
+| **R-1** one switch, `opts.weather === 'rain'` | **Stood.** Every wet term keys on it; the theme id never reaches the renderer. |
+| **R-2** `rainLight(lights, preset)` | **Stood**, numbers as planned (sun x0.46 in `overcast.0`, fill x1.5 on every preset, sky and haze `overcast.1`, shadow 0.45, `hazeFar` 0.26, `hazeLow` 0.10, shadow map one step down floored at 1024). Open-ground irradiance 0.964 -> 0.741. A mission's `lightOverride` wins (correct by inspection; no test builds it). Wetland `light` digest moved. |
+| **R-3** four compile-time variants | **Stood**, plus the rain program: the ground (`THEME_WET`), the fog pass (`hazeLow` in its source), the foliage sway (`rl-foliage-sway-wet`) and the decal (`DECAL_WET`). No shipped program source changed (ruling Q7). |
+| **R-4** control C | **Stood for R and the bake; SUPERSEDED for G.** G was the max of three terms (roads 25-35%, open ground 4-8%, low ground +6%). The lead's S-L1 ruling 1 removed the open-ground term and the low-ground boost: **G is the road ruts alone**, `G == 0` off a road. Road rut fill was re-tuned once at S-3 (`PUDDLE_RUT_FILL` 0.75 -> 0.56, road share 0.4005 -> 0.2948 against a 0.25-0.35 band); marsh share 0.3119. The splice got a second margin, `WET_SPLICE_MARGIN_TEXELS` 16. The P2 per-vertex shoreline stays (ruling Q4). |
+| **R-5** two reflectances | **Stood; values chosen at S-L1**: `PUDDLE_REFLECT` 0.35 (road puddles and, by sharing the uniform, the crater water), `MARSH_REFLECT` 0.25; both on the DRAWN scale (the sky term is lit twice by design: effective sky share about reflect x 0.74, 26% weaker than the T3 readability proxy models). The 0.06-tile `mud.3` rim stood. |
+| **R-6** ripples | **Stood** as written (0.5-tile cells, 2 rings, 0.12 tile, 0.9 s, 8 degree cap, +-15%, fresh hash streams). Off on `low`, under reduced motion and with the layer hidden. |
+| **R-7** rain batch geometry | **Stood for the fall, streak, splash, colour, draw and order; SUPERSEDED for the lattice.** (a) The period is no longer snapped to {8, 16, 32, 64}: it is the unclipped footprint box side clamped to [8, 64], continuous, never a function of the pan, with `RAIN_PERIOD_PAD` 1 (R-7's "padded 10%" is already inside the box's reach and slant margins). "A `P` step reshuffles" is gone; a zoom slides the pattern. (b) A static per-instance keep seed and `uKeep` hold the on-screen count steady across zoom at `RAIN_DENSITY_FRACTION` 0.22 of the preset total (S-L2 ruling 2; R-7's "the count is the same at every zoom" was false of its own lattice: 3,365 / 1,726 / 709 / 1,114 at zoom 0.35 / 1 / 1.6 / 2.5). (c) A landing-point map-edge cull with a half-tile fade (not in R-7). `RAIN_RENDER_ORDER` is the alias of `FX_RENDER_ORDER_ABOVE` as planned. |
+| **R-8** preset fields and ladder | **Stood, minus `openPuddles`** (void after S-L1 ruling 1; Q8 moot). Shipped: `high` 6000, `medium` 3500, `low` 525 drops (two ladder steps, 1500 -> 900 -> 525); `RenderQuality.rain` is `{ drops, ripples }`. `RAIN_LADDER` [1, 0.6, 0.35, 0] as planned. |
+| **R-9** reduced motion | **Stood**: asked once a frame, ANDed with the debug flags, the wet ground, light and haze stay. |
+| **R-10** debug layers | **Stood**: `wet`, `marsh`, `ripples`, `rain`. |
+| **R-11** no golden scenario | **Stood**: none lands; CI's `visual` job is the witness. P5 owns `wet` and `wet-downs`. |
+| **R-12** no A/B reaches a player | **Stood**: `debugSetWetTuning` on the concrete class only, grep-tested out of `api.ts`. |
+| **R-13** `vehicle_mud.json` | **Stood as written**; every field existed in the schema (sprite `soft_dot`, `budget_priority` 2 were left open by the plan). Not verified by a frame (14.5). |
+
+Other plan rulings: **Q2** rain fill x1.5 on every preset (stood); **Q3** two reflectances (picked, above); **Q5** the streaks were judged at
+S-L2 (approved); **Q6** three CLAUDE.md lines (written); **Q9** the whole-frame figure is reported, not gated (14.4). Gates: S-3 tripped
+once (road share) and cleared on the second round; S-5 did not trip; **S-C is a real miss on `medium` and probably `low`** (14.4).
+
+### 14.2 The lead's rulings
+
+**S-L1 (30 Oct, the first look).** (1) Road puddles reflectance 0.35, marsh water 0.25, **no puddles on open grass**: the open-ground term
+and the low-ground boost are dropped entirely (each pin its own commit with `Was`). (2) KDF infantry near-black on wet road and water:
+decided after the rain; S-L2 shows infantry on road, in water and on grass with readability figures. (3) Approved: `fen.0` `#7F9F57`,
+`mud.2`, haze 0.26, the `low` known-debt pin; the Tel Marum frame differences are accepted with CI's `quiet` golden as the witness.
+(4) The double-lit sky term is the coordinator's call, and he kept it (dropping it would brighten the approved look).
+
+**S-L2 (31 Oct, the rain).** (1) **The rain is approved**: streak (6000 / 3500 / 900 drops then, 0.42 wu, 1.5 px, alpha 0.28), splash,
+reduced motion and the map edge as they were. (2) Hold the density steady across zoom: about the zoom-1 density (about 1,400 on screen
+at high), within +-20% from zoom 0.35 to 2.5, with a test that fails on the old behaviour. (3) A small lift for KDF infantry under rain on
+wet maps only, presentation only, so they clear the 15.6 floor on the wet road and in marsh water, grass kept readable, shipped themes
+byte-identical. (4) One recapture (allowed once), then T13, the cost re-run on a quieter machine, the review and the PR.
+
+### 14.3 Pins moved (old -> new)
+
+Only the WETLAND `theme-identity` entry moved; the three shipped entries (`program`, `scene`, `light`) and the 35 terrain digests are
+untouched on every commit after Task 1. Task 1 only ADDED the `scene` line (all four entries read `e1e5a131...`: one shared scene).
+
+| Pin | Was -> Now | Commit / task |
+|---|---|---|
+| wetland `scene` | e1e5a131 (added) -> 2c3719c6 | `rainLight`, shadow step, haze (T2) |
+| wetland `light` | a3f30328 -> a62c229f | T2 |
+| wetland `program` | 770e1d73 -> 0ce466f4 | the `THEME_WET` ground (T4) |
+| wetland `scene` | 2c3719c6 -> a14c830a | T4 |
+| wetland `scene` | a14c830a -> a338d507 | wet units, sway, decals, mud (T5) |
+| wetland `scene` | a338d507 -> 9290f13d | the rain batch (T8) |
+| wetland `scene` | 9290f13d -> 545bb7af | the rain stops at the map edge |
+| wetland `scene` | 545bb7af -> a2f892fc -> 312aff90 | continuous period + keep fraction; density 0.2 -> 0.22 and the shader fixes |
+| wetland `scene` | 312aff90 -> 074bc8c9 | the KDF rain lift (final) |
+| `PUDDLE_REFLECT` | 0.25 -> 0.35 (`MARSH_REFLECT` stays 0.25) | T7 (S-L1) |
+| open-ground puddle share | 0.0598 -> 0; low-ground boost removed | T7 (S-L1); the S-3 bands for them are void |
+| `PUDDLE_RUT_FILL` / road share | 0.75 -> 0.56 / 0.4005 -> 0.2948 | T3 round 2 |
+| `QUALITY_PRESETS` | + `rain: { drops, ripples }` (high {6000, true}, medium {3500, true}, low {1500, false}); low drops 1500 -> 900 -> 525 | T8; `Was drops 1500` (4ed3421b1); `Was drops 900` (a00d616b4) |
+| `DEBUG_LAYERS` | + `wet`, `marsh`, `ripples` (T4), `rain` (T8) | |
+| render-order table | + the `RAIN_RENDER_ORDER` row (alias of band 3) | T8 |
+| `vfxEmitters` directory pin | + `vehicle_mud` | T5 |
+| `theme-identity` assertions | "wetland draws arid's program" flipped to the strip property; `shadowMapSize` scoped to the shipped keys (wetland 2048); `hazeLow` read from the fog pass | T1, T2, T4 |
+| reed agreement bound | 30 water-texel reeds of 447 (27 measured, 6.0%) -> 72 of 897 (56 measured, 6.2%; bound 8%), dry 3x3 neighbour relaxed to <= 2 reeds | P3 merge (three clumps a tile) |
+
+Unmoved: the sim hashes (118 determinism tests), `pnpm balance`, `playtest`, `LADDER_CREDITS`, `shippedContentDigest()`, the Free Play picker, the
+visual baselines (CI is the witness; no shipped map rains).
+
+### 14.4 The cost, and the S-C miss
+
+Instrument: `pnpm perf:fx -- --breakdown --maps=ein_qasab,wadi_halam_basin` (`NET (total wet)` = (baseline - the frame with the wet ground
+program stripped) - the shadow saving; budgets high <= 1.0, medium <= 0.7, low <= 0.4 ms). Apple M3 Pro, ANGLE Metal, 1440x900 at DPR 2,
+12 rounds x 20 frames, median, port 5211, music off. Full tables: `docs/PERFORMANCE.md`.
+
+| Run | Load (1 min) | high z1 / z1.6 / z2.5 | medium | low |
+|---|---|---|---|---|
+| First (P3 art), loaded | 18-77, never under 4 | 0.60 / 0.50 / 0.20 (within) | 0.00 / 0.60 / 0.20 (within) | 1500 drops: 0.40 / -0.20 / 0.70 OVER; re-run 0.10 / 0.30 / 0.90 OVER; 900 drops: 0.40 / 0.20 / 0.20 |
+| **Final tip, quiet** | **about 3-5** (`uptime` 4.57 -> 3.15) | **0.20 / 0.50 / 0.20 (within 1.0)** | **0.50 / 0.90 OVER / 1.00 OVER (0.7)** | **900 drops: 0.50 OVER / 0.50 OVER / 0.40 at budget (0.4)** |
+
+**This is a MISS on `medium`, and probably on `low`.** The first run's `medium` verdict (inside budget) did not reproduce when the machine was
+quiet: the standing wet program grew to -0.7 / -1.0 ms and the medium shadow-step saving disappeared (-0.20 / 0.00). The dominant cost is
+**the wet ground program**, not the rain: the rain batch is 0.4-0.5 ms at `high` and its row on `medium` (-0.4 / -0.6 ms) could not close a
+0.2-0.3 ms gap by a ladder step, so none was taken on `medium`. `low` took the second step (900 -> 525) on the quiet reading and it was
+**not re-measured** (the re-run budget was spent); the rain row recovers at most about 0.1-0.2 ms, so `low` z1 and z1.6 may still read about
+0.1 ms over. Whole frame (`ein_qasab` minus the basin, crude: different places on different maps): high -0.9 / +0.7 / +0.9, medium -0.8 /
++0.8 / +1.4, low -0.8 / +0.8 / +1.1 ms. Draw calls: +1 on a wet map (exactly -1 when the rain hides), 0 elsewhere. rAF cadence 16.70 ms,
+vsync-bound, 0% over 20 ms; `--burn=2` reads 50.0 ms as it must. Bloom census (`ein_qasab`, medium and high): quiet-frame max 0.318 /
+0.333 / 0.263 against the 0.9 ceiling (the command's separate `aftermath` block exits 1 on pooled muzzle lights: not the wet map).
+**Not measured:** the program count (+1 rain, +4 permutations expected), the texture count (+2 expected), the height-bake time under the tool
+(`rain-height-bake.test.ts` pins it under 5 ms: 2.2-2.9 ms), tick time (no sim edit), any other GPU, a live fight on the wet map.
+
+### 14.5 The looks: conditions and verdicts
+
+All captures: ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro), 1400x900 DPR 1, preset `high` unless named, day under `rainLight`, music off,
+port 5196, the machine loaded by other sessions during the first two. Sheets live outside the repo under `_coord/wet-theme/p4/`.
+
+**S-L1 (`look1`, run #1; load 34.6 / 72.3 / 81.0).** Frames at tick 0 (Tel Marum tick 1; wade frames tick 400). The wet ground and decal GLSL
+compiled on a real GPU with no error. `wadi_halam_basin` 6 of 6 frames pixel-identical to P2b; `tel_marum` differed on tree crowns and
+vehicle dust only (a different tick and main moved in between; accepted by the lead, CI's `quiet` golden the witness). On the drawn scale road
+puddles read 1.04x / 1.27x / 1.77x over the road and marsh water 1.57x / 1.88x / 2.57x over the marsh floor at reflectance 0.20 / 0.25 / 0.35;
+open-ground puddles read darker than grass (gone by ruling). KDF vs the wading squad: dE2000 12.5 on road, 12.9 on water, below the 15.6 floor.
+Unconfirmed: tan 25 px discs trailing the squad look like the game's own move-order markers. **Verdict: rulings S-L1 (1)-(4) above.**
+
+**S-L2 (`look2`, run #3; load 29.95 / 73.97 / 59.81 at start).** Every preset, a six-tick strip, a reduced-motion frame, a 5 s clip (choppy under
+load; dark outside vision, so not a brightness judge). Density at high on screen: causeway z1 1,417, z1.6 645, z2.5 1,200 (map centre 3,365 at
+z0.35, 1,707 at z1, 1,134 at z2.5). Streaks cover 3.0 / 2.3 / 6.8% of the frame at z1 / 1.6 / 2.5; the splash is a thin pale ring (about 5 px at z1.6);
+`low` at z1.6 is a faint drizzle; no rim or hard cut at the map edge, and rain over the black void at `kdf_start` z2.5 (about 1.9% of void pixels,
+the landing-point overhang). Readability dE2000 at z2.5 under rain (floor 15.6): road 8.2 / 9.0, water 4.0 / 6.4, grass 30.7 / 31.1.
+**Verdict: the rain is approved; density, the infantry lift and one recapture ordered** (14.2).
+
+**The recapture (`look3`, run #4, tip d4be46098; load 3.4-4.6).** Stops all ARRIVED on the wanted glyph (road tick 420, water 485, grass 630).
+The S-L2 helper cannot score a lifted figure (it discards pixels brighter than 1.5x the ground as streaks), so a figure-mask measure was added
+(cool pixels brighter than 1.3x the ground, components of at least 40 px). Readability A / B: **road 25.7 / 21.5, water 21.4 / 13.6, grass
+24.6 / 23.0** (S-L2 8.2 / 9.0, 4.0 / 6.4, 30.7 / 31.1; model 24.0 / 23.4, 28.9 / 26.9, 23.1 / 23.1). Road and grass clear 15.6 on both; water
+clears on the mean and **misses on the darkest 15%** (13.6; the squad is still in reeds, reed-cut edge pixels pull it down). Density at high
+(band 1,120-1,680): causeway z0.35 1,356, z1 1,093 (27 under: a marker view with void on the south edge), z1.6 1,249, z2.5 1,263; the
+`kdf_start` and `hamlet` markers sit under the band by geometry (much void). Thin-streak pixel share on causeway grows 0.83% -> 6.13% from
+z0.35 to z2.5 because streaks are screen-pixel width (taste). No lattice rows, bands or cuts at the map edge.
+
+### 14.6 Open items (for the lead)
+
+1. **The cost miss (S-C).** `medium` is over (0.90 / 1.00 vs 0.7) and `low` at or just over (0.50 / 0.50 / 0.40 vs 0.4) at a quiet load. The
+   dominant cost is the wet ground program. Options: (a) **accept** the miss on `medium`/`low`; (b) a cheaper wet ground program for `medium`/`low` (a THEME_WET variant dropping the rim derivative maths and
+   the roughness and normal blocks: a code change plus a measured re-run, and a new permutation); (c) cut the wet layer on `medium`/`low`.
+   No more ladder steps will close it; the ledger records the options, not a choice. The PR body puts this first.
+2. **The KDF lift looks wrong though it passes the numbers.** At `RAIN_KDF_FIGURE_LIFT` 0.4 the figures are flat, pale, cool grey-blue ghosts,
+   brighter than the road and the grass (luminance ground/figure road 0.14, grass 0.59); camouflage, face, helmet detail and team colour are
+   gone; internal contrast p95/p5 is 2.2:1 on road and 1.8:1 on grass against 17:1 / 68:1 at S-L2. Silhouette and rifle read, and the water squad
+   is findable among the reeds, but "they do not look like soldiers in rain". The wash is intrinsic to a constant add and cannot be fixed by gain
+   alone. **Option: `RAIN_KDF_FIGURE_LIFT` 0.3** (model: road 18.3 / 17.8, water 23.3 / 21.2, grass 22.1 / 22.2; NOT captured, and no recapture
+   is left); do not go to 0.5 or 0.8. A one-constant change plus the lead's call on a second capture.
+3. **The mud spray was NOT SEEN.** The Lavi moved at all six shots (emitter `vehicle_mud`) but drove over grass (the road target was 19.3 tiles
+   away and it covered 6.6 in 120 ticks); at 4-5x no dark puffs behind it. Whether the spray is below visibility (3-5 px, alpha <= 0.5) or does
+   not fire on grass cannot be told from stills; road spray is untested. Unverified by frame; a capture with a hull on a road would settle it.
+4. **The reed agreement is the point contract, not strict** (`marshWaterAt` at a reed's point is under 0.5 at every reed; the control-C texel
+   under it reads water at 56 of 897 reeds, 6.2%, bound 8%). A strict version needs a placer change, which moves P2's and P3's reed sets.
+5. Smaller: the sky term is lit twice (reflect x 0.74 effective; an honest-model refactor needs a recapture); an orange glow at a
+   helicopter rotor head in one vehicle frame (unrelated to rain, not investigated); streak weight grows with zoom (taste); a zoom now slides
+   the drop pattern (never seen in a browser); `low` density has 12-30 drops per screen of per-focus noise; the rain's overhang over the void;
+   road puddles are hard-edged rectangles (taste). The deferred minors of every task are in the ledger (GLSL terms covered by string-contains
+   tests only, the tool's at-budget OVER print, the shared cost-tool block copied three times, `ugv_recon_dog` lifted with the infantry).
