@@ -2981,3 +2981,51 @@ numbers above do not depend on it.
 Not measured: a quiet machine (load never under 18), any other GPU, a live fight on the wet map, tick time, the
 program and texture counts, the decor triangle count on its own. Raw output: `_coord/wet-theme/p4/cost/` (run1,
 run2-low, run3-low900, run4-burn2, bloom-census).
+
+### Final tip re-run (b7f872f5e)
+
+The one remaining cost re-run, at the final tip of the branch (`b7f872f5e`: includes the rain keep-fraction density
+change and the KDF rain lift that postdate the tables above), on a **quiet machine**. Same instrument and conditions as
+the tables above (Apple M3 Pro, `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)`, headless
+Chromium, 1440x900 CSS at DPR 2, 12 interleaved rounds x 20 readPixels-synced frames, median, port 5211, music off,
+29 entities, `low` at 900 drops as it shipped before this step). Load average (1 min): `uptime` 4.57 before and 3.15
+after; the tool's lines: high 4.7 -> 5.2, medium 5.2 -> 3.4, low 3.4 -> 3.1 (cadence reads 2.6-4.9). Every load
+reading is under 8. All three presets booted with `rainMap, wetGround, rainBatch, wetDefine` true on `ein_qasab` and
+false on the basin; no WARN line; the rain toggle changed the draw-call count by exactly -1 on every wet view; the rAF
+cadence read 16.70 ms median, 16.7-16.8 p95, 0.0% over 20 ms on every view of every preset. The per-round spread of a
+single row is about 0.5 ms here (it was about 1 ms under the earlier load), so these are the cleaner reads.
+
+| preset | view | gross | shadow saving | **NET (total wet)** | budget | verdict | NET (layers) |
+|---|---|---|---|---|---|---|---|
+| high | z1 | 0.60 | 0.40 | **0.20** | 1.0 | within | 0.10 |
+| high | z1.6 | 0.80 | 0.30 | **0.50** | 1.0 | within | 0.40 |
+| high | z2.5 | 0.60 | 0.40 | **0.20** | 1.0 | within | 0.20 |
+| medium | z1 | 0.60 | 0.10 | **0.50** | 0.7 | within | 0.10 |
+| medium | z1.6 | 0.70 | -0.20 | **0.90** | 0.7 | **OVER** | 0.70 |
+| medium | z2.5 | 1.00 | 0.00 | **1.00** | 0.7 | **OVER** | 0.60 |
+| low, 900 drops | z1 | 0.50 | none (1024 -> 1024) | **0.50** | 0.4 | **OVER** | 0.10 |
+| low, 900 drops | z1.6 | 0.50 | none | **0.50** | 0.4 | **OVER** | 0.40 |
+| low, 900 drops | z2.5 | 0.40 | none | **0.40** | 0.4 | at budget (the tool prints OVER on float residue) | 0.10 |
+
+`low` read over its +0.4 ms budget at two of three views on a quiet machine, so the second ladder step was taken in
+the commit after this run: **`low` drops 900 -> 525** (`render: low rain drops 900 -> 525, second ladder step`, which
+carries `Was drops 900`). It was **not re-measured** (the re-run budget is spent). The rain layer alone reads -0.3 /
+-0.4 / -0.2 ms on `low` and the standing wet program -0.5 / -0.5 / -0.4, so the step can recover at most the rain
+row's share, and `low` may still read about 0.1 ms over at zoom 1 and 1.6. **`medium` is over its +0.7 ms budget at
+zoom 1.6 (0.90) and 2.5 (1.00)**, which the earlier loaded run had read as 0.60 and 0.20; no step was taken for it
+(outside the re-run's decision rule), and it is reported for the controller. `medium` zoom 1.6 also shows a negative
+shadow saving (-0.20: the stepped 1024 map read slower than the full 2048 one), which is inside the noise.
+
+**One at a time** (`config - baseline`, ms; z1 / z1.6 / z2.5).
+
+| preset | rain | wet | marsh | ripples | wet-all | wet-program | shadow-full |
+|---|---|---|---|---|---|---|---|
+| high | -0.20 / -0.60 / -0.40 | -0.20 / -0.10 / 0.30 | -0.20 / -0.20 / 0.10 | -0.20 / -0.30 / 0.00 | -0.50 / -0.70 / -0.60 | -0.60 / -0.80 / -0.60 | 0.40 / 0.30 / 0.40 |
+| medium | -0.20 / -0.40 / -0.60 | -0.20 / -0.20 / -0.30 | -0.10 / -0.10 / -0.30 | -0.10 / -0.20 / -0.20 | -0.20 / -0.50 / -0.60 | -0.60 / -0.70 / -1.00 | 0.10 / -0.20 / 0.00 |
+| low, 900 | -0.30 / -0.40 / -0.20 | -0.30 / -0.40 / -0.10 | -0.20 / -0.30 / -0.10 | n/a (ripples off) | -0.10 / -0.40 / -0.10 | -0.50 / -0.50 / -0.40 | n/a (no shadow step) |
+
+Whole frame, `ein_qasab` against `wadi_halam_basin` (baseline medians, ms, ein vs basin): high 17.80 vs 18.70 (-0.90) /
+16.50 vs 15.80 (+0.70) / 15.40 vs 14.50 (+0.90); medium 14.20 vs 15.00 (-0.80) / 13.30 vs 12.50 (+0.80) / 12.60 vs
+11.20 (+1.40); low 11.80 vs 12.60 (-0.80) / 10.80 vs 10.00 (+0.80) / 9.70 vs 8.60 (+1.10). Raw output:
+`_coord/wet-theme/p4/cost/run4-final.txt` (with `uptime-run4-before.txt`, `uptime-run4-after.txt`). The earlier tables
+above are kept; their loaded readings of `medium` (inside budget) did not reproduce on the quiet machine.
