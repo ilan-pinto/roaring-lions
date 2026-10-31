@@ -37,7 +37,7 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { rampMaterial, texturedMaterial } from '../world-materials';
-import { SURFACE_PARAMS, figureLiftFor, surfaceMaterialFor, type SurfaceTable } from './unit-surface';
+import { SURFACE_PARAMS, figureRimFor, surfaceMaterialFor, type SurfaceTable } from './unit-surface';
 import { isMeshRole, rampForRole, type MeshFaction } from './mesh-role';
 import {
   isMeshClipName,
@@ -187,7 +187,7 @@ export function buildMeshUnitTemplate(
       const base = texturedMaterial(loaded as THREE.Material);
       if (!materials.includes(base)) materials.push(base);
       // GH-705 Task 6: the role's own surface clone (unit-surface.ts).
-      const textured = surfaceMaterialFor(base, role, undefined, surfaces, figureLiftFor(surfaces, faction));
+      const textured = surfaceMaterialFor(base, role, undefined, surfaces, figureRimFor(surfaces, faction));
       mesh.material = textured;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -205,7 +205,7 @@ export function buildMeshUnitTemplate(
       role,
       undefined,
       surfaces,
-      figureLiftFor(surfaces, faction)
+      figureRimFor(surfaces, faction)
     );
     mesh.material = mat;
     mesh.castShadow = true;

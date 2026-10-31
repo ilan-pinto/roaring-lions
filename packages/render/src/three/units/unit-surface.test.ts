@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
+import { rainRimNow, setRainRimGain } from './rain-rim';
 import {
-  figureLiftFor,
+  figureRimFor,
   MR_MAP_ROUGHNESS_MEAN,
+  rainRimCloneCount,
   setUnitSurfacePass,
   SURFACE_PARAMS,
   surfaceClassOf,
@@ -111,7 +113,7 @@ describe('surfaceMaterialFor', () => {
 
 describe('the wet surface table (GH-871 P4 T5)', () => {
   // Oracles are LITERALS: the brief's numbers, not read back from the table.
-  it('carries the four wet roughnesses, and every other class and every metalness as shipped, plus the rain lift gain', () => {
+  it('carries the four wet roughnesses, and every other class and every metalness as shipped, plus the rain rim switch (no gain)', () => {
     expect(WET_SURFACE_PARAMS).toEqual({
       cloth: { roughness: 0.8, metalness: 0 },
       leather: { roughness: 0.7, metalness: 0 },
@@ -123,13 +125,13 @@ describe('the wet surface table (GH-871 P4 T5)', () => {
       plate: { roughness: 0.48, metalness: 0.1 },
       rubber: { roughness: 0.96, metalness: 0 },
       glass: { roughness: 0.2, metalness: 0 },
-      kdfFigureLift: 0.4,
+      kdfRim: true,
     });
   });
 
   it('keeps the 0.45 metalness cap (no environment map)', () => {
-    const { kdfFigureLift, ...classes } = WET_SURFACE_PARAMS;
-    expect(kdfFigureLift).toBe(0.4);
+    const { kdfRim, ...classes } = WET_SURFACE_PARAMS;
+    expect(kdfRim).toBe(true);
     expect(Object.keys(classes)).toHaveLength(10);
     for (const p of Object.values(classes)) expect(p.metalness).toBeLessThanOrEqual(0.45);
   });
@@ -171,74 +173,103 @@ describe('the wet surface table (GH-871 P4 T5)', () => {
   });
 });
 
-describe('the rain lift (GH-871 P4 S-L2 ruling 3)', () => {
-  // Oracles are LITERALS: overcast.1 is #9FA9B5, linear (0.34670, 0.39676, 0.46207); x 0.4 below.
-  const LIFT = [0.13868, 0.1587, 0.18483] as const;
+describe('the rain rim (GH-871 P4 PR 914)', () => {
   const emissive = (m: THREE.Material): number[] => (m as THREE.MeshStandardMaterial).emissive.toArray();
+  const hasOwnHook = (m: THREE.Material): boolean => Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile');
+  const rimOf = (base: THREE.Material, role = 'uniform'): THREE.Material =>
+    surfaceMaterialFor(base, role, undefined, WET_SURFACE_PARAMS, true);
 
-  it('the shipped table has no lift, and only a KDF figure asks for the wet one', () => {
-    expect('kdfFigureLift' in SURFACE_PARAMS).toBe(false);
-    expect(figureLiftFor(SURFACE_PARAMS, 'kdf')).toBe(0);
-    expect(figureLiftFor(WET_SURFACE_PARAMS, 'kdf')).toBe(0.4);
-    expect(figureLiftFor(WET_SURFACE_PARAMS, 'enemy')).toBe(0);
-    expect(figureLiftFor(WET_SURFACE_PARAMS, 'civilian')).toBe(0);
+  it('the shipped table has no rim switch, and only a KDF figure asks for the wet one', () => {
+    expect('kdfRim' in SURFACE_PARAMS).toBe(false);
+    expect(figureRimFor(SURFACE_PARAMS, 'kdf')).toBe(false);
+    expect(figureRimFor(WET_SURFACE_PARAMS, 'kdf')).toBe(true);
+    expect(figureRimFor(WET_SURFACE_PARAMS, 'enemy')).toBe(false);
+    expect(figureRimFor(WET_SURFACE_PARAMS, 'civilian')).toBe(false);
   });
 
-  it('a lifted clone carries emissive = overcast.1 x 0.4 on top of the base`s own emissive, and the base is untouched', () => {
+  it('a rim clone is a compile-time variant: a hook, its own program key, the mark, and NO emissive (no flat lift)', () => {
     const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0, emissive: new THREE.Color(0.01, 0.02, 0.03) });
-    const m = surfaceMaterialFor(base, 'uniform', undefined, WET_SURFACE_PARAMS, 0.4);
-    const e = emissive(m);
-    expect(e[0]).toBeCloseTo(0.01 + LIFT[0], 4);
-    expect(e[1]).toBeCloseTo(0.02 + LIFT[1], 4);
-    expect(e[2]).toBeCloseTo(0.03 + LIFT[2], 4);
+    const m = rimOf(base) as THREE.MeshStandardMaterial;
+    expect(hasOwnHook(m)).toBe(true);
+    expect(m.customProgramCacheKey().endsWith('|rl-unit-rain-rim')).toBe(true);
+    expect(m.userData).toEqual({ rlRainRim: true });
+    // The base`s own emissive and nothing added: camouflage, faces and team colour stay as in look 2.
+    expect(emissive(m)).toEqual(emissive(base));
     expect(emissive(base)).toEqual([expect.closeTo(0.01, 6), expect.closeTo(0.02, 6), expect.closeTo(0.03, 6)]);
+    expect(m.roughness).toBe(0.8);
   });
 
-  it('a clone made with no lift leaves emissive exactly as the base had it (nothing written)', () => {
+  it('a clone made without the rim is exactly today`s: no hook, the default program key, no mark', () => {
     const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+    const defaultKey = base.clone().customProgramCacheKey();
     for (const table of [SURFACE_PARAMS, WET_SURFACE_PARAMS]) {
       const m = surfaceMaterialFor(base, 'uniform', undefined, table);
+      expect(hasOwnHook(m)).toBe(false);
+      expect(m.customProgramCacheKey()).toBe(defaultKey);
+      expect(m.userData).toEqual({});
       expect(emissive(m)).toEqual([0, 0, 0]);
     }
   });
 
-  it('the cache key includes the lift: one base, lifted / unlifted / dry in either order, no cross-contamination', () => {
-    const lifted = [0.13868, 0.1587, 0.18483];
-    for (const order of [['wet', 'dry', 'wetLifted'], ['wetLifted', 'dry', 'wet'], ['dry', 'wetLifted', 'wet']] as const) {
+  it('the cache key includes the rim: one base, rim / plain wet / dry in any order, no cross-contamination', () => {
+    for (const order of [['wet', 'dry', 'rim'], ['rim', 'dry', 'wet'], ['dry', 'rim', 'wet']] as const) {
       const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
       const got: Record<string, THREE.Material> = {};
       for (const k of order) {
         got[k] =
           k === 'dry'
             ? surfaceMaterialFor(base, 'uniform')
-            : surfaceMaterialFor(base, 'uniform', undefined, WET_SURFACE_PARAMS, k === 'wetLifted' ? 0.4 : 0);
+            : surfaceMaterialFor(base, 'uniform', undefined, WET_SURFACE_PARAMS, k === 'rim');
       }
       expect(new Set(Object.values(got)).size, order.join('>')).toBe(3);
-      expect(emissive(got.dry)).toEqual([0, 0, 0]);
-      expect(emissive(got.wet)).toEqual([0, 0, 0]);
-      for (let i = 0; i < 3; i++) expect(emissive(got.wetLifted)[i]).toBeCloseTo(lifted[i], 4);
+      expect(hasOwnHook(got.rim)).toBe(true);
+      expect(hasOwnHook(got.wet)).toBe(false);
+      expect(hasOwnHook(got.dry)).toBe(false);
       expect((got.dry as THREE.MeshStandardMaterial).roughness).toBe(0.92);
       expect((got.wet as THREE.MeshStandardMaterial).roughness).toBe(0.8);
-      expect((got.wetLifted as THREE.MeshStandardMaterial).roughness).toBe(0.8);
+      expect((got.rim as THREE.MeshStandardMaterial).roughness).toBe(0.8);
       // A second request for each returns the memo.
-      expect(surfaceMaterialFor(base, 'keffiyeh', undefined, WET_SURFACE_PARAMS, 0.4)).toBe(got.wetLifted);
-      expect(surfaceMaterialFor(base, 'keffiyeh', undefined, WET_SURFACE_PARAMS, 0)).toBe(got.wet);
+      expect(surfaceMaterialFor(base, 'keffiyeh', undefined, WET_SURFACE_PARAMS, true)).toBe(got.rim);
+      expect(surfaceMaterialFor(base, 'keffiyeh', undefined, WET_SURFACE_PARAMS, false)).toBe(got.wet);
     }
   });
 
-  it('the unit-surface debug toggle takes the lift off and puts it back', () => {
+  it('counts the live rim clones (the capture knob`s "built")', () => {
+    const before = rainRimCloneCount();
     const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
-    const m = surfaceMaterialFor(base, 'boot', undefined, WET_SURFACE_PARAMS, 0.4);
-    const plain = surfaceMaterialFor(base, 'boot');
+    surfaceMaterialFor(base, 'uniform', undefined, WET_SURFACE_PARAMS, false);
+    expect(rainRimCloneCount()).toBe(before);
+    const m = rimOf(base);
+    expect(rainRimCloneCount()).toBe(before + 1);
+    m.dispose();
+    expect(rainRimCloneCount()).toBe(before);
+  });
+
+  it('the unit-surface debug toggle takes the rim off (gain 0) and puts it back, idempotent both ways, stashing the gain', () => {
+    const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+    const m = rimOf(base, 'boot') as THREE.MeshStandardMaterial;
     try {
+      setRainRimGain(0.9);
+      expect(rainRimNow().gain).toBe(0.9);
       setUnitSurfacePass(false);
-      expect(emissive(m)).toEqual([0, 0, 0]);
-      expect((m as THREE.MeshStandardMaterial).roughness).toBe(0.85);
+      expect(rainRimNow().gain).toBe(0);
+      expect(m.roughness).toBe(0.85);
+      // Off twice must not overwrite the stash with 0.
+      setUnitSurfacePass(false);
+      expect(rainRimNow().gain).toBe(0);
       setUnitSurfacePass(true);
-      expect(emissive(m)[2]).toBeCloseTo(LIFT[2], 4);
-      expect(emissive(plain)).toEqual([0, 0, 0]);
+      expect(rainRimNow().gain).toBe(0.9);
+      setUnitSurfacePass(true);
+      expect(rainRimNow().gain).toBe(0.9);
+      // The knob moves while the layer is off: it takes effect when the layer is back on.
+      setUnitSurfacePass(false);
+      setRainRimGain(0.25);
+      expect(rainRimNow().gain).toBe(0);
+      setUnitSurfacePass(true);
+      expect(rainRimNow().gain).toBe(0.25);
     } finally {
       setUnitSurfacePass(true);
+      setRainRimGain(0.4);
     }
   });
 });

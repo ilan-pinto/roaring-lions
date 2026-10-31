@@ -170,7 +170,7 @@ describe('both mesh loaders get the renderer`s own surface table', () => {
   });
 });
 
-describe('the rain lift reaches a KDF figure built with the renderer`s own table (GH-871 P4 S-L2 ruling 3)', () => {
+describe('the rain rim reaches a KDF figure built with the renderer`s own table (GH-871 P4 PR 914)', () => {
   /** A `GLTFLoader`-shaped KDF scene: a uniform, a boot and a weapon, each in a known blue. */
   function figure(): { scene: THREE.Group; animations: THREE.AnimationClip[] } {
     const scene = new THREE.Group();
@@ -185,19 +185,57 @@ describe('the rain lift reaches a KDF figure built with the renderer`s own table
   it.each(CASES)('weather %s', (_name, extra, wet) => {
     const { r } = setUp(extra);
     const table = priv(r).surfaceTable as SurfaceTable;
-    expect(table.kdfFigureLift).toBe(wet ? 0.4 : undefined);
+    expect(table.kdfRim).toBe(wet ? true : undefined);
     const t = buildMeshUnitTemplate(figure(), 'kdf', 'x.glb', false, undefined, undefined, table);
     expect(t.materials).toHaveLength(3);
     for (const m of t.materials) {
-      const e = (m as THREE.MeshStandardMaterial).emissive.toArray();
-      // overcast.1 #9FA9B5, linear, x 0.4 under rain; black otherwise (literals).
-      if (wet) {
-        expect(e[0]).toBeCloseTo(0.13868, 4);
-        expect(e[1]).toBeCloseTo(0.1587, 4);
-        expect(e[2]).toBeCloseTo(0.18483, 4);
-      } else {
-        expect(e).toEqual([0, 0, 0]);
+      // The rim hook only under rain; never an emissive (the flat lift is gone).
+      expect(Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile')).toBe(wet);
+      expect((m as THREE.MeshStandardMaterial).emissive.toArray()).toEqual([0, 0, 0]);
+    }
+    for (const m of t.materials) m.dispose();
+    r.dispose();
+  });
+
+  it('debugRainRim reads back the shipped default, the power and whether a rim material exists', () => {
+    const { r } = setUp(RAIN);
+    expect(r.debugRainRim()).toEqual({ gain: 0.4, power: 3, built: false });
+    const t = buildMeshUnitTemplate(figure(), 'kdf', 'x.glb', false, undefined, undefined, priv(r).surfaceTable as SurfaceTable);
+    expect(r.debugRainRim()).toEqual({ gain: 0.4, power: 3, built: true });
+    for (const m of t.materials) m.dispose();
+    expect(r.debugRainRim().built).toBe(false);
+    r.dispose();
+  });
+
+  it('a renderer that does not rain never reports a rim, even beside a wet one`s live materials', () => {
+    const wet = setUp(RAIN).r;
+    const t = buildMeshUnitTemplate(figure(), 'kdf', 'x.glb', false, undefined, undefined, priv(wet).surfaceTable as SurfaceTable);
+    for (const extra of [{}, { weather: 'clear' as const }]) {
+      const dry = setUp(extra).r;
+      expect(dry.debugRainRim().built).toBe(false);
+      dry.dispose();
+    }
+    expect(wet.debugRainRim().built).toBe(true);
+    for (const m of t.materials) m.dispose();
+    wet.dispose();
+  });
+
+  it('debugSetRainRim writes the shared gain and reads it back; a non-finite or negative gain throws', () => {
+    const { r } = setUp(RAIN);
+    try {
+      const t = buildMeshUnitTemplate(figure(), 'kdf', 'x.glb', false, undefined, undefined, priv(r).surfaceTable as SurfaceTable);
+      r.debugSetRainRim(0.75);
+      expect(r.debugRainRim().gain).toBe(0.75);
+      r.debugSetRainRim(0);
+      expect(r.debugRainRim().gain).toBe(0);
+      for (const bad of [NaN, Infinity, -Infinity, -0.1]) {
+        expect(() => r.debugSetRainRim(bad), String(bad)).toThrow(/gain must be a finite number >= 0/);
       }
+      // A rejected write moves nothing.
+      expect(r.debugRainRim().gain).toBe(0);
+      for (const m of t.materials) m.dispose();
+    } finally {
+      r.debugSetRainRim(0.4);
     }
     r.dispose();
   });

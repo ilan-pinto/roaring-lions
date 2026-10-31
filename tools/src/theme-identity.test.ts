@@ -29,7 +29,8 @@
  *    uniforms, so a map without trees is not a vacuous read); the decal
  *    pool's fragment source, defines and its eight resolved linear colours in
  *    `DECAL_PALETTE_ORDER`; `surfaceMaterialFor`'s roughness and metalness per
- *    `SurfaceClass`; the sun's `shadow.intensity`; the ground material's
+ *    `SurfaceClass`, plus (a rain renderer's KDF figure only) the rain rim's compiled
+ *    fragment source and cache key (GH-871 P4 PR 914); the sun's `shadow.intensity`; the ground material's
  *    sorted uniform names and defines; a census of the scene graph (the count
  *    of `Object3D`s by `type` and the sorted `renderOrder`s of visible
  *    meshes); and the name of the emitter `updateVehicleAmbientFx` chooses
@@ -64,7 +65,7 @@ import { FogOfWarPass } from '../../packages/render/src/three/fog-pass';
 import type { GroundMaterial } from '../../packages/render/src/three/terrain/mesh';
 import type { SceneLights } from '../../packages/render/src/three/lighting';
 import { swayingFoliageMaterial, type SwayUniforms } from '../../packages/render/src/three/terrain/decor-mesh';
-import { figureLiftFor, surfaceMaterialFor, type SurfaceClass, type SurfaceTable } from '../../packages/render/src/three/units/unit-surface';
+import { figureRimFor, surfaceMaterialFor, type SurfaceClass, type SurfaceTable } from '../../packages/render/src/three/units/unit-surface';
 import type { ShroudTexture } from '../../packages/render/src/three/shroud-texture';
 import { rendererOptionsFor } from '../../packages/app/src/renderer-options';
 
@@ -214,10 +215,10 @@ function sceneFieldsOf(priv: Private): Record<string, unknown> {
   const built = swayingFoliageMaterial(['#808080'], priv.sway, priv.opts.weather === 'rain');
   const builtCompiled = compileOf(built);
 
-  // Built the way `mesh-unit.ts` builds a KDF figure (`figureLiftFor`), so the rain lift's emissive
-  // (GH-871 P4 S-L2) is read. It is appended ONLY when non-zero: a shipped renderer's entry stays
-  // `[roughness, metalness]` and its digest byte-identical.
-  const surfaces: Record<string, number[]> = {};
+  // Built the way `mesh-unit.ts` builds a KDF figure (`figureRimFor`), so the rain rim's program
+  // (GH-871 P4 PR 914) is read. Its compiled fragment source and cache key are appended ONLY for a
+  // rim material: a shipped renderer's entry stays `[roughness, metalness]` and its digest byte-identical.
+  const surfaces: Record<string, (number | string)[]> = {};
   for (const cls of Object.keys(SURFACE_ROLES) as SurfaceClass[]) {
     const base = new THREE.MeshStandardMaterial();
     const m = surfaceMaterialFor(
@@ -225,10 +226,14 @@ function sceneFieldsOf(priv: Private): Record<string, unknown> {
       SURFACE_ROLES[cls],
       undefined,
       priv.surfaceTable,
-      figureLiftFor(priv.surfaceTable as SurfaceTable, 'kdf')
+      figureRimFor(priv.surfaceTable as SurfaceTable, 'kdf')
     ) as ThreeTypes.MeshStandardMaterial;
-    const lit = m.emissive.getHex() !== 0;
-    surfaces[cls] = lit ? [m.roughness, m.metalness, ...r6(m.emissive.toArray())] : [m.roughness, m.metalness];
+    const entry: (number | string)[] = [m.roughness, m.metalness];
+    if (m.userData.rlRainRim === true) {
+      const c = compileOf(m);
+      entry.push(sha(JSON.stringify([c.vertexShader, c.fragmentShader, m.customProgramCacheKey()])));
+    }
+    surfaces[cls] = entry;
   }
 
   const ground = priv.groundMat as unknown as { uniforms: Record<string, unknown>; defines: Record<string, unknown> };

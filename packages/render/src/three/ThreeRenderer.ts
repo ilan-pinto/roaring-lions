@@ -113,7 +113,8 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
-import { setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
+import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
+import { rainRimNow, setRainRimGain } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
@@ -11834,6 +11835,27 @@ export class ThreeRenderer implements Renderer {
     if (!this.groundMat.wet) return;
     if (tuning.puddle !== undefined) this.groundMat.uniforms.uPuddleReflect.value = tuning.puddle;
     if (tuning.marsh !== undefined) this.groundMat.uniforms.uMarshReflect.value = tuning.marsh;
+  }
+
+  /**
+   * The rain rim's calibration knob (GH-871 P4 PR 914): writes the ONE shared gain
+   * uniform every KDF figure's rim material reads (`units/rain-rim.ts`), so a single
+   * call moves every figure on screen. On the CONCRETE class only -- never on the
+   * `Renderer` interface, never in `api.ts`, no flag reaches a player -- the
+   * `debugSetWetTuning` precedent; `ground:capture --rim=` calls it and repaints at
+   * zero elapsed time. A non-finite or negative gain throws. A renderer that does not
+   * rain builds no rim material, so the write moves nothing on it (`debugRainRim().built`
+   * says so, and the tool fails loud on it).
+   */
+  debugSetRainRim(gain: number): void {
+    setRainRimGain(gain);
+  }
+
+  /** What the rim shaders read now: the effective `gain` (0 while the `unit-surface` debug layer is off),
+   *  the `power`, and whether this renderer has built at least one rim material. */
+  debugRainRim(): { gain: number; power: number; built: boolean } {
+    const now = rainRimNow();
+    return { gain: now.gain, power: now.power, built: this.opts.weather === 'rain' && rainRimCloneCount() > 0 };
   }
 
   /**

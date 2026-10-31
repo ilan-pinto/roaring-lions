@@ -49,6 +49,25 @@ export const RAIN_SHADOW_FLOOR = 1024;
 export const PUDDLE_REFLECT = 0.35;
 export const MARSH_REFLECT = 0.25;
 
+/**
+ * The KDF figure's RAIN RIM (GH-871 P4 PR 914, the lead's ruling 1 of 31 Oct 2026, replacing the flat
+ * lift of S-L2 ruling 3): a thin, soft, light edge on a KDF figure's outline under rain, a view-angle
+ * Fresnel term `RAIN_KDF_RIM_GAIN x colour x (1 - n.v)^RAIN_KDF_RIM_POWER` added as emission
+ * (`units/rain-rim.ts`). Camouflage, faces and team colour are untouched: the middle of a figure
+ * (n.v near 1) gets nothing. The colour is the rain sky (`overcast.1`, the colour the flat lift used:
+ * cold and soft, and a hue apart from the green grass and the brown road).
+ *
+ * `RAIN_KDF_RIM_GAIN` is PROVISIONAL: 0.4, from a model (`tools/src/wet-unit-rim.test.ts`) that puts
+ * the outermost pixel of a figure (rim factor about 0.4) at 1.6 x the wet road's luminance, and the
+ * controller replaces it with the measured pick from the `--rim` capture. The power is 3: the rim
+ * lies in the outer band of the silhouette (a sphere's mean factor is 0.1; 4% of its area is at or
+ * over 0.5). One shared uniform carries the gain, so `ThreeRenderer.debugSetRainRim` moves every
+ * figure with one write.
+ */
+export const RAIN_KDF_RIM_GAIN = 0.4;
+export const RAIN_KDF_RIM_POWER = 3;
+export const RAIN_KDF_RIM_KEY = RAIN_SKY_KEY;
+
 /** What `rainLight` reads of a resolved light (`lighting.ts`'s `ResolvedLights`
  *  satisfies it; its `direction` is a `Vector3`, which has x, y and z). */
 export interface RainLightsIn {
