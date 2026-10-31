@@ -63,7 +63,10 @@ Every change below was forced by a measurement or a source read made this sessio
 | D6 | **EQ III's 2-civilian hamlet group moved** from (29.5,9.5) to (25.5,9.5) | Body 2 at (30.75, 9.5) lands on a house tile (`h` at x 30–31, row 9 of the MDD §3.3 sketch), and `assertGroundClear` throws |
 | D7 | **A `civ_refuge` marker on `jebel_matar` (16,44) and on `ein_qasab_3` (3,1)** | The MDD says the families there "move under fire only". But `stepCivilians` returns at once when `civilians.refuge` is absent (`mission.ts:3587–3588`), so without a refuge they **never move at all**. **Precedent:** BS I and BS III declare a refuge with no `evacuate_before`. Every shipped mission with civilians declares one (`jq` census, 18 of 18) |
 | D8 | **New marker `camp_door` (10,41) on `ein_qasab_3`** | The MDD's 200 s wave goes to "the camp exit", which is not a marker. A wave's `to` must name one (`markerPos`) |
-| D9 | **EQ II gap rider's first waypoint** (30.5,24.5) → (30.5,27.5) | At (30.5,24.5) it stood 2 tiles from the yard wall at (28,23) and fired an RPG into it at tick 0 (D3). (30,27) is on the north track |
+| D9 | **EQ II gap rider's first waypoint** (30.5,24.5) → (30.5,27.5) | At (30.5,24.5) it stood 2 tiles from the yard wall at (28,23) and fired an RPG into it at tick 0 (D3). (30,27) is on the north track. **Superseded by D12** |
+| D11 | **GH-912, the lead's re-key.** EQ I T-A1 `casualties_pct` 50 → `group_in_zone { group: south_road, zone: south_causeway }` (new zone [14,33,24,3], the causeway road from the west bank to the downs), with a new label and `say` | Measured on the ladder (30 seeds): the old key fired on 21/30 naive seeds, 15 of them with `south_road` empty, and never in sensible or optimal. Sensible wins at 156 s and the 150 s truck is the group's only body before that, so the one thing the sensible world reaches with the group alive is the truck coming onto the causeway (154 s). `group_in_zone` is G5's condition, built for this (`mission.ts`, sim-guard reviewed) |
+| D12 | **GH-912: EQ II's gap rider waits beyond the gap.** `eq_gap_rider` at (41.5,35.5), patrol (41.5,35.5)↔(44.5,35.5) on the east road, facing west; the key stays `timer_s` 90 | Measured: on the old beat (30.5,27.5)↔(37.5,35.5) the rider patrols into the column's road and dies at 12–15 s in every rung that moves, so **any** key later than that plays over nothing, and the only earlier one, the hollow entry, already carries the saddle truck's beat on the same tick. Beyond the ridge it is dead ground from the hollow: alive at 90 s on 30/30 seeds of every rung, and it then comes through the gap and fights |
+| D13 | **GH-912: EQ III `hallaqs_man_runs_for_the_north_road` `casualties_pct` 40 → `zone_entered islet_north`** (new zone [19,20,11,3], the north end of the mill islet below the head), and briefing beat 3 says so | Measured: the old key fired at 26–43 s on 30/30 seeds of every rung, with the `ferry` truck already dead every time (it is among the first four killed). The column is on the islet's north end at 15 s with him alive. A player who stands off south of it (8.6+ tiles, inside the Namer's 10) can still kill him at the head before he runs; one who goes on has to stop him beyond the hamlet |
 | D10 | **EQ III `income_zones: [{ zone: mill_islet, rate_per_min: 80 }]`** | `docs/campaign/economy/income-numbers.md`: a full hold pays 40% of the phase anchor. A build-up is 200, so 80. UZ II, the one shipped build-up with zones, pays 50 + 30 = 80 |
 
 ---
@@ -81,7 +84,7 @@ Every change below was forced by a measurement or a source read made this sessio
 | `find_the_reed_cell` | objective (secondary, `carries: true`) | `eq_reed_cell` is on the board. It is the **third star**, and it spawns identified with its ambush forfeited in EQ III |
 | `eq_causeway_rpg` marked | ledger tag (no objective) | identified here, it reaches `intel.marked_positions` automatically (`mission.ts` 2551–2558), and in EQ III it spawns identified with no ambush |
 | `the_track_patrol_turns_for_the_hamlet` fired | trigger | the player stood in the hamlet. The east-track technical is coming |
-| `the_riders_pull_back_along_the_south_causeway` fired | trigger | the start-of-mission garrison is half dead. The riders on the south causeway drive out the one way wheels can |
+| `the_riders_pull_back_along_the_south_causeway` fired | trigger | the first `south_road` wheels have come onto the south causeway; they turn back the one way wheels can (D11) |
 
 ### 1.2 ECA rows
 
@@ -95,7 +98,7 @@ Every change below was forced by a measurement or a source read made this sessio
 | wave_250 | `at_seconds: 250` | `moto_rpg` ×1 + `technical` ×1 `from: rif_ne` → `to: causeway_n` | none | live |
 | wave_300 | `at_seconds: 300` | `moto_rpg` ×2 `from: rif_se`, `group: south_road` → `to: causeway_s` | none (it lands on the carriers' failure tick) | live |
 | the_track_patrol_turns_for_the_hamlet | `on: { kind: zone_entered, zone: hamlet }` | `do: { kind: commit, group: track, to: hamlet }` | label `Track patrol turns for the hamlet`; Idit's `say` | live |
-| the_riders_pull_back_along_the_south_causeway (T-A1) | `on: { kind: casualties_pct, value: 50 }`, i.e. 3 of the 6 start-of-mission enemies dead | `do: { kind: withdraw_to, group: south_road, to: rif_se }` | label `Riders pull back along the south causeway`; Idit's `say` | live |
+| the_riders_pull_back_along_the_south_causeway (T-A1) | `on: { kind: group_in_zone, group: south_road, zone: south_causeway }` (D11) | `do: { kind: withdraw_to, group: south_road, to: rif_se }` | label `Wheels on the south causeway turn back`; Idit's `say` | live (G5) |
 | picture complete | `locate`, any 4 identified | objective complete, +40 Intel; Idit's `say` | sheet §2.7 | live |
 | find_the_reed_cell complete | `locate` `eq_reed_cell` | complete; the tag joins `intel.marked_positions` | Idit's `say`, the carry said when bought | live |
 | carrier reaches refuge | a civilian inside zone `refuge` | `evacuated` (toast `clear (n)`) | shipped notice | live |
@@ -133,8 +136,8 @@ Measured wheel routes: `rif_ne`→`causeway_n` 23 steps (16 on the north causewa
 sniper and the drone can build the picture unhurried. From 100 s a pair of wheels comes onto a causeway every 50 s. Each
 one is forced onto one of two predictable lines, so the pressure is legible rather than heavy. At 150 s the south road
 gets its first truck, and the carriers' causeway stops being quiet. 200 s is the face of the deadline: riders bound for
-the hamlet yard, said aloud by Idit. 300 s lands on the deadline itself. The casualty trigger (T-A1) is the release
-valve the player earns: kill half the positions and the south-road wheels leave, along the one road they came by.
+the hamlet yard, said aloud by Idit. 300 s lands on the deadline itself. T-A1 (D11) turns the first south-road
+wheels back the moment they come onto the causeway: wheels cannot leave it, so out is the way they came in.
 
 ### 1.4 Map requirements — `ein_qasab` (shipped; additive markers and zones only, `rows` and `elevation` untouched)
 
@@ -162,7 +165,7 @@ Guards that must stay green after the additions:
 
 | # | twist | class | what was measured or decided |
 |---|---|---|---|
-| **T-A1** | *They cannot run.* At 50% casualties the south-road wheels withdraw east, and the only road east is the causeway the carriers stand on | **expressible today**, adopted | D2. **Failure mode:** `casualties_pct` counts only the six start-of-mission enemies. If three of them die **before the 150 s wave spawns**, the trigger fires with `south_road` empty. It is then consumed, and its label and `say` play over nothing. **`playtest` must print the fire tick and the group size.** If the plan fires it before 150 s, raise `value` to 67 (4 of 6) |
+| **T-A1** | *They cannot run.* (GH-912, D11: re-keyed.) The first south-road wheels onto the south causeway turn back along it, the one way wheels can. The original form, at 50% casualties, is below | **G5 `group_in_zone`**, adopted | D2. **Failure mode:** `casualties_pct` counts only the six start-of-mission enemies. If three of them die **before the 150 s wave spawns**, the trigger fires with `south_road` empty. It is then consumed, and its label and `say` play over nothing. **`playtest` must print the fire tick and the group size.** If the plan fires it before 150 s, raise `value` to 67 (4 of 6) |
 | **T-A2** | *The carriers are the cover.* The reed cell holds fire until something of ours is within 3 tiles, and the carriers stand inside that ring | **expressible today**, adopted (after G-P) | Measured on the scratch mission (§5): a squad that stops at (18.5,34.5), 4.0 tiles from the near carrier and 3.2 from the cell, walks one carrier out **with no spring** by 140 s. A squad that goes on to (20.5,34.5) springs it at 20.9 s, 2.93 tiles away, and walks two out. The jeep driving to the carriers springs it at 7.0 s, 2.81 tiles away. That is a readable decision: shepherd from the edge of the ring (the shepherd radius is 4 tiles, `SHEPHERD_RADIUS_SQ`), or close in and take the shot |
 | T-A3 | *The north causeway goes under* | engine (G6) | not adopted (controller) |
 
@@ -227,7 +230,7 @@ the scratch path in §5.
 },
 "triggers": [
   {"id": "the_track_patrol_turns_for_the_hamlet", "label": "Track patrol turns for the hamlet", "on": {"kind": "zone_entered", "zone": "hamlet"}, "do": {"kind": "commit", "group": "track", "to": "hamlet"}, "say": {"speaker": "idit", "text": "The east track patrol has turned for the hamlet. It is a technical on a track, so it comes the one way it can, and you can see which."}},
-  {"id": "the_riders_pull_back_along_the_south_causeway", "label": "Riders pull back along the south causeway", "on": {"kind": "casualties_pct", "value": 50}, "do": {"kind": "withdraw_to", "group": "south_road", "to": "rif_se"}, "say": {"speaker": "idit", "text": "They are pulling out the only way wheels can here, back along the south causeway. Whatever is still standing on it is in their road."}}
+  {"id": "the_riders_pull_back_along_the_south_causeway", "label": "Wheels on the south causeway turn back", "on": {"kind": "group_in_zone", "group": "south_road", "zone": "south_causeway"}, "do": {"kind": "withdraw_to", "group": "south_road", "to": "rif_se"}, "say": {"speaker": "idit", "text": "Wheels off the south-east onto the south causeway, and they are turning back already. Nothing on wheels can leave that road here, so out is the way they came in."}}
 ],
 ```
 
@@ -246,7 +249,7 @@ one outpost.
 | `burn_the_barn` | objective (primary, `raze` `barn_yard` 300 s, failable) | Hallaq's crates are ash. The target set is the warehouse only (`barn_yard` [26,21,2,2]). `razeExempt` bills nothing for it |
 | `mark_the_saddle_truck` | objective (secondary, `carries: true`) | `eq_saddle_truck` is on the board. It is the **third star**, and in EQ III the truck spawns identified |
 | `the_saddle_truck_comes_down_to_the_farm` fired | trigger | the brigade stood in the hollow |
-| `riders_come_through_the_dyke_gap` fired | trigger | 90 s have passed (D3) |
+| `riders_come_through_the_dyke_gap` fired | trigger | 90 s have passed (D3); the rider waiting beyond the gap comes through it (D12) |
 | outpost raised | runtime (`structureComplete`) | not addressable from a mission; Shai's line is `engine` |
 
 **Note on the carry's price.** The saddle truck commits to the farm on the player's first step into the hollow, so it
@@ -295,7 +298,7 @@ MDD's own combination of trigger and secondary, kept as designed. `playtest` rep
 | `eq_barn_cell` | `militia_cell` | (25.5,21.5) | `garrison`, building (26,21) | — |
 | `eq_pocket_rpg` | `rpg_team` | (12.5,22.5) `~` | `ambush`, tiles 4 | — |
 | `eq_saddle_truck` | `technical` | (34.5,11.5), the saddle, level 2 | `hold_position` | `saddle` |
-| `eq_gap_rider` | `moto_rpg` | (30.5,27.5) | `patrol` (30.5,27.5)↔(37.5,35.5), 8 steps by wheel through the gap | `gap` |
+| `eq_gap_rider` | `moto_rpg` | (41.5,35.5), beyond the gap | `patrol` (41.5,35.5)↔(44.5,35.5) on the east road (D12) | `gap` |
 
 Measured on the sketch's grid: `rif_e`→`farm` 21 by wheel (through the gap); `rif_n` 25; `rif_nw` 33 by wheel and 25 on
 foot. That is the boulder band's +8, as the MDD measured.
@@ -391,7 +394,7 @@ Briefing and debrief: paste from `narrative.md` §3.3 and §3.5. There is no `di
     {"unit": "militia_cell", "count": 1, "at": [25.5, 21.5], "tag": "eq_barn_cell", "stance": {"kind": "garrison", "building": [26, 21]}},
     {"unit": "rpg_team", "count": 1, "at": [12.5, 22.5], "facing_deg": 90, "tag": "eq_pocket_rpg", "stance": {"kind": "ambush", "tiles": 4}},
     {"unit": "technical", "count": 1, "at": [34.5, 11.5], "facing_deg": 180, "group": "saddle", "tag": "eq_saddle_truck", "stance": {"kind": "hold_position"}},
-    {"unit": "moto_rpg", "count": 1, "at": [30.5, 27.5], "facing_deg": 135, "group": "gap", "tag": "eq_gap_rider", "stance": {"kind": "patrol", "waypoints": [[30.5, 27.5], [37.5, 35.5]]}}
+    {"unit": "moto_rpg", "count": 1, "at": [41.5, 35.5], "facing_deg": 270, "group": "gap", "tag": "eq_gap_rider", "stance": {"kind": "patrol", "waypoints": [[41.5, 35.5], [44.5, 35.5]]}}
   ],
   "waves": [
     {"at_seconds": 60, "to": "farm", "units": [{"unit": "moto_rpg", "count": 2, "from": "rif_n"}]},
@@ -425,7 +428,7 @@ production, supply corridor, one income zone, `intel_start` 100.
 | `burn_the_stock` | objective (primary, `raze` `stock_yard` 330 s, failable) | the winter's freight is ash. **The failure is the mission's loss** |
 | `take_the_mill` | objective (secondary, `capture` `mill_islet` 15 s) | the islet is ours. The income zone pays 80 a minute to whoever holds it |
 | `the_reserve_comes_over_the_lip` fired | trigger | the brigade stood at the causeway head |
-| `hallaqs_man_runs_for_the_north_road` fired | trigger | 40% of the start-of-mission enemy is dead: 4 of 8 bodies, the truck and its passenger included |
+| `hallaqs_man_runs_for_the_north_road` fired | trigger | something of ours set foot on the north end of the mill islet (`islet_north`, D13) |
 | `eq_reed_cell`, `eq_causeway_rpg`, `eq_saddle_truck` in the ledger | carried tags | each spawns identified, and the two ambushers spawn **without** their ambush (`spawnPlacement` 3328–3366) |
 
 ### 3.2 ECA rows
@@ -440,7 +443,7 @@ production, supply corridor, one income zone, `intel_start` 100.
 | wave_250 | `at_seconds: 250` | `technical` + `moto_rpg` `rif_nw` → `causeway_head` | none | live |
 | wave_300 (T-C3) | `at_seconds: 300` | `militia_cell` ×2 `reed_e` → `mill` | Idit: "Two cells wading for the mill. If the families are still inside it…" | live |
 | the_reserve_comes_over_the_lip | `on: { kind: zone_entered, zone: causeway_head }` | `do: { kind: commit, group: reserve, to: causeway_head }` | label `Reserve comes down over the lip`; Idit's `say` | live |
-| hallaqs_man_runs_for_the_north_road | `on: { kind: casualties_pct, value: 40 }` | `do: { kind: withdraw_to, group: ferry, to: north_exit }`: 14 steps by wheel, **4 of them inside the flagged `hamlet` zone** (measured) | label `Hallaq's man runs for the north road`; Shai's `say` | live |
+| hallaqs_man_runs_for_the_north_road | `on: { kind: zone_entered, zone: islet_north }` (D13) | `do: { kind: withdraw_to, group: ferry, to: north_exit }`: 14 steps by wheel, **4 of them inside the flagged `hamlet` zone** (measured) | label `Hallaq's man runs for the north road`; Shai's `say` | live |
 | burn_the_stock complete / failed @330 s | warehouse in `stock_yard` destroyed / not | complete with Idit's `say` (the hook to WH IV and V) / **failed → defeat** with Shai's `say_on_fail` | | live |
 | kill_hallaqs_man complete | every `eq_hvt_winter_road` body dead (not removed) | complete; Idit's `say` | | live |
 | hold_the_head complete | 240 s held uncontested | complete; net `say` | | live |
@@ -480,8 +483,9 @@ Measured routes on the sketch:
 road, through the protected hamlet. South of it, the reeds go for the brigade's rear: the south landing at 100 s, the
 camp's door at 200 s (production stops), the mill at 300 s. The stock deadline (330 s) sits after the last wave, so the
 peak (200–300 s) is the player's choice between guarding the door and pushing the column north. The lieutenant's run
-(T-C2's ground) comes whenever the player has killed four of the eight. On a fast push that is early, which is what makes
-sending the AT team across the west island before the shooting starts the sharp play.
+(T-C2's ground) comes the moment the column reaches the north end of the mill islet (D13). On a fast push that is early,
+which is what makes sending the AT team across the west island before the column goes on the sharp play, and standing
+off south of `islet_north` to kill him at the head the other one.
 
 ### 3.4 Map requirements — `ein_qasab_3` (new; grid and elevation are MDD §3.3)
 
@@ -514,7 +518,7 @@ x 8–9 is where it stands.
 | # | twist | class | decision and failure mode |
 |---|---|---|---|
 | **T-C3** | *The mill is full of people.* Two civilians at (19.5,24.5) on the islet, the income zone; Idit's lines on `take_the_mill` and on the 300 s wave | **expressible today**, adopted | It turns the one purchase of ground into a Conduct decision: any civilian casualty is billed 8, wherever it happens, and danger-close ordnance is billed too. **Measure in `playtest`**: Conduct at the win, against the floor of 40 |
-| **T-C2** | *He gets off the map* | **engine, but smaller than the MDD says** (§4.1 G5). Not built (controller) | **What happens today, either way the stop goes:** at 4 of 8 dead he drives 14 steps to `north_exit` (18,0), on the reverse slope **north of the flagged zone**, and parks: a `move` order with no stance behind it. **He can still be killed there**, so "stop him beyond the houses" stays literally true. **Failure mode:** nothing ever removes him. A player who never goes after him leaves `kill_hallaqs_man` open until 840 s and loses on the clock (`outcome.failed.timeUp`), never to an escape. The urgency is real; the escape is not. The briefing (sheet §4.2) promises no escape, and must not |
+| **T-C2** | *He gets off the map* | **engine, but smaller than the MDD says** (§4.1 G5). Not built (controller) | **What happens today, either way the stop goes:** once the column is on `islet_north` (D13) he drives 14 steps to `north_exit` (18,0), on the reverse slope **north of the flagged zone**, and parks: a `move` order with no stance behind it. **He can still be killed there**, so "stop him beyond the houses" stays literally true. **Failure mode:** nothing ever removes him. A player who never goes after him leaves `kill_hallaqs_man` open until 840 s and loses on the clock (`outcome.failed.timeUp`), never to an escape. The urgency is real; the escape is not. The briefing (sheet §4.2) promises no escape, and must not |
 | T-C4 | *The crates fly again* | expressible today | **held** (controller): at most one swarm in the town, and T-B1 tells it first |
 | T-C1 | *The wreck closes the road* | engine (G6) | not adopted |
 
@@ -585,7 +589,7 @@ Briefing and debrief: paste from `narrative.md` §4.2 and §4.5. There is no `di
 },
 "triggers": [
   {"id": "the_reserve_comes_over_the_lip", "label": "Reserve comes down over the lip", "on": {"kind": "zone_entered", "zone": "causeway_head"}, "do": {"kind": "commit", "group": "reserve", "to": "causeway_head"}, "say": {"speaker": "idit", "text": "There was a reserve behind the lip, in ground nothing south of the houses can see. It is coming down to the head."}},
-  {"id": "hallaqs_man_runs_for_the_north_road", "label": "Hallaq's man runs for the north road", "on": {"kind": "casualties_pct", "value": 40}, "do": {"kind": "withdraw_to", "group": "ferry", "to": "north_exit"}, "say": {"speaker": "shai", "text": "He is running for the north road, and it goes up through the hamlet. Stop him beyond the houses if you can get there; in them, every shot is billed."}}
+  {"id": "hallaqs_man_runs_for_the_north_road", "label": "Hallaq's man runs for the north road", "on": {"kind": "zone_entered", "zone": "islet_north"}, "do": {"kind": "withdraw_to", "group": "ferry", "to": "north_exit"}, "say": {"speaker": "shai", "text": "He is running for the north road, and it goes up through the hamlet. Stop him beyond the houses if you can get there; in them, every shot is billed."}}
 ],
 ```
 

@@ -3,7 +3,8 @@
 // the flood week, with the two probes the level script asked for.
 //
 //   npx tsx tools/src/backtest/eq_ladder.ts [seeds=30] [mission-id ...]
-//   EQ_TIERS=passive,naive,sensible,optimal   which rungs to run (default all four)
+//   EQ_TIERS=passive,naive,sensible,optimal   which rungs to run (default all four; report-only: foot (I), crest (II),
+//                                             head (III: Hallaq's man killed at the head before he runs))
 //   EQ_SWARM=off                              run Ein Qasab II WITHOUT its 215 s drone_swarm wave (T-B1)
 //   EQ_CARRY=1                                Ein Qasab III's carry probe: with the marks forwarded vs without
 //   EQ_FROM=wh3|wh5                           the ledger Ein Qasab I is played on (default wh3: the town opens after it)
@@ -25,10 +26,10 @@ import { missions } from '@lions/data';
 import { run, setSweep, tapMissionEvents, type Plan } from './playtest-run';
 import { WADI_HALAM_CHAIN, WADI_HALAM_PLANS } from './plans/wadi_halam';
 import * as EQ from './plans/ein_qasab';
-import { EIN_QASAB_CHAIN, EIN_QASAB_PLANS, eqNaive, eqSensible, eqFoot, eq2CrestPlan } from './plans/ein_qasab';
+import { EIN_QASAB_CHAIN, EIN_QASAB_PLANS, eqNaive, eqSensible, eqFoot, eq2CrestPlan, eq3HeadPlan } from './plans/ein_qasab';
 import { SWEEP_SEEDS } from './passive-sweep';
 
-type Tier = 'passive' | 'naive' | 'sensible' | 'optimal' | 'foot' | 'crest';
+type Tier = 'passive' | 'naive' | 'sensible' | 'optimal' | 'foot' | 'crest' | 'head';
 const seedsN = Number(process.argv[2] ?? 30);
 const only = process.argv.slice(3);
 const TIERS = (process.env.EQ_TIERS ?? 'passive,naive,sensible,optimal').split(',').filter(Boolean) as Tier[];
@@ -49,12 +50,17 @@ interface Result {
   produced: LedgerData;
   /** Trigger id -> [fire second, living size of the group it acts on at that tick]. */
   fired: Record<string, [number, number]>;
+  /** Trigger id -> what the group it acted on did afterwards: rounds its living members fired from the trigger's tick
+   *  on, and the second the last of them died (undefined: one still lived at the end). */
+  after: Record<string, { shots: number; goneAt?: number }>;
   /** First second of each field-works event, and whether the outpost still stood at the end. */
   works: Record<string, number>;
   /** The drone swarm: the second it was destroyed (undefined: never killed), and whether it ever spawned. */
   swarm: { spawned: boolean; diedAt?: number; kdfLostAfter: number };
   /** Orders the plan itself gave (every `queueCommand` made from inside one of its timed callbacks). */
   orders: number;
+  /** Ein Qasab III: where Hallaq's man died, by the zone his tile was in (head / hamlet / beyond, past the houses). */
+  hvtAt?: string;
 }
 
 const quiet = <T>(fn: () => T): T => {
@@ -80,12 +86,20 @@ function playOne(id: string, plan: Plan, ledger: LedgerData, seed: number, overr
   let lost = 0;
   let evacuated = 0;
   const fired: Record<string, [number, number]> = {};
+  const after: Record<string, { shots: number; goneAt?: number }> = {};
+  const acting = new Map<string, number[]>();
   const works: Record<string, number> = {};
   const swarm: Result['swarm'] = { spawned: false, kdfLostAfter: 0 };
   let simRef: Sim | undefined;
+  let hvtAt: string | undefined;
   tapMissionEvents((evs: readonly MissionEvent[], rt: MissionRuntime, sim: Sim) => {
     simRef = sim;
     for (const e of evs) {
+      if (e.kind === 'objective' && e.id === 'kill_hallaqs_man' && e.status === 'complete') {
+        const hvt = ((rt as any).tags?.get('eq_hvt_winter_road') ?? []) as number[];
+        const y = hvt.length ? sim.state.posY[hvt[0]] >> 16 : -1;
+        hvtAt = y >= 12 ? 'head' : y >= 8 ? 'hamlet' : y >= 0 ? 'beyond' : '?';
+      }
       if (e.kind === 'unitLost' && e.side === 0 && !e.unit.startsWith('wounded_')) {
         lost++;
         if (swarm.spawned && swarm.diedAt === undefined) swarm.kdfLostAfter++;
@@ -95,7 +109,10 @@ function playOne(id: string, plan: Plan, ledger: LedgerData, seed: number, overr
         const t = (m.triggers as any[]).find((x) => x.id === e.id);
         const g = t?.do?.group as string | undefined;
         const members = ((rt as any).groups?.get(g ?? '') ?? []) as number[];
-        fired[e.id] = [Math.round(e.tick / 20), members.filter((i) => sim.state.alive[i] === 1).length];
+        const live = members.filter((i) => sim.state.alive[i] === 1);
+        fired[e.id] = [Math.round(e.tick / 20), live.length];
+        after[e.id] = { shots: 0, goneAt: live.length === 0 ? Math.round(e.tick / 20) : undefined };
+        if (live.length > 0) acting.set(e.id, live);
       }
     }
   });
@@ -127,7 +144,16 @@ function playOne(id: string, plan: Plan, ledger: LedgerData, seed: number, overr
         for (const e of sevs) {
           if (e.kind === 'constructQueued' || e.kind === 'constructStaked' || e.kind === 'structureComplete' || e.kind === 'constructCancelled' || e.kind === 'constructRefused')
             works[e.kind] ??= Math.round(e.tick / 20);
-          else if (e.kind === 'spawn' || e.kind === 'destroyed') {
+          else if (e.kind === 'fire') {
+            for (const [k, ms] of acting) if (ms.includes(e.shooter)) after[k].shots++;
+          }
+          if (e.kind === 'destroyed' && simRef !== undefined)
+            for (const [k, ms] of acting)
+              if (ms.includes(e.entity) && ms.every((i) => simRef?.state.alive[i] === 0)) {
+                after[k].goneAt = Math.round(e.tick / 20);
+                acting.delete(k);
+              }
+          if (e.kind === 'spawn' || e.kind === 'destroyed') {
             const ent = (e as { entity?: number }).entity;
             if (ent === undefined || simRef === undefined) continue;
             if (simRef.unitTypes[simRef.state.typeIdx[ent]].id !== 'drone_swarm') continue;
@@ -155,9 +181,11 @@ function playOne(id: string, plan: Plan, ledger: LedgerData, seed: number, overr
     cause: meas.cause,
     produced,
     fired,
+    after,
     works,
     swarm,
     orders,
+    hvtAt,
   };
 }
 
@@ -168,6 +196,7 @@ function planFor(id: string, tier: Tier): Plan {
   if (tier === 'sensible') return eqSensible(id);
   if (tier === 'foot') return eqFoot(id);
   if (tier === 'crest') return eq2CrestPlan;
+  if (tier === 'head') return eq3HeadPlan;
   const n = EIN_QASAB_CHAIN.indexOf(id as never) + 1;
   const named = process.env[`EQ_OPT_${n}`];
   return named ? ((EQ as any)[named] as Plan) : (EIN_QASAB_PLANS as Record<string, Plan>)[id];
@@ -216,7 +245,19 @@ function summarise(label: string, rs: Result[]): void {
     const died = sw.filter((r) => r.swarm.diedAt !== undefined);
     console.log(`   swarm: spawned on ${sw.length}/${rs.length}, destroyed on ${died.length}/${sw.length}${died.length ? ` (second ${Math.min(...died.map((r) => r.swarm.diedAt as number))}..${Math.max(...died.map((r) => r.swarm.diedAt as number))})` : ''}, KDF units lost while it lived: ${sw.reduce((a, r) => a + r.swarm.kdfLostAfter, 0)} total`);
   }
-  for (const [k, v] of fires) console.log(`   trigger ${k}: fired on ${v.length}/${rs.length} seeds, tick(s) min ${Math.min(...v.map((x) => x[0]))} max ${Math.max(...v.map((x) => x[0]))}, group size at fire min ${Math.min(...v.map((x) => x[1]))} max ${Math.max(...v.map((x) => x[1]))}`);
+  const hv = rs.filter((r) => r.hvtAt !== undefined);
+  if (hv.length > 0) {
+    const n = (w: string): number => hv.filter((r) => r.hvtAt === w).length;
+    console.log(`   Hallaq's man killed on ${hv.length}/${rs.length}: at the head ${n('head')}, in the hamlet ${n('hamlet')}, beyond it ${n('beyond')}`);
+  }
+  for (const [k, v] of fires) {
+    const af = rs.map((r) => r.after[k]).filter((x) => x !== undefined);
+    const gone = af.map((x) => x.goneAt).filter((x): x is number => x !== undefined);
+    console.log(
+      `   trigger ${k}: fired on ${v.length}/${rs.length} seeds, tick(s) min ${Math.min(...v.map((x) => x[0]))} max ${Math.max(...v.map((x) => x[0]))}, group size at fire min ${Math.min(...v.map((x) => x[1]))} max ${Math.max(...v.map((x) => x[1]))}` +
+        `; afterwards the group fired ${f(mean(af.map((x) => x.shots)), 0)} rounds a seed (min ${Math.min(...af.map((x) => x.shots))}), all dead on ${gone.length}/${af.length}${gone.length ? ` (s ${Math.min(...gone)}..${Math.max(...gone)})` : ''}`
+    );
+  }
 }
 
 console.log(`seeds ${SEEDS.length} (${SEEDS[0]}, 1..${SEEDS.length - 1}); rungs ${TIERS.join('/')}; from ${process.env.EQ_FROM ?? 'wh3'}; swarm ${process.env.EQ_SWARM ?? 'on'}`);
@@ -236,7 +277,7 @@ for (const seed of SEEDS) {
 }
 for (const id of MEASURE) {
   for (const tier of TIERS) {
-    if ((tier === 'foot' && id !== 'ein_qasab_1_recon') || (tier === 'crest' && id !== 'ein_qasab_2_foothold')) continue;
+    if ((tier === 'foot' && id !== 'ein_qasab_1_recon') || (tier === 'crest' && id !== 'ein_qasab_2_foothold') || (tier === 'head' && id !== 'ein_qasab_3_buildup')) continue;
     const rs: Result[] =
       tier === 'optimal'
         ? (chainRuns.get(id) as Result[])

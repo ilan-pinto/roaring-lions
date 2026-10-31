@@ -291,8 +291,8 @@ script, §12).
 | `objective(get_the_carriers_home, failed)` @300 s | `radio` | **Idit** | "The next load is moving and they are under it. We were the width of a marsh away." | `objectives[].say_on_fail`. Idit says what happened to the rest. The marsh is 5–8 tiles wide, so *"the width of a marsh"* is short | live |
 | trigger `the_track_patrol_turns_for_the_hamlet` (`zone_entered(hamlet)` → `commit track` to `hamlet`) | `toast` | system | **label:** `Track patrol turns for the hamlet` | `triggers[].label`, 33 chars | live |
 | same trigger | `radio` | **Idit** | "The east track patrol has turned for the hamlet. It is a technical on a track, so it comes the one way it can, and you can see which." | `triggers[].say` | live |
-| trigger `the_riders_pull_back_along_the_south_causeway` (`casualties_pct(50)` → `withdraw_to track` to `rif_se`) | `toast` | system | **label:** `Riders pull back along the south causeway` | 41 chars. **T-A1.** *"Pull back"*, never a word that reads as a rout | live |
-| same trigger | `radio` | **Idit** | "They are pulling out the only way wheels can here, back along the south causeway. Whatever is still standing on it is in their road." | `triggers[].say`. True whether or not the carriers are still on it | live |
+| trigger `the_riders_pull_back_along_the_south_causeway` (`group_in_zone(south_road, south_causeway)` → `withdraw_to south_road` to `rif_se`; GH-912 re-key, script D11) | `toast` | system | **label:** `Wheels on the south causeway turn back` | 38 chars. **T-A1.** *"Turn back"*, never a word that reads as a rout | live |
+| same trigger | `radio` | **Idit** | "Wheels off the south-east onto the south causeway, and they are turning back already. Nothing on wheels can leave that road here, so out is the way they came in." | `triggers[].say`. Said the tick the first south-road wheels are on the causeway, with them alive (GH-912); true whatever else is on it | live |
 | wave 100 s (`moto_rpg` ×2, `rif_ne` → `causeway_n`) | `toast` | system | `enemy reinforcements — 2 units inbound · north-east` | `alert.wave`, shipped | live |
 | wave 100 s | `radio` | **Idit** | "Two riders off the north-east, and both have come down onto the north causeway. There is nowhere else here for a wheel to go, and every rider after them will do the same." | `enemy.waves[].say`. The cadence said once, as in WH I | live |
 | wave 150 s (`technical`, `rif_se` → `causeway_s`) | `toast` | system | `enemy reinforcements — 1 unit inbound · south-east` | **no `say`, deliberately** | live |
@@ -424,7 +424,7 @@ player's side.
 | `objective(mark_the_saddle_truck, complete)` | `radio` | **Idit** | "That is the saddle crew. Wherever it is parked when we reach the causeway head, it is on the board now." | `objectives[].say`. **The carry, said when it is bought.** *"Crew"*, not *"truck"*, on purpose: the MDD lets EQ III field this tag as a `gun_truck` where II has a `technical`, and the tag (not the vehicle) is what carries. The line is true for either | live |
 | trigger `the_saddle_truck_comes_down_to_the_farm` (`zone_entered(hollow)` → `commit saddle` to `farm`) | `toast` | system | **label:** `Saddle truck comes down to the farm` | 35 chars | live |
 | same trigger | `radio` | **Idit** | "The truck in the saddle has started down the north track for the farm. If it is going to be identified on this ground, it is now." | `triggers[].say`. Idit prices the carry at the moment it gets harder | live |
-| trigger `riders_come_through_the_dyke_gap` (`first_contact` → `commit gap` to `farm`) | `toast` | system | **label:** `Riders come through the dyke gap` | 32 chars | live |
+| trigger `riders_come_through_the_dyke_gap` (`timer_s(90)` → `commit gap` to `farm`; the rider waits beyond the gap, script D12) | `toast` | system | **label:** `Riders come through the dyke gap` | 32 chars | live |
 | same trigger | `radio` | **Idit** | "Riders through the dyke gap, one at a time, because that is all it is wide. It is the only door on that side." | `triggers[].say`. The single-AT-team decision, given to the player as a fact | live |
 | wave 60 s (`moto_rpg` ×2, `rif_n`) | `toast` | system | `alert.wave`, shipped | no `say` | live |
 | wave 105 s (`militia_cell` ×2, `rif_nw`, on foot over the crest) | `radio` | **Idit** | "Two cells walking over the north crest on foot. From the farm they are not there until they are on the skyline." | `enemy.waves[].say`. The mission's name, happening | live |
@@ -462,13 +462,13 @@ The MDD's *"The Long Causeway"* is **not** used. *Long Causeway* is a real road 
 of `names.md` §3, a real feature. Tree check: *one road* appears once, as a common noun in
 `beit_sahwan_2_foothold`'s `say`. Benign.
 
-### 4.2 `briefing` — 1,042 chars, 6 beats
+### 4.2 `briefing` — 1,077 chars, 6 beats
 
 | beat | speaker | line | chars |
 |---|---|---|---|
 | 1 | **Idit** | Below the hamlet the fen is two reed channels with one causeway over them, and every vehicle you own crosses on it. Hallaq's man on the winter road is in the yard at the causeway head, with the stock barn beside him. | 216 |
 | 2 | **Shai** | Burn the stock, hold the causeway head for four minutes, and kill or capture him. The camp builds what you pay for, and anything on wheels it builds goes up that one road in single file, under the terrace. | 205 |
-| 3 | **Idit** | When he has lost enough he runs for the north road, and it goes up through the hamlet. You came with the Intel for one smoke screen; a sweep of the dead ground behind the lip costs half as much again. | 200 |
+| 3 | **Idit** | The moment you set foot on the north end of the mill islet he runs for the north road, and it goes up through the hamlet. You came with the Intel for one smoke screen; a sweep of the dead ground behind the lip costs half as much again. | 235 |
 | 4 | **Shai** | Buy feet. A squad wades where a Namer cannot, and an AT team sent early across the west island reaches the lip before he does. | 126 |
 | 5 | **Idit** | Reed cells will wade out for the camp's door and the supply road; while one stands at the door, the camp builds nothing. What you marked on the causeways and at the saddle this week comes back with its ambush spent. | 215 |
 | 6 | **Shai** | Stop him beyond the hamlet, or chase him through it and pay for every shot. | 75 |
@@ -497,7 +497,7 @@ with T-C2 and without it.
 
 **The JSON string, to be pasted whole:**
 
-> Below the hamlet the fen is two reed channels with one causeway over them, and every vehicle you own crosses on it. Hallaq's man on the winter road is in the yard at the causeway head, with the stock barn beside him. Burn the stock, hold the causeway head for four minutes, and kill or capture him. The camp builds what you pay for, and anything on wheels it builds goes up that one road in single file, under the terrace. When he has lost enough he runs for the north road, and it goes up through the hamlet. You came with the Intel for one smoke screen; a sweep of the dead ground behind the lip costs half as much again. Buy feet. A squad wades where a Namer cannot, and an AT team sent early across the west island reaches the lip before he does. Reed cells will wade out for the camp's door and the supply road; while one stands at the door, the camp builds nothing. What you marked on the causeways and at the saddle this week comes back with its ambush spent. Stop him beyond the hamlet, or chase him through it and pay for every shot.
+> Below the hamlet the fen is two reed channels with one causeway over them, and every vehicle you own crosses on it. Hallaq's man on the winter road is in the yard at the causeway head, with the stock barn beside him. Burn the stock, hold the causeway head for four minutes, and kill or capture him. The camp builds what you pay for, and anything on wheels it builds goes up that one road in single file, under the terrace. The moment you set foot on the north end of the mill islet he runs for the north road, and it goes up through the hamlet. You came with the Intel for one smoke screen; a sweep of the dead ground behind the lip costs half as much again. Buy feet. A squad wades where a Namer cannot, and an AT team sent early across the west island reaches the lip before he does. Reed cells will wade out for the camp's door and the supply road; while one stands at the door, the camp builds nothing. What you marked on the causeways and at the saddle this week comes back with its ambush spent. Stop him beyond the hamlet, or chase him through it and pay for every shot.
 
 ### 4.3 The carry-over, read in one string
 
@@ -585,7 +585,7 @@ and nothing here contradicts them (§10 G-S).
 | zone `mill_islet` gained / lost | `toast` | system | `ground held — income zone ours` / `ground lost — …` | `alert.zone.*`, shipped | live |
 | trigger `the_reserve_comes_over_the_lip` (`zone_entered(causeway_head)` → `commit reserve` to `causeway_head`) | `toast` | system | **label:** `Reserve comes down over the lip` | 31 chars | live |
 | same trigger | `radio` | **Idit** | "There was a reserve behind the lip, in ground nothing south of the houses can see. It is coming down to the head." | `triggers[].say`. The sweep the player did not buy, answered | live |
-| trigger `hallaqs_man_runs_for_the_north_road` (`casualties_pct(40)` → `withdraw_to ferry` to `north_exit`) | `toast` | system | **label:** `Hallaq's man runs for the north road` | 36 chars. The MDD's working label, unchanged | live |
+| trigger `hallaqs_man_runs_for_the_north_road` (`zone_entered(islet_north)` → `withdraw_to ferry` to `north_exit`; GH-912 re-key, script D13) | `toast` | system | **label:** `Hallaq's man runs for the north road` | 36 chars. The MDD's working label, unchanged | live |
 | same trigger | `radio` | **Shai** | "He is running for the north road, and it goes up through the hamlet. Stop him beyond the houses if you can get there; in them, every shot is billed." | `triggers[].say`. *"Do not chase what runs"*, charged a third time, after WH I and WH III | live |
 | wave 45 s (`technical`, `rif_nw` → `causeway_head`) | `toast` | system | `alert.wave` | no `say` | live |
 | wave 100 s (`militia_cell` ×2, `reed_e` → `south_landing`, wading) | `radio` | **Idit** | "Two cells wading out of the east reeds for the south landing. They are not after the head; they are after your road." | `enemy.waves[].say` | live |
@@ -706,7 +706,7 @@ The **classification is `level-scripter`'s.** The lines are this sheet's, and so
 
 | # | mission | twist | speaker | line | mechanic, and the recommendation | status |
 |---|---|---|---|---|---|---|
-| **T-A1** | I | *They cannot run.* The 50% withdrawal drives back along the carriers' causeway | Idit | "They are pulling out the only way wheels can here, back along the south causeway. Whatever is still standing on it is in their road." | `withdraw_to` and the vehicle mask, live. **Adopt.** It costs nothing; it is the MDD's own trigger, and the theme in one moment | live |
+| **T-A1** | I | *They cannot run.* The first south-road wheels onto the carriers' causeway turn back along it (GH-912 re-key; the 50% form fired over an empty road) | Idit | "Wheels off the south-east onto the south causeway, and they are turning back already. Nothing on wheels can leave that road here, so out is the way they came in." | `withdraw_to` and the vehicle mask, live. **Adopt.** It costs nothing; it is the MDD's own trigger, and the theme in one moment | live |
 | **T-A2** | I | *The carriers are the cover.* The reed cell springs only near the carriers | Shai | §2.7, the `ambushSprung` row; carried live by beat 6 and the reed cell's `say` | an `ambush(3)` stance. **Adopt, and fix the placement first** (§2.7, G-P): at the MDD's coordinates the cell is 10 tiles from the carriers and the twist cannot happen | live |
 | **T-A3** | I | *The north causeway goes under* at 240 s | Idit | "The north causeway has gone under. One road left for anything on wheels, theirs and ours." | no action changes terrain (G6). **Do not adopt.** EQ III already has one road | engine |
 | **T-B1** | II | *The crates fly.* A swarm at 200 s | Idit | "A swarm off the north downs. Not every crate on this road was in that barn." | `spawn`, live. **Adopt only as an edge spawn at `rif_n`, with this label: `Drone swarm lifts off the north downs`** (37 chars). The MDD's form spawns the swarm *at the barn*. A trigger cannot read whether the barn has burned, so a player who burned it at 150 s would see drones rise from ash. The edge form is true either way. **Measure it first**: there is no Remetz in II, and rifles are poor against a swarm (GH-274 `swarm.hit_mult`) | live |
@@ -867,8 +867,8 @@ The same script also checked the following:
 - Every line quoted in a table is ≤ 240 characters: every `say`, `say_on_fail`, HELD, twist and ambient line.
   **77 lines; the longest is 184** (`burn_the_stock.say`). The six `debrief` lines are 111 to 145. The `dispatch` is
   232.
-- **The 7 trigger labels are ≤ 48 characters with no full stop.** The longest is 41 (`Riders pull back along the
-  south causeway`). Every non-`remove` trigger has one: I 2, II 2 + T-B1's spawn, III 2. T-C4 is a wave, and a wave
+- **The 7 trigger labels are ≤ 48 characters with no full stop.** The longest is 38 (`Wheels on the south
+  causeway turn back`, GH-912). Every non-`remove` trigger has one: I 2, II 2 + T-B1's spawn, III 2. T-C4 is a wave, and a wave
   takes no label.
 - No player string contains *withdrawn* or *ferry*.
 - No label, objective text, mission name or catalogue string contains a word on `player-wording.test.ts`'s deny list.

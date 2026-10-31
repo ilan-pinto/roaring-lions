@@ -227,21 +227,21 @@
         "unit": "moto_rpg",
         "count": 1,
         "at": [
-          30.5,
-          27.5
+          41.5,
+          35.5
         ],
-        "facing_deg": 135,
+        "facing_deg": 270,
         "group": "gap",
         "tag": "eq_gap_rider",
         "stance": {
           "kind": "patrol",
           "waypoints": [
             [
-              30.5,
-              27.5
+              41.5,
+              35.5
             ],
             [
-              37.5,
+              44.5,
               35.5
             ]
           ]

@@ -22,9 +22,9 @@ import { describe, expect, it } from 'vitest';
 import { fx, type LedgerData, type MissionRuntime, type Sim } from '@lions/sim';
 import type { Plan } from '../playtest-run';
 import { ROOT } from '../../map_visibility';
-import { missionCredits, run, runLog } from '../playtest-run';
+import { missionCredits, run, runLog, tapMissionEvents } from '../playtest-run';
 import { firstLightPlan } from './beit_sahwan';
-import { EIN_QASAB_CHAIN, EIN_QASAB_PLANS, eq1Plan, eq2Plan, eq3Plan } from './ein_qasab';
+import { EIN_QASAB_CHAIN, EIN_QASAB_PLANS, eq1Plan, eq2Plan, eq3Plan, eqSensible } from './ein_qasab';
 import { telMarum3ArmourPlan, telMarum3FootPlan, telMarum3Plan } from './tel_marum';
 import {
   WADI_HALAM_CHAIN,
@@ -185,7 +185,7 @@ describe('the shared plans: Ein Qasab', () => {
   });
 
   it('seed 424242, down the chain: the lines pnpm playtest prints, and the marks the carries leave', { timeout: 120_000 }, () => {
-    // Literals, read off `pnpm playtest` on the day the plans were written. The ledger is built the way the harness
+    // Literals, read off `pnpm playtest` (GH-912 re-key, 2026-11-01: II and III moved with their beats). The ledger is built the way the harness
     // builds it: Wadi Halam I..III first, then each Ein Qasab mission on the ledger the one before produced.
     expect(process.env.PT_SEED).toBeUndefined();
     const lines: string[] = [];
@@ -200,8 +200,8 @@ describe('the shared plans: Ein Qasab', () => {
     }
     expect(lines).toEqual([
       'ein_qasab_1_recon: VICTORY in 1.3 min, ROE 100, stars 3, credits 250',
-      'ein_qasab_2_foothold: VICTORY in 6.6 min, ROE 90, stars 3, credits 250',
-      'ein_qasab_3_buildup: VICTORY in 6.2 min, ROE 70, stars 2, credits 150',
+      'ein_qasab_2_foothold: VICTORY in 7.0 min, ROE 95, stars 3, credits 255',
+      'ein_qasab_3_buildup: VICTORY in 6.0 min, ROE 85, stars 2, credits 195',
     ]);
     // What Ein Qasab III reads: I leaves the reed cell (its carrying secondary) and the causeway RPG team (the drone's
     // mark); II adds the saddle truck (its carrying secondary).
@@ -209,5 +209,46 @@ describe('the shared plans: Ein Qasab', () => {
     expect(marks(ledgers[0])).toEqual(expect.arrayContaining(['eq_reed_cell', 'eq_causeway_rpg']));
     expect(marks(ledgers[0])).not.toContain('eq_saddle_truck');
     expect(marks(ledgers[1])).toEqual(expect.arrayContaining(['eq_reed_cell', 'eq_causeway_rpg', 'eq_saddle_truck']));
+  });
+  // GH-912, the lead's ruling: three scripted beats played over nothing on every winning plan (the group they act on
+  // already dead, or not yet spawned, when they fired). Each was re-keyed, and each must now fire in the SENSIBLE
+  // plan's world with its group alive. Literals are the lowest acceptable bar, not a measurement: fired, and >= 1 alive.
+  // Falsification (run when this was written, see the commit message): with each mission's old trigger or placement
+  // put back, its row goes red: I never fires (the old casualties_pct 50 is not reached before the 156 s win), II
+  // fires at 90 s on a dead rider, III fires at 27 s on a dead truck.
+  it('seed 424242, sensible: each re-keyed beat fires, and with its group alive', { timeout: 120_000 }, () => {
+    const BEATS = {
+      ein_qasab_1_recon: ['the_riders_pull_back_along_the_south_causeway', 'south_road'],
+      ein_qasab_2_foothold: ['riders_come_through_the_dyke_gap', 'gap'],
+      ein_qasab_3_buildup: ['hallaqs_man_runs_for_the_north_road', 'ferry'],
+    } as const;
+    let ledger: LedgerData = {};
+    for (const id of WADI_HALAM_CHAIN.slice(0, 3)) ledger = run(id, WADI_HALAM_PLANS[id], ledger);
+    const seen: Record<string, [number, number] | null> = {};
+    const code = process.exitCode;
+    try {
+      for (const id of EIN_QASAB_CHAIN) {
+        const [beat, group] = BEATS[id];
+        seen[id] = null;
+        tapMissionEvents((evs, rt, sim) => {
+          for (const e of evs) {
+            if (e.kind !== 'trigger' || e.id !== beat) continue;
+            const members = (rt as unknown as { groups: Map<string, number[]> }).groups.get(group) ?? [];
+            seen[id] = [e.tick, members.filter((i) => sim.state.alive[i] === 1).length];
+          }
+        });
+        run(id, eqSensible(id), ledger, 'victory', `${id} (sensible)`, 0);
+        tapMissionEvents(undefined);
+        // The next mission is entered on the ledger the OPTIMAL plan produces, as eq_ladder.ts builds its rungs.
+        ledger = run(id, EIN_QASAB_PLANS[id], ledger, 'victory', `${id} (chain)`, 0);
+      }
+    } finally {
+      tapMissionEvents(undefined);
+      process.exitCode = code;
+    }
+    for (const id of EIN_QASAB_CHAIN) {
+      expect(seen[id], `${BEATS[id][0]} fired in the sensible plan`).not.toBeNull();
+      expect((seen[id] as [number, number])[1], `${BEATS[id][0]}: living members of ${BEATS[id][1]} at the fire`).toBeGreaterThanOrEqual(1);
+    }
   });
 });

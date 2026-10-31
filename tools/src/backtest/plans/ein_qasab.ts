@@ -83,14 +83,44 @@ export const eq2CrestPlan: Plan = (sim, rt, ids, at) => {
     });
 };
 
+/** III: from `from` s, every 15 s while Hallaq's man lives, `armour` attack-moves up the north road to the lip above
+ *  `north_exit` (18.5,5), beyond the hamlet; once he is dead it comes back down to the head, which needs someone
+ *  standing in it for the hold. */
+function stopHimOnTheLip(sim: Parameters<Plan>[0], rt: Parameters<Plan>[1], at: Parameters<Plan>[3], armour: readonly number[], from: number): void {
+  let hunting = false;
+  for (let s = from; s < 700; s += 15)
+    at(s, () => {
+      const live = armour.filter((i) => sim.state.alive[i] === 1);
+      if (rt.objectiveStatus('kill_hallaqs_man') !== 'active') {
+        if (hunting) sim.queueCommand({ kind: 'attackMove', ids: live, ...M(24, 15) });
+        hunting = false;
+        return;
+      }
+      hunting = true;
+      sim.queueCommand({ kind: 'attackMove', ids: live, ...M(18.5, 5) });
+    });
+}
+
 // III — One Road. The armour and the feet push up the causeway to its head at t=0 (a Namer cannot wade, and the
 // causeway is the only road), the jeep and every squad the camp builds stay at the camp door, where the 100 s,
 // 200 s and 300 s waders come, and the engineers follow to the stock and bring the warehouse down once its guard is
 // quiet. The camp buys a rifle squad or an AT team whenever the purse allows (`requestBuild`).
 //
+// Hallaq's man runs for the north road the moment anything of ours sets foot on the mill islet (GH-912: the trigger
+// was `casualties_pct` 40, which fired on 30/30 seeds of every rung with his truck already dead). The column is on the
+// islet at 12 s, so he drives out of the head at 12 s and parks at `north_exit` (18,0), on the reverse slope behind
+// the lip: nothing south of the houses can see him there, and nothing removes him. From 60 s, while he lives, the
+// Namer and the Eitan go up the north road to the lip and stop him there, beyond the hamlet, and come back down to the
+// head once he is dead: the hold needs someone standing in it. Measured over 30 seeds: he dies on the lip on 30/30.
+//
+// The briefing's sharp play, the starting AT team walked across the west island to the lip, was measured too and is
+// not this plan: it gets there at about 60 s, long after he has parked, and a lone AT team walking up to a parked
+// technical loses the duel on most seeds (the DShK sees it first while it moves). It is the stop for a player who
+// holds the column back until the team is on the lip.
+//
 // With the marks the chain forwards (`eq_reed_cell`, `eq_causeway_rpg` from I, `eq_saddle_truck` from II) the three
-// ambushers spawn identified and without their ambush, so the push meets no first shot, and Hallaq's man is dead
-// by 30 s on every seed. The same plan with no marks is the carry probe in `eq_ladder.ts`.
+// ambushers spawn identified and without their ambush, so the push meets no first shot. The same plan with no marks
+// is the carry probe in `eq_ladder.ts`.
 export const eq3Plan: Plan = (sim, rt, ids, at) => {
   const apc = ids('apc_eitan');
   const armour = [...ids('ifv_namer'), ...apc];
@@ -108,15 +138,54 @@ export const eq3Plan: Plan = (sim, rt, ids, at) => {
       const st = sim.structureAt(20, 13);
       if (st >= 0) sim.queueCommand({ kind: 'demolish', ids: demo, structure: st });
     });
-  // Hallaq's man runs for the north road at 4 of 8 dead and parks at (18,0); nothing removes him, and a player who never
-  // goes after him loses on the clock (the script's T-C2 failure mode). With the marks forwarded he is dead by 30 s on
-  // every seed and this never fires; with none (the carry probe) he lives on 29 of 30 seeds' worth of fights. The Eitan
-  // and an AT team go and stop him beyond the houses; the head is held by whoever is left in it.
-  for (let s = 75; s < 700; s += 30)
+  stopHimOnTheLip(sim, rt, at, armour, 60);
+  const bought = new Set<number>();
+  for (let s = 0; s < 400; s += 10)
     at(s, () => {
-      if (rt.objectiveStatus('kill_hallaqs_man') !== 'active') return;
-      const hunters = [...apc, ...ids('at_team').slice(0, 1)].filter((i) => sim.state.alive[i] === 1);
-      sim.queueCommand({ kind: 'attackMove', ids: hunters, ...M(18.5, 4) });
+      if (!rt.requestBuild('inf_squad')) rt.requestBuild('at_team');
+      const fresh: number[] = [];
+      for (const id of [...ids('inf_squad'), ...ids('at_team')])
+        if (!feet.includes(id) && !bought.has(id)) {
+          bought.add(id);
+          fresh.push(id);
+        }
+      if (fresh.length) sim.queueCommand({ kind: 'attackMove', ids: fresh, ...M(11, 41) });
+    });
+};
+
+/**
+ * III, report only (the `head` rung): the other side of the stop decision, killing him at the head before he runs.
+ * Nothing of ours may touch the mill islet until he is dead, so the column holds on the causeway south of it, and the
+ * feet (both rifle squads and the AT team) wade across the west island and east along the north channel, which is not
+ * the islet, to within the AT team's sight of the head yard. Once he is dead the column goes up as `eq3Plan` does.
+ */
+export const eq3HeadPlan: Plan = (sim, rt, ids, at) => {
+  const apc = ids('apc_eitan');
+  const armour = [...ids('ifv_namer'), ...apc];
+  const feet = [...ids('inf_squad'), ...ids('at_team')];
+  const demo = ids('demo_squad');
+  const jeep = ids('jeep_shoded');
+  at(0, () => {
+    sim.queueCommand({ kind: 'attackMove', ids: armour, ...M(24, 23) });
+    sim.queueCommand({ kind: 'attackMove', ids: feet, ...M(24, 25) });
+    sim.queueCommand({ kind: 'move', ids: demo, ...M(24, 28) });
+    sim.queueCommand({ kind: 'attackMove', ids: jeep, ...M(11, 41) });
+  });
+  // Up to the head once he is dead, or at 90 s whatever has happened: then he runs, and the lip is the stop.
+  let pushed = false;
+  for (let s = 5; s <= 90; s += 5)
+    at(s, () => {
+      if (pushed || (s < 90 && rt.objectiveStatus('kill_hallaqs_man') === 'active')) return;
+      pushed = true;
+      sim.queueCommand({ kind: 'attackMove', ids: armour.filter((i) => sim.state.alive[i] === 1), ...M(24, 16) });
+      sim.queueCommand({ kind: 'attackMove', ids: feet.filter((i) => sim.state.alive[i] === 1), ...M(24, 19) });
+      sim.queueCommand({ kind: 'move', ids: demo, ...M(24, 26) });
+    });
+  stopHimOnTheLip(sim, rt, at, armour, 105);
+  for (let s = 45; s < 330; s += 15)
+    at(s, () => {
+      const st = sim.structureAt(20, 13);
+      if (pushed && st >= 0) sim.queueCommand({ kind: 'demolish', ids: demo, structure: st });
     });
   const bought = new Set<number>();
   for (let s = 0; s < 400; s += 10)
@@ -164,8 +233,9 @@ export const eqNaive = (id: string): Plan => {
  *      the jeep fetches the hamlet pair. The Eitan stays at the start line.
  *  II  the force holds the hollow centre, re-anchored every 45 s; the engineers raise the outpost in the hollow and
  *      then demolish what stands in the barn yard; the mortar sits behind.
- *  III the force pushes to the causeway head and re-anchors every 45 s; the engineers take the stock; the camp
- *      buys a squad whenever the purse allows.
+ *  III the force pushes to the causeway head and re-anchors every 45 s; from 60 s, while Hallaq's man lives, the
+ *      armour goes up the north road to the lip above `north_exit` to stop him, as the briefing says; the engineers
+ *      take the stock; the camp buys a squad whenever the purse allows.
  */
 export const eqSensible = (id: string): Plan => {
   const map = mapOf(id);
@@ -238,14 +308,26 @@ const eqSensibleLegacy = (id: string): Plan => {
     };
   return (sim, rt, ids, at) => {
     const demo = ids('demo_squad');
+    // "Stop him beyond the hamlet": once he has run, the armour goes up the north road to the lip above `north_exit`
+    // (written against the marker) and comes back to the head when he is dead.
+    const armour = [...ids('ifv_namer'), ...ids('apc_eitan')];
     const kept = new Set(demo);
     const head = map.markers.causeway_head;
-    const anchor = (): void => sim.queueCommand({ kind: 'attackMove', ids: own(sim).filter((i) => !kept.has(i)), ...M(head[0], head[1] + 2) });
+    const exit = map.markers.north_exit;
+    const hunting = (): boolean => rt.objectiveStatus('kill_hallaqs_man') === 'active';
+    const anchor = (s: number): void => {
+      const away = new Set(s >= 60 && hunting() ? armour : []);
+      sim.queueCommand({ kind: 'attackMove', ids: own(sim).filter((i) => !kept.has(i) && !away.has(i)), ...M(head[0], head[1] + 2) });
+    };
     at(1, () => {
-      anchor();
+      anchor(1);
       sim.queueCommand({ kind: 'move', ids: demo, ...M(head[0], head[1] + 8) });
     });
-    for (let s = 45; s < 800; s += 45) at(s, anchor);
+    for (let s = 45; s < 800; s += 45) at(s, () => anchor(s));
+    for (let s = 60; s < 800; s += 45)
+      at(s, () => {
+        if (hunting()) sim.queueCommand({ kind: 'attackMove', ids: armour.filter((i) => sim.state.alive[i] === 1), ...M(exit[0] + 0.5, exit[1] + 5) });
+      });
     for (let s = 60; s < 800; s += 15)
       at(s, () => {
         const z = map.zones.stock_yard;

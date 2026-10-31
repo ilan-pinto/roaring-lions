@@ -358,10 +358,11 @@
     },
     {
       "id": "the_riders_pull_back_along_the_south_causeway",
-      "label": "Riders pull back along the south causeway",
+      "label": "Wheels on the south causeway turn back",
       "on": {
-        "kind": "casualties_pct",
-        "value": 50
+        "kind": "group_in_zone",
+        "group": "south_road",
+        "zone": "south_causeway"
       },
       "do": {
         "kind": "withdraw_to",
@@ -370,7 +371,7 @@
       },
       "say": {
         "speaker": "idit",
-        "text": "They are pulling out the only way wheels can here, back along the south causeway. Whatever is still standing on it is in their road."
+        "text": "Wheels off the south-east onto the south causeway, and they are turning back already. Nothing on wheels can leave that road here, so out is the way they came in."
       }
     }
   ]
