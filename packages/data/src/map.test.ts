@@ -155,9 +155,9 @@ describe('the backdrop block (GH-161)', () => {
     expect(() => parseMap(bad({ pieces: [{ id: 'bd_wall_far_a', at: [0, 8], rot: 0, ys: 2 }] }))).toThrow(/ys/);
   });
 
-  it('is on Wadi Halam IV and no other shipped map', () => {
+  it('is on Wadi Halam IV and the Ein Qasab town\u2019s new maps (GH-912), and no other shipped map', () => {
     const withBlock = Object.entries(maps).filter(([, m]) => parseMap(m as MapJson).backdrop !== null).map(([id]) => id);
-    expect(withBlock).toEqual(['wadi_halam_4']);
+    expect(withBlock).toEqual(['jebel_matar', 'wadi_halam_4']);
   });
 });
 

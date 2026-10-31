@@ -27,11 +27,11 @@ import { parseWorld } from '../campaign';
 import worldJson from '../../../../data/campaign/world.json';
 import en from '../i18n/en.json';
 
-// The shipped maps the picker lists. Ein Qasab is held out until P3's art
-// (GH-871): a LITERAL, so these specs do not read the answer off the code
-// under test. Delete it here with the entry in menu.ts's UNLISTED_MAP_IDS.
-const HELD_OUT = 'ein_qasab';
-const listedIds = (): string[] => Object.keys(maps).filter((id) => id !== HELD_OUT);
+// The shipped maps the picker lists. The Ein Qasab town's maps are held out until
+// P3's art (GH-871, GH-912): LITERALS, so these specs do not read the answer off
+// the code under test. Delete them here with the entries in menu.ts's UNLISTED_MAP_IDS.
+const HELD_OUT: readonly string[] = ['ein_qasab', 'jebel_matar'];
+const listedIds = (): string[] => Object.keys(maps).filter((id) => !HELD_OUT.includes(id));
 
 const render = (): HTMLElement => {
   const stage = document.createElement('div');
@@ -68,22 +68,24 @@ describe('the map list', () => {
     expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(listedIds().sort());
   });
 
-  it('holds Ein Qasab out of the picker until P3 ships its art (GH-871)', () => {
-    // 36 maps ship; the picker lists 35. Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(36);
-    expect(Object.keys(maps)).toContain('ein_qasab');
+  it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
+    // 37 maps ship; the picker lists 35. Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(37);
+    for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
     expect(links).toHaveLength(35);
-    expect(links.map((a) => a.dataset.map)).not.toContain('ein_qasab');
-    // Nothing on the screen links to it either, by any spelling of the route.
-    expect(stage.innerHTML).not.toContain('ein_qasab');
-    expect(stage.querySelector('a[href*="ein_qasab"]')).toBeNull();
+    for (const id of HELD_OUT) {
+      expect(links.map((a) => a.dataset.map)).not.toContain(id);
+      // Nothing on the screen links to it either, by any spelling of the route.
+      expect(stage.innerHTML).not.toContain(id);
+      expect(stage.querySelector(`a[href*="${id}"]`)).toBeNull();
+    }
   });
 
-  it('pins the unlisted set to exactly Ein Qasab', () => {
-    // Delete the pin with the entry when P3 ships.
-    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab']);
+  it('pins the unlisted set to exactly the Ein Qasab town maps', () => {
+    // Delete the pin with the entries when P3 ships.
+    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'jebel_matar']);
   });
 
   it('every unlisted id names a shipped map, so the set cannot go stale silently', () => {
@@ -116,7 +118,7 @@ describe('the map list', () => {
         return (json as { id: string }).id;
       });
     expect(onDisk.length).toBeGreaterThan(0);
-    expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(onDisk.filter((id) => id !== HELD_OUT).sort());
+    expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(onDisk.filter((id) => !HELD_OUT.includes(id)).sort());
   });
 
   it('shows each map by its human name, never its id -- the id is what the URL takes, not what the player reads', () => {
@@ -170,7 +172,7 @@ describe('the map cards (PA-25)', () => {
       const ctx = { fillStyle: '', fillRect() {} };
       HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
       const stage = render();
-      for (const [id, m] of Object.entries(maps as Record<string, MapJson>).filter(([k]) => k !== HELD_OUT)) {
+      for (const [id, m] of Object.entries(maps as Record<string, MapJson>).filter(([k]) => !HELD_OUT.includes(k))) {
         const c = stage.querySelector<HTMLCanvasElement>(`a[data-map="${id}"] canvas.rl-mapcard__preview`);
         expect(c, id).not.toBeNull();
         expect([c?.width, c?.height], id).toEqual([m.width, m.height]);

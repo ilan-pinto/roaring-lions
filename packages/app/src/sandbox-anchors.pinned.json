@@ -109,6 +109,16 @@
       12
     ]
   },
+  "jebel_matar": {
+    "friendly": [
+      24,
+      45
+    ],
+    "hostile": [
+      22,
+      13
+    ]
+  },
   "marj_perimeter": {
     "friendly": [
       24,
