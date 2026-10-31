@@ -33,7 +33,7 @@ import { terrainTonesFor } from '../terrain-themes';
  *  for dev work, and the map stays in `@lions/data` and the Worker's
  *  `SHIPPED_MAP_IDS`. `sandbox-menu.test.ts` pins this set to exactly this
  *  list and fails if an entry names no shipped map. */
-export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab', 'jebel_matar']);
+export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */

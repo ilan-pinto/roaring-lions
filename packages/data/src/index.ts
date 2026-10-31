@@ -27,6 +27,7 @@ import deirAmunMap from '../../../data/maps/deir_amun.json';
 import deirAmun2Map from '../../../data/maps/deir_amun_2.json';
 import deirAmun3Map from '../../../data/maps/deir_amun_3.json';
 import einQasab from '../../../data/maps/ein_qasab.json';
+import einQasab3 from '../../../data/maps/ein_qasab_3.json';
 import jebelMatar from '../../../data/maps/jebel_matar.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
@@ -317,6 +318,7 @@ export const maps = {
   deir_amun_2: deirAmun2Map,
   deir_amun_3: deirAmun3Map,
   ein_qasab: einQasab,
+  ein_qasab_3: einQasab3,
   jebel_matar: jebelMatar,
   marj_perimeter: marjPerimeter,
   milh_flats: milhFlats,

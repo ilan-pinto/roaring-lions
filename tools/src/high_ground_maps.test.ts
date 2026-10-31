@@ -18,7 +18,9 @@ const MAP_DIR = join(__dirname, '..', '..', 'data', 'maps');
  *  relief map, 1 rise: 24 relief maps, 116 rises, 11 flat. Ein Qasab (GH-871 P2 T7, 29 Oct 2026) is
  *  the 25th relief map, 1 rise: 25 relief maps, 117 rises, 11 flat (the flat count is unchanged: it
  *  carries an elevation grid). Jebel Matar (GH-912, 31 Oct 2026) is the 26th, 6 rises (read on first
- *  run): 26 relief maps, 123 rises, 11 flat. Three relief maps pin 0 -- they have an elevation grid
+ *  run): 26 relief maps, 123 rises, 11 flat. Ein Qasab III's lower causeway (GH-912) is the 27th, 1
+ *  rise (read on first run): 27 relief maps, 124
+ *  rises, 11 flat. Three relief maps pin 0 -- they have an elevation grid
  *  and no tile two levels over their own median -- and the pin still guards them against a rise
  *  appearing. */
 const RISES: Record<string, number> = {
@@ -28,6 +30,7 @@ const RISES: Record<string, number> = {
   deir_amun_2: 7,
   deir_amun_3: 2,
   ein_qasab: 1,
+  ein_qasab_3: 1,
   jebel_matar: 6,
   khan_rafid_2: 8,
   milh_flats: 6,
@@ -87,7 +90,7 @@ describe('shipped maps: high ground', () => {
     expect(ids.length).toBeGreaterThan(30);
     const relief = ids.filter((id) => results.get(id)?.relief);
     const flat = ids.filter((id) => !results.get(id)?.relief);
-    expect(relief.length).toBe(26);
+    expect(relief.length).toBe(27);
     expect(flat.length).toBe(11);
   });
 

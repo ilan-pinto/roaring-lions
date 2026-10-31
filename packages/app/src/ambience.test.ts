@@ -26,6 +26,7 @@ const EXPECTED: Record<keyof typeof maps, AmbienceBed> = {
   deir_amun_2: 'open',
   deir_amun_3: 'open',
   ein_qasab: 'open',
+  ein_qasab_3: 'open',
   jebel_matar: 'open',
   marj_perimeter: 'open',
   milh_flats: 'open',

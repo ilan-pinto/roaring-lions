@@ -662,7 +662,7 @@ describe('mesh catalogue: props (ground plan 2, Task 4)', () => {
   it('propKindsFor adds the bale and the culvert for exactly the maps whose theme mixes them (GH-871 P3)', () => {
     // Every wetland map, Ein Qasab I's marsh and the town's two new grounds alike (GH-912), mixes them in.
     const wetland = Object.entries(maps).filter(([, json]) => parseMap(json).terrain === 'wetland').map(([id]) => id);
-    expect(wetland).toEqual(['ein_qasab', 'jebel_matar']);
+    expect(wetland).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
     for (const id of wetland) {
       expect([...propKindsFor(parseMap(maps[id as keyof typeof maps]))].sort(), id).toEqual([...GROUND_PROP_KINDS, ...WET_PROP_KIND_NAMES].sort());
     }

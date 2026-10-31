@@ -109,6 +109,16 @@
       12
     ]
   },
+  "ein_qasab_3": {
+    "friendly": [
+      8,
+      44
+    ],
+    "hostile": [
+      23,
+      25
+    ]
+  },
   "jebel_matar": {
     "friendly": [
       24,
