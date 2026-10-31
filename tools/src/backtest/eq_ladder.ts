@@ -9,6 +9,7 @@
 //   EQ_CARRY=1                                Ein Qasab III's carry probe: with the marks forwarded vs without
 //   EQ_FROM=wh3|wh5                           the ledger Ein Qasab I is played on (default wh3: the town opens after it)
 //   EQ_V=1                                    one line per seed
+//   EQ_SEED_BASE=100                          seeds 100..(100+seeds-1): a hold-out set, not the sweep seeds
 //
 // The rungs, written against MARKERS AND ZONES (never coordinates) except `optimal`:
 //   passive  - no orders at all.
@@ -34,7 +35,8 @@ const seedsN = Number(process.argv[2] ?? 30);
 const only = process.argv.slice(3);
 const TIERS = (process.env.EQ_TIERS ?? 'passive,naive,sensible,optimal').split(',').filter(Boolean) as Tier[];
 const MEASURE = only.length > 0 ? only : [...EIN_QASAB_CHAIN];
-const SEEDS = SWEEP_SEEDS.slice(0, seedsN);
+// EQ_SEED_BASE=100: seeds 100.. instead of the sweep seeds, a hold-out set for a plan chosen on the sweep.
+const SEEDS = process.env.EQ_SEED_BASE ? Array.from({ length: seedsN }, (_, k) => Number(process.env.EQ_SEED_BASE) + k) : SWEEP_SEEDS.slice(0, seedsN);
 void fx;
 
 interface Result {

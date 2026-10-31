@@ -231,7 +231,7 @@ export const eqNaive = (id: string): Plan => {
  *  I   on foot, as the briefing's second option: the sniper to the west bank, the drone over the west causeway
  *      mouth, both rifle squads and the AT team walk out to the carriers (shepherd radius, 4 tiles) and then home,
  *      the jeep fetches the hamlet pair. The Eitan stays at the start line.
- *  II  the force holds the hollow centre, re-anchored every 45 s; the engineers raise the outpost in the hollow and
+ *  II  the force holds the hollow on the barn side of the yard, re-anchored every 45 s; the engineers raise the outpost in the hollow and
  *      then demolish what stands in the barn yard; the mortar sits behind.
  *  III the force pushes to the causeway head and re-anchors every 45 s; from 60 s, while Hallaq's man lives, the
  *      armour goes up the north road to the lip above `north_exit` to stop him, as the briefing says; the engineers
@@ -288,7 +288,14 @@ const eqSensibleLegacy = (id: string): Plan => {
       const c = centre(map.zones.hollow);
       const anchor = (): void => {
         const cur = own(sim).filter((i) => !kept.has(i));
-        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(c[0], c[1] + 3) });
+        // On the barn side of the yard, (c+2, c-1), with the house to the force's south-west: the briefing bills every
+        // round near the yard, and the north waves come down to the farmhouse's north edge. Anchored south of the house
+        // at (c, c+3) the force shot at them across it: on seed 22 the 195 s foot wave held the north edge for 80 s
+        // under the 215 s swarm and the cannon's misses billed the farmhouse every 10 s to a Conduct collapse (29/30).
+        // GH-912, measured on the sweep seeds and on hold-out seeds 100..129 (wins, Conduct mean/min):
+        //   (c, c+3)    30 sweep 29/30 68/57, hold-out 30/30 68/57
+        //   (c+2, c-1)  30 sweep 30/30 83/66, hold-out 30/30 84/71
+        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(c[0] + 2, c[1] - 1) });
       };
       at(1, () => {
         rt.requestConstruct('kdf_outpost', 18, 24, demo);
