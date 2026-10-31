@@ -7,6 +7,7 @@ import commanderJson from '../../../../data/campaign/commander.json';
 import type { LedgerData, MissionJson } from '@lions/sim';
 import { missions } from '@lions/data';
 import { parseCommander, parseCountries, parseWorld, type CommanderData } from '../campaign';
+import { gatedWorldJson, ledgerBeforeNaharin } from '../gated-town.fixture';
 import { ledgerLine, worldMap } from './worldmap';
 import { t } from '../i18n/t';
 import { showCampaign, showMenu } from './menu';
@@ -436,5 +437,30 @@ describe("the board's motivation surfaces", () => {
   it('keeps the account of the taken under the cards', () => {
     const el = render({ 'civ.hostages_recovered': { beit_sahwan_4_subterranean: 2 } });
     expect(el.querySelector('.rl-world__taken')?.textContent).toBe('Seventeen still out.');
+  });
+});
+
+// GH-912 G1: a town's own gate, on the flat board.
+describe('a town-level gate on the flat board (GH-912 G1)', () => {
+  const gated = parseWorld(gatedWorldJson());
+  const whIII = 'Wadi Halam III \u2014 The Cattle Track';
+  const named = (id: string) => (id === 'wadi_halam_3_counterraid' ? { objectives: [], name: whIII } : undefined);
+
+  it('T7 locks the gated marker with the sentence as its title and no link; the open town keeps its link', () => {
+    const el = worldMap({
+      base: '/',
+      world: gated,
+      countries,
+      ledger: ledgerBeforeNaharin(),
+      href: (id) => `/mission/${id}`,
+      missionOf: named,
+    });
+    const eq = el.querySelector('[data-town="ein_qasab"]') as HTMLElement;
+    expect(eq.getAttribute('data-status')).toBe('locked');
+    expect(eq.title).toBe(`Clear ${whIII} first`);
+    expect(eq.title).not.toContain('wadi_halam_3_counterraid');
+    expect(eq.querySelector('a')).toBeNull();
+    const wh = el.querySelector('[data-town="wadi_halam"] a') as HTMLAnchorElement;
+    expect(wh.getAttribute('href')).toBe('/mission/wadi_halam_1_fords');
   });
 });

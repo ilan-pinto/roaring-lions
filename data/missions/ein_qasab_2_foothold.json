@@ -1,0 +1,387 @@
+{
+  "id": "ein_qasab_2_foothold",
+  "name": "Ein Qasab II — Dead Ground",
+  "town": "ein_qasab",
+  "phase": "foothold",
+  "target_minutes": 7,
+  "time_limit_s": 840,
+  "briefing": "The farm in this hollow is the winter road's staging post, and his drone crates sit in its barn waiting for the rain to stop. The crests either side stand four levels over it, and nothing off the north downs is in sight until it tops them. Hold the hollow for five minutes and burn the barn inside the same five. The engineers' charges are clean and slow under fire; the mortar and the Namer are quick, and every round near that yard is billed. A family is in the yard between the house and the barn, two tiles from the cell inside it. There is a truck in the north saddle, and identified today it is a known gun over the causeway head, not a first shot. You have the logistics for one outpost. Dig it into the hollow and it sees nothing; put it on the crest and it sees them coming, from outside the ground you have to hold. Every wheel from the east comes through one two-tile gap in the dyke. From the north it is the saddle for wheels and the crest for feet. The barn is the order; the house and the family beside it are on the rating.",
+  "briefing_image": "ui/plates/units/demo_squad.jpg",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "The farm is ours and the barn is ash. Whatever comes over those crests now comes down into us, and we see it on the skyline first."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "We are off the farm and they are back in the hollow. From the crest you cannot see what they are putting in it."
+    }
+  },
+  "map": {
+    "file": "jebel_matar",
+    "player_start": [
+      24,
+      45
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "intel.marked_positions"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        23,
+        44
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        25,
+        46
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        22,
+        45
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        26,
+        44
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "mortar_team",
+      "count": 1,
+      "at": [
+        21,
+        46
+      ]
+    },
+    {
+      "unit": "demo_squad",
+      "count": 1,
+      "at": [
+        22,
+        46
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        20,
+        44
+      ]
+    }
+  ],
+  "field_works": {
+    "kdf_outpost": 1
+  },
+  "resources": {
+    "logistics_start": 400
+  },
+  "objectives": [
+    {
+      "id": "hold_the_hollow",
+      "type": "hold_for",
+      "primary": true,
+      "target": "hollow",
+      "seconds": 300,
+      "text": "Hold the farm hollow for five minutes",
+      "say": {
+        "speaker": "net",
+        "text": "Five minutes in the hollow, uncontested. The farm is the brigade's for the rest of the week."
+      }
+    },
+    {
+      "id": "burn_the_barn",
+      "type": "raze",
+      "primary": true,
+      "target": "barn_yard",
+      "seconds": 300,
+      "text": "Burn the barn and the crates inside five minutes",
+      "say": {
+        "speaker": "idit",
+        "text": "Crates, fuel and launch rails, under the hay. The swarms over the cattle track came out of barns like this one, and this one was waiting for the rain to stop."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "Five minutes, and the barn is standing with the crates in it. When the rain stops, they fly."
+      }
+    },
+    {
+      "id": "mark_the_saddle_truck",
+      "type": "locate",
+      "primary": false,
+      "carries": true,
+      "target": "eq_saddle_truck",
+      "text": "Identify the truck in the north saddle",
+      "say": {
+        "speaker": "idit",
+        "text": "That is the saddle crew. Wherever it is parked when we reach the causeway head, it is on the board now."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "farmhouse"
+    ],
+    "fail_below": 40
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 1,
+        "at": [
+          23.5,
+          21.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 1,
+        "at": [
+          24.5,
+          22.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "rif",
+    "doctrine_profile": "raids from two doors",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          25.5,
+          21.5
+        ],
+        "tag": "eq_barn_cell",
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            26,
+            21
+          ]
+        }
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          12.5,
+          22.5
+        ],
+        "facing_deg": 90,
+        "tag": "eq_pocket_rpg",
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        }
+      },
+      {
+        "unit": "technical",
+        "count": 1,
+        "at": [
+          34.5,
+          11.5
+        ],
+        "facing_deg": 180,
+        "group": "saddle",
+        "tag": "eq_saddle_truck",
+        "stance": {
+          "kind": "hold_position"
+        }
+      },
+      {
+        "unit": "moto_rpg",
+        "count": 1,
+        "at": [
+          30.5,
+          27.5
+        ],
+        "facing_deg": 135,
+        "group": "gap",
+        "tag": "eq_gap_rider",
+        "stance": {
+          "kind": "patrol",
+          "waypoints": [
+            [
+              30.5,
+              27.5
+            ],
+            [
+              37.5,
+              35.5
+            ]
+          ]
+        }
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 60,
+        "to": "farm",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_n"
+          }
+        ]
+      },
+      {
+        "at_seconds": 105,
+        "to": "farm",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "rif_nw"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "Two cells walking over the north crest on foot. From the farm they are not there until they are on the skyline."
+        }
+      },
+      {
+        "at_seconds": 150,
+        "to": "farm",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_e"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_e"
+          }
+        ]
+      },
+      {
+        "at_seconds": 195,
+        "to": "farm",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 1,
+            "from": "rif_nw"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "rif_nw"
+          }
+        ]
+      },
+      {
+        "at_seconds": 215,
+        "to": "farm",
+        "units": [
+          {
+            "unit": "drone_swarm",
+            "count": 1,
+            "from": "rif_n",
+            "group": "crates",
+            "tag": "eq_crates_swarm"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "A swarm off the north downs. Not every crate on this road was in that barn."
+        }
+      },
+      {
+        "at_seconds": 240,
+        "to": "farm",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 2,
+            "from": "rif_n"
+          }
+        ]
+      },
+      {
+        "at_seconds": 285,
+        "to": "farm",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_e"
+          }
+        ]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "the_saddle_truck_comes_down_to_the_farm",
+      "label": "Saddle truck comes down to the farm",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "hollow"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "saddle",
+        "to": "farm"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "The truck in the saddle has started down the north track for the farm. If it is going to be identified on this ground, it is now."
+      }
+    },
+    {
+      "id": "riders_come_through_the_dyke_gap",
+      "label": "Riders come through the dyke gap",
+      "on": {
+        "kind": "timer_s",
+        "value": 90
+      },
+      "do": {
+        "kind": "commit",
+        "group": "gap",
+        "to": "farm"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "Riders through the dyke gap, one at a time, because that is all it is wide. It is the only door on that side."
+      }
+    }
+  ]
+}

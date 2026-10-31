@@ -24,6 +24,7 @@ import type { Plan } from '../playtest-run';
 import { ROOT } from '../../map_visibility';
 import { missionCredits, run, runLog } from '../playtest-run';
 import { firstLightPlan } from './beit_sahwan';
+import { EIN_QASAB_CHAIN, EIN_QASAB_PLANS, eq1Plan, eq2Plan, eq3Plan } from './ein_qasab';
 import { telMarum3ArmourPlan, telMarum3FootPlan, telMarum3Plan } from './tel_marum';
 import {
   WADI_HALAM_CHAIN,
@@ -162,5 +163,51 @@ describe('the shared plans: behaviour', () => {
       .filter((l) => l.startsWith('xcheck '))
       .map((l) => l.replace(/, objectives .*$/, ''));
     expect(got).toEqual(expected);
+  });
+});
+
+describe('the shared plans: Ein Qasab', () => {
+  it('the table is the three exports, in chain order, and plain functions', () => {
+    expect([...EIN_QASAB_CHAIN]).toEqual(['ein_qasab_1_recon', 'ein_qasab_2_foothold', 'ein_qasab_3_buildup']);
+    EIN_QASAB_CHAIN.forEach((id, k) => expect(EIN_QASAB_PLANS[id], id).toBe([eq1Plan, eq2Plan, eq3Plan][k]));
+    for (const p of Object.values(EIN_QASAB_PLANS)) expect(typeof p).toBe('function');
+  });
+
+  it('playtest.ts runs each by name, on the ledger the last produced, and eq_ladder.ts keeps no copy', () => {
+    const src = source('playtest.ts');
+    expect(src).toMatch(/run\('ein_qasab_1_recon', EIN_QASAB_PLANS\.ein_qasab_1_recon, wh3,/);
+    expect(src).toMatch(/run\('ein_qasab_2_foothold', EIN_QASAB_PLANS\.ein_qasab_2_foothold, eq1,/);
+    expect(src).toMatch(/run\('ein_qasab_3_buildup', EIN_QASAB_PLANS\.ein_qasab_3_buildup, eq2,/);
+    expect(src).toMatch(/from '\.\/plans\/ein_qasab'/);
+    const ladder = source('eq_ladder.ts');
+    expect(ladder).toMatch(/from '\.\/plans\/ein_qasab'/);
+    expect(ladder).not.toMatch(/ein_qasab_\d_[a-z]+:\s*\(sim/);
+  });
+
+  it('seed 424242, down the chain: the lines pnpm playtest prints, and the marks the carries leave', { timeout: 120_000 }, () => {
+    // Literals, read off `pnpm playtest` on the day the plans were written. The ledger is built the way the harness
+    // builds it: Wadi Halam I..III first, then each Ein Qasab mission on the ledger the one before produced.
+    expect(process.env.PT_SEED).toBeUndefined();
+    const lines: string[] = [];
+    let ledger: LedgerData = {};
+    for (const id of WADI_HALAM_CHAIN.slice(0, 3)) ledger = run(id, WADI_HALAM_PLANS[id], ledger);
+    const ledgers: LedgerData[] = [];
+    for (const id of EIN_QASAB_CHAIN) {
+      ledger = run(id, EIN_QASAB_PLANS[id], ledger, 'victory', id, id === 'ein_qasab_3_buildup' ? 2 : 3);
+      ledgers.push(ledger);
+      const r = runLog[runLog.length - 1];
+      lines.push(`${id}: ${r.result.toUpperCase()} in ${r.minutes.toFixed(1)} min, ROE ${r.roe}, stars ${r.stars}, credits ${missionCredits.get(id)}`);
+    }
+    expect(lines).toEqual([
+      'ein_qasab_1_recon: VICTORY in 1.3 min, ROE 100, stars 3, credits 250',
+      'ein_qasab_2_foothold: VICTORY in 6.6 min, ROE 90, stars 3, credits 250',
+      'ein_qasab_3_buildup: VICTORY in 6.2 min, ROE 70, stars 2, credits 150',
+    ]);
+    // What Ein Qasab III reads: I leaves the reed cell (its carrying secondary) and the causeway RPG team (the drone's
+    // mark); II adds the saddle truck (its carrying secondary).
+    const marks = (l: LedgerData): string[] => (l['intel.marked_positions'] as string[] | undefined) ?? [];
+    expect(marks(ledgers[0])).toEqual(expect.arrayContaining(['eq_reed_cell', 'eq_causeway_rpg']));
+    expect(marks(ledgers[0])).not.toContain('eq_saddle_truck');
+    expect(marks(ledgers[1])).toEqual(expect.arrayContaining(['eq_reed_cell', 'eq_causeway_rpg', 'eq_saddle_truck']));
   });
 });

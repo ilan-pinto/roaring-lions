@@ -27,6 +27,10 @@ export interface AfterActionObjective {
   text: string;
   primary: boolean;
   carries: boolean;
+  /** Who reads what this objective carries (GH-912 G-T): `undefined` for an objective with
+   *  no recon tag (a count, an HVT kill), which keeps naming the town's `next`; `null` when
+   *  it has a tag nothing later reads; else the mission that does. */
+  carriesInto?: { name: string } | null;
   status: 'active' | 'complete' | 'failed';
 }
 
@@ -259,10 +263,11 @@ export function afterAction(i: AfterActionInputs): AfterAction {
       changed.push({ mark: t('aar.mark.garage'), tone: 'commend', text: t('aar.changed.buyable', { list: i.unlocks.map((u) => u.name).join(', ') }), sub });
     }
     for (const o of i.objectives.filter((x) => !x.primary && x.carries && x.status === 'complete')) {
+      const reader = o.carriesInto === undefined ? i.next : o.carriesInto;
       changed.push({
         mark: t('aar.mark.carries'),
         tone: 'commend',
-        text: i.next ? t('aar.changed.carriesInto', { text: o.text, next: i.next.name }) : t('aar.changed.carries', { text: o.text }),
+        text: reader ? t('aar.changed.carriesInto', { text: o.text, next: reader.name }) : t('aar.changed.carries', { text: o.text }),
       });
     }
   }

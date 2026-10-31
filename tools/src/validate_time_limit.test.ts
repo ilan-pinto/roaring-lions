@@ -58,6 +58,7 @@ describe('the shipped limits', () => {
     tel_marum_2_foothold: 720, tel_marum_3_clearance: 840, qarn_hadid_1_recon: 720,
     qarn_hadid_2_foothold: 840, qarn_hadid_3_clearance: 840, umm_zeitoun_1_recon: 720,
     umm_zeitoun_2_buildup: 840, umm_zeitoun_3_clearance: 840, umm_zeitoun_4_clearance: 840,
+    ein_qasab_1_recon: 720, ein_qasab_2_foothold: 840, ein_qasab_3_buildup: 840,
   };
   const dir = join(ROOT, 'data/missions');
   const shipped = readdirSync(dir).filter((n) => n.endsWith('.json'));

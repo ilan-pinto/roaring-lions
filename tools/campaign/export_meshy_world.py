@@ -313,6 +313,12 @@ TOWN_SITES = {
                                               # short of the treeline -- 2026-09-07
     "umm_zeitoun": ("sur", 0.520, 0.600),    # the wadi head below the ridge
     # naharin -- the western forest corridor
+    "ein_qasab": ("naharin", 0.200, 0.360),   # a clearing on the same forest
+                                              # belt, 0.077 of the board's depth
+                                              # south of wadi_halam, on open
+                                              # ground (z 0.076, not a treetop) with
+                                              # 0.04 of Naharin to spare before
+                                              # Marj's border -- GH-912
     "wadi_halam": ("naharin", 0.196, 0.437),  # the river bank
 }
 

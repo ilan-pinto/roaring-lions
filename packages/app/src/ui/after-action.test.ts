@@ -142,6 +142,41 @@ describe('afterAction (GH-417, H4/H5)', () => {
   });
 });
 
+// GH-912 G-T: "Carries into ..." names the mission that READS the tag, not the town's next one.
+describe('what a carrying objective says it carries into (GH-912 G-T)', () => {
+  const carrier = (carriesInto?: { name: string } | null) => [
+    { id: 'raze', text: 'Raze the depot', primary: true, carries: false, status: 'complete' as const },
+    {
+      id: 'cell',
+      text: 'Find the reed cell',
+      primary: false,
+      carries: true,
+      status: 'complete' as const,
+      ...(carriesInto !== undefined ? { carriesInto } : {}),
+    },
+  ];
+  const carried = (objectives: ReturnType<typeof carrier>) =>
+    afterAction(wh5({ objectives, next: { name: 'Khan Rafid I' } })).changed.filter((c) => c.text.includes('Find the reed cell'));
+
+  it('names the reader, not the town\u2019s next mission', () => {
+    const c = carried(carrier({ name: 'Ein Qasab III' }));
+    expect(c.map((x) => x.text)).toEqual(['Carries into Ein Qasab III: Find the reed cell']);
+  });
+
+  it('a tag nothing later reads says "forward", never a mission', () => {
+    expect(carried(carrier(null)).map((x) => x.text)).toEqual(['Carries forward: Find the reed cell']);
+  });
+
+  it('an objective with no tag keeps naming the town\u2019s next mission', () => {
+    expect(carried(carrier(undefined)).map((x) => x.text)).toEqual(['Carries into Khan Rafid I: Find the reed cell']);
+  });
+
+  it('the "done well" sub-line no longer claims the next mission', () => {
+    const well = afterAction(wh5({ objectives: carrier({ name: 'Ein Qasab III' }) })).well.find((w) => w.text === 'Find the reed cell');
+    expect(well?.sub).toBe('Carries into a later mission');
+  });
+});
+
 describe('afterAction, review round', () => {
   it('a defeat below the line says its Conduct; a win’s recon marks are a thing done well', () => {
     const lost = afterAction(wh5({ result: 'defeat', roe: 32, failure: 'Conduct fell below the mission floor · 4:00' }));

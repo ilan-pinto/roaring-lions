@@ -38,6 +38,7 @@
     },
     "naharin": {
       "portrait": "jubran_hallaq.png", "name": "Jubran Hallaq",
+      "ends_at": "wadi_halam_5_depot",
       "lines": {
         "at_large": "Everything under the Marj and over Sur came up his road.",
         "captured": "Taken at his own gate. He asks what happens to the road.",

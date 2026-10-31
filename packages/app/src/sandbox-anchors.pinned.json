@@ -109,6 +109,26 @@
       12
     ]
   },
+  "ein_qasab_3": {
+    "friendly": [
+      8,
+      44
+    ],
+    "hostile": [
+      23,
+      25
+    ]
+  },
+  "jebel_matar": {
+    "friendly": [
+      24,
+      45
+    ],
+    "hostile": [
+      22,
+      13
+    ]
+  },
   "marj_perimeter": {
     "friendly": [
       24,
