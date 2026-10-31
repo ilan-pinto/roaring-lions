@@ -207,6 +207,17 @@
               "dispatch_radius": { "type": "number", "minimum": 0, "maximum": 64 }
             }
           },
+          "versus_aid": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["admit_radius", "treat_s", "dispatch_radius"],
+            "description": "GH-707 (the lead, 30 Oct 2026): the `aid` block this type takes in a VERSUS economy room only, where the KDF camp is its side's drop-off for a carried wounded man. A mission, the sandbox and every other world register the type without it, so a campaign camp admits nobody. Same shape as `aid`; read by the app's versus world builder (`standMapStructures`), never by the sim.",
+            "properties": {
+              "admit_radius": { "type": "number", "minimum": 0, "maximum": 64 },
+              "treat_s": { "type": "number", "exclusiveMinimum": 0, "maximum": 1600 },
+              "dispatch_radius": { "type": "number", "minimum": 0, "maximum": 64 }
+            }
+          },
           "construction_mesh": {
             "type": "string",
             "description": "Presentation only."

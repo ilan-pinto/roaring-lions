@@ -98,7 +98,12 @@
       "height_px": 20,
       "color": "olive.1",
       "roe_penalty": 0,
-      "produces_for": 0
+      "produces_for": 0,
+      "versus_aid": {
+        "admit_radius": 1.5,
+        "treat_s": 20,
+        "dispatch_radius": 12
+      }
     },
     "clinic": {
       "id": "clinic",

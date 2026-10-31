@@ -36,14 +36,37 @@ const ctx = (over: Partial<FormationOrderContext> = {}): FormationOrderContext =
   y: 7.5,
   append: false,
   formationsOpen: true,
+  // Every unit a placeable class (armour); a test of the class-none count passes its own.
+  classOf: () => 0,
   ...over,
 });
 
 describe('who is handed a formation', () => {
   it('leaves out a unit in a building, aboard a carrier or below ground', () => {
-    expect(formationIds([1, 2, 3, 4, 5], (i) => i === 2, (i) => i === 3, (i) => i === 4)).toEqual([1, 5]);
-    expect(formationIds([1, 2], () => false, () => false, () => false)).toEqual([1, 2]);
-    expect(formationIds([], () => false, () => false, () => false)).toEqual([]);
+    expect(formationIds([1, 2, 3, 4, 5], (i) => i === 2, (i) => i === 3, (i) => i === 4, () => false)).toEqual([1, 5]);
+    expect(formationIds([1, 2], () => false, () => false, () => false, () => false)).toEqual([1, 2]);
+    expect(formationIds([], () => false, () => false, () => false, () => false)).toEqual([]);
+  });
+});
+
+describe('M5: the row, the resolver and the sim agree on "too few"', () => {
+  it('formationIds leaves out a routed unit as well (the sim gathers none: routed units are skipped at accept time)', () => {
+    expect(formationIds([1, 2, 3, 4], () => false, () => false, () => false, (i) => i === 3)).toEqual([1, 2, 4]);
+    expect(formationIds([1, 2, 3], (i) => i === 1, (i) => i === 2, () => false, (i) => i === 3)).toEqual([]);
+    expect(formationIds([7, 8], () => false, () => false, () => false, () => false)).toEqual([7, 8]);
+  });
+
+  it('the resolver counts units of a class, not ids: two ids, one of class none, degrade to the plain order and say so', () => {
+    const NONE = 255;
+    const res = resolveFormationOrder(world(), ctx({ ids: [1, 2], formation: 'column', classOf: (i) => (i === 2 ? NONE : 0) }));
+    expect(res.intents).toEqual([{ kind: 'order', verb: 'move', ids: [1, 2], x: 6.5, y: 7.5, append: false }]);
+    expect(res.note).toEqual({ text: 'Too few free units for a formation — the order goes without one', tone: 'mute' });
+    // Two classed units form it.
+    const ok = resolveFormationOrder(world(), ctx({ ids: [1, 2], formation: 'column', classOf: () => 3 }));
+    expect(ok.intents).toEqual([{ kind: 'order', verb: 'move', ids: [1, 2], x: 6.5, y: 7.5, append: false, formation: 'column' }]);
+    expect(ok.note).toBeUndefined();
+    // Nothing classed at all: the same degradation.
+    expect(resolveFormationOrder(world(), ctx({ ids: [1, 2, 3], formation: 'attack', classOf: () => NONE })).intents[0]).not.toHaveProperty('formation');
   });
 });
 

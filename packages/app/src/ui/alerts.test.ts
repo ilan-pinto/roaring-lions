@@ -389,6 +389,36 @@ describe('alertsForTick — the cue follows the tier (polish pass F, A2)', () =>
     expect(two[0].count).toBe(2);
   });
 
+  it('a halted column of OURS raises one "column in contact" line per event, at our unit; a pressing group, and the enemy\'s, raise none (GH-859 P1b)', () => {
+    const contact = (side: number, entity: number, drill: number): SimEvent =>
+      ({ kind: 'formationContact', tick: 0, side, group: 0, entity, x: 9 << 16, y: 9 << 16, drill }) as SimEvent;
+    const a = alertsForTick(initAlertState(), [contact(0, 2, 1)], [], world, 40).alerts;
+    expect(a).toHaveLength(1);
+    expect(a[0]).toMatchObject({ kind: 'formationContact', tier: 'important', tone: 'warn', cue: 'alert.important', at: { x: 2.5, y: 10.5 }, count: 1 });
+    expect(a[0].line).toMatchObject({ key: 'alert.formationContact', params: {}, tone: 'warn', place: ['here'] });
+    expect((en as Record<string, string>)['alert.formationContact']).toBe('<b>column in contact</b>{where, select, yes { · {place}} other {}}');
+    // The enemy's column halting is theirs to know; the Attack's press (drill 2) and a spring (3) do not halt anything.
+    expect(alertsForTick(initAlertState(), [contact(1, 12, 1)], [], world, 40).alerts).toEqual([]);
+    expect(alertsForTick(initAlertState(), [contact(0, 2, 2)], [], world, 40).alerts).toEqual([]);
+    expect(alertsForTick(initAlertState(), [contact(0, 2, 3)], [], world, 40).alerts).toEqual([]);
+    // Two of our columns in one tick are two events: two lines.
+    expect(alertsForTick(initAlertState(), [contact(0, 2, 1), contact(0, 5, 1)], [], world, 40).alerts.map((x) => x.at)).toEqual([{ x: 2.5, y: 10.5 }, { x: 5.5, y: 10.5 }]);
+  });
+
+  it('our aircraft answering a call raises one line each, naming the unit; a medic\'s answer, a return and the enemy\'s call raise none (GH-859 P1b)', () => {
+    const call = (side: number, entity: number, kind: 'strike' | 'spot' | 'casualty' | 'return'): SimEvent =>
+      ({ kind: 'formationCall', tick: 0, side, group: 0, entity, call: kind }) as SimEvent;
+    const a = alertsForTick(initAlertState(), [call(0, 7, 'strike'), call(0, 3, 'spot')], [], world, 40).alerts;
+    expect(a.map((x) => [x.kind, x.line?.key, x.line?.params, x.tier, x.tone])).toEqual([
+      ['formationCall', 'alert.formationCall', { unit: 'Lavi' }, 'minor', 'info'],
+      ['formationCall', 'alert.formationCall', { unit: 'Rifle squad' }, 'minor', 'info'],
+    ]);
+    expect(a.map((x) => x.cue)).toEqual(['alert.minor', 'alert.minor']);
+    expect((en as Record<string, string>)['alert.formationCall']).toBe('<b>{unit} answering the call</b>{where, select, yes { · {place}} other {}}');
+    for (const kind of ['casualty', 'return'] as const) expect(alertsForTick(initAlertState(), [call(0, 3, kind)], [], world, 40).alerts, kind).toEqual([]);
+    expect(alertsForTick(initAlertState(), [call(1, 17, 'strike'), call(1, 13, 'spot')], [], world, 40).alerts).toEqual([]);
+  });
+
   it('a wave, a soldier taken and a Conduct penalty sound important; a civilian taken and an arrival are silent', () => {
     const cuesOf = (m: MissionEvent) => alertsForTick(initAlertState(), [], [m], world, 40).alerts.map((a) => a.cue);
     expect(cuesOf(ev<'wave'>({ kind: 'wave', tick: 0, count: 4 }))).toEqual(['alert.important']);

@@ -13,7 +13,7 @@
     { "classes": ["medic"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 2, "rank_depth": 2 }, "gap": 2, "on_call": "casualty" },
     { "classes": ["aircraft"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 2, "rank_depth": 2 }, "gap": 1, "on_call": "contact" }
   ],
-  "march": { "legs": true, "leg_tiles": 8, "pace": "slowest_ground", "dress_s": 3 },
+  "march": { "legs": false, "leg_tiles": 8, "pace": "slowest_ground", "dress_s": 3 },
   "arrival": { "face": "inward", "stance": "ambush" },
   "contact": { "drill": "spring", "call_radius_tiles": 12, "quiet_s": 10 }
 }

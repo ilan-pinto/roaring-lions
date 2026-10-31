@@ -3,17 +3,22 @@
 // probe itself: a table from an instrument that cannot tell west from east.
 // Each test below is seen red under a one-line mutation of versus-probe.ts (the
 // header there lists them; the commit message says which was run).
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { doctrines, versusRules, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
-import { fx, type Command } from '@lions/sim';
+import { fx, MED_TO_WOUNDED, type Command } from '@lions/sim';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
+import { enterMedicRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
-  candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, loneSurvivorOf, main, order, parseArrangements, parsePair, planRound, play,
-  reading, roomConfig, seedOf, selfCheck, tally, withOverrides, world, type Played, type PlayFn,
+  RESCUE_SAFE_TILES, candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, loneSurvivorOf, main, marchersOf, order, parseArrangements, parsePair, planRescueBuy, planRound, play,
+  rescueRound, reading, roomConfig, seedOf, selfCheck, tally, withOverrides, world, type Played, type PlayFn,
   TUNNEL_CELLS, playTunnelCells, tunnelSelfCheck, withoutVersusRoutes,
 } from './versus-probe';
+import { PER_SEED_SCHEMA, parsePerSeed, type PerSeedFile } from './per-seed';
 
 // Every test that plays FULL games carries this instead of vitest's 5 s
 // default: the M1, M3 and uncut mutants and `main`'s two runs (four or more
@@ -543,4 +548,274 @@ describe('the formation arm (GH-859 P1a, spec 8.7)', () => {
     expect(() => main(['--formation-end=friendly'])).toThrow(/give --formation/);
     expect(() => main(['--formation=attack', '--formation-end=both'])).toThrow(/friendly or hostile/);
   });
+});
+
+describe('seed sets, one tunnel cell and per-seed files (GH-859 P1b Task 7, the S4 gate\'s instruments)', () => {
+  let dir = '';
+  afterEach(() => { vi.restoreAllMocks(); if (dir !== '') rmSync(dir, { recursive: true, force: true }); dir = ''; });
+  const tmp = (name: string): string => {
+    if (dir === '') dir = mkdtempSync(join(tmpdir(), 'versus-probe-'));
+    return join(dir, name);
+  };
+  const quiet = (): void => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  };
+  const read = (path: string): PerSeedFile => {
+    const { file, faults } = parsePerSeed(JSON.parse(readFileSync(path, 'utf8')) as unknown, path);
+    expect(faults).toEqual([]);
+    return file;
+  };
+  const base = ['--maps=tel_marum', '--arr=kdf/kdf', '--seeds=2'];
+
+  it('--seed-from=192 --seeds=2 plays seedOf(192) and seedOf(193), and only those in the table', () => {
+    // Literals: 1000 + 7919 * 192 and 1000 + 7919 * 193.
+    expect(seedOf(192)).toBe(1_521_448);
+    expect(seedOf(193)).toBe(1_529_367);
+    quiet();
+    const seen: number[] = [];
+    const spy: PlayFn = (m, a, sd, o) => { seen.push(sd); return play(m, a, sd, o); };
+    const out = tmp('b.json');
+    expect(main([...base, '--seed-from=192', `--per-seed=${out}`], spy)).toBe(0);
+    // The controls keep their own seed (seedOf(0)); every other game is the table's.
+    expect(seen.filter((sd) => sd !== seedOf(0))).toEqual([1_521_448, 1_529_367]);
+    const f = read(out);
+    expect(f).toMatchObject({ schema: PER_SEED_SCHEMA, seedFrom: 192, seeds: 2, rules: 'room', capSeconds: 600, formation: null });
+    expect(f.cells).toHaveLength(1);
+    expect(f.cells[0].rows.map((r) => [r.n, r.seed])).toEqual([[192, 1_521_448], [193, 1_529_367]]);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('a set-B game is not the set-A game at the same index', () => {
+    quiet();
+    const a = tmp('a.json');
+    const b = tmp('b.json');
+    expect(main([...base, `--per-seed=${a}`])).toBe(0);
+    expect(main([...base, '--seed-from=192', `--per-seed=${b}`])).toBe(0);
+    const ra = read(a).cells[0].rows;
+    const rb = read(b).cells[0].rows;
+    expect(ra.map((r) => r.n)).toEqual([0, 1]);
+    for (let i = 0; i < 2; i++) {
+      expect([rb[i].winner, rb[i].by, rb[i].ticks], `index ${i}`).not.toEqual([ra[i].winner, ra[i].by, ra[i].ticks]);
+    }
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('--per-seed writes one row per seed per cell, each the game the probe played', () => {
+    quiet();
+    const out = tmp('p.json');
+    expect(main(['--maps=tel_marum', '--arr=kdf/kdf,kdf/sarim', '--seeds=3', `--per-seed=${out}`])).toBe(0);
+    const f = read(out);
+    expect(f.cells.map((c) => c.key)).toEqual(['tel_marum kdf/kdf placed', 'tel_marum KDF friendly placed']);
+    expect(f.cells.map((c) => c.rows.length)).toEqual([3, 3]);
+    expect(f.cells[1].rows.map((r) => r.n)).toEqual([0, 1, 2]);
+    const g = play('tel_marum', ['kdf', 'sarim'], seedOf(2));
+    expect(f.cells[1].rows[2]).toEqual({ n: 2, seed: seedOf(2), winner: g.winner, by: g.by, ticks: g.ticks });
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('writes nothing when the self-check fails, and says where it wrote when it passes', () => {
+    const out = tmp('never.json');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const swapped: PlayFn = (m, a, s, o) => {
+      const g = play(m, a, s, o);
+      return { ...g, winner: g.winner === null ? null : g.winner === 0 ? 1 : 0 };
+    };
+    expect(main([...base, `--per-seed=${out}`], swapped)).toBe(2);
+    expect(existsSync(out)).toBe(false);
+    log.mockClear();
+    expect(main(['--maps=tel_marum', '--arr=kdf/kdf', '--seeds=1', `--per-seed=${out}`])).toBe(0);
+    expect(log.mock.calls.flat().join('\n')).toContain(`per-seed file: ${out} (1 cell(s), 1 games)`);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('--tunnel-cell=answer plays exactly one cell and no routeless twin', () => {
+    const only = playTunnelCells('tel_marum', ['kdf', 'sarim'], 1, CAP_TICKS_DEFAULT, play, { only: 'answer' });
+    expect(TUNNEL_CELLS.map((c) => only.cells[c].length)).toEqual([0, 0, 1, 0]);
+    expect(only.routeless).toEqual([]);
+    expect(only.cells.answer[0].tun?.entered).toBeGreaterThan(0);
+    // And through main: one game in the tunnel arm, one cell in the file.
+    quiet();
+    const tunnelGames: (string | undefined)[] = [];
+    const spy: PlayFn = (m, a, sd, o) => { if (o?.tunnels !== undefined) tunnelGames.push(o.tunnels); return play(m, a, sd, o); };
+    const out = tmp('t.json');
+    expect(main(['--tunnels', '--tunnel-cell=answer', '--maps=tel_marum', '--arr=kdf/sarim', '--seeds=1', `--per-seed=${out}`], spy)).toBe(0);
+    expect(tunnelGames).toEqual(['answer']);
+    const f = read(out);
+    expect(f.cells.map((c) => [c.key, c.world, c.rows.length])).toEqual([['tel_marum KDF friendly tunnel-answer', 'tunnel-answer', 1]]);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('one cell alone is checked for what it can prove: it took a unit below, or (off) it did not', () => {
+    const tun = { entered: 0, stalled: 0, surfaced: 0, raids: 0, exits: 0, identified: 0, charges: 0, collapsed: 0, collapseKills: 0 };
+    const g = (entered: number): Played => ({ winner: 0, by: 'annihilation', ticks: 1200, econ: { built: [1, 1], purse: [0, 0] }, tun: { ...tun, entered } });
+    const cells = (only: (typeof TUNNEL_CELLS)[number], entered: number) => {
+      const c = { off: [], noAnswer: [], answer: [], turtle: [] } as Record<(typeof TUNNEL_CELLS)[number], Played[]>;
+      c[only] = [g(entered)];
+      return { cells: c, routeless: [] };
+    };
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], cells('answer', 4))).toEqual([]);
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], cells('answer', 0))).toHaveLength(1);
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], cells('turtle', 0))).toHaveLength(1);
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], cells('off', 0))).toEqual([]);
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], cells('off', 2))).toHaveLength(1);
+    // Nothing played is a fault, not a vacuous pass.
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], { cells: { off: [], noAnswer: [], answer: [], turtle: [] }, routeless: [] })).toHaveLength(1);
+  });
+
+  it('refuses what it cannot play', () => {
+    expect(() => main(['--seed-from=-1'])).toThrow(/--seed-from/);
+    expect(() => main(['--seed-from=1.5'])).toThrow(/--seed-from/);
+    expect(() => main(['--tunnels', '--tunnel-cell=bogus'])).toThrow(/--tunnel-cell/);
+    expect(() => main(['--economy', '--tunnel-cell=answer'])).toThrow(/give --tunnels/);
+    expect(() => main(['--per-seed='])).toThrow(/--per-seed/);
+  });
+});
+
+// The rescue arm (GH-707, the lead, 30 Oct 2026). LITERALS throughout.
+describe('the rescue arm', () => {
+  // The medic team is held out of versus: this block puts it in a room in memory.
+  let leaveMedicRoom = (): void => {};
+  beforeAll(() => { leaveMedicRoom = enterMedicRoom(); });
+  afterAll(() => leaveMedicRoom());
+  const room = (start?: [number, number]) => {
+    const w = withOverrides(start === undefined ? {} : { start }, () => buildMatchWorld(roomConfig('tel_marum', ['kdf', 'sarim'], 1000)));
+    const rt = w.runtime;
+    if (rt === null) throw new Error('no runtime');
+    return { w, rt };
+  };
+  const typeIdx = (w: ReturnType<typeof room>['w'], id: string): number => w.sim.unitTypes.findIndex((t) => t.id === id);
+  /** One KDF rifle squad of the probe's own making, at `x` tiles from the KDF anchor along the row, hit until a man falls DOWN. Returns that man. */
+  const downManAt = (w: ReturnType<typeof room>['w'], dx: number): number => {
+    const [ax, ay] = w.anchors[w.endOfSide[0]];
+    const squad = w.sim.spawn(typeIdx(w, 'inf_squad'), 0, fx.from(ax + dx + 0.5), fx.from(ay + 0.5));
+    const before = w.sim.entityCount;
+    const shooter = w.bySide[1][0];
+    for (let k = 0; k < 20 && w.sim.entityCount === before; k++) {
+      (w.sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(squad, fx.fromInt(100), shooter);
+    }
+    expect(w.sim.entityCount, 'a man went down').toBeGreaterThan(before);
+    return before;
+  };
+  const menu0 = doctrines.kdf.menu; // the same array the harness pushes the medic onto
+
+  it('the plan does not count the medic team as armed: a fresh 3000 purse never buys one, though it is on the menu and carries carbines', () => {
+    const { rt, w } = room([3000, 4800]);
+    expect(menu0).toContain('inf_medic_squad');
+    const bought = planRound(rt, w.sim, menu0, forceMixOf('kdf'), 0, 'off');
+    expect(bought).toEqual(['yahalom_squad', 'mbt_lavi', 'ifv_namer', 'apc_eitan', 'inf_squad', 'at_team']);
+    expect(bought).not.toContain('inf_medic_squad');
+  });
+
+  it('planRescueBuy: nothing while no man is down; one team once he is; never a second while one is queued; Sarim never', () => {
+    const { rt, w } = room();
+    expect(planRescueBuy(rt, w.sim, menu0, 0)).toBeNull(); // nobody down
+    downManAt(w, 2);
+    const purse = rt.logisticsOf(0);
+    expect(planRescueBuy(rt, w.sim, menu0, 0)).toBe('inf_medic_squad');
+    expect(rt.logisticsOf(0)).toBe(purse - 295);
+    expect(planRescueBuy(rt, w.sim, menu0, 0)).toBeNull(); // one at a time: it is queued now
+    // Sarim has men down too, and no rescue unit on its menu.
+    const sarimMan = w.bySide[1][0];
+    (w.sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(sarimMan, fx.fromInt(100), w.bySide[0][0]);
+    expect(planRescueBuy(rt, w.sim, doctrines.sarim.menu, 1)).toBeNull();
+  });
+
+  it('after, before, save: the medic comes after the combat purchases, before them, or the combat purchases are HELD for it', () => {
+    // 3000 purse: the combat plan spends it down to 156, which cannot cover the medic (295): `after` buys none.
+    const a = room([3000, 4800]);
+    downManAt(a.w, 2);
+    expect(planRound(a.rt, a.w.sim, menu0, forceMixOf('kdf'), 0, 'after')).not.toContain('inf_medic_squad');
+    // `before` puts it first.
+    const b = room([3000, 4800]);
+    downManAt(b.w, 2);
+    expect(planRound(b.rt, b.w.sim, menu0, forceMixOf('kdf'), 0, 'before')[0]).toBe('inf_medic_squad');
+    // 250 purse, man down: `after` spends it on a combat unit; `save` holds the round (the medic is 295) and buys nothing.
+    const c = room([250, 4800]);
+    downManAt(c.w, 2);
+    const after = planRound(c.rt, c.w.sim, menu0, forceMixOf('kdf'), 0, 'after');
+    expect(after.length).toBeGreaterThan(0);
+    const d = room([250, 4800]);
+    downManAt(d.w, 2);
+    expect(planRound(d.rt, d.w.sim, menu0, forceMixOf('kdf'), 0, 'save')).toEqual([]);
+    expect(d.rt.logisticsOf(0)).toBe(250);
+  });
+
+  it('after: with nothing armed left to buy the medic is bought (the positive case); off never buys it', () => {
+    const a = room();
+    downManAt(a.w, 2);
+    expect(planRound(a.rt, a.w.sim, ['inf_medic_squad'], new Map(), 0, 'after')).toEqual(['inf_medic_squad']);
+    const b = room();
+    downManAt(b.w, 2);
+    expect(planRound(b.rt, b.w.sim, ['inf_medic_squad'], new Map(), 0, 'off')).toEqual([]);
+  });
+
+  it('rescueRound sends an idle medic to the nearest man down, and not into fire, not twice, not while he carries', () => {
+    const { w } = room();
+    const [ax, ay] = w.anchors[w.endOfSide[0]];
+    const medic = w.sim.spawn(typeIdx(w, 'inf_medic_squad'), 0, fx.from(ax + 0.5), fx.from(ay + 0.5));
+    expect(rescueRound(w.sim, 0)).toBe(0); // nobody down
+    const near = downManAt(w, 3);
+    downManAt(w, 6); // a second, farther
+    expect(rescueRound(w.sim, 0)).toBe(1);
+    w.sim.tick();
+    expect([w.sim.state.medState[medic], w.sim.state.medTarget[medic]]).toEqual([MED_TO_WOUNDED, near]);
+    expect(rescueRound(w.sim, 0)).toBe(0); // he is on a job: not re-ordered
+  });
+
+  it('rescueRound does not order a medic who carries a man, even while his state reads idle', () => {
+    const { w } = room();
+    const [ax, ay] = w.anchors[w.endOfSide[0]];
+    const medic = w.sim.spawn(typeIdx(w, 'inf_medic_squad'), 0, fx.from(ax + 0.5), fx.from(ay + 0.5));
+    const aboard = downManAt(w, 3);
+    downManAt(w, 6);
+    expect(w.sim.embarkAtSpawn(medic, aboard)).toBe(true);
+    expect(w.sim.state.medState[medic]).toBe(0);
+    expect(rescueRound(w.sim, 0)).toBe(0);
+  });
+
+  it('rescueRound sends nobody to a man with an armed enemy within RESCUE_SAFE_TILES of him (a constructed failing input), and goes once it is gone', () => {
+    expect(RESCUE_SAFE_TILES).toBe(10);
+    const { w } = room();
+    const [ax, ay] = w.anchors[w.endOfSide[0]];
+    w.sim.spawn(typeIdx(w, 'inf_medic_squad'), 0, fx.from(ax + 0.5), fx.from(ay + 0.5));
+    const man = downManAt(w, 3);
+    // A Sarim rifle squad 4 tiles from him: under fire.
+    const foe = w.sim.spawn(typeIdx(w, 'sarim_rifles'), 1, fx.from(ax + 3 + 4 + 0.5), fx.from(ay + 0.5));
+    expect(rescueRound(w.sim, 0)).toBe(0);
+    w.sim.debugKill(foe);
+    expect(rescueRound(w.sim, 0)).toBe(1);
+    void man;
+  });
+
+  it('a rescue unit is left out of the attack-move, so the next re-order does not take it off the job', () => {
+    const { w } = room();
+    const [ax, ay] = w.anchors[w.endOfSide[0]];
+    const medic = w.sim.spawn(typeIdx(w, 'inf_medic_squad'), 0, fx.from(ax + 0.5), fx.from(ay + 0.5));
+    const squad = w.bySide[0][0];
+    const marchers = marchersOf(w.sim, 0);
+    expect(marchers).toContain(squad);
+    expect(marchers).not.toContain(medic);
+    expect(marchersOf(w.sim, 0, (id) => id === squad)).not.toContain(squad); // a unit the tunnel plan holds is still held
+    // And a game with the opening buy delivers its one medic team.
+    const g = play('tel_marum', ['kdf', 'sarim'], seedOf(0), { economy: true, rescueBuy: 'opening', capTicks: 4 * ORDER_EVERY_TICKS });
+    expect(g.econ?.rescue?.[0]).toBe(1);
+  }, 60_000);
+
+  it('--rescue-buy is validated and needs --economy', () => {
+    expect(() => main(['--economy', '--rescue-buy=often'])).toThrow(/not after, before, save, opening or off/);
+    expect(() => main(['--rescue-buy=after'])).toThrow(/needs --economy/);
+  });
+});
+
+describe('the rescue arm puts the held medic team in the room in memory, for the run only (PR 907)', () => {
+  it('--rescue-buy=opening delivers a medic team and leaves the shipped menu and held set as they were; without the flag none is delivered', () => {
+    const logged: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { logged.push(a.join(' ')); });
+    expect(doctrines.kdf.menu).not.toContain('inf_medic_squad');
+    expect(main(['--economy', '--maps=wadi_tarfan', '--seeds=1', '--arr=sarim/kdf', '--rescue-buy=opening'])).toBe(0);
+    const row = logged.find((l) => l.startsWith('wadi_tarfan')) ?? '';
+    expect(row).toMatch(/\s1\.0\/\d\.\d\s/); // med/rej: one medic team a game
+    expect(logged.some((l) => l.includes('put on the KDF menu in memory'))).toBe(true);
+    expect(doctrines.kdf.menu).not.toContain('inf_medic_squad'); // put back
+    logged.length = 0;
+    expect(main(['--economy', '--maps=wadi_tarfan', '--seeds=1', '--arr=sarim/kdf'])).toBe(0);
+    expect(logged.find((l) => l.startsWith('wadi_tarfan')) ?? '').toMatch(/\s0\.0\/0\.0\s/);
+  }, 120_000);
 });

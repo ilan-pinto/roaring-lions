@@ -43,6 +43,7 @@ import {
   type HeldGroundSeen,
 } from './golden-worlds.test-helper';
 import { BRACE_DROPPING, BRACE_KNEELING, BRACE_RISING, Sim, type SimEvent, type UnitTypeJson } from './sim';
+import { internals } from './snapshot';
 
 // The canary for invariants 2 and 3 (CLAUDE.md): replay 1000 ticks from a
 // fixed seed and assert the state hash is stable. Must pass before any
@@ -316,7 +317,7 @@ describe('determinism (1000-tick replay)', () => {
     expect(seen.has(BRACE_DROPPING)).toBe(true);
     expect(seen.has(BRACE_KNEELING)).toBe(true);
     expect(seen.has(BRACE_RISING)).toBe(true);
-    expect(kneelingShots).toBeGreaterThan(100);
+    expect(kneelingShots).toBeGreaterThan(500);
     expect(standingShots).toBe(0);
   });
 
@@ -1252,31 +1253,137 @@ describe('determinism of a wounded world (600-tick replay, GH-707)', () => {
 // ---------------------------------------------------------------------------------------------
 // FORMATION_WORLD_PIN (GH-859 P1a Task 4): a NEW pin, not a moved one. No other replay in this file
 // orders a formation, so the deferred `fmLive` block (the group table and the three per-unit
-// columns) is outside all of them; this is the replay that sees it. A 600-tick fight with the three
+// columns) is outside all of them; this is the replay that sees it. A 600-tick fight (1000 since P1b Task 5) with the three
 // SHIPPED data/formations files and test-local unit types: side 0 orders a Column (tick 0), an
 // Attack attack-move (40) and an Ambush ring about (40,24) (80), and re-orders one Column member
 // plainly mid-march (60); a side-1 Column walks into the ring (150). The test asserts each thing
 // happened, so a change that quietly stops one of them fails here and not only on the number.
 
-function formationWorld(seed: number): { hash: number; seen: Record<string, number>; groups: string; members: string; ringFacing: string; sprungBy: number } {
+interface FormationWorldFacts {
+  hash: number;
+  seen: Record<string, number>;
+  groups: string;
+  members: string;
+  ringFacing: string;
+  sprungBy: number;
+  /** Checkpoints of the Column, Attack, Ambush and side-1 Column rows, read at tick 151. */
+  legs: string;
+  /** Every `formationReleased`, as `tick:group:leg/legs`. */
+  released: string;
+  /** The tick the Column's first member waited at its first checkpoint (fgAtCp first above 0). */
+  columnFirstArrival: number;
+  /** The Column's pace, and the id that sets it, read at tick 61. */
+  columnPace: number;
+  columnSetter: number;
+  /** Every `formationContact`, as `tick:group:entity:drill` (GH-859 P1b Task 4). */
+  contacts: string;
+  /** The four rows' states after tick 600 (Column, Attack, Ambush, side-1 Column): the P1b Task 4 reading, unchanged. */
+  endStates: string;
+  /** The same four rows after the last tick (GH-859 P1b Task 5: the world runs 1000). */
+  finalStates: string;
+  /** Every `formationCall`, as `tick:group:entity:call` (GH-859 P1b Task 5). */
+  calls: string;
+  /** The ids that were ever on duty OUT (2) and ever RETURN (3), read each tick, ascending. */
+  outSeen: string;
+  returnSeen: string;
+  /** Every `woundedDown`, as `tick:parent`. */
+  casualties: string;
+  /** At the last tick: members still away (the Attack's row and the Column's), and every duty read back to NONE. */
+  awayAtEnd: string;
+  /** Every tick of the run where a row's fgAtCp or fgAway disagreed with a recount of its members' duties (must be empty). */
+  censusBad: string[];
+  /** How many (tick, row) pairs the census compared with a non-zero counter, so it cannot pass by comparing zeros alone. */
+  censusLive: number;
+}
+
+/**
+ * GH-859 P1b final review M-1: the exact census. For every group row, `fgAtCp` is the number of members on duty WAIT
+ * (1) and `fgAway` the number on OUT (2) or RETURN (3), recounted from the per-unit columns. Returns one message per
+ * row that disagrees, and the number of rows whose counters were non-zero.
+ */
+function formationCensus(sim: Sim, tick: number): { bad: string[]; live: number } {
+  const p = internals(sim);
+  const group = p.fmGroup as Int16Array;
+  const duty = p.fmDuty as Uint8Array;
+  const atCp = p.fgAtCp as Uint16Array;
+  const away = p.fgAway as Uint16Array;
+  const wait = new Uint16Array(atCp.length);
+  const gone = new Uint16Array(atCp.length);
+  for (let i = 0; i < sim.entityCount; i++) {
+    const g = group[i];
+    if (g < 0) continue;
+    if (duty[i] === 1) wait[g]++;
+    else if (duty[i] === 2 || duty[i] === 3) gone[g]++;
+  }
+  const bad: string[] = [];
+  let live = 0;
+  for (let g = 0; g < atCp.length; g++) {
+    if (atCp[g] !== wait[g]) bad.push(`${tick}:${g}:atCp ${atCp[g]} != ${wait[g]}`);
+    if (away[g] !== gone[g]) bad.push(`${tick}:${g}:away ${away[g]} != ${gone[g]}`);
+    if (atCp[g] > 0 || away[g] > 0) live++;
+  }
+  return { bad, live };
+}
+function formationWorld(seed: number): FormationWorldFacts {
   const { sim, ids } = formationSetup(seed);
+  const atCp = internals(sim).fgAtCp as Uint16Array;
   const seen: Record<string, number> = {};
+  const released: string[] = [];
+  const contacts: string[] = [];
   let groups = '';
   let members = '';
   let ringFacing = '';
   let sprungBy = -1;
-  for (let t = 0; t < 600; t++) {
+  let legs = '';
+  let columnFirstArrival = -1;
+  let columnPace = -1;
+  let columnSetter = -2;
+  const calls: string[] = [];
+  const casualties: string[] = [];
+  const out = new Set<number>();
+  const ret = new Set<number>();
+  let endStates = '';
+  const censusBad: string[] = [];
+  let censusLive = 0;
+  const rowStates = (): string => [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationStateOfGroup(sim.formationGroupOf(i))).join(',');
+  for (let t = 0; t < 1000; t++) {
     formationDrive(sim, t, ids);
     for (const e of sim.tick()) {
       if (e.kind === 'formationSprung' || e.kind === 'ambushSprung') seen[e.kind] = (seen[e.kind] ?? 0) + 1;
       if (e.kind === 'formationSprung') sprungBy = e.entity;
+      if (e.kind === 'formationReleased') released.push(`${e.tick}:${e.group}:${e.leg}/${e.legs}`);
+      if (e.kind === 'formationContact') contacts.push(`${e.tick}:${e.group}:${e.entity}:${e.drill}`);
+      if (e.kind === 'formationCall') calls.push(`${e.tick}:${e.group}:${e.entity}:${e.call}`);
+      if (e.kind === 'woundedDown') casualties.push(`${e.tick}:${e.parent}`);
+    }
+    const census = formationCensus(sim, t);
+    censusBad.push(...census.bad);
+    censusLive += census.live;
+    for (let i = 0; i < sim.entityCount; i++) {
+      const d = sim.formationDutyOf(i);
+      if (d === 2) out.add(i);
+      if (d === 3) ret.add(i);
+    }
+    if (t === 599) endStates = rowStates();
+    if (columnFirstArrival < 0 && atCp[0] > 0) columnFirstArrival = t;
+    if (t === 61) {
+      columnPace = sim.formationPaceOfGroup(0);
+      columnSetter = sim.formationPaceSetterOf(0);
     }
     if (t === 59) members += `${sim.formationMembersOfGroup(0)}`; // before the re-order
     if (t === 61) members += `>${sim.formationMembersOfGroup(0)}`; // after: one left by order
-    if (t === 151) groups = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationGroupOf(i)).join(',');
+    if (t === 151) {
+      groups = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationGroupOf(i)).join(',');
+      legs = [ids.col[0], ids.atk[0], ids.amb[0], ids.foe[0]].map((i) => sim.formationLegsOfGroup(sim.formationGroupOf(i))).join(',');
+    }
     if (t === 380) ringFacing = ids.amb.map((i) => sim.state.facing[i]).join(',');
   }
-  return { hash: sim.hash(), seen, groups, members, ringFacing, sprungBy };
+  const asc = (s: Set<number>): string => Array.from(s).sort((a, b) => a - b).join(',');
+  const awayAtEnd = [0, 1, 2, 3].map((g) => `${(internals(sim).fgAway as Uint16Array)[g]}`).join(',') + ' ' + Array.from({ length: sim.entityCount }, (_, i) => sim.formationDutyOf(i)).filter((d) => d !== 0).length;
+  return {
+    hash: sim.hash(), seen, groups, members, ringFacing, sprungBy, legs, released: released.join(' '), columnFirstArrival, columnPace, columnSetter, contacts: contacts.join(' '),
+    endStates, finalStates: rowStates(), calls: calls.join(' '), outSeen: asc(out), returnSeen: asc(ret), casualties: casualties.join(' '), awayAtEnd, censusBad, censusLive,
+  };
 }
 
 // FORMATION_WORLD_PIN: born 2026-10-28 (GH-859 P1a), read from the first run. It moves when a
@@ -1288,17 +1395,68 @@ function formationWorld(seed: number): { hash: number; seen: Record<string, numb
 // spring on. Scouting ticks re-read on the new code: first ring member set at 196, last at 344, group
 // found at 404 (snapshot-witness.test.ts reads the same three numbers, unchanged: the spring happens
 // at the top of the tick after, which is what moved). Was 3331466982.
-const FORMATION_WORLD_PIN = 2129900778;
+// Re-pinned 2026-10-30 (GH-859 P1b Task 2): this world is `fmLive`, so hash() now folds the P1b marker word
+// 0x464d0002 and fourteen columns after the P1a block. Every one of them holds its empty value at every tick of
+// the 600 (formation-state.test.ts asserts that), so the move is the marker and the zeros and nothing else:
+// with the P1b hash lines removed the same run reads 2129900778 again. Was 2129900778.
+// Re-pinned 2026-10-30 (GH-859 P1b Task 3, the march). The world marches now: checkpoints every eight steps of the
+// route (legs 2,3,1,2), dresses (four of the Column's five wait at checkpoint 1 from tick 142 and are released by the
+// clock at 202; the Attack and the side-1 Column are released on the tick after their last arrival), a pace cap
+// (the Column's slow mortar, id 19, sets 2293 raw a tick), the final reservation, the travel facing, the shipped
+// Ambush with `legs: false`, and a sweeping Attack (wpSweep). The world itself changed in two ways: the Column
+// gained the slow mortar (spawned last, so no P1a id moved) and the Attack order carries `sweep: true`. Every
+// P1a world fact was re-read on the new code: groups '0,1,2,16', ringFacing '16384,57344,32768,24576,8192,49152',
+// seen {formationSprung: 1} and sprungBy 10 are UNCHANGED; members '5>4' became '6>5' (the extra Column member);
+// the fork witness's scouting ticks [196, 344, 404] became [196, 344, 445] (the ring is found 41 ticks later).
+// Was 16150840.
+// Re-pinned 2026-10-30 (GH-859 P1b Task 4, contact and the drills). The world makes contact twice. The side-1 Column,
+// ordered at 150, opens fire on the ring from 444 (the first member to shoot, id 16, reports its target) and HALTS: every
+// member stopped with an empty queue, state 3, the vehicles' rest facing toward the fire; the ring is found by that
+// fire on the same tick and springs as before. The Attack, sweeping up the map, meets the side-1 riflemen near
+// (38.5, 16.5) at tick 541 (id 6) and PRESSES: state 3, dressing over, pace and queues kept. Both groups read state 3
+// at the end of the 600 ticks, and the three drill columns (fgQuiet fgCallX fgCallY) are written for the first time:
+// a group in contact counts the quiet clock and records the call point. The mark of the ring now also carries the
+// call bit (the ring has a contact-call aircraft element and the fire came from inside the call radius): 3, not 1,
+// at the cut after tick 444. Every earlier world fact is UNCHANGED: groups, members, legs, ringFacing, seen, sprungBy,
+// the Column's pace and first arrival, and all four releases. No post was added: the world already holds the
+// contacts the task asks for. Was 332225713.
+// Re-pinned 2026-10-30 (GH-859 P1b Task 5, the calls). The world gains the units that answer them and runs 1000 ticks
+// (the aircraft come home from tick 910). A strike helicopter and a spot drone join the Attack, a medic and an ambulance
+// join the Column (all spawned after the slow mortar, ids 20..23, so no earlier id moves), the Column's riflemen carry
+// wound content (a four-man squad with a certain fall and a test-local wounded body), and at tick 180 a stray round with
+// no shooter drops one man of the Column's second squad. Then: the medic (id 22) is called, goes OUT, treats and carries
+// the man to the ambulance and is back on its march by 425 (casualty call 180, return 346); the Attack's helicopter
+// reports the contact itself at 510 (the fire it opened on the side-1 riflemen near (40.5, 16.5), 31 ticks before the
+// tank did) and the helicopter and drone sortie at 511 (strike, spot); the side-1 riflemen die by 711; quiet for ten
+// seconds, both are sent home at 910 and are back on duty NONE by 966. Four columns are written for the first time
+// (fmHomeX fmHomeY fgAway fgCalled), duty OUT and RETURN occur, and FM_CASUALTY_TICK is a world fact. World facts re-read
+// on the new code: UNCHANGED groups '0,1,2,16', ringFacing, seen {formationSprung: 1}, sprungBy 10, legs '2,3,1,2', the
+// Column's pace 2293 set by id 19, the side-1 Column's contact (444:16:16:1) and release (351), and the four row states
+// after tick 600 ('1,3,4,3'). CHANGED: members '6>5' -> '8>7' (the medic and the ambulance), the Column's first arrival
+// 142 -> 57 (the ambulance is a fast vehicle that reaches checkpoint 1 first), the releases '202:0:1/2 237:1:1/3 351:16:1/2
+// 415:1:2/3' -> '117:0:1/2 169:1:1/3 277:1:2/3 351:16:1/2' (the Column is released by the clock at 117, the Attack, whose
+// aircraft are exempt from the pace and arrive first, sooner), and the Attack's contact '541:1:6:2' -> '510:1:20:2'.
+// The fork witness's scouting ticks [196, 344, 445] are UNCHANGED. Was 39544183.
+// Re-pinned 2026-10-30 (GH-859 P1b Task 5, fix round 1). A call that finds no member it could ever send now latches
+// fgCalled = 2 ("nobody to call") on its row, so a group in contact with no aircraft is scanned once and not on every
+// exchange of fire: the Column (a medic and an ambulance, no aircraft), the ring and the side-1 Column read 2 where they
+// read 0. Nothing else in the world moved: every world fact above (groups, members, ringFacing, seen, sprungBy, legs,
+// the releases, first arrival, pace, the contacts, the calls, the casualty, the duties seen, the row states after tick
+// 600 and after the last) was re-read on the new code and is UNCHANGED, and so are the fork witness's scouting ticks.
+// The halt change (an answering aircraft loses its queue) reaches no unit of this world: no halt row holds an aircraft.
+// Was 3138870583.
+const FORMATION_WORLD_PIN = 762031029;
 
-describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () => {
+describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extended in P1b)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
     const a = formationWorld(FM_SEED);
     const b = formationWorld(FM_SEED);
     expect(b).toEqual(a);
     // rows 0, 1, 2 on side 0 (column, attack, ambush), row 16 the first on side 1
     expect(a.groups).toBe('0,1,2,16');
-    // the Column had five members; the plain move at tick 60 took one out
-    expect(a.members).toBe('5>4');
+    // the Column had six members (the slow mortar spawned last); the plain move at tick 60 took one out
+    // (P1b Task 5: the medic and the ambulance joined the Column; it was '6>5')
+    expect(a.members).toBe('8>7');
     // every ring member at its inward eighth-turn at tick 380 (the ring is set, the enemy not yet in): armour at
     // (40,21) south, armour at (38,26) north-east, mortar at (43,25) west, rifles at (42,22) south-west, (36,22) on the
     // cover tile south-east, and (40,27) north
@@ -1308,6 +1466,63 @@ describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () =>
     // alone: `ambushSprung` is absent, which is the point of a ring that springs together.
     expect(a.seen).toEqual({ formationSprung: 1 });
     expect(a.sprungBy).toBe(10);
+  });
+
+  it('every tick, each row\'s fgAtCp and fgAway equal a recount of its members\' duties (GH-859 P1b final review M-1)', () => {
+    const a = formationWorld(FM_SEED);
+    expect(a.censusBad).toEqual([]);
+    // The census saw counters above zero on many ticks (waits at checkpoints, sorties and a rescue), not zeros alone.
+    expect(a.censusLive).toBeGreaterThan(500);
+  });
+
+  it('marches: the checkpoints, the pace and the dresses are the ones the world is built to show (GH-859 P1b)', () => {
+    const a = formationWorld(FM_SEED);
+    // Column 14 steps (checkpoints at steps 8 and 14), Attack 18 steps to three, the ring `legs: false` (one), the
+    // side-1 Column 12 steps to two
+    expect(a.legs).toBe('2,3,1,2');
+    // The Column's slow mortar (id 19: five column, five attack, six ring, three foes, then it) sets the pace:
+    // 0.7 tiles a second is 2293 raw a tick, against the rifles' 2949.
+    expect(a.columnPace).toBe(2293);
+    expect(a.columnSetter).toBe(19);
+    // Four of the Column's five wait at checkpoint 1 from tick 142 and the mortar is three tiles behind: the dress
+    // is released by the clock, dress_s = 60 ticks after the first arrival (tick 202). The Attack and the side-1
+    // Column are whole at their checkpoints, and are released on the tick after the last arrival.
+    // Re-read on P1b Task 5's world (the Column gained an ambulance, a fast vehicle with the shortest way to checkpoint 1,
+    // and a medic): the first arrival is tick 57 (was 142) and the Column is released by the clock, 60 ticks later, at 117
+    // (was 202); the Attack, whose aircraft are exempt from the pace, is whole at its checkpoints sooner (169 and 277; was
+    // 237 and 415); the side-1 Column's release is unchanged.
+    expect(a.columnFirstArrival).toBe(57);
+    expect(a.released).toBe('117:0:1/2 169:1:1/3 277:1:2/3 351:16:1/2');
+  });
+
+  it('makes contact twice: the side-1 Column halts and the Attack presses (GH-859 P1b Task 4)', () => {
+    const a = formationWorld(FM_SEED);
+    // tick:group:entity:drill. Row 16 (the side-1 Column, drill halt = 1) at 444 by its first rifleman, id 16 (five
+    // column, five attack, six ring, then the foe riflemen 16..18); row 1 (the Attack, drill press = 2) at 541 by id 6,
+    // the second tank, on the side-1 riflemen near (38.5, 16.5).
+    // Task 5: the Attack's strike helicopter (id 20, an aircraft that outruns the pace) opens fire first, at 510 and not 541.
+    expect(a.contacts).toBe('444:16:16:1 510:1:20:2');
+    // Column marching still (its last leg done, nothing hit it), Attack in contact, ring sprung, side-1 Column in contact
+    expect(a.endStates).toBe('1,3,4,3');
+  });
+
+  it('calls: the Column\'s medic answers a man going down, the Attack\'s aircraft sortie and come home (GH-859 P1b Task 5)', () => {
+    const a = formationWorld(FM_SEED);
+    // tick:group:entity:call. The Column (row 0): the medic, id 22, is called at 180 for the man who fell then and is
+    // back on its march by 346. The Attack (row 1): the strike helicopter (20) and the spot drone (21) sortie at 511, the
+    // tick after their contact, and are sent home at 910, ten quiet seconds (200 ticks) after the last fire at 711.
+    expect(a.calls).toBe('180:0:22:casualty 346:0:22:return 511:1:20:strike 511:1:21:spot 910:1:20:return 910:1:21:return');
+    // one man fell: the Column's second squad (id 2)
+    expect(a.casualties).toBe('180:2');
+    // duty OUT and RETURN were each seen on exactly the three answerers and nobody else
+    expect(a.outSeen).toBe('20,21,22');
+    expect(a.returnSeen).toBe('20,21,22');
+    // after the 600th tick the four rows read as before; after the last the side-1 Column is gone (the riflemen died by 711)
+    // and the others are as they were: the Column marching, the Attack in contact, the ring sprung
+    expect(a.endStates).toBe('1,3,4,3');
+    expect(a.finalStates).toBe('1,3,4,0');
+    // everyone is home: no member away in any of the four rows, and no member on a duty at all
+    expect(a.awayAtEnd).toBe('0,0,0,0 0');
   });
 
   it('the pinned hash', () => {

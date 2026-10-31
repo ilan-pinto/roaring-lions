@@ -209,4 +209,16 @@ describe('end to end through the real sim adapter', () => {
     ]);
     expect(cursorAt(s, world, p, { ids: [rifle], ...ctx }).key).not.toBe('rescue');
   });
+
+  it('in a versus room an enemy casualty is no rescue target for the click, an own one still is (the lead, 30 Oct 2026)', () => {
+    const { s, put } = sim();
+    const medic = put(MEDIC, 0, 3.5, 3.5);
+    const enemy = put(WOUNDED, 1, 8.5, 6.5);
+    const own = put(WOUNDED, 0, 5.5, 6.5);
+    s.identifyTo(0, enemy);
+    expect(simIntentWorld(s, () => false).canRescue(medic, enemy)).toBe(true); // outside versus (Conduct pays for it)
+    const room = simIntentWorld(s, () => false, 0, true);
+    expect(room.canRescue(medic, enemy)).toBe(false);
+    expect(room.canRescue(medic, own)).toBe(true);
+  });
 });

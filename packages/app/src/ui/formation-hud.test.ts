@@ -16,7 +16,7 @@ import { Sim, fx, type Command, type UnitTypeJson } from '@lions/sim';
 import { Hud, type HudCommanderInfo, type HudDeps } from './hud';
 import { closeTip } from './tooltip';
 import { formationRow } from './formation-model';
-import { formationUnitFacts } from './formation-sim';
+import { formationClassOfUnit, formationUnitFacts } from './formation-sim';
 import { anyArmed, bindingsFrom, escapeTarget, resolveKey } from '../input/keymap';
 import { createFormationArming, type FormationArming } from '../input/formation-arming';
 import { formationIds } from '../input/formation';
@@ -182,7 +182,7 @@ describe('the formation row', () => {
     // A tooltip of another button replaces it and the formation width goes with it.
     hover(r.btn('ambush'));
     expect(tip.querySelector('.rl-tip__name')?.textContent).toBe('Ambush');
-    expect(tip.textContent).toContain('Faces inward. Springs together on contact. Ring radius grows with the force.');
+    expect(tip.textContent).toContain('Faces inward. Springs together on contact. Moves at the pace of its slowest ground unit. Ring radius grows with the force. Medics go to a man who goes down. Aircraft answer a contact.');
     expect(tip.querySelectorAll('.rl-formtip__legend li')[tip.querySelectorAll('.rl-formtip__legend li').length - 1]?.textContent).toBe('Kill zone');
   });
 
@@ -212,7 +212,7 @@ describe('the formation row', () => {
     const r = rigFor(f.sim, () => [f.squads[0], f.squads[1]]);
     expect(['column', 'attack', 'ambush'].map((id) => r.btn(id).dataset.inert)).toEqual(['1', '1', '1']);
     hover(r.btn('column'));
-    expect(r.tip()!.textContent).toContain('Needs two free units');
+    expect(r.tip()!.textContent).toContain('Needs 2 free units');
   });
 
   it('dims the ambush alone when no free unit can ring the zone', () => {
@@ -401,11 +401,13 @@ describe('arming, the cursor and the click', () => {
     const world = simIntentWorld(f.sim, () => false);
     const arming = createFormationArming({
       row: (armed) => formationRow({ formationsOpen: open, units: formationUnitFacts(f.sim, selection) }, armed),
-      ids: () => formationIds(selection, (i) => f.sim.state.garrisonedIn[i] >= 0, (i) => f.sim.state.carriedBy[i] >= 0, (i) => f.sim.state.tunnelIn[i] >= 0),
+      ids: () => formationIds(selection, (i) => f.sim.state.garrisonedIn[i] >= 0, (i) => f.sim.state.carriedBy[i] >= 0, (i) => f.sim.state.tunnelIn[i] >= 0, (i) => f.sim.state.routed[i] === 1),
       world,
       sink,
       open: () => open,
       onArmed: () => undefined,
+      classOf: (i) => formationClassOfUnit(f.sim, i),
+      retire: () => undefined,
     });
     const r = rigFor(f.sim, () => selection, {
       formationsOpen: () => open,
@@ -525,6 +527,8 @@ describe('arming, the cursor and the click', () => {
       sink: { dispatch: (i) => commands.push(i as never), note: () => undefined, marker: () => undefined, deny: () => undefined },
       open: () => false,
       onArmed: () => undefined,
+      classOf: (i) => formationClassOfUnit(f.sim, i),
+      retire: () => undefined,
     });
     expect(arming.activate('attack')).toBe('attack');
     expect(arming.spend(24.5, 24.5, false)?.intents).toEqual([]);
@@ -550,7 +554,7 @@ describe('arming, the cursor and the click', () => {
     expect(src.slice(Math.max(0, at - 700), at)).toContain('formationArming.drag()');
   });
 
-  it('with fewer than two placeable units a key says so and arms nothing', () => {
+  it('with fewer than two placeable units a key posts nothing and arms nothing', () => {
     const f = makeForce();
     const notes: string[] = [];
     const arming = createFormationArming({
@@ -560,8 +564,11 @@ describe('arming, the cursor and the click', () => {
       sink: { dispatch: () => undefined, note: (t) => notes.push(t), marker: () => undefined, deny: () => undefined },
       open: () => true,
       onArmed: () => undefined,
+      classOf: (i) => formationClassOfUnit(f.sim, i),
+      retire: () => undefined,
     });
     expect(arming.press('formationColumn' as never)).toBeNull();
-    expect(notes).toEqual(['Needs two free units']);
+    // M10: a key with no row at all posts nothing (P1a posted "Needs two free units" into a feed that has no button to point at).
+    expect(notes).toEqual([]);
   });
 });

@@ -14,9 +14,11 @@ const TYPES = [
   { id: 'unarmed', weapons: [], stepPerTick: 3000, isAir: false },
   { id: 'fixed', weapons: [1], stepPerTick: 0, isAir: false },
   { id: 'heli', weapons: [1], stepPerTick: 3000, isAir: true },
+  // Type 4 is a medic team: carbines, and a `rescue` block (GH-707).
+  { id: 'medic', weapons: [1], stepPerTick: 3000, isAir: false, rescue: { radius_tiles: 8 } },
 ] as const;
 /** What each test type is worth. */
-const COST: Record<string, number> = { armed: 300, unarmed: 100, fixed: 200, heli: 300 };
+const COST: Record<string, number> = { armed: 300, unarmed: 100, fixed: 200, heli: 300, medic: 295 };
 const costOf = (id: string): number => COST[id] ?? 0;
 
 /** One row per unit: [side, alive, typeIdx, firepowerKilled?, mobilityKilled?]. */
@@ -42,6 +44,16 @@ describe('outcomeOf (spec §2.3, version one)', () => {
   it("side 1's only armed unit dead, an unarmed one alive: side 0 wins by annihilation", () => {
     const sim = world([[0, 1, 0], [1, 0, 0], [1, 1, 1]]);
     expect(outcomeOf(sim, 100)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+  });
+
+  it('a medic team does not keep its side standing: carbines and a rescue block are a support unit (GH-707, 30 Oct 2026)', () => {
+    // Side 1 has one living medic and nothing else; side 0 has a rifle squad. The medic's carbines must not count.
+    const sim = world([[0, 1, 0], [1, 1, 4]]);
+    expect(outcomeOf(sim, 100)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+    // Control: the same medic beside a living armed unit leaves the match on.
+    expect(outcomeOf(world([[0, 1, 0], [1, 1, 4], [1, 1, 0]]), 100)).toEqual({ kind: 'ongoing' });
+    // Both sides down to medics: a draw, not a stalemate or a cap decision.
+    expect(outcomeOf(world([[0, 1, 4], [1, 1, 4]]), 100)).toEqual({ kind: 'draw', by: 'mutual' });
   });
 
   it("side 0's armed units dead: side 1 wins by annihilation", () => {

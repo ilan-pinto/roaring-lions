@@ -79,7 +79,8 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 5951: GH-707 ruling 2 (2026-10-26), First Light fields a loaned medic team; First Light 170 -> 180 (+10); reasons beside `LADDER_CREDITS`.
 // Was 5961: GH-865 (2026-10-28), Sarim ATGM cells moved into cover 2 in three missions, +12; reasons beside `LADDER_CREDITS`.
 // Was 5973: GH-707 (2026-10-30), a loaned medic team in 18 more missions' starting forces; +228, per-mission reasons beside `LADDER_CREDITS`.
-export const CAMPAIGN_CREDITS = 6201;
+// Was 6201: GH-707 (2026-10-30), the loaned medic team in the last seven missions; +78, per-mission reasons beside `LADDER_CREDITS`.
+export const CAMPAIGN_CREDITS = 6279;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 export const LADDER_MISSIONS = 26;

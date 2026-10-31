@@ -354,6 +354,22 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'fgState', cls: 'state', kind: typed('Uint8Array', { fixed: FORMATION_ROWS }) },
   { name: 'fgPending', cls: 'state', kind: typed('Uint8Array', { fixed: FORMATION_ROWS }) },
   { name: 'fgMembers', cls: 'state', kind: typed('Uint16Array', { fixed: FORMATION_ROWS }) },
+  // GH-859 P1b (march, drills, calls), APPENDED: ten per-row columns, then four per-unit ones. Encoded even
+  // when empty, like P1a's, so the format pin moves by exactly these rows.
+  { name: 'fgLegs', cls: 'state', kind: typed('Uint8Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgRelease', cls: 'state', kind: typed('Uint8Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgDress', cls: 'state', kind: typed('Uint16Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgQuiet', cls: 'state', kind: typed('Uint16Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgAtCp', cls: 'state', kind: typed('Uint16Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgAway', cls: 'state', kind: typed('Uint16Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgCalled', cls: 'state', kind: typed('Uint8Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgPace', cls: 'state', kind: typed('Int32Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgCallX', cls: 'state', kind: typed('Int32Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fgCallY', cls: 'state', kind: typed('Int32Array', { fixed: FORMATION_ROWS }) },
+  { name: 'fmLeg', cls: 'state', kind: typed('Uint8Array', 'capacity') },
+  { name: 'fmDuty', cls: 'state', kind: typed('Uint8Array', 'capacity') },
+  { name: 'fmHomeX', cls: 'state', kind: typed('Int32Array', 'capacity') },
+  { name: 'fmHomeY', cls: 'state', kind: typed('Int32Array', 'capacity') },
   { name: 'fmLive', cls: 'state', kind: SCALAR },
   // Compiled formation files, registered by the match config (like `unitTypes`).
   { name: 'formationTypes', cls: 'config', kind: obj('array') },

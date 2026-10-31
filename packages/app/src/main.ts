@@ -223,7 +223,7 @@ import { formationIds } from './input/formation';
 import { createFormationArming } from './input/formation-arming';
 import { formationsOpenIn } from './net/versus-formations';
 import { formationRow } from './ui/formation-model';
-import { formationUnitFacts } from './ui/formation-sim';
+import { formationClassOfUnit, formationUnitFacts } from './ui/formation-sim';
 import { callCancelWorks, callWorks } from './input/works-call';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion, prefersSaveData } from './ui/motion';
@@ -2985,7 +2985,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       myLiving(),
       (i) => sim.state.garrisonedIn[i] >= 0,
       (i) => sim.state.carriedBy[i] >= 0,
-      (i) => sim.state.tunnelIn[i] >= 0
+      (i) => sim.state.tunnelIn[i] >= 0,
+      (i) => sim.state.routed[i] === 1
     );
   /** The mark an order leaves on the field: none while the room is paused,
    *  when the order waits and nothing was ordered (N1b lead ruling M-4). */
@@ -4920,7 +4921,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (zoneContains(z, tx, ty)) return true;
     }
     return false;
-  }, me);
+  }, me, versusRoom);
   /** The armed combat formation (R/T/Y or the row's buttons): armed state, the key rule and the click's spend live in
    *  `input/formation-arming.ts`, where a spec can reach them; this only wires the world in. */
   const formationArming = createFormationArming({
@@ -4929,6 +4930,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     world: intentWorld,
     sink: orderSink,
     open: formationsOpen,
+    classOf: (i) => formationClassOfUnit(sim, i),
+    // The arm note is a promise about the next click: taken back when that click spends it or the arm is put down.
+    retire: (text, tone) => hud.retireNote(text, tone),
     // Two armed modes cannot both own the next click: arming a formation disarms every other.
     onArmed: () => {
       armedOrder = null;
