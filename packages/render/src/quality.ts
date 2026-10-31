@@ -91,14 +91,21 @@ export interface RenderQuality {
    * preset is over its budget. There is no open-puddle flag: the lead removed
    * the open-ground puddle terms at S-L1 (30 Oct).
    */
-  rain?: { drops: number; ripples: boolean };
+  rain?: { drops: number; ripples: boolean; ground?: WetGroundTier };
 }
+
+/**
+ * How much of the wet ground program a preset compiles (GH-871 cheap-wet follow-up; `terrain/mesh.ts`'s
+ * `WET_PROGRAM_TIERS` says what each tier is). `full` is P4's program, byte for byte; `lite` and `minimal`
+ * drop terms at COMPILE time. Absent means `full`, like every other `rain` field.
+ */
+export type WetGroundTier = 'full' | 'lite' | 'minimal';
 
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
   // Was drops 900 (and 1500 before it): the P4 final-tip cost run read NET (total wet) 0.5 / 0.5 / 0.4 ms against low's +0.4 budget (z1 / z1.6 / z2.5) at load 3-5 (GH-871).
   // The first step, 1500 -> 900, followed 0.7 and 0.9 ms at zoom 2.5, twice.
-  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false } },
-  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true } },
+  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' } },
+  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' } },
   high: {
     ao: true,
     smaa: true,
@@ -108,6 +115,6 @@ export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQ
     aoScale: 0.25,
     fxDetail: 1,
     smokeBillboardGain: 0.8,
-    rain: { drops: 6000, ripples: true },
+    rain: { drops: 6000, ripples: true, ground: 'full' },
   },
 };

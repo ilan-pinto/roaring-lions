@@ -16,7 +16,7 @@
  * mission wins); the open-ground irradiance `(sunI * sun.y + hemiI) / pi` goes
  * 0.964 -> 0.741 on `day`.
  */
-import { QUALITY_PRESETS, type RenderQuality } from '../quality';
+import { QUALITY_PRESETS, type RenderQuality, type WetGroundTier } from '../quality';
 import type { LightPreset } from './time-of-day';
 
 /** The sun's power under rain: x0.46, on any preset (day 2.6 -> 1.196). */
@@ -80,6 +80,7 @@ export const CHEAP_WET_GROUND_LANDED = false;
 export const RAIN_KDF_RIM_GAIN = 0.6;
 export const RAIN_KDF_RIM_POWER = 3;
 export const RAIN_KDF_RIM_KEY = RAIN_SKY_KEY;
+
 
 /** What `rainLight` reads of a resolved light (`lighting.ts`'s `ResolvedLights`
  *  satisfies it; its `direction` is a `Vector3`, which has x, y and z). */
@@ -222,6 +223,7 @@ export function rainLadderDrops(drops: number, step: number): number {
  * `quality` or an absent `quality.rain` is "no opinion" (a test fake builds no
  * rain fields), and `high` is the frame every shipped caller has seen.
  */
-export function rainQualityOf(quality: RenderQuality | undefined): { drops: number; ripples: boolean } {
-  return quality?.rain ?? QUALITY_PRESETS.high.rain ?? { drops: 6000, ripples: true };
+export function rainQualityOf(quality: RenderQuality | undefined): { drops: number; ripples: boolean; ground: WetGroundTier } {
+  const r = quality?.rain ?? QUALITY_PRESETS.high.rain ?? { drops: 6000, ripples: true };
+  return { drops: r.drops, ripples: r.ripples, ground: r.ground ?? 'full' };
 }

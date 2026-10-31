@@ -20,8 +20,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
+import type { WetGroundTier } from '../../quality';
 import {
   GroundMaterial,
+  WET_PROGRAM_TIERS,
   vertexColorMaterial,
   toGeometry,
   GROUND_ALBEDOS,
@@ -760,6 +762,79 @@ const stripWet = (src: string): string => src.replace(/\n#ifdef THEME_WET\n[\s\S
 const WET_UNIFORM_NAMES = [
   'uControlC', 'uMarshAmp', 'uMarshReflect', 'uPuddleReflect', 'uRippleAmp', 'uRippleTimeSec', 'uWetAmp', 'uWetRim', 'uWetSky',
 ];
+
+describe('the wet program tiers (GH-871 cheap-wet follow-up): what each compiles', () => {
+  const dryFrag = compiled(new GroundMaterial()).fragmentShader;
+  const of = (tier: WetGroundTier): { m: GroundMaterial; frag: string } => {
+    const m = new GroundMaterial({ wet: true, wetProgram: WET_PROGRAM_TIERS[tier] });
+    return { m, frag: compiled(m).fragmentShader };
+  };
+  const full = of('full');
+  const lite = of('lite');
+  const minimal = of('minimal');
+  const blocks = (src: string): number => (src.match(/#ifdef THEME_WET/g) ?? []).length;
+  /** The dry source already uses derivatives (the relief read), so a wet term is the EXCESS over it. */
+  const derivs = (src: string): number => (src.match(/dF(dx|dy)\(/g) ?? []).length;
+
+  it('the tier table is exactly this (literals): full is P4\'s, lite and minimal drop terms', () => {
+    expect(WET_PROGRAM_TIERS).toEqual({
+      full: { rim: 'gradient', ripples: true, roughness: 'full' },
+      lite: { rim: 'mask', ripples: true, roughness: 'water' },
+      minimal: { rim: 'off', ripples: false, roughness: 'water' },
+    });
+  });
+
+  it('full is byte-identical to a wet ground built with no program named (P4\'s), and keeps the derivative rim, the ripples and the roughness table', () => {
+    expect(full.frag).toBe(compiled(new GroundMaterial({ wet: true })).fragmentShader);
+    expect(full.m.customProgramCacheKey()).toBe('rl-ground-wet');
+    expect(blocks(full.frag)).toBe(4);
+    for (const word of ['rlRipple(', 'rlWetOff', 'roughnessFactor = rlWetRough;', 'rlRoadSurf);']) expect(full.frag, word).toContain(word);
+    // Four wet derivatives (dFdx and dFdy of the world xz and of the mask), on top of the dry source's own.
+    expect(derivs(full.frag) - derivs(dryFrag)).toBe(6);
+  });
+
+  it('lite: the rim has no derivatives (its gradient is one texel in 8 tiles, 0.06 x 8 = 0.48), the ripples stay, the roughness is the water\'s alone', () => {
+    expect(derivs(lite.frag)).toBe(derivs(dryFrag));
+    expect(lite.frag).toContain('smoothstep(0.0, 0.48000, max(0.5 - rlWetM, 0.0))');
+    expect(lite.frag).toContain('rlRipple(');
+    expect(lite.frag).toContain('rlWetOff');
+    expect(lite.frag).toContain('roughnessFactor = mix(0.62000, 0.08000, rlWetCov);');
+    expect(lite.frag).not.toContain('rlWetRough');
+    expect(blocks(lite.frag)).toBe(4);
+    expect(lite.m.customProgramCacheKey()).toBe('rl-ground-wet-rim-mask-rip1-rough-water');
+  });
+
+  it('minimal: no bank, no ripple code, no normal tilt; the water\'s roughness and the coverage mix remain', () => {
+    expect(derivs(minimal.frag)).toBe(derivs(dryFrag));
+    for (const word of ['rlRipple', 'rlRipHash', 'rlWetOff', 'rlWetSwing', 'rlWetRim', 'uWetRim, rlWetRim']) expect(minimal.frag, word).not.toContain(word);
+    expect(minimal.frag).toContain('diffuseColor.rgb = mix(diffuseColor.rgb, rlWetWater, rlWetCov);');
+    expect(minimal.frag).toContain('roughnessFactor = mix(0.62000, 0.08000, rlWetCov);');
+    // header, colour, roughness: the normal block is gone with the ripples.
+    expect(blocks(minimal.frag)).toBe(3);
+    expect(minimal.m.customProgramCacheKey()).toBe('rl-ground-wet-rim-off-rip0-rough-water');
+  });
+
+  it('every tier strips back to the dry source (the 9.1 property), and the three programs are three programs', () => {
+    for (const t of [full, lite, minimal]) expect(stripWet(t.frag)).toBe(dryFrag);
+    expect(new Set([full.frag, lite.frag, minimal.frag]).size).toBe(3);
+    expect(new Set([full, lite, minimal].map((t) => t.m.customProgramCacheKey())).size).toBe(3);
+    // Non-vacuous ordering: each cheaper tier is shorter.
+    expect(lite.frag.length).toBeLessThan(full.frag.length);
+    expect(minimal.frag.length).toBeLessThan(lite.frag.length);
+  });
+
+  it('a dry ground refuses a wet program, and setWetProgram recompiles a wet one under its own key', () => {
+    expect(() => new GroundMaterial().setWetProgram(WET_PROGRAM_TIERS.lite)).toThrow(/dry ground/);
+    const m = new GroundMaterial({ wet: true });
+    const v0 = m.version;
+    m.setWetProgram(WET_PROGRAM_TIERS.minimal);
+    expect(m.version).toBeGreaterThan(v0);
+    expect(m.customProgramCacheKey()).toBe('rl-ground-wet-rim-off-rip0-rough-water');
+    expect(compiled(m).fragmentShader).toBe(minimal.frag);
+    // A dry ground ignores a program named in its options.
+    expect(new GroundMaterial({ wetProgram: WET_PROGRAM_TIERS.minimal }).customProgramCacheKey()).toBe('rl-ground');
+  });
+});
 
 describe('GroundMaterial({ wet: true }) -- the THEME_WET program', () => {
   const dry = new GroundMaterial();

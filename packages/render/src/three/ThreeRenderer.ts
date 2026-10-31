@@ -286,6 +286,8 @@ import {
   toGeometry,
   vertexColorMaterial,
   GroundMaterial,
+  type WetProgram,
+  WET_PROGRAM_TIERS,
   prepareGroundTexture,
   albedoMean,
   slotUniforms,
@@ -2833,7 +2835,9 @@ export class ThreeRenderer implements Renderer {
     if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
     // GH-871 P4 T4 (R-1): the wet ground program is built under rain and
     // nowhere else; every other map builds today's `new GroundMaterial()`.
-    this.groundMat = new GroundMaterial(opts.weather === 'rain' ? { wet: true } : {});
+    this.groundMat = new GroundMaterial(
+      opts.weather === 'rain' ? { wet: true, wetProgram: WET_PROGRAM_TIERS[rainQualityOf(opts.quality).ground] } : {}
+    );
     this.surfaceTable = surfaceTableFor(opts.weather);
     this.viewer = opts.viewerSide ?? 0;
     this.versus = opts.versus === true;
@@ -11849,6 +11853,20 @@ export class ThreeRenderer implements Renderer {
    */
   debugSetRainRim(gain: number): void {
     setRainRimGain(gain);
+  }
+
+  /**
+   * The wet-ground cost run's door (GH-871 cheap-wet follow-up): recompiles the wet ground with
+   * another `WetProgram` (its own cache key) so `perf:fx` can time one program against another on a
+   * live page. On the CONCRETE class only, like `debugSetWetTuning`; a dry ground throws.
+   */
+  debugSetWetProgram(p: WetProgram): void {
+    this.groundMat.setWetProgram(p);
+  }
+
+  /** The wet program the ground compiles now, or null on a dry ground. */
+  debugWetProgram(): WetProgram | null {
+    return this.groundMat.wet ? this.groundMat.wetProgramNow : null;
   }
 
   /** What the rim shaders read now: the effective `gain` (0 while the `unit-surface` debug layer is off), the
