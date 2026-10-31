@@ -68,6 +68,7 @@
     "vdmg:capture": "pnpm --filter @lions/tools vdmg:capture",
     "closeups:garage": "pnpm --filter @lions/tools closeups:garage",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
+    "hands:meshes": "pnpm --filter @lions/tools hands:meshes",
     "motion:meshes": "pnpm --filter @lions/tools motion:meshes",
     "meshy": "pnpm --filter @lions/tools meshy --",
     "video": "pnpm --filter @lions/tools video --",

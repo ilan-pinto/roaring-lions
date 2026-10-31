@@ -37,12 +37,15 @@ import {
   qrot,
   qslerp,
   scale,
+  smoothstep,
   sub,
   type Q,
   type V3,
   type Xf,
 } from './math';
 import { carry, type Pose, type RestVertex, type Rig } from './rig';
+import { turnOf } from './contact';
+import { describeHands, MAX_AXIS_ERROR_DEG, weaponFrameOf, wristReading, type HandRig, type HandStation, type WristReading } from './hands';
 
 /** `spike` (spike-walk, 6 Oct): the at_team gunner's Spike. Unlike the
  *  other two tubes it is not re-seated by formula -- its command-launch unit
@@ -120,6 +123,20 @@ export const AIM_TORSO: Record<WeaponKind, { lean: number; blade: number }> = {
   spike: { lean: 4, blade: 0 },
 };
 export const READY_TORSO = { lean: 0, blade: 10 };
+/**
+ * A figure with MODELLED hands (GH-826) has fixed stations on the weapon: the support palm sits at u 0.54 on the
+ * handguard, 0.54 m ahead of the butt, and the rig's arms (a 0.117 m upper arm from the armpit pivot, a 0.268 m
+ * forearm) reach 0.46 m to a palm. The formula grips slid the hand back until it reached; these hands do not
+ * slide. What gives is the stance: bladed to the target the way a shooter stands (30 to 45 degrees; the support
+ * shoulder comes forward by 0.33 m x sin(blade) against the firing one), the support shoulder protracted further,
+ * and the butt a little further back in its pocket. Measured on inf_squad (`_coord/inf-hands/r1/`): at 20 degrees
+ * and the formula pocket the support wrist was 0.17 m out of reach in `fire`, 0.09 m at low ready.
+ */
+export const HANDS_READY_TORSO = { lean: 0, blade: 28 };
+export const HANDS_AIM_TORSO = { lean: 12, blade: 38 };
+export const HANDS_PROTRACTION: V3 = [0.11, 0.0, 0.045];
+export const HANDS_RIFLE_POCKET: V3 = [0.015, 0.16, 0.05];
+export const HANDS_READY_POCKET: V3 = [0.0, 0.12, 0.06];
 /** The support shoulder reaching for the handguard: the scapula slides
  *  forward and in (protraction), metres in the figure's frame. The cut
  *  rigs' upper-arm bone is short (0.15 m, from the armpit), so without it a
@@ -150,6 +167,8 @@ export interface HoldFigure {
   /** A Spike only: the rest hand points, which the importer solved onto its
    *  pistol grip and handle -- the grips, carried with the weapon. */
   readonly restGrips?: { readonly shoot: V3; readonly support: V3 };
+  /** A figure whose hands are modelled pieces on bones of their own (GH-826): the stations the hold closes them on. */
+  readonly hands?: HandRig;
 }
 
 /** +1 when the weapon is held on the anatomical right (+Z), -1 on the left. */
@@ -211,6 +230,18 @@ export function describeHold(rig: Rig, verts: RestVertex[], prefix: string, kind
     face.length > 0
       ? scale(face.reduce((s, v) => add(s, v.p), [0, 0, 0] as V3), 1 / face.length)
       : add(rig.restWorld.get(head)!.t, [0.09, 0.04, 0]);
+  const wf = kind === 'rifle' ? weaponFrameOf(rig, prefix) : undefined;
+  const hands = wf && rig.has(`${prefix}_hand_${shootSide}`) ? describeHands(rig, prefix, shootSide) : undefined;
+  if (hands && wf) {
+    // The reshaped carbine and its hands (GH-826): the weapon's frame is the one the hands pass seated it in, and
+    // the hands' reach points are their wrists. Nothing is measured off a point cloud.
+    const wristS = rig.restWorld.get(hands.fire.hand)!.t;
+    const wristP = rig.restWorld.get(hands.support.hand)!.t;
+    return {
+      prefix, kind, butt: wf.butt, axis: wf.axis, up: wf.up, length: wf.length, fromJoint, handShoot: wristS, handSupport: wristP,
+      eye, eyeJoint: head, shootSide, hands,
+    };
+  }
   const handShoot = handPoint(rig, verts, rig.node(`${prefix}_forearm_${shootSide}`));
   const handSupport = handPoint(rig, verts, rig.node(`${prefix}_forearm_${support}`));
   return {
@@ -239,13 +270,24 @@ export interface HoldState {
   /** The aimed torso lean, degrees, when not the weapon's own (a kneeling
    *  shooter sits back over his heel and leans less). */
   readonly aimLean?: number;
+  /** Degrees more blade than the stance's own (a figure with modelled hands turns further to reach). */
+  readonly bladeExtra?: number;
+  /** Take the pelvis's tilt and the clip's own heading out of the torso first (a kneel's lerp, a kneeler's turn to the
+   *  target): the stance's blade is an absolute turn from the weapon's line, and the head keeps the clip's look. A
+   *  stride (idle, move, fire, moveFire) keeps the clip's own sway above the belt instead: that is the walk. */
+  readonly upright?: boolean;
 }
 
 export interface HoldResult {
   readonly gapShoot: number;
   readonly gapSupport: number;
   readonly eyeAboveBore: number;
+  /** A modelled hand (GH-826) only: each wrist's bend past its anatomical limit, degrees, and how far the hand's
+   *  orientation was turned off the station's own to get there (the spec allows 15). */
+  readonly wrist?: { readonly fire: WristReading; readonly support: WristReading; readonly offsetFire: number; readonly offsetSupport: number; readonly cost: number };
 }
+
+const wrapPi = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 
 function setWorldRot(rig: Rig, pose: Pose, node: Node, worldRot: Q): void {
   const p = rig.parent.get(node)!;
@@ -260,7 +302,13 @@ export function rotateWorld(rig: Rig, pose: Pose, node: Node, q: Q): void {
   setWorldRot(rig, pose, node, qmul(q, w.r));
 }
 
-export function twoBoneIK(rig: Rig, pose: Pose, upper: Node, fore: Node, handRest: V3, target: V3, pole: V3): number {
+/**
+ * `hinge`: turn the forearm about the elbow's own hinge (the normal of the bend plane) first and only then by the small
+ * remainder. The shortest arc is ill-conditioned when the forearm has to fold nearly back on itself (a ready arm: the
+ * upper arm is short, the forearm turns almost 180 degrees), and from one frame to the next its twist flips by 180
+ * degrees. Used by the modelled hands; the formula holds keep the arc they were authored with.
+ */
+export function twoBoneIK(rig: Rig, pose: Pose, upper: Node, fore: Node, handRest: V3, target: V3, pole: V3, hinge = false): number {
   const S = rig.worldOf(upper, pose).t;
   const E = rig.worldOf(fore, pose).t;
   const H = carry(rig, (n) => rig.worldOf(n, pose), fore, handRest);
@@ -275,7 +323,19 @@ export function twoBoneIK(rig: Rig, pose: Pose, upper: Node, fore: Node, handRes
   rotateWorld(rig, pose, upper, qfromTo(sub(E, S), sub(E2, S)));
   const E3 = rig.worldOf(fore, pose).t;
   const H2 = carry(rig, (n) => rig.worldOf(n, pose), fore, handRest);
-  rotateWorld(rig, pose, fore, qfromTo(sub(H2, E3), sub(add(S, scale(dn, L)), E3)));
+  const aDir = norm(sub(H2, E3));
+  const bDir = norm(sub(add(S, scale(dn, L)), E3));
+  if (hinge) {
+    const n = norm(cross(dn, pp));
+    const pa = sub(aDir, scale(n, dot(aDir, n)));
+    const pb = sub(bDir, scale(n, dot(bDir, n)));
+    if (len(pa) > 1e-6 && len(pb) > 1e-6) {
+      const na = norm(pa), nb = norm(pb);
+      const q1 = qaxis(n, Math.atan2(dot(cross(na, nb), n), dot(na, nb)));
+      const q2 = qfromTo(qrot(q1, aDir), bDir);
+      rotateWorld(rig, pose, fore, qmul(q2, q1));
+    } else rotateWorld(rig, pose, fore, qfromTo(aDir, bDir));
+  } else rotateWorld(rig, pose, fore, qfromTo(sub(H2, E3), sub(add(S, scale(dn, L)), E3)));
   const H3 = carry(rig, (n) => rig.worldOf(n, pose), fore, handRest);
   return len(sub(H3, target));
 }
@@ -287,23 +347,89 @@ function weaponDir(pitchDeg: number, yawInDeg: number, side: number): V3 {
   return norm([Math.cos(p) * Math.cos(y), Math.sin(p), -side * Math.cos(p) * Math.sin(y)]);
 }
 
+/** A hand is held when it is on its station and its wrist inside the anatomy. */
+/** A hand's cost (`placeHand`) under which a stance is settled: on the station, inside the wrist, near its own turn. */
+const HELD_COST = 0.006;
+/** The trigger finger is on the trigger by this much aim (0 low ready, 1 aimed): a finger half way between the receiver
+ *  and the trigger hovers off both, and the hand loses a fifth of its contact for the frames it takes to get there. */
+export const TRIGGER_CLOSE_AIM = 0.2;
+/** More blade, degrees, tried in turn when a modelled hand cannot reach (the stance gives, not the station). */
+const BLADE_EXTRAS = [0, 5, 10, 15, 20, 25, 30];
+
+export function solveHold(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: HoldState): HoldResult {
+  if (!h.hands) return solveHoldOnce(rig, pose, h, weapon, st);
+  // Every node the solve writes, restored between tries.
+  const hr = h.hands;
+  const p = h.prefix;
+  const nodes: Node[] = [
+    rig.node(`${p}_spine`), rig.node(`${p}_neck`), rig.node(`${p}_head`), weapon,
+    hr.fire.upper, hr.fire.fore, hr.fire.hand, hr.support.upper, hr.support.fore, hr.support.hand,
+    ...(hr.finger ? [hr.finger.node] : []),
+  ];
+  const saved = nodes.map((n) => pose.get(n)!);
+  let best: HoldResult | null = null;
+  let bestSnap: Xf[] = [];
+  let bestScore = Infinity;
+  let bestExtra = 0;
+  const lastExtra = BLADE_MEMORY.get(h);
+  const mem0 = [HAND_MEMORY.get(hr.fire), HAND_MEMORY.get(hr.support)];
+  let memBest = mem0;
+  const order = lastExtra === undefined ? BLADE_EXTRAS : [lastExtra, ...BLADE_EXTRAS.filter((e) => e !== lastExtra)];
+  for (const extra of order) {
+    nodes.forEach((n, i) => pose.set(n, saved[i]));
+    for (const [i, st2] of [hr.fire, hr.support].entries()) { if (mem0[i]) HAND_MEMORY.set(st2, mem0[i]!); else HAND_MEMORY.delete(st2); }
+    const r = solveHoldOnce(rig, pose, h, weapon, { ...st, bladeExtra: (st.bladeExtra ?? 0) + extra });
+    const handCost = r.wrist ? r.wrist.cost : Math.max(r.gapShoot, r.gapSupport);
+    const score = handCost + 0.0002 * extra + (lastExtra === undefined ? 0 : 0.0002 * Math.abs(extra - lastExtra));
+    if (score < bestScore) {
+      bestScore = score;
+      best = r;
+      bestExtra = extra;
+      memBest = [HAND_MEMORY.get(hr.fire), HAND_MEMORY.get(hr.support)];
+      bestSnap = nodes.map((n) => pose.get(n)!);
+    }
+    // nothing left to gain: both hands sit on their stations, in their wrists' range, with no turn off the station
+    if (handCost < HELD_COST) break;
+  }
+  nodes.forEach((n, i) => pose.set(n, bestSnap[i]));
+  BLADE_MEMORY.set(h, bestExtra);
+  for (const [i, st2] of [hr.fire, hr.support].entries()) { if (memBest[i]) HAND_MEMORY.set(st2, memBest[i]!); else HAND_MEMORY.delete(st2); }
+  return best!;
+}
+
 /**
  * Solve one figure's hold into `pose` (mutated): torso, weapon bone, both
  * arms, and on an aimed rifle the cheek weld. Returns the residual gaps.
  */
-export function solveHold(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: HoldState): HoldResult {
+function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: HoldState): HoldResult {
   const p = h.prefix;
   const side = holdSide(h); // anatomical right is +Z
   const spine = rig.node(`${p}_spine`);
-  const aimTorso = AIM_TORSO[h.kind];
-  const lean = READY_TORSO.lean + ((st.aimLean ?? aimTorso.lean) - READY_TORSO.lean) * st.aim;
-  const blade = READY_TORSO.blade + (aimTorso.blade - READY_TORSO.blade) * st.aim;
+  const aimTorso = h.hands ? HANDS_AIM_TORSO : AIM_TORSO[h.kind];
+  const readyTorso = h.hands ? HANDS_READY_TORSO : READY_TORSO;
+  const lean = readyTorso.lean + ((st.aimLean ?? aimTorso.lean) - readyTorso.lean) * st.aim;
+  const blade = readyTorso.blade + (aimTorso.blade - readyTorso.blade) * st.aim + (st.bladeExtra ?? 0);
+  let lostHeading = 0;
+  if (h.hands && st.upright) {
+    // A kneel's stance is built on an upright torso: a pelvis tipped by the lerp between standing and kneeling must
+    // not leave the shoulders where a formula placed them for a man standing, or the stations drift out of reach.
+    // A stride (idle, move, fire, moveFire) keeps the clip's own sway above the belt: that is the walk.
+    const rootN = rig.node(`${p}_root`);
+    const rw = rig.worldOf(rootN, pose);
+    const rr = rig.restWorld.get(rootN)!;
+    const up0 = qmul(qmul(rw.r, qconj(rr.r)), rig.restWorld.get(spine)!.r);
+    // The heading the torso gives up is the head's to keep: the face stays where the clip looks.
+    const heading = (q: Q): number => { const f = qrot(q, [1, 0, 0]); return Math.atan2(-f[2], f[0]); };
+    lostHeading = wrapPi(heading(rig.worldOf(spine, pose).r) - heading(up0));
+    setWorldRot(rig, pose, spine, up0);
+  }
   // Lean: the head toward +X is a rotation about -Z. Blade: the shooting
   // (+Z) shoulder back is a rotation about +Y by a negative angle.
   rotateWorld(rig, pose, spine, qmul(qaxis([0, 0, 1], -deg(lean)), qaxis([0, 1, 0], -side * deg(blade))));
   // The head does not blade with the shoulders: a shooter looks down the
   // bore, so the neck turns the face back onto the aim by the blade.
   rotateWorld(rig, pose, rig.node(`${p}_neck`), qaxis([0, 1, 0], side * deg(blade)));
+  if (lostHeading !== 0) rotateWorld(rig, pose, rig.node(`${p}_neck`), qaxis([0, 1, 0], lostHeading));
 
   const W = (n: Node) => rig.worldOf(n, pose);
   const shoulder = W(rig.node(`${p}_upperarm_${h.shootSide}`)).t;
@@ -321,10 +447,12 @@ export function solveHold(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st:
     }
     if (h.kind === 'rifle') {
       if (aim) {
-        const butt = add(shoulder, [RIFLE_POCKET[0], RIFLE_POCKET[1], -side * RIFLE_POCKET[2]]);
+        const pk = h.hands ? HANDS_RIFLE_POCKET : RIFLE_POCKET;
+        const butt = add(shoulder, [pk[0], pk[1], -side * pk[2]]);
         return { butt, dir: weaponDir(AIM_ELEVATION_DEG.rifle, 0, side) };
       }
-      const butt = add(shoulder, [READY_POCKET[0], READY_POCKET[1], -side * READY_POCKET[2]]);
+      const rk = h.hands ? HANDS_READY_POCKET : READY_POCKET;
+      const butt = add(shoulder, [rk[0], rk[1], -side * rk[2]]);
       return { butt, dir: weaponDir(READY_PITCH_DEG, READY_YAW_DEG, side) };
     }
     const el = aim ? AIM_ELEVATION_DEG[h.kind] : CARRY_ELEVATION_DEG[h.kind];
@@ -369,6 +497,33 @@ export function solveHold(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st:
     eyeAboveBore = eye[1] - add(butt, scale(dir, along))[1];
   }
 
+  if (h.hands) {
+    const hr = h.hands;
+    const delta: Xf = { t: sub(butt, qrot(r, h.butt)), r, s: 1 };
+    const sup0 = h.shootSide === 'L' ? 'R' : 'L';
+    // Protract the support shoulder, as the formula grips always did (SUPPORT_PROTRACTION).
+    {
+      const k = (0.7 + 0.3 * st.aim) * (h.kind === 'rifle' ? 1 : PROTRACTION_TUBE);
+      const ua = rig.node(`${p}_upperarm_${sup0}`);
+      const parentW = rig.worldOf(rig.parent.get(ua)!, pose);
+      const want: V3 = [HANDS_PROTRACTION[0] * k, HANDS_PROTRACTION[1] * k, side * HANDS_PROTRACTION[2] * k];
+      const local = qrot(qconj(parentW.r), scale(want, 1 / parentW.s));
+      const cur = pose.get(ua)!;
+      pose.set(ua, { ...cur, t: add(cur.t, local) });
+    }
+    const fire = placeHand(rig, pose, hr.fire, delta, [-0.2, -1, 0.7 * side], smoothstep(Math.min(1, st.aim / TRIGGER_CLOSE_AIM)));
+    const supp = placeHand(rig, pose, hr.support, delta, [0.1, -1, -0.35 * side]);
+    if (hr.finger) {
+      // The trigger finger lies along the receiver at low ready and goes onto the trigger as the weapon comes up.
+      const rest = rig.rest.get(hr.finger.node)!;
+      const cur = pose.get(hr.finger.node) ?? rest;
+      pose.set(hr.finger.node, { ...cur, r: qmul(rest.r, qaxis([1, 0, 0], -deg(hr.finger.triggerDeg) * smoothstep(Math.min(1, st.aim / TRIGGER_CLOSE_AIM)))) });
+    }
+    return {
+      gapShoot: fire.gap, gapSupport: supp.gap, eyeAboveBore,
+      wrist: { fire: fire.wrist, support: supp.wrist, offsetFire: fire.offsetDeg, offsetSupport: supp.offsetDeg, cost: fire.cost + supp.cost },
+    };
+  }
   // Grips, then the arms onto them.
   const grip = (frac: number, drop: number): V3 => {
     const rest = sub(add(h.butt, scale(h.axis, frac * h.length)), scale(h.up, drop));
@@ -433,6 +588,154 @@ export function solveHold(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st:
   }
   void supportG;
   return { gapShoot, gapSupport, eyeAboveBore };
+}
+
+/**
+ * Frame-to-frame memory of the solutions, so a clip stays on one solution: a bend plane that turns 90 degrees in one
+ * frame is a pop on screen and an interpolation error half way between the keys. Per hand: the elbow swing and the
+ * orientation offset last chosen. Per figure: the blade extra last chosen. Cleared at the start of every clip
+ * (`resetHoldMemory`); a solve in time order is the contract.
+ */
+type HandVars = readonly [number, number, number, number];
+const HAND_MEMORY = new WeakMap<HandStation, HandVars>();
+const BLADE_MEMORY = new WeakMap<HoldFigure, number>();
+export function resetHoldMemory(h: HoldFigure): void {
+  BLADE_MEMORY.delete(h);
+  if (h.hands) { HAND_MEMORY.delete(h.hands.fire); HAND_MEMORY.delete(h.hands.support); }
+}
+
+/** The elbow's swing about the shoulder-to-wrist line may go this far either way, degrees. */
+const MAX_SWING_DEG = 120;
+/** The hand may roll about its own channel axis this far either way (a wrist's pronation and supination): it keeps the
+ *  hand closed on the grip or the handguard, and it is not the axis error the gate holds to 15 degrees. */
+const MAX_ROLL_DEG = 40;
+/** What a hand's contact is worth to the solver: it prices the contact it would lose below this fraction. */
+const CONTACT_GOAL = 0.34;
+/** A hand off its station is charged by the metre, dearly: the contact and depth tables assume it is on it. */
+const GAP_WEIGHT = 10;
+const CONTACT_WEIGHT = 0.1;
+/** ...and the depth the weapon would sink into the glove past this many metres (the gate holds 3 mm). */
+const DEPTH_GOAL = 0.002;
+const DEPTH_WEIGHT = 4;
+const clampVars = (v: HandVars): HandVars => {
+  const sw = Math.max(-deg(MAX_SWING_DEG), Math.min(deg(MAX_SWING_DEG), v[0]));
+  const roll = Math.max(-deg(MAX_ROLL_DEG), Math.min(deg(MAX_ROLL_DEG), v[1]));
+  const a = Math.hypot(v[2], v[3]);
+  const cap = deg(MAX_AXIS_ERROR_DEG - 1);
+  const k = a > cap ? cap / a : 1;
+  return [sw, roll, v[2] * k, v[3] * k];
+};
+
+/**
+ * One modelled hand onto its station (GH-826). `delta` takes the weapon's REST frame to where the hold put it, so the
+ * hand's ideal world transform is `delta . station`. The arm reaches for the wrist that puts the station's reference
+ * point (the grip's axis point, the handguard's) exactly where it belongs; the hand turns to the station's own
+ * orientation unless that costs the wrist more than its anatomy gives (flexion 60, extension 55, radial 20, ulnar
+ * 35 degrees), when the hand is turned off it, about the reference point, by the least turn (at most 15 degrees)
+ * that does. Returns the reference point's miss and the wrist's reading.
+ *
+ * The free variables are the elbow's swing about the shoulder-to-wrist line and the hand's turn off its station (a
+ * rotation vector, at most 15 degrees). They are found by a compass search that starts from the last frame's answer, so
+ * a clip moves continuously; only a frame the last answer no longer serves starts again from a spread of swings.
+ */
+export function placeHand(rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole: V3, trigger = 0): { gap: number; wrist: WristReading; offsetDeg: number; cost: number } {
+  const hw = compose(delta, st.rest);
+  const refStation = add(hw.t, qrot(hw.r, st.ref));
+  const restWrist = rig.restWorld.get(st.hand)!.t;
+  const restLocal = rig.rest.get(st.hand)!.r;
+  const savedUpper = pose.get(st.upper)!;
+  const savedFore = pose.get(st.fore)!;
+  const savedHand = pose.get(st.hand)!;
+  const S0 = rig.worldOf(st.upper, pose).t;
+  const prev = HAND_MEMORY.get(st);
+  type Eval = { cost: number; intrinsic: number; upper: Xf; fore: Xf; hand: Xf; gap: number; wrist: WristReading; off: number; v: HandVars };
+  const evalAt = (vIn: HandVars): Eval => {
+    const v = clampVars(vIn);
+    pose.set(st.upper, savedUpper);
+    pose.set(st.fore, savedFore);
+    pose.set(st.hand, savedHand);
+    // the hand's turn off its station, in the hand's own frame: a roll about its channel axis, then a tilt of that axis
+    const R = qnorm(qmul(hw.r, turnOf(st.channel, v[1], v[2], v[3])));
+    const target = sub(refStation, qrot(R, st.ref));
+    const axis = norm(sub(target, S0));
+    const poleSwung = qrot(qaxis(axis, v[0]), pole);
+    twoBoneIK(rig, pose, st.upper, st.fore, restWrist, target, poleSwung, true);
+    const fw = rig.worldOf(st.fore, pose);
+    const local = qnorm(qmul(qconj(fw.r), R));
+    pose.set(st.hand, { ...savedHand, r: local });
+    const hwNow = rig.worldOf(st.hand, pose);
+    const gap = len(sub(add(hwNow.t, qrot(hwNow.r, st.ref)), refStation));
+    const wrist = wristReading(restLocal, local, st.thumbMinusX);
+    const off = (Math.hypot(v[2], v[3]) * 180) / Math.PI;
+    // an arm swung off its natural bend is charged a little, a hand turned off its station a little more; a change from
+    // the last frame's answer is charged too, so the clip stays on one solution
+    const contact = st.contact.at(v[1], v[2], v[3], trigger);
+    const depth = st.contact.depth(v[1], v[2], v[3], trigger);
+    const intrinsic = GAP_WEIGHT * gap + 0.004 * wrist.overDeg + 0.001 * wrist.softDeg + CONTACT_WEIGHT * Math.max(0, CONTACT_GOAL - contact) + DEPTH_WEIGHT * Math.max(0, depth - DEPTH_GOAL) + 0.0001 * Math.abs((v[0] * 180) / Math.PI) + 0.0003 * off + 0.00005 * (Math.abs((v[1] * 180) / Math.PI));
+    let cost = intrinsic;
+    if (prev) {
+      const d = Math.hypot(v[1] - prev[1], v[2] - prev[2], v[3] - prev[3]);
+      cost += 0.00005 * ((d * 180) / Math.PI) + 0.0001 * Math.abs(((v[0] - prev[0]) * 180) / Math.PI);
+    }
+    return { cost, intrinsic, upper: pose.get(st.upper)!, fore: pose.get(st.fore)!, hand: pose.get(st.hand)!, gap, wrist, off, v };
+  };
+  const compass = (start: HandVars): Eval => {
+    let cur = evalAt(start);
+    let swStep = deg(12), oStep = deg(5);
+    for (let it = 0; it < 80 && (swStep > deg(0.3) || oStep > deg(0.15)); it++) {
+      let improved = false;
+      for (const [i, step] of [[0, swStep], [1, oStep * 2], [2, oStep], [3, oStep]] as const) {
+        for (const sgn of [1, -1]) {
+          const w = [...cur.v] as [number, number, number, number];
+          w[i] += sgn * step;
+          const e = evalAt(w);
+          if (e.cost < cur.cost - 1e-9) { cur = e; improved = true; }
+        }
+      }
+      if (!improved) { swStep /= 2; oStep /= 2; }
+      if (cur.gap < 0.0015 && cur.wrist.overDeg < 1e-9 && cur.wrist.softDeg < 1e-9 && cur.off < 0.5) break;
+    }
+    return cur;
+  };
+  const settled = (e: Eval): boolean => e.gap < 0.004 && e.wrist.overDeg < 1e-9 && e.intrinsic < 0.004;
+  let best: Eval = compass(prev ?? [0, 0, 0, 0]);
+  if (!settled(best)) {
+    for (const sw of [0, 30, -30, 60, -60, 90, -90]) {
+      const e = compass([deg(sw), 0, 0, 0]);
+      if (e.cost < best.cost - 1e-9) best = e;
+      if (settled(best) && !prev) break;
+    }
+  }
+  pose.set(st.upper, best.upper);
+  pose.set(st.fore, best.fore);
+  pose.set(st.hand, best.hand);
+  HAND_MEMORY.set(st, best.v);
+  return { gap: best.gap, wrist: best.wrist, offsetDeg: best.off, cost: best.intrinsic };
+}
+
+/**
+ * The weapon of a figure whose clip the hold does not own (`down`, `fall`, `wreck`): it stays in the firing hand.
+ * The hands keep the wrist `grip` gave them (a man falling with a rifle still holds it), and the weapon is put
+ * where that hand's station says it is.
+ */
+export function followHand(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, grip: ReadonlyMap<Node, Q>): void {
+  const hr = h.hands!;
+  for (const st of [hr.fire, hr.support]) {
+    const cur = pose.get(st.hand)!;
+    const q = grip.get(st.hand);
+    if (!q) continue;
+    pose.set(st.hand, { ...cur, r: q });
+    // the fist that shows in its place turns with it
+    const fist = hr.fists.get(st.hand);
+    if (fist) pose.set(fist, { ...pose.get(fist)!, r: q });
+  }
+  // the hand may be scaled away (a fist shows instead): measure the world with it at full size
+  const cur = pose.get(hr.fire.hand)!;
+  pose.set(hr.fire.hand, { ...cur, s: 1 });
+  const hw = rig.worldOf(hr.fire.hand, pose);
+  pose.set(hr.fire.hand, cur);
+  const w = compose(compose(hw, invert(hr.fire.rest)), weaponRest(h));
+  pose.set(weapon, rig.localFor(weapon, w, pose));
 }
 
 /** The weapon bone's local pose that keeps it where the old forearm put it:

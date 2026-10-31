@@ -19,6 +19,9 @@ import { Rig } from './rig';
  *  0.05-0.06 m in radius in a sleeve; the shoulder cap and the elbow pad
  *  stand a little proud, hence the margin. */
 export const ARM_RADIUS_CAP = { upperarm: 0.085, forearm: 0.075 };
+/** A figure the hands pass has been through: its forearm bone carries the sleeve from the real elbow down, which is
+ *  as thick as the upper arm (the armband is 0.085 out). */
+export const ARM_RADIUS_CAP_HANDS = { upperarm: 0.085, forearm: 0.09 };
 /** How far an arm part may reach past its own joints along the bone: the
  *  shoulder cap above the shoulder joint, and the elbow overlap. */
 export const ARM_AXIAL_SLACK = { shoulder: 0.1, elbow: 0.04 };
@@ -27,6 +30,7 @@ export function tidyArms(doc: Document, prefixes: readonly string[]): string[] {
   const rig = new Rig(doc);
   const joints = rig.skin.listJoints();
   const lines: string[] = [];
+  const caps = (doc.getRoot().listScenes()[0].getExtras() as { rl_hands?: unknown }).rl_hands ? ARM_RADIUS_CAP_HANDS : ARM_RADIUS_CAP;
   for (const p of prefixes) {
     for (const side of ['L', 'R']) {
       for (const seg of ['upperarm', 'forearm'] as const) {
@@ -41,7 +45,7 @@ export function tidyArms(doc: Document, prefixes: readonly string[]): string[] {
           const [x, y, z, w] = r;
           axis = norm([2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x)]);
         }
-        const cap = ARM_RADIUS_CAP[seg];
+        const cap = caps[seg];
         // Along the axis too: a forearm vertex more than a few cm ABOVE its
         // own elbow, or an upper-arm one past it, is sleeve the cut gave to
         // the wrong bone, and it swings out as a slab when the arm bends.

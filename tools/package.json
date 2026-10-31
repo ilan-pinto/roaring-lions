@@ -62,6 +62,7 @@
     "vdmg:capture": "tsx src/perf/vehicle-damage-captures.ts",
     "closeups:garage": "tsx src/perf/garage-closeups.ts",
     "gait:meshes": "tsx src/meshes/gait-pass.ts",
+    "hands:meshes": "tsx src/meshes/hands-pass.ts",
     "motion:meshes": "tsx src/meshes/motion-pass.ts",
     "meshy": "tsx src/meshy/cli.ts",
     "video": "tsx src/video/cli.ts",

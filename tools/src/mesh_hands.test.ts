@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readGlb } from './mesh_gait';
 import {
-  HAND_BANDS, handViolations, measureFallbackHand, measureHand, principalExtents, readingFrom, type HandReading,
+  HAND_BANDS, handViolations, measureHand, measureShippedHand, principalExtents, readingFrom, type HandReading,
 } from './mesh_hands';
 
 const PROBE = fileURLToPath(new URL('../../art/parts/hands/hands_probe.glb', import.meta.url));
@@ -78,7 +78,7 @@ describe('falsification: today\'s shipped bytes', () => {
   for (const [team, prefix, side, wrist] of SHIPPED) {
     it(`${team} ${prefix}_${side}: ${'rl_hands' in (readGlb(`${MESHES}${team}.glb`).json.scenes?.[0]?.extras ?? {}) ? 'carries hands: green' : 'still a Meshy claw: red'}`, () => {
       const carries = 'rl_hands' in (readGlb(`${MESHES}${team}.glb`).json.scenes?.[0]?.extras ?? {});
-      const r = measureFallbackHand(`${MESHES}${team}.glb`, prefix, side, wrist);
+      const r = measureShippedHand(`${MESHES}${team}.glb`, prefix, side, wrist);
       const v = handViolations(r);
       if (carries) { expect(v).toEqual([]); return; }
       const text = v.join(' | ');

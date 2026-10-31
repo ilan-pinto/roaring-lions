@@ -288,3 +288,24 @@ export function handViolations(r: HandReading, b: typeof HAND_BANDS = HAND_BANDS
   if (r.elbowOverStature !== null) band('hung elbow height over stature', r.elbowOverStature, b.elbowOverStature);
   return out;
 }
+
+/** The top of every vertex this figure's bones own (the stature the hung elbow is read against); death roots excluded. */
+export function statureOf(path: string, prefix: string): number {
+  const sk = readSkinned(readGlb(path));
+  const prefixRe = new RegExp(`^${prefix}_`);
+  let top = -Infinity;
+  sk.pos.forEach((p, i) => { if (prefixRe.test(sk.joint[i]) && !/_death_root$/.test(sk.joint[i])) top = Math.max(top, p[1]); });
+  return top;
+}
+
+/**
+ * One reader for a shipped file, either generation: a file the hands pass has been through (`extras.rl_hands`) is read
+ * off its own hand bones; one that has not is still a Meshy claw on the forearm bone, read at the review's measured
+ * wrist. The gate calls this, so migrating a team flips its reading with no edit to the gate.
+ */
+export function measureShippedHand(path: string, prefix: string, side: 'L' | 'R', fallbackWristT: number): HandReading {
+  const extras = (readGlb(path).json.scenes?.[0]?.extras ?? {}) as Record<string, unknown>;
+  return 'rl_hands' in extras
+    ? measureHand(path, prefix, side, statureOf(path, prefix))
+    : measureFallbackHand(path, prefix, side, fallbackWristT);
+}
