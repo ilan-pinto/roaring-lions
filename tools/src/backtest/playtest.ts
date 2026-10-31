@@ -3870,7 +3870,11 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // spotted). 36 -> 35, the pre-P3 figure: beit_sahwan_2_foothold earns 112 again.
 // 2026-10-25, GH-274: the Tzav's `(bought)` probe on wadi_halam_5_depot is a winning plan too and
 // earns its sweep (382 intel): 35 -> 36. Was 35. No outcome, star gate or credit moved.
-const INTEL_WINNERS_ONE_SWEEP = 36;
+// 2026-10-31, GH-912 (Ein Qasab): 36 -> 40. Was 36. Four more winning runs, and each earns a sweep: the three plain plans
+// (Ein Qasab I 160, II 278, III 288 intel at seed 424242) and the Ein Qasab III run with no marks (312). The one short
+// plan is still `beit_sahwan_2_foothold` (112), so "40 of 41". The report-only chain from `wadi_halam_5_depot` is taken
+// out of `runLog` and is not counted.
+const INTEL_WINNERS_ONE_SWEEP = 40;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
