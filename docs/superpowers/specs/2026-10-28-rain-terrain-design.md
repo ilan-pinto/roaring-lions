@@ -913,7 +913,7 @@ Two further facts from the build:
 | `shippedContentDigest()` | n/a | changes value (any map added does; nothing pins a literal). Old and new builds cannot share a room. |
 
 S-6 literals (each its own commit, with `Was`):
-- `fen`: `#75A659`, `#4B7135` -> hex 7F9F57, `#4F6732` (`tones.test.ts` `FEN`).
+- `fen`: `#75A659`, `#4B7135` -> `#7F9F57`, `#4F6732` (`tones.test.ts` `FEN`).
 - Wetland `marsh` tone: `mud.3` `#413327` -> `mud.2` `#584535` (`renderer-options.test.ts`, `tones.test.ts`).
 - `basalt.0`: `#4B453D` -> `#625A4D` (`tones.test.ts` `BASALT`, `wetland-readability.test.ts` boulder pin).
 - `wetland-readability.test.ts` open ground vs the KDF uniform: 18.37 -> 15.82 (floor 15.6 kept); `foliage-figure-ground.test.ts`:
@@ -950,7 +950,7 @@ its freeze script returns. 23 frames each.
   step; soften the stair-stepped tile edge into a ragged shoreline across tile edges (presentation only, the sim grid
   unchanged, a new check with a constructed failing input); re-run the readability floors and report the `low` dE. Approved:
   the overcast faces, the name `ein_qasab`, the reed tone, and moving the puddle A/B to P4. P5 items recorded.
-- **Second look:** keep `fen.0` hex 7F9F57 (its final green is judged under rain light in P4), keep marsh `mud.2`, basalt and
+- **Second look:** keep `fen.0` `#7F9F57` (its final green is judged under rain light in P4), keep marsh `mud.2`, basalt and
   the shoreline. **Hold Ein Qasab out of the Free Play list until P3's art lands**, and merge the theme work. The mechanism is
   `UNLISTED_MAP_IDS` (smallest honest option); `/free-play/ein_qasab` and `?sandbox=ein_qasab` still boot it (dev paths), a
   hand-built non-versus room can name it, and it is not a versus map.
