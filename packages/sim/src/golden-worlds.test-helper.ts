@@ -996,6 +996,54 @@ export function reliefEconomySetup(seed: number, popCap: number = RELIEF_ECO_POP
 export const FM_SEED = 0x859_0001;
 export const FM_MBT: UnitTypeJson = { ...TANK, id: 'fm_mbt', role: 'mbt' };
 export const FM_MORTAR: UnitTypeJson = { ...RIFLES, id: 'fm_mortar', role: 'artillery' };
+/** GH-859 P1b Task 3: the Column's slow member. 0.7 tiles a second against the rifles' 0.9 and the tank's 1.1, so the
+ *  Column's pace is this unit's step. It stands behind the others, so a dress waits for it. */
+export const FM_SLOW_MORTAR: UnitTypeJson = { ...RIFLES, id: 'fm_mortar_slow', role: 'artillery', mobility: { speed_tiles_s: 0.7 } };
+/** GH-859 P1b Task 5: the Attack's calls. A strike helicopter (an armed air type with no seats) and a spot drone (unarmed)
+ *  answer the group's contact call; both stand 13 tiles behind the lead rank. */
+export const FM_HELI: UnitTypeJson = {
+  id: 'fm_heli',
+  hull: { hp: 400, armor: { front: 5, side: 5, rear: 5 } },
+  mobility: { domain: 'air', speed_tiles_s: 2 },
+  sensors: { optics: 1, sight_tiles: 8, signature: 0.5 },
+  weapons: RIFLES.weapons,
+};
+export const FM_DRONE: UnitTypeJson = {
+  id: 'fm_drone',
+  hull: { hp: 100, armor: { front: 5, side: 5, rear: 5 } },
+  mobility: { domain: 'air', speed_tiles_s: 2 },
+  sensors: { optics: 1, sight_tiles: 8, signature: 0.5 },
+  weapons: [],
+};
+/** The Column's riflemen with wound content: four men, a certain fall (no draw), a test-local `wounded` body. */
+export const FM_SQUAD: UnitTypeJson = {
+  ...RIFLES,
+  id: 'fm_squad',
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 }, figures: 4, wounds: { wound_chance: 1, bleed_s: 60, type: 'fm_wounded' } },
+};
+export const FM_WOUNDED: UnitTypeJson = {
+  id: 'fm_wounded',
+  role: 'wounded',
+  hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, can_embark: true },
+  mobility: { speed_tiles_s: 0.12 },
+  sensors: { optics: 0.5, sight_tiles: 0, signature: 0.3 },
+};
+export const FM_MEDIC: UnitTypeJson = {
+  ...RIFLES,
+  id: 'fm_medic',
+  abilities: ['rescue'],
+  weapons: [],
+  hull: { hp: 200, armor: { front: 10, side: 10, rear: 10 }, figures: 2, transport_slots: 1, can_carry: ['wounded'] },
+  rescue: { radius_tiles: 8, treat_s: 6, drag_speed_mult: 0.5, carry_speed_mult: 0.75 },
+};
+/** The casualty collection point: it carries the wounded and never answers a call. */
+export const FM_AMBULANCE: UnitTypeJson = {
+  id: 'fm_ambulance',
+  role: 'apc',
+  hull: { hp: 900, armor: { front: 40, side: 30, rear: 20 }, transport_slots: 4, can_carry: ['wounded'], stabilise_radius: 1.5 },
+  mobility: { speed_tiles_s: 2 },
+  sensors: { optics: 1, sight_tiles: 8 },
+};
 export interface FormationWorldIds {
   col: number[];
   atk: number[];
@@ -1012,21 +1060,47 @@ export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds
   const mbt = sim.addUnitType(FM_MBT);
   const rifles = sim.addUnitType(RIFLES);
   const mortar = sim.addUnitType(FM_MORTAR);
+  const slowMortar = sim.addUnitType(FM_SLOW_MORTAR);
+  // Appended after every P1a/P1b type, so no earlier type index moves.
+  const heli = sim.addUnitType(FM_HELI);
+  const drone = sim.addUnitType(FM_DRONE);
+  // The wounded body is registered before the squads that name it. (The sim resolves `wounds.type` lazily, at the first man to
+  // fall, and caches the index on the type: a fork's fresh B has -1 where A has it filled, which both witnesses settle with
+  // `resolveLazyConfig` before they compare the config.)
+  sim.addUnitType(FM_WOUNDED);
+  const squad = sim.addUnitType(FM_SQUAD);
+  const medic = sim.addUnitType(FM_MEDIC);
+  const ambulance = sim.addUnitType(FM_AMBULANCE);
   for (const f of shippedFormations()) sim.addFormationType(f);
   // Good cover one step outside the ring tile of the fifth ring member (see the pin test's literal).
   sim.setCover(36, 22, 3);
   const put = (type: number, side: number, x: number, y: number): number => sim.spawn(type, side, fx.from(x + 0.5), fx.from(y + 0.5));
-  const col = [mbt, rifles, rifles, rifles, rifles].map((t) => put(t, 0, 8, 44));
+  // The Column's riflemen carry wound content (T5), so a man falling in it is answered by the medic behind them.
+  const col = [mbt, squad, squad, squad, squad].map((t) => put(t, 0, 8, 44));
   const atk = [mbt, mbt, rifles, rifles, rifles].map((t) => put(t, 0, 24, 44));
   const amb = [mbt, mbt, mortar, rifles, rifles, rifles].map((t) => put(t, 0, 40, 32));
   const foe = [rifles, rifles, rifles].map((t) => put(t, 1, 40, 4));
+  // Spawned last so no P1a id moves: three tiles behind the Column, the slow member that sets its pace.
+  col.push(put(slowMortar, 0, 8, 47));
+  // GH-859 P1b Task 5, also spawned last (no earlier id moves): a strike helicopter and a spot drone join the Attack, and a
+  // medic and an ambulance join the Column, three tiles behind it with the slow mortar.
+  atk.push(put(heli, 0, 24, 44), put(drone, 0, 24, 44));
+  col.push(put(medic, 0, 8, 47), put(ambulance, 0, 8, 47));
   return { sim, ids: { col, atk, amb, foe } };
 }
 export function formationDrive(sim: Sim, t: number, ids: FormationWorldIds): void {
   const at = (n: number): number => fx.from(n + 0.5);
   if (t === 0) sim.queueCommand({ kind: 'move', ids: ids.col, x: at(8), y: at(30), formation: 'column' });
-  if (t === 40) sim.queueCommand({ kind: 'attackMove', ids: ids.atk, x: at(24), y: at(26), formation: 'attack' });
+  // `sweep` is what a player's right-click sends: it makes the queued checkpoints carry the flag (wpSweep).
+  if (t === 40) sim.queueCommand({ kind: 'attackMove', ids: ids.atk, x: at(24), y: at(26), sweep: true, formation: 'attack' });
   if (t === 60) sim.queueCommand({ kind: 'move', ids: [ids.col[4]], x: at(12), y: at(34) });
   if (t === 80) sim.queueCommand({ kind: 'move', ids: ids.amb, x: at(40), y: at(24), formation: 'ambush' });
   if (t === 150) sim.queueCommand({ kind: 'move', ids: ids.foe, x: at(40), y: at(16), formation: 'column' });
+  // GH-859 P1b Task 5: a stray round (a splash with no shooter, so it is no contact) drops one man of the Column's second
+  // riflemen squad while the group marches: the casualty call. The Column's medic (ids.col[6]) is the nearest free one.
+  if (t === FM_CASUALTY_TICK) {
+    const sq = ids.col[2];
+    sim.debugSplash(sim.state.posX[sq], sim.state.posY[sq], fx.from(0.5), fx.fromInt(100), 0, -1, -1);
+  }
 }
+export const FM_CASUALTY_TICK = 180;

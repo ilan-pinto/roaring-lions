@@ -17,18 +17,32 @@ import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flo
 import { assignFormation, type FormationUnit } from './formation';
 import {
   FM_ARRIVE_AMBUSH,
+  FM_CALL_CASUALTY,
+  FM_CALL_CONTACT,
+  FM_CALL_STAY,
+  FM_CALL_STRIKE,
   FM_CLASS_NONE,
+  FM_CONTACT,
+  FM_DRILL_HALT,
+  FM_DRILL_NONE,
+  FM_DRILL_PRESS,
   FM_DRILL_SPRING,
+  FM_FACE_TRAVEL,
   FM_FACING_NONE,
   FM_MARCH,
+  FM_PACE_NONE,
   FM_SHAPE_RING,
   FM_SPRUNG,
   FM_VERB_ATTACK,
   FM_VERB_EITHER,
   FM_VERB_MOVE,
+  aircraftCallOf,
   assignTemplate,
+  checkpointsOf,
   compileFormation,
+  eighthToward,
   formationClassOf,
+  routeWalk,
   type CompiledFormation,
   type FormationJson,
   type TemplateSlot,
@@ -411,6 +425,18 @@ export const DOMAIN_VEHICLE = 1;
  * ground can this unit be put down on" is unchanged.
  */
 export const DOMAIN_AIR = 2;
+
+/** GH-859 P1b: `fmDuty` of a formation member (Ruling 18). NONE: marching with its group. WAIT: at the
+ *  checkpoint it was told to wait at, leg still live. OUT: on a call (an aircraft sortie, a medic's
+ *  rescue). RETURN: flying or walking home from one. */
+export const FM_DUTY_NONE = 0;
+export const FM_DUTY_WAIT = 1;
+export const FM_DUTY_OUT = 2;
+export const FM_DUTY_RETURN = 3;
+/** GH-859 P1b: `fgPending` bits. DRILL is P1a's single value (a spring or a first contact: the drill runs);
+ *  CALL asks the group's aircraft and medics to answer. Both may be set. */
+export const FM_PEND_DRILL = 1;
+export const FM_PEND_CALL = 2;
 const DOMAIN_COUNT = 3;
 
 /**
@@ -688,6 +714,9 @@ export interface UnitType {
   /** GH-859 P1a: the combat-formation class, FM_CLASS_* (`formation-template.ts`), 255 = none.
    *  `formationClassOf(json, wheeled)`, read once here and never again. */
   fmClass: number;
+  /** GH-859 P1b: what an aircraft does when its group calls it, FM_CALL_STAY / STRIKE / SPOT
+   *  (`aircraftCallOf`, read once here). Every non-air type is FM_CALL_STAY: a ground unit has no call. */
+  fmCall: number;
   /**
    * Vehicle spacing (GH-421, V-R1): the hull as a capsule, Q16.16 tiles, all 0 when the type
    * declares no `mobility.footprint`. A unit separates if and only if `sepHalfWid > 0` and it is
@@ -1055,6 +1084,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     isAir,
     wheeled,
     fmClass: formationClassOf(json, wheeled),
+    fmCall: isAir ? aircraftCallOf(json) : FM_CALL_STAY,
     sepHalfLen,
     sepHalfWid,
     sepCentre,
@@ -1276,6 +1306,9 @@ export type PlacementRefusal = 'off_map' | 'blocked' | 'no_footing' | 'not_level
 export type RuntimeCommand = Extract<Command, { kind: 'build' | 'support' | 'cancelBuild' | 'setRally' | 'clearRally' | 'raiseWorks' | 'cancelWorks' }>;
 /** `takeRuntimeCommands`' answer when nothing is set aside: shared, frozen, no allocation. */
 const NO_RUNTIME_COMMANDS: readonly RuntimeCommand[] = Object.freeze([]);
+// applyMove's march bookkeeping for a plain order: shared, empty, never pushed to (GH-859 P1b).
+const NO_LEG_SLOTS: readonly Map<number, [number, number]>[] = Object.freeze([]);
+const NO_CHECKPOINT_TILES: readonly number[] = Object.freeze([]);
 
 /** The same command aimed at fewer units. A generic copy rather than an
  *  in-place splice, because the queued object belongs to the sender. */
@@ -1358,9 +1391,22 @@ export type SimEvent =
   /** GH-859 P1a: an ambush formation's ring was discovered (a member sprang, or was fired on) and the
    *  whole group springs: `entity` is the first member to be fired on or to spring, `group` its row.
    *  Pushed once per group, when the springing is set in motion (during the tick of the hit or the
-   *  spring); `stepFormationSpring` clears the rest of the ring's stances at the start of the NEXT tick,
+   *  spring); `stepFormationContact` clears the rest of the ring's stances at the start of the NEXT tick,
    *  before combat, so the ring fires from that next tick. */
   | { kind: 'formationSprung'; tick: number; side: number; group: number; entity: number }
+  /** GH-859 P1b: a marching `halt` or `press` group made contact: `entity` is the first member to be fired on or to
+   *  fire, `x`/`y` the contact point (the source of the fire that hit it, or the target it fired at) and `drill` the
+   *  formation's `FM_DRILL_*`. Pushed once per group, on the tick of the contact; `stepFormationContact` runs the drill at
+   *  the start of the NEXT tick (a `spring` group raises `formationSprung` instead). */
+  | { kind: 'formationContact'; tick: number; side: number; group: number; entity: number; x: Fx; y: Fx; drill: number }
+  /** GH-859 P1b: a marching group's checkpoint was released: every member waiting at it goes on. `leg` is the
+   *  checkpoint released (1-based, the highest released so far) and `legs` the group's checkpoint count. Pushed
+   *  by `stepFormationMarch`, on the tick after the last arrival or `dress_s` after the first one. */
+  | { kind: 'formationReleased'; tick: number; side: number; group: number; leg: number; legs: number }
+  /** GH-859 P1b: a group member answered a call, or came home from one: `entity` is the aircraft (`strike`: an
+   *  attack-move to the contact tile, `spot`: a move there) or the foot medic (`casualty`: a rescue of a man who
+   *  went down), and `return` is either one sent back to where it left the march. One per answerer. */
+  | { kind: 'formationCall'; tick: number; side: number; group: number; entity: number; call: 'strike' | 'spot' | 'casualty' | 'return' }
   | { kind: 'strike'; tick: number; by: number; x: Fx; y: Fx; profile: number }
   | { kind: 'smokeLaid'; tick: number; by: number; x: Fx; y: Fx }
   | { kind: 'revealed'; tick: number; side: number; count: number }
@@ -1459,7 +1505,7 @@ export type SimEvent =
  *  without adding it here fails typecheck.
  */
 export const SIM_EVENT_KINDS = [
-  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung', 'formationSprung',
+  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung', 'formationSprung', 'formationContact', 'formationReleased', 'formationCall',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'chargeSet', 'chargeDetonated', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
   'fieldFixed', 'beam',
@@ -1858,12 +1904,40 @@ export class Sim {
   private readonly fgSide: Uint8Array;
   /** Index into `formationTypes`. */
   private readonly fgType: Uint8Array;
-  /** FM_MARCH 1 or FM_SPRUNG 4; 2 (ARRIVED) and 3 (CONTACT) are reserved for P1b. */
+  /** FM_MARCH 1, FM_CONTACT 3 or FM_SPRUNG 4; 2 (ARRIVED) stays reserved and unused ("arrived" is read per member). */
   private readonly fgState: Uint8Array;
   /** A member was fired on or sprang: the group acts at the next stepFormations. */
   private readonly fgPending: Uint8Array;
   /** Members still in the group. */
   private readonly fgMembers: Uint16Array;
+  // GH-859 P1b (the march, the drills and the calls): fourteen more columns, in this order, folded under
+  // the same `fmLive` latch after a second marker word. State only until Tasks 3-5 write them.
+  /** Checkpoints in the group's route (the last is the click). */
+  private readonly fgLegs: Uint8Array;
+  /** The highest checkpoint released to march on. */
+  private readonly fgRelease: Uint8Array;
+  /** Ticks since the first member arrived at the checkpoint being dressed (counts while fgAtCp > 0). */
+  private readonly fgDress: Uint16Array;
+  /** Ticks since the group last made contact; counts only while sorties are out. */
+  private readonly fgQuiet: Uint16Array;
+  /** Members waiting at the checkpoint (FM_DUTY_WAIT). */
+  private readonly fgAtCp: Uint16Array;
+  /** Members away on a call (FM_DUTY_OUT or FM_DUTY_RETURN). */
+  private readonly fgAway: Uint16Array;
+  /** 1 while the group's sorties are out. */
+  private readonly fgCalled: Uint8Array;
+  /** The group's pace cap, Fx per tick; 0 means no cap. */
+  private readonly fgPace: Int32Array;
+  /** The contact point the group's call names, Fx tiles. */
+  private readonly fgCallX: Int32Array;
+  private readonly fgCallY: Int32Array;
+  /** Per unit: the checkpoint it is heading to. */
+  private readonly fmLeg: Uint8Array;
+  /** Per unit: FM_DUTY_*. */
+  private readonly fmDuty: Uint8Array;
+  /** Per unit: where it goes home to after a call, Fx tiles. */
+  private readonly fmHomeX: Int32Array;
+  private readonly fmHomeY: Int32Array;
   /** True once a formation has been ordered (never by registering one). hash() folds the block
    *  above only while set. */
   private fmLive = false;
@@ -2431,6 +2505,20 @@ export class Sim {
     this.fgState = new Uint8Array(FORMATION_ROWS);
     this.fgPending = new Uint8Array(FORMATION_ROWS);
     this.fgMembers = new Uint16Array(FORMATION_ROWS);
+    this.fgLegs = new Uint8Array(FORMATION_ROWS);
+    this.fgRelease = new Uint8Array(FORMATION_ROWS);
+    this.fgDress = new Uint16Array(FORMATION_ROWS);
+    this.fgQuiet = new Uint16Array(FORMATION_ROWS);
+    this.fgAtCp = new Uint16Array(FORMATION_ROWS);
+    this.fgAway = new Uint16Array(FORMATION_ROWS);
+    this.fgCalled = new Uint8Array(FORMATION_ROWS);
+    this.fgPace = new Int32Array(FORMATION_ROWS);
+    this.fgCallX = new Int32Array(FORMATION_ROWS);
+    this.fgCallY = new Int32Array(FORMATION_ROWS);
+    this.fmLeg = new Uint8Array(n);
+    this.fmDuty = new Uint8Array(n);
+    this.fmHomeX = new Int32Array(n);
+    this.fmHomeY = new Int32Array(n);
     this.sepCols = (config.width + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES;
     this.sepHead = new Int32Array(this.sepCols * ((config.height + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES));
     this.sepNext = new Int32Array(n);
@@ -4077,7 +4165,7 @@ export class Sim {
     this.stepSurfacing();
     // GH-859 P1a: a ring found out on the tick before (by fire, or by a member's own spring) springs
     // BEFORE combat reads a stance, so every member fires this tick: one tick after the hit.
-    if (this.fmLive) this.stepFormationSpring();
+    if (this.fmLive) this.stepFormationContact();
     this.stepCombat();
     // GH-859 P1a: right after combat, before anything else this tick reads a facing.
     if (this.fmLive) this.stepFormationFacing();
@@ -4102,6 +4190,9 @@ export class Sim {
     // GH-707 Task 5: medics after the bleed (a man who bled out this tick is not walked to)
     // and before movement, so the leg a medic is given walks this same tick.
     this.stepMedics();
+    // GH-859 P1b: after combat and before movement, so a checkpoint released here sends its members on this very
+    // tick, and last tick's arrivals are the ones it counts (a one-tick delay, the same for every member).
+    if (this.fmLive) this.stepFormationMarch();
     this.stepMovement();
     this.stepTransport();
     // GH-707 Task 6: aid posts count their patients down, then admit what carriers brought
@@ -4460,8 +4551,15 @@ export class Sim {
     for (let j = 0; j < this.count; j++) {
       if (this.alive[j] === 0 || this.side[j] !== side || inOrder.has(j)) continue;
       if (this.garrisonedIn[j] >= 0 || this.carriedBy[j] >= 0 || this.tunnelIn[j] >= 0) continue;
-      const x = fx.toInt(this.moving[j] === 1 ? this.goalX[j] : this.posX[j]);
-      const y = fx.toInt(this.moving[j] === 1 ? this.goalY[j] : this.posY[j]);
+      let x = fx.toInt(this.moving[j] === 1 ? this.goalX[j] : this.posX[j]);
+      let y = fx.toInt(this.moving[j] === 1 ? this.goalY[j] : this.posY[j]);
+      // GH-859 P1b (Ruling 5, spec §4.4): a formation member on a march is bound for its LAST queued tile, so
+      // that is what it reserves. One array read per member; closes Deviation 1 for formation orders only.
+      if (this.fmLive && this.fmGroup[j] >= 0 && this.wpCount[j] > 0) {
+        const k = j * MAX_WAYPOINTS + this.wpCount[j] - 1;
+        x = fx.toInt(this.wpX[k]);
+        y = fx.toInt(this.wpY[k]);
+      }
       if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
       reserved[y * this.width + x] = 1;
     }
@@ -4578,6 +4676,8 @@ export class Sim {
     let tSumX = 0;
     let tSumY = 0;
     let tCount = 0;
+    // GH-859 P1b (M6): an id named twice is one placeable member. Allocated by a template order only.
+    const tSeen = tplIdx >= 0 ? new Set<number>() : null;
     for (const id of exact ? [] : cmd.ids) {
       // A passenger is inside a vehicle and does not walk anywhere: the
       // carrier decides where it goes, and `unload` is how it gets out.
@@ -4618,7 +4718,8 @@ export class Sim {
       sumX += ix;
       sumY += iy;
       // Side 2 (civilians, neutrals) is never placed; class none ignores the order.
-      if (tplIdx >= 0 && utype.fmClass !== FM_CLASS_NONE && this.side[id] <= 1) {
+      if (tSeen !== null && utype.fmClass !== FM_CLASS_NONE && this.side[id] <= 1 && !tSeen.has(id)) {
+        tSeen.add(id);
         tSumX += ix;
         tSumY += iy;
         tCount++;
@@ -4629,14 +4730,89 @@ export class Sim {
     // through to the plain order below, and nothing here has been written yet.
     let placed: Map<number, TemplateSlot> | null = null;
     let ringRadius = 0;
+    // GH-859 P1b: the march. Slots of checkpoints 1..n-1 (the intermediate ones) in `legSlots`, checkpoint k's tile
+    // in `cpX/cpY`; `slots` and `placed` stay the FINAL checkpoint's, which is P1a's whole answer when n is 1.
+    // A plain order (tplIdx -1) allocates none of the three: they point at shared empty arrays, which nothing pushes to.
+    let legSlots: readonly Map<number, [number, number]>[] = NO_LEG_SLOTS;
+    let cpX: readonly number[] = NO_CHECKPOINT_TILES;
+    let cpY: readonly number[] = NO_CHECKPOINT_TILES;
+    let travelFace = FM_FACING_NONE;
     if (tplIdx >= 0 && tCount >= this.formationTypes[tplIdx].minMembers) {
       this.fmLive = true;
       const tpl = this.formationTypes[tplIdx];
       const units: TemplateUnit[] = [];
+      const uSeen = new Set<number>();
       for (const m of members) {
         const ut = this.unitTypes[this.typeIdx[m.id]];
-        if (ut.fmClass === FM_CLASS_NONE || this.side[m.id] > 1) continue;
+        if (ut.fmClass === FM_CLASS_NONE || this.side[m.id] > 1 || uSeen.has(m.id)) continue;
+        uSeen.add(m.id);
         units.push({ id: m.id, domain: m.domain, cls: ut.fmClass, vehicle: !ut.isAir && ut.moveDomain === DOMAIN_VEHICLE, air: ut.isAir });
+      }
+      const cenX = (tSumX - (tSumX % tCount)) / tCount;
+      const cenY = (tSumY - (tSumY % tCount)) / tCount;
+      // Rulings 1 and 2: walk the lead domain's route field from the centroid to the click, and cut it into
+      // checkpoints. An appended order, a missing route or a short one is one checkpoint (P1a, whole).
+      let startX = cenX;
+      let startY = cenY;
+      const cuts: number[] = [];
+      if (cmd.append !== true) {
+        const vehicleLead = units.some((u) => u.vehicle);
+        const lead = vehicleLead ? DOMAIN_VEHICLE : DOMAIN_FOOT;
+        const [sx, sy] = this.nearestOpenTile(cenX, cenY, vehicleLead ? this.blockedVehicleMask : this.blocked);
+        const goalTx = vehicleLead ? vgx : fgx;
+        const goalTy = vehicleLead ? vgy : fgy;
+        // Read now and not kept: the next fieldFor may recycle the slot.
+        const route = routeWalk(this.fields[this.fieldFor(goalTx, goalTy, lead)].dirs, this.width, this.height, sx, sy, goalTx, goalTy);
+        if (route !== null && route.length > 0) {
+          startX = sx;
+          startY = sy;
+          for (const at of checkpointsOf(route.length, tpl.legTiles, MAX_WAYPOINTS + 1)) cuts.push(route[at]);
+        }
+      }
+      const nLegs = cuts.length > 0 ? cuts.length : 1;
+      const legSlotsW: Map<number, [number, number]>[] = [];
+      const cpXW: number[] = [];
+      const cpYW: number[] = [];
+      legSlots = legSlotsW;
+      cpX = cpXW;
+      cpY = cpYW;
+      const w = this.width;
+      let none: Uint8Array | null = null; // an intermediate checkpoint reserves nothing: one all-zero mask per order
+      let prevX = startX;
+      let prevY = startY;
+      for (let k = 0; k < nLegs - 1; k++) {
+        if (none === null) none = new Uint8Array(w * this.height);
+        const tile = cuts[k];
+        const tx2 = tile % w;
+        const ty2 = (tile - tx2) / w;
+        const [ofx, ofy] = this.nearestOpenTile(tx2, ty2);
+        const [ovx, ovy] = this.nearestOpenTile(tx2, ty2, this.blockedVehicleMask);
+        const mid = assignTemplate(
+          {
+            width: w,
+            height: this.height,
+            masks: [this.blocked, this.blockedVehicleMask],
+            origins: [
+              [ofx, ofy],
+              [ovx, ovy],
+            ],
+            clickX: ofx,
+            clickY: ofy,
+            fromX: prevX,
+            fromY: prevY,
+            units,
+            reserved: none,
+            cover: this.cover,
+          },
+          tpl,
+        );
+        const m = new Map<number, [number, number]>();
+        for (const sl of mid.slots) m.set(sl.id, [sl.x, sl.y]);
+        legSlotsW.push(m);
+        cpXW.push(tx2);
+        cpYW.push(ty2);
+        prevX = tx2;
+        prevY = ty2;
       }
       const res = assignTemplate(
         {
@@ -4649,8 +4825,8 @@ export class Sim {
           ],
           clickX: fgx,
           clickY: fgy,
-          fromX: (tSumX - (tSumX % tCount)) / tCount,
-          fromY: (tSumY - (tSumY % tCount)) / tCount,
+          fromX: prevX,
+          fromY: prevY,
           units,
           reserved: this.reservedTilesFor(this.side[units[0].id], cmd.ids),
           cover: this.cover,
@@ -4662,8 +4838,14 @@ export class Sim {
         slots.set(sl.id, [sl.x, sl.y]);
         placed.set(sl.id, sl);
       }
+      legSlotsW.push(slots);
+      cpXW.push(fgx);
+      cpYW.push(fgy);
       ringRadius = res.ringRadius;
+      // Ruling 9: `travel` is the direction of the last leg, eight-way (the slot frame is axis-quantised).
+      if (tpl.face === FM_FACE_TRAVEL) travelFace = eighthToward(fgx - prevX, fgy - prevY);
     }
+    const marching = legSlots.length > 1;
     if (placed === null && members.length > 0) {
       const n = members.length;
       const assigned = assignFormation({
@@ -4734,7 +4916,9 @@ export class Sim {
       let ufx: number;
       let ufy: number;
       let ufd: number;
-      if (slot === undefined) {
+      // On a march the goal is checkpoint 1's slot; a member with no slot there takes the checkpoint's tile.
+      const first = marching && slot !== undefined ? legSlots[0].get(id) ?? [cpX[0], cpY[0]] : slot;
+      if (slot === undefined || first === undefined) {
         if (snapped && utype.isAir) {
           ux = gx;
           uy = gy;
@@ -4762,11 +4946,11 @@ export class Sim {
         // unit's alone either way. Everyone the formation displaced takes
         // its slot's centre, because a displaced unit has no clicked point
         // of its own to keep.
-        const onClick = slot[0] === tx && slot[1] === ty;
-        ux = onClick ? gx : fx.add(fx.fromInt(slot[0]), HALF);
-        uy = onClick ? gy : fx.add(fx.fromInt(slot[1]), HALF);
-        ufx = slot[0];
-        ufy = slot[1];
+        const onClick = !marching && first[0] === tx && first[1] === ty;
+        ux = onClick ? gx : fx.add(fx.fromInt(first[0]), HALF);
+        uy = onClick ? gy : fx.add(fx.fromInt(first[1]), HALF);
+        ufx = first[0];
+        ufy = first[1];
         ufd = utype.pathDomain;
       }
       // Appending to a unit already under way queues the point instead of
@@ -4825,9 +5009,23 @@ export class Sim {
       // Any order overrides a held stance -- a patrol included. A leg the patrol
       // issues itself (`stepPatrolStance`, `patrolLeg`) is the one move that keeps it.
       if (!patrolLeg) this.stance[id] = 0;
+      if (marching) {
+        // Checkpoints 2..n queue behind the goal as ordinary waypoints; the last is the click (the exact
+        // point when the member's slot is the clicked tile, as a single-checkpoint order keeps it).
+        const base = id * MAX_WAYPOINTS;
+        for (let k = 1; k < legSlots.length; k++) {
+          const sl = legSlots[k].get(id) ?? [cpX[k], cpY[k]];
+          const onClick = k === legSlots.length - 1 && sl[0] === tx && sl[1] === ty;
+          this.wpX[base + k - 1] = onClick ? gx : fx.add(fx.fromInt(sl[0]), HALF);
+          this.wpY[base + k - 1] = onClick ? gy : fx.add(fx.fromInt(sl[1]), HALF);
+          this.wpAttack[base + k - 1] = attack;
+          this.wpSweep[base + k - 1] = sweep;
+        }
+        this.wpCount[id] = legSlots.length - 1;
+      }
       if (placed !== null) written.push(id);
     }
-    if (placed !== null && written.length > 0) this.fmJoin(tplIdx, written, placed, ringRadius);
+    if (placed !== null && written.length > 0) this.fmJoin(tplIdx, written, placed, ringRadius, legSlots.length, travelFace);
   }
 
   /** The formation id named by `cmd` as an index into `formationTypes`, or -1 when the order is today's
@@ -4848,7 +5046,14 @@ export class Sim {
   /** After a template order has written its goals: each written member takes its rest facing and
    *  arrival stance, and the group takes the lowest free row of the side (none free: a degraded order,
    *  with shape, facing and stance but no group, so no shared spring). Order-time only. */
-  private fmJoin(tplIdx: number, written: readonly number[], placed: ReadonlyMap<number, TemplateSlot>, ringRadius: number): void {
+  private fmJoin(
+    tplIdx: number,
+    written: readonly number[],
+    placed: ReadonlyMap<number, TemplateSlot>,
+    ringRadius: number,
+    legs: number,
+    travelFace: number,
+  ): void {
     const tpl = this.formationTypes[tplIdx];
     // The group takes the side of its first written id: an order is single-side by construction, as the
     // plain path assumes with `reservedTilesFor` (versus checks ownership; a mixed order is the caller's).
@@ -4865,7 +5070,8 @@ export class Sim {
     for (const id of written) {
       const sl = placed.get(id);
       const ut = this.unitTypes[this.typeIdx[id]];
-      this.restFacing[id] = sl === undefined ? FM_FACING_NONE : sl.face;
+      // `travel` is the last leg's eight-way direction (Ruling 9); an aircraft's slot has no facing at all.
+      this.restFacing[id] = sl === undefined ? FM_FACING_NONE : tpl.face === FM_FACE_TRAVEL && sl.face !== FM_FACING_NONE && travelFace !== FM_FACING_NONE ? travelFace : sl.face;
       // The stance belongs to the ring (an ambush) or to ground members (a hold); an aircraft takes none.
       let arrive = 0;
       if (!ut.isAir) {
@@ -4879,6 +5085,9 @@ export class Sim {
         this.fmGroup[id] = g;
         joined++;
       }
+      // Heading to checkpoint 1, on no duty (a P1b column; fmForget cleared them on the way out of any old group).
+      this.fmLeg[id] = 1;
+      this.fmDuty[id] = FM_DUTY_NONE;
     }
     if (g >= 0) {
       this.fgLive[g] = 1;
@@ -4887,7 +5096,41 @@ export class Sim {
       this.fgState[g] = FM_MARCH;
       this.fgPending[g] = 0;
       this.fgMembers[g] = joined;
+      this.fgLegs[g] = legs;
+      this.fgRelease[g] = 0;
+      this.fgDress[g] = 0;
+      this.fgAtCp[g] = 0;
+      this.fgPace[g] = tpl.pace === FM_PACE_NONE ? 0 : this.groupPace(g);
     }
+  }
+
+  /** The effective step of a living ground unit, `stepMovement`'s first two lines (GH-707 `speedMul`, #706 slowed
+   *  running gear) and nothing after them. Byte-identical to what `stepMovement` computed inline. */
+  private baseStep(i: number): Fx {
+    // GH-707 Task 4: a medic carrying a wounded drags or stretchers him (`speedMul`). The
+    // column is ONE for every unit without wound content, and fx.mul(x, ONE) === x exactly
+    // (bh 1, bl 0: (ah << 16) + al), so this is the identity there.
+    let step = fx.mul(this.unitTypes[this.typeIdx[i]].stepPerTick, this.speedMul[i]);
+    // #706: slowed running gear, an integer percent of the Q16.16 step, by the
+    // tree's integer-divide idiom (`fixed.ts:119`): no float is produced. The
+    // product stays far inside int32 (a step is under 0.2 tile, ~13000 raw).
+    if (this.mobilityDamaged[i] === 1) {
+      const p = step * MOB_DAMAGED_PCT;
+      step = (p - (p % 100)) / 100;
+    }
+    return step;
+  }
+
+  /** The group's pace (Ruling 8): the minimum `baseStep` over its living ground members that are not on a call,
+   *  0 when it has none. One O(count) scan, at order time and at each release. */
+  private groupPace(g: number): Fx {
+    let pace = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.alive[i] === 0 || this.fmDuty[i] >= FM_DUTY_OUT || this.unitTypes[this.typeIdx[i]].isAir) continue;
+      const step = this.baseStep(i);
+      if (pace === 0 || step < pace) pace = step;
+    }
+    return pace;
   }
 
   /** The one exit from a formation (GH-859 P1a): membership, rest facing and arrival stance go, and a
@@ -4896,7 +5139,20 @@ export class Sim {
     this.restFacing[id] = FM_FACING_NONE;
     this.fmArrive[id] = 0;
     const g = this.fmGroup[id];
+    const duty = this.fmDuty[id];
+    this.fmDuty[id] = FM_DUTY_NONE;
+    this.fmLeg[id] = 0;
+    this.fmHomeX[id] = 0;
+    this.fmHomeY[id] = 0;
     if (g < 0) return;
+    // A member leaving a dress is no longer waited for; one leaving a sortie or a rescue no longer away.
+    if (duty === FM_DUTY_WAIT) {
+      if (this.fgAtCp[g] > 0) this.fgAtCp[g]--;
+      // The dress clock counts while someone waits: with nobody left waiting it starts again from the next arrival.
+      if (this.fgAtCp[g] === 0) this.fgDress[g] = 0;
+    } else if (duty >= FM_DUTY_OUT) {
+      if (this.fgAway[g] > 0) this.fgAway[g]--;
+    }
     this.fmGroup[id] = -1;
     if (this.fgMembers[g] > 0) this.fgMembers[g]--;
     if (this.fgMembers[g] === 0) {
@@ -4905,6 +5161,16 @@ export class Sim {
       this.fgType[g] = 0;
       this.fgState[g] = 0;
       this.fgPending[g] = 0;
+      this.fgLegs[g] = 0;
+      this.fgRelease[g] = 0;
+      this.fgDress[g] = 0;
+      this.fgQuiet[g] = 0;
+      this.fgAtCp[g] = 0;
+      this.fgAway[g] = 0;
+      this.fgCalled[g] = 0;
+      this.fgPace[g] = 0;
+      this.fgCallX[g] = 0;
+      this.fgCallY[g] = 0;
     }
   }
 
@@ -4922,33 +5188,245 @@ export class Sim {
     }
   }
 
-  /** A member of a `spring` group sprang, or was fired on by the enemy: mark the group to spring
-   *  together. Only a group still marching is marked, once; the event names the first. The mark is
-   *  consumed at the start of the next tick (`stepFormationSpring`). If every member is ordered away
-   *  in between (or dies), the row is freed with the mark still unconsumed: the event was pushed, no
-   *  spring follows. Accepted: the event names a discovery, which did happen. */
-  private fmPend(id: number): void {
+  /** A group member made contact (GH-859 P1b, Ruling 10): it was fired on by the enemy (`applySuppression`'s hostile
+   *  branch, the source point), it sprang (`stepCombat`, its own position), or it fired (`fireAt`, `fireAtStructure`
+   *  and `stepBeam`, the target's position). `(x, y)` is the contact point. Every call restarts the group's quiet clock.
+   *  A group still marching with a drill is marked once, first writer wins (writers run in shooter-id order); the event
+   *  names the first member: `formationSprung` for a ring, `formationContact` for `halt` and `press`. A group already in
+   *  contact, or sprung, with no sortie out (`fgCalled` 0; 2 means it has nobody to call) asks for a call instead. The call bit is set only when the group has a
+   *  contact-call element and the point is within `call_radius_tiles` of the MEMBER that reported it (not of the
+   *  aircraft: Attack's stand 13 tiles back, behind a 12-tile radius). The mark is consumed at the start of the next
+   *  tick (`stepFormationContact`). If every member is ordered away in between (or dies), the row is freed with the
+   *  mark still unconsumed: the event was pushed, no drill follows. Accepted: the event names a contact, which did
+   *  happen. O(1) a call: the element scan is at most a handful and runs only on a first mark. */
+  private fmPend(id: number, x: Fx, y: Fx): void {
     const g = this.fmGroup[id];
-    if (g < 0 || this.fgState[g] !== FM_MARCH || this.fgPending[g] !== 0) return;
-    if (this.formationTypes[this.fgType[g]].drill !== FM_DRILL_SPRING) return;
-    this.fgPending[g] = 1;
-    this.pendingEvents.push({ kind: 'formationSprung', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id });
+    if (g < 0) return;
+    this.fgQuiet[g] = 0;
+    if (this.fgPending[g] !== 0) return;
+    const tpl = this.formationTypes[this.fgType[g]];
+    const state = this.fgState[g];
+    if (state === FM_MARCH) {
+      if (tpl.drill === FM_DRILL_NONE) return;
+      this.fgPending[g] = this.fmCallReaches(tpl, id, x, y) ? FM_PEND_DRILL | FM_PEND_CALL : FM_PEND_DRILL;
+      this.fgCallX[g] = x;
+      this.fgCallY[g] = y;
+      if (tpl.drill === FM_DRILL_SPRING) {
+        this.pendingEvents.push({ kind: 'formationSprung', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id });
+      } else {
+        this.pendingEvents.push({ kind: 'formationContact', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id, x, y, drill: tpl.drill });
+      }
+    } else if ((state === FM_CONTACT || state === FM_SPRUNG) && this.fgCalled[g] === 0 && this.fmCallReaches(tpl, id, x, y)) {
+      this.fgPending[g] = FM_PEND_CALL;
+      this.fgCallX[g] = x;
+      this.fgCallY[g] = y;
+    }
   }
 
-  /** Before `stepCombat` (behind `fmLive`): a marked group springs as one. A mark is set by a hit
-   *  (every `applySuppression` caller runs later in the tick) or by a member's own spring inside
-   *  `stepCombat`, so by the time this runs it is the tick after, and `stepCombat` then finds every
-   *  member's stance clear: the ring opens fire one tick after it was found. O(rows), and the
-   *  spring's one O(count) scan runs once in a group's life. */
-  private stepFormationSpring(): void {
+  /** Whether a contact at (x, y) reported by member `id` can raise a call: the formation has a `contact` call
+   *  element, and the point is no further than `call_radius_tiles` from `id` itself. */
+  private fmCallReaches(tpl: CompiledFormation, id: number, x: Fx, y: Fx): boolean {
+    const r = fx.fromInt(tpl.callRadius);
+    if (distSqFx(fx.sub(x, this.posX[id]), fx.sub(y, this.posY[id])) > fx.mul(r, r)) return false;
+    for (let e = 0; e < tpl.elements.length; e++) if (tpl.elements[e].onCall === FM_CALL_CONTACT) return true;
+    return false;
+  }
+
+  /** The dress ends (a ring found while marching, a press): the last checkpoint is released and every waiting member
+   *  goes on to its next leg, as a release does but for the event. One O(count) scan, once in a group's life. */
+  private fmEndDress(g: number): void {
+    if (this.fgLegs[g] > 0) this.fgRelease[g] = this.fgLegs[g] - 1;
+    this.fgDress[g] = 0;
+    this.fgAtCp[g] = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.fmDuty[i] !== FM_DUTY_WAIT) continue;
+      this.fmDuty[i] = FM_DUTY_NONE;
+      this.fmLeg[i]++;
+      if (this.wpCount[i] > 0) this.advanceLeg(i);
+    }
+  }
+
+  /** Before `stepCombat` (behind `fmLive`): a marked group runs its drill (Ruling 11). A mark is set by a hit (every
+   *  `applySuppression` caller runs later in the tick), by a member's own spring or by a member firing inside
+   *  `stepCombat`, so by the time this runs it is the tick after, and `stepCombat` then finds every stance clear:
+   *  the ring opens fire one tick after it was found.
+   *  - `spring`: the ring's stances clear, state `SPRUNG`, dressing ends.
+   *  - `halt`: every ground member stops and drops its queue (nobody waits any more), every vehicle turns its front
+   *    toward the contact point, state `CONTACT`. An aircraft the call will not answer (`stay`, or no call raised)
+   *    halts too. The march does not resume by itself.
+   *  - `press`: state `CONTACT`, dressing ends, pace and queues stay: attack-move does the fighting.
+   *  Then, when the mark carries the call bit, the call (Ruling 12, `fmCallAircraft`): a mark with the call bit alone is a
+   *  group already in contact whose sorties have come home. A member on its way home when a `halt` runs is stopped and
+   *  freed of its duty (Ruling 13).
+   *  O(rows); the drill's one O(count) scan runs once in a group's life, the call's once per call. */
+  private stepFormationContact(): void {
     for (let g = 0; g < FORMATION_ROWS; g++) {
       if (this.fgLive[g] === 0 || this.fgPending[g] === 0) continue;
+      const pend = this.fgPending[g];
       this.fgPending[g] = 0;
-      this.fgState[g] = FM_SPRUNG;
-      for (let i = 0; i < this.count; i++) {
-        if (this.fmGroup[i] === g && this.stance[i] === 1) this.stance[i] = 0;
+      const tpl = this.formationTypes[this.fgType[g]];
+      const drill = (pend & FM_PEND_DRILL) === 0 ? FM_DRILL_NONE : tpl.drill;
+      if (drill === FM_DRILL_SPRING) {
+        this.fgState[g] = FM_SPRUNG;
+        for (let i = 0; i < this.count; i++) {
+          if (this.fmGroup[i] === g && this.stance[i] === 1) this.stance[i] = 0;
+        }
+        this.fmEndDress(g);
+      } else if (drill === FM_DRILL_HALT) {
+        this.fgState[g] = FM_CONTACT;
+        const cx = this.fgCallX[g];
+        const cy = this.fgCallY[g];
+        for (let i = 0; i < this.count; i++) {
+          if (this.fmGroup[i] !== g) continue;
+          const ut = this.unitTypes[this.typeIdx[i]];
+          // Nobody waits in a group in contact, the aircraft that will answer the call included: clear the duty BEFORE
+          // the skip (`fgAtCp` is zeroed below). `fmLeg` stays: a cleared aircraft is still heading to the checkpoint it
+          // waited at, and its next arrival (`finishLeg`, which re-arrives each tick while held) advances it, because
+          // `fmMarchHold` holds only a MARCH row.
+          if (this.fmDuty[i] === FM_DUTY_WAIT) this.fmDuty[i] = FM_DUTY_NONE;
+          // A member on its way home from a call is halted where it stands and is no longer away: a halted group has
+          // no march for it to rejoin. One that is OUT keeps its job (a medic's rescue is its own, `stepMedics` walks
+          // it on) and loses its queue like every ground member.
+          if (this.fmDuty[i] === FM_DUTY_RETURN) {
+            this.fmDuty[i] = FM_DUTY_NONE;
+            if (this.fgAway[g] > 0) this.fgAway[g]--;
+          }
+          if ((pend & FM_PEND_CALL) !== 0 && this.fmAnswersCall(tpl, i)) {
+            // It answers the call, so it is not halted; but a halted group has no march to rejoin (Ruling 13): its queue goes
+            // with everyone's, and it flies to the call, comes home to `fmHome` and stops there.
+            this.wpCount[i] = 0;
+            continue;
+          }
+          this.haltUnit(i);
+          if (!ut.isAir && ut.moveDomain === DOMAIN_VEHICLE) {
+            const face = eighthToward(cx - this.posX[i], cy - this.posY[i]);
+            if (face !== FM_FACING_NONE) this.restFacing[i] = face;
+          }
+        }
+        this.fgAtCp[g] = 0;
+        this.fgDress[g] = 0;
+      } else if (drill === FM_DRILL_PRESS) {
+        this.fgState[g] = FM_CONTACT;
+        this.fmEndDress(g);
       }
+      // The call (Ruling 12), after the drill: a bit set on a first mark, or alone on a group already in contact.
+      if ((pend & FM_PEND_CALL) !== 0) this.fmCallAircraft(g, tpl);
     }
+  }
+
+  /** Whether group member `i` is an aircraft the formation's contact call sends out (Ruling 12): `strike` or `spot`
+   *  by its type, in an element that is on call for contact, and free to take an order (not coming down). The halt
+   *  drill leaves exactly these flying, because the call is about to give them somewhere to go. */
+  private fmAnswersCall(tpl: CompiledFormation, i: number): boolean {
+    return this.fmCanBeCalled(tpl, i) && this.airState[i] !== AIR_LANDING;
+  }
+
+  /** Whether member `i` is, by type and element, an aircraft the contact call can ever send (a `strike` or `spot` in an
+   *  element on call for contact), whatever it is doing now. Membership only shrinks, so a group with none never will have. */
+  private fmCanBeCalled(tpl: CompiledFormation, i: number): boolean {
+    const ut = this.unitTypes[this.typeIdx[i]];
+    if (!ut.isAir || ut.fmCall === FM_CALL_STAY) return false;
+    return tpl.elements[tpl.elementOfClass[ut.fmClass]].onCall === FM_CALL_CONTACT;
+  }
+
+  /** The contact call (Ruling 12): every answering aircraft of row `g` not already away flies to the call point's
+   *  tile centre, whatever its distance (it is the group's own), a `strike` as an attack-move and a `spot` as a move,
+   *  never sweeping. It remembers where it was going (`fmHome`) and keeps its queue: `finishLeg` stops an `OUT`
+   *  member at the point. `fgCalled` 1 says sorties are out, so a contact while they are asks for nothing twice; the quiet
+   *  return clears it. `fgCalled` 2 says the group has no member that could ever be called (no `strike` or `spot` aircraft
+   *  in an element on call for contact, alive or on any duty): the latch is permanent (membership only shrinks), so a
+   *  ground-only group in a long fight is scanned once and not on every exchange of fire (G-3). The quiet return reads
+   *  only the value 1. */
+  private fmCallAircraft(g: number, tpl: CompiledFormation): void {
+    let could = false;
+    const tx = fx.toInt(this.fgCallX[g]);
+    const ty = fx.toInt(this.fgCallY[g]);
+    const gx = fx.add(fx.fromInt(tx), HALF);
+    const gy = fx.add(fx.fromInt(ty), HALF);
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.alive[i] === 0) continue;
+      if (this.fmCanBeCalled(tpl, i)) could = true;
+      if (this.fmDuty[i] >= FM_DUTY_OUT || !this.fmAnswersCall(tpl, i)) continue;
+      const strike = this.unitTypes[this.typeIdx[i]].fmCall === FM_CALL_STRIKE;
+      if (this.fmDuty[i] === FM_DUTY_WAIT) this.fmUnwait(i, g);
+      this.fmHomeX[i] = this.moving[i] === 1 ? this.goalX[i] : this.posX[i];
+      this.fmHomeY[i] = this.moving[i] === 1 ? this.goalY[i] : this.posY[i];
+      this.goalX[i] = gx;
+      this.goalY[i] = gy;
+      this.fieldRef[i] = this.fieldFor(tx, ty, this.domainOf(i));
+      this.moving[i] = 1;
+      this.attackMove[i] = strike ? 1 : 0;
+      this.sweepOrder[i] = 0;
+      this.engaging[i] = 0;
+      this.fmDuty[i] = FM_DUTY_OUT;
+      this.fgAway[g]++;
+      this.fgCalled[g] = 1;
+      this.pendingEvents.push({ kind: 'formationCall', tick: this.tickCount, side: this.fgSide[g], group: g, entity: i, call: strike ? 'strike' : 'spot' });
+    }
+    if (!could) this.fgCalled[g] = 2;
+  }
+
+  /** Member `i` of row `g` stops waiting at a checkpoint to go on a call: it is no longer counted in `fgAtCp`, and
+   *  with nobody left waiting the dress clock starts again from the next arrival. */
+  private fmUnwait(i: number, g: number): void {
+    this.fmDuty[i] = FM_DUTY_NONE;
+    if (this.fgAtCp[g] > 0) this.fgAtCp[g]--;
+    if (this.fgAtCp[g] === 0) this.fgDress[g] = 0;
+  }
+
+  /** Member `i` goes home from a call (Ruling 13): its goal is `fmHome`, it is no attack-mover (a gunship flying home
+   *  as one would stop at every target and never arrive), and its queue is as it left it. `finishLeg` takes it back
+   *  into the march on arrival. */
+  private fmReturnHome(i: number): void {
+    const tx = fx.toInt(this.fmHomeX[i]);
+    const ty = fx.toInt(this.fmHomeY[i]);
+    this.goalX[i] = this.fmHomeX[i];
+    this.goalY[i] = this.fmHomeY[i];
+    this.fieldRef[i] = this.fieldFor(tx, ty, this.domainOf(i));
+    this.moving[i] = 1;
+    this.attackMove[i] = 0;
+    this.sweepOrder[i] = 0;
+    this.engaging[i] = 0;
+    this.fmDuty[i] = FM_DUTY_RETURN;
+    const g = this.fmGroup[i];
+    this.pendingEvents.push({ kind: 'formationCall', tick: this.tickCount, side: this.fgSide[g], group: g, entity: i, call: 'return' });
+  }
+
+  /** The casualty call (Ruling 14): man `w` went down in row `g` (his parent was a member, or was its last man, so
+   *  the row is read from before the parent died). The nearest free group medic answers, within `call_radius_tiles`
+   *  of him, by squared distance with ties to the lowest id (a strict `<` in id order): a living foot unit with a
+   *  `rescue` block in an element on call for casualties, doing nothing (`MED_IDLE`, no passenger) and not on a call,
+   *  routed, carried, garrisoned or below ground. The ambulance and the medevac have no `rescue` block and never
+   *  answer: they are where the medics bring him. It takes the rescue with its queue and its place in the march
+   *  kept (`beginRescue`, `fmHome`), `OUT`. */
+  private fmCasualty(g: number, w: number): void {
+    if (g < 0 || this.fgLive[g] === 0) return;
+    const tpl = this.formationTypes[this.fgType[g]];
+    const r = fx.fromInt(tpl.callRadius);
+    const reachSq = fx.mul(r, r);
+    let best = -1;
+    let bestD = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.alive[i] === 0 || this.fmDuty[i] >= FM_DUTY_OUT) continue;
+      const ut = this.unitTypes[this.typeIdx[i]];
+      if (ut.rescue === null || ut.isAir || ut.moveDomain !== DOMAIN_FOOT) continue;
+      if (tpl.elements[tpl.elementOfClass[ut.fmClass]].onCall !== FM_CALL_CASUALTY) continue;
+      if (this.medState[i] !== MED_IDLE || this.passengers[i] > 0 || this.garrisonedIn[i] >= 0 || this.woundState[i] !== WOUND_NONE) continue;
+      if (!this.rescueGate(i, w)) continue;
+      const d = distSqFx(fx.sub(this.posX[w], this.posX[i]), fx.sub(this.posY[w], this.posY[i]));
+      if (d > reachSq || (best >= 0 && d >= bestD)) continue;
+      best = i;
+      bestD = d;
+    }
+    if (best < 0) return;
+    const m = best;
+    if (this.fmDuty[m] === FM_DUTY_WAIT) this.fmUnwait(m, g);
+    this.fmHomeX[m] = this.moving[m] === 1 ? this.goalX[m] : this.posX[m];
+    this.fmHomeY[m] = this.moving[m] === 1 ? this.goalY[m] : this.posY[m];
+    this.beginRescue(m, w, true);
+    this.fmDuty[m] = FM_DUTY_OUT;
+    this.fgAway[g]++;
+    this.pendingEvents.push({ kind: 'formationCall', tick: this.tickCount, side: this.fgSide[g], group: g, entity: m, call: 'casualty' });
   }
 
   /** Right after `stepCombat` (behind `fmLive`): a unit standing at rest in a formation turns to the
@@ -4961,8 +5439,72 @@ export class Sim {
       if (this.alive[i] === 0 || this.moving[i] === 1) continue;
       if (this.curTarget[i] >= 0 || this.curStructure[i] >= 0 || this.mobilityKilled[i] === 1) continue;
       if (this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
+      // GH-859 P1b (Ruling 9): the rest facing waits for the final checkpoint (or for contact). A hull stopped at
+      // an intermediate one keeps the way it marched.
+      const g = this.fmGroup[i];
+      if (g >= 0 && this.fmLeg[i] < this.fgLegs[g] && this.fgState[g] !== FM_CONTACT) continue;
+      if (this.fmDuty[i] >= FM_DUTY_OUT) continue; // a member on a call faces what it is doing, not its slot
       if (this.facing[i] !== want) this.turnToward(i, want);
     }
+  }
+
+  /** Before `stepMovement` (behind `fmLive`): the dress (Ruling 7). A `MARCH` row with members waiting at its
+   *  next checkpoint counts a tick of dress, and releases the checkpoint when every member present is waiting
+   *  (or away on a call) or `dress_s` has passed since the first arrival: `fgRelease` goes up, every waiting
+   *  member goes on to its next leg, the pace is read again, one event. A row in contact or sprung counts the quiet
+   *  clock instead. O(rows) a tick; the one O(count) scan runs once per released checkpoint. */
+  private stepFormationMarch(): void {
+    for (let g = 0; g < FORMATION_ROWS; g++) {
+      if (this.fgLive[g] === 0) continue;
+      const state = this.fgState[g];
+      if (state !== FM_MARCH) {
+        // The quiet clock (Ruling 13): ticks since the last contact, counted for a group in contact or sprung; every
+        // `fmPend` call restarts it. A group that has called and stays quiet for `quiet_s` brings its aircraft home.
+        if (state === FM_CONTACT || state === FM_SPRUNG) {
+          if (this.fgQuiet[g] < 0xffff) this.fgQuiet[g]++;
+          if (this.fgCalled[g] === 1 && this.fgQuiet[g] >= this.formationTypes[this.fgType[g]].quietTicks) this.fmRecall(g);
+        }
+        continue;
+      }
+      if (this.fgAtCp[g] === 0) continue;
+      if (this.fgDress[g] < 0xffff) this.fgDress[g]++;
+      if (this.fgAtCp[g] + this.fgAway[g] < this.fgMembers[g] && this.fgDress[g] < this.formationTypes[this.fgType[g]].dressTicks) continue;
+      this.fgRelease[g]++;
+      this.fgDress[g] = 0;
+      this.fgAtCp[g] = 0;
+      for (let i = 0; i < this.count; i++) {
+        if (this.fmGroup[i] !== g || this.fmDuty[i] !== FM_DUTY_WAIT) continue;
+        this.fmDuty[i] = FM_DUTY_NONE;
+        this.fmLeg[i]++;
+        if (this.wpCount[i] > 0) this.advanceLeg(i);
+      }
+      if (this.formationTypes[this.fgType[g]].pace !== FM_PACE_NONE) this.fgPace[g] = this.groupPace(g);
+      this.pendingEvents.push({ kind: 'formationReleased', tick: this.tickCount, side: this.fgSide[g], group: g, leg: this.fgRelease[g], legs: this.fgLegs[g] });
+    }
+  }
+
+  /** The quiet return (Ruling 13): the row has been quiet for `quiet_s` since its call, so every aircraft still out on
+   *  it flies home, and the call is over (a contact after this calls again). A medic is not sent: it comes home by
+   *  itself when its rescue is done. One O(count) scan per call. */
+  private fmRecall(g: number): void {
+    this.fgCalled[g] = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.fmDuty[i] !== FM_DUTY_OUT || this.alive[i] === 0 || !this.unitTypes[this.typeIdx[i]].isAir) continue;
+      this.fmReturnHome(i);
+    }
+  }
+
+  /** GH-859 P1b: what formation member `id` is doing for its group, FM_DUTY_*: 0 marching (or in no group), 1 waiting
+   *  at a checkpoint, 2 away on a call, 3 coming home from one. */
+  formationDutyOf(id: number): number {
+    return id >= 0 && id < this.count ? this.fmDuty[id] : 0;
+  }
+
+  /** GH-859 P1b: whether `id` took a formation's shape, facing and stance in a template order but has no group row
+   *  (the table was full): a ground member of a degraded order, read from the rest facing the order wrote and `fmForget`
+   *  clears. An aircraft takes no rest facing, so it reads false. Read-only and unhashed. */
+  formationDegradedOf(id: number): boolean {
+    return id >= 0 && id < this.count && this.fmGroup[id] < 0 && this.restFacing[id] !== FM_FACING_NONE;
   }
 
   /** Formation group read APIs for the HUD. Scalar, allocation-free. */
@@ -4980,6 +5522,36 @@ export class Sim {
   /** Members still in group row `g`, 0 for a free row. */
   formationMembersOfGroup(g: number): number {
     return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgMembers[g] : 0;
+  }
+  /** GH-859 P1b: the checkpoint row `g` is now dressing (`fgRelease + 1`, at most `fgLegs`), 0 for a free row. */
+  formationLegOfGroup(g: number): number {
+    if (g < 0 || g >= FORMATION_ROWS || this.fgLive[g] === 0) return 0;
+    const leg = this.fgRelease[g] + 1;
+    return leg > this.fgLegs[g] ? this.fgLegs[g] : leg;
+  }
+  /** GH-859 P1b: the checkpoints in row `g`'s route (the last is the click), 0 for a free row. */
+  formationLegsOfGroup(g: number): number {
+    return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgLegs[g] : 0;
+  }
+  /** GH-859 P1b: row `g`'s pace cap in `Fx` tiles a tick, 0 for no cap (or a free row). */
+  formationPaceOfGroup(g: number): Fx {
+    return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgPace[g] : 0;
+  }
+  /** GH-859 P1b: the unit that sets row `g`'s pace, recomputed on demand: the lowest id among its living ground
+   *  members not on a call whose `baseStep` is least. -1 when the row is free, has no pace or no such member. */
+  formationPaceSetterOf(g: number): number {
+    if (g < 0 || g >= FORMATION_ROWS || this.fgLive[g] === 0 || this.fgPace[g] === 0) return -1;
+    let best = -1;
+    let bestStep = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.fmGroup[i] !== g || this.alive[i] === 0 || this.fmDuty[i] >= FM_DUTY_OUT || this.unitTypes[this.typeIdx[i]].isAir) continue;
+      const step = this.baseStep(i);
+      if (best < 0 || step < bestStep) {
+        best = i;
+        bestStep = step;
+      }
+    }
+    return best;
   }
 
   private applyCommands(): void {
@@ -5375,25 +5947,7 @@ export class Sim {
         for (const id of cmd.ids) {
           if (!this.rescueGate(id, cmd.target)) continue;
           if (this.fmLive) this.fmForget(id); // GH-859 P1a: an accepted order leaves its formation
-          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
-          this.focusTarget[id] = -1;
-          this.focusLost[id] = 0;
-          this.wpCount[id] = 0;
-          this.boardGoal[id] = -1;
-          this.garrisonGoal[id] = -1;
-          this.demolishOrder[id] = -1;
-          this.chargeOrder[id] = -1;
-          this.chargeTicks[id] = 0;
-          // stepMedics, later this tick, walks him there (it owns his movement from now on).
-          this.moving[id] = 0;
-          this.fieldRef[id] = -1;
-          this.attackMove[id] = 0;
-          this.sweepOrder[id] = 0;
-          this.engaging[id] = 0;
-          this.stance[id] = 0;
-          this.medState[id] = MED_TO_WOUNDED;
-          this.medTarget[id] = cmd.target;
-          this.medTimer[id] = 0;
+          this.beginRescue(id, cmd.target, false);
         }
       } else if (cmd.kind === 'enterTunnel') {
         this.applyEnterTunnel(cmd.ids, cmd.tunnel);
@@ -7167,7 +7721,7 @@ export class Sim {
         }
         this.stance[i] = 0;
         this.pendingEvents.push({ kind: 'ambushSprung', tick: this.tickCount, entity: i });
-        if (this.fmLive) this.fmPend(i); // GH-859 P1a: the rest of its ring springs with it
+        if (this.fmLive) this.fmPend(i, this.posX[i], this.posY[i]); // GH-859 P1a: the rest of its ring springs with it
       }
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
@@ -7546,6 +8100,7 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
+    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: a member that opens fire reports contact at its target (selectTarget is hostile-only, so every shot is at an enemy)
     // A shot is definitely being taken. Meter the surfacing burst — only a
     // unit up from a route has one; an ordinary surface unit never carries
     // volley bookkeeping.
@@ -7640,6 +8195,7 @@ export class Sim {
     this.beamTgt[k] = target;
     this.beamAt[k] = now;
     this.lastFired[shooter] = now; // a beam is a firing signature like any shot
+    if (this.fmLive) this.fmPend(shooter, this.posX[target], this.posY[target]); // GH-859 P1b: a beam never reaches fireAt (its target is chosen by selectTarget: hostile-only)
     this.beamHeat[k]++;
     if (++this.beamDwell[k] >= b.dwellTicks) {
       this.beamDwell[k] = 0;
@@ -7705,6 +8261,7 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
+    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: and one that fires on a building (selectStructureTarget picks hostile structures only; selectBreachTarget can pick a neutral wall, but returns -1 for a side a person holds, which every formation order comes from in play, so a breach reports no contact there. A bot seat that a probe or a test orders a formation for is not person-held, so there a breach on a neutral wall does report contact)
 
     const speed = PROJ_SPEED[w.cls];
     let ticks = 1;
@@ -8321,11 +8878,13 @@ export class Sim {
     const type = this.unitTypes[this.typeIdx[target]];
     const standing = figuresStanding(this.hp[target], type.hp, type.figures);
     const floor = standing > 1 ? standing : 1;
-    while (this.figuresUp[target] > floor) this.fallMan(target, by, false);
+    // GH-859 P1b (Ruling 14): the squad's group, read before `destroy` forgets it, so its last man is called for too.
+    const group = this.fmLive ? this.fmGroup[target] : -1;
+    while (this.figuresUp[target] > floor) this.fallMan(target, by, false, group);
     if (this.hp[target] > 0) return;
     if (inPlace && this.downInPlace(target, by)) return;
     this.destroy(target, by);
-    if (!inPlace) this.fallMan(target, by, true);
+    if (!inPlace) this.fallMan(target, by, true, group);
   }
 
   /**
@@ -8337,7 +8896,7 @@ export class Sim {
    * `figuresUp` drops either way. `last`: the squad's final man, already `destroy`ed -- his
    * body (if any) has parent -1, and a failed roll emits nothing beyond that `destroyed`.
    */
-  private fallMan(squad: number, by: number, last: boolean): void {
+  private fallMan(squad: number, by: number, last: boolean, group: number): void {
     const type = this.unitTypes[this.typeIdx[squad]];
     const w = type.wounds;
     if (w === null) return;
@@ -8356,6 +8915,8 @@ export class Sim {
     this.bleedTicks[id] = w.bleedTicks;
     this.scars[id] = this.scars[squad];
     this.pendingEvents.push({ kind: 'woundedDown', tick: this.tickCount, entity: id, parent: last ? -1 : squad, by });
+    // GH-859 P1b (Ruling 14): the casualty call. `group` is the squad's row (-1 without a formation).
+    if (group >= 0) this.fmCasualty(group, id);
   }
 
   /** The fatal hit on an `in_place` type: on a won roll (and under the side's cap) the unit
@@ -8753,7 +9314,12 @@ export class Sim {
           st = MED_CARRYING;
         } else {
           const w = this.pickWounded(m, r.radiusSq);
-          if (w < 0) continue;
+          if (w < 0) {
+            // A medic still out on a call with nothing to do (it was routed when the job ended) goes home. DEFENSIVE: a rout
+            // forgets the group first, so only a poked test reaches it today.
+            if (this.fmLive && this.fmDuty[m] === FM_DUTY_OUT) this.fmReturnHome(m);
+            continue;
+          }
           this.medTarget[m] = w;
           this.medTimer[m] = 0;
           st = MED_TO_WOUNDED;
@@ -8773,6 +9339,35 @@ export class Sim {
     this.medTimer[m] = 0;
     this.moving[m] = 0;
     this.fieldRef[m] = -1;
+    // GH-859 P1b (Ruling 14): a group medic that answered a call and has nothing left to carry goes home. DEFENSIVE: the
+    // `routed === 0` clause and the idle-pick fallback in `stepMedics` cannot be met today, because a rout calls `fmForget`
+    // first (the medic is no longer OUT by then); they keep a routed medic from walking home should that ever change.
+    if (this.fmLive && this.fmDuty[m] === FM_DUTY_OUT && this.routed[m] === 0 && this.passengers[m] === 0) this.fmReturnHome(m);
+  }
+
+  /** The writes of an accepted `rescue` (GH-707 Task 5), after the order's exit from any formation: medic `id` leaves a
+   *  building, drops every other job and is sent to `w` (stepMedics, later this tick, walks him there: it owns his
+   *  movement from now on). GH-859 P1b: a formation's casualty call takes the same rescue with `keepQueue`, which
+   *  leaves the waypoints he was marching on (the order itself still drops them). */
+  private beginRescue(id: number, w: number, keepQueue: boolean): void {
+    if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.focusTarget[id] = -1;
+    this.focusLost[id] = 0;
+    if (!keepQueue) this.wpCount[id] = 0;
+    this.boardGoal[id] = -1;
+    this.garrisonGoal[id] = -1;
+    this.demolishOrder[id] = -1;
+    this.chargeOrder[id] = -1;
+    this.chargeTicks[id] = 0;
+    this.moving[id] = 0;
+    this.fieldRef[id] = -1;
+    this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
+    this.engaging[id] = 0;
+    this.stance[id] = 0;
+    this.medState[id] = MED_TO_WOUNDED;
+    this.medTarget[id] = w;
+    this.medTimer[id] = 0;
   }
 
   /** GH-707 Task 5: may `w` be treated or picked up now -- alive, DOWN or STABILISED, not
@@ -8872,7 +9467,7 @@ export class Sim {
     // In reach: he stops where he is and works.
     this.moving[m] = 0;
     this.fieldRef[m] = -1;
-    this.wpCount[m] = 0;
+    if (!this.fmOnCall(m)) this.wpCount[m] = 0;
     if (this.woundState[w] === WOUND_DOWN) {
       if (this.medState[m] !== MED_TREATING) {
         this.medState[m] = MED_TREATING;
@@ -9024,7 +9619,7 @@ export class Sim {
       }
     }
     if (this.moving[m] === 1 && this.fieldRef[m] >= 0 && this.goalX[m] >> 16 === gtx && this.goalY[m] >> 16 === gty) return;
-    this.wpCount[m] = 0;
+    if (!this.fmOnCall(m)) this.wpCount[m] = 0;
     this.goalX[m] = gx;
     this.goalY[m] = gy;
     this.fieldRef[m] = this.fieldFor(gtx, gty, domain);
@@ -9032,6 +9627,12 @@ export class Sim {
     this.attackMove[m] = 0;
     this.sweepOrder[m] = 0;
     this.engaging[m] = 0;
+  }
+
+  /** GH-859 P1b: whether `m` is a formation member away on a call. Its queue is the march it will rejoin, which the
+   *  medic's own walking (`medicGoTo`, `medicTend`) must not drop. Always false without a formation. */
+  private fmOnCall(m: number): boolean {
+    return this.fmLive && this.fmDuty[m] === FM_DUTY_OUT;
   }
 
   /** GH-707: one tick of DOWN wounded `i`'s crawl to cover (see stepWounded). */
@@ -9131,7 +9732,7 @@ export class Sim {
       this.suppFromSet[target] = 1;
       // GH-859 P1a: a ring that is fired on springs, found out. Hostile fire only: a friendly splash
       // is not the enemy.
-      if (this.fmLive) this.fmPend(target);
+      if (this.fmLive) this.fmPend(target, srcX, srcY);
     }
     let a = fx.mul(amount, type.suppResFactor);
     const vet = this.veterancy[target];
@@ -11032,16 +11633,13 @@ export class Sim {
       const goalTileX = this.goalX[i] >> 16;
       const goalTileY = this.goalY[i] >> 16;
 
-      // GH-707 Task 4: a medic carrying a wounded drags or stretchers him (`speedMul`). The
-      // column is ONE for every unit without wound content, and fx.mul(x, ONE) === x exactly
-      // (bh 1, bl 0: (ah << 16) + al), so this is the identity there.
-      let step = fx.mul(type.stepPerTick, this.speedMul[i]);
-      // #706: slowed running gear, an integer percent of the Q16.16 step, by the
-      // tree's integer-divide idiom (`fixed.ts:119`): no float is produced. The
-      // product stays far inside int32 (a step is under 0.2 tile, ~13000 raw).
-      if (this.mobilityDamaged[i] === 1) {
-        const p = step * MOB_DAMAGED_PCT;
-        step = (p - (p % 100)) / 100;
+      let step = this.baseStep(i);
+      // GH-859 P1b (Ruling 8): a marching group walks at its slowest ground member's pace. Aircraft and a unit on
+      // a call (a sortie, a rescue) are exempt. One compare per moving member, and nothing at all outside a
+      // formation world.
+      if (this.fmLive) {
+        const g = this.fmGroup[i];
+        if (g >= 0 && this.fgPace[g] > 0 && !type.isAir && this.fmDuty[i] < FM_DUTY_OUT && step > this.fgPace[g]) step = this.fgPace[g];
       }
       if (this.routed[i] === 1) {
         step = step >> ROUT_SPEED_SHIFT; // fleeing at a crouch-run
@@ -11395,33 +11993,79 @@ export class Sim {
 
   /** The unit has reached its goal: carry straight on to the next queued leg, or stop. */
   private finishLeg(i: number): void {
-    const queued = this.wpCount[i];
-    if (queued > 0) {
-      // Next leg: shift the queue down and carry straight on.
-      const base = i * MAX_WAYPOINTS;
-      this.goalX[i] = this.wpX[base];
-      this.goalY[i] = this.wpY[base];
-      this.attackMove[i] = this.wpAttack[base];
-      this.sweepOrder[i] = this.wpSweep[base];
-      for (let k = 0; k < queued - 1; k++) {
-        this.wpX[base + k] = this.wpX[base + k + 1];
-        this.wpY[base + k] = this.wpY[base + k + 1];
-        this.wpAttack[base + k] = this.wpAttack[base + k + 1];
-        this.wpSweep[base + k] = this.wpSweep[base + k + 1];
+    if (this.fmLive && this.fmGroup[i] >= 0) {
+      // GH-859 P1b (Ruling 12): a member away on a call stops where it was sent and never takes its queue.
+      const duty = this.fmDuty[i];
+      if (duty === FM_DUTY_OUT) {
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+        return;
       }
-      this.wpCount[i] = queued - 1;
-      this.fieldRef[i] = this.fieldFor(
-        fx.toInt(this.goalX[i]),
-        fx.toInt(this.goalY[i]),
-        this.domainOf(i)
-      );
-      this.engaging[i] = 0;
+      // (Ruling 13): home again. It is on the march once more, as an attack-mover if the formation's verb is one, and
+      // the ordinary logic below takes it on to the checkpoint it was heading to.
+      if (duty === FM_DUTY_RETURN) {
+        const g = this.fmGroup[i];
+        this.fmDuty[i] = FM_DUTY_NONE;
+        if (this.fgAway[g] > 0) this.fgAway[g]--;
+        this.attackMove[i] = this.formationTypes[this.fgType[g]].verb === FM_VERB_ATTACK ? 1 : 0;
+      }
+      // Ruling 6: a formation member at an intermediate checkpoint may be held for the dress.
+      if (this.fmMarchHold(i)) return;
+    }
+    if (this.wpCount[i] > 0) {
+      this.advanceLeg(i);
     } else {
       this.moving[i] = 0;
       this.fieldRef[i] = -1;
       // GH-859 P1a: the formation's arrival stance, once, on the final goal only.
       if (this.fmLive && this.fmArrive[i] !== 0) this.fmArrived(i);
     }
+  }
+
+  /** Next leg: shift the queue down and carry straight on. The caller has checked `wpCount[i] > 0`. */
+  private advanceLeg(i: number): void {
+    const queued = this.wpCount[i];
+    const base = i * MAX_WAYPOINTS;
+    this.goalX[i] = this.wpX[base];
+    this.goalY[i] = this.wpY[base];
+    this.attackMove[i] = this.wpAttack[base];
+    this.sweepOrder[i] = this.wpSweep[base];
+    for (let k = 0; k < queued - 1; k++) {
+      this.wpX[base + k] = this.wpX[base + k + 1];
+      this.wpY[base + k] = this.wpY[base + k + 1];
+      this.wpAttack[base + k] = this.wpAttack[base + k + 1];
+      this.wpSweep[base + k] = this.wpSweep[base + k + 1];
+    }
+    this.wpCount[i] = queued - 1;
+    this.fieldRef[i] = this.fieldFor(
+      fx.toInt(this.goalX[i]),
+      fx.toInt(this.goalY[i]),
+      this.domainOf(i)
+    );
+    this.engaging[i] = 0;
+  }
+
+  /** GH-859 P1b, Ruling 6: whether a formation member that has reached a goal waits for the group's dress
+   *  instead of going on. `fmLeg[i]` is the checkpoint it is heading to, and none gets past `fgRelease + 1`.
+   *  Arriving at that checkpoint with checkpoints still to come, it WAITS: duty WAIT, counted once in `fgAtCp`,
+   *  `moving` still 1 and the goal unchanged, so it re-arrives each tick and returns here at one compare (every
+   *  system that acts on an idle unit leaves it alone). At a released checkpoint it goes straight on, and
+   *  `fmLeg` moves with it. A final arrival (nothing queued) is not held. */
+  private fmMarchHold(i: number): boolean {
+    if (this.wpCount[i] === 0) return false;
+    const g = this.fmGroup[i];
+    const leg = this.fmLeg[i];
+    // Only a row still marching dresses: a group in contact or sprung has nobody to wait for (a member that arrives at
+    // a checkpoint after the drill ran passes straight through).
+    if (this.fgState[g] === FM_MARCH && leg > this.fgRelease[g] && leg < this.fgLegs[g]) {
+      if (this.fmDuty[i] !== FM_DUTY_WAIT) {
+        this.fmDuty[i] = FM_DUTY_WAIT;
+        this.fgAtCp[g]++;
+      }
+      return true;
+    }
+    this.fmLeg[i] = leg + 1;
+    return false;
   }
 
   // ------------------------------------------------------------------- upkeep
@@ -11998,6 +12642,21 @@ export class Sim {
       h = hashArray(h, this.fgState);
       h = hashArray(h, this.fgPending);
       h = hashArray(h, this.fgMembers);
+      h = hashWord(h, 0x464d0002); // 'FM' GH-859 P1b
+      h = hashArray(h, this.fgLegs);
+      h = hashArray(h, this.fgRelease);
+      h = hashArray(h, this.fgDress);
+      h = hashArray(h, this.fgQuiet);
+      h = hashArray(h, this.fgAtCp);
+      h = hashArray(h, this.fgAway);
+      h = hashArray(h, this.fgCalled);
+      h = hashArray(h, this.fgPace);
+      h = hashArray(h, this.fgCallX);
+      h = hashArray(h, this.fgCallY);
+      h = hashArray(h, this.fmLeg);
+      h = hashArray(h, this.fmDuty);
+      h = hashArray(h, this.fmHomeX);
+      h = hashArray(h, this.fmHomeY);
     }
     return h >>> 0;
   }

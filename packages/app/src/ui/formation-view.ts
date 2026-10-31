@@ -19,7 +19,7 @@ import {
   type FormationCounts,
   type FormationId,
   type LegendClass,
-  type SchematicSlot,
+  type SchematicSlots,
 } from './formation-model';
 import { symbolSvg } from './symbol';
 
@@ -70,7 +70,7 @@ const CELL = 17;
  * kill-zone cross inside the dashed ring (ambush), and a travel arrow. Slots arrive as the sim's
  * `{forward, lateral}`; the picture puts forward up, so `y = -forward`.
  */
-export function schematicSvg(id: FormationId, slots: readonly SchematicSlot[]): string {
+export function schematicSvg(id: FormationId, slots: SchematicSlots): string {
   const radius = id === 'ambush' ? schematicRing(id, slots) : 0;
   const pts = slots.map((s) => ({ c: s.cls, x: s.lateral, y: -s.forward }));
   const xs = pts.map((p) => p.x);

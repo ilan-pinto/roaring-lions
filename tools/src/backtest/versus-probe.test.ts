@@ -3,6 +3,9 @@
 // probe itself: a table from an instrument that cannot tell west from east.
 // Each test below is seen red under a one-line mutation of versus-probe.ts (the
 // header there lists them; the commit message says which was run).
+import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { doctrines, versusRules, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
@@ -15,6 +18,7 @@ import {
   rescueRound, reading, roomConfig, seedOf, selfCheck, tally, withOverrides, world, type Played, type PlayFn,
   TUNNEL_CELLS, playTunnelCells, tunnelSelfCheck, withoutVersusRoutes,
 } from './versus-probe';
+import { PER_SEED_SCHEMA, parsePerSeed, type PerSeedFile } from './per-seed';
 
 // Every test that plays FULL games carries this instead of vitest's 5 s
 // default: the M1, M3 and uncut mutants and `main`'s two runs (four or more
@@ -543,6 +547,124 @@ describe('the formation arm (GH-859 P1a, spec 8.7)', () => {
     expect(() => main(['--formation=ambush'])).toThrow(/move formation/);
     expect(() => main(['--formation-end=friendly'])).toThrow(/give --formation/);
     expect(() => main(['--formation=attack', '--formation-end=both'])).toThrow(/friendly or hostile/);
+  });
+});
+
+describe('seed sets, one tunnel cell and per-seed files (GH-859 P1b Task 7, the S4 gate\'s instruments)', () => {
+  let dir = '';
+  afterEach(() => { vi.restoreAllMocks(); if (dir !== '') rmSync(dir, { recursive: true, force: true }); dir = ''; });
+  const tmp = (name: string): string => {
+    if (dir === '') dir = mkdtempSync(join(tmpdir(), 'versus-probe-'));
+    return join(dir, name);
+  };
+  const quiet = (): void => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  };
+  const read = (path: string): PerSeedFile => {
+    const { file, faults } = parsePerSeed(JSON.parse(readFileSync(path, 'utf8')) as unknown, path);
+    expect(faults).toEqual([]);
+    return file;
+  };
+  const base = ['--maps=tel_marum', '--arr=kdf/kdf', '--seeds=2'];
+
+  it('--seed-from=192 --seeds=2 plays seedOf(192) and seedOf(193), and only those in the table', () => {
+    // Literals: 1000 + 7919 * 192 and 1000 + 7919 * 193.
+    expect(seedOf(192)).toBe(1_521_448);
+    expect(seedOf(193)).toBe(1_529_367);
+    quiet();
+    const seen: number[] = [];
+    const spy: PlayFn = (m, a, sd, o) => { seen.push(sd); return play(m, a, sd, o); };
+    const out = tmp('b.json');
+    expect(main([...base, '--seed-from=192', `--per-seed=${out}`], spy)).toBe(0);
+    // The controls keep their own seed (seedOf(0)); every other game is the table's.
+    expect(seen.filter((sd) => sd !== seedOf(0))).toEqual([1_521_448, 1_529_367]);
+    const f = read(out);
+    expect(f).toMatchObject({ schema: PER_SEED_SCHEMA, seedFrom: 192, seeds: 2, rules: 'room', capSeconds: 600, formation: null });
+    expect(f.cells).toHaveLength(1);
+    expect(f.cells[0].rows.map((r) => [r.n, r.seed])).toEqual([[192, 1_521_448], [193, 1_529_367]]);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('a set-B game is not the set-A game at the same index', () => {
+    quiet();
+    const a = tmp('a.json');
+    const b = tmp('b.json');
+    expect(main([...base, `--per-seed=${a}`])).toBe(0);
+    expect(main([...base, '--seed-from=192', `--per-seed=${b}`])).toBe(0);
+    const ra = read(a).cells[0].rows;
+    const rb = read(b).cells[0].rows;
+    expect(ra.map((r) => r.n)).toEqual([0, 1]);
+    for (let i = 0; i < 2; i++) {
+      expect([rb[i].winner, rb[i].by, rb[i].ticks], `index ${i}`).not.toEqual([ra[i].winner, ra[i].by, ra[i].ticks]);
+    }
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('--per-seed writes one row per seed per cell, each the game the probe played', () => {
+    quiet();
+    const out = tmp('p.json');
+    expect(main(['--maps=tel_marum', '--arr=kdf/kdf,kdf/sarim', '--seeds=3', `--per-seed=${out}`])).toBe(0);
+    const f = read(out);
+    expect(f.cells.map((c) => c.key)).toEqual(['tel_marum kdf/kdf placed', 'tel_marum KDF friendly placed']);
+    expect(f.cells.map((c) => c.rows.length)).toEqual([3, 3]);
+    expect(f.cells[1].rows.map((r) => r.n)).toEqual([0, 1, 2]);
+    const g = play('tel_marum', ['kdf', 'sarim'], seedOf(2));
+    expect(f.cells[1].rows[2]).toEqual({ n: 2, seed: seedOf(2), winner: g.winner, by: g.by, ticks: g.ticks });
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('writes nothing when the self-check fails, and says where it wrote when it passes', () => {
+    const out = tmp('never.json');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const swapped: PlayFn = (m, a, s, o) => {
+      const g = play(m, a, s, o);
+      return { ...g, winner: g.winner === null ? null : g.winner === 0 ? 1 : 0 };
+    };
+    expect(main([...base, `--per-seed=${out}`], swapped)).toBe(2);
+    expect(existsSync(out)).toBe(false);
+    log.mockClear();
+    expect(main(['--maps=tel_marum', '--arr=kdf/kdf', '--seeds=1', `--per-seed=${out}`])).toBe(0);
+    expect(log.mock.calls.flat().join('\n')).toContain(`per-seed file: ${out} (1 cell(s), 1 games)`);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('--tunnel-cell=answer plays exactly one cell and no routeless twin', () => {
+    const only = playTunnelCells('tel_marum', ['kdf', 'sarim'], 1, CAP_TICKS_DEFAULT, play, { only: 'answer' });
+    expect(TUNNEL_CELLS.map((c) => only.cells[c].length)).toEqual([0, 0, 1, 0]);
+    expect(only.routeless).toEqual([]);
+    expect(only.cells.answer[0].tun?.entered).toBeGreaterThan(0);
+    // And through main: one game in the tunnel arm, one cell in the file.
+    quiet();
+    const tunnelGames: (string | undefined)[] = [];
+    const spy: PlayFn = (m, a, sd, o) => { if (o?.tunnels !== undefined) tunnelGames.push(o.tunnels); return play(m, a, sd, o); };
+    const out = tmp('t.json');
+    expect(main(['--tunnels', '--tunnel-cell=answer', '--maps=tel_marum', '--arr=kdf/sarim', '--seeds=1', `--per-seed=${out}`], spy)).toBe(0);
+    expect(tunnelGames).toEqual(['answer']);
+    const f = read(out);
+    expect(f.cells.map((c) => [c.key, c.world, c.rows.length])).toEqual([['tel_marum KDF friendly tunnel-answer', 'tunnel-answer', 1]]);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('one cell alone is checked for what it can prove: it took a unit below, or (off) it did not', () => {
+    const tun = { entered: 0, stalled: 0, surfaced: 0, raids: 0, exits: 0, identified: 0, charges: 0, collapsed: 0, collapseKills: 0 };
+    const g = (entered: number): Played => ({ winner: 0, by: 'annihilation', ticks: 1200, econ: { built: [1, 1], purse: [0, 0] }, tun: { ...tun, entered } });
+    const cells = (only: (typeof TUNNEL_CELLS)[number], entered: number) => {
+      const c = { off: [], noAnswer: [], answer: [], turtle: [] } as Record<(typeof TUNNEL_CELLS)[number], Played[]>;
+      c[only] = [g(entered)];
+      return { cells: c, routeless: [] };
+    };
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], cells('answer', 4))).toEqual([]);
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], cells('answer', 0))).toHaveLength(1);
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], cells('turtle', 0))).toHaveLength(1);
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], cells('off', 0))).toEqual([]);
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], cells('off', 2))).toHaveLength(1);
+    // Nothing played is a fault, not a vacuous pass.
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], { cells: { off: [], noAnswer: [], answer: [], turtle: [] }, routeless: [] })).toHaveLength(1);
+  });
+
+  it('refuses what it cannot play', () => {
+    expect(() => main(['--seed-from=-1'])).toThrow(/--seed-from/);
+    expect(() => main(['--seed-from=1.5'])).toThrow(/--seed-from/);
+    expect(() => main(['--tunnels', '--tunnel-cell=bogus'])).toThrow(/--tunnel-cell/);
+    expect(() => main(['--economy', '--tunnel-cell=answer'])).toThrow(/give --tunnels/);
+    expect(() => main(['--per-seed='])).toThrow(/--per-seed/);
   });
 });
 

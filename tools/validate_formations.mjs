@@ -5,9 +5,11 @@
 //   - ids are unique, and each is its file's name;
 //   - `label` and `blurb` are keys in en.json;
 //   - `hud.formation.face.<face>` exists for the arrival face (`none` has nothing to say), and
-//     `hud.formation.drill.<drill>` for every drill except `halt` and `none` (P1a ships no copy
-//     for a halt: the tooltip says only what P1a does, plan Ruling 16);
+//     `hud.formation.drill.<drill>` for every drill except `none` (P1a kept `halt` out until it was true,
+//     plan Ruling 16; GH-859 P1b Task 4 makes it true, so it is required now);
 //   - a file with a ring has `hud.formation.shape.ring`;
+//   - a file that paces (`march.pace` not `none`) has `hud.formation.pace`, and an element on call has
+//     `hud.formation.call.<on_call>` (GH-859 P1b Task 10: the tooltip composes these from the file);
 //   - `factions` are `kdf` or `sarim`;
 //   - `ring.radius[0] <= radius[1]`;
 //   - `(files - 1) * file_gap` is even, so the schematic's centre is an integer;
@@ -51,9 +53,11 @@ export function formationFailures(files, en) {
       out.push(`${file}: arrival.face "${face}" has no en.json key hud.formation.face.${face}`);
     }
     const drill = doc.contact?.drill;
-    if (typeof drill === 'string' && drill !== 'halt' && drill !== 'none' && !has(`hud.formation.drill.${drill}`)) {
+    if (typeof drill === 'string' && drill !== 'none' && !has(`hud.formation.drill.${drill}`)) {
       out.push(`${file}: contact.drill "${drill}" has no en.json key hud.formation.drill.${drill}`);
     }
+    const pace = doc.march?.pace;
+    if (typeof pace === 'string' && pace !== 'none' && !has('hud.formation.pace')) out.push(`${file}: march.pace "${pace}" but en.json has no hud.formation.pace`);
     for (const f of doc.factions ?? []) {
       if (!FACTIONS.has(f)) out.push(`${file}: faction "${f}" is not kdf or sarim`);
     }
@@ -70,6 +74,9 @@ export function formationFailures(files, en) {
       }
       if (shape.kind === 'files' && ((shape.files - 1) * (shape.file_gap ?? 1)) % 2 !== 0) {
         out.push(`${file}: element ${i} files (${shape.files} - 1) x file_gap ${shape.file_gap ?? 1} is odd, so the schematic has no integer centre`);
+      }
+      if (typeof el?.on_call === 'string' && el.on_call !== 'none' && !has(`hud.formation.call.${el.on_call}`)) {
+        out.push(`${file}: element ${i} on_call "${el.on_call}" has no en.json key hud.formation.call.${el.on_call}`);
       }
       const classes = Array.isArray(el?.classes) ? el.classes : [];
       if (classes.includes('rest')) {

@@ -143,7 +143,8 @@ describe('order: the formation field (GH-859 P1a)', () => {
     for (const w of [wa, wc]) expect(w.sim.formationTypeCount()).toBe(3);
     const r = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20, formation: 'column' });
     expect(r.ok).toBe(false);
-    expect(body(r)).toEqual({ error: 'invalid' });
+    // M8: the refusal names its cause (the formation gate), where P1a answered a bare `invalid`.
+    expect(body(r)).toEqual({ error: 'invalid', detail: 'formations-closed-in-versus' });
     await loop.flush();
     expect(sentBy(loop, a).filter((m) => m.t === 'cmd')).toEqual([]);
     // The same order without the field is an ordinary order: sent, framed for both seats, no group.
@@ -163,10 +164,16 @@ describe('order: the formation field (GH-859 P1a)', () => {
     const own = sideIds(wa, 0).slice(0, 3);
     const r = await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20, formation: 'attack' });
     expect(r.ok).toBe(false);
-    expect(body(r)).toEqual({ error: 'invalid' });
+    expect(body(r)).toEqual({ error: 'invalid', detail: 'formations-closed-in-versus' });
     expect((await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20 })).ok).toBe(true);
     await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
     expect(own.map((id) => wa.sim.formationGroupOf(id))).toEqual([-1, -1, -1]);
+  });
+  it('the order tool says formations are refused in versus rooms while closed, and names the detail it answers with (M8)', () => {
+    const order = TOOLS.find((t) => t.name === 'order');
+    expect(order).toBeDefined();
+    expect(order!.description).toContain('formations-closed-in-versus');
+    expect(order!.description).toContain('closed in versus rooms');
   });
   it('an id nobody ships, a formation on the wrong verb or on another verb, is refused and nothing is sent', async () => {
     const { loop, a } = await twoSeats(BOTS);

@@ -50,7 +50,7 @@
  */
 
 import type { MissionEvent, ObjectiveStatus, SimEvent } from '@lions/sim';
-import { TICKS_PER_SECOND } from '@lions/sim';
+import { FM_DRILL_HALT, TICKS_PER_SECOND } from '@lions/sim';
 import { isHostileSide, isOwnSide } from '@lions/render';
 import { distinctPlaces, type Place } from './alert-place';
 import { ALERT_CUE, OBJECTIVE_CUE, type CueId } from './cues';
@@ -90,7 +90,7 @@ export interface AlertLine {
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'kill' | 'wounded' | 'conductGain' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'ambushSprung' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply' | 'production';
+  kind: 'unitLost' | 'kill' | 'wounded' | 'conductGain' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'ambushSprung' | 'formationContact' | 'formationCall' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply' | 'production';
   tier: AlertTier;
   /** Good or bad, as the minimap ring wears it (VR-36): the line's own tone
    *  where there is a line, and for a lineless alert the tone its line would
@@ -565,6 +565,9 @@ export function alertsForTick(
   /** GH-859 P1a: where our own ambush formation sprang this tick (its first finder), and how many. */
   const sprungOwn: { x: number; y: number }[] = [];
   let sprungOwnCount = 0;
+  /** GH-859 P1b: our own entities that made a `halt` group's contact, and answered a call with a sortie, one per event. */
+  const contactOwn: number[] = [];
+  const answeredOwn: number[] = [];
   const tunnelsFound: number[] = [];
   let tunnelsAnnounced = state.tunnelsAnnounced;
   /** VR-37: the first of ours a round was aimed at this tick -- where an
@@ -664,6 +667,18 @@ export function alertsForTick(
         const at = world.posOf(e.entity);
         if (at !== null) sprungOwn.push(at);
       }
+      continue;
+    }
+    // GH-859 P1b: our own column halted on contact. A `press` group (the Attack) goes on fighting and says nothing new, and
+    // an enemy's raises nothing (the event carries a point of theirs, and `entity` is the member of theirs that made it).
+    if (e.kind === 'formationContact') {
+      if (isOwnSide(e.side, viewer) && e.drill === FM_DRILL_HALT) contactOwn.push(e.entity);
+      continue;
+    }
+    // GH-859 P1b: one of our aircraft answers the group's call (a strike or a spot). A medic's answer, and anyone's coming
+    // home, are the group's business and the card's, not news; the enemy's calls are never ours to hear.
+    if (e.kind === 'formationCall') {
+      if (isOwnSide(e.side, viewer) && (e.call === 'strike' || e.call === 'spot')) answeredOwn.push(e.entity);
       continue;
     }
     if (e.kind !== 'fire' && e.kind !== 'impact') continue;
@@ -879,6 +894,33 @@ export function alertsForTick(
       at,
       marks: at === null ? [] : [at],
       count: sprungOwnCount,
+    });
+  }
+  // GH-859 P1b: one line per event, at OUR unit that made the contact (or answered), never at anything of theirs (x-ray).
+  for (const entity of contactOwn) {
+    const at = world.posOf(entity);
+    alerts.push({
+      kind: 'formationContact',
+      tier: 'important',
+      tone: 'warn',
+      line: { key: 'alert.formationContact', params: {}, tone: 'warn', place: at === null ? [] : [world.placeOf(at.x, at.y)] },
+      cue: ALERT_CUE.important,
+      at,
+      marks: at === null ? [] : [at],
+      count: 1,
+    });
+  }
+  for (const entity of answeredOwn) {
+    const at = world.posOf(entity);
+    alerts.push({
+      kind: 'formationCall',
+      tier: 'minor',
+      tone: 'info',
+      line: { key: 'alert.formationCall', params: { unit: world.unitName(world.typeOf(entity)) }, tone: 'info', place: at === null ? [] : [world.placeOf(at.x, at.y)] },
+      cue: ALERT_CUE.minor,
+      at,
+      marks: at === null ? [] : [at],
+      count: 1,
     });
   }
   alerts.push(...downs);

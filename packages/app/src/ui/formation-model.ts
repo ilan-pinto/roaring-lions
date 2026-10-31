@@ -15,10 +15,11 @@
  * takes the boolean and the reason key. It never reads the room's mode.
  */
 import { formations } from '@lions/data';
-import { FM_CLASS_NONE, FORMATION_CLASSES, compileFormation, ringTiles, templateOffsets, type CompiledFormation, type FormationJson } from '@lions/sim';
+import { FM_CLASS_NONE, FORMATION_CLASSES, compileFormation, templateOffsets, type CompiledFormation, type FormationJson } from '@lions/sim';
 import { t } from '../i18n/t';
 import { FORMATION_VERSUS_REASON_KEY } from '../net/versus-formations';
 import type { Action } from '../input/keymap';
+import { escapeHtml } from './escape-html';
 import type { OrderFamily } from './order-sight';
 
 export type FormationId = 'column' | 'attack' | 'ambush';
@@ -107,6 +108,8 @@ export interface FormationView {
   inert: boolean;
   /** Why it is inert, a catalogue key; present exactly when `inert` is. */
   reasonKey?: string;
+  /** The reason's parameters (`needsMin`'s `n`, the formation's own `min_members`), when it has any. */
+  reasonParams?: { n: number };
 }
 
 const ROW: readonly { id: FormationId; key: FormationView['key']; family: FormationView['family'] }[] = [
@@ -120,8 +123,8 @@ const ROW: readonly { id: FormationId; key: FormationView['key']; family: Format
  *
  * The row draws when the selection holds at least two own living units of a class other than none.
  * Then, in order of precedence: a versus room (`formationsOpen` false) makes every button inert with
- * the versus reason; fewer than `min_members` FREE units makes it `needsTwo`; and the ambush alone
- * also needs one free unit of a ring class (`ambushNoGround`).
+ * the versus reason; fewer than `min_members` FREE units makes it `needsMin` (naming that number);
+ * and the ambush alone also needs one free unit of a ring class (`ambushNoGround`).
  */
 export function formationRow(facts: FormationFacts, armed: FormationId | null): FormationView[] {
   const placeable = facts.units.filter((u) => u.cls !== FM_CLASS_NONE);
@@ -129,9 +132,12 @@ export function formationRow(facts: FormationFacts, armed: FormationId | null): 
   const free = placeable.filter((u) => u.free);
   return ROW.map((spec) => {
     let reasonKey: string | undefined;
+    let reasonParams: { n: number } | undefined;
     if (!facts.formationsOpen) reasonKey = FORMATION_VERSUS_REASON_KEY;
-    else if (free.length < formationMinMembers(spec.id)) reasonKey = 'hud.formation.inert.needsTwo';
-    else if (spec.id === 'ambush' && !free.some((u) => ringClasses('ambush').includes(u.cls))) reasonKey = 'hud.formation.inert.ambushNoGround';
+    else if (free.length < formationMinMembers(spec.id)) {
+      reasonKey = 'hud.formation.inert.needsMin';
+      reasonParams = { n: formationMinMembers(spec.id) };
+    } else if (spec.id === 'ambush' && !free.some((u) => ringClasses('ambush').includes(u.cls))) reasonKey = 'hud.formation.inert.ambushNoGround';
     return {
       id: spec.id,
       labelKey: `formation.${spec.id}.name`,
@@ -140,6 +146,7 @@ export function formationRow(facts: FormationFacts, armed: FormationId | null): 
       armed: armed === spec.id,
       inert: reasonKey !== undefined,
       ...(reasonKey !== undefined ? { reasonKey } : {}),
+      ...(reasonParams !== undefined ? { reasonParams } : {}),
     };
   });
 }
@@ -162,7 +169,7 @@ export function formationArmNote(id: FormationId): string {
 }
 /** An inert button's reason line. */
 export function formationReason(view: FormationView): string | null {
-  return view.reasonKey === undefined ? null : t(view.reasonKey);
+  return view.reasonKey === undefined ? null : t(view.reasonKey, view.reasonParams);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -189,12 +196,17 @@ export interface SchematicSlot {
   lateral: number;
 }
 
+/** The slots `schematicSlots` draws. `ringRadius` is the ring's radius as the ORDER would place it (the sim's
+ *  `templateOffsets(...).ringRadius`), 0 with no ring. It is a NON-ENUMERABLE property: a `.map` or a spread drops it,
+ *  and a deep-equal against a plain list of slots still holds. */
+export type SchematicSlots = SchematicSlot[] & { readonly ringRadius?: number };
+
 /**
  * Where each class stands on open ground: the sim's `templateOffsets` over the compiled shipped
  * formation, so the tooltip cannot disagree with the order. Ambulances take the medic element's
  * slots after the medics, and are told apart here.
  */
-export function schematicSlots(id: FormationId, counts: Partial<Record<LegendClass, number>>): SchematicSlot[] {
+export function schematicSlots(id: FormationId, counts: Partial<Record<LegendClass, number>>): SchematicSlots {
   const classes: number[] = [];
   FORMATION_CLASSES.forEach((name, code) => {
     const n = (counts[name] ?? 0) + (name === 'medic' ? (counts.ccp ?? 0) : 0);
@@ -202,7 +214,10 @@ export function schematicSlots(id: FormationId, counts: Partial<Record<LegendCla
   });
   const medicCode = FORMATION_CLASSES.indexOf('medic');
   let medicsLeft = counts.medic ?? 0;
-  return templateOffsets(shippedFormation(id).compiled, classes).map((s) => {
+  const offsets = templateOffsets(shippedFormation(id).compiled, classes);
+  // `ringRadius` rides on the list `templateOffsets` returns: read it BEFORE the `.map`, which builds a new array without it.
+  const ringRadius = offsets.ringRadius;
+  const slots: SchematicSlot[] = offsets.map((s) => {
     let cls: LegendClass = FORMATION_CLASSES[s.cls];
     if (s.cls === medicCode) {
       if (medicsLeft > 0) medicsLeft--;
@@ -210,19 +225,13 @@ export function schematicSlots(id: FormationId, counts: Partial<Record<LegendCla
     }
     return { cls, forward: s.forward, lateral: s.lateral };
   });
+  return Object.defineProperty(slots, 'ringRadius', { value: ringRadius, enumerable: false }) as SchematicSlots;
 }
 
-/** The ambush ring's radius in the slots drawn: the smallest ring (3..6) holding every ring-class slot, 0 when
- *  there are none. For the schematic's dashed circle. */
-export function schematicRing(id: FormationId, slots: readonly SchematicSlot[]): number {
-  const rc = new Set(ringClasses(id).map((c) => FORMATION_CLASSES[c] as LegendClass));
-  const ring = slots.filter((s) => rc.has(s.cls));
-  if (ring.length === 0) return 0;
-  for (let r = 3; r <= 6; r++) {
-    const tiles = new Set(ringTiles(r).map((p) => `${p[0]},${p[1]}`));
-    if (ring.every((s) => tiles.has(`${s.forward},${s.lateral}`) || tiles.has(`${s.lateral},${s.forward}`))) return r;
-  }
-  return 0;
+/** The ambush ring's radius in the slots drawn, 0 when there is none. For the schematic's dashed circle: the radius
+ *  the sim's template chose for these slots (`schematicSlots`' `ringRadius`), never a range this file guesses. */
+export function schematicRing(id: FormationId, slots: SchematicSlots): number {
+  return ringClasses(id).length === 0 ? 0 : (slots.ringRadius ?? 0);
 }
 
 export interface LegendRow {
@@ -240,31 +249,64 @@ export function formationLegendMark(id: FormationId): { mark: 'click' | 'killZon
   if (id === 'ambush') return { mark: 'killZone', label: t('hud.formation.legend.killZone') };
   return null;
 }
-/** The tooltip's closing line about which way the formation faces, from the shipped file. */
+/** The tooltip's closing line, composed from the shipped file: which way the formation faces, what its contact drill
+ *  does, that it is paced when it is, the ring when it has one, and what its on-call elements answer. Every drill with
+ *  copy speaks (the validator requires the key for each but `none`), `halt` included. */
 export function formationFacingLine(id: FormationId): string {
   const f = shippedFormation(id).json;
-  const face = `hud.formation.face.${f.arrival.face}`;
-  const parts = [t(face)];
-  // Ruling 16: composed from the file's facts. Every drill with copy speaks (the validator requires the key for each
-  // but halt and none, which P1a leaves unsaid), and the ring line follows a ring element, not the id.
-  const drill = f.contact.drill;
-  if (drill !== 'halt' && drill !== 'none') parts.push(t(`hud.formation.drill.${drill}`));
+  const parts = [t(`hud.formation.face.${f.arrival.face}`)];
+  // Ruling 16: composed from the file's facts, and the ring line follows a ring element, not the id.
+  if (f.contact.drill !== 'none') parts.push(t(`hud.formation.drill.${f.contact.drill}`));
+  if (f.march !== undefined && f.march.pace !== undefined && f.march.pace !== 'none') parts.push(t('hud.formation.pace'));
   if (f.elements.some((el) => el.shape.kind === 'ring')) parts.push(t('hud.formation.shape.ring'));
+  const calls: string[] = [];
+  for (const el of f.elements) if (el.on_call !== undefined && el.on_call !== 'none' && !calls.includes(el.on_call)) calls.push(el.on_call);
+  for (const call of calls) parts.push(t(`hud.formation.call.${call}`));
   return parts.join(' ');
+}
+
+/** Whether the formation's contact drill stops the whole group (`halt`): read from the file, so a retuned file moves it. */
+export function formationHalts(id: FormationId): boolean {
+  return shippedFormation(id).json.contact.drill === 'halt';
+}
+
+/** Whether a member of class `cls` stands ready to answer its formation's call: an element of its class is on call,
+ *  and the member can answer it. An aircraft answers a `contact` call unless it stays (seats or a one-way dive:
+ *  `UnitType.fmCall`); a foot medic answers a `casualty` call, and an ambulance (the collection vehicle) never does. */
+export function formationAnswersCall(id: FormationId, unit: { cls: number; air: boolean; stays: boolean; ambulance: boolean }): boolean {
+  const { json, compiled } = shippedFormation(id);
+  if (unit.cls < 0 || unit.cls >= FORMATION_CLASSES.length) return false;
+  const on = json.elements[compiled.elementOfClass[unit.cls]]?.on_call;
+  if (unit.air) return on === 'contact' && !unit.stays;
+  return on === 'casualty' && FORMATION_CLASSES[unit.cls] === 'medic' && !unit.ambulance;
 }
 
 // ---------------------------------------------------------------------------------------------
 // The card and the chip.
 // ---------------------------------------------------------------------------------------------
 
-/** Where a member stands in its formation: on the march, set in its slot, or (an ambush) sprung. */
-export type FormationPhase = 'marching' | 'set' | 'sprung';
+/** Where a member stands in its formation: on the march, set in its slot, (an ambush) sprung, or (an ambush member the
+ *  ring does not take, an aircraft) standing with no stance to speak of. */
+export type FormationPhase = 'marching' | 'set' | 'sprung' | 'standing';
 
 export interface FormationMemberView {
   id: FormationId;
   phase: FormationPhase;
   /** The ring radius, an ambush member's, when the HUD knows it. */
   radius?: number;
+  /** The group has made contact: a Column halted, an Attack pressing on. */
+  contact?: boolean;
+  /** The checkpoint the group is dressing (n) of its route's (m), while it marches and has more than one. */
+  cp?: { n: number; m: number };
+  /** The group's pace in tiles a second, one decimal ("0.7"), and the unit that sets it (its catalogue name). */
+  pace?: { pace: string; unit: string };
+  /** `onCall`: ready at its station to answer the group's call; `answering`: away on one (or coming home from it). */
+  call?: 'onCall' | 'answering';
+}
+
+/** A unit that took a formation's shape in an order but has no group row (the table was full): no march, dress or calls. */
+export interface FormationDegradedView {
+  degraded: true;
 }
 
 export interface FormationCardLine {
@@ -273,26 +315,36 @@ export interface FormationCardLine {
   dim: boolean;
 }
 
-/** What a formation member's card says (the mock's Q1, cut to what P1a can make true). */
-export function formationCardLines(view: FormationMemberView): FormationCardLine[] {
-  if (view.id === 'column') return [{ text: t('hud.card.formation.column'), dim: false }];
-  if (view.id === 'attack') return [{ text: t('hud.card.formation.attack'), dim: false }];
-  if (view.phase === 'sprung') return [{ text: t('hud.card.formation.sprung'), dim: false }];
-  if (view.phase === 'marching') return [{ text: t('hud.card.formation.ambush.moving'), dim: false }];
-  const lines: FormationCardLine[] = [{ text: t('hud.card.formation.ambush.set'), dim: false }];
-  if (view.radius !== undefined && view.radius > 0) lines.push({ text: t('hud.card.formation.ambush.radius', { r: view.radius }), dim: true });
+/** What a formation member's card says (the mock's Q1, with the march and the calls P1b makes true). */
+export function formationCardLines(view: FormationMemberView | FormationDegradedView): FormationCardLine[] {
+  if ('degraded' in view) return [{ text: t('hud.card.formation.degraded'), dim: false }];
+  const lines: FormationCardLine[] = [];
+  if (view.id === 'column' || view.id === 'attack') {
+    if (view.contact === true) lines.push({ text: t(`hud.card.formation.contact.${view.id}`), dim: false });
+    else if (view.cp !== undefined) lines.push({ text: t(`hud.card.formation.${view.id}.cp`, view.cp), dim: false });
+    else lines.push({ text: t(`hud.card.formation.${view.id}`), dim: false });
+  } else if (view.phase === 'sprung') lines.push({ text: t('hud.card.formation.sprung'), dim: false });
+  else if (view.phase === 'marching') lines.push({ text: t('hud.card.formation.ambush.moving'), dim: false });
+  else if (view.phase === 'set') {
+    lines.push({ text: t('hud.card.formation.ambush.set'), dim: false });
+    if (view.radius !== undefined && view.radius > 0) lines.push({ text: t('hud.card.formation.ambush.radius', { r: view.radius }), dim: true });
+  }
+  if (view.pace !== undefined) lines.push({ text: t('hud.card.formation.pace', { pace: view.pace.pace, unit: escapeHtml(view.pace.unit) }), dim: true });
+  if (view.call !== undefined) lines.push({ text: t(`hud.card.formation.${view.call}`), dim: false });
   return lines;
 }
 
-/** How many of a chip's units are in each formation. */
+/** How many of a chip's units are in each formation, and the checkpoint a marching group is dressing. */
 export interface FormationChipCounts {
   column?: number;
   attack?: number;
   ambush?: number;
+  /** Per formation, the earliest checkpoint (k) of the route's (m) among its marching groups, when the route has more than one. */
+  cp?: Partial<Record<FormationId, { k: number; m: number }>>;
 }
 
-/** The chip's formation line ("5 in column"), or null when none of its units is in one. A chip mixing
- *  formations names the one most of them are in (ties: column, attack, ambush). */
+/** The chip's formation line ("5 in column", or "6 in column · cp 2/4" on the march), or null when none of its units is in
+ *  one. A chip mixing formations names the one most of them are in (ties: column, attack, ambush). */
 export function formationChip(counts: FormationChipCounts | undefined): string | null {
   if (counts === undefined) return null;
   let best: FormationId | null = null;
@@ -304,5 +356,7 @@ export function formationChip(counts: FormationChipCounts | undefined): string |
       bestN = n;
     }
   }
-  return best === null ? null : t(`selection.chip.formation.${best}`, { n: bestN });
+  if (best === null) return null;
+  const cp = counts.cp?.[best];
+  return cp === undefined ? t(`selection.chip.formation.${best}`, { n: bestN }) : t(`selection.chip.formation.${best}.cp`, { n: bestN, k: cp.k, m: cp.m });
 }

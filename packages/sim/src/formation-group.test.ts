@@ -90,6 +90,14 @@ interface Priv {
 const priv = (sim: Sim): Priv => sim as unknown as Priv;
 const goalTile = (sim: Sim, id: number): [number, number] => [priv(sim).goalX[id] >> 16, priv(sim).goalY[id] >> 16];
 const goals = (sim: Sim, ids: number[]): [number, number][] => ids.map((id) => goalTile(sim, id));
+/** GH-859 P1b: a member's final slot is its LAST queued checkpoint (its goal, when nothing is queued). P1a's "goal" was
+ *  that, because P1a had one checkpoint; a longer order now walks checkpoints first. */
+const finalTile = (sim: Sim, id: number): [number, number] => {
+  const p = sim as unknown as { wpX: Int32Array; wpY: Int32Array; wpCount: Uint8Array };
+  const n = p.wpCount[id];
+  return n === 0 ? goalTile(sim, id) : [p.wpX[id * 8 + n - 1] >> 16, p.wpY[id * 8 + n - 1] >> 16];
+};
+const finals = (sim: Sim, ids: number[]): [number, number][] => ids.map((id) => finalTile(sim, id));
 
 /** Six units standing as one stack at (24, 40) - the approach is from the south, so forward is -y and
  *  a slot at frame (f, l) is the tile (24 + l, 24 - f). The click is (24, 24). */
@@ -137,7 +145,10 @@ describe('shape: a six-unit order lands on the template\'s literal tiles', () =>
     const ids = southStack(w, [w.mbt, w.mbt, w.mbt, w.inf, w.inf, w.inf]);
     order(w, ids, 'column');
     tick(w);
-    expect(goals(w.sim, ids)).toEqual([[24, 24], [26, 25], [24, 27], [24, 29], [26, 29], [24, 30]]);
+    // G-6, P1b: the 16-step route is two checkpoints, so the goal is checkpoint 1 (route step 7, y = 32). P1a's literal is now
+    // the FINAL checkpoint, the last queued tile of each member, unchanged.
+    expect(finals(w.sim, ids)).toEqual([[24, 24], [26, 25], [24, 27], [24, 29], [26, 29], [24, 30]]);
+    expect(goals(w.sim, ids)).toEqual([[24, 32], [26, 33], [24, 35], [24, 37], [26, 37], [24, 38]]);
     for (const id of ids) {
       expect(w.sim.formationGroupOf(id), `id ${id}`).toBe(0);
       expect(priv(w.sim).restFacing[id], `id ${id}`).toBe(49152);
@@ -151,7 +162,9 @@ describe('shape: a six-unit order lands on the template\'s literal tiles', () =>
     const ids = southStack(w, [w.mbt, w.mbt, w.inf, w.inf, w.inf]);
     order(w, ids, 'attack', 'attackMove');
     tick(w);
-    expect(goals(w.sim, ids)).toEqual([[24, 24], [26, 24], [24, 26], [25, 26], [23, 26]]);
+    // G-6, P1b: the final checkpoint is P1a's literal, the goal is checkpoint 1 (route step 7, y = 32).
+    expect(finals(w.sim, ids)).toEqual([[24, 24], [26, 24], [24, 26], [25, 26], [23, 26]]);
+    expect(goals(w.sim, ids)).toEqual([[24, 32], [26, 32], [24, 34], [25, 34], [23, 34]]);
     for (const id of ids) expect(priv(w.sim).restFacing[id], `id ${id}`).toBe(49152);
     expect(w.sim.formationTypeOfGroup(w.sim.formationGroupOf(ids[0]))).toBe(1);
   });
@@ -279,8 +292,10 @@ describe('rest facing', () => {
   it('an Attack hull already on its slot swings to the front once it has stopped, and not before', () => {
     const w = world();
     // The Lavi stands on its slot facing north; the order comes from the west, so the front is +x (0).
+    // G-6, P1b: the other tank stands at x = 16 and not x = 4, so the route (4 steps from the centroid at x = 20) is one
+    // checkpoint; from x = 4 it is two, and the Lavi would first walk to checkpoint 1's slot two tiles west of its own.
     const a = w.sim.spawn(w.mbt, 0, at(24), at(24), 49152);
-    const b = spawnAt(w, w.mbt, 0, 4, 24);
+    const b = spawnAt(w, w.mbt, 0, 16, 24);
     order(w, [a, b], 'attack', 'attackMove');
     tick(w, 3);
     expect(goalTile(w.sim, a)).toEqual([24, 24]);
@@ -748,6 +763,9 @@ describe('the table: 16 groups a side', () => {
     // facing and stance survived the missing row
     expect(ring.map((id) => priv(w.sim).restFacing[id])).toEqual([16384, 57344, 32768, 24576, 0, 49152]);
     expect(ring.map((id) => priv(w.sim).fmArrive[id])).toEqual([19, 19, 19, 19, 19, 19]);
+    // GH-859 P1b: the HUD's read for a degraded member -- a template order with no row; a seated member and an unordered unit are not.
+    expect(ring.map((id) => w.sim.formationDegradedOf(id))).toEqual([true, true, true, true, true, true]);
+    expect([groups[0][0], groups[15][1], ring[0] + 1000, -1].map((id) => w.sim.formationDegradedOf(id))).toEqual([false, false, false, false]);
     for (let t = 0; t < 900 && ring.some((id) => w.sim.state.moving[id] === 1); t++) tick(w);
     tick(w, 70);
     expect(ring.map((id) => w.sim.ambushRadiusSqOf(id))).toEqual([R3_SQ, R3_SQ, R3_SQ, R3_SQ, R3_SQ, R3_SQ]);

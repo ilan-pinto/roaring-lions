@@ -600,10 +600,10 @@ describe('snapshot: fuzz', () => {
     }
     expect(columnWords.length).toBeGreaterThan(100);
     expect(view0.getUint32(columnWords[columnWords.length - 1], true)).toBe(
-      // the walk lands exactly on the last state column: `fgMembers` since GH-859 P1a appended the
-      // formation rows (was `sepLast` since GH-421 appended its two, and `prWeaponIdx` before that:
-      // each a typed column whose length word the walk must land on)
-      (props(a.sim).fgMembers as Uint16Array).length
+      // the walk lands exactly on the last state column: `fmHomeY` since GH-859 P1b appended its fourteen
+      // (was `fgMembers` since P1a appended the formation rows, `sepLast` since GH-421 appended its two, and
+      // `prWeaponIdx` before that: each a typed column whose length word the walk must land on)
+      (props(a.sim).fmHomeY as Int32Array).length
     );
     // The tail: the last u32 that is the count of bytes after it, followed by '{'.
     let tailStart = -1;

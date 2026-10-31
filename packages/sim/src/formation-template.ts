@@ -13,6 +13,7 @@
  * by integer comparisons; the ring is the integer midpoint circle; nothing here draws a random
  * number (invariant 3) -- every tie breaks by id or tile index.
  */
+import { DIR_DX, DIR_DY, DIR_NONE } from './flowfield';
 import { overflowPlace, walk, type Reach } from './formation';
 import { FORMATION_WALK_CAP } from './tuning';
 
@@ -32,9 +33,11 @@ export const FM_CLASS_REST = 7;
 export const FM_CLASS_NONE = 255;
 /** `restFacing` when a unit has none. */
 export const FM_FACING_NONE = 0xffff;
-/** `fgState` of a group row: marching to its slots (also while it stands in them, in P1a). 2 (ARRIVED) and
- *  3 (CONTACT) are reserved: P1b defines them, when the march gives them a meaning. */
+/** `fgState` of a group row: marching to its slots (also while it stands in them, in P1a). 2 (ARRIVED) stays
+ *  reserved and unused: "arrived" is read per member, never stored. */
 export const FM_MARCH = 1;
+/** `fgState`: contact has been made (P1b drills). */
+export const FM_CONTACT = 3;
 /** `fgState`: the ring has sprung (every member's ambush stance is cleared). */
 export const FM_SPRUNG = 4;
 /** `fmArrive`: 0 none, 1 hold, 16 + R ambush with radius R. */
@@ -62,6 +65,10 @@ export const FM_SHAPE_POINT = 3;
 export const FM_CALL_NONE = 0;
 export const FM_CALL_CONTACT = 1;
 export const FM_CALL_CASUALTY = 2;
+/** `UnitType.fmCall` (Ruling 12): what an aircraft does when its group calls it. */
+export const FM_CALL_STAY = 0;
+export const FM_CALL_STRIKE = 1;
+export const FM_CALL_SPOT = 2;
 
 /** The sim's tick rate. Copied, not imported (formation.ts imports nothing from sim.ts either):
  *  formation-template.test.ts pins it against `TICKS_PER_SECOND`. */
@@ -126,6 +133,16 @@ export interface UnitClassJson {
   mobility?: { domain?: string };
 }
 
+/** What `aircraftCallOf` reads of an AIR unit file. String-typed on purpose, like the rest of this section. */
+export interface UnitCallJson {
+  id?: string;
+  mobility?: { domain?: string };
+  hull?: { transport_slots?: number };
+  abilities?: readonly string[];
+  swarm?: unknown;
+  weapons?: readonly { can_target?: readonly string[] }[];
+}
+
 // ---------------------------------------------------------------------------------------------
 // Integer helpers (no Math.*: invariant 2).
 // ---------------------------------------------------------------------------------------------
@@ -179,6 +196,91 @@ export function formationClassOf(json: UnitClassJson, wheeled: boolean): number 
   if (json.role === 'recon') return FM_CLASS_RECON;
   if (wheeled) return FM_CLASS_LIGHT_VEHICLE;
   return FM_CLASS_INFANTRY;
+}
+
+/**
+ * What an aircraft does when its group is in contact and calls it (Ruling 12). First match wins:
+ *
+ *  1. seats (`hull.transport_slots` > 0), a `kamikaze` ability or a `swarm` block -> stay (a carrier is the
+ *     group's casualty collection point; a loitering munition and a swarm are spent by diving);
+ *  2. a weapon that can target `ground` (an absent `can_target` means ground) -> strike;
+ *  3. otherwise -> spot.
+ *
+ * `can_target` reads the four values `unit.schema.json` allows (ground, air, structure, subterranean); only
+ * `ground` counts as a ground strike. Throws `unit <id>: <field> <value>` on a value outside that enum, or on
+ * a unit that is not an aircraft.
+ */
+export function aircraftCallOf(json: UnitCallJson): number {
+  const id = json.id ?? '?';
+  const fail = (field: string, value: unknown): never => {
+    throw new Error(`unit ${id}: ${field} ${String(value)}`);
+  };
+  if (json.mobility?.domain !== 'air') fail('mobility.domain', json.mobility?.domain);
+  const seats = json.hull?.transport_slots ?? 0;
+  if (!Number.isInteger(seats) || seats < 0) fail('hull.transport_slots', seats);
+  const abilities = json.abilities ?? [];
+  if (!Array.isArray(abilities)) fail('abilities', abilities);
+  const weapons = json.weapons ?? [];
+  if (!Array.isArray(weapons)) fail('weapons', weapons);
+  let ground = false;
+  weapons.forEach((w, i) => {
+    const targets = w.can_target;
+    if (targets === undefined) {
+      ground = true;
+      return;
+    }
+    if (!Array.isArray(targets)) fail(`weapons[${i}].can_target`, targets);
+    for (const t of targets) {
+      if (t !== 'ground' && t !== 'air' && t !== 'structure' && t !== 'subterranean') fail(`weapons[${i}].can_target`, t);
+      if (t === 'ground') ground = true;
+    }
+  });
+  if (seats > 0 || abilities.includes('kamikaze') || json.swarm !== undefined) return FM_CALL_STAY;
+  return ground ? FM_CALL_STRIKE : FM_CALL_SPOT;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The march route (P1b Rulings 1, 2): pure, integer tiles.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Follow a flow field's dirs (`DIR_DX`/`DIR_DY`) from (sx, sy) to (gx, gy), one tile per step. Returns the
+ * tile indices (y * w + x) AFTER the start, the goal last; an empty list when the start is the goal; null when
+ * the walk meets `DIR_NONE`, leaves the grid, or takes w * h steps without arriving (a cycle).
+ */
+export function routeWalk(dirs: Uint8Array, w: number, h: number, sx: number, sy: number, gx: number, gy: number): Int32Array | null {
+  const cap = w * h;
+  const out = new Int32Array(cap);
+  let n = 0;
+  let x = sx;
+  let y = sy;
+  while (x !== gx || y !== gy) {
+    if (n >= cap || x < 0 || y < 0 || x >= w || y >= h) return null;
+    const d = dirs[y * w + x];
+    if (d === DIR_NONE) return null;
+    x += DIR_DX[d];
+    y += DIR_DY[d];
+    if (x < 0 || y < 0 || x >= w || y >= h) return null;
+    out[n++] = y * w + x;
+  }
+  return out.slice(0, n);
+}
+
+/**
+ * The route indices (0-based) of each checkpoint. The spacing is S = max(legTiles, ceil(L / budget)); the
+ * checkpoints sit at S - 1, 2S - 1, ... below L - 1, and the last one is always L - 1 (the click).
+ * `legTiles` 0 (a formation with `legs: false`) gives [L - 1]; L 0 gives [].
+ */
+export function checkpointsOf(routeLength: number, legTiles: number, budget: number): number[] {
+  if (routeLength <= 0) return [];
+  const last = routeLength - 1;
+  if (legTiles <= 0) return [last];
+  const byBudget = idiv(routeLength + budget - 1, budget);
+  const spacing = legTiles > byBudget ? legTiles : byBudget;
+  const out: number[] = [];
+  for (let at = spacing - 1; at < last; at += spacing) out.push(at);
+  out.push(last);
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -325,6 +427,8 @@ export interface CompiledFormation {
   /** The walk depth, capped at FORMATION_WALK_CAP. */
   readonly extent: number;
   // P1b reads these; P1a compiles and stores them and reads nothing:
+  /** `march.legs`: false (or no march block) compiles to one checkpoint, `legTiles` 0. */
+  readonly legs: boolean;
   readonly legTiles: number;
   readonly dressTicks: number;
   readonly pace: number;
@@ -450,12 +554,16 @@ export function compileFormation(json: FormationJson): CompiledFormation {
   const drill = pick(id, 'contact.drill', json.contact?.drill, DRILL_NAMES);
   const callRadius = int(id, 'contact.call_radius_tiles', json.contact.call_radius_tiles, 4, 24, 12);
   const quietS = int(id, 'contact.quiet_s', json.contact.quiet_s, 2, 30, 10);
+  let legs = false;
   let legTiles = 0;
   let dressTicks = 0;
   let pace = FM_PACE_NONE;
   if (json.march !== undefined) {
     if (typeof json.march.legs !== 'boolean') bad(id, 'march.legs', json.march.legs);
-    legTiles = int(id, 'march.leg_tiles', json.march.leg_tiles, 4, 16);
+    legs = json.march.legs;
+    // leg_tiles is still range-checked when legs is false; it just compiles to 0 ("one checkpoint").
+    const tiles = int(id, 'march.leg_tiles', json.march.leg_tiles, 4, 16);
+    legTiles = legs ? tiles : 0;
     pace = pick(id, 'march.pace', json.march.pace, PACE_NAMES);
     dressTicks = int(id, 'march.dress_s', json.march.dress_s, 0, 10) * TICKS_PER_SECOND;
   }
@@ -474,6 +582,7 @@ export function compileFormation(json: FormationJson): CompiledFormation {
     arriveStance: stance === 0 ? 0 : stance === 1 ? FM_ARRIVE_HOLD : FM_ARRIVE_AMBUSH,
     drill,
     extent: wide > FORMATION_WALK_CAP ? FORMATION_WALK_CAP : wide,
+    legs,
     legTiles,
     dressTicks,
     pace,
@@ -847,9 +956,13 @@ export function assignTemplate(input: TemplateInput, tpl: CompiledFormation): { 
  * The same fill as `assignTemplate` on ground where every tile is usable, in frame coordinates
  * (forward positive ahead, lateral positive to the frame's right-hand side): one entry per class
  * in `classes` that a slot was found for, in fill order. The HUD schematic's only source, so the
- * tooltip cannot disagree with the order.
+ * tooltip cannot disagree with the order. `.ringRadius` is the ring's radius, the same one
+ * `assignTemplate` returns (0 when the formation has no ring).
  */
-export function templateOffsets(tpl: CompiledFormation, classes: readonly number[]): { cls: number; forward: number; lateral: number }[] {
+export function templateOffsets(
+  tpl: CompiledFormation,
+  classes: readonly number[],
+): { cls: number; forward: number; lateral: number }[] & { ringRadius: number } {
   const raw = classes.map((cls, id) => ({ id, domain: 0, cls, vehicle: false }));
   const members = sortMembers(tpl, raw);
   const taken = new Set<number>();
@@ -864,11 +977,12 @@ export function templateOffsets(tpl: CompiledFormation, classes: readonly number
     keyAt: (_t, f, l) => keyOf(f, l),
     trackOf: () => 0,
   };
-  const { placed } = fill(tpl, members, ground);
+  const { placed, ringRadius } = fill(tpl, members, ground);
   const out: { cls: number; forward: number; lateral: number }[] = [];
   for (let i = 0; i < members.length; i++) {
     const p = placed[i];
     if (p !== null) out.push({ cls: members[i].cls, forward: p.f, lateral: p.l });
   }
-  return out;
+  // The ring's radius (0 with no ring) rides on the list, so the two existing callers, which only map it, are untouched.
+  return Object.assign(out, { ringRadius });
 }

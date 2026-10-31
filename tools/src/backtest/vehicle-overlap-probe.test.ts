@@ -3,11 +3,14 @@ import { fx } from '@lions/sim';
 import { units } from '@lions/data';
 import {
   boxAt,
+  formable,
   measure,
   measuredHulls,
   penetration,
   runScenario,
   scenarios,
+  setupScenario,
+  withFormation,
   worldOn,
   type Box,
 } from './vehicle-overlap-probe';
@@ -164,4 +167,70 @@ describe('scenarios (report only: shape, never level)', () => {
     expect(r.vehicles).toBe(6);
     expect(r.ticks).toBe(90 * 20);
   });
+});
+
+// GH-859 P1b, spec 8.9: the `--formation=column` arm. The instrument only: it must tag the right orders, play a
+// different world, and form the group it says it forms.
+describe('the --formation arm', () => {
+  const named = (name: string) => {
+    const sc = scenarios().find((x) => x.name === name);
+    if (sc === undefined) throw new Error(`no scenario ${name}`);
+    return sc;
+  };
+  const x = fx.from(10);
+  const y = fx.from(11);
+
+  it('withFormation tags a plain move and leaves an exact move and an attack-move alone', () => {
+    const out = withFormation(
+      [
+        { kind: 'move', ids: [1, 2], x, y },
+        { kind: 'move', ids: [3], x, y, exact: true },
+        { kind: 'attackMove', ids: [4], x, y, sweep: true },
+      ],
+      'column',
+    );
+    expect(out).toEqual([
+      { kind: 'move', ids: [1, 2], x, y, formation: 'column' },
+      { kind: 'move', ids: [3], x, y, exact: true },
+      { kind: 'attackMove', ids: [4], x, y, sweep: true },
+    ]);
+  });
+
+  it('formable is true only for the scenarios that hold a plain move: the table of nine', () => {
+    const table: [string, boolean][] = [
+      ['bs group move x6', true],
+      ['bs group move x9', true],
+      ['bs exact converge x6', false],
+      ['bs two groups cross', true],
+      ['bs sandbox spawn (idle)', false],
+      ['tm saddle x6', true],
+      ['tm hollow x6', true],
+      ['qh gates x6', true],
+      ['bs attack-move into a screen 6v3', false],
+    ];
+    expect(table).toHaveLength(9);
+    expect(scenarios()).toHaveLength(9);
+    for (const [name, want] of table) expect(formable(named(name)), name).toBe(want);
+  });
+
+  it('the formed arm really forms its six hulls into one group at tick 1, and the plain arm forms none', () => {
+    const sc = named('bs group move x6');
+    const formed = setupScenario(sc, 'column');
+    formed.sim.tick();
+    const rows = new Set(formed.ids.map((id) => formed.sim.formationGroupOf(id)));
+    expect(formed.ids).toHaveLength(6);
+    expect(rows.size).toBe(1);
+    expect([...rows][0]).toBeGreaterThanOrEqual(0);
+    const plain = setupScenario(sc);
+    plain.sim.tick();
+    expect(plain.ids.map((id) => plain.sim.formationGroupOf(id))).toEqual([-1, -1, -1, -1, -1, -1]);
+  });
+
+  it('the two arms are different games: the same scenario reads different pair-ticks', () => {
+    const hulls = measuredHulls();
+    const sc = named('bs group move x6');
+    const a = runScenario(sc, hulls);
+    const b = runScenario(sc, hulls, 'column');
+    expect([a.mm, a.ms, a.ss]).not.toEqual([b.mm, b.ms, b.ss]);
+  }, 60_000);
 });

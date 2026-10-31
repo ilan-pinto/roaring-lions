@@ -213,6 +213,8 @@ export interface UnitFacts {
   aps?: { ammo: number; magazine: number };
   /** GH-859 P1a: the combat formation this unit stands in, if any. */
   formation?: FormationId;
+  /** GH-859 P1b: the checkpoint (k) of the route's (m) the unit's marching group is dressing, when it has more than one. */
+  formationCp?: { k: number; m: number };
   /** Side 0 -- the player's own. Absent reads as not own, so a chip never
    *  claims kit it cannot prove (plan 2b). */
   own?: boolean;
@@ -334,7 +336,13 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       if (u.aboard) aboard++;
       if (u.moving) moving++;
       if (u.onLoan) loaned++;
-      if (u.formation !== undefined) inFormation[u.formation] = (inFormation[u.formation] ?? 0) + 1;
+      if (u.formation !== undefined) {
+        inFormation[u.formation] = (inFormation[u.formation] ?? 0) + 1;
+        // The chip names the EARLIEST checkpoint among its marching groups (a chip mixing groups can name only one).
+        const cp = u.formationCp;
+        const seen = inFormation.cp?.[u.formation];
+        if (cp !== undefined && (seen === undefined || cp.k < seen.k)) inFormation.cp = { ...inFormation.cp, [u.formation]: cp };
+      }
       if (u.aps) {
         apsAmmo += u.aps.ammo;
         apsMag += u.aps.magazine;

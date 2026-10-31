@@ -6,13 +6,14 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { formations } from '@lions/data';
-import { compileFormation, templateOffsets } from '@lions/sim';
+import { compileFormation, ringTiles, templateOffsets } from '@lions/sim';
 import en from '../i18n/en.json';
 import { setCatalogue } from '../i18n/t';
 import {
   classCounts,
   formationArmNote,
   formationBlurb,
+  formationAnswersCall,
   formationCardLines,
   formationChip,
   formationFacingLine,
@@ -24,6 +25,7 @@ import {
   formationTag,
   schematicRing,
   schematicSlots,
+  type SchematicSlots,
   type FormationFacts,
   type FormationUnitFact,
 } from './formation-model';
@@ -69,10 +71,19 @@ describe('formationRow: why a button is inert', () => {
   it('two units with one garrisoned: every button needs two free units', () => {
     const row = formationRow(facts([u(INFANTRY), u(INFANTRY, false)]), null);
     expect(row.map((v) => [v.inert, v.reasonKey])).toEqual([
-      [true, 'hud.formation.inert.needsTwo'],
-      [true, 'hud.formation.inert.needsTwo'],
-      [true, 'hud.formation.inert.needsTwo'],
+      [true, 'hud.formation.inert.needsMin'],
+      [true, 'hud.formation.inert.needsMin'],
+      [true, 'hud.formation.inert.needsMin'],
     ]);
+  });
+
+  it('names the formation\'s own minimum, and words it from the catalogue (M10)', () => {
+    const row = formationRow(facts([u(INFANTRY), u(INFANTRY, false)]), null);
+    expect(row.map((v) => v.reasonParams)).toEqual([{ n: 2 }, { n: 2 }, { n: 2 }]);
+    expect(row.map((v) => formationReason(v))).toEqual(Array(3).fill('Needs 2 free units'));
+    expect(formations.map((f) => f.min_members)).toEqual([2, 2, 2]);
+    // The versus and ambush reasons carry no parameters.
+    expect(formationRow(facts(MIXED, false), null).map((v) => v.reasonParams)).toEqual([undefined, undefined, undefined]);
   });
 
   it('two helicopters: column and attack are active, the ambush has no ground to ring the zone', () => {
@@ -103,7 +114,7 @@ describe('formationRow: versus rooms (formations off until P1b)', () => {
     ]);
   });
 
-  it('the versus reason outranks needsTwo and ambushNoGround', () => {
+  it('the versus reason outranks needsMin and ambushNoGround', () => {
     expect(formationRow(facts([u(INFANTRY), u(INFANTRY, false)], false), null).map((v) => v.reasonKey)).toEqual(Array(3).fill('hud.formation.inert.versus'));
     expect(formationRow(facts([u(AIRCRAFT), u(AIRCRAFT)], false), null)[2].reasonKey).toBe('hud.formation.inert.versus');
   });
@@ -134,7 +145,7 @@ describe('labels are accessors, resolved when asked (the ROLE_LABEL lesson)', ()
     expect(formationReason(row[2])).toBe('Needs ground units to ring the zone');
     expect(formationReason(row[0])).toBeNull();
     const one = formationRow(facts([u(INFANTRY), u(INFANTRY, false)]), null);
-    expect(formationReason(one[0])).toBe('Needs two free units');
+    expect(formationReason(one[0])).toBe('Needs 2 free units');
     expect(formationBlurb('ambush')).toBe('Ring the clicked ground and hold. Armed units fire on what they can reach.');
   });
 
@@ -217,10 +228,25 @@ describe('the legend', () => {
     expect(formationLegendMark('column')).toBeNull();
   });
 
-  it('closes with the way the formation faces, from its file', () => {
-    expect(formationFacingLine('column')).toBe('Faces the way you march.');
-    expect(formationFacingLine('attack')).toBe('Faces the approach. Then press on, fighting.');
-    expect(formationFacingLine('ambush')).toBe('Faces inward. Springs together on contact. Ring radius grows with the force.');
+  it('closes with the lines the compiled file composes: face, drill (halt too), pace, ring, and what its on-call elements answer', () => {
+    // Column: halt (P1a left it unsaid), a pace, a medic and an aircraft element on call.
+    expect(formationFacingLine('column')).toBe(
+      'Faces the way you march. Halts and returns fire on contact. Moves at the pace of its slowest ground unit. Medics go to a man who goes down. Aircraft answer a contact.'
+    );
+    expect(formationFacingLine('attack')).toBe(
+      'Faces the approach. Then press on, fighting. Moves at the pace of its slowest ground unit. Medics go to a man who goes down. Aircraft answer a contact.'
+    );
+    expect(formationFacingLine('ambush')).toBe(
+      'Faces inward. Springs together on contact. Moves at the pace of its slowest ground unit. Ring radius grows with the force. Medics go to a man who goes down. Aircraft answer a contact.'
+    );
+  });
+
+  it('each clause is the file\'s fact: a clause per call, once, in the file\'s element order', () => {
+    const calls = (id: 'column' | 'attack' | 'ambush'): string[] =>
+      formations.find((f) => f.id === id)!.elements.flatMap((el) => (el.on_call !== undefined && el.on_call !== 'none' ? [el.on_call] : []));
+    // Medic first, aircraft after, in all three files: the tooltip's order follows.
+    for (const id of ['column', 'attack', 'ambush'] as const) expect(calls(id), id).toEqual(['casualty', 'contact']);
+    expect(['column', 'attack', 'ambush'].map((id) => formations.find((f) => f.id === id)!.march!.pace)).toEqual(['slowest_ground', 'slowest_ground', 'slowest_ground']);
   });
 });
 
@@ -241,6 +267,73 @@ describe('card lines (Q1, cut to what P1a makes true)', () => {
   });
 });
 
+describe('card lines: the march and the calls (P1b)', () => {
+  it('a marching Column or Attack names its checkpoint; one checkpoint keeps the plain line', () => {
+    expect(formationCardLines({ id: 'column', phase: 'marching', cp: { n: 2, m: 4 } })).toEqual([{ text: 'In column — checkpoint 2 of 4', dim: false }]);
+    expect(formationCardLines({ id: 'attack', phase: 'marching', cp: { n: 3, m: 3 } })).toEqual([{ text: 'In attack formation — checkpoint 3 of 3', dim: false }]);
+    expect(formationCardLines({ id: 'column', phase: 'marching' })).toEqual([{ text: 'In column', dim: false }]);
+    expect(formationCardLines({ id: 'attack', phase: 'marching' })).toEqual([{ text: 'In attack formation', dim: false }]);
+  });
+
+  it('contact replaces the march line: a halted Column, an Attack pressing on', () => {
+    expect(formationCardLines({ id: 'column', phase: 'marching', contact: true })).toEqual([{ text: 'Column in contact', dim: false }]);
+    expect(formationCardLines({ id: 'attack', phase: 'marching', contact: true })).toEqual([{ text: 'In contact — pressing on', dim: false }]);
+    // Contact outranks a checkpoint the view might still carry.
+    expect(formationCardLines({ id: 'column', phase: 'marching', contact: true, cp: { n: 2, m: 4 } })).toEqual([{ text: 'Column in contact', dim: false }]);
+  });
+
+  it('the pace line is dim and names the unit (escaped), the call line follows', () => {
+    expect(formationCardLines({ id: 'column', phase: 'marching', cp: { n: 1, m: 3 }, pace: { pace: '0.7', unit: 'Sniper <team>' }, call: 'onCall' })).toEqual([
+      { text: 'In column — checkpoint 1 of 3', dim: false },
+      { text: 'Pace 0.7 t/s, set by Sniper &lt;team&gt;', dim: true },
+      { text: 'On call', dim: false },
+    ]);
+    expect(formationCardLines({ id: 'column', phase: 'marching', call: 'answering' }).map((l) => l.text)).toEqual(['In column', 'Answering a call']);
+  });
+
+  it('an ambush standing with no stance has only what it answers; the degraded view says so', () => {
+    expect(formationCardLines({ id: 'ambush', phase: 'standing' })).toEqual([]);
+    expect(formationCardLines({ id: 'ambush', phase: 'standing', call: 'onCall' })).toEqual([{ text: 'On call', dim: false }]);
+    expect(formationCardLines({ degraded: true })).toEqual([{ text: 'In formation (no march)', dim: false }]);
+  });
+
+  it('who answers a call: aircraft that do not stay, on a contact element; a foot medic, on a casualty one; never an ambulance', () => {
+    const cases: [string, Parameters<typeof formationAnswersCall>, boolean][] = [
+      ['a gunship in a Column', ['column', { cls: AIRCRAFT, air: true, stays: false, ambulance: false }], true],
+      ['a seated helicopter', ['column', { cls: AIRCRAFT, air: true, stays: true, ambulance: false }], false],
+      ['a medic squad in an Attack', ['attack', { cls: MEDIC, air: false, stays: false, ambulance: false }], true],
+      ['an ambulance', ['attack', { cls: MEDIC, air: false, stays: false, ambulance: true }], false],
+      ['a medevac helicopter (class aircraft)', ['ambush', { cls: AIRCRAFT, air: true, stays: false, ambulance: false }], true],
+      ['a rifle squad', ['column', { cls: INFANTRY, air: false, stays: false, ambulance: false }], false],
+      ['a unit of no class', ['column', { cls: NONE, air: false, stays: false, ambulance: false }], false],
+    ];
+    expect(cases).toHaveLength(7);
+    for (const [name, args, want] of cases) expect(formationAnswersCall(...args), name).toBe(want);
+  });
+});
+
+describe('M3: the schematic draws the ring the order would place', () => {
+  it('the radius comes from templateOffsets: 6 -> 3, 17 -> 4, 32 -> 6; a Column has none', () => {
+    const ring = (n: number): number => schematicRing('ambush', schematicSlots('ambush', { infantry: n }));
+    expect([6, 17, 32].map(ring)).toEqual([3, 4, 6]);
+    expect(schematicRing('column', schematicSlots('column', { infantry: 6 }))).toBe(0);
+    expect(schematicRing('attack', schematicSlots('attack', { infantry: 6 }))).toBe(0);
+  });
+
+  it('a ring of radius 8 is drawn at 8 (a retuned file is a JSON edit, not a code change); the property survives and stays out of equality', () => {
+    // Six ring-class slots on the radius-8 ring, carrying the radius the way templateOffsets' list does.
+    const slots = ringTiles(8)
+      .slice(0, 6)
+      .map(([f, l]) => ({ cls: 'infantry' as const, forward: f, lateral: l }));
+    const fixture = Object.defineProperty(slots, 'ringRadius', { value: 8, enumerable: false }) as SchematicSlots;
+    expect(schematicRing('ambush', fixture)).toBe(8);
+    // Without the property there is no ring to draw.
+    expect(schematicRing('ambush', slots.map((s) => s) as SchematicSlots)).toBe(0);
+    // A plain deep-equal against the slots still holds (P1a's tests compare schematicSlots with a literal list).
+    expect(schematicSlots('ambush', { infantry: 3 })).toEqual(schematicSlots('ambush', { infantry: 3 }).map((s) => ({ ...s })));
+  });
+});
+
 describe('the chip line', () => {
   it('names the formation most of the chip is in', () => {
     expect(formationChip({ column: 5 })).toBe('5 in column');
@@ -248,6 +341,24 @@ describe('the chip line', () => {
     expect(formationChip({ ambush: 2 })).toBe('2 in ambush');
     expect(formationChip({ column: 1, ambush: 4 })).toBe('4 in ambush');
     expect(formationChip({ column: 2, attack: 2 })).toBe('2 in column');
+  });
+
+  it('a marching group adds its checkpoint: "6 in column · cp 2/4"', () => {
+    expect(formationChip({ column: 6, cp: { column: { k: 2, m: 4 } } })).toBe('6 in column · cp 2/4');
+    expect(formationChip({ attack: 3, cp: { attack: { k: 1, m: 3 } } })).toBe('3 in attack formation · cp 1/3');
+    // The checkpoint belongs to the formation the chip names.
+    expect(formationChip({ column: 1, ambush: 4, cp: { column: { k: 2, m: 4 } } })).toBe('4 in ambush');
+    expect(formationChip({ column: 5 })).toBe('5 in column');
+  });
+
+  it('groupChips keeps the earliest checkpoint among a chip\'s marching groups', () => {
+    const unit = (k?: number): UnitFacts => ({
+      typeId: 'inf_squad', name: 'Rifle Squad', bucket: 'soft', hp: 100, hpMax: 100, routed: false, pinned: false, moving: true, aboard: false, onLoan: false, own: true,
+      formation: 'column',
+      ...(k !== undefined ? { formationCp: { k, m: 4 } } : {}),
+    });
+    expect(groupChips([unit(3), unit(2), unit(2), unit()])[0].status).toBe('4 in column · cp 2/4');
+    expect(groupChips([unit(), unit()])[0].status).toBe('2 in column');
   });
 
   it('is null when no unit is in one', () => {

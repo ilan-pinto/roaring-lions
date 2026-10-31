@@ -5,19 +5,27 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { TICKS_PER_SECOND } from './sim';
+import { TICKS_PER_SECOND, unitTypeFromJson, type UnitTypeJson } from './sim';
+import { DIR_NONE } from './flowfield';
 import { FORMATION_WALK_CAP } from './tuning';
 import {
+  FM_CALL_SPOT,
+  FM_CALL_STAY,
+  FM_CALL_STRIKE,
+  aircraftCallOf,
   assignTemplate,
+  checkpointsOf,
   compileFormation,
   eighthToward,
   formationClassOf,
   ringTiles,
+  routeWalk,
   templateOffsets,
   type CompiledFormation,
   type FormationJson,
   type TemplateInput,
   type TemplateUnit,
+  type UnitCallJson,
   type UnitClassJson,
 } from './formation-template';
 
@@ -80,6 +88,14 @@ describe('formationClassOf: the 50 shipped units against the spec 2.1 table', ()
       expect(formationClassOf(u, wheeled), u.id).toBe(CLASS_CODE[TABLE[u.id]]);
     }
   });
+  it('M7b: the sim\'s own type builder reads each unit as the same table (a FOOT_ROLES change reaches here)', () => {
+    let checked = 0;
+    for (const u of units) {
+      expect(unitTypeFromJson(u as unknown as UnitTypeJson).fmClass, u.id).toBe(CLASS_CODE[TABLE[u.id]]);
+      checked++;
+    }
+    expect(checked).toBe(50);
+  });
   it('the override wins, and an unknown one throws naming the unit', () => {
     expect(formationClassOf({ id: 'x', role: 'infantry', formation_class: 'armour' }, false)).toBe(ARMOUR);
     expect(formationClassOf({ id: 'x', role: 'mbt', formation_class: 'none' }, true)).toBe(NONE);
@@ -136,6 +152,143 @@ describe('ringTiles is shared and frozen (N2)', () => {
     }).toThrow(TypeError);
     expect(ringTiles(3)[0]).toEqual([3, 0]);
     expect(ringTiles(3)).toBe(t);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// P1b Task 1: the march geometry. Every list below is written out by hand.
+describe('routeWalk', () => {
+  // A 6 x 6 grid, tile = y * 6 + x. DIR codes: 0 = +x, 1 = +x+y, 2 = +y, 4 = -x, 6 = -y. The dog-leg:
+  // (0,0) east, (1,0) east, (2,0) south-east to (3,1), (3,1) south, (3,2) south, arriving at (3,3).
+  const dogLeg = (): Uint8Array => {
+    const d = new Uint8Array(36).fill(DIR_NONE);
+    d[0 * 6 + 0] = 0;
+    d[0 * 6 + 1] = 0;
+    d[0 * 6 + 2] = 1;
+    d[1 * 6 + 3] = 2;
+    d[2 * 6 + 3] = 2;
+    return d;
+  };
+  it('follows the dirs one tile per step: the tiles AFTER the start, the goal last', () => {
+    expect(Array.from(routeWalk(dogLeg(), 6, 6, 0, 0, 3, 3) ?? [])).toEqual([1, 2, 9, 15, 21]);
+  });
+  it('a start on the goal is an empty route, not null', () => {
+    const r = routeWalk(dogLeg(), 6, 6, 3, 3, 3, 3);
+    expect(r).not.toBeNull();
+    expect(Array.from(r ?? [99])).toEqual([]);
+  });
+  it('a DIR_NONE cell on the path gives null', () => {
+    const d = dogLeg();
+    d[1 * 6 + 3] = DIR_NONE; // (3,1) has no direction
+    expect(routeWalk(d, 6, 6, 0, 0, 3, 3)).toBeNull();
+  });
+  it('a 2-cell cycle gives null at w x h steps', () => {
+    const d = new Uint8Array(36).fill(DIR_NONE);
+    d[0] = 0; // (0,0) east
+    d[1] = 4; // (1,0) west
+    expect(routeWalk(d, 6, 6, 0, 0, 5, 5)).toBeNull();
+  });
+  it('a walk off the grid gives null', () => {
+    const d = new Uint8Array(36).fill(DIR_NONE);
+    d[5] = 0; // (5,0) east: off the edge
+    expect(routeWalk(d, 6, 6, 5, 0, 0, 5)).toBeNull();
+  });
+});
+
+describe('checkpointsOf', () => {
+  // budget 9: S = max(legTiles, ceil(L / 9)); the last checkpoint is always L - 1.
+  const ROWS: [number, number, number[]][] = [
+    [8, 0, []],
+    [8, 1, [0]],
+    [8, 8, [7]],
+    [8, 9, [7, 8]],
+    [8, 16, [7, 15]],
+    [8, 17, [7, 15, 16]],
+    [8, 100, [11, 23, 35, 47, 59, 71, 83, 95, 99]],
+    [0, 30, [29]],
+  ];
+  it('has the eight rows', () => {
+    expect(ROWS).toHaveLength(8);
+  });
+  for (const [legTiles, length, want] of ROWS) {
+    it(`legTiles ${legTiles}, L ${length}: ${JSON.stringify(want)}`, () => {
+      expect(checkpointsOf(length, legTiles, 9)).toEqual(want);
+    });
+  }
+});
+
+describe('aircraftCallOf: the T0 census of every shipped air unit (Ruling 12)', () => {
+  // By hand. Seats are hull.transport_slots, kamikaze is in top-level abilities, swarm is a top-level block.
+  const CALLS: Record<string, number> = {
+    heli_peten: FM_CALL_STRIKE, heli_peten_gunship: FM_CALL_STRIKE, paramotor: FM_CALL_STRIKE,
+    heli_yanshuf: FM_CALL_STAY, // six seats
+    recon_drone: FM_CALL_SPOT,
+    attack_drone: FM_CALL_STAY, loiter_drone: FM_CALL_STAY, // kamikaze
+    drone_swarm: FM_CALL_STAY, // swarm
+    air_medevac_heli: FM_CALL_STAY, // four seats, no weapon: the CCP
+  };
+  const air: (UnitCallJson & { id: string })[] = [];
+  const collect = (dir: string): void => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) collect(join(dir, e.name));
+      else if (e.name.endsWith('.json')) {
+        const j = JSON.parse(readFileSync(join(dir, e.name), 'utf8')) as UnitCallJson & { id: string };
+        if (j.mobility?.domain === 'air') air.push(j);
+      }
+    }
+  };
+  collect(join(ROOT, 'data', 'units'));
+  it('knows the constants', () => {
+    expect([FM_CALL_STAY, FM_CALL_STRIKE, FM_CALL_SPOT]).toEqual([0, 1, 2]);
+  });
+  it('covers every air unit on disk and nothing else', () => {
+    expect(Object.keys(CALLS)).toHaveLength(9);
+    expect(air.map((u) => u.id).sort()).toEqual(Object.keys(CALLS).sort());
+  });
+  it('reads each as the table says', () => {
+    let checked = 0;
+    for (const u of air) {
+      expect(aircraftCallOf(u), u.id).toBe(CALLS[u.id]);
+      checked++;
+    }
+    expect(checked).toBe(9);
+  });
+  it('seats beat a ground weapon, a block beats a weapon, a missing can_target means ground', () => {
+    const base = { id: 'x', mobility: { domain: 'air' } };
+    expect(aircraftCallOf({ ...base, weapons: [{}] })).toBe(FM_CALL_STRIKE);
+    expect(aircraftCallOf({ ...base, weapons: [{ can_target: ['air'] }] })).toBe(FM_CALL_SPOT);
+    expect(aircraftCallOf({ ...base, weapons: [{ can_target: ['air'] }, { can_target: ['ground', 'structure'] }] })).toBe(FM_CALL_STRIKE);
+    expect(aircraftCallOf({ ...base, weapons: [] })).toBe(FM_CALL_SPOT);
+    expect(aircraftCallOf({ ...base, hull: { transport_slots: 2 }, weapons: [{}] })).toBe(FM_CALL_STAY);
+    expect(aircraftCallOf({ ...base, hull: { transport_slots: 0 }, weapons: [{}] })).toBe(FM_CALL_STRIKE);
+    expect(aircraftCallOf({ ...base, abilities: ['kamikaze'], weapons: [{}] })).toBe(FM_CALL_STAY);
+    expect(aircraftCallOf({ ...base, swarm: {}, weapons: [{}] })).toBe(FM_CALL_STAY);
+  });
+  it('a subterranean target is not a ground strike, and no schema can_target value throws (GH-859 final review I-1)', () => {
+    const base = { id: 'x', mobility: { domain: 'air' } };
+    expect(aircraftCallOf({ ...base, weapons: [{ can_target: ['subterranean'] }] })).toBe(FM_CALL_SPOT);
+    expect(aircraftCallOf({ ...base, weapons: [{ can_target: ['subterranean', 'ground'] }] })).toBe(FM_CALL_STRIKE);
+    expect(aircraftCallOf({ ...base, hull: { transport_slots: 1 }, weapons: [{ can_target: ['subterranean'] }] })).toBe(FM_CALL_STAY);
+    // The enum is read from the schema file: the function must accept every value the schema allows.
+    const schema = JSON.parse(readFileSync(join(ROOT, 'data', 'schemas', 'unit.schema.json'), 'utf8')) as unknown;
+    const found: string[][] = [];
+    const walk = (node: unknown, key: string): void => {
+      if (node === null || typeof node !== 'object') return;
+      if (key === 'can_target') {
+        const items = (node as { items?: { enum?: string[] } }).items;
+        if (items?.enum) found.push(items.enum);
+      }
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) walk(v, k);
+    };
+    walk(schema, '');
+    expect(found.length, 'the schema has can_target enums').toBeGreaterThan(0);
+    expect(found[0]).toEqual(['ground', 'air', 'structure', 'subterranean']);
+    for (const list of found) for (const v of list) expect(() => aircraftCallOf({ ...base, weapons: [{ can_target: [v] }] }), v).not.toThrow();
+  });
+  it('throws naming the unit on a value it cannot read', () => {
+    expect(() => aircraftCallOf({ id: 'oddball', mobility: { domain: 'air' }, hull: { transport_slots: -1 } })).toThrow('unit oddball: hull.transport_slots -1');
+    expect(() => aircraftCallOf({ id: 'oddball', mobility: { domain: 'air' }, weapons: [{ can_target: ['sky'] }] })).toThrow('unit oddball: weapons[0].can_target sky');
+    expect(() => aircraftCallOf({ id: 'oddball', mobility: { domain: 'ground' } })).toThrow('unit oddball: mobility.domain ground');
   });
 });
 
@@ -381,6 +534,19 @@ describe('Ambush on open ground', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+describe('templateOffsets().ringRadius (M3: the schematic draws the order\'s ring)', () => {
+  const rings = (n: number): number[] => Array<number>(n).fill(INFANTRY);
+  it('Ambush: 6 ring members -> 3, 17 -> 4', () => {
+    expect(templateOffsets(compiled('ambush'), rings(6)).ringRadius).toBe(3);
+    expect(templateOffsets(compiled('ambush'), rings(17)).ringRadius).toBe(4);
+  });
+  it('agrees with assignTemplate, and a Column has none', () => {
+    const tpl = compiled('ambush');
+    for (const n of [2, 16, 17, 32]) expect(templateOffsets(tpl, rings(n)).ringRadius, `n ${n}`).toBe(assignTemplate(input(mix(...rings(n))), tpl).ringRadius);
+    expect(templateOffsets(compiled('column'), [ARMOUR, INFANTRY, INFANTRY, MEDIC]).ringRadius).toBe(0);
+  });
+});
+
 describe('templateOffsets: the HUD schematic cannot disagree with the order', () => {
   const MIXES: Record<string, number[]> = {
     heavy: [ARMOUR, ARMOUR, INFANTRY, INFANTRY, INFANTRY, INFANTRY, MEDIC],
@@ -413,6 +579,7 @@ describe('compileFormation', () => {
     expect([column.verb, column.minMembers, column.face, column.arriveStance, column.drill]).toEqual([0, 2, 2, 0, 1]);
     // march.dress_s 3 and contact.quiet_s 10 become ticks (x20); P1b reads them
     expect([column.legTiles, column.dressTicks, column.pace, column.callRadius, column.quietTicks]).toEqual([8, 60, 1, 12, 200]);
+    expect(column.legs).toBe(true);
     expect(column.elementOfClass).toEqual([1, 2, 0, 3, 4, 5, 6]);
     const attack = compiled('attack');
     expect([attack.verb, attack.face, attack.arriveStance, attack.drill]).toEqual([1, 1, 0, 2]);
@@ -435,6 +602,23 @@ describe('compileFormation', () => {
     expect([c.legTiles, c.dressTicks, c.pace, c.callRadius, c.quietTicks]).toEqual([0, 0, 0, 12, 200]);
     // "rest" takes every class
     expect(c.elementOfClass).toEqual([0, 0, 0, 0, 0, 0, 0]);
+  });
+  it('march.legs false compiles to legTiles 0, and a file with no march has no legs', () => {
+    // G-6, P1b: the shipped Ambush now ships `legs: false` (Ruling 3), so this reads the Column, which has checkpoints.
+    const j = JSON.parse(JSON.stringify(loadFormation('column'))) as FormationJson;
+    expect(compileFormation(j).legs).toBe(true);
+    expect(compileFormation(j).legTiles).toBe(8);
+    (j.march as { legs: boolean }).legs = false;
+    const c = compileFormation(j);
+    expect([c.legs, c.legTiles, c.dressTicks, c.pace]).toEqual([false, 0, 60, 1]);
+    delete (j as { march?: unknown }).march;
+    expect([compileFormation(j).legs, compileFormation(j).legTiles]).toEqual([false, 0]);
+  });
+  it('the shipped Ambush marches without checkpoints (Ruling 3), with its pace and dress kept', () => {
+    const c = compileFormation(loadFormation('ambush'));
+    expect([c.legs, c.legTiles, c.dressTicks, c.pace]).toEqual([false, 0, 60, 1]);
+    // and the other two shipped files keep theirs
+    expect([compileFormation(loadFormation('column')).legTiles, compileFormation(loadFormation('attack')).legTiles]).toEqual([8, 8]);
   });
   const mutate = (f: (j: FormationJson) => void): FormationJson => {
     const j = JSON.parse(JSON.stringify(loadFormation('column'))) as FormationJson;
