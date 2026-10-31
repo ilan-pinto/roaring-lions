@@ -546,6 +546,34 @@ describe('villainState', () => {
   });
 });
 
+// GH-912 G-Q: Naharin's villain card must not depend on which town happens to be listed last.
+describe('the Naharin villain ends at the depot (GH-912 G-Q)', () => {
+  const depot = 'wadi_halam_5_depot';
+  const naharinRaw = gatedWorldJson() as { regions: { id: string; towns: { id: string; missions: string[] }[] }[] };
+  // The shape that bites: a town listed AFTER Wadi Halam, so the region's last mission is not the depot.
+  const appended = structuredClone(naharinRaw);
+  appended.regions
+    .find((r) => r.id === 'naharin')!
+    .towns.push({ id: 'late_town', name: 'Late Town', at: [800, 470], missions: ['late_1'] } as never);
+  const naharinLate = parseWorld(appended).regions.find((r) => r.id === 'naharin')!;
+  const hallaq = commander.villains!.naharin!;
+  const missionOf = (id: string) =>
+    id === depot ? { objectives: [{ type: 'eliminate_hvt', primary: true }] } : { objectives: [{ type: 'capture', primary: true }] };
+
+  it('names the depot in the shipped data, in his own region', () => {
+    expect(hallaq.ends_at).toBe(depot);
+    const real = world.regions.find((r) => r.id === 'naharin')!;
+    expect(real.towns.flatMap((tw) => tw.missions)).toContain(depot);
+  });
+
+  it('is decided by the depot, not by whichever mission the region lists last', () => {
+    const lateOnly = { 'campaign.completed_missions': ['late_1'] };
+    const depotDone = { 'campaign.completed_missions': [depot] };
+    expect(villainState(naharinLate, lateOnly, missionOf, hallaq.ends_at)).toBe('at_large');
+    expect(villainState(naharinLate, depotDone, missionOf, hallaq.ends_at)).toBe('killed');
+  });
+});
+
 describe('the account of the taken', () => {
   it('subtracts what came back from what was taken, and reads nothing when the world names no number', () => {
     expect(hostagesAccount(world, { 'civ.hostages_recovered': { a: 2, b: 3 } })).toEqual({ taken: 19, recovered: 5 });
