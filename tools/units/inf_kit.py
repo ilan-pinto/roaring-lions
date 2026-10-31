@@ -288,7 +288,7 @@ CARRIER_ROW_TEX = ["coyote_shade", "coyote", "coyote_shade", "coyote", "coyote_s
 
 
 def build_carrier(f, side=None):
-    wr = torso_wrap(f, CARRIER_ROWS, 16, fill_below=1.24)
+    wr = torso_wrap(f, CARRIER_ROWS, 16, fill_below=kp.TEAM.carrier_fill)
     cols = wr.cols
     wr.sample()
     cache = {}
@@ -328,7 +328,7 @@ def build_carrier(f, side=None):
         # the belly: the figure's hands and forearms live across the front below the chest, in every
         # clip (the support hand, the stock arm). The carrier stops at the plate's lower edge there
         # and leaves the base's own chest rig showing, as a real carrier worn over a rig does.
-        if z < 1.19 and math.cos(th) > 0.55:
+        if z < 1.19 and math.cos(th) > kp.TEAM.belly_cos:
             return False
         if kp.TEAM.carrier_back_plate and z < 1.15 and math.cos(th) < -0.35:
             return False            # the back is a plate on the upper back, not a skirt down over the baggage
@@ -357,35 +357,43 @@ def build_helmet_cover(f, side=None):
         # the baked bracket block (5 cm proud of the shell, 4 cm wide): a real cover is cut around it, so it is not "poking through"
         # and the brow shroud plate across the front of the helmet around it (front 9.5 cm, 10 cm to either side)
         in_bracket = lambda p: (p[0] > tip.x - 0.095 and abs(p[1] - tip.y) < 0.10 and tip.z - 0.07 < p[2] < tip.z + 0.03)
+    ncol = kp.TEAM.helmet_cols
     hz = f.hel_top - 0.15 + 0.05            # the scrim band's centre
     rows = [f.hel_bot + 0.004, hz - 0.0125, hz + 0.0125, f.hel_top - 0.012]
-    cols = [i * 360.0 / HELMET_COLS for i in range(HELMET_COLS)]
+    offs = [0.003, 0.008, 0.008, 0.005]
+    row_tex = ["olive", "coyote_shade", "olive"]
+    if kp.TEAM.helmet_dome:
+        # one more ring between the scrim band and the crown, so the cover turns over like a dome instead of standing as a wall under a lid
+        rows = rows[:3] + [f.hel_top - 0.05] + rows[3:]
+        offs = offs[:3] + [0.006] + offs[3:]
+        row_tex = row_tex + ["olive"]
+    nrow = len(rows)
+    cols = [i * 360.0 / ncol for i in range(ncol)]
     wr = Wrap(f.zone_helmet, (f.O[0] + f.hel_c.x, f.O[1] + f.hel_c.y, 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
               fill_vertical=True)
-    offs = [0.003, 0.008, 0.008, 0.005]
     trim = trimmed(f, wr, "head", 1.5, 1.9)
     off = lambda j, k: min(offs[j], trim.get((j, k), 9.0))
     def open_face(j, k):
         # a baked helmet is open at the face: the cover's lowest band stops where the shell does, so its rim rises over the brow
         if j != 0 or kp.TEAM.helmet_front_trim <= 0:
             return True
-        ang = (cols[k] + 180.0 / HELMET_COLS + 180.0) % 360.0 - 180.0
+        ang = (cols[k] + 180.0 / ncol + 180.0) % 360.0 - 180.0
         return abs(ang) > kp.TEAM.helmet_front_trim
 
     P, mask, st = fit_wrap(wr, off, open_face, f.pts["helmet"], "helmet_cover", cap=0.012,
                            exempt_fn=(lambda p: f.helmet_hardware(p) or in_bracket(p)) if kp.TEAM.baked_mount else None,
                            extra_cap=lambda j, k: max(0.0, trim.get((j, k), 9.0) - off(j, k)))
     pc = Piece(f.world(), open_thick=0.01)
-    geo.grid(pc, P, "olive", mask=mask, cyclic=True, row_tex=["olive", "coyote_shade", "olive"])
-    for j in range(4):
-        for k in range(HELMET_COLS):
+    geo.grid(pc, P, "olive", mask=mask, cyclic=True, row_tex=row_tex)
+    for j in range(nrow):
+        for k in range(ncol):
             if P[j][k] is not None:
                 pc.set_thick(P[j][k], off(j, k))
-    top = [P[3][k] for k in range(HELMET_COLS)]
+    top = [P[nrow - 1][k] for k in range(ncol)]
     cen = sum(top, Vector()) / len(top)
     cen.z = f.O[2] + f.hel_top + 0.006      # a fan to an apex a hair above the crown ring: a dome, not a lid
-    for k in range(HELMET_COLS):
-        pc.face([top[k], top[(k + 1) % HELMET_COLS], cen], "olive", hint=True)
+    for k in range(ncol):
+        pc.face([top[k], top[(k + 1) % ncol], cen], "olive", hint=True)
     zc = hz
     pc.outward = lambda p, wr=wr: _radial_out(wr, p) + Vector((0, 0, 1.0)) * max(0.0, (p.z - zc) * 4)
     return pc
@@ -712,14 +720,25 @@ def _build_radio_pack_box(f):
     """A man-pack radio as a real object (PRC-117G class in a small pack, 0.13 deep x 0.26 wide x 0.30 tall): a flat-sided body with
     a separate lid, seated flat on the back plate. The plate's plane is read off the vest at two heights, so the box leans with the
     back; nothing is conformed into a hump. The two shoulder straps are the Rifle Squad's."""
-    p1, _n1 = _back_hit(f, 0.0, 1.16)
-    p2, _n2 = _back_hit(f, 0.0, 1.40)
-    t = (p2 - p1).normalized()                       # up along the plate
+    if kp.TEAM.pack_median:
+        # a baked back is not watertight: a ray down the middle can pass through a gap and hit the FRONT wall (breach, z 1.40: 30 cm
+        # off). The plate's plane is read as the median of five rays across the back at each height, so one gap cannot tilt the pack.
+        def _med(z):
+            hs = [_back_hit(f, y, z)[0] for y in (-0.10, -0.05, 0.0, 0.05, 0.10)]
+            hs = [h for h in hs if h is not None]
+            xs = sorted(h.x for h in hs)
+            return Vector((xs[len(xs) // 2], f.O[1], z))
+        p1, p2 = _med(1.16), _med(1.40)
+        t = (p2 - p1).normalized()
+    else:
+        p1, _n1 = _back_hit(f, 0.0, 1.16)
+        p2, _n2 = _back_hit(f, 0.0, 1.40)
+        t = (p2 - p1).normalized()                       # up along the plate
     out = Vector((-1.0, 0.0, 0.0))
     nrm = (out - t * out.dot(t)).normalized()        # outward, perpendicular to the plate
     ydir = t.cross(nrm)
     R = Matrix(((nrm.x, ydir.x, t.x), (nrm.y, ydir.y, t.y), (nrm.z, ydir.z, t.z)))
-    loc, _n = _back_hit(f, 0.0, 1.25)
+    loc, _n = (_med(1.25), None) if kp.TEAM.pack_median else _back_hit(f, 0.0, 1.25)
     depth, width, height, lid_h = 0.13, 0.26, 0.30, 0.032
     seat = 0.012                                     # the carrier's back plate is 10 mm: the pack stands on it
     base = loc + nrm * (seat + depth / 2)
@@ -770,7 +789,7 @@ def _belt_wrap(f, rows, ncols=16, span=None):
     cols = [i * 360.0 / ncols for i in range(ncols)] if span is None else span
     return Wrap(f.zone_lower, (f.O[0], f.O[1], 0.0), (0, 0, 1), (1, 0, 0), rows, cols,
                 centre_fn=lambda t: Vector((0.0, 0.0, 0.0)), r_out=0.45, col_span=None if span is None else True,
-                fill_rows=lambda j: True, default_r=0.18, rlim=(0.12, 0.26))
+                fill_rows=lambda j: True, default_r=0.18, rlim=(0.12, kp.TEAM.belt_rmax), ring_cap=kp.TEAM.belt_ring_cap)
 
 
 def build_battle_belt(f, side=None):
@@ -888,16 +907,17 @@ def build_red_dot(f, side=None):
 
 
 def build_foregrip(f, side=None):
-    top, bot, wlo, whi = f.station(0.17)
+    gb = kp.TEAM.foregrip_back
+    top, bot, wlo, whi = f.station(gb)
     wc = (wlo + whi) / 2
     pc = Piece(f.wpn())
-    geo.lathe(pc, (-0.17, wc, bot + 0.002), (0, 0, -1), (1, 0, 0), [(0.0, 0.016), (0.09, 0.0145), (0.10, 0.0)], 8, "coyote",
+    geo.lathe(pc, (-gb, wc, bot + 0.002), (0, 0, -1), (1, 0, 0), [(0.0, 0.016), (0.09, 0.0145), (0.10, 0.0)], 8, "coyote",
               cap0="coyote")
     return pc
 
 
 def build_lpvo(f, side=None):
-    u0 = LPVO_REAR          # the rear of the eyepiece, metres behind the muzzle (spec: 0.55 to 0.285)
+    u0 = LPVO_REAR if kp.TEAM.lpvo_rear is None else kp.TEAM.lpvo_rear          # the rear of the eyepiece, metres behind the muzzle (spec: 0.55 to 0.285)
     top = _rail_top(f, u0 + 0.05, u0 + 0.25)
     ax = top + 0.040 + 0.015
     pc = Piece(f.wpn())
@@ -912,14 +932,31 @@ def build_lpvo(f, side=None):
 
 
 def build_laser_box(f, side=None):
-    uf = LASER_FRONT         # the front face, behind the muzzle
-    top = _rail_top(f, uf - 0.109, uf)
+    uf = LASER_FRONT if kp.TEAM.laser_front is None else kp.TEAM.laser_front         # the front face, behind the muzzle
+    L, Wd, Hh = kp.TEAM.laser_dims or (0.109, 0.069, 0.038)
+    where = kp.TEAM.laser_side
     pc = Piece(f.wpn())
-    c = (uf - 0.0545, 0.0, top + 0.019)
-    geo.rbox(pc, c, Matrix.Identity(3), (0.109, 0.069, 0.038), 0.005, "coyote")
-    for sg in (-1.0, 1.0):
-        pc.face([(uf + 0.0005, sg * 0.022 - 0.008, top + 0.019 - 0.008), (uf + 0.0005, sg * 0.022 + 0.008, top + 0.019 - 0.008),
-                 (uf + 0.0005, sg * 0.022 + 0.008, top + 0.019 + 0.008), (uf + 0.0005, sg * 0.022 - 0.008, top + 0.019 + 0.008)], "glass")
+    if where == "top":
+        top = _rail_top(f, uf - L, uf)
+        c = (uf - L / 2, 0.0, top + Hh / 2)
+        size = (L, Wd, Hh)
+    else:
+        # on the handguard's side rail: 9 o'clock (`L`, the gun's left, +w) or 3 o'clock (`R`), standing off the rail's face by half its width
+        top, bot, wlo, whi = f.station(-(uf - L / 2))
+        sgn = 1.0 if where == "L" else -1.0
+        edge = whi if where == "L" else wlo
+        c = (uf - L / 2, edge + sgn * Wd / 2, 0.5 * (top + bot) + 0.004)
+        size = (L, Wd, Hh)
+    geo.rbox(pc, c, Matrix.Identity(3), size, 0.004 if where != "top" else 0.005, "coyote")
+    # the aperture faces on the front: a visible window and an IR window, in glass
+    if where == "top":
+        for sg in (-1.0, 1.0):
+            pc.face([(uf + 0.0005, sg * 0.022 - 0.008, top + 0.019 - 0.008), (uf + 0.0005, sg * 0.022 + 0.008, top + 0.019 - 0.008),
+                     (uf + 0.0005, sg * 0.022 + 0.008, top + 0.019 + 0.008), (uf + 0.0005, sg * 0.022 - 0.008, top + 0.019 + 0.008)], "glass")
+    else:
+        for dz in (-0.008, 0.008):
+            pc.face([(uf + 0.0005, c[1] - 0.007, c[2] + dz - 0.0045), (uf + 0.0005, c[1] + 0.007, c[2] + dz - 0.0045),
+                     (uf + 0.0005, c[1] + 0.007, c[2] + dz + 0.0045), (uf + 0.0005, c[1] - 0.007, c[2] + dz + 0.0045)], "glass")
     return pc
 
 
@@ -939,7 +976,40 @@ def build_suppressor(f, side=None):
     return pc
 
 
+PRISM_REAR = -0.48     # a 4x prism sight's rear, metres behind the muzzle: over the upper receiver (the stock begins behind it)
+
+
+def build_prism_sight(f, side=None):
+    """An ACOG-class 4x prism sight, 0.145 m long: a tapered body (rear eyepiece dia 0.032, front objective dia 0.052) on a rail mount,
+    seated on the upper receiver. Lower and shorter than the 0.265 m LPVO, so it sits over the receiver and clear of the thigh in
+    the pinned clip (the lead, 30 Oct: real stations, never an unreal one)."""
+    u0 = PRISM_REAR
+    top = _rail_top(f, u0 + 0.03, u0 + 0.12)
+    ax = top + 0.040
+    pc = Piece(f.wpn())
+    geo.lathe(pc, (u0, 0.0, ax), (1, 0, 0), (0, 0, 1),
+              [(0.0, 0.016), (0.03, 0.020), (0.115, 0.020), (0.145, 0.026)], 8, "coyote", cap0="glass", cap1="glass")
+    geo.rbox(pc, (u0 + 0.075, 0.0, top + 0.5 * (ax - 0.016 - top) + 0.003), Matrix.Identity(3), (0.07, 0.030, max(0.012, ax - 0.016 - top) + 0.006), 0.0, "coyote")
+    return pc
+
+
+def build_shield_light(f, side=None):
+    """A weapon light clamped on the top edge of the ballistic shield, at its right-hand end (the shooter's right is +y),
+    pointing forward: 0.15 x dia 0.040 (a handheld-light class body), eight sides, the lens a glass face. Its axis sits 4 mm
+    into the shield's top edge, which is the clamp. Riding the shield's own bone, it lifts with the shield in `move`."""
+    lo, hi = f.shield
+    x = 0.5 * (lo[0] + hi[0]) + 0.02           # the body straddles the shield's thickness, the lens 5 cm proud of its face
+    y = hi[1] - 0.05
+    z = hi[2] + 0.016
+    pc = Piece(f.world())
+    geo.lathe(pc, (x - 0.075, y, z), (1, 0, 0), (0, 0, 1), [(0.0, 0.020), (0.15, 0.020)], 8, "olive_dark",
+              cap0="olive_dark", cap1="glass")
+    return pc
+
+
 BUILDERS = {
+    "shield_light": build_shield_light,
+    "prism_sight": build_prism_sight,
     "carrier": build_carrier,
     "helmet_cover": build_helmet_cover,
     "deltoid": build_deltoid,
@@ -986,12 +1056,24 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
     bpy.context.view_layer.update()
     use = [pf for pf in kp.ALL if figs is None or pf in figs]
     fits = {p: kf.Fit(arm, meshes, p) for p in use}
-    bank = kf.PoseBank(arm, meshes, fits)
+    bank = kf.PoseBank(arm, meshes, fits, stride=kp.TEAM.bank_stride)
     for p in use:
         fits[p].bank = bank
     arm.data.pose_position = "REST"
     bpy.context.view_layer.update()
     objs, rows, forced = [], [], {}
+    if kp.TEAM.weapon_bone != "weapon":
+        # a gun bound to the spine carries its accessories in the torso's own frame, so they sweep through the belt and the legs
+        # as the pelvis and thighs move: the wraps and pouches on those bones are trimmed against them (built once here, discarded)
+        for part in kp.PARTS:
+            if part.bone != "weapon" or (only and part.name not in only) or part.name not in BUILDERS:
+                continue
+            for pf in use:
+                if pf in part.figs:
+                    pc = BUILDERS[part.name](fits[pf], None)
+                    pts = np.array([v.co[:] for v in pc.bm.verts])
+                    pc.bm.free()
+                    bank.rigid.append((f"{pf}_{kp.TEAM.weapon_bone}", pts, "kit:" + part.name))
     for part in kp.PARTS:
         if only and part.name not in only:
             continue
@@ -1009,6 +1091,9 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
                 me.materials.append(bpy.data.materials["BakedMaterial"])
                 ob = bpy.data.objects.new(oname, me)
                 bpy.context.collection.objects.link(ob)
+                if part.bone == "weapon" and kp.TEAM.weapon_bone != "weapon":
+                    # the gun is bound to another bone (breach: `spine`): its accessories ride that bone, named here, not guessed
+                    forced[ob] = f"{pf}_{kp.TEAM.weapon_bone}"
                 ob["rl_role"] = part.role
                 ob["rl_kit"] = json.dumps({"track": part.track, "tier": part.tier, "slot": part.slot,
                                            "part": part.name, "figure": pf})

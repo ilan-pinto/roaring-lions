@@ -712,6 +712,32 @@ for vehicles.
   `pnpm inf-kit:capture -- --unit=demo_squad` holds its merge numbers
   (`TEAM_CHECKS`), `infantry-kit-shipped.test.ts` loops over every team.
 
+- **The Breach team (`breach_team`) is the third kit team (30 Oct 2026).**
+  `INFANTRY_KIT_TEAMS` carries it. What its `Team` row changes: both carbines
+  AND both left arms are bound to the SPINE (the skin has no `_weapon` bone), so
+  gun accessories ride `spine` (`weapon_bone`; the graft's per-part bone check
+  reads that), and the wraps on other bones are trimmed against them
+  (`PoseBank.rigid`). `brc_point` carries a ballistic shield on its own bone
+  `brc_point_shield` (a palette `metal` primitive with no UVs); a new part,
+  `shield_light` (firepower tier 2, 28 triangles, on `brc_point` only), rides it; `prism_sight` is the other new part.
+  No deltoid or sleeve (the lead, 30 Oct, as for the Demolition squad). Gun gear
+  stands on the carbine's REAL stations: the first build pushed the laser to 0.03
+  m behind the muzzle, the optic to the stock end and the grip to 0.21 m to clear
+  brc_cover's pinned clip (it lays the carbine into his right thigh and shin from
+  0.08 to 0.35 m behind the muzzle), and the lead rejected it ("never gear in an
+  unreal place"). Now: a compact laser (0.075 x 0.032 x 0.032, `laser_dims`) on
+  the handguard's left rail with its front 0.12 m behind the muzzle, the light at
+  3 o'clock, the vertical grip under the front of the handguard at 0.13 m, and
+  the tier-2 optic is a 4x prism sight (`prism_sight`, ACOG class, 0.145 m, rear
+  0.48 m behind the muzzle on the upper receiver) in place of the 0.265 m LPVO,
+  each tested against every living clip's blockers. The hands are the base
+  figure's, spine-bound like the gun, so the census cannot see a kit part over a
+  hand: check it in the `--mode gun` close-ups of `render_inf_kit.py`. The pose bank is sampled every 2nd frame (`bank_stride`), because the
+  census walks every 2nd and a stride of 6 left a thigh strike unseen. Its radio
+  pack's plane is the median of five rays (`pack_median`), since one ray can pass
+  through a gap in the baked back. `TEAM_CHECKS.breach_team` holds the in-game
+  merge numbers (`pnpm inf-kit:capture -- --unit=breach_team`).
+
 - **The garage turntable wears it too (GH-826).** `garage-view.ts` builds a team
   whose GLB declares kit extras the way it builds a kitted vehicle: the loaded
   scene is a pristine source, each build runs on `cloneForBuild(pristine, true)`

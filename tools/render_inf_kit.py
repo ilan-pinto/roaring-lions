@@ -115,6 +115,9 @@ def run_garage(a, mode, out, arm, meshes, rows, samples):
                 gar.save_png(lin, os.path.join(out, f"garage_{lab}_{hd:03d}.png"))
                 print("garage", lab, hd, flush=True)
         return
+    if mode == "gun":
+        run_gun(a, out, arm, meshes, rows, G, show)
+        return
     # zones: one isolated soldier, the camera re-fitted to the zone with CLOSEUP_PAD
     zw, zh = int(a.get("zw", 480)), int(a.get("zh", 320))
     bpy.context.scene.render.resolution_x, bpy.context.scene.render.resolution_y = zw, zh
@@ -156,6 +159,60 @@ def run_garage(a, mode, out, arm, meshes, rows, samples):
                 lin = gar.render_rgba(os.path.join(out, "tmp.npy"))
                 gar.save_png(lin, os.path.join(out, f"zone_{pf}_{track}_T{tier}.png"))
                 print("zone", pf, track, tier, "heading", hd, flush=True)
+
+
+def gun_points(arm, meshes, rows, pf):
+    """World points of one figure's carbine and what is close to it: the base figure's own vertices within 0.06 m of the gun (its
+    hands and the forearm and vest at the grip), and every kit part of that figure within 0.10 m of it. The camera is fitted to
+    these once, so a tier 0 and a full kit (or a before and an after) are the same frame."""
+    import numpy as np
+    figs = list(kp.ALL)
+    bo = gar.base_owner_fn(arm, figs)
+    Pw, Ow = gar.eval_points(arm, [meshes["weapon"]], bo)
+    gun = Pw[Ow == figs.index(pf)]
+    Pu, Ou = gar.eval_points(arm, [meshes["uniform"]], bo)
+    Pu = Pu[Ou == figs.index(pf)]
+    sample = gun[:: max(1, len(gun) // 250)]
+
+    def near(P, r):
+        out = np.zeros(len(P), bool)
+        for i in range(0, len(P), 2000):
+            d = np.linalg.norm(P[i:i + 2000, None, :] - sample[None, :, :], axis=2).min(1)
+            out[i:i + 2000] = d < r
+        return P[out]
+    kit = [ob for ob, part, f, _ in rows if f == pf and not ob.hide_render]
+    Pk = gar.eval_points(arm, kit, gar.kit_owner_fn(figs))[0] if kit else np.zeros((0, 3))
+    return np.concatenate([gun, near(Pu, 0.06), near(Pk, 0.10) if len(Pk) else Pk])
+
+
+def run_gun(a, out, arm, meshes, rows, G, show):
+    """Carbine and hands close-ups: every figure, every heading, tier 0 against the states asked for, one fitted camera each."""
+    import numpy as np
+    zw, zh = int(a.get("zw", 720)), int(a.get("zh", 480))
+    bpy.context.scene.render.resolution_x, bpy.context.scene.render.resolution_y = zw, zh
+    labels = a.get("states", "none,full").split(",")
+    heads = [int(x) for x in a.get("headings", "0,90,180,270").split(",")]
+    for n in [x for x in a.get("hide", "").split(",") if x]:        # a base primitive left out of the plates (the shield, to see what it hides)
+        meshes[n].hide_render = True
+        meshes[n].hide_viewport = True
+    tag = a.get("tag", "gun")
+    for pf in a.get("figures", ",".join(kp.ALL)).split(","):
+        for hd in heads:
+            show({t: 3 for t in kp.TRACKS})
+            _reset_pose(arm)
+            isolate_line(arm, pf)
+            gar.place_figures_one(arm, pf, hd)
+            P = gun_points(arm, meshes, rows, pf)
+            T = np.array([gar.b2t(p) for p in P])
+            pos, tgt, dist = gar.fit_camera(T, zw / zh, mx=1.0 / gar.CLOSEUP_PAD, my=1.0 / gar.CLOSEUP_PAD)
+            G.cam_data.sensor_fit = "VERTICAL"
+            G.set_camera(pos, tgt)
+            G.aspect = zw / zh
+            for lab in labels:
+                show(_tiers_of(lab))
+                lin = gar.render_rgba(os.path.join(out, "tmp.npy"))
+                gar.save_png(lin, os.path.join(out, f"{tag}_{pf}_{lab}_{hd:03d}.png"))
+                print("gun", pf, lab, hd, flush=True)
 
 
 def isolate_line(arm, keep):
@@ -238,7 +295,7 @@ def main():
             print("OVER the per-part cap:", r)
     scn.pose(arm, a.get("pose", "idle") if a.get("pose", "idle") != "rest" else None, int(a.get("frame", 0)))
     samples = int(a.get("samples", 96))
-    if mode in ("garage", "zones", "turntable", "close"):
+    if mode in ("garage", "zones", "gun", "turntable", "close"):
         # a world-fixed ground prop (demo_squad's charge) is not part of the figures the garage turns: leave it out of the stills
         for n in team.stage_hide:
             meshes[n].hide_render = True
@@ -287,7 +344,7 @@ def main():
             json.dump(res, fh, indent=1)
         print(json.dumps(res, indent=1))
         return
-    if mode in ("garage", "zones"):
+    if mode in ("garage", "zones", "gun"):
         run_garage(a, mode, out, arm, meshes, rows, samples)
         return
     if mode == "close":

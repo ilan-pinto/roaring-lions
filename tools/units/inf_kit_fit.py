@@ -165,8 +165,17 @@ class Fit:
         self.chest_y = (float(np.percentile(ch[:, 1], 1)), float(np.percentile(ch[:, 1], 99)))
         self.sh = {s: Vector(np.array(bones[f"{pf}_upperarm_{s}"].head_local)) for s in "LR"}
         self.el = {s: Vector(np.array(bones[f"{pf}_upperarm_{s}"].tail_local)) for s in "LR"}
+        # --- a ballistic shield (breach_team's brc_point): its own bone, a palette `metal` primitive. (lo, hi) in the bind frame, or None.
+        self.shield = None
+        if "metal" in meshes and f"{pf}_shield" in bones:
+            M = meshes["metal"]
+            names = {vg.index: vg.name for vg in M.vertex_groups}
+            sv = np.array([v.co[:] for v in M.data.vertices if v.groups and names[max(v.groups, key=lambda g: g.weight).group] == f"{pf}_shield"])
+            if len(sv):
+                self.shield = (sv.min(0), sv.max(0))
         # --- weapon, in its own frame (u forward to the muzzle, w left, v up). An unarmed figure has none.
-        self.armed = f"{pf}_weapon" in bones
+        wbone = f"{pf}_{kp.TEAM.weapon_bone}"          # breach binds its carbines to the spine: the weapon primitive's own vertices are the gun
+        self.armed = wbone in bones and pf in kp.TEAM.armed
         if not self.armed:
             self.wM = self.wu = self.ww = self.wv = self.wl = None
             self.wlen = 0.0
@@ -174,7 +183,7 @@ class Fit:
             return
         Wm = meshes["weapon"]
         wco, wdom = _co(Wm), _dominant(Wm)
-        wv_ = wco[wdom == f"{pf}_weapon"]
+        wv_ = wco[wdom == wbone]
         c = wv_.mean(0)
         u = np.linalg.svd(wv_ - c, full_matrices=False)[2][0]
         if u[0] < 0:
@@ -200,7 +209,7 @@ class Fit:
             for i, vv in enumerate(me.vertices):
                 dd = np.array(vv.co[:]) - muz
                 loc_v.append(Vector((dd @ np.array(u), dd @ np.array(wvec), dd @ np.array(v))))
-            tris = [tuple(pg.vertices) for pg in me.polygons if all(dom[i] == f"{pf}_weapon" for i in pg.vertices)]
+            tris = [tuple(pg.vertices) for pg in me.polygons if all(dom[i] == wbone for i in pg.vertices)]
             self.wbvh = BVHTree.FromPolygons(loc_v, tris)
 
     def _surface_station(self, back):
@@ -343,6 +352,8 @@ class PoseBank:
             arm.animation_data.action = None
         bpy.context.view_layer.update()
         self.rest = {b.name: np.array(b.matrix_local) for b in arm.data.bones}
+        # rigid kit parts already built (bone, points in the bind frame, label): another bone's wrap is trimmed against them too
+        self.rigid = []
 
     @staticmethod
     def _pose(arm, act, fr):
@@ -376,6 +387,17 @@ class PoseBank:
                 if m.any():
                     out.append(X[m])
                     who.append(np.array([d[len(pf) + 1:] if d.startswith(pf + "_") else d for d in self.dom[oi][own]], dtype=object)[m])
+        for rb, rpts, label in self.rigid:
+            if rb == key or not rb.startswith(pf + "_"):
+                continue
+            for mats, W in self.poses:
+                M = self.rest[key] @ np.linalg.inv(mats[key])
+                G = mats[rb] @ np.linalg.inv(self.rest[rb])         # the part rides `rb`: bind frame -> this pose
+                X = (rpts @ G[:3, :3].T + G[:3, 3]) @ M[:3, :3].T + M[:3, 3]
+                m = ((X >= lo) & (X <= hi)).all(1)
+                if m.any():
+                    out.append(X[m])
+                    who.append(np.array([label] * int(m.sum()), dtype=object))
         if not out:
             return np.zeros((0, 3)), np.zeros(0, dtype=object)
         return np.concatenate(out), np.concatenate(who)
