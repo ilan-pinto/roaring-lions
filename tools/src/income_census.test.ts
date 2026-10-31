@@ -96,10 +96,10 @@ function census(mission: MissionJson & { resources?: Res }): Reading {
 }
 
 describe('the t=0 census: every authored income zone and convoy has a wheeled route', () => {
-  it('finds the four D7 missions (the loop below is not vacuous)', () => {
-    expect(censused).toEqual(['deir_amun_2_foothold', 'umm_zeitoun_2_buildup', 'umm_zeitoun_4_clearance', 'wadi_halam_2_laager']);
+  it('finds the five D7 missions (the loop below is not vacuous)', () => {
+    expect(censused).toEqual(['deir_amun_2_foothold', 'ein_qasab_3_buildup', 'umm_zeitoun_2_buildup', 'umm_zeitoun_4_clearance', 'wadi_halam_2_laager']);
   });
-  it('reads 9 zones and 2 convoys across them', () => {
+  it('reads 10 zones and 3 convoys across them', () => {
     let zones = 0;
     let convoys = 0;
     for (const id of censused) {
@@ -107,7 +107,7 @@ describe('the t=0 census: every authored income zone and convoy has a wheeled ro
       zones += r.zones;
       convoys += r.convoys;
     }
-    expect([zones, convoys]).toEqual([9, 2]);
+    expect([zones, convoys]).toEqual([10, 3]);
   });
   for (const id of censused) {
     it(`${id}: no zone and no convoy is unreachable at t=0`, () => {

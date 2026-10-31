@@ -1,0 +1,377 @@
+{
+  "id": "ein_qasab_1_recon",
+  "name": "Ein Qasab I — The Causeways",
+  "town": "ein_qasab",
+  "phase": "recon",
+  "target_minutes": 6,
+  "time_limit_s": 720,
+  "briefing": "With the fords under water, the corridor's traffic has come down to this marsh: two causeways over the reeds, and nothing else here a wheel can use. A truck on a causeway cannot leave it, so for one week the Rif cannot scatter. Put the sniper on the west ridge and build the picture: four of the positions covering the causeways. Keep the drone off the east crest, where a gun truck owns the sky out to eleven tiles. Four carriers are out there, two loaded on the south causeway and two in the hamlet yard waiting for theirs. Every load on that road tonight is a family. Get three of them to the refuge before the next load moves. The Eitan reaches them fastest and drives past whatever is lying in the reeds to do it; on foot it is slower, in cover, and it spends men the picture needs. Whatever you mark beside these causeways tonight stays marked. Meet it again this week and it does not get the first shot. Every round you put into those reeds is billed where it lands, and the carriers are standing beside them.",
+  "briefing_image": "ui/plates/units/sniper_team.jpg",
+  "dispatch": "The rains came the week after the cattle track, and both fords went under. Jubran Hallaq does not stop for weather. His loads went down to the old marsh causeways, and where a truck cannot go, the people beside the marsh carry them.",
+  "debrief": {
+    "victory": {
+      "speaker": "idit",
+      "text": "Four positions, and the carriers at the refuge instead of under a load. This is the first week of the war the Rif have had to stand still for us."
+    },
+    "defeat": {
+      "speaker": "shai",
+      "text": "We came off the marsh without enough of it. Whatever crosses those causeways tonight crosses with people under it."
+    }
+  },
+  "map": {
+    "file": "ein_qasab",
+    "player_start": [
+      4,
+      44
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "intel.marked_positions",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "recon_drone",
+      "count": 1,
+      "at": [
+        4,
+        42
+      ]
+    },
+    {
+      "unit": "sniper_team",
+      "count": 1,
+      "at": [
+        3,
+        43
+      ]
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        6,
+        43
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        5,
+        45
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        3,
+        45
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        7,
+        44
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        2,
+        44
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "picture",
+      "type": "locate",
+      "primary": true,
+      "count": 4,
+      "text": "Identify four positions covering the causeways",
+      "say": {
+        "speaker": "idit",
+        "text": "Four, and every one of them is tied to the two causeways one way or another. A Rif cell with nowhere to drive to is a position, for once."
+      }
+    },
+    {
+      "id": "get_the_carriers_home",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "refuge",
+      "count": 3,
+      "seconds": 300,
+      "text": "Get three carriers to the refuge before the next load moves",
+      "say": {
+        "speaker": "shai",
+        "text": "Three at the refuge. Whatever goes onto that causeway next, it goes without them."
+      },
+      "say_on_fail": {
+        "speaker": "idit",
+        "text": "The next load is moving and they are under it. We were the width of a marsh away."
+      }
+    },
+    {
+      "id": "find_the_reed_cell",
+      "type": "locate",
+      "primary": false,
+      "carries": true,
+      "target": "eq_reed_cell",
+      "text": "Find the cell lying up in the reeds by the south causeway",
+      "say": {
+        "speaker": "idit",
+        "text": "That is the reed cell, lying up in the reeds beside the carriers' causeway. It is on the board now, and wherever it lies up later this week it does not get the first shot."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "hamlet"
+    ]
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 2,
+        "at": [
+          44.5,
+          22.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 2,
+        "marker": "causeway_s"
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "rif",
+    "doctrine_profile": "pinned to the causeways",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          21.5,
+          35.5
+        ],
+        "facing_deg": 0,
+        "tag": "eq_reed_cell",
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        }
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          24.5,
+          13.5
+        ],
+        "facing_deg": 270,
+        "tag": "eq_causeway_rpg",
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        }
+      },
+      {
+        "unit": "gun_truck",
+        "count": 1,
+        "at": [
+          39.5,
+          9.5
+        ],
+        "facing_deg": 270,
+        "group": "crest",
+        "tag": "eq_crest_truck",
+        "stance": {
+          "kind": "hold_position"
+        }
+      },
+      {
+        "unit": "technical",
+        "count": 1,
+        "at": [
+          39.5,
+          14.5
+        ],
+        "facing_deg": 180,
+        "group": "track",
+        "tag": "eq_track_patrol",
+        "stance": {
+          "kind": "patrol",
+          "waypoints": [
+            [
+              39.5,
+              14.5
+            ],
+            [
+              39.5,
+              32.5
+            ]
+          ]
+        }
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          42.5,
+          22.5
+        ],
+        "tag": "eq_hamlet_cell",
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            42,
+            20
+          ]
+        }
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          10.5,
+          16.5
+        ],
+        "facing_deg": 90,
+        "tag": "eq_copse_watch",
+        "stance": {
+          "kind": "hold_position"
+        }
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 100,
+        "to": "causeway_n",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_ne"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "Two riders off the north-east, and both have come down onto the north causeway. There is nowhere else here for a wheel to go, and every rider after them will do the same."
+        }
+      },
+      {
+        "at_seconds": 150,
+        "to": "causeway_s",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_se",
+            "group": "south_road"
+          }
+        ]
+      },
+      {
+        "at_seconds": 200,
+        "to": "hamlet",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_se"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "Two more off the south-east, and they are going to the hamlet, not to you. They are coming to load the yard."
+        }
+      },
+      {
+        "at_seconds": 250,
+        "to": "causeway_n",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_ne"
+          },
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_ne"
+          }
+        ]
+      },
+      {
+        "at_seconds": 300,
+        "to": "causeway_s",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_se",
+            "group": "south_road"
+          }
+        ]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "the_track_patrol_turns_for_the_hamlet",
+      "label": "Track patrol turns for the hamlet",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "hamlet"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "track",
+        "to": "hamlet"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "The east track patrol has turned for the hamlet. It is a technical on a track, so it comes the one way it can, and you can see which."
+      }
+    },
+    {
+      "id": "the_riders_pull_back_along_the_south_causeway",
+      "label": "Riders pull back along the south causeway",
+      "on": {
+        "kind": "casualties_pct",
+        "value": 50
+      },
+      "do": {
+        "kind": "withdraw_to",
+        "group": "south_road",
+        "to": "rif_se"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "They are pulling out the only way wheels can here, back along the south causeway. Whatever is still standing on it is in their road."
+      }
+    }
+  ]
+}

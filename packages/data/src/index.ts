@@ -102,6 +102,9 @@ import ummZeitoun1Recon from '../../../data/missions/umm_zeitoun_1_recon.json';
 import ummZeitoun2Buildup from '../../../data/missions/umm_zeitoun_2_buildup.json';
 import ummZeitoun3Clearance from '../../../data/missions/umm_zeitoun_3_clearance.json';
 import ummZeitoun4Clearance from '../../../data/missions/umm_zeitoun_4_clearance.json';
+import einQasab1Recon from '../../../data/missions/ein_qasab_1_recon.json';
+import einQasab2Foothold from '../../../data/missions/ein_qasab_2_foothold.json';
+import einQasab3Buildup from '../../../data/missions/ein_qasab_3_buildup.json';
 import wadiHalam1Fords from '../../../data/missions/wadi_halam_1_fords.json';
 import wadiHalam2Laager from '../../../data/missions/wadi_halam_2_laager.json';
 import wadiHalam3Counterraid from '../../../data/missions/wadi_halam_3_counterraid.json';
@@ -380,6 +383,9 @@ export const missions = {
   umm_zeitoun_2_buildup: ummZeitoun2Buildup,
   umm_zeitoun_3_clearance: ummZeitoun3Clearance,
   umm_zeitoun_4_clearance: ummZeitoun4Clearance,
+  ein_qasab_1_recon: einQasab1Recon,
+  ein_qasab_2_foothold: einQasab2Foothold,
+  ein_qasab_3_buildup: einQasab3Buildup,
   wadi_halam_1_fords: wadiHalam1Fords,
   wadi_halam_2_laager: wadiHalam2Laager,
   wadi_halam_3_counterraid: wadiHalam3Counterraid,

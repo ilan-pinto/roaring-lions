@@ -1,6 +1,6 @@
 # Roaring Lions — Game Design Document
 
-**Version:** 1.2.3 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed; §11's surface list gains the end of the war (2026-10-09)
+**Version:** 1.2.4 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed; §11's surface list gains the end of the war (2026-10-09); §2 and §11 gain Ein Qasab, the winter interlude town, and §11's stale `debrief` clause is dropped (2026-10-31)
 **Companion docs:** `CLAUDE.md` (working conventions), `docs/ART_PIPELINE.md`, `CONTRIBUTING.md`
 
 ---
@@ -34,7 +34,7 @@ All geography, factions, and place names are **fictional**. Enemy forces are def
 | **Sur** | northern mountains | Sarim Brigades | rockets, ATGMs, best-trained, standoff |
 | **Naharin** | eastern river basin — irrigated green highland | Rif Cells | technicals, raids, smuggling, mobility |
 
-**Towns:** Beit Sahwan, Khan Rafid, Deir Amun (Marj) · Tel Marum, Qarn Hadid, Umm Zeitoun (Sur) · Wadi Halam (Naharin).
+**Towns:** Beit Sahwan, Khan Rafid, Deir Amun (Marj) · Tel Marum, Qarn Hadid, Umm Zeitoun (Sur) · Wadi Halam, Ein Qasab (Naharin).
 
 **Layout.** Kedem sits in the centre of the basin with all three fronts on its borders,
 and the geography sets the order of the war: **proximity, then standoff, then source.**
@@ -403,6 +403,12 @@ grows beside him and provides the intelligence in every mission. The two of
 them are the voices of the HUD: every briefing is a two-hander, Idit's picture
 and Shai's plan, and mid-mission transmissions come from them, from the brigade net, or — rarely, and only through something he has just done — from the enemy.
 
+**Not every town opens a front or closes one.** Qarn Hadid falls between Tel Marum
+and Umm Zeitoun, and Ein Qasab falls in the winter between Wadi Halam's third and
+fourth missions, when the rain shuts the fords and the corridor's traffic goes onto
+the marsh causeways. In such a town the front's adversary is present only through
+what he leaves (a tube in a bowl, crates in a barn, a manifest), and he does not speak.
+
 **One villain per front.** Each campaign — the Marj, Sur, Naharin — introduces
 an arch-terrorist through an atrocity in its opening mission, keeps him present
 through what he does, and ends with him captured or killed. He is characterised
@@ -420,7 +426,7 @@ banner, `debrief` on the end screen, objective labels, and mid-mission `say`
 lines carried by triggers and objectives into the notice feed and onto the
 commander bar. The end of the war is said once: on the report of the victory that
 closes the last front, Idit and Shai exchange four lines, and the campaign
-board's resting line says every front is closed. **Approved and not yet built:** EVA announcements, voice audio
-for briefings and transmissions, a radio overlay with portraits for the `say`
-lines, and a `debrief` that can tell a victory from a defeat. See
+board's resting line says every front is closed. **Approved and not yet built:** voice audio
+for briefings, transmissions and announcements, and a radio overlay frame for the `say`
+lines. See
 `docs/campaign/README.md` for the surface contract.

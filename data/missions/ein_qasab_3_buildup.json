@@ -1,0 +1,452 @@
+{
+  "id": "ein_qasab_3_buildup",
+  "name": "Ein Qasab III — One Road",
+  "town": "ein_qasab",
+  "phase": "buildup",
+  "target_minutes": 7,
+  "time_limit_s": 840,
+  "briefing": "Below the hamlet the fen is two reed channels with one causeway over them, and every vehicle you own crosses on it. Hallaq's man on the winter road is in the yard at the causeway head, with the stock barn beside him. Burn the stock, hold the causeway head for four minutes, and kill or capture him. The camp builds what you pay for, and anything on wheels it builds goes up that one road in single file, under the terrace. When he has lost enough he runs for the north road, and it goes up through the hamlet. You came with the Intel for one smoke screen; a sweep of the dead ground behind the lip costs half as much again. Buy feet. A squad wades where a Namer cannot, and an AT team sent early across the west island reaches the lip before he does. Reed cells will wade out for the camp's door and the supply road; while one stands at the door, the camp builds nothing. What you marked on the causeways and at the saddle this week comes back with its ambush spent. Stop him beyond the hamlet, or chase him through it and pay for every shot.",
+  "briefing_image": "ui/plates/units/at_team.jpg",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "One road, and the stock is ash at the end of it. When the water goes down, there is a winter's freight less on the corridor than he loaded."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "We came back over the causeway without what we crossed it for. When the fords open, the north bank goes east with whatever is still on it."
+    }
+  },
+  "map": {
+    "file": "ein_qasab_3",
+    "player_start": [
+      8,
+      44
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        11,
+        43
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        13,
+        43
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        9,
+        44
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        7,
+        45
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        12,
+        45
+      ]
+    },
+    {
+      "unit": "demo_squad",
+      "count": 1,
+      "at": [
+        10,
+        45
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        6,
+        44
+      ]
+    }
+  ],
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 150,
+    "intel_start": 100,
+    "supply_corridor": true,
+    "supply_entry": "supply_entry",
+    "income_zones": [
+      {
+        "zone": "mill_islet",
+        "rate_per_min": 80
+      }
+    ]
+  },
+  "structures": [
+    {
+      "type": "camp",
+      "at": [
+        8,
+        40
+      ],
+      "size": [
+        2,
+        2
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "kill_hallaqs_man",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "eq_hvt_winter_road",
+      "text": "Kill or capture Hallaq's man on the winter road",
+      "say": {
+        "speaker": "idit",
+        "text": "That is Hallaq's man on the winter road. He knew which causeway would carry a truck on which night, and nobody else on that bank does."
+      }
+    },
+    {
+      "id": "hold_the_head",
+      "type": "hold_for",
+      "primary": true,
+      "target": "causeway_head",
+      "seconds": 240,
+      "text": "Hold the causeway head for four minutes",
+      "say": {
+        "speaker": "net",
+        "text": "Causeway head held, four minutes. The road is ours as far as the terrace."
+      }
+    },
+    {
+      "id": "burn_the_stock",
+      "type": "raze",
+      "primary": true,
+      "target": "stock_yard",
+      "seconds": 330,
+      "text": "Burn the stock barn inside five and a half minutes",
+      "say": {
+        "speaker": "idit",
+        "text": "The stock is burning and the manifests are not. Every load in that barn was addressed to one yard, east of the village at Wadi Halam, and that is where this winter's freight was going."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "Five and a half minutes, and the stock is standing. When the fords open, it goes east full."
+      }
+    },
+    {
+      "id": "take_the_mill",
+      "type": "capture",
+      "primary": false,
+      "target": "mill_islet",
+      "seconds": 15,
+      "text": "Take the mill islet and hold it for 15 seconds",
+      "say": {
+        "speaker": "idit",
+        "text": "There are families in the mill. The hamlet sent them down to the one building on the fen with a floor above the water, and every vehicle you own stops beside it."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "hamlet"
+    ],
+    "fail_below": 40,
+    "structure_penalty_mult": 1
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 2,
+        "at": [
+          25.5,
+          9.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 1,
+        "at": [
+          33.5,
+          10.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 2,
+        "at": [
+          19.5,
+          24.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "rif",
+    "doctrine_profile": "one road, held from the terrace",
+    "garrison": [
+      {
+        "unit": "technical",
+        "count": 1,
+        "at": [
+          25.5,
+          14.5
+        ],
+        "facing_deg": 180,
+        "group": "ferry",
+        "stance": {
+          "kind": "hold_position"
+        },
+        "passengers": [
+          {
+            "unit": "militia_cell",
+            "count": 1,
+            "tag": "eq_hvt_winter_road"
+          }
+        ]
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          22.5,
+          14.5
+        ],
+        "tag": "eq_stock_guard",
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            20,
+            13
+          ]
+        }
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          23.5,
+          16.5
+        ],
+        "facing_deg": 180,
+        "tag": "eq_causeway_rpg",
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        }
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          26.5,
+          18.5
+        ],
+        "facing_deg": 180,
+        "tag": "eq_reed_cell",
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        }
+      },
+      {
+        "unit": "gun_truck",
+        "count": 1,
+        "at": [
+          30.5,
+          12.5
+        ],
+        "facing_deg": 225,
+        "tag": "eq_saddle_truck",
+        "stance": {
+          "kind": "hold_position"
+        }
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          36.5,
+          3.5
+        ],
+        "facing_deg": 180,
+        "group": "reserve",
+        "stance": {
+          "kind": "hold_position"
+        }
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          38.5,
+          3.5
+        ],
+        "facing_deg": 180,
+        "group": "reserve",
+        "stance": {
+          "kind": "hold_position"
+        }
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 45,
+        "to": "causeway_head",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_nw"
+          }
+        ]
+      },
+      {
+        "at_seconds": 100,
+        "to": "south_landing",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "reed_e"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "Two cells wading out of the east reeds for the south landing. They are not after the head; they are after your road."
+        }
+      },
+      {
+        "at_seconds": 150,
+        "to": "causeway_head",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_n"
+          }
+        ]
+      },
+      {
+        "at_seconds": 200,
+        "to": "camp_door",
+        "units": [
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "reed_w"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 1,
+            "from": "reed_w"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "A cell and an RPG team out of the west reeds, walking to the camp's door. While anything of theirs stands at it, the camp builds nothing."
+        }
+      },
+      {
+        "at_seconds": 250,
+        "to": "causeway_head",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_nw"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_nw"
+          }
+        ]
+      },
+      {
+        "at_seconds": 300,
+        "to": "mill",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "reed_e"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "Two cells wading for the mill. If the families are still inside it, that is where this fight is now."
+        }
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "the_reserve_comes_over_the_lip",
+      "label": "Reserve comes down over the lip",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "causeway_head"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "reserve",
+        "to": "causeway_head"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "There was a reserve behind the lip, in ground nothing south of the houses can see. It is coming down to the head."
+      }
+    },
+    {
+      "id": "hallaqs_man_runs_for_the_north_road",
+      "label": "Hallaq's man runs for the north road",
+      "on": {
+        "kind": "casualties_pct",
+        "value": 40
+      },
+      "do": {
+        "kind": "withdraw_to",
+        "group": "ferry",
+        "to": "north_exit"
+      },
+      "say": {
+        "speaker": "shai",
+        "text": "He is running for the north road, and it goes up through the hamlet. Stop him beyond the houses if you can get there; in them, every shot is billed."
+      }
+    }
+  ]
+}
