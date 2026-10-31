@@ -6601,7 +6601,10 @@ export class ThreeRenderer implements Renderer {
    * `onFire`'s "rather than Pixi's `!type.isSoft`" comment above, and
    * `unitOverlayRadiusPx(type.isSoft)` in `updateOverlays`) -- true for
    * every rifle squad, team and demo squad, false for every tank/APC/
-   * technical/dozer, so infantry never reaches either spawn call below.
+   * dozer, so infantry never reaches either spawn call below. A hull under
+   * `SOFT_ARMOR_LIMIT` (30 mm front) is SOFT and is skipped by the
+   * `if (type.isSoft) continue` below: the `technical` (front armour 15) is
+   * soft, so it never sprays dust or mud.
    *
    * Reads only `Sim.state.alive`/`typeIdx`/`facing` (read-only, per
    * invariant 4) plus this class's own presentation arrays. Writes nothing
