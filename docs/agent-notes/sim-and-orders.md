@@ -599,11 +599,12 @@ model. The S4 re-run and the decision to open versus are written up separately.
   they are still flying home at tick 1000 (`awayAtEnd` `0,2,0,0 2`, was `0,0,0,0 0`). The fork witness's 560 cut, the HUD and legend
   tests, `formation-calls.test.ts` (contact 117, calls 118, return 317) and the snapshot-rejoin sign premise (the digest folds in the
   shipped formation files: the mirror seed went 2 -> 1) were re-derived. The golden canaries (flat, relief, orders), the economy,
-  runtime-digest and wounded pins and `LADDER_CREDITS` did not move. `pnpm balance` (the diagnosis's scratch run with both changes): only the two "Attack formation buys no ratio step"
-  rows move, and both pass.
+  runtime-digest and wounded pins and `LADDER_CREDITS` did not move. `pnpm balance` on this branch (HEAD `acc51a850`, `_coord/formations-p1c/gates/balance.txt`): only the two "Attack formation buys no ratio step"
+  rows move (base 3:1 93% / 2:1 28%, max tier 100% / 12%), and both pass. `pnpm formations:playtest` (30 seeds): Qarn Hadid III Attack 0/30 -> 30/30 (3.7 min);
+  **Beit Sahwan IV Column 27/30 -> 24/30** (6 lost on `get_them_out`, the centroid moved the Column's checkpoints; not investigated); Tel Marum II unchanged.
 - **S4 after P1c (192 seeds paired, set B for the RERUN cells, all four groups including tunnels cell 3; HEAD `acc51a850`).**
   The no-formation mirror replay is byte-identical to T8's. **11 of 48 cell-arm verdicts TRIP** (L0: 13 of 36, tunnels unplayed), so
-  versus stays CLOSED (`VERSUS_FORMATIONS_OPEN` false). Tel Marum's six: (b) mirror 60.7% west, placed and economy Sarim-friendly
+  versus stays CLOSED (`VERSUS_FORMATIONS_OPEN` false). Tel Marum's six: (b) mirror 60.7% for end 0 (the south start), placed and economy Sarim-friendly
   70.3 / 69.8%, tunnels Sarim-friendly 62.2%, and (c) hostile tunnels both seats (67.7 / 76.0%). Five are not Tel Marum: (c) mirror
   Beit friendly 66.9 and hostile 75.5%, mirror wadi_tarfan hostile 70.8%, tunnels wadi_tarfan (b) Sarim-friendly 65.6% and (c) friendly
   KDF-friendly 80.7% (base 47.9%, flips 75/12). All of placed and economy (c), and every (b) cell outside tel_marum and the tunnels
@@ -615,6 +616,14 @@ model. The S4 re-run and the decision to open versus are written up separately.
   aircraft ordered plainly beside the formation (scratch, not committed). Under it the (c) mirror friendly and tunnels friendly cells
   all pass and wadi hostile passes (49.5%), but Beit hostile (66.4% pooled) and the Tel Marum hostile cells (65.4 mirror, 67.7 / 71.4
   tunnels) still TRIP. Whatever the comparator, versus does not open on this layout.
-- **What P1c leaves open.** tel_marum's south end (south start, north saddle) is map and seat content, re-seated after P1c (lead Q3,
-  `mission-author`); the (c) comparator (lead's call, above); the tunnels wadi_tarfan (b)/(c) trips, which no earlier run saw
-  because the tunnels group was never played at L0; the P0 plain-order floored centroid (base-game chirality, moves every pin).
+- **What P1c leaves open.**
+  - tel_marum's end 0 (south start, north saddle) is map and seat content, re-seated after P1c (lead Q3, `mission-author`). It covers the
+    three Tel Marum cells that favour end 0: mirror (b), placed (b) Sarim-friendly and economy (b) Sarim-friendly.
+  - **The tunnels group is its own failure family** (5 of the 11 trips: (b) tel_marum Sarim-friendly 62.2 and wadi_tarfan Sarim-friendly 65.6,
+    (c) friendly wadi_tarfan KDF-friendly 80.7, (c) hostile tel_marum both seats 67.7 / 76.0). It was never played at L0. On tel_marum it favours
+    end 1, the opposite end from the seat asymmetry, so the Q3 re-seat is unlikely to clear it: diagnose it before re-seating.
+  - The (c) comparator (the lead's call, above). Note the pairing confound in every (c) delta and flip count: the base arm's loose ends keep
+    their aircraft inside one order, the (c) arm's loose end orders them apart.
+  - The P0 plain-order floored centroid (base-game chirality, moves every pin); the alternative comparator above was the diagnosis's `ZZ_AIR_PLAIN`
+    hunk (`_coord/formations-p1c/scripts/zz-air-plain-alt.patch`, on top of `acc51a850`).
+
