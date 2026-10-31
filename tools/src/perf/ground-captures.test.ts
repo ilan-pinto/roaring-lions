@@ -15,14 +15,30 @@ import {
   reflectViews,
   roadCloseUp,
   stopOrderScript,
+  vehicleOrderScript,
   viewsFor,
   wadeCommand,
   wadeOrderScript,
   wadeViews,
 } from './ground-captures';
+import { TICKS_PER_SECOND } from '@lions/sim';
 import {
   EXPECTED_RAIN_DROPS,
+  FIRST_VEHICLE_SCRIPT,
   NameClaims,
+  VEHICLE_EMITTER_SCRIPT,
+  VEHICLE_MIN_DISTANCE,
+  VEHICLE_MOVING_MIN,
+  VEHICLE_TICKS,
+  VEHICLE_TICK_HZ,
+  VEHICLE_ZOOMS,
+  assertVehicleEmitter,
+  parseVehicleMarker,
+  vehicleLegend,
+  vehicleMinDistance,
+  vehicleMotion,
+  vehicleName,
+  vehicleRoadTile,
   READ_RAIN_HEIGHTS_SCRIPT,
   READ_RENDER_SCRIPT,
   assertMotion,
@@ -379,7 +395,7 @@ describe('T12 option parsing', () => {
   });
   it('a run without the T12 flags has none of their keys', () => {
     const a = parseGroundCaptureArgs(['--maps=ein_qasab', '--markers=ein_qasab:hamlet']);
-    for (const k of ['quality', 'ticks', 'motion', 'clip', 'stops', 'zooms']) expect(k in a).toBe(false);
+    for (const k of ['quality', 'ticks', 'motion', 'clip', 'stops', 'zooms', 'vehicle']) expect(k in a).toBe(false);
   });
   it('refuses a bad value of each', () => {
     const base = ['--maps=a', '--markers=a:m', '--zooms=1,1.6'];
@@ -396,7 +412,7 @@ describe('T12 option parsing', () => {
     expect(() => parseGroundCaptureArgs(['--maps=a', '--markers=a:m', '--zooms=1,1.0'])).toThrow(/twice/);
   });
   it('each needs --markers, and --ticks needs a zoom-1.6 marker view to strip', () => {
-    for (const f of ['--quality=high', '--motion=reduce', '--clip=5', '--stops=road', '--zooms=1']) {
+    for (const f of ['--quality=high', '--motion=reduce', '--clip=5', '--stops=road', '--zooms=1', '--vehicle', '--vehicle=m']) {
       expect(() => parseGroundCaptureArgs(['--maps=a', f])).toThrow(/--markers/);
     }
     expect(() => parseGroundCaptureArgs(['--maps=a', '--markers=a:m', '--ticks=3'])).toThrow(/zoom 1\.6/);
@@ -460,7 +476,7 @@ describe('passes and names: no two frames share a file', () => {
 });
 
 describe('a requested mode that took no frame fails the run', () => {
-  const none = { presetFrames: {}, tickFrames: 0, reducedFrames: 0, clipPath: null, stopFrames: {} };
+  const none = { presetFrames: {}, tickFrames: 0, reducedFrames: 0, clipPath: null, stopFrames: {}, vehicleFrames: 0, vehicleNoVehicle: [], vehicleNotMoving: [] };
   it('names each mode that took nothing', () => {
     const asked = { quality: ['high', 'low'] as const, ticks: 6, motion: 'reduce' as const, clip: 5, stops: ['road', 'water'] as const };
     const f = requestedModeFailures(asked, none);
@@ -472,7 +488,7 @@ describe('a requested mode that took no frame fails the run', () => {
     expect(f.join('\n')).toMatch(/--stops=water/);
   });
   it('is empty when everything asked for was taken, and when nothing was asked', () => {
-    const took = { presetFrames: { high: 6, low: 6 }, tickFrames: 18, reducedFrames: 6, clipPath: '/x/v.webm', stopFrames: { road: 1, water: 1 } };
+    const took = { presetFrames: { high: 6, low: 6 }, tickFrames: 18, reducedFrames: 6, clipPath: '/x/v.webm', stopFrames: { road: 1, water: 1 }, vehicleFrames: 6, vehicleNoVehicle: [], vehicleNotMoving: [] };
     expect(requestedModeFailures({ quality: ['high', 'low'], ticks: 6, motion: 'reduce', clip: 5, stops: ['road', 'water'] }, took)).toEqual([]);
     expect(requestedModeFailures({}, none)).toEqual([]);
   });
@@ -792,5 +808,214 @@ describe('--stops: arrival, settling and what the squad stands on', () => {
     expect(nextStall(0, { x: 1, y: 1 }, { x: 1.005, y: 1 })).toBe(1);
     expect(nextStall(2, { x: 1, y: 1 }, { x: 1, y: 1 })).toBe(3);
     expect(nextStall(2, { x: 1, y: 1 }, { x: 1.2, y: 1 })).toBe(0);
+  });
+});
+
+// ============================================================================
+// GH-871 P4 S-L2 ruling 4: one ordered vehicle, for the mud spray (--vehicle)
+// ============================================================================
+
+describe('--vehicle parsing', () => {
+  const base = ['--maps=ein_qasab', '--markers=ein_qasab:causeway_s,ein_qasab:kdf_start'];
+  it('a bare --vehicle means the first --markers entry; --vehicle=<marker> names one', () => {
+    expect(parseGroundCaptureArgs([...base, '--vehicle']).vehicle).toEqual({ marker: null });
+    expect(parseGroundCaptureArgs([...base, '--vehicle=kdf_start']).vehicle).toEqual({ marker: 'kdf_start' });
+    expect(parseVehicleMarker(' hamlet ')).toBe('hamlet');
+  });
+  it('is absent without the flag, and adds exactly the one key `vehicle` to a T12 line', () => {
+    expect('vehicle' in parseGroundCaptureArgs(base)).toBe(false);
+    const withIt = parseGroundCaptureArgs([...T12_LINE, '--vehicle']);
+    const without = parseGroundCaptureArgs(T12_LINE);
+    expect(Object.keys(withIt).filter((k) => !(k in without))).toEqual(['vehicle']);
+    // every other value is what it was
+    expect({ ...withIt, vehicle: undefined }).toEqual({ ...without, vehicle: undefined });
+  });
+  it('the old options parse as before beside it (the T6 key set, pinned)', () => {
+    const t6 = parseGroundCaptureArgs(['--maps=ein_qasab', '--markers=ein_qasab:causeway_s', '--reflect=0.25', '--wade=ein_qasab:causeway_s']);
+    expect(Object.keys(t6).sort()).toEqual(['decals', 'maps', 'markers', 'out', 'port', 'reflect', 'reuse', 'wade']);
+  });
+  it('refuses an empty marker, a marker the run does not have, and no --markers at all', () => {
+    expect(() => parseGroundCaptureArgs([...base, '--vehicle='])).toThrow(/marker name/);
+    expect(() => parseGroundCaptureArgs([...base, '--vehicle=hamlet'])).toThrow(/not in --markers \(have: causeway_s, kdf_start\)/);
+    expect(() => parseGroundCaptureArgs(['--maps=a', '--vehicle'])).toThrow(/--markers/);
+  });
+});
+
+describe('--vehicle: the road tile', () => {
+  // x is the column, y the row. A road along y = 1 (x 0..19) and a short one at x = 3, y 4..5.
+  const rows = [
+    '....................',
+    'rrrrrrrrrrrrrrrrrrrr',
+    '....................',
+    '....................',
+    '...r................',
+    '...r................',
+  ];
+  it('is the road tile nearest the marker among those at least minDistance from the vehicle', () => {
+    // vehicle at (3,4): the road tile (3,4) is its own, (3,5) is 1 away, the y=1 road is 3 away at x=3.
+    // minDistance 10, marker (15,1): the nearest-to-marker tile >= 10 from (3,4) is (15,1) (dist 12.4)
+    const p = vehicleRoadTile(rows, [3, 4], [15, 1], 10);
+    expect(p).toEqual({ tile: [15, 1], kind: 'far', distance: Math.hypot(12, 3), minDistance: 10 });
+  });
+  it('skips the tiles that are too near: a marker at the vehicle still sends it 10 tiles off', () => {
+    const p = vehicleRoadTile(rows, [3, 1], [3, 1], 10);
+    // road tiles >= 10 from (3,1) are x >= 13 on the y=1 road; nearest the marker is (13,1)
+    expect(p?.tile).toEqual([13, 1]);
+    expect(p?.kind).toBe('far');
+  });
+  it('ties go to the lowest (y, x)', () => {
+    expect(vehicleRoadTile(['r.r', '...'], [1, 1], [1, 0], 0)?.tile).toEqual([0, 0]);
+  });
+  it('falls back to the road tile nearest the marker, not the vehicle\'s own, and says so', () => {
+    const p = vehicleRoadTile(rows, [3, 4], [3, 5], 100);
+    expect(p).toEqual({ tile: [3, 5], kind: 'nearest', distance: 1, minDistance: 100 });
+    // standing on the only road tile there is nowhere to go
+    expect(vehicleRoadTile(['.r.'], [1, 0], [1, 0], 10)).toBeNull();
+  });
+  it('is null on a map with no road', () => {
+    expect(vehicleRoadTile(['...', '...'], [0, 0], [1, 1], 10)).toBeNull();
+  });
+  it('the minimum distance is 10, and grows with a fast hull so it is still driving on the last shot', () => {
+    expect(VEHICLE_MIN_DISTANCE).toBe(10);
+    expect(vehicleMinDistance(0.05)).toBe(10); // 0.05 * 60 * 1.25 = 3.75
+    expect(vehicleMinDistance(0.2)).toBe(15); // 0.2 * 60 * 1.25 = 15
+    expect(vehicleMinDistance(0.25)).toBe(19); // 18.75 rounded up
+  });
+});
+
+describe('--vehicle: a vehicle is a unit type whose resolved mobility.wheeled is true (FOOT_ROLES alone is wrong)', () => {
+  // The literal unit-type table, in id order: the roles are the ones CLAUDE.md warns about.
+  const types = [
+    { id: 'rifle_squad', role: 'infantry', wheeled: false, isAir: false, stepPerTick: 6554 },
+    { id: 'manpad_team', role: 'aa', wheeled: false, isAir: false, stepPerTick: 6554 },
+    { id: 'drone', role: 'drone', wheeled: true, isAir: true, stepPerTick: 13107 },
+    { id: 'rocket_battery', role: 'artillery', wheeled: true, isAir: false, stepPerTick: 9830 },
+    { id: 'mbt', role: 'mbt', wheeled: true, isAir: false, stepPerTick: 6554 },
+  ];
+  const run = (typeIdx: number[], alive: number[], side: number[]): unknown => {
+    const sim = { entityCount: typeIdx.length, unitTypes: types, state: { typeIdx, alive, side } };
+    return JSON.parse((new Function('window', `return ${FIRST_VEHICLE_SCRIPT};`) as (w: unknown) => string)({ __lions: { sim } }));
+  };
+  it('skips infantry, a manpad (role aa, wheeled false) and an air hull, and takes the rocket truck', () => {
+    // entities: rifle, manpad, drone, rocket_battery, mbt
+    expect(run([0, 1, 2, 3, 4], [1, 1, 1, 1, 1], [0, 0, 0, 0, 0])).toEqual({ id: 3, typeId: 'rocket_battery', stepPerTick: 9830 / 65536 });
+  });
+  it('skips the dead and the other side, and the first LIVING vehicle wins', () => {
+    expect(run([3, 4], [0, 1], [0, 0])).toEqual({ id: 1, typeId: 'mbt', stepPerTick: 6554 / 65536 });
+    expect(run([3, 4], [1, 1], [1, 0])).toEqual({ id: 1, typeId: 'mbt', stepPerTick: 6554 / 65536 });
+  });
+  it('is null when only foot units, a manpad and an air hull are alive (NO VEHICLE)', () => {
+    expect(run([0, 1, 2], [1, 1, 1], [0, 0, 0])).toBeNull();
+    expect(run([], [], [])).toBeNull();
+  });
+  it('reads, and writes nothing', () => {
+    expect(FIRST_VEHICLE_SCRIPT).not.toMatch(/queueCommand|posX\[[^\]]*\]\s*=[^=]|posY\[[^\]]*\]\s*=[^=]|\.state\s*=/);
+    expect(VEHICLE_EMITTER_SCRIPT).not.toMatch(/queueCommand|\.state\b/);
+  });
+});
+
+describe('--vehicle is a Command, never a state write (invariant 4)', () => {
+  const harness = (script: string) => {
+    const queued: unknown[] = [];
+    const writes: string[] = [];
+    const guard = (name: string): ProxyHandler<object> => ({
+      set: (_t, k) => {
+        writes.push(`${name}.${String(k)}`);
+        return true;
+      },
+    });
+    const sim = new Proxy(
+      {
+        queueCommand: (c: unknown) => queued.push(c),
+        state: new Proxy({ posX: new Proxy([], guard('posX')), posY: new Proxy([], guard('posY')), alive: [] }, guard('state')),
+      },
+      guard('sim')
+    );
+    const result = (new Function('window', `return ${script};`) as (w: unknown) => unknown)({ __lions: { sim } });
+    return { queued, writes, result };
+  };
+  it('hands exactly one move Command to sim.queueCommand and writes no sim state', () => {
+    const h = harness(vehicleOrderScript(9, [15, 1]));
+    expect(h.result).toBe(true);
+    // tile (15,1): (15.5, 1.5) tiles is 1015808 and 98304 in Q16.16
+    expect(h.queued).toEqual([{ kind: 'move', ids: [9], x: 1015808, y: 98304 }]);
+    expect(h.writes).toEqual([]);
+  });
+  it('the harness sees a teleport: a script that writes the position is caught (the guard can fail)', () => {
+    const h = harness(`(() => { const s = window.__lions.sim.state; s.posX[9] = 1015808; s.posY[9] = 98304; return true; })()`);
+    expect(h.writes).toEqual(['posX.9', 'posY.9']);
+    expect(h.queued).toEqual([]);
+  });
+});
+
+describe('--vehicle: whether it is moving is read, never assumed', () => {
+  it('moving is a last-tick travel of at least 0.01 tile, and the speed is tiles a tick times the sim\'s 20 Hz', () => {
+    expect(VEHICLE_MOVING_MIN).toBe(0.01);
+    expect(VEHICLE_TICK_HZ).toBe(TICKS_PER_SECOND);
+    const m = vehicleMotion({ x: 10, y: 5 }, { x: 10.15, y: 5 });
+    expect(m.moving).toBe(true);
+    expect(m.tilesPerTick).toBeCloseTo(0.15, 10);
+    expect(m.speedTilesPerSec).toBeCloseTo(3, 10);
+    expect(vehicleMotion({ x: 0, y: 0 }, { x: 0.03, y: 0.04 }).tilesPerTick).toBeCloseTo(0.05, 10);
+  });
+  it('a hull that moved 0.005 tile, or not at all, is NOT moving', () => {
+    expect(vehicleMotion({ x: 10, y: 5 }, { x: 10.005, y: 5 }).moving).toBe(false);
+    expect(vehicleMotion({ x: 10, y: 5 }, { x: 10, y: 5 })).toEqual({ tilesPerTick: 0, speedTilesPerSec: 0, moving: false });
+    expect(vehicleMotion({ x: 10, y: 5 }, { x: 10, y: 5.015625 }).moving).toBe(true); // 2^-6, exact in binary
+  });
+});
+
+describe('--vehicle: names, shots and the emitter', () => {
+  it('names a frame <map>-<marker>-z<zoom>-vehicle-t<n>, and the six shots are distinct from the strip frames', () => {
+    expect(vehicleName('m', 'causeway_s', 1.6, 20)).toBe('m-causeway_s-z1.6-vehicle-t20');
+    expect(VEHICLE_TICKS).toEqual([20, 40, 60]);
+    expect(VEHICLE_ZOOMS).toEqual([1.6, 2.5]);
+    const c = new NameClaims();
+    for (const t of VEHICLE_TICKS) for (const z of VEHICLE_ZOOMS) c.claim(vehicleName('m', 'causeway_s', z, t));
+    expect(c.size).toBe(6);
+    // the tick strip's own t20 frame of the same view is another file
+    expect(() => c.claim(tickName('m-causeway_s-z1.6', 20))).not.toThrow();
+    expect(() => c.claim(vehicleName('m', 'causeway_s', 1.6, 40))).toThrow(/two views are named/);
+  });
+  it('under rain the emitter must be vehicle_mud: anything else throws, naming both; dry maps are not asserted', () => {
+    expect(assertVehicleEmitter('rain', 'vehicle_mud')).toBe('vehicle_mud');
+    expect(() => assertVehicleEmitter('rain', 'vehicle_dust')).toThrow(/wet \(rain\) but the moving vehicle trails "vehicle_dust", not "vehicle_mud"/);
+    expect(assertVehicleEmitter('clear', 'vehicle_dust')).toBe('vehicle_dust');
+    expect(assertVehicleEmitter(null, 'vehicle_dust')).toBe('vehicle_dust');
+    expect(() => assertVehicleEmitter('rain', undefined)).toThrow(/not an emitter name/);
+    expect(() => assertVehicleEmitter('rain', '')).toThrow(/not an emitter name/);
+  });
+  it('the emitter read calls the renderer\'s own method and throws when it is gone', () => {
+    const run = (r: unknown): unknown => (new Function('window', `return ${VEHICLE_EMITTER_SCRIPT};`) as (w: unknown) => unknown)({ __lions: { renderer: r } });
+    expect(run({ vehicleMoveEmitterName: () => 'vehicle_mud' })).toBe('vehicle_mud');
+    expect(() => run({})).toThrow(/vehicleMoveEmitterName is missing/);
+  });
+  it('the legend line names the flag, the ticks and the zooms', () => {
+    const l = vehicleLegend();
+    expect(l).toMatch(/^legend: --vehicle:/);
+    expect(l).toContain('z1.6 and z2.5');
+    expect(l).toContain('20, 40, 60');
+    expect(l).toContain('moving=');
+  });
+});
+
+describe('--vehicle: a run with no vehicle, or a stationary one, fails', () => {
+  const none = { presetFrames: {}, tickFrames: 0, reducedFrames: 0, clipPath: null, stopFrames: {}, vehicleFrames: 0, vehicleNoVehicle: [] as string[], vehicleNotMoving: [] as string[] };
+  const asked = { vehicle: { marker: null } };
+  it('NO VEHICLE on a map is an ERROR line, and the missing frames are not blamed on the maps', () => {
+    const f = requestedModeFailures(asked, { ...none, vehicleNoVehicle: ['ein_qasab'] });
+    expect(f).toEqual(['--vehicle: NO VEHICLE on map ein_qasab: no living side-0 wheeled vehicle to order']);
+  });
+  it('a vehicle option that took no frame anywhere (no map had the marker) fails', () => {
+    expect(requestedModeFailures(asked, none)).toEqual(['--vehicle was given but no vehicle frame was taken (no map in --maps had a marker to drive towards)']);
+  });
+  it('each NOT MOVING frame is an ERROR line even when frames were taken', () => {
+    const f = requestedModeFailures(asked, { ...none, vehicleFrames: 6, vehicleNotMoving: ['m-c-z1.6-vehicle-t60', 'm-c-z2.5-vehicle-t60'] });
+    expect(f).toHaveLength(2);
+    expect(f[0]).toMatch(/NOT MOVING at m-c-z1\.6-vehicle-t60/);
+  });
+  it('a clean run and a run that never asked are both empty', () => {
+    expect(requestedModeFailures(asked, { ...none, vehicleFrames: 6 })).toEqual([]);
+    expect(requestedModeFailures({}, { ...none, vehicleNoVehicle: ['x'], vehicleNotMoving: ['y'] })).toEqual([]);
   });
 });

@@ -190,13 +190,24 @@ export class NameClaims {
 /** The failures a run can only see at the end: a requested mode that took no frame. Each string is
  *  one ERROR line; empty means the run took everything it was asked for. */
 export function requestedModeFailures(
-  asked: { readonly quality?: readonly Preset[]; readonly ticks?: number; readonly motion?: 'reduce'; readonly clip?: number; readonly stops?: readonly StopKind[] },
+  asked: {
+    readonly quality?: readonly Preset[];
+    readonly ticks?: number;
+    readonly motion?: 'reduce';
+    readonly clip?: number;
+    readonly stops?: readonly StopKind[];
+    readonly vehicle?: unknown;
+  },
   took: {
     readonly presetFrames: Readonly<Record<string, number>>;
     readonly tickFrames: number;
     readonly reducedFrames: number;
     readonly clipPath: string | null;
     readonly stopFrames: Readonly<Record<string, number>>;
+    /** `--vehicle`: frames taken, the maps that had no wheeled vehicle, and the frame names where it was not moving. */
+    readonly vehicleFrames: number;
+    readonly vehicleNoVehicle: readonly string[];
+    readonly vehicleNotMoving: readonly string[];
   }
 ): string[] {
   const out: string[] = [];
@@ -210,6 +221,13 @@ export function requestedModeFailures(
   if (asked.clip !== undefined && took.clipPath === null) out.push(`--clip=${asked.clip} was given but no clip was written`);
   for (const k of asked.stops ?? []) {
     if ((took.stopFrames[k] ?? 0) === 0) out.push(`--stops=${k} was given but no ${k} stop frame was taken`);
+  }
+  if (asked.vehicle !== undefined) {
+    for (const m of took.vehicleNoVehicle) out.push(`--vehicle: NO VEHICLE on map ${m}: no living side-0 wheeled vehicle to order`);
+    for (const n of took.vehicleNotMoving) out.push(`--vehicle: NOT MOVING at ${n}: a stationary hull throws no spray`);
+    if (took.vehicleFrames === 0 && took.vehicleNoVehicle.length === 0) {
+      out.push('--vehicle was given but no vehicle frame was taken (no map in --maps had a marker to drive towards)');
+    }
   }
   return out;
 }
@@ -322,6 +340,153 @@ export function isOnStop(
  *  `STOP_STALL_MOVE` tiles since the last, else back to 0. */
 export function nextStall(count: number, prev: { readonly x: number; readonly y: number }, cur: { readonly x: number; readonly y: number }): number {
   return Math.hypot(cur.x - prev.x, cur.y - prev.y) < STOP_STALL_MOVE ? count + 1 : 0;
+}
+
+// ============================================================================
+// One ordered vehicle: the mud spray (S-L2 ruling 4)
+// ============================================================================
+
+/** The ticks after the order the vehicle is photographed at, and the zooms (two views a tick). */
+export const VEHICLE_TICKS: readonly number[] = [20, 40, 60];
+export const VEHICLE_ZOOMS: readonly number[] = [1.6, 2.5];
+/** A vehicle moved less than this many tiles over the last tick is NOT MOVING (no spray). */
+export const VEHICLE_MOVING_MIN = 0.01;
+/** The road target is at least this many tiles from the vehicle, and at least `VEHICLE_RUN_MARGIN`
+ *  times as far as the hull can drive in `VEHICLE_TICKS`' last tick, so it is still driving at the last shot. */
+export const VEHICLE_MIN_DISTANCE = 10;
+export const VEHICLE_RUN_MARGIN = 1.25;
+/** The sim's 20 Hz (`TICKS_PER_SECOND`, pinned against it in the test): tiles per tick to tiles per second. */
+export const VEHICLE_TICK_HZ = 20;
+/** The emitter a moving vehicle trails under rain (R-13). */
+export const VEHICLE_WET_EMITTER = 'vehicle_mud';
+
+/** `--vehicle=<marker>`: a non-empty marker name. */
+export function parseVehicleMarker(raw: string): string {
+  const m = raw.trim();
+  if (m === '') throw new Error('--vehicle wants a marker name to drive towards (--vehicle=<marker>), or no value for the first --markers entry');
+  return m;
+}
+
+/** `<map>-<marker>-z<zoom>-vehicle-t<n>`: the view name, then `-vehicle-t<ticks after the order>`. */
+export function vehicleName(mapId: string, marker: string, zoom: number, ticks: number): string {
+  return `${mapId}-${marker}-z${zoom}-vehicle-t${ticks}`;
+}
+
+/** The farthest the hull can go in the last shot's ticks, plus the margin: the nearest the road target may be. */
+export function vehicleMinDistance(stepTilesPerTick: number): number {
+  const last = VEHICLE_TICKS[VEHICLE_TICKS.length - 1];
+  return Math.max(VEHICLE_MIN_DISTANCE, Math.ceil(stepTilesPerTick * last * VEHICLE_RUN_MARGIN));
+}
+
+export interface VehicleRoadPick {
+  readonly tile: [number, number];
+  /** `far`: at least `minDistance` from the vehicle. `nearest`: no road tile was that far, so the
+   *  road tile nearest the marker (not the vehicle's own) is used and the run may end early. */
+  readonly kind: 'far' | 'nearest';
+  /** Tiles from the vehicle's tile to `tile`. */
+  readonly distance: number;
+  readonly minDistance: number;
+}
+
+/**
+ * The road tile to order the vehicle to: of the `r` tiles at least `minDistance` tiles from the
+ * vehicle's tile (so the run outlasts the last shot), the one nearest the MARKER (squared distance,
+ * ties to the lowest (y, x)); `kind: 'far'`. When no road tile is that far, the road tile nearest the
+ * marker that is not the vehicle's own tile, `kind: 'nearest'`. `null` when the map has no other road.
+ */
+export function vehicleRoadTile(
+  rows: readonly string[],
+  vehicle: readonly [number, number],
+  marker: readonly [number, number],
+  minDistance: number
+): VehicleRoadPick | null {
+  let far: VehicleRoadPick | null = null;
+  let farD = Number.POSITIVE_INFINITY;
+  let near: VehicleRoadPick | null = null;
+  let nearD = Number.POSITIVE_INFINITY;
+  for (let y = 0; y < rows.length; y++) {
+    const row = rows[y];
+    for (let x = 0; x < row.length; x++) {
+      if (row[x] !== 'r') continue;
+      const dv = Math.hypot(x - vehicle[0], y - vehicle[1]);
+      const dm = (x - marker[0]) ** 2 + (y - marker[1]) ** 2;
+      // Row-major scan, strictly better only: the first of equals is already the lowest (y, x).
+      if (dv >= minDistance && dm < farD) {
+        farD = dm;
+        far = { tile: [x, y], kind: 'far', distance: dv, minDistance };
+      }
+      if (dv >= 1 && dm < nearD) {
+        nearD = dm;
+        near = { tile: [x, y], kind: 'nearest', distance: dv, minDistance };
+      }
+    }
+  }
+  return far ?? near;
+}
+
+/** How the vehicle moved over the last tick: the tiles, the tiles a second, and whether it is moving. */
+export interface VehicleMotion {
+  readonly tilesPerTick: number;
+  readonly speedTilesPerSec: number;
+  readonly moving: boolean;
+}
+
+/** From the position before the last tick and the position after it. Moving is `>= VEHICLE_MOVING_MIN` tile that tick. */
+export function vehicleMotion(prev: { readonly x: number; readonly y: number }, cur: { readonly x: number; readonly y: number }): VehicleMotion {
+  const d = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+  return { tilesPerTick: d, speedTilesPerSec: d * VEHICLE_TICK_HZ, moving: d >= VEHICLE_MOVING_MIN };
+}
+
+/**
+ * The first living side-0 vehicle (lowest id) as JSON, or `null`. A vehicle is a unit type whose
+ * RESOLVED `wheeled` is true (the authored `mobility.wheeled`, else `!FOOT_ROLES.has(role)`: rocket_battery
+ * and dozer_d9 are wheeled, manpad_team is not, so the ROLE alone is wrong both ways) and that is not
+ * air (a rotor throws no mud). Reads the same `sim.unitTypes[typeIdx]` table as FIRST_INFANTRY_SCRIPT.
+ * `stepPerTick` is the type's Q16.16 step over 65536: tiles a tick at full speed.
+ */
+export const FIRST_VEHICLE_SCRIPT = `(() => {
+  const sim = window.__lions.sim;
+  for (let i = 0; i < sim.entityCount; i++) {
+    if (sim.state.alive[i] !== 1 || sim.state.side[i] !== 0) continue;
+    const type = sim.unitTypes[sim.state.typeIdx[i]];
+    if (type.wheeled === true && type.isAir !== true) {
+      return JSON.stringify({ id: i, typeId: type.id, stepPerTick: type.stepPerTick / 65536 });
+    }
+  }
+  return JSON.stringify(null);
+})()`;
+
+/** What `FIRST_VEHICLE_SCRIPT` returns when it finds one. */
+export interface FirstVehicle {
+  readonly id: number;
+  readonly typeId: string;
+  readonly stepPerTick: number;
+}
+
+/** The emitter a moving vehicle trails, as the renderer names it. A missing method THROWS (a renamed private). */
+export const VEHICLE_EMITTER_SCRIPT = `(() => {
+  const r = window.__lions.renderer;
+  if (typeof r.vehicleMoveEmitterName !== 'function') throw new Error('ground-capture: renderer.vehicleMoveEmitterName is missing: tree changed');
+  return r.vehicleMoveEmitterName();
+})()`;
+
+/** Under rain the renderer must trail `vehicle_mud`; anything else on a wet map means the spray
+ *  this capture exists to show is not what is drawn. Throws, naming both. */
+export function assertVehicleEmitter(weather: 'rain' | 'clear' | null, emitter: unknown): string {
+  if (typeof emitter !== 'string' || emitter === '') throw new Error(`ground-capture: vehicleMoveEmitterName() returned ${JSON.stringify(emitter)}, not an emitter name`);
+  if (weather === 'rain' && emitter !== VEHICLE_WET_EMITTER) {
+    throw new Error(`ground-capture: the map is wet (rain) but the moving vehicle trails "${emitter}", not "${VEHICLE_WET_EMITTER}"`);
+  }
+  return emitter;
+}
+
+/** The legend line printed once at the start of a `--vehicle` run. */
+export function vehicleLegend(): string {
+  return (
+    `legend: --vehicle: the first living side-0 wheeled vehicle is ordered by a move Command to a road tile at least 10 tiles ` +
+    `(more for a fast hull) from where it stands, nearest the marker; frames <view>-vehicle-t<n> at ${VEHICLE_ZOOMS.map((z) => `z${z}`).join(' and ')} ` +
+    `on ticks ${VEHICLE_TICKS.join(', ')} after the order, the camera on the hull; moving= is its last-tick travel >= ${VEHICLE_MOVING_MIN} tile`
+  );
 }
 
 // ============================================================================

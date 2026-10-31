@@ -59,6 +59,19 @@
  *       and photographed at zoom 2.5 as `<map>-squad-<kind>` with `squadScreen` in cost.json.
  *   --zooms=1,1.6,2.5   the zooms each marker is photographed at (default 1 and 2.5, unchanged).
  *
+ * GH-871 P4 S-L2 ruling 4 adds the one ordered vehicle, for the mud spray:
+ *
+ *   --vehicle[=<marker>]   after the stops, the sandbox force's first LIVING side-0 vehicle (a unit type
+ *       whose resolved `wheeled` is true and that is not air: `rocket_battery` and `dozer_d9` count,
+ *       `manpad_team` does not; the ROLE alone is wrong both ways) is ordered by a `move` Command
+ *       (`sim.queueCommand`, never a state write) to a road tile at least 10 tiles away (more for a fast
+ *       hull), the one nearest the marker (default the map's first `--markers` entry). The sim is then
+ *       stepped one tick at a time and the hull photographed, the camera on it, at zoom 1.6 and 2.5
+ *       on ticks 20, 40 and 60 after the order, as `<view>-vehicle-t<n>`. Each shot records whether the
+ *       hull was MOVING (>= 0.01 tile over the last tick) and its speed, in `cost.json` `<map>.vehicle`,
+ *       with the emitter the renderer trails (`vehicle_mud` under rain, or the run throws). No
+ *       vehicle prints NO VEHICLE and a stationary shot prints NOT MOVING; both exit non-zero.
+ *
  * Every frame also carries its preset, zoom, tick and the ON-SCREEN DROP DENSITY (`drops=`, with
  * the lattice period `P=` and the preset's `total=`): the density depends on the zoom, and the
  * lead judges the streak at the zoom it is seen at.
@@ -109,6 +122,7 @@ import { musicOffInitScript } from '../ui-review/music-off';
 import { ATTACH_FLAG, decidePort } from '../ui-review/port';
 import {
   CLIP_ZOOM,
+  FIRST_VEHICLE_SCRIPT,
   NameClaims,
   READ_RAIN_HEIGHTS_SCRIPT,
   READ_RENDER_SCRIPT,
@@ -118,8 +132,12 @@ import {
   STOP_STALL_POLLS,
   STOP_ZOOM,
   TICK_STRIP_ZOOM,
+  VEHICLE_EMITTER_SCRIPT,
+  VEHICLE_TICKS,
+  VEHICLE_ZOOMS,
   assertMotion,
   assertPresetBooted,
+  assertVehicleEmitter,
   isOnStop,
   makeHeightSampler,
   halfToFloat,
@@ -129,6 +147,7 @@ import {
   parsePresets,
   parseStops,
   parseTicks,
+  parseVehicleMarker,
   parseZooms,
   planPasses,
   rainLabel,
@@ -141,11 +160,19 @@ import {
   stopTile,
   suffixedViews,
   tickName,
+  vehicleLegend,
+  vehicleMinDistance,
+  vehicleMotion,
+  vehicleName,
+  vehicleRoadTile,
+  type FirstVehicle,
   type Pass,
   type Preset,
   type RainLabel,
   type RenderRead,
   type StopKind,
+  type VehicleMotion,
+  type VehicleRoadPick,
 } from './ground-captures-plan';
 
 const TAG = 'ground-capture';
@@ -182,6 +209,9 @@ export interface GroundCaptureArgs {
   readonly stops?: readonly StopKind[];
   /** `--zooms=` (T12): the zooms each marker is photographed at. Absent keeps `MARKER_ZOOMS`. */
   readonly zooms?: readonly number[];
+  /** `--vehicle[=<marker>]` (S-L2 ruling 4): the marker to drive towards, `null` for each map's first
+   *  `--markers` entry. Absent without the flag. */
+  readonly vehicle?: { readonly marker: string | null };
 }
 
 /** One `<map>:<marker>` pair from `--markers=`. */
@@ -266,9 +296,16 @@ export function parseGroundCaptureArgs(
   const stops = rawStops === undefined ? undefined : parseStops(rawStops);
   const rawZooms = flag(argv, 'zooms');
   const zooms = rawZooms === undefined ? undefined : parseZooms(rawZooms);
+  const rawVehicle = flag(argv, 'vehicle');
+  const vehicle =
+    rawVehicle !== undefined ? { marker: parseVehicleMarker(rawVehicle) } : argv.includes('--vehicle') ? { marker: null } : undefined;
   // Each of these photographs a MARKER; without one there is nothing to apply it to.
-  for (const [name, given] of [['--quality', quality], ['--ticks', ticks], ['--motion', motion], ['--clip', clip], ['--stops', stops], ['--zooms', zooms]] as const) {
+  for (const [name, given] of [['--quality', quality], ['--ticks', ticks], ['--motion', motion], ['--clip', clip], ['--stops', stops], ['--zooms', zooms], ['--vehicle', vehicle]] as const) {
     if (given !== undefined && markers === undefined) throw new Error(`${name} photographs the --markers views; pass --markers=<map>:<marker> too`);
+  }
+  // A named marker must be one the run has: a typo must not quietly drive nowhere.
+  if (typeof vehicle?.marker === 'string' && !(markers ?? []).some((m) => m.marker === vehicle.marker)) {
+    throw new Error(`--vehicle=${vehicle.marker} names a marker that is not in --markers (have: ${(markers ?? []).map((m) => m.marker).join(', ')})`);
   }
   // A tick strip is taken at zoom 1.6: refuse a run that cannot take one rather than finish with none.
   if (ticks !== undefined && !(zooms ?? MARKER_ZOOMS).includes(TICK_STRIP_ZOOM)) {
@@ -285,6 +322,7 @@ export function parseGroundCaptureArgs(
     ...(clip === undefined ? {} : { clip }),
     ...(stops === undefined ? {} : { stops }),
     ...(zooms === undefined ? {} : { zooms }),
+    ...(vehicle === undefined ? {} : { vehicle }),
   };
 }
 
@@ -459,6 +497,13 @@ export function wadeOrderScript(cmd: Command): string {
  *  Command through `sim.queueCommand`, never a position write (invariant 4); the test runs it
  *  against a fake `window` whose sim state refuses a write. */
 export function stopOrderScript(id: number, tile: readonly [number, number]): string {
+  return wadeOrderScript(wadeCommand([id], tile));
+}
+
+/** The `--vehicle` order: the same `move` Command door as the squad stops, for the vehicle `id` to
+ *  `tile`. Through `sim.queueCommand`, never a position write (invariant 4); the test runs it against
+ *  a fake `window` whose sim state refuses a write. */
+export function vehicleOrderScript(id: number, tile: readonly [number, number]): string {
   return wadeOrderScript(wadeCommand([id], tile));
 }
 
@@ -659,6 +704,41 @@ export interface FrameRecord extends ViewStats {
   readonly stop?: StopRecord;
 }
 
+/** What `--vehicle` records for one shot, in `cost.json` `<map>.vehicle.shots`. */
+interface VehicleShot {
+  readonly name: string;
+  readonly zoom: number;
+  /** Sim ticks after the order. */
+  readonly ticks: number;
+  readonly tick: number;
+  readonly moving: boolean;
+  readonly speedTilesPerSec: number;
+  readonly tilesPerTick: number;
+  /** The hull's position in tiles, and its tile. */
+  readonly pos: readonly [number, number];
+  readonly tile: readonly [number, number];
+  /** `renderer.worldToScreen` on the hull, CSS px, for the crop. */
+  readonly screen: readonly [number, number];
+}
+
+/** `--vehicle` for one map. */
+interface VehicleRecord {
+  readonly id: number;
+  readonly typeId: string;
+  readonly marker: string;
+  readonly from: readonly [number, number];
+  readonly target: readonly [number, number];
+  /** `far` (>= minDistance away) or `nearest` (no road tile was that far). */
+  readonly targetKind: VehicleRoadPick['kind'];
+  readonly targetDistance: number;
+  readonly minDistance: number;
+  readonly orderTick: number;
+  /** `renderer.vehicleMoveEmitterName()` as read from the page: `vehicle_mud` under rain. */
+  readonly emitter: string;
+  readonly weather: 'rain' | 'clear' | null;
+  readonly shots: readonly VehicleShot[];
+}
+
 interface Tuning {
   readonly puddle: number | null;
   readonly marsh: number | null;
@@ -826,6 +906,8 @@ interface MapCost {
   readonly views: Record<string, FrameRecord>;
   readonly layers: readonly LayerDelta[];
   readonly decorFamiliesLoaded: Record<string, number>;
+  /** `--vehicle` (S-L2 ruling 4): the ordered vehicle and its shots; absent without the flag. */
+  vehicle?: VehicleRecord;
 }
 
 /** What a squad walk ended with. */
@@ -897,6 +979,114 @@ async function wadeSquad(
       : `  wade ${mapId}: entity ${id} DID NOT ARRIVE at ~ tile (${tile[0]},${tile[1]}) near ${marker} in ${spent} ticks; at (${pos.x.toFixed(1)},${pos.y.toFixed(1)}), tick ${pos.tick}`
   );
   return tile;
+}
+
+/** What one map's `--vehicle` run came to. */
+type VehicleRun =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'ran'; readonly record: VehicleRecord; readonly frames: number; readonly notMoving: readonly string[] };
+
+/**
+ * `--vehicle` for one map (S-L2 ruling 4): the first living side-0 wheeled vehicle is ordered to a road
+ * tile by a `move` Command through `sim.queueCommand` (never a state write), the sim is stepped ONE
+ * tick at a time, and at each of `VEHICLE_TICKS` after the order the hull is photographed at every
+ * `VEHICLE_ZOOMS` with the camera on it. Whether it was moving is read from its position over the
+ * last tick, never assumed. No vehicle is `{ kind: 'none' }` (the caller turns it into a failed run);
+ * a missing renderer field, a wet map that does not trail `vehicle_mud`, a sim that did not advance one
+ * tick or a map with no other road THROWS.
+ */
+async function driveVehicle(
+  page: Page,
+  say: (line: string) => void,
+  outDir: string,
+  ctx: ShotCtx,
+  viewCosts: Record<string, FrameRecord>,
+  mapId: string,
+  rows: readonly string[],
+  marker: string,
+  markerTile: readonly [number, number]
+): Promise<VehicleRun> {
+  const found = JSON.parse((await page.evaluate(FIRST_VEHICLE_SCRIPT)) as string) as FirstVehicle | null;
+  if (found === null) {
+    say(`  vehicle ${mapId}: NO VEHICLE: no living side-0 wheeled vehicle in the sandbox force`);
+    return { kind: 'none' };
+  }
+  const weather = (await readRender(page)).weather;
+  const emitter = assertVehicleEmitter(weather, await page.evaluate(VEHICLE_EMITTER_SCRIPT));
+  const readPos = async (): Promise<{ x: number; y: number; tick: number }> =>
+    JSON.parse((await page.evaluate(positionScript(found.id))) as string) as { x: number; y: number; tick: number };
+  let prev = await readPos();
+  const from: [number, number] = [Math.floor(prev.x), Math.floor(prev.y)];
+  const minDistance = vehicleMinDistance(found.stepPerTick);
+  const pick = vehicleRoadTile(rows, from, markerTile, minDistance);
+  if (pick === null) throw new Error(`${TAG}: --vehicle: map "${mapId}" has no road tile to drive the ${found.typeId} to`);
+  say(
+    `  vehicle ${mapId}: entity ${found.id} (${found.typeId}, ${(found.stepPerTick * 20).toFixed(1)} tiles/s) at (${prev.x.toFixed(1)},${prev.y.toFixed(1)}) ordered to road tile (${pick.tile[0]},${pick.tile[1]}) near ${marker}: ` +
+      (pick.kind === 'far'
+        ? `${pick.distance.toFixed(1)} tiles away (>= ${minDistance})`
+        : `NEAREST road tile, ${pick.distance.toFixed(1)} tiles away: none was >= ${minDistance} tiles from the vehicle`) +
+      `; emitter ${emitter} (${weather ?? 'no weather'})`
+  );
+  const orderTick = prev.tick;
+  await page.evaluate(vehicleOrderScript(found.id, pick.tile));
+  const last = VEHICLE_TICKS[VEHICLE_TICKS.length - 1];
+  const shots: VehicleShot[] = [];
+  const notMoving: string[] = [];
+  for (let k = 1; k <= last; k++) {
+    await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(1));
+    const cur = await readPos();
+    if (cur.tick !== orderTick + k) throw new Error(`${TAG}: --vehicle: stepped one tick but the sim reads tick ${cur.tick}, expected ${orderTick + k}`);
+    if (VEHICLE_TICKS.includes(k)) {
+      const motion: VehicleMotion = vehicleMotion(prev, cur);
+      for (const zoom of VEHICLE_ZOOMS) {
+        const view: MapView = { name: vehicleName(mapId, marker, zoom, k), x: cur.x, y: cur.y, zoom, fog: false };
+        const stats = await shot(page, outDir, view, { ...ctx, track: found.id });
+        if (stats.tick !== cur.tick) throw new Error(`${TAG}: ${view.name} was stepped to tick ${cur.tick} but the frame reads tick ${stats.tick}`);
+        if (stats.squadScreen === undefined) throw new Error(`${TAG}: ${view.name}: renderer.worldToScreen gave no screen position for the vehicle`);
+        viewCosts[view.name] = stats;
+        shots.push({
+          name: view.name,
+          zoom,
+          ticks: k,
+          tick: cur.tick,
+          moving: motion.moving,
+          speedTilesPerSec: Number(motion.speedTilesPerSec.toFixed(3)),
+          tilesPerTick: Number(motion.tilesPerTick.toFixed(4)),
+          pos: [Number(cur.x.toFixed(3)), Number(cur.y.toFixed(3))],
+          tile: [Math.floor(cur.x), Math.floor(cur.y)],
+          screen: stats.squadScreen,
+        });
+        say(frameLine(view.name, stats));
+        say(
+          `    ${view.name}: moving=${motion.moving} speed=${motion.speedTilesPerSec.toFixed(2)} tiles/s (${motion.tilesPerTick.toFixed(4)} tile/tick) at (${cur.x.toFixed(2)},${cur.y.toFixed(2)})`
+        );
+        if (!motion.moving) {
+          notMoving.push(view.name);
+          say(`    ${view.name}: NOT MOVING: ${motion.tilesPerTick.toFixed(4)} tile over the last tick (< 0.01): the frame shows a stationary hull`);
+        }
+      }
+    }
+    prev = cur;
+  }
+  return {
+    kind: 'ran',
+    frames: shots.length,
+    notMoving,
+    record: {
+      id: found.id,
+      typeId: found.typeId,
+      marker,
+      from,
+      target: pick.tile,
+      targetKind: pick.kind,
+      targetDistance: Number(pick.distance.toFixed(2)),
+      minDistance,
+      orderTick,
+      emitter,
+      weather,
+      shots,
+    },
+  };
 }
 
 /** `--clip`: one Playwright `recordVideo` of the LIVE loop (the frame loop is NOT frozen, unlike
@@ -1031,9 +1221,12 @@ async function main(): Promise<void> {
     reducedFrames: 0,
     clipPath: null as string | null,
     stopFrames: {} as Record<string, number>,
+    vehicleFrames: 0,
+    vehicleNoVehicle: [] as string[],
+    vehicleNotMoving: [] as string[],
   };
   const passes = planPasses({ quality: args.quality, motion: args.motion });
-  const t12 = args.quality !== undefined || args.ticks !== undefined || args.motion !== undefined || args.clip !== undefined || args.stops !== undefined;
+  const t12 = args.quality !== undefined || args.ticks !== undefined || args.motion !== undefined || args.clip !== undefined || args.stops !== undefined || args.vehicle !== undefined;
   let meta: RunMeta | null = null;
   let clipTicked = true;
   try {
@@ -1045,6 +1238,7 @@ async function main(): Promise<void> {
           `(up to 6 * tan 12deg = 1.28 tiles of slant) can overhang the void on the W and S edges and lose its upper air on the E and N edges`
       );
     }
+    if (args.vehicle !== undefined) say(`[${TAG}] ${vehicleLegend()}`);
     meta = { gl, viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: 1, passes: passes.map((p) => `${p.preset}${p.reduced ? '+reduced' : ''}`), loadAverage: os.loadavg().map((v) => Number(v.toFixed(2))) };
     for (const pass of passes) {
       if (!pass.full || t12) say(`[${TAG}] pass preset=${pass.preset} motion=${pass.reduced ? 'reduce' : 'system'}${pass.full ? ' (baseline: every view)' : ' (marker views)'}`);
@@ -1225,7 +1419,23 @@ async function main(): Promise<void> {
               say(frameLine(view.name, viewCosts[view.name]));
             }
           }
-          cost[mapId] = { views: viewCosts, layers, decorFamiliesLoaded: familyTotals };
+          // S-L2 ruling 4. After the stops: one ordered vehicle, stepped a tick at a time, for the mud spray.
+          let vehicleRecord: VehicleRecord | undefined;
+          if (args.vehicle !== undefined && wanted.length > 0) {
+            const markerName = args.vehicle.marker ?? wanted[0];
+            if (!wanted.includes(markerName)) {
+              say(`  vehicle ${mapId}: marker ${markerName} is not one of this map's --markers, no vehicle run here`);
+            } else {
+              const run = await driveVehicle(page, say, outDir, ctx, viewCosts, mapId, rows, markerName, table[markerName]);
+              if (run.kind === 'none') took.vehicleNoVehicle.push(mapId);
+              else {
+                vehicleRecord = run.record;
+                took.vehicleFrames += run.frames;
+                took.vehicleNotMoving.push(...run.notMoving);
+              }
+            }
+          }
+          cost[mapId] = { views: viewCosts, layers, decorFamiliesLoaded: familyTotals, ...(vehicleRecord === undefined ? {} : { vehicle: vehicleRecord }) };
           say(
             `  cost ${mapId} centre z1 nofog: all calls=${base.calls} tris=${base.triangles} | ` +
               layers
