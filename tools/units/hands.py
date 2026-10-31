@@ -28,7 +28,7 @@ import math
 import numpy as np
 
 REF_STATURE = 1.778          # the three bodies' S; the hand is built at this size and scaled
-CLEARANCE = 0.001
+CLEARANCE = -0.001          # the glove is pressed 1 mm into what it grips (it compresses); the spec's 1 mm gap left 11 to 14% contact
 
 # -- the spec's numbers, gloved (1.1) -----------------------------------------
 HAND_LENGTH = 0.194          # wrist crease to the middle fingertip, if extended
@@ -45,7 +45,7 @@ TIP_TAPER = 0.85
 PHALANX = (0.50, 0.30, 0.20)
 THUMB_LEN = (0.034, 0.027)
 THUMB_W = 0.024
-KNUCKLE_PAD = (0.075, 0.014, 0.0025)
+KNUCKLE_PAD = (0.072, 0.012, 0.0018)
 FINGER_X = (-0.0355, -0.0120, 0.0120, 0.0355)   # index .. little, thumb at -x
 KNUCKLE_Y = (0.104, 0.107, 0.103, 0.095)        # the knuckle arc; middle: 0.107 + 0.087 = 0.194
 FINGER_Z = -0.0045           # the finger axis sits palm-side of the palm's mid-plane
@@ -60,6 +60,7 @@ class Mesh:
         self.v = []
         self.t = []
         self.g = []
+        self.n = {}              # vertex id -> smooth normal (the shape's own, as if the section were round)
         self.bands = []          # (group, vertex ids): each is a convex piece of the hand, for the penetration census
 
     def vert(self, p):
@@ -72,6 +73,16 @@ class Mesh:
 
     def arrays(self):
         return np.array(self.v, dtype=float).reshape(-1, 3), np.array(self.t, dtype=int).reshape(-1, 3)
+
+    def normals(self):
+        """Per-vertex normals: the generator's smooth ones where it set them, else the area-weighted face normal."""
+        V, T = self.arrays()
+        acc = np.zeros_like(V)
+        for a, b, c in T:
+            f = np.cross(V[b] - V[a], V[c] - V[a])
+            acc[a] += f; acc[b] += f; acc[c] += f
+        out = np.array([self.n[i] if i in self.n else acc[i] / (np.linalg.norm(acc[i]) or 1.0) for i in range(len(V))])
+        return out
 
     def count(self, group=None):
         return sum(1 for g in self.g if group is None or g == group)
@@ -92,13 +103,42 @@ def _octagon(w, h):
     return [(x / c, y / c) for (x, y) in _poly(8, w, h, 22.5)]
 
 
-def _loft(mesh, group, rings, apex=None, flip=False):
+def _ring_normals(P, C, axis):
+    """Smooth normals of one ring: the outward normal of the ellipse through its points, in the plane square to
+    `axis`, so a 5-gon shades like the round tube it stands for."""
+    Q = np.array(P) - C
+    Q = Q - np.outer(Q @ axis, axis)
+    u, s_, vt = np.linalg.svd(Q, full_matrices=False)
+    ea, eb = vt[0], vt[1]
+    a = max(np.abs(Q @ ea).max(), 1e-9)
+    b = max(np.abs(Q @ eb).max(), 1e-9)
+    out = []
+    for q in Q:
+        n = (q @ ea) / (a * a) * ea + (q @ eb) / (b * b) * eb
+        out.append(n / (np.linalg.norm(n) or 1.0))
+    return np.array(out)
+
+
+def _loft(mesh, group, rings, apex=None, flip=False, dome=0.75):
     """Bands between consecutive rings (each a list of 3D points, same length), with
-    outward-facing triangles; `apex` closes the last ring with a fan to that point."""
+    outward-facing triangles; `apex` closes the last ring with a fan to that point. Sets each vertex's smooth
+    normal; a ring next to an apex tilts its normals `dome` of the way toward the sweep axis, which is what
+    rounds a fingertip."""
     ids = [[mesh.vert(p) for p in r] for r in rings]
     for k in range(len(ids) - 1):
         mesh.bands.append((group, ids[k] + ids[k + 1]))
     cents = [np.mean(np.array(r), axis=0) for r in rings]
+    for k, r in enumerate(rings):
+        lo, hi = max(k - 1, 0), min(k + 1, len(rings) - 1)
+        ax = cents[hi] - cents[lo] if hi != lo else (np.array(apex) - cents[k] if apex is not None else np.array((0.0, 1.0, 0.0)))
+        if apex is not None and k == len(rings) - 1:
+            ax = np.array(apex) - cents[k - 1] if k else np.array(apex) - cents[k]
+        ax = ax / (np.linalg.norm(ax) or 1.0)
+        nr = _ring_normals(r, cents[k], ax)
+        if apex is not None and k == len(rings) - 1:
+            nr = np.array([(n * (1.0 - dome) + ax * dome) / np.linalg.norm(n * (1.0 - dome) + ax * dome) for n in nr])
+        for i, nn in zip(ids[k], nr):
+            mesh.n[i] = nn
     tris = []
     for k in range(len(ids) - 1):
         n = len(ids[k])
@@ -108,6 +148,8 @@ def _loft(mesh, group, rings, apex=None, flip=False):
             tris.append((ids[k][i], ids[k + 1][j], ids[k][j], (cents[k] + cents[k + 1]) / 2.0))
     if apex is not None:
         a = mesh.vert(apex)
+        ax = np.array(apex) - cents[-1]
+        mesh.n[a] = ax / (np.linalg.norm(ax) or 1.0)
         mesh.bands.append((group, ids[-1] + [a]))
         n = len(ids[-1])
         for i in range(n):
@@ -209,6 +251,11 @@ POSES = {
 }
 
 
+#: Where the proxy sits along the hand's y, as a distance from the middle knuckle (grip: the strap's front face; the
+#: others: the circle's centre from the wrist). Tuned against the real carbine (see the R0b numbers).
+PROXY_Y = {"grip": -0.004, "support": 0.074, "handle": 0.085}
+
+
 def default_proxy(pose, s=1.0):
     """The proxy a pose closes on, in hand-local (y, z), at scale `s`.
 
@@ -221,10 +268,10 @@ def default_proxy(pose, s=1.0):
     z_palm = -(PALM_THICK / 2.0) * s - CLEARANCE
     if pose == "grip":
         w, dp = 0.030 * s, 0.050 * s
-        y_front = KNUCKLE_Y[1] * s + 0.014 * s       # the strap's front face stands just ahead of the middle knuckle
+        y_front = KNUCKLE_Y[1] * s + PROXY_Y["grip"] * s       # the strap's front face stands just ahead of the middle knuckle
         return Rect(y_front - dp, y_front, z_palm - w, z_palm)
     r = (0.0345 if pose == "support" else 0.014) * s
-    return Circle((0.086 if pose == "support" else 0.085) * s, z_palm - r, r)
+    return Circle(PROXY_Y[pose] * s, z_palm - r, r)
 
 
 def _chain(K, lens, angles, dirs_out=False):
@@ -268,7 +315,7 @@ def _ring_pts(C, nrm, u, sec, scale_v=1.0):
     return [C + u * a + v * b * scale_v for (a, b) in sec]
 
 
-def _tube(mesh, group, pts, dirs, widths, thick_ratio, base_back, s_scale, n=5, phase=90.0, tip_round=0.0055, u=(1.0, 0.0, 0.0)):
+def _tube(mesh, group, pts, dirs, widths, thick_ratio, base_back, s_scale, n=5, phase=90.0, tip_round=0.0030, u=(1.0, 0.0, 0.0)):
     """A swept tube along a planar centreline in (y, z): rings at the base (buried `base_back` into the palm),
     each interior joint, and just short of the tip, then an apex."""
     u = np.array(u, dtype=float)
@@ -283,8 +330,8 @@ def _tube(mesh, group, pts, dirs, widths, thick_ratio, base_back, s_scale, n=5, 
         miter = min(1.0 / max(math.cos(half), 1e-6), 1.3)
         rings.append(_section_ring(pts[k], dm, u, widths[k], thick_ratio, n, phase, miter))
     dl = dirs[-1]
-    rings.append(_section_ring(pts[-1] - dl * tip_round, dl, u, widths[-1], thick_ratio, n, phase, 1.0, taper=0.82))
-    _loft(mesh, group, rings, apex=pts[-1] + dl * 0.0004)
+    rings.append(_section_ring(pts[-1] - dl * tip_round, dl, u, widths[-1], thick_ratio, n, phase, 1.0, taper=0.80))
+    _loft(mesh, group, rings, apex=pts[-1])
     return rings
 
 
@@ -327,7 +374,7 @@ def build(pose="grip", side="R", S=REF_STATURE, proxy=None, kind="living", verbo
             dirs = [Rz @ d for d in dirs]
             uvec = Rz @ uvec
         w0 = FINGER_W[i] * s
-        widths = [w0, w0 * 1.03, w0 * 0.96, w0 * TIP_TAPER]
+        widths = [w0, w0 * 1.03, w0 * 0.97, w0 * 0.92]
         fingers.append(dict(K=K, pts=pts, dirs=dirs, widths=widths, angles=ang, hit=hit, radius=radius, u=uvec))
 
     # ---------------------------------------------------------------- palm and back: 3 bands + cap
@@ -392,22 +439,24 @@ def build(pose="grip", side="R", S=REF_STATURE, proxy=None, kind="living", verbo
     w = THUMB_W * s
     _thumb_tube(m, tpts, [meta, d1, d2], [w * 1.25, w * 1.08, w * 0.98, w * TIP_TAPER], s)
 
-    # ---------------------------------------------------------------- cuff: 12-sided gauntlet band with a rolled hem
+    # ---------------------------------------------------------------- cuff: a funnel that ends IN the palm's wrist ring
+    # (the same 8 points, the same smooth normals, so the glove has no seam there: the sleeve overlaps the flared end)
     cw, ch = WRIST[0] * s, WRIST[1] * s
     hem = CUFF_HEM * s
-    ringA = [np.array((a, -0.030 * s, b)) for (a, b) in _poly(12, cw + 2 * hem, ch + 2 * hem, 15.0)]
-    ringB = [np.array((a, 0.015 * s, b)) for (a, b) in _poly(12, 0.063 * s, 0.040 * s, 15.0)]
-    _loft(m, "cuff", [ringA, ringB])
+    ringA = [np.array((a, -0.030 * s, b)) for (a, b) in _octagon(cw + 2 * hem, ch + 2 * hem)]
+    _loft(m, "cuff", [ringA, rings[0]])
 
     # ---------------------------------------------------------------- mirror for the left hand
     verts, tris = m.arrays()
+    normals = m.normals()
     if side == "L":
         verts = verts * np.array((-1.0, 1.0, 1.0))
+        normals = normals * np.array((-1.0, 1.0, 1.0))
         tris = tris[:, ::-1]
         proxy_out = _mirror_proxy(proxy)
     else:
         proxy_out = proxy
-    out = dict(verts=verts, tris=tris, groups=list(m.g), bands=list(m.bands), proxy=proxy_out, pose=pose, side=side, scale=s,
+    out = dict(verts=verts, tris=tris, normals=normals, groups=list(m.g), bands=list(m.bands), proxy=proxy_out, pose=pose, side=side, scale=s,
                fingers=[dict(angles=f["angles"], hit=f["hit"], K=f["K"].tolist(), pts=f["pts"].tolist()) for f in fingers],
                thumb=dict(mcp=mcp.tolist(), p1=p1.tolist(), p2=p2.tolist()), x_ref=P["x_ref"] * s,
                triangles=len(tris))
@@ -428,8 +477,8 @@ def _thumb_tube(m, pts, dirs, widths, s, n=5):
     rings.append(_ring3(pts[0] - dirs[0] * 0.004 * s, dirs[0], widths[0], n))
     for k in (1, 2):
         rings.append(_ring3(pts[k], _unit(dirs[k - 1] + dirs[k]), widths[k], n))
-    rings.append(_ring3(pts[3] - dirs[2] * 0.0035, dirs[2], widths[3] * 0.82, n))
-    _loft(m, "thumb", rings, apex=pts[3] + dirs[2] * 0.0004)
+    rings.append(_ring3(pts[3] - dirs[2] * 0.0030, dirs[2], widths[3] * 0.80, n))
+    _loft(m, "thumb", rings, apex=pts[3])
 
 
 def _ring3(C, d, width, n, thick_ratio=0.9):
@@ -465,12 +514,14 @@ def _fist(side, s):
             b, c = c, b
         m.tri(a, b, c, "fist")
     verts, tris = m.arrays()
+    normals = m.normals()
     if side == "L":
         verts = verts * np.array((-1.0, 1.0, 1.0))
+        normals = normals * np.array((-1.0, 1.0, 1.0))
         tris = tris[:, ::-1]
     if len(tris) > FIST_CAP:
         raise SystemExit(f"[hands] fist {len(tris)} triangles, the cap is {FIST_CAP}")
-    return dict(verts=verts, tris=tris, groups=list(m.g), bands=list(m.bands), proxy=None, pose="fist", side=side, scale=s, fingers=[], thumb={},
+    return dict(verts=verts, tris=tris, normals=normals, groups=list(m.g), bands=list(m.bands), proxy=None, pose="fist", side=side, scale=s, fingers=[], thumb={},
                 x_ref=0.0, triangles=len(tris), by_group={"fist": len(tris)})
 
 

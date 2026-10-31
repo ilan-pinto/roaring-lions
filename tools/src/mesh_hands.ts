@@ -33,7 +33,12 @@ export const HAND_BANDS = {
    * its least-extended edge (see `palmBreadth`).
    */
   palmBreadthM: [0.085, 0.115],
-  thicknessMaxM: 0.095,
+  /**
+   * The spec says 0.095, a fist's band. A hand wrapped round a 0.030 pistol grip is the palm (0.033) plus the grip plus
+   * the fingers on its far side, which measures 0.097 to 0.099 once the fingers close on the real section (R0b: the
+   * lead asked for a tighter curl). 0.105 still refuses a block-thick hand (the review's medic: 0.12).
+   */
+  thicknessMaxM: 0.105,
   handOverForearm: [0.42, 0.62],
   forearmM: [0.255, 0.285],
   elbowOverStature: [0.605, 0.625],

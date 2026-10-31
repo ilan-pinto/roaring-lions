@@ -14,31 +14,29 @@ import hands as H  # noqa: E402
 
 
 def to_object(hand, name, material=None, uv=None, collection=None):
+    """A hand dict as a mesh object: only the vertices its triangles use, the generator's own smooth normals
+    as custom normals (a 5-sided tube shades like the round finger it stands for)."""
+    tris = np.asarray(hand["tris"])
+    used = sorted(set(int(i) for i in tris.ravel()))
+    remap = {v: k for k, v in enumerate(used)}
     me = bpy.data.meshes.new(name)
     bm = bmesh.new()
-    vs = [bm.verts.new(p) for p in hand["verts"]]
-    faces = []
-    for (a, b, c) in hand["tris"]:
+    vs = [bm.verts.new(hand["verts"][v]) for v in used]
+    for (a, b, c) in tris:
         try:
-            f = bm.faces.new((vs[a], vs[b], vs[c]))
+            bm.faces.new((vs[remap[int(a)]], vs[remap[int(b)]], vs[remap[int(c)]]))
         except ValueError:
             continue
-        faces.append(f)
     uvl = bm.loops.layers.uv.new("UVMap")
     for f in bm.faces:
+        f.smooth = True
         for lp in f.loops:
             lp[uvl].uv = uv if uv else (0.5, 0.5)
-    for f in bm.faces:
-        f.smooth = True
-    # a hard edge at a fold of 50 degrees or more (the cuff rim, the pad's ends)
-    import math
-    lim = math.cos(math.radians(85.0))
-    for e in bm.edges:
-        if len(e.link_faces) == 2:
-            e.smooth = e.link_faces[0].normal.dot(e.link_faces[1].normal) > lim
-    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
     bm.to_mesh(me)
     bm.free()
+    if "normals" in hand:
+        nrm = np.asarray(hand["normals"])[used]
+        me.normals_split_custom_set_from_vertices([tuple(n) for n in nrm])
     ob = bpy.data.objects.new(name, me)
     (collection or bpy.context.scene.collection).objects.link(ob)
     if material is not None:
