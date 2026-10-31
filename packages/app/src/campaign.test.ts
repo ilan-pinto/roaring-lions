@@ -13,6 +13,7 @@ import {
   nextOperation,
   hostagesAccount,
   hostagesLine,
+  missionOpen,
   newlyUnlocked,
   nextMissionAfter,
   nextMissionOf,
@@ -23,6 +24,7 @@ import {
   regionForTown,
   regionProgress,
   regionStars,
+  townLockedBecause,
   townProgress,
   townStars,
   villainPortrait,
@@ -30,6 +32,8 @@ import {
   type CommanderData,
   type ParsedWorld,
 } from './campaign';
+import { EIN_QASAB_GATE, gatedWorldJson, ledgerBeforeNaharin } from './gated-town.fixture';
+import { t } from './i18n/t';
 
 const world = parseWorld(worldJson);
 const marj = world.regions[0]!;
@@ -591,5 +595,76 @@ describe('nextOperation', () => {
   it('is null once every mission is complete, which hides the button', () => {
     const all = world.regions.flatMap((r) => r.towns).flatMap((t) => t.missions);
     expect(nextOperation(world, { 'campaign.completed_missions': all })).toBeNull();
+  });
+});
+
+// GH-912 G1: a town takes the same `unlock` a region does. `gatedWorldJson()` lists a gated
+// Ein Qasab FIRST in Naharin, the shape that breaks every "first town with something to play"
+// walk unless `nextMissionOf` reads the gate.
+describe('a town-level unlock (GH-912 G1)', () => {
+  const gated = parseWorld(gatedWorldJson());
+  const naharin = gated.regions.find((r) => r.id === 'naharin')!;
+  const einQasab = naharin.towns.find((tw) => tw.id === 'ein_qasab')!;
+  const EQ1 = 'ein_qasab_1_recon';
+  const before = ledgerBeforeNaharin();
+  const wh = naharin.towns.find((tw) => tw.id === 'wadi_halam')!;
+  const afterWh3 = { 'campaign.completed_missions': [...before['campaign.completed_missions'], ...wh.missions.slice(0, 3)] };
+  const tutorial = { id: 'beit_sahwan_0_tutorial', done: true };
+
+  it('T1 parses a town gate onto the runtime spelling, and a town without one has none', () => {
+    expect(einQasab.unlock).toEqual({ afterMission: EIN_QASAB_GATE });
+    expect(wh.unlock).toBeUndefined();
+    expect(parseWorld(worldJson).regions[0]!.towns[0]!.unlock).toBeUndefined();
+  });
+
+  it('T2 keeps a gated town closed until its mission is done, and missionOpen agrees', () => {
+    const fixture: ParsedWorld = {
+      id: 'f',
+      name: 'f',
+      art: 'f.svg',
+      regions: [
+        {
+          id: 'r',
+          name: 'R',
+          faction: 'f',
+          doctrine: 'd',
+          towns: [
+            { id: 'a', name: 'A', at: [0, 0], missions: ['a1'] },
+            { id: 'b', name: 'B', at: [0, 0], missions: ['b1'], unlock: { afterMission: 'a1' } },
+          ],
+        },
+      ],
+    };
+    const b = fixture.regions[0]!.towns[1]!;
+    expect(nextMissionOf(b, {})).toBeNull();
+    expect(missionOpen(fixture, 'b1', {})).toBe(false);
+    const done = { 'campaign.completed_missions': ['a1'] };
+    expect(nextMissionOf(b, done)).toBe('b1');
+    expect(missionOpen(fixture, 'b1', done)).toBe(true);
+  });
+
+  it('T3 listing a gated town first does not move Continue, Next or the board off Wadi Halam I', () => {
+    expect(naharin.towns[0]!.id).toBe('ein_qasab');
+    expect(nextOperation(gated, before)).toBe('wadi_halam_1_fords');
+    expect(continueTarget(gated, before, tutorial)?.missionId).toBe('wadi_halam_1_fords');
+    expect(missionOpen(gated, EQ1, before)).toBe(false);
+    expect(missionOpen(gated, EQ1, afterWh3)).toBe(true);
+  });
+
+  it('T4 the tutorial fallback skips a locked town', () => {
+    expect(nextMissionAfter(gated, 'beit_sahwan_0_tutorial', before)).toBe('wadi_halam_1_fords');
+  });
+
+  it('T5 the lock reads as a sentence with the mission name, never its id', () => {
+    const name = (id: string): string | undefined => (missions as Record<string, { name?: string }>)[id]?.name;
+    const sentence = townLockedBecause(einQasab, {}, name);
+    expect(sentence).toBe('Clear Wadi Halam III \u2014 The Cattle Track first');
+    expect(sentence).not.toContain(EIN_QASAB_GATE);
+    expect(townLockedBecause(einQasab, {})).toBe(t('gate.clearUnknown'));
+    expect(townLockedBecause(einQasab, afterWh3, name)).toBeNull();
+  });
+
+  it('still counts a locked town in its progress: the gate closes the door, not the ledger', () => {
+    expect(townProgress(einQasab, before)).toEqual({ done: 0, total: 3 });
   });
 });

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worldJson from '../../../../data/campaign/world.json';
 import countriesJson from '../../../../data/campaign/countries.json';
 import { parseCountries, parseWorld } from '../campaign';
+import { gatedWorldJson, ledgerBeforeNaharin } from '../gated-town.fixture';
 import { t } from '../i18n/t';
 import { showCampaign } from './menu';
 import {
@@ -898,5 +899,32 @@ describe('a board left before its view mounts holds no WebGL context', () => {
     } finally {
       probe.mockRestore();
     }
+  });
+});
+
+// GH-912 G1: a town's own gate, on the pin. `gatedWorldJson()` lists a gated Ein Qasab first in
+// Naharin; the region is live, so only the town's gate can lock the pin.
+describe('a town-level gate on the 3D pins (GH-912 G1)', () => {
+  const gated = parseWorld(gatedWorldJson());
+  const whIII = 'Wadi Halam III \u2014 The Cattle Track';
+  const named = (id: string) => (id === 'wadi_halam_3_counterraid' ? { objectives: [], name: whIII } : undefined);
+
+  it('T6 locks the gated pin, links the open town, and speaks the sentence, not the id', async () => {
+    const s = mountScreen(ledgerBeforeNaharin(), { world: gated, missionOf: named });
+    await s.ready;
+    const pin = s.el.querySelector<HTMLElement>('[data-town="ein_qasab"]');
+    expect(pin?.dataset.status).toBe('locked');
+    expect(pin?.querySelector('a.rl-world__townlink')).toBeNull();
+    const wh = s.el.querySelector<HTMLElement>('[data-town="wadi_halam"]');
+    expect(wh?.dataset.status).toBe('live');
+    expect(wh?.querySelector<HTMLAnchorElement>('a.rl-world__townlink')?.getAttribute('href')).toBe(
+      '/mission/wadi_halam_1_fords'
+    );
+    pin?.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(say(s.el)).toBe(
+      t('world3d.hover.locked', { region: 'Ein Qasab', reason: `Clear ${whIII} first` })
+    );
+    expect(say(s.el)).not.toContain('wadi_halam_3_counterraid');
+    expect(s.went).toEqual([]);
   });
 });
