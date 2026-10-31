@@ -913,7 +913,7 @@ Two further facts from the build:
 | `shippedContentDigest()` | n/a | changes value (any map added does; nothing pins a literal). Old and new builds cannot share a room. |
 
 S-6 literals (each its own commit, with `Was`):
-- `fen`: `#75A659`, `#4B7135` -> `#7F9F57`, `#4F6732` (`tones.test.ts` `FEN`).
+- `fen`: `#75A659`, `#4B7135` -> hex 7F9F57, `#4F6732` (`tones.test.ts` `FEN`).
 - Wetland `marsh` tone: `mud.3` `#413327` -> `mud.2` `#584535` (`renderer-options.test.ts`, `tones.test.ts`).
 - `basalt.0`: `#4B453D` -> `#625A4D` (`tones.test.ts` `BASALT`, `wetland-readability.test.ts` boulder pin).
 - `wetland-readability.test.ts` open ground vs the KDF uniform: 18.37 -> 15.82 (floor 15.6 kept); `foliage-figure-ground.test.ts`:
@@ -950,7 +950,7 @@ its freeze script returns. 23 frames each.
   step; soften the stair-stepped tile edge into a ragged shoreline across tile edges (presentation only, the sim grid
   unchanged, a new check with a constructed failing input); re-run the readability floors and report the `low` dE. Approved:
   the overcast faces, the name `ein_qasab`, the reed tone, and moving the puddle A/B to P4. P5 items recorded.
-- **Second look:** keep `fen.0` `#7F9F57` (its final green is judged under rain light in P4), keep marsh `mud.2`, basalt and
+- **Second look:** keep `fen.0` hex 7F9F57 (its final green is judged under rain light in P4), keep marsh `mud.2`, basalt and
   the shoreline. **Hold Ein Qasab out of the Free Play list until P3's art lands**, and merge the theme work. The mechanism is
   `UNLISTED_MAP_IDS` (smallest honest option); `/free-play/ein_qasab` and `?sandbox=ein_qasab` still boot it (dev paths), a
   hand-built non-versus room can name it, and it is not a versus map.
@@ -1058,7 +1058,7 @@ once (road share) and cleared on the second round; S-5 did not trip; **S-C is a 
 
 **S-L1 (30 Oct, the first look).** (1) Road puddles reflectance 0.35, marsh water 0.25, **no puddles on open grass**: the open-ground term
 and the low-ground boost are dropped entirely (each pin its own commit with `Was`). (2) KDF infantry near-black on wet road and water:
-decided after the rain; S-L2 shows infantry on road, in water and on grass with readability figures. (3) Approved: `fen.0` `#7F9F57`,
+decided after the rain; S-L2 shows infantry on road, in water and on grass with readability figures. (3) Approved: `fen.0` hex 7F9F57,
 `mud.2`, haze 0.26, the `low` known-debt pin; the Tel Marum frame differences are accepted with CI's `quiet` golden as the witness.
 (4) The double-lit sky term is the coordinator's call, and he kept it (dropping it would brighten the approved look).
 
@@ -1125,21 +1125,21 @@ vsync-bound, 0% over 20 ms; `--burn=2` reads 50.0 ms as it must. Bloom census (`
 All captures: ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro), 1400x900 DPR 1, preset `high` unless named, day under `rainLight`, music off,
 port 5196, the machine loaded by other sessions during the first two. Sheets live outside the repo under `_coord/wet-theme/p4/`.
 
-**S-L1 (`look1`, run #1; load 34.6 / 72.3 / 81.0).** Frames at tick 0 (Tel Marum tick 1; wade frames tick 400). The wet ground and decal GLSL
+**S-L1 (`look1`, run 1; load 34.6 / 72.3 / 81.0).** Frames at tick 0 (Tel Marum tick 1; wade frames tick 400). The wet ground and decal GLSL
 compiled on a real GPU with no error. `wadi_halam_basin` 6 of 6 frames pixel-identical to P2b; `tel_marum` differed on tree crowns and
 vehicle dust only (a different tick and main moved in between; accepted by the lead, CI's `quiet` golden the witness). On the drawn scale road
 puddles read 1.04x / 1.27x / 1.77x over the road and marsh water 1.57x / 1.88x / 2.57x over the marsh floor at reflectance 0.20 / 0.25 / 0.35;
 open-ground puddles read darker than grass (gone by ruling). KDF vs the wading squad: dE2000 12.5 on road, 12.9 on water, below the 15.6 floor.
 Unconfirmed: tan 25 px discs trailing the squad look like the game's own move-order markers. **Verdict: rulings S-L1 (1)-(4) above.**
 
-**S-L2 (`look2`, run #3; load 29.95 / 73.97 / 59.81 at start).** Every preset, a six-tick strip, a reduced-motion frame, a 5 s clip (choppy under
+**S-L2 (`look2`, run 3; load 29.95 / 73.97 / 59.81 at start).** Every preset, a six-tick strip, a reduced-motion frame, a 5 s clip (choppy under
 load; dark outside vision, so not a brightness judge). Density at high on screen: causeway z1 1,417, z1.6 645, z2.5 1,200 (map centre 3,365 at
 z0.35, 1,707 at z1, 1,134 at z2.5). Streaks cover 3.0 / 2.3 / 6.8% of the frame at z1 / 1.6 / 2.5; the splash is a thin pale ring (about 5 px at z1.6);
 `low` at z1.6 is a faint drizzle; no rim or hard cut at the map edge, and rain over the black void at `kdf_start` z2.5 (about 1.9% of void pixels,
 the landing-point overhang). Readability dE2000 at z2.5 under rain (floor 15.6): road 8.2 / 9.0, water 4.0 / 6.4, grass 30.7 / 31.1.
 **Verdict: the rain is approved; density, the infantry lift and one recapture ordered** (14.2).
 
-**The recapture (`look3`, run #4, tip d4be46098; load 3.4-4.6).** Stops all ARRIVED on the wanted glyph (road tick 420, water 485, grass 630).
+**The recapture (`look3`, run 4, tip d4be46098; load 3.4-4.6).** Stops all ARRIVED on the wanted glyph (road tick 420, water 485, grass 630).
 The S-L2 helper cannot score a lifted figure (it discards pixels brighter than 1.5x the ground as streaks), so a figure-mask measure was added
 (cool pixels brighter than 1.3x the ground, components of at least 40 px). Readability A / B: **road 25.7 / 21.5, water 21.4 / 13.6, grass
 24.6 / 23.0** (S-L2 8.2 / 9.0, 4.0 / 6.4, 30.7 / 31.1; model 24.0 / 23.4, 28.9 / 26.9, 23.1 / 23.1). Road and grass clear 15.6 on both; water
