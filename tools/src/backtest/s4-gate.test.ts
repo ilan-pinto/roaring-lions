@@ -41,7 +41,7 @@ const file = (key: string, rows: PerSeedRow[], formation: PerSeedFile['formation
   cells: [{ key, map: 'tel_marum', arr: 'kdf/kdf', world: 'placed', rows }], ...over,
 });
 const FORMED: Record<EndsCarrying, PerSeedFile['formation']> = {
-  both: { id: 'attack', ends: [true, true] }, friendly: { id: 'attack', ends: [true, false] }, hostile: { id: 'attack', ends: [false, true] },
+  both: { id: 'attack', ends: [true, true] }, friendly: { id: 'attack', ends: [true, false], looseAir: 'separate' }, hostile: { id: 'attack', ends: [false, true], looseAir: 'separate' },
 };
 const KEY = 'tel_marum kdf/kdf placed';
 
@@ -237,6 +237,15 @@ describe('the pairing guard (exit 2)', () => {
     expect(gate(input({ armA: [{ name: 'arm-a', file: file(KEY, ok.arm, null) }] })).code).toBe(2);
     expect(gate(input({ baseA: [{ name: 'base-a', file: file(KEY, ok.base, FORMED.both) }] })).code).toBe(2);
     expect(gate(input({ kind: 'friendly' })).code).toBe(2);
+  });
+  it('refuses a one-end arm file played before the loose end ordered its aircraft separately, and takes both-ends files as they are', () => {
+    const old = { id: 'attack', ends: [true, false] as [boolean, boolean] };
+    const one = (arm: PerSeedFile['formation']) => gate(input({ kind: 'friendly', armA: [{ name: 'arm-a', file: file(KEY, ok.arm, arm) }] }));
+    expect(one(FORMED.friendly).faults).toEqual([]);
+    const r = one(old);
+    expect(r.code).toBe(2);
+    expect(r.faults.join('\n')).toContain('loose end ordered its aircraft separately');
+    expect(gate(input()).faults).toEqual([]);
   });
   it('refuses arm files played under different formations, or under one that is not attack', () => {
     const other = { id: 'column', ends: [true, true] as [boolean, boolean] };
