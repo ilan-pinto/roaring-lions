@@ -50,6 +50,18 @@ export const PUDDLE_REFLECT = 0.35;
 export const MARSH_REFLECT = 0.25;
 
 /**
+ * The wet-ground cost follow-up's switch (GH-871 P4 PR 914, the lead's ruling 2 of 31 Oct 2026).
+ * The wet-ground program misses its budget on `medium` (NET, total wet, 0.9 / 1.0 ms against 0.7) and
+ * on `low` (at or just over 0.4). P4 merged anyway because Ein Qasab is unlisted. The follow-up,
+ * tracked on GH-871, is a CHEAPER wet-ground program for medium and low, and it must land before
+ * Ein Qasab leaves `UNLISTED_MAP_IDS` or any wetland / rain mission (GH-912) ships.
+ * `tools/src/wetland-listing-guard.test.ts` fails while this is `false` if either happens.
+ * The follow-up flips it to `true` in the commit that lands the cheaper program AND re-measures
+ * medium and low; flipping it without that measurement is the lie the guard exists to stop.
+ */
+export const CHEAP_WET_GROUND_LANDED = false;
+
+/**
  * The KDF figure's RAIN RIM (GH-871 P4 PR 914, the lead's ruling 1 of 31 Oct 2026, replacing the flat
  * lift of S-L2 ruling 3): a thin, soft, light edge on a KDF figure's outline under rain, a view-angle
  * Fresnel term `RAIN_KDF_RIM_GAIN x colour x (1 - n.v)^RAIN_KDF_RIM_POWER` added as emission
