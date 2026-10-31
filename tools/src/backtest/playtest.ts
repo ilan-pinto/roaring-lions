@@ -3623,7 +3623,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // III 150 (ROE 70, two stars, 6.2 min). Every shipped mission pays what it paid (byte-identical run lines); the ladder
 // is now over 29 missions. No star gate moved: the three open after missions 5, 13 and 19 of the flattened order and
 // Ein Qasab sits at 22 to 24; the Conduct gates all still open at 1. ROSTER_MAX stays 30.
-const LADDER_CREDITS = 6929;
+// 2026-11-01, GH-912, three Ein Qasab beats re-keyed so each fires with its group alive: 6929 -> 6979, +50, read off the
+// printed per-mission credits: Ein Qasab II 250 -> 255 (ROE 90 -> 95: the gap rider now waits beyond the gap and comes
+// in at 90 s), III 150 -> 195 (ROE 70 -> 85, 6.2 -> 6.0 min: Hallaq's man runs at 15 s and is stopped on the lip, so the
+// head is clear of his truck earlier), I unchanged at 250. Every other mission's run line is byte-identical to the tree
+// before the change. Every plan still wins 30 of 30; no star or gate moved; ROSTER_MAX stays 30.
+const LADDER_CREDITS = 6979;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
