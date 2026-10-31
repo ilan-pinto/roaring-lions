@@ -81,6 +81,20 @@ export const RAIN_KDF_RIM_GAIN = 0.6;
 export const RAIN_KDF_RIM_POWER = 3;
 export const RAIN_KDF_RIM_KEY = RAIN_SKY_KEY;
 
+/**
+ * The KDF figure's rain exposure and contrast (GH-871 cheap-wet follow-up, task 2; `units/rain-rim.ts`'s
+ * header has the measurement). The albedo is multiplied by `RAIN_KDF_EXPOSURE` (capped at 1) and then raised to
+ * `RAIN_KDF_CONTRAST`, so the camouflage that the rain's dim light crushes to near black reads as the tan-and-green
+ * pattern it is, its darks kept by the gamma. 8 and 1.5 are the point of the readability sweeps
+ * (`_coord/wet-theme/p5-read/`) where the pattern, the faces and the team colour were all still there and the
+ * share of the figure that separates from what it stands on (dE2000 >= 15.6 against the pixel behind it) rose from
+ * 30% to 46% on the wet road and from 21% to 55% in the marsh: more exposure washes the pattern (a flat lift's
+ * ghost), less does not separate the figure from the ground.
+ * Neither number clears the CIEDE2000 floor 15.6 on the mean or the darkest 15% (nothing short of a ghost can:
+ * the darkest 15% of a figure on that road is at most 13.7 from it even when pure black).
+ */
+export const RAIN_KDF_EXPOSURE = 8;
+export const RAIN_KDF_CONTRAST = 1.5;
 
 /** What `rainLight` reads of a resolved light (`lighting.ts`'s `ResolvedLights`
  *  satisfies it; its `direction` is a `Vector3`, which has x, y and z). */

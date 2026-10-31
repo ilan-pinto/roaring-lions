@@ -114,7 +114,7 @@
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
 import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
-import { rainRimNow, setRainRimGain } from './units/rain-rim';
+import { rainReadNow, rainRimNow, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
@@ -11867,6 +11867,21 @@ export class ThreeRenderer implements Renderer {
   /** The wet program the ground compiles now, or null on a dry ground. */
   debugWetProgram(): WetProgram | null {
     return this.groundMat.wet ? this.groundMat.wetProgramNow : null;
+  }
+
+  /**
+   * The readability sweep's door (GH-871 cheap-wet follow-up): writes every knob of the KDF rain
+   * treatment (rim gain and power, the albedo exposure and the contrast gamma) into
+   * the ONE shared uniform set, so a single call moves every figure on screen. Concrete class only,
+   * like `debugSetRainRim`; `ground:capture --read=` calls it.
+   */
+  debugSetRainRead(p: RainRead): void {
+    setRainRead(p);
+  }
+
+  /** The knobs the KDF figure shaders read now (the EFFECTIVE values: gain 0, exposure and contrast 1 while the `unit-surface` layer is off), and whether a rim material exists. */
+  debugRainRead(): RainRead & { built: boolean } {
+    return { ...rainReadNow(), built: this.opts.weather === 'rain' && rainRimCloneCount() > 0 };
   }
 
   /** What the rim shaders read now: the effective `gain` (0 while the `unit-surface` debug layer is off), the
