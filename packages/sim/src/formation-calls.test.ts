@@ -171,7 +171,7 @@ const counted = (w: World, g: number): boolean => priv(w.sim).fgAtCp[g] + priv(w
 // ---------------------------------------------------------------------------------------------
 // The Attack: two tanks and three riflemen with a strike helicopter, a spot drone, a seated helicopter and a loitering
 // munition, all ordered from (24, 30) to (24, 4) as an attack-move. An enemy rifleman at (31, 19) is cleared by the lead
-// tank at tick 128 (the press), which is the contact; the call is the next tick.
+// tank at tick 117 (the press), which is the contact; the call is the next tick.
 interface Attack {
   w: World;
   ids: number[];
@@ -189,7 +189,7 @@ function attack(): Attack {
   const post = spawnAt(w, w.weak, 1, 31, 19);
   return { w, ids, tank: ids[0], heli: ids[5], drone: ids[6], seated: ids[7], kamikaze: ids[8], post };
 }
-/** Tick until the first `formationContact` is pushed (tick 128), leaving the world on that tick. */
+/** Tick until the first `formationContact` is pushed (tick 117), leaving the world on that tick. */
 function untilContact(w: World, limit = 600): number {
   for (let t = 0; t < limit; t++) {
     tick(w);
@@ -208,12 +208,12 @@ function called(): Attack & { before: { goal: [number, number]; wp: number; heli
 }
 
 describe('a strike helicopter and a spot drone answer the contact call', () => {
-  it('the contact is the tank firing at the post at tick 128; the call comes the next tick (the world is the literal)', () => {
+  it('the contact is the tank firing at the post at tick 117; the call comes the next tick (the world is the literal)', () => {
     const a = attack();
     const t = untilContact(a.w);
-    expect(t).toBe(128);
+    expect(t).toBe(117);
     expect(kinds(a.w, 'formationContact')).toEqual([
-      { kind: 'formationContact', tick: 128, side: 0, group: 0, entity: a.tank, x: 2064384, y: 1277952, drill: 2 },
+      { kind: 'formationContact', tick: 117, side: 0, group: 0, entity: a.tank, x: 2064384, y: 1277952, drill: 2 },
     ]);
     expect(kinds(a.w, 'formationCall')).toHaveLength(0); // nothing has been sent yet: the call runs at the top of the next tick
     expect(priv(a.w.sim).fgPending[0]).toBe(3); // drill and call
@@ -231,7 +231,7 @@ describe('a strike helicopter and a spot drone answer the contact call', () => {
     // its old goal, checkpoint 2's slot at (24.5, 27.5): 1605632, 1802240
     expect(before.goal).toEqual([1605632, 1802240]);
     expect([p.fmHomeX[heli], p.fmHomeY[heli]]).toEqual([1605632, 1802240]);
-    expect(calls(w).filter((c) => c.entity === heli)).toEqual([{ tick: 129, entity: heli, call: 'strike' }]);
+    expect(calls(w).filter((c) => c.entity === heli)).toEqual([{ tick: 118, entity: heli, call: 'strike' }]);
   });
   it('the drone gets the same as a move: attackMove 0', () => {
     const { w, drone } = called();
@@ -239,14 +239,14 @@ describe('a strike helicopter and a spot drone answer the contact call', () => {
     expect([p.goalX[drone], p.goalY[drone]]).toEqual([2064384, 1277952]);
     expect([p.moving[drone], p.attackMove[drone], p.sweepOrder[drone], p.fmDuty[drone], p.wpCount[drone]]).toEqual([1, 0, 0, DUTY.out, 2]);
     expect([p.fmHomeX[drone], p.fmHomeY[drone]]).toEqual([1736704, 1802240]); // (26.5, 27.5)
-    expect(calls(w).filter((c) => c.entity === drone)).toEqual([{ tick: 129, entity: drone, call: 'spot' }]);
+    expect(calls(w).filter((c) => c.entity === drone)).toEqual([{ tick: 118, entity: drone, call: 'spot' }]);
   });
   it('a seated helicopter and a loitering munition stay: no call, no duty, the goal they had', () => {
     const { w, seated, kamikaze, heli, drone } = called();
     const p = priv(w.sim);
     expect(calls(w)).toEqual([
-      { tick: 129, entity: heli, call: 'strike' },
-      { tick: 129, entity: drone, call: 'spot' },
+      { tick: 118, entity: heli, call: 'strike' },
+      { tick: 118, entity: drone, call: 'spot' },
     ]);
     expect([p.fmDuty[seated], p.fmDuty[kamikaze]]).toEqual([DUTY.none, DUTY.none]);
     // still bound for the slots the march gave them: (22.5, 27.5) and (24.5, 29.5)
@@ -282,8 +282,8 @@ describe('the sortie ends at the point, and the call is not made twice', () => {
     expect(w.sim.tickCount).toBe(298); // tickCount counts the tick that has run: it stopped on tick 297
     expect([tileOf(p.posX[heli]), tileOf(p.posY[heli])]).toEqual([31, 19]);
     expect([p.moving[heli], p.fmDuty[heli], p.wpCount[heli], p.fmLeg[heli]]).toEqual([0, DUTY.out, 2, 2]);
-    // thirty ticks on, before the quiet return: still there, queue still two, the drone beside it
-    tick(w, 29);
+    // nineteen ticks on, the tick before the quiet return (317): still there, queue still two, the drone beside it
+    tick(w, 19);
     expect([tileOf(p.posX[heli]), tileOf(p.posY[heli]), p.moving[heli], p.wpCount[heli], p.fmDuty[heli]]).toEqual([31, 19, 0, 2, DUTY.out]);
     expect([tileOf(p.posX[drone]), tileOf(p.posY[drone]), p.moving[drone], p.wpCount[drone]]).toEqual([31, 19, 0, 2]);
   });
@@ -298,16 +298,16 @@ describe('the sortie ends at the point, and the call is not made twice', () => {
     expect([p.fgPending[0], p.fgQuiet[0]]).toEqual([0, 0]);
     tick(w, 20);
     expect(calls(w)).toEqual([
-      { tick: 129, entity: heli, call: 'strike' },
-      { tick: 129, entity: drone, call: 'spot' },
+      { tick: 118, entity: heli, call: 'strike' },
+      { tick: 118, entity: drone, call: 'spot' },
     ]);
     expect([p.fmDuty[heli], p.fmDuty[drone], p.fgAway[0]]).toEqual([DUTY.out, DUTY.out, 2]);
-    // the return waits for ten quiet seconds from that hit, made after tick 229 and not tick 128: not at 328 but at 429
+    // the return waits for ten quiet seconds from that hit, made after tick 218 and not tick 117: not at 317 but at 418
     tick(w, 150);
-    expect(w.sim.tickCount).toBe(400);
+    expect(w.sim.tickCount).toBe(389);
     expect(calls(w).filter((c) => c.call === 'return')).toHaveLength(0);
     for (let t = 0; t < 100 && calls(w).filter((c) => c.call === 'return').length === 0; t++) tick(w);
-    expect(calls(w).filter((c) => c.call === 'return').map((c) => c.tick)).toEqual([429, 429]);
+    expect(calls(w).filter((c) => c.call === 'return').map((c) => c.tick)).toEqual([418, 418]);
   });
 });
 
@@ -316,14 +316,14 @@ describe('the quiet return', () => {
   function untilReturn(a: Attack): void {
     for (let t = 0; t < 800 && kinds(a.w, 'formationCall').filter((e) => (e as { call: string }).call === 'return').length === 0; t++) tick(a.w);
   }
-  it('ten seconds after the last contact (tick 328) both go home as moves: goal fmHome, attackMove 0, duty RETURN', () => {
+  it('ten seconds after the last contact (tick 317) both go home as moves: goal fmHome, attackMove 0, duty RETURN', () => {
     const a = called();
     const { w, heli, drone } = a;
     const p = priv(w.sim);
     untilReturn(a);
     expect(calls(w).filter((c) => c.call === 'return')).toEqual([
-      { tick: 328, entity: heli, call: 'return' },
-      { tick: 328, entity: drone, call: 'return' },
+      { tick: 317, entity: heli, call: 'return' },
+      { tick: 317, entity: drone, call: 'return' },
     ]);
     expect([p.goalX[heli], p.goalY[heli]]).toEqual([1605632, 1802240]);
     expect([p.goalX[drone], p.goalY[drone]]).toEqual([1736704, 1802240]);
@@ -334,7 +334,7 @@ describe('the quiet return', () => {
   it('nothing is sent a tick early', () => {
     const a = called();
     const p = priv(a.w.sim);
-    while (a.w.sim.tickCount < 327) tick(a.w); // the tick before the return event
+    while (a.w.sim.tickCount < 316) tick(a.w); // the tick before the return event
     expect(calls(a.w).filter((c) => c.call === 'return')).toHaveLength(0);
     expect([p.fmDuty[a.heli], p.fmDuty[a.drone], p.fgCalled[0]]).toEqual([DUTY.out, DUTY.out, 1]);
   });
@@ -344,7 +344,7 @@ describe('the quiet return', () => {
     const p = priv(w.sim);
     untilReturn(a);
     while (p.fmDuty[heli] === DUTY.ret) tick(w);
-    expect(w.sim.tickCount).toBe(437); // it arrived on tick 436
+    expect(w.sim.tickCount).toBe(426); // it arrived on tick 425
     expect([p.fmDuty[heli], p.fmDuty[drone], p.fgAway[0]]).toEqual([DUTY.none, DUTY.none, 0]);
     expect(p.attackMove[heli]).toBe(1); // the formation's verb is attackMove
     expect(p.attackMove[drone]).toBe(1);

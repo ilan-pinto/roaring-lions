@@ -125,7 +125,7 @@ interface Press {
   drone: number;
 }
 /** An Attack of two Lavi, three squads, a gunship and a recon drone from (24, 30) to (24, 4), a weak enemy post at (31, 19): the
- *  lead tank fires on it at tick 113 (the contact); the gunship and the drone are called at 114. */
+ *  lead tank fires on it at tick 104 (the contact; 113 while the Attack paced); the gunship and the drone are called at 105. */
 function pressing(): Press {
   const w = world();
   const ids = [w.t.mbt, w.t.mbt, w.t.inf, w.t.inf, w.t.inf, w.t.heli, w.t.drone].map((ty) => spawn(w, ty, 0, 24, 30));
@@ -266,18 +266,18 @@ describe('the card: contact', () => {
     expect(cardLines(h.w.sim, h.heli)).toContain('Answering a call');
   });
 
-  it('an Attack pressing on reads "In contact — pressing on" and still names its pace; the aircraft are answering', () => {
+  it('an Attack pressing on reads "In contact — pressing on" and names no pace (GH-859 P1c: it marches at its members\' own speeds); the aircraft are answering', () => {
     const p = pressing();
     step(p.w, 20); // tick 21: marching, checkpoint 1 of 4
     expect(cardLines(p.w.sim, p.tank)).toContain('In attack formation — checkpoint 1 of 4');
-    expect(cardLines(p.w.sim, p.tank)).toContain('Pace 0.9 t/s, set by Rifle Squad');
+    expect(cardLines(p.w.sim, p.tank).join(' | ')).not.toContain('Pace'); // the Attack has no pace; the Column's cards above and below still do
     expect(cardLines(p.w.sim, p.heli)).toContain('On call');
     expect(cardLines(p.w.sim, p.drone)).toContain('On call');
-    step(p.w, 100); // tick 121: contact at 113, the aircraft called at 114
+    step(p.w, 100); // tick 121: contact at 104 (was 113 under the pace), the aircraft called at 105
     expect(p.w.sim.formationStateOfGroup(0)).toBe(3);
     const tank = cardLines(p.w.sim, p.tank);
     expect(tank).toContain('In contact — pressing on');
-    expect(tank).toContain('Pace 0.9 t/s, set by Rifle Squad');
+    expect(tank.join(' | ')).not.toContain('Pace');
     expect(tank.join(' | ')).not.toContain('checkpoint');
     for (const id of [p.heli, p.drone]) {
       expect(p.w.sim.formationDutyOf(id)).toBe(2);

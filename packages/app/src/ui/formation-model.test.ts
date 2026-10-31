@@ -234,7 +234,7 @@ describe('the legend', () => {
       'Faces the way you march. Halts and returns fire on contact. Moves at the pace of its slowest ground unit. Medics go to a man who goes down. Aircraft answer a contact.'
     );
     expect(formationFacingLine('attack')).toBe(
-      'Faces the approach. Then press on, fighting. Moves at the pace of its slowest ground unit. Medics go to a man who goes down. Aircraft answer a contact.'
+      'Faces the approach. Then press on, fighting. Medics go to a man who goes down. Aircraft answer a contact.'
     );
     expect(formationFacingLine('ambush')).toBe(
       'Faces inward. Springs together on contact. Moves at the pace of its slowest ground unit. Ring radius grows with the force. Medics go to a man who goes down. Aircraft answer a contact.'
@@ -246,7 +246,9 @@ describe('the legend', () => {
       formations.find((f) => f.id === id)!.elements.flatMap((el) => (el.on_call !== undefined && el.on_call !== 'none' ? [el.on_call] : []));
     // Medic first, aircraft after, in all three files: the tooltip's order follows.
     for (const id of ['column', 'attack', 'ambush'] as const) expect(calls(id), id).toEqual(['casualty', 'contact']);
-    expect(['column', 'attack', 'ambush'].map((id) => formations.find((f) => f.id === id)!.march!.pace)).toEqual(['slowest_ground', 'slowest_ground', 'slowest_ground']);
+    // P1c (GH-859): the Attack keeps no pace (its members walk at their own speeds between checkpoints), so its line above has no
+    // pace clause; the Column and the Ambush keep theirs.
+    expect(['column', 'attack', 'ambush'].map((id) => formations.find((f) => f.id === id)!.march!.pace)).toEqual(['slowest_ground', 'none', 'slowest_ground']);
   });
 });
 

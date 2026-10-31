@@ -486,10 +486,10 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
       // Mid-rescue (250): the Column's medic is OUT, treating the man who went down at 180; mid-return (380): he is coming home.
       if (w.sim.tickCount === 250) medicOut = [(it.fmDuty as Uint8Array)[medic], (it.fgAway as Uint16Array)[0], (it.fmHomeX as Int32Array)[medic], (it.fmHomeY as Int32Array)[medic]];
       if (w.sim.tickCount === 380) medicHome = [(it.fmDuty as Uint8Array)[medic], (it.fgAway as Uint16Array)[0]];
-      // Mid-sortie (700): the Attack's helicopter and drone are OUT, the call latched, home recorded; mid-return (930): both
+      // Mid-sortie (700): the Attack's helicopter and drone are OUT, the call latched, home recorded; mid-return (965): both
       // are RETURN, the call over, still counted away, the quiet clock past its 200.
       if (w.sim.tickCount === 700) sortieAtCut = [...air.map((i) => (it.fmDuty as Uint8Array)[i]), (it.fgAway as Uint16Array)[1], (it.fgCalled as Uint8Array)[1], (it.fmHomeX as Int32Array)[20]];
-      if (w.sim.tickCount === 930) returnAtCut = [...air.map((i) => (it.fmDuty as Uint8Array)[i]), (it.fgAway as Uint16Array)[1], (it.fgCalled as Uint8Array)[1], (it.fgQuiet as Uint16Array)[1]];
+      if (w.sim.tickCount === 965) returnAtCut = [...air.map((i) => (it.fmDuty as Uint8Array)[i]), (it.fgAway as Uint16Array)[1], (it.fgCalled as Uint8Array)[1], (it.fgQuiet as Uint16Array)[1]];
       // Mid-pace: the Column walks capped (fgPace 2293), every member still on its way to checkpoint 1.
       if (w.sim.tickCount === 100) paceAtCut = [(it.fgPace as Int32Array)[0], (it.fgLegs as Uint8Array)[0], ...column.map((i) => (it.moving as Uint8Array)[i])];
       // Mid-dress: one member waiting (duty 1) with the dress clock running; the mortar still on its way.
@@ -503,7 +503,11 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     expect(pendingAtCut, 'T = 445 cuts while two groups are marked and not yet consumed: the ring (row 2) and the side-1 Column (row 16), each drill + call').toEqual([3, 3]);
     // G-6 re-derivation (P1b Task 5): [3, 3, 18, 2523136]. The Attack's strike helicopter now reports the contact (tick 510, at
     // (40.5, 16.5)), and it is still being fired on at 560, so the quiet clock reads 1 and the call point x is 2654208.
-    expect(contactAtCut, 'T = 560 cuts in contact: the Attack and the Column in state 3, the Attack\'s quiet clock at 1, its call point x 40.5').toEqual([3, 3, 1, 2654208]);
+    // P1c (GH-859): the Attack no longer paces its march, so it reaches the post earlier: its first contact is a ground member
+    // (entity 6) at 451, not the helicopter at 510, and its aircraft are called at 452 (was 511). The call point x reads 38.5
+    // (2523136, was 40.5) and the quiet clock 4 (was 1). The return is sent at 945 (was 910), so the mid-return cut moves from
+    // 930 to 965, the same 20 ticks on.
+    expect(contactAtCut, 'T = 560 cuts in contact: the Attack and the Column in state 3, the Attack\'s quiet clock at 4, its call point x 38.5').toEqual([3, 3, 4, 2523136]);
     expect(paceAtCut, 'T = 100 cuts mid-march: capped at 2293 raw, two checkpoints, all five moving').toEqual([2293, 2, 1, 1, 1, 1, 1]);
     // G-6 re-derivation (P1b Task 5): the cut was 170 with [1, 27, 1]. The Column has a medic and an ambulance now, the ambulance
     // (a fast vehicle) reaches checkpoint 1 first at tick 58, and the dress is released by the clock at 117; 170 is past it.
@@ -511,7 +515,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     expect(medicOut, 'T = 250 cuts mid-rescue: the medic OUT, one away, its home the checkpoint (8.5, 36.5) it was walking to').toEqual([2, 1, 557056, 2392064]);
     expect(medicHome, 'T = 380 cuts the medic coming home: RETURN, still counted away').toEqual([3, 1]);
     expect(sortieAtCut, 'T = 700 cuts mid-sortie: both OUT, two away, the call latched, the helicopter home at x 40.5').toEqual([2, 2, 2, 1, 2654208]);
-    expect(returnAtCut, 'T = 930 cuts mid-return: both RETURN, two away, the call over, the quiet clock at 219').toEqual([3, 3, 2, 0, 219]);
+    expect(returnAtCut, 'T = 965 cuts mid-return: both RETURN, two away, the call over, the quiet clock at 219').toEqual([3, 3, 2, 0, 219]);
   });
 
   for (const [label, T] of [
@@ -526,7 +530,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     ['mid-rescue, the Column\'s medic OUT with his home recorded (duty 2)', 250],
     ['the medic coming home (duty 3)', 380],
     ['mid-sortie, the Attack\'s helicopter and drone OUT (duty 2, the call latched)', 700],
-    ['mid-return, both RETURN (duty 3, the call over)', 930],
+    ['mid-return, both RETURN (duty 3, the call over)', 965],
   ] as const) {
     it(`${label} (T = ${T}): every hash tick of the next 200 agrees, and so do the bytes`, () => {
       expectClean(forkFm(T), `${FORMATION.name} T=${T}`);
@@ -588,7 +592,7 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     ['the aircraft\'s home', 700, 'fmHomeY', 0],
     ['the count away on a sortie', 700, 'fgAway', 0],
     ['the call latch', 700, 'fgCalled', 0],
-    ['a member\'s duty coming home', 930, 'fmDuty', 0],
+    ['a member\'s duty coming home', 965, 'fmDuty', 0],
   ] as const) {
     it(`${label} lost after the restore turns the fork red (T = ${T}, ${column} zeroed)`, () => {
       const v = forkFm(T, {
