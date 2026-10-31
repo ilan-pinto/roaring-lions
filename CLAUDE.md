@@ -290,7 +290,7 @@ three.js is the only renderer, loaded by dynamic import. A unit whose GLB fails 
 - **A debug toggle that only holds until the next frame is not a measurement.** If a layer's visibility is re-asserted every frame, it needs a flag those writes consult, as `unitsDebugHidden` does.
 - The quality preset (`high`/`medium`/`low`, `packages/render/src/quality.ts`) applies at the next mission's BOOT. `high` is pinned to the pre-preset constants, so the baselines did not move.
 - **Everything wet keys on `RendererOptions.weather === 'rain'`** (control C, `THEME_WET`, `rainLight`, the wet sway, decals and unit table, `vehicle_mud`, the rain batch), never on a theme id or a map id.
-- **The rain batch is `RAIN_RENDER_ORDER`**: depth-tested, depth-write off, no `normal` attribute, so it is never in AO, the shadow pass or the minimap's photograph. Everything it animates reads the SIM clock.
+- **The rain batch is `RAIN_RENDER_ORDER`**: depth-tested, depth-write off. It is out of the shadow pass by `castShadow = false`, out of AO by having no `normal` attribute AND a transparent depth-write-off material, and out of the minimap by an explicit hide in `photographGround`: keep all three. Everything it animates reads the SIM clock.
 - **`THEME_WET` GLSL lives only inside its `#ifdef` blocks** (`terrain/mesh.ts` `wetBlock`, no nested conditionals), so stripping them reproduces arid's program byte for byte. `theme-identity.test.ts` pins it.
 
 ### Ground and terrain
