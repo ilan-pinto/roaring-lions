@@ -4672,7 +4672,10 @@ export class Sim {
     const members: FormationUnit[] = [];
     let sumX = 0;
     let sumY = 0;
-    // The same centroid over the members a template places (class not none), for the template branch.
+    // The same centroid over the members a template places (class not none), for the template branch. Summed in
+    // raw Fx and floored ONCE, after the divide (GH-859 P1c): flooring each member's tile first rounds both ends
+    // of a point-symmetric map toward low x and y, so the frame was not end-symmetric. (`sumX`/`sumY`, the plain
+    // order's floored centroid, are left as they are: that is the base game, and touching it moves every pin.)
     let tSumX = 0;
     let tSumY = 0;
     let tCount = 0;
@@ -4720,8 +4723,8 @@ export class Sim {
       // Side 2 (civilians, neutrals) is never placed; class none ignores the order.
       if (tSeen !== null && utype.fmClass !== FM_CLASS_NONE && this.side[id] <= 1 && !tSeen.has(id)) {
         tSeen.add(id);
-        tSumX += ix;
-        tSumY += iy;
+        tSumX += fromX;
+        tSumY += fromY;
         tCount++;
       }
     }
@@ -4748,8 +4751,8 @@ export class Sim {
         uSeen.add(m.id);
         units.push({ id: m.id, domain: m.domain, cls: ut.fmClass, vehicle: !ut.isAir && ut.moveDomain === DOMAIN_VEHICLE, air: ut.isAir });
       }
-      const cenX = (tSumX - (tSumX % tCount)) / tCount;
-      const cenY = (tSumY - (tSumY % tCount)) / tCount;
+      const cenX = fx.toInt((tSumX - (tSumX % tCount)) / tCount);
+      const cenY = fx.toInt((tSumY - (tSumY % tCount)) / tCount);
       // Rulings 1 and 2: walk the lead domain's route field from the centroid to the click, and cut it into
       // checkpoints. An appended order, a missing route or a short one is one checkpoint (P1a, whole).
       let startX = cenX;

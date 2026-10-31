@@ -37,8 +37,11 @@ export interface PerSeedFile {
   seeds: number;
   rules: 'room' | 'default';
   capSeconds: number;
-  /** The formation arm the file was played under: null is the baseline game. `ends` is [friendly, hostile]. */
-  formation: { id: string; ends: [boolean, boolean] } | null;
+  /** The formation arm the file was played under: null is the baseline game. `ends` is [friendly, hostile].
+   *  `looseAir: 'separate'` is written on a ONE-end arm (S4 (c)) played since the lead's Q2 ruling (GH-859 P1c): the
+   *  loose end orders its aircraft with a separate attack-move. A one-end file without it was played with the aircraft
+   *  inside the one combined order, a different comparator, and the gate refuses to pair it. */
+  formation: { id: string; ends: [boolean, boolean]; looseAir?: 'separate' } | null;
   cells: PerSeedCell[];
 }
 
@@ -62,6 +65,8 @@ export function parsePerSeed(raw: unknown, where: string): { file: PerSeedFile; 
     const f = raw.formation;
     if (isObj(f) && typeof f.id === 'string' && Array.isArray(f.ends) && f.ends.length === 2 && f.ends.every((e) => typeof e === 'boolean')) {
       formation = { id: f.id, ends: [f.ends[0] as boolean, f.ends[1] as boolean] };
+      if (f.looseAir === 'separate') formation.looseAir = 'separate';
+      else if (f.looseAir !== undefined) bad('formation.looseAir is neither absent nor "separate"');
     } else bad('formation is neither null nor {id, ends: [boolean, boolean]}');
   }
   const cells: PerSeedCell[] = [];

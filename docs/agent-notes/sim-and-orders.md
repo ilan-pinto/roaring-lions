@@ -382,7 +382,7 @@ of every number are the ledger `_coord/formations-p1b-progress.md` and the repor
     `eighthToward(call point - own position)`. A RETURN member is halted and freed (duty NONE, `fgAway--`); an OUT
     member keeps its duty but loses its queue like any ground member. An answering aircraft in a halt row has
     `wpCount` zeroed, so it flies to the call, comes home to `fmHome` and stops.
-  - `press`: pace stays, the dress ends, the WAIT members go on. Neither press nor spring touches OUT/RETURN members.
+  - `press`: pace stays (for a formation that has one; the shipped Attack has none since P1c), the dress ends, the WAIT members go on. Neither press nor spring touches OUT/RETURN members.
 - **`fgCalled`** is a `Uint8Array`: 0 nobody out and a call may be raised, 1 at least one aircraft is out on the
   row's call (the quiet clock runs and `fmRecall` is armed), 2 nobody could ever answer (no live member passes
   `fmCanBeCalled`: air, not `stay`, an element on call for `contact`), so `fmPend`'s `fgCalled === 0` gate stops
@@ -567,4 +567,63 @@ of every number are the ledger `_coord/formations-p1b-progress.md` and the repor
   - M-8: pressing the armed formation's own button after it went inert leaves it armed.
   - The march-frame work for versus: mirror the formation frame between the ends. Scratch-arm the Beit mirror first.
   - Deep vehicle overlap +47% (GH-421).
-  - Qarn Hadid III's open-loop playtest plan (the t=75 west leg is cut off by the t=110 redirect at the paced speed).
+  - Qarn Hadid III's open-loop playtest plan (the t=75 west leg is cut off by the t=110 redirect at the paced speed). Resolved by P1c: the Attack has no pace, `formations:playtest` Qarn Hadid III Attack is 30/30 (3.7 min).
+
+## Formations P1c (GH-859)
+
+Why S4 failed and what P1c changed. The source is the report-only diagnosis `_coord/formations-p1c/march-frame-diagnosis.md`
+(scripts, raw tables and S4 outputs beside it). Versus stays closed; this section is only the two changes P1c made to the formation
+model. The S4 re-run and the decision to open versus are written up separately.
+
+- **The template centroid is summed in Fx (a sim defect).** The template branch of `applyMove` summed `fx.toInt(fromX)`, the floor of
+  each member's tile, then floored the mean again. On a point-symmetric map both ends round toward low x and y, so the end that
+  marches toward the origin (east on wadi_tarfan) started a tile further forward, and every checkpoint after it was a tile nearer the
+  enemy. It now sums raw Fx (`tSumX += fromX`) and floors once: `cenX = fx.toInt((tSumX - (tSumX % tCount)) / tCount)`, the same
+  divide idiom on a JS-number sum (exact far below 2^53). The first Attack order is then rotation-equivariant: the witness is every
+  member's goal and waypoints equal to its rotated twin's, first Attack order on wadi_tarfan and milh_flats, both ends, three seeds
+  (15 of 15 differed before, 0 after). No determinism pin moved (the formation world is blind to it); the literals that read it in
+  `formation-calls.test.ts` and `formation-march.test.ts` were re-derived in the same change. Alone it turns the wadi mirror (b) from 64.1% TRIP to
+  50.5% PASS at 384 seeds, and is not enough on Beit. The P0 plain-order centroid is still floored (a base-game chirality; touching
+  it moves every pin, not P1c).
+- **The Attack has no march pace (lead ruling Q1, `data/formations/attack.json` `pace: none`).** Checkpoints (`legs`, `leg_tiles` 8)
+  and the 3 s dress stay. Column and Ambush keep `slowest_ground`. In S4's probe every unit is in the one Attack order, so KDF marched
+  at the D9's 0.6 t/s (mortar 0.65) and Sarim at the Grad battery's 0.5 t/s, and D4 held that pace through contact: first ground
+  contact moved from 5 to 19 s and from 7 to 17 tiles and opened as a mortar exchange. The pace was the dominant term: with the Attack
+  unpaced (and the centroid fixed) 10 of L0's 13 S4 trips passed (6 TRIP of 36 cell-arm verdicts; placed wadi 88.0 / 95.3% -> 54.2 /
+  51.6%). Any walking-pace cap does it, whoever sets it (0.5-0.7 t/s) and whether or not it holds through contact; capping KDF's armour
+  alone still gave KDF 73-79%. The Attack's members now walk at their own speeds between the 8-tile checkpoints, so contact and
+  arrival ticks move earlier, the card and the legend tooltip no longer carry a pace clause for an Attack (the clause is composed from
+  the compiled file), and a pressing Attack has nothing to hold.
+- **What moved, and what did not.** `FORMATION_WORLD_PIN` 762031029 -> 2297075074 (its own commit); that world's first Attack contact
+  is the second tank at 451 (was the helicopter at 510), the aircraft sortie at 452 (was 511) and are sent home at 945 (was 910), and
+  they are still flying home at tick 1000 (`awayAtEnd` `0,2,0,0 2`, was `0,0,0,0 0`). The fork witness's 560 cut, the HUD and legend
+  tests, `formation-calls.test.ts` (contact 117, calls 118, return 317) and the snapshot-rejoin sign premise (the digest folds in the
+  shipped formation files: the mirror seed went 2 -> 1) were re-derived. The golden canaries (flat, relief, orders), the economy,
+  runtime-digest and wounded pins and `LADDER_CREDITS` did not move. `pnpm balance` on this branch (HEAD `acc51a850`, `_coord/formations-p1c/gates/balance.txt`): only the two "Attack formation buys no ratio step"
+  rows move (base 3:1 93% / 2:1 28%, max tier 100% / 12%), and both pass. `pnpm formations:playtest` (30 seeds): Qarn Hadid III Attack 0/30 -> 30/30 (3.7 min);
+  **Beit Sahwan IV Column 27/30 -> 24/30** (6 lost on `get_them_out`, the centroid moved the Column's checkpoints; not investigated); Tel Marum II unchanged.
+- **S4 after P1c (192 seeds paired, set B for the RERUN cells, all four groups including tunnels cell 3; HEAD `acc51a850`).**
+  The no-formation mirror replay is byte-identical to T8's. **11 of 48 cell-arm verdicts TRIP** (L0: 13 of 36, tunnels unplayed), so
+  versus stays CLOSED (`VERSUS_FORMATIONS_OPEN` false). Tel Marum's six: (b) mirror 60.7% for end 0 (the south start), placed and economy Sarim-friendly
+  70.3 / 69.8%, tunnels Sarim-friendly 62.2%, and (c) hostile tunnels both seats (67.7 / 76.0%). Five are not Tel Marum: (c) mirror
+  Beit friendly 66.9 and hostile 75.5%, mirror wadi_tarfan hostile 70.8%, tunnels wadi_tarfan (b) Sarim-friendly 65.6% and (c) friendly
+  KDF-friendly 80.7% (base 47.9%, flips 75/12). All of placed and economy (c), and every (b) cell outside tel_marum and the tunnels
+  wadi seat, pass. Files: `_coord/formations-p1c/s4run/`.
+- **The (c) comparator (lead Q2, applied literally).** The probe's loose end of a one-end arm orders its aircraft with a separate
+  attack-move (`versus-probe.ts` `order()`; the per-seed file records `formation.looseAir: 'separate'` and the gate refuses an older
+  one-end file). It does not close the trips: at 96 seeds Beit friendly 78.1 -> 72.9, Beit hostile 64.6 -> 76.0, wadi identical
+  (the loose aircraft land in the same place either way). The reading the diagnosis measured is the other one: the FORMED end's
+  aircraft ordered plainly beside the formation (scratch, not committed). Under it the (c) mirror friendly and tunnels friendly cells
+  all pass and wadi hostile passes (49.5%), but Beit hostile (66.4% pooled) and the Tel Marum hostile cells (65.4 mirror, 67.7 / 71.4
+  tunnels) still TRIP. Whatever the comparator, versus does not open on this layout.
+- **What P1c leaves open.**
+  - tel_marum's end 0 (south start, north saddle) is map and seat content, re-seated after P1c (lead Q3, `mission-author`). It covers the
+    three Tel Marum cells that favour end 0: mirror (b), placed (b) Sarim-friendly and economy (b) Sarim-friendly.
+  - **The tunnels group is its own failure family** (5 of the 11 trips: (b) tel_marum Sarim-friendly 62.2 and wadi_tarfan Sarim-friendly 65.6,
+    (c) friendly wadi_tarfan KDF-friendly 80.7, (c) hostile tel_marum both seats 67.7 / 76.0). It was never played at L0. On tel_marum it favours
+    end 1, the opposite end from the seat asymmetry, so the Q3 re-seat is unlikely to clear it: diagnose it before re-seating.
+  - The (c) comparator (the lead's call, above). Note the pairing confound in every (c) delta and flip count: the base arm's loose ends keep
+    their aircraft inside one order, the (c) arm's loose end orders them apart.
+  - The P0 plain-order floored centroid (base-game chirality, moves every pin); the alternative comparator above was the diagnosis's `ZZ_AIR_PLAIN`
+    hunk (`_coord/formations-p1c/scripts/zz-air-plain-alt.patch`, on top of `acc51a850`).
+

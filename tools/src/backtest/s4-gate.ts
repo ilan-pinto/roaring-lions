@@ -226,6 +226,13 @@ export function pairingFaults(inp: GateInput): string[] {
         faults.push(`${s.label}: ${name} was played with ${file.formation === null ? 'no formation' : `formation ${file.formation.id} on ends ${JSON.stringify(file.formation.ends)}`}, not on ends ${JSON.stringify(want)} (--end=${inp.kind})`);
       }
     }
+    // One end formed (c): the loose end orders its aircraft apart since Q2 (GH-859 P1c). A file without the mark was
+    // played with them inside the one combined order, which is not this comparator.
+    if (inp.kind !== 'both') {
+      for (const { name, file } of s.arm) {
+        if (file.formation !== null && file.formation.looseAir !== 'separate') faults.push(`${s.label}: ${name} is a one-end arm played before the loose end ordered its aircraft separately (Q2); replay it with the current probe`);
+      }
+    }
     for (const { name, file } of s.base) if (file.formation !== null) faults.push(`${s.label}: base file ${name} was played under formation ${file.formation.id}: a base is the game with none`);
     const both = [...s.base, ...s.arm];
     if (both.length === 0 || s.base.length === 0 || s.arm.length === 0) faults.push(`${s.label}: needs at least one base file and one arm file`);

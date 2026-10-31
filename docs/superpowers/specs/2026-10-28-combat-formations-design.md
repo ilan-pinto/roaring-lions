@@ -231,7 +231,9 @@ a single file with no special case.
 tiles past the click is therefore outside militia rifle range (7) and RPG range (5) of them, while
 mortars (18) and snipers (15) still reach the objective from their slot. **Facing:** the approach
 direction. **March:** as F1. Pace matching **holds through contact**, so the armour does not run
-away from its infantry (D4). **Contact drill `press`:** members keep their attack-move and fight
+away from its infantry (D4). *(Amended 31 Oct 2026, GH-859 P1c, lead ruling: the shipped Attack has
+`pace: none`. Its checkpoints and dress stay, its members walk at their own speeds, and the Column
+and Ambush keep the pace. See `docs/agent-notes/sim-and-orders.md`, "Formations P1c".)* **Contact drill `press`:** members keep their attack-move and fight
 under the existing rules (vehicles fire on the move, infantry close to effective range and stop,
 bounding against targets in the open). Checkpoint dressing stops (nobody waits for a man who is
 fighting). The group calls aircraft and medics.
@@ -918,7 +920,8 @@ Each one gives the recommendation first.
    shape only. That is cheap and nearly pin-free, but a column is a column only at the end, and
    "waiting for a call" has nothing to wait on.
 4. **Pace.** *Recommend:* every ground member moves at the **slowest ground member's** speed,
-   re-read at each checkpoint, held through contact in Attack, and named on the card. This is the
+   re-read at each checkpoint, held through contact in Attack, and named on the card.
+   *(Amended 31 Oct 2026, GH-859 P1c: the Attack no longer paces; Column and Ambush do.)* This is the
    separation spec's Q3 (Option E), answered "yes" for formation orders only. Orders without a
    formation keep their own speeds.
 5. **Holding the shape en route.** *Recommend:* **checkpoints every 8 tiles with a 3 s dress.**
