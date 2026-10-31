@@ -353,7 +353,7 @@ yours; each one records what the next phase inherits.
 
 ## The rain and the wet light (GH-871 P4)
 
-The wetland's air: `rainLight`, the falling rain, the ladder, reduced motion, the KDF rain lift and the instruments that measure them.
+The wetland's air: `rainLight`, the falling rain, the ladder, reduced motion, the KDF rain rim and the instruments that measure them.
 The ground, control C and the ripples are in `terrain-rendering.md` ("The wetland theme (GH-871 P4)"); the as-built record, pins and
 cost tables are the spec's section 14. All of it keys on ONE switch, `RendererOptions.weather === 'rain'`; a renderer built without it
 never calls into `three/weather.ts`, so a shipped map's light, haze, shadow map and draw list are today's.
@@ -422,23 +422,32 @@ never calls into `three/weather.ts`, so a shipped map's light, haze, shadow map 
   !ripplesDebugHidden && !reducedNow`, so **showing a debug layer never turns motion back on for a player who asked for none**. The
   wet ground, the light and the haze stay, and the foliage sway follows the shipped rule (neither added nor removed). The test uses
   literal oracles (fall 1.2, ripple time 1.8 s at 37 ticks, the wall clock mocked forward).
-- **The KDF rain lift (S-L2 ruling 3; presentation only).** `WET_SURFACE_PARAMS` (`units/unit-surface.ts`) is built from `SURFACE_PARAMS`
-  and rain films every surface: cloth 0.92 -> 0.80, armour 0.78 -> 0.52, plate 0.70 -> 0.48, gunmetal 0.42 -> 0.32, every other class and
-  every metalness unchanged (the 0.45 cap holds). It also carries `kdfFigureLift` = `RAIN_KDF_FIGURE_LIFT` 0.4 (ABSENT from the shipped
-  table): `figureLiftFor` gives it to the `'kdf'` faction only, `mesh-unit.ts`'s two call sites pass it, and the cloned unit material
-  gets `emissive = overcast.1 x 0.4` (linear 0.139, 0.159, 0.185) under rain. No new program or GLSL; the clone memo key gains
-  `/lift0.4` only when the lift is above 0, so a shipped clone is unchanged; the `unit-surface` debug layer toggles it. Vehicles, enemy and
-  civilian figures are unchanged (`ugv_recon_dog` is catalogued `kdf` and is lifted too). **Why a CONSTANT colour**: the KDF squad is the
-  near-black Meshy camouflage bake (mean linear luminance 0.066), and the lead's second readability method reads the darkest 15% of the
-  figure; a lift proportional to the albedo barely moves those pixels (multiplicative gain 12 reached road 19.1 / grass 17.0), an olive
-  lift drops grass to 8.0, and a cold sky colour keeps grass above 22. **Verdict (open): it passes the numbers and fails the eye**: see
-  the spec's section 14 (flat pale grey-blue ghosts; `RAIN_KDF_FIGURE_LIFT` 0.3 is the unmeasured one-constant alternative).
+- **The KDF rain rim (PR 914 ruling 1; presentation only; it REPLACED the flat lift of S-L2 ruling 3).** `WET_SURFACE_PARAMS`
+  (`units/unit-surface.ts`) is built from `SURFACE_PARAMS` and rain films every surface: cloth 0.92 -> 0.80, armour 0.78 -> 0.52, plate
+  0.70 -> 0.48, gunmetal 0.42 -> 0.32, every other class and every metalness unchanged (the 0.45 cap holds). It also carries the switch
+  `kdfRim: true` (ABSENT from the shipped table; a switch, not a parameter): `figureRimFor(table, faction)` is true for `'kdf'` on a table
+  that has it, `mesh-unit.ts`'s two call sites pass it to `surfaceMaterialFor`, and the clone becomes a rim variant (`units/rain-rim.ts`):
+  `totalEmissiveRadiance += uRimColor * uRimGain * pow(1 - saturate(dot(normalize(normal), normalize(vViewPosition))), uRimPower)`, injected
+  after `#include <emissivemap_fragment>` (the declarations after `#include <common>`). Colour `overcast.1` linear, power 3
+  (`RAIN_KDF_RIM_POWER`), gain `RAIN_KDF_RIM_GAIN` (`weather.ts`; PROVISIONAL 0.4 until the `--rim` capture sets it). The rim is a thin
+  soft edge on the outline (a sphere's mean factor is 0.1, 4% of its area is at or over 0.5) and gives the middle of a figure nothing, so
+  camouflage, faces, helmets and team colour read as they did at S-L2, the look the flat lift (emissive `overcast.1 x 0.4` on every texel,
+  flat pale grey-blue ghosts) had washed out. **The uniforms are ONE shared set** (`rimUniforms()`), so one `.value` write moves every figure:
+  the `unit-surface` debug layer sets the gain to 0 and back (the knob's value is stashed, idempotent both ways), and
+  `ThreeRenderer.debugSetRainRim(gain)` / `debugRainRim() {gain, power, built}` (concrete class only, never `api.ts`; a non-finite or
+  negative gain throws) is the capture knob. **Compile-time variant**: the clone has its own `customProgramCacheKey`
+  (`rl-unit-rain-rim`) and the memo key gains `/rim`; a dry renderer never builds one (programs, materials and the three shipped digests are
+  today's). The wounded copy (`wounded-read.ts`) CHAINS the source's `onBeforeCompile` (`Material.clone` does not copy it), so a wounded KDF
+  copy under rain keeps the rim and the floor and carries both program keys. The silhouette outline is a separate `MeshBasicMaterial` and
+  does not interact. Vehicles, enemy and civilian figures are not rimmed (`ugv_recon_dog` is catalogued `kdf` and is). The model for the
+  provisional gain is `tools/src/wet-unit-rim.test.ts`; the flat lift's calibration test was removed with it.
 - **The density instrument is `pnpm ground:capture`** (`tools/src/perf/ground-captures.ts`, pure half `ground-captures-plan.ts`). Every
   frame carries `preset`, `zoom`, `tick`, `drops=` (on screen), `P=` and `total=` on its printed line and in `cost.json`; `onScreenDropCount`
   mirrors the shader's keep and edge cull. Options: `--reflect`, `--wade`, `--quality=high,medium,low` (one boot per preset, read back
   and fail loud), `--ticks=<n>`, `--motion=reduce`, `--clip=<s>`, `--stops=road,water,grass` (a squad ordered by a sim `move` Command, never
   a state write), `--zooms=`, `--vehicle[=marker]` (the first living side-0 wheeled non-air, non-soft hull; a `technical` is soft and never
-  sprays). Each option reads back what it asked for and fails loud, and a frame is only comparable with one from the same GPU backend.
+  sprays), `--rim=<g>[,<g>...]` (needs `--stops`: each stop frame is repainted at each rim gain, named `<map>-squad-<kind>-rim<g>`, the
+  gain read back off the shared uniform and a renderer with no rim material fails loud). Each option reads back what it asked for and fails loud, and a frame is only comparable with one from the same GPU backend.
 - **The cost instrument is `pnpm perf:fx -- --breakdown --maps=ein_qasab,wadi_halam_basin --presets=high,medium,low`**
   (`tools/src/perf/fx-cost.ts`, pure half `fx-cost-plan.ts`; rounds interleaved so the basin shares the machine's drift). Configs: `rain`,
   `wet`, `marsh`, `ripples`, `wet-all`, `wet-program`, `shadow-full`. `wet-all` only zeroes the wet UNIFORMS and hides the rain, so the compiled

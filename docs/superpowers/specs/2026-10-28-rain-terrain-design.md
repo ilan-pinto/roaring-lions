@@ -1028,7 +1028,7 @@ while P4 was in flight. Plan: `docs/superpowers/plans/2026-10-30-wetland-p4.md`.
 
 **What shipped.** Under `RendererOptions.weather === 'rain'` and nowhere else: `rainLight` (the overcast sun, fill, haze and a stepped
 shadow map); control C (the marsh water and road-rut puddle masks) and the `THEME_WET` ground program (water surface, rim, ripples, wet
-roughness); the wet sway, mud prints and crater water; the wet unit surface table and the KDF rain lift; `vehicle_mud`; and the falling rain
+roughness); the wet sway, mud prints and crater water; the wet unit surface table and the KDF rain rim (PR 914 ruling 1; the S-L2 flat lift it replaced is superseded); `vehicle_mud`; and the falling rain
 (one instanced draw). No sim edit, no GLB, no PNG. Nothing a shipped map draws changed: the 35 terrain digests, the three shipped
 `theme-identity` entries, the determinism hashes (151 tests at the final tip: the merge added witness files) and the visual baselines did not move.
 
@@ -1068,6 +1068,14 @@ at high), within +-20% from zoom 0.35 to 2.5, with a test that fails on the old 
 wet maps only, presentation only, so they clear the 15.6 floor on the wet road and in marsh water, grass kept readable, shipped themes
 byte-identical. (4) One recapture (allowed once), then T13, the cost re-run on a quieter machine, the review and the PR.
 
+**PR 914 (31 Oct, the lead, ruling 1).** The flat KDF lift of ruling 3 is **superseded**: "Replace the flat KDF lift with a thin rim light under
+rain only. It is a soft, light edge on the figure's outline (a view-angle Fresnel rim on the unit surface, wet maps only). Camouflage, faces and
+team colour stay as in look 2. Remove `RAIN_KDF_FIGURE_LIFT` as a flat albedo lift. Re-measure with the figure-mask method: the mean and the
+darkest 15%, on road, water and grass." As built: a Fresnel rim (`units/rain-rim.ts`, colour `overcast.1`, power 3, one shared gain uniform,
+`RAIN_KDF_RIM_GAIN` in `weather.ts`, provisional 0.4 until measured), the flat lift and its calibration test removed, and the `ground:capture
+--rim=<g>,...` option so ONE browser run photographs several gains (look4, beside look 2 and look 3). The model behind the provisional gain is
+`tools/src/wet-unit-rim.test.ts`: the outermost pixel of a figure at 1.63 x the wet road's luminance, 3.67 x marsh water, 0.39 x grass.
+
 ### 14.3 Pins moved (old -> new)
 
 Only the WETLAND `theme-identity` entry moved; the three shipped entries (`program`, `scene`, `light`) and the 35 terrain digests are
@@ -1083,7 +1091,8 @@ untouched on every commit after Task 1. Task 1 only ADDED the `scene` line (all 
 | wetland `scene` | a338d507 -> 9290f13d | the rain batch (T8) |
 | wetland `scene` | 9290f13d -> 545bb7af | the rain stops at the map edge |
 | wetland `scene` | 545bb7af -> a2f892fc -> 312aff90 | continuous period + keep fraction; density 0.2 -> 0.22 and the shader fixes |
-| wetland `scene` | 312aff90 -> 074bc8c9 | the KDF rain lift (final) |
+| wetland `scene` | 312aff90 -> 074bc8c9 | the KDF rain lift (final; SUPERSEDED, see the next row) |
+| wetland `scene` | 074bc8c9 -> e650fd4c | the KDF rain rim replaces the flat lift (PR 914 ruling 1; the harness appends the rim's compiled fragment + cache key); the three shipped entries and the 35 terrain digests did not move |
 | `PUDDLE_REFLECT` | 0.25 -> 0.35 (`MARSH_REFLECT` stays 0.25) | T7 (S-L1) |
 | open-ground puddle share | 0.0598 -> 0; low-ground boost removed | T7 (S-L1); the S-3 bands for them are void |
 | `PUDDLE_RUT_FILL` / road share | 0.75 -> 0.56 / 0.4005 -> 0.2948 | T3 round 2 |
@@ -1154,7 +1163,7 @@ z0.35 to z2.5 because streaks are screen-pixel width (taste). No lattice rows, b
    dominant cost is the wet ground program. Options: (a) **accept** the miss on `medium`/`low`; (b) a cheaper wet ground program for `medium`/`low` (a THEME_WET variant dropping the rim derivative maths and
    the roughness and normal blocks: a code change plus a measured re-run, and a new permutation); (c) cut the wet layer on `medium`/`low`.
    No more ladder steps will close it; the ledger records the options, not a choice. The PR body puts this first.
-2. **The KDF lift looks wrong though it passes the numbers.** At `RAIN_KDF_FIGURE_LIFT` 0.4 the figures are flat, pale, cool grey-blue ghosts,
+2. **SUPERSEDED by the lead's PR 914 ruling 1 (the flat lift is replaced by a rim light; see 14.2): the KDF lift looked wrong though it passed the numbers.** At `RAIN_KDF_FIGURE_LIFT` 0.4 (now removed) the figures are flat, pale, cool grey-blue ghosts,
    brighter than the road and the grass (luminance ground/figure road 0.14, grass 0.59); camouflage, face, helmet detail and team colour are
    gone; internal contrast p95/p5 is 2.2:1 on road and 1.8:1 on grass against 17:1 / 68:1 at S-L2. Silhouette and rifle read, and the water squad
    is findable among the reeds, but "they do not look like soldiers in rain". The wash is intrinsic to a constant add and cannot be fixed by gain
@@ -1165,7 +1174,7 @@ z0.35 to z2.5 because streaks are screen-pixel width (taste). No lattice rows, b
    not fire on grass cannot be told from stills; road spray is untested. Unverified by frame; a capture with a hull on a road would settle it.
 4. **The reed agreement is the point contract, not strict** (`marshWaterAt` at a reed's point is under 0.5 at every reed; the control-C texel
    under it reads water at 56 of 897 reeds, 6.2%, bound 8%). A strict version needs a placer change, which moves P2's and P3's reed sets.
-5. **Not measured, found at the final review.** (a) Enemy and civilian readability under rain: the lift is KDF-only (G-5), so Sarim and
+5. **Not measured, found at the final review.** (a) Enemy and civilian readability under rain: the lift (now the rim) is KDF-only (G-5), so Sarim and
    civilian figures on the wet road and in marsh water were never scored. (b) The control-C bake costs about 205 ms on `ein_qasab` under rain,
    probably paid twice at boot, and again on a mid-mission road or ridge tile change (which forces a full bake); none of it is in the cost
    tables (they time a parked frame). (c) The mud spray: `updateVehicleAmbientFx` has no ground gate, so the spray fires on grass as well as
@@ -1176,4 +1185,4 @@ z0.35 to z2.5 because streaks are screen-pixel width (taste). No lattice rows, b
    helicopter rotor head in one vehicle frame (unrelated to rain, not investigated); streak weight grows with zoom (taste); a zoom now slides
    the drop pattern (never seen in a browser); `low` density has 12-30 drops per screen of per-focus noise; the rain's overhang over the void;
    road puddles are hard-edged rectangles (taste). The deferred minors of every task are in the ledger (GLSL terms covered by string-contains
-   tests only, the tool's at-budget OVER print, the shared cost-tool block copied three times, `ugv_recon_dog` lifted with the infantry).
+   tests only, the tool's at-budget OVER print, the shared cost-tool block copied three times, `ugv_recon_dog` lifted, now rimmed, with the infantry).

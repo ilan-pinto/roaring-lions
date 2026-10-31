@@ -2987,7 +2987,7 @@ run2-low, run3-low900, run4-burn2, bloom-census).
 ### Final tip re-run (b7f872f5e)
 
 The one remaining cost re-run, at the final tip of the branch (`b7f872f5e`: includes the rain keep-fraction density
-change and the KDF rain lift that postdate the tables above), on a **quiet machine**. Same instrument and conditions as
+change and the KDF rain lift that postdate the tables above; the flat lift was later replaced by a Fresnel rim light, PR 914, a few ALU operations in the KDF unit fragment that this run did not cost), on a **quiet machine**. Same instrument and conditions as
 the tables above (Apple M3 Pro, `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)`, headless
 Chromium, 1440x900 CSS at DPR 2, 12 interleaved rounds x 20 readPixels-synced frames, median, port 5211, music off,
 29 entities, `low` at 900 drops as it shipped before this step). Load average (1 min): `uptime` 4.57 before and 3.15
