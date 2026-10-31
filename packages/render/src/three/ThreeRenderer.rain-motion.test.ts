@@ -241,6 +241,25 @@ describe('the answer is asked live, once a frame (R-9)', () => {
   });
 });
 
+describe('a dry renderer does no new reduced-motion work (R-9)', () => {
+  it('asks reducedMotion once a frame for the wound ring only: a wet renderer asks once more, a dry one does not', () => {
+    const asksPerFrame = (weather: 'rain' | 'clear'): number => {
+      const spy = vi.fn(() => false);
+      const sim = new Sim({ seed: 1, width: MAP, height: MAP, capacity: 4 });
+      const r = new ThreeRenderer(sim, makeOpts({ reducedMotion: spy, weather }));
+      r.setDecor(new Uint8Array(MAP * MAP));
+      r.frame(1, 0);
+      const before = spy.mock.calls.length;
+      r.frame(1, 0);
+      const n = spy.mock.calls.length - before;
+      r.dispose();
+      return n;
+    };
+    expect(asksPerFrame('clear'), 'dry: the wound ring`s own ask, nothing from the wet writes').toBe(1);
+    expect(asksPerFrame('rain'), 'wet: the wound ring plus the one shared wet ask').toBe(2);
+  });
+});
+
 describe('the debug layers with reduced motion on: a show never turns the motion back on', () => {
   it('rain: hide and show report as usual, and the rain stays off after each', () => {
     const { r } = setUp(() => true);

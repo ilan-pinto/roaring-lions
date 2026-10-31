@@ -4112,7 +4112,9 @@ export class ThreeRenderer implements Renderer {
     // the next frame), and the answer is shared by the rain-visibility write and the ripple
     // amplitude write below (GH-871 P4 T9, R-9). Both are per-frame writes; the debug toggles
     // call them between frames and read the last answer, so a show never turns motion back on.
-    this.reducedNow = this.opts.reducedMotion?.() === true;
+    // Rain-only: both writes are (a dry map has no rain and no ripples), so a dry renderer does no new
+    // per-frame work; `reducedNow` stays false there. The wound ring asks for itself, elsewhere.
+    this.reducedNow = this.opts.weather === 'rain' && this.opts.reducedMotion?.() === true;
     this.writeRippleUniforms(alpha);
     this.updateRain(alpha);
     this.updateSilhouetteOutlineWidth();
