@@ -621,6 +621,41 @@ export function promotionAfter(
   return out;
 }
 
+/**
+ * The mission that READS a recon tag: the first mission after `fromId` in the campaign's
+ * flattened order that both requires `intel.marked_positions` and places a unit carrying
+ * `tag` (GH-912 G-T). The after-action report names it in "Carries into ...", where the
+ * town's next mission is often not the reader (Beit Sahwan I's ATGM pair is read by III,
+ * not II). Undefined when nothing later reads the tag.
+ *
+ * Presentation only: nothing in the sim reads this. The placement walk is the same
+ * recursive one `tools/validate_data.mjs` does: any object with a string `unit` is a
+ * placement, wherever in the mission it sits (garrison, waves, trigger spawns, passengers).
+ */
+export function carryReaderOf(
+  world: ParsedWorld,
+  missions: Readonly<Record<string, MissionJson | undefined>>,
+  fromId: string,
+  tag: string
+): string | undefined {
+  const order = world.regions.flatMap((r) => r.towns.flatMap((tw) => tw.missions));
+  const from = order.indexOf(fromId);
+  if (from < 0) return undefined;
+  const placesTag = (node: unknown): boolean => {
+    if (Array.isArray(node)) return node.some(placesTag);
+    if (node === null || typeof node !== 'object') return false;
+    const o = node as Record<string, unknown>;
+    if (typeof o.unit === 'string' && o.tag === tag) return true;
+    return Object.values(o).some(placesTag);
+  };
+  for (const id of order.slice(from + 1)) {
+    const m = missions[id];
+    if (m === undefined || !m.ledger.requires.includes('intel.marked_positions')) continue;
+    if (placesTag(m)) return id;
+  }
+  return undefined;
+}
+
 export type VillainState = 'at_large' | 'captured' | 'killed';
 
 /** A front's villain is at large until the mission that ENDS him is complete, then

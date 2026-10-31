@@ -8,6 +8,7 @@ import type { LedgerData, MissionJson } from '@lions/sim';
 import {
   campaignRoe,
   campaignSummary,
+  carryReaderOf,
   commanderForMission,
   continueTarget,
   nextOperation,
@@ -694,5 +695,46 @@ describe('a town-level unlock (GH-912 G1)', () => {
 
   it('still counts a locked town in its progress: the gate closes the door, not the ledger', () => {
     expect(townProgress(einQasab, before)).toEqual({ done: 0, total: 3 });
+  });
+});
+
+// GH-912 G-T: which later mission reads a recon tag.
+describe('carryReaderOf (GH-912 G-T)', () => {
+  const real = missions as Record<string, MissionJson | undefined>;
+
+  it('names the mission that places the tag, skipping the town\u2019s next one', () => {
+    // Beit Sahwan II does not place bs_hvt_atgm; III does. The town's next mission after I is II.
+    expect(carryReaderOf(world, real, 'beit_sahwan_1_recon', 'bs_hvt_atgm')).toBe('beit_sahwan_3_clearance');
+    expect(nextMissionAfter(world, 'beit_sahwan_1_recon', { 'campaign.completed_missions': ['beit_sahwan_breach', 'beit_sahwan_1_recon'] })).toBe('beit_sahwan_2_foothold');
+    expect(carryReaderOf(world, real, 'beit_sahwan_1_recon', 'bs_track_north')).toBe('beit_sahwan_4_subterranean');
+  });
+
+  it('reads the other shipped carries too', () => {
+    const qarn = parseWorld(worldJson);
+    expect(carryReaderOf(qarn, real, 'qarn_hadid_1_recon', 'qh_atgm_ditch')).toBe('qarn_hadid_3_clearance');
+  });
+
+  it('is undefined when nothing later reads the tag, or the tag is unknown, or the mission is off the map', () => {
+    expect(carryReaderOf(world, real, 'beit_sahwan_1_recon', 'no_such_tag')).toBeUndefined();
+    expect(carryReaderOf(world, real, 'beit_sahwan_0_tutorial', 'bs_hvt_atgm')).toBeUndefined();
+  });
+
+  it('only looks forward, and only at missions that REQUIRE the marks', () => {
+    // BS III places the tag too, but looking from III forward finds no later reader of bs_hvt_atgm.
+    expect(carryReaderOf(world, real, 'beit_sahwan_3_clearance', 'bs_hvt_atgm')).toBeUndefined();
+    const fx = (requires: string[], tagged: boolean): MissionJson =>
+      ({
+        ledger: { requires, produces: [] },
+        enemy: { garrison: [{ unit: 'u', ...(tagged ? { tag: 'eq_reed_cell' } : {}) }] },
+      }) as unknown as MissionJson;
+    const w: ParsedWorld = {
+      id: 'f',
+      name: 'f',
+      art: 'f.svg',
+      regions: [{ id: 'r', name: 'R', faction: 'f', doctrine: 'd', towns: [{ id: 't', name: 'T', at: [0, 0], missions: ['m1', 'm2', 'm3'] }] }],
+    };
+    // m2 places the tag but does not require marks (it cannot read them): the reader is m3.
+    const cat = { m1: fx([], true), m2: fx([], true), m3: fx(['intel.marked_positions'], true) };
+    expect(carryReaderOf(w, cat, 'm1', 'eq_reed_cell')).toBe('m3');
   });
 });
