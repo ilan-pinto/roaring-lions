@@ -55,9 +55,9 @@ const terrainOf = (id: MapId): string | undefined => (maps[id] as MapJson).terra
 const shipped = (Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) !== 'wetland');
 
 describe('no shipped map allocates control C', () => {
-  it('there are 35 non-wetland maps, and Ein Qasab is the only wetland one', () => {
+  it('there are 35 non-wetland maps, and the wetland ones are the three Ein Qasab maps (GH-912)', () => {
     expect(shipped.length).toBe(35);
-    expect((Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) === 'wetland')).toEqual(['ein_qasab']);
+    expect((Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) === 'wetland').sort()).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
   });
 
   it('buildControlMap gives c: null for every one of them, with its real surface and `wet` absent', () => {
