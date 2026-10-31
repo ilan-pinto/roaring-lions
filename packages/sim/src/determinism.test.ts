@@ -1495,7 +1495,7 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
     // Column are whole at their checkpoints, and are released on the tick after the last arrival.
     // Re-read on P1b Task 5's world (the Column gained an ambulance, a fast vehicle with the shortest way to checkpoint 1,
     // and a medic): the first arrival is tick 57 (was 142) and the Column is released by the clock, 60 ticks later, at 117
-    // (was 202); the Attack, whose aircraft are exempt from the pace, is whole at its checkpoints sooner (169 and 277; was
+    // (was 202); the Attack (whose aircraft were exempt from the pace; since P1c it has no pace at all, and these two releases read the same) is whole at its checkpoints sooner (169 and 277; was
     // 237 and 415); the side-1 Column's release is unchanged.
     expect(a.columnFirstArrival).toBe(57);
     expect(a.released).toBe('117:0:1/2 169:1:1/3 277:1:2/3 351:16:1/2');
@@ -1537,5 +1537,30 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
 
   it('the pinned hash', () => {
     expect(formationWorld(FM_SEED).hash).toBe(FORMATION_WORLD_PIN);
+  });
+
+  it('given 200 more ticks than the pin, the Attack\'s aircraft are home: no member away, no duty held (GH-859 P1c)', () => {
+    // The pin is hashed at tick 1000, where the Attack's helicopter and drone are still flying home (awayAtEnd '0,2,0,0 2'),
+    // so "everyone is home" is no longer a fact of the pinned run. This reads the same world 200 ticks on. The driver has no
+    // branch after tick 180, so running past the pin's end changes nothing but the clock.
+    const { sim, ids } = formationSetup(FM_SEED);
+    const away = internals(sim).fgAway as Uint16Array;
+    let awayAt1000 = '';
+    let dutyAt1000 = -1;
+    const dutyCount = (): number => Array.from({ length: sim.entityCount }, (_, i) => sim.formationDutyOf(i)).filter((d) => d !== 0).length;
+    for (let t = 0; t < 1200; t++) {
+      formationDrive(sim, t, ids);
+      sim.tick();
+      if (t === 999) {
+        awayAt1000 = [0, 1, 2, 3].map((g) => `${away[g]}`).join(',');
+        dutyAt1000 = dutyCount();
+      }
+    }
+    // control: at the pin's tick the two aircraft are still away, on RETURN, so the test below can fail
+    expect(awayAt1000).toBe('0,2,0,0');
+    expect(dutyAt1000).toBe(2);
+    // at 1200: every row has nobody away, and no entity holds a duty
+    expect([0, 1, 2, 3].map((g) => `${away[g]}`).join(',')).toBe('0,0,0,0');
+    expect(dutyCount()).toBe(0);
   });
 });

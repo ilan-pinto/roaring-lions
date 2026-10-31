@@ -477,8 +477,9 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
       // `fgPending` has a one-tick life across a tick boundary: set while the hit tick runs, consumed at
       // the top of the next one. The state after the 445th tick holds it set.
       if (w.sim.tickCount === 445) pendingAtCut = [(it.fgPending as Uint8Array)[2], (it.fgPending as Uint8Array)[16]];
-      // In contact (P1b Task 4): the Attack (row 1) pressing, the side-1 Column (row 16) halted, the Attack's quiet clock
-      // 18 ticks on from the drill at 542 (the other two rows are still being hit and restart theirs).
+      // In contact: the Attack (row 1) pressing (first contact id 6 at 451), the side-1 Column (row 16) halted. The Attack's
+      // quiet clock counts ticks since its last exchange of fire; from 505 a member of the row fires every 4 ticks (the clock reads 1 at
+      // tickCount 505, 509, ... 553, 557), so at 560 it is 4. (The other two rows are still being hit and restart theirs.)
       if (w.sim.tickCount === 560) {
         const st = it.fgState as Uint8Array;
         contactAtCut = [st[1], st[16], (it.fgQuiet as Uint16Array)[1], (it.fgCallX as Int32Array)[1]];
@@ -501,13 +502,11 @@ describe('fork witness: the formation world, mid-march, mid-dress, before the ri
     // G-6 re-derivation (P1b Task 4): the ring's mark (row 2) was 1 and reads 3 (drill and call bit, 1 + 2); the side-1
     // Column (row 16) that fired first on it is marked 3 too (a halt drill) and was not marked before.
     expect(pendingAtCut, 'T = 445 cuts while two groups are marked and not yet consumed: the ring (row 2) and the side-1 Column (row 16), each drill + call').toEqual([3, 3]);
-    // G-6 re-derivation (P1b Task 5): [3, 3, 18, 2523136]. The Attack's strike helicopter now reports the contact (tick 510, at
-    // (40.5, 16.5)), and it is still being fired on at 560, so the quiet clock reads 1 and the call point x is 2654208.
-    // P1c (GH-859): the Attack no longer paces its march, so it reaches the post earlier: its first contact is a ground member
-    // (entity 6) at 451, not the helicopter at 510, and its aircraft are called at 452 (was 511). The call point x reads 38.5
-    // (2523136, was 40.5) and the quiet clock 4 (was 1). The return is sent at 945 (was 910), so the mid-return cut moves from
-    // 930 to 965, the same 20 ticks on.
-    expect(contactAtCut, 'T = 560 cuts in contact: the Attack and the Column in state 3, the Attack\'s quiet clock at 4, its call point x 38.5').toEqual([3, 3, 4, 2523136]);
+    // The Attack (row 1) at the T = 560 cut: pressing and in contact since 451 (a ground member, entity 6, at (38.5, 16.5): the call
+    // point x 38.5 is 2523136 raw), its aircraft called at 452 and sent home at 945, so the mid-return cut is 965. The quiet clock
+    // reads 4 because the row's members fire every 4 ticks through this stretch and the last exchange before the cut was at
+    // tickCount 557 (it reads 1 there, then 2, 3, 4; probed tick by tick on the current world).
+    expect(contactAtCut, 'T = 560 cuts in contact: the Attack and the Column in state 3, the Attack\'s quiet clock at 4 (it fires every 4 ticks, last at 557), its call point x 38.5').toEqual([3, 3, 4, 2523136]);
     expect(paceAtCut, 'T = 100 cuts mid-march: capped at 2293 raw, two checkpoints, all five moving').toEqual([2293, 2, 1, 1, 1, 1, 1]);
     // G-6 re-derivation (P1b Task 5): the cut was 170 with [1, 27, 1]. The Column has a medic and an ambulance now, the ambulance
     // (a fast vehicle) reaches checkpoint 1 first at tick 58, and the dress is released by the clock at 117; 170 is past it.
