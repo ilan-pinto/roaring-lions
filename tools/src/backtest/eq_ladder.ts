@@ -53,6 +53,8 @@ interface Result {
   works: Record<string, number>;
   /** The drone swarm: the second it was destroyed (undefined: never killed), and whether it ever spawned. */
   swarm: { spawned: boolean; diedAt?: number; kdfLostAfter: number };
+  /** Orders the plan itself gave (every `queueCommand` made from inside one of its timed callbacks). */
+  orders: number;
 }
 
 const quiet = <T>(fn: () => T): T => {
@@ -97,12 +99,31 @@ function playOne(id: string, plan: Plan, ledger: LedgerData, seed: number, overr
       }
     }
   });
+  let orders = 0;
+  let inPlan = false;
+  const counted: Plan = (sim, rt, ids, at) => {
+    const real = sim.queueCommand.bind(sim);
+    (sim as any).queueCommand = (c: Parameters<Sim['queueCommand']>[0]) => {
+      if (inPlan) orders++;
+      return real(c);
+    };
+    plan(sim, rt, ids, (t, fn) =>
+      at(t, () => {
+        inPlan = true;
+        try {
+          fn();
+        } finally {
+          inPlan = false;
+        }
+      })
+    );
+  };
   const meas = { result: 'ongoing', stars: 0, roeScore: 0, credits: 0 } as NonNullable<Parameters<typeof run>[10]>;
   let produced: LedgerData;
   try {
     produced = quiet(() => {
       setSweep(seed, true);
-      const r = run(id as never, plan, ledger, 'victory', `${id} (ladder)`, 0, undefined, new Set(), undefined, undefined, meas, [], (sevs) => {
+      const r = run(id as never, counted, ledger, 'victory', `${id} (ladder)`, 0, undefined, new Set(), undefined, undefined, meas, [], (sevs) => {
         for (const e of sevs) {
           if (e.kind === 'constructQueued' || e.kind === 'constructStaked' || e.kind === 'structureComplete' || e.kind === 'constructCancelled' || e.kind === 'constructRefused')
             works[e.kind] ??= Math.round(e.tick / 20);
@@ -136,6 +157,7 @@ function playOne(id: string, plan: Plan, ledger: LedgerData, seed: number, overr
     fired,
     works,
     swarm,
+    orders,
   };
 }
 
@@ -175,7 +197,7 @@ function summarise(label: string, rs: Result[]): void {
   console.log(
     `${label}: wins ${wins.length}/${rs.length}, mean ${f(mean(wins.map((r) => r.seconds)) / 60)} min, slowest ${f(slowest / 60)} min (${f(slowest, 0)} s), ` +
       `ROE ${f(mean(wins.map((r) => r.roe)), 0)} (min ${f(Math.min(...wins.map((r) => r.roe)), 0)}), stars 0..3 ${stars}, lost ${f(mean(rs.map((r) => r.lost)))}, ` +
-      `evac ${f(mean(rs.map((r) => r.evacuated)))}, credits ${f(mean(wins.map((r) => r.credits)), 0)} ${margin}` +
+      `evac ${f(mean(rs.map((r) => r.evacuated)))}, orders ${f(mean(rs.map((r) => r.orders)), 0)} (${f(mean(rs.map((r) => r.orders / Math.max(r.seconds / 60, 0.1))))} a min), credits ${f(mean(wins.map((r) => r.credits)), 0)} ${margin}` +
       (Object.keys(causes).length ? `, lost by ${JSON.stringify(causes)}` : '')
   );
   if (process.env.EQ_V) for (const r of rs) console.log(`   seed ${r.seed}: ${r.result} ${f(r.seconds, 0)}s ROE ${r.roe} stars ${r.stars} lost ${r.lost} evac ${r.evacuated} ${r.cause ?? ''} ${JSON.stringify(r.fired)}`);
@@ -214,6 +236,7 @@ for (const seed of SEEDS) {
 }
 for (const id of MEASURE) {
   for (const tier of TIERS) {
+    if ((tier === 'foot' && id !== 'ein_qasab_1_recon') || (tier === 'crest' && id !== 'ein_qasab_2_foothold')) continue;
     const rs: Result[] =
       tier === 'optimal'
         ? (chainRuns.get(id) as Result[])
