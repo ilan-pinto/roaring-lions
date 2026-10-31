@@ -182,6 +182,17 @@ export function rimName(frameName: string, gain: number): string {
   return `${frameName}-rim${gain}`;
 }
 
+/**
+ * After a stop's rim frames the knob must be back where the run found it. It is compared on `wanted` (the
+ * knob's own value), not the effective `gain`: with the debug layer off the effective gain is 0 whatever
+ * the knob holds, and restoring that 0 would silently change the shipped default for the next stop.
+ */
+export function assertRimRestored(frame: string, before: RimRead, after: RimRead): void {
+  if (after.wanted !== before.wanted) {
+    throw new Error(`ground-capture: ${frame}: the rim knob was ${before.wanted} before the rim frames and reads ${String(after.wanted)} after the restore`);
+  }
+}
+
 /** One repainted copy of a `--stops` frame's view per gain: the same camera, named `<view>-rim<g>`, carrying the gain
  *  `shot` writes through `debugSetRainRim` and reads back. */
 export function rimViews<V extends { readonly name: string }>(view: V, gains: readonly number[]): (V & { readonly rim: number })[] {
@@ -190,8 +201,11 @@ export function rimViews<V extends { readonly name: string }>(view: V, gains: re
 
 /** What `ThreeRenderer.debugRainRim()` answers. */
 export interface RimRead {
+  /** The EFFECTIVE gain the shaders read (0 while the `unit-surface` debug layer has the pass off). */
   readonly gain: number;
   readonly power: number;
+  /** The gain the knob HOLDS: what the effective gain is whenever the debug layer is on. */
+  readonly wanted: number;
   readonly built: boolean;
 }
 

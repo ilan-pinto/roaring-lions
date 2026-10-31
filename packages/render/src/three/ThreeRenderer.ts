@@ -11851,11 +11851,16 @@ export class ThreeRenderer implements Renderer {
     setRainRimGain(gain);
   }
 
-  /** What the rim shaders read now: the effective `gain` (0 while the `unit-surface` debug layer is off),
-   *  the `power`, and whether this renderer has built at least one rim material. */
-  debugRainRim(): { gain: number; power: number; built: boolean } {
+  /** What the rim shaders read now: the effective `gain` (0 while the `unit-surface` debug layer is off), the
+   *  `wanted` gain the knob holds, the `power`, and whether this renderer has built at least one rim material. */
+  debugRainRim(): { gain: number; power: number; wanted: number; built: boolean } {
     const now = rainRimNow();
-    return { gain: now.gain, power: now.power, built: this.opts.weather === 'rain' && rainRimCloneCount() > 0 };
+    return {
+      gain: now.gain,
+      power: now.power,
+      wanted: now.wanted,
+      built: this.opts.weather === 'rain' && rainRimCloneCount() > 0,
+    };
   }
 
   /**

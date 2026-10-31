@@ -100,7 +100,7 @@ function diskMean(fn: (nv: number) => number, n = 20000): number {
 }
 
 describe('the rim factor over a figure (the area share)', () => {
-  it('the sphere`s mean factor is 2 / ((p + 1)(p + 2)): 0.1 at p = 3, a tenth of the flat lift', () => {
+  it('the sphere\'s mean factor is 2 / ((p + 1)(p + 2)): 0.1 at p = 3, a tenth of the flat lift', () => {
     expect(diskMean((nv) => factor(nv))).toBeCloseTo(0.1, 3);
     expect(diskMean((nv) => factor(nv, 2))).toBeCloseTo(1 / 6, 3);
     expect(diskMean((nv) => factor(nv, 4))).toBeCloseTo(1 / 15, 3);
@@ -121,7 +121,7 @@ describe('the rim factor over a figure (the area share)', () => {
     expect(hit / n).toBeCloseTo(0.0426, 3);
   });
 
-  it('a limb is a vertical cylinder under the 30 degree camera: mean 0.077, and the outer pixel`s factor by half-width', () => {
+  it('a limb is a vertical cylinder under the 30 degree camera: mean 0.077, and the outer pixel\'s factor by half-width', () => {
     const ce = Math.cos(Math.PI / 6);
     const N = 100000;
     let s = 0;
@@ -141,7 +141,7 @@ describe('the rim factor over a figure (the area share)', () => {
 });
 
 describe('the provisional gain, by luminance against the ground', () => {
-  it('reproduces the S-L2 figure with no rim: dark against every ground (the model`s inverse is checked first)', () => {
+  it('reproduces the S-L2 figure with no rim: dark against every ground (the model\'s inverse is checked first)', () => {
     for (const k of KINDS) expect(rimLuma(k, 0, F_OUTER) / luma(lin3(FIGURE[k]))).toBeCloseTo(1, 2);
     expect(ratio('road', 0, F_OUTER)).toBeLessThan(0.35);
     expect(ratio('water', 0, F_OUTER)).toBeLessThan(0.85);
@@ -158,13 +158,13 @@ describe('the provisional gain, by luminance against the ground', () => {
     expect(ratio('road', GAIN, 0.47)).toBeLessThan(2.1);
   });
 
-  it('the gain is monotone in the rim`s luminance, so the capture`s several gains order the look', () => {
+  it('the gain is monotone in the rim\'s luminance, so the capture\'s several gains order the look', () => {
     const gains = [0.15, 0.25, 0.4, 0.6, 0.8];
     const roads = gains.map((g) => ratio('road', g, F_OUTER));
     for (let i = 1; i < roads.length; i++) expect(roads[i]).toBeGreaterThan(roads[i - 1]);
   });
 
-  it('the rim adds a tenth of the retired flat lift`s mean radiance to a figure', () => {
+  it('the rim adds a tenth of the retired flat lift\'s mean radiance to a figure', () => {
     const flat = 0.4 * HAZE_KEEP * SKY_LUMA;
     const rim = 0.1 * GAIN * HAZE_KEEP * SKY_LUMA;
     expect(flat).toBeCloseTo(0.1157, 3);

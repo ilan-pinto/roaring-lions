@@ -8,6 +8,13 @@
  *
  *     totalEmissiveRadiance += uRimColor * uRimGain * pow(1 - saturate(n.v), uRimPower)
  *
+ * with `v` the view vector three itself uses (`lights_fragment_begin`): `(0, 0, 1)` for an orthographic camera
+ * (the game's camera is one, `camera.ts`), `normalize(vViewPosition)` for a perspective one. The perspective
+ * form on an orthographic view skews the rim toward the screen edges (about 3 degrees at zoom 2.5, 7 at zoom 1
+ * and 20 at the 0.35 floor), so the rim would be asymmetric when zoomed out. `isOrthographic` is in the
+ * fragment prefix three builds for every non-raw shader (`WebGLProgram.js`), `onBeforeCompile`d standard
+ * materials included. `rimFactor` below is the TS mirror the tests pin.
+ *
  * It REPLACES the flat emissive lift of S-L2 ruling 3 (`overcast.1 x 0.4` on every
  * texel), which cleared the readability floor and drew the soldiers as flat pale
  * grey-blue ghosts with their camouflage, faces and helmets washed out. The
@@ -43,7 +50,26 @@ export const RAIN_RIM_USERDATA_KEY = 'rlRainRim';
 export const RAIN_RIM_DECLARE_GLSL = 'uniform vec3 uRimColor;\nuniform float uRimGain;\nuniform float uRimPower;';
 /** The rim line (after `#include <emissivemap_fragment>`). */
 export const RAIN_RIM_GLSL =
-  'totalEmissiveRadiance += uRimColor * uRimGain * pow( 1.0 - saturate( dot( normalize( normal ), normalize( vViewPosition ) ) ), uRimPower );';
+  'totalEmissiveRadiance += uRimColor * uRimGain * pow( 1.0 - saturate( dot( normalize( normal ), isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition ) ) ), uRimPower );';
+
+/**
+ * The TS mirror of the rim factor `pow(1 - saturate(n.v), power)`: `normal` is the view-space shading normal,
+ * `viewPosition` is `vViewPosition` (the vector from the fragment to the eye, view space), and under an
+ * orthographic camera `v` is `(0, 0, 1)` whatever the fragment's view-space xy.
+ */
+export function rimFactor(
+  normal: readonly [number, number, number],
+  viewPosition: readonly [number, number, number],
+  orthographic: boolean,
+  power: number
+): number {
+  const len = (a: readonly [number, number, number]): number => Math.hypot(a[0], a[1], a[2]);
+  const nl = len(normal);
+  const v: readonly [number, number, number] = orthographic ? [0, 0, 1] : viewPosition;
+  const vl = orthographic ? 1 : len(v);
+  const nv = (normal[0] * v[0] + normal[1] * v[1] + normal[2] * v[2]) / (nl * vl);
+  return Math.pow(1 - Math.min(1, Math.max(0, nv)), power);
+}
 
 function replaceOnce(src: string, find: string, by: string): string {
   const at = src.indexOf(find);
@@ -100,10 +126,11 @@ export function setRainRimGain(gain: number): void {
   sync();
 }
 
-/** What the shaders read now (the effective gain: 0 while the debug layer has the pass off). */
-export function rainRimNow(): { gain: number; power: number } {
+/** What the shaders read now: the effective `gain` (0 while the `unit-surface` debug layer has the pass off),
+ *  the `power`, and the `wanted` gain the knob holds (what the effective gain returns to when the layer is on). */
+export function rainRimNow(): { gain: number; power: number; wanted: number } {
   const u = rimUniforms();
-  return { gain: u.gain.value, power: u.power.value };
+  return { gain: u.gain.value, power: u.power.value, wanted };
 }
 
 /**

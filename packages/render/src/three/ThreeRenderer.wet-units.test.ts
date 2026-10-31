@@ -153,7 +153,7 @@ describe('the decor batch is built with the wet flag under rain only', () => {
   });
 });
 
-describe('both mesh loaders get the renderer`s own surface table', () => {
+describe('both mesh loaders get the renderer\'s own surface table', () => {
   it.each(CASES)('weather %s', async (_name, extra, wet) => {
     const { r } = setUp(extra);
     const want = wet ? WET_SURFACE_PARAMS : SURFACE_PARAMS;
@@ -170,7 +170,7 @@ describe('both mesh loaders get the renderer`s own surface table', () => {
   });
 });
 
-describe('the rain rim reaches a KDF figure built with the renderer`s own table (GH-871 P4 PR 914)', () => {
+describe('the rain rim reaches a KDF figure built with the renderer\'s own table (GH-871 P4 PR 914)', () => {
   /** A `GLTFLoader`-shaped KDF scene: a uniform, a boot and a weapon, each in a known blue. */
   function figure(): { scene: THREE.Group; animations: THREE.AnimationClip[] } {
     const scene = new THREE.Group();
@@ -199,15 +199,15 @@ describe('the rain rim reaches a KDF figure built with the renderer`s own table 
 
   it('debugRainRim reads back the shipped default, the power and whether a rim material exists', () => {
     const { r } = setUp(RAIN);
-    expect(r.debugRainRim()).toEqual({ gain: 0.4, power: 3, built: false });
+    expect(r.debugRainRim()).toEqual({ gain: 0.4, power: 3, wanted: 0.4, built: false });
     const t = buildMeshUnitTemplate(figure(), 'kdf', 'x.glb', false, undefined, undefined, priv(r).surfaceTable as SurfaceTable);
-    expect(r.debugRainRim()).toEqual({ gain: 0.4, power: 3, built: true });
+    expect(r.debugRainRim()).toEqual({ gain: 0.4, power: 3, wanted: 0.4, built: true });
     for (const m of t.materials) m.dispose();
     expect(r.debugRainRim().built).toBe(false);
     r.dispose();
   });
 
-  it('a renderer that does not rain never reports a rim, even beside a wet one`s live materials', () => {
+  it('a renderer that does not rain never reports a rim, even beside a wet one\'s live materials', () => {
     const wet = setUp(RAIN).r;
     const t = buildMeshUnitTemplate(figure(), 'kdf', 'x.glb', false, undefined, undefined, priv(wet).surfaceTable as SurfaceTable);
     for (const extra of [{}, { weather: 'clear' as const }]) {
@@ -268,7 +268,7 @@ describe('the decal material', () => {
     }
   });
 
-  it('carries DECAL_WET with the ground`s own uniform objects, so the A/B tuning moves it', () => {
+  it('carries DECAL_WET with the ground\'s own uniform objects, so the A/B tuning moves it', () => {
     const { r } = setUp(RAIN);
     const m = priv(r).decalMaterial;
     const g = priv(r).groundMat.uniforms;

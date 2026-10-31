@@ -176,6 +176,7 @@ import {
   squadScreenScript,
   READ_RIM_SCRIPT,
   assertRimApplied,
+  assertRimRestored,
   parseRim,
   rimViews,
   type RimRead,
@@ -1506,8 +1507,9 @@ async function main(): Promise<void> {
                   took.rimFrames[String(gain)] = (took.rimFrames[String(gain)] ?? 0) + 1;
                   say(frameLine(rimView.name, viewCosts[rimView.name]));
                 }
-                await page.evaluate((g) => (window as unknown as LionsWindow).__lions.renderer.debugSetRainRim?.(g), before.gain);
-                assertRimApplied(`${view.name} (the knob put back)`, before.gain, await readRim(page));
+                // Back to the knob's own value (`wanted`), not the effective gain (0 with the debug layer off).
+                await page.evaluate((g) => (window as unknown as LionsWindow).__lions.renderer.debugSetRainRim?.(g), before.wanted);
+                assertRimRestored(view.name, before, await readRim(page));
               }
             }
           }

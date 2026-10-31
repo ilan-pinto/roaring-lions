@@ -193,13 +193,13 @@ describe('the rain rim (GH-871 P4 PR 914)', () => {
     expect(hasOwnHook(m)).toBe(true);
     expect(m.customProgramCacheKey().endsWith('|rl-unit-rain-rim')).toBe(true);
     expect(m.userData).toEqual({ rlRainRim: true });
-    // The base`s own emissive and nothing added: camouflage, faces and team colour stay as in look 2.
+    // The base's own emissive and nothing added: camouflage, faces and team colour stay as in look 2.
     expect(emissive(m)).toEqual(emissive(base));
     expect(emissive(base)).toEqual([expect.closeTo(0.01, 6), expect.closeTo(0.02, 6), expect.closeTo(0.03, 6)]);
     expect(m.roughness).toBe(0.8);
   });
 
-  it('a clone made without the rim is exactly today`s: no hook, the default program key, no mark', () => {
+  it('a clone made without the rim is exactly today\'s: no hook, the default program key, no mark', () => {
     const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
     const defaultKey = base.clone().customProgramCacheKey();
     for (const table of [SURFACE_PARAMS, WET_SURFACE_PARAMS]) {
@@ -234,7 +234,7 @@ describe('the rain rim (GH-871 P4 PR 914)', () => {
     }
   });
 
-  it('counts the live rim clones (the capture knob`s "built")', () => {
+  it('counts the live rim clones (the capture knob\'s "built")', () => {
     const before = rainRimCloneCount();
     const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
     surfaceMaterialFor(base, 'uniform', undefined, WET_SURFACE_PARAMS, false);
@@ -253,6 +253,8 @@ describe('the rain rim (GH-871 P4 PR 914)', () => {
       expect(rainRimNow().gain).toBe(0.9);
       setUnitSurfacePass(false);
       expect(rainRimNow().gain).toBe(0);
+      // The knob's own value is still readable while the layer is off.
+      expect(rainRimNow().wanted).toBe(0.9);
       expect(m.roughness).toBe(0.85);
       // Off twice must not overwrite the stash with 0.
       setUnitSurfacePass(false);

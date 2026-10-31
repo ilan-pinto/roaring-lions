@@ -6,17 +6,18 @@
  * calibration model is `tools/src/wet-unit-rim.test.ts`. Oracles here are LITERALS: overcast.1 is
  * `#9FA9B5`, linear (0.34670, 0.39676, 0.46207); the shipped provisional gain 0.4; the power 3.
  */
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { buildMeshUnitTemplate } from './mesh-unit';
 import { buildVehicleMeshTemplate } from './mesh-vehicle';
 import { SURFACE_PARAMS, WET_SURFACE_PARAMS, setUnitSurfacePass, surfaceTableFor } from './unit-surface';
 import { liftWoundedTemplate } from './wounded-read';
-import { patchRainRim, rimUniforms, setRainRimGain } from './rain-rim';
+import { patchRainRim, rimFactor, rimUniforms, setRainRimGain } from './rain-rim';
 
 /** The rim line, as a literal (not read from the module). */
 const RIM_LINE =
-  'totalEmissiveRadiance += uRimColor * uRimGain * pow( 1.0 - saturate( dot( normalize( normal ), normalize( vViewPosition ) ) ), uRimPower );';
+  'totalEmissiveRadiance += uRimColor * uRimGain * pow( 1.0 - saturate( dot( normalize( normal ), isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition ) ) ), uRimPower );';
 const RIM_DECL = 'uniform vec3 uRimColor;\nuniform float uRimGain;\nuniform float uRimPower;';
 
 afterEach(() => {
@@ -59,12 +60,12 @@ describe('which template builds carry the rain rim', () => {
     for (const m of t.materials) {
       expect(hasRim(m)).toBe(true);
       expect(m.userData).toEqual({ rlRainRim: true });
-      // The flat lift is gone: the emissive is the base`s own (black).
+      // The flat lift is gone: the emissive is the base's own (black).
       expect(emissiveOf(m)).toEqual([0, 0, 0]);
     }
   });
 
-  it('a KDF figure with a baked texture (the Meshy camouflage path) takes it too, and the loader`s own material stays plain', () => {
+  it('a KDF figure with a baked texture (the Meshy camouflage path) takes it too, and the loader\'s own material stays plain', () => {
     const map = new THREE.Texture();
     const gltf = sceneOf([{ role: 'uniform', map }, { role: 'boot', map }, { role: 'weapon' }]);
     const loadedMaterials: THREE.Material[] = [];
@@ -137,7 +138,7 @@ describe('which template builds carry the rain rim', () => {
 });
 
 describe('the compiled fragment source', () => {
-  it('three`s meshphysical fragment has the chunks the patch relies on, in the order it relies on', () => {
+  it('three\'s meshphysical fragment has the chunks the patch relies on, in the order it relies on', () => {
     const src = THREE.ShaderChunk.meshphysical_frag;
     expect(src).toContain('varying vec3 vViewPosition;');
     const normalAt = src.indexOf('#include <normal_fragment_begin>');
@@ -163,12 +164,12 @@ describe('the compiled fragment source', () => {
     }
   });
 
-  it('patchRainRim throws, naming the chunk, when three`s source has no place for the rim', () => {
+  it('patchRainRim throws, naming the chunk, when three\'s source has no place for the rim', () => {
     expect(() => patchRainRim('void main() {}')).toThrow(/#include <common>/);
     expect(() => patchRainRim('#include <common>\nvoid main() {}')).toThrow(/#include <emissivemap_fragment>/);
   });
 
-  it('the rim variant has its own program key, distinct from a plain wet clone`s and the dry one`s', () => {
+  it('the rim variant has its own program key, distinct from a plain wet clone\'s and the dry one\'s', () => {
     const rim = buildMeshUnitTemplate(sceneOf(PARTS), 'kdf', 'x.glb', false, undefined, undefined, WET_SURFACE_PARAMS);
     const plain = buildMeshUnitTemplate(sceneOf(PARTS), 'enemy', 'x.glb', false, undefined, undefined, WET_SURFACE_PARAMS);
     const dry = buildMeshUnitTemplate(sceneOf(PARTS), 'kdf', 'x.glb', false, undefined, undefined, SURFACE_PARAMS);
@@ -204,7 +205,7 @@ describe('the shared uniforms', () => {
     expect(u.power.value).toBe(3);
   });
 
-  it('gain 0 is no rim contribution: the debug layer off writes 0 into every compiled program`s uniform', () => {
+  it('gain 0 is no rim contribution: the debug layer off writes 0 into every compiled program\'s uniform', () => {
     const t = buildMeshUnitTemplate(sceneOf(PARTS), 'kdf', 'x.glb', false, undefined, undefined, WET_SURFACE_PARAMS);
     const gains = t.materials.map((m) => compile(m).uniforms.uRimGain);
     setUnitSurfacePass(false);
@@ -241,5 +242,38 @@ describe('the wounded copy keeps the rim', () => {
       expect(fragmentShader).toContain('uniform float uWoundedFloor;');
       expect(c.customProgramCacheKey()).not.toContain('rl-unit-rain-rim');
     }
+  });
+});
+
+describe('the view vector: orthographic like three\'s own lights', () => {
+  it('the game camera is orthographic and three uses (0, 0, 1) for it: the rim line uses the same expression', () => {
+    expect(THREE.ShaderChunk.lights_fragment_begin).toContain('( isOrthographic ) ? vec3( 0, 0, 1 ) : normalize( vViewPosition )');
+    expect(RIM_LINE).toContain('isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition )');
+    const t = buildMeshUnitTemplate(sceneOf(PARTS), 'kdf', 'x.glb', false, undefined, undefined, WET_SURFACE_PARAMS);
+    for (const m of t.materials) expect(compile(m).fragmentShader).toContain('isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition )');
+  });
+
+  it('three declares `uniform bool isOrthographic;` in both the vertex and the fragment prefix (so the fragment can use it)', () => {
+    const src = readFileSync(new URL('../../../node_modules/three/src/renderers/webgl/WebGLProgram.js', import.meta.url), 'utf8');
+    expect(src.split('uniform bool isOrthographic;').length - 1).toBe(2);
+  });
+
+  it('orthographic: the factor at one normal is the same at view-space x = 0 and x = 40 (literal 0.008 = 0.2^3)', () => {
+    const n: [number, number, number] = [0.6, 0, 0.8];
+    expect(rimFactor(n, [0, 0, 120], true, 3)).toBeCloseTo(0.008, 9);
+    expect(rimFactor(n, [40, 0, 120], true, 3)).toBeCloseTo(0.008, 9);
+    expect(rimFactor(n, [-40, 25, 120], true, 3)).toBe(rimFactor(n, [0, 0, 120], true, 3));
+  });
+
+  it('perspective: the view vector is normalize(vViewPosition), so the same normal DOES depend on x (literal 1.35e-4 at x = 40)', () => {
+    const n: [number, number, number] = [0.6, 0, 0.8];
+    expect(rimFactor(n, [0, 0, 120], false, 3)).toBeCloseTo(0.008, 9);
+    expect(rimFactor(n, [40, 0, 120], false, 3)).toBeCloseTo(1.35e-4, 6);
+  });
+
+  it('the silhouette edge is 1, a face-on normal 0, and the dot is clamped (a back-facing normal is 1)', () => {
+    expect(rimFactor([1, 0, 0], [0, 0, 120], true, 3)).toBe(1);
+    expect(rimFactor([0, 0, 1], [0, 0, 120], true, 3)).toBe(0);
+    expect(rimFactor([0, 0, -1], [0, 0, 120], true, 3)).toBe(1);
   });
 });

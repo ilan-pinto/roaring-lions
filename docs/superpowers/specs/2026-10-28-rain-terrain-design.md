@@ -1092,7 +1092,7 @@ untouched on every commit after Task 1. Task 1 only ADDED the `scene` line (all 
 | wetland `scene` | 9290f13d -> 545bb7af | the rain stops at the map edge |
 | wetland `scene` | 545bb7af -> a2f892fc -> 312aff90 | continuous period + keep fraction; density 0.2 -> 0.22 and the shader fixes |
 | wetland `scene` | 312aff90 -> 074bc8c9 | the KDF rain lift (final; SUPERSEDED, see the next row) |
-| wetland `scene` | 074bc8c9 -> e650fd4c | the KDF rain rim replaces the flat lift (PR 914 ruling 1; the harness appends the rim's compiled fragment + cache key); the three shipped entries and the 35 terrain digests did not move |
+| wetland `scene` | 074bc8c9 -> e650fd4c -> be5f0d52 | the KDF rain rim replaces the flat lift (PR 914 ruling 1; fix round 1: the view vector is `isOrthographic ? (0, 0, 1) : normalize(vViewPosition)`; the harness appends the rim's compiled fragment + cache key); the three shipped entries and the 35 terrain digests did not move |
 | `PUDDLE_REFLECT` | 0.25 -> 0.35 (`MARSH_REFLECT` stays 0.25) | T7 (S-L1) |
 | open-ground puddle share | 0.0598 -> 0; low-ground boost removed | T7 (S-L1); the S-3 bands for them are void |
 | `PUDDLE_RUT_FILL` / road share | 0.75 -> 0.56 / 0.4005 -> 0.2948 | T3 round 2 |

@@ -51,6 +51,7 @@ import {
   READ_RIM_SCRIPT,
   RIM_GAIN_MAX,
   assertRimApplied,
+  assertRimRestored,
   parseRim,
   rimName,
   rimViews,
@@ -1182,7 +1183,7 @@ describe('--rim: the rain-rim gains each stop frame is repainted at (GH-871 P4 P
   });
 
   it('a frame must read back the gain it was asked for, and a renderer with no rim material fails loud', () => {
-    const read = { gain: 0.4, power: 3, built: true };
+    const read = { gain: 0.4, power: 3, wanted: 0.4, built: true };
     expect(() => assertRimApplied('m-squad-road-rim0.4', 0.4, read)).not.toThrow();
     expect(() => assertRimApplied('m-squad-road-rim0.8', 0.8, read)).toThrow(/asked for rim gain 0\.8 but the uniform reads 0\.4/);
     expect(() => assertRimApplied('m-squad-road-rim0.4', 0.4, { ...read, built: false })).toThrow(/no rim material/);
@@ -1190,10 +1191,18 @@ describe('--rim: the rain-rim gains each stop frame is repainted at (GH-871 P4 P
     expect(() => assertRimApplied('m-squad-road-rim0.4', 0.4, { ...read, gain: Number.NaN })).toThrow(/reads NaN/);
   });
 
+  it('the restore is checked on the knob\'s own value: a layer-off effective 0 is not mistaken for the default', () => {
+    const before = { gain: 0, power: 3, wanted: 0.4, built: true };
+    expect(() => assertRimRestored('m-squad-road', before, { ...before })).not.toThrow();
+    // restored to the effective 0 instead of 0.4: wanted reads 0, a different default for the next stop
+    expect(() => assertRimRestored('m-squad-road', before, { ...before, wanted: 0 })).toThrow(/was 0\.4 before the rim frames and reads 0 after/);
+    expect(() => assertRimRestored('m-squad-road', { ...before, gain: 0.4 }, { ...before, gain: 0.8, wanted: 0.4 })).not.toThrow();
+  });
+
   it('READ_RIM_SCRIPT reads debugRainRim off the renderer and THROWS on a tree without it', () => {
     const run = (renderer: unknown): unknown =>
       JSON.parse((new Function('window', `return ${READ_RIM_SCRIPT};`) as (w: unknown) => string)({ __lions: { renderer } }));
-    expect(run({ debugRainRim: () => ({ gain: 0.4, power: 3, built: true }) })).toEqual({ gain: 0.4, power: 3, built: true });
+    expect(run({ debugRainRim: () => ({ gain: 0.4, power: 3, wanted: 0.4, built: true }) })).toEqual({ gain: 0.4, power: 3, wanted: 0.4, built: true });
     expect(() => run({})).toThrow(/no debugRainRim/);
   });
 
@@ -1209,7 +1218,7 @@ describe('--rim: the rain-rim gains each stop frame is repainted at (GH-871 P4 P
 
   it('frameLine prints the gain read back, and nothing for a plain frame', () => {
     const rec = { calls: 12, triangles: 3456, textures: 7, geometries: 9, tick: 420, puddle: 0.35, marsh: 0.25, squadScreen: [700, 450] as const };
-    expect(frameLine('m-squad-road-rim0.8', { ...rec, rim: { gain: 0.8, power: 3, built: true } })).toBe(
+    expect(frameLine('m-squad-road-rim0.8', { ...rec, rim: { gain: 0.8, power: 3, wanted: 0.8, built: true } })).toBe(
       '  m-squad-road-rim0.8: tick=420 puddle=0.35 marsh=0.25 calls=12 tris=3456 tex=7 geo=9 squad=[700,450] rim=0.8'
     );
     expect(frameLine('m-squad-road', rec)).not.toContain('rim=');

@@ -427,7 +427,7 @@ never calls into `three/weather.ts`, so a shipped map's light, haze, shadow map 
   0.70 -> 0.48, gunmetal 0.42 -> 0.32, every other class and every metalness unchanged (the 0.45 cap holds). It also carries the switch
   `kdfRim: true` (ABSENT from the shipped table; a switch, not a parameter): `figureRimFor(table, faction)` is true for `'kdf'` on a table
   that has it, `mesh-unit.ts`'s two call sites pass it to `surfaceMaterialFor`, and the clone becomes a rim variant (`units/rain-rim.ts`):
-  `totalEmissiveRadiance += uRimColor * uRimGain * pow(1 - saturate(dot(normalize(normal), normalize(vViewPosition))), uRimPower)`, injected
+  `totalEmissiveRadiance += uRimColor * uRimGain * pow(1 - saturate(dot(normalize(normal), v)), uRimPower)` with `v = isOrthographic ? (0, 0, 1) : normalize(vViewPosition)` (three's own view vector in `lights_fragment_begin`: the game camera is orthographic, and `normalize(vViewPosition)` on it skews the rim toward the screen edges, about 20 degrees at the 0.35 zoom floor), injected
   after `#include <emissivemap_fragment>` (the declarations after `#include <common>`). Colour `overcast.1` linear, power 3
   (`RAIN_KDF_RIM_POWER`), gain `RAIN_KDF_RIM_GAIN` (`weather.ts`; PROVISIONAL 0.4 until the `--rim` capture sets it). The rim is a thin
   soft edge on the outline (a sphere's mean factor is 0.1, 4% of its area is at or over 0.5) and gives the middle of a figure nothing, so
