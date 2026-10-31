@@ -50,16 +50,20 @@ export const PUDDLE_REFLECT = 0.35;
 export const MARSH_REFLECT = 0.25;
 
 /**
- * The wet-ground cost follow-up's switch (GH-871 P4 PR 914, the lead's ruling 2 of 31 Oct 2026).
- * The wet-ground program misses its budget on `medium` (NET, total wet, 0.9 / 1.0 ms against 0.7) and
- * on `low` (at or just over 0.4). P4 merged anyway because Ein Qasab is unlisted. The follow-up,
- * tracked on GH-871, is a CHEAPER wet-ground program for medium and low, and it must land before
- * Ein Qasab leaves `UNLISTED_MAP_IDS` or any wetland / rain mission (GH-912) ships.
- * `tools/src/wetland-listing-guard.test.ts` fails while this is `false` if either happens.
- * The follow-up flips it to `true` in the commit that lands the cheaper program AND re-measures
- * medium and low; flipping it without that measurement is the lie the guard exists to stop.
+ * The wet-ground cost follow-up's switch (GH-871 P4 PR 914, the lead's ruling 2 of 31 Oct 2026). P4's wet-ground
+ * program missed its budget on `medium` (NET, total wet, 0.9 / 1.0 ms against 0.7) and was at or over it on `low`
+ * (0.4 to 0.5 against 0.4), and merged anyway because Ein Qasab is unlisted. The follow-up, tracked on GH-871, is a
+ * CHEAPER wet-ground program for medium and low, and it had to land before Ein Qasab left `UNLISTED_MAP_IDS` or any
+ * wetland / rain mission (GH-912) shipped. `tools/src/wetland-listing-guard.test.ts` fails while this is `false` if
+ * either happens.
+ *
+ * `true` since the cheap-wet follow-up: `medium` compiles the `lite` tier and `low` the `minimal` one
+ * (`terrain/mesh.ts`'s `WET_PROGRAM_TIERS`), and three quiet-machine runs of `perf:fx --breakdown` (docs/PERFORMANCE.md,
+ * "Wetland cheap wet") read NET (total wet) at medium 0.0 to 0.7 ms (budget 0.7) and low 0.1 to 0.4 (budget 0.4), high
+ * unchanged. The guard now also pins that the presets still compile their cheaper tiers: flipping this back to the
+ * full program on medium or low turns it red.
  */
-export const CHEAP_WET_GROUND_LANDED = false;
+export const CHEAP_WET_GROUND_LANDED = true;
 
 /**
  * The KDF figure's RAIN RIM (GH-871 P4 PR 914, the lead's ruling 1 of 31 Oct 2026, replacing the flat
