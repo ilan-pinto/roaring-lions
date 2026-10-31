@@ -13,6 +13,7 @@ import { buildMeshUnitTemplate } from './mesh-unit';
 import { buildVehicleMeshTemplate } from './mesh-vehicle';
 import { SURFACE_PARAMS, WET_SURFACE_PARAMS, setUnitSurfacePass, surfaceTableFor } from './unit-surface';
 import { liftWoundedTemplate } from './wounded-read';
+import { RAIN_KDF_RIM_GAIN, RAIN_KDF_RIM_POWER } from '../weather';
 import { patchRainRim, rimFactor, rimUniforms, setRainRimGain } from './rain-rim';
 
 /** The rim line, as a literal (not read from the module). */
@@ -22,7 +23,7 @@ const RIM_DECL = 'uniform vec3 uRimColor;\nuniform float uRimGain;\nuniform floa
 
 afterEach(() => {
   setUnitSurfacePass(true);
-  setRainRimGain(0.4);
+  setRainRimGain(0.6);
 });
 
 /** A `GLTFLoader`-shaped result, one mesh per part (the `textured-infantry.test.ts` shape). */
@@ -191,17 +192,20 @@ describe('the shared uniforms', () => {
       expect(u.uRimPower).toBe(all[0].uRimPower);
     }
     expect(all[0].uRimGain).toBe(rimUniforms().gain);
-    expect(all[0].uRimGain.value).toBe(0.4);
+    expect(all[0].uRimGain.value).toBe(0.6);
     setRainRimGain(0.9);
     for (const u of all) expect(u.uRimGain.value).toBe(0.9);
   });
 
-  it('carries overcast.1 in linear, the shipped provisional gain 0.4 and power 3 (literals)', () => {
+  it('carries overcast.1 in linear, the shipped gain 0.6 (look4) and power 3 (literals)', () => {
     const u = rimUniforms();
     expect(u.colour.value.r).toBeCloseTo(0.3467, 4);
     expect(u.colour.value.g).toBeCloseTo(0.39676, 4);
     expect(u.colour.value.b).toBeCloseTo(0.46207, 4);
-    expect(u.gain.value).toBe(0.4);
+    // The constants themselves (the afterEach above restores 0.6, so the uniform alone would not catch a default that moved).
+    expect(RAIN_KDF_RIM_GAIN).toBe(0.6);
+    expect(RAIN_KDF_RIM_POWER).toBe(3);
+    expect(u.gain.value).toBe(0.6);
     expect(u.power.value).toBe(3);
   });
 
@@ -211,7 +215,7 @@ describe('the shared uniforms', () => {
     setUnitSurfacePass(false);
     for (const g of gains) expect(g.value).toBe(0);
     setUnitSurfacePass(true);
-    for (const g of gains) expect(g.value).toBe(0.4);
+    for (const g of gains) expect(g.value).toBe(0.6);
   });
 });
 

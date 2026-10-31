@@ -429,7 +429,7 @@ never calls into `three/weather.ts`, so a shipped map's light, haze, shadow map 
   that has it, `mesh-unit.ts`'s two call sites pass it to `surfaceMaterialFor`, and the clone becomes a rim variant (`units/rain-rim.ts`):
   `totalEmissiveRadiance += uRimColor * uRimGain * pow(1 - saturate(dot(normalize(normal), v)), uRimPower)` with `v = isOrthographic ? (0, 0, 1) : normalize(vViewPosition)` (three's own view vector in `lights_fragment_begin`: the game camera is orthographic, and `normalize(vViewPosition)` on it skews the rim toward the screen edges, about 20 degrees at the 0.35 zoom floor), injected
   after `#include <emissivemap_fragment>` (the declarations after `#include <common>`). Colour `overcast.1` linear, power 3
-  (`RAIN_KDF_RIM_POWER`), gain `RAIN_KDF_RIM_GAIN` (`weather.ts`; PROVISIONAL 0.4 until the `--rim` capture sets it). The rim is a thin
+  (`RAIN_KDF_RIM_POWER`), gain `RAIN_KDF_RIM_GAIN` (`weather.ts`; 0.6, picked at look4: the smallest gain that reads as a rim without frost, 0.2 and 0.4 nearly invisible, 0.9 frost; **no gain 0..0.9 clears dE 15.6 on road or water**, the rim lights grazing edges only, see the spec's 14.6 item 7). The rim is a thin
   soft edge on the outline (a sphere's mean factor is 0.1, 4% of its area is at or over 0.5) and gives the middle of a figure nothing, so
   camouflage, faces, helmets and team colour read as they did at S-L2, the look the flat lift (emissive `overcast.1 x 0.4` on every texel,
   flat pale grey-blue ghosts) had washed out. **The uniforms are ONE shared set** (`rimUniforms()`), so one `.value` write moves every figure:
@@ -439,8 +439,8 @@ never calls into `three/weather.ts`, so a shipped map's light, haze, shadow map 
   (`rl-unit-rain-rim`) and the memo key gains `/rim`; a dry renderer never builds one (programs, materials and the three shipped digests are
   today's). The wounded copy (`wounded-read.ts`) CHAINS the source's `onBeforeCompile` (`Material.clone` does not copy it), so a wounded KDF
   copy under rain keeps the rim and the floor and carries both program keys. The silhouette outline is a separate `MeshBasicMaterial` and
-  does not interact. Vehicles, enemy and civilian figures are not rimmed (`ugv_recon_dog` is catalogued `kdf` and is). The model for the
-  provisional gain is `tools/src/wet-unit-rim.test.ts`; the flat lift's calibration test was removed with it.
+  does not interact. Vehicles, enemy and civilian figures are not rimmed (`ugv_recon_dog` is catalogued `kdf` and is). The model
+  is `tools/src/wet-unit-rim.test.ts`; the flat lift's calibration test was removed with it.
 - **The density instrument is `pnpm ground:capture`** (`tools/src/perf/ground-captures.ts`, pure half `ground-captures-plan.ts`). Every
   frame carries `preset`, `zoom`, `tick`, `drops=` (on screen), `P=` and `total=` on its printed line and in `cost.json`; `onScreenDropCount`
   mirrors the shader's keep and edge cull. Options: `--reflect`, `--wade`, `--quality=high,medium,low` (one boot per preset, read back

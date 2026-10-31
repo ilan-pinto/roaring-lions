@@ -20,10 +20,14 @@
  * the figure) plus the rim's radiance at the outer pixel, run forward through three r186's ACES to
  * the display, compared in LUMINANCE with the wet ground it stands on (look 2's ground colours).
  * The pick: the outer rim pixel at about 1.5 x the road's luminance, so the outline reads against the
- * dark ground; on marsh water, darker still, the same rim is brighter against it (3.7 x), on the
- * bright grass it stays under the ground (0.39 x) and the figure keeps its S-L2 contrast there.
- * 0.4 puts the road at 1.63 x. The mean radiance the rim adds to a figure is 0.1 x 0.4 x 0.74 x
- * 0.391 = 0.0116, a tenth of the flat lift's 0.116.
+ * dark ground; on marsh water, darker still, the same rim is brighter against it, on the bright
+ * grass it stays nearer the ground and the figure keeps its S-L2 contrast there. The first pick,
+ * 0.4 put the road at 1.63 x; look4 (the lead's one extra run, gains 0 to 0.9) showed 0.2 and 0.4
+ * nearly invisible, 0.6 the smallest visible rim without frost and 0.9 frost, so the SHIPPED gain
+ * is 0.6: the model puts the outermost pixel at 2.84 x the road (look4 measured it as a dotted pale
+ * outline at 3 to 4x zoom; no gain cleared dE 15.6, the model's luminance ratio is not dE). The mean
+ * radiance the rim adds to a figure is 0.1 x 0.6 x 0.74 x 0.391 = 0.0174, 15% of the retired flat
+ * lift's 0.116.
  *
  * Every number is a LITERAL (the grounds and figure samples from `look3/readability.txt`, (2)).
  */
@@ -38,7 +42,7 @@ const SKY_LUMA = 0.2126 * SKY[0] + 0.7152 * SKY[1] + 0.0722 * SKY[2];
 const HAZE_KEEP = 0.74;
 const POWER = 3;
 /** The shipped provisional gain, as a literal. */
-const GAIN = 0.4;
+const GAIN = 0.6;
 /** The outermost pixel's rim factor (a torso half-width of 10 px). */
 const F_OUTER = 0.4;
 
@@ -140,22 +144,22 @@ describe('the rim factor over a figure (the area share)', () => {
   });
 });
 
-describe('the provisional gain, by luminance against the ground', () => {
+describe('the shipped gain (0.6, from look4), by luminance against the ground', () => {
   it('reproduces the S-L2 figure with no rim: dark against every ground (the model\'s inverse is checked first)', () => {
     for (const k of KINDS) expect(rimLuma(k, 0, F_OUTER) / luma(lin3(FIGURE[k]))).toBeCloseTo(1, 2);
     expect(ratio('road', 0, F_OUTER)).toBeLessThan(0.35);
     expect(ratio('water', 0, F_OUTER)).toBeLessThan(0.85);
   });
 
-  it('at the shipped gain the outer rim pixel is 1.63 x the road, 3.67 x the marsh water, 0.39 x the grass', () => {
-    expect(ratio('road', GAIN, F_OUTER)).toBeCloseTo(1.63, 1);
-    expect(ratio('water', GAIN, F_OUTER)).toBeCloseTo(3.67, 1);
-    expect(ratio('grass', GAIN, F_OUTER)).toBeCloseTo(0.39, 1);
+  it('at the shipped gain the outer rim pixel is 2.84 x the road, 6.26 x the marsh water, 0.67 x the grass', () => {
+    expect(ratio('road', GAIN, F_OUTER)).toBeCloseTo(2.84, 1);
+    expect(ratio('water', GAIN, F_OUTER)).toBeCloseTo(6.26, 1);
+    expect(ratio('grass', GAIN, F_OUTER)).toBeCloseTo(0.67, 1);
   });
 
-  it('across the outer-pixel factors of a 6 to 20 px half-width the road reads 1.27 to 2.03 x (roughly 1.5)', () => {
-    expect(ratio('road', GAIN, 0.33)).toBeGreaterThan(1.2);
-    expect(ratio('road', GAIN, 0.47)).toBeLessThan(2.1);
+  it('across the outer-pixel factors of a 6 to 20 px half-width the road reads 2.18 to 3.54 x', () => {
+    expect(ratio('road', GAIN, 0.33)).toBeGreaterThan(2.1);
+    expect(ratio('road', GAIN, 0.47)).toBeLessThan(3.6);
   });
 
   it('the gain is monotone in the rim\'s luminance, so the capture\'s several gains order the look', () => {
@@ -164,16 +168,16 @@ describe('the provisional gain, by luminance against the ground', () => {
     for (let i = 1; i < roads.length; i++) expect(roads[i]).toBeGreaterThan(roads[i - 1]);
   });
 
-  it('the rim adds a tenth of the retired flat lift\'s mean radiance to a figure', () => {
+  it('the rim adds 15% of the retired flat lift\'s mean radiance to a figure', () => {
     const flat = 0.4 * HAZE_KEEP * SKY_LUMA;
     const rim = 0.1 * GAIN * HAZE_KEEP * SKY_LUMA;
     expect(flat).toBeCloseTo(0.1157, 3);
-    expect(rim).toBeCloseTo(0.01157, 4);
-    expect(rim / flat).toBeCloseTo(0.1, 6);
+    expect(rim).toBeCloseTo(0.01735, 4);
+    expect(rim / flat).toBeCloseTo(0.15, 6);
   });
 
-  it('stays far under the bloom bar: the largest rim radiance (factor 1, gain 0.4) is 0.185', () => {
-    expect(Math.max(...SKY) * GAIN).toBeCloseTo(0.185, 3);
+  it('stays far under the bloom bar: the largest rim radiance (factor 1, gain 0.6) is 0.277', () => {
+    expect(Math.max(...SKY) * GAIN).toBeCloseTo(0.277, 3);
     expect(Math.max(...SKY) * GAIN).toBeLessThan(0.9);
   });
 });

@@ -271,7 +271,7 @@ describe('the rain rim (GH-871 P4 PR 914)', () => {
       expect(rainRimNow().gain).toBe(0.25);
     } finally {
       setUnitSurfacePass(true);
-      setRainRimGain(0.4);
+      setRainRimGain(0.6);
     }
   });
 });

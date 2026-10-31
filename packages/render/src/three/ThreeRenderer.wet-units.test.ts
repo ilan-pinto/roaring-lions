@@ -199,9 +199,9 @@ describe('the rain rim reaches a KDF figure built with the renderer\'s own table
 
   it('debugRainRim reads back the shipped default, the power and whether a rim material exists', () => {
     const { r } = setUp(RAIN);
-    expect(r.debugRainRim()).toEqual({ gain: 0.4, power: 3, wanted: 0.4, built: false });
+    expect(r.debugRainRim()).toEqual({ gain: 0.6, power: 3, wanted: 0.6, built: false });
     const t = buildMeshUnitTemplate(figure(), 'kdf', 'x.glb', false, undefined, undefined, priv(r).surfaceTable as SurfaceTable);
-    expect(r.debugRainRim()).toEqual({ gain: 0.4, power: 3, wanted: 0.4, built: true });
+    expect(r.debugRainRim()).toEqual({ gain: 0.6, power: 3, wanted: 0.6, built: true });
     for (const m of t.materials) m.dispose();
     expect(r.debugRainRim().built).toBe(false);
     r.dispose();
@@ -235,7 +235,7 @@ describe('the rain rim reaches a KDF figure built with the renderer\'s own table
       expect(r.debugRainRim().gain).toBe(0);
       for (const m of t.materials) m.dispose();
     } finally {
-      r.debugSetRainRim(0.4);
+      r.debugSetRainRim(0.6);
     }
     r.dispose();
   });

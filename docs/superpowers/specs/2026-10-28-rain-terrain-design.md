@@ -1072,9 +1072,9 @@ byte-identical. (4) One recapture (allowed once), then T13, the cost re-run on a
 rain only. It is a soft, light edge on the figure's outline (a view-angle Fresnel rim on the unit surface, wet maps only). Camouflage, faces and
 team colour stay as in look 2. Remove `RAIN_KDF_FIGURE_LIFT` as a flat albedo lift. Re-measure with the figure-mask method: the mean and the
 darkest 15%, on road, water and grass." As built: a Fresnel rim (`units/rain-rim.ts`, colour `overcast.1`, power 3, one shared gain uniform,
-`RAIN_KDF_RIM_GAIN` in `weather.ts`, provisional 0.4 until measured), the flat lift and its calibration test removed, and the `ground:capture
---rim=<g>,...` option so ONE browser run photographs several gains (look4, beside look 2 and look 3). The model behind the provisional gain is
-`tools/src/wet-unit-rim.test.ts`: the outermost pixel of a figure at 1.63 x the wet road's luminance, 3.67 x marsh water, 0.39 x grass.
+`RAIN_KDF_RIM_GAIN` in `weather.ts`, shipped at 0.6 from look4), the flat lift and its calibration test removed, and the `ground:capture
+--rim=<g>,...` option so ONE browser run photographs several gains (look4, beside look 2 and look 3). The model is
+`tools/src/wet-unit-rim.test.ts`: at the shipped 0.6 the outermost pixel of a figure reads 2.84 x the wet road's luminance, 6.26 x marsh water, 0.67 x grass (the first pick, 0.4, was 1.63 / 3.67 / 0.39; look4 showed it nearly invisible).
 
 ### 14.3 Pins moved (old -> new)
 
@@ -1186,3 +1186,4 @@ z0.35 to z2.5 because streaks are screen-pixel width (taste). No lattice rows, b
    the drop pattern (never seen in a browser); `low` density has 12-30 drops per screen of per-focus noise; the rain's overhang over the void;
    road puddles are hard-edged rectangles (taste). The deferred minors of every task are in the ledger (GLSL terms covered by string-contains
    tests only, the tool's at-budget OVER print, the shared cost-tool block copied three times, `ugv_recon_dog` lifted, now rimmed, with the infantry).
+7. **The rim does not clear the floor (look4, the lead's one extra run).** The rim does not clear dE 15.6 on road or water at any gain 0..0.9 (it lights grazing edges only; the mean figure gains 1-3 dE, the darkest 15% does not move). Camouflage, faces, helmets and team colour are kept at every gain; 0.2 and 0.4 are nearly invisible even at 4x, 0.6 is a dotted pale outline at 3-4x that separates boots and legs on grass (the best effect, shipped), and 0.9 is frost and sparkle bordering on an artefact. Options for the lead: a much wider rim (`RAIN_KDF_RIM_POWER` 3 -> 1..1.5, needs a source edit and a run); a rim plus a small flat lift of 0.15-0.2 (look 3's model for a 0.3 flat lift: road 18.3 / 17.8, water 23.3 / 21.2, grass 22.1 / 22.2, uncaptured); or accept dark KDF figures on wet ground.

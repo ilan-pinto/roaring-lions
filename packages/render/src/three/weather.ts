@@ -69,14 +69,15 @@ export const CHEAP_WET_GROUND_LANDED = false;
  * (n.v near 1) gets nothing. The colour is the rain sky (`overcast.1`, the colour the flat lift used:
  * cold and soft, and a hue apart from the green grass and the brown road).
  *
- * `RAIN_KDF_RIM_GAIN` is PROVISIONAL: 0.4, from a model (`tools/src/wet-unit-rim.test.ts`) that puts
- * the outermost pixel of a figure (rim factor about 0.4) at 1.6 x the wet road's luminance, and the
- * controller replaces it with the measured pick from the `--rim` capture. The power is 3: the rim
+ * `RAIN_KDF_RIM_GAIN` is 0.6, picked from look4 (the lead's extra run at gains 0 to 0.9): 0.2 and 0.4
+ * were nearly invisible even at 4x, 0.6 is the smallest gain that reads as a rim without frost, 0.9
+ * frost. No gain in that range clears the readability floor (dE 15.6) on the wet road or in marsh water:
+ * the rim lights grazing edges only (spec section 14.6). The model is `tools/src/wet-unit-rim.test.ts`. The power is 3: the rim
  * lies in the outer band of the silhouette (a sphere's mean factor is 0.1; 4% of its area is at or
  * over 0.5). One shared uniform carries the gain, so `ThreeRenderer.debugSetRainRim` moves every
  * figure with one write.
  */
-export const RAIN_KDF_RIM_GAIN = 0.4;
+export const RAIN_KDF_RIM_GAIN = 0.6;
 export const RAIN_KDF_RIM_POWER = 3;
 export const RAIN_KDF_RIM_KEY = RAIN_SKY_KEY;
 
