@@ -467,21 +467,21 @@ describe('the medic answers a man going down', () => {
     const c = convoy();
     const { w, medic, squadA } = c;
     const p = priv(w.sim);
-    expect([p.fmDuty[medic], p.moving[medic], p.wpCount[medic], p.goalX[medic], p.goalY[medic]]).toEqual([0, 1, 2, 1605632, 2588672]);
+    expect([p.fmDuty[medic], p.moving[medic], p.wpCount[medic], p.goalX[medic], p.goalY[medic]]).toEqual([0, 1, 3, 1605632, 2654208]);
     hit(w, squadA);
     const down = kinds(w, 'woundedDown');
     tick(w);
     const dn = [...down, ...kinds(w, 'woundedDown')];
     expect(dn).toEqual([{ kind: 'woundedDown', tick: 30, entity: 5, parent: squadA, by: -1 }]);
     expect(calls(w)).toEqual([{ tick: 30, entity: medic, call: 'casualty' }]);
-    expect([p.fmDuty[medic], p.medTarget[medic], p.wpCount[medic]]).toEqual([DUTY.out, 5, 2]);
-    // its place in the march: where it was going, checkpoint 1's slot at (24.5, 39.5)
-    expect([p.fmHomeX[medic], p.fmHomeY[medic]]).toEqual([1605632, 2588672]);
+    expect([p.fmDuty[medic], p.medTarget[medic], p.wpCount[medic]]).toEqual([DUTY.out, 5, 3]);
+    // its place in the march: where it was going, checkpoint 1's slot at (24.5, 40.5)
+    expect([p.fmHomeX[medic], p.fmHomeY[medic]]).toEqual([1605632, 2654208]);
     expect([p.fgAway[0], p.fgMembers[0], p.fgCalled[0]]).toEqual([1, 5, 0]); // a casualty call is not a sortie
     // he stays out, with his queue, while he treats (about 6 s) and carries
     for (let t = 0; t < 100; t++) {
       tick(w);
-      expect(p.wpCount[medic], `tick ${w.sim.tickCount}`).toBe(2);
+      expect(p.wpCount[medic], `tick ${w.sim.tickCount}`).toBe(3);
       expect(counted(w, 0)).toBe(true);
     }
     expect(p.fmDuty[medic]).toBe(DUTY.out);
@@ -500,7 +500,7 @@ describe('the medic answers a man going down', () => {
     }
     expect(calls(w).every((x) => x.entity === medic)).toBe(true);
     expect(calls(w).map((x) => x.call)).toContain('casualty');
-    expect(goalAt30).toEqual([1605632, 2719744]); // (24.5, 41.5), its first checkpoint slot: it kept marching to it
+    expect(goalAt30).toEqual([1605632, 2785280]); // (24.5, 42.5), its first checkpoint slot: it kept marching to it
   });
   it('delivered, the medic goes home and rejoins: RETURN to fmHome, then NONE and the rest of its queue to its final slot', () => {
     const c = convoy();
@@ -514,7 +514,7 @@ describe('the medic answers a man going down', () => {
     }
     expect(calls(w).filter((x) => x.call === 'return')).toEqual([{ tick: 688, entity: medic, call: 'return' }]);
     expect([p.fmDuty[medic], p.attackMove[medic], p.moving[medic], p.passengers[medic], p.medState[medic]]).toEqual([DUTY.ret, 0, 1, 0, 0]);
-    expect([p.goalX[medic], p.goalY[medic], p.wpCount[medic]]).toEqual([1605632, 2588672, 2]);
+    expect([p.goalX[medic], p.goalY[medic], p.wpCount[medic]]).toEqual([1605632, 2654208, 3]);
     expect(p.fgAway[0]).toBe(1); // coming home still counts as away
     for (let t = 0; t < 1500 && p.fmDuty[medic] === DUTY.ret; t++) {
       tick(w);
@@ -684,7 +684,7 @@ describe('a hostile contact with a medic out or coming home', () => {
     const p = priv(w.sim);
     hit(w, c.ids[5]);
     tick(w, 30);
-    expect([p.fmDuty[medic], p.wpCount[medic]]).toEqual([DUTY.out, 2]);
+    expect([p.fmDuty[medic], p.wpCount[medic]]).toEqual([DUTY.out, 3]);
     hostileHit(c);
     tick(w);
     expect(w.sim.formationStateOfGroup(0)).toBe(FM_CONTACT);
@@ -707,7 +707,7 @@ describe('a hostile contact with a medic out or coming home', () => {
     expect([p.fmDuty[medic], p.fgAway[0]]).toEqual([DUTY.none, 0]);
     for (let t = 0; t < 1500 && p.moving[medic] === 1; t++) tick(w);
     // he stopped where he was sent, checkpoint 1's slot: the halted Column's march does not resume
-    expect([tileOf(p.posX[medic]), tileOf(p.posY[medic])]).toEqual([24, 39]);
+    expect([tileOf(p.posX[medic]), tileOf(p.posY[medic])]).toEqual([24, 40]);
   });
   it('a halt drill stops a medic already on his way home, and he is no longer away', () => {
     const c = convoy();
@@ -742,7 +742,7 @@ describe('the medic out of the way of his own job', () => {
     p.routed[medic] = 0;
     tick(w);
     expect([p.fmDuty[medic], p.moving[medic], p.attackMove[medic]]).toEqual([DUTY.ret, 1, 0]);
-    expect([p.goalX[medic], p.goalY[medic], p.wpCount[medic]]).toEqual([1605632, 2588672, 2]);
+    expect([p.goalX[medic], p.goalY[medic], p.wpCount[medic]]).toEqual([1605632, 2654208, 3]);
     expect(calls(w).map((x) => x.call)).toEqual(['casualty', 'return']);
   });
   it('a player order to a medic on a call takes him out of the group, counts and all', () => {

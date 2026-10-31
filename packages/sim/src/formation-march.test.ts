@@ -390,11 +390,11 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
         expect(p.wpCount[ids[0]]).toBe(3);
       }
     }
-    expect(firstArrival).toBe(155);
-    expect(threeWaiting).toBe(196);
+    expect(firstArrival).toBe(133);
+    expect(threeWaiting).toBe(173);
     const released = kinds(w, 'formationReleased');
     expect(released).toHaveLength(1);
-    expect(released[0]).toEqual({ kind: 'formationReleased', tick: 215, side: 0, group: 0, leg: 1, legs: 4 });
+    expect(released[0]).toEqual({ kind: 'formationReleased', tick: 193, side: 0, group: 0, leg: 1, legs: 4 });
     expect((released[0] as { tick: number }).tick - firstArrival).toBe(60);
     // the release sent the three on: leg 2, no longer waiting, the straggler still on leg 1
     expect(ids.map((id) => p.fmLeg[id])).toEqual([2, 2, 2, 1]);
@@ -413,7 +413,7 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
       if (p.fmDuty[ids[3]] === 1) waitedTicks++;
       if (p.fmLeg[ids[3]] === 2) passed = w.sim.tickCount - 1;
     }
-    expect(passed).toBe(240);
+    expect(passed).toBe(218);
     expect(waitedTicks, 'the straggler never waited').toBe(0);
     expect(p.fmDuty[ids[3]]).toBe(0);
     expect(p.fgAtCp[0], 'and was never counted at the checkpoint').toBeLessThan(4);
@@ -428,9 +428,9 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
       tick(w);
       if (kinds(w, 'formationReleased').length === 1 && p.fgAtCp[0] === 4 && lastArrival < 0) lastArrival = w.sim.tickCount - 1;
     }
-    expect(lastArrival).toBe(418);
+    expect(lastArrival).toBe(396);
     const released = kinds(w, 'formationReleased');
-    expect(released[1]).toEqual({ kind: 'formationReleased', tick: 419, side: 0, group: 0, leg: 2, legs: 4 });
+    expect(released[1]).toEqual({ kind: 'formationReleased', tick: 397, side: 0, group: 0, leg: 2, legs: 4 });
     expect(ids.map((id) => p.fmLeg[id])).toEqual([3, 3, 3, 3]);
   });
   it('the last checkpoint is not dressed: members that arrive stop (moving 0) with the group released three times', () => {
@@ -446,9 +446,9 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
   it('when the last waiting member leaves, the dress clock starts again from the next arrival', () => {
     const { w, ids } = straggler();
     const p = priv(w.sim);
-    // the first arrival waits from tick 155; after 175 ticks the dress has run 19 and that member is ordered away
+    // the first arrival waits from tick 133; after 153 ticks the dress has run 19 and that member is ordered away
     let firstWaiter = -1;
-    for (let t = 0; t < 175; t++) {
+    for (let t = 0; t < 153; t++) {
       tick(w);
       if (firstWaiter < 0 && p.fgAtCp[0] === 1) firstWaiter = ids.find((id) => p.fmDuty[id] === 1) ?? -1;
     }
@@ -457,27 +457,27 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
     w.sim.queueCommand({ kind: 'halt', ids: [firstWaiter] });
     tick(w);
     expect([p.fgAtCp[0], p.fgDress[0]], 'nobody waits and the clock is back at zero').toEqual([0, 0]);
-    // the next arrival (tick 177) starts a fresh clock: the release is dress_s after IT, not after the first
+    // the next arrival (tick 155) starts a fresh clock: the release is dress_s after IT, not after the first
     let nextArrival = -1;
     while (kinds(w, 'formationReleased').length === 0 && w.sim.tickCount < 500) {
       tick(w);
       if (nextArrival < 0 && p.fgAtCp[0] > 0) nextArrival = w.sim.tickCount - 1;
     }
-    expect(nextArrival).toBe(177);
-    expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 237, side: 0, group: 0, leg: 1, legs: 4 });
+    expect(nextArrival).toBe(155);
+    expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 215, side: 0, group: 0, leg: 1, legs: 4 });
   });
   it('a hull whose slot lies beyond a waiting hull is steered round it, ghosts through on the valve and is dressed in time', () => {
     // Ruling 6 keeps a waiting hull `moving` 1, so the separation pass reads it as a mover. Three tanks with a hull
-    // footprint (half length 1.0, half width 0.5): the Column's checkpoint 1 is (24, 31) / (26, 32) / (24, 34), and
-    // the third tank, spawned ahead at (24, 30), is there at tick 72 and waits. The first tank must cross (24, 34)
-    // to reach (24, 31), so it comes up BEHIND the waiting hull. The ten-second dress keeps the wait alive.
+    // footprint (half length 1.0, half width 0.5): the Column's checkpoint 1 is (24, 32) / (26, 33) / (24, 35), and
+    // the third tank, spawned ahead at (24, 30), is there at tick 90 and waits. The first tank must cross (24, 35)
+    // to reach (24, 32), so it comes up BEHIND the waiting hull. The ten-second dress keeps the wait alive.
     const w = world();
     const foot = w.sim.addUnitType({ ...MBT, id: 'fm3_foot', mobility: { ...MBT.mobility, footprint: { half_length_tiles: 1.0, half_width_tiles: 0.5 } } } as UnitTypeJson);
     const ids = [spawnAt(w, foot, 0, 24, 44), spawnAt(w, foot, 0, 26, 45), spawnAt(w, foot, 0, 24, 30)];
     order(w, ids, 'column_dress10', [24, 14]);
     tick(w);
     const p = priv(w.sim);
-    expect(ids.map((id) => goalTile(w.sim, id))).toEqual([[24, 31], [26, 32], [24, 34]]);
+    expect(ids.map((id) => goalTile(w.sim, id))).toEqual([[24, 32], [26, 33], [24, 35]]);
     let waiterFrom = -1;
     let peakWait = 0;
     let peakAt = -1;
@@ -493,16 +493,16 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
       }
       if (tileOf(p.posX[ids[0]]) === 23) sidestep = true; // it went round the waiting hull, to its west
       // the waiting hull never moves while it is waited on
-      if (p.fmDuty[ids[2]] === 1) expect([tileOf(p.posX[ids[2]]), tileOf(p.posY[ids[2]])], `waiting hull at ${now}`).toEqual([24, 34]);
+      if (p.fmDuty[ids[2]] === 1) expect([tileOf(p.posX[ids[2]]), tileOf(p.posY[ids[2]])], `waiting hull at ${now}`).toEqual([24, 35]);
       if (arrived < 0 && p.posX[ids[0]] === p.goalX[ids[0]] && p.posY[ids[0]] === p.goalY[ids[0]] && p.fmLeg[ids[0]] === 1) arrived = now;
     }
-    expect(waiterFrom).toBe(72);
+    expect(waiterFrom).toBe(90);
     expect(sidestep).toBe(true);
     // not a deadlock: the count peaks at the valve (SEP_VALVE_TICKS 40), the hull ghosts through, and is on its slot
-    expect([peakWait, peakAt]).toEqual([40, 185]);
-    expect(arrived).toBe(270);
-    // all present: the release is the tick after the last arrival, one tick inside the 200-tick clock (72 + 200 = 272)
-    expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 271, side: 0, group: 0, leg: 1, legs: 4 });
+    expect([peakWait, peakAt]).toEqual([40, 167]);
+    expect(arrived).toBe(252);
+    // all present: the release is the tick after the last arrival, well inside the 200-tick clock (90 + 200 = 290)
+    expect(kinds(w, 'formationReleased')[0]).toEqual({ kind: 'formationReleased', tick: 253, side: 0, group: 0, leg: 1, legs: 4 });
     tick(w, 700);
     expect(kinds(w, 'formationReleased').map((e) => (e as { leg: number }).leg)).toEqual([1, 2, 3]);
     expect(ids.map((id) => p.moving[id])).toEqual([0, 0, 0]);
@@ -533,7 +533,7 @@ describe('dress: an early arrival waits, with its leg live, until the group is d
       }
     }
     expect(held).toBeGreaterThan(30);
-    expect(goalAtFirst).toEqual([24, 36]);
+    expect(goalAtFirst).toEqual([24, 37]);
   });
 });
 
