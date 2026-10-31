@@ -94,8 +94,11 @@ in step with it.
   never as a tier a mission could gate on.
 - **Production is a line per camp, and the enemy can buy (F4, GH-183).** `structures[].side` (`0 | 1`) overrides a structure type's `produces_for`, so a `camp` placed with `side: 1` is the enemy's; at most 4 production structures a side (`validate:data`). `enemy.production` is `{ menu, logistics_start, logistics_rate_per_min, rally, group }`: `menu` is Sarim/enemy unit ids, `logistics_start` is capped at 894784, `rally` a marker, and **`group`** is the name given to every unit it buys so a trigger can `commit` it. It needs a side-1 camp; the enemy spends down (buys the next affordable menu item whenever its line is idle, never banking). **D7: no campaign mission authors an enemy camp in Stage 4, and `validate:data` refuses `enemy.production` on any shipped mission while D7 stands**: the shipped `unitInfo` (app, playtest, harness) answers KDF only, so side 1 cannot build until N3's loader or an enemy-roster lookup (R-F4-5); `buildEnemyMenu` would throw at `start()`. The mechanism is proved on fixtures and a report-only probe (Tel Marum III with a camp at (27,7): 2 units bought, plan 29/30 against 30/30 without). Numbers and the D-list: `docs/campaign/economy/production-numbers.md`.
 - **The enemy is stances, one-shot triggers and waves.** One stance per placement
-  (`hold_position | ambush(tiles) | patrol | garrison`), four trigger conditions ×
-  five actions, waves on a clock or on an objective completing. That is the whole
+  (`hold_position | ambush(tiles) | patrol | garrison`), five trigger conditions
+  (`first_contact casualties_pct timer_s zone_entered group_in_zone`) × six actions, waves on a
+  clock or on an objective completing. `zone_entered` is a player unit in a zone; `group_in_zone`
+  (GH-912) is a member of a named group (garrison, wave or spawn) in one, and waits for a wave's
+  group to exist rather than firing on nobody. That is the whole
   AI. Design inside it and name what falls outside as a gap.
 - **Nine live objective types.** `locate eliminate_hvt capture hold_for
   survive_until destroy_all raze collapse evacuate_before`. Three more are in the
