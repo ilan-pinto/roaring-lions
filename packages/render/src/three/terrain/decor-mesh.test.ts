@@ -348,3 +348,54 @@ describe('buildDecorMesh decorColors (GH-322)', () => {
     expect(colorsTexture(byName(g, 'decor-foliage'))).toBeNull();
   });
 });
+
+describe('the wet foliage batch (GH-871 P4 T5): the direct witness', () => {
+  // The theme-identity harness loads no decor GLBs, so its `scene` digest cannot
+  // see a wet-sway change made at the decor/batch call site. This builds the
+  // batch the way the renderer does (`buildDecorMesh`) with the rain option on
+  // and off and reads the compiled foliage program.
+  const sway = { time: { value: 0 }, amp: { value: 1 } };
+  const foliageOf = (g: THREE.Group): THREE.Material =>
+    (g.children.find((c) => c.name === 'decor-foliage') as THREE.BatchedMesh).material as THREE.Material;
+  const build = (wet?: boolean): THREE.Group =>
+    buildDecorMesh(placementsOfEveryRole(), geometrySetOfEveryRole(), sway, undefined, wet);
+
+  it('a dry batch is today`s: the shipped cache key and the shipped chunk, byte for byte', () => {
+    for (const wet of [undefined, false]) {
+      const mat = foliageOf(build(wet));
+      expect(mat.customProgramCacheKey()).toBe('rl-foliage-sway');
+      const vs = compiled(mat).vertexShader;
+      // Today's program: the amplitude and the gust gain this file shipped with.
+      expect(vs).toContain('uSwayAmp * 0.03500000 *');
+      expect(vs).toContain('(1.40000000 - 1.0)');
+      expect(vs).not.toContain('0.05250000');
+      expect(vs).not.toContain('1.80000000');
+      // And it equals the material the unchanged signature builds.
+      expect(vs).toBe(compiled(swayingFoliageMaterial(['#808080'], sway)).vertexShader);
+    }
+  });
+
+  it('a wet batch differs in exactly the amplitude x1.5, the gust 1.8 and the cache key', () => {
+    const dry = foliageOf(build(false));
+    const wet = foliageOf(build(true));
+    expect(wet.customProgramCacheKey()).toBe('rl-foliage-sway-wet');
+    expect(wet.customProgramCacheKey()).not.toBe(dry.customProgramCacheKey());
+    const dryVs = compiled(dry).vertexShader;
+    const wetVs = compiled(wet).vertexShader;
+    expect(wetVs).toContain('uSwayAmp * 0.05250000 *');
+    expect(wetVs).toContain('(1.80000000 - 1.0)');
+    expect(wetVs.replace('0.05250000', '0.03500000').replace('1.80000000', '1.40000000')).toBe(dryVs);
+    // The fragment source and the sway uniforms (the `wind` layer's) are untouched.
+    expect(compiled(wet).fragmentShader).toBe(compiled(dry).fragmentShader);
+    expect(compiled(wet).uniforms.uSwayAmp).toBe(sway.amp);
+    expect(compiled(wet).uniforms.uSwayTime).toBe(sway.time);
+  });
+
+  it('a wet batch is still only the foliage role: trunks, rock and sand keep the plain ramp', () => {
+    const group = build(true);
+    for (const child of group.children) {
+      const key = ((child as THREE.BatchedMesh).material as THREE.Material).customProgramCacheKey();
+      expect(key === 'rl-foliage-sway-wet').toBe(child.name === 'decor-foliage');
+    }
+  });
+});

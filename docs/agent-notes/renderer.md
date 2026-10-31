@@ -350,3 +350,116 @@ yours; each one records what the next phase inherits.
   alpha 1.0. **Captures ASSERT no selection and no hover**, so no gated
   scenario photographs a ring or a hover bar: the ring has no gate witness, by
   ruling.
+
+## The rain and the wet light (GH-871 P4)
+
+The wetland's air: `rainLight`, the falling rain, the ladder, reduced motion, the KDF rain rim and the instruments that measure them.
+The ground, control C and the ripples are in `terrain-rendering.md` ("The wetland theme (GH-871 P4)"); the as-built record, pins and
+cost tables are the spec's section 14. All of it keys on ONE switch, `RendererOptions.weather === 'rain'`; a renderer built without it
+never calls into `three/weather.ts`, so a shipped map's light, haze, shadow map and draw list are today's.
+
+- **`rainLight(lights, preset, resolve)` (`three/weather.ts`) is pure and three-free.** It takes the RESOLVED lights (`DAY_LIGHTS` itself for
+  day, `presetLights(row)` for dawn and dusk, not a `LightPreset` row: `day` is not built from the table), keeps the sun's DIRECTION (rain
+  at dawn is still dawn) and returns the sun x `RAIN_SUN_SCALE` 0.46 in `overcast.0`, the fill x `RAIN_FILL_SCALE` 1.5 (on every preset,
+  ruling Q2), the sky key `overcast.1`, `sun.shadow.intensity` `RAIN_SHADOW` 0.45, `hazeFar` `RAIN_HAZE_FAR` 0.26 on every preset, the haze
+  key `overcast.1` (it overrides dusk's own `dust.1`) and `hazeLow` `RAIN_HAZE_LOW` 0.10. Open-ground irradiance `(sunI x sun.y + hemiI) / pi`
+  goes 0.964 -> 0.741 on `day`. **A mission's `lightOverride` is applied AFTER it: the mission wins.** The constructor builds the Vector3.
+  The shadow map steps down once and floors at 1024 (`rainShadowMapSize`: 4096 -> 2048, 2048 -> 1024, 1024 -> 1024); it is the one saving
+  the cost budget nets out. `hazeLow` is compiled into the fog pass's source (`createFogPass`, shared by the constructor and the
+  `theme-identity` harness), so the shipped fog program is byte-identical. The haze, the rain colours and `uWetSky` all scale by
+  `hazeRadiance` of the lights the scene is lit by.
+- **The rain is ONE instanced draw** (`units/rain-batch.ts`, `units/rain-maths.ts`), built lazily by the first `frame()` after the terrain
+  exists, only under rain and only when the preset's `drops > 0`. Each instance owns a static seed (`dropSeed`) and the vertex shader ages
+  it from a time uniform; the base geometry holds a STREAK quad and a SPLASH quad, so a drop and its ring are one instance. The shader is a
+  GLSL copy of `rain-maths.ts` built from the same exported constants, never retyped literals. Fall 4.0 wu/s through 6 wu, slanted 12
+  degrees down-wind on the foliage sway's axis; a streak is 0.42 wu long, `RAIN_STREAK_CSS_PX` 1.5 CSS px wide at every zoom
+  (`streakWidthWorld`, rewritten per frame from zoom and DPR), alpha 0.28; the splash ring grows 0.04 -> 0.10 wu over 150 ms, alpha 0.35
+  -> 0, floating 0.04 above the ground. Colour is `overcast.0` (streak) and `overcast.1` (splash) linear x `hazeRadiance`: the largest
+  channel is 0.4331 on day, under `RAIN_COLOUR_CEILING` 0.9, so it never blooms and `hdr-gains.ts` has no entry.
+- **The time is the SIM clock.** `uFall = mod(4.0 x presentationSimMs/1000, 6)`; nothing in the rain or ripple path reads
+  `performance.now()`, `Date.now()` or accumulated `dtMs`. A repaint at zero elapsed time reads the same uniforms and a pause freezes the
+  rain mid-air. A drop lands on ONE fixed point and repeats it every 1.5 s (the spec's formula); a re-hash per cycle is a GLSL change if
+  a pattern ever shows.
+- **The lattice period is CONTINUOUS and the density is held by a keep fraction.** (R-7 said the period snapped to {8, 16, 32, 64} and "a P
+  step reshuffles": both are SUPERSEDED by S-L2 ruling 2.) A drop's landing point is world-anchored modulo `P`:
+  `x = lo + mod(seed.x P - lo, P)`, inside a `P` window centred on the box of landing points the screen can see. `P` is the side of the
+  UNCLIPPED footprint box (`footprintExtent`: zoom, viewport and the map's highest ground only, grown toward the camera by
+  `rainReach(maxGround)`, `(6 + g) / tan(elevation)`, and by the slant offset), clamped to `[RAIN_PERIOD_MIN 8, RAIN_PERIOD_MAX 64]`,
+  `RAIN_PERIOD_PAD` 1. **It is never a function of the pan** (a pan slides the window and moves no drop; the clipped box only places the
+  window); computing it from the clipped box once made every drop jump near a map edge. A zoom now SLIDES the pattern (`s x P` moves
+  with `P`) where R-7 reshuffled it in one step; never seen in a browser. A pure per-instance keep seed (`dropKeepSeed`, tile-hash streams
+  9973/16183) and `uKeep = min(1, F x P^2 / A)` (`rainKeep`; `A` = `footprintAreaOnMap`, the mean over 8 heights of the fall of the
+  footprint on the map, memoised by `RainKeepCache`) hold the on-screen count at `RAIN_DENSITY_FRACTION` 0.22 of the preset total at every
+  zoom: the shader collapses an instance whose `aKeep >= uKeep` FIRST, with every varying written before the exit. `uKeep` comes from the
+  zoom, the viewport and the map alone, so the pan neither changes it nor the period. Measured at the map centre on flat ground: high
+  1,273-1,373 over zoom 0.35-2.5 (it was 3,365 / 1,726 / 709 / 1,114 before), medium 741-800; low was retuned at 525 drops to the
+  lead's 1,400 scaled by its total, 98-147. The count is the geometry's, not a pixel readback. Lowest-zoom limit: a map wider than 48 tiles
+  thins at its far corners, and `RAIN_PERIOD_PAD` 1.02 failed the 2.3 wu band at zoom 2.5, so it stays 1.
+- **The map edge is a LANDING-point cull.** The vertex shader removes a drop whose landing point is outside `[0, W] x [0, H]` and fades
+  one within `RAIN_EDGE_FADE` (0.5 tile) inside it with a smoothstep; the splash follows its drop (`mapEdgeFade` is the pure mirror). **The
+  cull tests the landing point, not the streak**, so up to `6 x tan(12 degrees)` = 1.28 tiles of rain can overhang the void on the west and
+  south edges and lose its upper air on the east and north: S-L2 saw rain over the black void above the top-left edge at `kdf_start`
+  (about 1.9% of void pixels). The lead approved it as is.
+- **The draw (S-5).** `RAIN_RENDER_ORDER` is a named ALIAS of `FX_RENDER_ORDER_ABOVE` (band 3, the decal-band pattern): over units and decals,
+  under overlays (4), smoke (5) and the silhouette (6). Transparent, `depthTest` ON (a roof in front of a drop hides it; the fog pass
+  shrouds a streak by the ground behind it), `depthWrite` OFF, `castShadow` false, NO `normal` attribute. It is out of the AO pre-pass and
+  the shadow pass **by omission** (no normal, no cast) **and by its material** (`isAoOccluder` also requires an opaque, depth-writing
+  material; the attribute alone does not raise the AO count, an opaque depth-writing material would), and `rain-batch.test.ts` counts the
+  draws through three's own render lists ({main 1, shadow 0, ao 0}; the harness proves it can see a shadow or AO draw first). It is
+  +1 draw call and +24,000 triangles at high, 0 on a dry map. **It is hidden in `photographGround`**: the minimap's photograph shows
+  the wet tones and the water but no streaks, and the mesh's visibility is restored to what it was.
+- **The height texture.** An R16F texture, 4 texels a tile (74 KB on 48x48), baked from `groundWorldY` at the first build and after every
+  terrain rebuild (`rainHeightStale`), round-to-nearest to half float, under 5 ms (best of five 2.2-2.9 ms on `ein_qasab`; the test
+  flaked once in a full parallel run at load 45-76 and passes alone). A drop lands where the ground IS, sampled at the landing point.
+- **The ladder.** `RenderQuality.rain = { drops, ripples }` (no `openPuddles`: the lead removed the open-ground puddle at S-L1). Shipped:
+  `high` 6000, `medium` 3500, `low` 525 drops with `ripples: false`. `RAIN_LADDER = [1, 0.6, 0.35, 0]` is the order a preset's `drops`
+  steps through when it is over its cost budget (`rainLadderDrops`); a step is a one-line edit to the preset's `drops`, committed with
+  its measurement and `Was drops <n>`. `low` took two: 1500 -> 900 (S-C, loaded run) -> 525 (final tip, quiet machine, NOT re-measured).
+  `medium` took none, because its rain row (-0.4 / -0.6 ms) could not close the gap: **the dominant cost is the wet GROUND program, not the
+  rain** (below). A preset with 0 drops builds no batch; an absent `quality.rain` reads `high`'s (`rainQualityOf`).
+- **Reduced motion.** `reducedNow = opts.reducedMotion?.() === true` is asked ONCE a frame, live, at the top of the wet writes; the rain
+  mesh is visible only when `!rainDebugHidden && !reducedNow` and the ripple amplitude is 1 only when `ripplesAllowed() &&
+  !ripplesDebugHidden && !reducedNow`, so **showing a debug layer never turns motion back on for a player who asked for none**. The
+  wet ground, the light and the haze stay, and the foliage sway follows the shipped rule (neither added nor removed). The test uses
+  literal oracles (fall 1.2, ripple time 1.8 s at 37 ticks, the wall clock mocked forward).
+- **The KDF rain rim (PR 914 ruling 1; presentation only; it REPLACED the flat lift of S-L2 ruling 3).** `WET_SURFACE_PARAMS`
+  (`units/unit-surface.ts`) is built from `SURFACE_PARAMS` and rain films every surface: cloth 0.92 -> 0.80, armour 0.78 -> 0.52, plate
+  0.70 -> 0.48, gunmetal 0.42 -> 0.32, every other class and every metalness unchanged (the 0.45 cap holds). It also carries the switch
+  `kdfRim: true` (ABSENT from the shipped table; a switch, not a parameter): `figureRimFor(table, faction)` is true for `'kdf'` on a table
+  that has it, `mesh-unit.ts`'s two call sites pass it to `surfaceMaterialFor`, and the clone becomes a rim variant (`units/rain-rim.ts`):
+  `totalEmissiveRadiance += uRimColor * uRimGain * pow(1 - saturate(dot(normalize(normal), v)), uRimPower)` with `v = isOrthographic ? (0, 0, 1) : normalize(vViewPosition)` (three's own view vector in `lights_fragment_begin`: the game camera is orthographic, and `normalize(vViewPosition)` on it skews the rim toward the screen edges, about 20 degrees at the 0.35 zoom floor), injected
+  after `#include <emissivemap_fragment>` (the declarations after `#include <common>`). Colour `overcast.1` linear, power 3
+  (`RAIN_KDF_RIM_POWER`), gain `RAIN_KDF_RIM_GAIN` (`weather.ts`; 0.6, picked at look4: the smallest gain that reads as a rim without frost, 0.2 and 0.4 nearly invisible, 0.9 frost; **no gain 0..0.9 clears dE 15.6 on road or water**, the rim lights grazing edges only, see the spec's 14.6 item 7). The rim is a thin
+  soft edge on the outline (a sphere's mean factor is 0.1, 4% of its area is at or over 0.5) and gives the middle of a figure nothing, so
+  camouflage, faces, helmets and team colour read as they did at S-L2, the look the flat lift (emissive `overcast.1 x 0.4` on every texel,
+  flat pale grey-blue ghosts) had washed out. **The uniforms are ONE shared set** (`rimUniforms()`), so one `.value` write moves every figure:
+  the `unit-surface` debug layer sets the gain to 0 and back (the knob's value is stashed, idempotent both ways), and
+  `ThreeRenderer.debugSetRainRim(gain)` / `debugRainRim() {gain, power, built}` (concrete class only, never `api.ts`; a non-finite or
+  negative gain throws) is the capture knob. **Compile-time variant**: the clone has its own `customProgramCacheKey`
+  (`rl-unit-rain-rim`) and the memo key gains `/rim`; a dry renderer never builds one (programs, materials and the three shipped digests are
+  today's). The wounded copy (`wounded-read.ts`) CHAINS the source's `onBeforeCompile` (`Material.clone` does not copy it), so a wounded KDF
+  copy under rain keeps the rim and the floor and carries both program keys. The silhouette outline is a separate `MeshBasicMaterial` and
+  does not interact. Vehicles, enemy and civilian figures are not rimmed (`ugv_recon_dog` is catalogued `kdf` and is). The model
+  is `tools/src/wet-unit-rim.test.ts`; the flat lift's calibration test was removed with it.
+- **The density instrument is `pnpm ground:capture`** (`tools/src/perf/ground-captures.ts`, pure half `ground-captures-plan.ts`). Every
+  frame carries `preset`, `zoom`, `tick`, `drops=` (on screen), `P=` and `total=` on its printed line and in `cost.json`; `onScreenDropCount`
+  mirrors the shader's keep and edge cull. Options: `--reflect`, `--wade`, `--quality=high,medium,low` (one boot per preset, read back
+  and fail loud), `--ticks=<n>`, `--motion=reduce`, `--clip=<s>`, `--stops=road,water,grass` (a squad ordered by a sim `move` Command, never
+  a state write), `--zooms=`, `--vehicle[=marker]` (the first living side-0 wheeled non-air, non-soft hull; a `technical` is soft and never
+  sprays), `--rim=<g>[,<g>...]` (needs `--stops`: each stop frame is repainted at each rim gain, named `<map>-squad-<kind>-rim<g>`, the
+  gain read back off the shared uniform and a renderer with no rim material fails loud). Each option reads back what it asked for and fails loud, and a frame is only comparable with one from the same GPU backend.
+- **The cost instrument is `pnpm perf:fx -- --breakdown --maps=ein_qasab,wadi_halam_basin --presets=high,medium,low`**
+  (`tools/src/perf/fx-cost.ts`, pure half `fx-cost-plan.ts`; rounds interleaved so the basin shares the machine's drift). Configs: `rain`,
+  `wet`, `marsh`, `ripples`, `wet-all`, `wet-program`, `shadow-full`. `wet-all` only zeroes the wet UNIFORMS and hides the rain, so the compiled
+  `THEME_WET` program still runs in both arms: **`NET (layers)` therefore understates the wet cost and carries no budget**.
+  `wet-program` strips the define (and hides rain and ripples) and recompiles; **`NET (total wet)` = (baseline - wet-program frame) -
+  (shadow-full frame - baseline)** is the figure the budgets +1.0 / +0.7 / +0.4 ms (high / medium / low) apply to. Its scope excludes the
+  rain light, the wet sway program and vehicle mud (they stay in both arms). A config with nothing to act on (a layer on the dry basin)
+  prints `n/a (<reason>)`, never 0.00. The tool compares unrounded floats, so a reading AT the budget at its 0.1 ms resolution prints
+  OVER. `--burn=2` (two extra frames per rAF) is the cadence check's falsification: 50.0 ms median, 99% of frames over 20 ms, against 16.70
+  vsync-bound. NOT measured by the tool: program count, texture count, the height-bake time.
+- **The cost verdict, plainly: `medium` is OVER budget, and `low` is at or just over, on the final tip at a quiet load (3-5).** NET (total
+  wet) high 0.20 / 0.50 / 0.20 (<= 1.0, within); medium 0.50 / 0.90 / 1.00 (<= 0.7, OVER at z1.6 and z2.5); low 0.50 / 0.50 / 0.40 at 900
+  drops (<= 0.4), before the unmeasured 525 step. An earlier run at load 18-77 had read medium inside budget; the quiet machine did
+  not reproduce it. Do not take a ladder step to fix it: the standing wet GROUND program is the dominant row (-0.6 / -0.7 / -1.0 ms on
+  medium) and the rain row cannot close the gap. The options are the lead's (spec section 14.6).

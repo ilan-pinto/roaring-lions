@@ -1,18 +1,22 @@
 {
   "beit_sahwan_outskirts": {
     "program": "770e1d732910550af4113b91ad6f285e7b00f32edd6f731e4a11dc28a70130dd",
+    "scene": "e1e5a131703987d33fdc6f9a73df8b2e6943e1bc5784791bca36b15f9c205006",
     "light": "25bf8031d5ff002a08f504fc80e19f2e124399dca4122f81c7f07864a26da5d5"
   },
   "wadi_halam_basin": {
     "program": "770e1d732910550af4113b91ad6f285e7b00f32edd6f731e4a11dc28a70130dd",
+    "scene": "e1e5a131703987d33fdc6f9a73df8b2e6943e1bc5784791bca36b15f9c205006",
     "light": "a1d7cdfd7f49fdf1fa62365525c03add483eb126ccc6015b56247a1ff2cebfed"
   },
   "tel_marum": {
     "program": "770e1d732910550af4113b91ad6f285e7b00f32edd6f731e4a11dc28a70130dd",
+    "scene": "e1e5a131703987d33fdc6f9a73df8b2e6943e1bc5784791bca36b15f9c205006",
     "light": "8c3d8a18f47808aedea55b7dd9db4f45cd13de9a97edbdd5851745ea9fb1b76b"
   },
   "wetland": {
-    "program": "770e1d732910550af4113b91ad6f285e7b00f32edd6f731e4a11dc28a70130dd",
-    "light": "a3f30328b0172dd33eaa0643f54dcbc8e749b10bbb57a6fc5c5a5a066ba28004"
+    "program": "0ce466f4749bc380781cacfb8345ac9bc7b369eb5d71a4b6ad3e22e5f1708a6a",
+    "scene": "be5f0d5283fa513667cc9a8f2f8c1886dd38200c5c9b6f411ab032cbed9193e7",
+    "light": "a62c229f4269bd819dbf8b55d30ba835b1f299408a540ae8389961443cd9823b"
   }
 }

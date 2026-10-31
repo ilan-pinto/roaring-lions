@@ -1,0 +1,21 @@
+{
+  "id": "vehicle_mud",
+  "trigger": "vehicle_move",
+  "layer": "below_units",
+  "budget_priority": 2,
+  "particles": [
+    {
+      "sprite": "soft_dot",
+      "count": [2, 3],
+      "lifetime_ms": [225, 350],
+      "emit_over_ms": 250,
+      "speed_tiles_s": [0.2, 0.5],
+      "cone_deg": 35,
+      "drag": 0.9,
+      "size_px": [3, 5],
+      "size_over_life": [0.6, 0.8, 0.9],
+      "color_over_life": ["mud.2", "mud.2", "mud.3"],
+      "alpha_over_life": [0.5, 0.3, 0.0]
+    }
+  ]
+}
