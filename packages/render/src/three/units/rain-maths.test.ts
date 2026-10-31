@@ -31,6 +31,7 @@ import {
   mapEdgeFade,
   posMod,
   rainColour,
+  RainKeepCache,
   rainKeep,
   rainReach,
   rainWindow,
@@ -594,15 +595,40 @@ describe('the area whose drops are in view (footprintAreaOnMap), against a brute
   });
 });
 
+describe('the keep memo', () => {
+  it('two updates at equal inputs compute the keep once; a zoom, a viewport or a map change computes it again; the value is the uncached one', () => {
+    const cache = new RainKeepCache();
+    const v = { zoom: 1.6, width: 1400, height: 900 };
+    const a = rainKeep(v, MAP, 41.149, cache);
+    const b = rainKeep(v, MAP, 41.149, cache);
+    expect([cache.misses, cache.hits]).toEqual([1, 1]);
+    expect(b).toBe(a);
+    expect(a).toBe(rainKeep(v, MAP, 41.149));
+    rainKeep({ ...v, zoom: 1.7 }, MAP, 41.149, cache);
+    rainKeep({ ...v, width: 1500 }, MAP, 41.149, cache);
+    rainKeep(v, { width: 64, height: 48 }, 41.149, cache);
+    rainKeep(v, MAP, 44, cache);
+    expect([cache.misses, cache.hits]).toEqual([5, 1]);
+  });
+  it('rainWindow with a cache across a pan: one miss, the rest hits, and the same window as uncached', () => {
+    const cache = new RainKeepCache();
+    for (let t = 0; t <= 20; t++) {
+      const v = view(24 - t, 24 + t / 2, 1.3);
+      expect(rainWindow(v, MAP, 0, cache)).toEqual(rainWindow(v, MAP, 0));
+    }
+    expect([cache.misses, cache.hits]).toEqual([1, 20]);
+  });
+});
+
 describe('the keep fraction (S-L2 ruling 2): literals worked by hand', () => {
-  // keep = min(1, 0.2 x P^2 / A).
-  it('zoom 0.35: 0.2 x 64^2 / 2304 = 0.3556', () => {
-    expect(rainKeep({ zoom: 0.35, width: 1400, height: 900 }, MAP, 64)).toBeCloseTo(0.35556, 4);
+  // keep = min(1, 0.22 x P^2 / A).
+  it('zoom 0.35: 0.22 x 64^2 / 2304 = 0.3911', () => {
+    expect(rainKeep({ zoom: 0.35, width: 1400, height: 900 }, MAP, 64)).toBeCloseTo(0.39111, 4);
   });
-  it('zoom 1.6 (P 41.15): 0.2 x 41.149^2 / 481 = 0.704', () => {
-    expect(rainKeep({ zoom: 1.6, width: 1400, height: 900 }, MAP, 41.149)).toBeCloseTo(0.704, 2);
+  it('zoom 1.6 (P 41.15): 0.22 x 41.149^2 / 481 = 0.7745', () => {
+    expect(rainKeep({ zoom: 1.6, width: 1400, height: 900 }, MAP, 41.149)).toBeCloseTo(0.7745, 2);
   });
-  it('zoom 2.5 over the highest ground (P 32.7, A 197): 0.2 x 32.7^2 / 197 = 1.086, so 1: a screen that cannot hold the count keeps all it has', () => {
+  it('zoom 2.5 over the highest ground (P 32.7, A 197): 0.22 x 32.7^2 / 197 = 1.19, so 1: a screen that cannot hold the count keeps all it has', () => {
     expect(rainKeep({ zoom: 2.5, width: 1400, height: 900 }, MAP, 32.7)).toBe(1);
   });
   it('is never above 1 and never below 0 over every zoom, either ground', () => {
@@ -630,6 +656,13 @@ describe('the keep fraction (S-L2 ruling 2): literals worked by hand', () => {
         const b = footprintBox(view(x, y, z));
         expect(b.maxX - b.minX).toBeCloseTo(e, 9);
         expect(rainWindow(view(x, y, z), MAP).period).toBe(rainWindow(view(24, 24, z), MAP).period);
+        // ...and over the highest drawn ground (2.3 wu), whose reach widens the box
+        const eg = footprintExtent(view(24, 24, z), 2.3);
+        const bg = footprintBox(view(x, y, z), undefined, 2.3);
+        expect(bg.maxX - bg.minX).toBeCloseTo(eg, 9);
+        expect(bg.maxZ - bg.minZ).toBeCloseTo(eg, 9);
+        expect(eg - e).toBeCloseTo(2.3 / Math.tan(Math.PI / 6) / Math.SQRT2, 9);
+        expect(rainWindow(view(x, y, z), MAP, 2.3).period).toBe(rainWindow(view(24, 24, z), MAP, 2.3).period);
       }
     }
   });

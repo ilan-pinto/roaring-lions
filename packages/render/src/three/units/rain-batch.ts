@@ -58,6 +58,7 @@ import {
   dropSeed,
   heightTexels,
   rainWindow,
+  RainKeepCache,
   posMod,
   RAIN_EDGE_FADE,
   RAIN_SLANT_COS,
@@ -108,6 +109,10 @@ const float RAIN_SPLASH_LIFT = ${glslFloat(RAIN_SPLASH_LIFT)};
 const float RAIN_SPLASH_QUAD = ${glslFloat(RAIN_SPLASH_QUAD)};
 const float RAIN_EDGE_FADE = ${glslFloat(RAIN_EDGE_FADE)};
 void main() {
+  // Every varying is written before any exit, so a collapsed instance leaves none undefined.
+  vKind = position.z;
+  vUv = position.xy;
+  vColor = vec4(0.0);
   // The keep fraction (S-L2 ruling 2): an instance whose static keep seed is at or above uKeep is
   // collapsed off-screen like the map-edge cull below, drop and splash together. uKeep is a
   // function of the zoom and the viewport alone (rain-maths.ts rainKeep), 1 when nothing is thinned.
@@ -124,8 +129,6 @@ void main() {
   float ground = texture2D(uHeight, clamp(land / uMapSize, 0.0, 1.0)).r;
   // The fall phase in [0, H): 0 the instant the drop lands. uFall is mod(V * t, H), built on the CPU.
   float phase = mod(aSeed.y * RAIN_H + uFall, RAIN_H);
-  vKind = position.z;
-  vUv = position.xy;
   // The map edge: a drop whose LANDING point is off the map [0, W] x [0, H] is removed, and one
   // within RAIN_EDGE_FADE tiles inside the edge thins out (the splash follows its drop).
   float edge = min(min(land.x, uMapSize.x - land.x), min(land.y, uMapSize.y - land.y));
@@ -206,6 +209,8 @@ export class RainBatch {
   private readonly heightData: Uint16Array;
   private readonly mapWidth: number;
   private readonly mapHeight: number;
+  /** The keep fraction's memo (read by the test that proves it is not recomputed per frame). */
+  readonly keepCache = new RainKeepCache();
   private periodNow = 0;
   private keepNow = 1;
   /** The highest baked ground, wu: the rain's reach grows with it. */
@@ -329,7 +334,7 @@ export class RainBatch {
   update(frame: RainFrame): void {
     const u = this.mesh.material.uniforms;
     u.uFall.value = posMod(RAIN_FALL_SPEED * frame.simSec, RAIN_FALL_HEIGHT);
-    const { period, low: lo, keep } = rainWindow(frame.view, { width: this.mapWidth, height: this.mapHeight }, this.maxGround);
+    const { period, low: lo, keep } = rainWindow(frame.view, { width: this.mapWidth, height: this.mapHeight }, this.maxGround, this.keepCache);
     this.periodNow = period;
     this.keepNow = keep;
     u.uKeep.value = keep;

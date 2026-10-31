@@ -212,14 +212,17 @@ describe('the keep fraction (S-L2 ruling 2)', () => {
   });
 
   it('update() writes the keep fraction for the view: 1 where the screen cannot hold the count, below 1 where it can', () => {
-    const { batch } = setUp();
+    const h = harness();
+    const batch = new RainBatch(h.scene, { drops: 100, mapWidth: 48, mapHeight: 48 });
     const u = batch.mesh.material.uniforms;
-    // A 24-tile map at zoom 2.5: the screen shows the whole 24 x 24 map and more, the lattice holds 6,000 on 576
-    // tiles of it at P=29.9, and 0.2 of the instances is a share well under all of them.
-    batch.update({ simSec: 0, view: { x: 12, y: 12, zoom: 2.5, width: 1400, height: 900 }, dpr: 1 });
+    // A 48-tile map at zoom 1.6: 481 tiles on screen, P 41.15, so 0.22 x 41.15^2 / 481 = 0.7745 of the instances.
+    batch.update({ simSec: 0, view: { x: 24, y: 24, zoom: 1.6, width: 1400, height: 900 }, dpr: 1 });
     expect(u.uKeep.value).toBe(batch.keep);
-    expect(batch.keep).toBeLessThan(1);
-    expect(batch.keep).toBeGreaterThan(0);
+    expect(batch.keep).toBeCloseTo(0.7745, 2);
+    // A 24-tile map is smaller than the lattice at every zoom: all of its instances are kept.
+    const small = setUp().batch;
+    small.update({ simSec: 0, view: { x: 12, y: 12, zoom: 2.5, width: 1400, height: 900 }, dpr: 1 });
+    expect(small.keep).toBe(1);
   });
 
   it('the shader carries the keep attribute, the uniform and the collapse, ahead of every other cull', () => {
@@ -232,6 +235,30 @@ describe('the keep fraction (S-L2 ruling 2)', () => {
     expect(RAIN_VERTEX_SHADER.slice(i, i + 140)).toContain('gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
     expect(i).toBeLessThan(RAIN_VERTEX_SHADER.indexOf('vec2 land = vec2('));
     expect(i).toBeLessThan(RAIN_VERTEX_SHADER.indexOf('if (edgeFade <= 0.0)'));
+  });
+
+  it('every varying is written before the first exit, so a collapsed instance leaves none undefined', () => {
+    const exit = RAIN_VERTEX_SHADER.indexOf('if (aKeep >= uKeep) {');
+    for (const w of ['vKind = position.z;', 'vUv = position.xy;', 'vColor = vec4(0.0);']) {
+      const at = RAIN_VERTEX_SHADER.indexOf(w);
+      expect(at, w).toBeGreaterThanOrEqual(0);
+      expect(at, `${w} comes before the keep exit`).toBeLessThan(exit);
+    }
+    // ...and once: the later writes are gone, not duplicated after the culls.
+    expect(RAIN_VERTEX_SHADER.split('vKind = position.z;').length - 1).toBe(1);
+    expect(RAIN_VERTEX_SHADER.split('vUv = position.xy;').length - 1).toBe(1);
+  });
+
+  it('update() recomputes the keep only when the zoom, the viewport or the ground moves, not on a pan or a repaint', () => {
+    const { batch } = setUp();
+    const view = (x: number, y: number, zoom: number) => ({ x, y, zoom, width: 1400, height: 900 });
+    batch.update({ simSec: 0, view: view(12, 12, 1.6), dpr: 1 });
+    const misses = batch.keepCache.misses;
+    for (let t = 0; t < 10; t++) batch.update({ simSec: t * 0.05, view: view(12 + t, 12 - t / 2, 1.6), dpr: 1 });
+    expect(batch.keepCache.misses).toBe(misses);
+    expect(batch.keepCache.hits).toBeGreaterThanOrEqual(10);
+    batch.update({ simSec: 0, view: view(12, 12, 1.7), dpr: 1 });
+    expect(batch.keepCache.misses).toBe(misses + 1);
   });
 });
 

@@ -460,6 +460,9 @@ export const READ_RENDER_SCRIPT = `(() => {
     need(r.rain.mesh && r.rain.mesh.material && r.rain.mesh.material.uniforms, 'rain.mesh.material.uniforms');
     const u = r.rain.mesh.material.uniforms;
     need(u.uFall && u.uLow && u.uPeriod && u.uKeep, 'rain uniforms uFall/uLow/uPeriod/uKeep');
+    // A keep that is not a finite number would count every drop (NaN compares false) and print a
+    // plausible density: fail loud instead.
+    need(typeof u.uKeep.value === 'number' && Number.isFinite(u.uKeep.value), 'rain uniform uKeep (a finite number)');
     need(typeof r.rain.mapWidth === 'number' && typeof r.rain.mapHeight === 'number', 'rain.mapWidth/mapHeight');
     rain = {
       drops: r.rain.drops, visible: r.rain.mesh.visible === true, period: u.uPeriod.value, keep: u.uKeep.value, fall: u.uFall.value,

@@ -658,6 +658,11 @@ describe('the render read-back (GH-871 P4 T12)', () => {
     // the keep uniform is part of the mirror now: a batch without it must not read as keep 1
     const noKeep = { ...rain, mesh: { ...rain.mesh, material: { uniforms: { uFall: { value: 1 }, uLow: { value: { x: 0, y: 0 } }, uPeriod: { value: 64 } } } } };
     expect(() => read(renderer({ rain: noKeep }))).toThrow(/uKeep/);
+    // ...and a keep that is not a finite number is refused too (NaN would count every drop)
+    for (const bad of [Number.NaN, Infinity, '0.5', undefined]) {
+      const badKeep = { ...rain, mesh: { ...rain.mesh, material: { uniforms: { ...rain.mesh.material.uniforms, uKeep: { value: bad } } } } };
+      expect(() => read(renderer({ rain: badKeep })), String(bad)).toThrow(/uKeep \(a finite number\)/);
+    }
   });
   it('the height read finds none on a dry map and throws without texels on a wet one', () => {
     const run = (r: unknown): unknown => JSON.parse((new Function('window', `return ${READ_RAIN_HEIGHTS_SCRIPT};`) as (w: unknown) => string)({ __lions: { renderer: r } }));

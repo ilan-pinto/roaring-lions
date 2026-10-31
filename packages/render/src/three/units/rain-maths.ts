@@ -219,7 +219,13 @@ export function windowLow(box: GroundBox, period: number): { x: number; z: numbe
  * clipped to the map and to the `period` square about the map's centre (the part of a very wide map
  * the lattice can fill). The footprint is a `2a x 2b` rectangle turned 45 degrees
  * (`footprintHalfExtents`) centred on the middle of the MAP: this function never sees where the
- * camera actually is, which is what keeps `rainKeep` independent of the pan. Sutherland-Hodgman
+ * camera actually is, which is what keeps `rainKeep` independent of the pan.
+ *
+ * The model also centres the `period` window on the map's middle. The real window is centred on the
+ * (clipped) box, which sits toward the camera of the focus by half the reach, so where the 64 cap
+ * clips the footprint (zooms under about 1 on a map wider than the window) the real window is
+ * offset from the model's by a few tiles: a measured effect of about 3% on the count, inside the
+ * band and not worth a pan-dependent term (the keep must not see the pan). Sutherland-Hodgman
  * against the four sides of an axis-aligned rectangle, then the shoelace formula.
  */
 export function clippedFootprintArea(
@@ -319,11 +325,51 @@ export function footprintAreaOnMap(
 export function rainKeep(
   view: Pick<RainView, 'zoom' | 'width' | 'height'>,
   map: { readonly width: number; readonly height: number },
+  period: number,
+  cache?: RainKeepCache
+): number {
+  if (cache !== undefined) return cache.get(view, map, period);
+  return rainKeepUncached(view, map, period);
+}
+
+function rainKeepUncached(
+  view: Pick<RainView, 'zoom' | 'width' | 'height'>,
+  map: { readonly width: number; readonly height: number },
   period: number
 ): number {
   const area = footprintAreaOnMap(view, map, period);
   if (area <= 0) return 1;
   return Math.min(1, (RAIN_DENSITY_FRACTION * period * period) / area);
+}
+
+/**
+ * A one-entry memo of `rainKeep` on its inputs (zoom, viewport, map, period; the ground reaches it
+ * through the period). `RainBatch.update` runs every frame and the inputs change only when the
+ * player zooms or resizes, so a still or panning camera clips the footprint 8 times once, not 8
+ * times a frame. The cached value is bit-identical to the uncached one. `hits` and `misses` are
+ * read by the test that two updates at equal inputs compute it once.
+ */
+export class RainKeepCache {
+  hits = 0;
+  misses = 0;
+  private key: readonly number[] | null = null;
+  private value = 1;
+
+  get(
+    view: Pick<RainView, 'zoom' | 'width' | 'height'>,
+    map: { readonly width: number; readonly height: number },
+    period: number
+  ): number {
+    const key = [view.zoom, view.width, view.height, map.width, map.height, period];
+    if (this.key !== null && this.key.every((v, i) => v === key[i])) {
+      this.hits++;
+      return this.value;
+    }
+    this.misses++;
+    this.key = key;
+    this.value = rainKeepUncached(view, map, period);
+    return this.value;
+  }
 }
 
 /**
@@ -333,14 +379,15 @@ export function rainKeep(
 export function rainWindow(
   view: RainView,
   map: { readonly width: number; readonly height: number },
-  maxGround = 0
+  maxGround = 0,
+  keepCache?: RainKeepCache
 ): { period: number; low: { x: number; z: number }; keep: number } {
   // The period from the UNCLIPPED box, so it is a property of the zoom, the viewport and the
   // ground and never of the pan: choosing it from the box clipped to the map made P drop a step
   // near a map edge with no zoom change (every drop jumping, density per tile 4x). The clipped
   // box only places the window, and it is never wider than the unclipped one, so it still fits.
   const period = latticePeriodFor(footprintExtent(view, maxGround));
-  return { period, low: windowLow(footprintBox(view, map, maxGround), period), keep: rainKeep(view, map, period) };
+  return { period, low: windowLow(footprintBox(view, map, maxGround), period), keep: rainKeep(view, map, period, keepCache) };
 }
 
 /** A modulus that stays in `[0, m)` for a negative `a` (JS `%` does not). */

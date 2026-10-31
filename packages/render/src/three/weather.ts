@@ -148,17 +148,20 @@ export const RAIN_SPLASH_KEY = 'overcast.1';
 export const RAIN_PERIOD_MIN = 8;
 export const RAIN_PERIOD_MAX = 64;
 /** The on-screen drop count the rain holds at every zoom, as a share of a preset's `drops` (S-L2
- *  ruling 2): 0.2, so 1,200 of high's 6,000, 700 of medium's 3,500 and 180 of low's 900. It is
- *  the most every zoom can reach: with the period at the box (`latticePeriod`) the lattice holds
- *  `area / P^2` of its drops on screen, 0.22 at the highest zoom on flat ground and 0.184 over
- *  the highest drawn ground (2.3 wu), so 0.2 is reachable to within 8% everywhere and exact
- *  (keep < 1) wherever the screen is wider. */
-export const RAIN_DENSITY_FRACTION = 0.2;
+ *  ruling 2): 0.22, so 1,320 of high's 6,000, 770 of medium's 3,500 and 198 of low's 900 (the
+ *  lead's 1,400 scaled by the preset total is 0.233; +-20% of that is the band the tests assert).
+ *  It is about the most every zoom can reach: with the period at the box (`latticePeriod`) the
+ *  lattice holds `area / P^2` of its drops on screen, 0.22 at the highest zoom on flat ground,
+ *  0.204 over ein_qasab's ~1 wu and 0.184 over the highest drawn ground (2.3 wu), so 0.22 is exact
+ *  (keep < 1) wherever the screen is wider and reached to 93% over 1 wu, 84% over 2.3 wu. */
+export const RAIN_DENSITY_FRACTION = 0.22;
 /** The share a period must exceed the box by. R-7 says "footprint padded 10%"; the
  *  box (`rain-maths.ts` `footprintBox`) already carries the exact margins a pad stands
  *  in for -- the height of the fall seen up the screen (`H / tan(elevation)`, 10.4
  *  tiles) and the slant (1.3), 14% to 40% of a footprint -- so no second pad. */
 export const RAIN_PERIOD_PAD = 1;
+// Tried at 1.02 (S-L2 fix round 1): the coverage and pan tests pass, but over the 2.3 wu extreme the
+// highest zoom then holds 1,028 on screen at high against the 1,050 floor (1,087 at 1.00), so it stays 1.
 /** The ground-height texture's resolution: texels a tile. */
 export const RAIN_HEIGHT_TEXELS_PER_TILE = 4;
 /** The bloom bar (CLAUDE.md, "Bloom"; `bloom.ts` thresholds at 1.0): the largest
