@@ -1408,7 +1408,7 @@ export class ThreeRenderer implements Renderer {
    *  per-frame write of `uRippleAmp` consults it, so a toggle holds across a
    *  repaint. */
   private ripplesDebugHidden = false;
-  /** `opts.reducedMotion?.()`, asked once at the top of each wet write in `frame()` (R-9). */
+  /** `opts.reducedMotion?.()`, asked once a frame in `frame()`, before both wet writes (the ripple amplitude and the rain's visibility) (R-9). */
   private reducedNow = false;
   /** The control map's textures, bound on `groundMat` as `uControlA`/
    *  `uControlB` (and `uControlC` under rain) -- rebuilt by every

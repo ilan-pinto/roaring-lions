@@ -2979,7 +2979,9 @@ lights, 0.51-0.55 with them hidden, as the tool's own attribution says; it is no
 numbers above do not depend on it.
 
 Not measured: a quiet machine (load never under 18), any other GPU, a live fight on the wet map, tick time, the
-program and texture counts, the decor triangle count on its own. Raw output: `_coord/wet-theme/p4/cost/` (run1,
+program and texture counts, the decor triangle count on its own. Also not in these tables (found at the final review): the control-C bake, about 205 ms on `ein_qasab` under
+rain, probably paid twice at boot and again on a mid-mission road or ridge tile change (a parked frame never sees it); and enemy and
+civilian readability under rain (the rain lift is KDF-only). Raw output: `_coord/wet-theme/p4/cost/` (run1,
 run2-low, run3-low900, run4-burn2, bloom-census).
 
 ### Final tip re-run (b7f872f5e)

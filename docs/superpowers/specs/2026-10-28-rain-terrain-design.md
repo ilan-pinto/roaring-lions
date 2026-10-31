@@ -1030,7 +1030,7 @@ while P4 was in flight. Plan: `docs/superpowers/plans/2026-10-30-wetland-p4.md`.
 shadow map); control C (the marsh water and road-rut puddle masks) and the `THEME_WET` ground program (water surface, rim, ripples, wet
 roughness); the wet sway, mud prints and crater water; the wet unit surface table and the KDF rain lift; `vehicle_mud`; and the falling rain
 (one instanced draw). No sim edit, no GLB, no PNG. Nothing a shipped map draws changed: the 35 terrain digests, the three shipped
-`theme-identity` entries, the determinism hashes (118 tests) and the visual baselines did not move.
+`theme-identity` entries, the determinism hashes (151 tests at the final tip: the merge added witness files) and the visual baselines did not move.
 
 ### 14.1 The rulings, and how each came out
 
@@ -1094,7 +1094,7 @@ untouched on every commit after Task 1. Task 1 only ADDED the `scene` line (all 
 | `theme-identity` assertions | "wetland draws arid's program" flipped to the strip property; `shadowMapSize` scoped to the shipped keys (wetland 2048); `hazeLow` read from the fog pass | T1, T2, T4 |
 | reed agreement bound | 30 water-texel reeds of 447 (27 measured, 6.0%) -> 72 of 897 (56 measured, 6.2%; bound 8%), dry 3x3 neighbour relaxed to <= 2 reeds | P3 merge (three clumps a tile) |
 
-Unmoved: the sim hashes (118 determinism tests), `pnpm balance`, `playtest`, `LADDER_CREDITS`, `shippedContentDigest()`, the Free Play picker, the
+Unmoved: the sim hashes (151 determinism tests at the final tip), `pnpm balance`, `playtest`, `LADDER_CREDITS`, `shippedContentDigest()`, the Free Play picker, the
 visual baselines (CI is the witness; no shipped map rains).
 
 ### 14.4 The cost, and the S-C miss
@@ -1165,7 +1165,14 @@ z0.35 to z2.5 because streaks are screen-pixel width (taste). No lattice rows, b
    not fire on grass cannot be told from stills; road spray is untested. Unverified by frame; a capture with a hull on a road would settle it.
 4. **The reed agreement is the point contract, not strict** (`marshWaterAt` at a reed's point is under 0.5 at every reed; the control-C texel
    under it reads water at 56 of 897 reeds, 6.2%, bound 8%). A strict version needs a placer change, which moves P2's and P3's reed sets.
-5. Smaller: the sky term is lit twice (reflect x 0.74 effective; an honest-model refactor needs a recapture); an orange glow at a
+5. **Not measured, found at the final review.** (a) Enemy and civilian readability under rain: the lift is KDF-only (G-5), so Sarim and
+   civilian figures on the wet road and in marsh water were never scored. (b) The control-C bake costs about 205 ms on `ein_qasab` under rain,
+   probably paid twice at boot, and again on a mid-mission road or ridge tile change (which forces a full bake); none of it is in the cost
+   tables (they time a parked frame). (c) The mud spray: `updateVehicleAmbientFx` has no ground gate, so the spray fires on grass as well as
+   road; what is open is whether `vehicle_mud`'s authored values (3-5 px, alpha <= 0.5, `mud.2`) are visible against dark wet ground, a data
+   question (item 3). (d) Reach: `ein_qasab` is the only wetland map and sits in `UNLISTED_MAP_IDS` (`packages/app/src/ui/menu.ts`), so merging
+   this reaches a player only through `?sandbox=ein_qasab`; that is the framing for the cost miss in item 1.
+6. Smaller: the sky term is lit twice (reflect x 0.74 effective; an honest-model refactor needs a recapture); an orange glow at a
    helicopter rotor head in one vehicle frame (unrelated to rain, not investigated); streak weight grows with zoom (taste); a zoom now slides
    the drop pattern (never seen in a browser); `low` density has 12-30 drops per screen of per-focus noise; the rain's overhang over the void;
    road puddles are hard-edged rectangles (taste). The deferred minors of every task are in the ledger (GLSL terms covered by string-contains

@@ -11,8 +11,10 @@
  *
  * **R (marsh water)** is `marshWaterAt` at the texel CENTRE, as is. The reed
  * placer rejects a clump centre where that same function reads `>= 0.5`
- * (`decor-place.ts`), so the reeds and the water agree by construction;
- * `control-map.test.ts` proves it on the texels.
+ * (`decor-place.ts`), so the POINT contract holds: `marshWaterAt` is under 0.5
+ * at every reed's centre. The agreement is NOT strict on the texels: a texel is
+ * wider than a point, so the C.R texel under a reed reads water at a few reeds
+ * (56 of 897, 6.2%; `wet-control-map.test.ts` bounds it at 72, 8%).
  *
  * **G (puddles)** is one term, zeroed by one predicate, `neverWater`: ROADS, a
  * band of unsigned distance `PUDDLE_RUT_HALF_BAND` either side of the

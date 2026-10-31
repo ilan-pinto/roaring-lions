@@ -464,7 +464,7 @@ will get wrong.
   `weather: 'clear'` gets the dry path whatever the theme (the shipped three pin it). Never key a wet term on the theme, on "the map has a `~`" or on a map id.
 - **Control C is a third control texture, RGBA8 at `CONTROL_TEXELS_PER_TILE` 8, and exists only when `TerrainInput.wet` is true AND a
   `TerrainSurface` was given** (`terrain/control-map.ts`, `terrain/wet-masks.ts`). **R is the marsh water weight**: `marshWaterAt` at the
-  texel CENTRE, as is, so the reeds and the water agree by construction. **G is the road puddles ONLY**: a band of unsigned road distance
+  texel CENTRE, as is. The reed placer rejects a centre where that function reads `>= 0.5`, so the POINT contract holds (see the reed-agreement rule below: it is not strict on the texels). **G is the road puddles ONLY**: a band of unsigned road distance
   `PUDDLE_RUT_HALF_BAND` (0.12 tile) either side of `RUT_OFFSET`, where a per-texel rut noise passes (`PUDDLE_RUT_FILL` 0.56, stream
   14011/14153, mapped through its own empirical CDF so a share is a share). **B and A are spare, written 0.** The lead removed the
   open-ground puddle term and the low-ground boost at S-L1 (30 Oct): the plan's 4-8% open-ground share and the +6% bowl boost are gone,

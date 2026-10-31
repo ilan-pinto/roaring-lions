@@ -13,8 +13,11 @@
  *     so a gate on the marsh would pass this test while allocating C for
  *     nothing. The control is Ein Qasab with `wet: true`.
  *  2. THE SHARES, measured over C's texels on Ein Qasab (the brief's bands).
- *  3. THE REEDS AND THE WATER AGREE: at every reed the real placer puts down,
- *     the C.R texel under its centre reads under 0.5.
+ *  3. THE REEDS AND THE WATER AGREE by the POINT contract, not strictly:
+ *     `marshWaterAt` at every reed's centre is under 0.5 (the placer's own
+ *     rule), and the C.R texel under a reed's centre reads water (>= 0.5) at
+ *     no more than 72 of 897 reeds (8%; 56, 6.2%, measured), each of those
+ *     with a dry neighbour texel. The texel is wider than the point.
  *
  * The oracles are LITERALS (the bands, the tile symbols, `DECOR_MARSH` = 6 is
  * restated), never read back from the code under test.
