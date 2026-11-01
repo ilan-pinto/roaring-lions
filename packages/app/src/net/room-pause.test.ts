@@ -475,9 +475,14 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
     const rujm = collect();
     roomOrderSink(LIVE, rujm.sink, () => {}, 'versus', true, 'rujm_sawda').queueCommand(move());
     expect(rujm.got).toEqual([withoutFormation(move())]);
+    const tel = collect();
+    roomOrderSink(LIVE, tel.sink, () => {}, 'versus', true, 'tel_marum').queueCommand(move());
+    expect(tel.got).toEqual([move()]);
+  });
+  it('GH-859 (lead, 1 Nov): with the gate open a Wadi Tarfan room strips the formation too', () => {
     const wadi = collect();
     roomOrderSink(LIVE, wadi.sink, () => {}, 'versus', true, 'wadi_tarfan').queueCommand(move());
-    expect(wadi.got).toEqual([move()]);
+    expect(wadi.got).toEqual([withoutFormation(move())]);
   });
 
   it('GH-913 L8: every main.ts consumer of the predicate passes the room\'s map (a call that drops it would open Rujm Sawda)', () => {

@@ -331,7 +331,15 @@ describe('seatWorldFor', () => {
     expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, w)).toBe(false);
     expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0 }, 1, w)).toBe(true);
     // ...while another versus map with the gate open runs the table (the control that makes the map the cause)
-    expect(seatWorldFor(config({ mode: 'versus', map: 'wadi_tarfan' }), sim, true).formationAllowed(0, 'column')).toBe(true);
+    expect(seatWorldFor(config({ mode: 'versus', map: 'tel_marum' }), sim, true).formationAllowed(0, 'column')).toBe(true);
+  });
+  it('GH-859 (lead, 1 Nov): Wadi Tarfan is closed the same way as Rujm Sawda while the gate is open', () => {
+    const sim = fakeSim();
+    const wadi = config({ mode: 'versus', map: 'wadi_tarfan' });
+    wadi.seats[1] = { ...wadi.seats[1], side: 1 };
+    const w = seatWorldFor(wadi, sim, true);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'attack' }, 1, w)).toBe(false);
   });
   it('GH-859 P1a: the faction clause bites on a table that has a faction-gated formation', () => {
     const table = [{ id: 'both', factions: ['kdf', 'sarim'] }, { id: 'kdf_only', factions: ['kdf'] }];

@@ -13,11 +13,12 @@
 /** P1b flips this, gated on the S4 check per cell against its own baseline at >= 192 seeds. */
 export const VERSUS_FORMATIONS_OPEN = false;
 
-/** Versus maps formations stay OFF on even after P1b opens the gate (GH-913 L8, the lead's ruling): Rujm Sawda
- *  is outside the S4 check, which was run on the other maps' cells, and stays so until it passes its own run.
- *  When that run passes, DELETE the entry. `rujm_sawda.test.ts` pins the entry and `versus-formations.test.ts`
+/** Versus maps formations stay OFF on even after P1b opens the gate. Rujm Sawda (GH-913 L8, the lead's ruling) is outside the S4
+ *  check, which was run on the other maps' cells, and stays so until it passes its own run. Wadi Tarfan (the lead, 1 Nov, GH-859)
+ *  is closed the same way: S4 is judged without it until its Sarim lean is settled, which is GH-561, not the formations work.
+ *  When a map passes its own run, DELETE its entry. `rujm_sawda.test.ts` pins the Rujm entry and `versus-formations.test.ts`
  *  the predicate, with the gate open. */
-export const VERSUS_FORMATIONS_CLOSED_MAPS: readonly string[] = ['rujm_sawda'];
+export const VERSUS_FORMATIONS_CLOSED_MAPS: readonly string[] = ['rujm_sawda', 'wadi_tarfan'];
 
 /** The HUD row's reason line when formations are inactive in a versus room (a `t()` key). */
 export const FORMATION_VERSUS_REASON_KEY = 'hud.formation.inert.versus';

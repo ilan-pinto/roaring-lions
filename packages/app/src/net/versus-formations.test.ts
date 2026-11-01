@@ -18,9 +18,11 @@ describe('formationsOpenIn', () => {
     }
   });
   it('GH-913 L8: a map in VERSUS_FORMATIONS_CLOSED_MAPS stays closed with the gate open; the others follow the gate', () => {
-    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['rujm_sawda']);
+    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['rujm_sawda', 'wadi_tarfan']);
     expect(formationsOpenIn('versus', true, 'rujm_sawda')).toBe(false);
-    expect(formationsOpenIn('versus', true, 'wadi_tarfan')).toBe(true);
+    // GH-859 (lead, 1 Nov): Wadi Tarfan is closed the same way, until its Sarim lean is settled (GH-561).
+    expect(formationsOpenIn('versus', true, 'wadi_tarfan')).toBe(false);
+    expect(formationsOpenIn('sandbox', undefined, 'wadi_tarfan')).toBe(true);
     expect(formationsOpenIn('versus', true, 'tel_marum')).toBe(true);
     expect(formationsOpenIn('versus', true, null)).toBe(true);
     expect(formationsOpenIn('versus', true)).toBe(true);
