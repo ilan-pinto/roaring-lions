@@ -18,14 +18,13 @@
  * ground, a synthetic extreme: the lattice is widest there and the highest zoom cannot hold the
  * count, 0.184 of it on screen against 0.22), where the low side of the band is 25%.
  *
- * What the count is NOT, and why the corner tests are different: a rain drop that lands off the
- * map is removed (the map-edge cull), so a view whose screen is half black void shows half the
- * drops. That is the density per visible tile being held, not the count. The edge tests therefore
- * hold the density PER TILE of map on screen (the tiles counted by a forward projection of a
- * 0.25-tile grid of the map, an oracle that shares no code with the maths under test).
+ * The map does not enter into the count (GH-940). Until then a drop that landed off the map was
+ * removed, so a view whose screen was half void showed half the drops and the edge tests held the
+ * density per tile of MAP on screen. The lead saw the corners of Ein Qasab II dry, so the whole frame
+ * rains and the edge test now holds the count per SCREEN: every corner and edge focus of the 48 map
+ * shows the centre's count.
  */
 import { describe, expect, it } from 'vitest';
-import { dimetricCamera } from '../../../packages/render/src/three/camera';
 import { RainBatch } from '../../../packages/render/src/three/units/rain-batch';
 import { onScreenDropCount } from './ground-captures-plan';
 
@@ -70,8 +69,6 @@ function frame(
   zoom: number,
   dpr: number,
   ground: number,
-  mapW = MAP,
-  mapH = MAP,
   times: readonly number[] = [0]
 ): Frame {
   const view = { x, y, zoom, width: W, height: H };
@@ -92,8 +89,6 @@ function frame(
       period,
       keep,
       fall: u.uFall.value as number,
-      mapW,
-      mapH,
       view,
       ground: () => ground,
     });
@@ -120,7 +115,7 @@ describe('the density is steady across zoom (the ruling)', () => {
           const lines: string[] = [];
           const outside: string[] = [];
           for (const z of ZOOMS) {
-            const f = frame(batch, 24, 24, z, dpr, ground, MAP, MAP, p.times);
+            const f = frame(batch, 24, 24, z, dpr, ground, p.times);
             const line = `z${z}: ${Math.round(f.count)}`;
             lines.push(line);
             if (f.count < lo || f.count > p.hi) outside.push(line);
@@ -136,81 +131,42 @@ describe('the density is steady across zoom (the ruling)', () => {
     for (const p of PRESETS) {
       const batch = batchOf(p.drops, 0, 200, 200);
       for (const [fx, fy] of [[60, 60], [140, 100]] as const) {
-        const lines = ZOOMS.map((z) => ({ z, n: frame(batch, fx, fy, z, 1, 0, 200, 200, p.times).count }));
+        const lines = ZOOMS.map((z) => ({ z, n: frame(batch, fx, fy, z, 1, 0, p.times).count }));
         const outside = lines.filter((l) => l.n < p.lo || l.n > p.hi).map((l) => `z${l.z}: ${Math.round(l.n)}`);
         expect(outside, `${p.id} focus ${fx},${fy}: outside ${p.lo}..${p.hi} of [${lines.map((l) => `z${l.z}: ${Math.round(l.n)}`).join(', ')}]`).toEqual([]);
       }
     }
   });
 
-  it('one count per tile of map, not one count per screen: each of the four corners and four edge midpoints of the 48 map holds the centre`s density', () => {
-    /**
-     * The map tiles whose drops are in view, averaged over the fall: each 0.25-tile cell of the map is
-     * a landing point, and at each of 8 heights its head (up-wind by h tan 12 deg of the landing point)
-     * is projected through the real camera; the cell counts when the head is on screen. (At height 0
-     * alone this would be the footprint on the ground; a head higher up the screen is seen from a
-     * landing point nearer the camera, so near a map edge the two differ by up to a third.)
-     */
-    function mapTilesOnScreen(x: number, y: number, zoom: number): number {
-      const cam = dimetricCamera({ x, y, zoom }, { width: W, height: H });
-      const v = cam.matrixWorldInverse.elements;
-      const pr = cam.projectionMatrix.elements;
-      const K = 8;
-      let n = 0;
-      for (let k = 0; k < K; k++) {
-        const h = ((k + 0.5) / K) * 6;
-        for (let i = 0; i < MAP * 4; i++) {
-          for (let j = 0; j < MAP * 4; j++) {
-            const wx = (i + 0.5) / 4 - 0.212557 * h * Math.SQRT1_2;
-            const wz = (j + 0.5) / 4 + 0.212557 * h * Math.SQRT1_2;
-            const ex = v[0] * wx + v[4] * h + v[8] * wz + v[12];
-            const ey = v[1] * wx + v[5] * h + v[9] * wz + v[13];
-            const ndcX = pr[0] * ex + pr[4] * ey + pr[12];
-            const ndcY = pr[1] * ex + pr[5] * ey + pr[13];
-            if (ndcX >= -1 && ndcX <= 1 && ndcY >= -1 && ndcY <= 1) n++;
-          }
-        }
-      }
-      return n / K / 16;
-    }
-    const edges: ReadonlyArray<readonly [number, number]> = [[4, 4], [44, 4], [4, 44], [44, 44], [24, 4], [24, 44], [4, 24], [44, 24]];
-    // High and medium are judged focus by focus. A focus is skipped when the centre's density would put
-    // fewer than 40 drops on its screen (a Poisson scatter over 16%: no density to read). Low, at 180 to
-    // 210 on a whole screen, has 5 to 30 near an edge, so it is judged as the sum of the eight foci
-    // (measured individually, its cells scatter to 0.78 and 1.51 of the centre, e.g. z1.25 focus (44,4):
-    // 0.332 a tile against 0.219 on about 12 drops).
+  it('one count per SCREEN, wherever the camera is (GH-940): each of the four corners and four edge midpoints of the 48 map, and a focus off the map, shows the centre`s count', () => {
+    const edges: ReadonlyArray<readonly [number, number]> = [[4, 4], [44, 4], [4, 44], [44, 44], [24, 4], [24, 44], [4, 24], [44, 24], [24, 45], [-6, 54]];
+    // High and medium are judged focus by focus. Low, at 98 to 147 on a whole screen, scatters about 9% a frame, so
+    // it is judged as the mean of the foci (a bound a lattice bias would still break: the centre sits in a thin spot
+    // of a 115-drop lattice at some zooms).
     let judged = 0;
     for (const p of PRESETS) {
       const batch = batchOf(p.drops, 0);
       for (const z of ZOOMS) {
-        const centre = frame(batch, 24, 24, z, 1, 0, MAP, MAP, p.times).count / mapTilesOnScreen(24, 24, z);
-        let drops = 0;
-        let tiles = 0;
+        const centre = frame(batch, 24, 24, z, 1, 0, p.times).count;
+        let sum = 0;
         for (const [fx, fy] of edges) {
-          const t = mapTilesOnScreen(fx, fy, z);
-          const count = frame(batch, fx, fy, z, 1, 0, MAP, MAP, p.times).count;
-          if (p.id === 'low') {
-            drops += count;
-            tiles += t;
-            continue;
-          }
-          if (centre * t < 40) continue;
+          const count = frame(batch, fx, fy, z, 1, 0, p.times).count;
+          sum += count;
+          if (p.id === 'low') continue;
           judged++;
-          expect(count / t / centre, `${p.id} z${z} focus ${fx},${fy}: ${(count / t).toFixed(3)} a tile, centre ${centre.toFixed(3)}`).toBeGreaterThan(1 - BAND);
-          expect(count / t / centre, `${p.id} z${z} focus ${fx},${fy}: ${(count / t).toFixed(3)} a tile, centre ${centre.toFixed(3)}`).toBeLessThan(1 + BAND);
+          expect(count / centre, `${p.id} z${z} focus ${fx},${fy}: ${Math.round(count)} on screen, centre ${Math.round(centre)}`).toBeGreaterThan(1 - BAND);
+          expect(count / centre, `${p.id} z${z} focus ${fx},${fy}: ${Math.round(count)} on screen, centre ${Math.round(centre)}`).toBeLessThan(1 + BAND);
         }
         if (p.id === 'low') {
           judged++;
-          // 25% below, 30% above, not 20%: the ratio of two low-preset counts. At 900 drops the worst was 1.22
-          // at z1.25; at 525 it is 1.255 (9 times) and 1.264 (36 times): the same value with four times the
-          // samples, so a lattice bias at that zoom (the centre sits in a thin spot of a 105-drop lattice),
-          // not scatter. The upper bound moved 1.25 -> 1.30 with the step 900 -> 525 (GH-871 P4 T11b).
-          expect(drops / tiles / centre, `low z${z}, the eight foci together: ${(drops / tiles).toFixed(3)} a tile, centre ${centre.toFixed(3)}`).toBeGreaterThan(0.75);
-          expect(drops / tiles / centre, `low z${z}, the eight foci together: ${(drops / tiles).toFixed(3)} a tile, centre ${centre.toFixed(3)}`).toBeLessThan(1.3);
+          // 0.75 and 1.30, as the per-tile version had them: at 525 drops the centre at z1.25 sits in a thin spot of the
+          // lattice (100 against a mean of 130 over the ten foci, 1.29), a bias and not scatter (nine times in the average).
+          expect(sum / edges.length / centre, `low z${z}, the foci together: ${(sum / edges.length).toFixed(1)} a screen, centre ${centre.toFixed(1)}`).toBeGreaterThan(0.75);
+          expect(sum / edges.length / centre, `low z${z}, the foci together: ${(sum / edges.length).toFixed(1)} a screen, centre ${centre.toFixed(1)}`).toBeLessThan(1.3);
         }
       }
     }
-    expect(judged, 'not vacuous: most high and medium foci and every low zoom were judged').toBeGreaterThan(60);
+    expect(judged, 'not vacuous: every high and medium focus at every zoom, and every low zoom').toBe(2 * edges.length * ZOOMS.length + ZOOMS.length);
   });
 });
 
@@ -227,7 +183,7 @@ describe('the count is continuous in zoom (no pop at a lattice step)', () => {
         const counts: number[] = [];
         for (let k = 0; k <= 60; k++) {
           const z = 0.35 + (k * (2.5 - 0.35)) / 60;
-          const c = frame(batch, 24, 24, z, 1, ground, MAP, MAP, p.times).count;
+          const c = frame(batch, 24, 24, z, 1, ground, p.times).count;
           counts.push(c);
           if (prev >= 0 && Math.abs(c - prev) > worst) {
             worst = Math.abs(c - prev);

@@ -368,23 +368,23 @@ describe('the wet foliage batch (GH-871 P4 T5): the direct witness', () => {
       // Today's program: the amplitude and the gust gain this file shipped with.
       expect(vs).toContain('uSwayAmp * 0.03500000 *');
       expect(vs).toContain('(1.40000000 - 1.0)');
-      expect(vs).not.toContain('0.05250000');
-      expect(vs).not.toContain('1.80000000');
+      expect(vs).not.toContain('0.07700000');
+      expect(vs).not.toContain('3.00000000');
       // And it equals the material the unchanged signature builds.
       expect(vs).toBe(compiled(swayingFoliageMaterial(['#808080'], sway)).vertexShader);
     }
   });
 
-  it('a wet batch differs in exactly the amplitude x1.5, the gust 1.8 and the cache key', () => {
+  it('a wet batch differs in exactly the amplitude x2.2, the gust 3.0 and the cache key', () => {
     const dry = foliageOf(build(false));
     const wet = foliageOf(build(true));
     expect(wet.customProgramCacheKey()).toBe('rl-foliage-sway-wet');
     expect(wet.customProgramCacheKey()).not.toBe(dry.customProgramCacheKey());
     const dryVs = compiled(dry).vertexShader;
     const wetVs = compiled(wet).vertexShader;
-    expect(wetVs).toContain('uSwayAmp * 0.05250000 *');
-    expect(wetVs).toContain('(1.80000000 - 1.0)');
-    expect(wetVs.replace('0.05250000', '0.03500000').replace('1.80000000', '1.40000000')).toBe(dryVs);
+    expect(wetVs).toContain('uSwayAmp * 0.07700000 *');
+    expect(wetVs).toContain('(3.00000000 - 1.0)');
+    expect(wetVs.replace('0.07700000', '0.03500000').replace('3.00000000', '1.40000000')).toBe(dryVs);
     // The fragment source and the sway uniforms (the `wind` layer's) are untouched.
     expect(compiled(wet).fragmentShader).toBe(compiled(dry).fragmentShader);
     expect(compiled(wet).uniforms.uSwayAmp).toBe(sway.amp);

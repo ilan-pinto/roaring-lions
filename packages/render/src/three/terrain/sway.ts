@@ -51,12 +51,14 @@ export const SWAY_PHASE_Z = 2.3;
  * stronger) and a gust peaks at `RAIN_SWAY_GUST` instead of `SWAY_GUST_GAIN`.
  * Nothing else changes: period, gust cadence and width, the axis, the phase
  * travel and the weight are today's, and the clock is the SIM clock as ever.
+ * GH-940 raised them from 1.5 and 1.8 (the lead wanted the wind to read): the reeds and the crowns
+ * lean 2.2x as far and 3.0x at a gust's peak, and the rain slants with the same gust (`weather.ts`).
  * It is a COMPILE-TIME variant (`swayVertexChunk(true)`), not a value written
  * into `uSwayAmp`, which the `wind` debug layer owns: writing 1.5 there would
  * fight that layer's stash. A shipped map never builds it.
  */
-export const RAIN_SWAY_AMP = 1.5;
-export const RAIN_SWAY_GUST = 1.8;
+export const RAIN_SWAY_AMP = 2.2;
+export const RAIN_SWAY_GUST = 3.0;
 
 /** `(h / TOP)^2`, clamped to [0, 1]. */
 export function swayWeight(heightWu: number): number {

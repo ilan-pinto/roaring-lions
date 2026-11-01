@@ -13,6 +13,14 @@ import {
   RAIN_DENSITY_FRACTION,
   RAIN_PERIOD_MAX,
   RAIN_PERIOD_MIN,
+  RAIN_SLANT_DEG,
+  RAIN_SPLASH_ALPHA,
+  RAIN_SPLASH_MS,
+  RAIN_SPLASH_R0,
+  RAIN_SPLASH_R1,
+  RAIN_WIND_GUST,
+  RAIN_WIND_MEANDER,
+  RAIN_WIND_MEANDER_PERIOD_S,
   rainLadderDrops,
   rainLight,
   rainQualityOf,
@@ -156,11 +164,24 @@ describe('rainQualityOf: absent means no opinion, and high`s', () => {
 });
 
 describe('the lattice periods and the density hold', () => {
-  it('the period runs continuously from 8 to 64 tiles (R-7 snapped it to 8, 16, 32, 64; S-L2 ruling 2)', () => {
-    expect([RAIN_PERIOD_MIN, RAIN_PERIOD_MAX]).toEqual([8, 64]);
+  it('the period runs continuously from 8 to 320 tiles (R-7 snapped it to 8, 16, 32, 64; S-L2 ruling 2; GH-940 raised the top)', () => {
+    expect([RAIN_PERIOD_MIN, RAIN_PERIOD_MAX]).toEqual([8, 320]);
   });
   it('the density fraction is 0.22 of a preset`s drops: 1,320 of 6,000, 770 of 3,500, 115.5 of 525', () => {
     expect(RAIN_DENSITY_FRACTION).toBe(0.22);
     [6000, 3500, 525].forEach((n, i) => expect(n * RAIN_DENSITY_FRACTION).toBeCloseTo([1320, 770, 115.5][i], 9));
+  });
+});
+
+describe('the wind and the splash (GH-940), literals', () => {
+  it('the breeze slants 14 degrees (it was 12); the meander is +-0.2 over 8.3 s and a gust adds 0.9', () => {
+    expect([RAIN_SLANT_DEG, RAIN_WIND_MEANDER, RAIN_WIND_MEANDER_PERIOD_S, RAIN_WIND_GUST]).toEqual([14, 0.2, 8.3, 0.9]);
+  });
+  it('the meander`s period is not a multiple of the gust cadence (11 s), so the two drift against each other', () => {
+    const ratio = 11 / RAIN_WIND_MEANDER_PERIOD_S;
+    expect(Math.abs(ratio - Math.round(ratio))).toBeGreaterThan(0.1);
+  });
+  it('a splash is a ring of 0.05 -> 0.20 wu over 260 ms at alpha 0.5 (it was 0.04 -> 0.10 over 150 ms at 0.35)', () => {
+    expect([RAIN_SPLASH_R0, RAIN_SPLASH_R1, RAIN_SPLASH_MS, RAIN_SPLASH_ALPHA]).toEqual([0.05, 0.2, 260, 0.5]);
   });
 });
