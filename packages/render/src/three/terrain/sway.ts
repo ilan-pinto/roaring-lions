@@ -45,6 +45,19 @@ export const SWAY_DIR_Z = -Math.SQRT1_2;
 export const SWAY_PHASE_X = 1.7;
 export const SWAY_PHASE_Z = 2.3;
 
+/**
+ * The wet sway (GH-871 P4 T5, R-3): under rain a crown leans `RAIN_SWAY_AMP`
+ * times as far (a wet branch is heavy and the wind that comes with rain is
+ * stronger) and a gust peaks at `RAIN_SWAY_GUST` instead of `SWAY_GUST_GAIN`.
+ * Nothing else changes: period, gust cadence and width, the axis, the phase
+ * travel and the weight are today's, and the clock is the SIM clock as ever.
+ * It is a COMPILE-TIME variant (`swayVertexChunk(true)`), not a value written
+ * into `uSwayAmp`, which the `wind` debug layer owns: writing 1.5 there would
+ * fight that layer's stash. A shipped map never builds it.
+ */
+export const RAIN_SWAY_AMP = 1.5;
+export const RAIN_SWAY_GUST = 1.8;
+
 /** `(h / TOP)^2`, clamped to [0, 1]. */
 export function swayWeight(heightWu: number): number {
   const r = Math.min(1, Math.max(0, heightWu / SWAY_TOP));
@@ -53,11 +66,11 @@ export function swayWeight(heightWu: number): number {
 
 /** 1 outside a gust; a `sin^2` bump to `GUST_GAIN` inside one. A gust starts
  *  at every multiple of `GUST_EVERY_S` and lasts `GUST_WIDTH_S`. */
-export function gustFactor(tSec: number): number {
+export function gustFactor(tSec: number, wet = false): number {
   const phase = ((tSec % SWAY_GUST_EVERY_S) + SWAY_GUST_EVERY_S) % SWAY_GUST_EVERY_S;
   if (phase >= SWAY_GUST_WIDTH_S) return 1;
   const s = Math.sin((Math.PI * phase) / SWAY_GUST_WIDTH_S);
-  return 1 + (SWAY_GUST_GAIN - 1) * s * s;
+  return 1 + ((wet ? RAIN_SWAY_GUST : SWAY_GUST_GAIN) - 1) * s * s;
 }
 
 /** The world-space lean of a vertex `heightWu` above an instance whose origin
@@ -67,12 +80,14 @@ export function swayOffset(
   heightWu: number,
   tSec: number,
   originX: number,
-  originZ: number
+  originZ: number,
+  wet = false
 ): { dx: number; dz: number } {
   const s =
     SWAY_AMPLITUDE *
+    (wet ? RAIN_SWAY_AMP : 1) *
     swayWeight(heightWu) *
-    gustFactor(tSec) *
+    gustFactor(tSec, wet) *
     Math.sin((2 * Math.PI * tSec) / SWAY_PERIOD_S + SWAY_PHASE_X * originX + SWAY_PHASE_Z * originZ);
   return { dx: SWAY_DIR_X * s, dz: SWAY_DIR_Z * s };
 }
@@ -104,7 +119,12 @@ function glsl(k: number): string {
  *
  * `uSwayAmp` is 1 in shipping code; the `wind` debug layer sets it to 0.
  */
-export function swayVertexChunk(): string {
+export function swayVertexChunk(wet = false): string {
+  // The two constants the wet variant changes, and only those. A dry chunk is
+  // built from exactly the values it always was (`SWAY_AMPLITUDE * 1` is
+  // exact in binary, and the literal printed is the same string).
+  const amp = wet ? SWAY_AMPLITUDE * RAIN_SWAY_AMP : SWAY_AMPLITUDE;
+  const gust = wet ? RAIN_SWAY_GUST : SWAY_GUST_GAIN;
   return `
 {
 #ifdef USE_BATCHING
@@ -121,8 +141,8 @@ export function swayVertexChunk(): string {
     float rlSwayB = sin(PI * rlSwayPh / ${glsl(SWAY_GUST_WIDTH_S)});
     rlSwayBump = rlSwayB * rlSwayB;
   }
-  float rlSwayGust = 1.0 + (${glsl(SWAY_GUST_GAIN)} - 1.0) * rlSwayBump;
-  float rlSway = uSwayAmp * ${glsl(SWAY_AMPLITUDE)} * rlSwayR * rlSwayR * rlSwayGust
+  float rlSwayGust = 1.0 + (${glsl(gust)} - 1.0) * rlSwayBump;
+  float rlSway = uSwayAmp * ${glsl(amp)} * rlSwayR * rlSwayR * rlSwayGust
     * sin(PI2 * uSwayTime / ${glsl(SWAY_PERIOD_S)}
       + ${glsl(SWAY_PHASE_X)} * rlSwayOrigin.x + ${glsl(SWAY_PHASE_Z)} * rlSwayOrigin.z);
   mvPosition += viewMatrix * vec4(${glsl(SWAY_DIR_X)} * rlSway, 0.0, ${glsl(SWAY_DIR_Z)} * rlSway, 0.0);

@@ -104,6 +104,7 @@ import { hexToLinear } from './terrain/shared';
 import { ROAD_DISTANCE_RANGE_TILES } from './terrain/control-map';
 import { ROAD_EDGE_BEND, ROAD_EDGE_FALLOFF, ROAD_HALF_WIDTH, SHOULDER_ALPHA, SHOULDER_TILES } from './terrain/road-graph';
 import { defaultControlB } from './terrain/mesh';
+import { WATER_ALBEDO } from './terrain/wet-shading';
 import {
   CRATER_BOWL_ALPHA,
   CRATER_BOWL_EDGE0,
@@ -114,6 +115,9 @@ import {
   CRATER_LIP_OUT0,
   CRATER_LIP_OUT1,
   CRATER_LOBES,
+  CRATER_WATER_ALPHA,
+  CRATER_WATER_EDGE,
+  CRATER_WATER_LEVEL,
   CRATER_WOBBLE,
   COLOUR_CRATER_BOWL,
   COLOUR_CRATER_LIP,
@@ -425,7 +429,7 @@ const DECAL_VERTEX_SHADER = /* glsl */ `
 const f = glslFloat;
 
 /** `decalAlpha`, transcribed. Keep the two in step line for line. */
-const DECAL_FRAGMENT_SHADER = /* glsl */ `
+const DECAL_FRAGMENT_SHADER_DRY = /* glsl */ `
   #include <common>
   #include <packing>
   #include <lights_pars_begin>
@@ -608,6 +612,82 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
+/** The define that switches the crater water on (GH-871 P4 T5). */
+export const DECAL_WET_DEFINE = 'DECAL_WET';
+
+/** One wet block, behind the define, with a leading newline so removing exactly
+ *  this text leaves the dry source (`\n#ifdef DECAL_WET` ... `\n#endif`). */
+function wetBlock(glsl: string): string {
+  return `\n#ifdef ${DECAL_WET_DEFINE}\n${glsl.trim()}\n#endif`;
+}
+
+/** Inserts `add` right after the one occurrence of `anchor`; throws when the
+ *  anchor is not there exactly once (a splice that matched nothing would ship
+ *  a lake that never draws). */
+function spliceAfter(src: string, anchor: string, add: string): string {
+  const at = src.indexOf(anchor);
+  if (at < 0 || src.indexOf(anchor, at + 1) >= 0) {
+    throw new Error(`decal-pool: the decal fragment shader has no unique "${anchor}" to splice the crater water after`);
+  }
+  return src.slice(0, at + anchor.length) + add + src.slice(at + anchor.length);
+}
+
+/**
+ * The crater water (`DECAL_WET`): five blocks spliced into the dry kind shader,
+ * each behind the define. `craterWaterSample` (decal-maths.ts) is the pure
+ * mirror, and every number here is interpolated from the names it reads.
+ *  - uniforms: `uWetSky` and `uPuddleReflect`, the GROUND's own uniform objects
+ *    (shared by reference, so `debugSetWetTuning` moves the crater water with
+ *    the puddles and `applyWetUniforms` writes the same sky);
+ *  - `rlCraterWater`, declared beside `ci`;
+ *  - its value, in the crater branch: 1 below `CRATER_WATER_LEVEL`, ramping
+ *    over `CRATER_WATER_EDGE` either side;
+ *  - the surface, after the ground tone is known: the ground's tone x
+ *    `WATER_ALBEDO` mixed toward the sky by the puddle reflectance (the ground
+ *    shader's `rlWetWater`), and the opacity mixed toward `CRATER_WATER_ALPHA`;
+ *  - the rim relief off: standing water is flat.
+ */
+export function decalWetFragmentShader(dry: string): string {
+  let src = dry;
+  src = spliceAfter(
+    src,
+    'uniform float uRoadOn;',
+    wetBlock(`
+uniform vec3 uWetSky;
+uniform float uPuddleReflect;`)
+  );
+  src = spliceAfter(src, 'int ci = 0;', wetBlock('float rlCraterWater = 0.0;'));
+  src = spliceAfter(
+    src,
+    `else { a = bowl; ci = ${COLOUR_CRATER_BOWL}; }`,
+    wetBlock(
+      `rlCraterWater = 1.0 - smoothstep(${f(CRATER_WATER_LEVEL - CRATER_WATER_EDGE)}, ${f(CRATER_WATER_LEVEL + CRATER_WATER_EDGE)}, craterHeight(vOffset, seed));`
+    )
+  );
+  src = spliceAfter(
+    src,
+    'vec3 ground = mix(mix(vGround, uRoadTone, rlRoadSurf), uShoulderTone, rlShoulder);',
+    wetBlock(`
+if (rlCraterWater > 0.0) {
+  vec3 rlWaterCol = mix(vec3(${f(WATER_ALBEDO)}) * ground, uWetSky, uPuddleReflect);
+  colour = mix(colour, rlWaterCol, rlCraterWater);
+  a = mix(a, ${f(CRATER_WATER_ALPHA)}, rlCraterWater);
+}`)
+  );
+  src = spliceAfter(
+    src,
+    'vec2 gst = vec2(hs, ht) * halfLength * uRimGain;',
+    wetBlock('gst *= 1.0 - rlCraterWater;')
+  );
+  return src;
+}
+
+/** The kind shader a map that rains draws with (`createDecalMaterial`'s `wet`). */
+export const DECAL_FRAGMENT_SHADER_WET = decalWetFragmentShader(DECAL_FRAGMENT_SHADER_DRY);
+
+/** The shipped kind shader: byte for byte what a map that does not rain compiles. */
+export const DECAL_FRAGMENT_SHADER = DECAL_FRAGMENT_SHADER_DRY;
+
 /**
  * The ground uniforms the decal shader reads the road from (fix wave I-3).
  * `ThreeRenderer` hands in `GroundMaterial`'s OWN uniform objects, not
@@ -622,6 +702,16 @@ export interface DecalGroundUniforms {
   readonly uRoadTone: THREE.IUniform;
   readonly uShoulderTone: THREE.IUniform;
   readonly uRoadOn: THREE.IUniform;
+}
+
+/**
+ * The crater water's two inputs (GH-871 P4 T5, `DECAL_WET`): the GROUND's own
+ * `uWetSky` and `uPuddleReflect` uniform objects, handed in by reference like
+ * the road's. Passed only under rain; absent, the material is the shipped one.
+ */
+export interface DecalWetUniforms {
+  readonly uWetSky: THREE.IUniform;
+  readonly uPuddleReflect: THREE.IUniform;
 }
 
 /**
@@ -640,7 +730,11 @@ export interface DecalGroundUniforms {
  * decal material in this backend carries it -- no lighting term depends on
  * the winding, so the winding is not a risk worth carrying.
  */
-export function createDecalMaterial(palette: DecalPalette, ground?: DecalGroundUniforms): THREE.ShaderMaterial {
+export function createDecalMaterial(
+  palette: DecalPalette,
+  ground?: DecalGroundUniforms,
+  wet?: DecalWetUniforms
+): THREE.ShaderMaterial {
   const colours = DECAL_PALETTE_ORDER.map((key) => {
     const [r, g, b] = hexToLinear(palette[key]);
     return new THREE.Vector3(r, g, b);
@@ -668,9 +762,12 @@ export function createDecalMaterial(palette: DecalPalette, ground?: DecalGroundU
       uRoadTone: road.uRoadTone,
       uShoulderTone: road.uShoulderTone,
       uRoadOn: road.uRoadOn,
+      // The crater water's two inputs, only on a map that rains.
+      ...(wet ? { uWetSky: wet.uWetSky, uPuddleReflect: wet.uPuddleReflect } : {}),
     },
+    ...(wet ? { defines: { [DECAL_WET_DEFINE]: '' } } : {}),
     vertexShader: DECAL_VERTEX_SHADER,
-    fragmentShader: DECAL_FRAGMENT_SHADER,
+    fragmentShader: wet ? DECAL_FRAGMENT_SHADER_WET : DECAL_FRAGMENT_SHADER,
     transparent: true,
     // F-22 (fix round 1): multiply onto the lit ground -- see
     // `decalMultiplier`. dst.rgb = src.rgb * dst.rgb; dst.a kept.

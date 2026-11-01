@@ -25,13 +25,20 @@ const EVERY = 1200;
  * the sign again: seed 2 went positive. Was seed 2; seed 1 reads negative (5 does too; 3, 4, 6, 7, 8 and 9 read positive).
  * GH-707 (30 Oct, the last seven): the medic team in seven more missions re-rolled it once more: seed 1 went positive. Was seed 1; seed 2
  * reads negative (3 and 8 do too; 1, 4, 5, 6, 7 and 9 read positive).
+ * GH-859 P1c (31 Oct): `data/formations/attack.json` lost its march pace (formation files are content), which re-rolled the sign
+ * once more: seed 2 went positive (+1239059308). Was seed 2; seed 1 reads negative (-2052621870; 3, 4, 6 and 8 do too; 2, 5, 7 and 9
+ * read positive). The economy room reads +1954628094 on the same data.
+ * GH-913 L4 (1 Nov): `data/maps/rujm_sawda.json` and its rules file are content too. On the data with PR 915 (jebel_matar,
+ * ein_qasab_3) merged, seeds 1 and 7 read negative (2, 3, 4, 5, 6, 8 and 9 read positive), so seed 1 stands.
+ * GH-913 L3 (1 Nov): `capacity: 512` in `data/versus/rujm_sawda.json` is content too. Seeds 1 and 2 no longer pass the premise; seeds 3 and 4
+ * do (5 to 9 not tried), so seed 3 stands. Was seed 1.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;
   const sides = sidesOfFactions([...factions]);
   const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({
-    matchId: CODE, code: CODE, seed: 2, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
+    matchId: CODE, code: CODE, seed: 3, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
     pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b-1', dataDigest: 0, snapshotEveryTicks: EVERY,
   });
   if (c === null) throw new Error('bad fixture');

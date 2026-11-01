@@ -401,7 +401,7 @@ interface Mission {
   starting_force?: readonly { tag?: string; at?: readonly number[]; marker?: string }[];
 }
 
-type Rect = [number, number, number, number];
+export type Rect = [number, number, number, number];
 
 /** An objective's target as rectangles on the map (a point is a 1x1 rect). */
 function targetRects(mission: Mission, map: ParsedMap, target: string): Rect[] {
@@ -420,7 +420,7 @@ function targetRects(mission: Mission, map: ParsedMap, target: string): Rect[] {
   return out;
 }
 
-function nearestOpen(map: ParsedMap, x: number, y: number): [number, number] | null {
+export function nearestOpen(map: ParsedMap, x: number, y: number): [number, number] | null {
   for (let r = 0; r < 8; r++)
     for (let dy = -r; dy <= r; dy++)
       for (let dx = -r; dx <= r; dx++) {
@@ -433,7 +433,7 @@ function nearestOpen(map: ParsedMap, x: number, y: number): [number, number] | n
 }
 
 /** The foot path a flow field gives from (sx, sy) to (gx, gy), tile indices, or [] if none. */
-function footPath(map: ParsedMap, s: [number, number], g: [number, number]): number[] {
+export function footPath(map: ParsedMap, s: [number, number], g: [number, number]): number[] {
   const f = new FlowField(map.width, map.height);
   f.compute(map.blocked, map.elevation, g[0], g[1]);
   const out: number[] = [];
@@ -449,7 +449,7 @@ function footPath(map: ParsedMap, s: [number, number], g: [number, number]): num
   return [];
 }
 
-const rectCentre = (r: Rect): [number, number] => [
+export const rectCentre = (r: Rect): [number, number] => [
   Math.floor(r[0] + (r[2] - 1) / 2),
   Math.floor(r[1] + (r[3] - 1) / 2),
 ];

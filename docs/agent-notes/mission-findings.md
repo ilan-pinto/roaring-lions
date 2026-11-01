@@ -303,3 +303,20 @@ The medic is NOT free of cost to a plan. Adding it shifts every later entity id 
 - Measure a candidate on the 30 sweep seeds AND on seeds 100-129, which took no part in the choice: the seven plans read 28-30 of 30 there before and 28-30 after, none worse.
 
 A change to a mission shows up in a LATER mission's line through the ledger (Tel Marum III's ledger feeds Umm Zeitoun I, which feeds IV: the drop PR 905 saw at IV was Umm Zeitoun I's drone and IV's own medic, not Tel Marum III), so a regression is only attributable by taking missions out one at a time and re-running the whole `pnpm playtest` (about 5 minutes).
+
+## A scripted beat must fire on a live group (GH-912, 1 Nov 2026)
+
+Three Ein Qasab triggers played their label and `say` over nothing on every winning plan: the group their `do` acts on
+was already dead, or not yet spawned, the tick they fired. The shapes, so the next town does not repeat them:
+
+- **`casualties_pct` counts only the start-of-mission enemy, and the group it moves is usually in it.** EQ III's 40%
+  fired at 26-43 s with the `ferry` truck among the first four dead, 30/30 seeds of every rung. EQ I's 50% fired on 21/30
+  naive seeds, 15 of them before the wave group it moves had spawned.
+- **A `timer_s` cannot see a patrol walk into the column.** EQ II's gap rider patrolled into the column's road and died
+  at 12-15 s; the 90 s commit then ordered nobody. No later key could have helped: the fix was where the rider waits
+  (beyond the gap, in dead ground), not the key.
+- **Measure it.** `eq_ladder.ts` prints, per trigger, the fire tick, the living size of the group at that tick, the
+  rounds the group fired afterwards and when it died. A row with `group size at fire min 0` is a beat over nothing.
+- `group_in_zone { group, zone }` (G5) is the enemy-side twin of `zone_entered` and waits for a wave's group to exist.
+  EQ I uses it; the regression test is `plans.test.ts`'s "each re-keyed beat fires, and with its group alive".
+- A plan that wins at 156 s sees a 150 s wave for six seconds: a beat on that wave can only fire as it arrives.

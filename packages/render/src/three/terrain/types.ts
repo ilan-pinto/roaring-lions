@@ -120,6 +120,14 @@ export interface TerrainInput {
    */
   waterside?: TerrainTones['waterside'];
   /**
+   * True when the ground is drawn under rain (GH-871 P4): `ThreeRenderer`
+   * sets it from `opts.weather === 'rain'` and from nothing else, so no
+   * shipped map carries the key at all. `buildControlMap` allocates control C
+   * (the marsh water and puddle masks) only when it is true. Absent means dry;
+   * `false` is never written, so a dry input is byte-for-byte what it was.
+   */
+  wet?: true;
+  /**
    * The theme's own yard and roadside prop mixes -- `TerrainTones.propMix`, passed through by
    * `composeTerrain` (GH-871 P3). Absent means the shared mixes. `propPlacements` reads it.
    */

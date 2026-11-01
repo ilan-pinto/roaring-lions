@@ -28,6 +28,11 @@ export interface SwayUniforms {
 
 const SWAY_ANCHOR = '#include <project_vertex>';
 
+/** The foliage program's cache keys: the shipped one, and the wet variant's
+ *  own (GH-871 P4 T5), so the two compile apart and a dry map's key is untouched. */
+export const FOLIAGE_SWAY_KEY = 'rl-foliage-sway';
+export const FOLIAGE_SWAY_WET_KEY = 'rl-foliage-sway-wet';
+
 /**
  * `rampMaterial(ramp)`, plus the crown sway spliced after
  * `#include <project_vertex>` (`sway.ts`'s `swayVertexChunk` says why there).
@@ -37,7 +42,8 @@ const SWAY_ANCHOR = '#include <project_vertex>';
  */
 export function swayingFoliageMaterial(
   ramp: readonly string[],
-  sway: SwayUniforms
+  sway: SwayUniforms,
+  wet = false
 ): THREE.MeshStandardMaterial {
   const material = rampMaterial(ramp);
   material.onBeforeCompile = (shader) => {
@@ -50,9 +56,9 @@ export function swayingFoliageMaterial(
     shader.uniforms.uSwayAmp = sway.amp;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uSwayTime;\nuniform float uSwayAmp;')
-      .replace(SWAY_ANCHOR, `${SWAY_ANCHOR}\n${swayVertexChunk()}`);
+      .replace(SWAY_ANCHOR, `${SWAY_ANCHOR}\n${swayVertexChunk(wet)}`);
   };
-  material.customProgramCacheKey = () => 'rl-foliage-sway';
+  material.customProgramCacheKey = () => (wet ? FOLIAGE_SWAY_WET_KEY : FOLIAGE_SWAY_KEY);
   return material;
 }
 
@@ -105,7 +111,9 @@ const TAU = Math.PI * 2;
 
 /**
  * `sway`, when given, makes the `foliage` batch sway (`swayingFoliageMaterial`);
- * every other role keeps the plain ramp material. Each batch is named
+ * `wet` (rain only, GH-871 P4 T5) gives that batch the wet sway variant -- its
+ * own program and cache key, the reeds riding in the same batch. Every other
+ * role keeps the plain ramp material. Each batch is named
  * `decor-<role>`.
  *
  * `decorColors` (`TerrainTones.decorColors`, GH-322) tints a family inside
@@ -121,7 +129,8 @@ export function buildDecorMesh(
   placements: readonly DecorPlacement[],
   set: DecorGeometrySet,
   sway?: SwayUniforms,
-  decorColors?: Readonly<Record<string, string>>
+  decorColors?: Readonly<Record<string, string>>,
+  wet = false
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'decor';
@@ -199,7 +208,7 @@ export function buildDecorMesh(
       maxInstances,
       acc.verts,
       acc.idx,
-      role === 'foliage' && sway !== undefined ? swayingFoliageMaterial(ramp, sway) : rampMaterial(ramp)
+      role === 'foliage' && sway !== undefined ? swayingFoliageMaterial(ramp, sway, wet) : rampMaterial(ramp)
     );
     mesh.name = `decor-${role}`;
     const tinted = tintsForRole(decorColors, role, acc.parts);

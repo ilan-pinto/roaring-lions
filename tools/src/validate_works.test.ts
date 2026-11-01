@@ -129,10 +129,11 @@ describe('the shipped data', () => {
     const buildable = Object.values(catalogue.types).filter((t) => t.buildable !== undefined).map((t) => t.id);
     expect(buildable.sort()).toEqual(['kdf_aid_post', 'kdf_intel_centre', 'kdf_medic_station', 'kdf_outpost', 'kdf_workshop']);
   });
-  it('no shipped mission lists field_works yet (L4/L5 are the lead\'s)', () => {
+  it('exactly one shipped mission lists field_works: Ein Qasab II, the first campaign use (GH-912 G8; the rest are the lead\'s, L4/L5)', () => {
     const withWorks = readdirSync(join(ROOT, 'data/missions'))
       .filter((f) => f.endsWith('.json'))
       .filter((f) => readJson(`data/missions/${f}`).field_works !== undefined);
-    expect(withWorks).toEqual([]);
+    expect(withWorks).toEqual(['ein_qasab_2_foothold.json']);
+    expect(readJson('data/missions/ein_qasab_2_foothold.json').field_works).toEqual({ kdf_outpost: 1 });
   });
 });

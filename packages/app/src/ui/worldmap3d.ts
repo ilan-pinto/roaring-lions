@@ -51,6 +51,7 @@ import {
   nextMissionOf,
   regionProgress,
   townProgress,
+  townLockedBecause,
   townStars,
   type CommanderData,
   type ParsedWorld,
@@ -357,6 +358,8 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     for (const town of region.towns) {
       const next = nextMissionOf(town, ledger);
       const { done, total } = townProgress(town, ledger);
+      // A town's own gate (GH-912 G1). Null inside a locked region, whose sentence wins.
+      const townGate = p.status === 'locked' ? null : townLockedBecause(town, ledger, missionName);
       const marker = el('div', 'rl-world__town');
       marker.dataset.town = town.id;
       // The TOWN's own state, not the region's -- the flat board's own
@@ -364,7 +367,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       // towns have nothing authored, and stamping the region status on an
       // empty town is a false completion signal.
       const pinStatus: PinStatus =
-        total > 0 && done === total ? 'done' : total === 0 ? 'empty' : p.status;
+        total > 0 && done === total ? 'done' : total === 0 ? 'empty' : townGate !== null ? 'locked' : p.status;
       marker.dataset.status = pinStatus;
       // Nothing is placed until the board has drawn a frame. A pin at 0,0 in
       // the corner reads as a bug, so it is hidden until it has a position.
@@ -403,7 +406,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
         const line = hoverLine({
           status: pinStatus,
           regionName: town.name,
-          lockedBecause: p.lockedBecause ?? undefined,
+          lockedBecause: townGate ?? p.lockedBecause ?? undefined,
           nextMissionName: next !== null ? (missionName(next) ?? town.name) : undefined,
         });
         speak(t(line.key, line.params), line.tone);

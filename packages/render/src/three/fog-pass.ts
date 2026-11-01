@@ -154,7 +154,8 @@ void main() {
  * `uHazeFar` defaults to 0 and `uHazeRef` to far below any authored level,
  * so no ground counts as low.
  */
-const FRAGMENT = /* glsl */ `
+function fragmentSource(hazeLow: number): string {
+  return /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform sampler2D tDepth;
 uniform sampler2D uShroud;
@@ -208,7 +209,7 @@ void main() {
   float rlAhead = dot(world.xz - uFocus, vec2(${HAZE_FORWARD[0].toFixed(8)}, ${HAZE_FORWARD[1].toFixed(8)}));
   float rlBelow = uHazeRef - world.y / ${WORLD_PER_LEVEL.toFixed(8)};
   float rlHaze = uHazeAmp * (uHazeFar * clamp(rlAhead / ${HAZE_RAMP_TILES.toFixed(4)}, 0.0, 1.0)
-                           + ${HAZE_LOW.toFixed(4)} * clamp(rlBelow / ${HAZE_LOW_LEVELS.toFixed(4)}, 0.0, 1.0));
+                           + ${hazeLow.toFixed(4)} * clamp(rlBelow / ${HAZE_LOW_LEVELS.toFixed(4)}, 0.0, 1.0));
   color.rgb = mix(color.rgb, uHazeTint, rlHaze);
   vec2 tex = vec2(world.x / uMapSize.x, world.z / uMapSize.y);
   float v = texture2D(uShroud, tex).r;
@@ -233,7 +234,7 @@ void main() {
   gl_FragColor = vec4(mix(color.rgb, shrouded, dim), color.a);
 }
 `;
-
+}
 /** What `ThreeRenderer` hands the haze term (R-13): the tint already in
  *  the pass's scene-referred linear space (`hexToLinear` of the tone times
  *  `hazeRadiance`), the preset's amount at +20 tiles, and the map's median
@@ -242,6 +243,12 @@ export interface HazeSettings {
   readonly tint: readonly [number, number, number];
   readonly far: number;
   readonly refLevel: number;
+}
+
+/** Compile-time options of the fog pass. */
+export interface FogPassOptions {
+  /** The low-lying haze's strength; absent is `HAZE_LOW`, today's source. */
+  readonly hazeLow?: number;
 }
 
 /** `uHazeRef`'s default: far below any level a map can author (0-9), so an
@@ -277,8 +284,18 @@ export class FogOfWarPass extends Pass {
   readonly material: THREE.ShaderMaterial;
   private readonly quad: FullScreenQuad;
 
-  constructor(shroud: THREE.Texture, mapWidth: number, mapHeight: number) {
+  /** The low-lying haze's strength, as compiled into this pass's source. */
+  readonly hazeLow: number;
+
+  /**
+   * `options.hazeLow` is a compile-time constant of the program, not a
+   * uniform (the `rlHaze` line interpolates it): absent, it is `HAZE_LOW` and
+   * the source is the one every shipped map has always compiled. Only a
+   * raining map passes it (GH-871 P4 T2, R-3).
+   */
+  constructor(shroud: THREE.Texture, mapWidth: number, mapHeight: number, options?: FogPassOptions) {
     super();
+    this.hazeLow = options?.hazeLow ?? HAZE_LOW;
     // LINEAR, not sRGB-unit: this pass runs before `OutputPass`, on the
     // composer's HalfFloat scene-referred target, so the tint has to be in
     // the same space as the colour it is mixed with. `hexToUnit` here would
@@ -312,7 +329,7 @@ export class FogOfWarPass extends Pass {
     this.material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
       vertexShader: VERTEX,
-      fragmentShader: FRAGMENT,
+      fragmentShader: fragmentSource(this.hazeLow),
       depthTest: false,
       depthWrite: false,
     });

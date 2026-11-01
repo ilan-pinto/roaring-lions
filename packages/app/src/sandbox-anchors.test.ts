@@ -169,7 +169,7 @@ describe('a versus map names its seats (versus_0 / versus_1)', () => {
   });
 
   it('puts each shipped versus map\u2019s sides on its own two seats', () => {
-    for (const id of ['wadi_tarfan', 'milh_flats'] as const) {
+    for (const id of ['wadi_tarfan', 'milh_flats', 'rujm_sawda'] as const) {
       const m = maps[id] as { markers: Record<string, readonly number[]> };
       expect(sandboxAnchors(maps[id]), id).toEqual({ friendly: m.markers.versus_0, hostile: m.markers.versus_1 });
     }
@@ -180,7 +180,7 @@ describe('a versus map names its seats (versus_0 / versus_1)', () => {
       .filter(([, m]) => 'versus_0' in ((m as { markers?: object }).markers ?? {}) || 'versus_1' in ((m as { markers?: object }).markers ?? {}))
       .map(([id]) => id)
       .sort();
-    expect(named).toEqual(['milh_flats', 'wadi_tarfan']);
+    expect(named).toEqual(['milh_flats', 'rujm_sawda', 'wadi_tarfan']);
   });
 });
 
@@ -188,9 +188,10 @@ describe('sandboxAnchors is engine-independent', () => {
   it('picks the same anchors on every shipped map as the Math.hypot rule did', () => {
     // Pinned from the Math.hypot implementation on 2026-10-11; regenerate ONLY
     // by running the old code, never by copying the new output. The two versus
-    // maps (milh_flats, wadi_tarfan, 2026-10-14) are the exception: they name
-    // their seats, which are read by name before any distance is taken, so
-    // their entries are their own `versus_0`/`versus_1` markers.
+    // maps (milh_flats, wadi_tarfan, 2026-10-14) and the large one (rujm_sawda,
+    // 2026-11-01, GH-913) are the exception: they name their seats, which are read by
+    // name before any distance is taken, so their entries are their own
+    // `versus_0`/`versus_1` markers.
     const pinned: Record<string, { friendly: number[]; hostile: number[] }> = JSON.parse(
       readFileSync(new URL('./sandbox-anchors.pinned.json', import.meta.url), 'utf8')
     );

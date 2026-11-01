@@ -9,8 +9,9 @@ describe('the exports', () => {
     expect(doctrines.kdf.pop_cap).toBe(40);
     expect(doctrines.sarim.pop_cap).toBe(56);
   });
-  it('versusRules has one file per matchup map, keyed by map id', () => {
-    expect(Object.keys(versusRules).sort()).toEqual(['tel_marum', 'wadi_tarfan']);
+  it('versusRules has one file per matchup map, and the large map\'s not-yet-offered one, keyed by map id', () => {
+    // rujm_sawda (GH-913 L4) is authored but in neither FACTION_MATCHUP_MAPS nor VERSUS_FAIR_MAPS.
+    expect(Object.keys(versusRules).sort()).toEqual(['rujm_sawda', 'tel_marum', 'wadi_tarfan']);
     for (const [id, r] of Object.entries(versusRules)) expect(r.map).toBe(id);
   });
 });

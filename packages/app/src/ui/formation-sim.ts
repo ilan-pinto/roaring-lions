@@ -132,8 +132,8 @@ export function formationMemberView(sim: FormationReads, id: number): FormationM
       view = { id: formation, phase: 'set', radius };
     }
   }
-  // The pace: a ground member of a group that is marching (a group that halts on contact has stopped; an Attack presses on at pace;
-  // a member away on a call is not held to it).
+  // The pace: a ground member of a group that is marching (a group that halts on contact has stopped; an Attack, which has no pace, presses on at
+  // its own speeds; a member away on a call is not held to it).
   const marching = view.phase === 'marching' && !(contact && formationHalts(formation));
   const pace = sim.formationPaceOfGroup(g);
   const setter = sim.formationPaceSetterOf(g);

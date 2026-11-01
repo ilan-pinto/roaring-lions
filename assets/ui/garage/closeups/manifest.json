@@ -492,27 +492,27 @@
       "unit": "sniper_team",
       "track": "armour",
       "subject": "role",
-      "yawDeg": 90,
+      "yawDeg": 45,
       "elevationDeg": 12,
-      "distance": 0.693
+      "distance": 0.648
     },
     "sniper_team_firepower": {
       "file": "sniper_team_firepower.jpg",
       "unit": "sniper_team",
       "track": "firepower",
       "subject": "role",
-      "yawDeg": 90,
+      "yawDeg": 45,
       "elevationDeg": 12,
-      "distance": 0.628
+      "distance": 0.485
     },
     "sniper_team_sensors": {
       "file": "sniper_team_sensors.jpg",
       "unit": "sniper_team",
       "track": "sensors",
       "subject": "role",
-      "yawDeg": 0,
+      "yawDeg": 90,
       "elevationDeg": 12,
-      "distance": 0.375
+      "distance": 0.376
     },
     "yahalom_squad_armour": {
       "file": "yahalom_squad_armour.jpg",

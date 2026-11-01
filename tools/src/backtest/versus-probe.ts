@@ -119,7 +119,7 @@
 // The formation arm (GH-859 P1a, spec 8.7). `--formation=attack` puts `formation: 'attack'` on every
 // attack-move both ends send (the verb must be the formation's own: `attack` is the one shipped
 // attack-move formation); `--formation-end=friendly|hostile` puts it on ONE end's orders only, so the
-// other end plays the plain game. (b) both ends must stay inside 60/40 on every offered cell; (c) the
+// other end plays the plain game -- but its aircraft take a separate attack-move (`order`, the lead's Q2 ruling). (b) both ends must stay inside 60/40 on every offered cell; (c) the
 // formation end's edge is reported against the proposed cap of 65%. Without the flag nothing is named:
 // the baseline game, byte for byte, with the formations REGISTERED (`world`, and `buildMatchWorld`).
 //
@@ -161,7 +161,7 @@
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Sim, WOUND_DOWN, WOUND_STABILISED, MED_IDLE, fx, type SimEvent } from '@lions/sim';
-import { applyTerrain, doctrines, formations, maps, parseMap, units, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
+import { applyTerrain, doctrines, formations, maps, parseMap, units, versusCapacityOf, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
 import { VERSUS_FAIR_MAPS, seatRules, sidesOfFactions, validateConfig, type Faction, type MatchConfig, type SpawnEnd } from '@lions/net';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
@@ -294,7 +294,9 @@ export function humanHeldOf(rules: SeatTable, mapId: MapId, arrangement: Arrange
 
 export function world(mapId: MapId, seed: number, humanHeld?: readonly [boolean, boolean]) {
   const map = parseMap(maps[mapId]);
-  const sim = new Sim({ seed, width: map.width, height: map.height, capacity: 256, ...(humanHeld ? { humanHeld } : {}) });
+  // GH-913 L3: the map's room capacity (256 unless its rules file says more), as `buildMatchWorld` builds it.
+  const capacity = versusCapacityOf(versusRules[mapId]);
+  const sim = new Sim({ seed, width: map.width, height: map.height, capacity, ...(humanHeld ? { humanHeld } : {}) });
   applyTerrain(map, sim);
   standMapStructures(sim, map);
   const typeOf = new Map<string, number>();
@@ -339,7 +341,24 @@ export function order(sim: Sim, idsOf: (side: 0 | 1) => number[], sideOfEnd: rea
     // GH-859 P1a: `formation` is the arm, absent in the baseline; the end that carries it adds the field
     // to the very same attack-move, so the two arms differ in nothing else.
     const named = formation !== undefined && formation.ends[end] ? { formation: formation.id } : {};
-    if (target && ids.length > 0) sim.queueCommand({ kind: 'attackMove', ids, x: target[0], y: target[1], ...named });
+    if (!target) return;
+    // GH-859 P1c, lead ruling Q2: in a one-end formation arm (S4 (c)) the LOOSE end, the side with no
+    // formation, orders its aircraft with a SEPARATE attack-move to the same point, ground first, as a
+    // sensible player would. The plain group order puts aircraft on the front row, while the Attack holds
+    // them back on call, so the combined order handed the formed end an artefact (the loose helicopter dead
+    // at 7.1 s, the formed one at 47.3 s or never). Test-only, no sim change. NOT applied without a formation
+    // arm (the BASE arm) or to the formed end or in a both-ends arm, which stay one combined order each, so
+    // the base files and every no-formation pin stay valid. Known pairing confound: the base arm's loose
+    // end (aircraft inside the one order) is not the (c) arm's loose end (aircraft ordered apart).
+    if (formation !== undefined && !formation.ends[end]) {
+      const air = (id: number): boolean => sim.unitTypes[sim.state.typeIdx[id]].isAir;
+      const ground = ids.filter((id) => !air(id));
+      const aloft = ids.filter(air);
+      if (ground.length > 0) sim.queueCommand({ kind: 'attackMove', ids: ground, x: target[0], y: target[1] });
+      if (aloft.length > 0) sim.queueCommand({ kind: 'attackMove', ids: aloft, x: target[0], y: target[1] });
+      return;
+    }
+    if (ids.length > 0) sim.queueCommand({ kind: 'attackMove', ids, x: target[0], y: target[1], ...named });
   });
 }
 
@@ -1268,7 +1287,9 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   const rules: SeatTable = rulesArg;
   if (economy && rules !== 'room') throw new Error('--economy plays a room\'s world, on the room\'s seat table: --rules=default does not apply');
   const mapArg = flag(args, 'maps');
-  const mapIds = mapArg === 'all' ? candidateMaps() : (mapArg?.split(',') ?? (economy ? Object.keys(versusRules) : VERSUS_FAIR_MAPS)) as MapId[];
+  // The default economy table is the OFFERED maps that have rules files; a rules-only map (rujm_sawda, GH-913)
+  // is read on request: `--economy --maps=rujm_sawda`.
+  const mapIds = mapArg === 'all' ? candidateMaps() : (mapArg?.split(',') ?? (economy ? Object.keys(versusRules).filter((id) => VERSUS_FAIR_MAPS.includes(id)) : VERSUS_FAIR_MAPS)) as MapId[];
   for (const id of mapIds) if (!(id in maps)) throw new Error(`--maps: "${id}" is not a shipped map`);
   if (economy) for (const id of mapIds) if (!Object.hasOwn(versusRules, id)) throw new Error(`--maps: "${id}" has no versus rules file, so no economy room can be hosted on it`);
   const arrangements = parseArrangements(flag(args, 'arr') ?? (economy ? 'kdf/sarim,sarim/kdf' : 'kdf/kdf,kdf/sarim,sarim/kdf'));
@@ -1350,7 +1371,12 @@ function writePerSeed(r: ReportArgs, cells: PerSeedCell[]): void {
     seeds: r.seeds,
     rules: r.rules,
     capSeconds: r.capTicks / TICKS_PER_SECOND,
-    formation: r.formation === undefined ? null : { id: r.formation.id, ends: [r.formation.ends[0], r.formation.ends[1]] },
+    // `looseAir` marks a one-end arm (S4 (c)) whose loose end ordered its aircraft separately (`order`, Q2):
+    // a file played before that has no such field, and the S4 gate will not pair it.
+    formation: r.formation === undefined ? null : {
+      id: r.formation.id, ends: [r.formation.ends[0], r.formation.ends[1]],
+      ...(r.formation.ends[0] !== r.formation.ends[1] ? { looseAir: 'separate' as const } : {}),
+    },
     cells,
   };
   writeFileSync(r.perSeed, `${JSON.stringify(file)}\n`);

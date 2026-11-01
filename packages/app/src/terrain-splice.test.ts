@@ -35,6 +35,7 @@ import {
   snapshotControlInputs,
   updateControlMapRegion,
   CONTROL_SPLICE_MARGIN_TEXELS,
+  WET_SPLICE_MARGIN_TEXELS,
   changedTerrainTiles,
   spliceGround,
   spliceMask,
@@ -54,7 +55,7 @@ interface MapRig {
   build(prev: ComposedTerrainBuild | null): ComposedTerrainBuild;
 }
 
-function rig(source: MapId | MapJson): MapRig {
+function rig(source: MapId | MapJson, wet = false): MapRig {
   const id = typeof source === 'string' ? source : source.id;
   const parsed = parseMap(typeof source === 'string' ? maps[source] : source);
   const sim = new Sim({ seed: 20261010, width: parsed.width, height: parsed.height, capacity: 64 });
@@ -72,7 +73,18 @@ function rig(source: MapId | MapJson): MapRig {
   return {
     sim,
     build: (prev) =>
-      composeTerrainFrom(prev?.state ?? null, sim, parsed.decor, parsed.elevation, () => true, tones, paletteColor, BACKGROUND),
+      composeTerrainFrom(
+        prev?.state ?? null,
+        sim,
+        parsed.decor,
+        parsed.elevation,
+        () => true,
+        tones,
+        paletteColor,
+        BACKGROUND,
+        null,
+        wet
+      ),
   };
 }
 
@@ -101,7 +113,7 @@ function bytesDiff(a: Uint8Array, b: Uint8Array): number {
 }
 
 function cloneMap(m: ControlMap): ControlMap {
-  return { width: m.width, height: m.height, a: m.a.slice(), b: m.b.slice() };
+  return { width: m.width, height: m.height, a: m.a.slice(), b: m.b.slice(), c: m.c ? m.c.slice() : null };
 }
 
 /**
@@ -289,4 +301,99 @@ describe('a collapse beside the marsh splices the willow pass to the bytes a ful
     expect(reused).toBeGreaterThan(spliced.composed.decorPlacements.length * 0.8);
     expect(reused).toBeLessThan(spliced.composed.decorPlacements.length);
   }, 30_000);
+});
+
+// -- Control C, the wet bake (GH-871 P4, Task 3) ---------------------------
+
+/**
+ * Ein Qasab under rain: every structure collapsed on its own, the control map
+ * spliced against a full wet build, to the byte in A, B AND C.
+ *
+ * C reads the drawn surface (the puddle rule is a slope and a level), so a
+ * collapse reaches it further than A and B: a tile whose smoothing field
+ * changed moves the normal at every texel two tiles out (a Catmull-Rom sample
+ * reads columns -2..+2), `WET_SPLICE_MARGIN_TEXELS` = 16. Swept once over
+ * every structure of Ein Qasab (2026-10-30): see the numbers in the last test.
+ */
+function wetWalk(structures: readonly number[]): { collapses: number; surfaceTiles: number; differing: number } {
+  let collapses = 0;
+  let surfaceTiles = 0;
+  let differing = 0;
+  for (const s of structures) {
+    const r = rig('ein_qasab', true);
+    const before = r.build(null);
+    const map = buildControlMap(before.composed.input, before.state.surface);
+    expect(map.c, 'C is allocated under rain').not.toBeNull();
+    const inputs = snapshotControlInputs(before.composed.input, before.state.surface);
+    expect(r.sim.structures.alive[s], `structure ${s} is standing before the shot`).toBe(1);
+    r.sim.debugDestroyStructure(s);
+    const full = r.build(null);
+    const changed = changedControlTiles(inputs, full.composed.input, full.state.surface);
+    collapses++;
+    if (changed === null) {
+      differing++; // a full build was demanded: nothing to splice, nothing to compare
+      continue;
+    }
+    for (let t = 0; t < changed.length; t++) if ((changed[t] & 2) !== 0) surfaceTiles++;
+    updateControlMapRegion(map, full.composed.input, changed, undefined, full.state.surface);
+    const fresh = buildControlMap(full.composed.input, full.state.surface);
+    const c = map.c as Uint8Array;
+    const d =
+      bytesDiff(map.a, fresh.a) + bytesDiff(map.b, fresh.b) + bytesDiff(c, fresh.c as Uint8Array);
+    if (d > 0) differing++;
+  }
+  return { collapses, surfaceTiles, differing };
+}
+
+describe('a collapse on Ein Qasab splices control C to the bytes a full wet build makes', () => {
+  const count = parseMap(maps.ein_qasab).structures.length;
+  const all = Array.from({ length: count }, (_, i) => i);
+
+  it('has structures to collapse', () => {
+    expect(count).toBeGreaterThanOrEqual(8);
+  });
+
+  it('every single-structure collapse, spliced, equals the full build in A, B and C', () => {
+    const r = wetWalk(all);
+    expect(r.collapses).toBe(count);
+    expect(r.differing).toBe(0);
+  }, 240_000);
+
+  it('the margin is the stencil bound: 16 texels, two tiles of Catmull-Rom', () => {
+    expect(WET_SPLICE_MARGIN_TEXELS).toBe(16);
+  });
+});
+
+/**
+ * The wet margin's falsification lives in `control-map.test.ts` (a road beside
+ * a constructed hump). It cannot live here any more: with no puddles on open
+ * ground (the lead's S-L1 ruling) the only C bytes a surface change can move
+ * are a road's rut band, and neither Ein Qasab's collapses nor
+ * umm_zeitoun_4's warehouse (structure 1: 11 surface tiles) sit near one.
+ * What this keeps: a relief map compiled wet, collapsed, splices to the bytes
+ * of a full build at the shipped margin.
+ */
+describe('a warehouse collapse on a relief map splices C to the full build at the shipped margin', () => {
+  // A SMOKE test, not a falsification: this collapse is nowhere near a road, so
+  // it moves no byte of C (the margin's falsification is in control-map.test.ts).
+  // It proves the splice path runs on a wet relief map and that C, which holds
+  // real road puddles here, comes out of it equal to a full build.
+  it('umm_zeitoun_4, structure 1: splice smoke test, C equals the full build', () => {
+    const r = rig('umm_zeitoun_4', true);
+    const before = r.build(null);
+    const map = buildControlMap(before.composed.input, before.state.surface);
+    const inputs = snapshotControlInputs(before.composed.input, before.state.surface);
+    r.sim.debugDestroyStructure(1);
+    const full = r.build(null);
+    const changed = changedControlTiles(inputs, full.composed.input, full.state.surface) as Uint8Array;
+    let surfaceTiles = 0;
+    for (const v of changed) if ((v & 2) !== 0) surfaceTiles++;
+    expect(surfaceTiles, 'the warehouse reflows the smoothing field').toBeGreaterThan(5);
+    updateControlMapRegion(map, full.composed.input, changed, undefined, full.state.surface);
+    const fresh = buildControlMap(full.composed.input, full.state.surface);
+    let puddleBytes = 0;
+    for (let o = 1; o < (fresh.c as Uint8Array).length; o += 4) if ((fresh.c as Uint8Array)[o] >= 128) puddleBytes++;
+    expect(puddleBytes, 'C is built and holds road puddles, so the comparison is not of two empty maps').toBeGreaterThan(0);
+    expect(bytesDiff(map.c as Uint8Array, fresh.c as Uint8Array)).toBe(0);
+  }, 60_000);
 });

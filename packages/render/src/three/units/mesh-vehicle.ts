@@ -57,7 +57,7 @@ import { coldGltfLoader, gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { charredTexturedMaterial, rampMaterial, texturedMaterial } from '../world-materials';
-import { surfaceMaterialFor } from './unit-surface';
+import { SURFACE_PARAMS, surfaceMaterialFor, type SurfaceTable } from './unit-surface';
 import { parseRunningGear, type RunningGearSpec } from './running-gear';
 import { releaseRunningGear } from './running-gear-binding';
 import { CHARRED_RAMP, isVehicleMeshRole, rampForVehicleRole } from './vehicle-mesh-role';
@@ -259,7 +259,9 @@ export function buildVehicleMeshTemplate(
   gltf: Pick<GLTF, 'scene'> & Partial<Pick<GLTF, 'animations'>>,
   vehicleId: string,
   allowTextured = false,
-  tiers?: VehicleKitTiers
+  tiers?: VehicleKitTiers,
+  /** The surface table the renderer was built with (GH-871 P4 T5); default the shipped one. */
+  surfaces: SurfaceTable = SURFACE_PARAMS
 ): VehicleMeshTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
@@ -400,7 +402,7 @@ export function buildVehicleMeshTemplate(
         : (() => {
             const base = texturedMaterial(loaded as THREE.Material);
             addMaterial(base);
-            return surfaceMaterialFor(base, role, addMaterial);
+            return surfaceMaterialFor(base, role, addMaterial, surfaces);
           })();
       mesh.material = textured;
       mesh.castShadow = true;
@@ -425,7 +427,7 @@ export function buildVehicleMeshTemplate(
     // a wreck copy whose role is outside this vehicle's own table means the
     // pass copied extras from a node this module could not have drawn either.
     const ramp = rampMaterial(isWreck ? CHARRED_RAMP : rampForVehicleRole(vehicleId, role));
-    const mat = isWreck ? ramp : surfaceMaterialFor(ramp, role);
+    const mat = isWreck ? ramp : surfaceMaterialFor(ramp, role, undefined, surfaces);
     mesh.material = mat;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -529,10 +531,12 @@ export async function loadVehicleMeshTemplate(
   allowTextured = false,
   tiers?: VehicleKitTiers,
   /** GH-469: keep the textures encoded until `warmColdTextures`. */
-  cold = false
+  cold = false,
+  /** See `buildVehicleMeshTemplate`: the renderer's surface table. */
+  surfaces: SurfaceTable = SURFACE_PARAMS
 ): Promise<VehicleMeshTemplate> {
   const gltf = await (cold ? coldGltfLoader() : gltfLoader()).loadAsync(glbUrl);
-  return buildVehicleMeshTemplate(gltf, vehicleId, allowTextured, tiers);
+  return buildVehicleMeshTemplate(gltf, vehicleId, allowTextured, tiers, surfaces);
 }
 
 /** One living entity's vehicle instance. `turretPivot`, if present, is

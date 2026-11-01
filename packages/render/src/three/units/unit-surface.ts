@@ -31,6 +31,13 @@
  * first `dispose` drops it from the registry and the memo -- see `registry`
  * for the leak a strong one caused.
  *
+ * The RAIN RIM (GH-871 P4 PR 914, the lead's ruling 1, which replaced the flat
+ * S-L2 lift): under rain a KDF figure's clones also carry a thin view-angle
+ * Fresnel rim (`rain-rim.ts`), a compile-time variant with its own program
+ * key. It rides the same clone, memo and disposer as the roughness, and exists
+ * only when the table asks for it, so a shipped renderer's clones are exactly
+ * today's.
+ *
  * Known limit: a scar clone (`vehicle-damage`) or a running-gear clone
  * (`running-gear-binding`) is cut with `Material.clone()` from the surface
  * clone and copies the roughness/metalness in force when it was cut; it is
@@ -41,6 +48,7 @@
  * and presentation-only.
  */
 import * as THREE from 'three';
+import { applyRainRim, setRainRimPass } from './rain-rim';
 
 export interface SurfaceParams {
   readonly roughness: number;
@@ -77,6 +85,50 @@ export const SURFACE_PARAMS: Readonly<Record<SurfaceClass, SurfaceParams>> = {
   rubber: { roughness: 0.96, metalness: 0 },
   glass: { roughness: 0.2, metalness: 0 },
 };
+
+/**
+ * A table of surface params, one per class: the shipped one or the wet one.
+ * `kdfRim` is the rain rim's SWITCH (see `WET_SURFACE_PARAMS`), not a parameter
+ * (the gain, power and colour live in `weather.ts` and `rain-rim.ts`); ABSENT on
+ * the shipped table, and absent means no rim hook and no change to a clone's
+ * cache key.
+ */
+export type SurfaceTable = Readonly<Record<SurfaceClass, SurfaceParams>> & {
+  readonly kdfRim?: true;
+};
+
+/**
+ * The wet table (GH-871 P4, T5): what a unit's surface answers under rain.
+ * Rain films every surface, so cloth, armour and plate lose 0.12-0.22 of their
+ * roughness and a barrel's 0.10. EVERY other class and EVERY metalness is the
+ * shipped number (the 0.45 cap holds: there is no environment map), and the
+ * albedo is untouched -- only the specular response moves. Built from
+ * `SURFACE_PARAMS` so a class this task did not name cannot drift from it.
+ */
+export const WET_SURFACE_PARAMS: SurfaceTable = {
+  ...SURFACE_PARAMS,
+  cloth: { roughness: 0.8, metalness: 0 },
+  armour: { roughness: 0.52, metalness: 0 },
+  plate: { roughness: 0.48, metalness: 0.1 },
+  gunmetal: { roughness: 0.32, metalness: 0.45 },
+  kdfRim: true,
+};
+
+/**
+ * Whether a figure of `faction` takes the rain rim from `table`: true for `'kdf'` on
+ * a table that asks (the wet one), else false. Vehicles never ask (their loader
+ * passes no rim), enemy and civilian figures are not rimmed, and the shipped table
+ * has no switch.
+ */
+export function figureRimFor(table: SurfaceTable, faction: string): boolean {
+  return faction === 'kdf' && table.kdfRim === true;
+}
+
+/** The table a renderer built with `weather` uses: `'rain'` is the wet one,
+ *  anything else (absent, `'clear'`) is the shipped one. */
+export function surfaceTableFor(weather: 'clear' | 'rain' | undefined): SurfaceTable {
+  return weather === 'rain' ? WET_SURFACE_PARAMS : SURFACE_PARAMS;
+}
 
 const TEAM_ROLE_CLASS: Readonly<Record<string, SurfaceClass>> = {
   uniform: 'cloth',
@@ -115,6 +167,8 @@ interface SurfaceEntry {
   readonly mat: THREE.MeshStandardMaterial;
   readonly off: { roughness: number; metalness: number; metalnessMap: THREE.Texture | null };
   readonly on: { roughness: number; metalness: number; metalnessMap: THREE.Texture | null };
+  /** The clone carries the rain rim hook (`rain-rim.ts`). Absent / false on every other clone. */
+  readonly rim?: boolean;
 }
 
 /**
@@ -158,18 +212,37 @@ function untrack(entry: SurfaceEntry): void {
   if (ref) registry.delete(ref);
 }
 
-/** Per original material, its clone per class. Keyed weakly on the original. */
-const clones = new WeakMap<THREE.Material, Map<SurfaceClass, THREE.MeshStandardMaterial>>();
+/**
+ * Per original material, its clone per class AND table. Keyed weakly on the
+ * original. The key carries the table's numbers (`cacheKey`), so a base handed
+ * to a wet renderer and to a dry one never shares a clone: the second would
+ * otherwise come back wearing the first's roughness.
+ */
+const clones = new WeakMap<THREE.Material, Map<string, THREE.MeshStandardMaterial>>();
+
+/** `class/roughness/metalness`: the clone memo's key (the table is part of it).
+ *  A rim clone appends `/rim`; an unrimmed one keeps today's key. */
+function cacheKey(cls: SurfaceClass, p: SurfaceParams, rim: boolean): string {
+  const base = `${cls}/${p.roughness}/${p.metalness}`;
+  return rim ? `${base}/rim` : base;
+}
 
 /**
  * The material a role node draws with: `base` itself for an unclassified
  * role or a non-standard material, else the memoised clone for its class.
- * `fresh` receives every clone made, so the template can dispose it.
+ * `fresh` receives every clone made, so the template can dispose it. `table`
+ * is the one the renderer was built with (`surfaceTableFor(opts.weather)`);
+ * absent, the shipped `SURFACE_PARAMS`. `rim` is the rain rim's switch
+ * (`figureRimFor`): true makes the clone a rim variant (`applyRainRim`: its own
+ * program key, a Fresnel emission term), and the memo keeps a rim and an unrimmed
+ * clone apart; false (the default) is exactly today's clone.
  */
 export function surfaceMaterialFor(
   base: THREE.Material,
   role: string,
-  fresh?: (m: THREE.Material) => void
+  fresh?: (m: THREE.Material) => void,
+  table: SurfaceTable = SURFACE_PARAMS,
+  rim = false
 ): THREE.Material {
   const std = base as THREE.MeshStandardMaterial;
   const cls = surfaceClassOf(role);
@@ -179,7 +252,9 @@ export function surfaceMaterialFor(
     perClass = new Map();
     clones.set(base, perClass);
   }
-  const hit = perClass.get(cls);
+  const p = table[cls];
+  const key = cacheKey(cls, p, rim);
+  const hit = perClass.get(key);
   if (hit) {
     // A second template built from the same loaded original (whose first
     // template may already have released the clone) re-registers it.
@@ -191,7 +266,6 @@ export function surfaceMaterialFor(
     return hit;
   }
   const mat = std.clone();
-  const p = SURFACE_PARAMS[cls];
   const mapped = mat.roughnessMap !== null;
   const entry: SurfaceEntry = {
     mat,
@@ -201,21 +275,30 @@ export function surfaceMaterialFor(
       metalness: p.metalness,
       metalnessMap: p.metalness > 0 ? null : std.metalnessMap,
     },
+    ...(rim ? { rim: true } : {}),
   };
+  if (rim) applyRainRim(mat);
   entryOf.set(mat, entry);
   track(entry);
   writeSurface(entry, surfacePassOn);
-  perClass.set(cls, mat);
+  perClass.set(key, mat);
   // The disposer is registered where the clone is created: its first
   // `dispose` (the template's teardown) drops it from the registry and the
   // memo, however many role nodes shared it.
   const memo = perClass;
   mat.addEventListener('dispose', () => {
     untrack(entry);
-    if (memo.get(cls) === mat) memo.delete(cls);
+    if (memo.get(key) === mat) memo.delete(key);
   });
   fresh?.(mat);
   return mat;
+}
+
+/** Number of live surface clones carrying the rain rim (test seam, and the capture knob's "is there one"). */
+export function rainRimCloneCount(): number {
+  let n = 0;
+  for (const ref of registry) if (ref.deref()?.rim) n++;
+  return n;
 }
 
 /** Number of live surface clones (test seam). */
@@ -229,6 +312,8 @@ export function surfaceCloneCount(): number {
  *  Returns how many materials it wrote. */
 export function setUnitSurfacePass(on: boolean): number {
   surfacePassOn = on;
+  // The rain rim is part of the pass: its shared gain goes to 0 and back (rain-rim.ts stashes it).
+  setRainRimPass(on);
   let n = 0;
   for (const ref of [...registry]) {
     const e = ref.deref();

@@ -699,6 +699,86 @@ export function decalMultiplier(
 /** `decalMultiplier`'s divide-by-zero floor -- see its doc comment. */
 export const DECAL_GROUND_FLOOR = 1e-4;
 
+// ---------------------------------------------------------------------------
+// The wet decals (GH-871 P4 T5): mud prints, and water in a crater's bowl.
+// Rain only -- a shipped map's palette and program are today's.
+// ---------------------------------------------------------------------------
+
+/** The eight decal colours' palette keys on a map that does not rain. */
+export const DECAL_PALETTE_KEYS: Readonly<Record<keyof DecalPalette, string>> = {
+  craterBowl: 'shadow.0',
+  craterLip: 'limestone.1',
+  scorch: 'shadow.0',
+  oil: 'shadow.1',
+  rubbleA: 'limestone.5',
+  rubbleB: 'limestone.7',
+  tread: 'dust.5',
+  tyre: 'limestone.6',
+};
+
+/** Under rain a track is a print in mud: `tread` and `tyre` both resolve to
+ *  `mud.3`, and the other six keys are today's. */
+export const WET_DECAL_PALETTE_KEYS: Readonly<Record<keyof DecalPalette, string>> = {
+  ...DECAL_PALETTE_KEYS,
+  tread: 'mud.3',
+  tyre: 'mud.3',
+};
+
+/** Which key table a renderer built with `weather` resolves its palette from. */
+export function decalPaletteKeysFor(weather: 'clear' | 'rain' | undefined): Readonly<Record<keyof DecalPalette, string>> {
+  return weather === 'rain' ? WET_DECAL_PALETTE_KEYS : DECAL_PALETTE_KEYS;
+}
+
+/**
+ * The crater's height field in units of its own radius (the shader's
+ * `craterHeight`, transcribed): a parabolic bowl of depth `bowlDepth` inside
+ * the lip and a raised rim of `rimHeight` that peaks where the lip albedo does.
+ * `uRimShape` carries `(bowlDepth, rimHeight)` in the shader.
+ */
+export function craterHeight(s: number, t: number, seed: number, bowlDepth: number, rimHeight: number): number {
+  const rw = wobbledRadius(s, t, seed, CRATER_WOBBLE, CRATER_LOBES);
+  const x = rw / CRATER_LIP_IN1;
+  const bowl = -bowlDepth * Math.max(1 - x * x, 0);
+  const rimC = (CRATER_LIP_IN1 + CRATER_LIP_OUT0) / 2;
+  const rim = rimHeight * smoothstep(CRATER_BOWL_EDGE0 - 0.06, rimC, rw) * (1 - smoothstep(rimC, 1, rw));
+  return bowl + rim;
+}
+
+/** Water stands in a crater's bowl where the height is below this (radii). With
+ *  the shipped bowl depth 0.25 that is the inner ~72% of the lip's inner radius. */
+export const CRATER_WATER_LEVEL = -0.12;
+/** Half the width of the shoreline's ramp, in height units. */
+export const CRATER_WATER_EDGE = 0.02;
+/** The water's opacity where it fully covers (the multiply ratio mixes toward it). */
+export const CRATER_WATER_ALPHA = 0.9;
+
+/** The share of a crater fragment the water covers, from its height. */
+export function craterWaterCover(h: number): number {
+  return 1 - smoothstep(CRATER_WATER_LEVEL - CRATER_WATER_EDGE, CRATER_WATER_LEVEL + CRATER_WATER_EDGE, h);
+}
+
+/**
+ * A crater fragment's sample with the water laid over it (`DECAL_WET`): the
+ * dry sample's colour and opacity mixed toward the water surface by the cover.
+ * `ground` is the tone under the decal and `sky` is `uWetSky`; the surface is
+ * the ground's own, `(1 - reflect) * WATER_ALBEDO * ground + reflect * sky` per
+ * channel (`terrain/wet-shading.ts`'s `waterAlbedo`, which the oracle test
+ * compares against), at the SAME reflectance the puddles use.
+ */
+export function craterWaterSample(
+  dryAlpha: number,
+  dryColour: readonly [number, number, number],
+  cover: number,
+  ground: readonly [number, number, number],
+  reflect: number,
+  sky: readonly [number, number, number],
+  waterAlbedo: number
+): { alpha: number; colour: [number, number, number] } {
+  const w = (c: number): number => (1 - reflect) * waterAlbedo * ground[c] + reflect * sky[c];
+  const m = (c: number): number => dryColour[c] + cover * (w(c) - dryColour[c]);
+  return { alpha: dryAlpha + cover * (CRATER_WATER_ALPHA - dryAlpha), colour: [m(0), m(1), m(2)] };
+}
+
 /** One fragment's worth of `decalAlpha`: its opacity, and which palette
  *  entry (`DECAL_PALETTE_ORDER` index) it draws in. */
 export interface DecalSample {
