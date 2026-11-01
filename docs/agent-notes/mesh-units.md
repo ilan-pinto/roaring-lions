@@ -776,3 +776,25 @@ Rifle Squad only so far (`inf_squad`); the Demolition and Breach teams take the 
   `hands-pass.ts`): texel std 13.8 / 16.2 of 255, mean dE76 2.4 / 1.2 to the review's sleeve.
 - **Encode:** raw animation keys that never change (1,010 of 2,376 channels) are cut to two keys at the end of the motion pass
   (`collapseConstantTracks`), which more than pays for the hands: `inf_squad` pre-kit 1,799,936 -> 1,650,052 bytes encoded.
+
+## The infantry hand gates (GH-746, PR 935)
+
+Five gates read the shipped `art/meshes/*.glb` of every infantry team and count what the player sees, because every earlier hand
+check measured millimetres on the hands a file HAS (a missing, fused or mis-bound hand was not in the population):
+
+| gate | file | holds |
+|---|---|---|
+| G1 | `tools/src/mesh_hand_census.test.ts` | exactly two modelled hands per figure build (397 triangles, 7 pieces each) |
+| G2 | `tools/src/mesh_fragments.test.ts` | no claw-coloured geometry off a hand bone (own claw tone and legacy literals near the hand; the glove's own texel for modelled hands). **Blind on dark claws and on fused arms**: those builds are listed in `G2_BLIND`, not passed |
+| G3 | `tools/src/mesh_hand_holds.test.ts` | each hand closed on its declared object per clip (declared pose, palm contact at least 20% within 8 mm). Contact is weak and non-monotonic; `mesh_grip.test.ts`'s station gaps are the real guard for a team that has hands |
+| G4 | `packages/render/src/three/units/game-hands.shipped.test.ts` | each hand at least 3 unoccluded px at the game's zoom ceiling, in 6 of 8 facings, idle and fire, max kit |
+| G8 | `tools/src/mesh_armed.test.ts` | every figure has a `weapon` or `charge` part on its own bones (no size floor) |
+
+**The exemption table is the art backlog.** Every team or build that fails is a named exemption with a reason, and a second
+assertion that it STILL fails: the day its art lands the assertion goes red and the entry must be deleted (G8 and G2's blind
+list compare the exact set). Adding a name is a design call. When you fix a team, delete its rows and give it a `HOLDS` entry
+(G3), and expect its G1 / G4 rows to be the first to go. The shared readers live in `mesh_figures.ts` and `mesh_hand_gates.ts`,
+which register no tests: a test file that exports a helper re-registers its tests in every importer.
+
+`rebindVertices` makes the constructed failing input (a copy of a file with one bone's vertices moved to another); it throws
+if it moved nothing, so a mutation cannot silently be the shipped file.

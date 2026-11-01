@@ -91,3 +91,28 @@ describe('mountGarageView: the sniper team stands on the turntable (GH-921)', ()
     view.dispose();
   });
 });
+
+describe('mountGarageView: a crew weapon stays with its crew (GH-746)', () => {
+  async function mountTeam(id: string) {
+    const bytes = readFileSync(new URL(`../../../../../art/meshes/${id}.glb`, import.meta.url));
+    loader.make = () => parseGlbHeadless(bytes);
+    return mountGarageView(host, { typeId: id, kind: 'rigged', meshUrl: `/meshes/${id}.glb`, dracoDecoderPath: '/draco/', colors: COLORS });
+  }
+
+  it('the 60 mm mortar is gear, not a fourth figure: the three crewmen turn with it as one piece', async () => {
+    const view = await mountTeam('mortar_team');
+    expect([...view.info.figureRoots].sort()).toEqual(['mtr_crew0_root', 'mtr_crew1_root', 'mtr_no3_root']);
+    expect([...view.info.gearRoots]).toEqual(['prop']);
+    expect(view.info.layout).toBe('group');
+    expect(view.info.spacing, 'a group is not re-spaced').toBe(0);
+    view.dispose();
+  });
+
+  it('a team with no gear is still a re-spaced line', async () => {
+    const view = await mountTeam('inf_squad');
+    expect(view.info.layout).toBe('line');
+    expect(view.info.gearRoots).toEqual([]);
+    expect(view.info.spacing).toBeGreaterThan(0);
+    view.dispose();
+  });
+});

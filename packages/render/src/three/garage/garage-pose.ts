@@ -41,6 +41,7 @@
  * the day it lands, and the pose below is its stand-in until then.
  */
 import * as THREE from 'three';
+import { clearSpacing } from './garage-frame';
 
 /** The clip name the exporters will bake (Q3). */
 export const SHOWCASE_CLIP = 'showcase';
@@ -144,9 +145,82 @@ export function bonesOf(root: THREE.Object3D): THREE.Bone[] {
  * from its bind pose, where every root is shown.
  */
 export function livingFigureRoots(bones: readonly THREE.Bone[]): THREE.Bone[] {
-  const shown = bones.filter((b) => !(b.parent as THREE.Bone | null)?.isBone && Math.abs(b.scale.x) > 1e-4);
+  const shown = shownRoots(bones).filter((b) => !GEAR_BONE.test(b.name));
   const named = shown.filter((b) => !/death|walk/i.test(b.name));
   return named.length > 0 ? named : shown;
+}
+
+/**
+ * The shared gear bones of a crew-served team: the tube, the launcher, the
+ * tripod, the satchel, the dig tool. Every shipped team that carries one names
+ * it `prop` (or `ground` for the digger), as a top-level bone of its own, not
+ * under any crewman -- so to a rule that takes "every shown top-level bone"
+ * it is a FIGURE, and the garage once stood the 60 mm mortar in the line as
+ * its own soldier, turning on its own spot a metre from the crew that fires
+ * it (GH-746). A name test is the only handle the rigs give.
+ */
+export const GEAR_BONE = /^(prop|ground)$/;
+
+/** Top-level bones still SHOWN after the pose (scale not collapsed). */
+function shownRoots(bones: readonly THREE.Bone[]): THREE.Bone[] {
+  return bones.filter((b) => !(b.parent as THREE.Bone | null)?.isBone && Math.abs(b.scale.x) > 1e-4);
+}
+
+/** The shown gear bones (`GEAR_BONE`): none for a team that carries none, and
+ *  none while a clip hides the weapon (`move` packs the tube away). */
+export function gearRoots(bones: readonly THREE.Bone[]): THREE.Bone[] {
+  return shownRoots(bones).filter((b) => GEAR_BONE.test(b.name));
+}
+
+/**
+ * How a team stands on the stage. `line`: the figures are re-spaced on one
+ * line, each turning on its own spot (the lead's ruling for riflemen).
+ * `group`: the team carries gear, so it stays in the FIELD layout -- the crew
+ * where the exporter put them around the weapon -- and the whole rig turns as
+ * one piece about the footprint's centre. Re-spacing the crew would walk them
+ * away from a weapon that does not move.
+ */
+export type TeamLayout = 'line' | 'group';
+
+export interface TeamStaging {
+  /** The soldiers, in line order. Never a gear bone. */
+  readonly crew: THREE.Bone[];
+  readonly gear: THREE.Bone[];
+  readonly layout: TeamLayout;
+  /** The line spacing used (0 for a `group`, or a single figure). */
+  readonly spacing: number;
+}
+
+/**
+ * Stand a posed team on the stage: the one entry the garage view and the
+ * tests that guard the store both call. `spacing` is the line spacing from an
+ * earlier build of the same team (0: measure it here); it is ignored for a
+ * team with gear, which is not re-spaced at all.
+ */
+export function stageTeam(rig: THREE.Object3D, spacing: number): TeamStaging {
+  const bones = bonesOf(rig);
+  const crew = lineOrder(livingFigureRoots(bones));
+  const gear = gearRoots(bones);
+  if (gear.length > 0) return { crew, gear, layout: 'group', spacing: 0 };
+  let used = spacing;
+  if (crew.length > 1) {
+    if (used === 0) {
+      // Each figure's points as offsets from its own turn axis. A figure's
+      // reach does not depend on where it stands, so one sample at the posed
+      // default serves every pair.
+      const { points, owner } = visiblePoints(rig, crew, 1500);
+      const centres = crew.map((b) => b.getWorldPosition(new THREE.Vector3()));
+      const local = crew.map(() => [] as { x: number; z: number }[]);
+      points.forEach((p, i) => {
+        const f = owner[i];
+        if (f >= 0) local[f].push({ x: p.x - centres[f].x, z: p.z - centres[f].z });
+      });
+      // `clearSpacing` sweeps the whole turn, so where it starts is moot.
+      for (let i = 1; i < crew.length; i++) used = Math.max(used, clearSpacing(local[i - 1], local[i]));
+    }
+    respaceLine(crew, used);
+  }
+  return { crew, gear, layout: 'line', spacing: used };
 }
 
 const ARM = /(Shoulder|Arm|ForeArm|Hand)$/;

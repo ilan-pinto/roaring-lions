@@ -98,7 +98,6 @@ import {
   KEY_INTENSITY,
   SAND_FADE_START,
   SAND_RADIUS_OF_SWEEP,
-  clearSpacing,
   defaultYawDeg,
   fitCamera,
   stageLights,
@@ -106,16 +105,14 @@ import {
 } from './garage-frame';
 import { CLOSEUP_PAD, FOCUS_TIER, chooseFocus, figureFacingYaws, type FocusSubject } from './garage-focus';
 import {
-  bonesOf,
   figureTurner,
-  lineOrder,
-  livingFigureRoots,
   pickShowroomClip,
   poseRigged,
-  respaceLine,
   splitShowcase,
+  stageTeam,
   visiblePoints,
   type PoseSource,
+  type TeamLayout,
 } from './garage-pose';
 
 /** Every colour the stage uses, already resolved from palette keys by the
@@ -171,6 +168,12 @@ export interface GarageViewInfo {
   /** Figures that turn on their own spot (0 for a vehicle). */
   readonly figures: number;
   readonly figureRoots: readonly string[];
+  /** The shared gear bones kept with the crew (`prop`, `ground`): never in
+   *  `figureRoots`, and empty for a team that carries none. */
+  readonly gearRoots: readonly string[];
+  /** `line`: figures re-spaced on one line, each turning on its own spot.
+   *  `group`: a team with gear, in its field layout, turning as one piece. */
+  readonly layout: TeamLayout;
   /** Line spacing between a team's figures, world units (0: not re-spaced). */
   readonly spacing: number;
   /** The model's furthest visible point from the turn axis, world units. */
@@ -302,6 +305,11 @@ interface Staged {
   readonly cls: GarageClass;
   readonly pose: PoseSource;
   readonly figures: THREE.Bone[];
+  /** The shared gear (a crew weapon) that stays with its crew, never a figure. */
+  readonly gear: THREE.Bone[];
+  /** `line`: figures on one line, each turning on its own spot; `group`: a
+   *  team with gear, in its field layout, turning as one piece. */
+  readonly layout: TeamLayout;
   readonly spacing: number;
   /** Turns the model `deg` past its default. */
   readonly applyYaw: (deg: number) => void;
@@ -360,29 +368,19 @@ function stageRigged(gltf: { scene: THREE.Group; animations: THREE.AnimationClip
       // The store's clip, not the field's (GH-921): `idle` for all but the sniper.
       idle: pickShowroomClip(tpl.clips, opts.typeId, opts.meshUrl),
     });
-    const figures = lineOrder(livingFigureRoots(bonesOf(rig)));
-    if (figures.length > 1) {
-      if (spacing === 0) {
-        // Each figure's points as offsets from its own turn axis. A figure's
-        // reach does not depend on where it stands, so one sample at the posed
-        // default serves every pair.
-        const { points, owner } = visiblePoints(rig, figures, 1500);
-        const centres = figures.map((b) => b.getWorldPosition(new THREE.Vector3()));
-        const local = figures.map(() => [] as { x: number; z: number }[]);
-        points.forEach((p, i) => {
-          const f = owner[i];
-          if (f >= 0) local[f].push({ x: p.x - centres[f].x, z: p.z - centres[f].z });
-        });
-        // `clearSpacing` sweeps the whole turn, so where it starts is moot.
-        for (let i = 1; i < figures.length; i++) spacing = Math.max(spacing, clearSpacing(local[i - 1], local[i]));
-      }
-      respaceLine(figures, spacing);
-    }
+    // Crew in line order, the gear apart from them: a team with gear keeps its
+    // field layout and turns as one piece (`stageTeam`), so a mortar never
+    // stands in the line as a soldier of its own.
+    const staging = stageTeam(rig, spacing);
+    spacing = staging.spacing;
+    const figures = staging.crew;
     return {
       rig,
       pose: source,
       figures,
-      turn: figures.length > 0 ? figureTurner(figures) : null,
+      gear: staging.gear,
+      layout: staging.layout,
+      turn: staging.layout === 'line' && figures.length > 0 ? figureTurner(figures) : null,
       key: kitKey(tiers, ceiling),
       release: () => {
         mixer.stopAllAction();
@@ -426,6 +424,12 @@ function stageRigged(gltf: { scene: THREE.Group; animations: THREE.AnimationClip
     get figures() {
       return current.figures;
     },
+    get gear() {
+      return current.gear;
+    },
+    get layout() {
+      return current.layout;
+    },
     get spacing() {
       return spacing;
     },
@@ -454,6 +458,8 @@ interface BuiltRig {
   readonly rig: THREE.Object3D;
   readonly pose: PoseSource;
   readonly figures: THREE.Bone[];
+  readonly gear: THREE.Bone[];
+  readonly layout: TeamLayout;
   readonly turn: ((yawDeg: number) => void) | null;
   readonly key: string;
   readonly release: () => void;
@@ -602,6 +608,8 @@ function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationCli
       return current.pose;
     },
     figures: [],
+    gear: [],
+    layout: 'line',
     spacing: 0,
     applyYaw: (deg) => {
       turntable.rotation.y = THREE.MathUtils.degToRad(base + deg);
@@ -715,7 +723,7 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
   // The stage: one sand patch for every class (Q5). A team's line is wide
   // and shallow, so its patch is squashed along the camera axis to the
   // figures' own depth rather than running off the panel's sides.
-  const team = staged.figures.length > 1;
+  const team = staged.layout === 'line' && staged.figures.length > 1;
   const sandR = Math.max(0.2, sweepRadius * SAND_RADIUS_OF_SWEEP);
   // How far in front of the turn axis the sand must stay in frame: the
   // line's own depth with room for a shadow (`TEAM_DEPTH_*`, the approved
@@ -908,6 +916,8 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
         pose: staged.pose,
         figures: staged.figures.length,
         figureRoots: staged.figures.map((b) => b.name),
+        gearRoots: staged.gear.map((b) => b.name),
+        layout: staged.layout,
         spacing: +staged.spacing.toFixed(3),
         sweepRadius: +sweepRadius.toFixed(3),
         defaultYawDeg: defaultYawDeg(cls),
