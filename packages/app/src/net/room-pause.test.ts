@@ -425,7 +425,7 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
 
   it('W1: a versus room delivers move and attackMove with NO formation key, and every other field intact', () => {
     const { sink, got } = collect();
-    const out = roomOrderSink(LIVE, sink, () => {}, 'versus');
+    const out = roomOrderSink(LIVE, sink, () => {}, 'versus', false); // the gate injected closed: it ships open since GH-859's S4 (1 Nov)
     // the orders DID carry a formation going in, so the strip is not vacuous
     expect('formation' in move() && 'formation' in attackMove()).toBe(true);
     out.queueCommand(move());
@@ -438,7 +438,7 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
 
   it('W1: the caller\'s command object is not mutated, and any other command passes through as the same object', () => {
     const { sink, got } = collect();
-    const out = roomOrderSink(LIVE, sink, () => {}, 'versus');
+    const out = roomOrderSink(LIVE, sink, () => {}, 'versus', false);
     const mv = move();
     out.queueCommand(mv);
     expect(mv).toEqual(move());

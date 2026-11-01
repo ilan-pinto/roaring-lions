@@ -51,7 +51,7 @@ async function drive<T>(loop: Loop, runners: { pump(n: number): number }[], p: P
 }
 
 /** Two seat clients, both started; both seats human unless `kinds` says otherwise. */
-async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot' } = {}): Promise<{ loop: Loop; a: Joined; c: Joined; room: Awaited<ReturnType<typeof newRoom>> }> {
+async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot'; map?: string } = {}): Promise<{ loop: Loop; a: Joined; c: Joined; room: Awaited<ReturnType<typeof newRoom>> }> {
   const room = await newRoom(kinds);
   const a = join(room.loop, await room.ticket(0), 0);
   const c = join(room.loop, await room.ticket(1), 1);
@@ -129,11 +129,13 @@ describe('order in command scope (case 2)', () => {
 const BOTS = { host: 'bot', guest: 'bot' } as const;
 // GH-859 P1a: the agent harness orders a combat formation through the same door a human's click will use.
 describe('order: the formation field (GH-859 P1a)', () => {
-  // Task 6V (the lead's ruling, 29 Oct): formations are OFF in versus rooms until P1b, and `twoSeats` is a versus room. The agent
+  // Task 6V (the lead's ruling, 29 Oct): formations are OFF in versus rooms until S4 passed. They opened on 1 Nov on the maps S4 covered, so
+  // the refusal is witnessed on Wadi Tarfan, which stays closed (`VERSUS_FORMATIONS_CLOSED_MAPS`); the open map is the last test of this block.
+  // `twoSeats` is a versus room. The agent
   // harness checks an order with the same `validateCommand` the receiver runs, so a formation order is refused before it is sent.
   // The open-gate plumbing (stamped, framed, the same group on both sims) is witnessed in `two-client.test.ts` ("GATE OPEN").
   it('a Column move in a versus room is refused as invalid and nothing is sent; the plain move goes through and forms no group', async () => {
-    const { loop, a, c } = await twoSeats(BOTS);
+    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'wadi_tarfan' });
     const ctx = createContext(a.client, 'command');
     const wa = a.client.world() as MatchWorld;
     const wc = c.client.world() as MatchWorld;
@@ -158,7 +160,7 @@ describe('order: the formation field (GH-859 P1a)', () => {
     expect(wa.sim.hash()).toBe(wc.sim.hash());
   });
   it('an attack formation on an attackMove is refused the same way, and the plain attackMove forms no group', async () => {
-    const { loop, a, c } = await twoSeats(BOTS);
+    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'wadi_tarfan' });
     const ctx = createContext(a.client, 'command');
     const wa = a.client.world() as MatchWorld;
     const own = sideIds(wa, 0).slice(0, 3);
@@ -169,7 +171,22 @@ describe('order: the formation field (GH-859 P1a)', () => {
     await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
     expect(own.map((id) => wa.sim.formationGroupOf(id))).toEqual([-1, -1, -1]);
   });
-  it('the order tool says formations are refused in versus rooms while closed, and names the detail it answers with (M8)', () => {
+   it('GH-859 (1 Nov): on a map S4 covered (the default room map) the same Column move is accepted, sent with its formation, and forms the same group on both machines', async () => {
+    const { loop, a, c } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const wa = a.client.world() as MatchWorld;
+    const wc = c.client.world() as MatchWorld;
+    const own = sideIds(wa, 0).slice(0, 4);
+    const r = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20, formation: 'column' });
+    expect(r.ok, r.text).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd');
+    expect(sent).toHaveLength(1);
+    expect((sent[0] as { cmd: { formation?: string } }).cmd.formation).toBe('column');
+    for (const w of [wa, wc]) expect(own.every((id) => w.sim.formationGroupOf(id) >= 0)).toBe(true);
+    expect(wa.sim.hash()).toBe(wc.sim.hash());
+  });
+ it('the order tool says formations are refused in versus rooms while closed, and names the detail it answers with (M8)', () => {
     const order = TOOLS.find((t) => t.name === 'order');
     expect(order).toBeDefined();
     expect(order!.description).toContain('formations-closed-in-versus');

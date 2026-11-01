@@ -204,7 +204,15 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
   (formation, mix, N). `tools/src/formations_place.test.ts` is the gate (N = 2..24, every class mix, no tile
   twice, vehicle spacing outside the ring).
 
-### Versus: formations are OFF (lead's ruling, 29 Oct, GH-859; still off after P1b, S4 failed)
+### Versus: formations OPENED 1 Nov on the maps S4 covered (GH-859)
+
+**Current state.** S4 passed clean (0 TRIP of 27 cells, tunnels A+B pooled, 192 seeds paired with each cell's own baseline) with the Attack leaving
+aircraft out and `legs: false`, on Beit Sahwan, Tel Marum and Milh Flats, so `VERSUS_FORMATIONS_OPEN` is `true`. Wadi Tarfan (until its Sarim lean
+is settled, GH-561) and Rujm Sawda stay closed through `VERSUS_FORMATIONS_CLOSED_MAPS`. The tests that witness the CLOSED path inject the gate
+(`seatWorldFor(cfg, sim, false)`, `roomOrderSink(..., false)`) or use a closed map (`mcp-tools.test.ts` runs its refusal on Wadi). The text below is the
+history of the closed gate; its mechanism is unchanged.
+
+### (History) Versus: formations were OFF (lead's ruling, 29 Oct, GH-859; still off after P1b, S4 failed)
 
 Formations ship in single player. In a versus room they are off. The mechanism is ONE predicate,
 `packages/app/src/net/versus-formations.ts`: `VERSUS_FORMATIONS_OPEN = false` and `formationsOpenIn(mode, versusOpen)`

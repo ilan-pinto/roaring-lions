@@ -179,13 +179,13 @@ describe('versus: two sides, one frame stream', () => {
     sideOfSeat: (s: number) => number = (s) => s,
     formed = false,
     watch?: { tick: number; read: (sim: ReturnType<typeof versusWorld>['sim']) => unknown },
-    /** The REAL receiver guard (GH-859 P1a, Task 6V): `formationAllowed` from `seatWorldFor` on a versus config, gate closed,
+    /** The REAL receiver guard (GH-859 P1a, Task 6V): `formationAllowed` from `seatWorldFor` on a versus config, the gate injected CLOSED (it ships open on the maps S4 covered since 1 Nov, GH-859),
      *  in place of `worldFor`'s hand-built open table. */
     guarded = false
   ) {
     const w = versusWorld(formed);
     const clock = new LockstepClock(0);
-    const world: SeatWorld = { ...worldFor(w.sim), sideOfSeat, ...(guarded ? { formationAllowed: seatWorldFor(versusConfig(MAP), w.sim).formationAllowed } : {}) };
+    const world: SeatWorld = { ...worldFor(w.sim), sideOfSeat, ...(guarded ? { formationAllowed: seatWorldFor(versusConfig(MAP), w.sim, false).formationAllowed } : {}) };
     const hashes: number[] = [];
     const drops: number[] = [];
     let watched: unknown = null;
