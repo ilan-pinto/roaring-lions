@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { buildTexturedDecorMesh, type TexturedDecorSet } from './decor-textured-mesh';
-import { chunkGridFor, type ChunkGrid } from './chunks';
+import { chunkGridFor, chunkOfPoint, chunkTiles, type ChunkGrid } from './chunks';
 import type { DecorPlacement } from './decor-place';
 
 
@@ -39,6 +39,32 @@ describe('buildTexturedDecorMesh on a chunked map', () => {
       expect((m.boundingSphere as THREE.Sphere).radius, 'each chunk is culled by its own sphere').toBeLessThan(15);
     }
   });
+
+  // Runs that are NOT on the diagonal, where filing by x alone or by z alone looks right (x == z).
+  const horizontal: DecorPlacement[] = Array.from({ length: 70 }, (_, i) => ({ family: 'ditch' as const, variant: 0, x: i + 5.5, z: 12.5, y: 0, yawTurns: 0, scale: 1 }));
+  const vertical: DecorPlacement[] = Array.from({ length: 70 }, (_, i) => ({ family: 'ditch' as const, variant: 0, x: 60.5, z: i + 5.5, y: 0, yawTurns: 0, scale: 1 }));
+
+  for (const [label, line, expectedChunks] of [['x varying, z fixed', horizontal, 10], ['z varying, x fixed', vertical, 10], ['the diagonal', run, 10]] as const) {
+    it(`files every segment into the chunk it stands in (${label})`, () => {
+      const chunked = buildTexturedDecorMesh(line, set, grid);
+      expect(chunked.children.length).toBe(expectedChunks);
+      const m = new THREE.Matrix4();
+      const p = new THREE.Vector3();
+      let seen = 0;
+      for (const mesh of chunked.children as THREE.InstancedMesh[]) {
+        const chunk = (mesh.userData as { chunk: number }).chunk;
+        const { x0, y0, x1, y1 } = chunkTiles(grid, chunk);
+        for (let i = 0; i < mesh.count; i++) {
+          mesh.getMatrixAt(i, m);
+          p.setFromMatrixPosition(m);
+          expect(p.x >= x0 && p.x < x1 && p.z >= y0 && p.z < y1, `segment at (${p.x}, ${p.z}) is in chunk ${chunk} [${x0},${x1})x[${y0},${y1})`).toBe(true);
+          expect(chunkOfPoint(grid, p.x, p.z)).toBe(chunk);
+          seen++;
+        }
+      }
+      expect(seen).toBe(70);
+    });
+  }
 
   it('a map left whole is the one mesh it always was, in placement order', () => {
     const whole = buildTexturedDecorMesh(run, set, null);

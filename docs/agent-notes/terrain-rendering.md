@@ -622,6 +622,14 @@ Where it could change: the walk grows with map AREA and a chunk's cost does not,
 there (`perf:cullpan`, then this experiment), do not extrapolate from here. A cheaper cull would be a three change (a cached world
 sphere per instance), not a chunk.
 
+**Memory cost.** Before, `toGeometry` wrapped the whole-map arrays without copying them (only the linearised colours were new). A chunk
+is a copy of its tiles' range, so a chunked map holds the ground and scatter mesh twice in the JS heap: the whole-map `TiledMeshData`
+the splice needs as `prev` (required, and kept before this change too) plus the per-chunk attribute and index arrays. Measured on Rujm
+(`perf:memory`, 1400x900 @1x): JS heap + buffers 126.6 -> 136.0 MiB (+9.4, ceiling 153); GPU bytes unchanged (932.4 MiB). It scales with
+AREA: expect about +25 MiB at 128x128 (GH-920). Sub-array views cannot avoid it (a multi-row chunk is not contiguous), and dropping the
+CPU arrays after upload would lose three's context-loss re-upload. A cheap partial win, not done: slice straight into the linear colour
+array to skip the transient sRGB copy.
+
 **Left whole on purpose.** The decor batches (above), the prop batch (<= 150 instances, 3 draws), the residual and per-structure boxes,
 the skirt and backdrop.
 
