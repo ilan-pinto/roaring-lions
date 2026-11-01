@@ -21,10 +21,34 @@ export interface VersusTunnelJson {
 export interface VersusRulesJson {
   readonly id: string;
   readonly map: string;
+  /** GH-913 L3: the room's entity capacity (`VERSUS_CAPACITY_DEFAULT` when absent). */
+  readonly capacity?: number;
   readonly ends: { readonly friendly: VersusEndJson; readonly hostile: VersusEndJson };
   readonly tunnels?: { readonly friendly?: readonly VersusTunnelJson[]; readonly hostile?: readonly VersusTunnelJson[] };
   readonly zones?: Readonly<Record<string, readonly number[]>>;
   readonly income_zones: readonly { readonly zone: string; readonly rate_per_min: number }[];
+}
+
+/** Entity capacity of a versus room whose rules file declares none. `spawn` never reuses a dead slot,
+ *  so this is a budget for everyone who ever enters the match (GH-913 L3). */
+export const VERSUS_CAPACITY_DEFAULT = 256;
+/** The range a rules file's `capacity` may take (the schema's own bounds). A room may not be SMALLER
+ *  than the default: a placed force and the economy's first builds must always fit. */
+export const VERSUS_CAPACITY_MIN = 256;
+export const VERSUS_CAPACITY_MAX = 1024;
+
+/**
+ * The entity capacity of the room played on a map with these rules (GH-913 L3): the file's `capacity`,
+ * else `VERSUS_CAPACITY_DEFAULT`. A map with no rules file (a mirror-only map) is `undefined` and gets
+ * the default. Throws on a value outside the schema's range, which `validate:data` would have refused.
+ */
+export function versusCapacityOf(rules: VersusRulesJson | undefined): number {
+  const c = rules?.capacity;
+  if (c === undefined) return VERSUS_CAPACITY_DEFAULT;
+  if (!Number.isInteger(c) || c < VERSUS_CAPACITY_MIN || c > VERSUS_CAPACITY_MAX) {
+    throw new Error(`versus rules "${rules?.id}": capacity ${c} is outside ${VERSUS_CAPACITY_MIN}..${VERSUS_CAPACITY_MAX}`);
+  }
+  return c;
 }
 
 /** data/doctrines/<faction>.json. */

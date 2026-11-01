@@ -9,6 +9,13 @@
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "The map id (one file per map)." },
     "map": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "A map id in data/maps; one of the faction-matchup maps (@lions/net FACTION_MATCHUP_MAPS), or a rules-only map that no room offers yet (RULES_ONLY_MAPS in tools/validate_versus_rules.mjs; the large map of GH-913)." },
+    "capacity": {
+      "type": "integer",
+      "minimum": 256,
+      "maximum": 1024,
+      "default": 256,
+      "description": "The room's entity capacity (GH-913 L3). `spawn` never reuses a dead slot, so this budgets everyone who ever enters the match, wounded men included. Absent means 256. A larger map raises it (rujm_sawda: 512, measured at about 5% on the tick and +1.4 KiB on a gzipped snapshot). Read by buildMatchWorld through @lions/data's `versusCapacityOf`; a snapshot restore builds from the same config, so it follows. Never below 256."
+    },
     "ends": {
       "type": "object",
       "required": ["friendly", "hostile"],

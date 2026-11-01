@@ -54,6 +54,18 @@ describe('the shipped versus rules', () => {
     const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
     for (const s of shipped) expect(validate(s.doc), JSON.stringify(validate.errors)).toBe(true);
   });
+  it('GH-913 L3: the schema takes a capacity of 256..1024 and refuses the rest; only rujm_sawda declares one (512)', () => {
+    const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
+    const ajv = new (Ajv2020 as unknown as new (o: object) => {
+      compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
+    })({ allErrors: true, strict: false });
+    const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
+    const doc = (capacity: unknown): unknown => ({ ...rulesFor('wadi_tarfan')[0].doc, capacity });
+    for (const ok of [256, 512, 1024]) expect(validate(doc(ok)), String(ok)).toBe(true);
+    for (const bad of [255, 1025, 0, 300.5, '512', null]) expect(validate(doc(bad)), String(bad)).toBe(false);
+    const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, (s.doc as { capacity?: number }).capacity]));
+    expect(declared).toEqual({ rujm_sawda: 512, tel_marum: undefined, wadi_tarfan: undefined });
+  });
   it('the validator\'s anchors are versusAnchors\' answer for both matchup maps', () => {
     expect(CAMP_REACH).toBe(6);
     expect(MJS_SEATS).toEqual(VERSUS_SEATS);

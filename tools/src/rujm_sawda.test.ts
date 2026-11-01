@@ -94,8 +94,9 @@ describe('the shipped map', () => {
     expect(VERSUS_FAIR_MAPS).not.toContain('rujm_sawda');
   });
 
-  it('carries none of the L3 / L8 fields: no capacity, no cap_minutes', () => {
-    expect(Object.keys(versusRules.rujm_sawda).sort()).toEqual(['ends', 'id', 'income_zones', 'map', 'tunnels']);
+  it('carries the L3 capacity (512) and not the L8 field: no cap_minutes', () => {
+    expect(Object.keys(versusRules.rujm_sawda).sort()).toEqual(['capacity', 'ends', 'id', 'income_zones', 'map', 'tunnels']);
+    expect(versusRules.rujm_sawda.capacity).toBe(512);
   });
 });
 
