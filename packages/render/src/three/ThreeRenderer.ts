@@ -124,7 +124,7 @@ import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import type { FlipbookLayerSpec } from '../vfx/emitters';
 import { SIM_HZ } from '../anim';
-import { colorSlot, isHostileSide, isOwnSide } from '../relation';
+import { colorSlot, HOSTILE_COLOR_SLOT, isHostileSide, isOwnSide } from '../relation';
 import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
 import {
   approachAngle,
@@ -10908,7 +10908,9 @@ export class ThreeRenderer implements Renderer {
       }
     }
     this.bolts = stepShells(this.bolts, dtSeconds);
-    this.boltBatch.update(this.bolts, this.opts.tracerColors, elevation, this.sim.width, this.sim.height, this.viewer);
+    // GH-941: a hostile direct round (bolt, rifle, mg) is the hostile TEAM colour (red, and the player's
+    // colour-vision variant of it), not the pair's `vfx.ember`.
+    this.boltBatch.update(this.bolts, this.opts.tracerColors, elevation, this.sim.width, this.sim.height, this.viewer, this.opts.teamColors[HOSTILE_COLOR_SLOT]);
     // GH-250: missiles on the same frame clock; a landing throws the HEAT
     // impact on this frame, the shellHasLanded rule (spec D7).
     // `landings` is MissileFx's own buffer, valid until the next step: it is
