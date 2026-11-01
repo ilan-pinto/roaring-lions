@@ -314,13 +314,13 @@ describe('seatWorldFor', () => {
     expect(validateCommand({ kind: 'attackMove', ids: [4], x: 0, y: 0, formation: 'attack' }, 1, w)).toBe(false);
     expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0 }, 1, w)).toBe(true);
   });
-  it('GH-859 (1 Nov): the SHIPPED gate is open on a Tel Marum, Beit Sahwan or Milh Flats room and closed on Wadi Tarfan and Rujm Sawda', () => {
+  it('GH-859 (1 Nov): the SHIPPED gate is open on a Tel Marum, Beit Sahwan, Milh Flats or Wadi Tarfan (GH-945) room and closed on Rujm Sawda', () => {
     const sim = fakeSim();
-    for (const map of ['tel_marum', 'beit_sahwan_outskirts', 'milh_flats']) {
+    for (const map of ['tel_marum', 'beit_sahwan_outskirts', 'milh_flats', 'wadi_tarfan']) {
       const cfg = config({ mode: 'versus', map });
       expect(seatWorldFor(cfg, sim).formationAllowed(0, 'attack'), map).toBe(true);
     }
-    for (const map of ['wadi_tarfan', 'rujm_sawda']) {
+    for (const map of ['rujm_sawda']) {
       const cfg = config({ mode: 'versus', map });
       expect(seatWorldFor(cfg, sim).formationAllowed(0, 'attack'), map).toBe(false);
     }
@@ -346,13 +346,16 @@ describe('seatWorldFor', () => {
     // ...while another versus map with the gate open runs the table (the control that makes the map the cause)
     expect(seatWorldFor(config({ mode: 'versus', map: 'tel_marum' }), sim, true).formationAllowed(0, 'column')).toBe(true);
   });
-  it('GH-859 (lead, 1 Nov): Wadi Tarfan is closed the same way as Rujm Sawda while the gate is open', () => {
+  it('GH-945: Wadi Tarfan follows the gate like any other map (it was closed like Rujm Sawda, 1 Nov, until its Sarim lean was settled)', () => {
     const sim = fakeSim();
     const wadi = config({ mode: 'versus', map: 'wadi_tarfan' });
     wadi.seats[1] = { ...wadi.seats[1], side: 1 };
     const w = seatWorldFor(wadi, sim, true);
-    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);
-    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'attack' }, 1, w)).toBe(false);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(true);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'attack' }, 1, w)).toBe(true);
+    // ...and with the gate shut it is shut there too (the control that makes the gate, not the map, the cause)
+    const shut = seatWorldFor(wadi, sim, false);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(shut.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);
   });
   it('GH-859 P1a: the faction clause bites on a table that has a faction-gated formation', () => {
     const table = [{ id: 'both', factions: ['kdf', 'sarim'] }, { id: 'kdf_only', factions: ['kdf'] }];
