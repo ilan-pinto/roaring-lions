@@ -17,7 +17,8 @@ const MAP_DIR = join(__dirname, '..', '..', 'data', 'maps');
  *  maps, 115 rises in all (12 flat maps, 0). Wadi Halam I's crest (GH-161, 25 Oct) made it the 24th
  *  relief map, 1 rise: 24 relief maps, 116 rises, 11 flat. Ein Qasab (GH-871 P2 T7, 29 Oct 2026) is
  *  the 25th relief map, 1 rise: 25 relief maps, 117 rises, 11 flat (the flat count is unchanged: it
- *  carries an elevation grid). Three relief maps pin 0 -- they have an elevation grid
+ *  carries an elevation grid). Rujm Sawda (GH-913 L4, 1 Nov 2026) is the 26th relief map, 28 rises,
+ *  read on first run from the shipped map: 26 relief maps, 145 rises, 11 flat. Three relief maps pin 0 -- they have an elevation grid
  *  and no tile two levels over their own median -- and the pin still guards them against a rise
  *  appearing. */
 const RISES: Record<string, number> = {
@@ -32,6 +33,7 @@ const RISES: Record<string, number> = {
   qarn_hadid: 10,
   qarn_hadid_2: 17,
   qarn_hadid_3: 6,
+  rujm_sawda: 28,
   tel_marum: 3,
   tel_marum_1: 2,
   tel_marum_2: 1,
@@ -85,7 +87,7 @@ describe('shipped maps: high ground', () => {
     expect(ids.length).toBeGreaterThan(30);
     const relief = ids.filter((id) => results.get(id)?.relief);
     const flat = ids.filter((id) => !results.get(id)?.relief);
-    expect(relief.length).toBe(25);
+    expect(relief.length).toBe(26);
     expect(flat.length).toBe(11);
   });
 

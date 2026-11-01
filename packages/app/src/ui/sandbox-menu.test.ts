@@ -69,12 +69,12 @@ describe('the map list', () => {
   });
 
   it('holds Ein Qasab out of the picker until P3 ships its art (GH-871)', () => {
-    // 36 maps ship; the picker lists 35. Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(36);
+    // 37 maps ship; the picker lists 36. Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(37);
     expect(Object.keys(maps)).toContain('ein_qasab');
     const stage = render();
     const links = mapLinks(stage);
-    expect(links).toHaveLength(35);
+    expect(links).toHaveLength(36);
     expect(links.map((a) => a.dataset.map)).not.toContain('ein_qasab');
     // Nothing on the screen links to it either, by any spelling of the route.
     expect(stage.innerHTML).not.toContain('ein_qasab');

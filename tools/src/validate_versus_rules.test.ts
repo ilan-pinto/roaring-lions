@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { FACTION_MATCHUP_MAPS, sidesOfFactions, validateConfig, type MatchConfig } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, sidesOfFactions, validateConfig, type MatchConfig } from '@lions/net';
 import { maps, parseMap } from '@lions/data';
 import {
   CAMP_REACH,
@@ -14,6 +14,7 @@ import {
   MAX_TUNNELS,
   VENT_MIN_DIST,
   MATCHUP_MAPS,
+  RULES_ONLY_MAPS,
   VERSUS_SEATS as MJS_SEATS,
   anchorsOf,
   versusRulesFailures,
@@ -44,7 +45,7 @@ const failures = (r: { file: string; doc: Rules }[]): string[] =>
 
 describe('the shipped versus rules', () => {
   it('pass the schema and every rule', () => {
-    expect(shipped.map((s) => s.file)).toEqual(['data/versus/tel_marum.json', 'data/versus/wadi_tarfan.json']);
+    expect(shipped.map((s) => s.file)).toEqual(['data/versus/rujm_sawda.json', 'data/versus/tel_marum.json', 'data/versus/wadi_tarfan.json']);
     expect(versusRulesFailures(shipped, mapsById)).toEqual([]);
     const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
     const ajv = new (Ajv2020 as unknown as new (o: object) => {
@@ -63,13 +64,23 @@ describe('the shipped versus rules', () => {
   it('MATCHUP_MAPS is FACTION_MATCHUP_MAPS', () => {
     expect([...MATCHUP_MAPS]).toEqual([...FACTION_MATCHUP_MAPS]);
   });
+  it('RULES_ONLY_MAPS are rules files for maps no room offers: in neither list of @lions/net', () => {
+    // Opening rujm_sawda (GH-913 L5/L8) means moving it out of this list in the same commit, so
+    // this is red the moment a map is opened without its rules file being reclassified.
+    expect(RULES_ONLY_MAPS).toEqual(['rujm_sawda']);
+    for (const id of RULES_ONLY_MAPS) {
+      expect(FACTION_MATCHUP_MAPS, id).not.toContain(id);
+      expect(VERSUS_FAIR_MAPS, id).not.toContain(id);
+      expect(shipped.some((s) => s.doc.map === id), id).toBe(true);
+    }
+  });
   it('wadi_tarfan\'s two camps are point-symmetric about the map centre', () => {
     const w = shipped.find((s) => s.doc.map === 'wadi_tarfan')!.doc;
     const [fx, fy] = w.ends.friendly.camp.at;
     expect(w.ends.hostile.camp.at).toEqual([46 - fx, 46 - fy]);
   });
   it('no camp tile is a tile the placed force spawns on, in either spawn order', () => {
-    for (const { doc } of shipped) {
+    for (const { doc } of shipped.filter((s) => FACTION_MATCHUP_MAPS.includes(s.doc.map))) {
       const parsed = parseMap((maps as unknown as Record<string, never>)[doc.map]);
       for (const factions of [['kdf', 'sarim'], ['sarim', 'kdf']] as const) {
         const sides = sidesOfFactions(factions); // the room's own rule (LD1)

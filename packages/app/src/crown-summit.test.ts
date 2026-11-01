@@ -90,6 +90,7 @@ const SUMMITS: Partial<Record<MapId, number>> = {
   milh_flats: 2,
   qarn_hadid: 1,
   qarn_hadid_3: 4,
+  rujm_sawda: 4,
   tel_marum: 1,
   tel_marum_1: 1,
   tel_marum_2: 2,
@@ -125,8 +126,11 @@ describe('crown summits on the shipped maps', () => {
     tally.rejected += rejected;
   });
 
-  it('20 summits in all, and none of the other 41 small clusters', () => {
-    expect(tally).toEqual({ summits: 20, rejected: 41 });
+  it('24 summits in all, and none of the other 41 small clusters', () => {
+    // 20 before rujm_sawda (GH-913 L4), whose four 8-tile rocks (both mesa crowns, both tells) are
+    // all summits: an independent flood fill over its rows and elevation counts 4 and rejects 0,
+    // and its two corner ridges are 80 tiles each, past CROWN_MAX_TILES.
+    expect(tally).toEqual({ summits: 24, rejected: 41 });
   });
 
   it('lifts a crown by exactly the sim\'s BLOCK_RISE -- the lift at which what the player sees is what blocks sight', () => {

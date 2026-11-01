@@ -31,6 +31,7 @@ const EXPECTED: Record<keyof typeof maps, AmbienceBed> = {
   qarn_hadid: 'ridge',
   qarn_hadid_2: 'ridge',
   qarn_hadid_3: 'ridge',
+  rujm_sawda: 'open',
   tel_marum: 'ridge',
   tel_marum_1: 'ridge',
   tel_marum_2: 'ridge',

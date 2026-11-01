@@ -55,8 +55,8 @@ const terrainOf = (id: MapId): string | undefined => (maps[id] as MapJson).terra
 const shipped = (Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) !== 'wetland');
 
 describe('no shipped map allocates control C', () => {
-  it('there are 35 non-wetland maps, and Ein Qasab is the only wetland one', () => {
-    expect(shipped.length).toBe(35);
+  it('there are 36 non-wetland maps, and Ein Qasab is the only wetland one', () => {
+    expect(shipped.length).toBe(36);
     expect((Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) === 'wetland')).toEqual(['ein_qasab']);
   });
 
