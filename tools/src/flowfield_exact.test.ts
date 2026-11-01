@@ -15,7 +15,7 @@
 // `parent > tile` swapped to `parent < tile` turns the shipped-map and 80x80 cases red.
 // `heap tie-break teeth` below keeps that argument alive after the mutation is put back: it builds the
 // same swap on the ORACLE's own algorithm and requires this file's comparison to see it.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { COST_DIAG, COST_ORTH, DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { UPHILL_PER_LEVEL } from '../../packages/sim/src/tuning';
 import { OracleFlowField } from './flowfield_oracle';
@@ -294,4 +294,82 @@ describe('heap tie-break teeth', () => {
     // reachability is tie-independent
     for (let i = 0; i < 900; i++) expect(mutant.dirs[i] === DIR_NONE).toBe(oracle.dirs[i] === DIR_NONE);
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The node pool. `compute` queues one node per strict improvement, and a tile can improve once per
+// neighbour that reaches it, so the pool is sized 8 nodes a tile (+1 for the goal). Ordinary terrain needs
+// about 1.1 a tile, and even fully random relief about 1.8, so a pool sized 2 a tile passed every test.
+// These two fixtures were found by hill-climbing on relief (elevation 0..255) for the most improvements
+// per tile; they need 2.5. The scratch is module-level and only ever grows, so the pool is exercised in a
+// FRESH copy of the module, where this map's first compute sizes it.
+
+const HARD_6 = [30, 0, 37, 0, 0, 0, 0, 104, 120, 145, 255, 9, 0, 232, 0, 255, 0, 134, 0, 59, 191, 0, 164, 0, 0, 150, 255, 60, 248, 17, 0, 181, 0, 0, 4, 96];
+const HARD_8 = [
+  0, 89, 0, 0, 0, 94, 255, 61, 0, 33, 255, 50, 44, 0, 50, 173, 58, 255, 132, 255, 74, 79, 253, 35, 39, 64, 0, 197, 233, 255, 197, 49, 0, 28, 234, 249, 31, 110, 173, 0, 140, 255, 0, 238, 0, 134, 0, 255, 0, 0, 248, 20, 1,
+  106, 157, 93, 0, 239, 0, 0, 0, 0, 0, 0,
+];
+
+/** Nodes the algorithm queues toward `goal`: the goal plus one per strict improvement. Independent of the sim's queue. */
+function improvements(blocked: Uint8Array, elevation: Uint8Array, w: number, h: number, goal: number): number {
+  const cost = new Int32Array(w * h).fill(INF);
+  const open: [number, number][] = [[0, goal]];
+  cost[goal] = 0;
+  let pushes = 1;
+  while (open.length > 0) {
+    open.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const [c, tile] = open.shift() as [number, number];
+    if (cost[tile] !== c) continue;
+    const tx = tile % w;
+    const ty = (tile - tx) / w;
+    for (let d = 0; d < 8; d++) {
+      const nx = tx + DIR_DX[d];
+      const ny = ty + DIR_DY[d];
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const n = ny * w + nx;
+      if (blocked[n] !== 0) continue;
+      const diag = (d & 1) === 1;
+      if (diag && (blocked[ty * w + nx] !== 0 || blocked[ny * w + tx] !== 0)) continue;
+      const climb = elevation[tile] - elevation[n];
+      const nc = c + (diag ? COST_DIAG : COST_ORTH) + (climb > 0 ? climb * UPHILL_PER_LEVEL : 0);
+      if (nc < cost[n]) {
+        cost[n] = nc;
+        open.push([nc, n]);
+        pushes++;
+      }
+    }
+  }
+  return pushes;
+}
+
+describe('the node pool is big enough', () => {
+  for (const [name, size, relief] of [['6x6', 6, HARD_6], ['8x8', 8, HARD_8]] as const) {
+    it(`${name} relief that needs more than two nodes a tile, in a fresh module`, async () => {
+      const cells = size * size;
+      const elevation = new Uint8Array(relief);
+      const flat = new Uint8Array(cells);
+      let most = 0;
+      for (let g = 0; g < cells; g++) most = Math.max(most, improvements(flat, elevation, size, size, g));
+      // The fixture must demand more than a 2-a-tile pool, and stay inside the 8-a-tile bound.
+      expect(most).toBeGreaterThan(cells * 2 + 1);
+      expect(most).toBeLessThanOrEqual(cells * 8 + 1);
+      vi.resetModules();
+      const fresh = await import('../../packages/sim/src/flowfield');
+      // Read the capacity BEFORE computing. A pool that is too small does not throw: it loses queue links and
+      // `compute` never terminates (measured: `cells*2+1` hung this very test for 5+ CPU minutes), so the
+      // size is asserted where a shortfall is a red line and not a hang.
+      expect(fresh.nodePoolFor(cells)).toBeGreaterThanOrEqual(most);
+      const live = new fresh.FlowField(size, size);
+      const oracle = new OracleFlowField(size, size);
+      // The very first compute of this module copy sizes its scratch from THIS map.
+      for (let g = 0; g < cells; g++) {
+        live.compute(flat, elevation, g % size, Math.floor(g / size));
+        oracle.compute(flat, elevation, g % size, Math.floor(g / size));
+        for (let t = 0; t < cells; t++) {
+          expect(live.dirs[t], `goal ${g} tile ${t} dirs`).toBe(oracle.dirs[t]);
+          expect(live.costAt(t), `goal ${g} tile ${t} cost`).toBe(oracle.costAt(t));
+        }
+      }
+    });
+  }
 });

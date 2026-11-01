@@ -42,7 +42,12 @@ interface Stats {
   nonTrivial: number; // repaired ops that changed at least one cost
 }
 
-function sequence(label: string, t: Terrain, mask0: Uint8Array, goalCount: number, opCount: number, seed: number, stats: Stats): void {
+/**
+ * `scatter` flips a random walk of 1..12 tiles from the seed tile (L-shapes, diagonal chains, gaps, a tile
+ * stepped onto twice) instead of a rectangle: real structures are any tile list. The rectangle path draws
+ * exactly the numbers it did before, so only the scattered cases are new.
+ */
+function sequence(label: string, t: Terrain, mask0: Uint8Array, goalCount: number, opCount: number, seed: number, stats: Stats, scatter = false): void {
   const { w, h, elevation } = t;
   const r = prng(seed);
   const goals = goalsOn(mask0, goalCount);
@@ -69,17 +74,34 @@ function sequence(label: string, t: Terrain, mask0: Uint8Array, goalCount: numbe
         const ny = Math.min(h - 1, Math.max(0, gyy + Math.floor(r() * 7) - 3));
         if ((mask[ny * w + nx] !== 0) === opening) seedTile = ny * w + nx;
       }
-      const rw = 1 + Math.floor(r() * 4);
-      const rh = 1 + Math.floor(r() * 4);
-      const x0 = Math.min(w - rw, seedTile % w);
-      const y0 = Math.min(h - rh, Math.floor(seedTile / w));
       let n = 0;
-      for (let y = y0; y < y0 + rh; y++) {
-        for (let x = x0; x < x0 + rw; x++) {
-          const tile = y * w + x;
+      if (scatter) {
+        let cx = seedTile % w;
+        let cy = Math.floor(seedTile / w);
+        const steps = 1 + Math.floor(r() * 12);
+        for (let k = 0; k < steps; k++) {
+          const tile = cy * w + cx;
           if ((mask[tile] !== 0) === opening) {
             mask[tile] = opening ? 0 : 1;
             changed[n++] = tile;
+          }
+          // Step to any of the 8 neighbours, or jump two tiles, staying on the map.
+          const reach = r() < 0.2 ? 2 : 1;
+          cx = Math.min(w - 1, Math.max(0, cx + (Math.floor(r() * 3) - 1) * reach));
+          cy = Math.min(h - 1, Math.max(0, cy + (Math.floor(r() * 3) - 1) * reach));
+        }
+      } else {
+        const rw = 1 + Math.floor(r() * 4);
+        const rh = 1 + Math.floor(r() * 4);
+        const x0 = Math.min(w - rw, seedTile % w);
+        const y0 = Math.min(h - rh, Math.floor(seedTile / w));
+        for (let y = y0; y < y0 + rh; y++) {
+          for (let x = x0; x < x0 + rw; x++) {
+            const tile = y * w + x;
+            if ((mask[tile] !== 0) === opening) {
+              mask[tile] = opening ? 0 : 1;
+              changed[n++] = tile;
+            }
           }
         }
       }
@@ -143,6 +165,20 @@ describe('FlowField.repair equals a full recompute', { timeout: 240_000 }, () =>
       const t = randomTerrain(`rnd${seed}`, size, size + (seed % 3), seed * 31, 4 + seed * 3, seed % 3 === 0 ? 5 : 0, seed % 4 === 0 ? 255 : 9);
       sequence(`rnd${seed}`, t, t.foot, 10, 20, seed * 977, stats);
       sequence(`rnd${seed} wheels`, t, t.wheels, 6, 20, seed * 1013, stats);
+    }
+    expectRealRepairs(stats);
+  });
+
+  it('scattered, non-rectangular flips (random walks of 1..12 tiles) on shipped and random terrain', () => {
+    const stats = fresh();
+    for (const t of shipped) {
+      sequence(`${t.id} foot scatter`, t, t.foot, 10, 20, 515, stats, true);
+      sequence(`${t.id} wheels scatter`, t, t.wheels, 6, 20, 626, stats, true);
+    }
+    for (let seed = 1; seed <= 8; seed++) {
+      const size = seed % 2 === 0 ? 36 : 25;
+      const t = randomTerrain(`scat${seed}`, size, size + (seed % 3), seed * 53, 4 + seed * 3, seed % 3 === 0 ? 5 : 0, seed % 4 === 0 ? 255 : 9);
+      sequence(`scat${seed}`, t, t.foot, 10, 25, seed * 1409, stats, true);
     }
     expectRealRepairs(stats);
   });
@@ -429,6 +465,71 @@ describe('the sim repairs followed fields exactly across real collapses', { time
         expect(fell).toBeLessThan(spy.mock.calls.length * 0.5);
       } finally {
         spy.mockRestore();
+      }
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// A throw inside a structure op's flip window. `flipDepth` is MODULE state shared by every Sim in the process,
+// so a throw between `beginFlips` and `recomputeFields` that left it raised would make every later structure op
+// in the process look nested and recompute in full for good: still exact, so nothing but the repair counters
+// below can see it. The `try/finally` in the three ops unwinds it; each case arms ONE op to throw after its
+// first tile, then runs an ordinary op and requires that it REPAIRED (the repair ran, and nothing but the
+// repair's own give-up fallback called `compute`).
+describe('a throw inside a structure op does not leak the flip window', { timeout: 240_000 }, () => {
+  /** A copy of `tiles` that throws when iterated past its first element. */
+  function armed(tiles: readonly number[]): number[] {
+    const a = [...tiles];
+    Object.defineProperty(a, 1, {
+      get(): number {
+        throw new Error('boom inside the flip window');
+      },
+    });
+    return a;
+  }
+
+  function openSpot(world: World, from: number): number {
+    const { sim, w } = world;
+    for (let t = from; t < 78 * w; t++) {
+      if ([t, t + 1, t + w, t + w + 1].every((tl) => sim.blocked[tl] === 0 && sim.blockedVehicle[tl] === 0)) return t;
+    }
+    throw new Error('no open 2x2 on the map');
+  }
+
+  for (const op of ['addStructure', 'removeStructure', 'debugDestroyStructure'] as const) {
+    it(`${op} throwing leaves later ops repairing, and the fields exact`, () => {
+      const world = stretchedWorld('wadi_tarfan', 80);
+      const { sim, w } = world;
+      const wall = world.typeIdx.get('wall') as number;
+      const quad = (t: number): number[] => [t, t + 1, t + w, t + w + 1];
+      const first = openSpot(world, 2 * w + 2);
+      const inner = sim as unknown as { stTiles: number[][] };
+      let ownId = -1;
+      if (op === 'addStructure') {
+        expect(() => sim.addStructure(wall, armed(quad(first)))).toThrow('boom inside the flip window');
+      } else {
+        ownId = sim.addStructure(wall, quad(first));
+        inner.stTiles[ownId] = armed(quad(first));
+        expect(() => (op === 'removeStructure' ? sim.removeStructure(ownId) : sim.debugDestroyStructure(ownId))).toThrow('boom inside the flip window');
+      }
+      // The throw left some tiles written; the abort path must have brought every followed field up to date.
+      expect(verify(`after ${op} threw`, world)).toBeGreaterThan(20);
+
+      const repair = vi.spyOn(FlowField.prototype, 'repair');
+      const compute = vi.spyOn(FlowField.prototype, 'compute');
+      try {
+        // An ordinary op, well away from the first.
+        const second = openSpot(world, first + 8 * w);
+        sim.addStructure(wall, quad(second));
+        const gaveUp = repair.mock.results.filter((r) => r.type === 'return' && r.value === -1).length;
+        // The repair ran for the followed fields, and every `compute` was a repair giving up: none was the sim recomputing.
+        expect(repair.mock.calls.length).toBeGreaterThan(20);
+        expect(compute.mock.calls.length).toBe(gaveUp);
+        expect(verify(`after the op following ${op} threw`, world)).toBeGreaterThan(20);
+      } finally {
+        repair.mockRestore();
+        compute.mockRestore();
       }
     });
   }

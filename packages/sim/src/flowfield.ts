@@ -45,6 +45,18 @@ function scratchFor(cells: number): void {
 }
 
 /**
+ * Size the node pool for a map of `cells` tiles (exactly what `compute` does first) and return its
+ * capacity. Nothing in the sim calls it; it is exported so a test can read the capacity BEFORE any
+ * `compute` runs. That matters: a pool that is too small does not throw. The typed-array writes past its end are
+ * dropped, the chain they were meant to extend is lost, `pending` never returns to 0 and `compute`
+ * spins forever, so a witness that only runs `compute` finds a too-small pool as a hang, not a failure.
+ */
+export function nodePoolFor(cells: number): number {
+  scratchFor(cells);
+  return nodeTile.length;
+}
+
+/**
  * The bucket ring (Dial's algorithm). Edge costs are small integers, so instead of
  * a heap keyed by cost the queue is an array of buckets indexed by cost, scanned
  * upward. An edge never costs more than a diagonal step plus the steepest climb a
@@ -128,8 +140,10 @@ function heapPop(): number {
 
 /**
  * The cost a neighbour `m` would hand tile `v` (m -> v being one step of the field's expansion), or
- * INF when that step is not allowed: `m` unreached, `v` blocked, or a diagonal whose companions are
- * not both open. The same arithmetic `compute` runs, read from the receiving side.
+ * INF when that step is not allowed: `m` unreached, or a diagonal whose companions are not both open.
+ * Whether `v` itself is blocked is NOT tested here: each caller either skips a blocked `v` or (`rederive`)
+ * has already returned for a tile whose cost is INF, which a blocked tile's is. The
+ * same arithmetic `compute` runs, read from the receiving side.
  */
 function stepCost(cost: Int32Array, blocked: Uint8Array, elevation: Uint8Array, w: number, vx: number, vy: number, mx: number, my: number, diag: boolean): number {
   const m = my * w + mx;

@@ -2895,6 +2895,18 @@ export class Sim {
     flipVehN = 0;
   }
 
+  /**
+   * A structure op threw between `beginFlips` and `recomputeFields`. `flipDepth` is module state shared by
+   * every Sim in the process, so it is unwound here (a leak would make every later op look nested and fall
+   * back to a full recompute for good). Some tiles may already have flipped, and a half-written flip list
+   * describes nothing, so the fields are recomputed in full, as for any change that names no tiles.
+   */
+  private abortFlips(): void {
+    flipDepth--;
+    if (flipDepth === 0) flipClash = false;
+    this.recomputeFields();
+  }
+
   /** Record tile `t` if the write that just happened changed what either mask says about it. */
   private noteFlip(t: number, footWas: number, vehWas: number): void {
     if (flipDepth !== 1) return;
@@ -2973,51 +2985,58 @@ export class Sim {
     let sumX = 0;
     let sumY = 0;
     this.beginFlips(tiles.length);
-    for (const t of tiles) {
-      const tx = t % w;
-      const ty = (t - tx) / w;
-      this.structureOfTile[t] = id;
-      const footWas = this.blocked[t];
-      const vehWas = this.blockedVehicleMask[t];
-      this.blocked[t] = 1;
-      this.syncVehicleTile(t);
-      this.noteFlip(t, footWas, vehWas);
-      if (tx < minX) minX = tx;
-      if (ty < minY) minY = ty;
-      if (tx > maxX) maxX = tx;
-      if (ty > maxY) maxY = ty;
-      sumX += tx;
-      sumY += ty;
-    }
-    this.stTiles[id] = [...tiles];
-    this.stAlive[id] = 1;
-    this.stTypeIdx[id] = typeIdx;
-    this.stProducesFor[id] = type.producesFor;
-    const progress = opts?.progress ?? ONE;
-    this.stOwner[id] = owner;
-    this.stProgress[id] = progress;
-    if (owner !== -1 || progress !== ONE) this.fwLive = true;
-    if (type.aid !== null) {
-      this.aidPosts++;
-      this.woundLive = true;
-    }
-    this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
-    this.stHp[id] = this.stMaxHp[id];
-    this.stOccupants[id] = 0;
-    // Centroid of the footprint, tile centres.
-    this.stCx[id] = fx.add(fx.div(fx.fromInt(sumX), fx.fromInt(tiles.length)), HALF);
-    this.stCy[id] = fx.add(fx.div(fx.fromInt(sumY), fx.fromInt(tiles.length)), HALF);
-    this.stMinX[id] = minX;
-    this.stMinY[id] = minY;
-    this.stMaxX[id] = maxX;
-    this.stMaxY[id] = maxY;
-    const sensor = type.aura === null ? null : type.aura.sensor;
-    if (sensor !== null && sensor.tunnelRadiusSq > 0) {
-      let mask = 0;
-      for (let r = 0; r < this.tunnelCount_; r++) {
-        if (this.routeWithin(id, r, sensor.tunnelRadiusSq)) mask |= 1 << r;
+    let flipped = false;
+    try {
+      for (const t of tiles) {
+        const tx = t % w;
+        const ty = (t - tx) / w;
+        this.structureOfTile[t] = id;
+        const footWas = this.blocked[t];
+        const vehWas = this.blockedVehicleMask[t];
+        this.blocked[t] = 1;
+        this.syncVehicleTile(t);
+        this.noteFlip(t, footWas, vehWas);
+        if (tx < minX) minX = tx;
+        if (ty < minY) minY = ty;
+        if (tx > maxX) maxX = tx;
+        if (ty > maxY) maxY = ty;
+        sumX += tx;
+        sumY += ty;
       }
-      this.stRouteMask[id] = mask;
+      this.stTiles[id] = [...tiles];
+      this.stAlive[id] = 1;
+      this.stTypeIdx[id] = typeIdx;
+      this.stProducesFor[id] = type.producesFor;
+      const progress = opts?.progress ?? ONE;
+      this.stOwner[id] = owner;
+      this.stProgress[id] = progress;
+      if (owner !== -1 || progress !== ONE) this.fwLive = true;
+      if (type.aid !== null) {
+        this.aidPosts++;
+        this.woundLive = true;
+      }
+      this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
+      this.stHp[id] = this.stMaxHp[id];
+      this.stOccupants[id] = 0;
+      // Centroid of the footprint, tile centres.
+      this.stCx[id] = fx.add(fx.div(fx.fromInt(sumX), fx.fromInt(tiles.length)), HALF);
+      this.stCy[id] = fx.add(fx.div(fx.fromInt(sumY), fx.fromInt(tiles.length)), HALF);
+      this.stMinX[id] = minX;
+      this.stMinY[id] = minY;
+      this.stMaxX[id] = maxX;
+      this.stMaxY[id] = maxY;
+      const sensor = type.aura === null ? null : type.aura.sensor;
+      if (sensor !== null && sensor.tunnelRadiusSq > 0) {
+        let mask = 0;
+        for (let r = 0; r < this.tunnelCount_; r++) {
+          if (this.routeWithin(id, r, sensor.tunnelRadiusSq)) mask |= 1 << r;
+        }
+        this.stRouteMask[id] = mask;
+      }
+      flipped = true;
+    } finally {
+      // A throw inside the window must not leave `flipDepth` raised for the rest of the process.
+      if (!flipped) this.abortFlips();
     }
     this.recomputeFields('closed');
     return id;
@@ -3059,17 +3078,24 @@ export class Sim {
     this.stChargeTicks[s] = 0; // a cancelled site takes any charge on it along (E6 G1)
     this.stChargeBy[s] = -1;
     this.beginFlips(this.stTiles[s].length);
-    for (const t of this.stTiles[s]) {
-      const footWas = this.blocked[t];
-      const vehWas = this.blockedVehicleMask[t];
-      this.blocked[t] = 0;
-      // A boulder under the same tile does not stop being a boulder.
-      this.syncVehicleTile(t);
-      this.noteFlip(t, footWas, vehWas);
-      this.structureOfTile[t] = -1;
-    }
-    for (let i = 0; i < this.count; i++) {
-      if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
+    let flipped = false;
+    try {
+      for (const t of this.stTiles[s]) {
+        const footWas = this.blocked[t];
+        const vehWas = this.blockedVehicleMask[t];
+        this.blocked[t] = 0;
+        // A boulder under the same tile does not stop being a boulder.
+        this.syncVehicleTile(t);
+        this.noteFlip(t, footWas, vehWas);
+        this.structureOfTile[t] = -1;
+      }
+      for (let i = 0; i < this.count; i++) {
+        if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
+      }
+      flipped = true;
+    } finally {
+      // A throw inside the window must not leave `flipDepth` raised for the rest of the process.
+      if (!flipped) this.abortFlips();
     }
     this.recomputeFields('opened');
   }
@@ -11104,32 +11130,39 @@ export class Sim {
     this.stChargeBy[s] = -1;
     const rubble = this.structureTypes[this.stTypeIdx[s]].rubbleCover;
     this.beginFlips(this.stTiles[s].length);
-    for (const t of this.stTiles[s]) {
-      const footWas = this.blocked[t];
-      const vehWas = this.blockedVehicleMask[t];
-      this.blocked[t] = 0;
-      // A collapsed building leaves rubble a vehicle can cross; a boulder
-      // under the same tile does not stop being a boulder.
-      this.syncVehicleTile(t);
-      this.noteFlip(t, footWas, vehWas);
-      this.cover[t] = rubble;
-    }
-    this.pendingEvents.push({ kind: 'structureDestroyed', tick: this.tickCount, structure: s, by });
-    for (let i = 0; i < this.count; i++) {
-      if (this.alive[i] === 0) continue;
-      if (this.garrisonedIn[i] === s) {
-        this.garrisonedIn[i] = -1;
-        this.destroy(i, by);
-        continue;
+    let flipped = false;
+    try {
+      for (const t of this.stTiles[s]) {
+        const footWas = this.blocked[t];
+        const vehWas = this.blockedVehicleMask[t];
+        this.blocked[t] = 0;
+        // A collapsed building leaves rubble a vehicle can cross; a boulder
+        // under the same tile does not stop being a boulder.
+        this.syncVehicleTile(t);
+        this.noteFlip(t, footWas, vehWas);
+        this.cover[t] = rubble;
       }
-      if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
-      // Everyone nearby eats the shock of a building coming down.
-      const d = distSqFx(fx.sub(this.posX[i], this.stCx[s]), fx.sub(this.posY[i], this.stCy[s]));
-      if (d <= COLLAPSE_SHOCK_SQ) {
-        this.applySuppression(i, COLLAPSE_SHOCK, false, by >= 0 ? this.side[by] : -1, this.stCx[s], this.stCy[s]);
+      this.pendingEvents.push({ kind: 'structureDestroyed', tick: this.tickCount, structure: s, by });
+      for (let i = 0; i < this.count; i++) {
+        if (this.alive[i] === 0) continue;
+        if (this.garrisonedIn[i] === s) {
+          this.garrisonedIn[i] = -1;
+          this.destroy(i, by);
+          continue;
+        }
+        if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
+        // Everyone nearby eats the shock of a building coming down.
+        const d = distSqFx(fx.sub(this.posX[i], this.stCx[s]), fx.sub(this.posY[i], this.stCy[s]));
+        if (d <= COLLAPSE_SHOCK_SQ) {
+          this.applySuppression(i, COLLAPSE_SHOCK, false, by >= 0 ? this.side[by] : -1, this.stCx[s], this.stCy[s]);
+        }
       }
+      this.stOccupants[s] = 0;
+      flipped = true;
+    } finally {
+      // A throw inside the window must not leave `flipDepth` raised for the rest of the process.
+      if (!flipped) this.abortFlips();
     }
-    this.stOccupants[s] = 0;
     this.recomputeFields('opened');
   }
 
