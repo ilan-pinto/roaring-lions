@@ -104,8 +104,10 @@ export const HANDS_TEAMS: Record<string, HandsTeam> = {
     sleeve: { L: [879, 893], R: [876, 130] },
     // Departure 42: the old forearm's own UV islands are fragments of plain olive (the largest all-cloth rectangles are 12 x 9
     // and 17 x 39 px, texel std 2 to 3 of 255), so this body's sleeve cloth is taken from the atlas's own all-cloth rectangle with
-    // the most texture: 48 x 24 px, mean dE76 2.3 to the sleeve, std 6.9 (the upper arm reads 7 to 11 at its vertices).
-    sleevePatch: { L: { rect: [205, 187, 48, 24], down: false }, R: { rect: [205, 187, 48, 24], down: false } },
+    // the most texture whose colour is the sleeve's (mean dE76 1.8) and stays 17.1 from the glove (the gate's floor is 15): 64 x 32 px
+    // at (749, 363), std 5.7 (the upper arm reads 7 to 11 at its vertices). The first choice (48 x 24 at (205, 187), dE 2.3, std 6.9)
+    // leaned toward the glove and read 12.1 against the gate.
+    sleevePatch: { L: { rect: [749, 363, 64, 32], down: false }, R: { rect: [749, 363, 64, 32], down: false } },
     atlas: [2048, 1024],
     oldSleeve: { L: 0.12, R: 0.13 },
   },

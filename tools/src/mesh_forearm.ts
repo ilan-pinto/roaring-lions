@@ -15,6 +15,16 @@ export const SLEEVE_RECT: Readonly<Record<'L' | 'R', readonly [number, number, n
 /** The review's measured sleeve colours (CIELAB D65): the left/firing side's and the right/support side's. */
 export const SLEEVE_LAB: Readonly<Record<'L' | 'R', V3>> = { L: [36.0, -8.4, 8.7], R: [32.2, -9.1, 9.2] };
 
+/** The Demolition squad's (GH-826 step 3): the rectangle of the atlas the sleeve cloth is taken from (one for both sides, 64 x 32 px
+ *  at (749, 363): the old forearm's own islands are fragments) and the review's sleeve mean (34.3, -5.7, 17.0) for both. */
+export const DEMO_SLEEVE_RECT: Readonly<Record<'L' | 'R', readonly [number, number, number, number]>> = { L: [749, 363, 64, 32], R: [749, 363, 64, 32] };
+export const DEMO_SLEEVE_LAB: Readonly<Record<'L' | 'R', V3>> = { L: [34.3, -5.7, 17.0], R: [34.3, -5.7, 17.0] };
+export interface ForearmReference {
+  readonly rect: Readonly<Record<'L' | 'R', readonly [number, number, number, number]>>;
+  readonly lab: Readonly<Record<'L' | 'R', V3>>;
+}
+export const DEMO_REFERENCE: ForearmReference = { rect: DEMO_SLEEVE_RECT, lab: DEMO_SLEEVE_LAB };
+
 export interface ForearmReading {
   readonly vertices: number;
   /** Per ring, elbow end first: the section's extent along its two principal axes, metres, major then minor. */
@@ -55,7 +65,7 @@ export function labOf(r: number, g: number, b: number): V3 {
  * The forearm tube of `{figure}_forearm_{side}`: its vertices are the ones whose dominant joint is that forearm and whose UV
  * lies inside the old sleeve's rectangle, on the tube's lattice of 7 columns and 5 rings. `uvTweak` rewrites a vertex's UV before it is read (a constructed failing input).
  */
-export function measureForearm(path: string, figure: string, side: 'L' | 'R', uvTweak?: (uv: [number, number], i: number) => [number, number]): ForearmReading {
+export function measureForearm(path: string, figure: string, side: 'L' | 'R', uvTweak?: (uv: [number, number], i: number) => [number, number], reference?: ForearmReference): ForearmReading {
   const glb = readGlb(path);
   const nodes = glb.json.nodes ?? [];
   const uni = nodes.find((n) => n.name === 'uniform' && n.mesh !== undefined && n.skin !== undefined);
@@ -76,7 +86,7 @@ export function measureForearm(path: string, figure: string, side: 'L' | 'R', uv
   const J = readAccessor(glb, prim.attributes.JOINTS_0);
   const W = readAccessor(glb, prim.attributes.WEIGHTS_0);
   const atlas = atlasOf(glb);
-  const [rx, ry, rw, rh] = SLEEVE_RECT[side];
+  const [rx, ry, rw, rh] = (reference?.rect ?? SLEEVE_RECT)[side];
   const name = `${figure}_forearm_${side}`;
   const idx: number[] = [];
   for (let v = 0; v < P.count; v++) {
@@ -134,7 +144,7 @@ export function measureForearm(path: string, figure: string, side: 'L' | 'R', uv
   const mean = [0, 1, 2].map((c) => texels.reduce((s, t) => s + t[c], 0) / n);
   const std = [0, 1, 2].map((c) => Math.sqrt(texels.reduce((s, t) => s + (t[c] - mean[c]) ** 2, 0) / n));
   const meanLab = labOf(mean[0], mean[1], mean[2]);
-  const ref = SLEEVE_LAB[side];
+  const ref = (reference?.lab ?? SLEEVE_LAB)[side];
   return {
     vertices: idx.length,
     rings,

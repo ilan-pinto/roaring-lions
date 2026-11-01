@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { NodeIO, type Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { HANDS_TEAMS, loadCarbine, loadHandsLib, runHandsPass } from './hands-pass';
+import { HANDS_TEAMS, livingBodyHidden, loadCarbine, loadHandsLib, runHandsPass } from './hands-pass';
 import { runMotionPass } from './motion-pass';
 import { MOTION_TEAMS } from './motion/teams';
 
@@ -76,3 +76,36 @@ describe('the hands pass refuses what it cannot do honestly', () => {
 // loaded once, before the cases run (vitest runs top-level awaits)
 const awaitedLib = await loadHandsLib();
 const awaitedCarbine = await loadCarbine();
+
+describe('a stray key on a hidden living bone is reset, on a drawn one it is refused (Demolition, GH-826 step 3)', () => {
+  const DEMO = `${REPO}art/meshes/demo_squad.glb`;
+  const anim = async (name: string) => {
+    const doc = await new NodeIO().registerExtensions(ALL_EXTENSIONS).readBinary(new Uint8Array(readFileSync(DEMO)));
+    return { doc, a: doc.getRoot().listAnimations().find((x) => x.getName() === name)! };
+  };
+
+  it('the shipped `down` scales the living root to nothing, so its stray limb keys are not a drawn body; `idle` and `fire` are', async () => {
+    expect(livingBodyHidden((await anim('down')).a, 'demo_b')).toBe(true);
+    expect(livingBodyHidden((await anim('wreck')).a, 'demo_a')).toBe(true);
+    expect(livingBodyHidden((await anim('idle')).a, 'demo_b')).toBe(false);
+    expect(livingBodyHidden((await anim('fire')).a, 'demo_a')).toBe(false);
+  });
+
+  it('the check can fail: `down` with the living root left at full scale is a drawn body (constructed failing input)', async () => {
+    const { a } = await anim('down');
+    const ch = a.listChannels().find((c) => c.getTargetNode()?.getName() === 'demo_b_root' && c.getTargetPath() === 'scale')!;
+    const acc = ch.getSampler()!.getOutput()!;
+    acc.setArray(new Float32Array((acc.getArray() as Float32Array).length).fill(1));
+    expect(livingBodyHidden(a, 'demo_b')).toBe(false);
+  });
+
+  it('a clip that is not a dead one is never "hidden", whatever its root does', async () => {
+    const { a } = await anim('idle');
+    const ch = a.listChannels().find((c) => c.getTargetNode()?.getName() === 'demo_b_root' && c.getTargetPath() === 'scale');
+    if (ch) {
+      const acc = ch.getSampler()!.getOutput()!;
+      acc.setArray(new Float32Array((acc.getArray() as Float32Array).length).fill(0));
+    }
+    expect(livingBodyHidden(a, 'demo_b')).toBe(false);
+  });
+});
