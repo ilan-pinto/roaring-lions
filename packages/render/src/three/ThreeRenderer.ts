@@ -274,6 +274,8 @@ import {
   type HitStopState,
 } from './blast-shake';
 import { buildGroundTiled, groundAlbedoSlotsUsed, spliceGround } from './terrain/ground';
+import { ChunkedMeshLayer } from './terrain/chunk-layer';
+import { chunkGridFor } from './terrain/chunks';
 import { decalBaseTone, makeDecalGroundSource, type DecalGroundSource } from './terrain/decal-ground-tone';
 import { buildSkirt, disposeSkirt, setSkirtAlbedo, type SkirtMesh } from './terrain/skirt';
 import { buildBackdrop, disposeBackdrop, disposeBackdropKit, BACKDROP_OFFMAP_SEEN, type Backdrop, type LoadedBackdropKit } from './terrain/backdrop';
@@ -1284,13 +1286,17 @@ export class ThreeRenderer implements Renderer {
    * the ground it was built for. See `stampDecalShowcase`.
    */
   private showcasePending: boolean;
-  private terrainMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
+  /** The ground as `groundLayer` keeps it (`terrain/chunk-layer.ts`): its ONE mesh on a map of 48 x 48
+   *  or less, a group of chunk meshes above that. */
+  private terrainMesh: THREE.Object3D | null = null;
+  private groundLayer: ChunkedMeshLayer | null = null;
+  private scatterLayer: ChunkedMeshLayer | null = null;
   /** The grain -- flecks, blades, bushes, cover rubble, knolls, ridges,
    *  ruts, slope-face dressing -- as a second mesh sharing the ground's own
    *  material and rebuild path, not a modification of the ground mesh
    *  itself (`buildGround` and `buildScatter` are two independent builders
    *  over the same `TerrainInput`). */
-  private scatterMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
+  private scatterMesh: THREE.Object3D | null = null;
   /**
    * Task B3.9: buildings stopped being one fourth mesh. A blocked,
    * non-ridge tile with no live structure at all (the fallback case
@@ -3636,8 +3642,8 @@ export class ThreeRenderer implements Renderer {
     disposeGltfLoader();
     // Anything a rebuild retired and no frame has drawn past yet.
     this.disposeRetired();
-    this.terrainMesh?.geometry.dispose();
-    this.scatterMesh?.geometry.dispose();
+    this.groundLayer?.dispose();
+    this.scatterLayer?.dispose();
     this.residualMesh?.geometry.dispose();
     for (const mesh of this.structureBoxes.values()) mesh.geometry.dispose();
     this.structureBoxes.clear();
@@ -12938,14 +12944,8 @@ export class ThreeRenderer implements Renderer {
     // and the minimap photograph, come through here): re-bake its heights.
     this.rainHeightStale = true;
     this.syncBackdrop();
-    if (this.terrainMesh) {
-      this.scene.remove(this.terrainMesh);
-      this.terrainMesh.geometry.dispose();
-    }
-    if (this.scatterMesh) {
-      this.scene.remove(this.scatterMesh);
-      this.scatterMesh.geometry.dispose();
-    }
+    // The ground and scatter groups stay in the scene across rebuilds: `ChunkedMeshLayer.update`
+    // swaps only the chunk meshes a rebuild changed (all of them, on a full build).
     if (this.residualMesh) {
       this.scene.remove(this.residualMesh);
       this.residualMesh.geometry.dispose();
@@ -13107,13 +13107,18 @@ export class ThreeRenderer implements Renderer {
     // deliberately, not to assume.
     // Every layer this method builds stands still until the next rebuild
     // replaces it: built once, matrices composed once (`static-matrix.ts`).
-    this.terrainMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.ground), this.groundMat));
-    this.terrainMesh.receiveShadow = true;
-    this.scene.add(this.terrainMesh);
-
-    this.scatterMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.scatter), this.terrainMat));
-    this.scatterMesh.receiveShadow = true;
-    this.scene.add(this.scatterMesh);
+    //
+    // Chunked on a map larger than 48 x 48 (`terrain/chunks.ts`), so the frustum can skip the parts
+    // the camera cannot see; one mesh, built as ever, on every other map. A splice names the tiles
+    // it re-emitted (`build.dirtyTiles`) and only the chunks holding one are rebuilt.
+    if (this.groundLayer === null || this.scatterLayer === null) {
+      this.groundLayer = new ChunkedMeshLayer(this.scene, 'ground', this.groundMat, true, (data) => toGeometry(data));
+      this.scatterLayer = new ChunkedMeshLayer(this.scene, 'scatter', this.terrainMat, true, (data) => toGeometry(data));
+    }
+    this.groundLayer.update(build.state.ground, build.dirtyTiles);
+    this.scatterLayer.update(build.state.scatter, build.dirtyTiles);
+    this.terrainMesh = this.groundLayer.root;
+    this.scatterMesh = this.scatterLayer.root;
 
     this.residualMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.residual), this.terrainMat));
     this.residualMesh.receiveShadow = true;
@@ -13151,7 +13156,8 @@ export class ThreeRenderer implements Renderer {
     // skipped there, and one whose family is not is skipped here.
     this.texturedDecorGroup = buildTexturedDecorMesh(
       composed.decorPlacements,
-      this.texturedDecorSet
+      this.texturedDecorSet,
+      chunkGridFor(composed.input.width, composed.input.height, 'ditch')
     );
     this.scene.add(freezeStatic(this.texturedDecorGroup));
 
@@ -13637,6 +13643,10 @@ export interface ComposedTerrainBuild {
   readonly composed: ComposedTerrain;
   readonly state: TerrainBuildState;
   readonly rebuiltTiles: number;
+  /** The tiles the ground and scatter splice re-emitted (1 = re-emitted), or null for a full
+   *  build. What lets the chunked layers rebuild only the chunks that hold one
+   *  (`terrain/chunk-layer.ts`). */
+  readonly dirtyTiles: Uint8Array | null;
 }
 
 /**
@@ -13714,8 +13724,10 @@ export function composeTerrainFrom(
   let scatterTiled: TiledMeshData;
   let decorTiled: TiledDecorPlacements;
   let rebuiltTiles: number;
+  let dirtyTiles: Uint8Array | null = null;
   if (prev !== null && changed !== null) {
     const dirty = spliceMask(changed, input.width, input.height);
+    dirtyTiles = dirty;
     rebuiltTiles = 0;
     for (let t = 0; t < dirty.length; t++) rebuiltTiles += dirty[t];
     groundTiled = rebuiltTiles === 0 ? prev.ground : spliceGround(prev.ground, dirty, input, tones, background, surface);
@@ -13760,5 +13772,6 @@ export function composeTerrainFrom(
     },
     state: terrainBuildState(input, surface, groundTiled, scatterTiled, decorTiled),
     rebuiltTiles,
+    dirtyTiles,
   };
 }

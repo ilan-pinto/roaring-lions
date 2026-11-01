@@ -13,7 +13,8 @@
     "./terrain": "./src/three/terrain/index.ts",
     "./project": "./src/project.ts",
     "./three-camera": "./src/three/camera.ts",
-    "./three-soldier": "./src/three/spike/soldier-view.ts"
+    "./three-soldier": "./src/three/spike/soldier-view.ts",
+    "./chunk-census": "./src/three/chunk-census.ts"
   },
   "dependencies": {
     "@lions/sim": "workspace:*",

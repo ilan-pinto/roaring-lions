@@ -15,11 +15,20 @@
  * so the whole earthwork -- however long the run -- is ONE draw call and one
  * geometry upload. Draw-call submission is this project's measured renderer
  * bottleneck, so that matters more than the vertex count does.
+ *
+ * ...until the earthwork is long. three culls an `InstancedMesh` as ONE object
+ * by the sphere around all its instances, and a ditch GLB is ~38k triangles a
+ * segment, so a map's whole ditch was drawn in the shadow, AO and main passes
+ * whatever the camera saw: 22M of Rujm Sawda's 23M triangles a frame (GH-913).
+ * A map above 48 x 48 therefore gets one mesh per CHUNK of its ditch
+ * (`chunks.ts`, `grid`), 8 tiles to a side; a map of 48 x 48 or less is the one
+ * mesh described above.
  */
 import * as THREE from 'three';
 import { texturedMapMaterial } from '../world-materials';
 import type { DecorPlacement } from './decor-place';
 import { isTexturedDecorKey } from './textured-decor';
+import { chunkOfPoint, type ChunkGrid } from './chunks';
 
 /** One textured decor GLB's geometry and its own baked map. */
 export interface TexturedDecorPart {
@@ -51,7 +60,8 @@ const TAU = Math.PI * 2;
  */
 export function buildTexturedDecorMesh(
   placements: readonly DecorPlacement[],
-  set: TexturedDecorSet
+  set: TexturedDecorSet,
+  grid: ChunkGrid | null = null
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'decor-textured';
@@ -77,26 +87,40 @@ export function buildTexturedDecorMesh(
     // A fresh material per build, matching `buildDecorMesh`: `rebuildTerrain`
     // disposes the whole group and everything it made, so a material reused
     // across rebuilds would be a dangling reference to a disposed program.
-    const mesh = new THREE.InstancedMesh(
-      part.geometry,
-      texturedMapMaterial(part.map),
-      list.length
-    );
-    // A ditch is cut INTO the ground and still owes both: its far lip throws a
-    // shadow down the trench, which is most of what makes it read as depth
-    // rather than as a dark stripe painted on the map.
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    for (let i = 0; i < list.length; i++) {
-      const p = list[i];
-      q.setFromAxisAngle(axis, p.yawTurns * TAU);
-      scale.set(p.scale, p.scale, p.scale);
-      position.set(p.x, p.y, p.z);
-      m.compose(position, q, scale);
-      mesh.setMatrixAt(i, m);
+    // One per KEY, shared by that key's chunks.
+    const material = texturedMapMaterial(part.map);
+    // `InstancedMesh` is culled as ONE object by the bounding sphere of all its instances, so a
+    // whole-map ditch is drawn in every pass whatever the camera sees -- and a ditch GLB is tens of
+    // thousands of triangles, which made it nearly the whole triangle count of a frame (GH-913 L7).
+    // A chunked map (`chunks.ts`) files each placement into a chunk and makes one mesh per chunk,
+    // so a chunk out of view is skipped whole. A whole map is one chunk: the one mesh it always had.
+    const chunks = new Map<number, DecorPlacement[]>();
+    for (const p of list) {
+      const c = grid === null ? 0 : chunkOfPoint(grid, p.x, p.z);
+      const bucket = chunks.get(c);
+      if (bucket === undefined) chunks.set(c, [p]);
+      else bucket.push(p);
     }
-    mesh.instanceMatrix.needsUpdate = true;
-    group.add(mesh);
+    for (const chunk of [...chunks.keys()].sort((a, b) => a - b)) {
+      const bucket = chunks.get(chunk) as DecorPlacement[];
+      const mesh = new THREE.InstancedMesh(part.geometry, material, bucket.length);
+      mesh.userData.chunk = chunk;
+      // A ditch is cut INTO the ground and still owes both: its far lip throws a
+      // shadow down the trench, which is most of what makes it read as depth
+      // rather than as a dark stripe painted on the map.
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      for (let i = 0; i < bucket.length; i++) {
+        const p = bucket[i];
+        q.setFromAxisAngle(axis, p.yawTurns * TAU);
+        scale.set(p.scale, p.scale, p.scale);
+        position.set(p.x, p.y, p.z);
+        m.compose(position, q, scale);
+        mesh.setMatrixAt(i, m);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      group.add(mesh);
+    }
   }
   return group;
 }
