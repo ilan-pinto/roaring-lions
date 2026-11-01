@@ -10,7 +10,7 @@
  * head (`ui/garage-board.ts`) draws the picture where its hatch was.
  *
  *   pnpm closeups:garage
- *   pnpm closeups:garage -- --only=mbt_lavi,inf_squad
+ *   pnpm closeups:garage -- --only=mbt_lavi,ifv_namer
  *   pnpm closeups:garage -- --port=5236 --gpu=swiftshader
  *
  * Every flag is checked; anything else exits 2 before a server or a browser
