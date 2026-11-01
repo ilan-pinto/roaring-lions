@@ -514,9 +514,11 @@ describe('the lines go through t(): bracketed under the pseudo-locale, and read 
 // ---------------------------------------------------------------------------------------------
 describe('M10: the arming (inert keys, the arm note)', () => {
   /** Two gunships: Column and Attack are open to them, the Ambush is inert (no ground to ring the zone). */
-  function airRig(): { arming: ReturnType<typeof createFormationArming>; notes: string[]; retired: string[]; w: World } {
+  function airRig(squads = 0): { arming: ReturnType<typeof createFormationArming>; notes: string[]; retired: string[]; w: World } {
     const w = world();
     const sel = [0, 1].map((k) => spawn(w, w.t.heli, 0, 22 + k * 2, 40));
+    // GH-859: the Attack leaves aircraft out, so it needs two ground units of its own to be an active key.
+    for (let k = 0; k < squads; k++) sel.push(spawn(w, w.t.inf, 0, 22 + k * 2, 42));
     const notes: string[] = [];
     const retired: string[] = [];
     const sink: OrderSink = { dispatch: () => undefined, note: (text) => notes.push(text), marker: () => undefined, deny: () => undefined };
@@ -578,7 +580,7 @@ describe('M10: the arming (inert keys, the arm note)', () => {
     ];
     expect(cases).toHaveLength(5);
     for (const c of cases) {
-      const a = airRig();
+      const a = airRig(c.name === 'replaced' ? 2 : 0);
       a.arming.press('formationColumn' as never);
       expect(a.retired, c.name).toEqual([]);
       c.end(a);

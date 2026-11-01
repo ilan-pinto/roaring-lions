@@ -15,7 +15,7 @@
  * takes the boolean and the reason key. It never reads the room's mode.
  */
 import { formations } from '@lions/data';
-import { FM_CLASS_NONE, FORMATION_CLASSES, compileFormation, templateOffsets, type CompiledFormation, type FormationJson } from '@lions/sim';
+import { FM_CLASS_NONE, FORMATION_CLASSES, compileFormation, fmExcludes, templateOffsets, type CompiledFormation, type FormationJson } from '@lions/sim';
 import { t } from '../i18n/t';
 import { FORMATION_VERSUS_REASON_KEY } from '../net/versus-formations';
 import type { Action } from '../input/keymap';
@@ -61,6 +61,12 @@ export function formationVerb(id: FormationId): 'move' | 'attackMove' {
 /** Fewest free units the sim will form this formation from (below it the order degrades). */
 export function formationMinMembers(id: FormationId): number {
   return shippedFormation(id).compiled.minMembers;
+}
+
+/** Whether the shipped formation `id` leaves class code `cls` out (GH-859: the Attack's aircraft): such a unit takes the plain
+ *  order beside the formation, so it is neither counted toward the formation's `min_members` nor drawn in its schematic or legend. */
+export function formationLeavesOut(id: FormationId, cls: number): boolean {
+  return fmExcludes(shippedFormation(id).compiled, cls);
 }
 
 /** Class codes (0..6) the formation's ring element takes; empty when it has no ring. */
@@ -129,10 +135,12 @@ const ROW: readonly { id: FormationId; key: FormationView['key']; family: Format
 export function formationRow(facts: FormationFacts, armed: FormationId | null): FormationView[] {
   const placeable = facts.units.filter((u) => u.cls !== FM_CLASS_NONE);
   if (placeable.length < 2) return [];
-  const free = placeable.filter((u) => u.free);
+  const freeAll = placeable.filter((u) => u.free);
   return ROW.map((spec) => {
     let reasonKey: string | undefined;
     let reasonParams: { n: number } | undefined;
+    // The units a formation leaves out do not count toward its minimum: the sim counts placeable members only (GH-859).
+    const free = freeAll.filter((u) => !formationLeavesOut(spec.id, u.cls));
     if (!facts.formationsOpen) reasonKey = FORMATION_VERSUS_REASON_KEY;
     else if (free.length < formationMinMembers(spec.id)) {
       reasonKey = 'hud.formation.inert.needsMin';
@@ -240,8 +248,10 @@ export interface LegendRow {
   n: number;
 }
 /** The legend's class rows, present classes only, in class order. */
-export function formationLegendRows(counts: Partial<Record<LegendClass, number>>): LegendRow[] {
-  return LEGEND_CLASSES.filter((c) => (counts[c] ?? 0) > 0).map((cls) => ({ cls, label: t(`formation.class.${cls}`), n: counts[cls] ?? 0 }));
+export function formationLegendRows(counts: Partial<Record<LegendClass, number>>, id?: FormationId): LegendRow[] {
+  // With a formation named, the classes it leaves out are not listed: the schematic seats none of them (GH-859).
+  const left = (c: LegendClass): boolean => id !== undefined && c !== 'ccp' && formationLeavesOut(id, FORMATION_CLASSES.indexOf(c));
+  return LEGEND_CLASSES.filter((c) => (counts[c] ?? 0) > 0 && !left(c)).map((cls) => ({ cls, label: t(`formation.class.${cls}`), n: counts[cls] ?? 0 }));
 }
 /** The extra legend line: the attack's click, the ambush's kill zone, none for the column. */
 export function formationLegendMark(id: FormationId): { mark: 'click' | 'killZone'; label: string } | null {

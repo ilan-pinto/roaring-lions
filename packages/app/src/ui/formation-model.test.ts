@@ -86,11 +86,23 @@ describe('formationRow: why a button is inert', () => {
     expect(formationRow(facts(MIXED, false), null).map((v) => v.reasonParams)).toEqual([undefined, undefined, undefined]);
   });
 
-  it('two helicopters: column and attack are active, the ambush has no ground to ring the zone', () => {
+  it('two helicopters: the column is active; the attack leaves aircraft out so it has no members (GH-859); the ambush has no ground to ring the zone', () => {
     const row = formationRow(facts([u(AIRCRAFT), u(AIRCRAFT)]), null);
-    expect(row.map((v) => v.inert)).toEqual([false, false, true]);
+    expect(row.map((v) => v.inert)).toEqual([false, true, true]);
+    expect(row[1].reasonKey).toBe('hud.formation.inert.needsMin');
+    expect(row[1].reasonParams).toEqual({ n: 2 });
     expect(row[2].reasonKey).toBe('hud.formation.inert.ambushNoGround');
     expect(row[0].reasonKey).toBeUndefined();
+  });
+
+  it('GH-859: aircraft do not count toward the attack\'s minimum, but do toward the column\'s; one ground unit and two aircraft is not an attack', () => {
+    const one = formationRow(facts([u(INFANTRY), u(AIRCRAFT), u(AIRCRAFT)]), null);
+    expect(one.map((v) => v.inert)).toEqual([false, true, false]);
+    expect(one[1].reasonKey).toBe('hud.formation.inert.needsMin');
+    const two = formationRow(facts([u(INFANTRY), u(INFANTRY), u(AIRCRAFT)]), null);
+    expect(two.map((v) => v.inert)).toEqual([false, false, false]);
+    // a garrisoned ground unit is not free either
+    expect(formationRow(facts([u(INFANTRY), u(INFANTRY, false), u(AIRCRAFT), u(AIRCRAFT)]), null)[1].inert).toBe(true);
   });
 
   it('a free ground unit among aircraft opens the ambush; a garrisoned one does not', () => {
@@ -215,6 +227,15 @@ describe('schematicSlots is the sim\'s templateOffsets over the compiled shipped
 });
 
 describe('the legend', () => {
+  it('GH-859: with the attack named, its left-out aircraft are not listed; the column and the ambush still list them', () => {
+    const counts = { armour: 2, infantry: 3, aircraft: 2 };
+    expect(formationLegendRows(counts, 'attack').map((r) => r.cls)).toEqual(['armour', 'infantry']);
+    expect(formationLegendRows(counts, 'column').map((r) => r.cls)).toEqual(['armour', 'infantry', 'aircraft']);
+    expect(formationLegendRows(counts, 'ambush').map((r) => r.cls)).toEqual(['armour', 'infantry', 'aircraft']);
+    expect(formationLegendRows(counts).map((r) => r.cls)).toEqual(['armour', 'infantry', 'aircraft']);
+    expect(formationLegendRows({ medic: 1, ccp: 1, aircraft: 1 }, 'attack').map((r) => r.cls)).toEqual(['medic', 'ccp']);
+  });
+
   it('lists present classes in class order with their counts, ambulances as Ambulance', () => {
     expect(formationLegendRows({ infantry: 5, armour: 3, medic: 1, ccp: 1, aircraft: 0 })).toEqual([
       { cls: 'armour', label: 'Armour', n: 3 },

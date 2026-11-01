@@ -175,7 +175,7 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
   `sortMembers` applies it too, so `templateOffsets` and the HUD schematic seat nobody of the class. `compileFormation` and
   `validate_formations.mjs` refuse a class named by both `exclude` and an element. An Attack with only aircraft and one tank is
   therefore a plain order (one placeable member). The Attack no longer has a contact call: every witness built on its aircraft
-  sortie is a Column witness now. HUD follow-up (not done): the row's `min_members` count and the legend still count aircraft for the Attack.
+  sortie is a Column witness now. The HUD mirrors it (`formationLeavesOut`): the row does not count a left-out class toward `min_members`, and the legend lists none.
   Deliberate divergences from "two commands" (sim-guard round 1, all deterministic; `formation-exclude.test.ts` pins the first):
   fewer placeable members than `min_members` is ONE plain grid over everyone, excluded units included (the formation did not form);
   an excluded unit's own tile is not reserved against the template (it is in the order, as every template member is); a
