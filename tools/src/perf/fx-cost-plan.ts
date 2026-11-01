@@ -57,16 +57,15 @@ export const BASELINE = 'baseline';
 export interface ProgramProbe {
   readonly rim: 'gradient' | 'mask' | 'off';
   readonly ripples: boolean;
-  readonly roughness: 'full' | 'water' | 'off';
+  readonly roughness: 'full' | 'water';
 }
 export const PROGRAM_PROBES: Readonly<Record<string, ProgramProbe>> = {
   full: { rim: 'gradient', ripples: true, roughness: 'full' },
   'rim-mask': { rim: 'mask', ripples: true, roughness: 'full' },
   'rim-off': { rim: 'off', ripples: true, roughness: 'full' },
   'no-ripples': { rim: 'gradient', ripples: false, roughness: 'full' },
-  lite: { rim: 'mask', ripples: false, roughness: 'full' },
-  'lite-no-rough': { rim: 'mask', ripples: false, roughness: 'off' },
-  min: { rim: 'off', ripples: false, roughness: 'off' },
+  // NOT the shipped `lite` tier (that is `mask-rw-rip`): no ripple code and the full roughness table.
+  'mask-norip': { rim: 'mask', ripples: false, roughness: 'full' },
   // The cost-ladder candidates: each drops the ripple code (low draws none) and varies rim and roughness.
   'mask-rw': { rim: 'mask', ripples: false, roughness: 'water' },
   'off-rw': { rim: 'off', ripples: false, roughness: 'water' },

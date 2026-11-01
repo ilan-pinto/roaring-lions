@@ -3052,10 +3052,13 @@ the numbers as on a mildly busy GPU. Raw output: `_coord/wet-theme/p5-cost/`.
 | medium | 0.5 / 0.9 / 1.0 (**over**) | 0.2 / 0.3 / 0.4 | 0.2 / 0.1 / 0.7 | 0.0 / -0.1 / 0.5 |
 | low | 0.5 / 0.5 / 0.4 (**over**) | 0.1 / 0.2 / 0.2 | 0.2 / 0.3 / 0.4 | 0.1 / 0.3 / 0.2 |
 
-Medium sits at the line once (0.7 at zoom 2.5, run B) and low once (0.4 at zoom 2.5, run B); the other eight readings are 0.1 to 0.3 under. Run to run the
-spread of one reading is about 0.2 ms. The old program on the same page (`--probes=full`, `probe:full`, a recompile of P4's program in the preset's own
-frame) reads 0.0 to +0.3 dearer than medium's tier and 0.0 to +0.2 than low's: that is what the tiers bought. The rest of the movement against P4's reading is
-the machine (P4's quiet run read medium's zoom 1.6 as 0.9 where its loaded run had read 0.6).
+Medium reads -0.1 to 0.7 across the nine readings and low 0.1 to 0.4: every one is at or under its budget, and two sit exactly on it (medium 0.7 and low
+0.4, both zoom 2.5, run B). Medium's other eight readings are 0.2 to 0.8 under (the lowest are 0.0 and -0.1), low's other eight 0.1 to 0.3 under. **The tiers'
+own saving is at the noise floor**: the old program recompiled on the same page (`--probes=full`, `probe:full`, in the preset's own frame) reads only 0.0 to
++0.3 dearer than medium's tier and 0.0 to +0.2 than low's, one reading's spread is about 0.2 ms, and P4's own quiet run read these presets over budget where
+its loaded run had not (medium's zoom 1.6 read 0.9 against 0.6), so some of the move against P4's reading is the machine. What the flip rests on is
+"inside budget on a shared GPU, at the line once each, the tier a little cheaper than the old program". **A re-run on a GPU with nothing else on it is
+still open.**
 
 **Where the wet cost is.** `--pairs=8x6 --probes=` times each config as ABBA blocks against the baseline inside one cell, the baseline against itself as the null
 control (it reads 0.00 [-0.2, +0.2]). Medium, zoom 1.6 / 2.5, config minus baseline: hiding the rain batch -0.3 / -0.4, the whole wet program (rain

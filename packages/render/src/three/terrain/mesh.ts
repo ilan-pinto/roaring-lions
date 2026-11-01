@@ -1004,7 +1004,7 @@ float rlWetRim = (1.0 - smoothstep(0.0, ${f5(WATER_RIM_TILES)}, rlWetDist)) * (1
 `;
 
 const WET_COLOR_RIM_MASK_GLSL = /* glsl */ `
-// The rim, cheap: the mask's gradient is one texel over CONTROL_TEXELS_PER_TILE (no derivatives).
+// The rim, cheap: ASSUMES the mask's gradient is one texel over CONTROL_TEXELS_PER_TILE (no derivatives); an approximation.
 float rlWetRim = (1.0 - smoothstep(0.0, ${f5(WATER_RIM_TILES * CONTROL_TEXELS_PER_TILE)}, max(0.5 - rlWetM, 0.0))) * (1.0 - rlWetCov);
 `;
 
@@ -1045,19 +1045,22 @@ export const THEME_WET_DEFINE = 'THEME_WET';
  * the cheaper tiers drop terms at COMPILE time, never with a runtime branch.
  *
  *  - `rim`: `'gradient'` reads the mask's gradient off `dFdx`/`dFdy` (the derivative
- *    pair and a 2x2 solve); `'mask'` takes the gradient as the constant one texel over
- *    `CONTROL_TEXELS_PER_TILE` (the same band on an axis-aligned edge, no derivatives);
- *    `'off'` draws no bank.
+ *    pair and a 2x2 solve); `'mask'` ASSUMES the gradient is a constant one texel over
+ *    `CONTROL_TEXELS_PER_TILE` and uses no derivatives. It is an approximation, not the same
+ *    band: it agrees with the gradient form only on a hard texel edge that runs along an axis
+ *    and with `uWetAmp`, `uMarshAmp` and `rlTop` at 1. The stored masks are SOFT, so where the real
+ *    gradient is shallower the `'mask'` bank is wider, and on a diagonal edge it differs by up to
+ *    sqrt 2. `'off'` draws no bank.
  *  - `ripples`: the ring lookup, its reflectance swing and its normal tilt. Off, the
  *    header function, the colour lines and the normal block are all absent.
  *  - `roughness`: `'full'` is the per-surface block (open, road mud, basalt, water);
  *    `'water'` mixes the open-ground roughness toward the water's by the coverage and
- *    nothing else; `'off'` keeps the dry program's roughness.
+ *    nothing else.
  */
 export interface WetProgram {
   readonly rim: 'gradient' | 'mask' | 'off';
   readonly ripples: boolean;
-  readonly roughness: 'full' | 'water' | 'off';
+  readonly roughness: 'full' | 'water';
 }
 
 export const FULL_WET_PROGRAM: WetProgram = { rim: 'gradient', ripples: true, roughness: 'full' };
@@ -1274,7 +1277,7 @@ vRlWorldN = normalize(mat3(modelMatrix) * objectNormal);`
           '#include <color_fragment>',
           `#include <color_fragment>\n${GROUND_BLEND_GLSL}\n${RELIEF_ALBEDO_GLSL}${wet ? wetBlock(wetColorGlsl(prog)) : ''}`
         );
-      if (wet && prog.roughness !== 'off') {
+      if (wet) {
         shader.fragmentShader = shader.fragmentShader.replace(
           '#include <roughnessmap_fragment>',
           `#include <roughnessmap_fragment>${wetBlock(prog.roughness === 'full' ? WET_ROUGHNESS_GLSL : WET_ROUGHNESS_WATER_GLSL)}`

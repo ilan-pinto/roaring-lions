@@ -395,9 +395,9 @@ describe('--pairs, --probes, --configs (GH-871 cheap-wet follow-up)', () => {
   });
 
   it('--probes names known probes only, in order, and adds a probe: config per name after the built-ins', () => {
-    const a = parseCostArgs([...wet, '--probes=full,lite,rain-n1000,rain-nodepth']);
-    expect(a.probes).toEqual(['full', 'lite', 'rain-n1000', 'rain-nodepth']);
-    expect(wetConfigList(a.probes, null).slice(-4)).toEqual(['probe:full', 'probe:lite', 'probe:rain-n1000', 'probe:rain-nodepth']);
+    const a = parseCostArgs([...wet, '--probes=full,mask-norip,rain-n1000,rain-nodepth']);
+    expect(a.probes).toEqual(['full', 'mask-norip', 'rain-n1000', 'rain-nodepth']);
+    expect(wetConfigList(a.probes, null).slice(-4)).toEqual(['probe:full', 'probe:mask-norip', 'probe:rain-n1000', 'probe:rain-nodepth']);
     expect(PROBE_PREFIX).toBe('probe:');
     expect(() => parseCostArgs([...wet, '--probes=full,nonsense'])).toThrow(/known: .*full/);
     expect(() => parseCostArgs(['--breakdown', '--probes=full'])).toThrow(/--maps/);
@@ -413,6 +413,9 @@ describe('--pairs, --probes, --configs (GH-871 cheap-wet follow-up)', () => {
     expect(PROGRAM_PROBES.full).toEqual({ rim: 'gradient', ripples: true, roughness: 'full' });
     expect(PROGRAM_PROBES['mask-rw-rip']).toEqual({ rim: 'mask', ripples: true, roughness: 'water' });
     expect(PROGRAM_PROBES['off-rw']).toEqual({ rim: 'off', ripples: false, roughness: 'water' });
+    // The probe that used to be called `lite` is not the shipped tier; it is named for what it is.
+    expect(Object.keys(PROGRAM_PROBES)).not.toContain('lite');
+    expect(PROGRAM_PROBES['mask-rw-rip']).toEqual({ rim: 'mask', ripples: true, roughness: 'water' });
     const names = [...Object.keys(PROGRAM_PROBES), ...Object.keys(RAIN_PROBES), ...Object.keys(RAIN_SHADER_PROBES)];
     expect(new Set(names).size).toBe(names.length);
   });

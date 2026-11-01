@@ -793,7 +793,7 @@ describe('the wet program tiers (GH-871 cheap-wet follow-up): what each compiles
     expect(derivs(full.frag) - derivs(dryFrag)).toBe(6);
   });
 
-  it('lite: the rim has no derivatives (its gradient is one texel in 8 tiles, 0.06 x 8 = 0.48), the ripples stay, the roughness is the water\'s alone', () => {
+  it('lite: the rim has no derivatives (it ASSUMES a gradient of one texel in 8 tiles, 0.06 x 8 = 0.48: an approximation of the gradient form, not the same band), the ripples stay, the roughness is the water\'s alone', () => {
     expect(derivs(lite.frag)).toBe(derivs(dryFrag));
     expect(lite.frag).toContain('smoothstep(0.0, 0.48000, max(0.5 - rlWetM, 0.0))');
     expect(lite.frag).toContain('rlRipple(');
