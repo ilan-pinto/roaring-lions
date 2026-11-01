@@ -35,7 +35,7 @@ export const MIRROR_RULES_MAPS = ['rujm_sawda'];
 export const VERSUS_SEATS = {
   beit_sahwan_outskirts: { friendly: [4, 22], hostile: [40, 23] },
   tel_marum: { friendly: [27, 45], hostile: [29, 17] },
-  wadi_tarfan: { friendly: [11, 11], hostile: [36, 36] },
+  wadi_tarfan: { friendly: [10, 10], hostile: [37, 37] },
 };
 
 /** How far (Chebyshev, tiles, nearest camp tile) a camp may stand from its end's anchor. */

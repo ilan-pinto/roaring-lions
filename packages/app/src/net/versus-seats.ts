@@ -81,6 +81,21 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   capacity 2 (north stays 1) reads Sarim friendly 52.1% with cell 2's Sarim
  *   edge at +2 (50 v 48), thin: at 192 seeds it is lost, and today's 1 / 1
  *   reads inside there. A noise call, not a verdict.
+ *   GH-945 (1 Nov, after the group-order fix GH-929 seated the Sarim force's last four infantry,
+ *   2 Kornet and 2 MANPAD teams, at the click): (11,11) read Sarim 60.7% / 52.3% on placed force
+ *   (KDF / Sarim friendly) and 60.9% / 54.9% on the economy, at seeds 2000-2383. The cause is the
+ *   Kornet wall: 14 of Sarim's 26 units, and the fight is decided between 40 s and 100 s, when the
+ *   wall meets the KDF armour; killing its two rear teams moves the placed read by 20 points, so
+ *   a map that sits on the edge of the seat landscape (a one-tile step reads 31% or 82%) leans
+ *   with them. A formation makes it worse: it removes the noise, and a 53% base read 61-66% with
+ *   both ends in the Attack. So the base had to be level, not merely inside 60/40. 100 point-symmetric
+ *   seat pairs (fx, fy in 5..14) were screened at 192 seeds; the best of them regressed 7 points on
+ *   fresh seeds, so the finalists were read again at 384 fresh seeds and the winner at a third range.
+ *   The map's own named markers (10,10)/(37,37) read, at seeds 2000-2383: placed Sarim 51.3% / 52.3%,
+ *   economy 47.9% / 47.7%, tunnel cell 3 54.9% / 49.0%, mirror east 48.2%. Every tunnel route at
+ *   capacity 3 (friendly north 1 -> 3 and west 2 -> 3, hostile south 1 -> 3, east stays 3): cell 3
+ *   with the old 1 / 2 and 1 / 3 read Sarim 36.6% at these seats, all 2 42.8%, all 3 50.4%, all 4
+ *   55.1%, all 5 70.4% (seeds 1000-1383). The Attack on both ends, on one end: 0 trips of 21 cells.
  *
  * - `milh_flats` (mirror only) has no entry: it stands on its own named seats
  *   (`versus_0` (9,38), `versus_1` (38,9)). Under 3-deep vehicle ranks
@@ -96,7 +111,7 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
 export const VERSUS_SEATS: Readonly<Record<string, SandboxAnchors>> = {
   beit_sahwan_outskirts: { friendly: [4, 22], hostile: [40, 23] },
   tel_marum: { friendly: [27, 45], hostile: [29, 17] },
-  wadi_tarfan: { friendly: [11, 11], hostile: [36, 36] },
+  wadi_tarfan: { friendly: [10, 10], hostile: [37, 37] },
 };
 
 /** Where a versus room's two seats stand on `map`: seat 0 on `friendly`,

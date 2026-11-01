@@ -16,7 +16,8 @@ describe('versusAnchors: the measured versus seats', () => {
     // Beit seat 0 moved (4,23) -> (4,22) under vehicle health (GH-560, 28 Oct). Was [[4, 23], [40, 23]].
     expect(seats('beit_sahwan_outskirts')).toEqual([[4, 22], [40, 23]]);
     expect(seats('tel_marum')).toEqual([[27, 45], [29, 17]]);
-    expect(seats('wadi_tarfan')).toEqual([[11, 11], [36, 36]]);
+    // Wadi moved (11,11)/(36,36) -> (10,10)/(37,37), its own named markers, for GH-945. Was [[11, 11], [36, 36]].
+    expect(seats('wadi_tarfan')).toEqual([[10, 10], [37, 37]]);
   });
 
   it('reads a versus map its own named seats, and the raw JSON the same as the parsed map', () => {
