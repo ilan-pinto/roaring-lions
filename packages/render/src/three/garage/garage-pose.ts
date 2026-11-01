@@ -9,7 +9,9 @@
  *    for the kit and Meshy-cut teams, the Meshy importers for the skinned
  *    riflemen), so the mesh gates can check it. No shipped GLB carries one
  *    yet; see "The bake is a follow-up" below.
- * 2. **`idle` at frame 0**, which every shipped team and vehicle has. It is
+ * 2. **`idle` at frame 0** (or the clip `showroomClip` names -- `move` for
+ *    the sniper, whose idle is the prone hide, GH-921), which every shipped
+ *    team and vehicle has. It is
  *    applied even where the rest geometry is already the posture, because
  *    only the clip's scale keys hide the prone death rig and the crew walker
  *    (`rig.py`'s `_key_death_visibility`): the bind pose alone draws the
@@ -47,6 +49,58 @@ export const SHOWCASE_CLIP = 'showcase';
  *  approved mock's low ready. Negative pitches the hands DOWN and forward. */
 export const READY_DROP_DEG = -90;
 
+/**
+ * The clip whose FRAME 0 a team stands in on the store's turntable, where it
+ * is not `idle` (GH-921). Keyed by unit type id; absent means `idle`.
+ *
+ * `idle` is the FIELD posture, and for `sniper_team` it is the prone hide:
+ * `rig._sniper_rest` keeps the living prone build on `snp_*_death_root` for
+ * `idle`/`fire`, and the standing build on `snp_*_root` for `move` alone. In
+ * the field that is right (firing shows the hide); on a showroom turntable the
+ * lead wants the team standing. `move` frame 0 is the standing build with
+ * the rifle carried, which `rig.py` already authors and gates, so this is a
+ * CHOICE of existing clip and no new art. It reaches only the garage: the
+ * field reads the clip table in `units/`, never this one.
+ *
+ * Only the prone team is listed. The kneeling crews (mortar, ATGM, recoilless,
+ * NLOS, digger, the MANPAD spotter, the fires officer's observer) also
+ * kneel at `idle`, but there the kneel IS the deployed weapon -- `move` packs
+ * the tube away (`prop` is hidden) -- so each is a separate decision, and
+ * `garage-pose.test.ts` names them as the exemptions to the standing pin.
+ */
+export const SHOWROOM_CLIP: Readonly<Record<string, 'move'>> = {
+  sniper_team: 'move',
+};
+
+/** The clip the store poses `typeId` from; `idle` unless `SHOWROOM_CLIP` says otherwise. */
+export function showroomClip(typeId: string): 'idle' | 'move' {
+  return SHOWROOM_CLIP[typeId] ?? 'idle';
+}
+
+/**
+ * The clip the store poses a team from: `showroomClip(typeId)`'s, or `idle`.
+ * The garage view calls this and nothing else to choose it, so a test that
+ * stages a team through the view pins the wiring.
+ *
+ * A showroom clip a GLB does not carry is LOUD, not a quiet `idle`: for the
+ * sniper that fallback is the prone hide, the very bug GH-921 fixed. It names
+ * the file (the backend's convention) and still poses, so the card is never
+ * empty.
+ */
+export function pickShowroomClip(
+  clips: ReadonlyMap<string, THREE.AnimationClip>,
+  typeId: string,
+  meshUrl: string
+): THREE.AnimationClip | null {
+  const want = showroomClip(typeId);
+  const chosen = clips.get(want);
+  if (chosen) return chosen;
+  if (want !== 'idle') {
+    console.error(`garage: ${meshUrl} (${typeId}) has no '${want}' clip for the store pose; falling back to 'idle'`);
+  }
+  return clips.get('idle') ?? null;
+}
+
 /** Which of the three paths above posed this unit, for the report line. */
 export type PoseSource = 'showcase' | 'idle0' | 'idle0+ready' | 'bind';
 
@@ -82,9 +136,10 @@ export function bonesOf(root: THREE.Object3D): THREE.Bone[] {
  * to scale 0 by `idle` frame 0 and is not a figure.
  *
  * The NAME is only a tie-breaker, and not a filter, because one shipped rig
- * inverts it: `sniper_team` lies prone, so its living figures are the bones
- * named `snp_*_death_root` (scale 1 at idle) while `snp_*_root` is the one
- * scaled to nothing. So a shown bone named for death or walking is dropped
+ * inverts it: `sniper_team` lies prone at `idle`, so its living figures there
+ * are the bones named `snp_*_death_root` (scale 1) while `snp_*_root` is the
+ * one scaled to nothing. (The store poses it from `move` now, GH-921, where
+ * `snp_*_root` is the shown one; the rule holds for either clip.) So a shown bone named for death or walking is dropped
  * only when some OTHER shown bone is not -- which also covers a rig posed
  * from its bind pose, where every root is shown.
  */
@@ -188,6 +243,8 @@ export function applyReadyPose(
  */
 export function poseRigged(
   root: THREE.Object3D,
+  // `idle` is whichever clip the store poses from (`showroomClip`): `idle`
+  // for nearly every team, `move` for the sniper. Named for the common case.
   clips: { readonly showcase: THREE.AnimationClip | null; readonly idle: THREE.AnimationClip | null }
 ): { source: PoseSource; mixer: THREE.AnimationMixer } {
   const bones = bonesOf(root);
