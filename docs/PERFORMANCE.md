@@ -535,7 +535,9 @@ lowest ratio is always random terrain with steep relief (many queued-then-improv
 | L1 only (bucket ring, recompute every followed field) | 30 and 30 / 31 and 29 | 69 and 67 / 80 and 65 |
 | L1 + L2 (repair) | 4.3 and 4.2 / 2.3 and 2.3 | 4.4 and 4.2 / 2.3 and 2.3 |
 
-The two origin/main wall readings disagree 3x for the same code (load, not the code); CPU time does not. The
+The two origin/main wall readings disagree 3x for the same code (load, not the code); CPU time does not. A
+third set taken after the load fell to about 15 agrees with the CPU rows: wall 83 / 83 ms (origin/main), 29 / 31
+(L1), 4.2 / 2.2 (L1 + L2), and `pnpm perf:flowfield` at that load read 2.3x to 3.2x at 80x80, mean 2.54x. The
 design's gate was a median at or under 20 ms for 100 followed fields at 80x80: this reads 4.3 ms, p95 9 ms.
 Other readings of the same tool: a 2x2 in the top-left corner at 80x80 (100 followed) reads 0.19 / 0.54 ms CPU
 against 30 / 31 ms with L1 alone; the original 48x48 case (`beit_sahwan_outskirts`, 128 followed, corner) reads
