@@ -135,6 +135,18 @@ describe('selfCheck', () => {
   }, FULL_GAMES_TIMEOUT_MS);
 });
 
+describe('world(): the map\'s room capacity (GH-913 L3)', () => {
+  it('is 512 on rujm_sawda and 256 on the shipped matchup maps, and agrees with buildMatchWorld', () => {
+    expect(world('rujm_sawda', 1).sim.capacity).toBe(512);
+    for (const map of ['tel_marum', 'wadi_tarfan'] as const) {
+      expect(world(map, 1).sim.capacity, map).toBe(256);
+    }
+    for (const map of ['rujm_sawda', 'wadi_tarfan'] as const) {
+      expect(world(map, 1).sim.capacity, map).toBe(buildMatchWorld(roomConfig(map, ['kdf', 'sarim'], 1)).sim.capacity);
+    }
+  });
+});
+
 describe('centroid (wounds on in versus, 23 Oct 2026)', () => {
   it('marches on the standing force: a man down is left out of his side\'s centroid', () => {
     const { sim, typeOf } = world('tel_marum', 1000);

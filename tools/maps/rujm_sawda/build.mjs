@@ -294,6 +294,8 @@ export function build() {
   const versus = {
     id: ID,
     map: ID,
+    // GH-913 L3: the large map's room holds 512 entities (design section 2.6).
+    capacity: 512,
     ends: {
       friendly: { camp: { at: [8, 8], size: [2, 2] } },
       hostile: { camp: { at: mirrorRect([8, 8, 2, 2]).slice(0, 2), size: [2, 2] } },

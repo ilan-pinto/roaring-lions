@@ -284,6 +284,10 @@ export {
 
 export {
   versusMissionOf,
+  versusCapacityOf,
+  VERSUS_CAPACITY_DEFAULT,
+  VERSUS_CAPACITY_MIN,
+  VERSUS_CAPACITY_MAX,
   versusTunnelsOf,
   versusZonesOf,
   type DoctrineJson,

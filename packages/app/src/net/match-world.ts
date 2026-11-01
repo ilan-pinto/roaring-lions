@@ -1,4 +1,4 @@
-import { applyTerrain, doctrines, formations, maps, parseMap, roadMaskOf, units, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
+import { applyTerrain, doctrines, formations, maps, parseMap, roadMaskOf, units, versusCapacityOf, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
 import { economyRoom, endOfSeat, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';
@@ -75,8 +75,11 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // parse's tunnel list -- never the shared parse -- so `map.tunnels[r]` IS the sim's route r for
   // every positional reader (`main.ts`'s ctx, the renderer). A mirror room appends none.
   const map: ParsedMap = economy ? { ...parsed, tunnels: [...parsed.tunnels, ...sarimRoutes(config.map, factions, endOfSide)] } : parsed;
-  // 256: see `bootBattlefield` -- `spawn` never reuses a dead unit's slot.
-  const sim = new Sim({ seed: config.seed, width: map.width, height: map.height, capacity: 256, humanHeld: seatRules(config).humanHeld });
+  // 256 unless the map's rules file says more (GH-913 L3): `spawn` never reuses a dead unit's slot, so
+  // capacity budgets everyone who ever enters the match. A snapshot restore builds from this config, so
+  // it lands in a world of the same capacity.
+  const capacity = roomCapacity(config.map);
+  const sim = new Sim({ seed: config.seed, width: map.width, height: map.height, capacity, humanHeld: seatRules(config).humanHeld });
   applyTerrain(map, sim);
   standMapStructures(sim, map, economy);
 
@@ -127,6 +130,12 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const runtime = built?.runtime ?? null;
   const structureTypes = built?.structureTypes ?? [];
   return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, runtime, structureTypes };
+}
+
+/** The entity capacity of the room on `mapId`: its rules file's `capacity`, else 256. Mirror rooms
+ *  on a map with rules read it too -- the budget is the map's, not the matchup's. */
+export function roomCapacity(mapId: string): number {
+  return versusCapacityOf(versusRules[mapId]);
 }
 
 /** A parsed route as the sim's `addTunnel` (and a mission context's `tunnels`) takes it. The one
