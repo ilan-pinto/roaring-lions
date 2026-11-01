@@ -144,7 +144,7 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     armTwistRelief: 0.7,
     // The carbine on his back, muzzle up behind the right shoulder: the medics' sling, seated behind the Demolition torso and
     // its carrier/pack (solved against the maximum kit, see the sling census in mesh_work.test.ts). The extra lean is searched by the pass: the least that puts both hands on the satchel.
-    workArmed: { sling: { butt: [-0.30, -0.2, -0.14], dir: [-0.05, 0.9, 0.43] } },
+    workArmed: { sling: { butt: [-0.32, -0.2, -0.14], dir: [-0.05, 0.9, 0.43] } },
   },
   mortar_team: {
     figures: [{ prefix: 'mtr_no3', weapon: 'rifle' }],

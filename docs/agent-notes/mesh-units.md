@@ -811,3 +811,8 @@ Rifle Squad only so far (`inf_squad`); the Demolition and Breach teams take the 
   against the helmet cover in moveFire). The census reads 0 pairs over 4 mm in every steady clip and in `work` (the slung carbine stands
   12.8 mm clear of the maximum kit); one transition pair is named: kneelOut, NVG mono tube x support forearm, 11.7 / 6.7 mm for one key.
 
+- **Review fix 1 (1 Nov 2026): the old claw's spine-weighted faces are cut.** The hands pass cut the claw by the forearm bone, but 7 faces a man were weighted to the SPINE and hung
+  in the air beside the support hand. `clawToneFaces` (`hands-pass.ts`) cuts every uniform face of claw tone (L* > 35, C* > 35, hue 35-80) on a spine, upper-arm or forearm bone after the arms are rebuilt;
+  `mesh_claw.ts` + `mesh_hands.test.ts` gate 0 on a spine, arm or hand bone for `inf_squad` and `demo_squad`. The carrier is fitted to the same vest zone, so it moved 8 mm and the slung carbine's
+  clearance fell to 4.5 mm: the sling butt is now `[-0.32, -0.2, -0.14]`. **Do not run `--step=work` on a shipped file as the last step**: it re-writes the clip without `collapseConstantTracks` (+75 KiB encoded);
+  re-run the full motion pass. The Demolition squad is on HOLD after this (the lead, 1 Nov: hand poses to be redesigned on the Rifle Squad); review fixes 2 to 5 are open, see `_coord/inf-hands/departures.txt` 50-52.
