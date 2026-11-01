@@ -10,10 +10,18 @@
  * between two consecutive keys whatever their spacing (a 60 Hz clip may turn 40 degrees between its keys). It holds for
  * every arm bone of every figure of every clip, and no exemption is named. The snaps the first version of this file listed
  * (`KNOWN_SNAPS`, deleted 1 Nov 2026 when the lead ruled them fixed) are asserted gone by name below.
+ *
+ * LOOP SEAMS (R2 review, 1 Nov 2026): a looping clip plays its last key and then its first again, and a rate read key to key
+ * inside the clip never sees that step. `moveFire`'s f1 support upper arm turned 38 degrees there (1.5 before the hands
+ * pass) once every 0.625 s. For idle, move, fire, moveFire, kneel and pinned the WORLD rotation of every arm bone of every
+ * figure may differ by at most 20 degrees between the last key and the first.
  */
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
-import { readAccessor, readGlb } from './mesh_gait';
+import { afterAll, describe, expect, it } from 'vitest';
+import { measureJointPoses, readAccessor, readGlb, rotationDeltaDeg } from './mesh_gait';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 const FILE = `${MESHES}inf_squad.glb`;
@@ -53,6 +61,63 @@ export function maxTurnRate(path: string, clip: string, node: string, tweak?: (q
   }
   return best;
 }
+
+const LOOPING = ['idle', 'move', 'fire', 'moveFire', 'kneel', 'pinned'];
+const MAX_SEAM_DEG = 20;
+
+/** The world rotation of an arm bone at the clip's last key against its first, degrees. */
+export function seamTurnDeg(file: string, clip: string, node: string): number {
+  const a = measureJointPoses(file, clip, 'start').find((j) => j.name === node);
+  const b = measureJointPoses(file, clip, 'end').find((j) => j.name === node);
+  if (!a || !b) throw new Error(`${file}: no joint ${node}`);
+  return rotationDeltaDeg(a.rotation, b.rotation);
+}
+
+const scratch = mkdtempSync(path.join(tmpdir(), 'pops-'));
+afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+/** A copy of `file` with the LAST key of `node`'s rotation track in `clip` replaced by `edit(q)`: a seam that is not closed. */
+function withLastKey(file: string, clip: string, node: string, edit: (q: number[]) => number[]): string {
+  const raw = readFileSync(file);
+  const glb = readGlb(file);
+  const bin = Buffer.from(glb.bin);
+  const ni = (glb.json.nodes ?? []).findIndex((n) => n.name === node);
+  const anim = glb.json.animations!.find((a) => a.name === clip)!;
+  const ch = anim.channels.find((c) => c.target.node === ni && c.target.path === 'rotation')!;
+  const acc = glb.json.accessors![anim.samplers[ch.sampler].output];
+  const bv = glb.json.bufferViews![acc.bufferView!];
+  const base = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0) + (acc.count - 1) * 16;
+  const q = edit([0, 1, 2, 3].map((c) => bin.readFloatLE(base + c * 4)));
+  q.forEach((x, c) => bin.writeFloatLE(x, base + c * 4));
+  const out = Buffer.from(raw);
+  bin.copy(out, 20 + raw.readUInt32LE(12) + 8);
+  const f = path.join(scratch, `seam_${node}_${clip}.glb`);
+  writeFileSync(f, out);
+  return f;
+}
+
+describe('a looping clip closes its loop (the last key meets the first)', () => {
+  for (const clip of LOOPING) {
+    it(`${clip}: every arm bone of every figure turns at most ${MAX_SEAM_DEG} degrees, in the world, between the last key and the first`, () => {
+      let seen = 0;
+      for (const fig of FIGURES) {
+        for (const b of BONES) {
+          if (b === 'finger_L') continue;
+          const d = seamTurnDeg(FILE, clip, `${fig}_${b}`);
+          seen++;
+          expect(d, `${fig}_${b} in ${clip}`).toBeLessThanOrEqual(MAX_SEAM_DEG);
+        }
+      }
+      expect(seen, 'bones read').toBe(FIGURES.length * 6);
+    });
+  }
+
+  it('the check can fail: f1_upperarm_R in moveFire with its last key turned 38 degrees (the seam before the fix) reads past the limit (constructed failing input)', () => {
+    const h = (38 * Math.PI) / 360, s = Math.sin(h), c = Math.cos(h);
+    const bad = withLastKey(FILE, 'moveFire', 'f1_upperarm_R', ([x, y, z, w]) => [w * s + x * c, y * c + z * s, z * c - y * s, w * c - x * s]);
+    expect(seamTurnDeg(bad, 'moveFire', 'f1_upperarm_R')).toBeGreaterThan(MAX_SEAM_DEG);
+    expect(seamTurnDeg(FILE, 'moveFire', 'f1_upperarm_R')).toBeLessThanOrEqual(MAX_SEAM_DEG);
+  });
+});
 
 describe('no arm or hand bone of the Rifle Squad turns faster than 20 degrees in one 120 Hz step', () => {
   for (const clip of CLIPS) {

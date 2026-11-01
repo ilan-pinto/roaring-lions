@@ -751,17 +751,23 @@ Rifle Squad only so far (`inf_squad`); the Demolition and Breach teams take the 
   clips, 60/120 Hz, between keys), `mesh_arm_pops.test.ts`, `mesh_hands.ts`/`mesh_hands.test.ts` (L, palm, T, forearm, hung
   elbow), `check_glove_contrast` in `validate_mesh_assets.py` (+ `tools/test_glove_contrast.py`). The kit is left out of every hand
   reading (`kit_*` nodes), the stature included.
-- **Open, named, each gated against going stale:** weapon inside the glove (spec 3 mm) is met in `fire`, `kneel` and `pinned` (1.5 / 2.0 mm) and
-  NOT met in `moveFire` (support hand 4.2), `idle` and `move` (firing hand 7.9) and the two transitions (7.9 / 8.4): the forearm carries
-  the hand's pronation, so the wrist is read with no twist in the hand and the firing hand tilts 14 degrees off its station at the low ready.
-  `mesh_grip.test.ts` holds a per-clip literal ceiling, and a constructed input (the weapon 4 mm into both gloves in `fire`) goes red on it.
-  Arms inside the body are counted, not measured as depth, and the count cannot say "deeper" (`launcher_arms.test.ts` holds it where it is).
-  The kit census reads 0 pairs over 4 mm in idle, move, fire, moveFire, kneel and pinned; the transitions still hold the head-bowed NVG pairs
-  (kneelIn: bino tubes x support upper arm 14.6-19.9 mm and the mount 4.2; kneelOut: bino tubes x support forearm 7.6-15.1, x the sleeve and
-  deltoid kit parts 8.6-11.3, the mount x forearm 4.9), and `down` the grenade pouches x foot 14.7. The trigger finger stays straight along
-  the receiver, and the elbow and shoulder discs keep their flat colour (GH-746).
+- **Open, named, each gated against going stale:** weapon inside the glove (spec 3 mm), read by `measureGrip` with every weapon
+  triangle sampled at 5 mm or finer (the first sampler took each triangle's first vertex and centroid and never reached the support
+  fingers: 2.0 mm read, 9.0 real, in `fire`): the FIRING hand meets it in the aimed clips (2.9 in fire, moveFire, kneel, pinned) and
+  not in idle, move and the transitions (8.4-8.6: the wrist is read with no twist in the hand, so the hand tilts 14 degrees off its
+  station at the low ready); the SUPPORT hand reads 9.0-9.6 in every clip, before the hands pass was fixed too. `mesh_grip.test.ts`
+  holds per-clip, per-hand literal ceilings. Arms inside the body are counted, not measured as depth, and the count cannot say
+  "deeper" (`launcher_arms.test.ts` holds it where it is). The kit census (`inf_kit_clash.py`) reads 0 pairs over 4 mm in idle,
+  move, fire, moveFire, kneel and pinned, devices against the hands included (it did not look for kit vertices inside a glove, and
+  the EUD sat 6-12 mm in the firing hand for all of kneel and pinned; it now sits on the left chest, `EUD_AT` y 0.07 z 1.32). The
+  transitions still hold the head-bowed NVG pairs (kneelIn: bino tubes x support upper arm 14.6-19.9 mm and the mount 4.2; kneelOut:
+  bino tubes x support forearm 7.6-15.1, x the sleeve and deltoid kit parts 8.6-11.3, the mount x forearm 4.9; each over 4 mm for
+  2-3 frames), and `down` the grenade pouches x foot 14.7. The trigger finger stays straight along the receiver, and the elbow and
+  shoulder discs keep their flat colour (GH-746).
 - **Arm pops are gated by RATE** (`mesh_arm_pops.test.ts`): no arm or hand bone of any figure turns faster than 2,400 degrees a second between
-  two keys (20 degrees in one 120 Hz step), in any clip, with no exemption. Measured: kneelIn 2,149, kneelOut 2,315, move 1,009, moveFire 1,369
+  two keys (20 degrees in one 120 Hz step), in any clip, with no exemption, and a LOOPING clip (idle, move, fire, moveFire, kneel, pinned)
+  may turn at most 20 degrees in the world between its last key and its first: the hold re-runs a clip from where it ended until its seam is
+  under 5 degrees (`moveFire`'s f1 support arm was 38). Measured: kneelIn 2,149, kneelOut 2,315, move 1,009, moveFire 1,369
   (the first version of the file named seven snaps of 71-133 degrees in one step). The solver changes the elbow swing and the hand's turn at
   most 600 deg/s x pace, the pace widened 2, 4, 8, 16 times only where the paced answer would put the wrist past its limit; a drop starts from
   the arms `idle` ended with and a rise from the arms the kneel ended with.

@@ -21,7 +21,9 @@
  *   3. the shipped bytes with the weapon bone moved 4 cm rearward in `fire` (the support station put back at the
  *      magazine well): the station limits go red;
  *   4. the weapon bone re-parented under the pelvis, then the spine pitched as recoil does: the grip moves;
- *   5. the weapon bone pushed 4 mm into both gloves in `fire`: the per-clip depth ceiling (3.0 mm) goes red.
+ *   5. the weapon bone pushed 10 mm into both gloves in `fire` (4 mm moves the support reading by under 1 mm: its deepest point is
+ *      where the fingers close on the handguard, not where the weapon is): the per-clip depth ceilings go red;
+ *   6. the old first-vertex-and-centroid sampler on the same shipped bytes: 2.0 mm where the dense reading is 9.0.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -51,25 +53,30 @@ const SUPPORT_S: readonly [number, number] = [0.62, 0.68];
 const REVIEW_FIRE_MAX_M = 0.035;
 const REVIEW_SUPPORT_MAX_M = 0.04;
 /**
- * WEAPON_IN_HAND: the spec holds the weapon's surface to <= 3 mm inside the glove. The generator's own census (convex
- * pieces, `tools/units/hands.py`) reads 2.1 / 2.8 / 1.8 mm at the station; this instrument reads the glove's real
- * triangles and the carbine's. The ceiling is PER CLIP (R1 review ruling, 1 Nov 2026: a blanket 10 mm let the aimed clips
- * regress by 7 mm unseen), each a LITERAL a millimetre or so over what the bytes read, the larger of the two hands:
+ * WEAPON_IN_HAND: the spec holds the weapon's surface to <= 3 mm inside the glove. `measureGrip` samples every weapon triangle
+ * on a barycentric grid at 5 mm or finer (R2 review, 1 Nov 2026: it used to take each triangle's first vertex and centroid, the
+ * handguard's triangles run 100 mm and more, and the support fingers were never sampled: 2.0 mm read, 9.0 real; the same bytes
+ * read both ways are in the test below). The ceilings are PER CLIP AND PER HAND, LITERALS about a millimetre over what the bytes
+ * read, mm (firing hand / support hand):
  *
- *   clip       reads (fire / support, mm)   ceiling
- *   fire       1.5 / 2.0                    3.0    the spec's 3 mm: MET
- *   kneel      1.5 / 2.0                    3.0    MET
- *   pinned     1.5 / 2.0                    3.0    MET
- *   moveFire   1.5 / 4.2                    5.0    NOT MET (the support hand, running)
- *   idle       7.9 / 2.0                    9.0    NOT MET: the firing wrist, read with no twist in the hand (the forearm carries
- *   move       7.9 / 2.1                    9.0    the pronation, so a cuff and a sleeve turn together), has 7 degrees to give
- *   kneelIn    7.9 / 5.4                    9.0    at the low ready, and the hand tilts 14 degrees off its station to stay inside
- *   kneelOut   8.4 / 2.0                    9.5    its limit; before the forearm twist (1 Nov) these read 3.6 / 3.6 / 3.6 / 6.3
+ *   clip       reads         ceiling firing / support
+ *   idle       8.4 / 9.1     9.5 / 10.5     firing hand: NOT MET (see below)
+ *   move       8.4 / 9.1     9.5 / 10.5     NOT MET
+ *   fire       2.9 / 9.0     4.0 / 10.5     firing MET (2.9), support NOT MET
+ *   moveFire   2.9 / 9.1     4.0 / 10.5     as fire
+ *   kneel      2.9 / 9.1     4.0 / 10.5     as fire
+ *   kneelIn    8.6 / 9.6     9.5 / 10.5     NOT MET
+ *   kneelOut   8.4 / 9.1     9.5 / 10.5     NOT MET
+ *   pinned     2.9 / 9.1     4.0 / 10.5     as fire
  *
- * The 3 mm question for the clips marked NOT MET is the lead's (report, R1).
+ * The 3 mm is met only by the FIRING hand in the aimed clips. The support hand reads 9.0-9.6 mm in every clip, and did before the
+ * hands pass was fixed (9.0-9.6 on the bytes of 291488e10): the fingers wrap a handguard modelled as a closed section, and the lead
+ * accepted it on the R2 review (not visible: the fingers read as wrapping the handguard). The firing hand's 8.4 in idle, move and
+ * the transitions is the 14 degree tilt the wrist needs when the forearm carries the pronation (it read 4.0 before).
  */
-const WEAPON_IN_HAND_CEILING_M: Readonly<Record<(typeof CLIPS)[number], number>> = {
-  idle: 0.009, move: 0.009, fire: 0.003, moveFire: 0.005, kneel: 0.003, kneelIn: 0.009, kneelOut: 0.0095, pinned: 0.003,
+const WEAPON_IN_HAND_CEILING_M: Readonly<Record<(typeof CLIPS)[number], readonly [number, number]>> = {
+  idle: [0.0095, 0.0105], move: [0.0095, 0.0105], fire: [0.004, 0.0105], moveFire: [0.004, 0.0105],
+  kneel: [0.004, 0.0105], kneelIn: [0.0095, 0.0105], kneelOut: [0.0095, 0.0105], pinned: [0.004, 0.0105],
 };
 
 const readings = new Map<string, ReturnType<typeof measureGrip>>();
@@ -100,8 +107,8 @@ describe('the Rifle Squad holds the carbine in every clip', () => {
         expect(r.support.sMax, 'support hand along the weapon, highest').toBeLessThanOrEqual(SUPPORT_S[1]);
         expect(r.fire.reviewGapM, 'review reading, firing').toBeLessThanOrEqual(REVIEW_FIRE_MAX_M);
         expect(r.support.reviewGapM, 'review reading, support').toBeLessThanOrEqual(REVIEW_SUPPORT_MAX_M);
-        expect(r.fire.depthM!, 'weapon inside the firing glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip]);
-        expect(r.support.depthM!, 'weapon inside the support glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip]);
+        expect(r.fire.depthM!, 'weapon inside the firing glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip][0]);
+        expect(r.support.depthM!, 'weapon inside the support glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip][1]);
       }, 120_000);
     }
   }
@@ -175,13 +182,22 @@ describe('the instrument can fail', () => {
 });
 
 describe('the weapon-in-glove ceiling can fail (constructed failing input 5)', () => {
-  it('the weapon bone pushed 4 mm into both gloves in fire reads past the 3.0 mm ceiling it holds, and the unpatched file does not', () => {
-    const file = patched('fire', 'f1_weapon', 'translation', (v) => [v[0], v[1], v[2] - 0.004]);
+  it('the weapon bone pushed 10 mm into both gloves in fire reads past the ceilings it holds (firing 5.3, support 12.0), and the unpatched file does not', () => {
+    const file = patched('fire', 'f1_weapon', 'translation', (v) => [v[0], v[1] - 0.01, v[2]]);
     const r = measureGrip(file, 'fire', 'f1', { hz: 60 });
-    expect(r.fire.depthM!, 'firing glove').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.fire);
-    expect(r.support.depthM!, 'support glove').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.fire);
-    expect(read('f1', 'fire').fire.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.fire);
-    expect(read('f1', 'fire').support.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.fire);
+    expect(r.fire.depthM!, 'firing glove').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.fire[0]);
+    expect(r.support.depthM!, 'support glove').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.fire[1]);
+    expect(read('f1', 'fire').fire.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.fire[0]);
+    expect(read('f1', 'fire').support.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.fire[1]);
+  }, 60_000);
+
+  it('the old sampler (each weapon triangle\'s first vertex and centroid) reads the SAME bytes at 2 mm in the support hand where the dense one reads 9 (constructed failing input 6)', () => {
+    const dense = read('f1', 'fire');
+    const sparse = measureGrip(SQUAD, 'fire', 'f1', { hz: 60, sparseWeaponSamples: true });
+    expect(sparse.support.depthM!, 'sparse sampling, support glove').toBeLessThan(0.004);
+    expect(dense.support.depthM!, 'dense sampling, support glove').toBeGreaterThan(0.008);
+    // ...and a ceiling set from the sparse reading would have passed a hand sunk 9 mm into the handguard
+    expect(dense.support.depthM!).toBeGreaterThan(sparse.support.depthM! + 0.005);
   }, 60_000);
 });
 

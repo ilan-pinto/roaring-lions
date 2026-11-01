@@ -15,7 +15,7 @@
  */
 import type { Document, Node } from '@gltf-transform/core';
 import { addBone, rebind, writeTrack } from './edit';
-import { describeHold, followForearm, followHand, MAX_GRIP_GAP_M, resetHoldMemory, setHoldDt, holdMemory, solveHold, type HoldMemory, weaponRest, type HoldFigure } from './hold';
+import { describeHold, followForearm, followHand, MAX_GRIP_GAP_M, resetHoldMemory, setHoldDt, holdMemory, setHoldMemory, solveHold, type HoldMemory, weaponRest, type HoldFigure } from './hold';
 import { clipRange, keyTimes, restVertices, Rig, tracksOf, type Pose } from './rig';
 import type { Q } from './math';
 import type { MotionTeam } from './teams';
@@ -41,6 +41,9 @@ export const AIM_CLIPS: Record<string, number> = { idle: 0, move: 0, fire: 1, mo
 export function heldBones(prefix: string): string[] {
   return ['spine', 'neck', 'head', 'upperarm_L', 'forearm_L', 'upperarm_R', 'forearm_R'].map((b) => `${prefix}_${b}`);
 }
+
+/** A looping clip's last key may differ from its first by this much, degrees, before the clip is solved again from where it ended. */
+export const HOLD_SEAM_DEG = 5;
 
 export interface HoldContext {
   readonly hold: HoldFigure;
@@ -111,41 +114,69 @@ export function applyHold(doc: Document, id: string, spec: MotionTeam): { line: 
       const ownsCarry = c.hold.kind === 'rifle' || c.hold.kind === 'spike';
       const aim = !ownsCarry && AIM_CLIPS[name] === 0 ? undefined : AIM_CLIPS[name];
       const times = c.hold.hands ? denseTimes(keyTimes(tracks, `${p}_spine`)) : keyTimes(tracks, `${p}_spine`);
-      resetHoldMemory(c.hold);
       const written = aim === undefined ? [c.weaponName] : [...heldBones(p), c.weaponName];
       const nodes: Node[] = [...written.map((n) => rig.node(n)), ...handBones(c)];
-      const rot = nodes.map(() => [] as number[]);
-      const tr = nodes.map(() => [] as number[]);
+      let rot: number[][] = [];
+      let tr: number[][] = [];
       let worstGap = 0;
       let worstWrist = 0;
       let worstOffset = 0;
       let eyeLo = Infinity;
       let eyeHi = -Infinity;
-      let tPrev: number | null = null;
-      for (const t of times) {
-        const pose = rig.sample(tracks, t);
-        setHoldDt(tPrev === null ? null : t - tPrev);
-        tPrev = t;
-        if (aim === undefined) {
-          if (c.hold.hands) followHand(rig, pose, c.hold, rig.node(c.weaponName), grip);
-          else followForearm(rig, pose, c.hold, rig.node(c.weaponName));
-        } else {
-          const r = holdFrame(rig, pose, c, aim);
-          worstGap = Math.max(worstGap, r.gap);
-          worstWrist = Math.max(worstWrist, r.wristOver);
-          worstOffset = Math.max(worstOffset, r.offsetDeg);
-          if (Number.isFinite(r.eye)) {
-            eyeLo = Math.min(eyeLo, r.eye);
-            eyeHi = Math.max(eyeHi, r.eye);
+      // One run of the clip. A looping clip's last key meets its first again, so a run may start from where the last one
+      // ended (`from`): the solver is paced, and a run from nothing leaves the arm wherever the pace had got it by the end.
+      const runLoop = (from: HoldMemory | null): void => {
+        resetHoldMemory(c.hold);
+        if (from) setHoldMemory(c.hold, from);
+        rot = nodes.map(() => [] as number[]);
+        tr = nodes.map(() => [] as number[]);
+        worstGap = 0; worstWrist = 0; worstOffset = 0; eyeLo = Infinity; eyeHi = -Infinity;
+        let tPrev: number | null = from && times.length > 1 ? times[0] - (times[1] - times[0]) : null;
+        for (const t of times) {
+          const pose = rig.sample(tracks, t);
+          setHoldDt(tPrev === null ? null : t - tPrev);
+          tPrev = t;
+          if (aim === undefined) {
+            if (c.hold.hands) followHand(rig, pose, c.hold, rig.node(c.weaponName), grip);
+            else followForearm(rig, pose, c.hold, rig.node(c.weaponName));
+          } else {
+            const r = holdFrame(rig, pose, c, aim);
+            worstGap = Math.max(worstGap, r.gap);
+            worstWrist = Math.max(worstWrist, r.wristOver);
+            worstOffset = Math.max(worstOffset, r.offsetDeg);
+            if (Number.isFinite(r.eye)) {
+              eyeLo = Math.min(eyeLo, r.eye);
+              eyeHi = Math.max(eyeHi, r.eye);
+            }
           }
+          nodes.forEach((n, i) => {
+            const x = pose.get(n)!;
+            rot[i].push(...x.r);
+            tr[i].push(...x.t);
+          });
         }
-        nodes.forEach((n, i) => {
-          const x = pose.get(n)!;
-          rot[i].push(...x.r);
-          tr[i].push(...x.t);
+        setHoldDt(null);
+      };
+      /** The turn between the last key and the first, the worst of the held bones, degrees. */
+      const seamDeg = (): number => {
+        let w = 0;
+        nodes.forEach((_n, i) => {
+          const n4 = rot[i].length - 4;
+          const d = Math.abs(rot[i][0] * rot[i][n4] + rot[i][1] * rot[i][n4 + 1] + rot[i][2] * rot[i][n4 + 2] + rot[i][3] * rot[i][n4 + 3]);
+          w = Math.max(w, (2 * Math.acos(Math.min(1, d)) * 180) / Math.PI);
         });
+        return w;
+      };
+      runLoop(null);
+      let passes = 1;
+      let seam = seamDeg();
+      // Close the loop: re-run the clip from where it ended until the seam is small, at most four runs in all.
+      while (aim !== undefined && c.hold.hands && seam > HOLD_SEAM_DEG && passes < 4) {
+        runLoop(holdMemory(c.hold));
+        passes++;
+        seam = seamDeg();
       }
-      setHoldDt(null);
+      const seamNote = `, loop seam ${seam.toFixed(1)} deg${passes > 1 ? ` (${passes} runs)` : ''}`;
       if (name === 'idle') c.idleMemory = holdMemory(c.hold);
       nodes.forEach((n, i) => {
         writeTrack(doc, anim, n, 'rotation', times, rot[i]);
@@ -159,7 +190,7 @@ export function applyHold(doc: Document, id: string, spec: MotionTeam): { line: 
       if (aim !== undefined) {
         out.push({
           line: `hold ${p} ${name}: aim ${aim}, worst grip gap ${worstGap.toFixed(3)} m` +
-            (c.hold.hands ? `, wrist over limit ${worstWrist.toFixed(1)} deg, hand turned off its station up to ${worstOffset.toFixed(0)} deg` : '') +
+            (c.hold.hands ? `${seamNote}, wrist over limit ${worstWrist.toFixed(1)} deg, hand turned off its station up to ${worstOffset.toFixed(0)} deg` : '') +
             (Number.isFinite(eyeLo) ? `, eye over bore ${eyeLo.toFixed(3)}..${eyeHi.toFixed(3)} m` : ''),
           ctx,
         });

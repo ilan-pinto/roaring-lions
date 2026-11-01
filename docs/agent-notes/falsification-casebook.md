@@ -83,3 +83,13 @@ rather than papered over.
   hull census read weapon-in-hand 2.1-2.8 mm where the glove's real triangles read 1.0-8.8. The spec names vertices; the lead
   approved the area figure at R0c. The gate says which it reads (area) and reports the other; the 3 mm depth limit is NOT met by the
   instrument that reads the mesh, and the test says so instead of passing a ceiling it did not earn.
+
+- **A depth gate that sampled each triangle's first vertex and centre.** `measureGrip` read the weapon inside the glove from two points of
+  every weapon triangle; the handguard's triangles run 100 mm and more, so the support fingers were never sampled. It read 2.0 mm where the
+  real depth was 9.0, in every clip, from the first commit, and the PR said "3 mm met". The Opus re-review found it with a dense sampler
+  (the same bytes, read both ways, are now a test: `sparseWeaponSamples`). It measured one plane of a surface, not its members.
+- **A seam nothing read.** The arm-pop gate read key to key inside a clip; a looping clip also plays its last key into its first, and
+  `moveFire`'s support arm turned 38 degrees there while every in-clip step passed. The gate now reads the wrap in world space.
+- **A census with one direction.** `inf_kit_clash.py` counted BODY vertices inside a kit part. The EUD is a 3 mm trimmed pad: the firing
+  hand's knuckles went through it and out the back, and the parity test (an even count) saw nothing for the whole of kneel and pinned. It now
+  also counts the kit's vertices inside the glove.

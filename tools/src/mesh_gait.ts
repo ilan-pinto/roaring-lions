@@ -2364,6 +2364,10 @@ export interface GripOptions {
   /** Pitch the spine this many degrees about its own lateral axis at every instant, as the runtime's recoil does after the
    *  mixer (`squad-motion.ts`, `recoilAt`): everything under the spine moves with it, and nothing else. */
   readonly spinePitchDeg?: number;
+  /** Read the weapon inside the glove the way this instrument first did: each weapon triangle's first vertex and its centroid,
+   *  and nothing else. The handguard's triangles run 100 mm and more, so the support fingers were never sampled (R2 review, 1 Nov
+   *  2026: 2.0 mm read, 8.3 mm real). Off by default; kept so a test can show the old sampler missing what the new one finds. */
+  readonly sparseWeaponSamples?: boolean;
   /** Called once per hand per instant with that instant's readings (a debugging aid, and the report's per-frame table). */
   readonly trace?: (t: number, hand: 'fire' | 'support', r: { stationM: number; axisDeg: number; contact: number; wristOverDeg: number }) => void;
 }
@@ -2743,6 +2747,23 @@ export function measureGrip(path: string, clip: string, prefix: string, opts: Gr
   const hNode = handNames.map((nm) => nodeOf(nm));
   const relRest = [0, 1].map((i) => relRotation(rest[fNode[i]], rest[hNode[i]]));
 
+  // The weapon's surface, sampled once (it is rigid in its own frame): every triangle on a barycentric grid at 5 mm or finer; or, for
+  // the old reading, each triangle's first vertex and centroid.
+  const weaponSamples: V3t[] = [];
+  for (const tri of weaponTris) {
+    if (opts.sparseWeaponSamples) {
+      weaponSamples.push(tri[0], [(tri[0][0] + tri[1][0] + tri[2][0]) / 3, (tri[0][1] + tri[1][1] + tri[2][1]) / 3, (tri[0][2] + tri[1][2] + tri[2][2]) / 3]);
+      continue;
+    }
+    const edge = Math.max(vlen(vsub(tri[1], tri[0])), vlen(vsub(tri[2], tri[1])), vlen(vsub(tri[0], tri[2])));
+    const n = Math.max(1, Math.ceil(edge / 0.005));
+    for (let i = 0; i <= n; i++) {
+      for (let j = 0; i + j <= n; j++) {
+        const a = i / n, b = j / n, c = 1 - a - b;
+        weaponSamples.push([tri[0][0] * c + tri[1][0] * a + tri[2][0] * b, tri[0][1] * c + tri[1][1] * a + tri[2][1] * b, tri[0][2] * c + tri[1][2] * a + tri[2][2] * b]);
+      }
+    }
+  }
   const res = [0, 1].map(() => ({ review: 0, station: 0, axis: 0, contact: Infinity, contactV: Infinity, depth: 0, sMin: Infinity, sMax: -Infinity, wrist: 0 }));
   const dt = 1 / hz;
   let instants = 0;
@@ -2811,26 +2832,26 @@ export function measureGrip(path: string, clip: string, prefix: string, opts: Gr
       if (frameNo % 4 === 0) {
         const posedPieces = pieces[idx].map((pc) => {
           const m = matsOf.get(pc.pick)![pc.pick.skin.joints.indexOf(pc.joint)];
-          return pc.tris.map((tri) => tri.map((q) => xfPoint(Mi, xfPoint(m, q))) as V3t[]);
+          const tris = pc.tris.map((tri) => tri.map((q) => xfPoint(Mi, xfPoint(m, q))) as V3t[]);
+          let blo: V3t = [Infinity, Infinity, Infinity], bhi: V3t = [-Infinity, -Infinity, -Infinity];
+          for (const tri of tris) for (const v of tri) { blo = [Math.min(blo[0], v[0]), Math.min(blo[1], v[1]), Math.min(blo[2], v[2])]; bhi = [Math.max(bhi[0], v[0]), Math.max(bhi[1], v[1]), Math.max(bhi[2], v[2])]; }
+          return { tris, blo, bhi };
         });
-        const samples: V3t[] = [];
-        for (const tri of weaponTris) samples.push(tri[0], [(tri[0][0] + tri[1][0] + tri[2][0]) / 3, (tri[0][1] + tri[1][1] + tri[2][1]) / 3, (tri[0][2] + tri[1][2] + tri[2][2]) / 3]);
+        const samples = weaponSamples;
         for (const q of samples) {
           if (vlen(vsub(q, hc)) > 0.14) continue;
           for (const pc of posedPieces) {
+            if (q[0] < pc.blo[0] || q[1] < pc.blo[1] || q[2] < pc.blo[2] || q[0] > pc.bhi[0] || q[1] > pc.bhi[1] || q[2] > pc.bhi[2]) continue;
             // inside a closed piece: the majority of three rays cross its surface an odd number of times
-            let lo: V3t = [Infinity, Infinity, Infinity], hi: V3t = [-Infinity, -Infinity, -Infinity];
-            for (const tri of pc) for (const v of tri) { lo = [Math.min(lo[0], v[0]), Math.min(lo[1], v[1]), Math.min(lo[2], v[2])]; hi = [Math.max(hi[0], v[0]), Math.max(hi[1], v[1]), Math.max(hi[2], v[2])]; }
-            if (q[0] < lo[0] || q[1] < lo[1] || q[2] < lo[2] || q[0] > hi[0] || q[1] > hi[1] || q[2] > hi[2]) continue;
             let votes = 0;
             for (const d of INSIDE_RAYS) {
               let hits = 0;
-              for (const tri of pc) if (rayHitsTri(q, d, tri[0], tri[1], tri[2])) hits++;
+              for (const tri of pc.tris) if (rayHitsTri(q, d, tri[0], tri[1], tri[2])) hits++;
               if (hits % 2 === 1) votes++;
             }
             if (votes < 2) continue;
             let best = Infinity;
-            for (const tri of pc) best = Math.min(best, pointTriDist(q, tri[0], tri[1], tri[2]));
+            for (const tri of pc.tris) best = Math.min(best, pointTriDist(q, tri[0], tri[1], tri[2]));
             r.depth = Math.max(r.depth, best);
           }
         }
