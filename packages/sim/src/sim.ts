@@ -1575,6 +1575,19 @@ const MAX_STRUCTURES = 256;
 const MAX_WAYPOINTS = 8;
 /** `stance` values: 0 none, 1 ambush, 2 a `setStance{patrol}` beat (N3 Task 9). */
 const STANCE_PATROL = 2;
+/**
+ * The tiles a structure op flipped, per mask, for `recomputeFields`' incremental repair (GH-913 L2). Module
+ * scratch rather than `Sim` properties, like the flow-field queue: an op writes it and `recomputeFields` reads
+ * it inside one synchronous call, nothing carries it between ops, and a property would change what a snapshot
+ * has to describe. `flipDepth` > 1 means one op began inside another, so neither list can be trusted.
+ */
+let flipFoot = new Int32Array(0);
+let flipFootN = 0;
+let flipVeh = new Int32Array(0);
+let flipVehN = 0;
+let flipDepth = 0;
+let flipClash = false;
+
 /** Flow fields kept alive at once. Slots give every unit in an order its own
  *  goal tile (formation.ts), so a twelve-unit order can want twelve fields
  *  where it used to want one. Beyond this many, `fieldFor` reuses the
@@ -2820,7 +2833,16 @@ export class Sim {
    *  field through any path but `fieldRef` or `fieldFor`, so a dropped field is
    *  unobservable: the same bytes a full recompute would have left, computed
    *  later or never. */
-  private recomputeFields(): void {
+  private recomputeFields(change: 'all' | 'closed' | 'opened' = 'all'): void {
+    // A structure op that flipped tiles has recorded WHICH (`beginFlips`/`noteFlip`) and says which way.
+    // Every other caller (a wall set by hand, a boulder, a height) says 'all'. Two ops open at once means
+    // the lists describe neither, so that case recomputes in full too.
+    let repairable = change !== 'all';
+    if (repairable) {
+      if (flipClash) repairable = false;
+      flipDepth--;
+      if (flipDepth === 0) flipClash = false;
+    }
     const n = this.fields.length;
     if (n === 0) return;
     if (this.fieldLive.length < n) this.fieldLive = new Uint8Array(n);
@@ -2839,6 +2861,15 @@ export class Sim {
         if (live[idx] === 1) {
           // An air field reads nothing terrain can change; it stays as it is.
           if (d === DOMAIN_AIR) continue;
+          if (repairable) {
+            // Exact incremental repair (GH-913 L2): the same bytes `compute` would leave, for a cost
+            // proportional to what the change touches. A field whose mask did not flip is already right.
+            const veh = d === DOMAIN_VEHICLE && this.hasBoulders;
+            const flips = veh ? flipVeh : flipFoot;
+            const flipN = veh ? flipVehN : flipFootN;
+            if (flipN > 0) this.fields[idx].repair(mask, elev, flips, flipN, change === 'opened');
+            continue;
+          }
           const gx = goal % this.width;
           this.fields[idx].compute(mask, elev, gx, (goal - gx) / this.width);
         } else {
@@ -2848,6 +2879,39 @@ export class Sim {
         }
       }
     }
+  }
+
+  private beginFlips(tiles: number): void {
+    flipDepth++;
+    if (flipDepth > 1) {
+      flipClash = true;
+      return;
+    }
+    if (flipFoot.length < tiles) {
+      flipFoot = new Int32Array(tiles);
+      flipVeh = new Int32Array(tiles);
+    }
+    flipFootN = 0;
+    flipVehN = 0;
+  }
+
+  /**
+   * A structure op threw between `beginFlips` and `recomputeFields`. `flipDepth` is module state shared by
+   * every Sim in the process, so it is unwound here (a leak would make every later op look nested and fall
+   * back to a full recompute for good). Some tiles may already have flipped, and a half-written flip list
+   * describes nothing, so the fields are recomputed in full, as for any change that names no tiles.
+   */
+  private abortFlips(): void {
+    flipDepth--;
+    if (flipDepth === 0) flipClash = false;
+    this.recomputeFields();
+  }
+
+  /** Record tile `t` if the write that just happened changed what either mask says about it. */
+  private noteFlip(t: number, footWas: number, vehWas: number): void {
+    if (flipDepth !== 1) return;
+    if ((footWas !== 0) !== (this.blocked[t] !== 0)) flipFoot[flipFootN++] = t;
+    if (this.hasBoulders && (vehWas !== 0) !== (this.blockedVehicleMask[t] !== 0)) flipVeh[flipVehN++] = t;
   }
 
   /** The mask a unit of this domain STANDS on: what goals, slots and spreads
@@ -2908,6 +2972,10 @@ export class Sim {
     const type = this.structureTypes[typeIdx];
     if (type === undefined) throw new Error(`no structure type ${typeIdx}`);
     if (tiles.length === 0) throw new Error('structure has no tiles');
+    // Validated before anything is written: a throw after the tiles are blocked would leave the cached flow
+    // fields describing a map that no longer exists (GH-913 L2 repairs them, so they must stay exact).
+    const owner = opts?.owner ?? type.owner;
+    if (owner !== -1 && owner !== 0 && owner !== 1) throw new Error(`structure owner ${owner}, expected -1, 0 or 1`);
     const id = this.structureCount_++;
     const w = this.width;
     let minX = w;
@@ -2916,52 +2984,61 @@ export class Sim {
     let maxY = 0;
     let sumX = 0;
     let sumY = 0;
-    for (const t of tiles) {
-      const tx = t % w;
-      const ty = (t - tx) / w;
-      this.structureOfTile[t] = id;
-      this.blocked[t] = 1;
-      this.syncVehicleTile(t);
-      if (tx < minX) minX = tx;
-      if (ty < minY) minY = ty;
-      if (tx > maxX) maxX = tx;
-      if (ty > maxY) maxY = ty;
-      sumX += tx;
-      sumY += ty;
-    }
-    this.stTiles[id] = [...tiles];
-    this.stAlive[id] = 1;
-    this.stTypeIdx[id] = typeIdx;
-    this.stProducesFor[id] = type.producesFor;
-    const owner = opts?.owner ?? type.owner;
-    if (owner !== -1 && owner !== 0 && owner !== 1) throw new Error(`structure owner ${owner}, expected -1, 0 or 1`);
-    const progress = opts?.progress ?? ONE;
-    this.stOwner[id] = owner;
-    this.stProgress[id] = progress;
-    if (owner !== -1 || progress !== ONE) this.fwLive = true;
-    if (type.aid !== null) {
-      this.aidPosts++;
-      this.woundLive = true;
-    }
-    this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
-    this.stHp[id] = this.stMaxHp[id];
-    this.stOccupants[id] = 0;
-    // Centroid of the footprint, tile centres.
-    this.stCx[id] = fx.add(fx.div(fx.fromInt(sumX), fx.fromInt(tiles.length)), HALF);
-    this.stCy[id] = fx.add(fx.div(fx.fromInt(sumY), fx.fromInt(tiles.length)), HALF);
-    this.stMinX[id] = minX;
-    this.stMinY[id] = minY;
-    this.stMaxX[id] = maxX;
-    this.stMaxY[id] = maxY;
-    const sensor = type.aura === null ? null : type.aura.sensor;
-    if (sensor !== null && sensor.tunnelRadiusSq > 0) {
-      let mask = 0;
-      for (let r = 0; r < this.tunnelCount_; r++) {
-        if (this.routeWithin(id, r, sensor.tunnelRadiusSq)) mask |= 1 << r;
+    this.beginFlips(tiles.length);
+    let flipped = false;
+    try {
+      for (const t of tiles) {
+        const tx = t % w;
+        const ty = (t - tx) / w;
+        this.structureOfTile[t] = id;
+        const footWas = this.blocked[t];
+        const vehWas = this.blockedVehicleMask[t];
+        this.blocked[t] = 1;
+        this.syncVehicleTile(t);
+        this.noteFlip(t, footWas, vehWas);
+        if (tx < minX) minX = tx;
+        if (ty < minY) minY = ty;
+        if (tx > maxX) maxX = tx;
+        if (ty > maxY) maxY = ty;
+        sumX += tx;
+        sumY += ty;
       }
-      this.stRouteMask[id] = mask;
+      this.stTiles[id] = [...tiles];
+      this.stAlive[id] = 1;
+      this.stTypeIdx[id] = typeIdx;
+      this.stProducesFor[id] = type.producesFor;
+      const progress = opts?.progress ?? ONE;
+      this.stOwner[id] = owner;
+      this.stProgress[id] = progress;
+      if (owner !== -1 || progress !== ONE) this.fwLive = true;
+      if (type.aid !== null) {
+        this.aidPosts++;
+        this.woundLive = true;
+      }
+      this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
+      this.stHp[id] = this.stMaxHp[id];
+      this.stOccupants[id] = 0;
+      // Centroid of the footprint, tile centres.
+      this.stCx[id] = fx.add(fx.div(fx.fromInt(sumX), fx.fromInt(tiles.length)), HALF);
+      this.stCy[id] = fx.add(fx.div(fx.fromInt(sumY), fx.fromInt(tiles.length)), HALF);
+      this.stMinX[id] = minX;
+      this.stMinY[id] = minY;
+      this.stMaxX[id] = maxX;
+      this.stMaxY[id] = maxY;
+      const sensor = type.aura === null ? null : type.aura.sensor;
+      if (sensor !== null && sensor.tunnelRadiusSq > 0) {
+        let mask = 0;
+        for (let r = 0; r < this.tunnelCount_; r++) {
+          if (this.routeWithin(id, r, sensor.tunnelRadiusSq)) mask |= 1 << r;
+        }
+        this.stRouteMask[id] = mask;
+      }
+      flipped = true;
+    } finally {
+      // A throw inside the window must not leave `flipDepth` raised for the rest of the process.
+      if (!flipped) this.abortFlips();
     }
-    this.recomputeFields();
+    this.recomputeFields('closed');
     return id;
   }
 
@@ -3000,16 +3077,27 @@ export class Sim {
     this.stHp[s] = 0;
     this.stChargeTicks[s] = 0; // a cancelled site takes any charge on it along (E6 G1)
     this.stChargeBy[s] = -1;
-    for (const t of this.stTiles[s]) {
-      this.blocked[t] = 0;
-      // A boulder under the same tile does not stop being a boulder.
-      this.syncVehicleTile(t);
-      this.structureOfTile[t] = -1;
+    this.beginFlips(this.stTiles[s].length);
+    let flipped = false;
+    try {
+      for (const t of this.stTiles[s]) {
+        const footWas = this.blocked[t];
+        const vehWas = this.blockedVehicleMask[t];
+        this.blocked[t] = 0;
+        // A boulder under the same tile does not stop being a boulder.
+        this.syncVehicleTile(t);
+        this.noteFlip(t, footWas, vehWas);
+        this.structureOfTile[t] = -1;
+      }
+      for (let i = 0; i < this.count; i++) {
+        if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
+      }
+      flipped = true;
+    } finally {
+      // A throw inside the window must not leave `flipDepth` raised for the rest of the process.
+      if (!flipped) this.abortFlips();
     }
-    for (let i = 0; i < this.count; i++) {
-      if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
-    }
-    this.recomputeFields();
+    this.recomputeFields('opened');
   }
 
   /**
@@ -11041,30 +11129,41 @@ export class Sim {
     this.stChargeTicks[s] = 0;
     this.stChargeBy[s] = -1;
     const rubble = this.structureTypes[this.stTypeIdx[s]].rubbleCover;
-    for (const t of this.stTiles[s]) {
-      this.blocked[t] = 0;
-      // A collapsed building leaves rubble a vehicle can cross; a boulder
-      // under the same tile does not stop being a boulder.
-      this.syncVehicleTile(t);
-      this.cover[t] = rubble;
-    }
-    this.pendingEvents.push({ kind: 'structureDestroyed', tick: this.tickCount, structure: s, by });
-    for (let i = 0; i < this.count; i++) {
-      if (this.alive[i] === 0) continue;
-      if (this.garrisonedIn[i] === s) {
-        this.garrisonedIn[i] = -1;
-        this.destroy(i, by);
-        continue;
+    this.beginFlips(this.stTiles[s].length);
+    let flipped = false;
+    try {
+      for (const t of this.stTiles[s]) {
+        const footWas = this.blocked[t];
+        const vehWas = this.blockedVehicleMask[t];
+        this.blocked[t] = 0;
+        // A collapsed building leaves rubble a vehicle can cross; a boulder
+        // under the same tile does not stop being a boulder.
+        this.syncVehicleTile(t);
+        this.noteFlip(t, footWas, vehWas);
+        this.cover[t] = rubble;
       }
-      if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
-      // Everyone nearby eats the shock of a building coming down.
-      const d = distSqFx(fx.sub(this.posX[i], this.stCx[s]), fx.sub(this.posY[i], this.stCy[s]));
-      if (d <= COLLAPSE_SHOCK_SQ) {
-        this.applySuppression(i, COLLAPSE_SHOCK, false, by >= 0 ? this.side[by] : -1, this.stCx[s], this.stCy[s]);
+      this.pendingEvents.push({ kind: 'structureDestroyed', tick: this.tickCount, structure: s, by });
+      for (let i = 0; i < this.count; i++) {
+        if (this.alive[i] === 0) continue;
+        if (this.garrisonedIn[i] === s) {
+          this.garrisonedIn[i] = -1;
+          this.destroy(i, by);
+          continue;
+        }
+        if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
+        // Everyone nearby eats the shock of a building coming down.
+        const d = distSqFx(fx.sub(this.posX[i], this.stCx[s]), fx.sub(this.posY[i], this.stCy[s]));
+        if (d <= COLLAPSE_SHOCK_SQ) {
+          this.applySuppression(i, COLLAPSE_SHOCK, false, by >= 0 ? this.side[by] : -1, this.stCx[s], this.stCy[s]);
+        }
       }
+      this.stOccupants[s] = 0;
+      flipped = true;
+    } finally {
+      // A throw inside the window must not leave `flipDepth` raised for the rest of the process.
+      if (!flipped) this.abortFlips();
     }
-    this.stOccupants[s] = 0;
-    this.recomputeFields();
+    this.recomputeFields('opened');
   }
 
   private destroy(target: number, by: number): void {

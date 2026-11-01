@@ -1,6 +1,12 @@
 // What does one `recomputeFields` cost with the flow-field pool FULL? (#277 Task 3)
 //
-//   pnpm perf:recompute [-- --map=beit_sahwan_outskirts --runs=50 --live=128]
+//   pnpm perf:recompute [-- --map=beit_sahwan_outskirts --runs=50 --live=128 --scale=80 --spot=centre]
+//
+// `--scale=N` stretches the map (nearest neighbour, in memory, as the GH-913 probes do) to N x N, so the
+// 80x80 case of the large-map design can be measured without a map on disk. `--spot=first|centre` is
+// where the 2x2 goes: the first open one scanning from the top-left (the original reading), or the one
+// nearest the middle of the map. Since GH-913 L2 a stake REPAIRS the followed fields instead of
+// recomputing them, so the cost depends on where the stake falls; read both spots.
 //
 // Raising or removing a structure recomputes EVERY cached field (`addStructure`
 // ends in `recomputeFields`). The pool is capped at MAX_FLOW_FIELDS (128), so
@@ -12,6 +18,7 @@
 // goal tile, one tick. The tool asserts `flowFieldCount === 128` and that the
 // map is the size it claims, so a harness that quietly measured an empty pool
 // cannot print a number. Timing lives here, in tools/, never in the sim.
+import { loadavg } from 'node:os';
 import { Sim, fx } from '@lions/sim';
 import { units, maps, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
 
@@ -28,19 +35,36 @@ const runs = Number(arg('runs', '50'));
 // CACHED but unreferenced, which is what lazy invalidation can skip.
 const live = Number(arg('live', '128'));
 
-const map = parseMap(maps[mapId]);
-if (map.width !== 48 || map.height !== 48) throw new Error(`${mapId} is ${map.width}x${map.height}, expected 48x48`);
+const scale = Number(arg('scale', '0'));
+const spotMode = arg('spot', 'first');
+const parsed = parseMap(maps[mapId]);
+if (scale === 0 && (parsed.width !== 48 || parsed.height !== 48)) throw new Error(`${mapId} is ${parsed.width}x${parsed.height}, expected 48x48 (or pass --scale=N)`);
+const map = scale === 0 ? parsed : { ...parsed, width: scale, height: scale };
 const sim = new Sim({ seed: 1, width: map.width, height: map.height, capacity: 256 });
-applyTerrain(map, sim);
 
 const structIdx = new Map<string, number>();
 for (const [sid, spec] of Object.entries(structureCatalogue)) {
   structIdx.set(sid, sim.addStructureType(spec as Parameters<typeof sim.addStructureType>[0]));
 }
-for (const b of map.structures) {
-  const ti = structIdx.get(b.type);
-  if (ti === undefined) throw new Error(`unknown structure type ${b.type}`);
-  sim.addStructure(ti, b.tiles);
+if (scale === 0) {
+  applyTerrain(parsed, sim);
+  for (const b of parsed.structures) {
+    const ti = structIdx.get(b.type);
+    if (ti === undefined) throw new Error(`unknown structure type ${b.type}`);
+    sim.addStructure(ti, b.tiles);
+  }
+} else {
+  // Nearest-neighbour stretch at tile centres. Buildings become plain walls (their tiles are already in `blocked`).
+  const k = scale / parsed.width;
+  const at = (v: number, n: number): number => Math.min(n - 1, Math.floor((v + 0.5) / k));
+  for (let y = 0; y < scale; y++) {
+    for (let x = 0; x < scale; x++) {
+      const src = at(y, parsed.height) * parsed.width + at(x, parsed.width);
+      if (parsed.blocked[src] !== 0) sim.setBlocked(x, y, true);
+      else if (parsed.boulder[src] !== 0) sim.setBoulder(x, y, true);
+      if (parsed.elevation[src] !== 0) sim.setElevation(x, y, parsed.elevation[src]);
+    }
+  }
 }
 
 const rifle = Object.values(units).find((u) => u.role === 'infantry');
@@ -72,12 +96,20 @@ for (const id of ids.slice(live)) sim.debugKill(id);
 
 // A 2x2 on open ground whose four tiles are all open (scan, top-left first).
 let spot = -1;
-for (let y = 1; y < map.height - 2 && spot < 0; y++) {
+let spotDist = Infinity;
+for (let y = 1; y < map.height - 2 && (spot < 0 || spotMode === 'centre'); y++) {
   for (let x = 1; x < map.width - 2; x++) {
     const t = y * map.width + x;
     if (sim.blocked[t] === 0 && sim.blocked[t + 1] === 0 && sim.blocked[t + map.width] === 0 && sim.blocked[t + map.width + 1] === 0) {
-      spot = t;
-      break;
+      const dist = (x - map.width / 2) ** 2 + (y - map.height / 2) ** 2;
+      if (spotMode !== 'centre') {
+        spot = t;
+        break;
+      }
+      if (dist < spotDist) {
+        spotDist = dist;
+        spot = t;
+      }
     }
   }
 }
@@ -88,16 +120,26 @@ if (typeIdx === undefined) throw new Error('no structure type');
 
 const addMs: number[] = [];
 const removeMs: number[] = [];
+// CPU time alongside wall time: on a loaded machine the wall clock includes time this process spent
+// waiting for a core, and the CPU clock mostly does not. Report both; trust neither alone.
+const addCpu: number[] = [];
+const removeCpu: number[] = [];
+const cpuMs = (a: NodeJS.CpuUsage, b: NodeJS.CpuUsage): number => (b.user + b.system - a.user - a.system) / 1e3;
 for (let r = 0; r < runs + 3; r++) {
+  const c0 = process.cpuUsage();
   const t0 = process.hrtime.bigint();
   const s = sim.addStructure(typeIdx, tiles);
   const t1 = process.hrtime.bigint();
+  const c1 = process.cpuUsage();
   sim.removeStructure(s);
   const t2 = process.hrtime.bigint();
+  const c2 = process.cpuUsage();
   if (r >= 3) {
     // three warm-up runs dropped (JIT)
     addMs.push(Number(t1 - t0) / 1e6);
     removeMs.push(Number(t2 - t1) / 1e6);
+    addCpu.push(cpuMs(c0, c1));
+    removeCpu.push(cpuMs(c1, c2));
   }
 }
 
@@ -107,7 +149,10 @@ function pct(a: number[], p: number): number {
 }
 const line = (name: string, a: number[]) =>
   `${name}: median ${pct(a, 0.5).toFixed(3)} ms, p95 ${pct(a, 0.95).toFixed(3)} ms, max ${Math.max(...a).toFixed(3)} ms (n=${a.length})`;
-console.log(`map ${mapId} ${map.width}x${map.height}, ${sim.flowFieldCount} fields cached, ${Math.min(live, MAX_FLOW_FIELDS)} followed, node ${process.version}`);
+console.log(`map ${mapId}${scale === 0 ? '' : ` stretched to ${scale}x${scale}`} ${map.width}x${map.height}, 2x2 at ${spotMode} (${spot % map.width},${Math.floor(spot / map.width)}), ${sim.flowFieldCount} fields cached, ${Math.min(live, MAX_FLOW_FIELDS)} followed, node ${process.version}`);
 console.log(line('addStructure 2x2   ', addMs));
 console.log(line('removeStructure 2x2', removeMs));
+console.log(line('  cpu time add   ', addCpu));
+console.log(line('  cpu time remove', removeCpu));
+console.log(`load average ${loadavg().map((x) => x.toFixed(1)).join(' ')}`);
 console.log(pct(addMs, 0.5) > 10 ? 'median > 10 ms: lazy invalidation IS needed' : 'median <= 10 ms: lazy invalidation not needed');

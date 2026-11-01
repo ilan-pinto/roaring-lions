@@ -29,6 +29,7 @@
     "perf:load": "pnpm --filter @lions/tools perf:load",
     "perf:memory": "pnpm --filter @lions/tools perf:memory",
     "perf:recompute": "pnpm --filter @lions/tools perf:recompute",
+    "perf:flowfield": "pnpm --filter @lions/tools perf:flowfield",
     "perf:lowend": "pnpm --filter @lions/tools perf:lowend",
     "perf:bloom-census": "pnpm --filter @lions/tools perf:bloom-census",
     "perf:fx": "pnpm --filter @lions/tools perf:fx",

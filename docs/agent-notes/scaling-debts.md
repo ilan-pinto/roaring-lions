@@ -109,6 +109,23 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   `flow-field cache` tests pin that the pool may still exceed it when every
   field is live, or when the only unreferenced fields were issued this tick.
   No shipped mission has been measured to reach it.
+- **A flow field is cheaper to make and to keep right, since GH-913 (L1, L2).** Both are EXACT: no pin moved.
+  - **L1, the compute.** `FlowField.compute` runs on a bucket ring (Dial's algorithm) instead of a binary heap.
+    The old heap broke cost ties by tile index and `dirs` kept the first parent to reach a tile's final cost,
+    so the bucket version states that tie where it happens (`compute`, the `nc === cn` branch).
+    `tools/src/flowfield_exact.test.ts` holds the live code to a frozen copy of the heap
+    (`tools/src/flowfield_oracle.ts`, never edit it) on every shipped map, 80x80 stretches and random
+    terrain. `pnpm perf:flowfield` reads 2.2x to 3.1x at 80x80.
+  - **L2, the upkeep.** `addStructure`, `removeStructure` and a collapse no longer recompute every followed
+    field: `FlowField.repair` fixes only what the flipped tiles changed (a closing re-seeds the tiles whose
+    every route ran through it, an opening relaxes outward while costs fall) and re-derives `dirs` from the
+    finished costs. It gives up and calls `compute` when the goal is involved or more than a quarter of the
+    map would be touched. `tools/src/flowfield_repair.test.ts` compares every cached field with the oracle
+    after every op. `setBlocked`, `setBoulder` and `setElevation` still recompute in full (map load, no
+    fields yet). The rules a change will get wrong: `dirs` is a function of the finished costs
+    (lowest-cost, then lowest-index parent), so a repair has to re-derive it for every neighbour of a
+    changed cost; an op that begins inside another op falls back to a full recompute (`flipClash`);
+    and the repair's scratch (about 30 bytes a cell) is allocated on the first repair, not at boot.
 
 <!-- CLAUDE.md lines 2486-2492, section "Known scaling debts" -->
 
