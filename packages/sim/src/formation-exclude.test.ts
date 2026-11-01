@@ -414,3 +414,33 @@ describe('sim-guard round 2', () => {
   });
 });
 
+// sim-guard round 3: the SHIPPED attack.json (legs false), and the same file with legs on, against the two-command sequence, appended or not.
+// `eqWorld` registers the three shipped files; the Attack is the file as it ships, or with its checkpoints put back.
+interface EqP { wpCount: Uint8Array; fmGroup: Int8Array; wpX: Int32Array; wpY: Int32Array; goalX: Int32Array; goalY: Int32Array }
+function eqWorld(nAir: number, legs: boolean) {
+  const sim = new Sim({ seed: 0x859, width: 48, height: 48, capacity: 64 });
+  const mbt = sim.addUnitType(MBT); const inf = sim.addUnitType(RIFLES); const air = sim.addUnitType(AIR);
+  for (const f of shippedFormations()) sim.addFormationType(f.id === 'attack' && legs ? { ...f, march: { legs: true, leg_tiles: 8, pace: 'none', dress_s: 3 } } : f);
+  return {
+    sim,
+    ground: [...[0, 1].map(() => sim.spawn(mbt, 0, at(24), at(40), 0)), ...[0, 1, 2].map(() => sim.spawn(inf, 0, at(24), at(40), 0))],
+    air: Array.from({ length: nAir }, () => sim.spawn(air, 0, at(20), at(42), 0)),
+  };
+}
+const eqCmd = (sim: Sim, ids: number[], formation?: string, append?: boolean) =>
+  sim.queueCommand({ kind: 'attackMove', ids, x: at(24), y: at(24), ...(formation ? { formation } : {}), ...(append ? { append: true } : {}) } as never);
+for (const legs of [false, true]) for (const append of [false, true]) describe(`legs=${legs} append=${append}`, () => {
+  it('one command == two commands, hash for 200 ticks', () => {
+    const one = eqWorld(3, legs); const two = eqWorld(3, legs);
+    if (append) { for (const w of [one, two]) { w.sim.queueCommand({ kind: 'move', ids: [...w.ground, ...w.air], x: at(30), y: at(36) } as never); w.sim.tick(); } }
+    eqCmd(one.sim, [...one.ground, ...one.air], 'attack', append);
+    eqCmd(two.sim, two.ground, 'attack', append); eqCmd(two.sim, two.air, undefined, append);
+    one.sim.tick(); two.sim.tick();
+    const p = one.sim as unknown as EqP;
+    for (const id of one.air) expect(p.fmGroup[id]).toBe(-1);
+    if (!legs && !append) for (const id of one.ground) expect(p.wpCount[id]).toBe(0);
+    if (legs && !append) expect(p.wpCount[one.ground[0]]).toBeGreaterThan(0);
+    for (let t = 0; t < 200; t++) { one.sim.tick(); two.sim.tick(); expect(one.sim.hash()).toBe(two.sim.hash()); }
+  });
+});
+

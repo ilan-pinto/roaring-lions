@@ -250,7 +250,8 @@ export interface LegendRow {
 /** The legend's class rows, present classes only, in class order. */
 export function formationLegendRows(counts: Partial<Record<LegendClass, number>>, id?: FormationId): LegendRow[] {
   // With a formation named, the classes it leaves out are not listed: the schematic seats none of them (GH-859).
-  const left = (c: LegendClass): boolean => id !== undefined && c !== 'ccp' && formationLeavesOut(id, FORMATION_CLASSES.indexOf(c));
+  // An ambulance is a medic-class unit (the sim's class), so it is left out with the medics.
+  const left = (c: LegendClass): boolean => id !== undefined && formationLeavesOut(id, FORMATION_CLASSES.indexOf(c === 'ccp' ? 'medic' : c));
   return LEGEND_CLASSES.filter((c) => (counts[c] ?? 0) > 0 && !left(c)).map((cls) => ({ cls, label: t(`formation.class.${cls}`), n: counts[cls] ?? 0 }));
 }
 /** The extra legend line: the attack's click, the ambush's kill zone, none for the column. */
