@@ -74,6 +74,11 @@ describe('play', () => {
     expect(play('tel_marum', ['kdf', 'kdf'], seedOf(0), { capTicks: 40, cutSide: 1 })).toEqual({ winner: 0, by: 'cap', ticks: 40 });
     expect(play('tel_marum', ['kdf', 'kdf'], seedOf(0), { capTicks: 40, cutSide: 0 })).toEqual({ winner: 1, by: 'cap', ticks: 40 });
   });
+  it('GH-913 L8: the cap rule is asked at the MAP\'s cap: a 35-minute map reads at 42,000 ticks, not the default 30,000, so a stood-down game is decided and not left ongoing', () => {
+    // Without the per-map cap the final read is `outcomeOf(sim, 30000)` against a 42,000-tick cap: ongoing, and play() throws.
+    expect(play('rujm_sawda', ['kdf', 'kdf'], seedOf(0), { capTicks: 40 })).toEqual({ winner: null, by: 'cap', ticks: 40 });
+    expect(play('rujm_sawda', ['kdf', 'kdf'], seedOf(0), { capTicks: 40, cutSide: 1 })).toEqual({ winner: 0, by: 'cap', ticks: 40 });
+  });
   it('a side cut to one unit loses to the other by annihilation, on each spawn: the sides are told apart', () => {
     for (const map of VERSUS_FAIR_MAPS) {
       expect(play(map as MapId, ['kdf', 'kdf'], seedOf(0), { cutSide: 1 })).toMatchObject({ winner: 0, by: 'annihilation' });

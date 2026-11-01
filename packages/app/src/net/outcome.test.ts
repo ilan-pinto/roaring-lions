@@ -93,6 +93,13 @@ describe('outcomeOf (spec §2.3, version one)', () => {
   it('is 25 minutes of 20 Hz ticks', () => {
     expect(MATCH_CAP_TICKS).toBe(30_000);
   });
+
+  it('GH-913 L8: takes the cap as an argument, defaulting to 25 minutes', () => {
+    const sim = world([[0, 1, 0], [1, 1, 0]]);
+    expect(outcomeOf(sim, 42_000, costOf, undefined, 42_000)).toEqual({ kind: 'draw', by: 'time', forces: [300, 300] });
+    expect(outcomeOf(sim, 41_999, costOf, undefined, 42_000)).toEqual({ kind: 'ongoing' });
+    expect(outcomeOf(sim, 30_000, costOf, undefined, 42_000)).toEqual({ kind: 'ongoing' });
+  });
 });
 
 // The lead's ruling (2026-10-13): a stalemate, and the time limit, are
@@ -227,6 +234,17 @@ describe('hashTickOutcome: decided on hash ticks only, so both seats stop on the
     const standing = { ...world([[0, 1, 0], [1, 1, 0]]), tickCount: MATCH_CAP_TICKS };
     // Equal mirror forces at the cap: a draw on time (the unit data knows neither test type, so both read 0).
     expect(hashTickOutcome(MATCH_CAP_TICKS - 1, cfg, standing)).toEqual({ kind: 'draw', by: 'time', forces: [0, 0] });
+  });
+  it('GH-913 L8: the cap is the MAP\'s: 25 minutes anywhere, 35 on Rujm Sawda (a draw on time only at 42,000 ticks)', () => {
+    const rujm = { hashEveryTicks: 20, map: 'rujm_sawda' } as MatchConfig;
+    const wadi = { hashEveryTicks: 20, map: 'wadi_tarfan' } as MatchConfig;
+    const atOld = { ...world([[0, 1, 0], [1, 1, 0]]), tickCount: MATCH_CAP_TICKS };
+    // At the old cap Wadi Tarfan ends on time and Rujm Sawda plays on.
+    expect(hashTickOutcome(MATCH_CAP_TICKS - 1, wadi, atOld)).toEqual({ kind: 'draw', by: 'time', forces: [0, 0] });
+    expect(hashTickOutcome(MATCH_CAP_TICKS - 1, rujm, atOld)).toBeNull();
+    // ...one frame before the Rujm cap, still going; on it, a draw on time.
+    expect(hashTickOutcome(41_979, rujm, { ...atOld, tickCount: 41_999 })).toBeNull();
+    expect(hashTickOutcome(41_999, rujm, { ...atOld, tickCount: 42_000 })).toEqual({ kind: 'draw', by: 'time', forces: [0, 0] });
   });
   it('an ongoing match and a room with no config are null', () => {
     expect(hashTickOutcome(19, cfg, { ...world([[0, 1, 0], [1, 1, 0]]), tickCount: 20 })).toBeNull();

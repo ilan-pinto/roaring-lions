@@ -484,6 +484,8 @@ export function build() {
     map: ID,
     // GH-913 L3: the large map's room holds 512 entities (design section 2.6).
     capacity: 512,
+    // GH-913 L8: a 35-minute match cap (design section 4); the Worker's command-log cap scales with it.
+    cap_minutes: 35,
     ends: {
       friendly: { camp: { at: [8, 8], size: [2, 2] } },
       hostile: { camp: { at: mirrorRect([8, 8, 2, 2]).slice(0, 2), size: [2, 2] } },

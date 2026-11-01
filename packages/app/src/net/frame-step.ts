@@ -128,7 +128,7 @@ export function seatWorldFor(
     // versus room while the gate is closed (the lead's ruling, 29 Oct), so a forced or stale client's formation order drops
     // on both machines. The protocol still carries the field; P1b opens the gate.
     formationAllowed: (seat: Seat, id: string) =>
-      formationsOpenIn(config?.mode, versusFormationsOpen) && formationFielded(formations, config?.seats[seat].faction ?? 'kdf', id),
+      formationsOpenIn(config?.mode, versusFormationsOpen, config?.map) && formationFielded(formations, config?.seats[seat].faction ?? 'kdf', id),
     sideOfEntity: (id: number) => (Number.isInteger(id) && id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
   };
 }

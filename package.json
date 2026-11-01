@@ -52,6 +52,7 @@
     "agent": "pnpm --silent --filter @lions/tools agent",
     "arena": "pnpm --filter @lions/tools arena",
     "net:rejoin-measure": "pnpm --filter @lions/tools net:rejoin-measure",
+    "net:budget": "pnpm --filter @lions/tools net:budget",
     "blast:capture": "pnpm --filter @lions/tools blast:capture",
     "smoke-outline:capture": "pnpm --filter @lions/tools smoke-outline:capture",
     "support:capture": "pnpm --filter @lions/tools support:capture",

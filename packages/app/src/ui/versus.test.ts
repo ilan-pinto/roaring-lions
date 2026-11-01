@@ -283,6 +283,24 @@ describe('showVersus (/versus)', () => {
     expect(note.hidden).toBe(true);
   });
 
+  it('GH-913 L8: Rujm Sawda is a mirror-only map with a lobby card: 80 x 80, "Mirror only", greyed out for a faction pick', () => {
+    const rujm = { id: 'rujm_sawda', label: (maps as Record<string, { name: string }>).rujm_sawda!.name };
+    const stage = mountPick(deps({ maps: [...MAPS, rujm] }));
+    expect(enabledMaps(stage)).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'tel_marum', 'wadi_tarfan', 'rujm_sawda']);
+    expect(describedBy(mapRadio(stage, 'rujm_sawda'))).toBe('Mirror only');
+    pick(mapRadio(stage, 'rujm_sawda'));
+    const card = stage.querySelector<HTMLElement>('.rl-versus__mapcard')!;
+    expect(card.querySelector('.rl-versus__mapcard-name')?.textContent).toBe('Rujm Sawda');
+    expect(card.querySelector('.rl-versus__mapcard-desc')?.textContent).toMatch(/\blarge\b/i);
+    expect(card.textContent).toContain('80 × 80 tiles');
+    expect(card.querySelector('.rl-versus__chip[data-kind="quiet"]')?.textContent).toBe('Mirror only');
+    expect(card.querySelector('.rl-versus__pic-canvas, .rl-versus__pic')).not.toBeNull();
+    pick(sideRadio(stage, 'sarim'));
+    expect(enabledMaps(stage)).toEqual(['tel_marum', 'wadi_tarfan']);
+    expect(mapRadio(stage, 'rujm_sawda').disabled).toBe(true);
+    expect(describedBy(mapRadio(stage, 'rujm_sawda'))).toBe('Mirror only: pick Mirror to play here');
+  });
+
   it('N3 Task 6: the KDF-v-Sarim options say the economy is on; the mirror says nothing of it', () => {
     const stage = mountPick(deps());
     const note = stage.querySelector<HTMLElement>('.rl-versus__matchup-note')!;

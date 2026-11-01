@@ -212,9 +212,11 @@ export function roomOrderSink(
   sink: CommandSink,
   onBlocked: () => void,
   mode: 'versus' | 'sandbox' | undefined,
-  versusFormationsOpen?: boolean
+  versusFormationsOpen?: boolean,
+  /** The room's map (`config.map`): a map in `VERSUS_FORMATIONS_CLOSED_MAPS` strips formations whatever the gate says (GH-913 L8). */
+  map?: string
 ): CommandSink {
-  const open = formationsOpenIn(mode, versusFormationsOpen);
+  const open = formationsOpenIn(mode, versusFormationsOpen, map);
   return {
     queueCommand(cmd) {
       if (ordersWait(status())) onBlocked();

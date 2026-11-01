@@ -23,6 +23,8 @@ export interface VersusRulesJson {
   readonly map: string;
   /** GH-913 L3: the room's entity capacity (`VERSUS_CAPACITY_DEFAULT` when absent). */
   readonly capacity?: number;
+  /** GH-913 L8: the match cap in minutes (`VERSUS_CAP_MINUTES_DEFAULT` when absent). */
+  readonly cap_minutes?: number;
   readonly ends: { readonly friendly: VersusEndJson; readonly hostile: VersusEndJson };
   readonly tunnels?: { readonly friendly?: readonly VersusTunnelJson[]; readonly hostile?: readonly VersusTunnelJson[] };
   readonly zones?: Readonly<Record<string, readonly number[]>>;
@@ -47,6 +49,29 @@ export function versusCapacityOf(rules: VersusRulesJson | undefined): number {
   if (c === undefined) return VERSUS_CAPACITY_DEFAULT;
   if (!Number.isInteger(c) || c < VERSUS_CAPACITY_MIN || c > VERSUS_CAPACITY_MAX) {
     throw new Error(`versus rules "${rules?.id}": capacity ${c} is outside ${VERSUS_CAPACITY_MIN}..${VERSUS_CAPACITY_MAX}`);
+  }
+  return c;
+}
+
+/** The match cap, in minutes, of a versus room whose rules file declares none (GH-913 L8). The cap
+ *  rule itself (`outcomeOf`) lives in the app and reads `@lions/net`'s `matchCapMinutes`, which is
+ *  pinned to this by `tools/src/validate_versus_rules.test.ts`. */
+export const VERSUS_CAP_MINUTES_DEFAULT = 25;
+/** The range a rules file's `cap_minutes` may take (the schema's own bounds). */
+export const VERSUS_CAP_MINUTES_MIN = 25;
+export const VERSUS_CAP_MINUTES_MAX = 60;
+
+/**
+ * The match cap, in minutes, of the room played on a map with these rules (GH-913 L8): the file's
+ * `cap_minutes`, else `VERSUS_CAP_MINUTES_DEFAULT`. `undefined` rules (a mirror-only map with no rules
+ * file) get the default. Throws on a value outside the schema's range, which `validate:data` would
+ * have refused.
+ */
+export function versusCapMinutesOf(rules: VersusRulesJson | undefined): number {
+  const c = rules?.cap_minutes;
+  if (c === undefined) return VERSUS_CAP_MINUTES_DEFAULT;
+  if (!Number.isInteger(c) || c < VERSUS_CAP_MINUTES_MIN || c > VERSUS_CAP_MINUTES_MAX) {
+    throw new Error(`versus rules "${rules?.id}": cap_minutes ${c} is outside ${VERSUS_CAP_MINUTES_MIN}..${VERSUS_CAP_MINUTES_MAX}`);
   }
   return c;
 }

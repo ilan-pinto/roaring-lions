@@ -285,6 +285,10 @@ export {
 export {
   versusMissionOf,
   versusCapacityOf,
+  versusCapMinutesOf,
+  VERSUS_CAP_MINUTES_DEFAULT,
+  VERSUS_CAP_MINUTES_MIN,
+  VERSUS_CAP_MINUTES_MAX,
   VERSUS_CAPACITY_DEFAULT,
   VERSUS_CAPACITY_MIN,
   VERSUS_CAPACITY_MAX,

@@ -55,6 +55,9 @@ export interface LocalRelay {
   origin: string;
   /** The listening server, for its address. */
   server: Server;
+  /** The fake Durable Object state of the room with this code, or undefined: how a measuring tool reads the
+   *  rows written (`storage.rowsWritten`), the stored batches and the snapshot row (GH-913 L8). Read-only use. */
+  stateOf(code: string): FakeState | undefined;
   /** Closes every socket, stops every room's clock and alarm, and frees the port. Idempotent. */
   close(): Promise<void>;
 }
@@ -323,7 +326,7 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
     })();
     return closed;
   };
-  return { url: origin, origin, server, close };
+  return { url: origin, origin, server, stateOf: (code: string) => hosted.get(code.toUpperCase())?.state, close };
 }
 
 /** The relay, with a ticket secret minted here, in memory: 32 random bytes,

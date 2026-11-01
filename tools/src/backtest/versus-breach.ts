@@ -60,14 +60,14 @@
 import { fileURLToPath } from 'node:url';
 import { BRACE_NONE, type Sim } from '@lions/sim';
 import { maps, type MapId } from '@lions/data';
-import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, validateConfig, type Faction, type MatchConfig } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, matchCapTicks, validateConfig, type Faction, type MatchConfig } from '@lions/net';
 import type { SandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { hostileFacing } from '../../../packages/app/src/sandbox-facing';
 import { placeOnOpen } from '../../../packages/app/src/sandbox-place';
 import { versusForceOf } from '../../../packages/app/src/net/versus-force';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
-import { MATCH_CAP_TICKS, forcesOf, outcomeOf, type MatchResult } from '../../../packages/app/src/net/outcome';
+import { forcesOf, outcomeOf, type MatchResult } from '../../../packages/app/src/net/outcome';
 import { CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, ORDER_EVERY_TICKS, SEEDS_DEFAULT, centroid, seedOf, world, type Finish } from './versus-probe';
 
 const TICKS_PER_SECOND = 20;
@@ -209,6 +209,7 @@ export interface CampOptions {
 /** One game in one arm: the versus probe's play, ordered and read by camp. */
 export function playCamps(mapId: MapId, factionsByCamp: readonly [Faction, Faction], seed: number, arm: Arm, opts: CampOptions = {}): CampGame {
   const capTicks = opts.capTicks ?? CAP_TICKS_DEFAULT;
+  const roomCap = matchCapTicks(mapId);
   const { sim, typeOf, map } = world(mapId, seed, opts.humanHeld);
   const camps = spawnCamps(sim, typeOf, versusAnchors(map), factionsByCamp, arm);
   const sideOf = sidesOf(arm);
@@ -234,11 +235,11 @@ export function playCamps(mapId: MapId, factionsByCamp: readonly [Faction, Facti
     }
     counter.fold(sim.tick());
     if (sim.tickCount % DECIDE_EVERY_TICKS === 0) {
-      const o = outcomeOf(sim, sim.tickCount);
+      const o = outcomeOf(sim, sim.tickCount, undefined, undefined, roomCap);
       if (o.kind !== 'ongoing') return finish(o);
     }
   }
-  const o = outcomeOf(sim, MATCH_CAP_TICKS);
+  const o = outcomeOf(sim, roomCap, undefined, undefined, roomCap);
   if (o.kind === 'ongoing') throw new Error('the cap rule left a game ongoing');
   return finish(o);
 }
