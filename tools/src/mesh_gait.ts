@@ -52,6 +52,8 @@ type Gltf = {
   accessors?: { bufferView?: number; byteOffset?: number; componentType: number; count: number; type: string }[];
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
   materials?: unknown[];
+  /** The baked skin of a Meshy-cut team: one embedded image (`mesh_figures.ts` reads its texels). */
+  images?: { bufferView?: number; mimeType?: string }[];
   /** `pnpm gait:meshes` writes `rl_gait` onto the scene's own extras, and
    *  the renderer reads it from there (`parseGaitExtras`). Declared here so
    *  a node-side gate can read the SHIPPED declaration rather than a
@@ -141,7 +143,7 @@ function readAccessorUncached(glb: GlbFile, index: number): { data: Float64Array
   return { data: out, components: comps, count: acc.count };
 }
 
-type Mat4 = Float64Array;
+export type Mat4 = Float64Array;
 
 /** Column-major, glTF's own convention, so a `matrix` array can be used raw. */
 function multiply(a: Mat4, b: Mat4): Mat4 {
@@ -185,7 +187,7 @@ function slerp(a: number[], b: number[], t: number): number[] {
   return [a[0] * s0 + bb[0] * s1, a[1] * s0 + bb[1] * s1, a[2] * s0 + bb[2] * s1, a[3] * s0 + bb[3] * s1];
 }
 
-interface Track {
+export interface Track {
   readonly times: Float64Array;
   readonly values: Float64Array;
   readonly components: number;
@@ -193,7 +195,7 @@ interface Track {
 }
 
 /** Every animated node property of one clip, keyed `${node}:${path}`. */
-function readClip(glb: GlbFile, name: string): { tracks: Map<string, Track>; start: number; end: number } {
+export function readClip(glb: GlbFile, name: string): { tracks: Map<string, Track>; start: number; end: number } {
   const anim = glb.json.animations?.find((a) => a.name === name);
   if (!anim) throw new Error(`clip "${name}" not in file`);
   const tracks = new Map<string, Track>();
@@ -236,7 +238,7 @@ function sampleTrack(tr: Track, t: number): number[] {
 /** World matrix per node at clip time `t`, resolved through the whole
  *  hierarchy (a joint's parent may itself be animated -- reading a joint's
  *  own channel alone is the classic way to under-report a limb). */
-function nodeWorlds(glb: GlbFile, tracks: Map<string, Track>, t: number): Mat4[] {
+export function nodeWorlds(glb: GlbFile, tracks: Map<string, Track>, t: number): Mat4[] {
   const nodes = glb.json.nodes ?? [];
   const local: Mat4[] = nodes.map((n, i) => {
     if (n.matrix && !tracks.has(`${i}:translation`) && !tracks.has(`${i}:rotation`) && !tracks.has(`${i}:scale`)) {
@@ -264,7 +266,7 @@ function nodeWorlds(glb: GlbFile, tracks: Map<string, Track>, t: number): Mat4[]
   return nodes.map((_, i) => resolve(i));
 }
 
-type Accessor = ReturnType<typeof readAccessor>;
+export type Accessor = ReturnType<typeof readAccessor>;
 
 /**
  * World * inverse-bind per skin joint, in the skin's own joint order.
@@ -272,7 +274,7 @@ type Accessor = ReturnType<typeof readAccessor>;
  * travel measurement and `measureFacing`'s per-figure centroid) so this
  * step has exactly one implementation.
  */
-function computeSkinMats(skin: { joints: number[] }, worlds: Mat4[], ibm: Accessor | null): Mat4[] {
+export function computeSkinMats(skin: { joints: number[] }, worlds: Mat4[], ibm: Accessor | null): Mat4[] {
   return skin.joints.map((jointNode, skinIndex) => {
     const w = worlds[jointNode];
     if (!ibm) return w;
@@ -290,7 +292,7 @@ function computeSkinMats(skin: { joints: number[] }, worlds: Mat4[], ibm: Access
  * the exact failure mode this project has been bitten by before: behaviour
  * in two places, so neither copy can be broken alone.
  */
-function skinPoint(pos: Accessor, joints: Accessor, weights: Accessor, v: number, skinMats: Mat4[]): [number, number, number] {
+export function skinPoint(pos: Accessor, joints: Accessor, weights: Accessor, v: number, skinMats: Mat4[]): [number, number, number] {
   const px = pos.data[v * 3], py = pos.data[v * 3 + 1], pz = pos.data[v * 3 + 2];
   let ox = 0, oy = 0, oz = 0;
   for (let k = 0; k < 4; k++) {
