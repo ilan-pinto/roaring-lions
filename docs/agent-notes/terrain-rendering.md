@@ -539,3 +539,108 @@ will get wrong.
 - **Wet GLSL changes need a GPU compile.** There is no GLSL validator in the test run; the first real compile was S-L1's capture. After
   touching a wet block, read it for ES 3.00 by hand and take one `ground:capture` view (the house browser rules apply).
 - **A new control-C reader must use the texel CENTRE** (`(i + 0.5) / N`), as `marshTexel` and `puddleTexel` do.
+
+## Chunks: the ground and the ditch of a large map (GH-913 follow-up, GH-920)
+
+Written 2026-11-01 for Rujm Sawda (80x80), the first map above 48x48. Gates: `packages/app/src/terrain-chunks.test.ts` and
+`terrain-chunk-budget.test.ts`, `packages/render/src/three/terrain/chunk-layer.test.ts` and `ditch-chunks.test.ts`,
+`packages/render/src/three/ThreeRenderer.chunks.test.ts`.
+
+**What was actually expensive.** The L7 report read Rujm's +0.7 to +1.2 ms at the seat view as "the ground is one unculled whole-map
+mesh and the decor batches cull per instance". The draw census (`render/src/three/chunk-census.ts`: three's REAL render lists on a fake
+GL, over the real map, GLBs, camera and shadow fit) reproduces the browser's triangle count (Rujm 22.9M vs Wadi 19.7M a frame; `perf:fx`
+read 23.2M vs 20.9M) and splits it: the ground is 0.39M and the scatter 0.10M, the four decor batches 0.1-0.4M (they DO cull per
+instance: 764 of 4,387 instances drawn at the centre, zoom 1), and the **ditch is 22.0M**, 96%. The ditch family is one `InstancedMesh`
+of every segment on the map; three culls an `InstancedMesh` as ONE object by the sphere around all its instances; and `ditch_0.glb` is
+~38k triangles a segment. So every segment draws in the shadow, AO and main passes whatever the camera sees. That is what `-decor` removed
+in the L7 layer table (-5.1 ms on Rujm, -4.0 on Wadi). Rujm costs more than Wadi because it has 192 ditch segments to Wadi's 166
+(+3M triangles), not because it is bigger. **Wadi Tarfan and every other 48x48 map with a ditch still pay this.**
+
+**What is chunked: the ground, the scatter and the ditch. The decor BatchedMeshes are NOT, on purpose** (built, measured, taken out).
+
+**Which maps.** `chunkGridFor(width, height, layer)` (`terrain/chunks.ts`) answers null for width x height <= 48 x 48, and then every
+layer is the ONE mesh it always was, built by the same code path and added straight to the scene (no group: `theme-identity`'s scene
+census pins it). By area, not by a map flag, so GH-920's bigger maps are chunked without anyone asking. Checked on the real GPU, not
+argued: `ground:capture` at 8 views of Wadi Tarfan against the L7 captures of origin/main, 0 pixels differing in every one; the old and
+new `buildTexturedDecorMesh` compared byte for byte with the grid null; the full test run, `theme-identity` included, unchanged.
+
+**A chunk is a range of tiles, not new geometry.** `buildGround`/`buildScatter` are tile loops (`tiled-mesh.ts`), so tile `t` owns
+vertices `[vertexStart[t], vertexStart[t+1])`. `sliceChunk` copies a chunk's tile ranges out of the whole-map build float for float and
+shifts the indices down to the chunk. Nothing is recomputed per chunk, and the ground's normals are analytic (the Catmull-Rom
+derivative at the vertex, a function of position alone), so a vertex on a chunk edge has one position and one normal whichever side
+emits it. `terrain-chunks.test.ts` compares every tile of every chunk with the whole build byte for byte on six maps (Rujm at two edges,
+and four 48x48 relief maps forced into 16/20-tile grids so cliffs and partial chunks are covered), and the surface vertices both sides of
+every chunk edge share (924 on Rujm at 32, 1,848 at 16) must have the same height and normal. Terraces keep their cliffs: those are
+real height steps in the whole build, so the seam check skips a vertex whose tile or neighbour is a terrace. Seven mutations of
+`chunks.ts` and `ground.ts` go red there; the seam check is falsified separately, by a normal perturbed in the BUILD at a chunk line
+(the partition check stays green, as it must, and the seam check goes red).
+
+**The collapse splice maps onto chunks without touching the splice.** `spliceTiledMesh` still builds the whole-map `TiledMeshData`,
+byte identical to a full build. `composeTerrainFrom` now also returns `dirtyTiles`, the splice's own mask (changed tiles dilated by
+`SPLICE_RADIUS_TILES` 2), and `ChunkedMeshLayer.update(tiled, dirty)` re-slices only the chunks holding a dirty tile; every other chunk
+keeps its mesh, geometry and GPU buffers. Exact, because a chunk is a function of its tiles' bytes and a copied tile is byte-identical
+to the last build's. A collapse on Rujm touches 1 of 9 chunks, where it used to re-upload the map. A full build, or a mask for another
+map size, rebuilds everything. Decor placements still splice per tile (`DECOR_SPLICE_RADIUS_TILES` 3); the decor and ditch BATCHES are
+still rebuilt whole on every terrain rebuild, as before.
+
+**Edges (`CHUNK_EDGE_TILES`: ground 32, ditch 8), measured in the browser** (Rujm Sawda, ANGLE/Metal M3 Pro, 1440x900 at DPR 2, high,
+readPixels-synced wall ms, A/B interleaved over 6 rounds in one page by moving the constants and rebuilding; loadavg ~8; the whole map
+as one mesh is the zero):
+
+    ditch edge, ground whole        centre z1   seat z1   mesa z1   centre z2.5     triangles at the seat
+    whole (80)                        21.4       21.5      20.3       20.6            23.6M
+    8                                 -2.1       -4.0      -3.1       -2.3             1.5M
+    12                                -2.0       -3.7      -2.8       -2.1             2.8M
+    16                                -0.8       -2.0      -3.3       -2.6            14.4M   (a chunk straddles a run)
+    24                                -2.0       -3.2      -3.3       -2.6             8.9M
+    ground edge, ditch 8
+    whole (80)                        19.3       17.5      17.2       18.3
+    32                                -0.2       +0.1      -0.5       -0.2
+    16                                +0.2       +0.6      -0.3       -0.5
+
+The ditch is the whole win and wants the finest cut: each draw is ~38k triangles a segment. The ground is a wash at 80x80 (inside the
+0.3-0.7 ms round-to-round spread); it is kept at 32 because its cost grows with area and a draw per chunk does not, and for GH-920.
+
+**Chunking the decor was built, measured and removed.** The brief's premise was that the decor batches walk every instance on the map and
+chunks would cut that. Measured in the same page (one `BatchedMesh` per role per chunk, the exact per-instance cull and sort kept,
+memoised; `pan-cull` is the sum of the batches' `onBeforeRender` over a 40-frame pan, the camera moving every frame):
+
+    decor edge   wall delta vs whole decor: centre z1 / seat z1 / mesa z1 / centre z2.5     pan-cull ms z1 centre / seat / mesa      batches   draws z1 centre
+    whole        0 / 0 / 0 / 0                                                               0.7 / 0.7 / 0.6                          4         196
+    32           -0.2 / +0.2 / +1.8 / +0.5                                                   0.7 / 0.6 / 0.4                          36        236
+    16           +0.6 / +0.6 / +1.1 / +0.5                                                   0.8 / 0.8 / 0.4                          92        301
+    8            +0.6 / +0.7 / +1.1 / +0.5                                                   1.2 / 1.1 / 0.6                          303       450
+
+No gain anywhere, and 0.2 to 1.8 ms lost. A draw is dear on this stack (about 0.1 ms of wall each, going by the mesa view's +19 draws for
++1.8 ms) and a visible chunk still walks every instance in it, while at zoom 1 more than half the map's chunks are visible. The
+pan cull never reaches the 0.3 ms target by chunking: it stays at Rujm's 0.6-0.7 (Wadi 0.3), the cost of walking the ~4,400 instances
+the view and the sun need, ~50 ns each. **Switching the per-instance cull and sort off ("the chunk is the cull") was tried first and is
+4.3 ms worse at the centre** (25.2 vs 20.9): `multiDrawElementsWEBGL` is a draw per ENTRY on ANGLE/Metal, a visible chunk then submits
+every instance it holds (3,600 entries a pass against 760), and the entries cost far more than the walk they avoid. The cull is not only
+CPU: it is what keeps the multi-draw list short. So the decor batches are unchanged, and `ThreeRenderer.chunks.test.ts` pins that.
+Where it could change: the walk grows with map AREA and a chunk's cost does not, so a map several times Rujm's size may pay; measure
+there (`perf:cullpan`, then this experiment), do not extrapolate from here. A cheaper cull would be a three change (a cached world
+sphere per instance), not a chunk.
+
+**Memory cost.** Before, `toGeometry` wrapped the whole-map arrays without copying them (only the linearised colours were new). A chunk
+is a copy of its tiles' range, so a chunked map holds the ground and scatter mesh twice in the JS heap: the whole-map `TiledMeshData`
+the splice needs as `prev` (required, and kept before this change too) plus the per-chunk attribute and index arrays. Measured on Rujm
+(`perf:memory`, 1400x900 @1x): JS heap + buffers 126.6 -> 136.0 MiB (+9.4, ceiling 153); GPU bytes unchanged (932.4 MiB). It scales with
+AREA: expect about +25 MiB at 128x128 (GH-920). Sub-array views cannot avoid it (a multi-row chunk is not contiguous), and dropping the
+CPU arrays after upload would lose three's context-loss re-upload. A cheap partial win, not done: slice straight into the linear colour
+array to skip the transient sRGB copy.
+
+**Left whole on purpose.** The decor batches (above), the prop batch (<= 150 instances, 3 draws), the residual and per-structure boxes,
+the skirt and backdrop.
+
+**Rules a change will get wrong**
+- **Never chunk a 48x48 map without the golden baseline.** `CHUNKED_ABOVE_TILES` is what keeps 38 maps' pixels still. Splitting the one
+  ditch `InstancedMesh` re-sorts coplanar ditch pieces; it needs CI to say 0 px before it ships. The census says it would take Wadi from
+  19.4M to ~9M triangles a frame, and the same experiment says what that is worth in ms.
+- **A chunk's bytes are the whole build's bytes.** Do not compute anything per chunk (a normal pass, a colour, a tone): a seam opens the
+  moment two chunks disagree about a shared vertex. The splice, the control map and the decal ground all read the whole-map build.
+- **Count draws before adding a chunked layer.** On this stack each draw is ~0.1 ms of wall. A layer chunks only if it saves more in
+  triangles than the chunks it adds cost in draws: the ditch does (38k a segment), the decor (~100 an instance) does not.
+- **The census is a count, not a clock.** `terrain-chunk-budget.test.ts` says what three SUBMITS; `perf:fx --breakdown` and
+  `perf:cullpan` say what it costs. A fix that moves the first and not the second is not a fix (the cull-off decor above moved the walk
+  to zero and the frame 4.3 ms the wrong way).
