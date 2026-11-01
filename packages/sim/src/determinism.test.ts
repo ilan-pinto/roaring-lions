@@ -1539,6 +1539,30 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
     expect(formationWorld(FM_SEED).hash).toBe(FORMATION_WORLD_PIN);
   });
 
+  it('the shipped Attack leaves its aircraft out: the little group\'s two squads form, its drone flies the plain order in no group (GH-859)', () => {
+    const { sim, ids } = formationSetup(FM_SEED);
+    const p = internals(sim);
+    const fmGroup = p.fmGroup as Int8Array;
+    const moving = p.moving as Uint8Array;
+    const attackMove = p.attackMove as Uint8Array;
+    const wpCount = p.wpCount as Uint8Array;
+    for (let t = 0; t <= 91; t++) {
+      formationDrive(sim, t, ids);
+      sim.tick();
+    }
+    const [sqA, sqB, drone] = ids.lean;
+    // the two squads are members of one new group (the fourth row of side 0, after the Column, the Attack and the ring)
+    expect(fmGroup[sqA]).toBe(3);
+    expect(fmGroup[sqB]).toBe(3);
+    // the drone is in no group, queues no checkpoint, and is under the same attack-move order, straight to its plain slot
+    expect(fmGroup[drone]).toBe(-1);
+    expect(wpCount[drone]).toBe(0);
+    expect([moving[drone], attackMove[drone]]).toEqual([1, 1]);
+    expect(wpCount[sqA]).toBeGreaterThan(0);
+    // and it holds no formation duty at the end of the run
+    expect(sim.formationDutyOf(drone)).toBe(0);
+  });
+
   it('given 200 more ticks than the pin, the Attack\'s aircraft are home: no member away, no duty held (GH-859 P1c)', () => {
     // The pin is hashed at tick 1000, where the Attack's helicopter and drone are still flying home (awayAtEnd '0,2,0,0 2'),
     // so "everyone is home" is no longer a fact of the pinned run. This reads the same world 200 ticks on. The driver has no

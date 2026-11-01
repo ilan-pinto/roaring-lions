@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { TICKS_PER_SECOND, unitTypeFromJson, type UnitTypeJson } from './sim';
 import { DIR_NONE } from './flowfield';
 import { FORMATION_WALK_CAP } from './tuning';
+import { attackHoldingAir } from './golden-worlds.test-helper';
 import {
   FM_CALL_SPOT,
   FM_CALL_STAY,
@@ -17,6 +18,7 @@ import {
   checkpointsOf,
   compileFormation,
   eighthToward,
+  fmExcludes,
   formationClassOf,
   ringTiles,
   routeWalk,
@@ -420,10 +422,16 @@ describe('Attack on open ground', () => {
     // arrival.face "front": the approach direction
     expect(slots.every((s) => s.face === 49152)).toBe(true);
   });
-  it('aircraft stand 13 behind, light vehicles and recon share the second rank 3 behind the armour', () => {
-    const { slots } = assignTemplate(input(mix(ARMOUR, LIGHT, RECON, AIRCRAFT)), tpl);
-    // armour (0,0); light + recon element: gap 2 after the armour rear 0 -> front row -3, ids 2 then 3: (-3,0) (-3,2);
-    // aircraft: standoff 13
+  it('light vehicles and recon share the second rank 3 behind the armour, and the shipped Attack seats no aircraft (GH-859: it leaves them out)', () => {
+    const { slots, overflow } = assignTemplate(input(mix(ARMOUR, LIGHT, RECON, AIRCRAFT)), tpl);
+    // armour (0,0); light + recon element: gap 2 after the armour rear 0 -> front row -3, ids 2 then 3: (-3,0) (-3,2).
+    // The aircraft (id 4) is not a member of this formation: no slot, and not an overflow either (the ORDER seats it plainly).
+    expect(lit(framed(slots))).toEqual({ 1: [0, 0], 2: [-3, 0], 3: [-3, 2] });
+    expect(overflow).toEqual([]);
+  });
+  it('a formation that holds its aircraft stands them 13 behind (the Attack as it was before the field)', () => {
+    const held = compileFormation(attackHoldingAir());
+    const { slots } = assignTemplate(input(mix(ARMOUR, LIGHT, RECON, AIRCRAFT)), held);
     expect(lit(framed(slots))).toEqual({ 1: [0, 0], 2: [-3, 0], 3: [-3, 2], 4: [-13, 0] });
     expect(slots.find((s) => s.id === 4)?.face).toBe(FACING_NONE);
   });
@@ -562,7 +570,8 @@ describe('templateOffsets: the HUD schematic cannot disagree with the order', ()
         const gotRows = templateOffsets(tpl, classes).map((o) => [o.cls, o.forward, o.lateral]);
         const order = (a: number[], b: number[]): number => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
         expect(gotRows.sort(order)).toEqual(wantRows.sort(order));
-        expect(gotRows).toHaveLength(classes.length);
+        // A class the formation leaves out has no slot in either (the Attack's aircraft).
+        expect(gotRows).toHaveLength(classes.filter((c) => !fmExcludes(tpl, c)).length);
       });
     }
   }
@@ -583,7 +592,9 @@ describe('compileFormation', () => {
     expect(column.elementOfClass).toEqual([1, 2, 0, 3, 4, 5, 6]);
     const attack = compiled('attack');
     expect([attack.verb, attack.face, attack.arriveStance, attack.drill]).toEqual([1, 1, 0, 2]);
-    expect(attack.elementOfClass).toEqual([0, 1, 1, 2, 3, 4, 5]);
+    // The aircraft (6) has no element of its own since GH-859: it falls to the last, and `excludeMask` says it is never read.
+    expect(attack.elementOfClass).toEqual([0, 1, 1, 2, 3, 4, 4]);
+    expect([column.excludeMask, attack.excludeMask, compiled('ambush').excludeMask]).toEqual([0, 1 << 6, 0]);
     const ambush = compiled('ambush');
     expect([ambush.verb, ambush.face, ambush.arriveStance, ambush.drill]).toEqual([0, 4, 16, 3]);
     expect(ambush.elementOfClass).toEqual([0, 0, 0, 0, 0, 1, 2]);

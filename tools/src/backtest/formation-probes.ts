@@ -45,7 +45,7 @@
 // `--probe=<ambush|medic|air|ashwar|all>` picks one (default all); `--seeds=<n>` is the seed count of each.
 
 import { fileURLToPath } from 'node:url';
-import { Sim, fx, MED_TREATING, type SimEvent } from '@lions/sim';
+import { Sim, fx, MED_TREATING, type FormationJson, type SimEvent } from '@lions/sim';
 import { formations, units } from '@lions/data';
 
 /** The facing arc an `impact` event carries (the sim's own type, not exported by name). */
@@ -752,14 +752,28 @@ export function runMedic(seeds: number): MedicReading[] {
 // ---------------------------------------------------------------------------
 //
 // Two tanks, three rifle squads and a gunship attack-move east at a MANPAD team that stands on their lane. `call`:
-// the Attack formation, the gunship its aircraft element (it stands 13 tiles behind and flies out when the force
-// makes contact). `hull`: the same order to the same ids with no formation, so the gunship is one more attack-mover
+// the Attack as it was before it left its aircraft out (`attackHoldingAir`), the gunship its aircraft element (it stands 13
+// tiles behind and flies out when the force makes contact). `hull`: the same order to the same ids with no formation, so the gunship is one more attack-mover
 // in the hull rank (it outruns the tanks). Reported per arm: contact to the gunship's first shot (contact = the first
 // shot by a ground member of the force, or the first enemy shot or hit on it; the gunship firing before that is
 // counted `ahead` and reads 0), sorties flown, whether the gunship lived, and the MANPAD team's fate.
 //
 // Ruling 12 literal: a group whose only aircraft are on their way home is not answered until they land. The probe
 // counts the ticks a contact was raised in that state (the Ambush re-run counts them too).
+
+/** The Attack as it was before GH-859 made it leave its aircraft out: the shipped file with the field removed and the aircraft element
+ *  put back (13 behind, on call for contact), under the id `attack_air`. The shipped Attack's aircraft fly the plain order, which is
+ *  exactly the `hull` arm below; the `call` arm keeps the formation that holds them, so the probe still reads the call itself. */
+export function attackHoldingAir(): FormationJson {
+  const attack = formations.find((f) => f.id === 'attack') as unknown as FormationJson;
+  const { exclude: _left, ...rest } = attack;
+  void _left;
+  return {
+    ...rest,
+    id: 'attack_air',
+    elements: [...attack.elements, { classes: ['aircraft'], shape: { kind: 'rank', spacing: 2, max_lateral: 2, rank_depth: 2 }, gap: 1, standoff: 13, on_call: 'contact' }],
+  };
+}
 
 export type AirArm = 'call' | 'hull';
 export const AIR_ARMS: readonly AirArm[] = ['call', 'hull'];
@@ -793,7 +807,8 @@ export function playAir(arm: AirArm, seed: number): AirGame {
   const ground = new Set(force.slice(0, -1));
   const manpad = sim.spawn(tid('manpad_team'), 1, at(38), at(32), 32768);
   const cmd = { kind: 'attackMove', ids: force, x: at(56), y: at(32) } as const;
-  sim.queueCommand(arm === 'call' ? { ...cmd, formation: 'attack' } : cmd);
+  if (arm === 'call') sim.addFormationType(attackHoldingAir());
+  sim.queueCommand(arm === 'call' ? { ...cmd, formation: 'attack_air' } : cmd);
   const hp0 = s.hp[heli] / 65536;
   const g: AirGame = {
     arm, grouped: 0, contact: false, sorties: 0, fired: false, response: 0, ahead: false, gunshipAlive: false, gunshipHpLost: 0, manpadKilled: false,
