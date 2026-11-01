@@ -7,23 +7,28 @@
  * `#9FA9B5`, linear (0.34670, 0.39676, 0.46207); the shipped provisional gain 0.4; the power 3.
  */
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { buildMeshUnitTemplate } from './mesh-unit';
 import { buildVehicleMeshTemplate } from './mesh-vehicle';
 import { SURFACE_PARAMS, WET_SURFACE_PARAMS, setUnitSurfacePass, surfaceTableFor } from './unit-surface';
 import { liftWoundedTemplate } from './wounded-read';
-import { RAIN_KDF_RIM_GAIN, RAIN_KDF_RIM_POWER } from '../weather';
-import { patchRainRim, rimFactor, rimUniforms, setRainRimGain } from './rain-rim';
+import { RAIN_KDF_CONTRAST, RAIN_KDF_EXPOSURE, RAIN_KDF_RIM_GAIN, RAIN_KDF_RIM_POWER } from '../weather';
+import { exposureCurve, patchRainRim, rainReadNow, rimFactor, rimUniforms, setRainRead, setRainRimGain, treatedAlbedo } from './rain-rim';
 
 /** The rim line, as a literal (not read from the module). */
-const RIM_LINE =
+const RIM_ONLY_LINE =
   'totalEmissiveRadiance += uRimColor * uRimGain * pow( 1.0 - saturate( dot( normalize( normal ), isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition ) ) ), uRimPower );';
-const RIM_DECL = 'uniform vec3 uRimColor;\nuniform float uRimGain;\nuniform float uRimPower;';
+/** The exposure and contrast lines that precede it (cheap-wet follow-up; the rim line alone was PR 914's). */
+const EXPOSURE_LINES =
+  'diffuseColor.rgb = min( diffuseColor.rgb * uRainExposure, vec3( 1.0 ) );\n' +
+  'diffuseColor.rgb = pow( max( diffuseColor.rgb, vec3( 0.0001 ) ), vec3( uRainContrast ) );\n';
+const RIM_LINE = EXPOSURE_LINES + RIM_ONLY_LINE;
+const RIM_DECL = 'uniform vec3 uRimColor;\nuniform float uRimGain;\nuniform float uRimPower;\nuniform float uRainExposure;\nuniform float uRainContrast;';
 
 afterEach(() => {
   setUnitSurfacePass(true);
-  setRainRimGain(0.6);
+  setRainRead({ rimGain: 0, rimPower: 3, exposure: 6, contrast: 1.5 });
 });
 
 /** A `GLTFLoader`-shaped result, one mesh per part (the `textured-infantry.test.ts` shape). */
@@ -159,6 +164,7 @@ describe('the compiled fragment source', () => {
       expect(wet).toContain(RIM_LINE);
       expect(wet).toContain(RIM_DECL);
       expect(wet.replace(`\n${RIM_DECL}`, '').replace(`\n${RIM_LINE}`, '')).toBe(dry);
+      expect(wet).toContain(EXPOSURE_LINES);
       // The rim line sits right after the emissive map chunk and before the lights sum into outgoingLight.
       expect(wet.indexOf(RIM_LINE)).toBeGreaterThan(wet.indexOf('#include <emissivemap_fragment>'));
       expect(wet.indexOf(RIM_LINE)).toBeLessThan(wet.indexOf('vec3 outgoingLight'));
@@ -192,20 +198,20 @@ describe('the shared uniforms', () => {
       expect(u.uRimPower).toBe(all[0].uRimPower);
     }
     expect(all[0].uRimGain).toBe(rimUniforms().gain);
-    expect(all[0].uRimGain.value).toBe(0.6);
+    expect(all[0].uRimGain.value).toBe(0);
     setRainRimGain(0.9);
     for (const u of all) expect(u.uRimGain.value).toBe(0.9);
   });
 
-  it('carries overcast.1 in linear, the shipped gain 0.6 (look4) and power 3 (literals)', () => {
+  it('carries overcast.1 in linear, the shipped gain 0 (the rim is OFF since the 1 Nov ruling; 0.6 was look 4) and power 3 (literals)', () => {
     const u = rimUniforms();
     expect(u.colour.value.r).toBeCloseTo(0.3467, 4);
     expect(u.colour.value.g).toBeCloseTo(0.39676, 4);
     expect(u.colour.value.b).toBeCloseTo(0.46207, 4);
-    // The constants themselves (the afterEach above restores 0.6, so the uniform alone would not catch a default that moved).
-    expect(RAIN_KDF_RIM_GAIN).toBe(0.6);
+    // The constants themselves (the afterEach above restores 0, so the uniform alone would not catch a default that moved).
+    expect(RAIN_KDF_RIM_GAIN).toBe(0);
     expect(RAIN_KDF_RIM_POWER).toBe(3);
-    expect(u.gain.value).toBe(0.6);
+    expect(u.gain.value).toBe(0);
     expect(u.power.value).toBe(3);
   });
 
@@ -215,6 +221,7 @@ describe('the shared uniforms', () => {
     setUnitSurfacePass(false);
     for (const g of gains) expect(g.value).toBe(0);
     setUnitSurfacePass(true);
+    setRainRimGain(0.6);
     for (const g of gains) expect(g.value).toBe(0.6);
   });
 });
@@ -252,7 +259,7 @@ describe('the wounded copy keeps the rim', () => {
 describe('the view vector: orthographic like three\'s own lights', () => {
   it('the game camera is orthographic and three uses (0, 0, 1) for it: the rim line uses the same expression', () => {
     expect(THREE.ShaderChunk.lights_fragment_begin).toContain('( isOrthographic ) ? vec3( 0, 0, 1 ) : normalize( vViewPosition )');
-    expect(RIM_LINE).toContain('isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition )');
+    expect(RIM_ONLY_LINE).toContain('isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition )');
     const t = buildMeshUnitTemplate(sceneOf(PARTS), 'kdf', 'x.glb', false, undefined, undefined, WET_SURFACE_PARAMS);
     for (const m of t.materials) expect(compile(m).fragmentShader).toContain('isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition )');
   });
@@ -279,5 +286,104 @@ describe('the view vector: orthographic like three\'s own lights', () => {
     expect(rimFactor([1, 0, 0], [0, 0, 120], true, 3)).toBe(1);
     expect(rimFactor([0, 0, 1], [0, 0, 120], true, 3)).toBe(0);
     expect(rimFactor([0, 0, -1], [0, 0, 120], true, 3)).toBe(1);
+  });
+});
+
+describe('the exposure and contrast (the readability treatment)', () => {
+  it('ship 6 and 1.5, and the uniforms carry them (literals: the afterEach restores them, so the uniform alone would not catch a default that moved)', () => {
+    expect(RAIN_KDF_EXPOSURE).toBe(6);
+    expect(RAIN_KDF_CONTRAST).toBe(1.5);
+    const u = rimUniforms();
+    expect(u.exposure.value).toBe(6);
+    expect(u.contrast.value).toBe(1.5);
+  });
+
+  it('the exposure: 1 is the identity, a dark albedo gains k, and nothing passes 1 (literals)', () => {
+    expect(exposureCurve(0.3, 1)).toBeCloseTo(0.3, 12);
+    expect(exposureCurve(0.02, 8)).toBeCloseTo(0.16, 12);
+    expect(exposureCurve(0.5, 8)).toBe(1);
+    expect(exposureCurve(1, 8)).toBe(1);
+    for (const a of [0.001, 0.05, 0.3, 0.9, 1]) expect(exposureCurve(a, 8)).toBeLessThanOrEqual(1);
+    // Monotone: the camouflage keeps its ORDER (up to the cap).
+    expect(exposureCurve(0.02, 8)).toBeLessThan(exposureCurve(0.05, 8));
+    expect(exposureCurve(0.05, 8)).toBeLessThan(exposureCurve(0.1, 8));
+  });
+
+  it('the contrast puts the darks back: at k = 8, gamma 1.5 darkens a dark albedo by more than a bright one (literals)', () => {
+    expect(treatedAlbedo(0.02, 8, 1.5)).toBeCloseTo(0.16 ** 1.5, 12);
+    expect(treatedAlbedo(0.02, 8, 1.5) / exposureCurve(0.02, 8)).toBeLessThan(treatedAlbedo(0.1, 8, 1.5) / exposureCurve(0.1, 8));
+    expect(treatedAlbedo(0.3, 1, 1)).toBeCloseTo(0.3, 12);
+  });
+
+  it('the debug layer off is neutral: gain 0, exposure 1, contrast 1 in every compiled program; on, the shipped values', () => {
+    const t = buildMeshUnitTemplate(sceneOf(PARTS), 'kdf', 'x.glb', false, undefined, undefined, WET_SURFACE_PARAMS);
+    const us = t.materials.map((m) => compile(m).uniforms);
+    setUnitSurfacePass(false);
+    for (const u of us) {
+      expect(u.uRimGain.value).toBe(0);
+      expect(u.uRainExposure.value).toBe(1);
+      expect(u.uRainContrast.value).toBe(1);
+    }
+    setUnitSurfacePass(true);
+    for (const u of us) {
+      expect(u.uRimGain.value).toBe(0);
+      expect(u.uRainExposure.value).toBe(6);
+      expect(u.uRainContrast.value).toBe(1.5);
+    }
+  });
+
+  it('setRainRead moves every figure at once, reads back, and refuses a value out of range', () => {
+    const t = buildMeshUnitTemplate(sceneOf(PARTS), 'kdf', 'x.glb', false, undefined, undefined, WET_SURFACE_PARAMS);
+    const us = t.materials.map((m) => compile(m).uniforms);
+    setRainRead({ rimGain: 0.2, rimPower: 1.5, exposure: 4, contrast: 1 });
+    for (const u of us) {
+      expect(u.uRimGain.value).toBe(0.2);
+      expect(u.uRimPower.value).toBe(1.5);
+      expect(u.uRainExposure.value).toBe(4);
+      expect(u.uRainContrast.value).toBe(1);
+    }
+    expect(rainReadNow()).toEqual({ rimGain: 0.2, rimPower: 1.5, exposure: 4, contrast: 1 });
+    expect(() => setRainRead({ rimGain: 0.2, rimPower: 3, exposure: 0, contrast: 1 })).toThrow(/exposure/);
+    expect(() => setRainRead({ rimGain: 0.2, rimPower: 3, exposure: 4, contrast: Number.NaN })).toThrow(/contrast/);
+  });
+
+  it('a figure that is not a rim figure (an enemy, a vehicle, a dry KDF) has no exposure uniform', () => {
+    for (const [faction, table] of [['enemy', WET_SURFACE_PARAMS], ['kdf', SURFACE_PARAMS]] as const) {
+      const t = buildMeshUnitTemplate(sceneOf(PARTS), faction, 'x.glb', false, undefined, undefined, table);
+      for (const m of t.materials) {
+        const { fragmentShader, uniforms } = compile(m);
+        expect(fragmentShader).not.toContain('uRainExposure');
+        expect(uniforms.uRainExposure).toBeUndefined();
+      }
+    }
+  });
+});
+
+describe('the edges of the treatment (the survivors of the first review)', () => {
+  it('setRainRead accepts the largest exposure (16) and contrast (3) and the smallest exposure (0.25), and refuses a hair past each', () => {
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 16, contrast: 3 })).not.toThrow();
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 0.25, contrast: 0.1 })).not.toThrow();
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 16.01, contrast: 1 })).toThrow(/exposure/);
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 0.24, contrast: 1 })).toThrow(/exposure/);
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 6, contrast: 3.01 })).toThrow(/contrast/);
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 6, contrast: 0 })).toThrow(/contrast/);
+    // A rejected write moves nothing.
+    expect(rainReadNow().exposure).toBe(0.25);
+  });
+
+  it('treatedAlbedo floors an albedo of 0 at 0.0001 before the gamma (the shader\'s max), so black stays a hair above 0', () => {
+    expect(treatedAlbedo(0, 6, 1.5)).toBeCloseTo(0.0001 ** 1.5, 15);
+    expect(treatedAlbedo(0, 6, 1.5)).toBeGreaterThan(0);
+    expect(treatedAlbedo(0, 1, 1)).toBeCloseTo(0.0001, 15);
+  });
+
+  it('a rim material first built while the unit-surface layer is OFF starts neutral: gain 0, exposure 1, contrast 1', async () => {
+    vi.resetModules();
+    const fresh = await import('./rain-rim');
+    fresh.setRainRimPass(false);
+    const u = fresh.rimUniforms();
+    expect([u.gain.value, u.exposure.value, u.contrast.value]).toEqual([0, 1, 1]);
+    fresh.setRainRimPass(true);
+    expect([u.gain.value, u.exposure.value, u.contrast.value]).toEqual([0, 6, 1.5]);
   });
 });

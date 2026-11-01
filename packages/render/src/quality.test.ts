@@ -17,8 +17,10 @@ describe('QUALITY_PRESETS', () => {
       // Read only under `weather: 'rain'`, so no shipped frame moves. 6000 / 3500 / 525
       // drops (the lead's approved counts); ripples off on low. No `openPuddles`: the
       // lead removed the open-ground puddle terms at S-L1.
-      low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false } },
-      medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true } },
+      // GH-871 cheap-wet: every preset gains `rain.ground`, how much of the wet ground program it compiles. Was: no
+      // such field (every preset compiled the full program). high stays 'full' (byte-identical); medium 'lite', low 'minimal'.
+      low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' } },
+      medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' } },
       // GH-777: aoScale 0.25. Was 0.5 (absent). `high` missed 60 fps at DPR 2.
       // high smokeBillboardGain: Was 0.95 (the shared default). The lead, 23 Oct:
       // 0.8 on high, where the screen measured +1 to +5 ms median of its own.
@@ -31,7 +33,7 @@ describe('QUALITY_PRESETS', () => {
         aoScale: 0.25,
         fxDetail: 1,
         smokeBillboardGain: 0.8,
-        rain: { drops: 6000, ripples: true },
+        rain: { drops: 6000, ripples: true, ground: 'full' },
       },
     };
     expect(QUALITY_PRESETS).toEqual(expected);
@@ -85,11 +87,11 @@ describe('QUALITY_PRESETS', () => {
   it('rain (GH-871 P4 T8, R-8): 6000 / 3500 / 525 drops, ripples off on low, and no open-puddle flag', () => {
     // Literals, not the table read back. Falsify: low.rain.drops 1500 -> 1600, or
     // an `openPuddles` field added, and the pinned table above goes red as well.
-    expect(QUALITY_PRESETS.high.rain).toEqual({ drops: 6000, ripples: true });
-    expect(QUALITY_PRESETS.medium.rain).toEqual({ drops: 3500, ripples: true });
-    expect(QUALITY_PRESETS.low.rain).toEqual({ drops: 525, ripples: false });
+    expect(QUALITY_PRESETS.high.rain).toEqual({ drops: 6000, ripples: true, ground: 'full' });
+    expect(QUALITY_PRESETS.medium.rain).toEqual({ drops: 3500, ripples: true, ground: 'lite' });
+    expect(QUALITY_PRESETS.low.rain).toEqual({ drops: 525, ripples: false, ground: 'minimal' });
     for (const k of ['low', 'medium', 'high'] as const) {
-      expect(Object.keys(QUALITY_PRESETS[k].rain ?? {}).sort(), k).toEqual(['drops', 'ripples']);
+      expect(Object.keys(QUALITY_PRESETS[k].rain ?? {}).sort(), k).toEqual(['drops', 'ground', 'ripples']);
     }
   });
 });

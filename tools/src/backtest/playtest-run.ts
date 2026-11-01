@@ -13,6 +13,7 @@ import {
   creditsFor,
   creditInputFrom,
   type MissionJson,
+  type MissionEvent,
   type LedgerData,
   type TunnelRouteJson,
   type UnlockGate,
@@ -202,6 +203,14 @@ let sweepQuiet = false;
 export function setSweep(seed: number | undefined, quiet: boolean): void {
   sweepSeed = seed;
   sweepQuiet = quiet;
+}
+
+/** Set only by a ladder or probe tool (`eq_ladder.ts`): sees every mission event `run()` steps past, in
+ *  order, with the runtime and sim at that tick. Read-only by contract; `run()` prints and records
+ *  exactly what it did before. */
+let missionEventTap: ((evs: readonly MissionEvent[], rt: MissionRuntime, sim: Sim) => void) | undefined;
+export function tapMissionEvents(fn: ((evs: readonly MissionEvent[], rt: MissionRuntime, sim: Sim) => void) | undefined): void {
+  missionEventTap = fn;
 }
 
 export function run(
@@ -414,7 +423,9 @@ export function run(
     }
     const evs = sim.tick();
     onEvents?.(evs);
-    for (const me of rt.step(evs)) {
+    const mevs = rt.step(evs);
+    missionEventTap?.(mevs, rt, sim);
+    for (const me of mevs) {
       if (me.kind === 'missionEnd') produced = me.ledger;
       else if (me.kind === 'intelEarned') intelEventSum += me.amount;
     }

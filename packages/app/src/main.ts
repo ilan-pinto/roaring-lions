@@ -339,6 +339,7 @@ import {
   campaignSummary,
   commanderForMission,
   continueTarget,
+  carryReaderOf,
   hostagesAccount,
   hostagesLine,
   nextMissionAfter,
@@ -5894,7 +5895,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               roeFloor: starRoeFloor(mission.roe?.fail_below),
               ticks: sim.tickCount,
               targetMinutes: (mission as { target_minutes?: number }).target_minutes,
-              objectives: runtime.objectiveList.map((o) => ({ id: o.id, text: o.text, primary: o.primary, carries: o.carries, status: o.status })),
+              objectives: runtime.objectiveList.map((o) => {
+                // GH-912 G-T: name the mission that actually READS this objective's recon tag.
+                const tag = mission.objectives.find((x) => x.id === o.id)?.target;
+                const base = { id: o.id, text: o.text, primary: o.primary, carries: o.carries, status: o.status };
+                if (!o.carries || tag === undefined) return base;
+                const reader = carryReaderOf(worldData, missions as Record<string, MissionJson | undefined>, mission.id, tag);
+                return { ...base, carriesInto: reader ? { name: missions[reader as keyof typeof missions]?.name ?? reader } : null };
+              }),
               log: missionLog,
               invoice: invoiceLines(deductions, placeNames),
               failure: missionFailure,

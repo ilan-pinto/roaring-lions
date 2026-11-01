@@ -27,11 +27,11 @@ import { parseWorld } from '../campaign';
 import worldJson from '../../../../data/campaign/world.json';
 import en from '../i18n/en.json';
 
-// The shipped maps the picker lists. Ein Qasab is held out until P3's art
-// (GH-871) and Rujm Sawda until the lead opens it (GH-913 L4): LITERALS, so these
-// specs do not read the answer off the code under test. Delete each here with its
-// entry in menu.ts's UNLISTED_MAP_IDS.
-const HELD_OUT = ['ein_qasab', 'rujm_sawda'];
+// The shipped maps the picker lists. The Ein Qasab town's maps are held out until
+// P3's art (GH-871, GH-912) and Rujm Sawda until the lead opens it (GH-913 L4):
+// LITERALS, so these specs do not read the answer off the code under test. Delete
+// them here with the entries in menu.ts's UNLISTED_MAP_IDS.
+const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'rujm_sawda'];
 const listedIds = (): string[] => Object.keys(maps).filter((id) => !HELD_OUT.includes(id));
 
 const render = (): HTMLElement => {
@@ -69,24 +69,24 @@ describe('the map list', () => {
     expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(listedIds().sort());
   });
 
-  it('holds Ein Qasab out of the picker until P3 ships its art (GH-871), and Rujm Sawda until the lead opens it (GH-913)', () => {
-    // 37 maps ship; the picker lists 35. Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(37);
+  it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912), and Rujm Sawda until the lead opens it (GH-913)", () => {
+    // 39 maps ship; the picker lists 35. Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(39);
+    for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
     expect(links).toHaveLength(35);
-    for (const held of ['ein_qasab', 'rujm_sawda']) {
-      expect(Object.keys(maps)).toContain(held);
-      expect(links.map((a) => a.dataset.map)).not.toContain(held);
+    for (const id of HELD_OUT) {
+      expect(links.map((a) => a.dataset.map)).not.toContain(id);
       // Nothing on the screen links to it either, by any spelling of the route.
-      expect(stage.innerHTML).not.toContain(held);
-      expect(stage.querySelector(`a[href*="${held}"]`)).toBeNull();
+      expect(stage.innerHTML).not.toContain(id);
+      expect(stage.querySelector(`a[href*="${id}"]`)).toBeNull();
     }
   });
 
-  it('pins the unlisted set to exactly Ein Qasab and Rujm Sawda', () => {
-    // Delete each pin with its entry: Ein Qasab when P3 ships, Rujm Sawda when the lead opens it.
-    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'rujm_sawda']);
+  it('pins the unlisted set to exactly the Ein Qasab town maps and Rujm Sawda', () => {
+    // Delete each pin with its entry: the town's when P3 ships, Rujm Sawda when the lead opens it.
+    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'rujm_sawda']);
   });
 
   it('every unlisted id names a shipped map, so the set cannot go stale silently', () => {

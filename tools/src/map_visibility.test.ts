@@ -35,9 +35,9 @@ describe('map visibility (GH-416)', async () => {
   for (const [id, missions] of maps) results.set(id, await measureMap(id, missions));
 
   it('measures every campaign map, and every one has a real fight to measure', () => {
-    // 26 maps carry the 26 campaign missions (world.json). An instrument that found no fight
+    // 29 maps carry the 29 campaign missions (world.json). An instrument that found no fight
     // tiles would pass every map vacuously, so each must have a few hundred.
-    expect(maps.size).toBe(26);
+    expect(maps.size).toBe(29);
     for (const [id, r] of results) expect(r.fightTiles, id).toBeGreaterThan(300);
   });
 
