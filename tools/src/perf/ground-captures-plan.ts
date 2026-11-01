@@ -231,6 +231,126 @@ export function assertRimApplied(frame: string, requested: number, read: RimRead
   }
 }
 
+// ============================================================================
+// --read: the KDF readability sweep (GH-871 cheap-wet follow-up, task 2)
+// ============================================================================
+
+/** One named treatment of the KDF figure under rain: every knob `debugSetRainRead` takes. */
+export interface ReadTreatment {
+  readonly name: string;
+  readonly rimGain: number;
+  readonly rimPower: number;
+  readonly exposure: number;
+  readonly contrast: number;
+}
+
+/** What an omitted trailing field of a `--read` treatment means: the rim's shipped power, exposure and contrast neutral. */
+export const READ_DEFAULTS = { rimPower: 3, exposure: 1, contrast: 1 } as const;
+/** A treatment name is a file-name part. */
+const READ_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
+/** The most treatments one run sweeps (each costs `READ_SAMPLES + 1` frames a stop). */
+export const READ_MAX = 24;
+
+/**
+ * `--read=<name>:<rimGain>/<rimPower>/<exposure>/<contrast>,...` (comma between treatments, slash between fields;
+ * trailing fields default to `READ_DEFAULTS`). `none:0` is the control (no rim, exposure and contrast 1).
+ * Names are unique and file-safe; values are checked here AND by `setRainRead` in the page.
+ */
+export function parseRead(raw: string): ReadTreatment[] {
+  const out: ReadTreatment[] = [];
+  for (const item of items(raw)) {
+    const colon = item.indexOf(':');
+    if (colon <= 0) throw new Error(`--read wants <name>:<rim>/<power>/<exposure>/<contrast>, got "${item}"`);
+    const name = item.slice(0, colon);
+    if (!READ_NAME.test(name)) throw new Error(`--read: treatment name "${name}" must be letters, digits and _, starting with a letter`);
+    if (out.some((t) => t.name === name)) throw new Error(`--read names "${name}" twice: the frames would share a file name`);
+    const f = item.slice(colon + 1).split('/').map((v) => v.trim());
+    if (f.length < 1 || f.length > 4 || f.some((v) => v === '')) throw new Error(`--read "${item}": 1 to 4 slash-separated numbers expected`);
+    const num = (i: number, dflt: number): number => {
+      const v = f[i] === undefined ? dflt : Number(f[i]);
+      if (!Number.isFinite(v)) throw new Error(`--read "${item}": field ${i + 1} is not a number`);
+      return v;
+    };
+    const t: ReadTreatment = {
+      name,
+      rimGain: num(0, 0),
+      rimPower: num(1, READ_DEFAULTS.rimPower),
+      exposure: num(2, READ_DEFAULTS.exposure),
+      contrast: num(3, READ_DEFAULTS.contrast),
+    };
+    if (t.rimGain < 0 || t.rimGain > RIM_GAIN_MAX) throw new Error(`--read "${item}": rim gain must be 0..${RIM_GAIN_MAX}`);
+    if (t.rimPower <= 0) throw new Error(`--read "${item}": rim power must be > 0`);
+    if (t.exposure < 0.25 || t.exposure > 16) throw new Error(`--read "${item}": exposure must be in [0.25, 16]`);
+    if (t.contrast <= 0 || t.contrast > 3) throw new Error(`--read "${item}": contrast must be in (0, 3]`);
+    out.push(t);
+  }
+  if (out.length === 0) throw new Error('--read wants at least one treatment, e.g. --read=none:0,rim06:0.6/3');
+  if (out.length > READ_MAX) throw new Error(`--read names ${out.length} treatments (max ${READ_MAX})`);
+  return out;
+}
+
+/** The frame names of one stop's readability sweep: `<stop frame>-read-<what>`. `m` is the measurement
+ *  frame (rain hidden, the sun's shadow off), `r` the look frame (rain on), `g` the ground (units hidden,
+ *  rain hidden, shadow off): the figure is whatever differs between an `m` frame and `g`. */
+export function readName(stopFrame: string, what: 'g' | { kind: 'm'; treatment: string; sample: number } | { kind: 'r'; treatment: string }): string {
+  if (typeof what === 'string') return `${stopFrame}-read-${what}`;
+  return what.kind === 'm' ? `${stopFrame}-read-m-${what.treatment}-s${what.sample}` : `${stopFrame}-read-r-${what.treatment}`;
+}
+
+/** Measurement frames per treatment. The squad's pose cycles under repeated repaints (six poses, measured 1 Nov 2026,
+ *  cause not found), so one frame per treatment would compare poses as much as treatments: each treatment is taken
+ *  `READ_SAMPLES` times with a different repaint count and the report averages them and prints the spread. */
+export const READ_SAMPLES = 6;
+/** Repaints before sample `j` (0-based): 1, 2, ... so the samples do not all sit at one phase of the cycle. */
+export function readRepaints(sample: number): number {
+  return 1 + sample;
+}
+
+/** What `ThreeRenderer.debugRainRead()` answers (the knobs as the shaders will read them now). */
+export interface RainReadNow {
+  readonly rimGain: number;
+  readonly rimPower: number;
+  readonly exposure: number;
+  readonly contrast: number;
+  readonly built: boolean;
+}
+
+export const READ_RAIN_READ_SCRIPT = `(() => {
+  const r = window.__lions.renderer;
+  if (typeof r.debugRainRead !== 'function') throw new Error('renderer has no debugRainRead: this tree predates the readability sweep');
+  return JSON.stringify(r.debugRainRead());
+})()`;
+
+/** A drawn treatment frame must have read back the knobs it asked for. Throws naming the frame. */
+export function assertReadApplied(frame: string, t: ReadTreatment, now: RainReadNow): void {
+  if (!now.built) throw new Error(`ground-capture: ${frame} asked for treatment ${t.name} but the renderer has no rim material (is the map wet, and a KDF figure drawn?)`);
+  const same = now.rimGain === t.rimGain && now.rimPower === t.rimPower && now.exposure === t.exposure && now.contrast === t.contrast;
+  if (!same) throw new Error(`ground-capture: ${frame} asked for treatment ${JSON.stringify(t)} but the uniforms read ${JSON.stringify(now)}`);
+}
+
+/** The page script that hides or shows debug layers, returning how many it changed per layer. */
+export function layersScript(layers: Readonly<Record<string, boolean>>): string {
+  return `(() => {
+    const r = window.__lions.renderer;
+    const out = {};
+    for (const [name, vis] of Object.entries(${JSON.stringify(layers)})) out[name] = r.setDebugLayerVisible(name, vis);
+    return JSON.stringify(out);
+  })()`;
+}
+
+/** The sun's shadow intensity: `null` puts the stored one back, a number stores the first one and writes it. */
+export function sunShadowScript(intensity: number | null): string {
+  return `(() => {
+    const r = window.__lions.renderer;
+    let sun = null;
+    r.scene.traverse((o) => { if (!sun && o.isDirectionalLight && o.castShadow) sun = o; });
+    if (!sun) throw new Error('ground-capture: no shadow-casting sun to read');
+    if (window.__readShadow === undefined) window.__readShadow = sun.shadow.intensity;
+    sun.shadow.intensity = ${intensity === null ? 'window.__readShadow' : String(intensity)};
+    return sun.shadow.intensity;
+  })()`;
+}
+
 /** The views of a pass other than the baseline: the marker views only, each renamed with the
  *  pass's suffix. `isMarkerView` is `ground-captures.ts`' own test of "a marker view" (the name
  *  starts `<map>-<marker>-z`). */
@@ -273,6 +393,7 @@ export function requestedModeFailures(
     readonly stops?: readonly StopKind[];
     readonly vehicle?: unknown;
     readonly rim?: readonly number[];
+    readonly read?: readonly ReadTreatment[];
   },
   took: {
     readonly presetFrames: Readonly<Record<string, number>>;
@@ -286,6 +407,8 @@ export function requestedModeFailures(
     readonly vehicleNotMoving: readonly string[];
     /** `--rim`: the frames taken per gain (absent means none). */
     readonly rimFrames?: Readonly<Record<string, number>>;
+    /** `--read`: the frames taken per treatment name (absent means none). */
+    readonly readFrames?: Readonly<Record<string, number>>;
   }
 ): string[] {
   const out: string[] = [];
@@ -299,6 +422,9 @@ export function requestedModeFailures(
   if (asked.clip !== undefined && took.clipPath === null) out.push(`--clip=${asked.clip} was given but no clip was written`);
   for (const k of asked.stops ?? []) {
     if ((took.stopFrames[k] ?? 0) === 0) out.push(`--stops=${k} was given but no ${k} stop frame was taken`);
+  }
+  for (const t of asked.read ?? []) {
+    if ((took.readFrames?.[t.name] ?? 0) === 0) out.push(`--read=${t.name} was given but no read frame was taken (no --stops frame was taken)`);
   }
   for (const g of asked.rim ?? []) {
     if ((took.rimFrames?.[String(g)] ?? 0) === 0) out.push(`--rim=${g} was given but no rim ${g} frame was taken (no --stops frame was taken)`);

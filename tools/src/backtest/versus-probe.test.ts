@@ -19,6 +19,8 @@ import {
   TUNNEL_CELLS, playTunnelCells, tunnelSelfCheck, withoutVersusRoutes,
 } from './versus-probe';
 import { PER_SEED_SCHEMA, parsePerSeed, type PerSeedFile } from './per-seed';
+import { versusSpawns } from '../../../packages/app/src/net/versus-force';
+import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 
 // Every test that plays FULL games carries this instead of vitest's 5 s
 // default: the M1, M3 and uncut mutants and `main`'s two runs (four or more
@@ -527,6 +529,62 @@ describe('the formation arm (GH-859 P1a, spec 8.7)', () => {
     expect(none.ids.flat().map((id) => none.sim.formationGroupOf(id) >= 0)).toEqual([false, false, false, false]);
   });
 
+  /** The real room force of a KDF mirror (it carries aircraft), ordered once; returns what `order` queued. */
+  function orderedForce(formation: Parameters<typeof order>[3]) {
+    const { sim, typeOf, map } = world('beit_sahwan_outskirts', 1000);
+    const { sideOfEnd, factions, ends } = layoutOf(['kdf', 'kdf']);
+    const force = versusSpawns(sim, typeOf, versusAnchors(map), factions, ends);
+    const queued: Command[] = [];
+    sim.queueCommand = ((q) => (c: Command) => { queued.push(c); q(c); })(sim.queueCommand.bind(sim));
+    order(sim, (side) => force.bySide[side], sideOfEnd, formation);
+    const air = (id: number): boolean => sim.unitTypes[sim.state.typeIdx[id]].isAir;
+    return { sim, force, sideOfEnd, queued, air };
+  }
+  const attackMoves = (queued: Command[]) => queued.map((c) => {
+    if (c.kind !== 'attackMove') throw new Error(`unexpected ${c.kind}`);
+    return c;
+  });
+
+  it('a one-end arm: the formed end sends one order carrying the formation, the loose end sends its ground and then its aircraft apart (Q2)', () => {
+    const { force, sideOfEnd, queued, air } = orderedForce({ id: 'attack', ends: [true, false] });
+    // Not vacuous: each side fields aircraft AND ground units, so the split has two non-empty halves.
+    for (const side of [0, 1] as const) {
+      expect(force.bySide[side].filter(air).length, `side ${side} aircraft`).toBeGreaterThan(0);
+      expect(force.bySide[side].filter((id) => !air(id)).length, `side ${side} ground`).toBeGreaterThan(0);
+    }
+    const cmds = attackMoves(queued);
+    expect(cmds).toHaveLength(3);
+    const [formed, ground, aloft] = cmds;
+    // The formed (friendly) end: one command, every id, the formation named.
+    expect(formed.formation).toBe('attack');
+    expect([...formed.ids].sort((a, b) => a - b)).toEqual([...force.bySide[sideOfEnd[0]]].sort((a, b) => a - b));
+    // The loose end: ground first, then aircraft, no formation, the same point.
+    expect(ground.ids.length).toBeGreaterThan(0);
+    expect(ground.ids.some(air)).toBe(false);
+    expect(aloft.ids.length).toBeGreaterThan(0);
+    expect(aloft.ids.every(air)).toBe(true);
+    expect('formation' in ground).toBe(false);
+    expect('formation' in aloft).toBe(false);
+    expect([ground.x, ground.y]).toEqual([aloft.x, aloft.y]);
+    expect([...ground.ids, ...aloft.ids].sort((a, b) => a - b)).toEqual([...force.bySide[sideOfEnd[1]]].sort((a, b) => a - b));
+    // And from the other end: the hostile carries it, the friendly splits.
+    const flipped = attackMoves(orderedForce({ id: 'attack', ends: [false, true] }).queued);
+    expect(flipped.map((c) => c.formation)).toEqual([undefined, undefined, 'attack']);
+  });
+
+  it('with no formation, and with both ends formed, each end still sends exactly one order (the base arm and (b) are unchanged)', () => {
+    const none = orderedForce(undefined);
+    expect(none.force.bySide[0].filter(none.air).length).toBeGreaterThan(0);
+    const plain = attackMoves(none.queued);
+    expect(plain).toHaveLength(2);
+    expect(plain.every((c) => !('formation' in c))).toBe(true);
+    // Aircraft ride inside the one order, as before.
+    expect(plain.every((c) => c.ids.some(none.air) && c.ids.some((id) => !none.air(id)))).toBe(true);
+    const both = attackMoves(orderedForce({ id: 'attack', ends: [true, true] }).queued);
+    expect(both).toHaveLength(2);
+    expect(both.map((c) => c.formation)).toEqual(['attack', 'attack']);
+  });
+
   it('rides on every game the run plays, controls included, and --formation-end picks the end', () => {
     const seen: (unknown)[] = [];
     const spy: PlayFn = (m, a, sd, o) => { seen.push(o?.formation); return play(m, a, sd, o); };
@@ -597,6 +655,23 @@ describe('seed sets, one tunnel cell and per-seed files (GH-859 P1b Task 7, the 
     for (let i = 0; i < 2; i++) {
       expect([rb[i].winner, rb[i].by, rb[i].ticks], `index ${i}`).not.toEqual([ra[i].winner, ra[i].by, ra[i].ticks]);
     }
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('--per-seed marks a one-end arm with looseAir, and no other arm (so the S4 gate cannot pair a file from before Q2)', () => {
+    quiet();
+    const fileOf = (extra: string[]): PerSeedFile => {
+      const out = tmp(`f${extra.join('')}.json`);
+      expect(main([...base, '--seeds=1', ...extra, `--per-seed=${out}`])).toBe(0);
+      return read(out);
+    };
+    expect(fileOf(['--formation=attack', '--formation-end=friendly']).formation).toEqual({ id: 'attack', ends: [true, false], looseAir: 'separate' });
+    expect(fileOf(['--formation=attack', '--formation-end=hostile']).formation).toEqual({ id: 'attack', ends: [false, true], looseAir: 'separate' });
+    expect(fileOf(['--formation=attack']).formation).toEqual({ id: 'attack', ends: [true, true] });
+    expect(fileOf([]).formation).toBeNull();
+    // The reader keeps the mark and refuses a value it does not know.
+    const raw = { schema: PER_SEED_SCHEMA, seedFrom: 0, seeds: 0, rules: 'room', capSeconds: 600, cells: [] };
+    expect(parsePerSeed({ ...raw, formation: { id: 'attack', ends: [true, false], looseAir: 'separate' } }, 'x').file.formation).toEqual({ id: 'attack', ends: [true, false], looseAir: 'separate' });
+    expect(parsePerSeed({ ...raw, formation: { id: 'attack', ends: [true, false], looseAir: 'plain' } }, 'x').faults.join('\n')).toContain('looseAir');
   }, FULL_GAMES_TIMEOUT_MS);
 
   it('--per-seed writes one row per seed per cell, each the game the probe played', () => {

@@ -50,12 +50,21 @@ import {
   formatNetTotal,
   medianOf as planMedianOf,
   netCost,
+  blockPairedNet,
+  pairedMedian,
+  pairedTotalNet,
+  quantileOf,
   totalNetCost,
   parseCostArgs,
+  PROBE_PREFIX,
+  PROGRAM_PROBES,
+  RAIN_PROBES,
+  RAIN_SHADER_PROBES,
   resolveWetConfigs,
   wetConfigList,
   type Resolution,
   type ViewSpec,
+  WET_BUDGET_MS,
   type WetFacts,
 } from './fx-cost-plan';
 
@@ -177,6 +186,8 @@ async function reportCadence(page: Page, tag: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 interface WetCell {
+  /** `--pairs`: this cell's per-block differences, config minus the baseline timed in the same cell. */
+  diffs?: number[];
   med: number;
   p95: number;
   cpu: number;
@@ -198,8 +209,8 @@ interface WetInstall {
  *  view setter and the timer. Reads the renderer's wet facts, which `resolveWetConfigs` turns
  *  into which configs have something to act on. A renderer that no longer has the private
  *  fields this reads throws (never a silently-dry reading). */
-async function installWetHarness(page: Page, frames: number): Promise<WetInstall> {
-  return page.evaluate((n) => {
+async function installWetHarness(page: Page, frames: number, probeNames: readonly string[], pairs: { blocks: number; frames: number } | null): Promise<WetInstall> {
+  return page.evaluate(([n, probes, programProbes, rainProbes, rainShaderProbes, pairOpt]) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const L = (window as any).__lions;
     const r = L.renderer;
@@ -300,6 +311,74 @@ async function installWetHarness(page: Page, frames: number): Promise<WetInstall
         },
       };
     }
+    // Probes (`--probes=`): one thing swapped on the live page, timed against the preset's own frame.
+    for (const name of probes) {
+      const key = `probe:${name}`;
+      if (name in programProbes) {
+        if (!facts.wetGround || typeof r.debugSetWetProgram !== 'function') throw new Error(`fx-cost: probe ${name}: no wet ground program to swap`);
+        const want = programProbes[name];
+        const orig = r.debugWetProgram();
+        const keyOf = (): string => {
+          const prog = r.renderer.properties.get(r.groundMat).currentProgram;
+          if (!prog || typeof prog.cacheKey !== 'string') throw new Error('fx-cost: probe: the ground material has no current program to read a cacheKey from');
+          return prog.cacheKey as string;
+        };
+        const same = want.rim === orig.rim && want.ripples === orig.ripples && want.roughness === orig.roughness;
+        let origKey = '';
+        cfgs[key] = {
+          off: () => {
+            r.frame(1, 0);
+            origKey = keyOf();
+            r.debugSetWetProgram(want);
+          },
+          on: () => r.debugSetWetProgram(orig),
+          check: () => {
+            if (!same && keyOf() === origKey) throw new Error(`fx-cost: probe ${name}: the swap left the same compiled program, the timing would be a no-op`);
+            if (same && keyOf() !== origKey) throw new Error(`fx-cost: probe ${name}: names the preset's own program but the key moved`);
+          },
+        };
+      } else if (name in rainShaderProbes) {
+        const want = rainShaderProbes[name];
+        cfgs[key] = {
+          off: () => {
+            if (r.rain == null) throw new Error(`fx-cost: probe ${name}: no rain batch`);
+            const m = r.rain.mesh.material;
+            const keep = { depthTest: m.depthTest, vertexShader: m.vertexShader, fragmentShader: m.fragmentShader };
+            (m as unknown as { __fxKeep?: typeof keep }).__fxKeep = keep;
+            if (want.depthTest !== undefined) m.depthTest = want.depthTest;
+            for (const [stage, pair] of [['vertexShader', want.vertex], ['fragmentShader', want.fragment]] as const) {
+              if (!pair) continue;
+              if (!m[stage].includes(pair[0])) throw new Error(`fx-cost: probe ${name}: ${stage} has no "${pair[0]}" to change (rain-batch.ts drifted?)`);
+              m[stage] = m[stage].replace(pair[0], pair[1]);
+            }
+            m.needsUpdate = true;
+          },
+          on: () => {
+            const m = r.rain.mesh.material;
+            const keep = (m as unknown as { __fxKeep?: { depthTest: boolean; vertexShader: string; fragmentShader: string } }).__fxKeep;
+            if (!keep) return;
+            m.depthTest = keep.depthTest;
+            m.vertexShader = keep.vertexShader;
+            m.fragmentShader = keep.fragmentShader;
+            m.needsUpdate = true;
+          },
+        };
+      } else {
+        const want = rainProbes[name] as number;
+        cfgs[key] = {
+          off: () => {
+            if (r.rain == null) throw new Error(`fx-cost: probe ${name}: no rain batch`);
+            r.rain.mesh.geometry.instanceCount = want;
+          },
+          on: () => {
+            r.rain.mesh.geometry.instanceCount = r.opts.quality?.rain?.drops ?? 6000;
+          },
+          check: () => {
+            if (r.rain.mesh.geometry.instanceCount !== want) throw new Error(`fx-cost: probe ${name}: instanceCount did not hold`);
+          },
+        };
+      }
+    }
     if (sun && shadowPreset !== null && shadowCurrent !== null && shadowPreset > shadowCurrent) {
       cfgs['shadow-full'] = {
         off: () => reshape(shadowPreset),
@@ -333,6 +412,72 @@ async function installWetHarness(page: Page, frames: number): Promise<WetInstall
       c.sort((a, b) => a - b);
       return { med: w[Math.floor(n / 2)], p95: w[Math.floor(n * 0.95)], cpu: c[Math.floor(n / 2)], calls, tris };
     };
+    // `--pairs`: ONE cell is `blocks` ABBA blocks of `per` timed frames (after 2 discarded warm frames
+    // each), the baseline state against the config's, a few frames apart, so a drift slow against a
+    // block cancels in the difference. The baseline config is timed against itself: the null control
+    // (its pooled difference is the instrument's noise floor).
+    const timePair = (cfg: Cfg, isBaseline: boolean): WetCell => {
+      if (!pairOpt) throw new Error('fx-cost: timePair without --pairs');
+      const per = pairOpt.frames;
+      const block = (): number => {
+        for (let i = 0; i < 2; i++) r.frame(1, 16);
+        sync();
+        const w: number[] = [];
+        for (let i = 0; i < per; i++) {
+          const t0 = performance.now();
+          r.frame(1, 0);
+          sync();
+          w.push(performance.now() - t0);
+        }
+        w.sort((a, b) => a - b);
+        return w[Math.floor(per / 2)];
+      };
+      const counts = (): { calls: number; tris: number } => {
+        info.autoReset = false;
+        info.reset();
+        r.frame(1, 16);
+        const out = { calls: info.render.calls, tris: info.render.triangles };
+        info.autoReset = true;
+        return out;
+      };
+      for (let i = 0; i < 20; i++) r.frame(1, 16);
+      const diffs: number[] = [];
+      const bs: number[] = [];
+      const cpu: number[] = [];
+      let seen: { calls: number; tris: number } | null = null;
+      for (let b = 0; b < pairOpt.blocks; b++) {
+        const runA = (): number => block();
+        const runB = (): number => {
+          cfg.off();
+          try {
+            const v = block();
+            if (seen === null) {
+              seen = counts();
+              cfg.check?.();
+            }
+            return v;
+          } finally {
+            cfg.on();
+          }
+        };
+        let a: number;
+        let bv: number;
+        if (b % 2 === 1) {
+          bv = runB();
+          a = runA();
+        } else {
+          a = runA();
+          bv = runB();
+        }
+        diffs.push(bv - a);
+        bs.push(bv);
+        cpu.push(0);
+      }
+      void isBaseline;
+      bs.sort((x, y) => x - y);
+      const s = seen as { calls: number; tris: number } | null;
+      return { diffs, med: bs[Math.floor(bs.length / 2)], p95: bs[Math.floor(bs.length * 0.95)], cpu: 0, calls: s ? s.calls : 0, tris: s ? s.tris : 0 };
+    };
     const setView = (v: { at: { kind: string; marker?: string; x?: number; y?: number }; zoom: number | null }): void => {
       if (v.at.kind === 'boot') {
         r.camera.x = boot.x;
@@ -346,7 +491,7 @@ async function installWetHarness(page: Page, frames: number): Promise<WetInstall
       }
       r.camera.zoom = v.zoom ?? boot.zoom;
     };
-    (window as unknown as { __fx: unknown }).__fx = { cfgs, time, setView };
+    (window as unknown as { __fx: unknown }).__fx = { cfgs, time, timePair, setView };
     return {
       facts,
       pixelRatio: r.renderer.getPixelRatio(),
@@ -356,19 +501,26 @@ async function installWetHarness(page: Page, frames: number): Promise<WetInstall
       mapSize: [L.sim.width, L.sim.height] as [number, number],
       boot,
     };
-  }, frames);
+  }, [frames, probeNames, PROGRAM_PROBES, RAIN_PROBES, RAIN_SHADER_PROBES, pairs] as const);
 }
 
-/** One timing: set the view, switch ONE config off, time it, and switch it back (always). */
-async function timeWetStep(page: Page, view: ViewSpec, config: string): Promise<WetCell> {
+/** One timing: set the view, switch ONE config off, time it, and switch it back (always). With
+ *  `--pairs` the cell is ABBA blocks against the baseline instead (`timePair`). */
+async function timeWetStep(page: Page, view: ViewSpec, config: string, paired: boolean): Promise<WetCell> {
   return page.evaluate(
-    ([v, cfgName]) => {
+    ([v, cfgName, pairedRun]) => {
       const fx = (window as unknown as {
-        __fx: { cfgs: Record<string, { off: () => void; on: () => void; check?: () => void } | undefined>; time: () => WetCell; setView: (v: unknown) => void };
+        __fx: {
+          cfgs: Record<string, { off: () => void; on: () => void; check?: () => void } | undefined>;
+          time: () => WetCell;
+          timePair: (cfg: { off: () => void; on: () => void; check?: () => void }, isBaseline: boolean) => WetCell;
+          setView: (v: unknown) => void;
+        };
       }).__fx;
       const cfg = fx.cfgs[cfgName as string];
       if (!cfg) throw new Error(`fx-cost: config "${String(cfgName)}" was scheduled but never built (its resolution said it could run)`);
       fx.setView(v);
+      if (pairedRun) return fx.timePair(cfg, cfgName === 'baseline');
       cfg.off();
       try {
         const cell = fx.time();
@@ -378,12 +530,12 @@ async function timeWetStep(page: Page, view: ViewSpec, config: string): Promise<
         cfg.on();
       }
     },
-    [view, config] as const
+    [view, config, paired] as const
   );
 }
 
 async function runWet(): Promise<void> {
-  const configs = wetConfigList();
+  const configs = wetConfigList(COST.probes, COST.configs);
   for (const quality of PRESETS) {
     const loadBefore = os.loadavg();
     const booted = new Map<string, { page: Page; gpu: string; install: WetInstall; res: Record<string, Resolution> }>();
@@ -391,8 +543,9 @@ async function runWet(): Promise<void> {
       const { page, gpu } = await bootPage(quality, mapId);
       await page.waitForTimeout(4000);
       await reportCadence(page, ` map=${mapId} quality=${quality}`);
-      const install = await installWetHarness(page, FRAMES);
+      const install = await installWetHarness(page, FRAMES, COST.probes, COST.pairs);
       const res: Record<string, Resolution> = { [BASELINE]: { resolves: true }, ...resolveWetConfigs(install.facts) };
+      for (const pr of COST.probes) res[`${PROBE_PREFIX}${pr}`] = { resolves: true };
       booted.set(mapId, { page, gpu, install, res });
     }
     const schedule = buildSchedule({ maps: COST.maps, rounds: ROUNDS, views: COST.views, configs });
@@ -407,7 +560,7 @@ async function runWet(): Promise<void> {
         last = b.page;
       }
       const view = (COST.views[step.map] as readonly ViewSpec[])[step.viewIndex] as ViewSpec;
-      const cell = await timeWetStep(b.page, view, step.config);
+      const cell = await timeWetStep(b.page, view, step.config, COST.pairs !== null);
       (((cells[step.map] ??= {})[step.view] ??= {})[step.config] ??= []).push(cell);
     }
     for (const mapId of COST.maps) {
@@ -430,8 +583,16 @@ async function runWet(): Promise<void> {
           if (!cs) throw new Error(`fx-cost: ${mapId} view ${view.name} config ${name} resolved but was never timed (the schedule skipped it)`);
           const meds = cs.map((c) => c.med);
           const m = planMedianOf(meds);
+          const baseMeds = (byCfg[BASELINE] ?? []).map((c) => c.med);
+          const pooled = cs.flatMap((c) => c.diffs ?? []);
+          const paired =
+            pooled.length > 0
+              ? `${planMedianOf(pooled).toFixed(2)} [${quantileOf(pooled, 0.25).toFixed(2)},${quantileOf(pooled, 0.75).toFixed(2)}] n=${pooled.length}`
+              : name === BASELINE || baseMeds.length !== meds.length
+                ? 'n/a'
+                : pairedMedian(meds, baseMeds).toFixed(2);
           console.log(
-            `  ${name.padEnd(26)} med ${m.toFixed(2)} ms (rounds ${meds.map((v) => v.toFixed(1)).join('/')})  p95 ${planMedianOf(cs.map((c) => c.p95)).toFixed(2)}  cpu ${planMedianOf(cs.map((c) => c.cpu)).toFixed(2)}  ${formatDelta(deltaRow(base, m, resolution))}  calls ${(cs[0] as WetCell).calls}  tris ${((cs[0] as WetCell).tris / 1000).toFixed(0)}k`
+            `  ${name.padEnd(26)} med ${m.toFixed(2)} ms (rounds ${meds.map((v) => v.toFixed(1)).join('/')})  p95 ${planMedianOf(cs.map((c) => c.p95)).toFixed(2)}  cpu ${planMedianOf(cs.map((c) => c.cpu)).toFixed(2)}  ${formatDelta(deltaRow(base, m, resolution))}  paired ${paired}  calls ${(cs[0] as WetCell).calls}  tris ${((cs[0] as WetCell).tris / 1000).toFixed(0)}k`
           );
         }
         const medOf = (name: string): number => planMedianOf((byCfg[name] ?? []).map((c) => c.med));
@@ -446,8 +607,28 @@ async function runWet(): Promise<void> {
           wetProgram: { med: byCfg['wet-program'] ? medOf('wet-program') : 0, resolution: b.res['wet-program'] as Resolution },
           shadowFull: { med: byCfg['shadow-full'] ? medOf('shadow-full') : 0, resolution: b.res['shadow-full'] as Resolution },
         };
-        console.log(`  ${formatNetLayers(netCost(netIn))}`);
-        console.log(`  ${formatNetTotal(quality, totalNetCost(netIn))}`);
+        const fullSet = ['wet-all', 'wet-program', 'shadow-full'].every((n) => configs.includes(n) || !(b.res[n] as Resolution).resolves);
+        if (fullSet) {
+          console.log(`  ${formatNetLayers(netCost(netIn))}`);
+          console.log(`  ${formatNetTotal(quality, totalNetCost(netIn))}`);
+        }
+        const pooledOf = (n: string): number[] | null => (byCfg[n] && byCfg[n].some((c) => c.diffs) ? byCfg[n].flatMap((c) => c.diffs ?? []) : null);
+        const bp = blockPairedNet({ offDiffs: pooledOf('wet-program'), shadowFullDiffs: pooledOf('shadow-full') });
+        if (bp !== null) {
+          console.log(
+            `  NET (total wet, block-paired) ${bp.net.toFixed(2)} ms = gross ${bp.gross.toFixed(2)} - saving ${bp.saving.toFixed(2)}  budget +${WET_BUDGET_MS[quality].toFixed(1)} ms: ${bp.net <= WET_BUDGET_MS[quality] ? 'within' : 'OVER'}  [pooled ABBA block differences; the baseline row above is the null control]`
+          );
+        }
+        const pn = COST.pairs !== null ? null : pairedTotalNet({
+          base: (byCfg[BASELINE] ?? []).map((c) => c.med),
+          off: byCfg['wet-program'] ? byCfg['wet-program'].map((c) => c.med) : null,
+          shadowFull: byCfg['shadow-full'] ? byCfg['shadow-full'].map((c) => c.med) : null,
+        });
+        if (pn !== null) {
+          console.log(
+            `  NET (total wet, paired) ${pn.net.toFixed(2)} ms = gross ${pn.gross.toFixed(2)} - saving ${pn.saving.toFixed(2)}  budget +${WET_BUDGET_MS[quality].toFixed(1)} ms: ${pn.net <= WET_BUDGET_MS[quality] ? 'within' : 'OVER'}  [median of per-round differences; the rows above are differences of medians]`
+          );
+        }
         console.log('  note: `wet` zeroes the ripple branch as well, so the rain/wet/marsh/ripples deltas are not additive; wet-program removes the whole wet ground program and the rain and ripples.');
       }
     }

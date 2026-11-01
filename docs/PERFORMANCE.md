@@ -3031,3 +3031,46 @@ Whole frame, `ein_qasab` against `wadi_halam_basin` (baseline medians, ms, ein v
 11.20 (+1.40); low 11.80 vs 12.60 (-0.80) / 10.80 vs 10.00 (+0.80) / 9.70 vs 8.60 (+1.10). Raw output:
 `_coord/wet-theme/p4/cost/run4-final.txt` (with `uptime-run4-before.txt`, `uptime-run4-after.txt`). The earlier tables
 above are kept; their loaded readings of `medium` (inside budget) did not reproduce on the quiet machine.
+
+## Wetland cheap wet (GH-871 cheap-wet follow-up, 1 Nov 2026)
+
+P4 merged with `medium` over its wet budget (NET total wet 0.9 / 1.0 ms at zoom 1.6 / 2.5 against 0.7) and `low` at or over its 0.4. This follow-up gives
+medium and low a cheaper wet ground program (`rain.ground`: `lite` and `minimal`, `terrain/mesh.ts` `WET_PROGRAM_TIERS`) and re-measures. `high` is unchanged
+(its program is P4's, byte for byte).
+
+**Conditions.** Apple M3 Pro, `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)`, headless Chromium, 1440x900 at DPR 2, `ein_qasab`
+`causeway_s` at zoom 1 / 1.6 / 2.5, 29 entities, parked, music off, port 5198, one browser, the tool's own `--breakdown` at its P4 defaults (12 rounds x 20
+readPixels-synced frames, difference of medians). **The machine is shared**: `uptime` 1-minute load 3-6 for every run below, with other applications and sessions on the GPU. The baseline medians were 15.5 / 14.5 / 13.9 ms (medium) and 12.8 / 11.8 / 11.0 (low), about 10% above the P4 quiet run's 14.2 /
+13.3 / 12.6 and 11.8 / 10.8 / 9.7: the GPU was not quiet, and a run on a clearly busier GPU read 2x those (medium 30 ms, low 27 ms) and was discarded; read
+the numbers as on a mildly busy GPU. Raw output: `_coord/wet-theme/p5-cost/`.
+
+**NET (total wet), ms, zoom 1 / 1.6 / 2.5 (budget: high 1.0, medium 0.7, low 0.4).**
+
+| preset | P4 final tip (quiet, load 3-5) | run A | run B | run C |
+|---|---|---|---|---|
+| high (unchanged) | 0.2 / 0.5 / 0.2 | -0.1 / -0.1 / 0.1 | | |
+| medium | 0.5 / 0.9 / 1.0 (**over**) | 0.2 / 0.3 / 0.4 | 0.2 / 0.1 / 0.7 | 0.0 / -0.1 / 0.5 |
+| low | 0.5 / 0.5 / 0.4 (**over**) | 0.1 / 0.2 / 0.2 | 0.2 / 0.3 / 0.4 | 0.1 / 0.3 / 0.2 |
+
+Medium reads -0.1 to 0.7 across the nine readings and low 0.1 to 0.4: every one is at or under its budget, and two sit exactly on it (medium 0.7 and low
+0.4, both zoom 2.5, run B). Medium's other eight readings are 0.2 to 0.8 under (the lowest are 0.0 and -0.1), low's other eight 0.1 to 0.3 under. **The tiers'
+own saving is at the noise floor**: the old program recompiled on the same page (`--probes=full`, `probe:full`, in the preset's own frame) reads only 0.0 to
++0.3 dearer than medium's tier and 0.0 to +0.2 than low's, one reading's spread is about 0.2 ms, and P4's own quiet run read these presets over budget where
+its loaded run had not (medium's zoom 1.6 read 0.9 against 0.6), so some of the move against P4's reading is the machine. What the flip rests on is
+"inside budget on a shared GPU, at the line once each, the tier a little cheaper than the old program". **A re-run on a GPU with nothing else on it is
+still open.**
+
+**Where the wet cost is.** `--pairs=8x6 --probes=` times each config as ABBA blocks against the baseline inside one cell, the baseline against itself as the null
+control (it reads 0.00 [-0.2, +0.2]). Medium, zoom 1.6 / 2.5, config minus baseline: hiding the rain batch -0.3 / -0.4, the whole wet program (rain
+included) -0.5 / -0.6, so the ground program is about 0.2 and the rain 0.3-0.4. The rain row scales with the number of streaks on screen: an instance count of 100
+costs nothing, 1000 about a third of 3500, and it does NOT move with the streak's width, with the depth test, with `discard`, or with the splash quads or the
+height fetch (probes `rain-halfwidth`, `rain-nodepth`, `rain-nodiscard`, `rain-nosplash`, `rain-noheight`: all 0.0 against the baseline), while the streak quads
+alone are all of it (`rain-nostreak` reads the same as hiding the rain) and a batch of every instance collapsed (`rain-collapsed`, submitted and none live) also
+reads as hiding it, so the cost is the LIVE streaks (thin diagonal quads shade whole 2x2 quads whatever their width). At low (525 drops, about 115 on screen) the
+rain row is 0.0. Of the ground program's terms, each of the rim derivative, the ripple code and the roughness table reads at most 0.1 ms alone (inside the 0.1
+ms resolution), and the cost is not additive: removing ANY of them recovers most of what removing all does, as a register-pressure threshold would. On a busy GPU
+(where everything reads about 2x) the rim-off, roughness-off and the combined `min` probes read 0.4 / 0.3 / 0.5 against a whole program of 0.7.
+
+**Not measured:** a GPU with nothing else on it, program and texture counts, the whole-frame `ein_qasab` against `wadi_halam_basin` line, `--pairs` as a budget
+estimator (its cells read about 2x the sustained medians on this machine at times: block alternation is a different clock regime, so it ranks terms and does
+not replace the budget rows), and tick time. The 525-drop step on `low` is the one P4 shipped unmeasured: it reads rain 0.0 here.

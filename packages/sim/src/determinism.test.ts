@@ -1445,7 +1445,13 @@ function formationWorld(seed: number): FormationWorldFacts {
 // 600 and after the last) was re-read on the new code and is UNCHANGED, and so are the fork witness's scouting ticks.
 // The halt change (an answering aircraft loses its queue) reaches no unit of this world: no halt row holds an aircraft.
 // Was 3138870583.
-const FORMATION_WORLD_PIN = 762031029;
+// Re-pinned 2026-10-31 (GH-859 P1c). The Attack lost its march pace (data/formations/attack.json, pace none): its members walk at
+// their own speeds between 8-tile checkpoints, so the world's Attack ring reaches the post sooner, its first contact is the second tank
+// (id 6) at 451 and not the helicopter at 510, its aircraft sortie at 452 (was 511) and are sent home at 945 (was 910).
+// The groups, members, ringFacing, seen, sprungBy, legs, the Column's pace and first arrival, the releases, the casualty, the
+// duties seen and the row states are all re-read UNCHANGED; the golden canaries do not move.
+// Was 762031029.
+const FORMATION_WORLD_PIN = 2297075074;
 
 describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extended in P1b)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
@@ -1489,7 +1495,7 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
     // Column are whole at their checkpoints, and are released on the tick after the last arrival.
     // Re-read on P1b Task 5's world (the Column gained an ambulance, a fast vehicle with the shortest way to checkpoint 1,
     // and a medic): the first arrival is tick 57 (was 142) and the Column is released by the clock, 60 ticks later, at 117
-    // (was 202); the Attack, whose aircraft are exempt from the pace, is whole at its checkpoints sooner (169 and 277; was
+    // (was 202); the Attack (whose aircraft were exempt from the pace; since P1c it has no pace at all, and these two releases read the same) is whole at its checkpoints sooner (169 and 277; was
     // 237 and 415); the side-1 Column's release is unchanged.
     expect(a.columnFirstArrival).toBe(57);
     expect(a.released).toBe('117:0:1/2 169:1:1/3 277:1:2/3 351:16:1/2');
@@ -1500,8 +1506,9 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
     // tick:group:entity:drill. Row 16 (the side-1 Column, drill halt = 1) at 444 by its first rifleman, id 16 (five
     // column, five attack, six ring, then the foe riflemen 16..18); row 1 (the Attack, drill press = 2) at 541 by id 6,
     // the second tank, on the side-1 riflemen near (38.5, 16.5).
-    // Task 5: the Attack's strike helicopter (id 20, an aircraft that outruns the pace) opens fire first, at 510 and not 541.
-    expect(a.contacts).toBe('444:16:16:1 510:1:20:2');
+    // Task 5: the Attack's strike helicopter (id 20, an aircraft that outruns the pace) opened fire first, at 510 and not 541.
+    // P1c: with no pace the Attack's ground members arrive sooner, and the second tank (id 6) fires first again, at 451.
+    expect(a.contacts).toBe('444:16:16:1 451:1:6:2');
     // Column marching still (its last leg done, nothing hit it), Attack in contact, ring sprung, side-1 Column in contact
     expect(a.endStates).toBe('1,3,4,3');
   });
@@ -1509,23 +1516,51 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
   it('calls: the Column\'s medic answers a man going down, the Attack\'s aircraft sortie and come home (GH-859 P1b Task 5)', () => {
     const a = formationWorld(FM_SEED);
     // tick:group:entity:call. The Column (row 0): the medic, id 22, is called at 180 for the man who fell then and is
-    // back on its march by 346. The Attack (row 1): the strike helicopter (20) and the spot drone (21) sortie at 511, the
-    // tick after their contact, and are sent home at 910, ten quiet seconds (200 ticks) after the last fire at 711.
-    expect(a.calls).toBe('180:0:22:casualty 346:0:22:return 511:1:20:strike 511:1:21:spot 910:1:20:return 910:1:21:return');
+    // back on its march by 346. The Attack (row 1): the strike helicopter (20) and the spot drone (21) sortie at 452, the
+    // tick after their contact at 451 (P1c: was 511 and 510), and are sent home at 945 (was 910), ten quiet seconds after the last fire.
+    expect(a.calls).toBe('180:0:22:casualty 346:0:22:return 452:1:20:strike 452:1:21:spot 945:1:20:return 945:1:21:return');
     // one man fell: the Column's second squad (id 2)
     expect(a.casualties).toBe('180:2');
     // duty OUT and RETURN were each seen on exactly the three answerers and nobody else
     expect(a.outSeen).toBe('20,21,22');
     expect(a.returnSeen).toBe('20,21,22');
-    // after the 600th tick the four rows read as before; after the last the side-1 Column is gone (the riflemen died by 711)
+    // after the 600th tick the four rows read as before; after the last the side-1 Column is gone (the riflemen died before the end)
     // and the others are as they were: the Column marching, the Attack in contact, the ring sprung
     expect(a.endStates).toBe('1,3,4,3');
     expect(a.finalStates).toBe('1,3,4,0');
     // everyone is home: no member away in any of the four rows, and no member on a duty at all
-    expect(a.awayAtEnd).toBe('0,0,0,0 0');
+    // P1c: the Attack's aircraft are sent home at 945 (was 910) and are still flying home when the 1000 ticks end: row 1 has the
+    // helicopter and the drone away (2), both on a duty (RETURN). Every other row is home. The sorties' arrival is pinned in
+    // formation-calls.test.ts ('on arrival the helicopter is back on duty NONE').
+    expect(a.awayAtEnd).toBe('0,2,0,0 2');
   });
 
   it('the pinned hash', () => {
     expect(formationWorld(FM_SEED).hash).toBe(FORMATION_WORLD_PIN);
+  });
+
+  it('given 200 more ticks than the pin, the Attack\'s aircraft are home: no member away, no duty held (GH-859 P1c)', () => {
+    // The pin is hashed at tick 1000, where the Attack's helicopter and drone are still flying home (awayAtEnd '0,2,0,0 2'),
+    // so "everyone is home" is no longer a fact of the pinned run. This reads the same world 200 ticks on. The driver has no
+    // branch after tick 180, so running past the pin's end changes nothing but the clock.
+    const { sim, ids } = formationSetup(FM_SEED);
+    const away = internals(sim).fgAway as Uint16Array;
+    let awayAt1000 = '';
+    let dutyAt1000 = -1;
+    const dutyCount = (): number => Array.from({ length: sim.entityCount }, (_, i) => sim.formationDutyOf(i)).filter((d) => d !== 0).length;
+    for (let t = 0; t < 1200; t++) {
+      formationDrive(sim, t, ids);
+      sim.tick();
+      if (t === 999) {
+        awayAt1000 = [0, 1, 2, 3].map((g) => `${away[g]}`).join(',');
+        dutyAt1000 = dutyCount();
+      }
+    }
+    // control: at the pin's tick the two aircraft are still away, on RETURN, so the test below can fail
+    expect(awayAt1000).toBe('0,2,0,0');
+    expect(dutyAt1000).toBe(2);
+    // at 1200: every row has nobody away, and no entity holds a duty
+    expect([0, 1, 2, 3].map((g) => `${away[g]}`).join(',')).toBe('0,0,0,0');
+    expect(dutyCount()).toBe(0);
   });
 });
