@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "41bb0e7a59501634a66bc9ad5a1014aef170e695",
-  "blessedAt": "2026-10-30T01:15:19.721Z",
-  "reason": "GH-826 PR 897: the redesigned infantry kit is switched on (lead 29 Oct); the kitted frame's squads wear real-size level-1 kit (CI 232 px / 0.0151, only kitted moved)",
+  "commit": "592ebbb193e6aa64e85befffd024b2fd8f16f023",
+  "blessedAt": "2026-11-01T10:35:40.259Z",
+  "reason": "PR 924 (GH-826 step 2): Rifle Squad hands on the weapon. The vehicle and kitted scenarios show the new infantry figures (vehicle 373 px / 0.0242, kitted 385 px / 0.0266 on CI); every other scenario passes.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "cff6fe69ac1ed7634d6e9e0c4816b3457566f3202d5f5a2b91dfc195094f5c63"
+      "sha256": "b9a8c8530729046f6aed3cc4e45c071a9cf9f1e2a98161793f653a381b120a80"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c3c1e7a5b9326065aef600fce9f457ae4e7d582b270df935403c2bb51283613c"
+      "sha256": "c824bdaa1129282618f3f632b41267e7b9923d75c115e876cef4d2a954712647"
     },
     "relief": {
       "tick": 500,
