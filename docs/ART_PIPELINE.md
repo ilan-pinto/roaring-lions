@@ -139,6 +139,30 @@ See `data/vfx/catastrophic_kill.json` for the canonical ramp: `white_hot → fir
 
 ---
 
+## 5a. Lighting and look — the runtime frame
+
+The sections above describe how an asset is authored. What the player sees is decided at runtime by the three.js renderer, and from a top-down RTS camera that frame, not the engine, is what separates this game from a commercial one.
+
+**As it ships** (`packages/render/src/three/`, record in `docs/agent-notes/renderer.md`): every world material is a `MeshStandardMaterial`; a side sun (`SUN_DIRECTION`) with a camera-fitted 4096² shadow map plus one hemisphere bounce (`lighting.ts`); dawn, day and dusk presets (`time-of-day.ts`); the post chain `RenderPass → FogOfWarPass → GTAO → bloom → OutputPass (ACES, exposure 1.0) → vignette → SMAA` (`post-chain.ts`); ground decals on the sim clock; per-role roughness and metal on units (`units/unit-surface.ts`). Quality presets `high`/`medium`/`low` drop AO, bloom and shadow resolution (`quality.ts`).
+
+**Still missing, in the order it will be built** (spec: `docs/superpowers/specs/2026-11-01-look-uplift-design.md`):
+
+1. **L1, environment lighting.** No material has an environment map today (`envMapIntensity = 0`), so metal reads dark and is capped at metalness 0.45. A sky environment built from the time-of-day palette keys and run through PMREM fixes both. No HDRI file, so no licence question.
+2. **L2, colour grading.** A grade per map and per time of day, stored as data in `data/grades/` and baked to a 3D LUT at boot. A neutral grade builds no pass.
+3. **L3, textured unit materials.** Base colour, normal and ORM maps on units, team colour from a mask. This reverses "a GLB carries zero materials" and needs a lead ruling first.
+4. **L4, vertex animation textures.** Infantry clips baked to textures and drawn instanced, to lift the ~1,150-figure draw-call ceiling. A new pipeline pass after `gait:meshes` and before `encode:meshes`.
+5. **L5, a WebGPU spike.** A measured decision sheet, not a migration.
+
+**Rules that hold for every look change:**
+
+- The palette is the source of every authored colour, including an environment and a grade. Never a raw hex.
+- Numbers are approved on a mock sheet before any render or Meshy call.
+- A new effect gets a debug layer and a visible-toggle floor in the visual gate, and its falsification (the layer hidden, the check watched red) goes in the commit message.
+- The golden baseline moves once per phase and is blessed from CI numbers, never from a branch.
+- Presentation only. Nothing in this section may read back into the sim.
+
+---
+
 ## 6. Terrain — the 60% nobody budgets for
 
 Most projects polish units and ship ugly ground, then wonder why it looks amateur. Ground is the majority of every screenshot.
