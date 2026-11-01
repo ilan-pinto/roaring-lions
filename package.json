@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.129.16",
+  "version": "0.129.17",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -52,6 +52,7 @@
     "agent": "pnpm --silent --filter @lions/tools agent",
     "arena": "pnpm --filter @lions/tools arena",
     "net:rejoin-measure": "pnpm --filter @lions/tools net:rejoin-measure",
+    "net:budget": "pnpm --filter @lions/tools net:budget",
     "blast:capture": "pnpm --filter @lions/tools blast:capture",
     "smoke-outline:capture": "pnpm --filter @lions/tools smoke-outline:capture",
     "support:capture": "pnpm --filter @lions/tools support:capture",
@@ -66,6 +67,7 @@
     "plates:units": "pnpm --filter @lions/tools plates:units",
     "kit:capture": "pnpm --filter @lions/tools kit:capture",
     "inf-kit:capture": "pnpm --filter @lions/tools inf-kit:capture",
+    "cards:guide": "python3 tools/cards/make_layouts.py",
     "vdmg:capture": "pnpm --filter @lions/tools vdmg:capture",
     "closeups:garage": "pnpm --filter @lions/tools closeups:garage",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes",

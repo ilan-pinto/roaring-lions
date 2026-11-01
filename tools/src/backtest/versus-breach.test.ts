@@ -92,7 +92,7 @@ describe('the swap', () => {
         expect(read(mine.sim)).toEqual(read(shipped.sim));
       }
     }
-    expect(pairings).toBe(8); // 4 mirrors + 2 faction maps x 2 orders: the loop ran
+    expect(pairings).toBe(9); // 5 mirrors (rujm_sawda from GH-913 L8) + 2 faction maps x 2 orders: the loop ran
   });
   it('moves only the side labels: same tiles, same ids, camp A first', () => {
     const tiles = (arm: 'normal' | 'swapped') => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FORMATION_VERSUS_REASON_KEY, VERSUS_FORMATIONS_OPEN, formationsOpenIn } from './versus-formations';
+import { FORMATION_VERSUS_REASON_KEY, VERSUS_FORMATIONS_CLOSED_MAPS, VERSUS_FORMATIONS_OPEN, formationsOpenIn } from './versus-formations';
 import { t } from '../i18n/t';
 
 // GH-859 P1a: the one predicate behind the sender strip, the receiver gate and the HUD row's inert state.
@@ -16,6 +16,17 @@ describe('formationsOpenIn', () => {
       expect(formationsOpenIn(mode), String(mode)).toBe(true);
       expect(formationsOpenIn(mode, false), String(mode)).toBe(true);
     }
+  });
+  it('GH-913 L8: a map in VERSUS_FORMATIONS_CLOSED_MAPS stays closed with the gate open; the others follow the gate', () => {
+    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['rujm_sawda']);
+    expect(formationsOpenIn('versus', true, 'rujm_sawda')).toBe(false);
+    expect(formationsOpenIn('versus', true, 'wadi_tarfan')).toBe(true);
+    expect(formationsOpenIn('versus', true, 'tel_marum')).toBe(true);
+    expect(formationsOpenIn('versus', true, null)).toBe(true);
+    expect(formationsOpenIn('versus', true)).toBe(true);
+    // The map only narrows a versus room: sandbox and single player stay open on it.
+    expect(formationsOpenIn('sandbox', undefined, 'rujm_sawda')).toBe(true);
+    expect(formationsOpenIn(undefined, undefined, 'rujm_sawda')).toBe(true);
   });
   it('the reason line is a real catalogue string', () => {
     expect(FORMATION_VERSUS_REASON_KEY).toBe('hud.formation.inert.versus');

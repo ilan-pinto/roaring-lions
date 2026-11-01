@@ -14,7 +14,7 @@
  * ending (`over`) is no result of its own -- the panel is already up.
  */
 import { doctrines, units } from '@lions/data';
-import { endingLoser, type MatchConfig, type Seat } from '@lions/net';
+import { endingLoser, matchCapTicks, type MatchConfig, type Seat } from '@lions/net';
 import { isHashTick } from './frame-step';
 
 /** Each side's surviving force value, by SIDE (index 0 is side 0). */
@@ -32,7 +32,8 @@ export type MatchOutcome =
 /** A decided match: what the end panel shows. */
 export type MatchResult = Exclude<MatchOutcome, { kind: 'ongoing' }>;
 
-/** 25 minutes of 20 Hz ticks. */
+/** 25 minutes of 20 Hz ticks: the cap of every map but one with a longer `cap_minutes` (GH-913 L8). A
+ *  room asks `matchCapTicks(map)` (`@lions/net`), which is this for a map with no longer cap. */
 export const MATCH_CAP_TICKS = 25 * 60 * 20;
 
 /** The slice of `Sim` the rule reads. */
@@ -195,14 +196,15 @@ export function productionFor(runtime: NonNullable<ProductionWorld['runtime']>, 
  *  cases by surviving unit value (`forcesOf`), the higher total winning and
  *  equal totals drawing: every living unit on both sides immobile (nothing
  *  can ever close the distance -- a stalemate, ended at once), and the
- *  25-minute cap, which until then was always a draw. There is no production
+ *  cap (25 minutes, or the map's `cap_minutes`; `capTicks`), which until then
+ *  was always a draw. There is no production
  *  in a sandbox, so the counts are the whole test. */
-export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string) => number = unitCost, production?: OutcomeProduction): MatchOutcome {
+export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string) => number = unitCost, production?: OutcomeProduction, capTicks: number = MATCH_CAP_TICKS): MatchOutcome {
   const standing = SIDES.filter((side) => armedStanding(sim, side) || production?.canField(side) === true);
   if (standing.length === 0) return { kind: 'draw', by: 'mutual' };
   if (standing.length === 1) return { kind: 'won', side: standing[0], by: 'annihilation' };
   if (allImmobile(sim, production)) return byForces(sim, 'stalemate', costOf);
-  if (tick >= MATCH_CAP_TICKS) return byForces(sim, 'time', costOf);
+  if (tick >= capTicks) return byForces(sim, 'time', costOf);
   return { kind: 'ongoing' };
 }
 
@@ -214,7 +216,8 @@ export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string
  *  on any other tick, and without a room. */
 export function hashTickOutcome(frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction): MatchResult | null {
   if (!isHashTick(frameTick, config)) return null;
-  const o = outcomeOf(sim, sim.tickCount, unitCost, production);
+  // The cap is the MAP's (GH-913 L8): 25 minutes, or the longer one its rules file declares.
+  const o = outcomeOf(sim, sim.tickCount, unitCost, production, matchCapTicks(config?.map));
   return o.kind === 'ongoing' ? null : o;
 }
 

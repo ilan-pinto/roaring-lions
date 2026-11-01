@@ -13,7 +13,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, matchupAllowed } from '@lions/net';
+import { formationsOpenIn } from '../../packages/app/src/net/versus-formations';
 import { maps, versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
 import { build, cellSketch, serialise } from '../maps/rujm_sawda/build.mjs';
 import { verifyRujmSawda, shipped } from './rujm_sawda_verify';
@@ -89,14 +90,28 @@ describe('the shipped map', () => {
     );
   });
 
-  it('is not offered: in neither FACTION_MATCHUP_MAPS nor VERSUS_FAIR_MAPS (that waits on L5 and the lead)', () => {
+  it('is offered for the MIRROR only (L8, the lead 1 Nov): in VERSUS_FAIR_MAPS, never in FACTION_MATCHUP_MAPS', () => {
+    expect(VERSUS_FAIR_MAPS).toContain('rujm_sawda');
     expect(FACTION_MATCHUP_MAPS).not.toContain('rujm_sawda');
-    expect(VERSUS_FAIR_MAPS).not.toContain('rujm_sawda');
+    expect(matchupAllowed('mirror', 'rujm_sawda')).toBe(true);
+    expect(matchupAllowed('kdf', 'rujm_sawda')).toBe(false);
+    expect(matchupAllowed('sarim', 'rujm_sawda')).toBe(false);
   });
 
-  it('carries the L3 capacity (512) and not the L8 field: no cap_minutes', () => {
-    expect(Object.keys(versusRules.rujm_sawda).sort()).toEqual(['capacity', 'ends', 'id', 'income_zones', 'map', 'tunnels']);
+  it('carries the L3 capacity (512) and the L8 cap (35 minutes)', () => {
+    expect(Object.keys(versusRules.rujm_sawda).sort()).toEqual(['cap_minutes', 'capacity', 'ends', 'id', 'income_zones', 'map', 'tunnels']);
     expect(versusRules.rujm_sawda.capacity).toBe(512);
+    expect(versusRules.rujm_sawda.cap_minutes).toBe(35);
+  });
+
+  it('keeps formations off even when the versus gate opens (L8): out of the S4 check until it passes its own run', () => {
+    expect(formationsOpenIn('versus', true, 'rujm_sawda')).toBe(false);
+    expect(formationsOpenIn('versus', true, 'wadi_tarfan')).toBe(true);
+    expect(formationsOpenIn('versus', false, 'wadi_tarfan')).toBe(false);
+    expect(formationsOpenIn('versus')).toBe(false);
+    // Free Play and a sandbox room on this map are not a versus room.
+    expect(formationsOpenIn(undefined, undefined, 'rujm_sawda')).toBe(true);
+    expect(formationsOpenIn('sandbox', undefined, 'rujm_sawda')).toBe(true);
   });
 });
 

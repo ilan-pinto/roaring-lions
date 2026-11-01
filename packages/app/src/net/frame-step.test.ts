@@ -322,6 +322,17 @@ describe('seatWorldFor', () => {
     // single-player ignores the versus gate either way
     expect(seatWorldFor(null, sim, false).formationAllowed(0, 'column')).toBe(true);
   });
+  it('GH-913 L8: with the gate OPEN a Rujm Sawda room still fields NO formation, and the receiver drops the order', () => {
+    const sim = fakeSim();
+    const rujm = config({ mode: 'versus', map: 'rujm_sawda' });
+    rujm.seats[1] = { ...rujm.seats[1], side: 1 };
+    const w = seatWorldFor(rujm, sim, true);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, w)).toBe(false);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0 }, 1, w)).toBe(true);
+    // ...while another versus map with the gate open runs the table (the control that makes the map the cause)
+    expect(seatWorldFor(config({ mode: 'versus', map: 'wadi_tarfan' }), sim, true).formationAllowed(0, 'column')).toBe(true);
+  });
   it('GH-859 P1a: the faction clause bites on a table that has a faction-gated formation', () => {
     const table = [{ id: 'both', factions: ['kdf', 'sarim'] }, { id: 'kdf_only', factions: ['kdf'] }];
     expect(formationFielded(table, 'kdf', 'kdf_only')).toBe(true);

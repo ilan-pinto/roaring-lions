@@ -10,12 +10,45 @@
  * the Pro plan's advertised $20 / 1,000 credits, and every printed USD figure
  * is captioned as an estimate for exactly that reason.
  */
+import type { ImageModel } from './images';
 import type { ModelType, TextureResolution } from './options';
 
 export const PRICING_SOURCE = {
   url: 'https://docs.meshy.ai/en/api/pricing',
   quotedAt: '2026-09-18',
 } as const;
+
+/**
+ * Image generation (`t2i` / `i2i`, GH-746 SC2) is priced per request by model, quoted from the same page on
+ * 2026-11-01 ("Image generation" table). Kept as its own source so the 3D rows above keep their own quote date.
+ * `nano-banana-2-1` (4 / 4) is in the table but is NOT in either endpoint's list of `ai_model` values, so it is
+ * not accepted by this CLI; add it to `IMAGE_MODELS` the day the endpoint lists it.
+ */
+export const IMAGE_PRICING_SOURCE = {
+  url: 'https://docs.meshy.ai/en/api/pricing',
+  quotedAt: '2026-11-01',
+} as const;
+
+export const IMAGE_PRICING = {
+  textToImage: {
+    'nano-banana': 3,
+    'nano-banana-2': 6,
+    'nano-banana-2-lite': 3,
+    'nano-banana-pro': 9,
+    'gpt-image-2': 9,
+    'gpt-image-2-5-flare': 9,
+    'gpt-image-2-5-sunburst': 9,
+  },
+  imageToImage: {
+    'nano-banana': 3,
+    'nano-banana-2': 6,
+    'nano-banana-2-lite': 3,
+    'nano-banana-pro': 9,
+    'gpt-image-2': 12,
+    'gpt-image-2-5-flare': 12,
+    'gpt-image-2-5-sunburst': 12,
+  },
+} as const satisfies Record<string, Readonly<Record<string, number>>>;
 
 export const DEFAULT_USD_PER_CREDIT = 0.02; // $20 / 1000 credits, Pro plan, stated as an estimate.
 export const USD_PER_CREDIT_ENV_VAR = 'MESHY_USD_PER_CREDIT';
@@ -54,6 +87,8 @@ export const ESTIMATE_KINDS = [
   'retexture',
   'rigging',
   'animation',
+  'text-to-image',
+  'image-to-image',
 ] as const;
 export type EstimateKind = (typeof ESTIMATE_KINDS)[number];
 
@@ -68,6 +103,8 @@ export interface EstimateOptions {
   readonly shouldTexture?: boolean;
   /** animation: number of actions, default 1 */
   readonly actions?: number;
+  /** text-to-image, image-to-image: the model (default nano-banana-2, the card pilot's) */
+  readonly imageModel?: ImageModel;
 }
 
 const isSmartTopology = (modelType: ModelType | undefined): boolean => modelType === 'smart-topology';
@@ -119,6 +156,10 @@ export function estimateCredits(kind: EstimateKind, opts: EstimateOptions = {}):
       return PRICING.rigging;
     case 'animation':
       return PRICING.animationPerAction * (opts.actions ?? 1);
+    case 'text-to-image':
+      return IMAGE_PRICING.textToImage[opts.imageModel ?? 'nano-banana-2'];
+    case 'image-to-image':
+      return IMAGE_PRICING.imageToImage[opts.imageModel ?? 'nano-banana-2'];
   }
 }
 

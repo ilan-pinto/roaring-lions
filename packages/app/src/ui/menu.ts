@@ -29,14 +29,14 @@ import { terrainTonesFor } from '../terrain-themes';
  *  ruling): Ein Qasab is a greybox terrain study until P3's real art lands, so
  *  it is held out of `/free-play`, and so are the two maps of its town's other
  *  missions (GH-912, MDD 0.1 point 9). DELETE the entries when P3 ships. Rujm Sawda
- *  (GH-913 L4) is held out until the lead has looked at it and opened it:
- *  DELETE its entry when the map is offered. This hides the CARD only:
+ *  (GH-913) was held out until the lead looked at it; L8 opened it (a card in Free Play, and a
+ *  mirror-only map in the versus lobby). This hides the CARD only:
  *  `/free-play/ein_qasab` and `?sandbox=ein_qasab` (and the same two for each of
  *  the others, with `?net=new` for a sandbox room) still boot it for dev work,
  *  and the maps stay in `@lions/data` and the Worker's
  *  `SHIPPED_MAP_IDS`. `sandbox-menu.test.ts` pins this set to exactly this
  *  list and fails if an entry names no shipped map. */
-export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'rujm_sawda']);
+export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */

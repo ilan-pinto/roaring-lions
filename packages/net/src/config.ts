@@ -129,7 +129,12 @@ export function endOfSeat(seat: Seat): SpawnEnd {
  *  `beit_sahwan_outskirts`' room seats are no longer the heuristic's: after
  *  PR #721 the mirror read west 38 / east 10 there, and its measured seats
  *  live in `VERSUS_SEATS` (packages/app/src/net/versus-seats.ts). */
-export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats'];
+export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda'];
+
+// The large 80x80 map (GH-913 L8) joins as a MIRROR-ONLY map, the lead's ruling of 1 Nov: its mirror was
+// accepted at the shipped seat (12,12) on the 576-seed reading (west 52.3%), while its KDF-vs-Sarim cells
+// read KDF 66-74% and the tunnels cell about 96%, so it is in `FACTION_MATCHUP_MAPS` never. Opened after
+// the ground and decor chunking (PR 932) and a frame re-check on high.
 
 /** Whether a versus room may be hosted on `map`. */
 export function versusMapAllowed(map: string): boolean {
@@ -147,6 +152,34 @@ export function versusMapAllowed(map: string): boolean {
  *  (`VERSUS_FAIR_MAPS`); a non-mirror pairing is narrower still. The lobby
  *  offers no other pairing and the room refuses one (`matchupAllowed`). */
 export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfan'];
+
+/** The match cap, in minutes, of a room on a map whose rules file says more than the default (GH-913 L8).
+ *  A TWIN of `cap_minutes` in data/versus/<map>.json, kept here because the Worker imports @lions/net and
+ *  not @lions/data (it would pull every map into the bundle for one number).
+ *  `tools/src/validate_versus_rules.test.ts` holds this table to every rules file, both ways. */
+export const MAP_CAP_MINUTES: Readonly<Record<string, number>> = { rujm_sawda: 35 };
+
+/** The match cap every map has unless `MAP_CAP_MINUTES` says more: 25 minutes. */
+export const MATCH_CAP_MINUTES_DEFAULT = 25;
+
+/** The cap of a room on `map`, in minutes. */
+export function matchCapMinutes(map: string | null | undefined): number {
+  if (map === null || map === undefined) return MATCH_CAP_MINUTES_DEFAULT;
+  return Object.hasOwn(MAP_CAP_MINUTES, map) ? MAP_CAP_MINUTES[map] : MATCH_CAP_MINUTES_DEFAULT;
+}
+
+/** The cap of a room on `map`, in 20 Hz ticks (`outcomeOf` decides a standing match here). */
+export function matchCapTicks(map: string | null | undefined): number {
+  return matchCapMinutes(map) * 60 * 20;
+}
+
+/** The most command JSON characters one room stores, both seats together (GH-913 L8). The Worker's
+ *  `MAX_LOG_CMD_CHARS` was written for the 25-minute cap; a longer match gets proportionally more, so a
+ *  heavy pair (120 orders a minute a seat, 30 ids each: 87% of the old cap at 35 minutes) cannot void it.
+ *  Whole characters: `base` x cap / 25, so 2,800,000 at 35 minutes. */
+export function maxLogCmdChars(map: string | null | undefined, base: number): number {
+  return Math.floor((base * matchCapMinutes(map)) / MATCH_CAP_MINUTES_DEFAULT);
+}
 
 /** Whether `m` may be played on `map`, among the maps a room is offered on at
  *  all: the mirror anywhere, a KDF-vs-Sarim pairing on `FACTION_MATCHUP_MAPS`.
