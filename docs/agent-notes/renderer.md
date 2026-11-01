@@ -441,18 +441,22 @@ never calls into `three/weather.ts`, so a shipped map's light, haze, shadow map 
   copy under rain keeps the rim and the floor and carries both program keys. The silhouette outline is a separate `MeshBasicMaterial` and
   does not interact. Vehicles, enemy and civilian figures are not rimmed (`ugv_recon_dog` is catalogued `kdf` and is). The model
   is `tools/src/wet-unit-rim.test.ts`; the flat lift's calibration test was removed with it.
-- **The KDF exposure and contrast (cheap-wet follow-up, readability; presentation only).** `RAIN_KDF_EXPOSURE` 8 and
-  `RAIN_KDF_CONTRAST` 1.5 (`weather.ts`) are two more lines in the same rim material, BEFORE lighting (`diffuseColor.rgb =
-  min(diffuseColor.rgb * uRainExposure, 1)`, then `pow(., uRainContrast)`), on the same shared uniform set (the `unit-surface` layer sets
-  them to 1 and back, `ThreeRenderer.debugSetRainRead({rimGain, rimPower, exposure, contrast})` / `debugRainRead()` are the capture
-  door). Why: the KDF camouflage texture is a tan-and-green pattern the rain's light and the wet table crush to near black, and **the
-  CIEDE2000 floor 15.6 cannot be reached on the mean or the darkest 15% against the wet road (L* 19) or the marsh (L* 10) by anything
-  short of a pale ghost**: pure black is at most about 13.7 from that road, the darkest 15% is at 11.9 (road) and 7.0 (water) already, and a
-  lift only moves it TOWARD the ground. The number that moves is the share of figure pixels at dE >= 15.6 against the pixel behind them
-  (road 30 -> 49%, water 21 -> 59%, grass 62 -> 56%). The measure: `pnpm ground:capture --stops=road,water,grass --read=...` then
-  `tools/src/perf/wet-readability-report.ts <captures dir>`; **a figure's pixels are those that differ between its frame and the same view with
-  the units hidden** (rain and the sun's shadow off), and **a squad that has moved cycles through six poses under repeated
-  `frame(1, 0)`** (cause not found), so every treatment is six samples. Do not score a treatment with a detector shaped for it.
+- **The KDF exposure and contrast (cheap-wet follow-up, readability; presentation only).** `RAIN_KDF_EXPOSURE` 6 and
+  `RAIN_KDF_CONTRAST` 1.5 with the rim OFF (`RAIN_KDF_RIM_GAIN` 0; the lead's ruling of 1 Nov 2026, the subtler of 6 and 8) are two more
+  lines in the same rim material, BEFORE lighting (`diffuseColor.rgb = min(diffuseColor.rgb * uRainExposure, 1)`, then
+  `pow(., uRainContrast)`), on the same shared uniform set (the `unit-surface` layer sets them to 1 and back,
+  `ThreeRenderer.debugSetRainRead({rimGain, rimPower, exposure, contrast})` / `debugRainRead()` are the capture door). Why: the KDF
+  camouflage texture is a tan-and-green pattern the rain's light and the wet table crush to near black, and **the CIEDE2000 floor 15.6
+  cannot be reached on the mean or the darkest 15% against the wet road (L* 19) or the marsh (L* 10) by anything short of a pale
+  ghost**: pure black is at most about 13.7 from that road, the darkest 15% is at 11.7 (road) and 7.0 (water) already, and a lift only
+  moves it TOWARD the ground. Measured (`_coord/wet-theme/p5-read-v2/`; road / water / grass, P4 as shipped = rim 0.6, then now): the share
+  of figure pixels at dE >= 15.6 against the pixel behind them 31 / 26 / 64% -> 41 / 47 / 58%, per-pixel median dE 11.2 / 8.8 / 22.7 -> 13.2 /
+  14.6 / 19.7; **three readings get worse**: the darkest 15% (11.1 -> 9.4, 6.6 -> 5.7, 28.4 -> 26.8) and the mean on water and grass (11.8 -> 8.2,
+  15.4 -> 13.1). The measure: `pnpm ground:capture --stops=road,water,grass --read=...` then `tools/src/perf/wet-readability-report.ts <captures
+  dir>`; **a figure's pixels are those that differ between its frame and the same view with the units hidden** (rain and the sun's shadow off,
+  so the mask follows each treatment's own frame and drops figure pixels within 10 levels of the ground: a ~5% smaller denominator for the
+  treatments that leave the figure darkest), and **a squad that has moved cycles through six poses under repeated `frame(1, 0)`** (cause not
+  found), so every treatment is six samples. Do not score a treatment with a detector shaped for it.
 - **The wet ground program tiers (cheap-wet follow-up).** `RenderQuality.rain.ground` (`full` high, `lite` medium, `minimal` low) picks
   a `WetProgram` (`terrain/mesh.ts`'s `WET_PROGRAM_TIERS`): the rim as the mask's derivative (`gradient`, P4) or a constant (`mask`) or
   off, the ripple code in or out, the roughness table (`full`) or the water's alone (`water`). Compile-time terms with their own

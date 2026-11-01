@@ -24,7 +24,7 @@
  * grass it stays nearer the ground and the figure keeps its S-L2 contrast there. The first pick,
  * 0.4 put the road at 1.63 x; look4 (the lead's one extra run, gains 0 to 0.9) showed 0.2 and 0.4
  * nearly invisible, 0.6 the smallest visible rim without frost and 0.9 frost, so the SHIPPED gain
- * is 0.6: the model puts the outermost pixel at 2.84 x the road (look4 measured it as a dotted pale
+ * was 0.6 (the rim has been OFF since the lead's 1 Nov ruling, `RAIN_KDF_RIM_GAIN` 0; this model is the record of why 0.6 was the pick and what a rim can and cannot do): the model puts the outermost pixel at 2.84 x the road (look4 measured it as a dotted pale
  * outline at 3 to 4x zoom; no gain cleared dE 15.6, the model's luminance ratio is not dE). The mean
  * radiance the rim adds to a figure is 0.1 x 0.6 x 0.74 x 0.391 = 0.0174, 15% of the retired flat
  * lift's 0.116.

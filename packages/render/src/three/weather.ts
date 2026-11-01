@@ -58,10 +58,15 @@ export const MARSH_REFLECT = 0.25;
  * either happens.
  *
  * `true` since the cheap-wet follow-up: `medium` compiles the `lite` tier and `low` the `minimal` one
- * (`terrain/mesh.ts`'s `WET_PROGRAM_TIERS`), and three quiet-machine runs of `perf:fx --breakdown` (docs/PERFORMANCE.md,
- * "Wetland cheap wet") read NET (total wet) at medium 0.0 to 0.7 ms (budget 0.7) and low 0.1 to 0.4 (budget 0.4), high
- * unchanged. The guard now also pins that the presets still compile their cheaper tiers: flipping this back to the
- * full program on medium or low turns it red.
+ * (`terrain/mesh.ts`'s `WET_PROGRAM_TIERS`). Three runs of `perf:fx --breakdown` (docs/PERFORMANCE.md, "Wetland cheap
+ * wet") on a SHARED, mildly busy GPU (1-minute load 3-6, baselines about 10% above P4's quiet run) read NET (total wet)
+ * at medium -0.1 to 0.7 ms (budget 0.7) and low 0.1 to 0.4 (budget 0.4), high unchanged; each of those readings is at or
+ * under budget, and two (medium and low, zoom 2.5, one run) sit exactly on it. **The tiers' own saving is at the noise
+ * floor**: the old program recompiled on the same page reads only 0.0 to +0.3 ms dearer on medium and 0.0 to +0.2 on low,
+ * one reading's spread is about 0.2 ms, and P4's own quiet run read these presets over budget where its loaded run had
+ * not, so some of the move against P4 is the machine. A re-run on a GPU with nothing else on it is still open. The guard
+ * now also pins that the presets still compile their cheaper tiers: flipping this back to the full program on medium or
+ * low turns it red.
  */
 export const CHEAP_WET_GROUND_LANDED = true;
 
@@ -73,15 +78,15 @@ export const CHEAP_WET_GROUND_LANDED = true;
  * (n.v near 1) gets nothing. The colour is the rain sky (`overcast.1`, the colour the flat lift used:
  * cold and soft, and a hue apart from the green grass and the brown road).
  *
- * `RAIN_KDF_RIM_GAIN` is 0.6, picked from look4 (the lead's extra run at gains 0 to 0.9): 0.2 and 0.4
- * were nearly invisible even at 4x, 0.6 is the smallest gain that reads as a rim without frost, 0.9
- * frost. No gain in that range clears the readability floor (dE 15.6) on the wet road or in marsh water:
- * the rim lights grazing edges only (spec section 14.6). The model is `tools/src/wet-unit-rim.test.ts`. The power is 3: the rim
- * lies in the outer band of the silhouette (a sphere's mean factor is 0.1; 4% of its area is at or
- * over 0.5). One shared uniform carries the gain, so `ThreeRenderer.debugSetRainRim` moves every
- * figure with one write.
+ * `RAIN_KDF_RIM_GAIN` is 0: **the rim is OFF** (the lead, 1 Nov 2026, with the exposure below; look4 had picked 0.6, the
+ * smallest gain that reads as a rim without frost, 0.2 and 0.4 nearly invisible, 0.9 frost, and no gain in that range
+ * clears the readability floor dE 15.6 on the wet road or in marsh water: the rim lights grazing edges only, spec
+ * section 14.6). The term stays in the shader as a knob (`debugSetRainRim`, `ground:capture --rim=`) at zero. The model
+ * is `tools/src/wet-unit-rim.test.ts`. The power is 3: the rim lies in the outer band of the silhouette (a sphere's mean
+ * factor is 0.1; 4% of its area is at or over 0.5). One shared uniform carries the gain, so `ThreeRenderer.debugSetRainRim`
+ * moves every figure with one write.
  */
-export const RAIN_KDF_RIM_GAIN = 0.6;
+export const RAIN_KDF_RIM_GAIN = 0;
 export const RAIN_KDF_RIM_POWER = 3;
 export const RAIN_KDF_RIM_KEY = RAIN_SKY_KEY;
 
@@ -89,15 +94,22 @@ export const RAIN_KDF_RIM_KEY = RAIN_SKY_KEY;
  * The KDF figure's rain exposure and contrast (GH-871 cheap-wet follow-up, task 2; `units/rain-rim.ts`'s
  * header has the measurement). The albedo is multiplied by `RAIN_KDF_EXPOSURE` (capped at 1) and then raised to
  * `RAIN_KDF_CONTRAST`, so the camouflage that the rain's dim light crushes to near black reads as the tan-and-green
- * pattern it is, its darks kept by the gamma. 8 and 1.5 are the point of the readability sweeps
- * (`_coord/wet-theme/p5-read/`) where the pattern, the faces and the team colour were all still there and the
- * share of the figure that separates from what it stands on (dE2000 >= 15.6 against the pixel behind it) rose from
- * 30% to 46% on the wet road and from 21% to 55% in the marsh: more exposure washes the pattern (a flat lift's
- * ghost), less does not separate the figure from the ground.
- * Neither number clears the CIEDE2000 floor 15.6 on the mean or the darkest 15% (nothing short of a ghost can:
- * the darkest 15% of a figure on that road is at most 13.7 from it even when pure black).
+ * pattern it is, its darks kept by the gamma. **6 and 1.5 with the rim off is the lead's ruling of 1 Nov 2026** (the
+ * subtler of the two treatments he was shown, 6 against 8).
+ *
+ * What it does, measured (`_coord/wet-theme/p5-read-v2/`, six poses per treatment, dE2000 against the ground, floor 15.6),
+ * road / water / grass, against P4 as shipped (rim 0.6, which is what 914 merged):
+ *  - the share of figure pixels at dE >= 15.6 against the pixel behind them: 31 / 26 / 64% -> 41 / 47 / 58%
+ *    (no treatment at all: 32 / 22 / 62%); the per-pixel median dE 11.2 / 8.8 / 22.7 -> 13.2 / 14.6 / 19.7.
+ *  - **it makes three readings WORSE**: the darkest 15% of the figure against the ground, road 11.1 -> 9.4, water
+ *    6.6 -> 5.7, grass 28.4 -> 26.8 (a lift only moves the darks toward the ground); the mean against the ground on water
+ *    11.8 -> 8.2 and on grass 15.4 (LOW, the P4 look was already under the floor) -> 13.1; the share on grass 64 -> 58%.
+ *    The mean on the road improves, 3.7 -> 8.6.
+ *  - **neither number clears the floor** on the mean or the darkest 15% on the road or in the marsh, and nothing short of
+ *    a pale ghost can: the darkest 15% of a figure on that road is at most about 13.7 from it even when it is pure black.
+ * Exposure 8 reads 50 / 54 / 61% (no rim) and washes more of the pattern, 6 with gamma 1.3 reads 43 / 49 / 58%.
  */
-export const RAIN_KDF_EXPOSURE = 8;
+export const RAIN_KDF_EXPOSURE = 6;
 export const RAIN_KDF_CONTRAST = 1.5;
 
 /** What `rainLight` reads of a resolved light (`lighting.ts`'s `ResolvedLights`

@@ -7,7 +7,7 @@
  * `#9FA9B5`, linear (0.34670, 0.39676, 0.46207); the shipped provisional gain 0.4; the power 3.
  */
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { buildMeshUnitTemplate } from './mesh-unit';
 import { buildVehicleMeshTemplate } from './mesh-vehicle';
@@ -28,7 +28,7 @@ const RIM_DECL = 'uniform vec3 uRimColor;\nuniform float uRimGain;\nuniform floa
 
 afterEach(() => {
   setUnitSurfacePass(true);
-  setRainRead({ rimGain: 0.6, rimPower: 3, exposure: 8, contrast: 1.5 });
+  setRainRead({ rimGain: 0, rimPower: 3, exposure: 6, contrast: 1.5 });
 });
 
 /** A `GLTFLoader`-shaped result, one mesh per part (the `textured-infantry.test.ts` shape). */
@@ -198,20 +198,20 @@ describe('the shared uniforms', () => {
       expect(u.uRimPower).toBe(all[0].uRimPower);
     }
     expect(all[0].uRimGain).toBe(rimUniforms().gain);
-    expect(all[0].uRimGain.value).toBe(0.6);
+    expect(all[0].uRimGain.value).toBe(0);
     setRainRimGain(0.9);
     for (const u of all) expect(u.uRimGain.value).toBe(0.9);
   });
 
-  it('carries overcast.1 in linear, the shipped gain 0.6 (look4) and power 3 (literals)', () => {
+  it('carries overcast.1 in linear, the shipped gain 0 (the rim is OFF since the 1 Nov ruling; 0.6 was look 4) and power 3 (literals)', () => {
     const u = rimUniforms();
     expect(u.colour.value.r).toBeCloseTo(0.3467, 4);
     expect(u.colour.value.g).toBeCloseTo(0.39676, 4);
     expect(u.colour.value.b).toBeCloseTo(0.46207, 4);
-    // The constants themselves (the afterEach above restores 0.6, so the uniform alone would not catch a default that moved).
-    expect(RAIN_KDF_RIM_GAIN).toBe(0.6);
+    // The constants themselves (the afterEach above restores 0, so the uniform alone would not catch a default that moved).
+    expect(RAIN_KDF_RIM_GAIN).toBe(0);
     expect(RAIN_KDF_RIM_POWER).toBe(3);
-    expect(u.gain.value).toBe(0.6);
+    expect(u.gain.value).toBe(0);
     expect(u.power.value).toBe(3);
   });
 
@@ -221,6 +221,7 @@ describe('the shared uniforms', () => {
     setUnitSurfacePass(false);
     for (const g of gains) expect(g.value).toBe(0);
     setUnitSurfacePass(true);
+    setRainRimGain(0.6);
     for (const g of gains) expect(g.value).toBe(0.6);
   });
 });
@@ -289,11 +290,11 @@ describe('the view vector: orthographic like three\'s own lights', () => {
 });
 
 describe('the exposure and contrast (the readability treatment)', () => {
-  it('ship 8 and 1.5, and the uniforms carry them (literals: the afterEach restores them, so the uniform alone would not catch a default that moved)', () => {
-    expect(RAIN_KDF_EXPOSURE).toBe(8);
+  it('ship 6 and 1.5, and the uniforms carry them (literals: the afterEach restores them, so the uniform alone would not catch a default that moved)', () => {
+    expect(RAIN_KDF_EXPOSURE).toBe(6);
     expect(RAIN_KDF_CONTRAST).toBe(1.5);
     const u = rimUniforms();
-    expect(u.exposure.value).toBe(8);
+    expect(u.exposure.value).toBe(6);
     expect(u.contrast.value).toBe(1.5);
   });
 
@@ -325,8 +326,8 @@ describe('the exposure and contrast (the readability treatment)', () => {
     }
     setUnitSurfacePass(true);
     for (const u of us) {
-      expect(u.uRimGain.value).toBe(0.6);
-      expect(u.uRainExposure.value).toBe(8);
+      expect(u.uRimGain.value).toBe(0);
+      expect(u.uRainExposure.value).toBe(6);
       expect(u.uRainContrast.value).toBe(1.5);
     }
   });
@@ -355,5 +356,34 @@ describe('the exposure and contrast (the readability treatment)', () => {
         expect(uniforms.uRainExposure).toBeUndefined();
       }
     }
+  });
+});
+
+describe('the edges of the treatment (the survivors of the first review)', () => {
+  it('setRainRead accepts the largest exposure (16) and contrast (3) and the smallest exposure (0.25), and refuses a hair past each', () => {
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 16, contrast: 3 })).not.toThrow();
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 0.25, contrast: 0.1 })).not.toThrow();
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 16.01, contrast: 1 })).toThrow(/exposure/);
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 0.24, contrast: 1 })).toThrow(/exposure/);
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 6, contrast: 3.01 })).toThrow(/contrast/);
+    expect(() => setRainRead({ rimGain: 0, rimPower: 3, exposure: 6, contrast: 0 })).toThrow(/contrast/);
+    // A rejected write moves nothing.
+    expect(rainReadNow().exposure).toBe(0.25);
+  });
+
+  it('treatedAlbedo floors an albedo of 0 at 0.0001 before the gamma (the shader\'s max), so black stays a hair above 0', () => {
+    expect(treatedAlbedo(0, 6, 1.5)).toBeCloseTo(0.0001 ** 1.5, 15);
+    expect(treatedAlbedo(0, 6, 1.5)).toBeGreaterThan(0);
+    expect(treatedAlbedo(0, 1, 1)).toBeCloseTo(0.0001, 15);
+  });
+
+  it('a rim material first built while the unit-surface layer is OFF starts neutral: gain 0, exposure 1, contrast 1', async () => {
+    vi.resetModules();
+    const fresh = await import('./rain-rim');
+    fresh.setRainRimPass(false);
+    const u = fresh.rimUniforms();
+    expect([u.gain.value, u.exposure.value, u.contrast.value]).toEqual([0, 1, 1]);
+    fresh.setRainRimPass(true);
+    expect([u.gain.value, u.exposure.value, u.contrast.value]).toEqual([0, 6, 1.5]);
   });
 });
