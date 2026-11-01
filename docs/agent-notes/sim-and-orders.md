@@ -112,6 +112,17 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
 
 ---
 
+## The plain group order seats by need (GH-929)
+
+`assignFormation` (`packages/sim/src/formation.ts`) is the plain group order's grid: vehicles and aircraft spaced in the front ranks, infantry one per tile behind. Its ranks used to stop at `SEARCH_RADIUS` 8, so a force that needed more rows lost its last units to `overflowPlace`, which parks them at the click. Sarim's 26-unit versus force (8 wheeled behind 18 foot) seated 14 of its 18 infantry and put the highest-id `atgm_cell`s and `manpad_team`s among the gun trucks (found by the GH-859 P1e shape report).
+
+- **The rule.** The grid runs at `SEARCH_RADIUS`. While it leaves a unit unseated, the radius doubles (8, 16, 32 ... `MAX_SEARCH_RADIUS` 256, the protocol's `MAX_CMD_IDS`), each attempt walking its own `radius + MAX_LATERAL` deep. It stops when everyone is seated, when the larger walk reached no more ground than the smaller (the ground is full), or at the cap. `overflowPlace` is the last resort for a pocket with fewer free tiles than units. An order the first pass seats is byte-identical to before.
+- **Not a bigger fixed radius.** A fixed 12 seats Sarim's 26 and fails again at about 50 units (the 60 and 256 cases go red under it). `formation-overflow.test.ts` seats 18, 30, 60 and 256 on open ground and in 2-wide and 1-wide streets.
+- **What moved.** No `test:determinism` pin (no pinned world has an overflowing order). The `versus-probe.test.ts` wadi_tarfan table pin moved (seedOf(17) to seedOf(1)). `pnpm balance` is byte-identical; `pnpm playtest` wins 30/30 everywhere and a few slowest-win times moved (khan_rafid_3 1.8 to 3.1 min).
+- **Reading the versus base.** Radius 12 WITHOUT escalation reads Sarim 58.3 / 62.5 on the placed wadi base (P1e's number, reproduced on this tree). The shipped fix reads 53.1 / 54.2 (set A), because the orders that need more than 12 ranks now take them instead of parking at the click. The base before the fix was 49.0 / 54.2.
+
+---
+
 ## Formations (GH-859 P1a)
 
 As built on `feat/formations-p1a` (plan `docs/superpowers/plans/2026-10-28-formations-p1a.md`, design
