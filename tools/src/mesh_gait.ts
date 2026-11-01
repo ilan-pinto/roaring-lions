@@ -2640,7 +2640,11 @@ export function measureGrip(path: string, clip: string, prefix: string, opts: Gr
   let stationRest: [V3t, V3t] | null = null;
   let gripAxisRest: V3t | null = null;
   let boreRest: V3t | null = null;
-  if (bones) {
+  // A Meshy figure skinned with its own fists fused to its own carbine (`rl_hands.source === 'meshy'`) has no library
+  // part to fit and no station reference points: its hands ARE the stations. The contact and the depth are read all
+  // the same; the station and axis gaps read null.
+  const fusedHands = ((glb.json.scenes?.[0]?.extras ?? {}) as { rl_hands?: { source?: string } }).rl_hands?.source === 'meshy';
+  if (bones && !fusedHands) {
     const partGlb = readGlb(opts.partPath ?? fileURLToPath(new URL('../../art/parts/kdf_carbine/kdf_carbine.glb', import.meta.url)));
     const pp = readAccessor(partGlb, partGlb.json.meshes![0].primitives[0].attributes.POSITION);
     if (pp.count !== W.length) throw new Error(`${path}: ${prefix}'s weapon has ${W.length} vertices, the carbine part ${pp.count}: not the reshaped carbine`);
@@ -2795,15 +2799,16 @@ export function measureGrip(path: string, clip: string, prefix: string, opts: Gr
       r.sMin = Math.min(r.sMin, sHere);
       r.sMax = Math.max(r.sMax, sHere);
       if (!bones) continue;
-      // the station: the hand's reference point (posed) against the station
+      // the station: the hand's reference point (posed) against the station; the channel axis. Not for fused hands.
       const refL = idx === 0 ? GRIP_REF_LOCAL : SUPPORT_REF_LOCAL;
       const refW = xfPoint(Mi, xfPoint(worlds[hNode[idx]], refL));
-      r.station = Math.max(r.station, vlen(vsub(refW, stationRest![idx])));
-      // the channel axis
       const local = idx === 0 ? GRIP_CHANNEL_LOCAL : SUPPORT_CHANNEL_LOCAL;
       const wa = xfDir(Mi, xfDir(worlds[hNode[idx]], local));
-      const target = idx === 0 ? gripAxisRest! : boreRest!;
-      r.axis = Math.max(r.axis, (Math.acos(Math.min(1, Math.abs(vdot(wa, target)))) * 180) / Math.PI);
+      if (stationRest) {
+        r.station = Math.max(r.station, vlen(vsub(refW, stationRest[idx])));
+        const target = idx === 0 ? gripAxisRest! : boreRest!;
+        r.axis = Math.max(r.axis, (Math.acos(Math.min(1, Math.abs(vdot(wa, target)))) * 180) / Math.PI);
+      }
       // contact: by area, palm-side triangles whose centroid lies within the radius of the weapon's surface
       let area = 0, near = 0;
       for (const tr of palm[idx]) {
@@ -2861,13 +2866,17 @@ export function measureGrip(path: string, clip: string, prefix: string, opts: Gr
       // the wrist
       const wo = wristOver(relRest[idx], relRotation(worlds[fNode[idx]], worlds[hNode[idx]]), sides[idx] === 'L');
       r.wrist = Math.max(r.wrist, wo);
-      opts.trace?.(t, idx === 0 ? 'fire' : 'support', { stationM: vlen(vsub(refW, stationRest![idx])), axisDeg: (Math.acos(Math.min(1, Math.abs(vdot(wa, target)))) * 180) / Math.PI, contact: area > 0 ? near / area : NaN, wristOverDeg: wo });
+      opts.trace?.(t, idx === 0 ? 'fire' : 'support', {
+        stationM: stationRest ? vlen(vsub(refW, stationRest[idx])) : NaN,
+        axisDeg: stationRest ? (Math.acos(Math.min(1, Math.abs(vdot(wa, idx === 0 ? gripAxisRest! : boreRest!)))) * 180) / Math.PI : NaN,
+        contact: area > 0 ? near / area : NaN, wristOverDeg: wo,
+      });
     }
   }
   const out = (i: 0 | 1): GripHand => ({
     reviewGapM: res[i].review,
-    stationGapM: bones ? res[i].station : null,
-    axisDeg: bones ? res[i].axis : null,
+    stationGapM: bones && stationRest ? res[i].station : null,
+    axisDeg: bones && stationRest ? res[i].axis : null,
     contact: bones ? res[i].contact : null,
     contactVerts: bones ? res[i].contactV : null,
     depthM: bones ? res[i].depth : null,

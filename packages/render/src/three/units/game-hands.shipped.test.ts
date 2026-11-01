@@ -145,7 +145,6 @@ const HAND_VISIBILITY_EXEMPT: Readonly<Record<string, string>> = {
   digger_crew: 'both hands 0 of 8: the arm is fused into the torso (and the team has no fire clip)',
   inf_grenadier: 'gre0 and gre2 R 0 of 8: the launcher hides the support claw; gre1 R 4',
   inf_medic_squad: 'med_a R 5, med_b R 5 and 4 (block hands)',
-  inf_squad: 'the firing hand (bone _L) 0 of 8 in idle, 3-4 in fire: behind the magazine, the pouches and the upper arm. The support hand shows 7',
   manpad_team: 'mpd_fire L shows in 4 of 8 facings',
   militia_cell: 'every hand 5 of 8 in idle',
   mortar_crew: 'emtr_crew0 R 5 and 4, emtr_crew1 L 5',

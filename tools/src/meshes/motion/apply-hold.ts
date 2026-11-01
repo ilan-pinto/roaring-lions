@@ -140,7 +140,10 @@ export function applyHold(doc: Document, id: string, spec: MotionTeam): { line: 
             if (c.hold.hands) followHand(rig, pose, c.hold, rig.node(c.weaponName), grip);
             else followForearm(rig, pose, c.hold, rig.node(c.weaponName));
           } else {
-            const r = holdFrame(rig, pose, c, aim);
+            // A rest carry (a Meshy figure sculpted at the low ready) aims `fire` from an upright torso: the capture's
+            // 44 deg crouched lean put its eye at or under the bore, whatever the pocket (measured 1 Nov). The run keeps
+            // its own lean in `moveFire`, as every team does.
+            const r = holdFrame(rig, pose, c, aim, undefined, !!c.hold.restCarry && name === 'fire');
             worstGap = Math.max(worstGap, r.gap);
             worstWrist = Math.max(worstWrist, r.wristOver);
             worstOffset = Math.max(worstOffset, r.offsetDeg);
