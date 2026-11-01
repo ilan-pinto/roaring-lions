@@ -1568,7 +1568,7 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
     expect(fmGroup[drone]).toBe(-1);
     expect(wpCount[drone]).toBe(0);
     expect([moving[drone], attackMove[drone]]).toEqual([1, 1]);
-    expect(wpCount[sqA]).toBeGreaterThan(0);
+    expect(wpCount[sqA]).toBe(0); // the Attack ships without checkpoints (lead, 1 Nov): its members go straight to the slots
     // and it holds no formation duty at the end of the run
     expect(sim.formationDutyOf(drone)).toBe(0);
   });

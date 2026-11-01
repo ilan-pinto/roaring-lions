@@ -268,8 +268,9 @@ describe('the card: contact', () => {
 
   it('an Attack pressing on reads "In contact — pressing on" and names no pace (GH-859 P1c: it marches at its members\' own speeds); its aircraft are left out: no card line, no call', () => {
     const p = pressing();
-    step(p.w, 20); // tick 21: marching, checkpoint 1 of 4
-    expect(cardLines(p.w.sim, p.tank)).toContain('In attack formation — checkpoint 1 of 4');
+    step(p.w, 20); // tick 21: under way; the Attack ships without checkpoints (lead, 1 Nov), so no 'checkpoint N of M'
+    expect(cardLines(p.w.sim, p.tank).join(' | ')).not.toContain('checkpoint');
+    expect(cardLines(p.w.sim, p.tank)).toContain('In attack formation');
     expect(cardLines(p.w.sim, p.tank).join(' | ')).not.toContain('Pace'); // the Attack has no pace; the Column's cards above and below still do
     // The Attack leaves its aircraft out (GH-859): they fly the plain order, so they are on no call.
     expect(cardLines(p.w.sim, p.heli)).not.toContain('On call');

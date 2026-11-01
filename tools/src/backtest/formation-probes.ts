@@ -771,6 +771,8 @@ export function attackHoldingAir(): FormationJson {
   return {
     ...rest,
     id: 'attack_air',
+    // The Attack as it was also marched in 8-tile legs with a 3 s dress (the shipped file has `legs: false` since the lead's 1 Nov ruling).
+    march: { legs: true, leg_tiles: 8, pace: 'none', dress_s: 3 },
     elements: [...attack.elements, { classes: ['aircraft'], shape: { kind: 'rank', spacing: 2, max_lateral: 2, rank_depth: 2 }, gap: 1, standoff: 13, on_call: 'contact' }],
   };
 }

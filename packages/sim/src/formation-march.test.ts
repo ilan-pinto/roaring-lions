@@ -14,7 +14,12 @@ import { RIFLES, SHED, TANK } from './golden-worlds.test-helper';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const loadFormation = (id: string): FormationJson => JSON.parse(readFileSync(join(ROOT, 'data', 'formations', `${id}.json`), 'utf8')) as FormationJson;
+// The shipped Attack ships `legs: false` since the lead's 1 Nov ruling (GH-859), so the march tests that ride an attack-move
+// formation read it with its checkpoints back on: same file otherwise, so the mechanics they pin are the ones they were written for.
+const loadFormation = (id: string): FormationJson => {
+  const json = JSON.parse(readFileSync(join(ROOT, 'data', 'formations', `${id}.json`), 'utf8')) as FormationJson;
+  return id === 'attack' ? { ...json, march: { legs: true, leg_tiles: 8, pace: 'none', dress_s: 3 } } : json;
+};
 
 // ---- unit types (all test-local) ----------------------------------------------------------
 const MBT: UnitTypeJson = { ...TANK, id: 'fm3_mbt', role: 'mbt', mobility: { speed_tiles_s: 1.1, turn_rate_deg_s: 60 } };

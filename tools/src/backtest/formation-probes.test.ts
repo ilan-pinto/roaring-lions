@@ -181,8 +181,10 @@ describe('the medic arm reads treatments, and its two arms are different games',
 });
 
 describe('a medic squad\'s own man is tended at once and kept out of the delay', { timeout: 60_000 }, () => {
-  it('the Attack, seeds 0 and 1: two own-man treatments, and every counted delay is above zero', () => {
-    const games = [0, 1].map((n) => playMedic('attack', 'formed', seedOf(n)));
+  it('the Attack, seeds 3 and 4: an own-man treatment, and every counted delay is above zero', () => {
+    // Was seeds 0 and 1. The shipped Attack has no checkpoints since the lead's 1 Nov ruling (GH-859), which changes who falls where:
+    // seeds 0..7 read 0 0 0 0 1 0 0 0 own-man treatments, so the pair is the first that holds one (seed 4).
+    const games = [3, 4].map((n) => playMedic('attack', 'formed', seedOf(n)));
     expect(games.reduce((n, g) => n + g.ownTreated, 0)).toBeGreaterThanOrEqual(1);
     const delays = games.flatMap((g) => g.startDelays);
     expect(delays.length).toBeGreaterThanOrEqual(1);

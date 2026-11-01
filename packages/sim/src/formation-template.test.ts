@@ -629,7 +629,8 @@ describe('compileFormation', () => {
     const c = compileFormation(loadFormation('ambush'));
     expect([c.legs, c.legTiles, c.dressTicks, c.pace]).toEqual([false, 0, 60, 1]);
     // and the other two shipped files keep theirs
-    expect([compileFormation(loadFormation('column')).legTiles, compileFormation(loadFormation('attack')).legTiles]).toEqual([8, 8]);
+    // The Attack ships without checkpoints (lead, 1 Nov): legs false compiles to 0. The Column keeps its 8.
+    expect([compileFormation(loadFormation('column')).legTiles, compileFormation(loadFormation('attack')).legTiles]).toEqual([8, 0]);
   });
   const mutate = (f: (j: FormationJson) => void): FormationJson => {
     const j = JSON.parse(JSON.stringify(loadFormation('column'))) as FormationJson;
