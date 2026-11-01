@@ -28,9 +28,10 @@ import worldJson from '../../../../data/campaign/world.json';
 import en from '../i18n/en.json';
 
 // The shipped maps the picker lists. The Ein Qasab town's maps are held out until
-// P3's art (GH-871, GH-912): LITERALS, so these specs do not read the answer off
-// the code under test. Delete them here with the entries in menu.ts's UNLISTED_MAP_IDS.
-const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar'];
+// P3's art (GH-871, GH-912) and Rujm Sawda until the lead opens it (GH-913 L4):
+// LITERALS, so these specs do not read the answer off the code under test. Delete
+// them here with the entries in menu.ts's UNLISTED_MAP_IDS.
+const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'rujm_sawda'];
 const listedIds = (): string[] => Object.keys(maps).filter((id) => !HELD_OUT.includes(id));
 
 const render = (): HTMLElement => {
@@ -68,9 +69,9 @@ describe('the map list', () => {
     expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(listedIds().sort());
   });
 
-  it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
-    // 38 maps ship; the picker lists 35. Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(38);
+  it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912), and Rujm Sawda until the lead opens it (GH-913)", () => {
+    // 39 maps ship; the picker lists 35. Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(39);
     for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
@@ -83,9 +84,9 @@ describe('the map list', () => {
     }
   });
 
-  it('pins the unlisted set to exactly the Ein Qasab town maps', () => {
-    // Delete the pin with the entries when P3 ships.
-    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
+  it('pins the unlisted set to exactly the Ein Qasab town maps and Rujm Sawda', () => {
+    // Delete each pin with its entry: the town's when P3 ships, Rujm Sawda when the lead opens it.
+    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'rujm_sawda']);
   });
 
   it('every unlisted id names a shipped map, so the set cannot go stale silently', () => {

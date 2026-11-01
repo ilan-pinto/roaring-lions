@@ -45,6 +45,9 @@ import telMarum3 from '../../../data/maps/tel_marum_3.json';
 // `sandboxAnchors`). No mission references either.
 import milhFlats from '../../../data/maps/milh_flats.json';
 import wadiTarfan from '../../../data/maps/wadi_tarfan.json';
+// The large 80x80 network map (GH-913 L4, 2026-11-01): point-symmetric, seats named as above.
+// Registered so free play can walk it; no room offers it until L5's fairness runs and the lead.
+import rujmSawda from '../../../data/maps/rujm_sawda.json';
 // The four tile-study sandboxes (2026-09-03). Not campaign ground and no
 // mission references any of them: each exists to put ONE of the ground
 // albedos in front of the player at gameplay zoom, reachable from the
@@ -77,6 +80,7 @@ import wadiHalam4 from '../../../data/maps/wadi_halam_4.json';
 import wadiHalam5 from '../../../data/maps/wadi_halam_5.json';
 import kdfDoctrine from '../../../data/doctrines/kdf.json';
 import sarimDoctrine from '../../../data/doctrines/sarim.json';
+import rujmSawdaVersus from '../../../data/versus/rujm_sawda.json';
 import telMarumVersus from '../../../data/versus/tel_marum.json';
 import wadiTarfanVersus from '../../../data/versus/wadi_tarfan.json';
 // GH-859 P1a: the combat formations, registered in sorted directory order.
@@ -300,6 +304,7 @@ export const doctrines: Readonly<Record<'kdf' | 'sarim', DoctrineJson>> = {
 /** Versus rules files (N3 Task 1), keyed by map id: each faction-matchup map's camps and
  *  income zones. data/versus/*.json against versus_rules.schema.json. */
 export const versusRules: Readonly<Record<string, VersusRulesJson>> = {
+  rujm_sawda: rujmSawdaVersus as unknown as VersusRulesJson,
   tel_marum: telMarumVersus as unknown as VersusRulesJson,
   wadi_tarfan: wadiTarfanVersus as unknown as VersusRulesJson,
 };
@@ -329,6 +334,7 @@ export const maps = {
   qarn_hadid: qarnHadid,
   qarn_hadid_2: qarnHadid2Map,
   qarn_hadid_3: qarnHadid3Map,
+  rujm_sawda: rujmSawda,
   tel_marum: telMarum,
   tel_marum_1: telMarum1,
   tel_marum_2: telMarum2,

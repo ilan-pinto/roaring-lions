@@ -1285,7 +1285,9 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   const rules: SeatTable = rulesArg;
   if (economy && rules !== 'room') throw new Error('--economy plays a room\'s world, on the room\'s seat table: --rules=default does not apply');
   const mapArg = flag(args, 'maps');
-  const mapIds = mapArg === 'all' ? candidateMaps() : (mapArg?.split(',') ?? (economy ? Object.keys(versusRules) : VERSUS_FAIR_MAPS)) as MapId[];
+  // The default economy table is the OFFERED maps that have rules files; a rules-only map (rujm_sawda, GH-913)
+  // is read on request: `--economy --maps=rujm_sawda`.
+  const mapIds = mapArg === 'all' ? candidateMaps() : (mapArg?.split(',') ?? (economy ? Object.keys(versusRules).filter((id) => VERSUS_FAIR_MAPS.includes(id)) : VERSUS_FAIR_MAPS)) as MapId[];
   for (const id of mapIds) if (!(id in maps)) throw new Error(`--maps: "${id}" is not a shipped map`);
   if (economy) for (const id of mapIds) if (!Object.hasOwn(versusRules, id)) throw new Error(`--maps: "${id}" has no versus rules file, so no economy room can be hosted on it`);
   const arrangements = parseArrangements(flag(args, 'arr') ?? (economy ? 'kdf/sarim,sarim/kdf' : 'kdf/kdf,kdf/sarim,sarim/kdf'));

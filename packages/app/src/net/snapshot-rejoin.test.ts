@@ -28,6 +28,8 @@ const EVERY = 1200;
  * GH-859 P1c (31 Oct): `data/formations/attack.json` lost its march pace (formation files are content), which re-rolled the sign
  * once more: seed 2 went positive (+1239059308). Was seed 2; seed 1 reads negative (-2052621870; 3, 4, 6 and 8 do too; 2, 5, 7 and 9
  * read positive). The economy room reads +1954628094 on the same data.
+ * GH-913 L4 (1 Nov): `data/maps/rujm_sawda.json` and its rules file are content too. On the data with PR 915 (jebel_matar,
+ * ein_qasab_3) merged, seeds 1 and 7 read negative (2, 3, 4, 5, 6, 8 and 9 read positive), so seed 1 stands.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;
