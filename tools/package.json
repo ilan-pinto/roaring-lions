@@ -27,6 +27,7 @@
     "perf:lowend": "tsx src/perf/low-end.ts",
     "perf:bloom-census": "tsx src/perf/bloom-census.ts",
     "perf:fx": "tsx src/perf/fx-cost.ts",
+    "perf:cullpan": "tsx src/perf/decor-cull-pan.ts",
     "perf:formations": "tsx src/perf/formation-march.ts",
     "perf:recompute": "tsx src/perf/recompute-fields.ts",
     "perf:flowfield": "tsx src/perf/flowfield-compute.ts",

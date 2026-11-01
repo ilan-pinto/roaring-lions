@@ -718,7 +718,7 @@ try {
           const bloomName = passes.map((p) => p.constructor.name).find((nm) => /bloom/i.test(nm));
           if (bloomName) cfgs.push(passCfg('bloom', bloomName));
           cfgs.push(passCfg('OutputPass', 'OutputPass'));
-          cfgs.push(passCfg('vignette', 'VignettePass'));
+          if (present('VignettePass')) cfgs.push(passCfg('vignette', 'VignettePass')); // retired from the chain; the legacy breakdown threw on it (GH-913 L7)
           if (present('SMAAPass')) cfgs.push(passCfg('SMAA', 'SMAAPass'));
           for (const [l, k] of [['units', 'units'], ['buildings', 'buildings'], ['decals', 'decals'], ['scatter', 'scatter'], ['decor', 'decor'], ['props', 'props'], ['overlays', 'overlays'], ['ground-albedo', 'ground-albedo'], ['macro', 'macro'], ['roads', 'roads'], ['haze', 'haze']] as const) {
             cfgs.push(layerCfg(l, k));
