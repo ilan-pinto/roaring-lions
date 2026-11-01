@@ -348,7 +348,9 @@ export interface MissionJson {
      *  the sim never reads it; `describeMissionEvent` (packages/app) looks it
      *  up off the same `MissionJson` by the trigger's id. */
     label?: string;
-    on: { kind: string; value?: number; zone?: string };
+    /** on.kind: 'first_contact' | 'casualties_pct' | 'timer_s' | 'zone_entered' | 'group_in_zone'. `zone` names a map
+     *  zone for the last two; `group` the placement group, of any side, `group_in_zone` watches (GH-912). */
+    on: { kind: string; value?: number; zone?: string; group?: string };
     /** do.kind: 'commit' | 'withdraw_to' | 'spawn' | 'reinforce' | 'dismount' |
      *  'remove' — string-typed so parsed JSON assigns structurally; the schema
      *  constrains the vocabulary. spawn spawns on side 1 (enemy); reinforce on
@@ -3766,6 +3768,21 @@ export class MissionRuntime {
     return n;
   }
 
+  /** Whether a living member of `group` stands in `zone`, by `livingIn`'s rule: alive, on the surface, not down. */
+  private groupIn(group: string | undefined, zone: readonly number[]): boolean {
+    const ids = group === undefined ? undefined : this.groups.get(group);
+    if (ids === undefined) return false;
+    const st = this.sim.state;
+    for (let k = 0; k < ids.length; k++) {
+      const i = ids[k];
+      if (st.alive[i] === 0 || st.tunnelIn[i] >= 0 || this.sim.isDown(i)) continue;
+      const tx = st.posX[i] >> 16;
+      const ty = st.posY[i] >> 16;
+      if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) return true;
+    }
+    return false;
+  }
+
   /** Living player entities standing in `zone` (same rule as livingIn: buried units hold no ground). */
   private playerIdsIn(zone: readonly number[]): number[] {
     const out: number[] = [];
@@ -3858,6 +3875,13 @@ export class MissionRuntime {
       } else if (t.on.kind === 'zone_entered') {
         const z = this.zone(t.on.zone);
         fire = z !== undefined && this.livingIn(z, 0) > 0;
+      } else if (t.on.kind === 'group_in_zone') {
+        // GH-912 (G5): zone_entered's twin for a named group -- any side -- rather than the
+        // player's side: true once one member of `group` stands in `zone` by the same rule
+        // `livingIn` holds ground by. A group no placement has spawned yet (a wave's) is not
+        // there yet, so the trigger waits for it rather than being consumed on an empty group.
+        const z = this.zone(t.on.zone);
+        fire = z !== undefined && this.groupIn(t.on.group, z);
       }
       if (!fire) continue;
       this.firedTriggers[i] = true;

@@ -27,6 +27,8 @@ import deirAmunMap from '../../../data/maps/deir_amun.json';
 import deirAmun2Map from '../../../data/maps/deir_amun_2.json';
 import deirAmun3Map from '../../../data/maps/deir_amun_3.json';
 import einQasab from '../../../data/maps/ein_qasab.json';
+import einQasab3 from '../../../data/maps/ein_qasab_3.json';
+import jebelMatar from '../../../data/maps/jebel_matar.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import qarnHadid2Map from '../../../data/maps/qarn_hadid_2.json';
@@ -100,6 +102,9 @@ import ummZeitoun1Recon from '../../../data/missions/umm_zeitoun_1_recon.json';
 import ummZeitoun2Buildup from '../../../data/missions/umm_zeitoun_2_buildup.json';
 import ummZeitoun3Clearance from '../../../data/missions/umm_zeitoun_3_clearance.json';
 import ummZeitoun4Clearance from '../../../data/missions/umm_zeitoun_4_clearance.json';
+import einQasab1Recon from '../../../data/missions/ein_qasab_1_recon.json';
+import einQasab2Foothold from '../../../data/missions/ein_qasab_2_foothold.json';
+import einQasab3Buildup from '../../../data/missions/ein_qasab_3_buildup.json';
 import wadiHalam1Fords from '../../../data/missions/wadi_halam_1_fords.json';
 import wadiHalam2Laager from '../../../data/missions/wadi_halam_2_laager.json';
 import wadiHalam3Counterraid from '../../../data/missions/wadi_halam_3_counterraid.json';
@@ -317,6 +322,8 @@ export const maps = {
   deir_amun_2: deirAmun2Map,
   deir_amun_3: deirAmun3Map,
   ein_qasab: einQasab,
+  ein_qasab_3: einQasab3,
+  jebel_matar: jebelMatar,
   marj_perimeter: marjPerimeter,
   milh_flats: milhFlats,
   qarn_hadid: qarnHadid,
@@ -377,6 +384,9 @@ export const missions = {
   umm_zeitoun_2_buildup: ummZeitoun2Buildup,
   umm_zeitoun_3_clearance: ummZeitoun3Clearance,
   umm_zeitoun_4_clearance: ummZeitoun4Clearance,
+  ein_qasab_1_recon: einQasab1Recon,
+  ein_qasab_2_foothold: einQasab2Foothold,
+  ein_qasab_3_buildup: einQasab3Buildup,
   wadi_halam_1_fords: wadiHalam1Fords,
   wadi_halam_2_laager: wadiHalam2Laager,
   wadi_halam_3_counterraid: wadiHalam3Counterraid,

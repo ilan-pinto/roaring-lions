@@ -110,6 +110,21 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "unlock": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "A town-level gate (GH-912 G1): the town's missions stay closed until the gate opens. Same shape and same reader as a region's unlock.",
+                  "properties": {
+                    "after_mission": {
+                      "type": "string"
+                    },
+                    "roe_rating_min": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  }
                 }
               }
             }

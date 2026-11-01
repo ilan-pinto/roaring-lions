@@ -96,6 +96,22 @@
       },
       "towns": [
         {
+          "id": "ein_qasab",
+          "name": "Ein Qasab",
+          "at": [
+            804.0,
+            461.7
+          ],
+          "unlock": {
+            "after_mission": "wadi_halam_3_counterraid"
+          },
+          "missions": [
+            "ein_qasab_1_recon",
+            "ein_qasab_2_foothold",
+            "ein_qasab_3_buildup"
+          ]
+        },
+        {
           "id": "wadi_halam",
           "name": "Wadi Halam",
           "at": [

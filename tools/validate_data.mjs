@@ -28,6 +28,7 @@ import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { elevationFailures } from './validate_map_grid.mjs';
+import { townGateFailures } from './validate_world.mjs';
 import { regionBiomeFailures } from './validate_biome.mjs';
 import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
@@ -976,6 +977,14 @@ const garrisonableSymbols = new Set(
     for (const t of mi.triggers ?? []) {
       const kind = t.do?.kind;
       const name = t.id ?? '(unnamed)';
+      // GH-912: a `group_in_zone` condition watches a group, and one no placement declares
+      // never exists at runtime, so the trigger could never fire. (Its zone is checked with
+      // every other trigger zone, above.)
+      if (t.on?.kind === 'group_in_zone' && !declaredGroups.has(t.on.group)) {
+        failures.push(
+          `${rel(file)}: group_in_zone trigger "${name}" watches group "${t.on.group}", which no placement declares`
+        );
+      }
       // A commit or withdraw_to with no destination is a silent no-op: the
       // runtime only queues the order when `to` is present, so the trigger
       // fires, latches, and moves nobody. Verified in play — the breach's
@@ -1238,6 +1247,10 @@ const garrisonableSymbols = new Set(
         );
       }
     }
+
+    // A town's own gate (GH-912 G1): the mission must be listed, not the town's own, not in a
+    // later region, and the chain of town gates must not close on itself.
+    failures.push(...townGateFailures(world));
 
     // The art must exist, every region must have a country shape in the generated
     // geometry, and every town must actually sit INSIDE its region's country --

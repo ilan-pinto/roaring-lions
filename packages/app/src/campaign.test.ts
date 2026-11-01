@@ -8,11 +8,13 @@ import type { LedgerData, MissionJson } from '@lions/sim';
 import {
   campaignRoe,
   campaignSummary,
+  carryReaderOf,
   commanderForMission,
   continueTarget,
   nextOperation,
   hostagesAccount,
   hostagesLine,
+  missionOpen,
   newlyUnlocked,
   nextMissionAfter,
   nextMissionOf,
@@ -23,6 +25,7 @@ import {
   regionForTown,
   regionProgress,
   regionStars,
+  townLockedBecause,
   townProgress,
   townStars,
   villainPortrait,
@@ -30,6 +33,8 @@ import {
   type CommanderData,
   type ParsedWorld,
 } from './campaign';
+import { EIN_QASAB_GATE, gatedWorldJson, ledgerBeforeNaharin } from './gated-town.fixture';
+import { t } from './i18n/t';
 
 const world = parseWorld(worldJson);
 const marj = world.regions[0]!;
@@ -542,6 +547,34 @@ describe('villainState', () => {
   });
 });
 
+// GH-912 G-Q: Naharin's villain card must not depend on which town happens to be listed last.
+describe('the Naharin villain ends at the depot (GH-912 G-Q)', () => {
+  const depot = 'wadi_halam_5_depot';
+  const naharinRaw = gatedWorldJson() as { regions: { id: string; towns: { id: string; missions: string[] }[] }[] };
+  // The shape that bites: a town listed AFTER Wadi Halam, so the region's last mission is not the depot.
+  const appended = structuredClone(naharinRaw);
+  appended.regions
+    .find((r) => r.id === 'naharin')!
+    .towns.push({ id: 'late_town', name: 'Late Town', at: [800, 470], missions: ['late_1'] } as never);
+  const naharinLate = parseWorld(appended).regions.find((r) => r.id === 'naharin')!;
+  const hallaq = commander.villains!.naharin!;
+  const missionOf = (id: string) =>
+    id === depot ? { objectives: [{ type: 'eliminate_hvt', primary: true }] } : { objectives: [{ type: 'capture', primary: true }] };
+
+  it('names the depot in the shipped data, in his own region', () => {
+    expect(hallaq.ends_at).toBe(depot);
+    const real = world.regions.find((r) => r.id === 'naharin')!;
+    expect(real.towns.flatMap((tw) => tw.missions)).toContain(depot);
+  });
+
+  it('is decided by the depot, not by whichever mission the region lists last', () => {
+    const lateOnly = { 'campaign.completed_missions': ['late_1'] };
+    const depotDone = { 'campaign.completed_missions': [depot] };
+    expect(villainState(naharinLate, lateOnly, missionOf, hallaq.ends_at)).toBe('at_large');
+    expect(villainState(naharinLate, depotDone, missionOf, hallaq.ends_at)).toBe('killed');
+  });
+});
+
 describe('the account of the taken', () => {
   it('subtracts what came back from what was taken, and reads nothing when the world names no number', () => {
     expect(hostagesAccount(world, { 'civ.hostages_recovered': { a: 2, b: 3 } })).toEqual({ taken: 19, recovered: 5 });
@@ -591,5 +624,117 @@ describe('nextOperation', () => {
   it('is null once every mission is complete, which hides the button', () => {
     const all = world.regions.flatMap((r) => r.towns).flatMap((t) => t.missions);
     expect(nextOperation(world, { 'campaign.completed_missions': all })).toBeNull();
+  });
+});
+
+// GH-912 G1: a town takes the same `unlock` a region does. `gatedWorldJson()` lists a gated
+// Ein Qasab FIRST in Naharin, the shape that breaks every "first town with something to play"
+// walk unless `nextMissionOf` reads the gate.
+describe('a town-level unlock (GH-912 G1)', () => {
+  const gated = parseWorld(gatedWorldJson());
+  const naharin = gated.regions.find((r) => r.id === 'naharin')!;
+  const einQasab = naharin.towns.find((tw) => tw.id === 'ein_qasab')!;
+  const EQ1 = 'ein_qasab_1_recon';
+  const before = ledgerBeforeNaharin();
+  const wh = naharin.towns.find((tw) => tw.id === 'wadi_halam')!;
+  const afterWh3 = { 'campaign.completed_missions': [...before['campaign.completed_missions'], ...wh.missions.slice(0, 3)] };
+  const tutorial = { id: 'beit_sahwan_0_tutorial', done: true };
+
+  it('T1 parses a town gate onto the runtime spelling, and a town without one has none', () => {
+    expect(einQasab.unlock).toEqual({ afterMission: EIN_QASAB_GATE });
+    expect(wh.unlock).toBeUndefined();
+    expect(parseWorld(worldJson).regions[0]!.towns[0]!.unlock).toBeUndefined();
+  });
+
+  it('T2 keeps a gated town closed until its mission is done, and missionOpen agrees', () => {
+    const fixture: ParsedWorld = {
+      id: 'f',
+      name: 'f',
+      art: 'f.svg',
+      regions: [
+        {
+          id: 'r',
+          name: 'R',
+          faction: 'f',
+          doctrine: 'd',
+          towns: [
+            { id: 'a', name: 'A', at: [0, 0], missions: ['a1'] },
+            { id: 'b', name: 'B', at: [0, 0], missions: ['b1'], unlock: { afterMission: 'a1' } },
+          ],
+        },
+      ],
+    };
+    const b = fixture.regions[0]!.towns[1]!;
+    expect(nextMissionOf(b, {})).toBeNull();
+    expect(missionOpen(fixture, 'b1', {})).toBe(false);
+    const done = { 'campaign.completed_missions': ['a1'] };
+    expect(nextMissionOf(b, done)).toBe('b1');
+    expect(missionOpen(fixture, 'b1', done)).toBe(true);
+  });
+
+  it('T3 listing a gated town first does not move Continue, Next or the board off Wadi Halam I', () => {
+    expect(naharin.towns[0]!.id).toBe('ein_qasab');
+    expect(nextOperation(gated, before)).toBe('wadi_halam_1_fords');
+    expect(continueTarget(gated, before, tutorial)?.missionId).toBe('wadi_halam_1_fords');
+    expect(missionOpen(gated, EQ1, before)).toBe(false);
+    expect(missionOpen(gated, EQ1, afterWh3)).toBe(true);
+  });
+
+  it('T4 the tutorial fallback skips a locked town', () => {
+    expect(nextMissionAfter(gated, 'beit_sahwan_0_tutorial', before)).toBe('wadi_halam_1_fords');
+  });
+
+  it('T5 the lock reads as a sentence with the mission name, never its id', () => {
+    const name = (id: string): string | undefined => (missions as Record<string, { name?: string }>)[id]?.name;
+    const sentence = townLockedBecause(einQasab, {}, name);
+    expect(sentence).toBe('Clear Wadi Halam III \u2014 The Cattle Track first');
+    expect(sentence).not.toContain(EIN_QASAB_GATE);
+    expect(townLockedBecause(einQasab, {})).toBe(t('gate.clearUnknown'));
+    expect(townLockedBecause(einQasab, afterWh3, name)).toBeNull();
+  });
+
+  it('still counts a locked town in its progress: the gate closes the door, not the ledger', () => {
+    expect(townProgress(einQasab, before)).toEqual({ done: 0, total: 3 });
+  });
+});
+
+// GH-912 G-T: which later mission reads a recon tag.
+describe('carryReaderOf (GH-912 G-T)', () => {
+  const real = missions as Record<string, MissionJson | undefined>;
+
+  it('names the mission that places the tag, skipping the town\u2019s next one', () => {
+    // Beit Sahwan II does not place bs_hvt_atgm; III does. The town's next mission after I is II.
+    expect(carryReaderOf(world, real, 'beit_sahwan_1_recon', 'bs_hvt_atgm')).toBe('beit_sahwan_3_clearance');
+    expect(nextMissionAfter(world, 'beit_sahwan_1_recon', { 'campaign.completed_missions': ['beit_sahwan_breach', 'beit_sahwan_1_recon'] })).toBe('beit_sahwan_2_foothold');
+    expect(carryReaderOf(world, real, 'beit_sahwan_1_recon', 'bs_track_north')).toBe('beit_sahwan_4_subterranean');
+  });
+
+  it('reads the other shipped carries too', () => {
+    const qarn = parseWorld(worldJson);
+    expect(carryReaderOf(qarn, real, 'qarn_hadid_1_recon', 'qh_atgm_ditch')).toBe('qarn_hadid_3_clearance');
+  });
+
+  it('is undefined when nothing later reads the tag, or the tag is unknown, or the mission is off the map', () => {
+    expect(carryReaderOf(world, real, 'beit_sahwan_1_recon', 'no_such_tag')).toBeUndefined();
+    expect(carryReaderOf(world, real, 'beit_sahwan_0_tutorial', 'bs_hvt_atgm')).toBeUndefined();
+  });
+
+  it('only looks forward, and only at missions that REQUIRE the marks', () => {
+    // BS III places the tag too, but looking from III forward finds no later reader of bs_hvt_atgm.
+    expect(carryReaderOf(world, real, 'beit_sahwan_3_clearance', 'bs_hvt_atgm')).toBeUndefined();
+    const fx = (requires: string[], tagged: boolean): MissionJson =>
+      ({
+        ledger: { requires, produces: [] },
+        enemy: { garrison: [{ unit: 'u', ...(tagged ? { tag: 'eq_reed_cell' } : {}) }] },
+      }) as unknown as MissionJson;
+    const w: ParsedWorld = {
+      id: 'f',
+      name: 'f',
+      art: 'f.svg',
+      regions: [{ id: 'r', name: 'R', faction: 'f', doctrine: 'd', towns: [{ id: 't', name: 'T', at: [0, 0], missions: ['m1', 'm2', 'm3'] }] }],
+    };
+    // m2 places the tag but does not require marks (it cannot read them): the reader is m3.
+    const cat = { m1: fx([], true), m2: fx([], true), m3: fx(['intel.marked_positions'], true) };
+    expect(carryReaderOf(w, cat, 'm1', 'eq_reed_cell')).toBe('m3');
   });
 });

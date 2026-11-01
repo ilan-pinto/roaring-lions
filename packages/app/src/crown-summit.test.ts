@@ -87,6 +87,7 @@ const SUMMITS: Partial<Record<MapId, number>> = {
   beit_sahwan_2: 4,
   deir_amun_2: 3,
   deir_amun_3: 1,
+  jebel_matar: 3, // (10,10), (40,11) and the dyke segment at (36,36); GH-912, by a Python flood fill of the rows
   milh_flats: 2,
   qarn_hadid: 1,
   qarn_hadid_3: 4,
@@ -125,8 +126,9 @@ describe('crown summits on the shipped maps', () => {
     tally.rejected += rejected;
   });
 
-  it('20 summits in all, and none of the other 41 small clusters', () => {
-    expect(tally).toEqual({ summits: 20, rejected: 41 });
+  it('23 summits in all, and none of the other 45 small clusters', () => {
+    // Jebel Matar (GH-912) adds 3 summits and 4 rejected clusters (7 small ones); Ein Qasab III has none.
+    expect(tally).toEqual({ summits: 23, rejected: 45 });
   });
 
   it('lifts a crown by exactly the sim\'s BLOCK_RISE -- the lift at which what the player sees is what blocks sight', () => {

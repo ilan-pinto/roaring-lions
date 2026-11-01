@@ -21,6 +21,7 @@ import {
   nextMissionOf,
   regionProgress,
   townProgress,
+  townLockedBecause,
   townStars,
   villainState,
   type CommanderData,
@@ -176,6 +177,8 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
     for (const town of region.towns) {
       const next = nextMissionOf(town, opts.ledger);
       const tp = townProgress(town, opts.ledger);
+      // A town's own gate (GH-912 G1). Null inside a locked region, whose sentence wins.
+      const townGate = p.status === 'locked' ? null : townLockedBecause(town, opts.ledger, missionName);
       const marker = el('div', 'rl-world__town');
       marker.dataset.town = town.id;
       // The town's own state, not the region's: a region can be 'live' while
@@ -184,7 +187,14 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
       // through -- the same false-completion signal regionProgress's
       // total === 0 guard exists to prevent, just leaking in one level down.
       marker.dataset.status =
-        tp.total > 0 && tp.done === tp.total ? 'done' : tp.total === 0 ? 'empty' : p.status;
+        tp.total > 0 && tp.done === tp.total
+          ? 'done'
+          : tp.total === 0
+            ? 'empty'
+            : townGate !== null
+              ? 'locked'
+              : p.status;
+      if (townGate !== null) marker.title = townGate;
       // Percentages, so the markers track the SVG as it scales.
       marker.style.left = `${((town.at[0] / VIEW_W) * 100).toFixed(3)}%`;
       marker.style.top = `${((town.at[1] / VIEW_H) * 100).toFixed(3)}%`;
