@@ -91,7 +91,7 @@ const SUMMITS: Partial<Record<MapId, number>> = {
   milh_flats: 2,
   qarn_hadid: 1,
   qarn_hadid_3: 4,
-  rujm_sawda: 4,
+  rujm_sawda: 6, // the four 8-tile rocks plus the black cairn and its twin (4 tiles each); GH-913 look pass, by a Python flood fill of the rows
   tel_marum: 1,
   tel_marum_1: 1,
   tel_marum_2: 2,
@@ -127,12 +127,15 @@ describe('crown summits on the shipped maps', () => {
     tally.rejected += rejected;
   });
 
-  it('27 summits in all, and none of the other 45 small clusters', () => {
+  it('29 summits in all, and none of the other 45 small clusters', () => {
     // Jebel Matar (GH-912) adds 3 summits and 4 rejected clusters (7 small ones); Ein Qasab III has none.
     // Rujm Sawda (GH-913 L4) adds 4: its four 8-tile rocks (both mesa crowns, both tells) are all
     // summits by an independent flood fill over its rows and elevation, and its two corner ridges
-    // are 80 tiles each, past CROWN_MAX_TILES.
-    expect(tally).toEqual({ summits: 27, rejected: 45 });
+    // are 80 tiles each, past CROWN_MAX_TILES. The look pass (GH-913) adds 2: the black cairn, a 2x2
+    // rock crown on a one-tile shoulder of knoll at its own level, and its half-turn twin. Both are
+    // summits by the same flood fill (no neighbouring ^, no building, nothing higher), so Rujm Sawda
+    // reads 6 and the other small clusters stay 45.
+    expect(tally).toEqual({ summits: 29, rejected: 45 });
   });
 
   it('lifts a crown by exactly the sim\'s BLOCK_RISE -- the lift at which what the player sees is what blocks sight', () => {

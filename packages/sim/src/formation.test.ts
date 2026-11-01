@@ -117,10 +117,10 @@ describe('assignFormation in a street', () => {
     expect(new Set(slots.map(key)).size).toBe(15);
     for (const sl of slots) expect(s[sl.y * W + sl.x]).toBe(0);
     const m = byId(slots);
-    // Three vehicles hold the head of the column, one every VEHICLE_RANK_DEPTH
-    // rows (y 4, 7, 10; the next rank, 13, is past SEARCH_RADIUS); the fourth
-    // overflows to the nearest free tile in walk order, beside the head.
-    expect([0, 1, 2, 3].map((id) => `${m.get(id)?.x},${m.get(id)?.y}`)).toEqual(['10,4', '10,7', '10,10', '11,4']);
+    // The vehicles hold the head of the column, one every VEHICLE_RANK_DEPTH
+    // rows (y 4, 7, 10, and 13: the fourth is past SEARCH_RADIUS, so the
+    // search grows to seat it in rank rather than leaving it at the head, GH-929).
+    expect([0, 1, 2, 3].map((id) => `${m.get(id)?.x},${m.get(id)?.y}`)).toEqual(['10,4', '10,7', '10,10', '10,13']);
     // Infantry fills the ranks behind and the gaps between the vehicles, and
     // overflow is behind-first: nothing stands ahead of the click, and nothing
     // wider than the street.

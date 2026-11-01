@@ -19,6 +19,9 @@ import { Rig } from './rig';
  *  0.05-0.06 m in radius in a sleeve; the shoulder cap and the elbow pad
  *  stand a little proud, hence the margin. */
 export const ARM_RADIUS_CAP = { upperarm: 0.085, forearm: 0.075 };
+/** A figure the hands pass has been through: its forearm bone carries the sleeve from the real elbow down, which is
+ *  as thick as the upper arm (the armband is 0.085 out). */
+export const ARM_RADIUS_CAP_HANDS = { upperarm: 0.085, forearm: 0.09 };
 /** How far an arm part may reach past its own joints along the bone: the
  *  shoulder cap above the shoulder joint, and the elbow overlap. */
 export const ARM_AXIAL_SLACK = { shoulder: 0.1, elbow: 0.04 };
@@ -27,6 +30,7 @@ export function tidyArms(doc: Document, prefixes: readonly string[]): string[] {
   const rig = new Rig(doc);
   const joints = rig.skin.listJoints();
   const lines: string[] = [];
+  const caps = (doc.getRoot().listScenes()[0].getExtras() as { rl_hands?: unknown }).rl_hands ? ARM_RADIUS_CAP_HANDS : ARM_RADIUS_CAP;
   for (const p of prefixes) {
     for (const side of ['L', 'R']) {
       for (const seg of ['upperarm', 'forearm'] as const) {
@@ -41,7 +45,7 @@ export function tidyArms(doc: Document, prefixes: readonly string[]): string[] {
           const [x, y, z, w] = r;
           axis = norm([2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x)]);
         }
-        const cap = ARM_RADIUS_CAP[seg];
+        const cap = caps[seg];
         // Along the axis too: a forearm vertex more than a few cm ABOVE its
         // own elbow, or an upper-arm one past it, is sleeve the cut gave to
         // the wrong bone, and it swings out as a slab when the arm bends.
@@ -88,4 +92,44 @@ export function tidyArms(doc: Document, prefixes: readonly string[]): string[] {
     }
   }
   return lines;
+}
+
+/**
+ * A channel that never changes costs a key per frame for nothing: a figure's 57 bones key translation, rotation and
+ * scale in every clip, and most of those never move. A modelled hand adds five bones per figure and held clips are
+ * keyed at 30 Hz or better, so the raw file would grow by 0.46 MB of animation that Draco does not touch. Every
+ * channel whose values are all the same (within 1e-6) is cut to its first and last key, which keeps the clip's span
+ * and plays the same value through every mixer. Lossless.
+ */
+export function collapseConstantTracks(doc: Document): string[] {
+  let channels = 0;
+  let collapsed = 0;
+  let saved = 0;
+  const seen = new Set<unknown>();
+  for (const anim of doc.getRoot().listAnimations()) {
+    for (const ch of anim.listChannels()) {
+      const s = ch.getSampler();
+      if (!s || seen.has(s)) continue;
+      seen.add(s);
+      channels++;
+      const input = s.getInput();
+      const output = s.getOutput();
+      if (!input || !output || s.getInterpolation() === 'CUBICSPLINE') continue;
+      const times = input.getArray()!;
+      const vals = output.getArray()!;
+      const c = output.getElementSize();
+      if (times.length <= 2) continue;
+      let same = true;
+      for (let i = c; i < vals.length && same; i++) if (Math.abs(vals[i] - vals[i % c]) > 1e-6) same = false;
+      if (!same) continue;
+      const t = new Float32Array([times[0], times[times.length - 1]]);
+      const v = new Float32Array(2 * c);
+      for (let k = 0; k < c; k++) { v[k] = vals[k]; v[c + k] = vals[k]; }
+      saved += (times.length - 2) * (1 + c) * 4;
+      input.setArray(t);
+      output.setArray(v);
+      collapsed++;
+    }
+  }
+  return [`animation: ${collapsed} of ${channels} channels never change, cut to two keys (${(saved / 1024).toFixed(0)} KiB of raw keys)`];
 }

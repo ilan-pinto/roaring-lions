@@ -49,7 +49,8 @@ import { applyCarry } from './motion/carry';
 import { applyGround } from './motion/ground';
 import { applyFormation } from './motion/formation';
 import { applyStride } from './motion/stride';
-import { tidyArms } from './motion/tidy';
+import { collapseConstantTracks, tidyArms } from './motion/tidy';
+import { HANDS_TEAMS } from './hands-pass';
 import { applyCrewFire, applyCrewPinned } from './motion/crew-fire';
 import { addFeet } from './motion/feet';
 import { MOTION_TEAMS, MOTION_VERSION, recoilOf, type MotionTeam } from './motion/teams';
@@ -65,6 +66,8 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   const scene = doc.getRoot().listScenes()[0];
   const extras = (scene.getExtras() ?? {}) as Record<string, unknown>;
   if (extras.rl_motion) throw new Error(`${id}: already through the motion pass (${JSON.stringify(extras.rl_motion)})`);
+  // A team the hands pass owns is held with its hands: the formula grips would put a Meshy claw's centroid on the rifle.
+  if (HANDS_TEAMS[id] && !extras.rl_hands) throw new Error(`${id}: the hands pass has not been through it (\`pnpm hands:meshes\` runs before \`pnpm motion:meshes\`)`);
   const lines: string[] = [];
   const posed = spec.figures.filter((f) => f.weapon || f.kneels).map((f) => f.prefix);
   if (posed.length > 0) lines.push(...tidyArms(doc, posed));
@@ -86,6 +89,8 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   if (needsPinned(doc)) lines.push(...applyPinned(doc, id));
   if (spec.work) lines.push(...applyWork(doc, id, spec.work));
   if (spec.crewFire && needsPinned(doc)) lines.push(...applyCrewPinned(doc, id));
+  // A figure with modelled hands carries five more bones a figure and denser held clips: drop what never moves.
+  if ((scene.getExtras() as { rl_hands?: unknown }).rl_hands) lines.push(...collapseConstantTracks(doc));
   // Re-read: a step may have written its own extras (`crew-fire.ts`'s
   // `rl_fire`, `pinned.ts`'s `rl_pinned`), and the copy taken at the top
   // would silently drop them.

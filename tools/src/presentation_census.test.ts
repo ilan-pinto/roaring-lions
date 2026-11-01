@@ -18,9 +18,14 @@ import {
   census,
   drawnSurface,
   gap,
+  LIT_DIFFERENCE_MAX,
+  TWIN_MISMATCH_MAX,
   lightAt,
+  litDifferenceShare,
   loadMap,
   planSeats,
+  twinMismatches,
+  type Census,
   type Point,
 } from './presentation_census';
 import { surfaceWorldY } from '../../packages/render/src/three/terrain/surface';
@@ -89,15 +94,20 @@ describe('presentation census: Rujm Sawda (GH-913 L6)', async () => {
     expect(c.hiddenGap).toBeLessThanOrEqual(SEAT_TOLERANCE);
   });
 
-  it('relief: REPORT. 12.2% on lit share, over the proposed 10% bar; a ratchet, not a pass', () => {
-    // Seat 0: 156 lit / 266 shadowed / 8 neutral of 430. Seat 1: 137 / 285 / 8. The gap is the
-    // terrain's own lopsidedness about the main diagonal (the map is half-turn symmetric, not
-    // diagonal symmetric), not the sun, which cancels on this axis. It is sensitive to the census's
-    // free parameters (10.7% to 37.5% over the settings tried) and Wadi Tarfan, a map that plays
-    // fair, reads 15.1%, so this number is for the lead to read, not a thing to tune a map to.
-    // It may get better and may not get worse.
-    expect(c.reliefGap).toBeLessThanOrEqual(0.125);
-    expect(c.reliefGap).toBeGreaterThan(0.05); // and the demotion: if it falls under, say so here
+  it('relief: two ABSOLUTE checks, the lit difference and the twin mismatches (GH-913 look pass)', () => {
+    // The relative lit-share gap (12.2% before the look pass, 27.5% after) is retired as a bar: it
+    // divides by a lit share that the 2x2-cell staircase banks had padded with about 170 scallop
+    // facets, lit for one seat and shadowed on its twin. Smoothing the banks removed them, the
+    // skew stayed where it was, and the ratio more than doubled on a map no less fair. Counts do
+    // not move with the denominator. The lead ruled the census report-only on 1 Nov 2026: these
+    // are a per-map no-worse ratchet, not a pass/fail bar. Seat 0 / seat 1 lit, of 362 slope
+    // tiles: 69 / 50, a difference of 19 (5.2%; 4.4% before). Tiles reading differently from
+    // their twin: 138 (309 before). Plan: _coord/rujm-sawda-look/plan.md section 4.
+    expect(litDifferenceShare(c)).toBeLessThanOrEqual(LIT_DIFFERENCE_MAX);
+    expect(twinMismatches(c, map.width, map.height)).toBeLessThanOrEqual(TWIN_MISMATCH_MAX);
+    // the demotion: a census that found nothing to compare would pass both vacuously
+    expect(s0.lit).toBeGreaterThan(0);
+    expect(twinMismatches(c, map.width, map.height)).toBeGreaterThan(0);
   });
 
   it('cast shadow from the relief reaches no enemy-facing slope on this map (the sun is too high)', () => {
@@ -112,6 +122,48 @@ describe('presentation census: Rujm Sawda (GH-913 L6)', async () => {
         if (castShadowed(surface, map, x + 0.5, surfaceWorldY(surface, x + 0.5, y + 0.5) + 0.02, y + 0.5)) cast++;
       }
     expect(cast).toBe(0);
+  });
+});
+
+describe('presentation census: the two absolute relief checks go red (GH-913 look pass)', async () => {
+  const { json } = loadMap('rujm_sawda');
+  const elev = json.elevation as string[];
+  /** The bottom half is the x-FLIP of the top half's elevation, not its half-turn: a map that is not point-symmetric. */
+  const flipped = elev.map((r, y) => (y < 40 ? r : elev[79 - y]));
+  /** The control writes the bottom half as the true half-turn, which the shipped map already is. */
+  const turned = elev.map((r, y) => (y < 40 ? r : [...elev[79 - y]].reverse().join('')));
+  const read = async (elevation: string[]): Promise<Census> => {
+    const j: MapJson = { ...json, elevation };
+    return census(parseMap(j), j.rows);
+  };
+
+  it('control: re-deriving the bottom half as the half-turn reads exactly as shipped', async () => {
+    const c = await read(turned);
+    expect(c.seats[0].lit).toBe(69);
+    expect(c.seats[1].lit).toBe(50);
+    expect(twinMismatches(c, 80, 80)).toBe(138);
+  });
+
+  it('RED: the bottom half x-flipped splits the lit counts far past the bar (16.6% against 7%)', async () => {
+    const c = await read(flipped);
+    expect(litDifferenceShare(c)).toBeGreaterThan(2 * LIT_DIFFERENCE_MAX);
+  });
+
+  it('RED: the same flip leaves twice the allowed number of tiles reading differently (307 against 150)', async () => {
+    const c = await read(flipped);
+    expect(twinMismatches(c, 80, 80)).toBeGreaterThan(2 * TWIN_MISMATCH_MAX);
+  });
+
+  it('the measures on literals: a 10-tile lit split of 100 is 10%, and a missing twin counts as a mismatch', () => {
+    const seat = (lit: number) => ({ slopeTiles: 100, lit });
+    const fake = (l0: number, l1: number, a: [number, 0 | 1 | -1][], b: [number, 0 | 1 | -1][]) =>
+      ({ seats: [seat(l0), seat(l1)], slope: [new Map(a), new Map(b)] }) as unknown as Census;
+    expect(litDifferenceShare(fake(40, 30, [], []))).toBeCloseTo(0.1, 10);
+    expect(litDifferenceShare(fake(30, 30, [], []))).toBe(0);
+    // 80x80: tile 0's twin is 6399. Same light: no mismatch. Other light, or absent: one each.
+    expect(twinMismatches(fake(0, 0, [[0, 1]], [[6399, 1]]), 80, 80)).toBe(0);
+    expect(twinMismatches(fake(0, 0, [[0, 1]], [[6399, -1]]), 80, 80)).toBe(1);
+    expect(twinMismatches(fake(0, 0, [[0, 1], [5, 0]], [[6399, 1]]), 80, 80)).toBe(1);
   });
 });
 
