@@ -1510,9 +1510,9 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
     // (was 202); the Attack (whose aircraft were exempt from the pace; since P1c it has no pace at all, and these two releases read the same) is whole at its checkpoints sooner (169 and 277; was
     // 237 and 415); the side-1 Column's release is unchanged.
     expect(a.columnFirstArrival).toBe(57);
-    // GH-859: the fourth group (the shipped Attack's two squads, ordered at tick 90) is released at 278 on its first checkpoint (row 3);
-    // the drone it leaves out is in no group and appears nowhere here. The other three releases are as they were.
-    expect(a.released).toBe('117:0:1/2 169:1:1/3 277:1:2/3 278:3:1/2 351:16:1/2');
+    // GH-859: the fourth group (the shipped Attack's two squads, ordered at tick 90) has no checkpoint, so it is released nowhere here;
+    // the other three are as they were.
+    expect(a.released).toBe('117:0:1/2 169:1:1/3 277:1:2/3 351:16:1/2');
   });
 
   it('makes contact twice: the side-1 Column halts and the Attack presses (GH-859 P1b Task 4)', () => {
