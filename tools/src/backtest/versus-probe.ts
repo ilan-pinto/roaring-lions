@@ -161,7 +161,7 @@
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Sim, WOUND_DOWN, WOUND_STABILISED, MED_IDLE, fx, type SimEvent } from '@lions/sim';
-import { applyTerrain, doctrines, formations, maps, parseMap, units, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
+import { applyTerrain, doctrines, formations, maps, parseMap, units, versusCapacityOf, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
 import { VERSUS_FAIR_MAPS, seatRules, sidesOfFactions, validateConfig, type Faction, type MatchConfig, type SpawnEnd } from '@lions/net';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
@@ -294,7 +294,9 @@ export function humanHeldOf(rules: SeatTable, mapId: MapId, arrangement: Arrange
 
 export function world(mapId: MapId, seed: number, humanHeld?: readonly [boolean, boolean]) {
   const map = parseMap(maps[mapId]);
-  const sim = new Sim({ seed, width: map.width, height: map.height, capacity: 256, ...(humanHeld ? { humanHeld } : {}) });
+  // GH-913 L3: the map's room capacity (256 unless its rules file says more), as `buildMatchWorld` builds it.
+  const capacity = versusCapacityOf(versusRules[mapId]);
+  const sim = new Sim({ seed, width: map.width, height: map.height, capacity, ...(humanHeld ? { humanHeld } : {}) });
   applyTerrain(map, sim);
   standMapStructures(sim, map);
   const typeOf = new Map<string, number>();
