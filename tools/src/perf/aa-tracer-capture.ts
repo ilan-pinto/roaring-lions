@@ -3,7 +3,7 @@
  * (`gun_truck`, right) firing in one frame, so the two tracers are judged under
  * the same light, camera and bloom.
  *
- *   pnpm --filter @lions/tools exec tsx src/perf/aa-tracer-capture.ts --label=after --port=5251 --gpu=metal
+ *   pnpm --filter @lions/tools exec tsx src/perf/aa-tracer-capture.ts --label=after --port=5251 --gpu=metal [--pair=aa|mg|rifle]
  *
  * Method: the frame loop is frozen, and the sim, the renderer snapshot and the
  * event hand-off are stepped by hand in lockstep (20 Hz ticks, three 16 ms
@@ -37,10 +37,23 @@ interface Scene {
   y: number;
   gap: number;
 }
-const SCENES: readonly Scene[] = [
-  { name: 'kdf', shooter: 'ifv_namer', target: 'digger_crew', side: 0, x: 4, y: 4, gap: 7 },
-  { name: 'enemy', shooter: 'gun_truck', target: 'veh_ambulance', side: 1, x: 24, y: 4, gap: 7 },
-];
+/** `--pair=aa` (default, GH-941): KDF autocannon vs Sarim AA gun. `mg` and `rifle`: the same
+ *  exchange for the machine-gun and rifle streaks (the lead's follow-up, 1 Nov). */
+const PAIRS: Record<string, readonly Scene[]> = {
+  aa: [
+    { name: 'kdf', shooter: 'ifv_namer', target: 'digger_crew', side: 0, x: 4, y: 4, gap: 7 },
+    { name: 'enemy', shooter: 'gun_truck', target: 'veh_ambulance', side: 1, x: 24, y: 4, gap: 7 },
+  ],
+  mg: [
+    { name: 'kdf', shooter: 'apc_eitan', target: 'digger_crew', side: 0, x: 4, y: 4, gap: 6 },
+    { name: 'enemy', shooter: 'technical', target: 'veh_ambulance', side: 1, x: 24, y: 4, gap: 6 },
+  ],
+  rifle: [
+    { name: 'kdf', shooter: 'inf_squad', target: 'digger_crew', side: 0, x: 4, y: 4, gap: 6 },
+    { name: 'enemy', shooter: 'sarim_rifles', target: 'veh_ambulance', side: 1, x: 24, y: 4, gap: 6 },
+  ],
+};
+let SCENES: readonly Scene[] = PAIRS.aa;
 
 interface SimEvent { kind: string; weaponId?: string; shooter?: number; target?: number }
 interface LionsWindow {
@@ -80,6 +93,9 @@ async function main(): Promise<void> {
   const { settleScript, parseSettleResult, settleLine } = await import('./blast-captures');
 
   const label = arg('label') || 'after';
+  const pair = arg('pair') || 'aa';
+  if (PAIRS[pair] === undefined) throw new Error(`--pair=${pair}: one of ${Object.keys(PAIRS).join(', ')}`);
+  SCENES = PAIRS[pair];
   const gpu = arg('gpu') || 'metal';
   const port = await claimPort('aa-tracer-capture', 'AA_TRACER_CAPTURE_PORT', 5251);
   if (port === 5177 || port === 5173) throw new Error(`port ${port} is someone else's`);
@@ -209,7 +225,7 @@ async function main(): Promise<void> {
       if (r.fires.length > 0 && firstFire < 0) firstFire = r.tick;
       const sides = new Set(r.bolts.map((b) => b.split('/')[1]));
       if (firstFire >= 0 && sides.has('s0') && sides.has('s1') && frames.length < 14) {
-        const file = `aa-${label}-t${String(r.tick).padStart(4, '0')}.png`;
+        const file = `${pair}-${label}-t${String(r.tick).padStart(4, '0')}.png`;
         await page.screenshot({ path: path.join(out, file) });
         frames.push(`${file}: ${r.bolts.join(' ')}`);
       }

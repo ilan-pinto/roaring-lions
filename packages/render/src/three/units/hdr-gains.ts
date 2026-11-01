@@ -51,11 +51,11 @@ export const HDR_GAINS = Object.freeze({
   // x 0.4 = 1.4, so a full-red channel sits just over the bloom threshold: a
   // small bright point that blooms faintly, on a body that still does not.
   grenadeGlint: 0.4,
-  // GH-941: the ceiling on `hostileBoltGain`. The ratio of the own tracer's
+  // GH-941: the ceiling on `hostileStreakGain`. The ratio of the own tracer's
   // luminance to the hostile colour's is about 4.6 for the shipped palette and
   // about 3.7 in the colour-vision variants; 12 is a runaway guard for a
   // palette edit, not a look.
-  hostileBoltMax: 12,
+  hostileStreakMax: 12,
 });
 
 export type HdrZoneRole = 'core' | 'mid' | 'outer';
@@ -83,8 +83,11 @@ export function streakKindGain(kind: string): number {
 }
 
 /**
- * GH-941: the gain a HOSTILE bolt's colour is multiplied by so it blooms as
- * much as the own side's.
+ * GH-941: the gain a HOSTILE direct streak's colour (bolt, rifle, mg) is multiplied
+ * by so it blooms as much as the own side's of the SAME kind. The kind gain
+ * (`streakKindGain`) multiplies both sides afterwards and the luminance is linear,
+ * so one ratio matches every kind to its own kind's own-side tracer: a hostile mg
+ * is matched to the own mg, not to the bolt.
  *
  * Bloom thresholds LINEAR LUMINANCE (`../bloom.ts`, `BLOOM_THRESHOLD` 1.0), not
  * a channel. The own tracer, `vfx.tracer` lime, is luminous (about 0.82 linear)
@@ -95,9 +98,9 @@ export function streakKindGain(kind: string): number {
  * streaks at the same pre-bloom luminance, and therefore the same halo energy;
  * only the hue differs, which is what the lead asked for. Both arguments are the
  * LINEAR luminance of the streak colour BEFORE any gain (`linearLuminance`).
- * Capped at `HDR_GAINS.hostileBoltMax`; a non-positive luminance gives 1.
+ * Capped at `HDR_GAINS.hostileStreakMax`; a non-positive luminance gives 1.
  */
-export function hostileBoltGain(ownLuminance: number, hostileLuminance: number): number {
+export function hostileStreakGain(ownLuminance: number, hostileLuminance: number): number {
   if (!(ownLuminance > 0) || !(hostileLuminance > 0)) return 1;
-  return Math.min(HDR_GAINS.hostileBoltMax, Math.max(1, ownLuminance / hostileLuminance));
+  return Math.min(HDR_GAINS.hostileStreakMax, Math.max(1, ownLuminance / hostileLuminance));
 }

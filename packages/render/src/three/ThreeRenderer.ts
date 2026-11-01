@@ -10908,7 +10908,7 @@ export class ThreeRenderer implements Renderer {
       }
     }
     this.bolts = stepShells(this.bolts, dtSeconds);
-    // GH-941: a hostile `bolt` is the hostile TEAM colour (red, and the player's
+    // GH-941: a hostile direct round (bolt, rifle, mg) is the hostile TEAM colour (red, and the player's
     // colour-vision variant of it), not the pair's `vfx.ember`.
     this.boltBatch.update(this.bolts, this.opts.tracerColors, elevation, this.sim.width, this.sim.height, this.viewer, this.opts.teamColors[HOSTILE_COLOR_SLOT]);
     // GH-250: missiles on the same frame clock; a landing throws the HEAT

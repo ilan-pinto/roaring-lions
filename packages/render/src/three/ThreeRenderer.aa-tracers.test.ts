@@ -17,9 +17,14 @@ import { ThreeRenderer } from './ThreeRenderer';
 import { SHELL_PROFILES, shellKindForWeapon, type ShellModel } from './units/shells';
 import { hexToLinear } from './terrain/shared';
 import { BLOOM_THRESHOLD, linearLuminance } from './bloom';
-import { HDR_GAINS } from './units/hdr-gains';
+import { HDR_GAINS, streakKindGain } from './units/hdr-gains';
 import ifvNamer from '../../../../data/units/kdf/ifv_namer.json';
 import gunTruck from '../../../../data/units/enemy/gun_truck.json';
+import infSquad from '../../../../data/units/kdf/inf_squad.json';
+import sarimRifles from '../../../../data/units/enemy/sarim_rifles.json';
+import apcEitan from '../../../../data/units/kdf/apc_eitan.json';
+import technical from '../../../../data/units/enemy/technical.json';
+import mortarTeam from '../../../../data/units/kdf/mortar_team.json';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -102,6 +107,7 @@ function fireOf(json: unknown, side: 0 | 1, viewerSide: 0 | 1): { renderer: Thre
 
 interface Privates {
   bolts: ShellModel[];
+  shellBatch: { mesh: { geometry: { attributes: { aColor: { array: Float32Array } } } } };
   boltBatch: {
     mesh: { geometry: { attributes: { aColor: { array: Float32Array }; aAlpha: { array: Float32Array } } } };
   };
@@ -165,7 +171,7 @@ describe('GH-941: the enemy AA gun draws the KDF autocannon tracer, in red', () 
     // The same kind gain on both: the streak colour is the palette colour, linear, times 1.
     expect(allVertices(kdfDrawn.rgb, lin(TRACER))).toBe(true);
     // The enemy streak is the hostile hue at the SAME luminance as the lime one:
-    // bloom thresholds luminance, and the red alone sits under it (hostileBoltGain).
+    // bloom thresholds luminance, and the red alone sits under it (hostileStreakGain).
     const own = linearLuminance(...(lin(TRACER) as [number, number, number]));
     expect(allVerticesAt(aaDrawn.rgb, HOSTILE, own)).toBe(true);
   });
@@ -191,5 +197,46 @@ describe('GH-941: the enemy AA gun draws the KDF autocannon tracer, in red', () 
     expect(allVerticesAt(asSarimKdf.rgb, HOSTILE, linearLuminance(...(lin(TRACER) as [number, number, number])))).toBe(true);
     expect(allVertices(asSarimAa.rgb, lin(TRACER))).toBe(true);
     expect(asSarimKdf.alpha).toEqual(asSarimAa.alpha);
+  });
+});
+
+/**
+ * GH-941 follow-up (lead, 1 Nov): the rifle and mg streaks get the same
+ * treatment as the bolt. Each hostile kind is the hostile hue at the luminance of
+ * ITS OWN kind's own-side streak (the kind gain 0.45 / 0.6 included), not the
+ * bolt's. Arcing rounds keep ember.
+ */
+describe('GH-941: hostile rifle and mg streaks are red at their own-kind luminance', () => {
+  const own = linearLuminance(...(lin(TRACER) as [number, number, number]));
+  const cases = [
+    { kind: 'rifle', ownJson: infSquad, hostileJson: sarimRifles },
+    { kind: 'mg', ownJson: apcEitan, hostileJson: technical },
+  ] as const;
+  for (const c of cases) {
+    it(`${c.kind}: own side lime x its kind gain, the other army the hostile hue at that luminance`, () => {
+      const gain = streakKindGain(c.kind);
+      expect(gain).toBeLessThan(1);
+      const mine = drawn(fireOf(c.ownJson, 0, 0).renderer);
+      const theirs = drawn(fireOf(c.hostileJson, 1, 0).renderer);
+      expect(mine.kind).toBe(c.kind);
+      expect(theirs.kind).toBe(c.kind);
+      expect(allVertices(mine.rgb, lin(TRACER).map((v) => v * gain))).toBe(true);
+      expect(allVerticesAt(theirs.rgb, HOSTILE, own * gain)).toBe(true);
+      // not ember, and not the bolt's luminance
+      expect(allVerticesAt(theirs.rgb, EMBER, own * gain)).toBe(false);
+      expect(allVerticesAt(theirs.rgb, HOSTILE, own)).toBe(false);
+      // the same glow: with the 4x gain the hostile streak is over the bloom threshold exactly as the own one is
+      const lum = (buf: number[]): number => linearLuminance(buf[0], buf[1], buf[2]);
+      expect(lum(theirs.rgb)).toBeCloseTo(lum(mine.rgb), 4);
+      expect(lum(theirs.rgb) * HDR_GAINS.bolt).toBeGreaterThan(BLOOM_THRESHOLD);
+    });
+  }
+
+  it('an arcing round from the other army keeps vfx.ember (GH-149)', () => {
+    const r = fireOf(mortarTeam, 1, 0).renderer;
+    const p = priv(r);
+    p.updateFx(1000 / 60);
+    const rgb = [...p.shellBatch.mesh.geometry.attributes.aColor.array.slice(0, 12)];
+    expect(allVertices(rgb, lin(EMBER))).toBe(true);
   });
 });

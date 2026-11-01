@@ -358,7 +358,7 @@
  * puffs -- to one tier or the other by its declared `layer`.
  */
 import * as THREE from 'three';
-import { HDR_GAINS, hostileBoltGain, streakHeadGain, streakKindGain } from './hdr-gains';
+import { HDR_GAINS, hostileStreakGain, streakHeadGain, streakKindGain } from './hdr-gains';
 import { linearLuminance } from '../bloom';
 import type { ParticleSystem } from '../../vfx';
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, isoX, isoY } from '../../project';
@@ -800,29 +800,35 @@ export function tracerColorIndex(side: number, viewer: number): 0 | 1 {
   return isHostileSide(side, viewer) ? 1 : 0;
 }
 
+/** True for a kind the profile table says flies straight (bolt, rifle, mg). */
+function isDirectKind(kind: string): boolean {
+  const p = (SHELL_PROFILES as Record<string, { indirect: boolean } | undefined>)[kind];
+  return p !== undefined && !p.indirect;
+}
+
 /**
  * The palette colour (as hex) one round's streak is drawn in.
  *
- * GH-941: a `bolt` -- the autocannon shell and the tank round, so the Sarim AA
- * gun truck's `zu23_twin` and the KDF Namer's `cannon_30` alike -- draws in the
- * `[own, hostile]` pair's own half for the viewer's side and in
- * `hostileBoltColor` (the hostile TEAM colour, red) for the other army, instead
- * of the pair's hostile half. That half is `vfx.ember`, and ember x the bolt's
- * 4x HDR gain reads as a pale orange blob next to the own half's white-hot
- * lime, so the two sides' autocannon fire did not look like the same weapon.
- * Same profile, same width, same gain: only the hue differs. A kind other than
- * `bolt` (the rifle and mg streaks, the arcs) is untouched, and so is a call
- * with no `hostileBoltColor`.
+ * GH-941: a DIRECT round -- a `bolt` (the autocannon shell and the tank round: the
+ * Sarim AA gun truck's `zu23_twin` and the KDF Namer's `cannon_30` alike), a
+ * `rifle` or an `mg` streak -- draws in the `[own, hostile]` pair's own half for
+ * the viewer's side and in `hostileStreakColor` (the hostile TEAM colour, red)
+ * for the other army, instead of the pair's hostile half. That half is
+ * `vfx.ember`, which at these gains reads as a dim orange next to the own half's
+ * lime and, for the lead, did not look like the same weapon. Same profile, same
+ * width, same gain: only the hue differs. An ARCING round (`indirect`: mortar,
+ * rocket, grenade) is untouched and keeps the pair's ember, per GH-149, and so
+ * is a call with no `hostileStreakColor`.
  */
 export function shellStreakHex(
   kind: string,
   side: number,
   viewer: number,
   tracerColors: readonly [string, string],
-  hostileBoltColor?: string
+  hostileStreakColor?: string
 ): string {
   const idx = tracerColorIndex(side, viewer);
-  if (idx === 1 && kind === 'bolt' && hostileBoltColor !== undefined) return hostileBoltColor;
+  if (idx === 1 && hostileStreakColor !== undefined && isDirectKind(kind)) return hostileStreakColor;
   return tracerColors[idx];
 }
 
@@ -1065,7 +1071,7 @@ export function writeShellInstances(
   mapHeight: number,
   out: TracerInstanceBuffers,
   viewer: number,
-  hostileBoltColor?: string
+  hostileStreakColor?: string
 ): number {
   const quadCapacity = out.alphas.length / 4;
   const shellCapacity = Math.floor(quadCapacity / SHELL_TRAIL_SEGMENTS);
@@ -1081,13 +1087,13 @@ export function writeShellInstances(
     // GH-149: per KIND, not one constant -- a `bolt` is a thinner streak than
     // a mortar bomb. `SHELL_WIDTH_PX` remains the arcing kinds' own value.
     const widthPx = SHELL_PROFILES[s.kind].widthPx;
-    const hex = shellStreakHex(s.kind, s.side, viewer, tracerColors, hostileBoltColor);
+    const hex = shellStreakHex(s.kind, s.side, viewer, tracerColors, hostileStreakColor);
     let [r0, g0, b0] = cachedHexToLinear(hex);
     if (hex !== tracerColors[tracerColorIndex(s.side, viewer)]) {
-      // GH-941: a recoloured (red) bolt is lifted to the own tracer's luminance,
-      // or it sits under the bloom threshold and loses the glow. See `hostileBoltGain`.
+      // GH-941: a recoloured (red) streak is lifted to the own tracer's luminance,
+      // or it sits under the bloom threshold and loses the glow. See `hostileStreakGain`.
       const [or, og, ob] = cachedHexToLinear(tracerColors[0]);
-      const k = hostileBoltGain(linearLuminance(or, og, ob), linearLuminance(r0, g0, b0));
+      const k = hostileStreakGain(linearLuminance(or, og, ob), linearLuminance(r0, g0, b0));
       r0 *= k;
       g0 *= k;
       b0 *= k;
@@ -1753,7 +1759,7 @@ export class ShellBatch {
     mapWidth: number,
     mapHeight: number,
     viewer: number,
-    hostileBoltColor?: string
+    hostileStreakColor?: string
   ): void {
     const count = writeShellInstances(
       shells,
@@ -1767,7 +1773,7 @@ export class ShellBatch {
         alphas: this.alphaAttr.array as Float32Array,
       },
       viewer,
-      hostileBoltColor
+      hostileStreakColor
     );
     this.positionAttr.needsUpdate = true;
     this.colorAttr.needsUpdate = true;
