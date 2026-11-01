@@ -31,7 +31,9 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { NodeIO, type Animation, type Document, type Node } from '@gltf-transform/core';
+import { NodeIO, type Animation, type Document, type Node, type Primitive } from '@gltf-transform/core';
+import jpeg from 'jpeg-js';
+import { PNG } from 'pngjs';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { addBone, writeTrack } from './motion/edit';
 import { describeHold } from './motion/hold';
@@ -39,7 +41,7 @@ import { add, cross, dot, invert, len, norm, qaxis, qmul, qconj, qrot, scale, su
 import { clipRange, Rig, restVertices, tracksOf } from './motion/rig';
 import {
   addVertex, bindTo, columnsOf, dominant, loftEllipses, orthoFrame, qfromColumns, readParts, readPrim, removeFaces, vert, vertexCount,
-  writePrim, type PartMesh,
+  writePrim, type PartMesh, type PrimData,
 } from './hands-geometry';
 
 const REPO = fileURLToPath(new URL('../../..', import.meta.url));
@@ -199,6 +201,55 @@ export function livingBodyHidden(anim: Animation, prefix: string): boolean {
   if (!root) return false;
   const v = root.getSampler()!.getOutput()!.getArray() as Float32Array;
   return v.length > 0 && Array.from(v).every((x) => Math.abs(x) < 1e-6);
+}
+
+/** The old claw's colour: a saturated tan-orange (CIELAB L* > 35, C* > 35, hue 35 to 80 degrees). */
+export const CLAW_TONE = { minL: 35, minC: 35, hueMin: 35, hueMax: 80 } as const;
+
+function labOfRgb(r: number, g: number, b: number): V3 {
+  const lin = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const R = lin(r / 255), G = lin(g / 255), B = lin(b / 255);
+  const X = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047, Y = 0.2126 * R + 0.7152 * G + 0.0722 * B, Z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+  const f = (t: number): number => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
+}
+
+/**
+ * The faces of `U` that read as the old claw and are weighted to a figure's spine, upper arm or forearm (the bones that carried it):
+ * face index -> the figure's prefix. A face's colour is the mean of the atlas under its centroid and the three points half way from
+ * the centroid to a corner.
+ */
+export function clawToneFaces(doc: Document, prim: Primitive, U: PrimData, jointNames: readonly string[], figures: readonly string[]): Map<number, string> {
+  const tex = prim.getMaterial()?.getBaseColorTexture();
+  const img = tex?.getImage();
+  if (!tex || !img) throw new Error('hands: the uniform has no atlas to read the claw tone from');
+  const rgba = tex.getMimeType() === 'image/png' ? (() => { const p = PNG.sync.read(Buffer.from(img)); return { w: p.width, h: p.height, d: p.data }; })()
+    : (() => { const p = jpeg.decode(Buffer.from(img), { useTArray: true }); return { w: p.width, h: p.height, d: p.data }; })();
+  void doc;
+  const texel = (u: number, v: number): V3 => {
+    const x = Math.min(rgba.w - 1, Math.max(0, Math.floor(u * rgba.w))), y = Math.min(rgba.h - 1, Math.max(0, Math.floor(v * rgba.h)));
+    const o = (y * rgba.w + x) * 4;
+    return [rgba.d[o], rgba.d[o + 1], rgba.d[o + 2]];
+  };
+  const carried = (name: string, p: string): boolean => name === `${p}_spine` || name.startsWith(`${p}_upperarm_`) || name.startsWith(`${p}_forearm_`);
+  const out = new Map<number, string>();
+  for (let f = 0; f < U.idx.length / 3; f++) {
+    const tri = [U.idx[f * 3], U.idx[f * 3 + 1], U.idx[f * 3 + 2]];
+    // the bone that holds the most of the face's vertices
+    const votes = new Map<string, number>();
+    for (const v of tri) { const n = jointNames[dominant(U, v)]; votes.set(n, (votes.get(n) ?? 0) + 1); }
+    const bone = [...votes.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    const fig = figures.find((p) => carried(bone, p));
+    if (!fig) continue;
+    const cu = (U.uv[tri[0] * 2] + U.uv[tri[1] * 2] + U.uv[tri[2] * 2]) / 3, cv = (U.uv[tri[0] * 2 + 1] + U.uv[tri[1] * 2 + 1] + U.uv[tri[2] * 2 + 1]) / 3;
+    const pts: [number, number][] = [[cu, cv], ...tri.map((v): [number, number] => [(U.uv[v * 2] + cu) / 2, (U.uv[v * 2 + 1] + cv) / 2])];
+    const cs = pts.map(([u, v]) => texel(u, v));
+    const m: V3 = [0, 1, 2].map((k) => cs.reduce((s, c) => s + c[k], 0) / cs.length) as V3;
+    const [l, a, b] = labOfRgb(m[0], m[1], m[2]);
+    const c = Math.hypot(a, b), hue = (Math.atan2(b, a) * 180) / Math.PI;
+    if (l > CLAW_TONE.minL && c > CLAW_TONE.minC && hue > CLAW_TONE.hueMin && hue < CLAW_TONE.hueMax) out.set(f, fig);
+  }
+  return out;
 }
 
 export interface ArmPlan {
@@ -381,6 +432,14 @@ export function runHandsPass(doc: Document, id: string, spec: HandsTeam, lib: Ha
     L(p, `arm ${side}: forearm tube ${tube.tri.length} triangles, section ${(sec.a * 1000).toFixed(0)}x${(sec.b * 1000).toFixed(0)} mm at the seam, stretch ${stretch.toFixed(2)}x (limit ${MAX_STRETCH})`);
     boneWork.push({ plan, handRest: { t: plan.W, r: [0, 0, 0, 1], s: 1 } });
   }
+
+  // 3a'. what the forearm cut leaves of the old claw. Some of the claw's faces are weighted to the spine (Demolition: 7 a man,
+  // 88 cm2, 0.47 m off the spine's centre), so the cut by dominant bone missed them; with the claw gone they hang in the air
+  // beside the support hand (the Demolition review, must-fix 1). They are found by their colour, because that is how they read.
+  // This runs after the arms are rebuilt: the elbow ball (recoloured to the sleeve's) and the new tubes are not claw tone any more.
+  const clawFaces = clawToneFaces(doc, uPrim[0], U, joints0.map((j) => j.getName()), spec.figures);
+  if (clawFaces.size > 0) removeFaces(U, (f) => clawFaces.has(f));
+  for (const p of spec.figures) L(p, `claw: cut ${[...clawFaces.values()].filter((q) => q === p).length} loose claw-tone faces left on the spine/arm bones`);
 
   // write the arrays now, so the bones' IBMs and the vertices agree when the rig is rebuilt
   writePrim(uPrim[0], U);

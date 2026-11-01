@@ -37,9 +37,9 @@ export interface ForearmReading {
   readonly deltaE: number;
 }
 
-interface Atlas { readonly w: number; readonly h: number; readonly rgba: Uint8Array }
+export interface Atlas { readonly w: number; readonly h: number; readonly rgba: Uint8Array }
 
-function atlasOf(glb: GlbFile): Atlas {
+export function atlasOf(glb: GlbFile): Atlas {
   const j = glb.json as unknown as { images?: { bufferView?: number; mimeType?: string }[]; bufferViews?: { byteOffset?: number; byteLength: number }[] };
   const bvIdx = j.images?.[0]?.bufferView;
   if (bvIdx === undefined) throw new Error('forearm: the file carries no embedded atlas');
