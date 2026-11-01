@@ -21,41 +21,25 @@
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { measureGrip, readGlb, type GlbFile } from './mesh_gait';
-import { figureBuilds, handAssembly, handsExtras, infantryTeams, isTwin, readRoleMeshes } from './mesh_figures';
+import { readGlb, type GlbFile } from './mesh_gait';
+import { figureBuilds, infantryTeams, isTwin } from './mesh_figures';
+import { hasClosedHands, lowestContact } from './mesh_hand_gates';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 
 /** Palm-side surface within 8 mm of the object, by area (the audit's 20%; the Rifle Squad's own gate holds 25%). */
 const CONTACT_MIN = 0.2;
 const CLIPS = ['idle', 'move', 'fire', 'moveFire', 'kneel', 'kneelIn', 'kneelOut', 'pinned'] as const;
-const HZ = 30;
 
 /**
  * The manifest: who holds what, both hands, every clip in `CLIPS`. Literals. A figure with no entry holds nothing, and a
  * team with no entry at all must be in `HOLD_EXEMPT`.
  */
-export const HOLDS: Readonly<Record<string, { figures: readonly string[]; object: 'weapon' }>> = {
+const HOLDS: Readonly<Record<string, { figures: readonly string[]; object: 'weapon' }>> = {
   inf_squad: { figures: ['f0', 'f1', 'f2'], object: 'weapon' },
 };
 
-/** A team is a closed-hands team when every figure has both hands as modelled assemblies AND the pass declared the poses. */
-export function hasClosedHands(glb: GlbFile): boolean {
-  if (handsExtras(glb) === null) return false;
-  const meshes = readRoleMeshes(glb);
-  const builds = figureBuilds(glb);
-  return builds
-    .filter((b) => !isTwin(b, builds))
-    .every((b) => (['L', 'R'] as const).every((s) => handAssembly(glb, b, s, meshes).triangles > 0));
-}
-
-/** Lowest palm-side contact of either hand over `clip`, for one figure. */
-export function lowestContact(glb: GlbFile, clip: string, fig: string): { fire: number; support: number } {
-  const r = measureGrip('', clip, fig, { glb, hz: HZ });
-  return { fire: r.fire.contact ?? 0, support: r.support.contact ?? 0 };
-}
-
-export const HOLD_EXEMPT: Readonly<Record<string, string>> = Object.fromEntries(
+const HOLD_EXEMPT: Readonly<Record<string, string>> = Object.fromEntries(
   [
     ['at_nlos_team', 'open claws: nl_load holds nothing, nl_gun\'s launcher stands apart from him in the store'],
     ['at_team', 'open claws: at_fire\'s support hand hides behind the launcher, at_spot holds only binoculars'],

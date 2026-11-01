@@ -135,7 +135,7 @@ async function violations(id: string, opts: Parameters<typeof readHands>[2] = {}
  * Teams with a hand that does not show in 6 of 8 facings at the zoom ceiling. Worst readings from the bytes on 1 Nov 2026
  * (facings of 8, idle / fire; `_L` is the figure's anatomical right). The art backlog.
  */
-export const HAND_VISIBILITY_EXEMPT: Readonly<Record<string, string>> = {
+const HAND_VISIBILITY_EXEMPT: Readonly<Record<string, string>> = {
   at_nlos_team: 'nl_gun R 4; nl_load R 4: hands hang behind the body or the launcher',
   at_team: 'at_fire: 2 and 0 of 8 in idle (the launcher hides both hands); at_spot fine',
   atgm_cell: 'atgm_crew1 L 0 (the missing left hand); atgm_crew0 R 4',

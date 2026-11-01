@@ -297,32 +297,61 @@ export interface StrayPiece {
   readonly how: 'tone' | 'glove';
 }
 
+/** A claw tone is chromatic enough to tell from a uniform when its chroma C* (of L*a*b*) is at least this. Orange, pink and tan
+ *  claws are 27-42; the black, dark-olive and grey claws are 4-13, the same as the trousers and pouches beside them. */
+export const CLAW_TONE_MIN_CHROMA = 25;
+
+export interface StrayReport {
+  readonly pieces: StrayPiece[];
+  /** Builds whose claw is too close to the body's own colour for a tone test to mean anything (dark claws): G2 CANNOT SEE
+   *  a fragment on them. Honest absence of a reading, listed rather than passed. */
+  readonly blind: string[];
+}
+
 /**
  * Hand-coloured geometry bound to a bone that is not a hand (the audit's G2 (a)): the third orange "hand" at a Combat
  * Engineer's hip. Two tests, because there are two generations of hand:
  *
- *  - a Meshy claw is painted one of the `LEGACY_CLAW_TONES`; a connected patch of that tone, at least `STRAY_MIN_CM2`, on a
- *    non-hand bone of the SAME figure within `STRAY_NEAR_HAND_M` of its hand, is the claw's left-over;
+ *  - a Meshy claw is painted one flat tone. The build's OWN claw tone (the median Lab of its claw triangles) and the
+ *    `LEGACY_CLAW_TONES` literals are matched (deltaE 10) against the same figure's non-hand geometry within
+ *    `STRAY_NEAR_HAND_M` of its hand; a connected patch of at least `STRAY_MIN_CM2` is the claw's left-over. This only
+ *    means something when the tone is not the body's: below `CLAW_TONE_MIN_CHROMA` the build is `blind`, because a black
+ *    claw matches black trousers and pouches (a first try without that rule flagged a belt and a sleeve as claws);
  *  - a modelled hand is painted ONE texel (`rl_hands.glove`); any triangle on that texel off a hand bone is a hand piece
  *    bound to the wrong bone, and no gear is painted with it.
  *
  * Corpse rigs (`*death*` bones) are the other build and are not read; held and worn roles are not skin.
  */
-export function strayClawPieces(glb: GlbFile): StrayPiece[] {
+export function strayClawReport(glb: GlbFile): StrayReport {
   const meshes = readRoleMeshes(glb);
   const tex = readTexture(glb);
   if (!tex) throw new Error('strayClawPieces: the file carries no baked skin to read tones from');
   const glove = handsExtras(glb)?.glove ?? null;
   const all = meshes.flatMap((m) => trianglesOf(m));
   const out: StrayPiece[] = [];
-  for (const p of figureBuilds(glb)) {
+  const blind: string[] = [];
+  const builds = figureBuilds(glb);
+  for (const p of builds) {
     const mine = all.filter((t) => owns(p, t.bone) && !/death/.test(t.bone) && !HAND_OK_BONE.test(t.bone));
-    const hands = (['L', 'R'] as const).flatMap((s) => handTriangles(glb, p, s, meshes).tris).map(centroid);
+    const hs = (['L', 'R'] as const).map((s) => handTriangles(glb, p, s, meshes));
+    const handTris = hs.flatMap((h) => h.tris);
+    const hands = handTris.map(centroid);
     const near = (c: V3): boolean => hands.some((h) => Math.hypot(h[0] - c[0], h[1] - c[1], h[2] - c[2]) <= STRAY_NEAR_HAND_M);
+    const claw = hs.some((h) => h.kind === 'claw');
+    if (hands.length === 0 && !isTwin(p, builds)) blind.push(p);
+    const tones: V3[] = [...LEGACY_CLAW_TONES];
+    if (claw) {
+      const labs = handTris.filter((t) => hs.some((h) => h.kind === 'claw' && h.tris.includes(t))).map((t) => triLab(tex, t)).filter((l): l is V3 => l !== null);
+      if (labs.length > 0) {
+        const own = [0, 1, 2].map((k) => labs.map((l) => l[k]).sort((a, b) => a - b)[labs.length >> 1]) as V3;
+        if (Math.hypot(own[1], own[2]) >= CLAW_TONE_MIN_CHROMA) tones.push(own);
+        else if (!isTwin(p, builds)) blind.push(p);
+      }
+    }
     const tone = mine.filter((t) => {
       if (NOT_SKIN_ROLES.has(t.mesh.role) || hands.length === 0) return false;
       const l = triLab(tex, t);
-      return l !== null && LEGACY_CLAW_TONES.some((x) => deltaE(l, x) <= 10) && near(centroid(t));
+      return l !== null && tones.some((x) => deltaE(l, x) <= 10) && near(centroid(t));
     });
     const painted = glove === null ? [] : mine.filter((t) => {
       const uv = t.mesh.uv;
@@ -340,7 +369,11 @@ export function strayClawPieces(glb: GlbFile): StrayPiece[] {
       }
     }
   }
-  return out;
+  return { pieces: out, blind };
+}
+
+export function strayClawPieces(glb: GlbFile): StrayPiece[] {
+  return strayClawReport(glb).pieces;
 }
 
 // ---- constructed failing inputs -------------------------------------------------------------------------------------

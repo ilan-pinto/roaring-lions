@@ -19,31 +19,18 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
-import { readGlb, type GlbFile } from './mesh_gait';
-import { figureBuilds, infantryTeams, isTwin, owns, readRoleMeshes, rebindVertices, trianglesOf } from './mesh_figures';
+import { readGlb } from './mesh_gait';
+import { figureBuilds, infantryTeams, isTwin, rebindVertices } from './mesh_figures';
+import { unarmedBuilds } from './mesh_hand_gates';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 const MESHES = `${REPO}art/meshes/`;
-
-const ARMED_ROLES: ReadonlySet<string> = new Set(['weapon', 'charge']);
-
-/** The builds of a file that carry no weapon or charge part of their own. */
-export function unarmedBuilds(glb: GlbFile): string[] {
-  const meshes = readRoleMeshes(glb);
-  const builds = figureBuilds(glb);
-  const armed = new Set<string>();
-  for (const m of meshes) {
-    if (!ARMED_ROLES.has(m.role)) continue;
-    for (const t of trianglesOf(m)) for (const p of builds) if (owns(p, t.bone) && !/death/.test(t.bone)) armed.add(p);
-  }
-  return builds.filter((p) => !isTwin(p, builds) && !armed.has(p));
-}
 
 /**
  * The figures with nothing of their own to fire. Keyed by team, each value the builds that fail and why; the same demotion
  * rule as everywhere: when a build gains a weapon, its entry must go. `gear` marks a man who works the team's crew weapon.
  */
-export const UNARMED_EXEMPT: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+const UNARMED_EXEMPT: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   at_team: { at_spot: 'spotter: only a box of binoculars (role metal), held by nothing' },
   atgm_cell: { atgm_crew0: 'gunner at the Kornet tripod (the shared prop): gear, no personal weapon', atgm_crew1: 'loader: nothing in hand' },
   charge_squad: { chg0: 'demolition man whose vest carries no charge part' },

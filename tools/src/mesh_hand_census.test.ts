@@ -20,40 +20,18 @@
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { readGlb, type GlbFile } from './mesh_gait';
-import { figureBuilds, handAssembly, infantryTeams, isTwin, rebindVertices, readRoleMeshes } from './mesh_figures';
+import { readGlb } from './mesh_gait';
+import { figureBuilds, infantryTeams, rebindVertices } from './mesh_figures';
+import { censusViolations } from './mesh_hand_gates';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
-
-/** A living modelled hand: its pieces, and its triangle count's band (397 shipped; the spec's cap is 400). */
-const HAND_PIECES = 7;
-const HAND_TRIANGLES: readonly [number, number] = [350, 400];
-
-/** Why a build fails the census, as a list. Empty is a pass. */
-export function censusViolations(glb: GlbFile): string[] {
-  const meshes = readRoleMeshes(glb);
-  const builds = figureBuilds(glb);
-  const out: string[] = [];
-  for (const p of builds.filter((b) => !isTwin(b, builds))) {
-    let hands = 0;
-    for (const side of ['L', 'R'] as const) {
-      const h = handAssembly(glb, p, side, meshes);
-      if (h.triangles === 0) { out.push(`${p}_hand_${side}: no hand assembly on its bone`); continue; }
-      hands += 1;
-      if (h.pieces !== HAND_PIECES) out.push(`${p}_hand_${side}: ${h.pieces} pieces, the generator makes ${HAND_PIECES}`);
-      if (h.triangles < HAND_TRIANGLES[0] || h.triangles > HAND_TRIANGLES[1]) out.push(`${p}_hand_${side}: ${h.triangles} triangles outside ${HAND_TRIANGLES.join('-')}`);
-    }
-    if (hands !== 2) out.push(`${p}: ${hands} hands, not 2`);
-  }
-  return out;
-}
 
 /**
  * Teams with no modelled hands yet, and what each has instead. READ, not asserted of the audit: every one of these has no
  * `_hand_` bone in the bytes. The gloss is the audit's (`inf-audit/audit.md` section 2). Adding a name here is a design call;
  * removing one is the point.
  */
-export const HAND_CENSUS_EXEMPT: Readonly<Record<string, string>> = {
+const HAND_CENSUS_EXEMPT: Readonly<Record<string, string>> = {
   at_nlos_team: 'open Meshy claws cut onto the forearm; nl_load is unarmed, nl_gun\'s launcher stands apart in the store',
   at_team: 'open claws, half size (0.086 m); at_spot holds only a box of binoculars',
   atgm_cell: 'one claw per man on the audit\'s reading: the left hand is a 1.4 cm sliver',
