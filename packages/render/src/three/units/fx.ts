@@ -358,7 +358,8 @@
  * puffs -- to one tier or the other by its declared `layer`.
  */
 import * as THREE from 'three';
-import { HDR_GAINS, streakHeadGain, streakKindGain } from './hdr-gains';
+import { HDR_GAINS, hostileBoltGain, streakHeadGain, streakKindGain } from './hdr-gains';
+import { linearLuminance } from '../bloom';
 import type { ParticleSystem } from '../../vfx';
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToLinear } from '../terrain/shared';
@@ -800,6 +801,32 @@ export function tracerColorIndex(side: number, viewer: number): 0 | 1 {
 }
 
 /**
+ * The palette colour (as hex) one round's streak is drawn in.
+ *
+ * GH-941: a `bolt` -- the autocannon shell and the tank round, so the Sarim AA
+ * gun truck's `zu23_twin` and the KDF Namer's `cannon_30` alike -- draws in the
+ * `[own, hostile]` pair's own half for the viewer's side and in
+ * `hostileBoltColor` (the hostile TEAM colour, red) for the other army, instead
+ * of the pair's hostile half. That half is `vfx.ember`, and ember x the bolt's
+ * 4x HDR gain reads as a pale orange blob next to the own half's white-hot
+ * lime, so the two sides' autocannon fire did not look like the same weapon.
+ * Same profile, same width, same gain: only the hue differs. A kind other than
+ * `bolt` (the rifle and mg streaks, the arcs) is untouched, and so is a call
+ * with no `hostileBoltColor`.
+ */
+export function shellStreakHex(
+  kind: string,
+  side: number,
+  viewer: number,
+  tracerColors: readonly [string, string],
+  hostileBoltColor?: string
+): string {
+  const idx = tracerColorIndex(side, viewer);
+  if (idx === 1 && kind === 'bolt' && hostileBoltColor !== undefined) return hostileBoltColor;
+  return tracerColors[idx];
+}
+
+/**
  * Writes every live tracer's quad into a flat, batched buffer. Pure aside
  * from calling `tracerQuadPositions`/`tracerAlpha` (both pure themselves) --
  * no `THREE.*`. Returns the number of QUADS written (not vertices or
@@ -1037,7 +1064,8 @@ export function writeShellInstances(
   mapWidth: number,
   mapHeight: number,
   out: TracerInstanceBuffers,
-  viewer: number
+  viewer: number,
+  hostileBoltColor?: string
 ): number {
   const quadCapacity = out.alphas.length / 4;
   const shellCapacity = Math.floor(quadCapacity / SHELL_TRAIL_SEGMENTS);
@@ -1053,7 +1081,17 @@ export function writeShellInstances(
     // GH-149: per KIND, not one constant -- a `bolt` is a thinner streak than
     // a mortar bomb. `SHELL_WIDTH_PX` remains the arcing kinds' own value.
     const widthPx = SHELL_PROFILES[s.kind].widthPx;
-    const [r0, g0, b0] = cachedHexToLinear(tracerColors[tracerColorIndex(s.side, viewer)]);
+    const hex = shellStreakHex(s.kind, s.side, viewer, tracerColors, hostileBoltColor);
+    let [r0, g0, b0] = cachedHexToLinear(hex);
+    if (hex !== tracerColors[tracerColorIndex(s.side, viewer)]) {
+      // GH-941: a recoloured (red) bolt is lifted to the own tracer's luminance,
+      // or it sits under the bloom threshold and loses the glow. See `hostileBoltGain`.
+      const [or, og, ob] = cachedHexToLinear(tracerColors[0]);
+      const k = hostileBoltGain(linearLuminance(or, og, ob), linearLuminance(r0, g0, b0));
+      r0 *= k;
+      g0 *= k;
+      b0 *= k;
+    }
     // A rifle or mg streak glows less than a tank round (HDR_GAINS.streakKind).
     const kindGain = streakKindGain(s.kind);
     const r = r0 * kindGain, g = g0 * kindGain, b = b0 * kindGain;
@@ -1714,7 +1752,8 @@ export class ShellBatch {
     elevation: ElevationSource,
     mapWidth: number,
     mapHeight: number,
-    viewer: number
+    viewer: number,
+    hostileBoltColor?: string
   ): void {
     const count = writeShellInstances(
       shells,
@@ -1727,7 +1766,8 @@ export class ShellBatch {
         colors: this.colorAttr.array as Float32Array,
         alphas: this.alphaAttr.array as Float32Array,
       },
-      viewer
+      viewer,
+      hostileBoltColor
     );
     this.positionAttr.needsUpdate = true;
     this.colorAttr.needsUpdate = true;

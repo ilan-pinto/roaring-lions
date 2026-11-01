@@ -20,6 +20,7 @@ describe('HDR_GAINS', () => {
       beamGlow: 2.4,
       streakKind: { rifle: 0.45, mg: 0.6, grenade: 0.06 },
       grenadeGlint: 0.4,
+      hostileBoltMax: 12,
     });
   });
   it('is frozen', () => {

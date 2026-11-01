@@ -300,6 +300,13 @@ yours; each one records what the next phase inherits.
   different clock and would put the fireball where the bomb visibly is not.
   Note `screen_shake` in `vfx_emitter.schema.json` is still read by nothing —
   `emitters.ts` types it and no backend consumes it.
+- **A hostile `bolt` is the hostile TEAM colour, lifted to the own tracer's luminance (GH-941).** The
+  autocannon and tank round (`shellStreakHex`, `units/fx.ts`) draw `teamColors[HOSTILE_COLOR_SLOT]`
+  (red, and the player's colour-vision variant of it) for the other army, not the pair's `vfx.ember`. Bloom
+  thresholds LINEAR LUMINANCE, so a red at the bolt's 4x gain sits under 1.0 and drew with no glow while
+  the lime own tracer bloomed: `hostileBoltGain` (`units/hdr-gains.ts`) scales the hostile colour to the own
+  tracer's luminance, so the two blooms match and only the hue differs. The rifle and mg streaks and the
+  flat tracer keep ember (proposal in GH-941). Witness: `tools/src/perf/aa-tracer-capture.ts`.
 - **Overlays scale with zoom, and that is faithful.** HP bars look enormous
   zoomed in, as they did on the retired Pixi backend, which scaled its whole
   `world` container by `camera.zoom` (verified side by side before it went).

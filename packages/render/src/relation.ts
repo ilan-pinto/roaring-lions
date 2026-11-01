@@ -16,8 +16,11 @@ export function isOwnSide(side: number, viewer: number): boolean {
 export function isHostileSide(side: number, viewer: number): boolean {
   return side !== 2 && side !== viewer;
 }
+/** The slot of a `teamColors` triple that HOSTILE units draw in, whoever the
+ *  viewer is (GH-941: the hostile autocannon round takes this colour). */
+export const HOSTILE_COLOR_SLOT = 1;
 /** The colour slot a side draws in for this viewer: 0 friendly, 1 hostile, 2 civilian. */
 export function colorSlot(side: number, viewer: number): 0 | 1 | 2 {
   const r = relationOf(side, viewer);
-  return r === 'own' ? 0 : r === 'hostile' ? 1 : 2;
+  return r === 'own' ? 0 : r === 'hostile' ? HOSTILE_COLOR_SLOT : 2;
 }

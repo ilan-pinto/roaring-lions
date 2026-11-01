@@ -19,6 +19,7 @@ import { hexToLinear, screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/sh
 import { groundWorldY } from '../ground-height';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
 import { spawnTracer, type TracerModel } from './tracers';
+import { HDR_GAINS, hostileBoltGain } from './hdr-gains';
 import {
   spawnShell,
   shellPointAt,
@@ -53,6 +54,7 @@ import {
   liftedSegmentQuad,
   liftedSegmentQuadInto,
   writeShellInstances,
+  shellStreakHex,
   type ParticleInstanceBuffers,
   type TracerInstanceBuffers,
 } from './fx';
@@ -1149,5 +1151,37 @@ describe('liftedSegmentQuad is the one segment maths (GH-250 T5)', () => {
         );
       }
     }
+  });
+});
+
+describe('shellStreakHex (GH-941)', () => {
+  const pair: [string, string] = ['#B8FF5A', '#E8541E'];
+  it('a hostile bolt draws in the hostile team colour, the own half is untouched', () => {
+    expect(shellStreakHex('bolt', 1, 0, pair, '#D93A2B')).toBe('#D93A2B');
+    expect(shellStreakHex('bolt', 0, 0, pair, '#D93A2B')).toBe('#B8FF5A');
+    // the seat decides what is hostile, not the side number
+    expect(shellStreakHex('bolt', 0, 1, pair, '#D93A2B')).toBe('#D93A2B');
+  });
+  it('only the bolt kind is recoloured; rifle, mg and a call without the colour keep the pair', () => {
+    expect(shellStreakHex('rifle', 1, 0, pair, '#D93A2B')).toBe('#E8541E');
+    expect(shellStreakHex('mg', 1, 0, pair, '#D93A2B')).toBe('#E8541E');
+    expect(shellStreakHex('bolt', 1, 0, pair)).toBe('#E8541E');
+  });
+});
+
+describe('hostileBoltGain (GH-941)', () => {
+  it('lifts a dim red to the own tracer luminance, and the product is what blooms', () => {
+    const own = 0.82;
+    const red = 0.18;
+    const k = hostileBoltGain(own, red);
+    expect(k * red).toBeCloseTo(own, 6);
+    expect(red * HDR_GAINS.bolt).toBeLessThan(1);
+    expect(k * red * HDR_GAINS.bolt).toBeGreaterThan(1);
+  });
+  it('never dims, is capped, and survives a degenerate luminance', () => {
+    expect(hostileBoltGain(0.3, 0.9)).toBe(1);
+    expect(hostileBoltGain(0.82, 0.001)).toBe(HDR_GAINS.hostileBoltMax);
+    expect(hostileBoltGain(0.82, 0)).toBe(1);
+    expect(hostileBoltGain(0, 0.2)).toBe(1);
   });
 });
