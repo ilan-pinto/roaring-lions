@@ -28,14 +28,25 @@ export const VEHICLE_RANK_DEPTH = 3;
 export const INFANTRY_SPACING = 1;
 /** The first infantry rank sits this many rows behind the last vehicle rank. */
 export const VEHICLE_TO_INFANTRY_GAP = 1;
-/** Ranks are tried this far behind the click; beyond it the unit overflows. */
+/** Ranks are tried this far behind the click first. A group the grid cannot seat
+ *  inside it is not dropped at the click (GH-929): the search is run again with
+ *  the radius doubled, up to MAX_SEARCH_RADIUS, so the radius follows the need. */
 export const SEARCH_RADIUS = 8;
-/** The reachability walk's depth: a rank at SEARCH_RADIUS plus a full lateral
- *  offset — 11, so the walk can touch up to (2·11 + 1)² = 529 tiles per
- *  distinct (mask, origin), not the 289 spec §4.5 derived from SEARCH_RADIUS
- *  alone. A slot beyond this is unreachable by construction, so the depth has
- *  to cover the widest slot the grid can ask for, not the deepest rank. */
-const WALK_DEPTH = SEARCH_RADIUS + MAX_LATERAL;
+/** The most the radius grows to: one rank per unit, for the largest order the
+ *  protocol carries (`MAX_CMD_IDS` 256 in @lions/net, which this package may not
+ *  import) in a one-tile street. Powers of two from SEARCH_RADIUS, so at most
+ *  six attempts, and an attempt stops growing the moment the walk finds no new
+ *  ground, so the map bounds the work long before this does. */
+export const MAX_SEARCH_RADIUS = 256;
+/** The reachability walk's depth for a given radius: a rank at that radius plus a
+ *  full lateral offset — 11 at SEARCH_RADIUS, so the walk can touch up to
+ *  (2·11 + 1)² = 529 tiles per distinct (mask, origin), not the 289 spec §4.5
+ *  derived from SEARCH_RADIUS alone. A slot beyond this is unreachable by
+ *  construction, so the depth has to cover the widest slot the grid can ask for,
+ *  not the deepest rank. */
+function walkDepth(radius: number): number {
+  return radius + MAX_LATERAL;
+}
 
 export interface FormationUnit {
   id: number;
@@ -69,21 +80,21 @@ export interface Slot {
   y: number;
 }
 
-/** Tiles reachable from `origin` over open tiles within WALK_DEPTH steps, in
+/** Tiles reachable from `origin` over open tiles within `maxDepth` steps, in
  *  the order they were reached — the overflow order — plus a per-tile flag. */
 export interface Reach {
   order: number[];
   hit: Uint8Array;
 }
 
-/** `maxDepth` is the walk bound in steps: WALK_DEPTH for the grid, a formation's
+/** `maxDepth` is the walk bound in steps: `walkDepth(SEARCH_RADIUS)` for the grid, a formation's
  *  `extent` for a template (GH-859, formation-template.ts). */
 export function walk(
   mask: Uint8Array,
   w: number,
   h: number,
   origin: readonly [number, number],
-  maxDepth: number = WALK_DEPTH
+  maxDepth: number = walkDepth(SEARCH_RADIUS)
 ): Reach {
   const hit = new Uint8Array(w * h);
   const order: number[] = [];
@@ -121,11 +132,22 @@ function lateralOffsets(spacing: number): number[] {
   return out;
 }
 
+/** One attempt at the grid: every unit the ranks out to `radius` could seat is in
+ *  `out`, the rest in `left` (front first, then rear, each in id order). */
+interface GridAttempt {
+  out: Slot[];
+  left: FormationUnit[];
+  reach: Reach[];
+  taken: Uint8Array;
+  /** Tiles the walks found, summed over the distinct reaches: a larger radius
+   *  that finds the same count has nothing more to offer. */
+  reached: number;
+}
+
 export function assignFormation(input: FormationInput): Slot[] {
   const w = input.width;
-  const h = input.height;
-  // The frame: forward (fx, fy) is the axis-quantised approach; lateral
-  // (rx, ry) is forward turned a quarter turn, fixed so the fill order is.
+  // The frame: forward (fwdX, fwdY) is the axis-quantised approach; lateral
+  // (latX, latY) is forward turned a quarter turn, fixed so the fill order is.
   const dx = input.clickX - input.fromX;
   const dy = input.clickY - input.fromY;
   const adx = dx < 0 ? -dx : dx;
@@ -134,20 +156,64 @@ export function assignFormation(input: FormationInput): Slot[] {
   let fwdY = 0;
   if (adx >= ady) fwdX = dx < 0 ? -1 : 1;
   else fwdY = dy < 0 ? -1 : 1;
+
+  const sorted = [...input.units].sort((a, b) => a.id - b.id);
+
+  // Seat by need (GH-929). The radius starts at SEARCH_RADIUS and doubles while
+  // the grid still leaves a unit unseated, so a big order is never cut at a
+  // fixed depth (a fixed 12 would only move the cliff). It stops when
+  //  - everyone is seated, which is every order that fit before: the first
+  //    attempt is then byte-identical to the old single pass;
+  //  - the larger walk reached no more ground than the smaller one, so the
+  //    ground itself is full and only the overflow below can help; or
+  //  - MAX_SEARCH_RADIUS, which no order the protocol carries can outrun.
+  // Integer doubling over a fixed ladder: nothing here reads a clock or a stream.
+  let radius = SEARCH_RADIUS;
+  let attempt = seatGrid(input, sorted, radius, fwdX, fwdY);
+  while (attempt.left.length > 0 && radius < MAX_SEARCH_RADIUS) {
+    radius *= 2;
+    const next = seatGrid(input, sorted, radius, fwdX, fwdY);
+    const grew = next.reached > attempt.reached;
+    attempt = next;
+    if (!grew) break;
+  }
+
+  // Phase 2: overflow (overflowPlace, below): the nearest free reachable tile
+  // in walk order, spacing dropped, behind-first. Reached only by ground that
+  // is genuinely out of tiles for the units that remain.
+  const { out, taken } = attempt;
+  overflowPlace(
+    attempt.left,
+    { width: w, clickX: input.clickX, clickY: input.clickY, fwdX, fwdY, reach: attempt.reach, origins: input.origins, reserved: input.reserved, taken },
+    (u, x, y) => {
+      taken[y * w + x] = 1;
+      out.push({ id: u.id, x, y });
+    },
+    (u, x, y) => out.push({ id: u.id, x, y })
+  );
+  return out;
+}
+
+/** Phase 1: the grid out to `radius` ranks. `sorted` is the order's units by id. */
+function seatGrid(input: FormationInput, sorted: readonly FormationUnit[], radius: number, fwdX: number, fwdY: number): GridAttempt {
+  const w = input.width;
+  const h = input.height;
   const latX = -fwdY;
   const latY = fwdX;
 
   // One walk per DISTINCT (mask, origin) pair. On a map with no boulders the
   // foot and vehicle masks are the same array (`Sim.maskFor` collapses the
   // domain there) and the click snaps to the same tile for both, so the
-  // second walk was a byte-identical copy of the first — up to WALK_DEPTH's
+  // second walk was a byte-identical copy of the first — up to the walk's
   // full disc re-visited for nothing, on every map the game ships but one.
   // Compared by identity and origin, never by contents: the collapse is a
   // property of the caller handing the same array twice, and the ORIGIN has
   // to match too, since the same mask walked from two tiles gives a different
   // `order` (the overflow order) and a different `hit` disc. A shared `Reach`
   // is safe to alias: nothing below writes to one.
+  const depth = walkDepth(radius);
   const reach: Reach[] = [];
+  let reached = 0;
   for (let d = 0; d < input.masks.length; d++) {
     const mask = input.masks[d];
     const [ox, oy] = input.origins[d];
@@ -156,11 +222,14 @@ export function assignFormation(input: FormationInput): Slot[] {
       const [ex, ey] = input.origins[e];
       if (input.masks[e] === mask && ex === ox && ey === oy) same = e;
     }
-    reach.push(same < 0 ? walk(mask, w, h, input.origins[d]) : reach[same]);
+    if (same < 0) {
+      const r = walk(mask, w, h, input.origins[d], depth);
+      reached += r.order.length;
+      reach.push(r);
+    } else reach.push(reach[same]);
   }
   const taken = new Uint8Array(w * h);
   const out: Slot[] = [];
-  const sorted = [...input.units].sort((a, b) => a.id - b.id);
   const front = sorted.filter((u) => u.front);
   const rear = sorted.filter((u) => !u.front);
 
@@ -174,8 +243,8 @@ export function assignFormation(input: FormationInput): Slot[] {
     out.push({ id: u.id, x, y });
   };
 
-  // Phase 1: the grid. Rank r sits r tiles behind its anchor; a slot is the
-  // anchor plus the lateral offset along (latX, latY) minus r along forward.
+  // Rank r sits r tiles behind its anchor; a slot is the anchor plus the
+  // lateral offset along (latX, latY) minus r along forward.
   // A FRONT unit anchors at its own domain's origin — the click tile snapped
   // to ground a vehicle can hold, which is the click itself whenever the
   // click is vehicle-open — so a click inside a boulder field puts the
@@ -186,7 +255,7 @@ export function assignFormation(input: FormationInput): Slot[] {
   let lastFrontRankAtClick = -1;
   let fi = 0;
   const frontLateral = lateralOffsets(VEHICLE_SPACING);
-  for (let r = 0; r <= SEARCH_RADIUS && fi < front.length; r += VEHICLE_RANK_DEPTH) {
+  for (let r = 0; r <= radius && fi < front.length; r += VEHICLE_RANK_DEPTH) {
     for (let k = 0; k < frontLateral.length && fi < front.length; k++) {
       const u = front[fi];
       const [ax, ay] = input.origins[u.domain];
@@ -202,7 +271,7 @@ export function assignFormation(input: FormationInput): Slot[] {
   const rearStart = lastFrontRankAtClick < 0 ? 0 : lastFrontRankAtClick + VEHICLE_TO_INFANTRY_GAP;
   let ri = 0;
   const rearLateral = lateralOffsets(INFANTRY_SPACING);
-  for (let r = rearStart; r <= SEARCH_RADIUS && ri < rear.length; r += INFANTRY_SPACING) {
+  for (let r = rearStart; r <= radius && ri < rear.length; r += INFANTRY_SPACING) {
     for (let k = 0; k < rearLateral.length && ri < rear.length; k++) {
       const l = rearLateral[k];
       const x = input.clickX + l * latX - r * fwdX;
@@ -212,16 +281,7 @@ export function assignFormation(input: FormationInput): Slot[] {
       ri++;
     }
   }
-
-  // Phase 2: overflow (overflowPlace, below): the nearest free reachable tile
-  // in walk order, spacing dropped, behind-first.
-  overflowPlace(
-    front.slice(fi).concat(rear.slice(ri)),
-    { width: w, clickX: input.clickX, clickY: input.clickY, fwdX, fwdY, reach, origins: input.origins, reserved: input.reserved, taken },
-    place,
-    (u, x, y) => out.push({ id: u.id, x, y })
-  );
-  return out;
+  return { out, left: front.slice(fi).concat(rear.slice(ri)), reach, taken, reached };
 }
 
 /** What the behind-first overflow pass reads. */

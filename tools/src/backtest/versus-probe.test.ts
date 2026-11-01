@@ -321,10 +321,15 @@ describe('the seat table (N3 Task 7: a room\'s, by default)', () => {
     // tables differ (seeds 0-16 play the same game under both), and it differs more: the room's table is
     // still won by side 1 by annihilation, at 4440 ticks (was 5420), and the single-player one is now won by
     // side 0 at 3480 (was side 1 at 5280). The seed stays.
-    const seed = seedOf(17);
-    expect(seed).toBe(135623);
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 4440 });
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 0, by: 'annihilation', ticks: 3480 });
+    // Re-read for GH-929 (a big group order seats every unit, 1 Nov 2026): Sarim's 26-unit force no longer
+    // leaves its last four infantry at the click, so every wadi_tarfan game changed. seedOf(17) now plays the
+    // SAME game under both tables (side 0, 2000 ticks), and of seeds 0-39 the first that differs is
+    // seedOf(1) = 8919: side 0 by annihilation at 2520 under the room's table, at 2060 under the
+    // single-player one. Was seedOf(17) = 135623 (side 1 at 4440 / side 0 at 3480).
+    const seed = seedOf(1);
+    expect(seed).toBe(8919);
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 0, by: 'annihilation', ticks: 2520 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 0, by: 'annihilation', ticks: 2060 });
   }, FULL_GAMES_TIMEOUT_MS);
 });
 
