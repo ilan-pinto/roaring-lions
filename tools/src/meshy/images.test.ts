@@ -7,6 +7,13 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// `confirmSpend` (cli.ts) asks on stdin through readline; the tests answer for it.
+const answer = vi.hoisted(() => ({ value: 'n' }));
+vi.mock('node:readline/promises', () => ({
+  default: { createInterface: () => ({ question: async () => answer.value, close: () => {} }) },
+}));
+
 import type { I2iTaskClient, T2iTaskClient } from './client';
 import type { MeshyConfig } from './config';
 import { runI2i, runT2i } from './cli';
@@ -296,5 +303,39 @@ describe('runT2i / runI2i against a fake client', () => {
     const entries = readLedger(paths.ledgerPath);
     expect(entries).toHaveLength(1);
     expect(entries[0].credits_consumed).toBeUndefined();
+  });
+
+  it('a plan that arrives from the CONFIG (MESHY_PLAN) is checked like --plan: free is refused before the POST', async () => {
+    const submit = vi.fn(async () => ({ result: 'never' }));
+    const client: T2iTaskClient = { submitT2iTask: submit, getT2iTask: vi.fn(async (id: string) => okTask(id)) };
+    const code = await runT2i(client, { ...CONFIG, plan: 'free' }, parseT2iArgs(['a squad', '--yes'], NO_TTY), paths);
+    expect(code).toBe(1);
+    expect(submit).not.toHaveBeenCalled();
+    expect(readLedger(paths.ledgerPath)).toHaveLength(0);
+    expect(vi.mocked(console.error).mock.calls.flat().join('\n')).toMatch(/free plan/);
+  });
+
+  it('a malformed config plan is refused too, in both commands', async () => {
+    const submitT = vi.fn(async () => ({ result: 'never' }));
+    const submitI = vi.fn(async () => ({ result: 'never' }));
+    const t: T2iTaskClient = { submitT2iTask: submitT, getT2iTask: vi.fn(async (id: string) => okTask(id)) };
+    const i: I2iTaskClient = { submitI2iTask: submitI, getI2iTask: vi.fn(async (id: string) => okTask(id)) };
+    const bad = { ...CONFIG, plan: 'pro plan' };
+    expect(await runT2i(t, bad, parseT2iArgs(['a squad', '--yes'], NO_TTY), paths)).toBe(1);
+    expect(await runI2i(i, { ...CONFIG, plan: 'free' }, parseI2iArgs(['--prompt', 'p', '--from-task', 'abc', '--yes'], NO_TTY), paths)).toBe(1);
+    expect(submitT).not.toHaveBeenCalled();
+    expect(submitI).not.toHaveBeenCalled();
+  });
+
+  it('a terminal user who answers N is not charged: no POST, no ledger line (confirmSpend)', async () => {
+    const submit = vi.fn(async () => ({ result: 'never' }));
+    const client: T2iTaskClient = { submitT2iTask: submit, getT2iTask: vi.fn(async (id: string) => okTask(id)) };
+    answer.value = 'n';
+    expect(await runT2i(client, CONFIG, parseT2iArgs(['a squad'], TTY), paths)).toBe(1);
+    expect(submit).not.toHaveBeenCalled();
+    expect(readLedger(paths.ledgerPath)).toHaveLength(0);
+    answer.value = 'y';
+    expect(await runT2i(client, CONFIG, parseT2iArgs(['a squad'], TTY), paths)).toBe(0);
+    expect(submit).toHaveBeenCalledTimes(1);
   });
 });

@@ -66,10 +66,11 @@ import {
   buildI2iRequest,
   buildImageProvenanceLine,
   buildT2iRequest,
-    effectiveImageModel,
+  effectiveImageModel,
   loggableI2i,
   parseEstimateImageGenArgs,
   parseI2iArgs,
+  parsePlan,
   parseT2iArgs,
   resolveReference,
   sha256,
@@ -837,7 +838,25 @@ async function runImageGen(run: ImageGenRun, hasClient: boolean, config: MeshyCo
   return 0;
 }
 
+/**
+ * The plan a spend is recorded under: `--plan`, else `MESHY_PLAN` from the config. BOTH go through `parsePlan`, so a
+ * `free` or malformed plan is refused whichever way it arrived (G-C5; free-plan output is Meshy-owned). Returns the
+ * plan (undefined when none is named: a real spend then refuses in `runImageGen`) or an error message.
+ */
+function resolvePlan(optsPlan: string | undefined, config: MeshyConfig): { plan: string | undefined } | { error: string } {
+  try {
+    return { plan: parsePlan(optsPlan ?? config.plan) };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function runT2i(client: T2iTaskClient | undefined, config: MeshyConfig, opts: T2iOptions, paths: MeshyPaths = DEFAULT_PATHS): Promise<number> {
+  const resolved = resolvePlan(opts.plan, config);
+  if ('error' in resolved) {
+    console.error(resolved.error);
+    return 1;
+  }
   const eff = effectiveImageModel(opts.model, opts.pose);
   const body = buildT2iRequest(opts);
   return runImageGen(
@@ -847,7 +866,7 @@ export async function runT2i(client: T2iTaskClient | undefined, config: MeshyCon
       model: opts.model,
       effectiveModel: eff,
       credits: estimateCredits('text-to-image', { imageModel: eff }),
-      plan: opts.plan ?? config.plan,
+      plan: resolved.plan,
       yes: opts.yes,
       name: opts.name,
       prompt: body.prompt,
@@ -864,6 +883,11 @@ export async function runT2i(client: T2iTaskClient | undefined, config: MeshyCon
 }
 
 export async function runI2i(client: I2iTaskClient | undefined, config: MeshyConfig, opts: I2iOptions, paths: MeshyPaths = DEFAULT_PATHS): Promise<number> {
+  const resolved = resolvePlan(opts.plan, config);
+  if ('error' in resolved) {
+    console.error(resolved.error);
+    return 1;
+  }
   const refs = opts.references.map(resolveReference);
   const body = buildI2iRequest(opts, refs);
   const eff = effectiveImageModel(opts.model, 'none');
@@ -874,7 +898,7 @@ export async function runI2i(client: I2iTaskClient | undefined, config: MeshyCon
       model: opts.model,
       effectiveModel: eff,
       credits: estimateCredits('image-to-image', { imageModel: eff }),
-      plan: opts.plan ?? config.plan,
+      plan: resolved.plan,
       yes: opts.yes,
       name: opts.name,
       prompt: body.prompt,
