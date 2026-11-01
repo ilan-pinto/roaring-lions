@@ -168,6 +168,34 @@ export interface Census {
   approach: [Set<number>, Set<number>];
 }
 
+/**
+ * GH-913 look pass: the two ABSOLUTE relief checks that replaced the relative ratchet (`reliefGap`
+ * <= 0.125). The relative gap divides by the lit share, and the lit share is padded by every
+ * scallop a 2x2-cell bank leaves in the contour: facets that read lit for one seat and shadowed on
+ * its twin, in large and nearly balanced numbers. Smoothing the banks removes about 170 of them,
+ * the fixed skew stays at 19 tiles, and the ratio rose from 12.2% to 27% with the map no less
+ * fair. Counts of tiles do not move with the denominator. Report-only (the lead, 1 Nov 2026): a
+ * per-map no-worse ratchet, not a pass/fail bar. See _coord/rujm-sawda-look/plan.md section 4.
+ */
+export const LIT_DIFFERENCE_MAX = 0.07;
+export const TWIN_MISMATCH_MAX = 150;
+
+/** |lit(seat 0) - lit(seat 1)| as a share of the slope tiles (the larger seat's, so 0 counts as 0). */
+export function litDifferenceShare(c: Census): number {
+  const n = Math.max(c.seats[0].slopeTiles, c.seats[1].slopeTiles);
+  return n === 0 ? 0 : Math.abs(c.seats[0].lit - c.seats[1].lit) / n;
+}
+
+/**
+ * Seat 0's slope tiles whose half-turn twin (the map's own W*H-1-t) is not the same reading for
+ * seat 1, a missing twin included. Zero on a map whose two halves look identical from their seats.
+ */
+export function twinMismatches(c: Census, width: number, height: number): number {
+  let n = 0;
+  for (const [t, light] of c.slope[0]) if (c.slope[1].get(width * height - 1 - t) !== light) n++;
+  return n;
+}
+
 /** |a - b| / max(a, b, SHARE_FLOOR). */
 export function gap(a: number, b: number): number {
   return Math.abs(a - b) / Math.max(a, b, SHARE_FLOOR);
@@ -351,7 +379,7 @@ export function loadMap(id: string): { json: MapJson; map: ParsedMap } {
 }
 
 /** Print one census as the CLI and the PR body show it. */
-export function report(id: string, c: Census): string {
+export function report(id: string, c: Census, size?: readonly [number, number]): string {
   const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
   const row = (label: string, a: string, b: string) => `  ${label.padEnd(26)}${a.padStart(14)}${b.padStart(14)}`;
   const both = (label: string, f: (r: SeatReading) => string) => row(label, f(c.seats[0]), f(c.seats[1]));
@@ -366,6 +394,8 @@ export function report(id: string, c: Census): string {
     both('  neutral', (r) => String(r.neutral)),
     both('  shadowed', (r) => `${r.shadowed} (${pct(r.shadowedShare)})`),
     `  occlusion gap ${pct(c.hiddenGap)}   relief gap ${pct(c.reliefGap)}   (bar ${pct(SEAT_TOLERANCE)})`,
+    `  lit difference ${pct(litDifferenceShare(c))} of slope tiles   (max ${pct(LIT_DIFFERENCE_MAX)})`,
+    ...(size ? [`  tiles reading differently from their twin ${twinMismatches(c, size[0], size[1])}   (max ${TWIN_MISMATCH_MAX})`] : []),
   ].join('\n');
 }
 
@@ -374,6 +404,6 @@ if (process.argv[1] && process.argv[1].endsWith('presentation_census.ts')) {
   const ids = process.argv.slice(2).filter((a) => !a.startsWith('-'));
   for (const id of ids.length > 0 ? ids : ['rujm_sawda', 'wadi_tarfan']) {
     const { json, map } = loadMap(id);
-    console.log(report(id, await census(map, json.rows)) + '\n');
+    console.log(report(id, await census(map, json.rows), [map.width, map.height]) + '\n');
   }
 }

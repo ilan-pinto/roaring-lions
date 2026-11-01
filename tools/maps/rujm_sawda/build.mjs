@@ -10,6 +10,20 @@
 // and nothing else: tools/src/rujm_sawda.test.ts holds it to sketch.py's own output (kept in
 // tools/maps/rujm_sawda/sketch.out), so a drifting port is red rather than a different map.
 //
+// The LOOK STAGE (GH-913, _coord/rujm-sawda-look/plan.md) then redraws the wadi, the roads and
+// the shelf lips PER TILE, on top of the cell upscale. It does not move what they are (the same
+// S-curve, three fords, two mesa crossings and shelves); it changes how they are drawn:
+//   - the wadi channel is `b`, a cobble and boulder line, not `d` (a dug ditch draws timber trench
+//     frames). `b` is mechanically `d` to the byte (blocked 0, boulder 1, cover 0), so nothing in
+//     the sim moves with the symbol. There is no `d` on this map any more.
+//   - the shelf lips and the wadi banks step ONE TILE per elevation level, where the cell sketch
+//     steps 2x2 along a 45-degree line; the renderer's Catmull-Rom turned that staircase into a
+//     scalloped contour (0.94 tile of wander against 0.15) and the relief read drew every scallop.
+//   - every road is a one-tile chain (corner-touching), which road-graph.ts draws as one line.
+//   - landmarks (two sheepfolds, a cistern, the black cairn), scrub patches, knoll outcrops and
+//     lone acacia, all drawn on the top half and mirrored with the rest, so fairness is by
+//     construction. Every symbol is one the map already used or the map legend already ships.
+//
 // The map is point-symmetric about (39.5, 39.5): every tile, elevation digit, marker, zone,
 // building and tunnel route is the half-turn image (x, y) -> (79 - x, 79 - y) of one on the
 // other half. The generator DRAWS the top half (rows 0..39) and writes the bottom half as its
@@ -32,6 +46,7 @@ const N = 40; // the sketch's side, in cells
 // --- stage 1: the sketch, cell for cell --------------------------------------------------------
 // Legend: S seat, C camp, . open, 1 scrub, n knoll, o acacia, r track, d wadi channel (a ditch:
 // foot only), b scree (foot only), ^ rock, = low wall, h farmhouse, s shanty, p pump house.
+// (`d`, `r` and the sketch's acacia are redrawn by the look stage below; the sketch keeps them.)
 
 /**
  * sketch.py, line for line. `walledFarms: false` leaves the two farms to the tile stage (their
@@ -181,6 +196,178 @@ function farmAt(t, x0, y0, house, gates) {
   for (let y = house[1]; y < house[1] + 2; y++) for (let x = house[0]; x < house[0] + 2; x++) t[y][x] = 'h';
 }
 
+// --- stage 2b: the look stage, per tile ---------------------------------------------------------
+// plan.md section 2; proto/look.py is the reference. It works on rows 0..39 and the half-turn
+// writes the rest. Two measures: s = x + y - 79 runs across the wadi, v = x - y along it.
+
+const WADI_AMP = 3.2; // tiles; the sketch's S-curve (1.6 cells)
+const WADI_PERIOD = 104; // tiles along v
+const FORD_V = [0, 27, -27]; // the centre ford and the inner pair, as v = x - y
+const WADI_VMAX = 54; // the bed is drawn only where |v| <= this
+/** The low-flow line. `b` (a cobble and boulder line) is the lead's ruling D2; set 'd' to get the
+ *  timber frames back on the new geometry. They are the same mechanic. */
+const CHANNEL = 'b';
+const CHANNEL_HALF = 1.0; // at <= 1.0 every channel tile has an orthogonal channel neighbour
+
+/** Across-wadi offset from the centreline, the floor's half-width there, and the along measure. */
+function wadiAt(x, y) {
+  const s = x + y - 79;
+  const v = x - y;
+  const c = WADI_AMP * Math.sin((2 * Math.PI * v) / WADI_PERIOD);
+  const av = Math.abs(v);
+  const w = av <= 34 ? 5.5 : Math.max(2.0, 5.5 - ((av - 34) * 3.5) / 16);
+  return { d: s - c, w, v };
+}
+const inFord = (v, r = 2) => FORD_V.some((f) => Math.abs(v - f) <= r);
+
+/** Every marker and zone the look stage keeps clear, with their twins, as the build will write them. */
+function lookKeepClear() {
+  const markers = { centre: [39, 39] };
+  for (const [a, p, b] of MARKER_PAIRS) {
+    markers[a] = p;
+    markers[b] = mirror(p);
+  }
+  const zones = {};
+  for (const [a, r, b] of ZONE_PAIRS) {
+    zones[a] = r;
+    if (b !== null) zones[b] = mirrorRect(r);
+  }
+  const tunnelPoints = ROUTES_FRIENDLY.flatMap((r) => r.points.flatMap((p) => [p, mirror(p)]));
+  return { markers, zones, tunnelPoints };
+}
+
+const LOOK_KEEP_ZONES = [
+  'well_n_0', 'well_w_0', 'well_s_1', 'well_e_1', 'mesa_ne', 'mesa_sw', 'tell_ne', 'tell_sw', 'home_0', 'home_1',
+];
+
+function lookStage(t, el) {
+  const T = SIZE;
+  const TOP = 40;
+  const { markers, zones, tunnelPoints } = lookKeepClear();
+  // 1. clear the old wadi, the old roads and the four sketch acacia; the bed floor is level 1 for now
+  for (let y = 0; y < TOP; y++) {
+    for (let x = 0; x < T; x++) {
+      if ('dro'.includes(t[y][x])) t[y][x] = '.';
+      if (el[y][x] === 0) el[y][x] = 1;
+    }
+  }
+  // 2. the shelves, one tile a step: 3 to x+y 41, 2 to 49, then 1; never under rock or a knoll
+  for (let y = 0; y < TOP; y++) {
+    for (let x = 0; x < T; x++) {
+      if (x + y > 52 || '^n'.includes(t[y][x])) continue;
+      el[y][x] = x + y <= 41 ? 3 : x + y <= 49 ? 2 : 1;
+    }
+  }
+  // 3. the wadi: the floor at level 0, the low-flow line, and a five-tile gap at each ford
+  for (let y = 0; y < TOP; y++) {
+    for (let x = 0; x < T; x++) {
+      const { d, w, v } = wadiAt(x, y);
+      if (!'.1'.includes(t[y][x]) || el[y][x] > 1 || Math.abs(v) > WADI_VMAX) continue;
+      if (Math.abs(d) <= w) el[y][x] = 0;
+      if (Math.abs(d) <= CHANNEL_HALF && !inFord(v)) t[y][x] = CHANNEL;
+    }
+  }
+  // 4. roads, all one tile wide: the main diagonal, a spur to each well, a track over each inner ford
+  const road = [];
+  for (let k = 10; k < 40; k++) road.push([k, k]);
+  for (let k = 1; k < 6; k++) road.push([12 + k, 12 - k]);
+  for (let x = 18; x < 34; x++) road.push([x, 7]);
+  for (let k = 1; k < 6; k++) road.push([12 - k, 12 + k]);
+  for (let y = 18; y < 28; y++) road.push([7, y]);
+  const [fx, fy] = markers.ford_ne;
+  for (let k = -3; k < 7; k++) road.push([fx + k, fy + k]);
+  for (const [x, y] of road) {
+    if (!'.1'.includes(t[y][x])) throw new Error(`look stage: road tile ${x},${y} lands on ${t[y][x]}`);
+    t[y][x] = 'r';
+  }
+  // keep-clear for everything drawn below
+  const [sx, sy] = markers.versus_0;
+  const form = formationRect([sx, sy]);
+  const inRect = ([rx, ry, rw, rh], x, y) => x >= rx - 1 && x < rx + rw + 1 && y >= ry - 1 && y < ry + rh + 1;
+  const clear = (x, y) => {
+    if (x >= form.x0 - 1 && x <= form.x1 + 1 && y >= form.y0 - 1 && y <= form.y1 + 1) return false;
+    for (const [rx, ry] of road) if (Math.max(Math.abs(rx - x), Math.abs(ry - y)) <= 1) return false;
+    for (const [mx, my] of Object.values(markers)) if (Math.max(Math.abs(mx - x), Math.abs(my - y)) <= 1) return false;
+    for (const [tx, ty] of tunnelPoints) if (Math.max(Math.abs(tx - x), Math.abs(ty - y)) <= 2) return false;
+    for (const f of ['ford_ne', 'ford_sw', 'centre']) {
+      const [mx, my] = markers[f];
+      if (Math.max(Math.abs(mx - x), Math.abs(my - y)) <= 4) return false;
+    }
+    for (const z of LOOK_KEEP_ZONES) if (inRect(zones[z], x, y)) return false;
+    return true;
+  };
+  const put = (x, y, c, e, need = '.') => {
+    if (!need.includes(t[y][x]) || !clear(x, y)) return false;
+    t[y][x] = c;
+    if (e !== undefined) el[y][x] = e;
+    return true;
+  };
+  // 5. the wadi dressed: acacia along the bank lip, scrub on the floor
+  for (let y = 0; y < TOP; y++) {
+    for (let x = 0; x < T; x++) {
+      const { d, w, v } = wadiAt(x, y);
+      if (Math.abs(v) > 46 || inFord(v, 4)) continue;
+      const ad = Math.abs(d);
+      if (ad > w - 0.5 && ad <= w + 1.0 && hash(x, y, 3) % 3 === 0) put(x, y, 'o');
+      else if (ad > 1.25 && ad <= w - 0.5 && hash(x, y, 4) % 9 === 0) put(x, y, '1');
+    }
+  }
+  // 6. landmarks, all low, each with a twin: two sheepfolds, a cistern, the black cairn
+  const fold = (x0, y0, w, h, gaps) => {
+    const ring = [];
+    for (let y = y0; y < y0 + h; y++) {
+      for (let x = x0; x < x0 + w; x++) if (x === x0 || x === x0 + w - 1 || y === y0 || y === y0 + h - 1) ring.push([x, y]);
+    }
+    if (!ring.every(([x, y]) => '.12'.includes(t[y][x]) && clear(x, y))) throw new Error(`look stage: sheepfold ${x0},${y0} blocked`);
+    for (const [x, y] of ring) if (!gaps.some(([gx, gy]) => gx === x && gy === y)) t[y][x] = '=';
+  };
+  fold(22, 32, 5, 4, [[24, 32], [24, 35]]);
+  fold(64, 29, 5, 4, [[66, 29], [66, 32]]);
+  for (const [x0, y0] of [[16, 37]]) {
+    const tiles = [[x0, y0], [x0 + 1, y0], [x0, y0 + 1], [x0 + 1, y0 + 1]];
+    if (!tiles.every(([x, y]) => '.12'.includes(t[y][x]) && clear(x, y))) throw new Error(`look stage: cistern ${x0},${y0} blocked`);
+    for (const [x, y] of tiles) t[y][x] = 'p';
+  }
+  {
+    // the black cairn: a 2x2 rock crown on a shoulder of knoll and scrub one tile wide. 2x2 and
+    // not 2x1 so the shape is symmetric about the seat axis and does not skew the relief census.
+    const cairn = [[57, 16], [58, 16], [57, 17], [58, 17]];
+    if (!cairn.every(([x, y]) => '.12'.includes(t[y][x]) && clear(x, y))) throw new Error('look stage: the cairn is blocked');
+    const lv = Math.max(...cairn.map(([x, y]) => el[y][x])) + 1;
+    for (const [x, y] of cairn) {
+      t[y][x] = '^';
+      el[y][x] = lv;
+    }
+    const isCairn = (x, y) => cairn.some(([cx, cy]) => cx === x && cy === y);
+    for (const [cx, cy] of cairn) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const qx = cx + dx;
+          const qy = cy + dy;
+          if (!'.12'.includes(t[qy][qx]) || isCairn(qx, qy)) continue;
+          t[qy][qx] = hash(qx, qy, 9) % 2 ? 'n' : '1';
+          el[qy][qx] = lv;
+        }
+      }
+    }
+  }
+  // 7. the plain: scrub patches (the centre tile is cover 2), knoll outcrops, lone acacia
+  const PATCHES = [
+    [20, 35], [28, 31], [36, 21], [44, 13], [52, 12], [24, 26], [58, 30],
+    [66, 25], [56, 37], [64, 35], [73, 31], [75, 22], [47, 4], [30, 15],
+  ];
+  for (const [cx, cy] of PATCHES) {
+    for (let y = cy - 3; y <= cy + 3; y++) {
+      for (let x = cx - 3; x <= cx + 3; x++) {
+        if (y >= 0 && y < TOP && Math.hypot(x - cx, y - cy) <= 2.6 && hash(x, y, 5) % 2 === 0) put(x, y, x === cx && y === cy ? '2' : '1');
+      }
+    }
+  }
+  const KNOLLS = [[[41, 30], [42, 30], [41, 31]], [[60, 21], [61, 21], [60, 22]]]; // L shapes, symmetric under transpose
+  for (const k of KNOLLS) for (const [x, y] of k) put(x, y, 'n', 2, '.12');
+  for (const [x, y] of [[33, 27], [17, 30], [50, 18], [70, 28], [62, 38]]) put(x, y, 'o', undefined, '.12');
+}
+
 export function tileMap() {
   const { g, e } = cellSketch({ walledFarms: false, thickRoad: true });
   const T = SIZE;
@@ -213,6 +400,7 @@ export function tileMap() {
       t[y][x] = '1';
     }
   }
+  lookStage(t, el);
   // the half-turn, again, at tile resolution
   for (let y = T / 2; y < T; y++) {
     for (let x = 0; x < T; x++) {
