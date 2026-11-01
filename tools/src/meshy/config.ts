@@ -25,6 +25,8 @@ export interface MeshyConfig {
   readonly usdPerCredit: number;
   readonly usdPerCreditSource: ConfigSource;
   readonly keyFile: string;
+  /** `MESHY_PLAN` (env, else the key file): the plan tier a spend is recorded under (G-C5). Never a secret. */
+  readonly plan?: string | undefined;
 }
 
 /**
@@ -84,5 +86,7 @@ export function loadMeshyConfig(
     env.MESHY_USD_PER_CREDIT !== undefined ? 'env' : fileVars.MESHY_USD_PER_CREDIT !== undefined ? 'file' : 'none';
   const usdPerCredit = resolveUsdPerCredit({ MESHY_USD_PER_CREDIT: env.MESHY_USD_PER_CREDIT ?? fileVars.MESHY_USD_PER_CREDIT });
 
-  return { apiKey, apiKeySource, usdPerCredit, usdPerCreditSource, keyFile };
+  const plan = (env.MESHY_PLAN ?? fileVars.MESHY_PLAN)?.trim().toLowerCase() || undefined;
+
+  return { apiKey, apiKeySource, usdPerCredit, usdPerCreditSource, keyFile, plan };
 }

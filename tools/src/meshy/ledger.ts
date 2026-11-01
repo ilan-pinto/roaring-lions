@@ -11,13 +11,20 @@ import type { TaskKind } from './options';
 export interface LedgerEntry {
   readonly at: string; // ISO 8601
   readonly kind: TaskKind;
-  readonly mode: 'preview' | 'refine' | 'image' | 'remesh';
+  readonly mode: 'preview' | 'refine' | 'image' | 'remesh' | 't2i' | 'i2i';
   readonly id: string;
   readonly name?: string;
   readonly prompt?: string;
   readonly credits_estimated: number;
   readonly credits_consumed?: number;
   readonly usd_estimated: number;
+  /** Image generation only (GH-746 SC2; G-C5 provenance). The paid plan tier the spend ran under, recorded per task. */
+  readonly plan?: string;
+  readonly model?: string;
+  readonly aspect_ratio?: string;
+  readonly prompt_sha256?: string;
+  /** sha256 of each local reference file (the guide hash), in the order sent. */
+  readonly reference_sha256?: readonly string[];
 }
 
 export const LEDGER_RELATIVE_PATH = path.join('art', 'meshy', 'ledger.jsonl');

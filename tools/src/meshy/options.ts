@@ -41,7 +41,9 @@ export type OriginAt = (typeof ORIGIN_ATS)[number];
 export const TASK_STATUSES = ['PENDING', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'CANCELED'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
-export const TASK_KINDS = ['text', 'image', 'remesh'] as const;
+/** `image` is image-to-3D (the CLI's oldest command); `t2i` / `i2i` are the image GENERATORS (text-to-image,
+ *  image-to-image, GH-746 SC2). */
+export const TASK_KINDS = ['text', 'image', 'remesh', 't2i', 'i2i'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 /** A task is done, one way or another -- polling stops here. */

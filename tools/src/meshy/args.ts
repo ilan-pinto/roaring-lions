@@ -167,7 +167,7 @@ export function assertYesOrInteractive(yes: boolean, isTTY: boolean): void {
  * `cli.ts` returns for those before the key check runs at all.
  */
 export function commandNeedsApiKey(command: string, dryRun: boolean): boolean {
-  if ((command === 'text' || command === 'image' || command === 'remesh' || command === 'refine') && dryRun) return false;
+  if ((command === 'text' || command === 'image' || command === 'remesh' || command === 'refine' || command === 't2i' || command === 'i2i') && dryRun) return false;
   return true;
 }
 

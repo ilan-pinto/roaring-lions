@@ -5,6 +5,7 @@
  * `Authorization` header; nothing here logs it, and `MeshyApiError` carries
  * the response body but never the request headers.
  */
+import type { ImageGenTask, ImageToImageRequest, TextToImageRequest } from './images';
 import type {
   BalanceResponse,
   ImageToThreeDRequest,
@@ -57,6 +58,18 @@ export interface ImageTaskClient {
 export interface RemeshTaskClient {
   submitRemeshTask(body: RemeshRequest): Promise<SubmitTaskResponse>;
   getRemeshTask(id: string): Promise<RemeshTask>;
+}
+
+/** `runT2i` (`cli.ts`)'s slice of the client. */
+export interface T2iTaskClient {
+  submitT2iTask(body: TextToImageRequest): Promise<SubmitTaskResponse>;
+  getT2iTask(id: string): Promise<ImageGenTask>;
+}
+
+/** `runI2i`'s slice of the client. */
+export interface I2iTaskClient {
+  submitI2iTask(body: ImageToImageRequest): Promise<SubmitTaskResponse>;
+  getI2iTask(id: string): Promise<ImageGenTask>;
 }
 
 function buildQuery(params: Readonly<Record<string, string | number | undefined>>): string {
@@ -144,5 +157,32 @@ export class MeshyClient {
 
   deleteRemeshTask(id: string): Promise<void> {
     return this.request('DELETE', `/openapi/v1/remesh/${encodeURIComponent(id)}`);
+  }
+
+  submitT2iTask(body: TextToImageRequest): Promise<SubmitTaskResponse> {
+    return this.request('POST', '/openapi/v1/text-to-image', body);
+  }
+
+  getT2iTask(id: string): Promise<ImageGenTask> {
+    return this.request('GET', `/openapi/v1/text-to-image/${encodeURIComponent(id)}`);
+  }
+
+  /** Meshy lists text-to-image and image-to-image tasks together on either path; each row's `type` says which. */
+  listT2iTasks(params: ListParams = {}): Promise<ImageGenTask[]> {
+    const qs = buildQuery({ page_num: params.pageNum, page_size: params.pageSize, sort_by: params.sortBy });
+    return this.request('GET', `/openapi/v1/text-to-image${qs}`);
+  }
+
+  submitI2iTask(body: ImageToImageRequest): Promise<SubmitTaskResponse> {
+    return this.request('POST', '/openapi/v1/image-to-image', body);
+  }
+
+  getI2iTask(id: string): Promise<ImageGenTask> {
+    return this.request('GET', `/openapi/v1/image-to-image/${encodeURIComponent(id)}`);
+  }
+
+  listI2iTasks(params: ListParams = {}): Promise<ImageGenTask[]> {
+    const qs = buildQuery({ page_num: params.pageNum, page_size: params.pageSize, sort_by: params.sortBy });
+    return this.request('GET', `/openapi/v1/image-to-image${qs}`);
   }
 }
