@@ -34,14 +34,16 @@ import { INFANTRY_KIT_TAG_ATTR, baseHash, declaredTeamTracks, drawnFigureTris, t
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 
 /**
- * What differs per team. `preKitEncodedBytes` is `assets/meshes/<team>.glb` as encoded on main before its kit.
+ * What differs per team. `preKitEncodedBytes` is `assets/meshes/<team>.glb` as encoded before its kit. The Rifle Squad's was
+ * 1,799,936 on main; the hands pass (GH-826 step 2) put 3,126 triangles and 45 bones into it and `collapseConstantTracks` took
+ * the never-moving keys out, so its pre-kit encode is 1,650,052 (the hands cost 0.46 MB of raw animation keys before the cut).
  * `hosts` are the role primitives its kit joins: the Demolition squad's weapon primitive is a palette one with no UVs, so
  * its devices ride `uniform`. `leaderOnly` are the parts only the radio man carries.
  */
 const TEAMS: Readonly<
   Record<string, { figures: string[]; hosts: string[]; leader: string; preKitEncodedBytes: number }>
 > = {
-  inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_799_936 },
+  inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_650_052 },
   demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform'], leader: 'demo_b', preKitEncodedBytes: 1_018_964 },
 };
 const GROWTH_BUDGET_BYTES = 64 * 1024;

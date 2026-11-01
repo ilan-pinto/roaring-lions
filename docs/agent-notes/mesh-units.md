@@ -682,8 +682,8 @@ for vehicles.
   over 4 mm in every living clip including kneelIn and kneelOut
   (`tools/inf_kit_clash.py`, every keyframe plus a stride, an open shell closed
   by its own per-vertex thickness). `down` is informational (corpses keep base
-  gear). The NVG mount stands 3 cm below the helmet top and the LPVO sits 6 cm
-  forward of the spec because the bowed head's bridge struck the eyepiece.
+  gear). The NVG mount stands 3 cm below the helmet top and the LPVO sits at -0.335 (spec
+  -0.55 to -0.285): 0.069 m of eye relief in `fire` and `moveFire`, where -0.42 left the eyepiece in the cheek.
 - **The switch is ON (`INFANTRY_KIT_ENABLED = true`, 29 Oct 2026).** It was
   off from PR 891 (the first kit's boxes read as robots) until the redesign
   (PR 896) was approved. It is the kill switch: false makes every infantry team
@@ -725,3 +725,54 @@ for vehicles.
   kit seeded and the full kit bought live by Buy clicks; its pixel check reads
   only the model's region, because the kit mark and the Maxed stamp are DOM
   over it and change with the account whatever the model does.
+
+## Infantry hands (GH-826 step 2, 1 Nov 2026)
+
+Rifle Squad only so far (`inf_squad`); the Demolition and Breach teams take the same pass next.
+
+- **Pipeline, and the order is load-bearing:** export -> **`pnpm hands:meshes`** -> `motion:meshes` -> `gait:meshes` ->
+  `export_infantry_kit.py` -> `kit:meshes -- --teams` -> `encode:meshes`. The hands pass reads the importer's output (git
+  `13f667ff` for the Rifle Squad), writes `extras.rl_hands`, and the motion pass REFUSES a file without it for a team in
+  `HANDS_TEAMS` and a file already through either pass. Re-runs start from git: `--from=<rev>`.
+- **What the hands pass does** (`tools/src/meshes/hands-pass.ts`): elbow at 0.615 S, forearm rebuilt to 0.268 m (the sleeve
+  re-bound, the Meshy elbow ball cut), two rigid 397-triangle hands on `{p}_hand_{L|R}`, the firing hand's index finger on
+  `{p}_finger_L`, a 64-triangle fist on `{p}_fist_{L|R}` that replaces the hand by scale in `down`/`fall`/`wreck`, the glove a
+  texel of the file's own atlas (`limestone.7`), and the Meshy rifles swapped for the reshaped `kdf_carbine` part. The importer's
+  output has no corpse twin, so the fists are sibling bones, not a `death_root`.
+- **The hold learned the hands** (`motion/hold.ts`, `motion/hands.ts`, `motion/contact.ts`): the weapon is placed by formula
+  and the hands follow it onto the part's stations; two-bone IK (hinge form) reaches each wrist; the free variables are the
+  elbow's swing and the hand's turn off the station (a roll about its channel axis, a tilt of it <= 14 degrees), priced by the
+  wrist's anatomy, the palm contact and weapon depth tabulated from the two library parts, and a charge for leaving the last
+  frame's solution. Held clips are keyed at 30 Hz at least. The stance is not the formula holds': blade 38 aimed / 28 ready
+  and up to 30 more by search, support shoulder protracted 0.11, butt pocket 0.015, support hand yawed 35 degrees; a drop and
+  a rise give 16 degrees of blade back at the half way mark.
+- **Instruments** (independent of the pass): `measureGrip` in `mesh_gait.ts` (the review's `gripan.py` ported: the weapon frame by
+  PCA, stations carried from the part's frame by a Horn fit against the part's own bytes), `mesh_grip.test.ts` (3 figures x 8
+  clips, 60/120 Hz, between keys), `mesh_arm_pops.test.ts`, `mesh_hands.ts`/`mesh_hands.test.ts` (L, palm, T, forearm, hung
+  elbow), `check_glove_contrast` in `validate_mesh_assets.py` (+ `tools/test_glove_contrast.py`). The kit is left out of every hand
+  reading (`kit_*` nodes), the stature included.
+- **Open, named, each gated against going stale:** weapon inside the glove (spec 3 mm), read by `measureGrip` with every weapon
+  triangle sampled at 5 mm or finer (the first sampler took each triangle's first vertex and centroid and never reached the support
+  fingers: 2.0 mm read, 9.0 real, in `fire`): the FIRING hand meets it in the aimed clips (2.9 in fire, moveFire, kneel, pinned) and
+  not in idle, move and the transitions (8.4-8.6: the wrist is read with no twist in the hand, so the hand tilts 14 degrees off its
+  station at the low ready); the SUPPORT hand reads 9.0-9.6 in every clip, before the hands pass was fixed too. `mesh_grip.test.ts`
+  holds per-clip, per-hand literal ceilings. Arms inside the body are counted, not measured as depth, and the count cannot say
+  "deeper" (`launcher_arms.test.ts` holds it where it is). The kit census (`inf_kit_clash.py`) reads 0 pairs over 4 mm in idle,
+  move, fire, moveFire, kneel and pinned, devices against the hands included (it did not look for kit vertices inside a glove, and
+  the EUD sat 6-12 mm in the firing hand for all of kneel and pinned; it now sits on the left chest, `EUD_AT` y 0.07 z 1.32). The
+  transitions still hold the head-bowed NVG pairs (kneelIn: bino tubes x support upper arm 14.6-19.9 mm and the mount 4.2; kneelOut:
+  bino tubes x support forearm 7.6-15.1, x the sleeve and deltoid kit parts 8.6-11.3, the mount x forearm 4.9; each over 4 mm for
+  2-3 frames), and `down` the grenade pouches x foot 14.7. The trigger finger stays straight along the receiver, and the elbow and
+  shoulder discs keep their flat colour (GH-746).
+- **Arm pops are gated by RATE** (`mesh_arm_pops.test.ts`): no arm or hand bone of any figure turns faster than 2,400 degrees a second between
+  two keys (20 degrees in one 120 Hz step), in any clip, with no exemption, and a LOOPING clip (idle, move, fire, moveFire, kneel, pinned)
+  may turn at most 20 degrees in the world between its last key and its first: the hold re-runs a clip from where it ended until its seam is
+  under 5 degrees (`moveFire`'s f1 support arm was 38). Measured: kneelIn 2,149, kneelOut 2,315, move 1,009, moveFire 1,369
+  (the first version of the file named seven snaps of 71-133 degrees in one step). The solver changes the elbow swing and the hand's turn at
+  most 600 deg/s x pace, the pace widened 2, 4, 8, 16 times only where the paced answer would put the wrist past its limit; a drop starts from
+  the arms `idle` ended with and a rise from the arms the kneel ended with.
+- **The forearm** (`mesh_forearm.test.ts`) is a 5-ring 12-sided ellipse (0.104 x 0.080 at the elbow, 0.095 x 0.074 at mid, 0.086 x 0.068 at the
+  cuff, left and right alike) with the old forearm's own sleeve cloth stretched along it and mirrored round the turn (`SleevePatch` in
+  `hands-pass.ts`): texel std 13.8 / 16.2 of 255, mean dE76 2.4 / 1.2 to the review's sleeve.
+- **Encode:** raw animation keys that never change (1,010 of 2,376 channels) are cut to two keys at the end of the motion pass
+  (`collapseConstantTracks`), which more than pays for the hands: `inf_squad` pre-kit 1,799,936 -> 1,650,052 bytes encoded.

@@ -40,6 +40,21 @@ const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, numbe
   ['manpad_team.glb', 'mpd_fire', { idle: 196, fire: 196, move: 207, moveFire: 207 }],
   // The kneeling gunner and his tube are scaled out of `move` (D6 walker).
   ['recoilless_team.glb', 'rcl_fire', { idle: 144, fire: 152 }],
+  // GH-826 step 2: the Rifle Squad's rifles, with the rebuilt forearms (0.268 m) and the hands on the carbine. Ceilings
+  // are what the shipped bytes read, rounded up to the next 10, per clip; the arms before the hands pass read
+  // idle 546 / fire 345 / move 460 / moveFire 343 / kneel 212 / kneelIn 425 / kneelOut 425 / pinned 211. Better in
+  // idle (351-386), fire (273-297), moveFire (276-299), kneelOut (301-340): the arm carries the weapon out in front
+  // instead of across the chest. WORSE in `move` (579 against 460), kneelIn (534 against 425), and kneel / pinned (254-258
+  // against 212): the spec's rule "no deeper than today's arms" is NOT met there, and these ceilings only hold the line
+  // where it now is (the lead's call, R1).
+  // R1 fix 1 (1 Nov): the forearm carries the hand's pronation (a twist about its own axis), so the elbow rides a little
+  // wider in the low ready: idle reads 424 / 380 / 423 (was 376 / 351 / 386) and kneelOut 392 / 339 / 376 (was 340 / 301 /
+  // 339), both still under the arms before the hands (546 and 425). Every other clip reads the same or lower (move 560 / 489
+  // / 578, kneelIn 506 / 469 / 525, fire 287 / 254 / 290). The review's ruling: this count cannot say "deeper"; the
+  // ceilings hold the line where it is.
+  ['inf_squad.glb', 'f0', { idle: 430, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }],
+  ['inf_squad.glb', 'f1', { idle: 430, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }],
+  ['inf_squad.glb', 'f2', { idle: 430, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }],
 ];
 
 describe("a launcher gunner's arms stay out of his own chest", () => {

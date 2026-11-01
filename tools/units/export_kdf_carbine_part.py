@@ -21,8 +21,18 @@ i.e. the importer's own output: the motion pass rebinds vertices), undoes the
 importer's yaw about z (`RIFLE_YAW_DEG`), centres it, and crops its slot out of
 the team's 2 x 1 atlas (the right half) into an image of its own.
 
-AI-generated (Meshy), disclosed per CONTRIBUTING.md; nothing new is generated.
+RESHAPE (GH-826 F4, 31 Oct 2026). After the re-cut, the stippled fist-sized pistol
+grip block is deleted and replaced by `kdf_carbine_grip.reshape`: a 0.030 x 0.050
+grip raked 20 degrees, a trigger guard and a trigger, in the old block's own
+polymer texel (no texture edit). The station points a hand closes on are written
+to `stations.json` beside the part, and `PART_SPECS["kdf_carbine_shipped"]`
+reads them from there. `--no-reshape` writes the pre-GH-826 part (a re-cut of
+the shipped bytes) for the check that has to see the old grip fail.
+
+AI-generated (Meshy), disclosed per CONTRIBUTING.md; nothing new is generated
+by the re-cut. The grip, guard and trigger are procedural Blender geometry.
 """
+import json
 import math
 import os
 import subprocess
@@ -37,6 +47,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import import_meshy_crew_team as crew  # noqa: E402  (its helpers: _coords, _body_centreline)
+import kdf_carbine_grip as grip  # noqa: E402  (GH-826 F4: the reshape stage)
 
 REPO = os.path.dirname(os.path.dirname(HERE))
 DEFAULT_OUT = os.path.join(REPO, "art", "parts", "kdf_carbine")
@@ -47,6 +58,8 @@ LENGTH = 0.85                    # PART_SPECS["kdf_carbine"].length_m
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    do_reshape = "--no-reshape" not in argv
+    argv = [a for a in argv if not a.startswith("--")]
     out_dir = argv[0] if argv else DEFAULT_OUT
     os.makedirs(out_dir, exist_ok=True)
     tmp = os.path.join(tempfile.mkdtemp(prefix="kdfcarbine-"), "inf_squad_pre.glb")
@@ -126,6 +139,8 @@ def main():
     img.colorspace_settings.name = "sRGB"
     tex.image = img
     img.pack()
+    if do_reshape:
+        _reshape(weapon, px_half=half)
     blend = os.path.join(out_dir, "kdf_carbine.blend")
     bpy.ops.wm.save_as_mainfile(filepath=blend)
     bpy.ops.object.select_all(action="DESELECT")
@@ -136,7 +151,86 @@ def main():
                               export_image_format="JPEG", export_jpeg_quality=90,
                               export_materials="EXPORT", export_apply=True)
     print(f"[kdf_carbine] wrote {glb} ({os.path.getsize(glb)} bytes) and {blend}")
+    if STATIONS is not None:
+        sj = os.path.join(out_dir, "stations.json")
+        with open(sj, "w") as fh:
+            json.dump(STATIONS, fh, indent=1, sort_keys=True)
+            fh.write("\n")
+        print(f"[kdf_carbine] wrote {sj}")
 
+
+def _lab(rgb):
+    c = np.asarray(rgb, dtype=float)
+    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    m = np.array(((0.4124, 0.3576, 0.1805), (0.2126, 0.7152, 0.0722), (0.0193, 0.1192, 0.9505)))
+    xyz = lin @ m.T / np.array((0.95047, 1.0, 1.08883))
+    f = np.where(xyz > 0.008856, np.cbrt(xyz), 7.787 * xyz + 16 / 116)
+    return np.stack((116 * f[..., 1] - 16, 500 * (f[..., 0] - f[..., 1]), 200 * (f[..., 1] - f[..., 2])), axis=-1)
+
+
+def _polymer_texel(weapon, px, bm_faces):
+    """The old block's own polymer texel: the darkest-quartile median of its
+    faces' texels, then the nearest 5 x 5 solid block (per-channel std < 4/255)
+    in the part image. Returns ((u, v), rgb, dE, median rgb)."""
+    h, w = px.shape[:2]
+    uv = weapon.data.uv_layers.active
+    cols = []
+    for poly in bm_faces:
+        us = np.mean([uv.data[li].uv[0] for li in poly.loop_indices])
+        vs = np.mean([uv.data[li].uv[1] for li in poly.loop_indices])
+        cols.append(px[min(h - 1, max(0, int(vs * h))), min(w - 1, max(0, int(us * w))), :3])
+    cols = np.array(cols)
+    lum = cols @ np.array((0.2126, 0.7152, 0.0722))
+    dark = cols[lum <= np.quantile(lum, 0.25)]
+    med = np.median(dark, axis=0)
+    # integral images over the 5 x 5 windows
+    rgb = px[..., :3].astype(np.float64)
+    def box(a):
+        c = np.cumsum(np.cumsum(np.pad(a, ((1, 0), (1, 0), (0, 0))), axis=0), axis=1)
+        return c[5:, 5:] - c[:-5, 5:] - c[5:, :-5] + c[:-5, :-5]
+    mean = box(rgb) / 25.0
+    var = box(rgb * rgb) / 25.0 - mean * mean
+    solid = (np.sqrt(np.maximum(var, 0.0)).max(axis=-1) < 4.0 / 255.0)
+    de = np.linalg.norm(_lab(mean) - _lab(med), axis=-1)
+    de[~solid] = 1e9
+    iy, ix = np.unravel_index(np.argmin(de), de.shape)
+    if de[iy, ix] > 6.0:
+        raise SystemExit(f"[kdf_carbine] no solid 5 x 5 block within dE 6 of the polymer median {np.round(med * 255)}: look at it")
+    uv_t = ((ix + 2.5) / w, (iy + 2.5) / h)
+    return uv_t, np.round(mean[iy, ix] * 255).astype(int).tolist(), float(de[iy, ix]), np.round(med * 255).astype(int).tolist(), (ix + 2, h - 1 - (iy + 2))
+
+
+def _reshape(weapon, px_half):
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(weapon.data)
+    bm.faces.ensure_lookup_table()
+    idx = [f.index for f in grip.block_faces(bm)]
+    bm.free()
+    polys = [weapon.data.polygons[i] for i in idx]
+    uv_t, rgb, de, med, px_xy = _polymer_texel(weapon, px_half, polys)
+    rep = grip.reshape(weapon, uv_t)
+    print(f"[kdf_carbine] polymer texel: median of the block's darkest quartile {med}, "
+          f"nearest solid 5x5 block at px {px_xy} rgb {rgb} dE76 {de:.2f}")
+    print(f"[kdf_carbine] block deleted: {rep['block_faces']} faces, {rep['block_dims'][0]:.3f} x {rep['block_dims'][1]:.3f} x "
+          f"{rep['block_dims'][2]:.3f} m, u {rep['block_u'][0]:.3f}..{rep['block_u'][1]:.3f}")
+    print(f"[kdf_carbine] triangles {rep['tris_before']} -> {rep['tris_after']} (cap {grip.MAX_TRIS}); "
+          f"added {rep['added']} incl. {rep['belly_tris']} closing the receiver's belly")
+    print(f"[kdf_carbine] grip {rep['length']:.3f} long, {rep['width']:.3f} wide x {rep['depth_mid']:.3f} deep at mid-height, "
+          f"raked {rep['rake']:.0f} deg; top u {rep['grip_top_u']:.3f}; length of pull (butt plate to trigger face) {rep['lop']:.3f} m "
+          f"(band {grip.LOP_BAND[0]}..{grip.LOP_BAND[1]})")
+    print(f"[kdf_carbine] guard u {rep['guard_rear_x'] - grip.BUTT_X:.3f}..{rep['guard_front_x'] - grip.BUTT_X:.3f} "
+          f"({grip.GUARD_LEN} long), magazine rear u {rep['mag_rear_x'] - grip.BUTT_X:.3f}, clear {rep['mag_clear']:.3f}")
+    st = rep["stations"]
+    print(f"[kdf_carbine] handguard section {rep['handguard_section'][0]:.3f} x {rep['handguard_section'][1]:.3f} m (the spec says 0.046)")
+    for k, v in st.items():
+        print(f"[kdf_carbine] station {k}: u {v['u']:.3f} (s {v['s']:.2f}) at {v['point']} axis {v['axis']}")
+    global STATIONS
+    STATIONS = dict(stations=st, texel=dict(uv=uv_t, rgb=rgb, de=round(de, 2)), report={k: (round(v, 5) if isinstance(v, float) else v)
+                    for k, v in rep.items() if k in ("tris_after", "lop", "mag_clear", "depth_mid", "width", "length", "rake", "y_centre", "handguard_section")})
+
+
+STATIONS = None
 
 if __name__ == "__main__":
     main()

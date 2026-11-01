@@ -2934,6 +2934,15 @@ HAND_PARTS = {
     "atgm_cell": ("atgm_post",),
     "recoilless_team": ("recoilless_rifle",),
 }
+def _carbine_stations():
+    """The hand stations of the reshaped `kdf_carbine` part (GH-826 F4), from the exporter's own output."""
+    import json
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        "art", "parts", "kdf_carbine", "stations.json")
+    with open(path) as fh:
+        return json.load(fh)["stations"]
+
+
 #: name -> spec. `length_m`: real overall length. `path`: a part that is not a
 #: Meshy remesh (the RPG, from `export_meshy_rpg.py`), with its provenance.
 #: Launchers: `grip_run`/`support_run` index `_down_runs` from the REAR.
@@ -2945,9 +2954,20 @@ PART_SPECS = {
     # -X, bbox-centred in x and y, body centreline on z), so `canonical` and no
     # `grip`: it takes `_rifle_part_at_hand`'s centred placement, as the Meshy
     # one does. Same 315 triangles, same bake, same placement as inf_squad's.
+    #
+    # GH-826 F4 (31 Oct 2026): the part's stippled fist-sized pistol grip block is replaced by a
+    # 0.030 x 0.050 grip raked 20 degrees, a trigger guard and a trigger (`kdf_carbine_grip.py`,
+    # procedural Blender geometry, 380 triangles). `stations` are the points a gloved hand closes
+    # on, in the part's own frame (x forward from the centre, butt plate at -0.425): the pistol
+    # grip's axis 0.045 below the grip's top, and the handguard's section at u 0.54. They are read
+    # from the file the exporter writes beside the part, never typed. NOTE there is no `grip=` key:
+    # that key also moves the part's seat in the hand (`_rifle_part_at_hand`), which is the hands
+    # pass's decision, not this part's.
     "kdf_carbine_shipped": dict(kind="rifle", length_m=0.85, canonical=True,
                                 path=os.path.join("art", "parts", "kdf_carbine", "kdf_carbine.glb"),
-                                provenance="export_kdf_carbine_part.py <- inf_squad.glb @13f667ff <- Meshy kdf_carbine remesh 01a10c6f"),
+                                stations=_carbine_stations(),
+                                provenance="export_kdf_carbine_part.py <- inf_squad.glb @13f667ff <- Meshy kdf_carbine remesh 01a10c6f; "
+                                           "grip, guard and trigger procedural (kdf_carbine_grip.py)"),
     # GH-709 phase 3: the six-round revolving 40 mm launcher, authored in Blender
     # by tools/units/export_grenade_launcher.py (procedural, not AI). `canonical`:
     # it arrives in the rifle frame already (butt plate -X at x = 0, muzzle +X,

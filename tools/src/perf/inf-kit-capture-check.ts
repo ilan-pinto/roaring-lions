@@ -23,8 +23,8 @@ export interface Reading {
   calls: number;
 }
 
-/** Live triangles of the encoded `inf_squad` at tier 0. */
-export const ENCODED_BASE_TRIS = 8172;
+/** Live triangles of the encoded `inf_squad` at tier 0 (GH-826 step 2: 8,172 before the hands; 11,730 in the art file less the same 432 Draco drops). */
+export const ENCODED_BASE_TRIS = 11298;
 
 export const STATES: readonly State[] = [
   { id: 'T0', label: 'tier 0', tiers: {}, kitTris: 0 },
