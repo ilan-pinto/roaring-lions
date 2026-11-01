@@ -46,9 +46,58 @@ export const BASELINE = 'baseline';
  * wet package's whole cost, standing program included.
  */
 
+/**
+ * Probes (GH-871 cheap-wet follow-up): extra configs, named on `--probes=`, that swap ONE thing on
+ * a live page and time it against the preset's own frame. A program probe recompiles the wet
+ * ground with another `WetProgram` (the terms it keeps; `ThreeRenderer.debugSetWetProgram`); a
+ * rain probe changes the rain batch's instance count while it stays visible (so what a drop costs
+ * can be told from what the draw costs). Each reads `config - baseline` like every other row, so a
+ * probe that is cheaper than the shipped program reads NEGATIVE.
+ */
+export interface ProgramProbe {
+  readonly rim: 'gradient' | 'mask' | 'off';
+  readonly ripples: boolean;
+  readonly roughness: 'full' | 'water';
+}
+export const PROGRAM_PROBES: Readonly<Record<string, ProgramProbe>> = {
+  full: { rim: 'gradient', ripples: true, roughness: 'full' },
+  'rim-mask': { rim: 'mask', ripples: true, roughness: 'full' },
+  'rim-off': { rim: 'off', ripples: true, roughness: 'full' },
+  'no-ripples': { rim: 'gradient', ripples: false, roughness: 'full' },
+  // NOT the shipped `lite` tier (that is `mask-rw-rip`): no ripple code and the full roughness table.
+  'mask-norip': { rim: 'mask', ripples: false, roughness: 'full' },
+  // The cost-ladder candidates: each drops the ripple code (low draws none) and varies rim and roughness.
+  'mask-rw': { rim: 'mask', ripples: false, roughness: 'water' },
+  'off-rw': { rim: 'off', ripples: false, roughness: 'water' },
+  'off-rfull': { rim: 'off', ripples: false, roughness: 'full' },
+  'grad-rw': { rim: 'gradient', ripples: false, roughness: 'water' },
+  'mask-rw-rip': { rim: 'mask', ripples: true, roughness: 'water' },
+  'off-rw-rip': { rim: 'off', ripples: true, roughness: 'water' },
+};
+/** Rain probes: the instance count the batch is set to (still drawn). */
+export const RAIN_PROBES: Readonly<Record<string, number>> = { 'rain-n0': 0, 'rain-n1': 1, 'rain-n100': 100, 'rain-n300': 300, 'rain-n1000': 1000, 'rain-n2000': 2000 };
+/** Rain SHADER probes: the batch's own material changed (and recompiled), count unchanged. `find`
+ *  must occur in the stage's source or the probe throws (a drifted source is never a silent no-op). */
+export interface RainShaderProbe {
+  readonly depthTest?: boolean;
+  readonly vertex?: readonly [string, string];
+  readonly fragment?: readonly [string, string];
+}
+export const RAIN_SHADER_PROBES: Readonly<Record<string, RainShaderProbe>> = {
+  'rain-nodepth': { depthTest: false },
+  'rain-nodiscard': { fragment: ['if (a <= 0.0) discard;', ''] },
+  // Every instance submitted, none live: the cost that stays is the cost of SUBMITTING instances.
+  'rain-collapsed': { vertex: ['if (aKeep >= uKeep) {', 'if (true) {'] },
+  'rain-noheight': { vertex: ['texture2D(uHeight, clamp(land / uMapSize, 0.0, 1.0)).r', '0.0'] },
+  'rain-nosplash': { vertex: ['if (position.z < 0.5) {', 'if (position.z > 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }\n  if (position.z < 0.5) {'] },
+  'rain-nostreak': { vertex: ['if (position.z < 0.5) {', 'if (position.z < 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }\n  if (position.z < 0.5) {'] },
+  'rain-halfwidth': { vertex: ['position.x * uStreakHalfWidth', 'position.x * uStreakHalfWidth * 0.5'] },
+};
+export const PROBE_PREFIX = 'probe:';
+
 /** The wet mode's config list, in the order each round times them. */
-export function wetConfigList(): readonly string[] {
-  return [BASELINE, ...WET_CONFIG_NAMES];
+export function wetConfigList(probes: readonly string[] = [], only: readonly string[] | null = null): readonly string[] {
+  return [BASELINE, ...WET_CONFIG_NAMES.filter((n) => only === null || only.includes(n)), ...probes.map((p) => `${PROBE_PREFIX}${p}`)];
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +129,13 @@ export interface CostArgs {
   readonly frames: number;
   readonly burn: number;
   readonly views: Readonly<Record<string, readonly ViewSpec[]>>;
+  /** `--pairs=<blocks>x<frames>`: time every config as ABBA blocks against the baseline, in one
+   *  cell (see `runWet`); null is the P4 design (a config per cell, differences of medians). */
+  readonly pairs: { readonly blocks: number; readonly frames: number } | null;
+  /** `--configs=`: the built-in wet configs to time (a subset of `WET_CONFIG_NAMES`); null is all. */
+  readonly configs: readonly string[] | null;
+  /** `--probes=`: names in `PROGRAM_PROBES` / `RAIN_PROBES`, wet mode only. */
+  readonly probes: readonly string[];
 }
 
 /** The GH-829 defaults, which a bare `--breakdown` has always meant. */
@@ -203,10 +259,35 @@ export function parseCostArgs(argv: readonly string[]): CostArgs {
     if (!/^\d+$/.test(rawBurn)) throw new Error(`fx-cost: --burn wants a non-negative integer, got "${rawBurn}"`);
     burn = Number(rawBurn);
   }
+  const rawPairs = flag(argv, 'pairs');
+  let pairs: { blocks: number; frames: number } | null = null;
+  if (rawPairs !== undefined) {
+    const m = /^(\d+)x(\d+)$/.exec(rawPairs);
+    if (!wet) throw new Error('fx-cost: --pairs is a --maps (wet mode) option');
+    if (m === null || Number(m[1]) < 2 || Number(m[2]) < 1) throw new Error(`fx-cost: --pairs wants <blocks>x<frames> (blocks >= 2), got "${rawPairs}"`);
+    pairs = { blocks: Number(m[1]), frames: Number(m[2]) };
+  }
+  const rawConfigs = flag(argv, 'configs');
+  const configs = rawConfigs === undefined ? null : rawConfigs.split(',').map((c) => c.trim()).filter((c) => c !== '');
+  if (configs !== null) {
+    if (!wet) throw new Error('fx-cost: --configs is a --maps (wet mode) option');
+    for (const c of configs) if (!(WET_CONFIG_NAMES as readonly string[]).includes(c)) throw new Error(`fx-cost: --configs names "${c}"; known: ${WET_CONFIG_NAMES.join(', ')}`);
+  }
+  const rawProbes = flag(argv, 'probes');
+  const probes = rawProbes === undefined ? [] : rawProbes.split(',').map((p) => p.trim()).filter((p) => p !== '');
+  if (probes.length > 0 && !wet) throw new Error('fx-cost: --probes is a --maps (wet mode) option');
+  for (const p of probes) {
+    if (!(p in PROGRAM_PROBES) && !(p in RAIN_PROBES) && !(p in RAIN_SHADER_PROBES)) {
+      throw new Error(`fx-cost: --probes names "${p}"; known: ${[...Object.keys(PROGRAM_PROBES), ...Object.keys(RAIN_PROBES), ...Object.keys(RAIN_SHADER_PROBES)].join(', ')}`);
+    }
+  }
   return {
     breakdown,
     wet,
     maps,
+    configs,
+    pairs,
+    probes,
     dpr: rawDpr === undefined ? 2 : positiveNumber('dpr', rawDpr),
     rounds: rawRounds === undefined ? (wet ? WET_ROUNDS : LEGACY_ROUNDS) : positiveInt('rounds', rawRounds),
     frames: rawFrames === undefined ? (wet ? WET_FRAMES : LEGACY_FRAMES) : positiveInt('frames', rawFrames),
@@ -323,6 +404,53 @@ export function resolveWetConfigs(f: WetFacts): Record<WetConfigName, Resolution
 export function medianOf(v: readonly number[]): number {
   if (v.length === 0) throw new Error('fx-cost: median of no readings');
   return [...v].sort((a, b) => a - b)[Math.floor(v.length / 2)] as number;
+}
+
+/**
+ * The median of `a[i] - b[i]` over rounds: a config's cost against the baseline taken in the SAME
+ * round, a few frames apart. The medians-then-subtract form (`deltaRow`) lets a drift that is slow
+ * against a round but fast against a run (the machine's clock, a thermal step) land in one config
+ * and not the other; pairing cancels it. The two arrays must be the same length.
+ */
+export function pairedMedian(a: readonly number[], b: readonly number[]): number {
+  if (a.length !== b.length) throw new Error(`fx-cost: pairedMedian wants equal lengths, got ${a.length} and ${b.length}`);
+  return medianOf(a.map((v, i) => v - (b[i] as number)));
+}
+
+/** The p-th quantile (0..1) by nearest rank. */
+export function quantileOf(v: readonly number[], p: number): number {
+  if (v.length === 0) throw new Error('fx-cost: quantile of no readings');
+  const s = [...v].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(p * s.length))] as number;
+}
+
+/**
+ * The block-paired NET (`--pairs`): each cell holds the per-block differences `config - baseline`
+ * of ABBA blocks, so gross is `-median(off diffs)` (the "off" frame is the cheaper one) and the
+ * saving is `median(shadow-full diffs)` (the full map is the dearer one). Pooled over every cell
+ * of the view.
+ */
+export function blockPairedNet(i: {
+  readonly offDiffs: readonly number[] | null;
+  readonly shadowFullDiffs: readonly number[] | null;
+}): { readonly gross: number; readonly saving: number; readonly net: number } | null {
+  if (i.offDiffs === null) return null;
+  const gross = -medianOf(i.offDiffs);
+  const saving = i.shadowFullDiffs === null ? 0 : medianOf(i.shadowFullDiffs);
+  return { gross, saving, net: gross - saving };
+}
+
+/** The paired NET: gross and saving each a paired median over the rounds (round-adjacent frames),
+ *  then `net = gross - saving`. `null` per part when that config did not resolve, as `netFrom`. */
+export function pairedTotalNet(i: {
+  readonly base: readonly number[];
+  readonly off: readonly number[] | null;
+  readonly shadowFull: readonly number[] | null;
+}): { readonly gross: number; readonly saving: number; readonly net: number } | null {
+  if (i.off === null) return null;
+  const gross = pairedMedian(i.base, i.off);
+  const saving = i.shadowFull === null ? 0 : pairedMedian(i.shadowFull, i.base);
+  return { gross, saving, net: gross - saving };
 }
 
 export type DeltaRow = { readonly kind: 'delta'; readonly value: number } | { readonly kind: 'na'; readonly reason: NaReason };

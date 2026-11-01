@@ -1,4 +1,5 @@
-// The wet-ground cost follow-up's guard (GH-871 P4 PR 914, the lead's ruling 2 of 31 Oct 2026).
+// The wet-ground cost follow-up's guard (GH-871 P4 PR 914, the lead's ruling 2 of 31 Oct 2026). The follow-up
+// landed (GH-871 cheap-wet): `CHEAP_WET_GROUND_LANDED` is true, and `landedViolations` below is what keeps it honest.
 //
 // P4's wet-ground program misses its budget on medium and low, and merged anyway because the only
 // wetland map, Ein Qasab, is unlisted. The ruling: a cheaper wet-ground program for medium and low
@@ -14,6 +15,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { maps } from '@lions/data';
 import { CHEAP_WET_GROUND_LANDED } from '../../packages/render/src/three/weather';
+import { QUALITY_PRESETS, type RenderQuality } from '../../packages/render/src/quality';
 import { UNLISTED_MAP_IDS } from '../../packages/app/src/ui/menu';
 
 const FOLLOW_UP =
@@ -37,6 +39,18 @@ export function listingViolations(
   for (const { mission, map } of missionMaps) {
     if (wet.has(map)) out.push(`mission '${mission}' plays on wetland map '${map}': ${FOLLOW_UP}`);
   }
+  return out;
+}
+
+/** Pure. The claim "the cheaper program landed" is only true while medium and low compile a tier cheaper than
+ *  the full program and high compiles the full one (P4's, byte for byte). Returns one line per broken claim. */
+export function landedViolations(presets: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>>, landed: boolean): string[] {
+  if (!landed) return [];
+  const out: string[] = [];
+  const tier = (k: 'low' | 'medium' | 'high'): string => presets[k].rain?.ground ?? 'full';
+  if (tier('medium') === 'full') out.push("CHEAP_WET_GROUND_LANDED is true but medium still compiles the 'full' wet program");
+  if (tier('low') === 'full') out.push("CHEAP_WET_GROUND_LANDED is true but low still compiles the 'full' wet program");
+  if (tier('high') !== 'full') out.push("high must keep the 'full' wet program (it is the byte-identical P4 look)");
   return out;
 }
 
@@ -71,6 +85,32 @@ describe('wetland listing guard (GH-871 P4 PR 914 ruling 2)', () => {
       listingViolations(UNLISTED_MAP_IDS, wetlandMaps, missionMaps, CHEAP_WET_GROUND_LANDED),
     ).toEqual([]);
     if (!CHEAP_WET_GROUND_LANDED) expect(UNLISTED_MAP_IDS.has('ein_qasab')).toBe(true);
+  });
+
+  it('landed: the presets compile the tiers the measurement was taken at (medium lite, low minimal, high full)', () => {
+    expect(landedViolations(QUALITY_PRESETS, CHEAP_WET_GROUND_LANDED)).toEqual([]);
+    if (CHEAP_WET_GROUND_LANDED) {
+      expect(QUALITY_PRESETS.medium.rain?.ground).toBe('lite');
+      expect(QUALITY_PRESETS.low.rain?.ground).toBe('minimal');
+      expect(QUALITY_PRESETS.high.rain?.ground).toBe('full');
+    }
+  });
+
+  describe('landedViolations on literals (the falsification)', () => {
+    const preset = (ground?: 'full' | 'lite' | 'minimal'): RenderQuality => ({ ...QUALITY_PRESETS.low, rain: { drops: 1, ripples: false, ...(ground === undefined ? {} : { ground }) } });
+    const ok = { low: preset('minimal'), medium: preset('lite'), high: preset('full') };
+    it('passes the shipped tiers', () => {
+      expect(landedViolations(ok, true)).toEqual([]);
+    });
+    it('flags medium or low on the full program (also when the field is absent: absent is full)', () => {
+      expect(landedViolations({ ...ok, medium: preset('full') }, true)).toHaveLength(1);
+      expect(landedViolations({ ...ok, low: preset() }, true)).toHaveLength(1);
+      expect(landedViolations({ ...ok, low: preset(), medium: preset('full') }, true)).toHaveLength(2);
+    });
+    it('flags high off the full program, and says nothing while the follow-up is open', () => {
+      expect(landedViolations({ ...ok, high: preset('lite') }, true)).toHaveLength(1);
+      expect(landedViolations({ ...ok, medium: preset('full') }, false)).toEqual([]);
+    });
   });
 
   describe('listingViolations on literals (the falsification)', () => {

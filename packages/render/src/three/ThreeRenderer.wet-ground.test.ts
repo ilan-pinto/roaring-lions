@@ -27,6 +27,7 @@ import * as THREE from 'three';
 import { Sim } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
+import { QUALITY_PRESETS } from '../quality';
 import type { GroundMaterial } from './terrain/mesh';
 import { DECOR_MARSH, DECOR_ROAD } from './terrain/shared';
 import { buildControlMap } from './terrain/control-map';
@@ -177,6 +178,30 @@ describe('the ground material is the wet program under rain, and today`s elsewhe
     expect(g.customProgramCacheKey()).toBe('rl-ground-wet');
     expect(g.defines).toEqual({ STANDARD: '', THEME_WET: '' });
     expect(g.uniforms.uControlC).toBeDefined();
+    r.dispose();
+  });
+});
+
+describe('the wet ground program follows the preset (GH-871 cheap-wet follow-up)', () => {
+  it.each([
+    ['high', QUALITY_PRESETS.high, 'rl-ground-wet'],
+    ['medium', QUALITY_PRESETS.medium, 'rl-ground-wet-rim-mask-rip1-rough-water'],
+    ['low', QUALITY_PRESETS.low, 'rl-ground-wet-rim-off-rip0-rough-water'],
+  ] as const)('%s compiles its tier', (_name, preset, key) => {
+    const { r } = setUp({ ...RAIN, quality: preset as unknown as RendererOptions['quality'] });
+    expect(priv(r).groundMat.customProgramCacheKey()).toBe(key);
+    r.dispose();
+  });
+  it('no quality at all, or a quality with no `ground` (a fake), is the full P4 program', () => {
+    for (const quality of [undefined, { colorVision: 'default', rain: { drops: 100, ripples: true } } as unknown as RendererOptions['quality']]) {
+      const { r } = setUp({ ...RAIN, ...(quality === undefined ? {} : { quality }) });
+      expect(priv(r).groundMat.customProgramCacheKey()).toBe('rl-ground-wet');
+      r.dispose();
+    }
+  });
+  it('a dry map ignores the tier: it is today\'s ground whatever the preset', () => {
+    const { r } = setUp({ quality: QUALITY_PRESETS.low as unknown as RendererOptions['quality'] });
+    expect(priv(r).groundMat.customProgramCacheKey()).toBe('rl-ground');
     r.dispose();
   });
 });

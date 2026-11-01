@@ -120,7 +120,7 @@ describe('weather.ts stays three-free', () => {
       .split('\n')
       .filter((line) => /^\s*import\b/.test(line));
     expect(importLines).toEqual([
-      "import { QUALITY_PRESETS, type RenderQuality } from '../quality';",
+      "import { QUALITY_PRESETS, type RenderQuality, type WetGroundTier } from '../quality';",
       "import type { LightPreset } from './time-of-day';",
     ]);
   });
@@ -142,14 +142,16 @@ describe('the rain count ladder (R-8, GH-871 P4 T8)', () => {
 
 describe('rainQualityOf: absent means no opinion, and high`s', () => {
   it('reads each preset`s own rain fields', () => {
-    expect(rainQualityOf(QUALITY_PRESETS.low)).toEqual({ drops: 525, ripples: false });
-    expect(rainQualityOf(QUALITY_PRESETS.medium)).toEqual({ drops: 3500, ripples: true });
+    expect(rainQualityOf(QUALITY_PRESETS.low)).toEqual({ drops: 525, ripples: false, ground: 'minimal' });
+    expect(rainQualityOf(QUALITY_PRESETS.medium)).toEqual({ drops: 3500, ripples: true, ground: 'lite' });
   });
   it('gives high`s to an absent quality and to a quality with no rain field (a test fake)', () => {
-    expect(rainQualityOf(undefined)).toEqual({ drops: 6000, ripples: true });
+    expect(rainQualityOf(undefined)).toEqual({ drops: 6000, ripples: true, ground: 'full' });
     const noRain: Partial<RenderQuality> = { ...QUALITY_PRESETS.low };
     delete noRain.rain;
-    expect(rainQualityOf(noRain as RenderQuality)).toEqual({ drops: 6000, ripples: true });
+    expect(rainQualityOf(noRain as RenderQuality)).toEqual({ drops: 6000, ripples: true, ground: 'full' });
+    // A quality whose rain has no `ground` (a fake that predates the field) is the full program.
+    expect(rainQualityOf({ ...QUALITY_PRESETS.low, rain: { drops: 10, ripples: false } }).ground).toBe('full');
   });
 });
 
