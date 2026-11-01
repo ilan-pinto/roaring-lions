@@ -175,9 +175,14 @@ describe('the verifier goes red, one broken input at a time (PR 600\'s four, and
 
   it('a gap in the channel away from the fords: the wadi leaks', () => {
     const d = fresh();
-    expect(rowsOf(d)[18].slice(62, 64)).toBe('dd');
-    expect(rowsOf(d)[19].slice(62, 64)).toBe('dd');
-    for (const [x, y] of [[62, 18], [63, 18], [62, 19], [63, 19]]) setBoth(rowsOf(d), x, y, '.');
+    // GH-913 look pass: the channel is the `b` cobble line (it was a `d` ditch). It is one tile wide
+    // at (61,20)/(61,21), two rows of the S-curve away from every ford, so opening just those two
+    // is the smallest hole that lets a vehicle across the bed. The expected character moved from
+    // 'd' to 'b'; the mechanic (a wall to wheels, none to foot) did not.
+    expect(rowsOf(d)[20][61]).toBe('b');
+    expect(rowsOf(d)[21][61]).toBe('b');
+    expect(has(d, 'the wadi leaks')).toBe(false);
+    for (const [x, y] of [[61, 20], [61, 21]]) setBoth(rowsOf(d), x, y, '.');
     expect(has(d, 'the wadi leaks')).toBe(true);
   });
 
