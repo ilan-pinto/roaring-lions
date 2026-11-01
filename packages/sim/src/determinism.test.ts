@@ -1451,7 +1451,15 @@ function formationWorld(seed: number): FormationWorldFacts {
 // The groups, members, ringFacing, seen, sprungBy, legs, the Column's pace and first arrival, the releases, the casualty, the
 // duties seen and the row states are all re-read UNCHANGED; the golden canaries do not move.
 // Was 762031029.
-const FORMATION_WORLD_PIN = 2297075074;
+// Re-pinned 2026-11-01 (GH-859, the Attack leaves its aircraft out). The shipped attack.json now has `exclude: [aircraft]`, and the world
+// changed with it: the heli and drone are still ordered with the Attack as it WAS (`attackHoldingAir`, group row 1, so the contact
+// call, the sortie at 452 and the return at 945 are read exactly as before), and a fourth group is ordered with the SHIPPED
+// Attack at tick 90: two unarmed squads that form and a drone that is left out (ids 24..26, spawned last), which flies the plain order
+// in no group. The extra types and units, the fourth formation type (`attack_air`, index 3, which the old Attack group's fgType now
+// reads) and the fourth group row are the whole move: groups, members, ringFacing, legs, the Column's pace and first arrival, the
+// contacts, the calls, the casualty and the duties seen are re-read UNCHANGED; only 'released' gains the new group's release.
+// Was 2297075074.
+const FORMATION_WORLD_PIN = 2674420450;
 
 describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extended in P1b)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
