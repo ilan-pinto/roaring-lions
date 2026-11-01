@@ -23,7 +23,9 @@ describe('trackCloseup (GH-238 K11)', () => {
 
   it('reads the shipped set by default', () => {
     expect(trackCloseup('/c/', 'mbt_lavi', 'armour')).toBe('/c/mbt_lavi_armour.jpg');
-    expect(trackCloseup('/c/', 'inf_squad', 'sensors')).toBe('/c/inf_squad_sensors.jpg');
+    // WP-SC0 (GH-746): the stale infantry close-ups are gone, so a team's track
+    // head draws the plain frame (null here) until its card lands.
+    expect(trackCloseup('/c/', 'inf_squad', 'sensors')).toBeNull();
     // The D9 declares no firepower track, so it has no close-up for one.
     expect(trackCloseup('/c/', 'dozer_d9', 'firepower')).toBeNull();
   });

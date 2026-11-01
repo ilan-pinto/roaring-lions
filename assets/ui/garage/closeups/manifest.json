@@ -64,33 +64,6 @@
       "elevationDeg": 18,
       "distance": 2.674
     },
-    "at_team_armour": {
-      "file": "at_team_armour.jpg",
-      "unit": "at_team",
-      "track": "armour",
-      "subject": "role",
-      "yawDeg": 90,
-      "elevationDeg": 12,
-      "distance": 0.504
-    },
-    "at_team_firepower": {
-      "file": "at_team_firepower.jpg",
-      "unit": "at_team",
-      "track": "firepower",
-      "subject": "role",
-      "yawDeg": 0,
-      "elevationDeg": 12,
-      "distance": 0.567
-    },
-    "at_team_sensors": {
-      "file": "at_team_sensors.jpg",
-      "unit": "at_team",
-      "track": "sensors",
-      "subject": "role",
-      "yawDeg": 90,
-      "elevationDeg": 12,
-      "distance": 0.123
-    },
     "attack_drone_armour": {
       "file": "attack_drone_armour.jpg",
       "unit": "attack_drone",
@@ -117,60 +90,6 @@
       "yawDeg": 315,
       "elevationDeg": 18,
       "distance": 0.435
-    },
-    "breach_team_armour": {
-      "file": "breach_team_armour.jpg",
-      "unit": "breach_team",
-      "track": "armour",
-      "subject": "role",
-      "yawDeg": 45,
-      "elevationDeg": 12,
-      "distance": 0.654
-    },
-    "breach_team_firepower": {
-      "file": "breach_team_firepower.jpg",
-      "unit": "breach_team",
-      "track": "firepower",
-      "subject": "role",
-      "yawDeg": 45,
-      "elevationDeg": 12,
-      "distance": 1.081
-    },
-    "breach_team_sensors": {
-      "file": "breach_team_sensors.jpg",
-      "unit": "breach_team",
-      "track": "sensors",
-      "subject": "role",
-      "yawDeg": 315,
-      "elevationDeg": 12,
-      "distance": 0.25
-    },
-    "demo_squad_armour": {
-      "file": "demo_squad_armour.jpg",
-      "unit": "demo_squad",
-      "track": "armour",
-      "subject": "role",
-      "yawDeg": 45,
-      "elevationDeg": 12,
-      "distance": 0.648
-    },
-    "demo_squad_firepower": {
-      "file": "demo_squad_firepower.jpg",
-      "unit": "demo_squad",
-      "track": "firepower",
-      "subject": "role",
-      "yawDeg": 315,
-      "elevationDeg": 12,
-      "distance": 0.573
-    },
-    "demo_squad_sensors": {
-      "file": "demo_squad_sensors.jpg",
-      "unit": "demo_squad",
-      "track": "sensors",
-      "subject": "role",
-      "yawDeg": 315,
-      "elevationDeg": 12,
-      "distance": 0.182
     },
     "demo_tzav_armour": {
       "file": "demo_tzav_armour.jpg",
@@ -316,33 +235,6 @@
       "elevationDeg": 18,
       "distance": 2.615
     },
-    "inf_squad_armour": {
-      "file": "inf_squad_armour.jpg",
-      "unit": "inf_squad",
-      "track": "armour",
-      "subject": "role",
-      "yawDeg": 0,
-      "elevationDeg": 12,
-      "distance": 0.591
-    },
-    "inf_squad_firepower": {
-      "file": "inf_squad_firepower.jpg",
-      "unit": "inf_squad",
-      "track": "firepower",
-      "subject": "role",
-      "yawDeg": 90,
-      "elevationDeg": 12,
-      "distance": 0.457
-    },
-    "inf_squad_sensors": {
-      "file": "inf_squad_sensors.jpg",
-      "unit": "inf_squad",
-      "track": "sensors",
-      "subject": "role",
-      "yawDeg": 90,
-      "elevationDeg": 12,
-      "distance": 0.213
-    },
     "jeep_shoded_armour": {
       "file": "jeep_shoded_armour.jpg",
       "unit": "jeep_shoded",
@@ -397,33 +289,6 @@
       "elevationDeg": 18,
       "distance": 3.034
     },
-    "mortar_team_armour": {
-      "file": "mortar_team_armour.jpg",
-      "unit": "mortar_team",
-      "track": "armour",
-      "subject": "role",
-      "yawDeg": 45,
-      "elevationDeg": 12,
-      "distance": 0.604
-    },
-    "mortar_team_firepower": {
-      "file": "mortar_team_firepower.jpg",
-      "unit": "mortar_team",
-      "track": "firepower",
-      "subject": "role",
-      "yawDeg": 315,
-      "elevationDeg": 12,
-      "distance": 0.668
-    },
-    "mortar_team_sensors": {
-      "file": "mortar_team_sensors.jpg",
-      "unit": "mortar_team",
-      "track": "sensors",
-      "subject": "role",
-      "yawDeg": 315,
-      "elevationDeg": 12,
-      "distance": 0.164
-    },
     "recon_drone_armour": {
       "file": "recon_drone_armour.jpg",
       "unit": "recon_drone",
@@ -441,24 +306,6 @@
       "yawDeg": 0,
       "elevationDeg": 18,
       "distance": 0.178
-    },
-    "recon_zikit_armour": {
-      "file": "recon_zikit_armour.jpg",
-      "unit": "recon_zikit",
-      "track": "armour",
-      "subject": "role",
-      "yawDeg": 45,
-      "elevationDeg": 12,
-      "distance": 0.611
-    },
-    "recon_zikit_sensors": {
-      "file": "recon_zikit_sensors.jpg",
-      "unit": "recon_zikit",
-      "track": "sensors",
-      "subject": "role",
-      "yawDeg": 315,
-      "elevationDeg": 12,
-      "distance": 0.217
     },
     "scout_shachaf_armour": {
       "file": "scout_shachaf_armour.jpg",
@@ -486,60 +333,6 @@
       "yawDeg": 180,
       "elevationDeg": 18,
       "distance": 1.551
-    },
-    "sniper_team_armour": {
-      "file": "sniper_team_armour.jpg",
-      "unit": "sniper_team",
-      "track": "armour",
-      "subject": "role",
-      "yawDeg": 45,
-      "elevationDeg": 12,
-      "distance": 0.648
-    },
-    "sniper_team_firepower": {
-      "file": "sniper_team_firepower.jpg",
-      "unit": "sniper_team",
-      "track": "firepower",
-      "subject": "role",
-      "yawDeg": 45,
-      "elevationDeg": 12,
-      "distance": 0.485
-    },
-    "sniper_team_sensors": {
-      "file": "sniper_team_sensors.jpg",
-      "unit": "sniper_team",
-      "track": "sensors",
-      "subject": "role",
-      "yawDeg": 90,
-      "elevationDeg": 12,
-      "distance": 0.376
-    },
-    "yahalom_squad_armour": {
-      "file": "yahalom_squad_armour.jpg",
-      "unit": "yahalom_squad",
-      "track": "armour",
-      "subject": "role",
-      "yawDeg": 0,
-      "elevationDeg": 12,
-      "distance": 0.555
-    },
-    "yahalom_squad_firepower": {
-      "file": "yahalom_squad_firepower.jpg",
-      "unit": "yahalom_squad",
-      "track": "firepower",
-      "subject": "role",
-      "yawDeg": 90,
-      "elevationDeg": 12,
-      "distance": 0.419
-    },
-    "yahalom_squad_sensors": {
-      "file": "yahalom_squad_sensors.jpg",
-      "unit": "yahalom_squad",
-      "track": "sensors",
-      "subject": "role",
-      "yawDeg": 315,
-      "elevationDeg": 12,
-      "distance": 0.139
     }
   }
 }
