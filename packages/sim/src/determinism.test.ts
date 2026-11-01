@@ -1459,7 +1459,11 @@ function formationWorld(seed: number): FormationWorldFacts {
 // reads) and the fourth group row are the whole move: groups, members, ringFacing, legs, the Column's pace and first arrival, the
 // contacts, the calls, the casualty and the duties seen are re-read UNCHANGED; only 'released' gains the new group's release.
 // Was 2297075074.
-const FORMATION_WORLD_PIN = 2674420450;
+// Re-pinned 2026-11-01 (GH-859, lead: the Attack ships with `legs: false`). The Attack as it was (`attack_air`) keeps its checkpoints in this
+// world, so the contact, call and return facts hold; the fourth group, ordered with the SHIPPED Attack, now goes straight to its slots
+// (no checkpoint, no dress, no release at 278). Re-read UNCHANGED: groups, members, ringFacing, legs, the Column's pace and first
+// arrival, the contacts, the calls, the casualty, the duties seen. Was 2674420450.
+const FORMATION_WORLD_PIN = 1398138626;
 
 describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extended in P1b)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
