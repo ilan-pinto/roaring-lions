@@ -166,6 +166,16 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
   - fewer placeable members than the formation's `min_members` (placeable = alive, not routed, not carried, not
     landing, class not none, side 0 or 1). One unit, or a selection whose rest is aboard, is a plain order;
   - and inside a template order, an id with no slot (class none, side 2, a passenger) simply ignores it.
+- **Classes a formation leaves out** (`exclude`, lead 1 Nov, GH-859; the Attack leaves `aircraft` out, so they fly free).
+  A unit of an excluded class is NOT a member of the template order, and the order treats it as a separate plain order
+  to the same click would (the lead's Q2-ALT, written as one command): it is not counted toward `min_members`, is left out of
+  the template centroid and of the march route's lead domain, takes the plain grid (`assignFormation` over the excluded units
+  alone, their own centroid, the tiles of everyone outside the order plus the template's final slots reserved), joins no group
+  (`fmJoin` never sees it), queues no checkpoint, and has no rest facing or stance. `fmExcludes(tpl, cls)` is the one test, and
+  `sortMembers` applies it too, so `templateOffsets` and the HUD schematic seat nobody of the class. `compileFormation` and
+  `validate_formations.mjs` refuse a class named by both `exclude` and an element. An Attack with only aircraft and one tank is
+  therefore a plain order (one placeable member). The Attack no longer has a contact call: every witness built on its aircraft
+  sortie is a Column witness now. HUD follow-up (not done): the row's `min_members` count and the legend still count aircraft for the Attack.
   The app mirrors the too-few case: it keeps the formation's own verb (Attack with one unit sends a plain
   `attackMove`) and plays the deny cue with a feed line.
 - **Why the faction check is versus-only.** The sim does not check factions: it knows sides, not factions, and

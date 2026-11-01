@@ -41,6 +41,7 @@ import {
   checkpointsOf,
   compileFormation,
   eighthToward,
+  fmExcludes,
   formationClassOf,
   routeWalk,
   type CompiledFormation,
@@ -4769,6 +4770,13 @@ export class Sim {
     let tCount = 0;
     // GH-859 P1b (M6): an id named twice is one placeable member. Allocated by a template order only.
     const tSeen = tplIdx >= 0 ? new Set<number>() : null;
+    // GH-859: the classes this formation leaves out. A unit of one is no member of the template order: it is
+    // seated by the plain grid beside it, as a separate plain order to the same click would seat it (the lead's
+    // Q2-ALT, 1 Nov). `loose` and its centroid sums exist only for an order that names a formation with an `exclude`.
+    const leaves = tplIdx >= 0 && this.formationTypes[tplIdx].excludeMask !== 0 ? this.formationTypes[tplIdx] : null;
+    const loose: FormationUnit[] | null = leaves !== null ? [] : null;
+    let lSumX = 0;
+    let lSumY = 0;
     for (const id of exact ? [] : cmd.ids) {
       // A passenger is inside a vehicle and does not walk anywhere: the
       // carrier decides where it goes, and `unload` is how it gets out.
@@ -4786,7 +4794,8 @@ export class Sim {
       // brings a gunship down too.
       if (utype.isAir && this.airState[id] === AIR_LANDING) continue;
       const front = utype.isAir || utype.moveDomain === DOMAIN_VEHICLE;
-      members.push({ id, domain: utype.isAir ? DOMAIN_FOOT : utype.moveDomain, front });
+      const member: FormationUnit = { id, domain: utype.isAir ? DOMAIN_FOOT : utype.moveDomain, front };
+      members.push(member);
       // Where this unit will be coming FROM: its last queued point when
       // the order appends to a route, otherwise where it stands. Their
       // centroid is the only thing that fixes which way the ranks face,
@@ -4811,9 +4820,17 @@ export class Sim {
       // Side 2 (civilians, neutrals) is never placed; class none ignores the order.
       if (tSeen !== null && utype.fmClass !== FM_CLASS_NONE && this.side[id] <= 1 && !tSeen.has(id)) {
         tSeen.add(id);
-        tSumX += fromX;
-        tSumY += fromY;
-        tCount++;
+        if (leaves !== null && loose !== null && fmExcludes(leaves, utype.fmClass)) {
+          // Left out: not counted toward `min_members`, not in the template's centroid; the plain grid's own
+          // floored-tile centroid, over these units alone (a separate plain order's), is what frames its rows.
+          loose.push(member);
+          lSumX += ix;
+          lSumY += iy;
+        } else {
+          tSumX += fromX;
+          tSumY += fromY;
+          tCount++;
+        }
       }
     }
     const slots = new Map<number, [number, number]>();
@@ -4835,7 +4852,7 @@ export class Sim {
       const uSeen = new Set<number>();
       for (const m of members) {
         const ut = this.unitTypes[this.typeIdx[m.id]];
-        if (ut.fmClass === FM_CLASS_NONE || this.side[m.id] > 1 || uSeen.has(m.id)) continue;
+        if (ut.fmClass === FM_CLASS_NONE || fmExcludes(tpl, ut.fmClass) || this.side[m.id] > 1 || uSeen.has(m.id)) continue;
         uSeen.add(m.id);
         units.push({ id: m.id, domain: m.domain, cls: ut.fmClass, vehicle: !ut.isAir && ut.moveDomain === DOMAIN_VEHICLE, air: ut.isAir });
       }
@@ -4905,6 +4922,7 @@ export class Sim {
         prevX = tx2;
         prevY = ty2;
       }
+      const reservedOut = this.reservedTilesFor(this.side[units[0].id], cmd.ids);
       const res = assignTemplate(
         {
           width: this.width,
@@ -4919,7 +4937,7 @@ export class Sim {
           fromX: prevX,
           fromY: prevY,
           units,
-          reserved: this.reservedTilesFor(this.side[units[0].id], cmd.ids),
+          reserved: reservedOut,
           cover: this.cover,
         },
         tpl,
@@ -4928,6 +4946,29 @@ export class Sim {
       for (const sl of res.slots) {
         slots.set(sl.id, [sl.x, sl.y]);
         placed.set(sl.id, sl);
+      }
+      // The units the formation leaves out take the plain grid to the same click, after the template has its
+      // tiles (the order a separate plain order issued second would see): the tiles of everyone outside this order
+      // and every final slot just given are reserved. `reservedOut` is this order's own array, read by nothing after.
+      if (loose !== null && loose.length > 0) {
+        for (const sl of res.slots) reservedOut[sl.y * this.width + sl.x] = 1;
+        const ln = loose.length;
+        const seated = assignFormation({
+          width: this.width,
+          height: this.height,
+          masks: [this.blocked, this.blockedVehicleMask],
+          origins: [
+            [fgx, fgy],
+            [vgx, vgy],
+          ],
+          clickX: fgx,
+          clickY: fgy,
+          fromX: (lSumX - (lSumX % ln)) / ln,
+          fromY: (lSumY - (lSumY % ln)) / ln,
+          units: loose,
+          reserved: reservedOut,
+        });
+        for (const s of seated) slots.set(s.id, [s.x, s.y]);
       }
       legSlotsW.push(slots);
       cpXW.push(fgx);
@@ -4986,6 +5027,10 @@ export class Sim {
         if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
       }
       const slot = exact ? undefined : slots.get(id);
+      // GH-859: a unit the formation leaves out has its plain slot and nothing of the march: it goes straight to it,
+      // joins no group and queues no checkpoint, whatever the rest of the order does.
+      const looseId = placed !== null && leaves !== null && fmExcludes(leaves, utype.fmClass);
+      const marches = marching && !looseId;
       // A passenger is not going anywhere on its own feet either way: on
       // the formation path it claimed no slot, and on the exact path it
       // is refused here.
@@ -5008,7 +5053,7 @@ export class Sim {
       let ufy: number;
       let ufd: number;
       // On a march the goal is checkpoint 1's slot; a member with no slot there takes the checkpoint's tile.
-      const first = marching && slot !== undefined ? legSlots[0].get(id) ?? [cpX[0], cpY[0]] : slot;
+      const first = marches && slot !== undefined ? legSlots[0].get(id) ?? [cpX[0], cpY[0]] : slot;
       if (slot === undefined || first === undefined) {
         if (snapped && utype.isAir) {
           ux = gx;
@@ -5037,7 +5082,7 @@ export class Sim {
         // unit's alone either way. Everyone the formation displaced takes
         // its slot's centre, because a displaced unit has no clicked point
         // of its own to keep.
-        const onClick = !marching && first[0] === tx && first[1] === ty;
+        const onClick = !marches && first[0] === tx && first[1] === ty;
         ux = onClick ? gx : fx.add(fx.fromInt(first[0]), HALF);
         uy = onClick ? gy : fx.add(fx.fromInt(first[1]), HALF);
         ufx = first[0];
@@ -5057,7 +5102,7 @@ export class Sim {
           this.wpCount[id] = n + 1;
           // Only a leg that was stored makes the unit a member: a full queue drops the waypoint, and
           // a member whose slot was never kept would spring-stance at its old final waypoint.
-          if (placed !== null) written.push(id);
+          if (placed !== null && !looseId) written.push(id);
         }
         // N3 Task 9: an appended leg is a new order too -- the patrol ends, and the
         // unit walks its current leg and then the appended route. (This fast-path
@@ -5100,7 +5145,7 @@ export class Sim {
       // Any order overrides a held stance -- a patrol included. A leg the patrol
       // issues itself (`stepPatrolStance`, `patrolLeg`) is the one move that keeps it.
       if (!patrolLeg) this.stance[id] = 0;
-      if (marching) {
+      if (marches) {
         // Checkpoints 2..n queue behind the goal as ordinary waypoints; the last is the click (the exact
         // point when the member's slot is the clicked tile, as a single-checkpoint order keeps it).
         const base = id * MAX_WAYPOINTS;
@@ -5114,7 +5159,7 @@ export class Sim {
         }
         this.wpCount[id] = legSlots.length - 1;
       }
-      if (placed !== null) written.push(id);
+      if (placed !== null && !looseId) written.push(id);
     }
     if (placed !== null && written.length > 0) this.fmJoin(tplIdx, written, placed, ringRadius, legSlots.length, travelFace);
   }

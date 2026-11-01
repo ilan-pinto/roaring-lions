@@ -117,6 +117,8 @@ export interface FormationJson {
   verb: string;
   min_members: number;
   elements: readonly FormationElementJson[];
+  /** Class names the formation leaves out (see `CompiledFormation.excludeMask`). */
+  exclude?: readonly string[];
   march?: FormationMarchJson;
   arrival: { face: string; stance: string };
   contact: { drill: string; call_radius_tiles?: number; quiet_s?: number };
@@ -196,6 +198,12 @@ export function formationClassOf(json: UnitClassJson, wheeled: boolean): number 
   if (json.role === 'recon') return FM_CLASS_RECON;
   if (wheeled) return FM_CLASS_LIGHT_VEHICLE;
   return FM_CLASS_INFANTRY;
+}
+
+/** Whether `tpl` leaves class code `cls` out. False for `FM_CLASS_NONE` and every code outside 0..6 (a shift by 255
+ *  would wrap, so the range is checked first). */
+export function fmExcludes(tpl: CompiledFormation, cls: number): boolean {
+  return cls >= 0 && cls < FORMATION_CLASSES.length && (tpl.excludeMask & (1 << cls)) !== 0;
 }
 
 /**
@@ -419,8 +427,13 @@ export interface CompiledFormation {
   readonly verb: number;
   readonly minMembers: number;
   readonly elements: readonly CompiledElement[];
-  /** Per class code 0..6: the index of the element that takes it. */
+  /** Per class code 0..6: the index of the element that takes it. An excluded class still has an entry (the last
+   *  element, or `rest`), and nothing may read it: `fmExcludes` is asked first. */
   readonly elementOfClass: readonly number[];
+  /** Bit `c` set: class code `c` (0..6) is LEFT OUT of the formation (`exclude` in the file, GH-859). Such a unit
+   *  takes the plain group order beside the formed one and is never seated, counted or grouped. 0 for a file with
+   *  no `exclude`, which is every file but the Attack. */
+  readonly excludeMask: number;
   readonly face: number;
   readonly arriveStance: number;
   readonly drill: number;
@@ -540,6 +553,20 @@ export function compileFormation(json: FormationJson): CompiledFormation {
     });
   });
 
+  // The classes left out. A class that is also in an element is dead data in one of the two: refused, naming both.
+  let excludeMask = 0;
+  if (json.exclude !== undefined) {
+    if (!Array.isArray(json.exclude) || json.exclude.length === 0) bad(id, 'exclude', json.exclude);
+    for (const c of json.exclude) {
+      const code = pick(id, 'exclude', c, FORMATION_CLASSES);
+      if ((excludeMask & (1 << code)) !== 0) bad(id, 'exclude', `${c} twice`);
+      excludeMask |= 1 << code;
+    }
+    elements.forEach((el, i) => {
+      if ((el.classMask & excludeMask) !== 0) bad(id, `elements[${i}].classes`, 'names an excluded class');
+    });
+  }
+
   // Which element takes each class: the first to name it, else the `rest` element, else the last.
   const elementOfClass: number[] = [];
   for (let c = 0; c < FORMATION_CLASSES.length; c++) {
@@ -578,6 +605,7 @@ export function compileFormation(json: FormationJson): CompiledFormation {
     minMembers,
     elements,
     elementOfClass,
+    excludeMask,
     face,
     arriveStance: stance === 0 ? 0 : stance === 1 ? FM_ARRIVE_HOLD : FM_ARRIVE_AMBUSH,
     drill,
@@ -766,7 +794,7 @@ function fill(tpl: CompiledFormation, members: readonly FillMember[], g: Ground)
 function sortMembers(tpl: CompiledFormation, raw: readonly { id: number; domain: number; cls: number; vehicle: boolean }[]): FillMember[] {
   const out: FillMember[] = [];
   for (const u of raw) {
-    if (u.cls === FM_CLASS_NONE) continue;
+    if (u.cls === FM_CLASS_NONE || fmExcludes(tpl, u.cls)) continue;
     const elem = tpl.elementOfClass[u.cls];
     const list = tpl.elements[elem].classes;
     let pos = list.indexOf(u.cls);
@@ -821,9 +849,10 @@ export interface TemplateSlot {
 /**
  * Fit `tpl` to the ground. The frame is `assignFormation`'s: the approach is the click-from vector
  * quantised to an axis (ties to x), ids are sorted, walks run N-E-S-W per distinct (mask,
- * origin), overflow is behind-first. A class-none unit gets no slot. `ringRadius` is 0 with no
+ * origin), overflow is behind-first. A class-none unit gets no slot, and neither does one of an excluded class (`fmExcludes`: the order places it by the plain grid). `ringRadius` is 0 with no
  * ring element. `overflow` lists the ids the template had no slot for (they stand on the nearest free
- * ground instead, spacing dropped).
+ * ground instead, spacing dropped). A unit of an excluded class (`fmExcludes`) is not a member at all: no slot, no
+ * overflow, no entry in `overflow`; the order places it by the plain grid.
  */
 export function assignTemplate(input: TemplateInput, tpl: CompiledFormation): { slots: TemplateSlot[]; ringRadius: number; overflow: number[] } {
   const w = input.width;

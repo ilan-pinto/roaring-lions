@@ -16,6 +16,8 @@
 //   - `rest` appears at most once, and only in the last element;
 //   - `arrival.stance` is `ambush` only with a ring element and the `spring` drill;
 //   - at most one ring element;
+//   - an `exclude`d class is not named by any element (a class the formation leaves out has no slot, so an
+//     element naming it would be dead data), and `rest` does not stand in for the classes left out;
 //   - at most 255 formations in all: the sim keeps a group's type in one byte (`fgType`) and a
 //     256th would wrap onto the first.
 //
@@ -84,6 +86,14 @@ export function formationFailures(files, en) {
         if (i !== elements.length - 1) out.push(`${file}: element ${i} names "rest" but is not the last element`);
       }
     });
+    const left = new Set(Array.isArray(doc.exclude) ? doc.exclude : []);
+    if (left.size > 0) {
+      elements.forEach((el, i) => {
+        for (const c of Array.isArray(el?.classes) ? el.classes : []) {
+          if (left.has(c)) out.push(`${file}: element ${i} names "${c}", which the formation excludes`);
+        }
+      });
+    }
     if (rests > 1) out.push(`${file}: "rest" appears in ${rests} elements; at most one`);
     if (rings > 1) out.push(`${file}: ${rings} ring elements; at most one`);
     if (rings > 0 && !has('hud.formation.shape.ring')) out.push(`${file}: has a ring but en.json has no hud.formation.shape.ring`);

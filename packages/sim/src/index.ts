@@ -151,6 +151,7 @@ export {
   checkpointsOf,
   compileFormation,
   eighthToward,
+  fmExcludes,
   formationClassOf,
   ringTiles,
   routeWalk,

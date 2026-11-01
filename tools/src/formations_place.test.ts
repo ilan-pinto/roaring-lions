@@ -4,7 +4,7 @@
 // generator, so this is a vitest test. The roster tables below are literals.
 import { describe, expect, it } from 'vitest';
 import { formations } from '@lions/data';
-import { assignTemplate, compileFormation, type FormationJson, type TemplateUnit } from '@lions/sim';
+import { assignTemplate, compileFormation, fmExcludes, type FormationJson, type TemplateUnit } from '@lions/sim';
 
 const W = 48;
 const H = 48;
@@ -60,9 +60,14 @@ describe('every shipped formation places N = 2..24 on open ground', () => {
             tpl
           );
           const where = `${tpl.id} / ${mixName} / N=${n}`;
-          // every member gets a slot, and no tile is used twice
-          expect(slots, where).toHaveLength(n);
-          expect(new Set(slots.map((s) => `${s.x},${s.y}`)).size, where).toBe(n);
+          // every member gets a slot, and no tile is used twice. A class the formation leaves out (the Attack's
+          // aircraft) is no member: it gets none here, and the order seats it by the plain grid.
+          const left = units.filter((u) => fmExcludes(tpl, u.cls));
+          if (tpl.id === 'attack') expect(left.every((u) => u.air), where).toBe(true);
+          const members = n - left.length;
+          expect(slots, where).toHaveLength(members);
+          expect(slots.some((s) => fmExcludes(tpl, units[s.id - 1].cls)), where).toBe(false);
+          expect(new Set(slots.map((s) => `${s.x},${s.y}`)).size, where).toBe(members);
           // No overflow: every member is on a template slot. A column of armour is 3 rows a hull, so the
           // walk's cap of 24 holds 17 of them (rows 0..8 in file 0, 0..7 in file 1); hull 18 onward is the
           // SPILL (S3), which runs on behind the column in the same pattern rather than packing at the click.
