@@ -4,6 +4,7 @@
 //   pnpm perf:memory                                   # report: menu, board, 3 missions, leaves
 //   pnpm perf:memory -- --gate                         # and judge it against memory-budgets.ts
 //   pnpm perf:memory -- --missions=a,b --play-s=60 --out=/tmp/mem.json
+//   pnpm perf:memory -- --sandbox=rujm_sawda,wadi_tarfan --play-s=30   # a map no mission plays on (GH-913 L7)
 //   pnpm perf:memory -- --gpu=swiftshader              # CI's rasteriser, on a Mac
 //   pnpm perf:memory -- --viewport=1440x900 --dpr=2    # a retina laptop's drawing buffer
 //   pnpm perf:memory -- --serve=preview                # the production build (pnpm build first)
@@ -89,6 +90,10 @@ class InstrumentError extends Error {}
 
 interface Args {
   missions: string[];
+  /** `--sandbox=<map>,...`: free-play maps walked like missions (`/free-play/<map>`, labelled
+   *  `mission sandbox:<map>` so the mission ceiling judges them). Given on its own it REPLACES the
+   *  default missions: a walk of one big map has no use for three others. */
+  sandboxes: string[];
   playS: number;
   /** Sim seconds per `__lions.step` call; see `playMission`. */
   sliceS: number;
@@ -110,7 +115,8 @@ interface Args {
 
 function parseArgs(argv: string[]): Args {
   const get = (k: string): string | undefined => argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
-  const missions = get('missions')?.split(',').filter(Boolean) ?? DEFAULT_MISSIONS;
+  const sandboxes = get('sandbox')?.split(',').filter(Boolean) ?? [];
+  const missions = get('missions')?.split(',').filter(Boolean) ?? (sandboxes.length > 0 ? [] : DEFAULT_MISSIONS);
   const playS = Number(get('play-s') ?? 120);
   if (!Number.isFinite(playS) || playS < 0) throw new InstrumentError(`--play-s must be a number of seconds, got ${get('play-s')}`);
   const sliceS = Number(get('slice-s') ?? 30);
@@ -126,6 +132,7 @@ function parseArgs(argv: string[]): Args {
   const out = get('out');
   return {
     missions,
+    sandboxes,
     playS,
     sliceS,
     gate: argv.includes('--gate'),
@@ -281,7 +288,10 @@ async function waitForBoard(page: Page): Promise<void> {
 }
 
 async function playMission(page: Page, id: string, playS: number, sliceS: number): Promise<void> {
-  await dismissDeployGate(page, `${TAG} ${id}`, { selectorTimeoutMs: STEP_TIMEOUT_MS, timeoutMs: STEP_TIMEOUT_MS });
+  // A free-play sandbox has no deploy gate (GH-913 L7): waiting for one would only time out.
+  if (!id.startsWith('sandbox:')) {
+    await dismissDeployGate(page, `${TAG} ${id}`, { selectorTimeoutMs: STEP_TIMEOUT_MS, timeoutMs: STEP_TIMEOUT_MS });
+  }
   await page.waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined, null, {
     timeout: STEP_TIMEOUT_MS,
   });
@@ -383,11 +393,17 @@ async function main(): Promise<number> {
     await page.waitForTimeout(3000);
     readings.push(await read('menu (again, after the board)', page, cdp, browserCdp, t0));
 
-    for (const id of args.missions) {
-      await softNav(page, `/mission/${id}`);
+    const walks = [
+      ...args.missions.map((id) => ({ id, href: `/mission/${id}`, label: `mission ${id}` })),
+      ...args.sandboxes.map((id) => ({ id: `sandbox:${id}`, href: `/free-play/${id}`, label: `mission sandbox:${id}` })),
+    ];
+    for (const { id, href, label } of walks) {
+      await softNav(page, href);
       await playMission(page, id, args.playS, args.sliceS);
-      readings.push(await read(`mission ${id}`, page, cdp, browserCdp, t0));
-      const how = await leaveMission(page);
+      readings.push(await read(label, page, cdp, browserCdp, t0));
+      // A free-play map's leave goes to the picker, not the board `leaveMission` waits for: the
+      // soft link home is the same router unmount (GH-913 L7).
+      const how = id.startsWith('sandbox:') ? 'soft link to / (free play has no board to return to)' : await leaveMission(page);
       console.log(`[${TAG}] left ${id} by ${how}`);
       await softNav(page, '/');
       await waitForMenu(page);
