@@ -59,12 +59,24 @@ export const PART_TRIANGLES_OLD = 315;
 /** Clips in which the living body lies dead: the fist replaces the hand. */
 export const DEAD_CLIPS: readonly string[] = ['down', 'fall', 'wreck'];
 
+export interface SleevePatch { readonly rect: readonly [number, number, number, number]; readonly down: boolean }
+
+/** The tube's section where it leaves the sleeve (half extents, metres) at most: full 0.104 x 0.080. Left and right alike. */
+export const FOREARM_TOP_A_MAX = 0.052;
+export const FOREARM_TOP_B_MAX = 0.040;
+
 export interface HandsTeam {
   /** The anatomical RIGHT hand's bone side (rig.py's `_L`): the firing hand. */
   readonly figures: readonly string[];
   readonly glove: readonly [number, number];
   /** Solid texels of the sleeve, per bone side. */
   readonly sleeve: { readonly L: readonly [number, number]; readonly R: readonly [number, number] };
+  /**
+   * The old forearm's own sleeve cloth, per bone side: the pixel rectangle of the atlas the old forearm's largest UV island
+   * covers (x, y, width, height), and whether the arm runs up the rectangle (v increases with the distance from the elbow)
+   * or down it. The new tube stretches this over its length and mirrors it across its circumference (no seam).
+   */
+  readonly sleevePatch: { readonly L: SleevePatch; readonly R: SleevePatch };
   readonly atlas: readonly [number, number];
   /** The review's measured sleeve below the old elbow, metres (only to print the stretch). */
   readonly oldSleeve: { readonly L: number; readonly R: number };
@@ -77,6 +89,8 @@ export const HANDS_TEAMS: Record<string, HandsTeam> = {
     glove: [540, 594],
     // the sleeve's own colour, solid 5 x 5 blocks within dE 0.1 of the review's sleeve means (36.0,-8.4,8.7) / (32.2,-9.1,9.2)
     sleeve: { L: [339, 370], R: [418, 142] },
+    // the old forearm's own islands (the largest of each side, inside the olive-green cloth: mean dE 1.1 / 2.1 to the sleeve means above)
+    sleevePatch: { L: { rect: [474, 620, 64, 90], down: true }, R: { rect: [284, 408, 44, 78], down: false } },
     atlas: [2048, 1024],
     oldSleeve: { L: 0.04, R: 0.1 },
   },
@@ -109,6 +123,20 @@ export async function loadCarbine(file = path.join(REPO, 'art', 'parts', 'kdf_ca
   const mesh = [...parts.values()][0];
   if (!mesh) throw new Error(`hands: ${file} has no mesh`);
   return { mesh };
+}
+
+const SIDES = 12;
+/**
+ * The UV of ring `k` (of 5), column `col` (of 12) of a forearm tube: the old sleeve's patch, stretched along the tube and
+ * mirrored across the circumference (u runs 0 to 1 over half the turn and back), so there is no seam to tear.
+ */
+export function sleevePatchUv(patch: SleevePatch, atlas: readonly [number, number], k: number, col: number, rings = 5): [number, number] {
+  const [x, y, w, h] = patch.rect;
+  const theta = (2 * Math.PI * col) / SIDES;
+  const uu = Math.abs(((theta + Math.PI) % (2 * Math.PI)) - Math.PI) / Math.PI;
+  const f = k / (rings - 1);
+  const vv = patch.down ? 1 - f : f;
+  return [(x + 0.5 + uu * (w - 1)) / atlas[0], (y + 0.5 + vv * (h - 1)) / atlas[1]];
 }
 
 const texelUv = (t: readonly [number, number], atlas: readonly [number, number]): [number, number] => [(t[0] + 0.5) / atlas[0], (t[1] + 0.5) / atlas[1]];
@@ -303,7 +331,9 @@ export function runHandsPass(doc: Document, id: string, spec: HandsTeam, lib: Ha
     const tWrist = tE + FOREARM_M;
     // the tube ends over the glove's cuff: the cuff is 0.074 x 0.056 at its rim (hands.py), the sleeve a hair over it
     const endA = 0.043, endB = 0.034;
-    const topA = sec.a * 0.92, topB = sec.b * 0.92;
+    // A sleeved forearm is an ellipse, not a round tube: about 0.095 x 0.078 at mid. The firing side's old section was round and
+    // 0.11 x 0.11 there, so the top is capped, and the same cap on both sides keeps the two arms within 1 cm.
+    const topA = Math.min(sec.a * 0.92, FOREARM_TOP_A_MAX), topB = Math.min(sec.b * 0.92, FOREARM_TOP_B_MAX);
     const rings = [] as { c: V3; u: V3; v: V3; a: number; b: number }[];
     const nR = 5;
     for (let k = 0; k < nR; k++) {
@@ -315,10 +345,10 @@ export function runHandsPass(doc: Document, id: string, spec: HandsTeam, lib: Ha
       rings.push({ c: add(add(S, scale(d, tk)), off), u: sec.u, v: sec.v, a: topA + (endA - topA) * w, b: topB + (endB - topB) * w });
     }
     void tWrist;
-    const sleeveUv = texelUv(spec.sleeve[side], spec.atlas);
-    const tube = loftEllipses(rings, 12);
+    const tube = loftEllipses(rings, SIDES);
     const base0 = vertexCount(U);
-    tube.pos.forEach((q, i) => addVertex(U, q, tube.nrm[i], sleeveUv, jF));
+    const patch = spec.sleevePatch[side];
+    tube.pos.forEach((q, i) => addVertex(U, q, tube.nrm[i], sleevePatchUv(patch, spec.atlas, Math.floor(i / SIDES), i % SIDES), jF));
     for (const tr of tube.tri) U.idx.push(base0 + tr[0], base0 + tr[1], base0 + tr[2]);
     const stretch = FOREARM_M / ((tOld - tE) + spec.oldSleeve[side]);
     if (stretch > MAX_STRETCH) throw new Error(`${id} ${p}_${side}: the forearm is stretched ${stretch.toFixed(2)}x, the limit is ${MAX_STRETCH}`);
