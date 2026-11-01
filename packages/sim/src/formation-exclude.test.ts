@@ -118,7 +118,7 @@ describe('the field compiles', () => {
     const tpl = compileFormation(LEAVES_AIR);
     expect(fmExcludes(tpl, FM_CLASS_AIRCRAFT)).toBe(true);
     expect(fmExcludes(tpl, FM_CLASS_INFANTRY)).toBe(false);
-    // 255 & 31 = 31 would not hit bit 6, but 1 << 262 === 1 << 6 in JS: the range check is what keeps none out.
+    // The mask holds bits 0..6 only, so class none (255, a shift of 31 in JS) could never hit one; the range check is for the reader.
     expect(fmExcludes(tpl, FM_CLASS_NONE)).toBe(false);
     expect(fmExcludes(tpl, -1)).toBe(false);
     expect(fmExcludes(tpl, 7)).toBe(false);
@@ -303,5 +303,74 @@ describe('what is left out does not count', () => {
     for (const id of w.squads) expect(p.fmGroup[id]).toBe(-1);
     // The plain grid, with the tanks' click-rank tiles (24 and 26) reserved by the template that was seated first.
     expect(finals(w.sim, w.squads)).toEqual([[25, 24], [23, 24], [22, 24]]);
+  });
+});
+
+/** Every placeable class stands off the click, so the click tile is free for a left-out unit. */
+const STANDOFF: FormationJson = {
+  ...LEAVES_AIR,
+  id: 'fx_standoff',
+  elements: [
+    { classes: ['armour'], shape: { kind: 'rank', spacing: 2, max_lateral: 6, rank_depth: 3 }, standoff: 6 },
+    { classes: ['infantry'], shape: { kind: 'rank', spacing: 1, max_lateral: 3, rank_depth: 1 }, gap: 1 },
+  ],
+};
+
+describe('sim-guard round 1: survivors of 26 mutations', () => {
+  it('APPEND: an appended formed order joins the excluded unit to no group', () => {
+    const w = world(3);
+    const all = [...w.tanks, ...w.squads, ...w.air];
+    w.sim.queueCommand({ kind: 'move', ids: all, x: at(10), y: at(30) } as never);
+    for (let t = 0; t < 5; t++) w.sim.tick();
+    w.sim.queueCommand({ kind: 'attackMove', ids: all, x: at(24), y: at(24), append: true, formation: 'fx_attack' } as never);
+    w.sim.tick();
+    const p = priv(w.sim);
+    for (const id of w.air) {
+      expect(p.wpCount[id]).toBe(1); // the click, queued behind the leg it was on
+      expect(p.fmGroup[id]).toBe(-1);
+    }
+    expect(p.fgMembers[p.fmGroup[w.tanks[0]]]).toBe(5);
+  });
+
+  it('MARCH + CLICK FRACTION: a left-out unit whose slot is the clicked tile keeps the exact point on a march', () => {
+    const w = world(0, [STANDOFF]);
+    const air = w.sim.spawn(w.sim.unitTypes.length - 1, 0, at(24), at(44), 0);
+    w.sim.queueCommand({ kind: 'attackMove', ids: [...w.tanks, ...w.squads, air], x: fx.from(24.25), y: fx.from(24.25), formation: 'fx_standoff' } as never);
+    w.sim.tick();
+    const p = priv(w.sim);
+    expect(p.wpCount[w.tanks[0]]).toBeGreaterThan(0); // it IS a march
+    expect(finalTile(w.sim, air)).toEqual([24, 24]); // the plain grid's click tile (the template stands off)
+    expect([p.goalX[air], p.goalY[air]]).toEqual([fx.from(24.25), fx.from(24.25)]);
+  });
+
+  it('DOMAIN ORIGINS: a left-out tank is seated on the VEHICLE origin when a boulder shuts the click to wheels', () => {
+    const mk = (): W => {
+      const w = world(0);
+      for (const y of [22, 23, 24]) w.sim.setBoulder(24, y, true);
+      return w;
+    };
+    const one = mk();
+    attack(one.sim, [...one.tanks, ...one.squads], 'fx_noarm');
+    one.sim.tick();
+    const two = mk();
+    attack(two.sim, two.squads, 'fx_noarm');
+    attack(two.sim, two.tanks);
+    two.sim.tick();
+    expect(finals(one.sim, one.tanks)).toEqual(finals(two.sim, two.tanks));
+    for (const [x, y] of finals(one.sim, one.tanks)) expect(x === 24 && y >= 22 && y <= 24).toBe(false);
+  });
+
+  it('BYSTANDER: an own-side unit outside the order holds its tile against the left-out units as well', () => {
+    const mk = (): W => {
+      const w = world(3);
+      w.squads.push(w.sim.spawn(w.sim.unitTypes.length - 2, 0, at(22), at(24), 0)); // idle, outside the order, on the first air tile
+      return w;
+    };
+    const w = mk();
+    const bystander = w.squads[3];
+    attack(w.sim, [...w.tanks, ...w.squads.slice(0, 3), ...w.air], 'fx_attack');
+    w.sim.tick();
+    expect(finals(w.sim, w.air).map(([x, y]) => `${x},${y}`)).not.toContain('22,24');
+    expect(bystander).toBeGreaterThan(0);
   });
 });

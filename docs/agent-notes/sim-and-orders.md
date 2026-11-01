@@ -176,6 +176,11 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
   `validate_formations.mjs` refuse a class named by both `exclude` and an element. An Attack with only aircraft and one tank is
   therefore a plain order (one placeable member). The Attack no longer has a contact call: every witness built on its aircraft
   sortie is a Column witness now. HUD follow-up (not done): the row's `min_members` count and the legend still count aircraft for the Attack.
+  Deliberate divergences from "two commands" (sim-guard round 1, all deterministic; `formation-exclude.test.ts` pins the first):
+  fewer placeable members than `min_members` is ONE plain grid over everyone, excluded units included (the formation did not form);
+  an excluded unit's own tile is not reserved against the template (it is in the order, as every template member is); a
+  duplicate id is seated once; a side-2 unit of an excluded class is ignored (as the template ignores side 2); and the
+  formed group may reuse a row an excluded unit used to hold, so `fmGroup` can differ from the two-command run.
   The app mirrors the too-few case: it keeps the formation's own verb (Attack with one unit sends a plain
   `attackMove`) and plays the deny cue with a feed line.
 - **Why the faction check is versus-only.** The sim does not check factions: it knows sides, not factions, and

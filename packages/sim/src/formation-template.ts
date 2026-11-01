@@ -200,8 +200,8 @@ export function formationClassOf(json: UnitClassJson, wheeled: boolean): number 
   return FM_CLASS_INFANTRY;
 }
 
-/** Whether `tpl` leaves class code `cls` out. False for `FM_CLASS_NONE` and every code outside 0..6 (a shift by 255
- *  would wrap, so the range is checked first). */
+/** Whether `tpl` leaves class code `cls` out. False for `FM_CLASS_NONE` and every code outside 0..6 (JS masks a shift count to 5 bits, so the range
+ *  is checked rather than left to the mask). */
 export function fmExcludes(tpl: CompiledFormation, cls: number): boolean {
   return cls >= 0 && cls < FORMATION_CLASSES.length && (tpl.excludeMask & (1 << cls)) !== 0;
 }
