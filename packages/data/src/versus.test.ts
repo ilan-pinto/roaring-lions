@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { doctrines, maps, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf } from './index';
+import { VERSUS_CAP_MINUTES_DEFAULT, doctrines, maps, versusCapMinutesOf, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf } from './index';
 
 describe('the exports', () => {
   it('doctrines are the two shipped files, keyed by faction, with the Q4 caps', () => {
@@ -9,8 +9,8 @@ describe('the exports', () => {
     expect(doctrines.kdf.pop_cap).toBe(40);
     expect(doctrines.sarim.pop_cap).toBe(56);
   });
-  it('versusRules has one file per matchup map, and the large map\'s not-yet-offered one, keyed by map id', () => {
-    // rujm_sawda (GH-913 L4) is authored but in neither FACTION_MATCHUP_MAPS nor VERSUS_FAIR_MAPS.
+  it('versusRules has one file per matchup map, and the large mirror-only map\'s, keyed by map id', () => {
+    // rujm_sawda (GH-913) is in VERSUS_FAIR_MAPS (L8) and not in FACTION_MATCHUP_MAPS.
     expect(Object.keys(versusRules).sort()).toEqual(['rujm_sawda', 'tel_marum', 'wadi_tarfan']);
     for (const [id, r] of Object.entries(versusRules)) expect(r.map).toBe(id);
   });
@@ -72,5 +72,19 @@ describe('versusTunnelsOf (GH-681)', () => {
   it('is [] for a file with no tunnels block', () => {
     const bare = { ...versusRules.tel_marum, tunnels: undefined };
     expect(versusTunnelsOf(bare, 'hostile', 1)).toEqual([]);
+  });
+});
+
+describe('versusCapMinutesOf (GH-913 L8)', () => {
+  const base = versusRules.wadi_tarfan;
+  it('is 25 for a file with no cap_minutes and for no file at all; Rujm Sawda declares 35', () => {
+    expect(VERSUS_CAP_MINUTES_DEFAULT).toBe(25);
+    expect(versusCapMinutesOf(base)).toBe(25);
+    expect(versusCapMinutesOf(undefined)).toBe(25);
+    expect(versusCapMinutesOf(versusRules.rujm_sawda)).toBe(35);
+  });
+  it('takes 25..60 and throws on the rest', () => {
+    for (const ok of [25, 35, 60]) expect(versusCapMinutesOf({ ...base, cap_minutes: ok })).toBe(ok);
+    for (const bad of [24, 61, 0, 35.5, Number.NaN]) expect(() => versusCapMinutesOf({ ...base, cap_minutes: bad }), String(bad)).toThrow(/cap_minutes/);
   });
 });

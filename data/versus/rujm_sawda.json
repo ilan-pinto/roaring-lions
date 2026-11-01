@@ -2,6 +2,7 @@
   "id": "rujm_sawda",
   "map": "rujm_sawda",
   "capacity": 512,
+  "cap_minutes": 35,
   "ends": {
     "friendly": {
       "camp": {

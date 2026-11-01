@@ -471,6 +471,22 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
     expect(open.got).toEqual([move(), attackMove()]);
   });
 
+  it('GH-913 L8: with the gate open a Rujm Sawda room still strips the formation (the sender); another map delivers it', () => {
+    const rujm = collect();
+    roomOrderSink(LIVE, rujm.sink, () => {}, 'versus', true, 'rujm_sawda').queueCommand(move());
+    expect(rujm.got).toEqual([withoutFormation(move())]);
+    const wadi = collect();
+    roomOrderSink(LIVE, wadi.sink, () => {}, 'versus', true, 'wadi_tarfan').queueCommand(move());
+    expect(wadi.got).toEqual([move()]);
+  });
+
+  it('GH-913 L8: every main.ts consumer of the predicate passes the room\'s map (a call that drops it would open Rujm Sawda)', () => {
+    const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
+    expect(main).toContain('formationsOpenIn(netConfig?.mode, undefined, netConfig?.map)');
+    expect(main.match(/netConfig\??\.mode, undefined, netConfig\??\.map\)/g)).toHaveLength(4);
+    expect(main.match(/formationsOpenIn\(/g)).toHaveLength(1); // the one call (the import line has no paren)
+  });
+
   it('W2: single-player has no room, so its sink is the transport itself and the order carries the formation', () => {
     const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
     expect(main).toContain('room === null ? transport : roomOrderSink(');

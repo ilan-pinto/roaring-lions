@@ -2978,7 +2978,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1);
   /** GH-859 P1a: formations are off in a versus room until P1b -- the one predicate (`net/versus-formations.ts`),
    *  read by the HUD's row, the arming and the click's resolver alike. */
-  const formationsOpen = (): boolean => formationsOpenIn(netConfig?.mode);
+  const formationsOpen = (): boolean => formationsOpenIn(netConfig?.mode, undefined, netConfig?.map);
   /** Who a formation order is handed: the selected own living, less any unit inside a building, aboard a carrier or
    *  below ground (the sim leaves those out at accept time, so leaving them out here keeps `min_members` honest). */
   const formationOrderIds = (): number[] =>
@@ -3508,7 +3508,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  here, not beside `dispatch`, because the dock is built before it. */
   const cmdSink: CommandSink = room === null
     ? transport
-    : roomOrderSink(() => room.status(), transport, () => { blockedNotes?.blocked(); }, netConfig?.mode);
+    : roomOrderSink(() => room.status(), transport, () => { blockedNotes?.blocked(); }, netConfig?.mode, undefined, netConfig?.map);
   /** The advisor's panel and proposal strip (N4a task 10), a versus room only.
    *  Mounted hidden and shown while the room says an advisor sits beside THIS
    *  seat (`onAdvisors`, installed with the scoreboard below, which hears
@@ -3519,7 +3519,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let advisorPanel: AdvisorPanel | null = null;
   if (room !== null && netConfig !== null && netSeat !== null && versusRoom) {
     const myNetSeat: Seat = netSeat;
-    const orderSink = roomOrderSink(() => room.status(), transport, () => blockedNotes?.blocked(), netConfig.mode);
+    const orderSink = roomOrderSink(() => room.status(), transport, () => blockedNotes?.blocked(), netConfig.mode, undefined, netConfig.map);
     const panel = mountAdvisorPanel(document.body, {
       send: (a) => room.advisor(a),
       queueCommand: (cmd) => orderSink.queueCommand(cmd),
@@ -4540,7 +4540,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const dispatch = (intent: PlayerIntent): void => {
     let refused = false;
     applyIntent(
-      room === null ? transport : roomOrderSink(() => room.status(), transport, () => { refused = true; }, netConfig?.mode),
+      room === null ? transport : roomOrderSink(() => room.status(), transport, () => { refused = true; }, netConfig?.mode, undefined, netConfig?.map),
       intent,
       sim
     );

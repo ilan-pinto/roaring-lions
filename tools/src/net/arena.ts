@@ -58,8 +58,8 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MATCHUPS, factionsOfMatchup, matchupAllowed, versusMapAllowed, type MatchConfig, type Matchup, type TransportStatus } from '@lions/net';
-import { MATCH_CAP_TICKS, productionOf, type MatchResult, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
+import { MATCHUPS, factionsOfMatchup, matchCapTicks, matchupAllowed, versusMapAllowed, type MatchConfig, type Matchup, type TransportStatus } from '@lions/net';
+import { productionOf, type MatchResult, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 import { scoreOf, type MatchScore } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
 import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, type GateVerdict, type Tally } from './arena-score';
@@ -151,7 +151,7 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
   const firstSeed = intIn('first-seed', got.get('first-seed'), 0, 0, 1_000_000);
   const pace = intIn('pace', got.get('pace'), 60, 20, 1200);
   const roundWallMs = intIn('round-wall-ms', got.get('round-wall-ms'), 120_000, 1000, 600_000);
-  const capTicks = intIn('cap-ticks', got.get('cap-ticks'), 12_000, 1, MATCH_CAP_TICKS);
+  const capTicks = intIn('cap-ticks', got.get('cap-ticks'), 12_000, 1, matchCapTicks(got.get('map') ?? 'tel_marum'));
   const tickMs = intIn('tick-ms', got.get('tick-ms'), 2, 1, 1000);
   for (const v of [seeds, firstSeed, pace, roundWallMs, capTicks, tickMs]) if (typeof v !== 'number') return v;
   return {
@@ -276,6 +276,7 @@ export function judge(
   seats: readonly [SeatSnapshot | null, SeatSnapshot | null],
   sides: readonly [0 | 1, 0 | 1],
   capTicks: number,
+  map?: string,
 ): { outcome: GameRecord['outcome']; by: string } {
   const live = seats.filter((c): c is SeatSnapshot => c !== null);
   for (const c of live) {
@@ -294,7 +295,7 @@ export function judge(
     return toOutcome(decided[0], decided[0].by);
   }
   const referee = seats[0] ?? seats[1];
-  if (referee !== null && referee.sim !== null && live.every((c) => c.tick === capTicks)) return toOutcome(capOutcome(referee.sim, referee.production), 'cap');
+  if (referee !== null && referee.sim !== null && live.every((c) => c.tick === capTicks)) return toOutcome(capOutcome(referee.sim, referee.production, map), 'cap');
   const st = referee?.status;
   return { outcome: 'void', by: st?.kind === 'closed' ? st.reason : 'unfinished' };
 }
@@ -445,7 +446,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     for (const r of running) await r.stop();
     const reports = await Promise.all(running.map((r) => r.done)) as [PlayerReport, PlayerReport];
     const sides: [0 | 1, 0 | 1] = [config.seats[0].side as 0 | 1, config.seats[1].side as 0 | 1];
-    const verdict = timedOut ? { outcome: 'void' as const, by: 'timeout' } : judge(seen, sides, a.capTicks);
+    const verdict = timedOut ? { outcome: 'void' as const, by: 'timeout' } : judge(seen, sides, a.capTicks, a.map);
     const sim = referee.world()?.sim;
     if (sim === undefined) throw new Error('the reading seat never built its world');
     return {

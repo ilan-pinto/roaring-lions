@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { endOfSeat, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, type MatchConfig } from './config';
+import { MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, endOfSeat, matchCapMinutes, matchCapTicks, maxLogCmdChars, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -128,7 +128,8 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
       expect(matchupAllowed('kdf', map), map).toBe(true);
     }
     // Milh Flats is mirror-only: Sarim on its west seat lost 33 of 48 in the probe.
-    for (const map of ['beit_sahwan_outskirts', 'milh_flats', 'qarn_hadid', '']) {
+    // Rujm Sawda (GH-913 L8) is mirror-only too: its KDF-v-Sarim cells read KDF 66-74% and the tunnels cell ~96%.
+    for (const map of ['beit_sahwan_outskirts', 'milh_flats', 'rujm_sawda', 'qarn_hadid', '']) {
       expect(matchupAllowed('kdf', map)).toBe(false);
       expect(matchupAllowed('sarim', map)).toBe(false);
       expect(matchupAllowed('mirror', map)).toBe(true);
@@ -136,7 +137,7 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
   });
 
   it('a versus room is offered only on the maps measured close to even (the lead, 2026-10-14, #561)', () => {
-    expect([...VERSUS_FAIR_MAPS]).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats']);
+    expect([...VERSUS_FAIR_MAPS]).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda']);
     for (const map of VERSUS_FAIR_MAPS) expect(versusMapAllowed(map)).toBe(true);
     // Every other shipped map, a tile study, and things that are not a map id at all.
     for (const map of ['qarn_hadid', 'wadi_halam_basin', 'deir_amun', 'umm_zeitoun', 'khan_rafid', 'marj_perimeter', 'tel_marum_3', 'tile_road', 'tutorial_ground', '', '__proto__', 'Tel_Marum']) {
@@ -146,6 +147,26 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
 
   it('a map KDF can face Sarim on is a fair map too: the narrower rule sits inside the wider one', () => {
     for (const map of FACTION_MATCHUP_MAPS) expect(VERSUS_FAIR_MAPS).toContain(map);
+  });
+});
+
+describe('the per-map match cap (GH-913 L8)', () => {
+  it('is 25 minutes on every map but Rujm Sawda, which gets 35', () => {
+    expect(MATCH_CAP_MINUTES_DEFAULT).toBe(25);
+    expect({ ...MAP_CAP_MINUTES }).toEqual({ rujm_sawda: 35 });
+    for (const map of ['tel_marum', 'wadi_tarfan', 'milh_flats', 'beit_sahwan_outskirts', '', '__proto__', 'constructor', 'toString']) expect(matchCapMinutes(map), map).toBe(25);
+    expect(matchCapMinutes(null)).toBe(25);
+    expect(matchCapMinutes(undefined)).toBe(25);
+    expect(matchCapMinutes('rujm_sawda')).toBe(35);
+  });
+  it('in 20 Hz ticks: 30,000 by default, 42,000 on Rujm Sawda', () => {
+    expect(matchCapTicks('tel_marum')).toBe(30_000);
+    expect(matchCapTicks('rujm_sawda')).toBe(42_000);
+  });
+  it('scales the command-log character cap with it: 2,000,000 at 25 minutes, 2,800,000 at 35', () => {
+    expect(maxLogCmdChars('tel_marum', 2_000_000)).toBe(2_000_000);
+    expect(maxLogCmdChars('rujm_sawda', 2_000_000)).toBe(2_800_000);
+    expect(maxLogCmdChars(undefined, 2_000_000)).toBe(2_000_000);
   });
 });
 

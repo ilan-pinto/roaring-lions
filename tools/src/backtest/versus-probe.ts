@@ -10,7 +10,7 @@
 // centroid, re-ordered every 20 s, until the real outcome rule decides
 // (`outcomeOf`, packages/app/src/net/outcome.ts: annihilation, mutual, stalemate)
 // or a 10-minute cap, which is decided on surviving unit value by that same
-// rule (`outcomeOf` asked at `MATCH_CAP_TICKS`) -- not a copy of it. The forces
+// rule (`outcomeOf` asked at the map's own cap, `matchCapTicks(map)`: 25 minutes, 35 on Rujm Sawda) -- not a copy of it. The forces
 // are the ones a room spawns (`versusSpawns`, packages/app/src/net/versus-force.ts),
 // on the room's own seats (`versusAnchors`), in a `Sim` built the way a room builds it.
 // The seed varies the RNG streams and nothing else: 1000 + 7919 * n, so the same
@@ -162,11 +162,11 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Sim, WOUND_DOWN, WOUND_STABILISED, MED_IDLE, fx, type SimEvent } from '@lions/sim';
 import { applyTerrain, doctrines, formations, maps, parseMap, units, versusCapacityOf, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
-import { VERSUS_FAIR_MAPS, seatRules, sidesOfFactions, validateConfig, type Faction, type MatchConfig, type SpawnEnd } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, matchCapTicks, seatRules, sidesOfFactions, validateConfig, type Faction, type MatchConfig, type SpawnEnd } from '@lions/net';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { versusForceOf, versusSpawns } from '../../../packages/app/src/net/versus-force';
-import { MATCH_CAP_TICKS, outcomeOf, productionOf, unitCost, type MatchResult, type OutcomeProduction } from '../../../packages/app/src/net/outcome';
+import { outcomeOf, productionOf, unitCost, type MatchResult, type OutcomeProduction } from '../../../packages/app/src/net/outcome';
 import { versusRoster } from '../../../packages/app/src/net/versus-roster';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { PER_SEED_SCHEMA, type PerSeedCell, type PerSeedFile } from './per-seed';
@@ -404,6 +404,7 @@ export function loneSurvivorOf(ids: readonly number[], roleOf: (id: number) => s
 export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts: PlayOptions = {}): Played {
   if (opts.economy === true || opts.tunnels !== undefined) return playEconomy(mapId, arrangement, seed, opts);
   const capTicks = opts.capTicks ?? CAP_TICKS_DEFAULT;
+  const roomCap = matchCapTicks(mapId);
   const { sim, typeOf, map } = world(mapId, seed, humanHeldOf(opts.rules ?? 'room', mapId, arrangement, seed));
   const { sideOfEnd, factions, ends } = layoutOf(arrangement);
   const force = versusSpawns(sim, typeOf, versusAnchors(map), factions, ends);
@@ -416,13 +417,13 @@ export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts:
     if (t % ORDER_EVERY_TICKS === 0) order(sim, (side) => force.bySide[side], sideOfEnd, opts.formation);
     sim.tick();
     if (sim.tickCount % DECIDE_EVERY_TICKS === 0) {
-      const o = outcomeOf(sim, sim.tickCount);
+      const o = outcomeOf(sim, sim.tickCount, unitCost, undefined, roomCap);
       if (o.kind !== 'ongoing') return finish(o, sim.tickCount, sideOfEnd);
     }
   }
   // The cap: the real rule, asked as if the real cap had come -- the higher
   // surviving value wins, equal values draw. Never 'ongoing' there.
-  const o = outcomeOf(sim, MATCH_CAP_TICKS);
+  const o = outcomeOf(sim, roomCap, unitCost, undefined, roomCap);
   if (o.kind === 'ongoing') throw new Error('the cap rule left a game ongoing');
   return finish(o, sim.tickCount, sideOfEnd);
 }
@@ -627,6 +628,7 @@ export function rescueRound(sim: Sim, side: 0 | 1): number {
 export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number, opts: PlayOptions = {}): Played {
   if (arrangement[0] === arrangement[1]) throw new Error('versus probe: --economy plays a KDF-against-Sarim cell only (a mirror room has no economy)');
   const capTicks = opts.capTicks ?? CAP_TICKS_DEFAULT;
+  const roomCap = matchCapTicks(mapId);
   const w = buildMatchWorld(roomConfig(mapId, arrangement, seed));
   const runtime = w.runtime;
   if (runtime === null) throw new Error(`versus probe: ${mapId} built no economy runtime`);
@@ -683,11 +685,11 @@ export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number
     for (const e of ev.mission) if (e.kind === 'built') { builtBySide[e.side]++; if (isRescueId(e.unit)) rescue[0]++; }
     for (const e of ev.sim) if (e.kind === 'woundRejoined') rescue[1]++;
     if (w.sim.tickCount % DECIDE_EVERY_TICKS === 0) {
-      const o = outcomeOf(w.sim, w.sim.tickCount, unitCost, production);
+      const o = outcomeOf(w.sim, w.sim.tickCount, unitCost, production, roomCap);
       if (o.kind !== 'ongoing') return read(o);
     }
   }
-  const o = outcomeOf(w.sim, MATCH_CAP_TICKS, unitCost, production);
+  const o = outcomeOf(w.sim, roomCap, unitCost, production, roomCap);
   if (o.kind === 'ongoing') throw new Error('the cap rule left a game ongoing');
   return read(o);
 }
@@ -1287,9 +1289,10 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   const rules: SeatTable = rulesArg;
   if (economy && rules !== 'room') throw new Error('--economy plays a room\'s world, on the room\'s seat table: --rules=default does not apply');
   const mapArg = flag(args, 'maps');
-  // The default economy table is the OFFERED maps that have rules files; a rules-only map (rujm_sawda, GH-913)
-  // is read on request: `--economy --maps=rujm_sawda`.
-  const mapIds = mapArg === 'all' ? candidateMaps() : (mapArg?.split(',') ?? (economy ? Object.keys(versusRules).filter((id) => VERSUS_FAIR_MAPS.includes(id)) : VERSUS_FAIR_MAPS)) as MapId[];
+  // The default economy table is the maps where KDF MEETS Sarim (FACTION_MATCHUP_MAPS) that have rules files;
+  // a mirror-only map with a rules file (rujm_sawda, GH-913 L8: its KDF-v-Sarim cells are unoffered) is read on
+  // request: `--economy --maps=rujm_sawda`.
+  const mapIds = mapArg === 'all' ? candidateMaps() : (mapArg?.split(',') ?? (economy ? Object.keys(versusRules).filter((id) => FACTION_MATCHUP_MAPS.includes(id)) : VERSUS_FAIR_MAPS)) as MapId[];
   for (const id of mapIds) if (!(id in maps)) throw new Error(`--maps: "${id}" is not a shipped map`);
   if (economy) for (const id of mapIds) if (!Object.hasOwn(versusRules, id)) throw new Error(`--maps: "${id}" has no versus rules file, so no economy room can be hosted on it`);
   const arrangements = parseArrangements(flag(args, 'arr') ?? (economy ? 'kdf/sarim,sarim/kdf' : 'kdf/kdf,kdf/sarim,sarim/kdf'));

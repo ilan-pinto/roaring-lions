@@ -6,15 +6,15 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, sidesOfFactions, validateConfig, type MatchConfig } from '@lions/net';
-import { maps, parseMap } from '@lions/data';
+import { FACTION_MATCHUP_MAPS, MAP_CAP_MINUTES, VERSUS_FAIR_MAPS, matchCapMinutes, sidesOfFactions, validateConfig, type MatchConfig } from '@lions/net';
+import { maps, parseMap, versusCapMinutesOf, versusRules } from '@lions/data';
 import {
   CAMP_REACH,
   MAX_CAPACITY,
   MAX_TUNNELS,
   VENT_MIN_DIST,
   MATCHUP_MAPS,
-  RULES_ONLY_MAPS,
+  MIRROR_RULES_MAPS,
   VERSUS_SEATS as MJS_SEATS,
   anchorsOf,
   versusRulesFailures,
@@ -31,6 +31,7 @@ interface Rules {
   tunnels?: Record<'friendly' | 'hostile', { id: string; points: number[][]; capacity: number }[]>;
   zones?: Record<string, number[]>;
   income_zones: { zone: string; rate_per_min: number }[];
+  cap_minutes?: number;
 }
 
 const shipped: { file: string; doc: Rules }[] = readdirSync(join(ROOT, 'data', 'versus'))
@@ -76,15 +77,39 @@ describe('the shipped versus rules', () => {
   it('MATCHUP_MAPS is FACTION_MATCHUP_MAPS', () => {
     expect([...MATCHUP_MAPS]).toEqual([...FACTION_MATCHUP_MAPS]);
   });
-  it('RULES_ONLY_MAPS are rules files for maps no room offers: in neither list of @lions/net', () => {
-    // Opening rujm_sawda (GH-913 L5/L8) means moving it out of this list in the same commit, so
-    // this is red the moment a map is opened without its rules file being reclassified.
-    expect(RULES_ONLY_MAPS).toEqual(['rujm_sawda']);
-    for (const id of RULES_ONLY_MAPS) {
+  it('MIRROR_RULES_MAPS are rules files for maps offered for the mirror only: fair, never a faction-matchup map', () => {
+    // GH-913 L8: rujm_sawda is opened for KDF v KDF and Sarim v Sarim. This is red the moment a map is
+    // moved into FACTION_MATCHUP_MAPS without its rules file being reclassified, or dropped from the fair list.
+    expect(MIRROR_RULES_MAPS).toEqual(['rujm_sawda']);
+    for (const id of MIRROR_RULES_MAPS) {
       expect(FACTION_MATCHUP_MAPS, id).not.toContain(id);
-      expect(VERSUS_FAIR_MAPS, id).not.toContain(id);
+      expect(VERSUS_FAIR_MAPS, id).toContain(id);
       expect(shipped.some((s) => s.doc.map === id), id).toBe(true);
     }
+  });
+  it('GH-913 L8: the schema takes a cap_minutes of 25..60 and refuses the rest; only rujm_sawda declares one (35)', () => {
+    const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
+    const ajv = new (Ajv2020 as unknown as new (o: object) => {
+      compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
+    })({ allErrors: true, strict: false });
+    const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
+    const doc = (cap_minutes: unknown): unknown => ({ ...rulesFor('wadi_tarfan')[0].doc, cap_minutes });
+    for (const ok of [25, 35, 60]) expect(validate(doc(ok)), String(ok)).toBe(true);
+    for (const bad of [24, 0, -1, 61, 35.5, '35', null]) expect(validate(doc(bad)), String(bad)).toBe(false);
+    const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, s.doc.cap_minutes]));
+    expect(declared).toEqual({ rujm_sawda: 35, tel_marum: undefined, wadi_tarfan: undefined });
+  });
+  it('GH-913 L8: @lions/net\'s MAP_CAP_MINUTES twin is every rules file\'s cap_minutes, both ways', () => {
+    // The Worker imports @lions/net and not @lions/data, so it reads the twin. A rules file that says 35 while
+    // the twin says 25 would let the client and the Worker disagree on the match length and the log cap.
+    for (const { doc } of shipped) {
+      expect(matchCapMinutes(doc.map), doc.map).toBe(doc.cap_minutes ?? 25);
+      expect(versusCapMinutesOf(versusRules[doc.map]), doc.map).toBe(matchCapMinutes(doc.map));
+    }
+    // ...and the twin names nothing a rules file does not.
+    for (const id of Object.keys(MAP_CAP_MINUTES)) expect(shipped.some((s) => s.doc.map === id), id).toBe(true);
+    // A map with no rules file (the mirror-only maps with none) is the default.
+    for (const id of ['beit_sahwan_outskirts', 'milh_flats']) expect(matchCapMinutes(id), id).toBe(25);
   });
   it('wadi_tarfan\'s two camps are point-symmetric about the map centre', () => {
     const w = shipped.find((s) => s.doc.map === 'wadi_tarfan')!.doc;
