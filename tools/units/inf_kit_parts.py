@@ -163,6 +163,9 @@ class Team:
     pack_box: bool = False             # the T3 radio pack is a flat-sided box with a lid, not a pad conformed to the back
     baked_mount: bool = False    # the helmet already carries an NVG shroud and mount: the tubes ride it, `nvg_mount` is not built
     dense_keys: bool = False     # sample every keyframe of a short clip and the clip's last frame (not a stride alone)
+    red_dot_rear: float = None   # the red dot's rear face along the carbine, metres (None is `inf_kit.RED_DOT_REAR`, the Rifle Squad's)
+    eud_at: tuple = None         # the EUD plate's (y, z) on the chest; None is the Rifle Squad's (`inf_kit.EUD_AT`)
+    pad_reach_cap: float = None  # a conformed pad's ray hit further than this (metres) from its nominal plane is a miss, not a surface (a ray that slips through the torso zone's gap lands on the FRONT of the chest)
     notes: str = ""
 
 
@@ -174,23 +177,26 @@ TEAMS = {
     # Demolition squad (GH-826, seven-teams spec 4.3). Two standing figures on the standard rig:
     # demo_a is unarmed (he works the charge), demo_b carries the carbines. The helmets carry a baked NVG
     # shroud and mount, so `nvg_mount` is not added twice. The weapon primitive has no UVs (palette), so
-    # devices ride `uniform`. The cable spool (`metal`, on demo_b's spine) and the charge (`prop`) are body.
+    # devices ride `uniform` (until GH-826 step 3, when the gun became a textured part). The cable spool (`metal`, on demo_b's spine) and the charge (`prop`) are body.
     "demo_squad": Team(
-        "demo_squad", ("demo_a", "demo_b"), ("demo_b",), ("demo_b",), (1024, 1024),
-        {   # 5 x 5 blocks of demo_squad.glb's own atlas; dE76 0.84 / 0.10 / 0.09 / 1.35 / 0.12
+        "demo_squad", ("demo_a", "demo_b"), ("demo_b",), ("demo_a", "demo_b"), (2048, 1024),
+        {   # 5 x 5 blocks of demo_squad.glb's own atlas (the figure bake keeps pixels 0..1023 of the 2048 x 1024 atlas since GH-826
+            # step 3, so every coordinate is unchanged); dE76 0.84 / 0.10 / 0.09 / 1.35 / 0.12
             "coyote": (673, 743),          # dust.5   #806032  130, 96, 50
             "coyote_shade": (805, 792),    # dust.6   #6B4F29  107, 79, 41
             "olive": (464, 537),           # olive.2  #4E5433  78, 84, 51
             "olive_dark": (453, 730),      # olive.3  #333821  51, 55, 34
             "glass": (452, 218),           # shadow.0 #23241F  35, 36, 31
         },
-        device_role="uniform", drop=("nvg_mount", "deltoid", "sleeve"),   # the lead (30 Oct): no shoulder or sleeve armour on this figure
+        # GH-826 step 3: the carbine is textured (a `weapon` primitive on the team's material) and both men carry it, so the gun
+        # devices ride `weapon` and the firepower track goes on both. Still no shoulder or sleeve armour (the lead, 30 Oct).
+        device_role="weapon", drop=("nvg_mount", "deltoid", "sleeve"),
         carrier_back_plate=True, pack_box=True, helmet_front_trim=60.0, yoke_rmax=0.19, yoke_slack=0.0,
         prims=("uniform", "boot", "face", "weapon", "metal", "charge"),
         bank_prims=("uniform", "weapon", "metal", "charge"),
         clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
         bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
-        baked_mount=True, torso_vest_lum=0.15, torso_ellipse=(0.27, 0.26), stage_hide=("charge",), yoke_cols=6, clear_pouches=True, flip_deg=120.0, nvg_lift=0.0, bridge_back=0.04, weapon_by_surface=True, torso_ring_cap=True, dense_keys=True),
+        baked_mount=True, pad_reach_cap=0.15, eud_at=(0.13, 1.34), red_dot_rear=-0.40, torso_vest_lum=0.15, torso_ellipse=(0.27, 0.26), stage_hide=("charge",), yoke_cols=6, clear_pouches=True, flip_deg=120.0, nvg_lift=0.0, bridge_back=0.04, weapon_by_surface=True, torso_ring_cap=True, dense_keys=True),
 }
 
 TEAM = TEAMS["inf_squad"]

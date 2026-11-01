@@ -49,11 +49,12 @@ import { applyCarry } from './motion/carry';
 import { applyGround } from './motion/ground';
 import { applyFormation } from './motion/formation';
 import { applyStride } from './motion/stride';
-import { collapseConstantTracks, tidyArms } from './motion/tidy';
+import { collapseConstantTracks, relieveArmTwist, tidyArms } from './motion/tidy';
 import { HANDS_TEAMS } from './hands-pass';
 import { applyCrewFire, applyCrewPinned } from './motion/crew-fire';
 import { addFeet } from './motion/feet';
 import { MOTION_TEAMS, MOTION_VERSION, recoilOf, type MotionTeam } from './motion/teams';
+import { setSupportPole } from './motion/hold';
 
 const REPO = fileURLToPath(new URL('../../..', import.meta.url));
 
@@ -63,6 +64,15 @@ export interface MotionReport {
 }
 
 export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base: string): MotionReport {
+  setSupportPole(spec.supportPole ? [spec.supportPole[0], spec.supportPole[1], spec.supportPole[2]] : null);
+  try {
+    return runMotionPassOnce(doc, id, spec, base);
+  } finally {
+    setSupportPole(null);
+  }
+}
+
+function runMotionPassOnce(doc: Document, id: string, spec: MotionTeam, base: string): MotionReport {
   const scene = doc.getRoot().listScenes()[0];
   const extras = (scene.getExtras() ?? {}) as Record<string, unknown>;
   if (extras.rl_motion) throw new Error(`${id}: already through the motion pass (${JSON.stringify(extras.rl_motion)})`);
@@ -85,9 +95,10 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   // the ground (`mesh_gait.test.ts`'s census reads it).
   if (spec.crewFire) lines.push(...applyCrewFire(doc, id));
   if (spec.kneel) lines.push(...applyKneel(doc, id, spec, holds[0]?.ctx ?? []));
+  if (spec.kneel && spec.armTwistRelief) lines.push(...relieveArmTwist(doc, spec.figures.filter((f) => f.weapon).map((f) => f.prefix), ['kneelIn', 'kneelOut'], spec.armTwistRelief));
   if (spec.rescue) lines.push(...applyRescue(doc, id, spec, holds[0]?.ctx ?? []));
   if (needsPinned(doc)) lines.push(...applyPinned(doc, id));
-  if (spec.work) lines.push(...applyWork(doc, id, spec.work));
+  if (spec.work) lines.push(...applyWork(doc, id, spec.work, spec.workArmed ? { sling: spec.workArmed.sling, ...(spec.workArmed.leanExtraDeg !== undefined ? { leanExtraDeg: spec.workArmed.leanExtraDeg } : {}) } : {}));
   if (spec.crewFire && needsPinned(doc)) lines.push(...applyCrewPinned(doc, id));
   // A figure with modelled hands carries five more bones a figure and denser held clips: drop what never moves.
   if ((scene.getExtras() as { rl_hands?: unknown }).rl_hands) lines.push(...collapseConstantTracks(doc));
@@ -135,8 +146,10 @@ async function main(): Promise<void> {
         console.log(`MOTION ${id}: no work figures, no work clip`);
         continue;
       }
-      writeFileSync(outFile ?? file, await io.writeBinary((applyWork(doc, id, spec.work), doc)));
+      const workLines = applyWork(doc, id, spec.work, spec.workArmed ? { sling: spec.workArmed.sling, ...(spec.workArmed.leanExtraDeg !== undefined ? { leanExtraDeg: spec.workArmed.leanExtraDeg } : {}) } : {});
+      writeFileSync(outFile ?? file, await io.writeBinary(doc));
       console.log(`MOTION ${id}`);
+      for (const l of workLines) console.log(`  ${l}`);
       continue;
     }
     if (step === 'pinned' && !needsPinned(doc)) {

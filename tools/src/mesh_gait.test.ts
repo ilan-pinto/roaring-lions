@@ -1758,7 +1758,8 @@ const WEAPON_RIGS: readonly {
   { file: 'inf_grenadier.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'militia_cell.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'yahalom_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
-  { file: 'demo_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  // GH-826 step 3: both men carry the reshaped carbine on the hands' stations, as the Rifle Squad does.
+  { file: 'demo_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: HANDS_CARBINE_AXIS_BIAS_DEG },
   // GH-707 P2 (22 Oct): both medics carry the hold's kit carbine.
   { file: 'inf_medic_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'mortar_team.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire'], aimDeg: 0 },
@@ -1963,7 +1964,8 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'militia_cell.glb mil0_weapon': -30,
   'militia_cell.glb mil1_weapon': -30,
   'yahalom_squad.glb yah_b_weapon': -30,
-  'demo_squad.glb demo_b_weapon': -30,
+  'demo_squad.glb demo_b_weapon': -30 + HANDS_CARBINE_AXIS_BIAS_DEG, // GH-826 step 3
+  'demo_squad.glb demo_a_weapon': -30 + HANDS_CARBINE_AXIS_BIAS_DEG,
   'inf_medic_squad.glb med_a_weapon': -30, // GH-707 P2
   'inf_medic_squad.glb med_b_weapon': -30,
   'mortar_team.glb mtr_no3_weapon': -30,

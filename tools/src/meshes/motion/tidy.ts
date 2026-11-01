@@ -11,8 +11,8 @@
  * axis. A vertex inside the cap does not move, so a sleeve keeps its shape
  * and only the web folds in. Weapons are never touched.
  */
-import type { Document } from '@gltf-transform/core';
-import { add, dot, len, norm, scale, sub, type V3 } from './math';
+import type { Accessor, Document } from '@gltf-transform/core';
+import { add, dot, len, norm, qaxis, qconj, qmul, qnorm, scale, sub, type V3 } from './math';
 import { Rig } from './rig';
 
 /** Radial caps, metres from the bone's axis. A real upper arm is about
@@ -132,4 +132,62 @@ export function collapseConstantTracks(doc: Document): string[] {
     }
   }
   return [`animation: ${collapsed} of ${channels} channels never change, cut to two keys (${(saved / 1024).toFixed(0)} KiB of raw keys)`];
+}
+
+/**
+ * Twist relief (GH-826 step 3). A two-bone IK that reaches a hand onto a station from a rest arm turns the upper arm about its OWN
+ * axis as the elbow swings round the shoulder-to-wrist line: through a Demolition kneel drop the support upper arm twisted 180 degrees
+ * in 0.1 s (27 degrees a frame, 3,250 a second) while its swing, the part you can see, never turned more than 12. The twist cannot be
+ * seen on a round sleeve, but it is a bone rotation and the rate gate (`mesh_arm_pops.test.ts`) counts it. It is also free: a turn of
+ * the upper arm about its axis moves no joint position, and the forearm takes it back (`forearm' = twist(d) * forearm`), so the
+ * forearm's WORLD rotation, the wrist and the hand do not move at all.
+ *
+ * In `clips`, per upper arm: unwrap the twist about the bone's local +y, draw the straight line between its first and last key, and
+ * hand `gamma` of what the line does not carry to the forearm. The difference is zero at both ends, so the clip still joins the one
+ * before it and the one after it. Returns report lines (the worst key-to-key turn of the two bones, before and after, is the caller's).
+ */
+export function relieveArmTwist(doc: Document, prefixes: readonly string[], clips: readonly string[], gamma: number): string[] {
+  const lines: string[] = [];
+  for (const clip of clips) {
+    const anim = doc.getRoot().listAnimations().find((a) => a.getName() === clip);
+    if (!anim) continue;
+    let moved = 0;
+    for (const p of prefixes) {
+      for (const side of ['L', 'R'] as const) {
+        const find = (bone: string): Accessor | undefined =>
+          anim.listChannels().find((c) => c.getTargetNode()?.getName() === `${p}_${bone}_${side}` && c.getTargetPath() === 'rotation')?.getSampler()?.getOutput() ?? undefined;
+        const U = find('upperarm');
+        const F = find('forearm');
+        if (!U || !F) continue;
+        const u = (U.getArray() as Float32Array).slice();
+        const f = (F.getArray() as Float32Array).slice();
+        const n = u.length / 4;
+        if (n < 3) continue;
+        const th: number[] = [];
+        for (let k = 0; k < n; k++) {
+          const len = Math.hypot(u[k * 4 + 1], u[k * 4 + 3]);
+          let t = len < 1e-9 ? 0 : 2 * Math.atan2(u[k * 4 + 1] / len, u[k * 4 + 3] / len);
+          if (k > 0) {
+            while (t - th[k - 1] > Math.PI) t -= 2 * Math.PI;
+            while (t - th[k - 1] < -Math.PI) t += 2 * Math.PI;
+          }
+          th.push(t);
+        }
+        for (let k = 1; k < n - 1; k++) {
+          const lin = th[0] + (th[n - 1] - th[0]) * (k / (n - 1));
+          const d = gamma * (th[k] - lin);
+          const tm = qaxis([0, 1, 0], d);
+          const qu = qnorm(qmul([u[k * 4], u[k * 4 + 1], u[k * 4 + 2], u[k * 4 + 3]], qconj(tm)));
+          const qf = qnorm(qmul(tm, [f[k * 4], f[k * 4 + 1], f[k * 4 + 2], f[k * 4 + 3]]));
+          u.set(qu, k * 4);
+          f.set(qf, k * 4);
+          moved = Math.max(moved, Math.abs(d));
+        }
+        U.setArray(u);
+        F.setArray(f);
+      }
+    }
+    lines.push(`twist relief ${clip}: ${prefixes.join(', ')} upper arms, ${gamma} of the twist the end-to-end line does not carry handed to the forearms (up to ${((moved * 180) / Math.PI).toFixed(0)} degrees)`);
+  }
+  return lines;
 }

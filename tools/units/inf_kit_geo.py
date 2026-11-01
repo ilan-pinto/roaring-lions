@@ -576,14 +576,19 @@ def surface_hit(zone, origin, direction, maxd=2.0):
     return Vector(loc), n
 
 
+PAD_REACH_CAP = None     # set from `Team.pad_reach_cap` by `inf_kit.build`
+
+
 def pad(pc, zone, centre, d_in, u_axis, v_axis, w, h, thick, cols, rows, tex, base_off=0.0,
-        gap=0.001, rim_frac=0.35, skirt=True, rim_tex=None, vertex_fn=None):
+        gap=0.001, rim_frac=0.35, skirt=True, rim_tex=None, vertex_fn=None, reach_cap=None):
     """A conformed pillow (bent pad): a w x h grid projected along `d_in` onto a zone,
     standing `thick` proud of the surface at its middle and `rim_frac * thick` at its
     edge (a rolled rim), with a skirt down to the surface. Open on its underside
     (`pc.open_thick` is set by the caller). Returns (outer grid, base-hit grid, mean normal)."""
     d_in = Vector(d_in).normalized()
     u, v, c = Vector(u_axis).normalized(), Vector(v_axis).normalized(), Vector(centre)
+    if reach_cap is None:
+        reach_cap = PAD_REACH_CAP
     H, N = [], []
     for j in range(rows + 1):
         rowH, rowN = [], []
@@ -596,6 +601,8 @@ def pad(pc, zone, centre, d_in, u_axis, v_axis, w, h, thick, cols, rows, tex, ba
             for du, dv in ((0, 0), (0.5, 0), (-0.5, 0), (0, 0.5), (0, -0.5)):
                 p0 = c + u * (uu + du * w / cols) + v * (vv + dv * h / rows)
                 l2, n2 = surface_hit(zone, p0 - d_in * 0.5, d_in)
+                if l2 is not None and reach_cap is not None and abs((l2 - p0).dot(d_in)) > reach_cap:
+                    l2 = None       # a ray that slipped through a gap in the zone and hit the far side: a miss
                 if l2 is not None and (best is None or (l2 - p0).dot(d_in) < (best[0] - best[2]).dot(d_in)):
                     best = (l2, n2, p0)
             nominal = c + u * uu + v * vv

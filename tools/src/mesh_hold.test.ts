@@ -42,8 +42,9 @@ describe('the hold: hands on the weapon, eye over the bore', () => {
     // demo, mortar No.3, MANPAD, and since spike-walk (6 Oct) the Spike and
     // the Zikit's rifleman; GH-707 P2 (22 Oct): + 2, the medics' carbines;
     // GH-709 phase 3 (22 Oct) the Chomet grenadier squad, 3: two launchers and a
-    // carbine, all `rifle`-kind holds; and GH-709 Phase 7 the Zaron team's leader.
-    expect(HELD).toHaveLength(22);
+    // carbine, all `rifle`-kind holds; and GH-709 Phase 7 the Zaron team's leader;
+    // GH-826 step 3 (1 Nov): + 1, demo_a, armed with the carbine he slings in `work`.
+    expect(HELD).toHaveLength(23);
   });
 
   for (const h of HELD) {

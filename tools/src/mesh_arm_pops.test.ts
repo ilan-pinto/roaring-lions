@@ -26,6 +26,11 @@ import { measureJointPoses, readAccessor, readGlb, rotationDeltaDeg } from './me
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 const FILE = `${MESHES}inf_squad.glb`;
 const FIGURES = ['f0', 'f1', 'f2'];
+/** Every team the hands pass has been through (GH-826): the Rifle Squad (step 2), the Demolition squad (step 3). */
+const SQUADS: readonly { name: string; file: string; figures: readonly string[] }[] = [
+  { name: 'Rifle Squad', file: FILE, figures: FIGURES },
+  { name: 'Demolition squad', file: `${MESHES}demo_squad.glb`, figures: ['demo_b', 'demo_a'] },
+];
 const BONES = ['upperarm_L', 'forearm_L', 'hand_L', 'upperarm_R', 'forearm_R', 'hand_R', 'finger_L'];
 const CLIPS = ['idle', 'move', 'fire', 'moveFire', 'kneel', 'kneelIn', 'kneelOut', 'pinned'];
 /** Degrees a second: 20 degrees in one 120 Hz step. */
@@ -96,19 +101,21 @@ function withLastKey(file: string, clip: string, node: string, edit: (q: number[
 }
 
 describe('a looping clip closes its loop (the last key meets the first)', () => {
-  for (const clip of LOOPING) {
-    it(`${clip}: every arm bone of every figure turns at most ${MAX_SEAM_DEG} degrees, in the world, between the last key and the first`, () => {
-      let seen = 0;
-      for (const fig of FIGURES) {
-        for (const b of BONES) {
-          if (b === 'finger_L') continue;
-          const d = seamTurnDeg(FILE, clip, `${fig}_${b}`);
-          seen++;
-          expect(d, `${fig}_${b} in ${clip}`).toBeLessThanOrEqual(MAX_SEAM_DEG);
+  for (const squad of SQUADS) {
+    for (const clip of LOOPING) {
+      it(`${squad.name} ${clip}: every arm bone of every figure turns at most ${MAX_SEAM_DEG} degrees, in the world, between the last key and the first`, () => {
+        let seen = 0;
+        for (const fig of squad.figures) {
+          for (const b of BONES) {
+            if (b === 'finger_L') continue;
+            const d = seamTurnDeg(squad.file, clip, `${fig}_${b}`);
+            seen++;
+            expect(d, `${fig}_${b} in ${clip}`).toBeLessThanOrEqual(MAX_SEAM_DEG);
+          }
         }
-      }
-      expect(seen, 'bones read').toBe(FIGURES.length * 6);
-    });
+        expect(seen, 'bones read').toBe(squad.figures.length * 6);
+      });
+    }
   }
 
   it('the check can fail: f1_upperarm_R in moveFire with its last key turned 38 degrees (the seam before the fix) reads past the limit (constructed failing input)', () => {
@@ -119,19 +126,21 @@ describe('a looping clip closes its loop (the last key meets the first)', () => 
   });
 });
 
-describe('no arm or hand bone of the Rifle Squad turns faster than 20 degrees in one 120 Hz step', () => {
-  for (const clip of CLIPS) {
-    it(`${clip}: every arm bone of every figure stays under ${MAX_TURN_DEG_PER_S} degrees a second between its keys`, () => {
-      let seen = 0;
-      for (const fig of FIGURES) {
-        for (const b of BONES) {
-          const w = maxTurnRate(FILE, clip, `${fig}_${b}`);
-          seen++;
-          expect(w.rate, `${fig}_${b} in ${clip}: ${w.stepDeg.toFixed(1)} degrees at t=${w.at.toFixed(3)} s`).toBeLessThanOrEqual(MAX_TURN_DEG_PER_S);
+describe('no arm or hand bone turns faster than 20 degrees in one 120 Hz step', () => {
+  for (const squad of SQUADS) {
+    for (const clip of CLIPS) {
+      it(`${squad.name} ${clip}: every arm bone of every figure stays under ${MAX_TURN_DEG_PER_S} degrees a second between its keys`, () => {
+        let seen = 0;
+        for (const fig of squad.figures) {
+          for (const b of BONES) {
+            const w = maxTurnRate(squad.file, clip, `${fig}_${b}`);
+            seen++;
+            expect(w.rate, `${fig}_${b} in ${clip}: ${w.stepDeg.toFixed(1)} degrees at t=${w.at.toFixed(3)} s`).toBeLessThanOrEqual(MAX_TURN_DEG_PER_S);
+          }
         }
-      }
-      expect(seen, 'bones read').toBe(FIGURES.length * BONES.length);
-    });
+        expect(seen, 'bones read').toBe(squad.figures.length * BONES.length);
+      });
+    }
   }
 
   it('the support arm of every figure no longer snaps in the kneel transitions, nor f2 in move (they were 71 to 133 degrees in one step)', () => {

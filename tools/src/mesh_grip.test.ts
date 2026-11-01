@@ -15,7 +15,7 @@
  * the half-way frame, and nothing that read keys saw it).
  *
  * Constructed failing inputs, each run and watched red before it was written down:
- *   1. a Meshy claw (demo_squad, shipped): the firing hand reads 0.11 m from the grip by the review's own definition;
+ *   1. a Meshy claw (sarim_rifles, shipped; it was demo_squad's until step 3): the firing hand reads 0.11 m from the grip by the review's own definition;
  *   2. the shipped bytes with the firing... support hand's rotation turned 40 degrees in `fire` (the orientation solve
  *      skipped): the axis limit goes red;
  *   3. the shipped bytes with the weapon bone moved 4 cm rearward in `fire` (the support station put back at the
@@ -120,8 +120,9 @@ describe('the Rifle Squad holds the carbine in every clip', () => {
 });
 
 describe('a Meshy claw is red (constructed failing input 1)', () => {
-  it('demo_squad shipped: the firing hand reads 0.1 m or more from the grip by the review definition', () => {
-    const r = measureGrip(`${MESHES}demo_squad.glb`, 'fire', 'demo_b', { fallbackWristT: { L: 0.13, R: 0.13 } });
+  // demo_squad was this claw until GH-826 step 3 gave it hands; sarim_rifles is a Meshy claw team that holds a rifle still
+  it('sarim_rifles shipped: the firing hand reads 0.1 m or more from the grip by the review definition', () => {
+    const r = measureGrip(`${MESHES}sarim_rifles.glb`, 'fire', 'sar0', { fallbackWristT: { L: 0.13, R: 0.13 } });
     expect(r.fire.stationGapM).toBeNull();                         // no hand bones to read a station from
     expect(r.fire.reviewGapM).toBeGreaterThan(0.1);
     expect(r.fire.reviewGapM).toBeGreaterThan(REVIEW_FIRE_MAX_M * 2);

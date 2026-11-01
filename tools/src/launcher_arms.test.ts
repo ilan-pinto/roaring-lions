@@ -55,6 +55,12 @@ const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, numbe
   ['inf_squad.glb', 'f0', { idle: 430, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }],
   ['inf_squad.glb', 'f1', { idle: 430, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }],
   ['inf_squad.glb', 'f2', { idle: 430, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }],
+  // GH-826 step 3: the Demolition squad's carbines, same rebuilt forearms. demo_b before the hands pass (origin/main's bytes): idle 338 /
+  // move 322 / fire 164 / moveFire 176 / kneel 195 / kneelIn 276 / kneelOut 269 / pinned 195; after: 220 / 225 / 176 / 177 / 162 / 181 /
+  // 185 / 162, better in every clip but fire (+12) and moveFire (+1). demo_a was UNARMED (112-156, the arms hung) and carries the same
+  // hold now: 226 / 228 / 188 / 183 / 174 / 184 / 189 / 174. Ceilings are the larger reading of the two rounded up to the next 5.
+  ['demo_squad.glb', 'demo_b', { idle: 230, fire: 190, move: 230, moveFire: 190, kneel: 180, kneelIn: 190, kneelOut: 195, pinned: 180 }],
+  ['demo_squad.glb', 'demo_a', { idle: 230, fire: 190, move: 230, moveFire: 190, kneel: 180, kneelIn: 190, kneelOut: 195, pinned: 180 }],
 ];
 
 describe("a launcher gunner's arms stay out of his own chest", () => {

@@ -27,7 +27,13 @@ sys.path.insert(0, HERE)
 import validate_mesh_assets as v  # noqa: E402
 
 REPO = os.path.dirname(HERE)
-SHIPPED = os.path.join(REPO, "art", "meshes", "inf_squad.glb")
+MESHES = os.path.join(REPO, "art", "meshes")
+#: team -> (the sleeve's own solid block in its atlas = hands-pass.ts HANDS_TEAMS.sleeve.L, the review's measured orange claw Lab).
+#: Demolition (GH-826 step 3): the sleeve block (879, 893), the claw (53.8, 16.2, 40.5).
+TEAMS = {
+    "inf_squad": ((339 + 2, 370 + 2), (42.1, 18.2, 33.0)),
+    "demo_squad": ((879 + 2, 893 + 2), (53.8, 16.2, 40.5)),
+}
 
 
 def atlas_of(js, bin_):
@@ -51,7 +57,7 @@ def nearest_texel(atlas, lab):
     return best[1], best[2]
 
 
-def write_patched(js, bin_, uv_xy, dst_dir):
+def write_patched(js, bin_, uv_xy, dst_dir, team):
     """A copy of the shipped GLB whose hand-bone vertices (hand and finger bones, `uniform` primitive) have their UV
     rewritten to the texel `uv_xy` (pixels), returned as the directory holding it."""
     atlas = atlas_of(js, bin_)
@@ -75,54 +81,53 @@ def write_patched(js, bin_, uv_xy, dst_dir):
     for i in rows:
         struct.pack_into("<ff", patched, base + i * stride, u, w)
     # write the GLB back: JSON chunk unchanged, BIN chunk replaced
-    with open(SHIPPED, "rb") as fh:
+    with open(os.path.join(MESHES, f"{team}.glb"), "rb") as fh:
         data = bytearray(fh.read())
     jlen = struct.unpack("<I", data[12:16])[0]
     bin_off = 20 + jlen + 8
     data[bin_off:bin_off + len(bin_)] = patched
     os.makedirs(dst_dir, exist_ok=True)
-    with open(os.path.join(dst_dir, "inf_squad.glb"), "wb") as fh:
+    with open(os.path.join(dst_dir, f"{team}.glb"), "wb") as fh:
         fh.write(data)
     return dst_dir
 
 
 def main():
     bad = []
-    js, bin_ = v._read_glb_chunks(SHIPPED)
-    atlas = atlas_of(js, bin_)
-
-    failures, lines = v.check_glove_contrast(os.path.dirname(SHIPPED))
-    mine = [f for f in failures if f.startswith(os.path.join("art", "meshes", "inf_squad.glb"))]
-    if mine:
-        bad.append(f"the shipped inf_squad.glb fails its own gate: {mine[:2]}")
-    if not any(line.startswith("inf_squad.glb") for line in lines):
-        bad.append("the gate did not read inf_squad.glb at all (a gate that reads nothing passes everything)")
-
-    sleeve = (339 + 2, 370 + 2)                                  # the sleeve's solid block (hands-pass.ts HANDS_TEAMS.sleeve.L)
-    orange = nearest_texel(atlas, (42.1, 18.2, 33.0))            # the review's measured claw
-    black = nearest_texel(atlas, (12.0, 0.0, 0.0))
-    cases = [
-        ("the sleeve's own texel", sleeve, "against the sleeve"),
-        ("today's orange", orange, "C*"),
-        ("Breach's black", black, "L*"),
-    ]
-    for label, xy, expect in cases:
-        d = tempfile.mkdtemp(prefix="glove_")
-        try:
-            write_patched(js, bin_, xy, d)
-            f, _ = v.check_glove_contrast(d)
-            if not f:
-                bad.append(f"{label}: the gate did not go red")
-            elif not any(expect in line for line in f):
-                bad.append(f"{label}: red, but not for {expect!r}: {f[:2]}")
-        finally:
-            shutil.rmtree(d, ignore_errors=True)
+    failures, lines = v.check_glove_contrast(MESHES)
+    for team, (sleeve, orange_lab) in TEAMS.items():
+        path = os.path.join(MESHES, f"{team}.glb")
+        js, bin_ = v._read_glb_chunks(path)
+        atlas = atlas_of(js, bin_)
+        mine = [f for f in failures if f.startswith(os.path.join("art", "meshes", f"{team}.glb"))]
+        if mine:
+            bad.append(f"the shipped {team}.glb fails its own gate: {mine[:2]}")
+        if not any(line.startswith(f"{team}.glb") for line in lines):
+            bad.append(f"the gate did not read {team}.glb at all (a gate that reads nothing passes everything)")
+        orange = nearest_texel(atlas, orange_lab)               # the review's measured claw
+        black = nearest_texel(atlas, (12.0, 0.0, 0.0))
+        cases = [
+            ("the sleeve's own texel", sleeve, "against the sleeve"),
+            ("today's orange", orange, "C*"),
+            ("Breach's black", black, "L*"),
+        ]
+        for label, xy, expect in cases:
+            d = tempfile.mkdtemp(prefix="glove_")
+            try:
+                write_patched(js, bin_, xy, d, team)
+                f, _ = v.check_glove_contrast(d)
+                if not f:
+                    bad.append(f"{team} {label}: the gate did not go red")
+                elif not any(expect in line for line in f):
+                    bad.append(f"{team} {label}: red, but not for {expect!r}: {f[:2]}")
+            finally:
+                shutil.rmtree(d, ignore_errors=True)
     if bad:
         print("FAIL")
         for b in bad:
             print("  " + b)
         sys.exit(1)
-    print("ok: inf_squad passes; the sleeve texel, the orange claw and Breach's black each go red")
+    print("ok: inf_squad and demo_squad pass; the sleeve texel, the orange claw and Breach's black each go red on both")
 
 
 if __name__ == "__main__":

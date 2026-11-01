@@ -95,8 +95,8 @@ describe('falsification: today\'s shipped bytes', () => {
 
 
 describe('every figure of a team the hands pass has been through carries proportioned hands (GH-826 step 2)', () => {
-  for (const team of ['inf_squad']) {
-    for (const prefix of ['f0', 'f1', 'f2']) {
+  for (const [team, figures] of [['inf_squad', ['f0', 'f1', 'f2']], ['demo_squad', ['demo_b', 'demo_a']]] as const) {
+    for (const prefix of figures) {
       for (const side of ['L', 'R'] as const) {
         it(`${team} ${prefix}_${side}: length, palm, thickness, forearm and hung elbow inside the bands`, () => {
           const r = measureShippedHand(`${MESHES}${team}.glb`, prefix, side, 0);
