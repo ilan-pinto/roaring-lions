@@ -20,7 +20,8 @@
  *      skipped): the axis limit goes red;
  *   3. the shipped bytes with the weapon bone moved 4 cm rearward in `fire` (the support station put back at the
  *      magazine well): the station limits go red;
- *   4. the weapon bone re-parented under the pelvis, then the spine pitched as recoil does: the grip moves.
+ *   4. the weapon bone re-parented under the pelvis, then the spine pitched as recoil does: the grip moves;
+ *   5. the weapon bone pushed 4 mm into both gloves in `fire`: the per-clip depth ceiling (3.0 mm) goes red.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -52,11 +53,24 @@ const REVIEW_SUPPORT_MAX_M = 0.04;
 /**
  * WEAPON_IN_HAND: the spec holds the weapon's surface to <= 3 mm inside the glove. The generator's own census (convex
  * pieces, `tools/units/hands.py`) reads 2.1 / 2.8 / 1.8 mm at the station; this instrument reads the glove's real
- * triangles and the carbine's, and finds 1.1-6.3 mm over the clips (1.6-2.4 in `fire`, `moveFire` and `kneel`, up to 3.6 in `idle` and `move`, 5.3-5.6
- * on the support hand in `kneelIn` and up to 6.3 on the firing hand in `kneelOut`). NOT MET at 3 mm in the transitions. The ceiling below is
- * what the bytes measure, so a regression is seen; the 3 mm question is the lead's (report, R1).
+ * triangles and the carbine's. The ceiling is PER CLIP (R1 review ruling, 1 Nov 2026: a blanket 10 mm let the aimed clips
+ * regress by 7 mm unseen), each a LITERAL a millimetre or so over what the bytes read, the larger of the two hands:
+ *
+ *   clip       reads (fire / support, mm)   ceiling
+ *   fire       1.5 / 2.0                    3.0    the spec's 3 mm: MET
+ *   kneel      1.5 / 2.0                    3.0    MET
+ *   pinned     1.5 / 2.0                    3.0    MET
+ *   moveFire   1.5 / 4.2                    5.0    NOT MET (the support hand, running)
+ *   idle       7.9 / 2.0                    9.0    NOT MET: the firing wrist, read with no twist in the hand (the forearm carries
+ *   move       7.9 / 2.1                    9.0    the pronation, so a cuff and a sleeve turn together), has 7 degrees to give
+ *   kneelIn    7.9 / 5.4                    9.0    at the low ready, and the hand tilts 14 degrees off its station to stay inside
+ *   kneelOut   8.4 / 2.0                    9.5    its limit; before the forearm twist (1 Nov) these read 3.6 / 3.6 / 3.6 / 6.3
+ *
+ * The 3 mm question for the clips marked NOT MET is the lead's (report, R1).
  */
-const WEAPON_IN_HAND_CEILING_M = 0.01;
+const WEAPON_IN_HAND_CEILING_M: Readonly<Record<(typeof CLIPS)[number], number>> = {
+  idle: 0.009, move: 0.009, fire: 0.003, moveFire: 0.005, kneel: 0.003, kneelIn: 0.009, kneelOut: 0.0095, pinned: 0.003,
+};
 
 const readings = new Map<string, ReturnType<typeof measureGrip>>();
 function read(fig: string, clip: string): ReturnType<typeof measureGrip> {
@@ -86,8 +100,8 @@ describe('the Rifle Squad holds the carbine in every clip', () => {
         expect(r.support.sMax, 'support hand along the weapon, highest').toBeLessThanOrEqual(SUPPORT_S[1]);
         expect(r.fire.reviewGapM, 'review reading, firing').toBeLessThanOrEqual(REVIEW_FIRE_MAX_M);
         expect(r.support.reviewGapM, 'review reading, support').toBeLessThanOrEqual(REVIEW_SUPPORT_MAX_M);
-        expect(r.fire.depthM!, 'weapon inside the firing glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M);
-        expect(r.support.depthM!, 'weapon inside the support glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M);
+        expect(r.fire.depthM!, 'weapon inside the firing glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip]);
+        expect(r.support.depthM!, 'weapon inside the support glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip]);
       }, 120_000);
     }
   }
@@ -157,6 +171,17 @@ describe('the instrument can fail', () => {
     const r = measureGrip(file, 'fire', 'f1', { hz: 60 });
     expect(r.fire.stationGapM!).toBeGreaterThan(FIRE_STATION_M);
     expect(r.support.stationGapM!).toBeGreaterThan(SUPPORT_STATION_M);
+  }, 60_000);
+});
+
+describe('the weapon-in-glove ceiling can fail (constructed failing input 5)', () => {
+  it('the weapon bone pushed 4 mm into both gloves in fire reads past the 3.0 mm ceiling it holds, and the unpatched file does not', () => {
+    const file = patched('fire', 'f1_weapon', 'translation', (v) => [v[0], v[1], v[2] - 0.004]);
+    const r = measureGrip(file, 'fire', 'f1', { hz: 60 });
+    expect(r.fire.depthM!, 'firing glove').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.fire);
+    expect(r.support.depthM!, 'support glove').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.fire);
+    expect(read('f1', 'fire').fire.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.fire);
+    expect(read('f1', 'fire').support.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.fire);
   }, 60_000);
 });
 

@@ -465,7 +465,7 @@ def build_groin(f, side=None):
 # ================================================================= SENSORS
 
 MAG_Z = 0.905        # the mag pouches' centre height on the left hip
-LPVO_REAR = -0.42       # spec -0.55: moved 6 cm forward (GH-826 step 2: 11 cm, with the reshaped carbine's receiver and the bladed stance), the head's NVG bridge strikes the eyepiece further back
+LPVO_REAR = -0.335     # the rear of the eyepiece. Spec -0.55 to -0.285. -0.42 left it IN the cheek (eye relief -0.015: the face's centre is 15 mm past the eyepiece; moveFire put the head 9-12 mm into it); -0.335 gives 0.069 m of relief in fire and moveFire (a real LPVO: 0.08-0.10) and clears the head
 LASER_FRONT = -0.115    # the laser box's front face (spec -0.146), ahead of the moved optic
 LPVO_AXIS_OVER_RAIL = 0.055   # the scope's axis over the receiver's top rail (0.040 put the bladed stance's face through the eyepiece: 16 mm)
 RADIO_POUCH_Y = 0.13     # across the back, Blender y: the left side. At -0.13 (the right) the bladed firing arm's elbow struck it in `move` (GH-826 step 2)

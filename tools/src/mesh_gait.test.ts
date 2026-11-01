@@ -1450,7 +1450,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // hidden). Phase 3: + 24, inf_grenadier's three men over eight clips; Phase 7: + 12,
     // at_nlos_team (its `fire` is exempt above). Was 253.
     // GH-707 P2 (22 Oct): + 18, inf_medic_squad's two men over its 9 headed clips.
-    expect(rows).toHaveLength(310); // B7: 21 GLBs, every one with a face mesh now
+    // GH-826 step 2 (1 Nov): + 3, inf_squad's three pinned heads: its neck takes none of the huddle's fold (`MotionTeam.pinnedFold`,
+    // so the NVG tubes clear the support hand), the face sits forward of the head joint again, and a bearing can be read.
+    expect(rows).toHaveLength(313); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1651,11 +1653,11 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     ]);
   });
 
-  // Pass C2/C4: and five pinned heads, folded so far over that the face sits
+  // Pass C2/C4: and the pinned heads folded so far over that the face sits
   // above the head joint in the ground plane and no bearing can be read off
   // it -- the four rifle-holders whose aim already pitched the head to the
   // stock. The rest of their teams' pinned heads read, and are gated.
-  it('the readings thrown away for a short lever are exactly civilian_woman’s two, and five pinned heads', () => {
+  it('the readings thrown away for a short lever are exactly civilian_woman’s two, and the pinned heads folded over', () => {
     // The `civilian_woman` exclusion, asserted rather than commented. If any
     // other figure ever falls under the floor the gate says so by name; if
     // HER lever is ever fixed (the marker-bone route, or a `face` role that
@@ -1663,9 +1665,6 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // line goes red, which is the reminder to gate her.
     expect(shortLever).toEqual([
       'rpg_team.glb pinned rpg_load_head 0.0227',
-      'inf_squad.glb pinned f0_head 0.0270',
-      'inf_squad.glb pinned f1_head 0.0269',
-      'inf_squad.glb pinned f2_head 0.0270',
       'inf_grenadier.glb pinned gre0_head 0.0231',
       'inf_grenadier.glb pinned gre1_head 0.0206',
       'inf_grenadier.glb pinned gre2_head 0.0278',

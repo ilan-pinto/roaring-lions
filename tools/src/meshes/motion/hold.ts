@@ -308,6 +308,8 @@ export function rotateWorld(rig: Rig, pose: Pose, node: Node, q: Q): void {
  * upper arm is short, the forearm turns almost 180 degrees), and from one frame to the next its twist flips by 180
  * degrees. Used by the modelled hands; the formula holds keep the arc they were authored with.
  */
+/** Which way each upper arm's elbow was last seen bending about its hinge (see `twoBoneIK`'s hinge form). */
+const BEND_SIGN = new WeakMap<Node, number>();
 export function twoBoneIK(rig: Rig, pose: Pose, upper: Node, fore: Node, handRest: V3, target: V3, pole: V3, hinge = false): number {
   if (hinge) {
     // The arm is solved from its REST relation to the torso, not from whatever the clip had it doing: the shortest arc from
@@ -338,7 +340,19 @@ export function twoBoneIK(rig: Rig, pose: Pose, upper: Node, fore: Node, handRes
     const pb = sub(bDir, scale(n, dot(bDir, n)));
     if (len(pa) > 1e-6 && len(pb) > 1e-6) {
       const na = norm(pa), nb = norm(pb);
-      const q1 = qaxis(n, Math.atan2(dot(cross(na, nb), n), dot(na, nb)));
+      // The elbow only flexes one way: the forearm turns about the hinge in the sense the bend implies (upper arm toward the
+      // forearm's answer), so a turn that atan2 reports the other way round near 180 degrees is the same turn, long way.
+      let phi = Math.atan2(dot(cross(na, nb), n), dot(na, nb));
+      const eu = norm(sub(E2, S));
+      const flex = dot(cross(eu, bDir), n);
+      if (Math.abs(flex) > 1e-3) {
+        if (phi * flex < 0 && Math.abs(phi) > deg(100)) phi += Math.sign(flex) * 2 * Math.PI;
+        BEND_SIGN.set(upper, Math.sign(flex));
+      } else if (Math.abs(phi) > deg(150)) {
+        // fully folded: the turn is 180 either way and atan2 picks by rounding; the sense the arm was bending in decides
+        phi = (BEND_SIGN.get(upper) ?? -1) * Math.abs(phi);
+      }
+      const q1 = qaxis(n, phi);
       const q2 = qfromTo(qrot(q1, aDir), bDir);
       rotateWorld(rig, pose, fore, qmul(q2, q1));
     } else rotateWorld(rig, pose, fore, qfromTo(aDir, bDir));
@@ -613,6 +627,29 @@ export function resetHoldMemory(h: HoldFigure): void {
   if (h.hands) { HAND_MEMORY.delete(h.hands.fire); HAND_MEMORY.delete(h.hands.support); }
 }
 
+/** What a clip's last frame left in the memory: the next clip can start from it (a drop starts from the idle's arms). */
+export interface HoldMemory { readonly fire?: HandVars; readonly support?: HandVars; readonly blade?: number }
+export function holdMemory(h: HoldFigure): HoldMemory {
+  return { fire: h.hands ? HAND_MEMORY.get(h.hands.fire) : undefined, support: h.hands ? HAND_MEMORY.get(h.hands.support) : undefined, blade: BLADE_MEMORY.get(h) };
+}
+export function setHoldMemory(h: HoldFigure, m: HoldMemory): void {
+  resetHoldMemory(h);
+  if (!h.hands) return;
+  if (m.fire) HAND_MEMORY.set(h.hands.fire, m.fire);
+  if (m.support) HAND_MEMORY.set(h.hands.support, m.support);
+  if (m.blade !== undefined) BLADE_MEMORY.set(h, m.blade);
+}
+
+/**
+ * How fast the elbow's swing and the hand's turn may change, degrees a second, and the time since the last frame the next
+ * `placeHand` is for (set by the caller; null at a clip's first frame). An arm that changes basin in one 8 ms frame is a
+ * pop; with the swing held to this rate it takes the long way round through the in-between swings, and the wrist and the
+ * station give a little where they must.
+ */
+export const HOLD_RATE_DEG_PER_S = 600;
+let holdDt: number | null = null;
+export function setHoldDt(dt: number | null): void { holdDt = dt; }
+
 /** The elbow's swing about the shoulder-to-wrist line may go this far either way, degrees. */
 const MAX_SWING_DEG = 120;
 /** The hand may roll about its own channel axis this far either way (a wrist's pronation and supination): it keeps the
@@ -662,8 +699,16 @@ export function placeHand(rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole
   const S0 = rig.worldOf(st.upper, pose).t;
   const prev = HAND_MEMORY.get(st);
   type Eval = { cost: number; intrinsic: number; upper: Xf; fore: Xf; hand: Xf; gap: number; wrist: WristReading; off: number; v: HandVars };
+  // the pace the solution may change at; widened only where the wrist would otherwise go past its anatomy
+  let pace = 1;
+  const windowed = (v: HandVars): HandVars => {
+    if (!prev || !holdDt) return v;
+    const l = deg(HOLD_RATE_DEG_PER_S * holdDt * pace);
+    const c = (x: number, p: number): number => Math.max(p - l, Math.min(p + l, x));
+    return [c(v[0], prev[0]), c(v[1], prev[1]), c(v[2], prev[2]), c(v[3], prev[3])];
+  };
   const evalAt = (vIn: HandVars): Eval => {
-    const v = clampVars(vIn);
+    const v = windowed(clampVars(vIn));
     pose.set(st.upper, savedUpper);
     pose.set(st.fore, savedFore);
     pose.set(st.hand, savedHand);
@@ -673,6 +718,17 @@ export function placeHand(rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole
     const axis = norm(sub(target, S0));
     const poleSwung = qrot(qaxis(axis, v[0]), pole);
     twoBoneIK(rig, pose, st.upper, st.fore, restWrist, target, poleSwung, true);
+    // The forearm carries the hand's pronation: twist it about its own long axis until the hand sits on it with no twist of its
+    // own (the wrist keeps its flexion and deviation). The IK leaves the forearm's twist to whatever its arc happened to give,
+    // and that jumps by 50 or 70 degrees between two frames; the twist the hand's orientation asks for does not. A sleeve and a
+    // cuff that turn together also keep the wrist seam shut.
+    {
+      const f0 = rig.worldOf(st.fore, pose);
+      const l0 = qnorm(qmul(qconj(f0.r), R));
+      const tau = 2 * Math.atan2(l0[1], l0[3]);
+      const cur = pose.get(st.fore)!;
+      pose.set(st.fore, { ...cur, r: qnorm(qmul(cur.r, qaxis([0, 1, 0], tau))) });
+    }
     const fw = rig.worldOf(st.fore, pose);
     const local = qnorm(qmul(qconj(fw.r), R));
     pose.set(st.hand, { ...savedHand, r: local });
@@ -711,14 +767,26 @@ export function placeHand(rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole
     return cur;
   };
   const settled = (e: Eval): boolean => e.gap < 0.004 && e.wrist.overDeg < 1e-9 && e.intrinsic < 0.004;
-  let best: Eval = compass(prev ?? [0, 0, 0, 0]);
-  if (!settled(best)) {
-    for (const sw of [0, 30, -30, 60, -60, 90, -90]) {
-      const e = compass([deg(sw), 0, 0, 0]);
-      // a clip changes to another solution only for a real gain: an arm that flips between two nearly equal ones is a pop
-      if (prev ? e.intrinsic < best.intrinsic - SWITCH_MARGIN : e.cost < best.cost - 1e-9) best = e;
-      if (settled(best) && !prev) break;
+  const solve = (): Eval => {
+    let b: Eval = compass(prev ?? [0, 0, 0, 0]);
+    if (!settled(b)) {
+      for (const sw of [0, 30, -30, 60, -60, 90, -90]) {
+        const e = compass([deg(sw), 0, 0, 0]);
+        // a clip changes to another solution only for a real gain: an arm that flips between two nearly equal ones is a pop
+        if (prev ? e.intrinsic < b.intrinsic - SWITCH_MARGIN : e.cost < b.cost - 1e-9) b = e;
+        if (settled(b) && !prev) break;
+      }
     }
+    return b;
+  };
+  let best = solve();
+  // The wrist's anatomy is a gate and the pace is not: where the paced solution would bend the wrist past its limit, let the
+  // arm go faster, up to sixteen times as fast, rather than past the limit.
+  for (const wider of [2, 4, 8, 16]) {
+    if (!prev || !holdDt || best.wrist.overDeg < 0.05) break;
+    pace = wider;
+    const e = solve();
+    if (e.wrist.overDeg < best.wrist.overDeg) best = e;
   }
   pose.set(st.upper, best.upper);
   pose.set(st.fore, best.fore);

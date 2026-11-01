@@ -15,7 +15,7 @@
  */
 import type { Document, Node } from '@gltf-transform/core';
 import { addBone, rebind, writeTrack } from './edit';
-import { describeHold, followForearm, followHand, MAX_GRIP_GAP_M, resetHoldMemory, solveHold, weaponRest, type HoldFigure } from './hold';
+import { describeHold, followForearm, followHand, MAX_GRIP_GAP_M, resetHoldMemory, setHoldDt, holdMemory, solveHold, type HoldMemory, weaponRest, type HoldFigure } from './hold';
 import { clipRange, keyTimes, restVertices, Rig, tracksOf, type Pose } from './rig';
 import type { Q } from './math';
 import type { MotionTeam } from './teams';
@@ -45,6 +45,8 @@ export function heldBones(prefix: string): string[] {
 export interface HoldContext {
   readonly hold: HoldFigure;
   readonly weaponName: string;
+  /** The hold's memory at the end of `idle`: a kneel's drop starts from it. Written by `applyHold`. */
+  idleMemory?: HoldMemory;
 }
 
 export function holdFrame(rig: Rig, pose: Pose, ctx: HoldContext, aim: number, aimLean?: number, upright = false, bladeExtra = 0): {
@@ -119,8 +121,11 @@ export function applyHold(doc: Document, id: string, spec: MotionTeam): { line: 
       let worstOffset = 0;
       let eyeLo = Infinity;
       let eyeHi = -Infinity;
+      let tPrev: number | null = null;
       for (const t of times) {
         const pose = rig.sample(tracks, t);
+        setHoldDt(tPrev === null ? null : t - tPrev);
+        tPrev = t;
         if (aim === undefined) {
           if (c.hold.hands) followHand(rig, pose, c.hold, rig.node(c.weaponName), grip);
           else followForearm(rig, pose, c.hold, rig.node(c.weaponName));
@@ -140,6 +145,8 @@ export function applyHold(doc: Document, id: string, spec: MotionTeam): { line: 
           tr[i].push(...x.t);
         });
       }
+      setHoldDt(null);
+      if (name === 'idle') c.idleMemory = holdMemory(c.hold);
       nodes.forEach((n, i) => {
         writeTrack(doc, anim, n, 'rotation', times, rot[i]);
         // Translation too: the support shoulder protracts (`SUPPORT_PROTRACTION`).

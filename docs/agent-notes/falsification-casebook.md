@@ -73,8 +73,8 @@ rather than papered over.
 - **A reading that stayed at 0.000 m through a 100 degree forearm flip.** The solver's own "worst grip gap" is taken at the keys;
   between two keys the IK had turned the forearm 100 to 180 degrees (the shortest arc is ill-conditioned when a short upper arm
   folds the forearm back on itself). Found only by sampling at 60 Hz between keys and by a per-key rotation-step census
-  (`mesh_arm_pops.test.ts`), which carries a constructed failing input (one key turned 150 degrees) and a demotion assertion for
-  each named snap that is still open.
+  (`mesh_arm_pops.test.ts`), which carries a constructed failing input (one key turned 150 degrees) and, since 1 Nov, a rate limit
+  with no named exemption: HEAD's own bytes read 16,014 deg/s in `kneelIn`, and the gate is red on them.
 - **A weapon-axis gate that read the carbine's SHAPE as its aim.** `measureWeaponAxis` takes the first principal component of
   the weapon's vertices; the raked grip and the magazine drag it 5.87 degrees above the bore, in every clip. The pinned idle
   literal (-30) went red by 5.87, which looked like a hold that had moved; the bore had not. The bias is now a literal checked

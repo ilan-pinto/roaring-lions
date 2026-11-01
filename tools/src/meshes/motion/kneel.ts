@@ -26,7 +26,7 @@
 import type { Animation, Document, Node } from '@gltf-transform/core';
 import { holdFrame, type HoldContext } from './apply-hold';
 import { writeTrack } from './edit';
-import { resetHoldMemory, rotateWorld } from './hold';
+import { holdMemory, resetHoldMemory, rotateWorld, setHoldDt, setHoldMemory, type HoldMemory } from './hold';
 import { add, deg, dot, len, lerp3, norm, qaxis, qconj, qfromTo, qmul, qnorm, qslerp, scale, smoothstep, sub, type V3, type Xf } from './math';
 import { carry, clipRange, restVertices, Rig, tracksOf, type Influence, type Pose, type Track } from './rig';
 import type { MotionTeam } from './teams';
@@ -418,11 +418,15 @@ export function applyKneel(doc: Document, id: string, spec: MotionTeam, holds: r
   forgetHolds();
   wristWorst = 0;
   let worst = 0;
-  const loopPoses = loopTimes.map((t) => {
+  const loopPoses = loopTimes.map((t, fi) => {
     const p = kneelingRaw(t0 + t);
+    setHoldDt(fi === 0 ? null : 1 / KNEEL_FPS);
     worst = Math.max(worst, finish(p, 1, () => 1));
     return p;
   });
+  setHoldDt(null);
+  // where the kneel's arms end: the rise starts from them
+  const loopEnd = new Map<Kneeler, HoldMemory>(kneelers.filter((k) => k.hold).map((k) => [k, holdMemory(k.hold!.hold)]));
   const [lo, hi] = ground(loopPoses);
   const lift = Math.max(
     ...kneelers.map((k) => rig.worldOf(k.back.foot, loopPoses[0]).t[1] - KNEEL_BACK_ANKLE[1])
@@ -456,20 +460,30 @@ export function applyKneel(doc: Document, id: string, spec: MotionTeam, holds: r
     return 1 - smoothstep(u / 0.7); // the hips first
   };
   const plan: [string, (n: Node, u: number) => number, (u: number) => number][] = [
-    ['kneelIn', stageIn, (u) => smoothstep((u - 0.3) / 0.7)],
-    ['kneelOut', stageOut, (u) => 1 - smoothstep(u / 0.5)],
+    // The weapon's travel between the low ready and the aim takes most of the clip: shorter, and an arm that follows it turns
+    // 20 to 36 degrees between two 120 Hz keys, which is a snap on screen even when each frame is a good solution.
+    ['kneelIn', stageIn, (u) => smoothstep((u - 0.2) / 0.8)],
+    ['kneelOut', stageOut, (u) => 1 - smoothstep(u / 0.85)],
   ];
   for (const [name, stage, aimAt] of plan) {
-    forgetHolds();
+    // A drop starts from the arms `idle` ended with and a rise from the arms the kneel ended with, so the arms go from one to
+    // the other through the swings in between instead of arriving at the far one in a frame.
+    for (const k of kneelers) {
+      if (!k.hold) continue;
+      const from = name === 'kneelIn' ? k.hold.idleMemory : loopEnd.get(k);
+      if (from) setHoldMemory(k.hold.hold, from); else resetHoldMemory(k.hold.hold);
+    }
     wristWorst = 0;
     let w = 0;
     const poses = tTimes.map((t) => {
+      setHoldDt(KNEEL_TRANSITION_S / nT);
       const u = t / KNEEL_TRANSITION_S;
       const p = lerpPose(S, K, animated, (n) => stage(n, u));
       for (const k of kneelers) groundFigure(rig, p, k);
       w = Math.max(w, finish(p, aimAt(u), (k) => stage(rig.node(`${k.prefix}_root`), u)));
       return p;
     });
+    setHoldDt(null);
     const [glo, ghi] = ground(poses);
     writeClip(doc, name, nodes, tTimes, poses);
     lines.push(`${name}: ${nT} frames over ${KNEEL_TRANSITION_S} s, worst grip gap ${w.toFixed(3)} m, wrist over limit ${wristWorst.toFixed(1)} deg, lowest vertex ${glo.toFixed(4)}..${ghi.toFixed(4)} m`);

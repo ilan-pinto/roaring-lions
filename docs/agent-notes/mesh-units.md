@@ -682,8 +682,8 @@ for vehicles.
   over 4 mm in every living clip including kneelIn and kneelOut
   (`tools/inf_kit_clash.py`, every keyframe plus a stride, an open shell closed
   by its own per-vertex thickness). `down` is informational (corpses keep base
-  gear). The NVG mount stands 3 cm below the helmet top and the LPVO sits 6 cm
-  forward of the spec because the bowed head's bridge struck the eyepiece.
+  gear). The NVG mount stands 3 cm below the helmet top and the LPVO sits at -0.335 (spec
+  -0.55 to -0.285): 0.069 m of eye relief in `fire` and `moveFire`, where -0.42 left the eyepiece in the cheek.
 - **The switch is ON (`INFANTRY_KIT_ENABLED = true`, 29 Oct 2026).** It was
   off from PR 891 (the first kit's boxes read as robots) until the redesign
   (PR 896) was approved. It is the kill switch: false makes every infantry team
@@ -751,9 +751,22 @@ Rifle Squad only so far (`inf_squad`); the Demolition and Breach teams take the 
   clips, 60/120 Hz, between keys), `mesh_arm_pops.test.ts`, `mesh_hands.ts`/`mesh_hands.test.ts` (L, palm, T, forearm, hung
   elbow), `check_glove_contrast` in `validate_mesh_assets.py` (+ `tools/test_glove_contrast.py`). The kit is left out of every hand
   reading (`kit_*` nodes), the stature included.
-- **Open, named, each gated against going stale:** weapon inside the glove reads 1.1-6.3 mm (spec 3 mm; met in fire, moveFire, kneel and pinned, not in the two transitions; the generator's own
-  hull census reads <= 2.8 at the station); the support arm snaps once in each kneel transition (`KNOWN_SNAPS`); arms inside the
-  body are deeper than the old arms in `move`, `kneelIn`, `kneel` and `pinned` (`launcher_arms.test.ts`); the kit census reads
-  20 pairs over 4 mm (listed with the R1 sheet: the NVG tubes against the support hand in `pinned`, the LPVO against the head in `moveFire`, the bino tubes and the optics against the support arm in the transitions).
-- **Encode:** raw animation keys that never change (999 of 2,376 channels) are cut to two keys at the end of the motion pass
+- **Open, named, each gated against going stale:** weapon inside the glove (spec 3 mm) is met in `fire`, `kneel` and `pinned` (1.5 / 2.0 mm) and
+  NOT met in `moveFire` (support hand 4.2), `idle` and `move` (firing hand 7.9) and the two transitions (7.9 / 8.4): the forearm carries
+  the hand's pronation, so the wrist is read with no twist in the hand and the firing hand tilts 14 degrees off its station at the low ready.
+  `mesh_grip.test.ts` holds a per-clip literal ceiling, and a constructed input (the weapon 4 mm into both gloves in `fire`) goes red on it.
+  Arms inside the body are counted, not measured as depth, and the count cannot say "deeper" (`launcher_arms.test.ts` holds it where it is).
+  The kit census reads 0 pairs over 4 mm in idle, move, fire, moveFire, kneel and pinned; the transitions still hold the head-bowed NVG pairs
+  (kneelIn: bino tubes x support upper arm 14.6-19.9 mm and the mount 4.2; kneelOut: bino tubes x support forearm 7.6-15.1, x the sleeve and
+  deltoid kit parts 8.6-11.3, the mount x forearm 4.9), and `down` the grenade pouches x foot 14.7. The trigger finger stays straight along
+  the receiver, and the elbow and shoulder discs keep their flat colour (GH-746).
+- **Arm pops are gated by RATE** (`mesh_arm_pops.test.ts`): no arm or hand bone of any figure turns faster than 2,400 degrees a second between
+  two keys (20 degrees in one 120 Hz step), in any clip, with no exemption. Measured: kneelIn 2,149, kneelOut 2,315, move 1,009, moveFire 1,369
+  (the first version of the file named seven snaps of 71-133 degrees in one step). The solver changes the elbow swing and the hand's turn at
+  most 600 deg/s x pace, the pace widened 2, 4, 8, 16 times only where the paced answer would put the wrist past its limit; a drop starts from
+  the arms `idle` ended with and a rise from the arms the kneel ended with.
+- **The forearm** (`mesh_forearm.test.ts`) is a 5-ring 12-sided ellipse (0.104 x 0.080 at the elbow, 0.095 x 0.074 at mid, 0.086 x 0.068 at the
+  cuff, left and right alike) with the old forearm's own sleeve cloth stretched along it and mirrored round the turn (`SleevePatch` in
+  `hands-pass.ts`): texel std 13.8 / 16.2 of 255, mean dE76 2.4 / 1.2 to the review's sleeve.
+- **Encode:** raw animation keys that never change (1,010 of 2,376 channels) are cut to two keys at the end of the motion pass
   (`collapseConstantTracks`), which more than pays for the hands: `inf_squad` pre-kit 1,799,936 -> 1,650,052 bytes encoded.
