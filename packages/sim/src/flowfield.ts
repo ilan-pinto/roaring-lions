@@ -59,6 +59,173 @@ const RING_MASK = ringSize - 1;
 /** Head node of each bucket, -1 when empty. A drained `compute` leaves every head -1, so it is never cleared. */
 const ringHead = new Int32Array(ringSize).fill(-1);
 
+/**
+ * Scratch for `repair` (GH-913 L2), shared by every field like the queue above. All of it is empty
+ * between calls: `rMark` and `rDMark` are all zero, so a repair that touches a dozen tiles resets a
+ * dozen bytes instead of filling a map.
+ */
+let rMark = new Uint8Array(0);
+let rDMark = new Uint8Array(0);
+let rList = new Int32Array(0);
+let rStack = new Int32Array(0);
+let rDList = new Int32Array(0);
+let heapTile = new Int32Array(0);
+let heapCost = new Int32Array(0);
+let heapSize = 0;
+/** How many tiles `rList` holds: those whose cost the repair re-derived. */
+let rCount = 0;
+function repairScratchFor(cells: number): void {
+  if (rMark.length < cells) {
+    rMark = new Uint8Array(cells);
+    rDMark = new Uint8Array(cells);
+    rList = new Int32Array(cells);
+    rStack = new Int32Array(cells);
+    rDList = new Int32Array(cells);
+  }
+  // The repair gives up (and recomputes in full) before the heap could pass this.
+  if (heapTile.length < cells * 2 + 64) {
+    heapTile = new Int32Array(cells * 2 + 64);
+    heapCost = new Int32Array(cells * 2 + 64);
+  }
+}
+
+/** Min-heap on cost alone. Ties pop in any order: only the costs are repaired here, and `dirs` is
+ *  derived from the finished costs afterwards, so the order of equal costs cannot reach the output. */
+function heapPush(c: number, tile: number): void {
+  let i = heapSize++;
+  while (i > 0) {
+    const p = (i - 1) >> 1;
+    if (heapCost[p] <= c) break;
+    heapCost[i] = heapCost[p];
+    heapTile[i] = heapTile[p];
+    i = p;
+  }
+  heapCost[i] = c;
+  heapTile[i] = tile;
+}
+
+/** Remove the cheapest entry and return its tile; its cost is `heapCost[0]` read BEFORE this call. */
+function heapPop(): number {
+  const top = heapTile[0];
+  heapSize--;
+  const c = heapCost[heapSize];
+  const t = heapTile[heapSize];
+  let i = 0;
+  for (;;) {
+    const l = 2 * i + 1;
+    if (l >= heapSize) break;
+    let m = l;
+    if (l + 1 < heapSize && heapCost[l + 1] < heapCost[l]) m = l + 1;
+    if (heapCost[m] >= c) break;
+    heapCost[i] = heapCost[m];
+    heapTile[i] = heapTile[m];
+    i = m;
+  }
+  heapCost[i] = c;
+  heapTile[i] = t;
+  return top;
+}
+
+/**
+ * The cost a neighbour `m` would hand tile `v` (m -> v being one step of the field's expansion), or
+ * INF when that step is not allowed: `m` unreached, `v` blocked, or a diagonal whose companions are
+ * not both open. The same arithmetic `compute` runs, read from the receiving side.
+ */
+function stepCost(cost: Int32Array, blocked: Uint8Array, elevation: Uint8Array, w: number, vx: number, vy: number, mx: number, my: number, diag: boolean): number {
+  const m = my * w + mx;
+  const cm = cost[m];
+  if (cm === INF) return INF;
+  if (diag && (blocked[my * w + vx] !== 0 || blocked[vy * w + mx] !== 0)) return INF;
+  const climb = elevation[m] - elevation[vy * w + vx];
+  return cm + (diag ? COST_DIAG : COST_ORTH) + (climb > 0 ? climb * UPHILL_PER_LEVEL : 0);
+}
+
+/** The cheapest cost any valid neighbour hands tile (vx, vy) at the costs now in `cost`. */
+function bestInto(cost: Int32Array, blocked: Uint8Array, elevation: Uint8Array, w: number, h: number, vx: number, vy: number): number {
+  let best = INF;
+  for (let e = 0; e < 8; e++) {
+    const mx = vx + DIR_DX[e];
+    const my = vy + DIR_DY[e];
+    if (mx < 0 || my < 0 || mx >= w || my >= h) continue;
+    const nc = stepCost(cost, blocked, elevation, w, vx, vy, mx, my, (e & 1) === 1);
+    if (nc < best) best = nc;
+  }
+  return best;
+}
+
+/**
+ * Settle the heap: relax outward from every queued tile, appending any tile whose cost it changes to
+ * `rList` (once, via `rMark`). Returns false when the work passed `limit`, so the caller recomputes in
+ * full instead.
+ */
+function drainHeap(cost: Int32Array, blocked: Uint8Array, elevation: Uint8Array, w: number, h: number, limit: number): boolean {
+  const cap = heapTile.length;
+  while (heapSize > 0) {
+    const c = heapCost[0];
+    const tile = heapPop();
+    if (cost[tile] !== c) continue; // queued, then reached more cheaply
+    const tx = tile % w;
+    const ty = (tile - tx) / w;
+    for (let d = 0; d < 8; d++) {
+      const nx = tx + DIR_DX[d];
+      const ny = ty + DIR_DY[d];
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const n = ny * w + nx;
+      if (cost[n] <= c) continue;
+      if (blocked[n] !== 0) continue;
+      const diag = (d & 1) === 1;
+      if (diag && (blocked[ty * w + nx] !== 0 || blocked[ny * w + tx] !== 0)) continue;
+      const climb = elevation[tile] - elevation[n];
+      const nc = c + (diag ? COST_DIAG : COST_ORTH) + (climb > 0 ? climb * UPHILL_PER_LEVEL : 0);
+      if (nc < cost[n]) {
+        cost[n] = nc;
+        if (rMark[n] === 0) {
+          rMark[n] = 1;
+          rList[rCount++] = n;
+          if (rCount > limit) return false;
+        }
+        if (heapSize >= cap) return false;
+        heapPush(nc, n);
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * `dirs` for tile `n`, derived from the finished costs: the neighbour that reaches it at exactly its
+ * cost by a legal step, and among several the one `compute` expands first -- lowest cost, then lowest
+ * tile index. That is the rule `compute` states at its tie, written from the receiving side, so a
+ * repaired tile reads what a full recompute would have left there.
+ */
+function rederive(cost: Int32Array, dirs: Uint8Array, blocked: Uint8Array, elevation: Uint8Array, w: number, h: number, goal: number, n: number): void {
+  const cn = cost[n];
+  if (n === goal || cn === INF) {
+    dirs[n] = DIR_NONE;
+    return;
+  }
+  const nx = n % w;
+  const ny = (n - nx) / w;
+  let best = -1;
+  let bestCost = INF;
+  let bestDir = DIR_NONE;
+  for (let e = 0; e < 8; e++) {
+    const mx = nx + DIR_DX[e];
+    const my = ny + DIR_DY[e];
+    if (mx < 0 || my < 0 || mx >= w || my >= h) continue;
+    const m = my * w + mx;
+    const cm = cost[m];
+    if (cm >= cn) continue;
+    if (stepCost(cost, blocked, elevation, w, nx, ny, mx, my, (e & 1) === 1) !== cn) continue;
+    if (cm < bestCost || (cm === bestCost && m < best)) {
+      best = m;
+      bestCost = cm;
+      bestDir = e;
+    }
+  }
+  dirs[n] = bestDir;
+}
+
 export class FlowField {
   readonly width: number;
   readonly height: number;
@@ -195,5 +362,199 @@ export class FlowField {
       }
     }
     dirs[goal] = DIR_NONE;
+  }
+
+  /**
+   * Bring this field up to date after tiles of `blocked` flipped, WITHOUT recomputing it, to exactly the
+   * bytes `compute(blocked, elevation, goal)` would leave (GH-913 L2). `blocked` is the mask AFTER the
+   * change; `changed[0..count)` are the tiles whose value flipped; `opening` says which way (all of
+   * them became open, or all of them became blocked). Elevation is unchanged.
+   *
+   * Costs first. A tile that closed takes with it the tiles whose every shortest route ran through it
+   * (the "affected" set, found by asking each candidate whether any unaffected neighbour still reaches
+   * it at its old cost); those are re-seeded from their unaffected neighbours and settled. A tile that
+   * opened can only make costs fall: re-seed the tiles whose incoming steps changed (the tile and its
+   * eight neighbours: a diagonal's companions are the only other way a tile's legality changes) and
+   * relax outward while anything improves. Then `dirs`: every tile whose cost changed, every neighbour
+   * of one, and every neighbour of a flipped tile is re-derived from the finished costs.
+   *
+   * Falls back to `compute` -- exact by definition -- when the goal itself is involved or the repair
+   * would touch more than a quarter of the map. Returns the number of tiles whose cost it re-derived,
+   * or -1 when it fell back.
+   */
+  repair(blocked: Uint8Array, elevation: Uint8Array, changed: ArrayLike<number>, count: number, opening: boolean): number {
+    const w = this.width;
+    const h = this.height;
+    const cost = this.cost;
+    const dirs = this.dirs;
+    if (count <= 0) return 0;
+    const gx = this.goalX;
+    const gy = this.goalY;
+    const goal = gy * w + gx;
+    // A field that never had a goal (off the map, or blocked when it was computed) has nothing to repair.
+    if (gx < 0 || gy < 0 || gx >= w || gy >= h || cost[goal] !== 0 || blocked[goal] !== 0) {
+      this.compute(blocked, elevation, gx, gy);
+      return -1;
+    }
+    const cells = w * h;
+    repairScratchFor(cells);
+    const limit = cells >> 2;
+    const mark = rMark;
+    const list = rList;
+    rCount = 0;
+    heapSize = 0;
+    let ok = true;
+
+    if (!opening) {
+      // ---- Closing. Phase A: who loses every route?
+      const stack = rStack;
+      let sp = 0;
+      for (let i = 0; i < count; i++) {
+        const o = changed[i];
+        if (cost[o] !== INF && mark[o] === 0) {
+          mark[o] = 1;
+          list[rCount++] = o;
+          stack[sp++] = o;
+        }
+      }
+      // A tile that lost a diagonal step (a companion closed) loses support with no affected parent.
+      for (let i = 0; i < count && ok; i++) {
+        const o = changed[i];
+        const ox = o % w;
+        const oy = (o - ox) / w;
+        for (let e = 0; e < 8; e++) {
+          const vx = ox + DIR_DX[e];
+          const vy = oy + DIR_DY[e];
+          if (vx < 0 || vy < 0 || vx >= w || vy >= h) continue;
+          const v = vy * w + vx;
+          if (mark[v] !== 0 || cost[v] === INF || v === goal || blocked[v] !== 0) continue;
+          if (!this.supported(blocked, elevation, vx, vy)) {
+            mark[v] = 1;
+            list[rCount++] = v;
+            stack[sp++] = v;
+          }
+        }
+        if (rCount > limit) ok = false;
+      }
+      // Each newly affected tile may be the last support of its dependants.
+      while (sp > 0 && ok) {
+        const u = stack[--sp];
+        const ux = u % w;
+        const uy = (u - ux) / w;
+        for (let e = 0; e < 8; e++) {
+          const vx = ux + DIR_DX[e];
+          const vy = uy + DIR_DY[e];
+          if (vx < 0 || vy < 0 || vx >= w || vy >= h) continue;
+          const v = vy * w + vx;
+          if (mark[v] !== 0 || cost[v] === INF || v === goal || blocked[v] !== 0) continue;
+          // A dependant is a tile whose old cost is exactly `u`'s plus a step. The step's legality is
+          // not asked here (a superset is harmless: `supported` decides on the NEW mask).
+          const climb = elevation[u] - elevation[v];
+          if (cost[v] !== cost[u] + ((e & 1) === 1 ? COST_DIAG : COST_ORTH) + (climb > 0 ? climb * UPHILL_PER_LEVEL : 0)) continue;
+          if (!this.supported(blocked, elevation, vx, vy)) {
+            mark[v] = 1;
+            list[rCount++] = v;
+            stack[sp++] = v;
+            if (rCount > limit) {
+              ok = false;
+              break;
+            }
+          }
+        }
+      }
+      if (ok) {
+        // Phase B: re-seed the affected tiles from the unaffected ones, then settle them.
+        const affected = rCount;
+        for (let i = 0; i < affected; i++) cost[list[i]] = INF;
+        for (let i = 0; i < affected && ok; i++) {
+          const v = list[i];
+          if (blocked[v] !== 0) continue;
+          const vx = v % w;
+          const best = bestInto(cost, blocked, elevation, w, h, vx, (v - vx) / w);
+          if (best < INF) {
+            cost[v] = best;
+            if (heapSize >= heapTile.length) ok = false;
+            else heapPush(best, v);
+          }
+        }
+        if (ok) ok = drainHeap(cost, blocked, elevation, w, h, limit);
+      }
+    } else {
+      // ---- Opening: costs can only fall. Re-seed every tile whose incoming steps changed.
+      for (let i = 0; i < count && ok; i++) {
+        const o = changed[i];
+        const ox = o % w;
+        const oy = (o - ox) / w;
+        for (let e = -1; e < 8; e++) {
+          const vx = e < 0 ? ox : ox + DIR_DX[e];
+          const vy = e < 0 ? oy : oy + DIR_DY[e];
+          if (vx < 0 || vy < 0 || vx >= w || vy >= h) continue;
+          const v = vy * w + vx;
+          if (blocked[v] !== 0) continue;
+          const best = bestInto(cost, blocked, elevation, w, h, vx, vy);
+          if (best < cost[v]) {
+            cost[v] = best;
+            if (mark[v] === 0) {
+              mark[v] = 1;
+              list[rCount++] = v;
+            }
+            if (heapSize >= heapTile.length) ok = false;
+            else heapPush(best, v);
+          }
+        }
+        if (rCount > limit) ok = false;
+      }
+      if (ok) ok = drainHeap(cost, blocked, elevation, w, h, limit);
+    }
+
+    const touched = rCount;
+    if (ok) {
+      // Phase D: re-derive `dirs` wherever a cost or a legal step may have changed.
+      const dMark = rDMark;
+      const dList = rDList;
+      let nd = 0;
+      for (let i = 0; i < touched + count; i++) {
+        const t = i < touched ? list[i] : changed[i - touched];
+        const tx = t % w;
+        const ty = (t - tx) / w;
+        for (let e = -1; e < 8; e++) {
+          const nx = e < 0 ? tx : tx + DIR_DX[e];
+          const ny = e < 0 ? ty : ty + DIR_DY[e];
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const n = ny * w + nx;
+          if (dMark[n] === 0) {
+            dMark[n] = 1;
+            dList[nd++] = n;
+          }
+        }
+      }
+      for (let i = 0; i < nd; i++) {
+        rederive(cost, dirs, blocked, elevation, w, h, goal, dList[i]);
+        dMark[dList[i]] = 0;
+      }
+    }
+    for (let i = 0; i < touched; i++) mark[list[i]] = 0;
+    heapSize = 0;
+    if (!ok) {
+      this.compute(blocked, elevation, gx, gy);
+      return -1;
+    }
+    return touched;
+  }
+
+  /** Does some unaffected neighbour still reach (vx, vy) at its OLD cost by a legal step on the NEW
+   *  mask? `repair`'s closing pass, where `rMark` flags the tiles already known to lose their cost. */
+  private supported(blocked: Uint8Array, elevation: Uint8Array, vx: number, vy: number): boolean {
+    const w = this.width;
+    const h = this.height;
+    const target = this.cost[vy * w + vx];
+    for (let e = 0; e < 8; e++) {
+      const mx = vx + DIR_DX[e];
+      const my = vy + DIR_DY[e];
+      if (mx < 0 || my < 0 || mx >= w || my >= h) continue;
+      if (rMark[my * w + mx] !== 0) continue;
+      if (stepCost(this.cost, blocked, elevation, w, vx, vy, mx, my, (e & 1) === 1) === target) return true;
+    }
+    return false;
   }
 }

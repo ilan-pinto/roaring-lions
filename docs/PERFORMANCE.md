@@ -508,6 +508,50 @@ fields is the pool's upper bound rather than a mission. If a mission ever
 holds that many, the next step is an incremental update (only tiles whose
 distance changed), not a threshold change.
 
+### Flow fields: a bucket queue and an incremental repair (GH-913 L1 and L2, 1 Nov 2026)
+
+Both are exact. The golden hash and every pin are unchanged, and two witnesses hold the new code to the old
+bytes (`tools/src/flowfield_exact.test.ts`, `tools/src/flowfield_repair.test.ts`, against the frozen heap
+implementation in `tools/src/flowfield_oracle.ts`).
+
+**Conditions for every number below.** Apple M3 Pro (12 cores), Node v25.9.0, one process, no browser or GPU.
+**The machine was heavily loaded**: the 1-minute load average read 15 to 25 for the `perf:flowfield` runs and
+100 to 180 for the `perf:recompute` runs (other sessions on the same box). Wall time under that load is
+inflated and unsteady, so `perf:recompute` prints process CPU time next to wall time, and the CPU rows are the
+ones to compare. Ratios between arms measured back to back are steadier than absolute milliseconds.
+
+**L1, `FlowField.compute`** (`pnpm perf:flowfield`, 200 goals per terrain, median of 11 repeats, old and new
+interleaved, three runs). At 80x80 the new compute is 2.2x to 3.1x faster per terrain and 2.55x to 2.64x on the
+mean of ten terrains (`wadi_tarfan` stretched: about 830 us to about 305 us); at 48x48 it is 1.8x to 3.3x. The
+lowest ratio is always random terrain with steep relief (many queued-then-improved tiles).
+
+**L2, `addStructure` / `removeStructure` with followed fields** (`pnpm perf:recompute -- --scale=80 --live=100
+--map=wadi_tarfan --spot=centre`: `wadi_tarfan` stretched to 80x80, 100 fields followed, a 2x2 in the middle,
+50 runs after 3 warm-ups, two runs per arm). Medians, add / remove, in ms:
+
+| Code | CPU time | Wall time (load average 100 to 200) |
+|---|---|---|
+| origin/main (heap, recompute every followed field) | 78 and 81 / 79 and 82 | 246 and 84 / 245 and 86 |
+| L1 only (bucket ring, recompute every followed field) | 30 and 30 / 31 and 29 | 69 and 67 / 80 and 65 |
+| L1 + L2 (repair) | 4.3 and 4.2 / 2.3 and 2.3 | 4.4 and 4.2 / 2.3 and 2.3 |
+
+The two origin/main wall readings disagree 3x for the same code (load, not the code); CPU time does not. The
+design's gate was a median at or under 20 ms for 100 followed fields at 80x80: this reads 4.3 ms, p95 9 ms.
+Other readings of the same tool: a 2x2 in the top-left corner at 80x80 (100 followed) reads 0.19 / 0.54 ms CPU
+against 30 / 31 ms with L1 alone; the original 48x48 case (`beit_sahwan_outskirts`, 128 followed, corner) reads
+0.26 / 0.45 ms against 13 / 13 ms with L1 alone.
+
+**Real collapses**, `debugDestroyStructure` over every building of eight shipped 48x48 maps
+(`beit_sahwan_outskirts`, `wadi_halam_basin`, `qarn_hadid`, `tel_marum`, `marj_perimeter`, `khan_rafid`,
+`umm_zeitoun`, `deir_amun`; 307 collapses, 60 followed fields each, a throwaway script, load average 40 to 120):
+CPU median 6.3 ms with L1 alone against 0.57 ms with L2, p95 8.9 against 3.5 to 3.8, **max 19 to 25 against
+14 to 16**. A repair's cost depends on where the change falls, which a recompute's does not. A repair that
+would touch more than a quarter of the map recomputes that field in full, so the worst case is one `compute`
+per followed field plus the abandoned work. The slowest collapses were not isolated further: the six slowest
+made 60 repair calls with 0 to 3 fallbacks and 2,000 to 11,000 tile re-derivations in total, so they are not
+full recomputes, and the very first op of a process carries JIT warm-up. Read the max as unexplained, not as
+improved.
+
 ---
 
 ## Infantry animation: crossfades and falls (2026-09-17)
