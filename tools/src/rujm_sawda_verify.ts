@@ -10,7 +10,7 @@
 //
 // What it checks:
 //   1. shape: 80x80, one elevation digit per tile;
-//   2. the half-turn (x, y) -> (79 - x, 79 - y): every tile, every elevation digit, every marker
+//   2. the seats on the main diagonal (x == y), and the half-turn (x, y) -> (79 - x, 79 - y): every tile, every elevation digit, every marker
 //      and zone (bar the named `centre`), every building, both camps, both tunnel sets, and the
 //      income of each zone against its twin's;
 //   3. seat-to-seat flow cost, both ways, on foot and on wheels, equal and finite;
@@ -103,6 +103,12 @@ export function verifyRujmSawda(json: MapJson, rules: VersusRulesJson): Report {
 
   if (!markers.versus_0 || !markers.versus_1) fail('symmetry: a seat marker is missing');
   else if (mirror(markers.versus_0).join() !== markers.versus_1.join()) fail(`symmetry: versus_1 ${markers.versus_1} is not versus_0 ${markers.versus_0} mirrored`);
+  // The lead's ruling: the seats stand on the main diagonal, one at the top of the screen and one
+  // at the bottom (design 3.3), so the side-lit relief reads the same for both.
+  for (const seat of ['versus_0', 'versus_1'] as const) {
+    const p = markers[seat];
+    if (p && p[0] !== p[1]) fail(`seats: ${seat} (${p}) is not on the main diagonal (x == y)`);
+  }
   const markerAt = new Map(Object.entries(markers).map(([n, p]) => [p.join(','), n]));
   const lonely = Object.entries(markers).filter(([, p]) => !markerAt.has(mirror(p).join(','))).map(([n]) => n).sort();
   if (lonely.join() !== 'centre') fail(`symmetry: markers with no twin tile: ${lonely.join(', ') || '(none)'}; only centre may be alone`);

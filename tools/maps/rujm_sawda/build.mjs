@@ -8,7 +8,7 @@
 // The layout is the lead-approved 40x40 sketch (_coord/net-large-map/sketch.py, 1 character =
 // 2x2 tiles), ported cell for cell and then drawn at tile resolution. `cellSketch()` is that port
 // and nothing else: tools/src/rujm_sawda.test.ts holds it to sketch.py's own output (kept in
-// tools/maps/rujm_sawda/sketch.out.json), so a drifting port is red rather than a different map.
+// tools/maps/rujm_sawda/sketch.out), so a drifting port is red rather than a different map.
 //
 // The map is point-symmetric about (39.5, 39.5): every tile, elevation digit, marker, zone,
 // building and tunnel route is the half-turn image (x, y) -> (79 - x, 79 - y) of one on the

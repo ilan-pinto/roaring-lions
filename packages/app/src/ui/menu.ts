@@ -27,12 +27,15 @@ import { terrainTonesFor } from '../terrain-themes';
 
 /** Shipped maps the Free Play picker does not list (GH-871 P2, the lead's
  *  ruling): Ein Qasab is a greybox terrain study until P3's real art lands, so
- *  it is held out of `/free-play`. DELETE the entry when P3 ships. This hides
- *  the CARD only: `/free-play/ein_qasab` and `?sandbox=ein_qasab` still boot it
- *  for dev work, and the map stays in `@lions/data` and the Worker's
+ *  it is held out of `/free-play`. DELETE the entry when P3 ships. Rujm Sawda
+ *  (GH-913 L4) is held out until the lead has looked at it and opened it:
+ *  DELETE its entry when the map is offered. This hides the CARD only:
+ *  `/free-play/ein_qasab` and `?sandbox=ein_qasab` (and the same two for
+ *  `rujm_sawda`, with `?net=new` for a sandbox room) still boot it for dev
+ *  work, and the maps stay in `@lions/data` and the Worker's
  *  `SHIPPED_MAP_IDS`. `sandbox-menu.test.ts` pins this set to exactly this
  *  list and fails if an entry names no shipped map. */
-export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab']);
+export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab', 'rujm_sawda']);
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */

@@ -122,6 +122,17 @@ describe('the verifier goes red, one broken input at a time (PR 600\'s four, and
     expect(has(d, 'sandboxAnchors reads') || has(d, 'versus_1')).toBe(true);
   });
 
+  it('both seats moved off the main diagonal, still a symmetric pair (the lead\'s ruling, asserted directly)', () => {
+    const d = fresh();
+    const mk = d.json.markers as Record<string, number[]>;
+    mk.versus_0 = [12, 14];
+    mk.versus_1 = [67, 65]; // the exact half-turn of (12,14): symmetry alone cannot see this
+    const out = failures(d);
+    expect(out.some((f) => f.startsWith('symmetry: versus_1'))).toBe(false);
+    expect(out.some((f) => f.includes('seats: versus_0 (12,14) is not on the main diagonal'))).toBe(true);
+    expect(out.some((f) => f.includes('seats: versus_1 (67,65) is not on the main diagonal'))).toBe(true);
+  });
+
   it('a ridge on a formation tile, its twin too so the map stays symmetric (all three pairings\' spawns)', () => {
     const d = fresh();
     expect(rowsOf(d)[17][14]).toBe('.'); // seat 0 + (2, 5): a tile BOTH forces use
