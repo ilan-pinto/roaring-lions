@@ -7,7 +7,7 @@
  * chunk is being CULLED rather than merely existing: a chunked map whose chunks all survive the
  * frustum test draws exactly what the whole map did, plus more draw calls.
  *
- * Rujm Sawda (80x80) before this change: 19 draws and 22.9M triangles in every view, 96% of them the
+ * Rujm Sawda (80x80) before this change and before its look pass: 19 draws and 22.9M triangles in every view, 96% of them the
  * ditch's (one InstancedMesh, never culled; 7.34M a pass). `perf:fx --breakdown` read the same
  * 23.2M in the browser, so the census and the GPU agree on what is submitted.
  *
@@ -22,7 +22,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
-import { maps, parseMap, applyTerrain, paletteColor, type MapId } from '@lions/data';
+import { maps, parseMap, applyTerrain, paletteColor, type MapId, type MapJson } from '@lions/data';
 import { composeTerrainFrom, type ComposedTerrainBuild } from '@lions/render/three';
 import { chunkGridFor, type ChunkLayer } from '@lions/render/terrain';
 import { censusTerrain, decorSetFromGlbs, texturedSetFromGlbs, type CensusInput, type CensusRow, type CensusView } from '@lions/render/chunk-census';
@@ -42,8 +42,8 @@ beforeAll(async () => {
   texturedSet = await texturedSetFromGlbs(files);
 }, 60_000);
 
-function build(id: MapId): { input: Omit<CensusInput, 'edges'>; markers: Record<string, [number, number]>; whole: CensusInput['edges']; game: CensusInput['edges'] } {
-  const parsed = parseMap(maps[id]);
+function build(source: MapId | MapJson): { input: Omit<CensusInput, 'edges'>; markers: Record<string, [number, number]>; whole: CensusInput['edges']; game: CensusInput['edges'] } {
+  const parsed = parseMap(typeof source === 'string' ? maps[source] : source);
   const sim = new Sim({ seed: 20261101, width: parsed.width, height: parsed.height, capacity: 64 });
   applyTerrain(parsed, sim);
   const tones = rendererOptionsFor(parsed, { colorVision: 'default', quality: 'high' } as never, '/').terrainTones;
@@ -69,14 +69,33 @@ function build(id: MapId): { input: Omit<CensusInput, 'edges'>; markers: Record<
 const at = (m: Record<string, [number, number]>, k: string, zoom: number): CensusView => ({ x: m[k][0], y: m[k][1], zoom });
 const MTRI = 1e6;
 
-describe('Rujm Sawda (80x80) submits a fraction of what the whole-map build did', () => {
-  // Measured on the browser (Metal, DPR 2, `ground:capture`): seat 23.7M -> 2.5M triangles, centre
-  // 23.2M -> 13.3M, and the frame 2.1 to 4.0 ms faster. The census below is the same count, in CI.
+/**
+ * An 80x80 map with a large ditch, stamped into Rujm Sawda's own ground. Rujm shipped with ~190 ditch
+ * segments, and PR 928 (its look pass) then replaced them with a boulder line, so the shipped map can no
+ * longer say whether the ditch is culled. This keeps the gate honest: a `d` line each way along the
+ * south and east sides (about 120 segments, the old Rujm's order of magnitude), none near the seat in
+ * the north-west corner, so the seat view must cull it away and the centre only partly sees it.
+ */
+function rujmWithDitch(): MapJson {
+  const base = maps.rujm_sawda as MapJson;
+  const rows = base.rows.map((r) => r.split(''));
+  for (let i = 10; i < 70; i++) {
+    rows[62][i] = 'd';
+    rows[i][62] = 'd';
+  }
+  return { ...base, id: 'rujm_sawda_ditch_fixture', rows: rows.map((r) => r.join('')) };
+}
+
+describe('an 80x80 map with a large ditch submits a fraction of what the whole-map build did', () => {
+  // The shipped Rujm no longer has a ditch (PR 928 swapped it for boulders), so this runs on Rujm's
+  // ground with a stamped ditch (`rujmWithDitch`). On the real old Rujm, measured in the browser
+  // (Metal, DPR 2, `ground:capture`): seat 23.7M -> 2.5M triangles, centre 23.2M -> 13.3M, the frame
+  // 2.1 to 4.0 ms faster. The census below is the same count on this fixture, in CI.
   let rujm: ReturnType<typeof build>;
   let chunked: CensusRow[];
   let whole: CensusRow[];
   beforeAll(() => {
-    rujm = build('rujm_sawda');
+    rujm = build(rujmWithDitch());
     // seat (the force, in a corner), centre (the ditches), a mesa zoomed in
     const list = [at(rujm.markers, 'versus_0', 1), at(rujm.markers, 'centre', 1), at(rujm.markers, 'mesa_ne', 2.5)];
     chunked = censusTerrain({ ...rujm.input, edges: rujm.game }, list);
@@ -89,7 +108,7 @@ describe('Rujm Sawda (80x80) submits a fraction of what the whole-map build did'
 
   it('the whole-map build draws the ditch in full in every view (the number being fixed)', () => {
     for (const row of whole) {
-      expect(row.total.triangles / MTRI, 'a never-culled ditch').toBeGreaterThan(20);
+      expect(row.total.triangles / MTRI, 'a never-culled ditch (14.4-14.8M here; Rujm shipped at 22.9M with its old ditch)').toBeGreaterThan(12);
       expect(row.total.calls).toBeLessThanOrEqual(20);
     }
   });
@@ -103,7 +122,7 @@ describe('Rujm Sawda (80x80) submits a fraction of what the whole-map build did'
 
   it('centre view at zoom 1 (ditches in view): less than two thirds of the whole-map triangles', () => {
     const centre = chunked[1];
-    expect(centre.total.triangles / MTRI).toBeLessThan(15);
+    expect(centre.total.triangles / MTRI, '8.6M measured').toBeLessThan(11);
     expect(centre.total.triangles).toBeLessThan(whole[1].total.triangles * 0.66);
     expect(centre.total.calls, 'draws (19 whole, 54 chunked)').toBeLessThan(90);
   });
