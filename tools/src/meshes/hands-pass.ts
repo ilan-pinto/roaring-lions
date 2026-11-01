@@ -31,7 +31,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { NodeIO, type Document, type Node } from '@gltf-transform/core';
+import { NodeIO, type Animation, type Document, type Node } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { addBone, writeTrack } from './motion/edit';
 import { describeHold } from './motion/hold';
@@ -93,6 +93,21 @@ export const HANDS_TEAMS: Record<string, HandsTeam> = {
     sleevePatch: { L: { rect: [474, 620, 64, 90], down: true }, R: { rect: [284, 408, 44, 78], down: false } },
     atlas: [2048, 1024],
     oldSleeve: { L: 0.04, R: 0.1 },
+  },
+  demo_squad: {
+    // demo_b is listed first, as the motion table lists him; demo_a is armed with the same carbine (GH-826 step 3).
+    figures: ['demo_b', 'demo_a'],
+    // dust.6 #6B4F29 (107,79,41), a real 5 x 5 solid block of the figure bake (std < 2), dE 0.10 to its key. The figure keeps
+    // pixels 0..1023 of the 2048 x 1024 atlas, so this is the same texel the kit names for coyote_shade.
+    glove: [805, 792],
+    // solid 5 x 5 blocks within dE 0.07 of the review's sleeve mean (34.3, -5.7, 17.0), rgb (81, 82, 53)
+    sleeve: { L: [879, 893], R: [876, 130] },
+    // Departure 42: the old forearm's own UV islands are fragments of plain olive (the largest all-cloth rectangles are 12 x 9
+    // and 17 x 39 px, texel std 2 to 3 of 255), so this body's sleeve cloth is taken from the atlas's own all-cloth rectangle with
+    // the most texture: 48 x 24 px, mean dE76 2.3 to the sleeve, std 6.9 (the upper arm reads 7 to 11 at its vertices).
+    sleevePatch: { L: { rect: [205, 187, 48, 24], down: false }, R: { rect: [205, 187, 48, 24], down: false } },
+    atlas: [2048, 1024],
+    oldSleeve: { L: 0.12, R: 0.13 },
   },
 };
 
@@ -173,6 +188,15 @@ function sectionOf(pts: V3[], origin: V3, axis: V3): { off: V3; u: V3; v: V3; a:
   const u = add(scale(e1, u2[0]), scale(e2, u2[1]));
   const v = add(scale(e1, v2[0]), scale(e2, v2[1]));
   return { off: add(scale(e1, cx), scale(e2, cy)), u, v, a: q80(pu), b: q80(pv) };
+}
+
+/** True when a clip scales the figure's living root to nothing for its whole length: nothing on that body is drawn in it. */
+export function livingBodyHidden(anim: Animation, prefix: string): boolean {
+  if (!DEAD_CLIPS.includes(anim.getName())) return false;
+  const root = anim.listChannels().find((c) => c.getTargetNode()?.getName() === `${prefix}_root` && c.getTargetPath() === 'scale');
+  if (!root) return false;
+  const v = root.getSampler()!.getOutput()!.getArray() as Float32Array;
+  return v.length > 0 && Array.from(v).every((x) => Math.abs(x) < 1e-6);
 }
 
 export interface ArmPlan {
@@ -385,7 +409,9 @@ export function runHandsPass(doc: Document, id: string, spec: HandsTeam, lib: Ha
         } else if (c.getTargetPath() === 'translation') {
           for (let i = 0; i < v.length; i += 3) {
             const dev = Math.hypot(v[i] - oldLocal.t[0], v[i + 1] - oldLocal.t[1], v[i + 2] - oldLocal.t[2]);
-            if (dev > 1e-4) throw new Error(`${id} ${fo.getName()} ${anim.getName()}: a translation key ${dev.toFixed(4)} m off its rest: not constant, refused`);
+            // The KDF importer's dead clips leave stray keys on a living bone whose root is scaled to nothing (demo_squad's
+            // forearm sat at y -1.69 in `down`): the body is not drawn, so the key is irrelevant and is reset to the new rest.
+            if (dev > 1e-4 && !livingBodyHidden(anim, p)) throw new Error(`${id} ${fo.getName()} ${anim.getName()}: a translation key ${dev.toFixed(4)} m off its rest: not constant, refused`);
             v[i] = 0; v[i + 1] = tE; v[i + 2] = 0;
           }
         } else continue;
