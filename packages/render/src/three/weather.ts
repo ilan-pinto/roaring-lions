@@ -183,20 +183,33 @@ export function rainShadowMapSize(size: number, steps: number): number {
 export const RAIN_FALL_SPEED = 4.0;
 /** The slab the rain falls through, above the ground: 6 world units. */
 export const RAIN_FALL_HEIGHT = 6;
-/** The slant of a drop's path from the vertical, degrees, down-wind. */
-export const RAIN_SLANT_DEG = 12;
+/** The slant of a drop's path from the vertical in a steady breeze, degrees, down-wind (12 until GH-940,
+ *  which raised it with the wind). `rainWindScale` multiplies its TANGENT: a lull is 0.8x, a gust 2.1x. */
+export const RAIN_SLANT_DEG = 14;
+/**
+ * The wind (GH-940), presentation only, on the SIM clock (`presentationSimMs`): the rain's slant is
+ * `RAIN_SLANT_DEG`'s tangent times `rainWindScale(t)` = 1 + a slow meander of +-`RAIN_WIND_MEANDER` over
+ * `RAIN_WIND_MEANDER_PERIOD_S` (not a multiple of the gust cadence, so the two drift against each other)
+ * + up to `RAIN_WIND_GUST` more at the peak of a gust. A gust is the foliage's own (`sway.ts`'s
+ * `gustFactor`, every 11 s, 2.5 s wide), so the reeds lean hardest exactly when the rain slants hardest.
+ * Largest scale 1 + 0.2 + 0.9 = 2.1 (slant 27.6 degrees), smallest 0.8 (11.3 degrees).
+ */
+export const RAIN_WIND_MEANDER = 0.2;
+export const RAIN_WIND_MEANDER_PERIOD_S = 8.3;
+export const RAIN_WIND_GUST = 0.9;
 /** A streak's length along its path, world units. */
 export const RAIN_STREAK_LENGTH = 0.42;
 /** A streak's width on screen, CSS pixels, at every zoom (the constant-pixel rule). */
 export const RAIN_STREAK_CSS_PX = 1.5;
 /** A streak's alpha. */
 export const RAIN_STREAK_ALPHA = 0.28;
-/** The splash ring: radius 0.04 -> 0.10 world units over 150 ms after the drop lands. */
-export const RAIN_SPLASH_R0 = 0.04;
-export const RAIN_SPLASH_R1 = 0.1;
-export const RAIN_SPLASH_MS = 150;
-/** The splash's alpha, 0.35 -> 0 over its life. */
-export const RAIN_SPLASH_ALPHA = 0.35;
+/** The splash ring: radius 0.05 -> 0.20 world units over 260 ms after the drop lands (0.04 -> 0.10 over
+ *  150 ms until GH-940: a ring about 4 px across at zoom 1 was a speck the lead could not see). */
+export const RAIN_SPLASH_R0 = 0.05;
+export const RAIN_SPLASH_R1 = 0.2;
+export const RAIN_SPLASH_MS = 260;
+/** The splash's alpha, 0.5 -> 0 over its life (0.35 until GH-940). */
+export const RAIN_SPLASH_ALPHA = 0.5;
 /** How far a splash ring floats over the ground it lands on, world units: a ring
  *  is flat and a slope would bury one side of it. */
 export const RAIN_SPLASH_LIFT = 0.04;
@@ -206,10 +219,12 @@ export const RAIN_SPLASH_KEY = 'overcast.1';
 /** The smallest and the largest lattice period, tiles (R-7, as amended by S-L2 ruling 2): the
  *  period is no longer snapped to {8, 16, 32, 64} but continuous in between, the box of landing
  *  points the screen can see itself (`latticePeriod`), so the drops a screen holds change smoothly
- *  with the zoom and a keep fraction (`rainKeep`) can hold their number. The largest still binds:
- *  a map wider than 48 tiles at the lowest zoom thins at its far corners. */
+ *  with the zoom and a keep fraction (`rainKeep`) can hold their number. The largest is 320 since
+ *  GH-940 (it was 64, the map plus its skirt): the rain fills the whole screen, off-map corners
+ *  included, and a 1400 x 900 screen at the 0.35 floor is a 152-tile box. A screen wider than about
+ *  2,600 CSS px at that floor would thin at its far corners. */
 export const RAIN_PERIOD_MIN = 8;
-export const RAIN_PERIOD_MAX = 64;
+export const RAIN_PERIOD_MAX = 320;
 /** The on-screen drop count the rain holds at every zoom, as a share of a preset's `drops` (S-L2
  *  ruling 2): 0.22, so 1,320 of high's 6,000, 770 of medium's 3,500 and 115.5 of low's 525 (the
  *  lead's 1,400 scaled by the preset total is 0.233; +-20% of that is the band the tests assert).

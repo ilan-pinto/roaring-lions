@@ -379,35 +379,42 @@ never calls into `three/weather.ts`, so a shipped map's light, haze, shadow map 
 - **The rain is ONE instanced draw** (`units/rain-batch.ts`, `units/rain-maths.ts`), built lazily by the first `frame()` after the terrain
   exists, only under rain and only when the preset's `drops > 0`. Each instance owns a static seed (`dropSeed`) and the vertex shader ages
   it from a time uniform; the base geometry holds a STREAK quad and a SPLASH quad, so a drop and its ring are one instance. The shader is a
-  GLSL copy of `rain-maths.ts` built from the same exported constants, never retyped literals. Fall 4.0 wu/s through 6 wu, slanted 12
-  degrees down-wind on the foliage sway's axis; a streak is 0.42 wu long, `RAIN_STREAK_CSS_PX` 1.5 CSS px wide at every zoom
-  (`streakWidthWorld`, rewritten per frame from zoom and DPR), alpha 0.28; the splash ring grows 0.04 -> 0.10 wu over 150 ms, alpha 0.35
-  -> 0, floating 0.04 above the ground. Colour is `overcast.0` (streak) and `overcast.1` (splash) linear x `hazeRadiance`: the largest
+  GLSL copy of `rain-maths.ts` built from the same exported constants, never retyped literals. Fall 4.0 wu/s through 6 wu, slanted 14
+  degrees in a breeze (GH-940; it was 12) down-wind on the foliage sway's axis, and gusted (the wind bullet below); a streak is 0.42 wu long, `RAIN_STREAK_CSS_PX` 1.5 CSS px wide at every zoom
+  (`streakWidthWorld`, rewritten per frame from zoom and DPR), alpha 0.28; the splash ring grows 0.05 -> 0.20 wu over 260 ms, alpha 0.5
+  -> 0, floating 0.04 above the ground, with a bright impact core for the first 35% of its life (GH-940: it was 0.04 -> 0.10 over 150 ms at
+  0.35, a 4 px speck at zoom 1 that the lead could not see). Colour is `overcast.0` (streak) and `overcast.1` (splash) linear x `hazeRadiance`: the largest
   channel is 0.4331 on day, under `RAIN_COLOUR_CEILING` 0.9, so it never blooms and `hdr-gains.ts` has no entry.
 - **The time is the SIM clock.** `uFall = mod(4.0 x presentationSimMs/1000, 6)`; nothing in the rain or ripple path reads
   `performance.now()`, `Date.now()` or accumulated `dtMs`. A repaint at zero elapsed time reads the same uniforms and a pause freezes the
   rain mid-air. A drop lands on ONE fixed point and repeats it every 1.5 s (the spec's formula); a re-hash per cycle is a GLSL change if
   a pattern ever shows.
-- **The lattice period is CONTINUOUS and the density is held by a keep fraction.** (R-7 said the period snapped to {8, 16, 32, 64} and "a P
-  step reshuffles": both are SUPERSEDED by S-L2 ruling 2.) A drop's landing point is world-anchored modulo `P`:
-  `x = lo + mod(seed.x P - lo, P)`, inside a `P` window centred on the box of landing points the screen can see. `P` is the side of the
-  UNCLIPPED footprint box (`footprintExtent`: zoom, viewport and the map's highest ground only, grown toward the camera by
-  `rainReach(maxGround)`, `(6 + g) / tan(elevation)`, and by the slant offset), clamped to `[RAIN_PERIOD_MIN 8, RAIN_PERIOD_MAX 64]`,
-  `RAIN_PERIOD_PAD` 1. **It is never a function of the pan** (a pan slides the window and moves no drop; the clipped box only places the
-  window); computing it from the clipped box once made every drop jump near a map edge. A zoom now SLIDES the pattern (`s x P` moves
-  with `P`) where R-7 reshuffled it in one step; never seen in a browser. A pure per-instance keep seed (`dropKeepSeed`, tile-hash streams
-  9973/16183) and `uKeep = min(1, F x P^2 / A)` (`rainKeep`; `A` = `footprintAreaOnMap`, the mean over 8 heights of the fall of the
-  footprint on the map, memoised by `RainKeepCache`) hold the on-screen count at `RAIN_DENSITY_FRACTION` 0.22 of the preset total at every
-  zoom: the shader collapses an instance whose `aKeep >= uKeep` FIRST, with every varying written before the exit. `uKeep` comes from the
-  zoom, the viewport and the map alone, so the pan neither changes it nor the period. Measured at the map centre on flat ground: high
-  1,273-1,373 over zoom 0.35-2.5 (it was 3,365 / 1,726 / 709 / 1,114 before), medium 741-800; low was retuned at 525 drops to the
-  lead's 1,400 scaled by its total, 98-147. The count is the geometry's, not a pixel readback. Lowest-zoom limit: a map wider than 48 tiles
-  thins at its far corners, and `RAIN_PERIOD_PAD` 1.02 failed the 2.3 wu band at zoom 2.5, so it stays 1.
-- **The map edge is a LANDING-point cull.** The vertex shader removes a drop whose landing point is outside `[0, W] x [0, H]` and fades
-  one within `RAIN_EDGE_FADE` (0.5 tile) inside it with a smoothstep; the splash follows its drop (`mapEdgeFade` is the pure mirror). **The
-  cull tests the landing point, not the streak**, so up to `6 x tan(12 degrees)` = 1.28 tiles of rain can overhang the void on the west and
-  south edges and lose its upper air on the east and north: S-L2 saw rain over the black void above the top-left edge at `kdf_start`
-  (about 1.9% of void pixels). The lead approved it as is.
+- **The lattice period is CONTINUOUS, the window is never clipped to the map, and the density is held by a keep fraction.** (R-7 said the
+  period snapped to {8, 16, 32, 64} and "a P step reshuffles": both are SUPERSEDED by S-L2 ruling 2; the map clip is SUPERSEDED by GH-940.)
+  A drop's landing point is world-anchored modulo `P`: `x = lo + mod(seed.x P - lo, P)`, inside a `P` window centred on the box of landing
+  points the screen can see (`windowLow`). `P` is the side of the box (`footprintExtent`: zoom, viewport and the map's highest ground only,
+  grown toward the camera by `rainReach(maxGround)`, `(6 + g) / tan(elevation)`, and on the two sides the slant reaches toward (+x, -z) by
+  the strongest gust's head offset `RAIN_SLANT_OFFSET x sqrt(1/2)`), clamped to `[RAIN_PERIOD_MIN 8, RAIN_PERIOD_MAX 320]`, `RAIN_PERIOD_PAD` 1.
+  **It is never a function of the pan** (a pan slides the window and moves no drop). **No term reads the map** (GH-940): the box is not
+  clipped to it and `rainKeep` has no map argument. Until GH-940 the box was clipped to the map plus 8 tiles, the period capped at 64, and the
+  shader removed every drop whose landing point was off `[0, W] x [0, H]`: a dimetric map is a diamond, so the corners of the screen are off
+  the map at EVERY focus at game zoom, and the lead saw Ein Qasab II's corners and its backdrop dry (the cause was found by a before
+  capture, and `rain-coverage.test.ts` is the guard). A zoom SLIDES the pattern (`s x P` moves with `P`). A pure per-instance keep seed
+  (`dropKeepSeed`, tile-hash streams 9973/16183) and `uKeep = min(1, F x P^2 / A)` (`rainKeep`; `A` = `footprintAreaInView`, the mean over 8
+  heights of the fall of the footprint's area, clipped only to the period window, memoised by `RainKeepCache`) hold the on-screen count at
+  `RAIN_DENSITY_FRACTION` 0.22 of the preset total at every zoom AND every focus: the shader collapses an instance whose `aKeep >= uKeep` FIRST,
+  with every varying written before the exit. `A / P^2` is scale-free, so the count is the same at the 0.35 floor as at 2.5 (about 1,320 at
+  high, with the same 0.184-0.225 ceiling at the highest zoom over raised ground). A screen wider than about 2,600 CSS px at the 0.35 floor
+  would meet the 320 cap and thin at its far corners.
+- **The splash stops at the map edge, the streak does not.** The vertex shader removes a SPLASH whose landing point is outside
+  `[0, W] x [0, H]` and fades one within `RAIN_EDGE_FADE` (0.5 tile) inside it (`mapEdgeFade` is the pure mirror): a ring needs ground to lie on, and
+  past the map the height texture is clamped to its edge. A STREAK is drawn wherever it lands, falling to the clamped edge height (hidden by the
+  depth test where the backdrop rises above it).
+- **The wind (GH-940), presentation only, on the sim clock.** `rainWindScale(t)` (`rain-maths.ts`) multiplies the slant's TANGENT: 1 + a slow
+  meander of +-0.2 over 8.3 s + up to 0.9 at the peak of a gust, so the slant runs 11 to 28 degrees (0.8x to 2.1x of tan 14). The gust is the
+  FOLIAGE'S OWN (`sway.ts` `gustFactor(t, true)`, every 11 s, 2.5 s wide), so the reeds lean hardest while the rain slants hardest. The batch writes
+  it as `uWind` once a frame from `presentationSimMs / 1000`; the shader derives the path's sine and cosine from the scaled tangent. The wet sway
+  amplitude is x2.2 (was 1.5) and its gust 3.0 (was 1.8). Reduced motion stills the rain and leaves the sway rule as it was.
 - **The draw (S-5).** `RAIN_RENDER_ORDER` is a named ALIAS of `FX_RENDER_ORDER_ABOVE` (band 3, the decal-band pattern): over units and decals,
   under overlays (4), smoke (5) and the silhouette (6). Transparent, `depthTest` ON (a roof in front of a drop hides it; the fog pass
   shrouds a streak by the ground behind it), `depthWrite` OFF, `castShadow` false, NO `normal` attribute. It is out of the AO pre-pass and

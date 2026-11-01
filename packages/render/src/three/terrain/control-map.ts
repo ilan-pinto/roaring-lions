@@ -38,7 +38,7 @@ import { boxBlur, fbm2, valueNoise2 } from './noise';
 import { buildRoadGraph, junctionDistanceAt, roadDistanceAt, ROAD_EDGE_BEND_CYCLES, type RoadGraph } from './road-graph';
 import type { TerrainSurface } from './surface';
 import type { TerrainInput } from './types';
-import { marshTexel, puddleTexel, type WetField } from './wet-masks';
+import { marshTexel, poolTexel, puddleTexel, POOL_NEAR_TILES, type WetField } from './wet-masks';
 
 /** Texels per tile side, in EITHER control texture. `CONTROL_TEXELS_PER_TILE
  *  x CONTROL_TEXELS_PER_TILE` texels cover one tile, so an 8x8 map is a
@@ -378,7 +378,7 @@ export function buildControlMap(
     b,
     c,
   };
-  const field = wet ? buildWetField(input, graph) : null;
+  const field = wet && surface !== undefined ? buildWetField(input, graph, surface) : null;
 
   for (let j = 0; j < height; j++) {
     for (let i = 0; i < width; i++) {
@@ -391,13 +391,49 @@ export function buildControlMap(
 }
 
 /** The inputs control C's texels read besides the input and the surface: the
- *  road graph and the tile-kind decision. `input` is captured, so build a new
- *  one per input. */
-export function buildWetField(input: TerrainInput, graph: RoadGraph): WetField {
+ *  road graph, the tile-kind decision, the water table and the tiles near a
+ *  marsh. `input` is captured, so build a new one per input. */
+export function buildWetField(input: TerrainInput, graph: RoadGraph, surface: TerrainSurface): WetField {
+  const { width, height } = input;
+  const nearMarsh = new Uint8Array(width * height);
+  let marshLevelSum = 0;
+  let marshTiles = 0;
+  if (input.decor) {
+    for (let z = 0; z < height; z++) {
+      for (let x = 0; x < width; x++) {
+        if (input.decor[z * width + x] !== DECOR_MARSH) continue;
+        marshTiles++;
+        if (surface.levels) marshLevelSum += surface.levels[z * width + x];
+        for (let dz = -POOL_NEAR_TILES; dz <= POOL_NEAR_TILES; dz++) {
+          for (let dx = -POOL_NEAR_TILES; dx <= POOL_NEAR_TILES; dx++) {
+            const nx = x + dx;
+            const nz = z + dz;
+            if (nx >= 0 && nz >= 0 && nx < width && nz < height) nearMarsh[nz * width + nx] = 1;
+          }
+        }
+      }
+    }
+  }
   return {
     graph,
     kindAt: (tx, tz) => tileSurface(input, tx, tz).kind,
+    waterLevel: waterTable(surface, marshTiles, marshLevelSum),
+    nearMarsh,
   };
+}
+
+/**
+ * The water table, in levels (GH-940): the marsh's own mean level (integer levels of its tiles), else the lowest
+ * level of any non-terrace tile (a map with no marsh floods its low roads), else 0 (a flat map has no relief). The
+ * INTEGER grid, not the smoothed field: a structure's collapse re-flows the field around it and must not move the
+ * table (the splice has to equal a full build).
+ */
+function waterTable(surface: TerrainSurface, marshTiles: number, marshLevelSum: number): number {
+  if (surface.flat || !surface.levels) return 0;
+  if (marshTiles > 0) return marshLevelSum / marshTiles;
+  let lowest = Infinity;
+  for (let t = 0; t < surface.levels.length; t++) if (surface.terrace[t] === 0 && surface.levels[t] < lowest) lowest = surface.levels[t];
+  return Number.isFinite(lowest) ? lowest : 0;
 }
 
 /** Texel `(i, j)` of both control textures, sampled at its own centre. The
@@ -428,8 +464,8 @@ function writeControlTexel(map: ControlMap, input: TerrainInput, graph: RoadGrap
   return roadDist;
 }
 
-/** Texel `(i, j)` of control C, sampled at its own centre: R the marsh water,
- *  G the puddle mask, B and A written 0. */
+/** Texel `(i, j)` of control C, sampled at its own centre: R the marsh water
+ *  and the flood margin around it, G the road puddles and fords, B and A written 0. */
 function writeWetTexel(
   map: ControlMap,
   input: TerrainInput,
@@ -445,7 +481,8 @@ function writeWetTexel(
   const px = (i + 0.5) / N;
   const pz = (j + 0.5) / N;
   const o = (j * map.width + i) * 4;
-  c[o] = byteOf(marshTexel(input, px, pz));
+  // R is the marsh's own water and, around it, the flood margin (GH-940): a pool takes the marsh's look.
+  c[o] = byteOf(Math.max(marshTexel(input, px, pz), poolTexel(input, surface, field, px, pz)));
   c[o + 1] = byteOf(puddleTexel(input, surface, field, px, pz, roadDist));
   c[o + 2] = 0;
   c[o + 3] = 0;
@@ -587,7 +624,7 @@ export function updateControlMapRegion(
     }
   }
   const graph = buildRoadGraph(input);
-  const field = wet ? buildWetField(input, graph) : null;
+  const field = wet && surface !== undefined ? buildWetField(input, graph, surface) : null;
   let written = 0;
   for (let k = 0; k < mark.length; k++) {
     if (mark[k] === 0) continue;

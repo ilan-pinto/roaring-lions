@@ -16,6 +16,7 @@ import {
   RAIN_PX_PER_WORLD_UNIT,
   RAIN_REACH,
   RAIN_SLANT_TAN,
+  RAIN_WIND_MAX,
   bakeHeightTexels,
   colourClearsBloom,
   dropKeepSeed,
@@ -23,8 +24,8 @@ import {
   dropPhase,
   dropPosition,
   dropSeed,
-  clippedFootprintArea,
-  footprintAreaOnMap,
+  footprintAreaInView,
+  footprintAreaInWindow,
   footprintBox,
   footprintExtent,
   latticePeriod,
@@ -34,6 +35,7 @@ import {
   RainKeepCache,
   rainKeep,
   rainReach,
+  rainWindScale,
   rainWindow,
   splashAgeMs,
   splashAlpha,
@@ -46,7 +48,6 @@ import {
 } from './rain-maths';
 
 const VIEW = { width: 1400, height: 900 };
-const MAP = { width: 48, height: 48 };
 const ZOOMS = [0.35, 0.5, 1, 1.6, 2.5];
 
 const view = (x: number, y: number, zoom: number): RainView => ({ x, y, zoom, ...VIEW });
@@ -171,12 +172,12 @@ describe('the fall (sim clock only)', () => {
     expect(dropPhase(0.99, 0)).toBeCloseTo(5.94, 9);
     expect(dropPhase(0.99, 0.0175)).toBeCloseTo(0.01, 6); // +0.07 wu: 5.94 -> 6.01 wraps to 0.01
   });
-  it('slants 12 degrees down-wind: at height h the head is h * tan 12 UPWIND of its landing', () => {
-    expect(RAIN_SLANT_TAN).toBeCloseTo(0.212557, 6);
+  it('slants 14 degrees down-wind in a breeze: at height h the head is h * tan 14 UPWIND of its landing', () => {
+    expect(RAIN_SLANT_TAN).toBeCloseTo(0.249328, 6);
     const p = dropPosition([0.3, 0.5, 0.7], { x: 0, z: 0 }, 32, 0, 0);
     // wind (0.70711, -0.70711): upwind is -x, +z.
-    expect(p.landX - p.x).toBeCloseTo(p.height * 0.212557 * 0.70711, 5);
-    expect(p.z - p.landZ).toBeCloseTo(p.height * 0.212557 * 0.70711, 5);
+    expect(p.landX - p.x).toBeCloseTo(p.height * 0.249328 * 0.70711, 5);
+    expect(p.z - p.landZ).toBeCloseTo(p.height * 0.249328 * 0.70711, 5);
   });
   it('sits on the ground it lands on: y = groundY + height', () => {
     const p = dropPosition([0.3, 0.5, 0.7], { x: 0, z: 0 }, 32, 2, 1.75);
@@ -185,29 +186,29 @@ describe('the fall (sim clock only)', () => {
 });
 
 describe('the splash', () => {
-  it('grows 0.04 -> 0.10 wu over 150 ms', () => {
-    expect(splashRadius(0)).toBeCloseTo(0.04, 9);
-    expect(splashRadius(75)).toBeCloseTo(0.07, 9);
-    expect(splashRadius(150)).toBeCloseTo(0.1, 9);
-    expect(splashRadius(900)).toBeCloseTo(0.1, 9);
-    expect(splashRadius(-5)).toBeCloseTo(0.04, 9);
+  it('grows 0.05 -> 0.20 wu over 260 ms (GH-940: it was 0.04 -> 0.10 over 150 ms)', () => {
+    expect(splashRadius(0)).toBeCloseTo(0.05, 9);
+    expect(splashRadius(130)).toBeCloseTo(0.125, 9);
+    expect(splashRadius(260)).toBeCloseTo(0.2, 9);
+    expect(splashRadius(900)).toBeCloseTo(0.2, 9);
+    expect(splashRadius(-5)).toBeCloseTo(0.05, 9);
   });
-  it('fades 0.35 -> 0 and is nothing outside its 150 ms', () => {
-    expect(splashAlpha(0)).toBeCloseTo(0.35, 9);
-    expect(splashAlpha(75)).toBeCloseTo(0.175, 9);
-    expect(splashAlpha(149.9)).toBeGreaterThan(0);
-    expect(splashAlpha(150)).toBe(0);
+  it('fades 0.5 -> 0 and is nothing outside its 260 ms', () => {
+    expect(splashAlpha(0)).toBeCloseTo(0.5, 9);
+    expect(splashAlpha(130)).toBeCloseTo(0.25, 9);
+    expect(splashAlpha(259.9)).toBeGreaterThan(0);
+    expect(splashAlpha(260)).toBe(0);
     expect(splashAlpha(-1)).toBe(0);
     expect(splashAlpha(2000)).toBe(0);
   });
-  it('its age is the fall phase over the speed: 0.6 wu past the landing is 150 ms', () => {
+  it('its age is the fall phase over the speed: 1.04 wu past the landing is 260 ms', () => {
     expect(splashAgeMs(0)).toBe(0);
-    expect(splashAgeMs(0.6)).toBeCloseTo(150, 9);
+    expect(splashAgeMs(1.04)).toBeCloseTo(260, 9);
   });
 });
 
 /** The ground points a screen sees, by NDC grid and drop height: the true camera does the projecting. */
-function visibleLandings(v: RainView, ground = 0): { x: number; z: number; ndcx: number; ndcy: number; h: number }[] {
+function visibleLandings(v: RainView, ground = 0, wind = 1): { x: number; z: number; ndcx: number; ndcy: number; h: number }[] {
   const cam = updateDimetricCamera({ x: v.x, y: v.y, zoom: v.zoom }, { width: v.width, height: v.height }, new THREE.OrthographicCamera());
   const dir = new THREE.Vector3();
   cam.getWorldDirection(dir);
@@ -221,41 +222,48 @@ function visibleLandings(v: RainView, ground = 0): { x: number; z: number; ndcx:
         // The drop is `h` above ground that stands `ground` up: its head is at y = ground + h.
         const t = (ground + h - p.y) / dir.y; // along the view ray to that plane
         const head = p.addScaledVector(dir, t);
-        // The drop's landing point: its head, un-slanted (the head sits h * tan 12 upwind of it).
-        out.push({ x: head.x + 0.212557 * h * 0.70710678, z: head.z - 0.212557 * h * 0.70710678, ndcx, ndcy, h });
+        // The drop's landing point: its head, un-slanted (the head sits h * tan 14 deg * wind upwind of it;
+        // tan 14 deg = 0.249328, a literal, not the constant under test).
+        out.push({ x: head.x + 0.249328 * wind * h * 0.70710678, z: head.z - 0.249328 * wind * h * 0.70710678, ndcx, ndcy, h });
       }
     }
   }
   return out;
 }
 
-describe('coverage: the window holds every landing point the screen can see', () => {
-  for (const [fx, fz] of [[24, 24], [4, 4], [44, 44], [4, 44]] as const) {
-    it.each(ZOOMS)(`focus (${fx},${fz}) zoom %s: every visible drop's landing lies inside the window`, (zoom) => {
+describe('coverage: the window holds every landing point the screen can see, off the map included (GH-940)', () => {
+  for (const [fx, fz] of [[24, 24], [4, 4], [44, 44], [4, 44], [24, 45], [-6, 54]] as const) {
+    it.each(ZOOMS)(`focus (${fx},${fz}) zoom %s: every visible drop's landing lies inside the window, in a lull, a breeze and the strongest gust`, (zoom) => {
       const v = view(fx, fz, zoom);
-      const { period: P, low: lo } = rainWindow(v, MAP);
+      const { period: P, low: lo } = rainWindow(v);
       let checked = 0;
-      for (const L of visibleLandings(v)) {
-        // Rain over the map and its 8-tile skirt only (the ground ends there).
-        if (L.x < -8 || L.x > 56 || L.z < -8 || L.z > 56) continue;
-        checked++;
-        expect(L.x, `x at ndc ${L.ndcx},${L.ndcy} h ${L.h}`).toBeGreaterThanOrEqual(lo.x - 1e-6);
-        expect(L.x).toBeLessThanOrEqual(lo.x + P + 1e-6);
-        expect(L.z).toBeGreaterThanOrEqual(lo.z - 1e-6);
-        expect(L.z).toBeLessThanOrEqual(lo.z + P + 1e-6);
+      let offMap = 0;
+      for (const wind of [0.8, 1, 2.1]) {
+        for (const L of visibleLandings(v, 0, wind)) {
+          checked++;
+          if (L.x < 0 || L.x > 48 || L.z < 0 || L.z > 48) offMap++;
+          expect(L.x, `x at ndc ${L.ndcx},${L.ndcy} h ${L.h} wind ${wind}`).toBeGreaterThanOrEqual(lo.x - 1e-6);
+          expect(L.x).toBeLessThanOrEqual(lo.x + P + 1e-6);
+          expect(L.z).toBeGreaterThanOrEqual(lo.z - 1e-6);
+          expect(L.z).toBeLessThanOrEqual(lo.z + P + 1e-6);
+        }
       }
-      expect(checked, 'a vacuous check proves nothing').toBeGreaterThan(40);
+      expect(checked, 'a vacuous check proves nothing').toBeGreaterThan(400);
+      // Not vacuous the other way: at game zoom the screen DOES see off-map ground (the diamond's corners).
+      if (zoom <= 1) expect(offMap, 'the old window was clipped to the map +-8: these are what it left dry').toBeGreaterThan(0);
     });
   }
 
-  it('without the map clip the box still holds the whole unclipped footprint at zoom 1 (period 59.9, the box itself)', () => {
+  it('the box holds the whole unclipped footprint at zoom 1 (period 59.57, the box itself)', () => {
     const v = view(24, 24, 1);
     const box = footprintBox(v);
     const P = latticePeriod(box);
-    // Half side (15.47 + 19.89) / sqrt2 = 25.0; the box is 2 x 25.0 + reach 7.35 + 2 x slant 1.27 = 59.9.
-    expect(P).toBeCloseTo(59.899, 3);
+    // Half side (15.468 + 19.887) / sqrt2 = 25.0; the box is 2 x 25.0 + reach 7.349 + the gust's slant offset on
+    // the one side it reaches toward, 6 x 0.249328 x 2.1 x sqrt(1/2) = 2.2214: 59.57 (hand-worked in the
+    // oracle script, not read from the code).
+    expect(P).toBeCloseTo(59.57, 2);
     const lo = windowLow(box, P);
-    for (const L of visibleLandings(v)) {
+    for (const L of visibleLandings(v, 0, 2.1)) {
       expect(L.x).toBeGreaterThanOrEqual(lo.x - 1e-6);
       expect(L.x).toBeLessThanOrEqual(lo.x + P + 1e-6);
       expect(L.z).toBeGreaterThanOrEqual(lo.z - 1e-6);
@@ -263,26 +271,24 @@ describe('coverage: the window holds every landing point the screen can see', ()
     }
   });
 
-  it('the period per zoom on a 48 map, mid-map, 1400x900 (literals worked by hand)', () => {
-    // 0.35 and 0.5: the footprint outgrows the map, so the box is the map plus 8 each side: 64 (the cap).
-    // 1: half-side (15.47 + 19.89) / sqrt2 = 25.0, plus reach 7.35 and slant 1.27 each: 59.9, the box itself.
-    // 1.6: 41.15.  2.5: 29.90.  (R-7 snapped these to 64, 64, 64, 64, 32; S-L2 ruling 2 made it continuous.)
-    const periods = ZOOMS.map((z) => rainWindow(view(24, 24, z), MAP).period);
-    for (const [got, want] of periods.map((g, i) => [g, [64, 64, 59.899, 41.149, 29.899][i]] as const)) expect(got).toBeCloseTo(want, 3);
+  it('the period per zoom, mid-map, 1400x900 (literals worked by hand): the box itself, 152.43 at the 0.35 floor down to 29.57 at 2.5', () => {
+    // side = 50.0 / zoom + 7.349 (reach 10.392 / sqrt2) + 2.221 (the gust offset): 152.43, 109.57, 59.57, 40.82, 29.57.
+    const periods = ZOOMS.map((z) => rainWindow(view(24, 24, z)).period);
+    for (const [got, want] of periods.map((g, i) => [g, [152.427, 109.57, 59.57, 40.82, 29.57][i]] as const)) expect(got).toBeCloseTo(want, 2);
   });
 
   it('the reach is the fall height seen up the screen: 6 / tan(30 deg) = 10.39', () => {
     expect(RAIN_REACH).toBeCloseTo(10.3923, 3);
   });
 
-  it('falls back to the largest period when no window covers the box (a map wider than 48 at zoom 0.35)', () => {
-    const wide = footprintBox(view(40, 40, 0.35), { width: 96, height: 96 });
-    expect(latticePeriod(wide)).toBe(64);
+  it('a screen wider than the largest period thins at its far corners instead of failing (a 4K screen at the 0.35 floor)', () => {
+    const wide = footprintBox({ x: 40, y: 40, zoom: 0.35, width: 3840, height: 2160 });
+    expect(latticePeriod(wide)).toBe(320);
   });
 
-  it('takes the box itself, clamped to [8, 64]: boxes of side 7, 9, 31, 33, 64 and 100', () => {
+  it('takes the box itself, clamped to [8, 320]: boxes of side 7, 9, 31, 33, 64, 100 and 400', () => {
     const sq = (w: number): GroundBox => ({ minX: 0, maxX: w, minZ: 0, maxZ: w });
-    expect([7, 9, 31, 33, 64, 100].map((w) => latticePeriod(sq(w)))).toEqual([8, 9, 31, 33, 64, 64]);
+    expect([7, 9, 31, 33, 64, 100, 400].map((w) => latticePeriod(sq(w)))).toEqual([8, 9, 31, 33, 64, 100, 320]);
   });
   it('is the larger side: a box 20 wide and 40 tall takes 40', () => {
     expect(latticePeriod({ minX: 0, maxX: 20, minZ: 0, maxZ: 40 })).toBe(40);
@@ -295,27 +301,26 @@ describe('the period is a property of the zoom and the viewport, never of the pa
   const FOCI: ReadonlyArray<readonly [number, number]> = [[24, 24], [0, 0], [44, 44], [0, 44], [44, 0], [47, 47], [47, 0]];
   for (const zoom of [1.6, 1.9, 2.0, 2.2, 1, 0.5, 2.5]) {
     it(`zoom ${zoom}: the same period at the centre and at every corner, 1400x900 on a 48 map`, () => {
-      const centre = rainWindow(view(24, 24, zoom), MAP).period;
-      for (const [x, y] of FOCI) expect(rainWindow(view(x, y, zoom), MAP).period, `focus ${x},${y}`).toBe(centre);
+      const centre = rainWindow(view(24, 24, zoom)).period;
+      for (const [x, y] of FOCI) expect(rainWindow(view(x, y, zoom)).period, `focus ${x},${y}`).toBe(centre);
     });
     it(`zoom ${zoom}: a one-tile pan sweep from the centre to the corner never changes it`, () => {
-      const centre = rainWindow(view(24, 24, zoom), MAP).period;
+      const centre = rainWindow(view(24, 24, zoom)).period;
       for (let t = 0; t <= 48; t++) {
-        expect(rainWindow(view(24 - t / 2, 24 - t / 2, zoom), MAP).period, `t=${t}`).toBe(centre);
-        expect(rainWindow(view(24 + t / 2, 24 + t / 2, zoom), MAP).period, `t=${t}`).toBe(centre);
+        expect(rainWindow(view(24 - t / 2, 24 - t / 2, zoom)).period, `t=${t}`).toBe(centre);
+        expect(rainWindow(view(24 + t / 2, 24 + t / 2, zoom)).period, `t=${t}`).toBe(centre);
       }
     });
   }
-  it('the periods themselves (literals worked by hand): the box side, 41.15 at zoom 1.6 down to 29.90 at 2.5', () => {
-    const got = [1.6, 1.9, 2.0, 2.2, 2.5].map((z) => rainWindow(view(24, 24, z), MAP).period);
-    [41.149, 36.215, 34.899, 32.626, 29.899].forEach((want, i) => expect(got[i]).toBeCloseTo(want, 3));
+  it('the periods themselves (literals worked by hand): the box side, 40.82 at zoom 1.6 down to 29.57 at 2.5', () => {
+    const got = [1.6, 1.9, 2.0, 2.2, 2.5].map((z) => rainWindow(view(24, 24, z)).period);
+    [40.82, 35.886, 34.57, 32.297, 29.57].forEach((want, i) => expect(got[i]).toBeCloseTo(want, 2));
   });
   it('the window still covers every visible landing point at the corners (pan sweep, zooms 1.6 to 2.5)', () => {
     for (const zoom of [1.6, 2.0, 2.5]) {
       for (const [fx, fz] of FOCI) {
-        const { period: P, low: lo } = rainWindow(view(fx, fz, zoom), MAP);
-        for (const L of visibleLandings(view(fx, fz, zoom))) {
-          if (L.x < -8 || L.x > 56 || L.z < -8 || L.z > 56) continue;
+        const { period: P, low: lo } = rainWindow(view(fx, fz, zoom));
+        for (const L of visibleLandings(view(fx, fz, zoom), 0, 2.1)) {
           expect(L.x).toBeGreaterThanOrEqual(lo.x - 1e-6);
           expect(L.x).toBeLessThanOrEqual(lo.x + P + 1e-6);
           expect(L.z).toBeGreaterThanOrEqual(lo.z - 1e-6);
@@ -336,8 +341,8 @@ describe('the reach grows with the ground (fix round 1, minor 2)', () => {
     const g = 2.3;
     for (const zoom of ZOOMS) {
       const v = view(24, 24, zoom);
-      const box = footprintBox(v, undefined, g);
-      for (const L of visibleLandings(v, g)) {
+      const box = footprintBox(v, g);
+      for (const L of visibleLandings(v, g, 2.1)) {
         expect(L.x).toBeLessThanOrEqual(box.maxX + 1e-6);
         expect(L.z).toBeLessThanOrEqual(box.maxZ + 1e-6);
         expect(L.x).toBeGreaterThanOrEqual(box.minX - 1e-6);
@@ -348,7 +353,7 @@ describe('the reach grows with the ground (fix round 1, minor 2)', () => {
   it('and the flat-ground box would NOT hold them (the check is not vacuous)', () => {
     const v = view(24, 24, 1);
     const flat = footprintBox(v);
-    expect(visibleLandings(v, 2.3).some((L) => L.x > flat.maxX + 1e-6 || L.z > flat.maxZ + 1e-6)).toBe(true);
+    expect(visibleLandings(v, 2.3, 2.1).some((L) => L.x > flat.maxX + 1e-6 || L.z > flat.maxZ + 1e-6)).toBe(true);
   });
 });
 
@@ -521,149 +526,189 @@ describe('the keep seeds (S-L2 ruling 2)', () => {
   });
 });
 
-describe('the footprint clipped to the map (clippedFootprintArea), hand-worked', () => {
-  it('a screen smaller than the map, wholly inside it, is its own footprint 4ab: zoom 2.5 = 4 x 6.19 x 7.96 = 197', () => {
-    // a = 1400 / (64 x 2.5 x sqrt2) = 6.187; b = 900 / (32 x 2.5 x sqrt2) = 7.955; 4ab = 196.9.
-    expect(clippedFootprintArea({ zoom: 2.5, width: 1400, height: 900 }, MAP, 64)).toBeCloseTo(196.9, 0);
+describe('the footprint in the lattice window (footprintAreaInWindow), hand-worked', () => {
+  it('a screen the window holds is its own footprint 4ab: zoom 2.5 = 4 x 6.187 x 7.955 = 196.9', () => {
+    // a = 1400 / (64 x 2.5 x sqrt2) = 6.187; b = 900 / (32 x 2.5 x sqrt2) = 7.955.
+    expect(footprintAreaInWindow({ zoom: 2.5, width: 1400, height: 900 }, 320)).toBeCloseTo(196.9, 0);
   });
-  it('a screen larger than the map is the whole map: zoom 0.35 = 48 x 48 = 2304', () => {
-    expect(clippedFootprintArea({ zoom: 0.35, width: 1400, height: 900 }, MAP, 64)).toBeCloseTo(2304, 6);
+  it('the 0.35 floor in a window that holds it is 4 x 44.194 x 56.821 = 10,044.6', () => {
+    expect(footprintAreaInWindow({ zoom: 0.35, width: 1400, height: 900 }, 320)).toBeCloseTo(10044.6, 0);
   });
-  it('a zoom between: the turned rectangle cuts the square`s corners (zoom 0.75 is 1839 of the 2189 that 4ab alone gives)', () => {
-    // a = 20.6, b = 26.5 at zoom 0.75: 4ab = 2189 before the clip; the clip against the 48 square takes 350 of it.
-    expect(clippedFootprintArea({ zoom: 0.75, width: 1400, height: 900 }, MAP, 64)).toBeCloseTo(1839, -1);
-  });
-  it('a footprint moved wholly off the map is 0, and moved half way off keeps half', () => {
-    const v = { zoom: 2.5, width: 1400, height: 900 };
-    expect(clippedFootprintArea(v, MAP, 64, 100, 100)).toBe(0);
-    expect(clippedFootprintArea(v, MAP, 64, -100, 0)).toBe(0);
-    // Slid along x until its far corner is past the map's edge: 4ab = 197 loses a corner triangle.
-    const slid = clippedFootprintArea(v, MAP, 64, 17, 0);
-    expect(slid).toBeLessThan(196.9);
-    expect(slid).toBeGreaterThan(150);
-  });
-  it('is clipped to the lattice window on a map wider than the window: a 200 map at zoom 0.35 shows 64 x 64 = 4096 (less 2 tiles of corner the turned rectangle misses)', () => {
-    const a = clippedFootprintArea({ zoom: 0.35, width: 1400, height: 900 }, { width: 200, height: 200 }, 64);
+  it('a smaller window clips it: the turned rectangle against a 64 square keeps 4,000 of the 4,096 (its corners are cut)', () => {
+    const a = footprintAreaInWindow({ zoom: 0.35, width: 1400, height: 900 }, 64);
     expect(a).toBeLessThanOrEqual(4096);
-    expect(a).toBeGreaterThan(4090);
+    expect(a).toBeGreaterThan(3900);
+  });
+  it('a footprint moved wholly out of the window is 0, and moved half way out keeps about half', () => {
+    const v = { zoom: 2.5, width: 1400, height: 900 };
+    expect(footprintAreaInWindow(v, 64, 100, 100)).toBe(0);
+    expect(footprintAreaInWindow(v, 64, -100, 0)).toBe(0);
+    const slid = footprintAreaInWindow(v, 64, 32, 0);
+    expect(slid).toBeLessThan(196.9);
+    expect(slid).toBeGreaterThan(60);
   });
   it('is 0 for a view of no size', () => {
-    expect(clippedFootprintArea({ zoom: 2.5, width: 0, height: 0 }, MAP, 64)).toBe(0);
+    expect(footprintAreaInWindow({ zoom: 2.5, width: 0, height: 0 }, 64)).toBe(0);
   });
 });
 
-describe('the area whose drops are in view (footprintAreaOnMap), against a brute-force walk of the map', () => {
+describe('the area whose drops are in view (footprintAreaInView), against a brute-force walk', () => {
   /**
-   * The same definition, written the other way round: each 0.25-tile cell of the map, at 32 heights
-   * through the fall, is a landing point; it is in view when its head's ground point, un-moved by the
-   * height's shift, lies inside the rectangle |along (1,-1)/sqrt2| <= a, |along (-1,-1)/sqrt2| <= b.
+   * The same definition, written the other way round: each 0.25-tile cell of a 400-tile plane, at 32
+   * heights through the fall, is a landing point; it is in view when its head's ground point, un-moved
+   * by the height's shift, lies inside the rectangle |along (1,-1)/sqrt2| <= a, |along (-1,-1)/sqrt2| <= b.
    */
-  function bruteArea(zoom: number): number {
+  function bruteArea(zoom: number, period: number): number {
     const a = 1400 / (64 * zoom * Math.SQRT2);
     const b = 900 / (32 * zoom * Math.SQRT2);
     const towards = 1 / (Math.SQRT2 * Math.tan(Math.PI / 6));
-    const tan12 = Math.tan((12 * Math.PI) / 180);
+    const tan14 = 0.249328;
     let inView = 0;
     const K = 32;
+    const cells = Math.round(period * 4);
     for (let k = 0; k < K; k++) {
       const h = ((k + 0.5) / K) * 6;
-      const sx = h * (towards + tan12 * Math.SQRT1_2);
-      const sz = h * (towards - tan12 * Math.SQRT1_2);
-      for (let i = 0; i < 192; i++) {
-        for (let j = 0; j < 192; j++) {
-          const dx = (i + 0.5) / 4 - 24 - sx;
-          const dz = (j + 0.5) / 4 - 24 - sz;
-          const along = (dx - dz) * Math.SQRT1_2;
-          const up = (-dx - dz) * Math.SQRT1_2;
+      const sx = h * (towards + tan14 * Math.SQRT1_2);
+      const sz = h * (towards - tan14 * Math.SQRT1_2);
+      for (let i = 0; i < cells; i++) {
+        for (let j = 0; j < cells; j++) {
+          // the window is the period square about the origin; the footprint is centred on the origin
+          const wx = (i + 0.5) / 4 - period / 2;
+          const wz = (j + 0.5) / 4 - period / 2;
+          const along = (wx - sx - (wz - sz)) * Math.SQRT1_2;
+          const up = (-(wx - sx) - (wz - sz)) * Math.SQRT1_2;
           if (Math.abs(along) <= a && Math.abs(up) <= b) inView++;
         }
       }
     }
     return inView / K / 16;
   }
-  it.each([0.35, 0.5, 0.75, 0.9, 1, 1.25, 1.6, 2.5])('zoom %s: within 1.5% of the walk', (zoom) => {
-    const got = footprintAreaOnMap({ zoom, width: 1400, height: 900 }, MAP, 64);
-    const want = bruteArea(zoom);
+  it.each([0.35, 0.5, 1, 1.6, 2.5])('zoom %s: within 1.5% of the walk, in the window the zoom picks', (zoom) => {
+    const period = rainWindow(view(24, 24, zoom)).period;
+    const got = footprintAreaInView({ zoom, width: 1400, height: 900 }, period);
+    const want = bruteArea(zoom, period);
     expect(Math.abs(got / want - 1), `${got.toFixed(1)} against ${want.toFixed(1)}`).toBeLessThan(0.015);
   });
-  it('the shift matters where the map cuts the screen: zoom 0.9 shows 1,394 tiles of drops, not the 1,462 of the plain footprint', () => {
-    const plain = clippedFootprintArea({ zoom: 0.9, width: 1400, height: 900 }, MAP, 64);
-    const seen = footprintAreaOnMap({ zoom: 0.9, width: 1400, height: 900 }, MAP, 64);
-    expect(plain).toBeCloseTo(1462, -1);
-    expect(seen).toBeCloseTo(1394, -1);
-    expect(seen).toBeLessThan(plain * 0.97);
+  it('with no map to clip to the shift changes nothing until the window clips: zoom 1 in a wide window is the plain 4ab = 1,230.5', () => {
+    expect(footprintAreaInView({ zoom: 1, width: 1400, height: 900 }, 320)).toBeCloseTo(1230.5, 0);
+  });
+  it('and the window DOES bite at the cap: the same screen at the 0.35 floor in a 64 window is under a half of its 10,044', () => {
+    expect(footprintAreaInView({ zoom: 0.35, width: 1400, height: 900 }, 64)).toBeLessThan(5000);
   });
 });
 
 describe('the keep memo', () => {
-  it('two updates at equal inputs compute the keep once; a zoom, a viewport or a map change computes it again; the value is the uncached one', () => {
+  it('two updates at equal inputs compute the keep once; a zoom, a viewport or a period change computes it again; the value is the uncached one', () => {
     const cache = new RainKeepCache();
     const v = { zoom: 1.6, width: 1400, height: 900 };
-    const a = rainKeep(v, MAP, 41.149, cache);
-    const b = rainKeep(v, MAP, 41.149, cache);
+    const a = rainKeep(v, 40.82, cache);
+    const b = rainKeep(v, 40.82, cache);
     expect([cache.misses, cache.hits]).toEqual([1, 1]);
     expect(b).toBe(a);
-    expect(a).toBe(rainKeep(v, MAP, 41.149));
-    rainKeep({ ...v, zoom: 1.7 }, MAP, 41.149, cache);
-    rainKeep({ ...v, width: 1500 }, MAP, 41.149, cache);
-    rainKeep(v, { width: 64, height: 48 }, 41.149, cache);
-    rainKeep(v, MAP, 44, cache);
-    expect([cache.misses, cache.hits]).toEqual([5, 1]);
+    expect(a).toBe(rainKeep(v, 40.82));
+    rainKeep({ ...v, zoom: 1.7 }, 40.82, cache);
+    rainKeep({ ...v, width: 1500 }, 40.82, cache);
+    rainKeep(v, 44, cache);
+    expect([cache.misses, cache.hits]).toEqual([4, 1]);
   });
   it('rainWindow with a cache across a pan: one miss, the rest hits, and the same window as uncached', () => {
     const cache = new RainKeepCache();
     for (let t = 0; t <= 20; t++) {
       const v = view(24 - t, 24 + t / 2, 1.3);
-      expect(rainWindow(v, MAP, 0, cache)).toEqual(rainWindow(v, MAP, 0));
+      expect(rainWindow(v, 0, cache)).toEqual(rainWindow(v, 0));
     }
     expect([cache.misses, cache.hits]).toEqual([1, 20]);
   });
 });
 
 describe('the keep fraction (S-L2 ruling 2): literals worked by hand', () => {
-  // keep = min(1, 0.22 x P^2 / A).
-  it('zoom 0.35: 0.22 x 64^2 / 2304 = 0.3911', () => {
-    expect(rainKeep({ zoom: 0.35, width: 1400, height: 900 }, MAP, 64)).toBeCloseTo(0.39111, 4);
+  // keep = min(1, 0.22 x P^2 / A), A the whole footprint (no map to clip to, GH-940).
+  it('zoom 0.35 (P 152.43): 0.22 x 152.427^2 / 10,044.6 = 0.5089', () => {
+    expect(rainKeep({ zoom: 0.35, width: 1400, height: 900 }, 152.427)).toBeCloseTo(0.5089, 3);
   });
-  it('zoom 1.6 (P 41.15): 0.22 x 41.149^2 / 481 = 0.7745', () => {
-    expect(rainKeep({ zoom: 1.6, width: 1400, height: 900 }, MAP, 41.149)).toBeCloseTo(0.7745, 2);
+  it('zoom 1.6 (P 40.82): 0.22 x 40.82^2 / 480.7 = 0.7627', () => {
+    expect(rainKeep({ zoom: 1.6, width: 1400, height: 900 }, 40.82)).toBeCloseTo(0.7627, 2);
   });
-  it('zoom 2.5 over the highest ground (P 32.7, A 197): 0.22 x 32.7^2 / 197 = 1.19, so 1: a screen that cannot hold the count keeps all it has', () => {
-    expect(rainKeep({ zoom: 2.5, width: 1400, height: 900 }, MAP, 32.7)).toBe(1);
+  it('zoom 2.5 over the highest ground (P 32.39, A 197): 0.22 x 32.39^2 / 197 = 1.17, so 1: a screen that cannot hold the count keeps all it has', () => {
+    expect(rainKeep({ zoom: 2.5, width: 1400, height: 900 }, 32.387)).toBe(1);
   });
   it('is never above 1 and never below 0 over every zoom, either ground', () => {
     for (const g of [0, 2.3]) {
       for (let z = 0.35; z <= 2.5001; z += 0.05) {
         const v = view(24, 24, z);
-        const k = rainWindow(v, MAP, g).keep;
+        const k = rainWindow(v, g).keep;
         expect(k).toBeGreaterThan(0);
         expect(k).toBeLessThanOrEqual(1);
       }
     }
   });
-  it('is a function of the zoom and the viewport, never the focus: rainWindow returns the same keep from every corner', () => {
+  it('is a function of the zoom and the viewport, never the focus (nor the map: there is no map argument): rainWindow returns the same keep from every corner', () => {
     for (const z of ZOOMS) {
-      const centre = rainWindow(view(24, 24, z), MAP).keep;
-      for (const [x, y] of [[0, 0], [44, 44], [0, 44], [44, 0], [47, 47], [10.37, 31.9]] as const) {
-        expect(rainWindow(view(x, y, z), MAP).keep, `z${z} focus ${x},${y}`).toBe(centre);
+      const centre = rainWindow(view(24, 24, z)).keep;
+      for (const [x, y] of [[0, 0], [44, 44], [0, 44], [44, 0], [47, 47], [10.37, 31.9], [-9, 60]] as const) {
+        expect(rainWindow(view(x, y, z)).keep, `z${z} focus ${x},${y}`).toBe(centre);
       }
     }
   });
-  it('the extent is the unclipped box side to the last digit, whatever the focus (the period must not follow the pan at the 15th digit)', () => {
+  it('the extent is the box side to the last digit, whatever the focus (the period must not follow the pan at the 15th digit)', () => {
     for (const z of ZOOMS) {
       const e = footprintExtent(view(24, 24, z), 0);
       for (const [x, y] of [[0, 0], [44, 44], [10.37, 31.9], [47.1, 3.3]] as const) {
         const b = footprintBox(view(x, y, z));
         expect(b.maxX - b.minX).toBeCloseTo(e, 9);
-        expect(rainWindow(view(x, y, z), MAP).period).toBe(rainWindow(view(24, 24, z), MAP).period);
+        expect(rainWindow(view(x, y, z)).period).toBe(rainWindow(view(24, 24, z)).period);
         // ...and over the highest drawn ground (2.3 wu), whose reach widens the box
         const eg = footprintExtent(view(24, 24, z), 2.3);
-        const bg = footprintBox(view(x, y, z), undefined, 2.3);
+        const bg = footprintBox(view(x, y, z), 2.3);
         expect(bg.maxX - bg.minX).toBeCloseTo(eg, 9);
         expect(bg.maxZ - bg.minZ).toBeCloseTo(eg, 9);
         expect(eg - e).toBeCloseTo(2.3 / Math.tan(Math.PI / 6) / Math.SQRT2, 9);
-        expect(rainWindow(view(x, y, z), MAP, 2.3).period).toBe(rainWindow(view(24, 24, z), MAP, 2.3).period);
+        expect(rainWindow(view(x, y, z), 2.3).period).toBe(rainWindow(view(24, 24, z), 2.3).period);
       }
     }
+  });
+});
+
+describe('the wind (GH-940): slanted rain and gusts on the sim clock', () => {
+  it('is 1 + a slow meander of 0.2 over 8.3 s, plus 0.9 at a gust`s peak (literals)', () => {
+    // t = 0: gust phase 0 (the bump starts at 0), meander sin 0 = 0 -> exactly 1.
+    expect(rainWindScale(0)).toBeCloseTo(1, 12);
+    // t = 1.25 s: the middle of the first gust (width 2.5 s), sin^2(pi/2) = 1 -> bump 1; meander sin(2 pi 1.25 / 8.3) = 0.8135.
+    expect(rainWindScale(1.25)).toBeCloseTo(1 + 0.2 * Math.sin((2 * Math.PI * 1.25) / 8.3) + 0.9, 12);
+    expect(rainWindScale(1.25)).toBeCloseTo(2.0627, 3);
+    // t = 5 s: between gusts (the next is at 11 s), so the scale is the meander alone: 1 + 0.2 sin(2 pi 5 / 8.3) = 0.9...
+    expect(rainWindScale(5)).toBeCloseTo(1 + 0.2 * Math.sin((2 * Math.PI * 5) / 8.3), 12);
+  });
+  it('stays in [0.8, 2.1] over a long walk of the clock, reaching both ends nearly (not a constant)', () => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let t = 0; t < 600; t += 0.05) {
+      const w = rainWindScale(t);
+      lo = Math.min(lo, w);
+      hi = Math.max(hi, w);
+    }
+    expect(lo).toBeGreaterThanOrEqual(0.8 - 1e-9);
+    expect(hi).toBeLessThanOrEqual(2.1 + 1e-9);
+    expect(lo).toBeLessThan(0.85);
+    expect(hi).toBeGreaterThan(2.0);
+    expect(RAIN_WIND_MAX).toBeCloseTo(2.1, 12);
+  });
+  it('the gust is the foliage`s own: the scale peaks where the sway`s gust does, every 11 s', () => {
+    const at = (t: number) => rainWindScale(t) - 1 - 0.2 * Math.sin((2 * Math.PI * t) / 8.3);
+    expect(at(1.25)).toBeCloseTo(0.9, 12);
+    expect(at(12.25)).toBeCloseTo(0.9, 12);
+    expect(at(23.25)).toBeCloseTo(0.9, 12);
+    expect(at(6)).toBeCloseTo(0, 12);
+  });
+  it('a head is further up-wind the stronger the wind: at height 6 the offset is 6 x tan 14 deg x scale', () => {
+    const seed: [number, number, number] = [0.5, 0.0, 0.5];
+    const lo = { x: 0, z: 0 };
+    const calm = dropPosition(seed, lo, 8, 0, 0, 1);
+    const gust = dropPosition(seed, lo, 8, 0, 0, 2.1);
+    // The head is `height` up-wind of the landing: at phase 0 the height is 6 (the top of the fall).
+    const dx = (p: { x: number; landX: number }) => p.landX - p.x;
+    expect(dx(calm)).toBeCloseTo(6 * 0.249328 * Math.SQRT1_2, 5);
+    expect(dx(gust)).toBeCloseTo(6 * 0.249328 * 2.1 * Math.SQRT1_2, 5);
+    expect(RAIN_SLANT_TAN).toBeCloseTo(0.249328, 6);
   });
 });

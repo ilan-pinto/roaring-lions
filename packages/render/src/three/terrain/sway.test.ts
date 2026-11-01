@@ -70,28 +70,28 @@ describe('sway maths (N-16, N-17)', () => {
 });
 
 describe('the wet sway (GH-871 P4 T5, R-3)', () => {
-  // Oracles are literals: the plan's 1.5 and 1.8, and the shipped 0.035 and 1.4.
-  it('is amplitude x1.5 and gust 1.8, and the shipped numbers are untouched', () => {
-    expect(RAIN_SWAY_AMP).toBe(1.5);
-    expect(RAIN_SWAY_GUST).toBe(1.8);
+  // Oracles are literals: GH-940's 2.2 and 3.0 (the plan's 1.5 and 1.8 until the lead asked for more wind), and the shipped 0.035 and 1.4.
+  it('is amplitude x2.2 and gust 3.0, and the shipped numbers are untouched', () => {
+    expect(RAIN_SWAY_AMP).toBe(2.2);
+    expect(RAIN_SWAY_GUST).toBe(3);
     expect(SWAY_AMPLITUDE).toBe(0.035);
     expect(SWAY_GUST_GAIN).toBe(1.4);
   });
 
-  it('gusts to 1.8 at the peak when wet, and to 1.4 when dry', () => {
-    expect(gustFactor(1.25, true)).toBeCloseTo(1.8, 12);
+  it('gusts to 3.0 at the peak when wet, and to 1.4 when dry', () => {
+    expect(gustFactor(1.25, true)).toBeCloseTo(3, 12);
     expect(gustFactor(1.25)).toBeCloseTo(1.4, 12);
     expect(gustFactor(5, true)).toBe(1);
   });
 
-  it('never exceeds 0.035 x 1.5 x 1.8 = 0.0945 at a crown top, and reaches 95% of it', () => {
+  it('never exceeds 0.035 x 2.2 x 3.0 = 0.231 at a crown top, and reaches 95% of it', () => {
     let worst = 0;
     for (let t = 0; t < 22; t += 0.005) {
       const o = swayOffset(1, t, 0, 0, true);
       worst = Math.max(worst, Math.hypot(o.dx, o.dz));
     }
-    expect(worst).toBeLessThanOrEqual(0.0945 + 1e-12);
-    expect(worst).toBeGreaterThan(0.95 * 0.0945);
+    expect(worst).toBeLessThanOrEqual(0.231 + 1e-12);
+    expect(worst).toBeGreaterThan(0.95 * 0.231);
   });
 
   it('a dry offset is exactly what it was (the wet flag defaults off)', () => {
@@ -105,15 +105,15 @@ describe('the wet sway (GH-871 P4 T5, R-3)', () => {
     // The literals the shipped chunk carries, and the wet ones it does not.
     expect(dry).toContain('uSwayAmp * 0.03500000 *');
     expect(dry).toContain('(1.40000000 - 1.0)');
-    expect(dry).not.toContain('0.05250000');
-    expect(dry).not.toContain('1.80000000');
-    expect(wet).toContain('uSwayAmp * 0.05250000 *');
-    expect(wet).toContain('(1.80000000 - 1.0)');
+    expect(dry).not.toContain('0.07700000');
+    expect(dry).not.toContain('3.00000000');
+    expect(wet).toContain('uSwayAmp * 0.07700000 *');
+    expect(wet).toContain('(3.00000000 - 1.0)');
     expect(wet).not.toContain('0.03500000');
     expect(wet).not.toContain('1.40000000');
     // Swap exactly those two back and the wet chunk IS the dry one, byte for byte:
     // nothing else (period, gust cadence, axis, phase) moved.
-    const swapped = wet.replace('0.05250000', '0.03500000').replace('1.80000000', '1.40000000');
+    const swapped = wet.replace('0.07700000', '0.03500000').replace('3.00000000', '1.40000000');
     expect(swapped).toBe(dry);
   });
 });

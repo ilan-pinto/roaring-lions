@@ -20,7 +20,7 @@
  *    as the renderer's OWN `opts.reducedMotion()` answer and the rain mesh's `visible` flag.
  */
 import { dimetricCamera } from '../../../packages/render/src/three/camera';
-import { mapEdgeFade, dropKeepSeed, dropLanding, dropPosition, dropSeed } from '../../../packages/render/src/three/units/rain-maths';
+import { dropKeepSeed, dropLanding, dropPosition, dropSeed } from '../../../packages/render/src/three/units/rain-maths';
 import { RAIN_FALL_SPEED } from '../../../packages/render/src/three/weather';
 
 // ============================================================================
@@ -807,8 +807,6 @@ export interface DensityInput {
   /** `uKeep`: an instance whose `dropKeepSeed` is at or above it is not drawn (S-L2 ruling 2). */
   readonly keep: number;
   readonly fall: number;
-  readonly mapW: number;
-  readonly mapH: number;
   /** The camera and the CSS canvas the frame was drawn through. */
   readonly view: { readonly x: number; readonly y: number; readonly zoom: number; readonly width: number; readonly height: number };
   /** The ground height at a landing point. */
@@ -818,7 +816,7 @@ export interface DensityInput {
 /**
  * How many drops have their HEAD on screen: every seed's lattice landing point and fall phase from
  * the batch's uniforms, the head from `dropPosition` (the CPU mirror of the vertex shader), the
- * drop kept when its keep seed is under `uKeep` (the ruling's density hold) and `mapEdgeFade` leaves it any alpha, and its head projected through the real
+ * drop kept when its keep seed is under `uKeep` (the ruling's density hold) (a drop off the map is counted: the whole frame rains, GH-940), and its head projected through the real
  * dimetric camera (`updateDimetricCamera`) into the canvas rectangle. Occlusion is not modelled
  * (a roof hiding a drop still counts) and the seeds are the maths' float64 ones, where the page's
  * are float32: the count is exact for the geometry, not a pixel readback.
@@ -835,7 +833,6 @@ export function onScreenDropCount(input: DensityInput): number {
     if (dropKeepSeed(i) >= input.keep) continue;
     const seed = dropSeed(i);
     const land = dropLanding(seed, input.low, input.period);
-    if (mapEdgeFade(land.x, land.z, input.mapW, input.mapH) <= 0) continue;
     const head = dropPosition(seed, input.low, input.period, tSec, input.ground(land.x, land.z));
     // view space, then clip space (orthographic: w stays 1); column-major matrices.
     const ex = v[0] * head.x + v[4] * head.y + v[8] * head.z + v[12];
@@ -953,7 +950,7 @@ export function rainLabel(read: RenderRead, heights: ((x: number, z: number) => 
   if (heights === null) throw new Error('ground-capture: the renderer has a rain batch but its height texels were not read');
   const r = read.rain;
   const onScreen = r.visible
-    ? onScreenDropCount({ drops: r.drops, low: r.low, period: r.period, keep: r.keep, fall: r.fall, mapW: r.mapW, mapH: r.mapH, view: read.view, ground: heights })
+    ? onScreenDropCount({ drops: r.drops, low: r.low, period: r.period, keep: r.keep, fall: r.fall, view: read.view, ground: heights })
     : 0;
   return { onScreen, total: r.drops, period: r.period, keep: r.keep, visible: r.visible };
 }

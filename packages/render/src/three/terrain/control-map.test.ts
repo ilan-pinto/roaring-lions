@@ -367,21 +367,34 @@ describe('control C -- baked only under rain (GH-871 P4 T3)', () => {
     expect(Buffer.from(wet.b).equals(Buffer.from(dry.b))).toBe(true);
   });
 
-  it('R is marshWaterAt at the texel CENTRE, to the byte; B and A are spare, written 0', () => {
+  it('R is marshWaterAt at the texel CENTRE inside the marsh, to the byte; outside it R is the flood margin (GH-940); B and A are spare, written 0', () => {
     const cm = buildControlMap(wetMarsh, buildTerrainSurface(wetMarsh));
     const c = cm.c as Uint8Array;
     let water = 0;
+    let pooled = 0;
     for (let j = 0; j < cm.height; j++) {
       for (let i = 0; i < cm.width; i++) {
         const o = (j * cm.width + i) * 4;
-        const want = Math.round(marshWaterAt(wetMarsh.decor, W, W, (i + 0.5) / N, (j + 0.5) / N) * 255);
-        expect(c[o]).toBe(want);
+        const px = (i + 0.5) / N;
+        const pz = (j + 0.5) / N;
+        const inMarsh = pz >= 3 && pz < 13;
+        const want = Math.round(marshWaterAt(wetMarsh.decor, W, W, px, pz) * 255);
+        if (inMarsh) expect(c[o]).toBe(want);
+        else {
+          // The marsh function is 0 off the marsh, so R off it is the flood margin alone: within 2 tiles of the
+          // marsh's edge (rows 3 and 13), never beyond.
+          expect(want).toBe(0);
+          const edge = pz < 3 ? 3 - pz : pz - 13;
+          if (edge >= 2) expect(c[o], `x ${px} z ${pz}`).toBe(0);
+          if (c[o] >= 128) pooled++;
+        }
         expect(c[o + 2]).toBe(0);
         expect(c[o + 3]).toBe(0);
-        if (c[o] >= 128) water++;
+        if (inMarsh && c[o] >= 128) water++;
       }
     }
     expect(water, 'the marsh really has water texels').toBeGreaterThan(200);
+    expect(pooled, 'the margin really floods some low ground (a flat map is all low)').toBeGreaterThan(100);
   });
 
   it('puts no puddle on a marsh tile (the marsh is water or reeds, not open ground)', () => {
