@@ -160,9 +160,24 @@ class Team:
     helmet_front_trim: float = 0.0     # degrees either side of the front where the cover's lowest band is left off (the open face of a baked helmet)
     yoke_rmax: float = None            # cap on the yoke's radius from the spine axis (the collar, not a cape over the shoulders)
     yoke_slack: float = 0.015          # how far past its clearance trim the yoke's offset may stand (the Rifle Squad's 15 mm)
+    pack_median: bool = False          # the box pack's plane is the median of five rays across the back (a gap in the baked back would tilt a single ray)
     pack_box: bool = False             # the T3 radio pack is a flat-sided box with a lid, not a pad conformed to the back
     baked_mount: bool = False    # the helmet already carries an NVG shroud and mount: the tubes ride it, `nvg_mount` is not built
     dense_keys: bool = False     # sample every keyframe of a short clip and the clip's last frame (not a stride alone)
+    weapon_bone: str = "weapon"  # the bone the gun's vertices are bound to (breach: both carbines ride `spine`, there is no `_weapon` bone)
+    helmet_cols: int = 10        # columns of the helmet cover
+    helmet_dome: bool = False    # an extra ring between the scrim band and the crown (the cover turns over like a dome)
+    belly_cos: float = 0.55      # below the plate the carrier is left off where cos(angle from the front) exceeds this (the hands and the gun live there)
+    carrier_fill: float = 1.24   # the carrier's rows up to this height bridge a missing sample from their neighbours (a baked vest with no texel zone there)
+    bank_stride: int = 6         # the wraps are trimmed against every Nth frame of each living clip (the census walks every 2nd)
+    belt_rmax: float = 0.26      # cap on the belt wrap's sampled radius
+    belt_ring_cap: bool = False  # the belt wrap's sampled radii are capped by the ring its front and back walls imply (spine-bound hands and gun stand out at the hip)
+    laser_front: float = None    # the laser box's front face, metres behind the muzzle (None: the Rifle Squad's -0.115)
+    lpvo_rear: float = None      # the LPVO eyepiece's rear, metres behind the muzzle (None: the Rifle Squad's -0.49)
+    laser_dims: tuple = None     # (length, width, height) of the laser box when the team's is not the PEQ-15 class 0.109 x 0.069 x 0.038
+    laser_side: str = "top"      # where the laser sits on the handguard: "top", "L" (9 o'clock) or "R" (3 o'clock)
+    foregrip_back: float = 0.17  # the vertical grip's station, metres behind the muzzle
+    extra: tuple = ()            # parts only this team has (breach: the light on the shield)
     notes: str = ""
 
 
@@ -191,6 +206,45 @@ TEAMS = {
         bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
         baked_mount=True, torso_vest_lum=0.15, torso_ellipse=(0.27, 0.26), stage_hide=("charge",), yoke_cols=6, clear_pouches=True, flip_deg=120.0, nvg_lift=0.0, bridge_back=0.04, weapon_by_surface=True, torso_ring_cap=True, dense_keys=True),
 }
+
+
+# Breach team (GH-826, seven-teams spec 4.3). Two standing figures: brc_point carries the ballistic shield and a carbine, brc_cover
+# a carbine. BOTH carbines are bound to `*_spine` (there is no `_weapon` bone), and the left arms carry no arm vertices (they are
+# spine-bound too), so weapon-bone parts ride `spine` (`weapon_bone`) and there is no deltoid or sleeve to build: the lead's 30 Oct
+# ruling on the Demolition squad (no shoulder or sleeve armour that reads as a cube over the arm) is applied here from the start.
+# The shield is its own bone (`brc_point_shield`), a palette `metal` primitive with no UVs; the light that F2 mounts on it rides it.
+# Devices ride `weapon` (a textured primitive here), the default. No kneel clip.
+TEAMS["breach_team"] = Team(
+    "breach_team", ("brc_point", "brc_cover"), ("brc_cover",), ("brc_point", "brc_cover"), (2048, 1024),
+    {   # 5 x 5 blocks of breach_team.glb's own atlas; dE76 1.38 / 1.99 / 0.10 / 0.44 / 0.00: no deviation
+        "coyote": (122, 802),          # dust.5   #806032  128, 95, 47
+        "coyote_shade": (627, 305),    # dust.6   #6B4F29  107, 76, 41
+        "olive": (976, 638),           # olive.2  #4E5433  78, 84, 51
+        "olive_dark": (337, 990),      # olive.3  #333821  51, 57, 34
+        "glass": (1228, 873),          # shadow.0 #23241F  35, 36, 31
+    },
+    prims=("uniform", "boot", "face", "weapon", "metal"),
+    bank_prims=("uniform", "weapon", "metal"),
+    clips=("idle", "move", "fire", "moveFire", "pinned"),
+    bank_clips=("idle", "move", "fire", "moveFire", "pinned"),
+    weapon_bone="spine",
+    # GEAR ON THE REAL STATIONS OF THE CARBINE (the lead, 30 Oct, on R2: the first build put the laser 0.03 m behind the muzzle, the
+    # optic at the stock end and the grip at 0.21 m, to clear brc_cover's pinned clip, which lays the carbine into his right thigh and
+    # shin from 0.08 to 0.35 m behind the muzzle; "never gear in an unreal place"). Now: a compact laser (0.075 x 0.032 x 0.032) on the
+    # LEFT side rail of the handguard with its front face 0.12 m behind the muzzle, the light stays at 3 o'clock; the vertical grip
+    # under the front of the handguard at 0.13 m; the T2 optic is a 4x PRISM sight (ACOG class, 0.145 m) on the upper receiver instead of
+    # the 0.265 m LPVO, whose length cannot sit over the receiver without the thigh in it. Each was tested against every living clip.
+    drop=("deltoid", "sleeve", "lpvo"),
+    laser_front=-0.12, laser_dims=(0.075, 0.032, 0.032), laser_side="L", foregrip_back=0.13,
+    carrier_back_plate=True, pack_box=True, pack_median=True, helmet_front_trim=60.0, yoke_rmax=0.15, yoke_slack=0.0, yoke_cols=6,
+    torso_vest_lum=0.15, torso_ring_cap=True, belt_ring_cap=True, belt_rmax=0.23, belly_cos=0.25, carrier_fill=1.45, helmet_cols=8, helmet_dome=True, bank_stride=2, clear_pouches=True,
+    extra=(Part("shield_light", "firepower", 2, None, ("brc_point",), "shield", "uniform", "olive_dark", 28,
+                "shield-mounted weapon light, class approximation, about 0.15 x dia 0.04",
+                "0.15 x dia 0.04 lathe on the shield's upper right edge, lens glass"),
+           Part("prism_sight", "firepower", 2, "optic", ("brc_point", "brc_cover"), "weapon", "weapon", "coyote", 72,
+                "4x prism sight, ACOG class, about 0.145 x 0.045 x 0.058 on a 0.07 mount",
+                "0.145 long, rear eyepiece dia 0.032 to a front objective dia 0.052, on a rail mount; seated on the upper receiver, rear at 0.48 behind the muzzle"),),
+)
 
 TEAM = TEAMS["inf_squad"]
 ATLAS_W, ATLAS_H = TEAM.atlas
@@ -221,7 +275,7 @@ def use_team(team_id):
     ATLAS_W, ATLAS_H = team.atlas
     TEXELS.clear()
     TEXELS.update(team.texels)
-    PARTS[:] = [_resolve(p, team) for p in BASE_PARTS if p.name not in team.drop]
+    PARTS[:] = [_resolve(p, team) for p in BASE_PARTS if p.name not in team.drop] + list(team.extra)
     return team
 
 
@@ -248,7 +302,8 @@ def object_suffixes(p):
 def part_bone_entries():
     """suffix -> bone base, for rig.PART_BONE."""
     out = {}
-    for p in PARTS:
+    # every team's own parts too: PART_BONE is built once, at import, whichever team is in use
+    for p in list(PARTS) + [e for t in TEAMS.values() for e in t.extra]:
         for suf, base in object_suffixes(p):
             out[suf] = base
     return out

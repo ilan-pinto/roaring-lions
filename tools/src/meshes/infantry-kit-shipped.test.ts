@@ -39,11 +39,19 @@ const REPO = fileURLToPath(new URL('../../../', import.meta.url));
  * its devices ride `uniform`. `leaderOnly` are the parts only the radio man carries.
  */
 const TEAMS: Readonly<
-  Record<string, { figures: string[]; hosts: string[]; leader: string; preKitEncodedBytes: number }>
+  Record<
+    string,
+    { figures: string[]; hosts: string[]; leader: string; preKitEncodedBytes: number; gunBone: string; noShoulderArmour: boolean }
+  >
 > = {
-  inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_799_936 },
-  demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform'], leader: 'demo_b', preKitEncodedBytes: 1_018_964 },
+  inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_799_936, gunBone: 'weapon', noShoulderArmour: false },
+  demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform'], leader: 'demo_b', preKitEncodedBytes: 1_018_964, gunBone: 'weapon', noShoulderArmour: true },
+  // Breach: both carbines are bound to the SPINE (the team's skin has no `_weapon` bone), so a gun accessory rides the spine; the
+  // textured weapon primitive is a host (devices ride `weapon` and `uniform`). The lead (30 Oct): no shoulder or sleeve armour.
+  breach_team: { figures: ['brc_point', 'brc_cover'], hosts: ['uniform', 'weapon'], leader: 'brc_cover', preKitEncodedBytes: 708_272, gunBone: 'spine', noShoulderArmour: true },
 };
+/** The parts that mount on the gun: they ride whatever bone the team's carbine is bound to. */
+const GUN_PARTS = ['red_dot', 'foregrip', 'lpvo', 'prism_sight', 'laser_box', 'weapon_light', 'suppressor'];
 const GROWTH_BUDGET_BYTES = 64 * 1024;
 
 type Packed = InfantryKitTag & { name: string; tris: number };
@@ -115,6 +123,16 @@ describe(`${team}: the kit in art/meshes`, () => {
     }
   });
 
+  it('rides gun accessories on the bone the carbine is bound to, and keeps shoulder armour off where the lead ruled it out', async () => {
+    const all = [...kitParts(await doc).values()].flat();
+    const guns = all.filter((p) => GUN_PARTS.includes(p.part));
+    expect(guns.length).toBeGreaterThan(0);
+    for (const p of guns) expect(p.bone, p.name).toBe(spec.gunBone);
+    const shoulder = all.filter((p) => p.part === 'deltoid' || p.part === 'sleeve');
+    if (spec.noShoulderArmour) expect(shoulder.map((p) => p.name)).toEqual([]);
+    else expect(shoulder.length).toBeGreaterThan(0);
+  });
+
   it('every vertex carries a part id that is a row of the table, and every row has its triangles', async () => {
     const d = await doc;
     for (const n of d.getRoot().listNodes()) {
@@ -179,4 +197,23 @@ describe(`${team}: the kit in assets/meshes`, () => {
     expect(bytes).toBeGreaterThan(spec.preKitEncodedBytes); // the kit is in it
   });
 });
+
+if (team === 'breach_team') {
+  describe('breach_team: the shield light', () => {
+    it('is one firepower tier-2 part on brc_point only, riding the shield\'s own bone', async () => {
+      const doc = await plain.readBinary(readFileSync(ART));
+      const all = [...kitParts(doc).values()].flat();
+      const light = all.filter((p) => p.part === 'shield_light');
+      expect(light.map((p) => [p.figure, p.bone, p.track, p.tier])).toEqual([['brc_point', 'shield', 'firepower', 2]]);
+      expect(light[0].tris).toBeLessThanOrEqual(Math.floor(28 * 1.1));
+    });
+
+    it('wears a 4x prism sight as its tier-2 optic, not the 0.265 m LPVO (the lead, 30 Oct: real stations on the carbine)', async () => {
+      const doc = await plain.readBinary(readFileSync(ART));
+      const all = [...kitParts(doc).values()].flat();
+      expect([...new Set(all.filter((p) => p.slot === 'optic').map((p) => `${p.part}:${p.tier}`))].sort()).toEqual(['prism_sight:2', 'red_dot:1']);
+      expect(all.some((p) => p.part === 'lpvo')).toBe(false);
+    });
+  });
+}
 }

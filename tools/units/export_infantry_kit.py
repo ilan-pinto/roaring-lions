@@ -48,7 +48,7 @@ import inf_kit  # noqa: E402
 import inf_kit_parts as kp  # noqa: E402
 import inf_kit_scene as scn  # noqa: E402
 
-TEAMS = {"inf_squad": "art/meshes/inf_squad.glb", "demo_squad": "art/meshes/demo_squad.glb"}
+TEAMS = {"inf_squad": "art/meshes/inf_squad.glb", "demo_squad": "art/meshes/demo_squad.glb", "breach_team": "art/meshes/breach_team.glb"}
 OUT_DIR = "art/parts/inf_kit"
 
 

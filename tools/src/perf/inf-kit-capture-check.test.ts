@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEMO_ENCODED_BASE_TRIS, DEMO_STATES, MODEL_REGION, STATES, TEAM_CHECKS, differingPixels, mergeFailures, type Pixels, type Reading } from './inf-kit-capture-check';
+import { BREACH_ENCODED_BASE_TRIS, BREACH_STATES, DEMO_ENCODED_BASE_TRIS, DEMO_STATES, MODEL_REGION, STATES, TEAM_CHECKS, differingPixels, mergeFailures, type Pixels, type Reading } from './inf-kit-capture-check';
 
 /** The kit triangles of each state, literals from the 29 Oct art file (the redesign). */
 const KIT: Record<string, [Record<string, number>, number]> = {
@@ -62,6 +62,38 @@ describe('inf-kit capture merge check: demo_squad', () => {
     expect(readDemo((m) => { m.S3.meshes = 7; })).toEqual([expect.stringMatching(/S3: 7 meshes/)]);
     expect(readDemo((m) => { m.F3.calls = 60; })).toEqual([expect.stringMatching(/F3: 60 draw calls/)]);
     expect(readDemo((m) => { m.T0.loaded = false; })[0]).toMatch(/T0: no demo_squad template loaded/);
+  });
+});
+
+describe('inf-kit capture merge check: breach_team', () => {
+  // Literals from the art file (the kit's parts table, highest tier of each slot) and the Draco encode (7,910 live triangles).
+  const KIT_B: Record<string, [Record<string, number>, number]> = {
+    A1: [{ armour: 1 }, 536], A2: [{ armour: 2 }, 588], A3: [{ armour: 3 }, 632],
+    S1: [{ sensors: 1 }, 248], S2: [{ sensors: 2 }, 500], S3: [{ sensors: 3 }, 660],
+    F1: [{ firepower: 1 }, 380], F2: [{ firepower: 2 }, 592], F3: [{ firepower: 3 }, 760],
+    full: [{ armour: 3, sensors: 3, firepower: 3 }, 2052],
+  };
+  const BASE: Record<string, Reading> = {
+    T0: { tiers: {}, loaded: true, tris: 7910, kitTris: 0, meshes: 6, calls: 58 },
+    ...Object.fromEntries(Object.entries(KIT_B).map(([id, [tiers, kit]]) => [id, { tiers, loaded: true, tris: 7910 + kit, kitTris: kit, meshes: 6, calls: 58 }])),
+  };
+  const readB = (over: (m: Record<string, Reading>) => void): string[] => {
+    const m = structuredClone(BASE);
+    over(m);
+    return mergeFailures(new Map(Object.entries(m)), BREACH_STATES, BREACH_ENCODED_BASE_TRIS, 'breach_team');
+  };
+  it('is registered, and passes what the art file says', () => {
+    expect(TEAM_CHECKS.breach_team.states).toBe(BREACH_STATES);
+    expect(TEAM_CHECKS.breach_team.baseTris).toBe(7910);
+    expect(readB(() => undefined)).toEqual([]);
+  });
+  it('fails on the Demolition squad\'s numbers, a lost tier, a kit mesh or a draw call', () => {
+    expect(mergeFailures(new Map(Object.entries(BASE)), DEMO_STATES, DEMO_ENCODED_BASE_TRIS)[0]).toBeDefined();
+    expect(readB((m) => { m.F2.kitTris = 0; m.F2.tris = 7910; })[0]).toMatch(/F2: 0 kit triangles merged, expected 592/);
+    expect(readB((m) => { m.full.tris = 7910 + 2052 + 1; })[0]).toMatch(/full: 9963 triangles/);
+    expect(readB((m) => { m.S3.meshes = 7; })).toEqual([expect.stringMatching(/S3: 7 meshes/)]);
+    expect(readB((m) => { m.A1.calls = 59; })).toEqual([expect.stringMatching(/A1: 59 draw calls/)]);
+    expect(readB((m) => { m.T0.loaded = false; })[0]).toMatch(/T0: no breach_team template loaded/);
   });
 });
 

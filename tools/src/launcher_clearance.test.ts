@@ -147,7 +147,9 @@ describe('breach_team carries no breaching pole', () => {
     const meshes = glb.json.meshes ?? [];
     const roles = (glb.json.nodes ?? [])
       .filter((n) => n.mesh !== undefined)
-      .map((n) => n.name ?? meshes[n.mesh as number]?.name ?? '');
+      .map((n) => n.name ?? meshes[n.mesh as number]?.name ?? '')
+      // the upgrade kit (GH-826) is two packed nodes, `kit_uniform` and `kit_weapon`, that join the live primitives at load: not roles
+      .filter((name) => !name.startsWith('kit_'));
     expect(roles.sort()).toEqual(['boot', 'face', 'metal', 'uniform', 'weapon']);
   });
 });
