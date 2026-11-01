@@ -75,7 +75,8 @@ interface SkinnedVerts {
   readonly triangles: number;
 }
 
-/** Every skinned vertex in the file with its dominant joint, and every joint's head (the inverse of its IBM). */
+/** Every skinned vertex in the file with its dominant joint, and every joint's head (the inverse of its IBM). The worn
+ *  kit (`kit_*` nodes) is not the body: it is left out of every reading, the stature included. */
 export function readSkinned(glb: GlbFile): SkinnedVerts {
   const nodes = glb.json.nodes ?? [];
   const pos: V3[] = [];
@@ -85,6 +86,7 @@ export function readSkinned(glb: GlbFile): SkinnedVerts {
   let triangles = 0;
   for (const node of nodes) {
     if (node.mesh === undefined || node.skin === undefined) continue;
+    if ((node.name ?? '').startsWith('kit_')) continue;
     const skin = glb.json.skins?.[node.skin];
     if (!skin) continue;
     if (skin.inverseBindMatrices !== undefined) {

@@ -40,6 +40,16 @@ const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, numbe
   ['manpad_team.glb', 'mpd_fire', { idle: 196, fire: 196, move: 207, moveFire: 207 }],
   // The kneeling gunner and his tube are scaled out of `move` (D6 walker).
   ['recoilless_team.glb', 'rcl_fire', { idle: 144, fire: 152 }],
+  // GH-826 step 2: the Rifle Squad's rifles, with the rebuilt forearms (0.268 m) and the hands on the carbine. Ceilings
+  // are what the shipped bytes read, rounded up to the next 10, per clip; the arms before the hands pass read
+  // idle 546 / fire 345 / move 460 / moveFire 343 / kneel 212 / kneelIn 425 / kneelOut 425 / pinned 211. Better in
+  // idle (351-386), fire (273-297), moveFire (276-299), kneelOut (301-340): the arm carries the weapon out in front
+  // instead of across the chest. WORSE in `move` (579 against 460), kneelIn (534 against 425), and kneel / pinned (254-258
+  // against 212): the spec's rule "no deeper than today's arms" is NOT met there, and these ceilings only hold the line
+  // where it now is (the lead's call, R1).
+  ['inf_squad.glb', 'f0', { idle: 390, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 340, pinned: 260 }],
+  ['inf_squad.glb', 'f1', { idle: 390, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 340, pinned: 260 }],
+  ['inf_squad.glb', 'f2', { idle: 390, fire: 300, move: 580, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 340, pinned: 260 }],
 ];
 
 describe("a launcher gunner's arms stay out of his own chest", () => {

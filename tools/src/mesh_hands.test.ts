@@ -83,10 +83,28 @@ describe('falsification: today\'s shipped bytes', () => {
       if (carries) { expect(v).toEqual([]); return; }
       const text = v.join(' | ');
       expect(text, JSON.stringify(r)).toMatch(/visible forearm/);              // 0.03 to 0.13 against 0.255 to 0.285
-      expect(text).toMatch(/hung elbow height/);                                // 0.38 to 0.57 against 0.605 to 0.625
+      // the hung elbow reads low only where the Meshy arm's elbow really is (Breach 0.536); the Demolition figures' read 0.597
+      // and 0.614 against the kit-free stature, which is in or at the band: the review's 0.38 to 0.57 came from a stature that
+      // counted the worn kit's whip and helmet cover
+      if (team === 'breach_team') expect(text).toMatch(/hung elbow height/);
       expect(r.forearmM).toBeLessThan(0.14);
       if (team !== 'demo_squad') expect(text).toMatch(/hand over forearm/);     // 2.3 to 5.9 against 0.42 to 0.62
     });
+  }
+});
+
+
+describe('every figure of a team the hands pass has been through carries proportioned hands (GH-826 step 2)', () => {
+  for (const team of ['inf_squad']) {
+    for (const prefix of ['f0', 'f1', 'f2']) {
+      for (const side of ['L', 'R'] as const) {
+        it(`${team} ${prefix}_${side}: length, palm, thickness, forearm and hung elbow inside the bands`, () => {
+          const r = measureShippedHand(`${MESHES}${team}.glb`, prefix, side, 0);
+          expect(r.elbowOverStature, 'read with a stature (hand bones present)').not.toBeNull();
+          expect(handViolations(r), JSON.stringify(r)).toEqual([]);
+        });
+      }
+    }
   }
 });
 

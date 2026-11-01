@@ -13,6 +13,8 @@ import { describe, expect, it } from 'vitest';
 import { NodeIO, type Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { HANDS_TEAMS, loadCarbine, loadHandsLib, runHandsPass } from './hands-pass';
+import { runMotionPass } from './motion-pass';
+import { MOTION_TEAMS } from './motion/teams';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const SHIPPED = `${REPO}art/meshes/inf_squad.glb`;
@@ -24,6 +26,15 @@ const extrasOf = (doc: Document): Record<string, unknown> => doc.getRoot().listS
 
 describe('the hands pass refuses what it cannot do honestly', () => {
   const spec = HANDS_TEAMS.inf_squad;
+
+  it('the motion pass refuses a hands team the hands pass has not been through', async () => {
+    const doc = await load();
+    const ex = extrasOf(doc);
+    delete ex.rl_motion;
+    delete ex.rl_hands;
+    doc.getRoot().listScenes()[0].setExtras(ex);
+    expect(() => runMotionPass(doc, 'inf_squad', MOTION_TEAMS.inf_squad, 'test')).toThrow(/hands pass has not been through/);
+  });
 
   it('refuses a file already through the motion pass', async () => {
     const doc = await load();

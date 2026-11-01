@@ -93,3 +93,43 @@ export function tidyArms(doc: Document, prefixes: readonly string[]): string[] {
   }
   return lines;
 }
+
+/**
+ * A channel that never changes costs a key per frame for nothing: a figure's 57 bones key translation, rotation and
+ * scale in every clip, and most of those never move. A modelled hand adds five bones per figure and held clips are
+ * keyed at 30 Hz or better, so the raw file would grow by 0.46 MB of animation that Draco does not touch. Every
+ * channel whose values are all the same (within 1e-6) is cut to its first and last key, which keeps the clip's span
+ * and plays the same value through every mixer. Lossless.
+ */
+export function collapseConstantTracks(doc: Document): string[] {
+  let channels = 0;
+  let collapsed = 0;
+  let saved = 0;
+  const seen = new Set<unknown>();
+  for (const anim of doc.getRoot().listAnimations()) {
+    for (const ch of anim.listChannels()) {
+      const s = ch.getSampler();
+      if (!s || seen.has(s)) continue;
+      seen.add(s);
+      channels++;
+      const input = s.getInput();
+      const output = s.getOutput();
+      if (!input || !output || s.getInterpolation() === 'CUBICSPLINE') continue;
+      const times = input.getArray()!;
+      const vals = output.getArray()!;
+      const c = output.getElementSize();
+      if (times.length <= 2) continue;
+      let same = true;
+      for (let i = c; i < vals.length && same; i++) if (Math.abs(vals[i] - vals[i % c]) > 1e-6) same = false;
+      if (!same) continue;
+      const t = new Float32Array([times[0], times[times.length - 1]]);
+      const v = new Float32Array(2 * c);
+      for (let k = 0; k < c; k++) { v[k] = vals[k]; v[c + k] = vals[k]; }
+      saved += (times.length - 2) * (1 + c) * 4;
+      input.setArray(t);
+      output.setArray(v);
+      collapsed++;
+    }
+  }
+  return [`animation: ${collapsed} of ${channels} channels never change, cut to two keys (${(saved / 1024).toFixed(0)} KiB of raw keys)`];
+}

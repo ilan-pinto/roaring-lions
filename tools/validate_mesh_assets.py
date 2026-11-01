@@ -1837,6 +1837,171 @@ def drawn_figure_tris(parts):
     return out
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# The glove's contrast (GH-826 step 2). A hand that reads as a hand reads against the sleeve, the vest and the carbine:
+# the review found Meshy's claw the sleeve's own colour on one figure and orange on another. The atlas is sampled at
+# every hand-bone vertex's UV and at the three things the hand is seen against. Read from the GLB bytes alone.
+# ---------------------------------------------------------------------------------------------------------------------
+
+GLOVE_MIN_DE = 15.0
+GLOVE_L_BAND = (30.0, 48.0)
+GLOVE_MAX_CHROMA = 30.0
+#: The sleeve is the forearm vertices within this many metres proximal of the wrist.
+GLOVE_SLEEVE_REACH_M = 0.06
+
+
+def _lab_of_rgb(rgb):
+    """CIE L*a*b* (D65) of an sRGB triple in 0-255."""
+    c = [v / 255.0 for v in rgb]
+    lin = [v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4 for v in c]
+    x = (0.4124 * lin[0] + 0.3576 * lin[1] + 0.1805 * lin[2]) / 0.95047
+    y = (0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2])
+    z = (0.0193 * lin[0] + 0.1192 * lin[1] + 0.9505 * lin[2]) / 1.08883
+
+    def f(t):
+        return t ** (1.0 / 3.0) if t > 0.008856 else 7.787 * t + 16.0 / 116.0
+    fx, fy, fz = f(x), f(y), f(z)
+    return (116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
+
+
+def _delta_e76(a, b):
+    return sum((u - v) ** 2 for u, v in zip(a, b)) ** 0.5
+
+
+def _glb_accessor(js, bin_, index):
+    """(numpy array shaped (count, components)) of one accessor, FLOAT / UNSIGNED_* only."""
+    import numpy as np
+    acc = js["accessors"][index]
+    bv = js["bufferViews"][acc["bufferView"]]
+    dt = {5126: "<f4", 5125: "<u4", 5123: "<u2", 5121: "u1"}[acc["componentType"]]
+    n = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}[acc["type"]]
+    size = np.dtype(dt).itemsize
+    off = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
+    stride = bv.get("byteStride") or size * n
+    if stride == size * n:
+        return np.frombuffer(bin_, dtype=dt, count=acc["count"] * n, offset=off).reshape(acc["count"], n)
+    out = np.zeros((acc["count"], n), dtype=dt)
+    for i in range(acc["count"]):
+        out[i] = np.frombuffer(bin_, dtype=dt, count=n, offset=off + i * stride)
+    return out
+
+
+def glove_contrast_reading(path, js=None, bin_=None, atlas=None):
+    """Per figure and hand side, the glove's Lab mean against the sleeve, the vest and the weapon, from the bytes:
+    `{figure_side: {"glove": Lab, "L": .., "C": .., "de": {"sleeve": .., "vest": .., "weapon": ..}}}`, or None for a file
+    that carries no `rl_hands`. The atlas is the file's own first image."""
+    import io
+    import numpy as np
+    from PIL import Image
+    if js is None:
+        js, bin_ = _read_glb_chunks(path)
+    scene_extras = (js.get("scenes") or [{}])[0].get("extras") or {}
+    if "rl_hands" not in scene_extras:
+        return None
+    if atlas is None:
+        img = js["images"][0]
+        bv = js["bufferViews"][img["bufferView"]]
+        raw = bin_[bv.get("byteOffset", 0):bv.get("byteOffset", 0) + bv["byteLength"]]
+        atlas = np.asarray(Image.open(io.BytesIO(raw)).convert("RGB"))
+    ah, aw = atlas.shape[0], atlas.shape[1]
+
+    def texel_lab(uv):
+        px = np.clip((uv[:, 0] * aw).astype(int), 0, aw - 1)
+        py = np.clip((uv[:, 1] * ah).astype(int), 0, ah - 1)
+        rgb = atlas[py, px].astype(float).mean(0)
+        return _lab_of_rgb(rgb)
+
+    nodes = js["nodes"]
+    reading = {}
+    skins = js["skins"]
+    per_role = {}
+    for n in nodes:
+        if "mesh" not in n or "skin" not in n or (n.get("name") or "").startswith(KIT_NODE_PREFIX):
+            continue
+        skin = skins[n["skin"]]
+        joints = [nodes[j].get("name", "") for j in skin["joints"]]
+        ibm = _glb_accessor(js, bin_, skin["inverseBindMatrices"]).reshape(-1, 16)
+        prim = js["meshes"][n["mesh"]]["primitives"][0]
+        attrs = prim["attributes"]
+        if "TEXCOORD_0" not in attrs:
+            continue
+        pos = _glb_accessor(js, bin_, attrs["POSITION"]).astype(float)
+        uv = _glb_accessor(js, bin_, attrs["TEXCOORD_0"]).astype(float)
+        jj = _glb_accessor(js, bin_, attrs["JOINTS_0"]).astype(int)
+        ww = _glb_accessor(js, bin_, attrs["WEIGHTS_0"]).astype(float)
+        dom = jj[np.arange(len(jj)), ww.argmax(1)]
+        names = np.array([joints[k] for k in dom])
+        role = (n.get("extras") or {}).get("rl_role") or js["meshes"][n["mesh"]].get("name") or n.get("name")
+        per_role[role] = (pos, uv, names, joints, ibm)
+    if "uniform" not in per_role:
+        return {}
+    pos, uv, names, joints, ibm = per_role["uniform"]
+
+    def head(joint):
+        m = ibm[joints.index(joint)].reshape(4, 4).T          # glTF is column-major
+        return -(m[:3, :3].T @ m[:3, 3])
+    figures = sorted({nm[:-len("_hand_L")] for nm in joints if nm.endswith("_hand_L")})
+    wpos, wuv, wnames, _wj, _wi = per_role.get("weapon", (None, None, None, None, None))
+    for fig in figures:
+        for side in ("L", "R"):
+            hand_j, fore_j = f"{fig}_hand_{side}", f"{fig}_forearm_{side}"
+            gmask = (names == hand_j) | (names == f"{fig}_finger_{side}")
+            if not gmask.any():
+                continue
+            glove = texel_lab(uv[gmask])
+            wrist, elbow = head(hand_j), head(fore_j)
+            axis = (wrist - elbow) / np.linalg.norm(wrist - elbow)
+            t = (pos - wrist) @ axis
+            smask = (names == fore_j) & (t > -GLOVE_SLEEVE_REACH_M) & (t <= 0.0)
+            vmask = names == f"{fig}_spine"        # the vest, as the review read it: the spine bone's own surface
+            de = {}
+            if smask.any():
+                de["sleeve"] = _delta_e76(glove, texel_lab(uv[smask]))
+            if vmask.any():
+                de["vest"] = _delta_e76(glove, texel_lab(uv[vmask]))
+            if wpos is not None and (wnames == f"{fig}_weapon").any():
+                de["weapon"] = _delta_e76(glove, texel_lab(wuv[wnames == f"{fig}_weapon"]))
+            reading[f"{fig}_{side}"] = {"glove": glove, "L": glove[0], "C": (glove[1] ** 2 + glove[2] ** 2) ** 0.5, "de": de}
+    return reading
+
+
+def glove_contrast_failures(reading, name):
+    """The gate's rule, on a reading (see `glove_contrast_reading`): every hand differs from each of the sleeve, the
+    vest and the weapon by at least GLOVE_MIN_DE, sits inside the L* band and under the chroma ceiling."""
+    failures = []
+    for key, r in sorted(reading.items()):
+        for what in ("sleeve", "vest", "weapon"):
+            if what not in r["de"]:
+                failures.append(f"{name} {key}: no {what} sample to read the glove against")
+            elif r["de"][what] < GLOVE_MIN_DE:
+                failures.append(f"{name} {key}: glove dE76 {r['de'][what]:.1f} against the {what}, under {GLOVE_MIN_DE:.0f}")
+        if not (GLOVE_L_BAND[0] <= r["L"] <= GLOVE_L_BAND[1]):
+            failures.append(f"{name} {key}: glove L* {r['L']:.1f} outside {GLOVE_L_BAND[0]:.0f} to {GLOVE_L_BAND[1]:.0f}")
+        if r["C"] > GLOVE_MAX_CHROMA:
+            failures.append(f"{name} {key}: glove C* {r['C']:.1f} over {GLOVE_MAX_CHROMA:.0f}")
+    return failures
+
+
+def check_glove_contrast(teams_root):
+    """Every rigged team GLB that carries `rl_hands` (the hands pass has been through it) holds the glove's contrast.
+    Returns (failures, lines). A team the pass has not reached is not read: it has no glove of its own to read."""
+    failures, lines = [], []
+    for path in sorted(glob.glob(os.path.join(teams_root, "*.glb"))):
+        name = os.path.relpath(path, REPO)
+        reading = glove_contrast_reading(path)
+        if reading is None:
+            continue
+        if not reading:
+            failures.append(f"{name}: carries rl_hands but no hand-bone vertex could be read")
+            continue
+        failures.extend(glove_contrast_failures(reading, name))
+        worst = min(min(r["de"].values()) for r in reading.values() if r["de"])
+        lines.append(f"{os.path.basename(path)}: {len(reading)} hand(s), glove L* {min(r['L'] for r in reading.values()):.1f}"
+                     f"-{max(r['L'] for r in reading.values()):.1f}, C* {max(r['C'] for r in reading.values()):.1f}, "
+                     f"worst dE76 {worst:.1f} (floor {GLOVE_MIN_DE:.0f})")
+    return failures, lines
+
+
 def check_infantry_kits(teams_root, units_root, owed):
     """Every team in `owed` (`INFANTRY_KIT_TEAMS`) carries a kit that keeps the
     contract AND owes nothing: a part for every (track, tier) its unit JSON
@@ -2726,6 +2891,12 @@ def main():
                 base = max((va.iou(mesh_masks[unit_id], m), o) for o, m in mesh_masks.items()
                            if o != unit_id) if unit_id in mesh_masks else (0.0, "?")
                 print(f"    {unit_id}: shipped {base[1]} {base[0]:.3f} -> {variant} vs {other} {score:.3f}")
+
+        glove_failures, glove_lines = check_glove_contrast(teams_root)
+        failures.extend(glove_failures)
+        print(f"  glove contrast: {len(glove_lines)} team(s) carrying rl_hands, from the GLB bytes --")
+        for line in glove_lines:
+            print(f"    {line}")
 
         decor_root = os.path.join(REPO, "art", "meshes", "decor")
         decor_failures, textured_decor = check_decor_meshes(decor_root)

@@ -725,3 +725,35 @@ for vehicles.
   kit seeded and the full kit bought live by Buy clicks; its pixel check reads
   only the model's region, because the kit mark and the Maxed stamp are DOM
   over it and change with the account whatever the model does.
+
+## Infantry hands (GH-826 step 2, 1 Nov 2026)
+
+Rifle Squad only so far (`inf_squad`); the Demolition and Breach teams take the same pass next.
+
+- **Pipeline, and the order is load-bearing:** export -> **`pnpm hands:meshes`** -> `motion:meshes` -> `gait:meshes` ->
+  `export_infantry_kit.py` -> `kit:meshes -- --teams` -> `encode:meshes`. The hands pass reads the importer's output (git
+  `13f667ff` for the Rifle Squad), writes `extras.rl_hands`, and the motion pass REFUSES a file without it for a team in
+  `HANDS_TEAMS` and a file already through either pass. Re-runs start from git: `--from=<rev>`.
+- **What the hands pass does** (`tools/src/meshes/hands-pass.ts`): elbow at 0.615 S, forearm rebuilt to 0.268 m (the sleeve
+  re-bound, the Meshy elbow ball cut), two rigid 397-triangle hands on `{p}_hand_{L|R}`, the firing hand's index finger on
+  `{p}_finger_L`, a 64-triangle fist on `{p}_fist_{L|R}` that replaces the hand by scale in `down`/`fall`/`wreck`, the glove a
+  texel of the file's own atlas (`limestone.7`), and the Meshy rifles swapped for the reshaped `kdf_carbine` part. The importer's
+  output has no corpse twin, so the fists are sibling bones, not a `death_root`.
+- **The hold learned the hands** (`motion/hold.ts`, `motion/hands.ts`, `motion/contact.ts`): the weapon is placed by formula
+  and the hands follow it onto the part's stations; two-bone IK (hinge form) reaches each wrist; the free variables are the
+  elbow's swing and the hand's turn off the station (a roll about its channel axis, a tilt of it <= 14 degrees), priced by the
+  wrist's anatomy, the palm contact and weapon depth tabulated from the two library parts, and a charge for leaving the last
+  frame's solution. Held clips are keyed at 30 Hz at least. The stance is not the formula holds': blade 38 aimed / 28 ready
+  and up to 30 more by search, support shoulder protracted 0.11, butt pocket 0.015, support hand yawed 35 degrees; a drop and
+  a rise give 16 degrees of blade back at the half way mark.
+- **Instruments** (independent of the pass): `measureGrip` in `mesh_gait.ts` (the review's `gripan.py` ported: the weapon frame by
+  PCA, stations carried from the part's frame by a Horn fit against the part's own bytes), `mesh_grip.test.ts` (3 figures x 8
+  clips, 60/120 Hz, between keys), `mesh_arm_pops.test.ts`, `mesh_hands.ts`/`mesh_hands.test.ts` (L, palm, T, forearm, hung
+  elbow), `check_glove_contrast` in `validate_mesh_assets.py` (+ `tools/test_glove_contrast.py`). The kit is left out of every hand
+  reading (`kit_*` nodes), the stature included.
+- **Open, named, each gated against going stale:** weapon inside the glove reads 1.1-6.3 mm (spec 3 mm; met in fire, moveFire, kneel and pinned, not in the two transitions; the generator's own
+  hull census reads <= 2.8 at the station); the support arm snaps once in each kneel transition (`KNOWN_SNAPS`); arms inside the
+  body are deeper than the old arms in `move`, `kneelIn`, `kneel` and `pinned` (`launcher_arms.test.ts`); the kit census reads
+  20 pairs over 4 mm (listed with the R1 sheet: the NVG tubes against the support hand in `pinned`, the LPVO against the head in `moveFire`, the bino tubes and the optics against the support arm in the transitions).
+- **Encode:** raw animation keys that never change (981 of 2,376 channels) are cut to two keys at the end of the motion pass
+  (`collapseConstantTracks`), which more than pays for the hands: `inf_squad` pre-kit 1,799,936 -> 1,650,052 bytes encoded.

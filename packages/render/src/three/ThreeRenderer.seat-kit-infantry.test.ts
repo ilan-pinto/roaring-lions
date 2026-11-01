@@ -143,10 +143,10 @@ describe('loadMeshUnit files a template set per seat only where the infantry kit
     expect(priv.meshUnitTemplates.get('inf_squad')).toEqual([t0]);
     expect(priv.meshUnitTemplates.get('inf_squad#s1')).toEqual([t1]);
     // Literals: armour 1 alone, and the full kit (infantry-kit-shipped.test.ts).
-    expect(tris(t0, 'uniform')).toBe(7818);
-    expect(tris(t0, 'weapon')).toBe(945);
-    expect(tris(t1, 'uniform')).toBe(8982);
-    expect(tris(t1, 'weapon')).toBe(2353);
+    expect(tris(t0, 'uniform')).toBe(10749);
+    expect(tris(t0, 'weapon')).toBe(1140);
+    expect(tris(t1, 'uniform')).toBe(11913);
+    expect(tris(t1, 'weapon')).toBe(2548);
     renderer.dispose();
   });
 
@@ -164,7 +164,7 @@ describe('loadMeshUnit files a template set per seat only where the infantry kit
     await renderer.loadMeshUnit('inf_squad', 'inf_squad.glb', 'kdf');
     expect(stub.calls).toEqual([{ armour: 2 }]);
     expect([...priv.meshUnitTemplates.keys()]).toEqual(['inf_squad']);
-    expect(tris(priv.meshUnitTemplates.get('inf_squad')![0], 'uniform')).toBe(8106);
+    expect(tris(priv.meshUnitTemplates.get('inf_squad')![0], 'uniform')).toBe(11037);
     renderer.dispose();
   });
 

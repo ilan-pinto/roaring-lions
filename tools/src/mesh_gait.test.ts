@@ -49,6 +49,7 @@ import {
   swingLiftFraction,
   type RootTravel,
 } from './mesh_gait';
+import { pcaElevationDeg } from './kdf_carbine_part';
 import { GAIT_CRAWL_ONLY, MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
 import { MOTION_TEAMS } from './meshes/motion/teams';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
@@ -1662,9 +1663,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // line goes red, which is the reminder to gate her.
     expect(shortLever).toEqual([
       'rpg_team.glb pinned rpg_load_head 0.0227',
-      'inf_squad.glb pinned f0_head 0.0172',
-      'inf_squad.glb pinned f1_head 0.0173',
-      'inf_squad.glb pinned f2_head 0.0172',
+      'inf_squad.glb pinned f0_head 0.0270',
+      'inf_squad.glb pinned f1_head 0.0269',
+      'inf_squad.glb pinned f2_head 0.0270',
       'inf_grenadier.glb pinned gre0_head 0.0231',
       'inf_grenadier.glb pinned gre1_head 0.0206',
       'inf_grenadier.glb pinned gre2_head 0.0278',
@@ -1721,6 +1722,21 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
 const AIM_SPIKE_DEG = -2.51;
 const SPIKE_CARRY_DEG = -15;
 
+/**
+ * GH-826 step 2: the Rifle Squad's carbine is the reshaped `kdf_carbine` part (raked pistol grip, guard, magazine), and
+ * `measureWeaponAxis` reads a cloud's first principal component, which that shape drags 5.87 degrees above the bore.
+ * The bore itself is level in `fire` and 30 degrees down at low ready (hold.ts, unchanged); every inf_squad reading
+ * therefore carries this offset, in every clip. The number is a LITERAL, and the test below reads it off the part's own
+ * bytes, so a re-shaped carbine cannot move it unnoticed.
+ */
+const HANDS_CARBINE_AXIS_BIAS_DEG = 5.87;
+
+describe('GH-826: the carbine axis bias is the part\'s own', () => {
+  it('HANDS_CARBINE_AXIS_BIAS_DEG equals the reshaped part\'s principal-axis elevation, read off its bytes', () => {
+    expect(Math.abs(pcaElevationDeg(`${REPO}art/parts/kdf_carbine/kdf_carbine.glb`) - HANDS_CARBINE_AXIS_BIAS_DEG)).toBeLessThan(0.05);
+  });
+});
+
 const WEAPON_RIGS: readonly {
   readonly file: string;
   readonly role: string;
@@ -1736,7 +1752,7 @@ const WEAPON_RIGS: readonly {
 }[] = [
   // The motion pass's held weapons (`tools/src/meshes/motion/hold.ts`): every
   // aimed clip -- `fire`, `moveFire` where the file has one, and `kneel`.
-  { file: 'inf_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  { file: 'inf_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: HANDS_CARBINE_AXIS_BIAS_DEG },
   { file: 'sarim_rifles.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   // GH-709 phase 3 (22 Oct): two revolving launchers and the leader's carbine,
   // every one a `rifle`-kind hold, so the same 0 deg aim and -30 deg low ready.
@@ -1936,9 +1952,9 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   // The motion pass (5 Oct): every held rifle's `idle` is the hold's low
   // ready, the muzzle 30 deg down and 15 across the body (hold.ts's
   // READY_PITCH_DEG). Before, these read 2.5-7.8: the level hip carry.
-  'inf_squad.glb f0_weapon': -30,
-  'inf_squad.glb f1_weapon': -30,
-  'inf_squad.glb f2_weapon': -30,
+  'inf_squad.glb f0_weapon': -30 + HANDS_CARBINE_AXIS_BIAS_DEG,
+  'inf_squad.glb f1_weapon': -30 + HANDS_CARBINE_AXIS_BIAS_DEG,
+  'inf_squad.glb f2_weapon': -30 + HANDS_CARBINE_AXIS_BIAS_DEG,
   'inf_grenadier.glb gre0_weapon': -30,
   'inf_grenadier.glb gre1_weapon': -30,
   'inf_grenadier.glb gre2_weapon': -30,

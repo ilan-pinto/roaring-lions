@@ -59,3 +59,27 @@ gate works" looked like in practice here, and the one survivor was disclosed
 rather than papered over.
 
 ---
+
+## GH-826 step 2 (hands): checks that could not have caught what they were written for
+
+- **`mesh_hold.test.ts`'s `measureHold` read "a hand" as the far tenth of the FOREARM bone's vertices and passed anything within
+  0.1 m of the weapon.** With hands on their own bones, with 0.268 m forearms, it still read 0.03 m: green while the hand was a
+  fist-width off its grip, and blind to a hand that was on its station at two keys and 7 cm off between them. `measureGrip`
+  reads the hand bone's posed vertices, between keys, against stations carried onto the weapon by a Horn fit against the part's
+  own bytes; the gate was run on a figure with the weapon moved 4 cm and with a hand turned 40 degrees, and both go red.
+- **A station literal that was the solver's own other point.** The first support-station literal (the handguard's UNDERSIDE) read
+  0.040 m in every clip: the solver put the palm's axis point on the handguard's AXIS. The constant offset was the tell; an
+  instrument that agrees with the solver to 0.000 m everywhere is as suspect as one that disagrees by a constant.
+- **A reading that stayed at 0.000 m through a 100 degree forearm flip.** The solver's own "worst grip gap" is taken at the keys;
+  between two keys the IK had turned the forearm 100 to 180 degrees (the shortest arc is ill-conditioned when a short upper arm
+  folds the forearm back on itself). Found only by sampling at 60 Hz between keys and by a per-key rotation-step census
+  (`mesh_arm_pops.test.ts`), which carries a constructed failing input (one key turned 150 degrees) and a demotion assertion for
+  each named snap that is still open.
+- **A weapon-axis gate that read the carbine's SHAPE as its aim.** `measureWeaponAxis` takes the first principal component of
+  the weapon's vertices; the raked grip and the magazine drag it 5.87 degrees above the bore, in every clip. The pinned idle
+  literal (-30) went red by 5.87, which looked like a hold that had moved; the bore had not. The bias is now a literal checked
+  against the part's own bytes (`pcaElevationDeg`), so a re-shaped carbine cannot move it unnoticed.
+- **Contact and depth read three ways, three answers.** Palm-side contact by VERTICES reads 10-29%, by AREA 25-36%; the generator's
+  hull census read weapon-in-hand 2.1-2.8 mm where the glove's real triangles read 1.0-8.8. The spec names vertices; the lead
+  approved the area figure at R0c. The gate says which it reads (area) and reports the other; the 3 mm depth limit is NOT met by the
+  instrument that reads the mesh, and the test says so instead of passing a ceiling it did not earn.

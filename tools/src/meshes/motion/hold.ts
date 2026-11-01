@@ -309,6 +309,13 @@ export function rotateWorld(rig: Rig, pose: Pose, node: Node, q: Q): void {
  * degrees. Used by the modelled hands; the formula holds keep the arc they were authored with.
  */
 export function twoBoneIK(rig: Rig, pose: Pose, upper: Node, fore: Node, handRest: V3, target: V3, pole: V3, hinge = false): number {
+  if (hinge) {
+    // The arm is solved from its REST relation to the torso, not from whatever the clip had it doing: the shortest arc from
+    // an incoming pose is discontinuous where that pose points nearly opposite the answer (a drop's half-way pose does,
+    // and the upper arm turned 100 degrees in one frame), and the hold replaces both arms outright anyway.
+    pose.set(upper, { ...pose.get(upper)!, r: rig.rest.get(upper)!.r });
+    pose.set(fore, { ...pose.get(fore)!, r: rig.rest.get(fore)!.r });
+  }
   const S = rig.worldOf(upper, pose).t;
   const E = rig.worldOf(fore, pose).t;
   const H = carry(rig, (n) => rig.worldOf(n, pose), fore, handRest);
@@ -381,7 +388,9 @@ export function solveHold(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st:
     const r = solveHoldOnce(rig, pose, h, weapon, { ...st, bladeExtra: (st.bladeExtra ?? 0) + extra });
     const handCost = r.wrist ? r.wrist.cost : Math.max(r.gapShoot, r.gapSupport);
     const score = handCost + 0.0002 * extra + (lastExtra === undefined ? 0 : 0.0002 * Math.abs(extra - lastExtra));
-    if (score < bestScore) {
+    // the stance changes to another blade only for a real gain: a torso that toggles 5 degrees between two frames takes the arm
+    // to another solution with it
+    if (score < bestScore - (best ? SWITCH_MARGIN : 0)) {
       bestScore = score;
       best = r;
       bestExtra = extra;
@@ -613,6 +622,10 @@ const MAX_ROLL_DEG = 40;
 const CONTACT_GOAL = 0.34;
 /** A hand off its station is charged by the metre, dearly: the contact and depth tables assume it is on it. */
 const GAP_WEIGHT = 10;
+/** An elbow swung off its natural bend is charged by the degree: a swung elbow rides high, into the face and the helmet's gear. */
+const SWING_WEIGHT = 0.0001;
+/** How much cheaper (in `intrinsic` cost) another solution must be before a clip leaves the one it is on. */
+const SWITCH_MARGIN = 0.012;
 const CONTACT_WEIGHT = 0.1;
 /** ...and the depth the weapon would sink into the glove past this many metres (the gate holds 3 mm). */
 const DEPTH_GOAL = 0.002;
@@ -671,7 +684,7 @@ export function placeHand(rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole
     // the last frame's answer is charged too, so the clip stays on one solution
     const contact = st.contact.at(v[1], v[2], v[3], trigger);
     const depth = st.contact.depth(v[1], v[2], v[3], trigger);
-    const intrinsic = GAP_WEIGHT * gap + 0.004 * wrist.overDeg + 0.001 * wrist.softDeg + CONTACT_WEIGHT * Math.max(0, CONTACT_GOAL - contact) + DEPTH_WEIGHT * Math.max(0, depth - DEPTH_GOAL) + 0.0001 * Math.abs((v[0] * 180) / Math.PI) + 0.0003 * off + 0.00005 * (Math.abs((v[1] * 180) / Math.PI));
+    const intrinsic = GAP_WEIGHT * gap + 0.004 * wrist.overDeg + 0.001 * wrist.softDeg + CONTACT_WEIGHT * Math.max(0, CONTACT_GOAL - contact) + DEPTH_WEIGHT * Math.max(0, depth - DEPTH_GOAL) + SWING_WEIGHT * Math.abs((v[0] * 180) / Math.PI) + 0.0003 * off + 0.00005 * (Math.abs((v[1] * 180) / Math.PI));
     let cost = intrinsic;
     if (prev) {
       const d = Math.hypot(v[1] - prev[1], v[2] - prev[2], v[3] - prev[3]);
@@ -702,7 +715,8 @@ export function placeHand(rig: Rig, pose: Pose, st: HandStation, delta: Xf, pole
   if (!settled(best)) {
     for (const sw of [0, 30, -30, 60, -60, 90, -90]) {
       const e = compass([deg(sw), 0, 0, 0]);
-      if (e.cost < best.cost - 1e-9) best = e;
+      // a clip changes to another solution only for a real gain: an arm that flips between two nearly equal ones is a pop
+      if (prev ? e.intrinsic < best.intrinsic - SWITCH_MARGIN : e.cost < best.cost - 1e-9) best = e;
       if (settled(best) && !prev) break;
     }
   }

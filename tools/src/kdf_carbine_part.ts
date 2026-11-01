@@ -250,3 +250,16 @@ export function distanceToLine(q: V3, o: V3, d: V3): number {
   const k = dot(v, d);
   return Math.hypot(v[0] - d[0] * k, v[1] - d[1] * k, v[2] - d[2] * k);
 }
+
+/**
+ * How far the part's PRINCIPAL axis (what `measureWeaponAxis` reads off a figure's weapon cloud) rides above its bore,
+ * degrees, from the part's own bytes. The bore is level in the part frame by construction; the raked grip, the
+ * magazine and the optic hang below the rear and drag the first principal component off it. The mesh_gait weapon
+ * gates pin this number so a re-shaped carbine cannot move the aim without someone re-deriving it.
+ */
+export function pcaElevationDeg(path: string): number {
+  const { pts } = load(path);
+  let ax = principal(pts);
+  if (ax[0] < 0) ax = [-ax[0], -ax[1], -ax[2]];
+  return (Math.asin(ax[2]) * 180) / Math.PI;
+}
