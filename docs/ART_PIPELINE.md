@@ -232,6 +232,20 @@ anything else — applies unchanged. Each generate command prints a line
 formatted to paste straight into `docs/ASSET_PROVENANCE.md`'s Meshy table;
 fill in "Draws as" once the model has a role.
 
+**Image generation: `t2i` and `i2i` (store cards, GH-746).** `pnpm meshy -- t2i "<prompt>"`
+(text-to-image, no reference) and `pnpm meshy -- i2i --prompt "<text>" <ref>...` (image-to-image,
+1-5 reference images, or `--from-task <id>`, never both: Meshy drops the references when it is given a
+task id). `image` is taken (it is image-to-3D), hence the short names. Models are `nano-banana`,
+`nano-banana-2` (the default), `nano-banana-2-lite`, `nano-banana-pro` (Pro plan and up), and the GPT
+Image models; `3:2` exists on the GPT models only. Prices are per request and quoted 1 Nov 2026 in
+`pricing.ts` (`IMAGE_PRICING`): `pnpm meshy -- estimate t2i|i2i --model <m> --count <n>`. Three
+differences from the 3D commands: the image endpoints have no `negative_prompt` field, so
+`--negative` is appended to the prompt as "Avoid: ..."; the paid plan tier the spend ran under is
+recorded in the ledger line (`--plan <tier>` or `MESHY_PLAN`; `--plan free` and a spend with no plan
+are refused, because free-plan output is Meshy-owned); and every local reference's sha256 and the
+prompt's sha256 are recorded, with the provenance row printed for `ASSET_PROVENANCE.md`.
+`--yes` is required off a terminal, as everywhere here, and `MESHY_DRY_RUN=1` needs no key.
+
 ### Gemini video API (cinematics)
 
 The briefing backdrops, the intro and the two Tel Marum replacements are made

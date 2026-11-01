@@ -66,6 +66,7 @@
     "plates:units": "pnpm --filter @lions/tools plates:units",
     "kit:capture": "pnpm --filter @lions/tools kit:capture",
     "inf-kit:capture": "pnpm --filter @lions/tools inf-kit:capture",
+    "cards:guide": "python3 tools/cards/make_layouts.py",
     "vdmg:capture": "pnpm --filter @lions/tools vdmg:capture",
     "closeups:garage": "pnpm --filter @lions/tools closeups:garage",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
