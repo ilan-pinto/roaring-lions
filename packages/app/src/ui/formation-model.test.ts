@@ -86,11 +86,23 @@ describe('formationRow: why a button is inert', () => {
     expect(formationRow(facts(MIXED, false), null).map((v) => v.reasonParams)).toEqual([undefined, undefined, undefined]);
   });
 
-  it('two helicopters: column and attack are active, the ambush has no ground to ring the zone', () => {
+  it('two helicopters: the column is active; the attack leaves aircraft out so it has no members (GH-859); the ambush has no ground to ring the zone', () => {
     const row = formationRow(facts([u(AIRCRAFT), u(AIRCRAFT)]), null);
-    expect(row.map((v) => v.inert)).toEqual([false, false, true]);
+    expect(row.map((v) => v.inert)).toEqual([false, true, true]);
+    expect(row[1].reasonKey).toBe('hud.formation.inert.needsMin');
+    expect(row[1].reasonParams).toEqual({ n: 2 });
     expect(row[2].reasonKey).toBe('hud.formation.inert.ambushNoGround');
     expect(row[0].reasonKey).toBeUndefined();
+  });
+
+  it('GH-859: aircraft do not count toward the attack\'s minimum, but do toward the column\'s; one ground unit and two aircraft is not an attack', () => {
+    const one = formationRow(facts([u(INFANTRY), u(AIRCRAFT), u(AIRCRAFT)]), null);
+    expect(one.map((v) => v.inert)).toEqual([false, true, false]);
+    expect(one[1].reasonKey).toBe('hud.formation.inert.needsMin');
+    const two = formationRow(facts([u(INFANTRY), u(INFANTRY), u(AIRCRAFT)]), null);
+    expect(two.map((v) => v.inert)).toEqual([false, false, false]);
+    // a garrisoned ground unit is not free either
+    expect(formationRow(facts([u(INFANTRY), u(INFANTRY, false), u(AIRCRAFT), u(AIRCRAFT)]), null)[1].inert).toBe(true);
   });
 
   it('a free ground unit among aircraft opens the ambush; a garrisoned one does not', () => {
@@ -183,7 +195,9 @@ describe('schematicSlots is the sim\'s templateOffsets over the compiled shipped
       const file = formations.find((f) => f.id === id);
       if (file === undefined) throw new Error(`no ${id}`);
       const want = templateOffsets(compileFormation(file), CLASS_CODES).map((s) => ({ cls: NAMES[s.cls], forward: s.forward, lateral: s.lateral }));
-      expect(want).toHaveLength(11);
+      // The Attack leaves its aircraft out (GH-859): ten slots, none of them an aircraft's.
+      expect(want).toHaveLength(id === 'attack' ? 10 : 11);
+      expect(want.filter((s) => s.cls === 'aircraft')).toHaveLength(id === 'attack' ? 0 : 1);
       expect(schematicSlots(id, COUNTS)).toEqual(want);
     });
   }
@@ -213,6 +227,15 @@ describe('schematicSlots is the sim\'s templateOffsets over the compiled shipped
 });
 
 describe('the legend', () => {
+  it('GH-859: with the attack named, its left-out aircraft are not listed; the column and the ambush still list them', () => {
+    const counts = { armour: 2, infantry: 3, aircraft: 2 };
+    expect(formationLegendRows(counts, 'attack').map((r) => r.cls)).toEqual(['armour', 'infantry']);
+    expect(formationLegendRows(counts, 'column').map((r) => r.cls)).toEqual(['armour', 'infantry', 'aircraft']);
+    expect(formationLegendRows(counts, 'ambush').map((r) => r.cls)).toEqual(['armour', 'infantry', 'aircraft']);
+    expect(formationLegendRows(counts).map((r) => r.cls)).toEqual(['armour', 'infantry', 'aircraft']);
+    expect(formationLegendRows({ medic: 1, ccp: 1, aircraft: 1 }, 'attack').map((r) => r.cls)).toEqual(['medic', 'ccp']);
+  });
+
   it('lists present classes in class order with their counts, ambulances as Ambulance', () => {
     expect(formationLegendRows({ infantry: 5, armour: 3, medic: 1, ccp: 1, aircraft: 0 })).toEqual([
       { cls: 'armour', label: 'Armour', n: 3 },
@@ -234,7 +257,7 @@ describe('the legend', () => {
       'Faces the way you march. Halts and returns fire on contact. Moves at the pace of its slowest ground unit. Medics go to a man who goes down. Aircraft answer a contact.'
     );
     expect(formationFacingLine('attack')).toBe(
-      'Faces the approach. Then press on, fighting. Medics go to a man who goes down. Aircraft answer a contact.'
+      'Faces the approach. Then press on, fighting. Medics go to a man who goes down.'
     );
     expect(formationFacingLine('ambush')).toBe(
       'Faces inward. Springs together on contact. Moves at the pace of its slowest ground unit. Ring radius grows with the force. Medics go to a man who goes down. Aircraft answer a contact.'
@@ -244,8 +267,9 @@ describe('the legend', () => {
   it('each clause is the file\'s fact: a clause per call, once, in the file\'s element order', () => {
     const calls = (id: 'column' | 'attack' | 'ambush'): string[] =>
       formations.find((f) => f.id === id)!.elements.flatMap((el) => (el.on_call !== undefined && el.on_call !== 'none' ? [el.on_call] : []));
-    // Medic first, aircraft after, in all three files: the tooltip's order follows.
-    for (const id of ['column', 'attack', 'ambush'] as const) expect(calls(id), id).toEqual(['casualty', 'contact']);
+    // Medic first, aircraft after: the tooltip's order follows. The Attack leaves its aircraft out (GH-859), so it has no contact call.
+    for (const id of ['column', 'ambush'] as const) expect(calls(id), id).toEqual(['casualty', 'contact']);
+    expect(calls('attack')).toEqual(['casualty']);
     // P1c (GH-859): the Attack keeps no pace (its members walk at their own speeds between checkpoints), so its line above has no
     // pace clause; the Column and the Ambush keep theirs.
     expect(['column', 'attack', 'ambush'].map((id) => formations.find((f) => f.id === id)!.march!.pace)).toEqual(['slowest_ground', 'none', 'slowest_ground']);

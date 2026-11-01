@@ -1451,7 +1451,19 @@ function formationWorld(seed: number): FormationWorldFacts {
 // The groups, members, ringFacing, seen, sprungBy, legs, the Column's pace and first arrival, the releases, the casualty, the
 // duties seen and the row states are all re-read UNCHANGED; the golden canaries do not move.
 // Was 762031029.
-const FORMATION_WORLD_PIN = 2297075074;
+// Re-pinned 2026-11-01 (GH-859, the Attack leaves its aircraft out). The shipped attack.json now has `exclude: [aircraft]`, and the world
+// changed with it: the heli and drone are still ordered with the Attack as it WAS (`attackHoldingAir`, group row 1, so the contact
+// call, the sortie at 452 and the return at 945 are read exactly as before), and a fourth group is ordered with the SHIPPED
+// Attack at tick 90: two unarmed squads that form and a drone that is left out (ids 24..26, spawned last), which flies the plain order
+// in no group. The extra types and units, the fourth formation type (`attack_air`, index 3, which the old Attack group's fgType now
+// reads) and the fourth group row are the whole move: groups, members, ringFacing, legs, the Column's pace and first arrival, the
+// contacts, the calls, the casualty and the duties seen are re-read UNCHANGED; only 'released' gains the new group's release.
+// Was 2297075074.
+// Re-pinned 2026-11-01 (GH-859, lead: the Attack ships with `legs: false`). The Attack as it was (`attack_air`) keeps its checkpoints in this
+// world, so the contact, call and return facts hold; the fourth group, ordered with the SHIPPED Attack, now goes straight to its slots
+// (no checkpoint, no dress, no release at 278). Re-read UNCHANGED: groups, members, ringFacing, legs, the Column's pace and first
+// arrival, the contacts, the calls, the casualty, the duties seen. Was 2674420450.
+const FORMATION_WORLD_PIN = 1398138626;
 
 describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extended in P1b)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
@@ -1498,6 +1510,8 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
     // (was 202); the Attack (whose aircraft were exempt from the pace; since P1c it has no pace at all, and these two releases read the same) is whole at its checkpoints sooner (169 and 277; was
     // 237 and 415); the side-1 Column's release is unchanged.
     expect(a.columnFirstArrival).toBe(57);
+    // GH-859: the fourth group (the shipped Attack's two squads, ordered at tick 90) has no checkpoint, so it is released nowhere here;
+    // the other three are as they were.
     expect(a.released).toBe('117:0:1/2 169:1:1/3 277:1:2/3 351:16:1/2');
   });
 
@@ -1537,6 +1551,30 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
 
   it('the pinned hash', () => {
     expect(formationWorld(FM_SEED).hash).toBe(FORMATION_WORLD_PIN);
+  });
+
+  it('the shipped Attack leaves its aircraft out: the little group\'s two squads form, its drone flies the plain order in no group (GH-859)', () => {
+    const { sim, ids } = formationSetup(FM_SEED);
+    const p = internals(sim);
+    const fmGroup = p.fmGroup as Int8Array;
+    const moving = p.moving as Uint8Array;
+    const attackMove = p.attackMove as Uint8Array;
+    const wpCount = p.wpCount as Uint8Array;
+    for (let t = 0; t <= 91; t++) {
+      formationDrive(sim, t, ids);
+      sim.tick();
+    }
+    const [sqA, sqB, drone] = ids.lean;
+    // the two squads are members of one new group (the fourth row of side 0, after the Column, the Attack and the ring)
+    expect(fmGroup[sqA]).toBe(3);
+    expect(fmGroup[sqB]).toBe(3);
+    // the drone is in no group, queues no checkpoint, and is under the same attack-move order, straight to its plain slot
+    expect(fmGroup[drone]).toBe(-1);
+    expect(wpCount[drone]).toBe(0);
+    expect([moving[drone], attackMove[drone]]).toEqual([1, 1]);
+    expect(wpCount[sqA]).toBe(0); // the Attack ships without checkpoints (lead, 1 Nov): its members go straight to the slots
+    // and it holds no formation duty at the end of the run
+    expect(sim.formationDutyOf(drone)).toBe(0);
   });
 
   it('given 200 more ticks than the pin, the Attack\'s aircraft are home: no member away, no duty held (GH-859 P1c)', () => {

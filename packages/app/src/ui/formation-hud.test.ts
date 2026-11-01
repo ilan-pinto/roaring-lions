@@ -186,6 +186,19 @@ describe('the formation row', () => {
     expect(tip.querySelectorAll('.rl-formtip__legend li')[tip.querySelectorAll('.rl-formtip__legend li').length - 1]?.textContent).toBe('Kill zone');
   });
 
+  it('GH-859: the Attack\'s tooltip does not count or draw a selected gunship (it is left out); the Column\'s does', () => {
+    const f = makeForce();
+    const heli = f.sim.addUnitType(units.heli_peten_gunship as unknown as UnitTypeJson);
+    const air = f.sim.spawn(heli, 0, fx.from(30.5), fx.from(40.5));
+    const r = rigFor(f.sim, () => [...f.squads, f.namer, f.medic, air]);
+    hover(r.btn('attack'));
+    expect([...r.tip()!.querySelectorAll('.rl-formtip__legend li')].map((li) => li.textContent)).toEqual(['Armour1', 'Infantry3', 'Medic1', 'Your click']);
+    expect(r.tip()!.querySelectorAll('.rl-formtip__svg g[transform$="scale(1.3)"]')).toHaveLength(5);
+    hover(r.btn('column'));
+    expect([...r.tip()!.querySelectorAll('.rl-formtip__legend li')].map((li) => li.textContent)).toContain('Aircraft1');
+    expect(r.tip()!.querySelectorAll('.rl-formtip__svg g[transform$="scale(1.3)"]')).toHaveLength(6);
+  });
+
   it('draws a ground medic vehicle as the Ambulance in the legend, a medic squad as the Medic', () => {
     const f = makeForce();
     const amb = f.sim.addUnitType(units.veh_ambulance as unknown as UnitTypeJson);

@@ -162,9 +162,9 @@ describe('shape: a six-unit order lands on the template\'s literal tiles', () =>
     const ids = southStack(w, [w.mbt, w.mbt, w.inf, w.inf, w.inf]);
     order(w, ids, 'attack', 'attackMove');
     tick(w);
-    // G-6, P1b: the final checkpoint is P1a's literal, the goal is checkpoint 1 (route step 7, y = 32).
+    // The Attack ships without checkpoints (lead, 1 Nov): the goal IS the final slot, P1a's literal, and nothing is queued behind it.
     expect(finals(w.sim, ids)).toEqual([[24, 24], [26, 24], [24, 26], [25, 26], [23, 26]]);
-    expect(goals(w.sim, ids)).toEqual([[24, 32], [26, 32], [24, 34], [25, 34], [23, 34]]);
+    expect(goals(w.sim, ids)).toEqual([[24, 24], [26, 24], [24, 26], [25, 26], [23, 26]]);
     for (const id of ids) expect(priv(w.sim).restFacing[id], `id ${id}`).toBe(49152);
     expect(w.sim.formationTypeOfGroup(w.sim.formationGroupOf(ids[0]))).toBe(1);
   });

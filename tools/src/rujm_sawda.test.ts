@@ -106,9 +106,10 @@ describe('the shipped map', () => {
 
   it('keeps formations off even when the versus gate opens (L8): out of the S4 check until it passes its own run', () => {
     expect(formationsOpenIn('versus', true, 'rujm_sawda')).toBe(false);
-    expect(formationsOpenIn('versus', true, 'wadi_tarfan')).toBe(true);
-    expect(formationsOpenIn('versus', false, 'wadi_tarfan')).toBe(false);
-    expect(formationsOpenIn('versus')).toBe(false);
+    // (Wadi Tarfan joined the closed list on 1 Nov, GH-859; the gate itself opened that day on the maps S4 covered.)
+    expect(formationsOpenIn('versus', true, 'tel_marum')).toBe(true);
+    expect(formationsOpenIn('versus', false, 'tel_marum')).toBe(false);
+    expect(formationsOpenIn('versus', undefined, 'rujm_sawda')).toBe(false);
     // Free Play and a sandbox room on this map are not a versus room.
     expect(formationsOpenIn(undefined, undefined, 'rujm_sawda')).toBe(true);
     expect(formationsOpenIn('sandbox', undefined, 'rujm_sawda')).toBe(true);

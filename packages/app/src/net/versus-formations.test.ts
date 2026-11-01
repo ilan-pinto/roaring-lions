@@ -4,23 +4,26 @@ import { t } from '../i18n/t';
 
 // GH-859 P1a: the one predicate behind the sender strip, the receiver gate and the HUD row's inert state.
 describe('formationsOpenIn', () => {
-  it('the gate ships closed: P1b flips it, gated on S4 per cell', () => {
-    expect(VERSUS_FORMATIONS_OPEN).toBe(false);
+  it('the gate ships OPEN since S4 passed on Beit Sahwan, Tel Marum and Milh Flats (GH-859, lead 1 Nov)', () => {
+    expect(VERSUS_FORMATIONS_OPEN).toBe(true);
   });
-  it('a versus room follows the gate; every other place is open', () => {
+  it('a versus room follows the gate on a map that is not closed; every other place is open', () => {
     expect(formationsOpenIn('versus')).toBe(VERSUS_FORMATIONS_OPEN);
-    expect(formationsOpenIn('versus')).toBe(false);
+    expect(formationsOpenIn('versus')).toBe(true);
     expect(formationsOpenIn('versus', true)).toBe(true);
     expect(formationsOpenIn('versus', false)).toBe(false);
+    expect(formationsOpenIn('versus', undefined, 'tel_marum')).toBe(true);
     for (const mode of [undefined, null, 'sandbox'] as const) {
       expect(formationsOpenIn(mode), String(mode)).toBe(true);
       expect(formationsOpenIn(mode, false), String(mode)).toBe(true);
     }
   });
   it('GH-913 L8: a map in VERSUS_FORMATIONS_CLOSED_MAPS stays closed with the gate open; the others follow the gate', () => {
-    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['rujm_sawda']);
+    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['rujm_sawda', 'wadi_tarfan']);
     expect(formationsOpenIn('versus', true, 'rujm_sawda')).toBe(false);
-    expect(formationsOpenIn('versus', true, 'wadi_tarfan')).toBe(true);
+    // GH-859 (lead, 1 Nov): Wadi Tarfan is closed the same way, until its Sarim lean is settled (GH-561).
+    expect(formationsOpenIn('versus', true, 'wadi_tarfan')).toBe(false);
+    expect(formationsOpenIn('sandbox', undefined, 'wadi_tarfan')).toBe(true);
     expect(formationsOpenIn('versus', true, 'tel_marum')).toBe(true);
     expect(formationsOpenIn('versus', true, null)).toBe(true);
     expect(formationsOpenIn('versus', true)).toBe(true);

@@ -103,7 +103,7 @@ export function schematicSvg(id: FormationId, slots: SchematicSlots): string {
 
 /** The legend: a mark, the class and its count per present class, then the click or kill-zone line. */
 function legendHtml(id: FormationId, counts: FormationCounts): string {
-  const rows = formationLegendRows(counts)
+  const rows = formationLegendRows(counts, id)
     .map((r) => `<li><svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true">${mark(r.cls, 7, 6)}</svg><span>${r.label}</span><b>${r.n}</b></li>`)
     .join('');
   const extra = formationLegendMark(id);

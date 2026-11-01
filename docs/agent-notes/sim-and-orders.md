@@ -166,6 +166,21 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
   - fewer placeable members than the formation's `min_members` (placeable = alive, not routed, not carried, not
     landing, class not none, side 0 or 1). One unit, or a selection whose rest is aboard, is a plain order;
   - and inside a template order, an id with no slot (class none, side 2, a passenger) simply ignores it.
+- **Classes a formation leaves out** (`exclude`, lead 1 Nov, GH-859; the Attack leaves `aircraft` out, so they fly free).
+  A unit of an excluded class is NOT a member of the template order, and the order treats it as a separate plain order
+  to the same click would (the lead's Q2-ALT, written as one command): it is not counted toward `min_members`, is left out of
+  the template centroid and of the march route's lead domain, takes the plain grid (`assignFormation` over the excluded units
+  alone, their own centroid, the tiles of everyone outside the order plus the template's final slots reserved), joins no group
+  (`fmJoin` never sees it), queues no checkpoint, and has no rest facing or stance. `fmExcludes(tpl, cls)` is the one test, and
+  `sortMembers` applies it too, so `templateOffsets` and the HUD schematic seat nobody of the class. `compileFormation` and
+  `validate_formations.mjs` refuse a class named by both `exclude` and an element. An Attack with only aircraft and one tank is
+  therefore a plain order (one placeable member). The Attack no longer has a contact call: every witness built on its aircraft
+  sortie is a Column witness now. The HUD mirrors it (`formationLeavesOut`): the row does not count a left-out class toward `min_members`, and the legend lists none.
+  Deliberate divergences from "two commands" (sim-guard round 1, all deterministic; `formation-exclude.test.ts` pins the first):
+  fewer placeable members than `min_members` is ONE plain grid over everyone, excluded units included (the formation did not form);
+  an excluded unit's own tile is not reserved against the template (it is in the order, as every template member is); a
+  duplicate id is seated once; a side-2 unit of an excluded class is ignored (as the template ignores side 2); and the
+  formed group may reuse a row an excluded unit used to hold, so `fmGroup` can differ from the two-command run.
   The app mirrors the too-few case: it keeps the formation's own verb (Attack with one unit sends a plain
   `attackMove`) and plays the deny cue with a feed line.
 - **Why the faction check is versus-only.** The sim does not check factions: it knows sides, not factions, and
@@ -189,7 +204,15 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
   (formation, mix, N). `tools/src/formations_place.test.ts` is the gate (N = 2..24, every class mix, no tile
   twice, vehicle spacing outside the ring).
 
-### Versus: formations are OFF (lead's ruling, 29 Oct, GH-859; still off after P1b, S4 failed)
+### Versus: formations OPENED 1 Nov on the maps S4 covered (GH-859)
+
+**Current state.** S4 passed clean (0 TRIP of 27 cells, tunnels A+B pooled, 192 seeds paired with each cell's own baseline) with the Attack leaving
+aircraft out and `legs: false`, on Beit Sahwan, Tel Marum and Milh Flats, so `VERSUS_FORMATIONS_OPEN` is `true`. Wadi Tarfan (until its Sarim lean
+is settled, GH-561) and Rujm Sawda stay closed through `VERSUS_FORMATIONS_CLOSED_MAPS`. The tests that witness the CLOSED path inject the gate
+(`seatWorldFor(cfg, sim, false)`, `roomOrderSink(..., false)`) or use a closed map (`mcp-tools.test.ts` runs its refusal on Wadi). The text below is the
+history of the closed gate; its mechanism is unchanged.
+
+### (History) Versus: formations were OFF (lead's ruling, 29 Oct, GH-859; still off after P1b, S4 failed)
 
 Formations ship in single player. In a versus room they are off. The mechanism is ONE predicate,
 `packages/app/src/net/versus-formations.ts`: `VERSUS_FORMATIONS_OPEN = false` and `formationsOpenIn(mode, versusOpen)`

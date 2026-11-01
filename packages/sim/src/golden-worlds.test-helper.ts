@@ -999,8 +999,8 @@ export const FM_MORTAR: UnitTypeJson = { ...RIFLES, id: 'fm_mortar', role: 'arti
 /** GH-859 P1b Task 3: the Column's slow member. 0.7 tiles a second against the rifles' 0.9 and the tank's 1.1, so the
  *  Column's pace is this unit's step. It stands behind the others, so a dress waits for it. */
 export const FM_SLOW_MORTAR: UnitTypeJson = { ...RIFLES, id: 'fm_mortar_slow', role: 'artillery', mobility: { speed_tiles_s: 0.7 } };
-/** GH-859 P1b Task 5: the Attack's calls. A strike helicopter (an armed air type with no seats) and a spot drone (unarmed)
- *  answer the group's contact call; both stand 13 tiles behind the lead rank. */
+/** GH-859 P1b Task 5: the aircraft calls. A strike helicopter (an armed air type with no seats) and a spot drone (unarmed)
+ *  answer the group's contact call; both stand behind the lead rank. (Since the Attack leaves its aircraft out, they ride the Ambush.) */
 export const FM_HELI: UnitTypeJson = {
   id: 'fm_heli',
   hull: { hp: 400, armor: { front: 5, side: 5, rear: 5 } },
@@ -1049,12 +1049,35 @@ export interface FormationWorldIds {
   atk: number[];
   amb: number[];
   foe: number[];
+  /** Two unarmed squads and a drone ordered with the shipped Attack: the drone is left out of the formation. */
+  lean: number[];
 }
 /** The shipped formation files, read off the data directory (this helper is test support: node is fine). */
 export function shippedFormations(): FormationJson[] {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'formations');
   return ['column', 'attack', 'ambush'].map((id) => JSON.parse(readFileSync(join(root, `${id}.json`), 'utf8')) as FormationJson);
 }
+/** The Attack as it was before it left its aircraft out (GH-859): the shipped file with the field removed and the aircraft element
+ *  put back, copied from the file as it stood (a standoff of 13, on call for contact). A test-local formation under the id
+ *  `attack_air`, so the witnesses built on the Attack's aircraft sortie keep the behaviour they were written for. The call machinery is
+ *  unchanged, and the Column and the Ambush still ship it. */
+export function attackHoldingAir(): FormationJson {
+  const attack = shippedFormations().find((f) => f.id === 'attack') as FormationJson;
+  const { exclude: _left, ...rest } = attack;
+  void _left;
+  return {
+    ...rest,
+    id: 'attack_air',
+    // The Attack as it was also marched in 8-tile legs with a 3 s dress (the shipped file has `legs: false` since the lead's 1 Nov ruling).
+    march: { legs: true, leg_tiles: 8, pace: 'none', dress_s: 3 },
+    elements: [
+      ...attack.elements,
+      { classes: ['aircraft'], shape: { kind: 'rank', spacing: 2, max_lateral: 2, rank_depth: 2 }, gap: 1, standoff: 13, on_call: 'contact' },
+    ],
+  };
+}
+/** An unarmed rifle squad: infantry by class, and it starts no fight. */
+export const FM_UNARMED: UnitTypeJson = { ...RIFLES, id: 'fm_unarmed', weapons: [] };
 export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds } {
   const sim = new Sim({ seed, width: 48, height: 48, capacity: 96 });
   const mbt = sim.addUnitType(FM_MBT);
@@ -1072,6 +1095,7 @@ export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds
   const medic = sim.addUnitType(FM_MEDIC);
   const ambulance = sim.addUnitType(FM_AMBULANCE);
   for (const f of shippedFormations()) sim.addFormationType(f);
+  sim.addFormationType(attackHoldingAir());
   // Good cover one step outside the ring tile of the fifth ring member (see the pin test's literal).
   sim.setCover(36, 22, 3);
   const put = (type: number, side: number, x: number, y: number): number => sim.spawn(type, side, fx.from(x + 0.5), fx.from(y + 0.5));
@@ -1086,15 +1110,21 @@ export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds
   // medic and an ambulance join the Column, three tiles behind it with the slow mortar.
   atk.push(put(heli, 0, 24, 44), put(drone, 0, 24, 44));
   col.push(put(medic, 0, 8, 47), put(ambulance, 0, 8, 47));
-  return { sim, ids: { col, atk, amb, foe } };
+  // GH-859 (the shipped Attack leaves aircraft out): the group above is ordered with `attack_air`, the Attack as it was before the
+  // field (see `attackHoldingAir`), so the contact call, the sortie and every witness built on them are as they were. This second
+  // little group is ordered with the SHIPPED Attack: two unarmed squads and a drone, which the Attack leaves out and flies the plain order.
+  const unarmed = sim.addUnitType(FM_UNARMED);
+  const lean = [put(unarmed, 0, 30, 44), put(unarmed, 0, 30, 44), put(drone, 0, 30, 44)];
+  return { sim, ids: { col, atk, amb, foe, lean } };
 }
 export function formationDrive(sim: Sim, t: number, ids: FormationWorldIds): void {
   const at = (n: number): number => fx.from(n + 0.5);
   if (t === 0) sim.queueCommand({ kind: 'move', ids: ids.col, x: at(8), y: at(30), formation: 'column' });
   // `sweep` is what a player's right-click sends: it makes the queued checkpoints carry the flag (wpSweep).
-  if (t === 40) sim.queueCommand({ kind: 'attackMove', ids: ids.atk, x: at(24), y: at(26), sweep: true, formation: 'attack' });
+  if (t === 40) sim.queueCommand({ kind: 'attackMove', ids: ids.atk, x: at(24), y: at(26), sweep: true, formation: 'attack_air' });
   if (t === 60) sim.queueCommand({ kind: 'move', ids: [ids.col[4]], x: at(12), y: at(34) });
   if (t === 80) sim.queueCommand({ kind: 'move', ids: ids.amb, x: at(40), y: at(24), formation: 'ambush' });
+  if (t === 90) sim.queueCommand({ kind: 'attackMove', ids: ids.lean, x: at(30), y: at(30), formation: 'attack' });
   if (t === 150) sim.queueCommand({ kind: 'move', ids: ids.foe, x: at(40), y: at(16), formation: 'column' });
   // GH-859 P1b Task 5: a stray round (a splash with no shooter, so it is no contact) drops one man of the Column's second
   // riflemen squad while the group marches: the casualty call. The Column's medic (ids.col[6]) is the nearest free one.
