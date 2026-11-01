@@ -77,6 +77,30 @@ export function showroomClip(typeId: string): 'idle' | 'move' {
   return SHOWROOM_CLIP[typeId] ?? 'idle';
 }
 
+/**
+ * The clip the store poses a team from: `showroomClip(typeId)`'s, or `idle`.
+ * The garage view calls this and nothing else to choose it, so a test that
+ * stages a team through the view pins the wiring.
+ *
+ * A showroom clip a GLB does not carry is LOUD, not a quiet `idle`: for the
+ * sniper that fallback is the prone hide, the very bug GH-921 fixed. It names
+ * the file (the backend's convention) and still poses, so the card is never
+ * empty.
+ */
+export function pickShowroomClip(
+  clips: ReadonlyMap<string, THREE.AnimationClip>,
+  typeId: string,
+  meshUrl: string
+): THREE.AnimationClip | null {
+  const want = showroomClip(typeId);
+  const chosen = clips.get(want);
+  if (chosen) return chosen;
+  if (want !== 'idle') {
+    console.error(`garage: ${meshUrl} (${typeId}) has no '${want}' clip for the store pose; falling back to 'idle'`);
+  }
+  return clips.get('idle') ?? null;
+}
+
 /** Which of the three paths above posed this unit, for the report line. */
 export type PoseSource = 'showcase' | 'idle0' | 'idle0+ready' | 'bind';
 
