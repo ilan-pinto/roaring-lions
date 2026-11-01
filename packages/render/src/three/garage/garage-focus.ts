@@ -27,8 +27,8 @@
  *   the head and optics: every triangle on the figure's own head bone
  *   (`HEAD_BONE`: the face, the helmet, goggles and anything clipped to
  *   them), plus any `glass`. A figure drawn with no head bone -- the sniper
- *   pair's showcase is their PRONE death geometry, bound rigidly to one
- *   root -- takes everything within `HEAD_REACH` of its own `face` instead,
+ *   pair's showcase WAS their PRONE death geometry (before GH-921 stood them
+ *   up), bound rigidly to one root; a prone figure still -- takes everything within `HEAD_REACH` of its own `face` instead,
  *   and a figure with neither falls back to `HEAD_BAND` of its height. Not
  *   height first, because the top fifth of a man lying down is his pack,
  *   which is what the first run framed; and not the face first, because a

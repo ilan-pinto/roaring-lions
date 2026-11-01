@@ -112,6 +112,7 @@ import {
   livingFigureRoots,
   poseRigged,
   respaceLine,
+  showroomClip,
   splitShowcase,
   visiblePoints,
   type PoseSource,
@@ -354,7 +355,11 @@ function stageRigged(gltf: { scene: THREE.Group; animations: THREE.AnimationClip
       m.receiveShadow = true;
       m.frustumCulled = false;
     });
-    const { source, mixer } = poseRigged(rig, { showcase, idle: tpl.clips.get('idle') ?? null });
+    const { source, mixer } = poseRigged(rig, {
+      showcase,
+      // The store's clip, not the field's (GH-921): `showroomClip` is `idle` for all but the sniper.
+      idle: tpl.clips.get(showroomClip(opts.typeId)) ?? tpl.clips.get('idle') ?? null,
+    });
     const figures = lineOrder(livingFigureRoots(bonesOf(rig)));
     if (figures.length > 1) {
       if (spacing === 0) {
