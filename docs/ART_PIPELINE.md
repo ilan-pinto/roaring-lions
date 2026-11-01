@@ -139,6 +139,30 @@ See `data/vfx/catastrophic_kill.json` for the canonical ramp: `white_hot → fir
 
 ---
 
+## 5a. Lighting and look — the runtime frame
+
+The sections above describe how an asset is authored. What the player sees is decided at runtime by the three.js renderer, and from a top-down RTS camera that frame, not the engine, is what separates this game from a commercial one.
+
+**As it ships** (`packages/render/src/three/`, record in `docs/agent-notes/renderer.md`): every world material is a `MeshStandardMaterial`; a side sun (`SUN_DIRECTION`) with a camera-fitted 4096² shadow map plus one hemisphere bounce (`lighting.ts`); dawn, day and dusk presets (`time-of-day.ts`); the post chain `RenderPass → FogOfWarPass → GTAO → bloom → OutputPass (ACES, exposure 1.0) → vignette → SMAA` (`post-chain.ts`); ground decals on the sim clock; per-role roughness and metal on units (`units/unit-surface.ts`). Quality presets `high`/`medium`/`low` drop AO, bloom and shadow resolution (`quality.ts`).
+
+**Still missing, in the order it will be built** (spec: `docs/superpowers/specs/2026-11-01-look-uplift-design.md`):
+
+1. **L1, environment lighting.** No scene has an environment today, so metal reads dark and is capped at metalness 0.45 (`envMapIntensity = 0` is set on only a few baked materials, and is inert). A sky environment built from the time-of-day palette keys and run through PMREM fixes both. In three 0.186.1 a per-class intensity needs the texture on `material.envMap` per class (a global `scene.environment` gives one value to everything), so the ground, decals and FX simply get none. Hemisphere intensity drops per preset (0.75 dawn, 0.9 day, 0.7 dusk today). It is a lighting change against the 23 Oct GH-705 "keep today's lighting" ruling, so it needs a mock sheet and the lead's approval, and it waits for GH-705 task 6 (`unit-surface.ts`) to land or close. No HDRI file, so no licence question.
+2. **L2, colour grading.** A grade per map and per time of day, stored as data in `data/grades/` (registered in the data index) and baked to a 3D LUT at boot. Day is the identity grade and builds no pass; dawn and dusk are graded.
+3. **L3, normal and ORM maps and a team-colour mask on unit textures.** Unit GLBs are no longer "zero materials": `TEXTURED_BUILDING_EXEMPT`, `TEXTURED_VEHICLE_EXEMPT` and `TEXTURED_INFANTRY_EXEMPT` (`tools/validate_mesh_assets.py`) already waive it for every vehicle and infantry team, with base-colour bakes. L3 adds normal and occlusion-roughness-metal maps, a team mask and a texture budget per class, needs a lead ruling on scope and budget, and pilots on `inf_squad` (f1, GH-746) and one vehicle. The approved Meshy recipe has no `--pbr`, so normals are baked in Blender. (CLAUDE.md's "zero materials" bullet is stale and is amended with the first pilot.)
+4. **L4, vertex animation textures.** Infantry clips baked to textures and drawn instanced, to lift the draw-call ceiling. With the GH-746 figure (skinned, textured, about 10k triangles) the bake target is a decimated battle-zoom LOD, with the skinned figure kept for close-ups; the outline, shadow-depth and GTAO passes need the same displacement. The ~1,150-figure ceiling was measured on a stand-in GLB, so `three-units.ts` is repointed at the shipped figure first. A new pipeline pass after `gait:meshes` and before `encode:meshes`.
+5. **L5, a WebGPU spike.** A measured decision sheet, not a migration.
+
+**Rules that hold for every look change:**
+
+- The palette is the source of every authored colour, including an environment and a grade. Never a raw hex.
+- Numbers are approved on a mock sheet before any render or Meshy call.
+- A new effect gets a debug layer and a visible-toggle floor in the visual gate, and its falsification (the layer hidden, the check watched red) goes in the commit message.
+- The golden baseline moves once per phase and is blessed from CI numbers, never from a branch.
+- Presentation only. Nothing in this section may read back into the sim.
+
+---
+
 ## 6. Terrain — the 60% nobody budgets for
 
 Most projects polish units and ship ugly ground, then wonder why it looks amateur. Ground is the majority of every screenshot.
