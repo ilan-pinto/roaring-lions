@@ -169,7 +169,15 @@ class Team:
 _BASE_ALL, _BASE_LEADER, _BASE_RIFLEMEN = ALL, LEADER, RIFLEMEN
 
 TEAMS = {
-    "inf_squad": Team("inf_squad", ALL, LEADER, ALL, (2048, 1024), dict(TEXELS),
+    # Meshy pilot f1 (1 Nov 2026): the skinned figure's own 2048 x 2048 bake (retinted olive / dark brown / tan), its
+    # texels found by `_coord/inf-meshy-pilot/tools/find_texels.py` (solid 5 x 5 blocks nearest each key; dE 0.4-4.5)
+    "inf_squad": Team("inf_squad", ALL, LEADER, ALL, (2048, 2048), {
+        "coyote": (105, 1475),         # dust.5   #806032  dE 4.46
+        "coyote_shade": (795, 540),    # dust.6   #6B4F29  dE 3.17
+        "olive": (1731, 1997),         # olive.2  #4E5433  dE 0.97
+        "olive_dark": (998, 1567),     # olive.3  #333821  dE 1.06
+        "glass": (1468, 1412),         # shadow.0 #23241F  dE 0.36
+    },
                       bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned"), clear_pouches=True, dense_keys=True, flip_deg=120.0),
     # Demolition squad (GH-826, seven-teams spec 4.3). Two standing figures on the standard rig:
     # demo_a is unarmed (he works the charge), demo_b carries the carbines. The helmets carry a baked NVG

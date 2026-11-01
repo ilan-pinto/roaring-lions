@@ -133,8 +133,11 @@ export const READY_TORSO = { lean: 0, blade: 10 };
  * and the formula pocket the support wrist was 0.17 m out of reach in `fire`, 0.09 m at low ready.
  */
 export const HANDS_READY_TORSO = { lean: 0, blade: 28 };
-/** A rest carry's ready stance is the sculpt's own: nothing added. */
+/** A rest carry's ready stance is the sculpt's own: nothing added. Its aim blades less than the modelled hands' 38:
+ *  the sculpt's arms reach the shouldered carbine from a squarer stance, and at 38 the rifle pointed away from the
+ *  store camera and the support arm crossed the face. The hold still adds blade (BLADE_EXTRAS) where a hand cannot reach. */
 export const REST_CARRY_TORSO = { lean: 0, blade: 0 };
+export const REST_CARRY_AIM_TORSO = { lean: 10, blade: 18 };
 export const HANDS_AIM_TORSO = { lean: 12, blade: 38 };
 export const HANDS_PROTRACTION: V3 = [0.11, 0.0, 0.045];
 export const HANDS_RIFLE_POCKET: V3 = [0.015, 0.16, 0.05];
@@ -443,7 +446,7 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
   const p = h.prefix;
   const side = holdSide(h); // anatomical right is +Z
   const spine = rig.node(`${p}_spine`);
-  const aimTorso = h.hands ? HANDS_AIM_TORSO : AIM_TORSO[h.kind];
+  const aimTorso = h.restCarry ? REST_CARRY_AIM_TORSO : h.hands ? HANDS_AIM_TORSO : AIM_TORSO[h.kind];
   const readyTorso = h.restCarry ? REST_CARRY_TORSO : h.hands ? HANDS_READY_TORSO : READY_TORSO;
   const lean = readyTorso.lean + ((st.aimLean ?? aimTorso.lean) - readyTorso.lean) * st.aim;
   const blade = readyTorso.blade + (aimTorso.blade - readyTorso.blade) * st.aim + (st.bladeExtra ?? 0);
@@ -559,8 +562,12 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
       const cur = pose.get(ua)!;
       pose.set(ua, { ...cur, t: add(cur.t, local) });
     }
-    const fire = placeHand(rig, pose, hr.fire, delta, hr.fire.restPole ?? [-0.2, -1, 0.7 * side], smoothstep(Math.min(1, st.aim / TRIGGER_CLOSE_AIM)));
-    const supp = placeHand(rig, pose, hr.support, delta, hr.support.restPole ?? [0.1, -1, -0.35 * side]);
+    // A fused hand's arm starts from the sculpt's own elbow (its rest pole reproduces the low ready exactly) and comes
+    // round to the shooter's elbows as the weapon comes up: a rest pole kept at full aim put the support elbow up at
+    // the face (the garage render of 1 Nov: the arm across the face, the rifle hidden).
+    const blendPole = (restPole: V3 | undefined, aimed: V3): V3 => (restPole ? norm(lerp3(restPole, aimed, st.aim)) : aimed);
+    const fire = placeHand(rig, pose, hr.fire, delta, blendPole(hr.fire.restPole, [-0.2, -1, 0.7 * side]), smoothstep(Math.min(1, st.aim / TRIGGER_CLOSE_AIM)));
+    const supp = placeHand(rig, pose, hr.support, delta, blendPole(hr.support.restPole, [0.1, -1, -0.35 * side]));
     if (hr.finger) {
       // The trigger finger lies along the receiver at low ready and goes onto the trigger as the weapon comes up.
       const rest = rig.rest.get(hr.finger.node)!;

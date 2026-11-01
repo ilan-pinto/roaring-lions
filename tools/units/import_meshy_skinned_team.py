@@ -81,6 +81,7 @@ WRIST_FREE_M = 0.07           # the sleeve within this of a wrist is a smooth bl
 CAP_INSET_M = 0.015           # a gun's or a fist's collar goes this deep into its own side
 CAP_INSET_BODY_M = 0.025      # the body's collar goes this deep into the vest
 SMALL_ISLAND_VERTS = 80       # a separate shell piece smaller than this near the bore is the gun's (a loop, a buckle)
+ISLAND_NEAR_BORE_M = 0.14     # ...within this of the bore: the stock's rear loop sat 0.10 off it and stayed at the chest in fire
 GUN_L, GUN_C_MAX = (9.0, 28.0), 7.0
 KHAKI_L, KHAKI_C, KHAKI_HUE = (26.0, 48.0), (12.0, 26.0), (60.0, 100.0)
 SKIN_C_MIN, SKIN_L_MIN, SKIN_A_MIN = 12.0, 20.0, 5.0
@@ -92,11 +93,13 @@ WRIST_BACK_M = 0.06           # the wrist crease sits this far behind the closed
 CUFF_BLEND_M = 0.03           # hand -> forearm blend behind the wrist plane
 GUN_NEAR_M = 0.075            # a gun-coloured vertex this close to the bore is the gun
 GUN_BODY_SIDE_M = 0.028       # across the bore toward the torso: past this a vertex is the vest the gun lies on
+STOCK_POCKET_M = 0.12         # the rear of the stock whose vest pocket goes with it
 GUN_LEN_BAND = (0.72, 0.98)   # a Meshy carbine must be within 15 % of 0.85 m, or the import refuses
-TORSO_HALF_W = 0.165          # the chest's half width at the ribs: inside it, off the arms' capsules, is torso
+TORSO_HALF_W = 0.25           # the chest, its side pouches and the shoulder caps: inside it, off the arms' own sleeves, is torso
 HIP_HALF_W = 0.36             # the hips and what hangs from the belt (holster, pouches), which an elbow rested on
-HIP_KIT_ABOVE_CROTCH = 0.08   # ...up to here: the support wrist sits just above it
+HIP_KIT_ABOVE_CROTCH = 0.18   # ...up to the belt: the holster beside it kept forearm 0.15-0.33 from bone heat and tore in fire
 ARM_CAPSULE_R = {"upper": 0.075, "fore": 0.062}   # an arm's own radius about its bone, sleeve included
+ARM_LATERAL_M = 0.19          # outboard of this from the spine, an upper arm's capsule is all arm
 MAX_INFLUENCES = 4            # glTF's limit, pruned here (deterministically) rather than by the exporter
 
 
@@ -134,6 +137,7 @@ def _classes(co, lab):
     C = np.hypot(a, b); hue = np.degrees(np.arctan2(b, a))
     z = co[:, 2]
     return dict(
+        L=L, C=C,
         glove=(C > GLOVE_C_MIN) & (hue > GLOVE_HUE[0]) & (hue < GLOVE_HUE[1]) & (L > 12),
         # the glove with its shadows: any brown, however dark, against the vest's neutral black (C* under 5)
         brown=(C > BROWN_C_MIN) & (hue > BROWN_HUE[0]) & (hue < BROWN_HUE[1]) & (L > 6),
@@ -379,6 +383,14 @@ def _set_weights(ob, names, W):
 def _fix_weights(ob, prefix, J, cls, co):
     """The corrections bone heat cannot know: a rigid gun, rigid fists, a cuff blend, and no arm on the torso core."""
     names, W = _weights(ob)
+    # Bone heat was solved against the whole team's armature: a figure's shell took weight from its NEIGHBOUR's bones
+    # (f1's back pouch carried f2_upperarm_L 0.10 + f2_forearm_L 0.10 and flew off behind him in fire: the "floating
+    # black piece" of the 1 Nov renders). Nothing of a figure rides another figure's bone.
+    foreign = [i for i, n in enumerate(names) if not n.startswith(prefix + "_")]
+    if foreign:
+        took = int((W[:, foreign].sum(1) > 1e-4).sum())
+        W[:, foreign] = 0.0
+        log(f"{prefix}: {took} vertices had weight on another figure's bones ({len(foreign)} groups): removed")
     gi = {n: i for i, n in enumerate(names)}
     def col(bone):
         key = f"{prefix}_{bone}"
@@ -402,7 +414,19 @@ def _fix_weights(ob, prefix, J, cls, co):
     tn = np.linalg.norm(toward, axis=1); tn[tn < 1e-9] = 1.0
     depth_to_body = (radial * toward).sum(1) / tn          # + toward the torso, - away from it
     on_body_side = depth_to_body > GUN_BODY_SIDE_M
+    on_body_side_deep = depth_to_body > 0.10          # the chest plate proper, behind the pocket
     gun = along & (rr < GUN_NEAR_M) & ~cls["brown"] & ~cls["khaki"] & ~cls["skin"] & ~on_body_side
+    # the stock's pocket: Meshy shaped the vest around the butt, and parted from it that black cup stood 10 cm proud of
+    # the chest in fire and pinned, reading as a piece floating by the shoulder (40 vertices, L* 2, 0.05-0.125 off the
+    # bore, 1-8 cm ahead of the butt). It is the fusion's remnant and goes with the stock.
+    black = (cls["L"][: len(co)] <= 9.0) & (cls["C"][: len(co)] < 5.0)
+    pocket = (e > -0.03) & (e < STOCK_POCKET_M) & (rr < 0.125) & black & ~on_body_side_deep
+    gun |= pocket
+    # ...and the gun's own black parts that the bake did not paint grey-blue (the magazine's underside between the
+    # fists, L* 2): bone heat gave them the two hands' weights and they tore 40 cm in pinned
+    gun |= along & (rr < 0.09) & black & ~on_body_side
+    if pocket.any():
+        log(f"{prefix}: {int(pocket.sum())} vertices of the vest's stock pocket go with the stock")
     # the magazine: below the bore, ahead of the grip, away from the body
     gun |= along & cls["gun"] & (rr < 0.20) & ((co - g["butt"]) @ g["up"] < -0.03) & (e > 0.30 * g["length"]) & (e < 0.60 * g["length"]) & (depth_to_body < 0.0)
     # a small island of the shell (a sling loop, a buckle) inside the gun's corridor is the gun's, whatever its
@@ -427,7 +451,7 @@ def _fix_weights(ob, prefix, J, cls, co):
     comp = np.array([find(i) for i in range(len(co))])
     sizes = np.bincount(comp)
     small = sizes[comp] < SMALL_ISLAND_VERTS
-    island_gun = small & along & (rr < 0.10) & ~cls["brown"] & ~cls["skin"]
+    island_gun = small & along & (rr < ISLAND_NEAR_BORE_M) & ~cls["brown"] & ~cls["skin"]
     if island_gun.any():
         log(f"{prefix}: {int(island_gun.sum())} vertices of small islands in the gun's corridor taken as the gun")
     gun |= island_gun
@@ -454,7 +478,7 @@ def _fix_weights(ob, prefix, J, cls, co):
         r = RIG_SIDE[side]
         hb, fb = gi[f"{prefix}_hand_{r}"], gi[f"{prefix}_forearm_{r}"]
         W[hand, :] = 0.0; W[hand, hb] = 1.0
-        k = np.clip((t[cuff] + CUFF_BLEND_M) / CUFF_BLEND_M, 0.0, 1.0)   # 0 at the sleeve end, 1 at the wrist
+        k = 0.5 + 0.5 * np.clip((t[cuff] + CUFF_BLEND_M) / CUFF_BLEND_M, 0.0, 1.0)   # 0.5 at the sleeve end, 1 at the wrist: the glove stays the hand's
         W[cuff, :] = 0.0; W[cuff, hb] = k; W[cuff, fb] = 1.0 - k
     # the torso: no arm or hand weight on the vest and the chest. Bone heat leaks through the welded armpit and
     # under the forearm that lies on the vest; posed, that tore the plate carrier into shards (pose probe, 1 Nov).
@@ -468,13 +492,38 @@ def _fix_weights(ob, prefix, J, cls, co):
         return np.linalg.norm(co - a - np.outer(t, d), axis=1) < r
     # an arm's capsule protects its SLEEVE and glove (khaki, brown) and its own core; the black vest a forearm lies on
     # is torso however close it is to the bone
+    # ...and, where a forearm lies ON the belly (the firing forearm does, at rest), only the OUTER half of its capsule
+    # is the sleeve: the inner half is the trousers and the vest under it, khaki too. Measured in fire: 209 triangles
+    # stretched 10-28 cm between the belly (forearm_L 0.5-0.98 from bone heat) and the arm that had left it.
+    def outer_half(a, b, r):
+        a = np.asarray(a); b = np.asarray(b); d = b - a; L2 = d @ d
+        t = np.clip(((co - a) @ d) / L2, 0.0, 1.0); q = a + np.outer(t, d)
+        radial = co - q
+        outward = q - np.array([spine_xy[0], spine_xy[1], 0.0]); outward[:, 2] = 0.0
+        outward /= np.maximum(np.linalg.norm(outward, axis=1), 1e-9)[:, None]
+        return (np.linalg.norm(radial, axis=1) < r) & ((radial * outward).sum(1) > -0.01)
     near_arm = np.zeros(len(co), bool); arm_core = np.zeros(len(co), bool)
     for side in ("R", "L"):
         near_arm |= capsule(J["shoulder"][side], J["elbow"][side], ARM_CAPSULE_R["upper"])
-        near_arm |= capsule(J["elbow"][side], J["wrist"][side], ARM_CAPSULE_R["fore"])
+        near_arm |= outer_half(J["elbow"][side], J["wrist"][side], ARM_CAPSULE_R["fore"])
         arm_core |= capsule(J["shoulder"][side], J["elbow"][side], ARM_CAPSULE_R["upper"] * 0.5)
-        arm_core |= capsule(J["elbow"][side], J["wrist"][side], ARM_CAPSULE_R["fore"] * 0.55)
-    near_arm = (near_arm & (cls["khaki"] | cls["brown"])) | arm_core
+        arm_core |= capsule(J["elbow"][side], J["wrist"][side], ARM_CAPSULE_R["fore"] * 0.45)
+    # ...and out at the arm's own lateral position, whatever the bake says (the black elbow pad, the strap over the
+    # upper arm): cleared, they tore 12-17 cm off the sleeve in pinned and moveFire
+    lateral = np.abs(co[:, 1] - spine_xy[1]) > ARM_LATERAL_M * J["sxy"]
+    upper_any = np.zeros(len(co), bool)
+    for side in ("R", "L"):
+        upper_any |= capsule(J["shoulder"][side], J["elbow"][side], ARM_CAPSULE_R["upper"])
+    near_arm = (near_arm & (cls["khaki"] | cls["brown"])) | arm_core | (upper_any & lateral)
+    # an arm's capsule carries no weight of the OTHER arm: bone heat put the firing hand's weight (0.26) on the support
+    # arm's sleeve across the chest, which stretched 25 cm in pinned
+    for side in ("R", "L"):
+        r_, o_ = RIG_SIDE[side], RIG_SIDE["L" if side == "R" else "R"]
+        mine = capsule(J["shoulder"][side], J["elbow"][side], ARM_CAPSULE_R["upper"]) | capsule(J["elbow"][side], J["wrist"][side], ARM_CAPSULE_R["fore"] + 0.03)
+        other_cols = [gi[f"{prefix}_{b}_{o_}"] for b in ("upperarm", "forearm", "hand") if f"{prefix}_{b}_{o_}" in gi]
+        for h in hands.values():
+            mine &= ~h[0] & ~h[1]
+        W[np.ix_(mine & ~gun, other_cols)] = 0.0
     # the trunk from the crotch to the shoulder cap, hung kit included (the hip holster the firing elbow rested on took
     # arm weights from bone heat and flew up with the arm in `fire`, trailing slivers from the belt), as wide as the
     # elbows: whatever in it is neither an arm's own sleeve or glove nor the gun is the body
@@ -484,6 +533,27 @@ def _fix_weights(ob, prefix, J, cls, co):
     for h in hands.values():
         core &= ~h[0] & ~h[1]
     W[np.ix_(core, arm_cols)] = 0.0
+    # the legs do not own the belly: above the belt, bone heat's thigh weight (up to 0.4 at the belt line) made the
+    # vest's lower edge follow the squat
+    leg_cols = [gi[f"{prefix}_{b}"] for b in ("thigh_L", "shin_L", "thigh_R", "shin_R") if f"{prefix}_{b}" in gi]
+    # ...faded out over the 8 cm under the belt rather than cut at it (a hard cut left the belt's pouches half on the
+    # thigh and half not, 10 cm apart in fire)
+    trunk_wide = (z > J["belt"] - 0.08) & (z < J["shoulder"]["R"][2] + 0.10) & (np.abs(co[:, 1] - spine_xy[1]) < HIP_HALF_W * J["sxy"]) & ~gun & ~near_arm
+    fade = np.clip((z - (J["belt"] - 0.08)) / 0.08, 0.0, 1.0)
+    for c_ in leg_cols:
+        W[trunk_wide, c_] *= (1.0 - fade[trunk_wide])
+    # where a forearm meets the trunk, the boundary is HARD: a vertex that is mostly forearm is all forearm, one that
+    # is mostly trunk has none of it (bone heat's soft falloff across the belly tore 11 cm in fire, forearm 0.46 against
+    # a neighbour at 0.81). The hand and the elbow blends are untouched: only the trunk's share moves.
+    trunk_cols = [gi[f"{prefix}_{b}"] for b in ("spine", "pelvis", "thigh_L", "thigh_R") if f"{prefix}_{b}" in gi]
+    for side in ("R", "L"):
+        fcol = gi[f"{prefix}_forearm_{RIG_SIDE[side]}"]
+        zone = capsule(J["elbow"][side], J["wrist"][side], ARM_CAPSULE_R["fore"] + 0.03)
+        fw = W[:, fcol]
+        mostly = zone & (fw >= 0.5)
+        W[np.ix_(mostly, trunk_cols)] = 0.0
+        barely = zone & (fw > 0.0) & (fw < 0.5)
+        W[barely, fcol] = 0.0
     below_neck = (z < J["neck"] - 0.02) & ~cls["skin"]
     for b in ("neck", "head"):
         if f"{prefix}_{b}" in gi:
@@ -498,6 +568,8 @@ def _fix_weights(ob, prefix, J, cls, co):
     tot = W.sum(1)
     W /= tot[:, None]
     _set_weights(ob, names, W)
+    for g in [g for g in ob.vertex_groups if not g.name.startswith(prefix + "_")]:
+        ob.vertex_groups.remove(g)
     log(f"{prefix}: weights fixed -- gun {int(gun.sum())} verts rigid on forearm_R, hands "
         f"{' / '.join(f'{s}:{int(h[0].sum())}+{int(h[1].sum())} cuff' for s, h in hands.items())}, torso core cleared of arm weight on "
         f"{int(core.sum())} verts, {int(orphan.sum())} orphans to the spine")
@@ -546,15 +618,26 @@ def _cut_seams(ob, prefix, J, roles, co, uv_src, cls):
     hand_all = np.zeros(nV, bool)
     for s_, h in roles["hand"].items():
         hand_all |= h
-    S = gun | hand_all
+    # the forearms too (the firing forearm lies along the belly at rest: 163 triangles stretched 10-28 cm between it and
+    # the belly in fire): by dominant weight, so the sleeve the arm's capsule kept is the arm's and the trunk (spine,
+    # pelvis, legs, neck, head) is the trunk's
+    names_ = [g.name for g in ob.vertex_groups]
+    Wd = np.zeros((nV, len(names_)))
+    for v in me.vertices:
+        for g in v.groups:
+            Wd[v.index, g.group] = g.weight
+    dom = np.array([names_[i][len(prefix) + 1:] if Wd[i_].max() > 0 else "" for i_, i in enumerate(Wd.argmax(1))])
+    fore = np.isin(dom, ("forearm_L", "forearm_R"))
+    trunk = np.isin(dom, ("spine", "pelvis", "thigh_L", "thigh_R", "shin_L", "shin_R", "neck", "head"))
+    S = gun | hand_all | fore
     free = np.zeros(nV, bool)
     for side in ("R", "L"):
         a, b = J["elbow"][side], J["wrist"][side]
         d = b - a; t = np.clip(((co - a) @ d) / (d @ d), 0.0, 1.0)
         in_fore = np.linalg.norm(co - a - np.outer(t, d), axis=1) < ARM_CAPSULE_R["fore"]
         free |= in_fore & (np.linalg.norm(co - b, axis=1) < WRIST_FREE_M)
-    free &= cls["khaki"] | cls["brown"]          # the sleeve and the glove blend; the trousers beside a wrist are cut
-    body = ~S & ~free
+    free &= (cls["khaki"] | cls["brown"]) & ~trunk   # the sleeve and the glove blend; the trousers beside a wrist are cut
+    body = trunk & ~S & ~free                     # the upper arm is neither: its weld to the ribs stays a smooth blend
     polys = np.empty(len(me.polygons) * 3, np.int64); me.polygons.foreach_get("vertices", polys); polys = polys.reshape(-1, 3)
     inS = S[polys]; inB = body[polys]
     seam = inS.any(1) & inB.any(1)
@@ -612,6 +695,9 @@ def _cut_seams(ob, prefix, J, roles, co, uv_src, cls):
             d = np.array([spine_xy[0] - c[0], spine_xy[1] - c[1], 0.0])
         elif side_tag == "gun":
             e = (c - g["butt"]) @ g["axis"]; d = (g["butt"] + g["axis"] * e) - c
+        elif side_tag in ("fore_R", "fore_L"):
+            a_, b_ = J["elbow"][side_tag[-1]], J["wrist"][side_tag[-1]]; dd = b_ - a_
+            t_ = np.clip(((c - a_) @ dd) / (dd @ dd), 0.0, 1.0); d = (a_ + dd * t_) - c
         else:
             d = J["fist"][side_tag] - c
         n = np.linalg.norm(d)
@@ -638,12 +724,16 @@ def _cut_seams(ob, prefix, J, roles, co, uv_src, cls):
                 new_faces.append((a, twin[b], twin[a]))
     edgesS, compsS = chains(S)
     for comp in compsS:
-        # a component is a gun chain or a fist chain by its majority
+        # a component is a gun chain, a fist chain or a forearm chain by its majority
         if gun[comp].mean() >= 0.5:
             cap(comp, edgesS, "gun", 0)
-        else:
+        elif hand_all[comp].mean() >= 0.5:
             side = max(("R", "L"), key=lambda s_: roles["hand"][s_][comp].sum())
             cap(comp, edgesS, side, 1)
+        else:
+            # the anatomical side of a forearm chain: rig _L is the figure's right
+            side = "R" if (dom[comp] == "forearm_L").sum() >= (dom[comp] == "forearm_R").sum() else "L"
+            cap(comp, edgesS, f"fore_{side}", 3)
     edgesB, compsB = chains(body)
     for comp in compsB:
         cap(comp, edgesB, "body", 3)
@@ -872,11 +962,7 @@ def _stamp_extras(path, team_id, figures, gun_tris, hand_tris):
 # olive. The approved coyote limestone.7 (L* 42, C* 16) sits dE 7 from that khaki, so it cannot pass here; a dark
 # brown does: GLOVE_TARGET_LAB is dE 17 from the sleeve, 36 from the vest, 26 from the carbine. The glove texels keep
 # GLOVE_KEEP of their own variation about that mean. Texture only: no vertex moves.
-GLOVE_RETINT = False          # OFF: the first run (1 Nov) painted the sleeve with the glove and striped the bake. The
-                              # glove gate stays red on this figure until the mask is right; the bake ships as Meshy made it.
-GLOVE_TARGET_LAB = (31.0, 13.0, 16.0)
-GLOVE_KEEP = 0.45
-GLOVE_L_CLAMP = (26.0, 46.0)
+GLOVE_RETINT = True           # the lead's colours (1 Nov round 2): RETINT below. The stripes of the first try were the cap fans.
 
 
 def _lab_to_rgb(lab):
@@ -889,16 +975,10 @@ def _lab_to_rgb(lab):
     return np.where(lin <= 0.0031308, 12.92 * lin, 1.055 * np.power(lin, 1 / 2.4) - 0.055)
 
 
-def _retint_gloves(image, src, uv, hand_masks):
-    """Shift the glove's texels (the texels under the fists' faces) toward GLOVE_TARGET_LAB, on the atlas as shipped."""
-    W_, H_ = image.size
-    px = np.empty(W_ * H_ * 4, np.float32); image.pixels.foreach_get(px); px = px.reshape(H_, W_, 4)
-    me = src.data
+def _face_mask(me, uv, vmask, W_, H_):
+    """Texels under the faces whose vertices are (by majority) in `vmask`, on a W_ x H_ atlas (Blender rows, v up)."""
     polys = np.empty(len(me.polygons) * 3, np.int64); me.polygons.foreach_get("vertices", polys); polys = polys.reshape(-1, 3)
-    hand = np.zeros(len(uv), bool)
-    for m in hand_masks.values():
-        hand |= m[: len(uv)]
-    faces = polys[hand[polys].sum(1) >= 2]
+    faces = polys[vmask[polys].sum(1) >= 2]
     mask = np.zeros((H_, W_), bool)
     for f in faces:
         t = uv[f] * np.array([W_, H_])
@@ -914,20 +994,54 @@ def _retint_gloves(image, src, uv, hand_masks):
         l1 = ((by - cy) * (xs - cx) + (cx - bx) * (ys - cy)) / d
         l2 = ((cy - ay) * (xs - cx) + (ax - cx) * (ys - cy)) / d
         l3 = 1 - l1 - l2
-        inside = (l1 >= -0.02) & (l2 >= -0.02) & (l3 >= -0.02)
-        mask[y0:y1 + 1, x0:x1 + 1] |= inside
-    if not mask.any():
-        return 0
-    lab = _lab(px[mask][:, :3].astype(np.float64))
-    mean = lab.mean(0)
-    new = np.array(GLOVE_TARGET_LAB) + GLOVE_KEEP * (lab - mean)
-    new[:, 0] = np.clip(new[:, 0], *GLOVE_L_CLAMP)
-    rgb = _lab_to_rgb(new)
-    out = px.copy(); out[mask, :3] = rgb.astype(np.float32)
+        mask[y0:y1 + 1, x0:x1 + 1] |= (l1 >= -0.02) & (l2 >= -0.02) & (l3 >= -0.02)
+    return mask
+
+
+#: The lead's colours (1 Nov): each class's texels are moved so their MEAN lands on the target, keeping `keep` of their
+#: own variation (shading, seams, dirt). CIE L*a*b*. The glove's target is dE 21 from the olive, 35 from the vest, 28
+#: from the carbine; L* 33 and C* 21 inside the glove gate's bands.
+RETINT = {
+    "uniform": dict(target=(36.0, -6.0, 14.0), keep=1.0, orange_only=False),   # olive drab, from Meshy's khaki (40, 1, 20)
+    # dark brown, every glove texel (the baked-dark inside of the fist too: with those left out the hand read L* 19-26)
+    # (the validator reads the hand's vertex texels ~5 L* under this mask mean: at 34 it read 28-31 and dE 12-15)
+    # a brown, not a pink: hue toward yellow (b over a); dE 17.5 to the olive; reads L* 31-33 at the hand's own texels
+    "glove": dict(target=(37.0, 11.0, 18.0), keep=0.35, orange_only=False),
+    "boot": dict(target=(50.0, 12.0, 26.0), keep=0.7, orange_only=True),       # tan leather, from Meshy's orange
+    # Meshy's bake bled the glove's orange onto the cuffs and the sleeves: whatever orange is left on the uniform's
+    # faces goes to the olive
+    "bleed": dict(target=(36.0, -6.0, 14.0), keep=0.5, orange_only=True),
+}
+ORANGE_C_MIN, ORANGE_HUE = 18.0, (15.0, 75.0)
+GLOVE_L_CLAMP = (28.0, 46.0)
+
+
+def _retint(image, src, uv, masks):
+    """Shift the bake's texels per class (`RETINT`). Texture only: no vertex moves. Logs each class's mean before/after."""
+    W_, H_ = image.size
+    px = np.empty(W_ * H_ * 4, np.float32); image.pixels.foreach_get(px); px = px.reshape(H_, W_, 4)
+    out = px.copy()
+    me = src.data
+    for name, vmask in masks.items():
+        spec = RETINT[name]
+        mask = _face_mask(me, uv, vmask, W_, H_)
+        if spec["orange_only"]:
+            lab_all = _lab(px[..., :3].astype(np.float64))
+            C_ = np.hypot(lab_all[..., 1], lab_all[..., 2]); hue_ = np.degrees(np.arctan2(lab_all[..., 2], lab_all[..., 1]))
+            mask &= (C_ > ORANGE_C_MIN) & (hue_ > ORANGE_HUE[0]) & (hue_ < ORANGE_HUE[1])
+        if not mask.any():
+            log(f"retint {name}: no texels")
+            continue
+        lab = _lab(px[mask][:, :3].astype(np.float64))
+        mean = lab.mean(0)
+        new = np.array(spec["target"]) + spec["keep"] * (lab - mean)
+        if name == "glove":
+            new[:, 0] = np.clip(new[:, 0], *GLOVE_L_CLAMP)
+        rgb = _lab_to_rgb(new)
+        out[mask, :3] = rgb.astype(np.float32)
+        after = _lab(rgb).mean(0)
+        log(f"retint {name}: {int(mask.sum())} texels, mean Lab {np.round(mean, 1)} -> {np.round(after, 1)} (C* {np.hypot(after[1], after[2]):.1f})")
     image.pixels.foreach_set(out.reshape(-1)); image.update()
-    after = _lab(rgb).mean(0)
-    log(f"glove re-tint: {int(mask.sum())} texels, mean Lab {np.round(mean, 1)} -> {np.round(after, 1)} (C* {np.hypot(after[1], after[2]):.1f})")
-    return int(mask.sum())
 
 
 #: A texel inside each team's glove on its atlas (u, v in pixels of the shipped 2048 bake), the hand gates' `rl_hands.glove`.
@@ -1011,7 +1125,7 @@ def build_team(team_id, out_path=None):
         # the shell grew: extend the per-vertex arrays the split reads (caps take their side's class)
         co = np.empty(len(shell.data.vertices) * 3); shell.data.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
         n_new = len(cap_idx)
-        cls_sh = {k: np.concatenate([v, np.zeros(n_new, bool)]) for k, v in cls0.items()}
+        cls_sh = {k: np.concatenate([v, np.zeros(n_new, v.dtype)]) for k, v in cls0.items()}
         roles = dict(roles, gun=np.concatenate([roles["gun"], cap_cls == 0]),
                      hand={s_: np.concatenate([h, np.zeros(n_new, bool)]) for s_, h in roles["hand"].items()})
         for s_ in ("R", "L"):
@@ -1042,7 +1156,16 @@ def build_team(team_id, out_path=None):
         image.scale(TEXTURE_PX, TEXTURE_PX)
     log(f"{team_id}: base_color {before[0]}x{before[1]} -> {image.size[0]}x{image.size[1]}")
     if GLOVE_RETINT:
-        _retint_gloves(image, src_for_uv, uv, hand_masks_f1)
+        n0 = len(uv)
+        glove = np.zeros(n0, bool)
+        for h in hand_masks_f1.values():
+            glove |= h[:n0]
+        _retint(image, src_for_uv, uv, {
+            "glove": glove,
+            "boot": cls0["boot"][:n0] & ~glove,
+            "uniform": cls0["khaki"][:n0] & ~glove & (co0[:, 2] > BOOT_Z_MAX),
+            "bleed": ~glove & ~cls0["boot"][:n0] & (co0[:, 2] > BOOT_Z_MAX),
+        })
     bpy.data.objects.remove(src_for_uv, do_unlink=True)
     rig.export_glb(arm_obj, path, materials=True, jpeg_quality=JPEG_QUALITY)
     _stamp_extras(path, team_id, {s["prefix"]: dict(Js[s["prefix"]], gun=dict(Js[s["prefix"]]["gun"],
