@@ -755,5 +755,5 @@ Rifle Squad only so far (`inf_squad`); the Demolition and Breach teams take the 
   hull census reads <= 2.8 at the station); the support arm snaps once in each kneel transition (`KNOWN_SNAPS`); arms inside the
   body are deeper than the old arms in `move`, `kneelIn`, `kneel` and `pinned` (`launcher_arms.test.ts`); the kit census reads
   20 pairs over 4 mm (listed with the R1 sheet: the NVG tubes against the support hand in `pinned`, the LPVO against the head in `moveFire`, the bino tubes and the optics against the support arm in the transitions).
-- **Encode:** raw animation keys that never change (981 of 2,376 channels) are cut to two keys at the end of the motion pass
+- **Encode:** raw animation keys that never change (999 of 2,376 channels) are cut to two keys at the end of the motion pass
   (`collapseConstantTracks`), which more than pays for the hands: `inf_squad` pre-kit 1,799,936 -> 1,650,052 bytes encoded.
