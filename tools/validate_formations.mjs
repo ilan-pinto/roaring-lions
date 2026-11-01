@@ -17,7 +17,7 @@
 //   - `arrival.stance` is `ambush` only with a ring element and the `spring` drill;
 //   - at most one ring element;
 //   - an `exclude`d class is not named by any element (a class the formation leaves out has no slot, so an
-//     element naming it would be dead data), and `rest` does not stand in for the classes left out;
+//     element naming it would be dead data); a `rest` element is allowed and never takes an excluded class;
 //   - at most 255 formations in all: the sim keeps a group's type in one byte (`fgType`) and a
 //     256th would wrap onto the first.
 //

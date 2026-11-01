@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { compileFormation, fmExcludes, templateOffsets, FM_CLASS_AIRCRAFT, FM_CLASS_INFANTRY, FM_CLASS_NONE, type FormationJson } from './formation-template';
-import { RIFLES, TANK } from './golden-worlds.test-helper';
+import { RIFLES, TANK, shippedFormations } from './golden-worlds.test-helper';
 import { Sim, type UnitTypeJson } from './sim';
 
 /** A fixture shaped like the shipped Attack, with the aircraft left out and no aircraft element. Literals: the
@@ -367,10 +367,50 @@ describe('sim-guard round 1: survivors of 26 mutations', () => {
       return w;
     };
     const w = mk();
-    const bystander = w.squads[3];
     attack(w.sim, [...w.tanks, ...w.squads.slice(0, 3), ...w.air], 'fx_attack');
     w.sim.tick();
     expect(finals(w.sim, w.air).map(([x, y]) => `${x},${y}`)).not.toContain('22,24');
-    expect(bystander).toBeGreaterThan(0);
   });
 });
+
+describe('sim-guard round 2', () => {
+  it('APPEND ORIGIN: left-out units are framed from the end of THEIR queued leg, as a separate appended plain order would', () => {
+    const mk = (): W => {
+      const w = world(3);
+      w.sim.queueCommand({ kind: 'move', ids: [...w.tanks, ...w.squads, ...w.air], x: at(6), y: at(24) } as never);
+      w.sim.tick();
+      return w;
+    };
+    const one = mk();
+    one.sim.queueCommand({ kind: 'attackMove', ids: [...one.tanks, ...one.squads, ...one.air], x: at(24), y: at(24), append: true, formation: 'fx_attack' } as never);
+    one.sim.tick();
+    const two = mk();
+    two.sim.queueCommand({ kind: 'attackMove', ids: [...two.tanks, ...two.squads], x: at(24), y: at(24), append: true, formation: 'fx_attack' } as never);
+    two.sim.queueCommand({ kind: 'attackMove', ids: two.air, x: at(24), y: at(24), append: true } as never);
+    two.sim.tick();
+    expect(finals(one.sim, one.air)).toEqual(finals(two.sim, two.air));
+    // Literal: the legs end at x = 6, so the approach to the click is from the west and the second rank is behind on -x.
+    expect(finals(one.sim, one.air)).toEqual([[24, 22], [21, 24], [21, 26]]);
+  });
+
+  it('the SHIPPED attack.json: aircraft take the plain-order tiles and join no group, the rest keep their slots', () => {
+    const shipped = shippedFormations().find((f) => f.id === 'attack') as FormationJson;
+    const mk = (): W => world(3, [shipped]);
+    const named = mk();
+    attack(named.sim, [...named.tanks, ...named.squads, ...named.air], 'attack');
+    named.sim.tick();
+    const plain = mk();
+    attack(plain.sim, plain.air); // the aircraft alone, as a plain order
+    plain.sim.tick();
+    const grd = mk();
+    attack(grd.sim, [...grd.tanks, ...grd.squads], 'attack');
+    grd.sim.tick();
+    expect(finals(named.sim, named.tanks.concat(named.squads))).toEqual(finals(grd.sim, grd.tanks.concat(grd.squads)));
+    // aircraft alone reserve nothing of the tanks' tiles; with them, the click rank is taken: the literal is the first aircraft off it
+    expect(priv(named.sim).fmGroup[named.air[0]]).toBe(-1);
+    expect(finals(named.sim, named.air)).toEqual([[22, 24], [24, 27], [26, 27]]);
+    expect(finals(plain.sim, plain.air)[0]).toEqual([24, 24]);
+    expect(shipped.exclude).toEqual(['aircraft']);
+  });
+});
+
