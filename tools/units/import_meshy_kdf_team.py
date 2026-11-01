@@ -941,10 +941,59 @@ def _seat_spike(part, seat, fx, fy, mat):
     return out
 
 
+# --- GH-826 step 3: the carbine on both Demolition men -----------------------------------
+#
+# Demolition carried a seven-box palette rifle on demo_b and nothing on demo_a. Both men carry the shared `kdf_carbine`
+# now, as a TEXTURED part: the figure's bake in the left half of a 2048 x 1024 atlas, the part's crop in the right, ONE
+# material (the Spike's precedent above). The part is the PRE-reshape shipped one (315 triangles, `kdf_carbine_pre_gh826`):
+# the Rifle Squad's importer output carried its Meshy carbine the same way, and `pnpm hands:meshes` swaps it for the
+# reshaped 380-triangle part on the same bone, so the hands pass runs on this team unchanged. The figure's bake keeps
+# pixels 0..1023, so every texel the kit and the glove name keeps its coordinates.
+RIFLE_PART = {"demo_squad": "kdf_carbine_pre_gh826"}
+
+
+def _carbine_part(team_id, src, mat):
+    """Load the carbine, widen the atlas, register the part for `crew._rifle_part_at_hand`. Returns the template object name."""
+    import import_meshy_crew_team as crew
+    name = RIFLE_PART[team_id]
+    part, img = crew._load_hand_part(team_id, name)
+    crew._normalise_part(team_id, name, part)
+    fig_img = next(n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE"
+                   and any(l.to_socket.name == "Base Color" for l in n.outputs[0].links))
+    W, H = 2 * TEXTURE_PX, TEXTURE_PX
+    left = crew._scaled_pixels(fig_img, TEXTURE_PX, TEXTURE_PX)
+    right = crew._scaled_pixels(img, TEXTURE_PX, TEXTURE_PX)
+    if right.shape[2] != left.shape[2]:
+        pad = np.ones((TEXTURE_PX, TEXTURE_PX, left.shape[2]), dtype=np.float32)
+        k = min(left.shape[2], right.shape[2])
+        pad[..., :k] = right[..., :k]
+        right = pad
+    atlas = bpy.data.images.new("atlas_color", W, H, alpha=(left.shape[2] == 4))
+    atlas.pixels = np.concatenate([left, right], axis=1).ravel().tolist()
+    atlas.update()
+    for node in mat.node_tree.nodes:
+        if node.type == "TEX_IMAGE" and node.image is fig_img:
+            node.image = atlas
+    old = fig_img.name
+    fig_img.name = "figure_color"
+    atlas.name = old
+    crew._remap_u(src, 0.0, 0.5)
+    crew._remap_u(part, 0.5, 1.0)
+    part.data.materials.clear()
+    part.data.materials.append(mat)
+    for stale in (fig_img, img):
+        if stale.users == 0:
+            bpy.data.images.remove(stale)
+    crew._HAND[name] = part
+    log(f"{team_id}: atlas {W}x{H} -- figure bake left, {name} right")
+    return name
+
+
 def build_team(team_id):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     src, height, mat = _load_figure(team_id)
     spike = _spike_part(team_id, src, mat) if team_id in SPIKE_PART else None
+    carbine = _carbine_part(team_id, src, mat) if team_id in RIFLE_PART else None
     figures = rig.TEAM_FIGURES[team_id]
     parts, bones, forced = [], [], {}
     infos = {}
@@ -990,18 +1039,19 @@ def build_team(team_id):
         bones.append(rig._prop_bone((0.76, -0.16, 0.10)))
         forced.update({ob: "prop" for ob in charge})
         forced.update({ob: "demo_b_spine" for ob in spool})
-        # The rifle at the hung right hand, level: build kit's own assembly
-        # and slide it from kit's chest anchor to this figure's wrist.
-        wrist = Vector(infos["demo_b"]["joints"]["arm"][1]["wrist"]) + Vector((-0.36, 0.28, 0.0))
-        anchor_kit = Vector(rig._weapon_anchor((-0.36, 0.28, 0.0), 0.0, "standing", False))
-        anchor_want = wrist + Vector((0.03, 0.0, 0.065))
-        rifle = rig._weapon_parts("demo_b", (-0.36, 0.28, 0.0), posture="standing", aim=False)
-        for ob in rifle:
-            _transform(ob, Matrix.Translation(anchor_want - anchor_kit))
-            forced[ob] = "demo_b_forearm_R"
-        parts += charge + spool + rifle
-        log(f"demo_squad: rifle anchor moved {tuple(round(c, 3) for c in (anchor_want - anchor_kit))} to the wrist "
-            f"(z {wrist.z:.3f}); spool disc centre z 0.80 on the back")
+        # Both men carry the shared kdf_carbine (GH-826 step 3), seated at the hung right hand by the crew importer's own
+        # placer (`_rifle_part_at_hand`: the kit rifle's anchor and yaw, the part's length centred on the kit span).
+        import import_meshy_crew_team as crew
+        rifles = []
+        for spec in figures:
+            pf = spec["prefix"]
+            rf = crew._rifle_part_at_hand(carbine, pf, infos[pf]["joints"], spec["x"], spec["y"])
+            for ob in rf:
+                forced[ob] = f"{pf}_forearm_R"
+            rifles += rf
+        bpy.data.objects.remove(crew._HAND.pop(carbine), do_unlink=True)    # the template itself is not placed
+        parts += charge + spool + rifles
+        log(f"demo_squad: {len(rifles)} carbines seated at the hung right hands; spool disc centre z 0.80 on the back")
     else:
         raise SystemExit(f"no crew weapon rule for {team_id}")
 
@@ -1027,7 +1077,7 @@ def build_team(team_id):
     stray = [o.name for o in bpy.data.objects if o is not arm_obj and o not in merged.values()]
     if stray:
         raise SystemExit(f"{team_id}: objects in the scene that are neither the rig nor a role mesh: {stray}")
-    _prepare_texture(mat, cap=(2 * TEXTURE_PX, TEXTURE_PX) if spike is not None else (TEXTURE_PX, TEXTURE_PX))
+    _prepare_texture(mat, cap=(2 * TEXTURE_PX, TEXTURE_PX) if (spike is not None or carbine is not None) else (TEXTURE_PX, TEXTURE_PX))
     path = os.path.join(OUT_DIR, f"{team_id}.glb")
     export_glb_textured(arm_obj, path)
     tris = {role: len(ob.data.polygons) for role, ob in merged.items()}

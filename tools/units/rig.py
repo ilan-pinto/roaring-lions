@@ -1209,7 +1209,9 @@ TEAM_FIGURES = {
         # slid along the ground with him. The charge is packed away while the
         # team moves (`_key_death_visibility`) and he kneels at it on the
         # sim's brace alone (the motion pass's kneel clips).
-        _f("demo_a", 0.34, -0.16),
+        # GH-826 step 3: demo_a carries the shared kdf_carbine too (the unit JSON's weapons[0] is `carbines`); it is slung
+        # on his back in `work`, which leaves his hands free for the charge (`motion/work.ts`).
+        _f("demo_a", 0.34, -0.16, weapon="rifle"),
         _f("demo_b", -0.36, 0.28, leader=True, weapon="rifle"),
     ],
     "at_team": [
