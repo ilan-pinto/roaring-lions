@@ -47,14 +47,20 @@ def approved_numbers(spec=None):
         bad.append("N4 Maxed stamp zone 26 x 16 % bottom-right")
     if cp.HAND_CLEAR_FRAC != 0.04:
         bad.append("N4 hands 4 % of the width from any other figure")
-    if not (40.0 <= spec["muzzle_elevation_deg"] <= 45.0):
-        bad.append("N5 rifle 40-45 deg")
-    if spec["firing_hand_height_m"] != (1.18, 1.25) or spec["firing_hand_ahead_m"] != (0.15, 0.20) or spec["support_hand_height_m"] != (1.40, 1.48):
-        bad.append("N5 hand ranges")
-    if not (1.18 <= spec["firing_hand_height_target"] <= 1.25) or not (0.15 <= spec["firing_hand_ahead_target"] <= 0.20):
-        bad.append("N5 targets inside their ranges")
+    # the lead's ruling of 1 Nov: LOW READY, muzzle down (audit A2: 30-40 deg of depression, firing hand 1.00-1.08 m,
+    # the grip 0.06-0.09 m ahead of the carrier front), replacing N5's high ready
+    if spec.get("pose") != "low_ready":
+        bad.append("pose is the low ready")
+    if not (-40.0 <= spec["muzzle_elevation_deg"] <= -30.0):
+        bad.append("A2 muzzle depression 30-40 deg (negative elevation)")
+    if spec["firing_hand_height_m"] != (1.00, 1.08) or spec["firing_hand_ahead_m"] != (0.06, 0.09):
+        bad.append("A2 hand ranges")
+    if not (1.00 <= spec["firing_hand_height_target"] <= 1.08) or not (0.06 <= spec["firing_hand_ahead_target"] <= 0.09):
+        bad.append("A2 targets inside their ranges")
     if spec["line_gap_m"] != 1.1 or spec["leader"] != "f1" or spec["line_order"][0] != "f1":
         bad.append("N5 line 1.1 m apart, f1 in front")
+    if tuple(spec.get("combined_layers", ())) != (("armour", 3, "sensors", 3),):
+        bad.append("one combined layer: armour 3 + sensors 3")
     if (cp.DELTA_E, cp.DILATE_PX, cp.FEATHER_PX, cp.OVERLAP_MAX) != (2.0, 4, 6, 0.01):
         bad.append("N7 masks dE 2, 4 px, 6 px, 1 %")
     return bad
@@ -104,15 +110,15 @@ def test_frames_and_swing():
 
 
 def test_hand_number_check():
-    ok = cp.check_hand_numbers(dict(firing_height=1.215, firing_ahead=0.175, support_height=1.46), cp.RIFLE_SQUAD)
+    ok = cp.check_hand_numbers(dict(firing_height=1.04, firing_ahead=0.075, support_height=0.92), cp.RIFLE_SQUAD)
     check(all(r[4] for r in ok), "in-range hand numbers pass")
-    low = cp.check_hand_numbers(dict(firing_height=1.10, firing_ahead=0.175, support_height=1.46), cp.RIFLE_SQUAD)
+    low = cp.check_hand_numbers(dict(firing_height=1.15, firing_ahead=0.075, support_height=0.92), cp.RIFLE_SQUAD)
     check(not low[0][4] and low[1][4], "a low firing hand fails only its own row")
 
 
 def bad_numbers_are_caught():
     """Falsification: a table that drifts must make `approved_numbers` return something."""
-    for key, val in (("muzzle_elevation_deg", 60.0), ("line_gap_m", 1.5), ("team_height", 0.5)):
+    for key, val in (("muzzle_elevation_deg", 42.5), ("line_gap_m", 1.5), ("team_height", 0.5)):
         spec = dict(cp.RIFLE_SQUAD)
         spec[key] = val
         check(approved_numbers(spec) != [], f"drift in {key} is caught")

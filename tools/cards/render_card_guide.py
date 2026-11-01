@@ -68,19 +68,27 @@ def parse():
     return a
 
 
-def levels_all():
+def combined_name(c):
+    return f"{c[0]}_t{c[1]}_{c[2]}_t{c[3]}"
+
+
+def levels_all(spec=None):
     out = ["base"]
     for t in TRACKS:
         for n in (1, 2, 3):
             out.append(f"{t}_t{n}")
+    for c in (spec or cp.RIFLE_SQUAD).get("combined_layers", ()):
+        out.append(combined_name(c))
     return out
 
 
 def tiers_of(level):
     if level == "base":
         return {}
-    track, t = level.rsplit("_t", 1)
-    return {track: int(t)}
+    parts = level.split("_t")            # armour_t3_sensors_t3 -> ["armour", "3_sensors", "3"]
+    if len(parts) == 3:
+        return {parts[0]: int(parts[1].split("_")[0]), parts[1].split("_", 1)[1]: int(parts[2])}
+    return {parts[0]: int(parts[1])}
 
 
 # ------------------------------------------------------------------------------------- skin weights
@@ -208,7 +216,9 @@ class Painter:
             sc.view_settings.exposure = cs.EXPOSURE_EV
             sc.eevee.taa_render_samples = cs.SAMPLES
             sc.render.filter_size = 1.5
+            sc.render.dither_intensity = 1.0
         else:
+            sc.render.dither_intensity = 0.0      # an id code must read back exactly: dither noise breaks the +-2 match
             sc.view_settings.view_transform = "Raw"
             sc.view_settings.exposure = 0.0
             sc.eevee.taa_render_samples = 1
@@ -286,17 +296,19 @@ def pose_team(arm, meshes, spec, psi, report):
         u0 = -down / np.linalg.norm(down)
         root = m4(pb[f"{pf}_root"])[:3, 3]
         sp = pts_of(Pu, du, {f"{pf}_spine"})
-        # the carrier's front face: the chest plate, above the pouches (z 1.20-1.30 is the band the firing hand rides
-        # in), between the shoulders. Lower down the belly and pouches bulge 0.28 m ahead of the root; the arms and the
+        # the carrier's front face at the firing hand's height (a band around it, between the shoulders): at the low
+        # ready that is the pouch line, 0.27 m ahead of the root; higher up the chest plate is 0.20 and the arms and the
         # support-side protraction reach further and are not the carrier. 99th percentile, not the maximum.
-        chest = sp[(sp[:, 2] > 1.20) & (sp[:, 2] < 1.30) & (np.abs(sp[:, 1] - root[1]) < 0.12)]
+        hz, band = spec["firing_hand_height_target"], spec["carrier_front_band_m"]
+        chest = sp[(sp[:, 2] > hz - band) & (sp[:, 2] < hz + band) & (np.abs(sp[:, 1] - root[1]) < 0.12)]
         info[pf] = dict(g0=g0, s0=s0, a0=a0, u0=u0, root=root, chest_front=float(np.percentile(chest[:, 0], 99)),
                         a0_elev=math.degrees(math.asin(a0[2])))
 
     # 3. the high ready
     e, az = math.radians(spec["muzzle_elevation_deg"]), math.radians(spec["muzzle_azimuth_deg"])
     a_t = np.array([math.cos(e) * math.cos(az), math.cos(e) * math.sin(az), math.sin(e)])
-    u_t = np.array([0.0, 0.0, 1.0])
+    # sights up, then rolled about the bore by the cant (A2's outboard cant turns the hands toward the camera)
+    u_t = cp.axis_angle(a_t, spec.get("weapon_cant_deg", 0.0)) @ cp.unit(np.array([0.0, 0.0, 1.0]) - a_t * a_t[2])
     short_total = {}
     for pf in figs:
         I = info[pf]
@@ -385,14 +397,14 @@ def main():
     team_id = a.get("team", "inf_squad")
     spec = dict(cp.TEAM_POSES[team_id])
     # development overrides, recorded in the report: `--az 40 --line 30 --cx 0.55 --elev 42.5`
-    for flag, key in (("az", "muzzle_azimuth_deg"), ("line", "line_deg"), ("cx", "team_centre_x"), ("elev", "muzzle_elevation_deg"), ("th", "team_height")):
+    for flag, key in (("az", "muzzle_azimuth_deg"), ("line", "line_deg"), ("cx", "team_centre_x"), ("elev", "muzzle_elevation_deg"), ("th", "team_height"), ("yoff", "firing_hand_y_from_shoulder"), ("hh", "firing_hand_height_target"), ("ah", "firing_hand_ahead_target"), ("cant", "weapon_cant_deg")):
         if flag in a:
             spec[key] = float(a[flag])
-    levels = a.get("levels", ",".join(levels_all())).split(",")
+    levels = a.get("levels", ",".join(levels_all(spec))).split(",")
     samples = int(a.get("samples", cs.SAMPLES))
     cs.SAMPLES = samples
     t0 = time.time()
-    report = {"team": team_id, "levels": levels, "timings_s": {}, "spec": {k: spec[k] for k in ("muzzle_azimuth_deg", "muzzle_elevation_deg", "line_deg", "team_centre_x", "line_gap_m", "team_height")}}
+    report = {"team": team_id, "levels": levels, "combined_layers": [list(c) for c in spec.get("combined_layers", ())], "timings_s": {}, "spec": {k: spec[k] for k in ("muzzle_azimuth_deg", "muzzle_elevation_deg", "line_deg", "team_centre_x", "line_gap_m", "team_height")}}
 
     kp.use_team(team_id)
     arm, meshes, mat = scn.load_squad(REPO, team_id)

@@ -47,9 +47,15 @@ DILATE_PX = 4
 FEATHER_PX = 6
 OVERLAP_MAX = 0.01                    # G-C7
 
-# --- N5 the Rifle Squad card pose (the audit's A3 high ready) ---------------------------------------
+# --- the Rifle Squad card pose: LOW READY, muzzle down (the lead's ruling of 1 Nov, replacing N5's high ready) ----
+# The numbers are the audit's A2 low ready (`_coord/inf-audit/audit.md`): muzzle depression 30-40 deg from horizontal,
+# firing hand 1.00-1.08 m high, the grip 0.06-0.09 m ahead of the carrier's front face (at that height the front face
+# is the pouch line). The azimuth and the roll are mine, found by sweeping them against the hand-visibility report
+# (the lead's brief is "angled down across the body, both hands on it, faces clear", every hand >= 0.85 visible):
+# with the sights up no azimuth showed more than 0.65 of a hand, the rifle on its side across the body shows 0.93. The support-hand range is not in A2: it is a sanity band of mine.
 RIFLE_SQUAD = {
     "team": "inf_squad",
+    "pose": "low_ready",
     "figures": ("f0", "f1", "f2"),
     "leader": "f1",                   # in front
     "line_gap_m": 1.1,                # distance between neighbours ALONG the line (N5: "1.1 m apart")
@@ -57,18 +63,21 @@ RIFLE_SQUAD = {
     "line_deg": 35.0,                 # the line recedes to the right by this angle off the screen horizontal ("shallow")
     "team_height": 0.75,              # of the card height (N2: 74-80 %)
     "team_centre_x": 0.58,            # horizontal middle of the team in the card, so the nearest man clears the kit mark
-    "muzzle_elevation_deg": 42.5,     # 40-45 from horizontal
-    "muzzle_azimuth_deg": 40.0,       # off forward, across the chest toward the support side (this module's choice;
-                                      # N5 says "across the chest" and gives no azimuth: the lead looks at it)
-    "firing_hand_height_m": (1.18, 1.25),
-    "firing_hand_ahead_m": (0.15, 0.20),      # in front of the carrier's front face
-    "support_hand_height_m": (1.40, 1.48),
-    "firing_hand_height_target": 1.215,
-    "firing_hand_ahead_target": 0.175,
+    "muzzle_elevation_deg": -35.0,    # negative: the muzzle is BELOW horizontal (A2: 30-40 deg of depression)
+    "muzzle_azimuth_deg": 110.0,      # off forward toward the support side: across the body, the muzzle at the support hip
+    "weapon_cant_deg": -90.0,         # rolled on its side about the bore, so the camera sees the hands' side of the rifle
+    "firing_hand_height_m": (1.00, 1.08),
+    "firing_hand_ahead_m": (0.06, 0.09),      # in front of the carrier's front face at the hand's height
+    "support_hand_height_m": (0.70, 1.00),    # sanity band, not from the audit
+    "firing_hand_height_target": 1.04,
+    "firing_hand_ahead_target": 0.075,
+    "carrier_front_band_m": 0.05,             # the front face is read within this much of the firing hand's height
     "firing_hand_y_from_shoulder": 0.12,      # the grip sits this far inboard of the firing shoulder
     # the elbow hangs down and a little out: a pole direction in the figure frame, per side (+Y is the rig's R)
     "elbow_pole": {"L": (-0.15, -0.55, -1.0), "R": (-0.15, 0.55, -1.0)},
     "shoulder_protract_max_m": 0.11,          # hold.ts protracts the support shoulder by this much; the card allows either side
+    # one combined layer where two tracks' masks cannot be told apart (G-C7, the lead's ruling of 1 Nov)
+    "combined_layers": (("armour", 3, "sensors", 3),),
 }
 
 TEAM_POSES = {"inf_squad": RIFLE_SQUAD}

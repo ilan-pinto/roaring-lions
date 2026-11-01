@@ -246,12 +246,38 @@ def sheet(tiles, labels, cols, tile_w, path):
     im.save(path)
 
 
-def levels_all():
+def levels_all(combined=()):
     out = ["base"]
     for t in TRACKS:
         for n in (1, 2, 3):
             out.append(f"{t}_t{n}")
+    for c in combined:
+        out.append(f"{c[0]}_t{c[1]}_{c[2]}_t{c[3]}")
     return out
+
+
+def tier_pairs(combined=()):
+    """Every (level a, level b) of two different tracks that can be on screen together, and whether the pair is
+    covered by a combined layer (then G-C7 does not apply to it: the combined layer is drawn instead of the two)."""
+    out = []
+    for ta, tb in (("armour", "sensors"), ("armour", "firepower"), ("sensors", "firepower")):
+        for a_i in (1, 2, 3):
+            for b_i in (1, 2, 3):
+                covered = any({(c[0], c[1]), (c[2], c[3])} == {(ta, a_i), (tb, b_i)} for c in combined)
+                out.append((f"{ta}_t{a_i}", f"{tb}_t{b_i}", covered))
+    return out
+
+
+def worst_overlap(masks, pairs, area):
+    """(fraction, pair) of the largest intersection among the pairs NOT covered by a combined layer."""
+    worst, who = 0.0, None
+    for a, b, covered in pairs:
+        if covered or a not in masks or b not in masks:
+            continue
+        v = float((masks[a] & masks[b]).sum()) / area
+        if v > worst:
+            worst, who = v, (a, b)
+    return worst, who
 
 
 def main(argv):
@@ -259,7 +285,8 @@ def main(argv):
     raw = os.path.join(out, "raw")
     with open(os.path.join(raw, "report_blender.json")) as fh:
         report = json.load(fh)
-    levels = [l for l in levels_all() if os.path.exists(os.path.join(raw, f"{l}_rgba.png"))]
+    combined = tuple(tuple(c) for c in report.get("combined_layers", ()))
+    levels = [l for l in levels_all(combined) if os.path.exists(os.path.join(raw, f"{l}_rgba.png"))]
 
     card = {}
     for lvl in levels:
@@ -297,47 +324,18 @@ def main(argv):
         Image.fromarray((s * 255).round().astype(np.uint8)).save(os.path.join(out, f"{lvl}_mask.png"))
     rep["mask_area_frac"] = {l: round(float(hard[l].sum()) / (cp.CARD_W * cp.CARD_H), 5) for l in hard}
 
-    # tracks' union masks (over tiers), the overlap gate, the zones and crops
-    union = {}
-    for t in TRACKS:
-        ms = [hard[f"{t}_t{n}"] for n in (1, 2, 3) if f"{t}_t{n}" in hard]
-        if ms:
-            union[t] = np.logical_or.reduce(ms)
+    # G-C7: the pairwise intersection of the tracks' masks, every combination of tiers that can be on screen together,
+    # except a pair a combined layer stands in for. The raw (undilated) figures are reported beside it for diagnosis.
     area = cp.CARD_W * cp.CARD_H
-    ov = mask_overlap(union, area)
-    rep["track_overlap"] = {f"{a}|{b}": round(v, 5) for (a, b), v in ov.items()}
-    rep["track_overlap_limit"] = cp.OVERLAP_MAX
-    # per-tier too: the layers that can be on screen together are one tier per track, so test every combination of tiers
-    worst = 0.0
-    for a_i in (1, 2, 3):
-        for b_i in (1, 2, 3):
-            for ta, tb in (("armour", "sensors"), ("armour", "firepower"), ("sensors", "firepower")):
-                ka, kb = f"{ta}_t{a_i}", f"{tb}_t{b_i}"
-                if ka in hard and kb in hard:
-                    worst = max(worst, float((hard[ka] & hard[kb]).sum()) / area)
-    rep["tier_overlap_worst"] = round(worst, 5)
-    # diagnosis: the same pairs on the raw dE > 2 pixels, before the 4 px dilation, so a pair over the limit can be
-    # told apart: parts that really share pixels, or masks that only touch once they are grown
-    worst_raw, who = 0.0, None
-    for a_i in (1, 2, 3):
-        for b_i in (1, 2, 3):
-            for ta, tb in (("armour", "sensors"), ("armour", "firepower"), ("sensors", "firepower")):
-                ka, kb = f"{ta}_t{a_i}", f"{tb}_t{b_i}"
-                if ka in raw_d and kb in raw_d:
-                    v = float((raw_d[ka] & raw_d[kb]).sum()) / area
-                    if v > worst_raw:
-                        worst_raw, who = v, (ka, kb)
-    rep["tier_overlap_worst_undilated"] = dict(frac=round(worst_raw, 5), pair=who)
-    wd, whod = 0.0, None
-    for a_i in (1, 2, 3):
-        for b_i in (1, 2, 3):
-            for ta, tb in (("armour", "sensors"), ("armour", "firepower"), ("sensors", "firepower")):
-                ka, kb = f"{ta}_t{a_i}", f"{tb}_t{b_i}"
-                if ka in hard and kb in hard:
-                    v = float((hard[ka] & hard[kb]).sum()) / area
-                    if v > wd:
-                        wd, whod = v, (ka, kb)
-    rep["tier_overlap_worst_pair"] = whod
+    pairs = tier_pairs(combined)
+    rep["g_c7"] = {"limit": cp.OVERLAP_MAX, "combined_layers": [list(c) for c in combined]}
+    w, who = worst_overlap(hard, pairs, area)
+    rep["g_c7"]["worst_excluding_combined"] = dict(frac=round(w, 5), pair=who, ok=bool(w <= cp.OVERLAP_MAX))
+    wa, whoa = worst_overlap(hard, [(a_, b_, False) for a_, b_, _ in pairs], area)
+    rep["g_c7"]["worst_including_combined_pairs"] = dict(frac=round(wa, 5), pair=whoa)
+    wr, whor = worst_overlap(raw_d, [(a_, b_, False) for a_, b_, _ in pairs], area)
+    rep["g_c7"]["worst_undilated_all_pairs"] = dict(frac=round(wr, 5), pair=whor)
+    rep["g_c7"]["table"] = {f"{a_}|{b_}": round(float((hard[a_] & hard[b_]).sum()) / area, 5) for a_, b_, _ in pairs if a_ in hard and b_ in hard}
 
     crops, zones = {}, {}
     for t in TRACKS:
@@ -376,7 +374,8 @@ def main(argv):
     sheet([card[l] for l in levels], levels, 4, 560, os.path.join(out, "layouts_sheet.png"))
     if masks:
         sheet([np.dstack([(masks[l] * 255).astype(np.uint8)] * 3) for l in masks], list(masks), 3, 560, os.path.join(out, "masks_sheet.png"))
-    print(json.dumps({k: rep[k] for k in ("safe_zones", "track_overlap", "tier_overlap_worst", "mask_area_frac")}, indent=1))
+    print(json.dumps({k: rep[k] for k in ("safe_zones", "mask_area_frac")}, indent=1))
+    print(json.dumps({k: v for k, v in rep["g_c7"].items() if k != "table"}, indent=1))
     print(json.dumps(rep["hands_visibility"], indent=1))
 
 

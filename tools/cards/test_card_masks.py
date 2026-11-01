@@ -122,6 +122,27 @@ def test_bbox():
     check(x >= 0 and y >= 0 and x + w <= cp.CARD_W and y + h <= cp.CARD_H, "the crop stays inside the card")
 
 
+def test_combined_layer_exemption():
+    combined = (("armour", 3, "sensors", 3),)
+    pairs = cm.tier_pairs(combined)
+    check(len(pairs) == 27, "3 track pairs x 9 tier pairs")
+    covered = [(a, b) for a, b, c in pairs if c]
+    check(covered == [("armour_t3", "sensors_t3")], f"only armour 3 + sensors 3 is covered, got {covered}")
+    check(all(not c for _, _, c in cm.tier_pairs(())), "no combined layer, no exemption")
+    area = 100 * 100
+    full = np.ones((100, 100), bool)
+    none = np.zeros((100, 100), bool)
+    masks = {"armour_t3": full, "sensors_t3": full, "armour_t2": none, "sensors_t2": none}
+    w, who = cm.worst_overlap(masks, pairs, area)
+    check(w == 0.0 and who is None, "the covered pair is not counted")
+    w, who = cm.worst_overlap(masks, cm.tier_pairs(()), area)
+    check(w == 1.0 and who == ("armour_t3", "sensors_t3"), "without the combined layer the same masks are over the limit")
+    masks["sensors_t2"] = full
+    w, who = cm.worst_overlap(masks, pairs, area)
+    check(who == ("armour_t3", "sensors_t2"), "an uncovered pair still trips it")
+    check(cm.levels_all(combined)[-1] == "armour_t3_sensors_t3" and len(cm.levels_all(combined)) == 11, "ten layers plus the base")
+
+
 def bad_inputs_fail():
     """Falsification: inputs built to make each gate red."""
     # a layer that leaks into the safe zone is caught
@@ -147,7 +168,7 @@ def bad_inputs_fail():
 
 
 def main():
-    for fn in (test_delta_e, test_dilate_and_feather, test_diff_mask_is_local, test_overlap, test_safe_zone, test_distance_and_hand_report, test_bbox, bad_inputs_fail):
+    for fn in (test_delta_e, test_dilate_and_feather, test_diff_mask_is_local, test_overlap, test_safe_zone, test_distance_and_hand_report, test_bbox, test_combined_layer_exemption, bad_inputs_fail):
         fn()
     if FAILS:
         print("FAIL:\n  " + "\n  ".join(FAILS))
