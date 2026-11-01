@@ -2968,6 +2968,14 @@ PART_SPECS = {
                                 stations=_carbine_stations(),
                                 provenance="export_kdf_carbine_part.py <- inf_squad.glb @13f667ff <- Meshy kdf_carbine remesh 01a10c6f; "
                                            "grip, guard and trigger procedural (kdf_carbine_grip.py)"),
+    # GH-826 step 3 (Demolition): the shipped part AS IT WAS before the grip reshape (art/parts/kdf_carbine/pre_gh826/,
+    # the same 315 triangles and the same bake). `import_meshy_kdf_team.py` seats it on demo_a and demo_b exactly as the
+    # Rifle Squad's input (13f667ff) carried its Meshy carbine, and `pnpm hands:meshes` then swaps it for the reshaped
+    # part, so the hands pass runs unchanged. No `stations`: nothing reads them before the swap.
+    "kdf_carbine_pre_gh826": dict(kind="rifle", length_m=0.85, canonical=True,
+                                  path=os.path.join("art", "parts", "kdf_carbine", "pre_gh826", "kdf_carbine.glb"),
+                                  provenance="art/parts/kdf_carbine/pre_gh826/kdf_carbine.glb (the part before GH-826's grip), "
+                                             "<- inf_squad.glb @13f667ff <- Meshy kdf_carbine remesh 01a10c6f"),
     # GH-709 phase 3: the six-round revolving 40 mm launcher, authored in Blender
     # by tools/units/export_grenade_launcher.py (procedural, not AI). `canonical`:
     # it arrives in the rifle frame already (butt plate -X at x = 0, muzzle +X,

@@ -684,7 +684,7 @@ def build_eud(f, side=None):
     """A phone in a frame on the plate, as a conformed pad whose standoff is trimmed against the
     clips: where an arm, the stock or the chin comes within reach in any key it sinks to that
     height plus 3.5 mm (flat on the plate where nothing does: 22 + 16 mm)."""
-    ey, ez = EUD_AT
+    ey, ez = kp.TEAM.eud_at or EUD_AT
     loc, n = _front_hit(f, ey, ez)
     fr = _frame(n)
     pc = Piece(f.world(), open_thick=EUD_T)
@@ -882,12 +882,13 @@ def _rail_top(f, u0, u1):
 
 
 def build_red_dot(f, side=None):
-    top = _rail_top(f, RED_DOT_REAR, RED_DOT_REAR + 0.10)
+    rear = kp.TEAM.red_dot_rear if kp.TEAM.red_dot_rear is not None else RED_DOT_REAR
+    top = _rail_top(f, rear, rear + 0.10)
     ax = top + 0.039 - 0.012
     pc = Piece(f.wpn())
-    geo.lathe(pc, (RED_DOT_REAR, 0.0, ax), (1, 0, 0), (0, 0, 1), [(0.0, 0.015), (0.064, 0.015)], 8, "coyote",
+    geo.lathe(pc, (rear, 0.0, ax), (1, 0, 0), (0, 0, 1), [(0.0, 0.015), (0.064, 0.015)], 8, "coyote",
               cap0="glass", cap1="glass")
-    geo.rbox(pc, (RED_DOT_REAR + 0.03, 0.0, top + 0.006 + 0.0), Matrix.Identity(3), (0.05, 0.026, 0.012 + (ax - 0.015 - top) * 1.0), 0.0, "coyote")
+    geo.rbox(pc, (rear + 0.03, 0.0, top + 0.006 + 0.0), Matrix.Identity(3), (0.05, 0.026, 0.012 + (ax - 0.015 - top) * 1.0), 0.0, "coyote")
     return pc
 
 
@@ -988,6 +989,7 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
 
     arm.data.pose_position = "REST"
     bpy.context.view_layer.update()
+    geo.PAD_REACH_CAP = kp.TEAM.pad_reach_cap
     use = [pf for pf in kp.ALL if figs is None or pf in figs]
     fits = {p: kf.Fit(arm, meshes, p) for p in use}
     bank = kf.PoseBank(arm, meshes, fits)

@@ -64,11 +64,11 @@ export const TREAT_STROKE = 0.045;
 export const TREAT_REACH_SLACK = 0.09;
 
 /** The weapon bone's local pose that puts the carbine in its sling, solved at REST. */
-function slingLocal(rig: Rig, h: HoldFigure, weapon: Node): { t: V3; r: Q; s: number } {
+export function slingLocal(rig: Rig, h: HoldFigure, weapon: Node, seat: V3 = SLING_BUTT, direction: V3 = SLING_DIR): { t: V3; r: Q; s: number } {
   const spine = rig.node(`${h.prefix}_spine`);
   const head = rig.restWorld.get(spine)!.t;
-  const butt = add(head, SLING_BUTT);
-  const dir = norm(SLING_DIR);
+  const butt = add(head, seat);
+  const dir = norm(direction);
   const r = qmul(qbasis(dir, [0, 1, 0]), qconj(qbasis(h.axis, h.up)));
   return rig.localFor(weapon, { t: butt, r, s: 1 }, new Map(rig.rest));
 }

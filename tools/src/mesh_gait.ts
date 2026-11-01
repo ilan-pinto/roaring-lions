@@ -141,7 +141,7 @@ function readAccessorUncached(glb: GlbFile, index: number): { data: Float64Array
   return { data: out, components: comps, count: acc.count };
 }
 
-type Mat4 = Float64Array;
+export type Mat4 = Float64Array;
 
 /** Column-major, glTF's own convention, so a `matrix` array can be used raw. */
 function multiply(a: Mat4, b: Mat4): Mat4 {
@@ -185,7 +185,7 @@ function slerp(a: number[], b: number[], t: number): number[] {
   return [a[0] * s0 + bb[0] * s1, a[1] * s0 + bb[1] * s1, a[2] * s0 + bb[2] * s1, a[3] * s0 + bb[3] * s1];
 }
 
-interface Track {
+export interface Track {
   readonly times: Float64Array;
   readonly values: Float64Array;
   readonly components: number;
@@ -193,7 +193,7 @@ interface Track {
 }
 
 /** Every animated node property of one clip, keyed `${node}:${path}`. */
-function readClip(glb: GlbFile, name: string): { tracks: Map<string, Track>; start: number; end: number } {
+export function readClip(glb: GlbFile, name: string): { tracks: Map<string, Track>; start: number; end: number } {
   const anim = glb.json.animations?.find((a) => a.name === name);
   if (!anim) throw new Error(`clip "${name}" not in file`);
   const tracks = new Map<string, Track>();
@@ -236,7 +236,7 @@ function sampleTrack(tr: Track, t: number): number[] {
 /** World matrix per node at clip time `t`, resolved through the whole
  *  hierarchy (a joint's parent may itself be animated -- reading a joint's
  *  own channel alone is the classic way to under-report a limb). */
-function nodeWorlds(glb: GlbFile, tracks: Map<string, Track>, t: number): Mat4[] {
+export function nodeWorlds(glb: GlbFile, tracks: Map<string, Track>, t: number): Mat4[] {
   const nodes = glb.json.nodes ?? [];
   const local: Mat4[] = nodes.map((n, i) => {
     if (n.matrix && !tracks.has(`${i}:translation`) && !tracks.has(`${i}:rotation`) && !tracks.has(`${i}:scale`)) {
@@ -264,7 +264,7 @@ function nodeWorlds(glb: GlbFile, tracks: Map<string, Track>, t: number): Mat4[]
   return nodes.map((_, i) => resolve(i));
 }
 
-type Accessor = ReturnType<typeof readAccessor>;
+export type Accessor = ReturnType<typeof readAccessor>;
 
 /**
  * World * inverse-bind per skin joint, in the skin's own joint order.
@@ -272,7 +272,7 @@ type Accessor = ReturnType<typeof readAccessor>;
  * travel measurement and `measureFacing`'s per-figure centroid) so this
  * step has exactly one implementation.
  */
-function computeSkinMats(skin: { joints: number[] }, worlds: Mat4[], ibm: Accessor | null): Mat4[] {
+export function computeSkinMats(skin: { joints: number[] }, worlds: Mat4[], ibm: Accessor | null): Mat4[] {
   return skin.joints.map((jointNode, skinIndex) => {
     const w = worlds[jointNode];
     if (!ibm) return w;
@@ -290,7 +290,7 @@ function computeSkinMats(skin: { joints: number[] }, worlds: Mat4[], ibm: Access
  * the exact failure mode this project has been bitten by before: behaviour
  * in two places, so neither copy can be broken alone.
  */
-function skinPoint(pos: Accessor, joints: Accessor, weights: Accessor, v: number, skinMats: Mat4[]): [number, number, number] {
+export function skinPoint(pos: Accessor, joints: Accessor, weights: Accessor, v: number, skinMats: Mat4[]): [number, number, number] {
   const px = pos.data[v * 3], py = pos.data[v * 3 + 1], pz = pos.data[v * 3 + 2];
   let ox = 0, oy = 0, oz = 0;
   for (let k = 0; k < 4; k++) {
@@ -1568,6 +1568,9 @@ export interface HeldWeaponClearance {
   /** The worst instant's count of samples inside the holder's own head,
    *  neck and torso, by generalised winding number (> 0.5). */
   readonly worstInside: number;
+  /** The nearest any sample comes to the body's triangles, over the instants it was drawn, metres (0 when a sample is inside).
+   *  Added for the slung carbine (GH-826 step 3), which must also stand clear of the back by a margin, not only stay out of it. */
+  readonly minClearanceM: number;
 }
 
 /**
@@ -1611,6 +1614,8 @@ export interface MountedPartSpec {
   readonly joint: string;
   /** Which dominant joints make a triangle "the body" the part must stay out of. */
   readonly bodyJoint: (jointName: string) => boolean;
+  /** Also read the nearest approach of the part to the body (`minClearanceM`). Off by default: it is every sample against every triangle. */
+  readonly clearance?: boolean;
 }
 
 export function measureMountedPartInBody(path: string, clip: string, spec: MountedPartSpec): HeldWeaponClearance {
@@ -1673,7 +1678,7 @@ export function measureMountedPartInBody(path: string, clip: string, spec: Mount
   if (weapon.length === 0) throw new Error(`${path}: no ${spec.roles.join('/')} vertex rides ${hand}`);
   if (body.length === 0) throw new Error(`${path}: no triangle rides the body joints named for ${hand}`);
 
-  let worst = 0, instants = 0, samples = 0;
+  let worst = 0, instants = 0, samples = 0, minClear = Infinity;
   for (let s = 0; s < SAMPLES_HELD; s++) {
     const t = start + ((end - start) * s) / (SAMPLES_HELD - 1);
     const worlds = nodeWorlds(glb, tracks, t);
@@ -1726,8 +1731,29 @@ export function measureMountedPartInBody(path: string, clip: string, spec: Mount
       if (windingInside(q, soup)) inside++;
     }
     worst = Math.max(worst, inside);
+    if (!spec.clearance) continue;
+    // the nearest approach: every sample against every body triangle, a triangle skipped when its bounding sphere is out of reach
+    const nt = tri.length / 9;
+    const cs = new Float64Array(nt * 4);
+    for (let i = 0; i < nt; i++) {
+      const a: V3t = [tri[i * 9], tri[i * 9 + 1], tri[i * 9 + 2]], b: V3t = [tri[i * 9 + 3], tri[i * 9 + 4], tri[i * 9 + 5]], c: V3t = [tri[i * 9 + 6], tri[i * 9 + 7], tri[i * 9 + 8]];
+      const m: V3t = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3];
+      cs[i * 4] = m[0]; cs[i * 4 + 1] = m[1]; cs[i * 4 + 2] = m[2];
+      cs[i * 4 + 3] = Math.max(vlen(vsub(a, m)), vlen(vsub(b, m)), vlen(vsub(c, m)));
+    }
+    for (const q of pts) {
+      let best = Infinity;
+      for (let i = 0; i < nt; i++) {
+        const dc = Math.hypot(q[0] - cs[i * 4], q[1] - cs[i * 4 + 1], q[2] - cs[i * 4 + 2]) - cs[i * 4 + 3];
+        if (dc >= best) continue;
+        const d = pointTriDist(q as V3t, [tri[i * 9], tri[i * 9 + 1], tri[i * 9 + 2]], [tri[i * 9 + 3], tri[i * 9 + 4], tri[i * 9 + 5]], [tri[i * 9 + 6], tri[i * 9 + 7], tri[i * 9 + 8]]);
+        if (d < best) best = d;
+      }
+      minClear = Math.min(minClear, best);
+    }
+    if (inside > 0) minClear = 0;
   }
-  return { samples, instants, worstInside: worst };
+  return { samples, instants, worstInside: worst, minClearanceM: Number.isFinite(minClear) ? minClear : 0 };
 }
 
 interface TriNode {

@@ -535,7 +535,7 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
       pose.set(ua, { ...cur, t: add(cur.t, local) });
     }
     const fire = placeHand(rig, pose, hr.fire, delta, [-0.2, -1, 0.7 * side], smoothstep(Math.min(1, st.aim / TRIGGER_CLOSE_AIM)));
-    const supp = placeHand(rig, pose, hr.support, delta, [0.1, -1, -0.35 * side]);
+    const supp = placeHand(rig, pose, hr.support, delta, supportPole ? [supportPole[0], supportPole[1], supportPole[2] * side] : [0.1, -1, -0.35 * side]);
     if (hr.finger) {
       // The trigger finger lies along the receiver at low ready and goes onto the trigger as the weapon comes up.
       const rest = rig.rest.get(hr.finger.node)!;
@@ -649,6 +649,12 @@ export function setHoldMemory(h: HoldFigure, m: HoldMemory): void {
 export const HOLD_RATE_DEG_PER_S = 600;
 let holdDt: number | null = null;
 export function setHoldDt(dt: number | null): void { holdDt = dt; }
+/** A team that asks for it (`MotionTeam.supportPole`): where the support elbow points when the hold's swing is 0, instead of the Rifle
+ *  Squad's `[0.1, -1, -0.35]` (down). Demolition's elbow hangs down-and-out at the low ready and flares out and up at the aim, so against
+ *  "down" it swung 10 degrees at the half way of the drop and 130 at its end; against "out, a little down" it swings 55 to 65 throughout and the
+ *  search takes no wrist-limit exit (pace x16) that turned the upper arm 55 to 62 degrees in 8 ms (GH-826 step 3). z is for the anatomical right. */
+let supportPole: V3 | null = null;
+export function setSupportPole(p: V3 | null): void { supportPole = p; }
 
 /** The elbow's swing about the shoulder-to-wrist line may go this far either way, degrees. */
 const MAX_SWING_DEG = 120;

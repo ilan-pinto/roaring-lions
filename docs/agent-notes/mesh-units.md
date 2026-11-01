@@ -776,3 +776,43 @@ Rifle Squad only so far (`inf_squad`); the Demolition and Breach teams take the 
   `hands-pass.ts`): texel std 13.8 / 16.2 of 255, mean dE76 2.4 / 1.2 to the review's sleeve.
 - **Encode:** raw animation keys that never change (1,010 of 2,376 channels) are cut to two keys at the end of the motion pass
   (`collapseConstantTracks`), which more than pays for the hands: `inf_squad` pre-kit 1,799,936 -> 1,650,052 bytes encoded.
+
+### Infantry hands, step 3: the Demolition squad (GH-826, 1 Nov 2026)
+
+`demo_squad` takes the same pass (`HANDS_TEAMS.demo_squad`). What differs from the Rifle Squad:
+
+- **The input.** The shipped Demolition bytes were never the importer's (`rl_motion.base: 'working tree'`), so `import_meshy_kdf_team.py`
+  was run afresh (commit `51db92516`): both men carry the PRE-reshape shipped `kdf_carbine` (315 triangles,
+  `art/parts/kdf_carbine/pre_gh826/`) seated by the crew importer's own placer, composed into the figure's atlas the Spike's way
+  (bake left, part right, 2048 x 1024; the bake keeps pixels 0..1023, so the glove and kit texels keep their coordinates), and
+  `demo_a` is armed (`rig.py` `TEAM_FIGURES`). The body is byte-identical to the shipped one (uniform 6,964 / boot 286 / face 84 /
+  charge 12 / metal 40 triangles); only `weapon` changed (108 -> 630). `pnpm hands:meshes -- --id=demo_squad --from=51db92516` then
+  swaps the part for the reshaped one, exactly as it does on the Rifle Squad.
+- **`work` is a different clip for an armed worker** (`motion/work.ts`, `rl_work` version 2). demo_a's carbine is SLUNG on his
+  back (the medics' `slingLocal`, `rescue.ts`, with a seat of its own), his arms, hands, finger, neck and head are back at rest, his
+  spine takes the unarmed kneeler's lean plus the least extra that lets BOTH hands reach the satchel (searched: 38 degrees, 48 in
+  all), and the two hands press its top face in turn (a 0.05 m stroke). Gates: `mesh_work_demo.test.ts` (sling clearance and
+  insideness by `measureMountedPartInBody`, hands by `mesh_work.ts`). Nothing in `work` is gripped, so the grip gate stays out of it.
+- **Kneel transitions** needed two team options (`MotionTeam`), absent = the Rifle Squad's solver byte for byte. `supportPole`
+  (`[0, -0.2, -0.9]` against the Rifle Squad's `[0.1, -1, -0.35]`, down): Demolition's support elbow hangs down-and-out at the low
+  ready and flares out and up at the aim, so against "down" the swing had to run 10 -> 130 degrees inside the last 0.17 s of the drop, the
+  search took the wrist-limit exit (pace x16) and the upper arm turned 55-62 degrees in 8 ms. `armTwistRelief` (0.7, `tidy.ts`'s
+  `relieveArmTwist`): even with the pole fixed the support upper arm TWISTS about its own axis by 180 degrees across the drop (27
+  degrees a key; its swing, the visible part, never turns more than 12), and a bone rotation is a bone rotation to the rate gate. A
+  turn of the upper arm about its axis moves no joint, so 0.7 of the twist the end-to-end line does not carry is handed to the forearm
+  (`forearm' = twist(d) * forearm`): the forearm's world rotation, the wrist and the hand do not move at all, the difference is zero at
+  both ends so the clip still joins its neighbours, and the worst key-to-key turn goes 3,277 -> 2,059 deg/s (drop) and 2,610 -> 1,540
+  (rise). Without the pole: an 89.8-degree flip. Tried and dropped: a slower aim path (`kneelAim`), a rate limit on the stance's extra
+  blade (`bladeRateDegPerS`) and a wider swing limit; with the pole and the relief they bought margin (1,863 / 1,347) but not a gate.
+- **Kit**: `Team.device_role` is `weapon` (the gun is textured now), `armed` is both men, the atlas is 2048 x 1024, `eud_at` is
+  (0.13, 1.34) (a sweep of seven places: (0.10, 1.38) left 7 mm in the drop, (0.13, 1.34) none in any clip) and `pad_reach_cap` 0.15
+  (a conformed pad's ray that slips through a gap in the torso zone lands on the FRONT of the chest: the radio panel had 11
+  vertices there since GH-826 and it never mattered until a hand and a carbine stood in that place), `red_dot_rear` -0.40 (-0.42 left 4 mm
+  against the helmet cover in moveFire). The census reads 0 pairs over 4 mm in every steady clip and in `work` (the slung carbine stands
+  12.8 mm clear of the maximum kit); one transition pair is named: kneelOut, NVG mono tube x support forearm, 11.7 / 6.7 mm for one key.
+
+- **Review fix 1 (1 Nov 2026): the old claw's spine-weighted faces are cut.** The hands pass cut the claw by the forearm bone, but 7 faces a man were weighted to the SPINE and hung
+  in the air beside the support hand. `clawToneFaces` (`hands-pass.ts`) cuts every uniform face of claw tone (L* > 35, C* > 35, hue 35-80) on a spine, upper-arm or forearm bone after the arms are rebuilt;
+  `mesh_claw.ts` + `mesh_hands.test.ts` gate 0 on a spine, arm or hand bone for `inf_squad` and `demo_squad`. The carrier is fitted to the same vest zone, so it moved 8 mm and the slung carbine's
+  clearance fell to 4.5 mm: the sling butt is now `[-0.32, -0.2, -0.14]`. **Do not run `--step=work` on a shipped file as the last step**: it re-writes the clip without `collapseConstantTracks` (+75 KiB encoded);
+  re-run the full motion pass. The Demolition squad is on HOLD after this (the lead, 1 Nov: hand poses to be redesigned on the Rifle Squad); review fixes 2 to 5 are open, see `_coord/inf-hands/departures.txt` 50-52.

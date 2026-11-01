@@ -31,7 +31,9 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { NodeIO, type Document, type Node } from '@gltf-transform/core';
+import { NodeIO, type Animation, type Document, type Node, type Primitive } from '@gltf-transform/core';
+import jpeg from 'jpeg-js';
+import { PNG } from 'pngjs';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { addBone, writeTrack } from './motion/edit';
 import { describeHold } from './motion/hold';
@@ -39,7 +41,7 @@ import { add, cross, dot, invert, len, norm, qaxis, qmul, qconj, qrot, scale, su
 import { clipRange, Rig, restVertices, tracksOf } from './motion/rig';
 import {
   addVertex, bindTo, columnsOf, dominant, loftEllipses, orthoFrame, qfromColumns, readParts, readPrim, removeFaces, vert, vertexCount,
-  writePrim, type PartMesh,
+  writePrim, type PartMesh, type PrimData,
 } from './hands-geometry';
 
 const REPO = fileURLToPath(new URL('../../..', import.meta.url));
@@ -93,6 +95,23 @@ export const HANDS_TEAMS: Record<string, HandsTeam> = {
     sleevePatch: { L: { rect: [474, 620, 64, 90], down: true }, R: { rect: [284, 408, 44, 78], down: false } },
     atlas: [2048, 1024],
     oldSleeve: { L: 0.04, R: 0.1 },
+  },
+  demo_squad: {
+    // demo_b is listed first, as the motion table lists him; demo_a is armed with the same carbine (GH-826 step 3).
+    figures: ['demo_b', 'demo_a'],
+    // dust.6 #6B4F29 (107,79,41), a real 5 x 5 solid block of the figure bake (std < 2), dE 0.10 to its key. The figure keeps
+    // pixels 0..1023 of the 2048 x 1024 atlas, so this is the same texel the kit names for coyote_shade.
+    glove: [805, 792],
+    // solid 5 x 5 blocks within dE 0.07 of the review's sleeve mean (34.3, -5.7, 17.0), rgb (81, 82, 53)
+    sleeve: { L: [879, 893], R: [876, 130] },
+    // Departure 42: the old forearm's own UV islands are fragments of plain olive (the largest all-cloth rectangles are 12 x 9
+    // and 17 x 39 px, texel std 2 to 3 of 255), so this body's sleeve cloth is taken from the atlas's own all-cloth rectangle with
+    // the most texture whose colour is the sleeve's (mean dE76 1.8) and stays 17.1 from the glove (the gate's floor is 15): 64 x 32 px
+    // at (749, 363), std 5.7 (the upper arm reads 7 to 11 at its vertices). The first choice (48 x 24 at (205, 187), dE 2.3, std 6.9)
+    // leaned toward the glove and read 12.1 against the gate.
+    sleevePatch: { L: { rect: [749, 363, 64, 32], down: false }, R: { rect: [749, 363, 64, 32], down: false } },
+    atlas: [2048, 1024],
+    oldSleeve: { L: 0.12, R: 0.13 },
   },
 };
 
@@ -173,6 +192,64 @@ function sectionOf(pts: V3[], origin: V3, axis: V3): { off: V3; u: V3; v: V3; a:
   const u = add(scale(e1, u2[0]), scale(e2, u2[1]));
   const v = add(scale(e1, v2[0]), scale(e2, v2[1]));
   return { off: add(scale(e1, cx), scale(e2, cy)), u, v, a: q80(pu), b: q80(pv) };
+}
+
+/** True when a clip scales the figure's living root to nothing for its whole length: nothing on that body is drawn in it. */
+export function livingBodyHidden(anim: Animation, prefix: string): boolean {
+  if (!DEAD_CLIPS.includes(anim.getName())) return false;
+  const root = anim.listChannels().find((c) => c.getTargetNode()?.getName() === `${prefix}_root` && c.getTargetPath() === 'scale');
+  if (!root) return false;
+  const v = root.getSampler()!.getOutput()!.getArray() as Float32Array;
+  return v.length > 0 && Array.from(v).every((x) => Math.abs(x) < 1e-6);
+}
+
+/** The old claw's colour: a saturated tan-orange (CIELAB L* > 35, C* > 35, hue 35 to 80 degrees). */
+export const CLAW_TONE = { minL: 35, minC: 35, hueMin: 35, hueMax: 80 } as const;
+
+function labOfRgb(r: number, g: number, b: number): V3 {
+  const lin = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const R = lin(r / 255), G = lin(g / 255), B = lin(b / 255);
+  const X = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047, Y = 0.2126 * R + 0.7152 * G + 0.0722 * B, Z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+  const f = (t: number): number => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
+}
+
+/**
+ * The faces of `U` that read as the old claw and are weighted to a figure's spine, upper arm or forearm (the bones that carried it):
+ * face index -> the figure's prefix. A face's colour is the mean of the atlas under its centroid and the three points half way from
+ * the centroid to a corner.
+ */
+export function clawToneFaces(doc: Document, prim: Primitive, U: PrimData, jointNames: readonly string[], figures: readonly string[]): Map<number, string> {
+  const tex = prim.getMaterial()?.getBaseColorTexture();
+  const img = tex?.getImage();
+  if (!tex || !img) throw new Error('hands: the uniform has no atlas to read the claw tone from');
+  const rgba = tex.getMimeType() === 'image/png' ? (() => { const p = PNG.sync.read(Buffer.from(img)); return { w: p.width, h: p.height, d: p.data }; })()
+    : (() => { const p = jpeg.decode(Buffer.from(img), { useTArray: true }); return { w: p.width, h: p.height, d: p.data }; })();
+  void doc;
+  const texel = (u: number, v: number): V3 => {
+    const x = Math.min(rgba.w - 1, Math.max(0, Math.floor(u * rgba.w))), y = Math.min(rgba.h - 1, Math.max(0, Math.floor(v * rgba.h)));
+    const o = (y * rgba.w + x) * 4;
+    return [rgba.d[o], rgba.d[o + 1], rgba.d[o + 2]];
+  };
+  const carried = (name: string, p: string): boolean => name === `${p}_spine` || name.startsWith(`${p}_upperarm_`) || name.startsWith(`${p}_forearm_`);
+  const out = new Map<number, string>();
+  for (let f = 0; f < U.idx.length / 3; f++) {
+    const tri = [U.idx[f * 3], U.idx[f * 3 + 1], U.idx[f * 3 + 2]];
+    // the bone that holds the most of the face's vertices
+    const votes = new Map<string, number>();
+    for (const v of tri) { const n = jointNames[dominant(U, v)]; votes.set(n, (votes.get(n) ?? 0) + 1); }
+    const bone = [...votes.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    const fig = figures.find((p) => carried(bone, p));
+    if (!fig) continue;
+    const cu = (U.uv[tri[0] * 2] + U.uv[tri[1] * 2] + U.uv[tri[2] * 2]) / 3, cv = (U.uv[tri[0] * 2 + 1] + U.uv[tri[1] * 2 + 1] + U.uv[tri[2] * 2 + 1]) / 3;
+    const pts: [number, number][] = [[cu, cv], ...tri.map((v): [number, number] => [(U.uv[v * 2] + cu) / 2, (U.uv[v * 2 + 1] + cv) / 2])];
+    const cs = pts.map(([u, v]) => texel(u, v));
+    const m: V3 = [0, 1, 2].map((k) => cs.reduce((s, c) => s + c[k], 0) / cs.length) as V3;
+    const [l, a, b] = labOfRgb(m[0], m[1], m[2]);
+    const c = Math.hypot(a, b), hue = (Math.atan2(b, a) * 180) / Math.PI;
+    if (l > CLAW_TONE.minL && c > CLAW_TONE.minC && hue > CLAW_TONE.hueMin && hue < CLAW_TONE.hueMax) out.set(f, fig);
+  }
+  return out;
 }
 
 export interface ArmPlan {
@@ -356,6 +433,14 @@ export function runHandsPass(doc: Document, id: string, spec: HandsTeam, lib: Ha
     boneWork.push({ plan, handRest: { t: plan.W, r: [0, 0, 0, 1], s: 1 } });
   }
 
+  // 3a'. what the forearm cut leaves of the old claw. Some of the claw's faces are weighted to the spine (Demolition: 7 a man,
+  // 88 cm2, 0.47 m off the spine's centre), so the cut by dominant bone missed them; with the claw gone they hang in the air
+  // beside the support hand (the Demolition review, must-fix 1). They are found by their colour, because that is how they read.
+  // This runs after the arms are rebuilt: the elbow ball (recoloured to the sleeve's) and the new tubes are not claw tone any more.
+  const clawFaces = clawToneFaces(doc, uPrim[0], U, joints0.map((j) => j.getName()), spec.figures);
+  if (clawFaces.size > 0) removeFaces(U, (f) => clawFaces.has(f));
+  for (const p of spec.figures) L(p, `claw: cut ${[...clawFaces.values()].filter((q) => q === p).length} loose claw-tone faces left on the spine/arm bones`);
+
   // write the arrays now, so the bones' IBMs and the vertices agree when the rig is rebuilt
   writePrim(uPrim[0], U);
   writePrim(wPrim[0], Wp);
@@ -385,7 +470,9 @@ export function runHandsPass(doc: Document, id: string, spec: HandsTeam, lib: Ha
         } else if (c.getTargetPath() === 'translation') {
           for (let i = 0; i < v.length; i += 3) {
             const dev = Math.hypot(v[i] - oldLocal.t[0], v[i + 1] - oldLocal.t[1], v[i + 2] - oldLocal.t[2]);
-            if (dev > 1e-4) throw new Error(`${id} ${fo.getName()} ${anim.getName()}: a translation key ${dev.toFixed(4)} m off its rest: not constant, refused`);
+            // The KDF importer's dead clips leave stray keys on a living bone whose root is scaled to nothing (demo_squad's
+            // forearm sat at y -1.69 in `down`): the body is not drawn, so the key is irrelevant and is reset to the new rest.
+            if (dev > 1e-4 && !livingBodyHidden(anim, p)) throw new Error(`${id} ${fo.getName()} ${anim.getName()}: a translation key ${dev.toFixed(4)} m off its rest: not constant, refused`);
             v[i] = 0; v[i + 1] = tE; v[i + 2] = 0;
           }
         } else continue;

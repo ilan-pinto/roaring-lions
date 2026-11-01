@@ -13,6 +13,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { clawToneFaces } from './mesh_claw';
 import { readGlb } from './mesh_gait';
 import {
   HAND_BANDS, handViolations, measureHand, measureShippedHand, principalExtents, readingFrom, type HandReading,
@@ -95,8 +96,8 @@ describe('falsification: today\'s shipped bytes', () => {
 
 
 describe('every figure of a team the hands pass has been through carries proportioned hands (GH-826 step 2)', () => {
-  for (const team of ['inf_squad']) {
-    for (const prefix of ['f0', 'f1', 'f2']) {
+  for (const [team, figures] of [['inf_squad', ['f0', 'f1', 'f2']], ['demo_squad', ['demo_b', 'demo_a']]] as const) {
+    for (const prefix of figures) {
       for (const side of ['L', 'R'] as const) {
         it(`${team} ${prefix}_${side}: length, palm, thickness, forearm and hung elbow inside the bands`, () => {
           const r = measureShippedHand(`${MESHES}${team}.glb`, prefix, side, 0);
@@ -134,5 +135,40 @@ describe('the instrument can fail', () => {
     for (let i = 0; i <= 20; i++) for (let j = 0; j <= 10; j++) for (let k = 0; k <= 4; k++) pts.push([i * 0.01, j * 0.01, k * 0.01]);
     const [a, b, c] = principalExtents(pts);
     expect(a).toBeCloseTo(0.2, 1); expect(b).toBeCloseTo(0.1, 1); expect(c).toBeCloseTo(0.04, 1);
+  });
+});
+
+describe('no piece of the old claw is left in the air (GH-826 step 3, the Demolition review\'s must-fix 1)', () => {
+  // The Demolition claw had 7 faces a man weighted to the SPINE; the pass cut by the forearm bone and missed them, and they hung
+  // 0.47 m from the spine's centre beside the support hand, a flat orange zig-zag about 10 cm long, in every clip.
+  for (const team of ['inf_squad', 'demo_squad']) {
+    it(`${team}: no uniform face of claw tone is dominated by a spine, arm or hand bone`, () => {
+      expect(clawToneFaces(`${MESHES}${team}.glb`)).toEqual([]);
+    });
+  }
+
+  it('goes red when claw-tone faces are put back on a spine (the failing input: demo_b\'s first 7 spine faces painted with the claw texel)', () => {
+    // atlas texel (725, 240): a solid 5 x 5 block of the Demolition atlas, CIELAB (52.4, 17.0, 40.2), the claw's tone
+    const claw: [number, number] = [(725 + 2.5) / 2048, (240 + 2.5) / 1024];
+    const path = `${MESHES}demo_squad.glb`;
+    // the first 7 spine-dominated vertices' worth of faces: paint every vertex of demo_b's spine
+    const bad = clawToneFaces(path, (uv, _v, bone) => (bone === 'demo_b_spine' ? claw : uv));
+    expect(bad.length).toBeGreaterThanOrEqual(7);
+    expect(new Set(bad.map((f) => f.bone))).toEqual(new Set(['demo_b_spine']));
+  });
+
+  it('goes red on an arm bone and on a hand bone too', () => {
+    const claw: [number, number] = [(725 + 2.5) / 2048, (240 + 2.5) / 1024];
+    const path = `${MESHES}demo_squad.glb`;
+    for (const b of ['demo_a_forearm_R', 'demo_a_hand_L', 'demo_a_upperarm_L']) {
+      const bad = clawToneFaces(path, (uv, _v, bone) => (bone === b ? claw : uv));
+      expect(bad.length, b).toBeGreaterThan(0);
+    }
+  });
+
+  it('does not flag the legs (the same tan is the trousers\' and the boots\')', () => {
+    const path = `${MESHES}demo_squad.glb`;
+    const claw: [number, number] = [(725 + 2.5) / 2048, (240 + 2.5) / 1024];
+    expect(clawToneFaces(path, (uv, _v, bone) => (/_(thigh|shin|foot)_/.test(bone) ? claw : uv))).toEqual([]);
   });
 });

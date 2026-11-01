@@ -9,6 +9,7 @@
  * wedge so it does not silhouette as inf_squad's (validate:meshes' IoU).
  */
 import type { WeaponKind } from './hold';
+import type { V3 } from './math';
 import type { RescueSpec } from './rescue';
 
 export const MOTION_VERSION = 1;
@@ -57,6 +58,8 @@ export interface MotionTeam {
   readonly ground: boolean;
   /** Figures that PUMP in the `work` clip (`motion/work.ts`), built from `kneel`. */
   readonly work?: readonly string[];
+  /** An armed worker's `work` (GH-826 step 3): where his carbine is slung (`rescue.ts`'s method) and his extra forward lean, degrees. */
+  readonly workArmed?: { readonly sling: { readonly butt: V3; readonly dir: V3 }; readonly leanExtraDeg?: number };
   /** 'replant' (the default) re-solves the legs onto planted footpaths
    *  (`replant.ts`); 'warp' scales a captured run's own stance instead
    *  (`stride.ts`), kept for a rig the replant cannot drive. */
@@ -76,6 +79,10 @@ export interface MotionTeam {
    *  Rifle Squad's neck takes none (GH-826 step 2): with the 10 degrees the NVG tubes of the kit's tier 3 land in the support
    *  hand (17.8 mm) and the mono tubes and the mount in the support forearm (5-6 mm); with none, no pair is over 4 mm. */
   readonly pinnedFold?: Partial<Record<'spine' | 'neck' | 'head', number>>;
+  /** Where the support elbow points at swing 0 (`hold.ts`'s `setSupportPole`; z for the anatomical right); absent is the Rifle Squad's `[0.1, -1, -0.35]`. */
+  readonly supportPole?: readonly [number, number, number];
+  /** Share of the upper arms' twist in the kneel transitions that is handed to the forearms (`tidy.ts`'s `relieveArmTwist`); absent is none. */
+  readonly armTwistRelief?: number;
 }
 
 const rifles = (prefixes: string[], slots?: [number, number][]): FigureSpec[] =>
@@ -127,9 +134,17 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
   // spike-walk (6 Oct): demo_a stands and walks now, and kneels at the
   // charge on the sim's brace like everyone else.
   demo_squad: {
-    figures: [{ prefix: 'demo_b', weapon: 'rifle', kneels: true }, { prefix: 'demo_a', kneels: true }],
+    // GH-826 step 3: demo_a is armed (the unit's weapons[0] is `carbines`) and slings the carbine in `work` (motion/work.ts).
+    figures: [{ prefix: 'demo_b', weapon: 'rifle', kneels: true }, { prefix: 'demo_a', weapon: 'rifle', kneels: true }],
     hold: true, kneel: true, formation: false, stride: true, ground: true, speedTiles: 0.85,
     work: ['demo_a'],
+    // As the Rifle Squad's: the neck takes none of the pinned huddle's 10 degrees, or the flipped-up NVG tubes land in the support hand.
+    pinnedFold: { neck: 0 },
+    supportPole: [0, -0.2, -0.9],
+    armTwistRelief: 0.7,
+    // The carbine on his back, muzzle up behind the right shoulder: the medics' sling, seated behind the Demolition torso and
+    // its carrier/pack (solved against the maximum kit, see the sling census in mesh_work.test.ts). The extra lean is searched by the pass: the least that puts both hands on the satchel.
+    workArmed: { sling: { butt: [-0.32, -0.2, -0.14], dir: [-0.05, 0.9, 0.43] } },
   },
   mortar_team: {
     figures: [{ prefix: 'mtr_no3', weapon: 'rifle' }],
