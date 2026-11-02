@@ -95,10 +95,9 @@ describe('gradeOf', () => {
     expect(gradeOf(null, q(''), 'day', grades).grade).toBeNull();
   });
 
-  it('`&grade=0|off|false` is always off, even over a mission that authors one', () => {
+  it('in a sandbox, `&grade=0|off|false` is off', () => {
     for (const v of ['0', 'off', 'false']) {
       expect(gradeOf(null, q(`grade=${v}`), 'dusk', grades).grade).toBeNull();
-      expect(gradeOf({ map: { grade: 'dusk' } }, q(`grade=${v}`), 'dusk', grades).grade).toBeNull();
     }
   });
 
@@ -123,7 +122,7 @@ describe('gradeOf', () => {
   it('warns on an unknown id or a bad strength, and draws ungraded / strength 1', () => {
     const unknown = gradeOf(null, q('grade=noon'), 'day', grades);
     expect(unknown.grade).toBeNull();
-    expect(unknown.warning).toMatch(/unknown &grade "noon"/);
+    expect(unknown.warning).toMatch(/unknown grade "noon"/);
     for (const bad of ['dusk:3', 'dusk:-1', 'dusk:x', 'dusk:']) {
       const c = gradeOf(null, q(`grade=${bad}`), 'day', grades);
       expect(c.strength, bad).toBe(1);
@@ -132,10 +131,28 @@ describe('gradeOf', () => {
     }
   });
 
-  it('a mission\'s authored map.grade wins over the flag\'s id and over the time of day\'s, but not over an explicit off', () => {
-    expect(gradeOf({ map: { grade: 'dawn' } }, q('grade=dusk'), 'dusk', grades).grade?.id).toBe('dawn');
+  it('a mission draws its OWN grade, else its time of day\'s: authored wins over the time of day', () => {
     expect(gradeOf({ map: { grade: 'dawn' } }, q(''), 'dusk', grades).grade?.id).toBe('dawn');
-    expect(gradeOf({ map: { grade: 'dawn' } }, q('grade=0'), 'dusk', grades).grade).toBeNull();
-    expect(gradeOf({ map: { grade: 'nope' } }, q('grade'), 'dusk', grades).warning).toMatch(/unknown &grade "nope"/);
+    expect(gradeOf({ map: {} }, q(''), 'dusk', grades).grade?.id).toBe('dusk');
+    expect(gradeOf({ map: {} }, q(''), 'dawn', grades).grade?.id).toBe('dawn');
+    expect(gradeOf({ map: {} }, q(''), 'day', grades).grade).toBeNull();
+    expect(gradeOf({ map: { grade: 'nope' } }, q(''), 'dusk', grades).warning).toMatch(/unknown grade "nope"/);
+  });
+
+  it('`&grade=` is a SANDBOX flag (N-23): /mission/x?grade=dawn and ?grade=0 leave a mission\'s grade unchanged', () => {
+    // The same two missions (one authoring a grade, one on its time of day's), under every spelling of the flag.
+    const authored = { map: { grade: 'dawn' } };
+    const plain = { map: {} };
+    for (const flag of ['', 'grade=dawn', 'grade=dusk:2', 'grade=0', 'grade=off', 'grade=false', 'grade=auto', 'grade=noon', 'grade=dusk:x']) {
+      const a = gradeOf(authored, q(flag), 'dusk', grades);
+      expect(a.grade?.id, `authored ${flag}`).toBe('dawn');
+      expect(a.strength, `authored ${flag}`).toBe(1);
+      expect(a.warning, `authored ${flag}`).toBeNull();
+      const p = gradeOf(plain, q(flag), 'dusk', grades);
+      expect(p.grade?.id, `plain ${flag}`).toBe('dusk');
+      expect(p.strength, `plain ${flag}`).toBe(1);
+      expect(p.warning, `plain ${flag}`).toBeNull();
+      expect(gradeOf(plain, q(flag), 'day', grades).grade, `day ${flag}`).toBeNull();
+    }
   });
 });

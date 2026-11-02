@@ -80,15 +80,18 @@ export interface GradeChoice {
 
 /**
  * Which colour grade draws the map (look uplift L2, GH-943), beside `timeOfDayOf` and for the same
- * reason: the APP reads it, never the sim's mission type.
+ * reason: the APP reads it, never the sim's mission type. It follows `timeOfDayOf`'s precedent (N-23) to
+ * the letter: **`&grade=` is a SANDBOX flag.** A real mission's look is authored, and a dev flag must not
+ * change it, so on a mission (`mission !== null`) the flag is not read at all -- not an id, not a strength,
+ * not `=0`.
  *
- *  - On unless `&grade=0|off|false` (`GRADE_ON_BY_DEFAULT`), which always means off.
- *  - Absent, `&grade`, `&grade=auto` or `=1`: the grade shipped for `tod` (`dawn`, `dusk`; `night` is dusk, D10).
- *    **Day is the identity and ships no file**, so `auto` on a day map draws today's frame.
- *  - `&grade=<id>` names a file in `data/grades/`; `&grade=<id>:<strength>` scales it (0..2, 1 = as authored).
- *    An unknown id falls back to no grade and says why.
- *  - A mission's authored `map.grade` WINS over the flag's id (not over an explicit off), the way its
- *    `time_of_day` wins over `&tod=`. No shipped mission authors one.
+ *  - A MISSION draws its own `map.grade` if it authors one (an unknown id warns and draws ungraded), else
+ *    the grade of its time of day. Strength 1, always.
+ *  - A SANDBOX is on unless `&grade=0|off|false` (`GRADE_ON_BY_DEFAULT`). Absent, `&grade`, `&grade=auto`
+ *    or `=1`: the grade shipped for `tod`. `&grade=<id>[:<strength>]` names a file in `data/grades/` and
+ *    scales it (0..2, 1 = as authored); an unknown id or strength warns and falls back.
+ *  - **Day is the identity and ships no file** (`dawn`, `dusk`; `night` is dusk, D10), so a day map draws
+ *    today's frame to the bit.
  */
 export function gradeOf(
   mission: { readonly map: object } | null,
@@ -96,7 +99,24 @@ export function gradeOf(
   tod: TimeOfDay,
   grades: readonly GradeJson[]
 ): GradeChoice {
-  const none = (warning: string | null = null): GradeChoice => ({ grade: null, strength: 1, warning });
+  const none = (strength = 1, warning: string | null = null): GradeChoice => ({ grade: null, strength, warning });
+  const forTimeOfDay = (): string | null => (tod === 'day' ? null : tod === 'night' ? 'dusk' : tod);
+  const lookup = (id: string | null, strength: number, warning: string | null): GradeChoice => {
+    if (id === null) return none(strength, warning);
+    const found = grades.find((g) => g.id === id);
+    if (found === undefined) {
+      return none(strength, `unknown grade "${id}" (have ${grades.map((g) => g.id).join(', ')}) — drawing ungraded`);
+    }
+    return { grade: found, strength, warning };
+  };
+
+  if (mission !== null) {
+    // N-23: the flag is never read on a mission.
+    if (!GRADE_ON_BY_DEFAULT) return none();
+    const authored = (mission.map as { grade?: unknown }).grade;
+    return lookup(typeof authored === 'string' ? authored : forTimeOfDay(), 1, null);
+  }
+
   const raw = params.get('grade');
   if (raw === null && !GRADE_ON_BY_DEFAULT) return none();
   const value = raw ?? '';
@@ -112,13 +132,6 @@ export function gradeOf(
       strength = n;
     }
   }
-  const authored = mission === null ? undefined : (mission.map as { grade?: unknown }).grade;
   const auto = name === '' || name === 'auto' || name === '1' || name === 'on';
-  const id = typeof authored === 'string' ? authored : auto ? (tod === 'day' ? null : tod === 'night' ? 'dusk' : tod) : name;
-  if (id === null) return { grade: null, strength, warning };
-  const found = grades.find((g) => g.id === id);
-  if (found === undefined) {
-    return { grade: null, strength, warning: `unknown &grade "${id}" (have ${grades.map((g) => g.id).join(', ')}) — drawing ungraded` };
-  }
-  return { grade: found, strength, warning };
+  return lookup(auto ? forTimeOfDay() : name, strength, warning);
 }

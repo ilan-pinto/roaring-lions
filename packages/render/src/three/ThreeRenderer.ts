@@ -2738,6 +2738,8 @@ export class ThreeRenderer implements Renderer {
   private vignettePass: OutputVignette | null = null;
   /** L2 (GH-943): the grade folded into `OutputPass` (`output-grade.ts`). Held for the `grade` debug layer and `setGrade`. */
   private gradePass: OutputGrade | null = null;
+  /** `RenderQuality.grade` of this renderer's preset: false on `low`, whose `setGrade` then builds nothing. */
+  private gradeAllowed = true;
   /**
    * Defilade Task 4: the selective HDR bloom (`./bloom.ts`), after AO and
    * before `OutputPass`. Built in `init()` only when `quality.bloom` asks
@@ -2857,6 +2859,8 @@ export class ThreeRenderer implements Renderer {
       opts.weather === 'rain' ? { wet: true, wetProgram: WET_PROGRAM_TIERS[rainQualityOf(opts.quality).ground] } : {}
     );
     this.surfaceTable = surfaceTableFor(opts.weather, opts.environmentLight !== false);
+    // L2 (GH-943): `low` builds no grade until the GPU-timer read spec section 3 asks for (`RenderQuality.grade`).
+    this.gradeAllowed = (opts.quality ?? QUALITY_PRESETS.high).grade;
     this.viewer = opts.viewerSide ?? 0;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
@@ -4753,6 +4757,7 @@ export class ThreeRenderer implements Renderer {
    */
   setGrade(json: GradeJson | null, strength = 1, options?: GradeApplyOptions): boolean {
     if (this.gradePass === null) return false;
+    if (!this.gradeAllowed) return this.gradePass.apply(null);
     return this.gradePass.apply(json === null ? null : resolveGrade(json, strength, (key) => this.overlayColor(key)), options);
   }
 

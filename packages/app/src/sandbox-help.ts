@@ -171,9 +171,9 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   {
     name: 'grade',
     // Look uplift L2 (GH-943), ON by default since 2 Nov 2026; `=0` is the A/B switch. A value flag like `tod`, not a
-    // SANDBOX_FLAGS boolean, and it works on a mission too (presentation only). `time-of-day.ts`'s `gradeOf`
+    // SANDBOX_FLAGS boolean, and a SANDBOX flag like it: a mission never reads it (N-23). `time-of-day.ts`'s `gradeOf`
     // reads it. Day is the identity grade and has no file, so `auto` on a day map is today's frame.
-    blurb: '<id>[:<strength 0-2>] | auto | 0 — colour grade (GH-943; on by default): dawn, dusk, or auto for the time of day; =0 draws the ungraded frame',
+    blurb: '<id>[:<strength 0-2>] | auto | 0 — the sandbox’s colour grade (GH-943; on by default): dawn, dusk, or auto for the time of day, =0 ungraded; a mission uses its own',
   },
   {
     name: 'fitbuildings',
