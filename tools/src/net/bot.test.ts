@@ -76,7 +76,11 @@ function fakeSpawn(calls: Call[], script: (child: FakeChild, call: Call) => void
 }
 class FakeSignals implements SignalSource {
   private h = new Map<string, Set<() => void>>();
-  on(s: 'SIGINT' | 'SIGTERM', h: () => void): this { (this.h.get(s) ?? this.h.set(s, new Set()).get(s)!).add(h); return this; }
+  /** A signal that is already there when the first handler is installed. */
+  fireOnInstall: 'SIGINT' | 'SIGTERM' | null = null;
+  on(s: 'SIGINT' | 'SIGTERM', h: () => void): this {
+    if (this.fireOnInstall === s) { h(); }
+    (this.h.get(s) ?? this.h.set(s, new Set()).get(s)!).add(h); return this; }
   off(s: 'SIGINT' | 'SIGTERM', h: () => void): this { this.h.get(s)?.delete(h); return this; }
   fire(s: 'SIGINT' | 'SIGTERM'): void { for (const h of [...(this.h.get(s) ?? [])]) h(); }
   count(): number { return [...this.h.values()].reduce((n, s) => n + s.size, 0); }
@@ -124,6 +128,12 @@ describe('arguments and aliases', () => {
     expect(parseBotArgs(['--', '--room=ABC234', '--server', 'http://127.0.0.1:8787', '--callsign=Rex', '--client', 'my-claude --fast "a b"'])).toEqual({
       room: 'ABC234', model: 'claude-sonnet-5-5', server: 'http://127.0.0.1:8787', callsign: 'Rex', client: ['my-claude', '--fast', 'a b'],
     });
+  });
+  it('caps the callsign at the room\'s 24 characters and refuses longer', () => {
+    expect('error' in parseBotArgs(['--room', 'ABC234', '--callsign', 'x'.repeat(24)])).toBe(false);
+    expect('error' in parseBotArgs(['--room', 'ABC234', '--callsign', 'x'.repeat(25)])).toBe(true);
+    expect('error' in parseBotArgs(['--room', 'ABC234', '--callsign', '\u{1F981}'.repeat(24)])).toBe(false);   // code points, as the room counts
+    expect('error' in parseBotArgs(['--room', 'ABC234', '--callsign', '\u{1F981}'.repeat(25)])).toBe(true);
   });
   it('refuses anything unknown or malformed, with the usage line', () => {
     for (const bad of [
@@ -184,7 +194,7 @@ describe('the MCP config, the prompt and the client command', () => {
     expect([...h.logs, ...h.printed].join('\n')).not.toContain('sk-test-not-a-real-key');
   });
   it('lets no shell metacharacter reach a shell: they stay literal text in a file or an argument', async () => {
-    const nasty = 'x; $(touch /tmp/pwned) `id` | cat > /tmp/p && echo $HOME';
+    const nasty = 'x; $(id) `id` | cat&&$H';   // within the 24-character callsign limit
     const h = harness((c) => { c.end(0); });
     await runBot(['--room', 'ABC234', '--callsign', nasty, '--client', 'claude;touch /tmp/pwned2 --flag', '--model', 'm$(id)'], h.opts);
     const [call] = h.calls;
@@ -309,7 +319,7 @@ describe('failure messages', () => {
     expect(r.text).toContain('runs a different build than this checkout');
     expect(r.text).toContain('Settings footer');
     expect(r.text).toContain('git worktree add');
-    const viaExit = await run('', resultLine({ is_error: true, result: 'MCP server lions exited with code 2' }), 1);
+    const viaExit = await run('MCP server "lions" exited with code 2\n', '', 1);
     expect(viaExit.code).toBe(2);
   });
   it('a full or missing room says to open a new one', async () => {
@@ -337,6 +347,42 @@ describe('failure messages', () => {
   it('the three messages are distinct', () => {
     const m = (['auth', 'build', 'room'] as const).map((f) => failureMessage(f, { server: LIVE_SERVER }));
     expect(new Set(m).size).toBe(3);
+  });
+});
+
+describe('a clean exit is never reclassified, and the model\'s own words are not a refusal', () => {
+  it('prints the result and exits 0 although the output mentions the refusal phrases', async () => {
+    const h = harness((c) => {
+      c.stderr.write('lions server exited with code 2 earlier; the room refused the join: HTTP 409; build_mismatch\n');
+      c.stdout.write(resultLine({ result: 'I read "exited with code 2" and "HTTP 400" in the log.', usage: { input_tokens: 1, output_tokens: 1 } }));
+      c.end(0);
+    });
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(0);
+    expect(h.logs.join('\n')).not.toContain('different build');
+    expect(h.printed[0]).toContain('HTTP 400');
+  });
+  it('a failed run whose only mention is in the model\'s result is not a build or room failure', async () => {
+    const h = harness((c) => { c.stdout.write(resultLine({ is_error: true, result: 'I quote: lions exited with code 2; the room refused the join: HTTP 409; build_mismatch' })); c.end(1); });
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(1);
+    expect(h.logs.join('\n')).toContain('exited with code 1');
+    expect(h.logs.join('\n')).not.toContain('different build');
+  });
+  it('classify reads the harness text for refusals and the model text for sign-in only', () => {
+    expect(classify('', 'HTTP 409 build_mismatch exited with code 2')).toBeNull();
+    expect(classify('', 'Failed to authenticate')).toBe('auth');
+    expect(classify('the room refused the join: HTTP 409')).toBe('room');
+    expect(classify('room full, HTTP 400')).toBeNull();
+    expect(classify('exited with code 2')).toBeNull();
+  });
+});
+
+describe('a signal before the files exist', () => {
+  it('returns 130 with no spawn and no directory, not an ENOENT', async () => {
+    const h = harness(() => {});
+    h.signals.fireOnInstall = 'SIGINT';
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(130);
+    expect(h.calls).toHaveLength(0);
+    expect(leftovers()).toEqual([]);
   });
 });
 

@@ -37,6 +37,7 @@ import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import { chmodSync, closeSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { MAX_CALLSIGN_CHARS } from '@lions/net';
 import { HARNESS_AGENT, HARNESS_TSX, parseTemplate, standingPrompt, tempRoot, tokensOf, type SpawnFn } from './external-player';
 
 /** The live game: the default `--server`. */
@@ -100,6 +101,8 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
   if (room === undefined) return { error: `--room is required\n${USAGE}` };
   // The code goes into an argument and into the prompt: letters and digits only.
   if (!/^[A-Za-z0-9]{4,12}$/.test(room)) return { error: `--room is the room's code (letters and digits), as the lobby shows it\n${USAGE}` };
+  const callsign = got.get('callsign');
+  if (callsign !== undefined && Array.from(callsign).length > MAX_CALLSIGN_CHARS) return { error: `--callsign is at most ${MAX_CALLSIGN_CHARS} characters, the room's limit\n${USAGE}` };
   const server = got.get('server') ?? LIVE_SERVER;
   if (!httpUrl(server)) return { error: `--server is the game's http(s) URL\n${USAGE}` };
   const { id, alias } = resolveModel(got.get('model') ?? 'sonnet');
@@ -115,7 +118,7 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
     room: room.toUpperCase(),
     model: id,
     server,
-    callsign: got.get('callsign') ?? `${alias === null ? 'Claude' : capitalised(alias)} Bot`,
+    callsign: callsign ?? `${alias === null ? 'Claude' : capitalised(alias)} Bot`,
     client,
   };
 }
@@ -140,11 +143,18 @@ export function clientArgs(a: Pick<BotArgs, 'model' | 'client'>, mcpFile: string
 
 export type Failure = 'auth' | 'build' | 'room';
 
-/** Which known failure a client's output (and its stderr) describes, or null. */
-export function classify(output: string): Failure | null {
-  if (/failed to authenticate|oauth (?:session|token) (?:has )?expired|authentication_error|invalid api key|please run \/login|not logged in/i.test(output)) return 'auth';
-  if (/build_mismatch|\bexit(?:ed)?(?: with)?(?: code)? 2\b/i.test(output)) return 'build';
-  if (/refused the join: HTTP (?:400|404|409|410)\b|\bHTTP (?:400|404|409|410)\b|room (?:is )?full/i.test(output)) return 'room';
+/**
+ * Which known failure a FAILED client run describes, or null. `harness` is the
+ * client's stderr and plain stdout, where the harness's own lines land: only
+ * its specific refusal lines count (`build_mismatch`; the join's `refused the
+ * join: HTTP <status>`; the client naming the `lions` server exiting with code
+ * 2). `model` is the client's result text, which can quote anything, so it is
+ * read for a sign-in failure alone, never for a refusal.
+ */
+export function classify(harness: string, model = ''): Failure | null {
+  if (/failed to authenticate|oauth (?:session|token) (?:has )?expired|authentication_error|invalid api key|please run \/login|not logged in/i.test(`${harness}\n${model}`)) return 'auth';
+  if (/build_mismatch|\blions\b[^\n]*\bexit(?:ed)?(?: with)? code 2\b/i.test(harness)) return 'build';
+  if (/refused the join: HTTP (?:400|404|409|410)\b/.test(harness)) return 'room';
   return null;
 }
 
@@ -252,6 +262,8 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   signals.on('SIGTERM', onTerm);
 
   try {
+    // A signal that landed before the files exist has already removed the directory.
+    if (signalled !== null) return SIGNAL_EXIT[signalled];
     chmodSync(dir, 0o700);
     const mcpFile = join(dir, 'mcp.json');
     const promptFile = join(dir, 'prompt.md');
@@ -322,10 +334,11 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     if (signalled !== null) return SIGNAL_EXIT[signalled];
 
     const parsed = last.result === null ? null : resultOf(last.result);
-    const all = `${out}\n${errOut}\n${parsed?.result ?? ''}`;
+    const harnessText = `${out}\n${errOut}`;
+    const all = `${harnessText}\n${parsed?.result ?? ''}`;
     const failed = code !== 0 || signal !== null || parsed?.isError === true;
     if (failed) {
-      const known = classify(all);
+      const known = classify(harnessText, parsed?.result ?? '');
       if (known !== null) {
         log(failureMessage(known, a));
         return known === 'build' ? 2 : 1;
@@ -335,9 +348,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
       if (tail !== '' && parsed?.result == null) log(tail);
       return 1;
     }
-    // A clean exit can still carry a known refusal in the harness's words.
-    const known = classify(errOut);
-    if (known === 'build') { log(failureMessage(known, a)); return 2; }
+    // A clean exit is never reclassified: its output is the model's and the harness's chatter, not a refusal.
     const tokens = last.result === null ? null : tokensOf(last.result);
     print(parsed?.result ?? '(the client printed no result)');
     log(`bot: finished. tokens: ${tokens === null ? 'unknown' : String(tokens)}`);
