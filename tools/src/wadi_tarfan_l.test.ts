@@ -2,9 +2,8 @@
 //   1. the generator (tools/maps/wadi_tarfan_l/build.mjs) writes exactly the shipped files;
 //   2. the map is what the design says it is: Wadi Tarfan's own seats, camps, income and tunnel capacities at
 //      twice the tile, the seats 77.8 tiles apart, a 35-minute cap in a 512-entity room;
-//   3. it is REGISTERED but NOT OFFERED: held out of the Free Play picker, out of VERSUS_FAIR_MAPS and
-//      FACTION_MATCHUP_MAPS, and closed for formations, until B4 (fairness) and B5 (render and memory) are read
-//      and the lead opens it. This package must not open the map.
+//   3. it is OFFERED (B7, the lead's ruling after B4's fairness and B5's render and memory): on the Free Play picker,
+//      in VERSUS_FAIR_MAPS and FACTION_MATCHUP_MAPS, and still closed for formations until its own S4 run.
 // The verifier's own tests are in large_map_verify.test.ts.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,7 +13,7 @@ import { maps, versusRules, type MapJson } from '@lions/data';
 import { formationsOpenIn } from '../../packages/app/src/net/versus-formations';
 import { UNLISTED_MAP_IDS } from '../../packages/app/src/ui/menu';
 import { SHIPPED_MAP_IDS } from '../../packages/worker/src/match/map-ids';
-import { RULES_ONLY_MAPS } from '../validate_versus_rules.mjs';
+import { MATCHUP_MAPS, MIRROR_RULES_MAPS, RULES_ONLY_MAPS } from '../validate_versus_rules.mjs';
 import { build, keepCliffs, loadSketch, serialise } from '../maps/wadi_tarfan_l/build.mjs';
 
 const ROOT = join(__dirname, '..', '..');
@@ -153,21 +152,25 @@ describe('the fairness levers (B4)', () => {
   });
 });
 
-describe('registered, and NOT offered (B4 and B5 first)', () => {
-  it('is in neither versus list: no room may be hosted on it, in any pairing', () => {
-    expect(VERSUS_FAIR_MAPS).not.toContain('wadi_tarfan_l');
-    expect(FACTION_MATCHUP_MAPS).not.toContain('wadi_tarfan_l');
-    expect(versusMapAllowed('wadi_tarfan_l')).toBe(false); // the mirror is allowed on any OFFERED map, so the map's own gate is this one
-    for (const mode of ['kdf', 'sarim'] as const) expect(matchupAllowed(mode, 'wadi_tarfan_l'), mode).toBe(false);
-    expect(RULES_ONLY_MAPS).toContain('wadi_tarfan_l');
+describe('registered, and OFFERED (GH-920 B7: the lead\'s ruling opened it for the mirror and both faction cells)', () => {
+  it('is in both versus lists: a room may be hosted on it, in the mirror and in KDF v Sarim either way round', () => {
+    // Was `not.toContain` in both (B3: registered, not offered); the opening commit flips them, with the validator's list.
+    expect(VERSUS_FAIR_MAPS).toContain('wadi_tarfan_l');
+    expect(FACTION_MATCHUP_MAPS).toContain('wadi_tarfan_l');
+    expect(versusMapAllowed('wadi_tarfan_l')).toBe(true);
+    for (const mode of ['kdf', 'sarim', 'mirror'] as const) expect(matchupAllowed(mode, 'wadi_tarfan_l'), mode).toBe(true);
+    // its rules file is classified as a faction-matchup map, not rules-only and not mirror-only
+    expect(RULES_ONLY_MAPS).not.toContain('wadi_tarfan_l');
+    expect(MATCHUP_MAPS).toContain('wadi_tarfan_l');
+    expect(MIRROR_RULES_MAPS).not.toContain('wadi_tarfan_l');
   });
 
-  it('is held out of the Free Play picker, but is a shipped map the Worker knows', () => {
-    expect(UNLISTED_MAP_IDS.has('wadi_tarfan_l')).toBe(true);
+  it('is on the Free Play picker, and is a shipped map the Worker knows', () => {
+    expect(UNLISTED_MAP_IDS.has('wadi_tarfan_l')).toBe(false);
     expect(SHIPPED_MAP_IDS).toContain('wadi_tarfan_l');
   });
 
-  it('is closed for formations even when the versus gate is open; a sandbox room on it is not a versus room', () => {
+  it('stays closed for formations even when the versus gate is open; a sandbox room on it is not a versus room', () => {
     expect(formationsOpenIn('versus', true, 'wadi_tarfan_l')).toBe(false);
     expect(formationsOpenIn('versus', undefined, 'wadi_tarfan_l')).toBe(false);
     expect(formationsOpenIn('sandbox', undefined, 'wadi_tarfan_l')).toBe(true);

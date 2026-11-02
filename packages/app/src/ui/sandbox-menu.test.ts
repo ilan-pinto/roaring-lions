@@ -31,8 +31,8 @@ import en from '../i18n/en.json';
 // P3's art (GH-871, GH-912); Rujm Sawda was held out until the lead opened it and L8 did (GH-913), so it
 // is a card now. LITERALS, so these specs do not read the answer off the code under test. Delete
 // them here with the entries in menu.ts's UNLISTED_MAP_IDS.
-// Was ['ein_qasab', 'ein_qasab_3', 'jebel_matar']: Wadi Tarfan (large) is held out too, unopened (GH-920 B3).
-const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'wadi_tarfan_l'];
+// Wadi Tarfan (large) was held out too, unopened (GH-920 B3), and left this list when B7 opened it.
+const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar'];
 const listedIds = (): string[] => Object.keys(maps).filter((id) => !HELD_OUT.includes(id));
 
 const render = (): HTMLElement => {
@@ -71,12 +71,12 @@ describe('the map list', () => {
   });
 
   it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
-    // 40 maps ship (Was 39: Wadi Tarfan (large), GH-920 B3); the picker lists 36. Literals, not read off the code.
+    // 40 maps ship (Was 39: Wadi Tarfan (large), GH-920 B3); the picker lists 37 (Was 36 before B7 opened it). Literals, not read off the code.
     expect(Object.keys(maps)).toHaveLength(40);
     for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
-    expect(links).toHaveLength(36);
+    expect(links).toHaveLength(37);
     for (const id of HELD_OUT) {
       expect(links.map((a) => a.dataset.map)).not.toContain(id);
       // Nothing on the screen links to it either, by any spelling of the route.
@@ -85,10 +85,21 @@ describe('the map list', () => {
     }
   });
 
-  it('pins the unlisted set to exactly the Ein Qasab town maps and the unopened large Wadi Tarfan', () => {
-    // Delete the pin with the entries when P3 ships. Rujm Sawda left the set when the lead opened it (GH-913 L8).
-    // Was ['ein_qasab', 'ein_qasab_3', 'jebel_matar']: Wadi Tarfan (large) joined it unopened (GH-920 B3); delete its entry when B7 opens it.
-    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'wadi_tarfan_l']);
+  it('pins the unlisted set to exactly the Ein Qasab town maps', () => {
+    // Delete the pin with the entries when P3 ships. Rujm Sawda left the set when the lead opened it (GH-913 L8), and
+    // Wadi Tarfan (large) did when B7 opened it (GH-920): it was ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'wadi_tarfan_l'].
+    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
+  });
+
+  it('lists Wadi Tarfan (large) (GH-920 B7): a card with its name and an honest "large 96 by 96" line, linking to its free-play route', () => {
+    const stage = render();
+    const card = stage.querySelector('a[data-map="wadi_tarfan_l"]');
+    expect(card).not.toBeNull();
+    expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe(maps.wadi_tarfan_l.name);
+    expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe('Wadi Tarfan (large) — The Three Fords'); // the name is DATA, read the same in every locale
+    expect(card?.querySelector('.rl-mapcard__desc')?.textContent).toMatch(/\bA large 96 by 96 map\b/);
+    expect(hrefOf(stage, 'wadi_tarfan_l')).toContain('wadi_tarfan_l');
+    expect(card?.getAttribute('href')).toBe('/free-play/wadi_tarfan_l');
   });
 
   it('lists Rujm Sawda (GH-913 L8): a card with its name and an honest "large" line, linking to its free-play route', () => {

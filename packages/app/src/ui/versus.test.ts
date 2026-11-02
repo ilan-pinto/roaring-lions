@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps, paletteTeamColors } from '@lions/data';
-import { VERSUS_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
 import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
@@ -273,7 +273,8 @@ describe('showVersus (/versus)', () => {
     expect(describedBy(mapRadio(stage, 'tel_marum'))).toBe('KDF or Sarim');
     expect(checkedMap(stage)).toBe('tel_marum');
     expect(note.hidden).toBe(false);
-    expect(note.textContent).toBe('KDF against Sarim is played on Tel Marum and Wadi Tarfan only');
+    // Was 'Tel Marum and Wadi Tarfan only': Wadi Tarfan (large) is a faction-matchup map from GH-920 B7.
+    expect(note.textContent).toBe('KDF against Sarim is played on Tel Marum, Wadi Tarfan and Wadi Tarfan (large) only');
     stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
     await flush();
     expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', map: 'tel_marum', matchup: 'sarim' });
@@ -299,6 +300,33 @@ describe('showVersus (/versus)', () => {
     expect(enabledMaps(stage)).toEqual(['tel_marum', 'wadi_tarfan']);
     expect(mapRadio(stage, 'rujm_sawda').disabled).toBe(true);
     expect(describedBy(mapRadio(stage, 'rujm_sawda'))).toBe('Mirror only: pick Mirror to play here');
+  });
+
+  it('GH-920 B7: Wadi Tarfan (large) is a map for BOTH faction cells with a lobby card: 96 x 96, "KDF or Sarim", enabled for a faction pick', () => {
+    const large = { id: 'wadi_tarfan_l', label: (maps as Record<string, { name: string }>).wadi_tarfan_l!.name };
+    const stage = mountPick(deps({ maps: [...MAPS, large] }));
+    expect(enabledMaps(stage)).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']);
+    expect(describedBy(mapRadio(stage, 'wadi_tarfan_l'))).toBe('KDF or Sarim');
+    pick(mapRadio(stage, 'wadi_tarfan_l'));
+    const card = stage.querySelector<HTMLElement>('.rl-versus__mapcard')!;
+    expect(card.querySelector('.rl-versus__mapcard-name')?.textContent).toBe('Wadi Tarfan (large)');
+    expect(card.querySelector('.rl-versus__mapcard-desc')?.textContent).toMatch(/^A large 96 by 96 map/);
+    expect(card.textContent).toContain('96 × 96 tiles');
+    expect(card.querySelector('.rl-versus__chip[data-kind="quiet"]')).toBeNull(); // not "Mirror only"
+    pick(sideRadio(stage, 'sarim'));
+    expect(enabledMaps(stage)).toEqual(['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']);
+    expect(mapRadio(stage, 'wadi_tarfan_l').disabled).toBe(false);
+    expect(checkedMap(stage)).toBe('wadi_tarfan_l'); // a faction pick keeps ground it plays on
+  });
+
+  it('GH-920 B7: the side note names every KDF-v-Sarim map by its name (it is a catalogue string, so a map added to the list without it is red)', () => {
+    const stage = mountPick(deps());
+    const note = stage.querySelector<HTMLElement>('.rl-versus__side-note')!.textContent!;
+    for (const id of FACTION_MATCHUP_MAPS) {
+      const full = (maps as Record<string, { name: string }>)[id]!.name;
+      // The catalogue spells the map's short name: "Wadi Tarfan (large) — The Three Fords" -> "Wadi Tarfan (large)".
+      expect(note, id).toContain(full.split(' — ')[0]);
+    }
   });
 
   it('N3 Task 6: the KDF-v-Sarim options say the economy is on; the mirror says nothing of it', () => {

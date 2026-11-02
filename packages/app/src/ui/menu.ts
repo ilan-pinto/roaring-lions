@@ -31,14 +31,14 @@ import { terrainTonesFor } from '../terrain-themes';
  *  missions (GH-912, MDD 0.1 point 9). DELETE the entries when P3 ships. Rujm Sawda
  *  (GH-913) was held out until the lead looked at it; L8 opened it (a card in Free Play, and a
  *  mirror-only map in the versus lobby). Wadi Tarfan (large)
- *  (GH-920 B3) is held out until its fairness (B4) and its render and memory budget (B5) are read and
- *  the lead opens it: DELETE its entry then. This hides the CARD only:
+ *  (GH-920 B3) was held out until its fairness (B4) and its render and memory budget (B5) were read;
+ *  B7 opened it (a card in Free Play, and a map in the versus lobby for the mirror and both faction cells). This hides the CARD only:
  *  `/free-play/ein_qasab` and `?sandbox=ein_qasab` (and the same two for each of
  *  the others, with `?net=new` for a sandbox room) still boot it for dev work,
  *  and the maps stay in `@lions/data` and the Worker's
  *  `SHIPPED_MAP_IDS`. `sandbox-menu.test.ts` pins this set to exactly this
  *  list and fails if an entry names no shipped map. */
-export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'wadi_tarfan_l']);
+export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */

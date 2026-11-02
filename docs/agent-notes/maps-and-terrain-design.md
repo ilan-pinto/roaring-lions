@@ -144,9 +144,12 @@ What each stage does, and what measuring it found:
   (2(47 - x) + 1 = 95 - 2x), never twice its own tile. The seats come out at (20,20) and (75,75), 77.8 apart.
 - **Zones keep their landmark size** (7x7 stays 7x7 about twice its centre); the two camp grounds double.
 
-Wadi Tarfan (large) is registered and NOT offered: `RULES_ONLY_MAPS` (`tools/validate_versus_rules.mjs`),
-`UNLISTED_MAP_IDS`, `VERSUS_FORMATIONS_CLOSED_MAPS`, in neither `@lions/net` list. B4 (fairness) and B5 (render and
-memory) come before B7 opens it.
+Wadi Tarfan (large) is OFFERED since the opening commit of GH-920 B7 (the lead's ruling, after B4's fairness, B5's render and memory
+and B6's census): in `VERSUS_FAIR_MAPS` and `FACTION_MATCHUP_MAPS` (the mirror and both KDF-v-Sarim cells, at seats (20,20) and
+(75,75), the one-tile neighbourhood a report only), out of `UNLISTED_MAP_IDS` (a Free Play card), in `MATCHUP_MAPS` of
+`tools/validate_versus_rules.mjs` (`RULES_ONLY_MAPS` is empty, kept for the next large map). Formations stay closed on it:
+`VERSUS_FORMATIONS_CLOSED_MAPS`, until it passes its own S4 run. Opening a map touches a catalogue string too: `versus.host.side.note`
+names the faction maps in `en.json`, and `versus.test.ts` holds it to `FACTION_MATCHUP_MAPS`.
 
 ### Wadi Tarfan (large): the network budget (GH-920 B7, 2 Nov 2026)
 
