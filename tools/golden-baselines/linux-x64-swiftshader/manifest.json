@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "592ebbb193e6aa64e85befffd024b2fd8f16f023",
-  "blessedAt": "2026-11-01T10:35:40.259Z",
-  "reason": "PR 924 (GH-826 step 2): Rifle Squad hands on the weapon. The vehicle and kitted scenarios show the new infantry figures (vehicle 373 px / 0.0242, kitted 385 px / 0.0266 on CI); every other scenario passes.",
+  "commit": "146cc528b2bb56052134b82fe0acc9ea5b0e52ba",
+  "blessedAt": "2026-11-02T06:46:44.267Z",
+  "reason": "PR 948 (GH-943 L1, look uplift): environment lighting on by default (per-material PMREM sky, hemisphere 0.70/0.82/0.65, metal cap 0.7), the lead-approved middle column of the 2 Nov mock. Every gated scenario moves (CI: quiet 96px/1.52, open-ground 3/1.34, vehicle 516/1.49, kitted 755/1.51, relief 9497/1.76, aftermath 10663/2.95; all self-checks pass); new gated scenario 'fogged' gets its first baseline.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "07ea019faadaafd558e154408b6549b59871eab57ac15a65615fd193ce8a7f19"
+      "sha256": "590e6c3b0ffda69624fbf7228c3c60aa6b08a6706bee55a89042d04cb99a8550"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "fdb46794715136520f48a3c7129f1ae7083b72a05c5b8a55ad0ec274d8b0551f"
+      "sha256": "ad81a670907714605d6d027786951731540fa08d9110601a68b0b3fa17dbac25"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b9a8c8530729046f6aed3cc4e45c071a9cf9f1e2a98161793f653a381b120a80"
+      "sha256": "e689cb6c0d9d9b36afec855088607240cfd7a8862a7cc42b810bbed21436f004"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,21 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c824bdaa1129282618f3f632b41267e7b9923d75c115e876cef4d2a954712647"
+      "sha256": "3a28c18225832d92262b286bcfa1f0cfd6beb13df55f71346149a30142dcece8"
+    },
+    "fogged": {
+      "tick": 140,
+      "camera": {
+        "x": 12.5,
+        "y": 22.5,
+        "zoom": 0.5
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": null,
+      "sha256": "7ddc0882b54d2762b40a32a180cd4d29c31012ab4e8c8522afaa514ec1df66e2"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c01d67b82fc1127270abb13f255a7d23bfbc8ea8914807d7cbc6a57a85dff00f"
+      "sha256": "329fbd5d8d1376bafad58088fe79c2373cd26fa06ec353a88ad38449619f4144"
     },
     "aftermath": {
       "tick": 300,
@@ -95,7 +109,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "7d6e01991aec699d98a8a2845c24a200588cd890e3d4805528380385e76a7b21"
+      "sha256": "550dd5e4ec5fc9a3f4f927a93a61ae6f217d8c58f80d53030834b9829e3e3f09"
     }
   }
 }
