@@ -46,6 +46,7 @@
     "kit:meshes": "pnpm --filter @lions/tools kit:meshes",
     "rescale:meshes": "pnpm --filter @lions/tools rescale:meshes",
     "running-gear:meshes": "pnpm --filter @lions/tools running-gear:meshes",
+    "mark:meshes": "pnpm --filter @lions/tools mark:meshes",
     "ui:shots": "pnpm --filter @lions/tools ui:shots",
     "ui:routes": "pnpm --filter @lions/tools ui:routes",
     "net:engines": "pnpm --filter @lions/tools net:engines",

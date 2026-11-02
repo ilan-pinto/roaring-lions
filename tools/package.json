@@ -41,6 +41,7 @@
     "kit:meshes": "tsx src/meshes/kit-pass.ts",
     "rescale:meshes": "tsx src/meshes/rescale-pass.ts",
     "running-gear:meshes": "tsx src/meshes/running-gear-pass.ts",
+    "mark:meshes": "tsx src/meshes/mark-pass.ts",
     "ui:shots": "tsx src/ui-review/shoot.ts",
     "ui:routes": "tsx src/ui-review/routes-check.ts",
     "net:engines": "tsx src/net/two-engine.ts",

@@ -524,6 +524,10 @@ export const DEBUG_LAYERS = [
   'environment',
   // Look uplift L2 (GH-943): the colour grade folded into OutputPass. See the doc entry.
   'grade',
+  // Look uplift L3 (GH-943): the team mark on a vehicle's hull and turret. Writes the one strength every hooked
+  // material shares to 0 and back (`units/team-mask.ts`): a uniform write nothing per-frame re-asserts. Witnessed
+  // by the gated `vehicle` scenario's layer check.
+  'team-mask',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

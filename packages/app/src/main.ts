@@ -1180,7 +1180,8 @@ async function main(): Promise<void> {
         source: (typeId) => garageModelSource(typeId),
         dracoDecoderPath: dracoDecoderPath(),
         groundTextureUrl: garageGroundTexture(BASE),
-        colors: garageColors(),
+        // L3 (GH-943): the owner's team-mark colour follows the colour-vision setting, as a mission's does.
+        colors: garageColors(settings.accessibility.colorVision),
       },
       // The raw unit JSON, for the bay's stat panel and every rung's benefit
       // lines. Same `units` catalogue `kdfUnits` above is built from, so the

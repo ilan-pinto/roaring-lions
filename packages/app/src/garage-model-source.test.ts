@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { paletteColor } from '@lions/data';
+import { paletteColor, paletteTeamColors } from '@lions/data';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 
 const KDF_DIR = resolve(__dirname, '../../../data/units/kdf');
@@ -37,6 +37,18 @@ describe('the stage colours', () => {
     expect(c.fill).toBe(paletteColor('water.0'));
     expect(c.bounce).toBe(paletteColor('dust.4'));
     expect(c.ground).toBe(paletteColor('limestone.3'));
+  });
+
+  it('the team mark takes the player\'s colour-vision set, as a mission does (L3, GH-943)', () => {
+    // Literals: team.kedem is #2F6FD9 in the default set and #0072B2 under deuteranopia.
+    expect(garageColors().team).toBe('#2F6FD9');
+    expect(garageColors('default').team).toBe('#2F6FD9');
+    expect(garageColors('deuteranopia').team).toBe('#0072B2');
+    for (const v of ['default', 'deuteranopia', 'protanopia', 'tritanopia'] as const) {
+      expect(garageColors(v).team).toBe(paletteTeamColors(v)[0]);
+    }
+    // nothing else about the stage moves
+    expect({ ...garageColors('deuteranopia'), team: '' }).toEqual({ ...garageColors(), team: '' });
   });
 
   it('stand the model on the arid ground image', () => {

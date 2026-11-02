@@ -23,6 +23,7 @@ import { groundWorldY } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { applyMeshClip } from './mesh-clip';
 import { MESH_SCALE } from './mesh-anim';
+import { TEAM_MASK_PROGRAM_KEY, TeamMaskSlots, VehicleTeamMaterials, teamHookOf } from './team-mask';
 import {
   MESH_DEATH_SECONDS,
   meshDeathOpacity,
@@ -868,5 +869,43 @@ describe('updateMeshWrecks', () => {
     updateMeshWrecks(wrecks, () => false);
     expect(wrecks[0].shown).toBe(true);
     expect(rootA.visible).toBe(true);
+  });
+});
+
+describe('the death fade keeps a vehicle\'s team mark (L3, GH-943)', () => {
+  const MARK = {
+    roof: { x: [-1.7, -0.4], z_half: 0.7, y: [2.28, 2.56], min_ny: 0.6 },
+    band: { x: [-1.7, -0.4], y: [2.12, 2.3], min_nz: 0.6 },
+    exclude_uv: [[0.28149, 0.21069], [0.26978, 0.26538], [0.86938, 0.82397]],
+    exclude_radius: 0.0002,
+    luma: 0.17655,
+  };
+
+  it('the fade clone carries the hook, so the mark does not pop off for the 0.4 s of the fade', () => {
+    const base = new THREE.MeshStandardMaterial({ map: new THREE.DataTexture(new Uint8Array([1, 2, 3, 255]), 1, 1) });
+    base.userData = { rl_team_mark: MARK };
+    const variant = new VehicleTeamMaterials(new TeamMaskSlots(['#2F6FD9', '#D93A2B', '#F2E8D5'])).materialFor(base, 0);
+    expect(teamHookOf(variant)).toBeDefined();
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(new THREE.BufferGeometry(), variant));
+    const [swap] = beginMeshDeathFade(root);
+    const fade = swap!.fade;
+    expect(fade).not.toBe(variant);
+    expect(teamHookOf(fade)).toBe(teamHookOf(variant));
+    expect(fade.customProgramCacheKey()).toContain(TEAM_MASK_PROGRAM_KEY);
+    const shader = { uniforms: {}, vertexShader: THREE.ShaderChunk.meshphysical_vert, fragmentShader: THREE.ShaderChunk.meshphysical_frag };
+    fade.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
+    expect(shader.fragmentShader).toContain('rlTeamMask');
+    expect(shader.vertexShader).toContain('vMarkPos = position;');
+    expect(fade.transparent).toBe(true);
+  });
+
+  it('a material with no mark fades exactly as before: no hook, no key', () => {
+    const plain = new THREE.MeshStandardMaterial();
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(new THREE.BufferGeometry(), plain));
+    const fade = beginMeshDeathFade(root)[0]!.fade;
+    expect(teamHookOf(fade)).toBeUndefined();
+    expect(fade.customProgramCacheKey()).not.toContain(TEAM_MASK_PROGRAM_KEY);
   });
 });

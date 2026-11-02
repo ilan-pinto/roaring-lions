@@ -325,7 +325,8 @@ for vehicles.
   measured in: the Blender scripts divide an imported rescaled GLB back
   (`tools/vehicles/rescale.py`), and the TS recipes multiply by `rescaleOf`.
   Pipeline: export -> `pnpm rescale:meshes -- --id=<id>` (and `--kit=mbt_lavi`
-  for a kit export) -> running-gear -> kit -> wreck -> damage -> encode. The
+  for a kit export) -> running-gear -> mark (a vehicle with a team mark: the Lavi) -> kit -> wreck ->
+  damage -> encode. The
   pass marks `extras.rl_rescale` and refuses a marked file; the kit pass
   refuses a source whose mark differs from its vehicle's.
 - **A mesh VEHICLE wears its bought kit since plan 3 (GH-238, 2026-10-07), in
@@ -798,3 +799,26 @@ which register no tests: a test file that exports a helper re-registers its test
 
 `rebindVertices` makes the constructed failing input (a copy of a file with one bone's vertices moved to another); it throws
 if it moved nothing, so a mutation cannot silently be the shipped file.
+
+## L3: the team mark on the Lavi (GH-943)
+
+Spec `docs/superpowers/specs/2026-11-01-look-uplift-design.md` section 4; the lead's rulings of 2 Nov are on GH-943.
+
+- **What shipped, and what did not.** A first cut added a 2048 px normal map and ORM map to the Lavi, with the team mask in the ORM's inverted
+  alpha. The lead judged the sheets: the maps barely showed and cost +42.7 MiB GPU, +4.9 MiB download and about 0.3 s, so they were DROPPED; and the
+  mask, which followed the texture's UV islands, read as ragged blue blotches. The mark was rebuilt as a procedural box test.
+- **The mark.** `material.extras.rl_team_mark` holds a roof box and a flank band in the mesh-local frame (X forward, Y up), written by `pnpm
+  mark:meshes` from `tools/vehicles/lavi_mark.py`: about 2% of the covered surface, strength 0.85. The shader (`units/team-mask.ts`) tests the
+  fragment's OBJECT-space `position` and `normal` (varyings from the vertex stage), so the edges are straight lines in that frame, anti-aliased over
+  one pixel, and the mark turns with the turret: the turret meshes hang off `turret_pivot`, and the attributes never see its rotation. Pipeline: export
+  -> rescale -> running-gear -> mark -> kit -> wreck -> damage -> encode. The pass refuses a re-run, an unrescaled file, one with no running gear and
+  one already kitted or wrecked; it drops the export's flat normal and metal-roughness textures, so the GLB is back to its base colour alone.
+- **Who carries it.** One VARIANT per (template material x colour slot: own, hostile, neutral), minted lazily, +0 draw calls, +0 textures, and only
+  on `rl_role: hull` meshes (the barrel, antennas and tracks are other roles). A kit part is merged INTO the host geometry at runtime and has no UVs
+  of its own (the kit pass pins each onto one of three bake texels), so the shader excludes a fragment whose UV is within `exclude_radius` of a pin.
+  A wreck takes none. `carryTeamMark` re-applies the hook on scar and running-gear clones (`Material.clone()` drops `onBeforeCompile`); a clone must
+  never carry the program key without the patch. The slot colours are shared linear uniforms, so `setTeamColors` (colour vision) is one write.
+- **Gates.** The `team-mask` debug layer (the shared strength to 0) and its layer check on the gated `vehicle` scenario; `check_team_marks` in
+  `validate:meshes`; `mark-pass.test.ts` (an independent triangle-centroid measurement of the boxes, 95% of the area on `turret_hull`, every kit UV
+  inside a pin); and the per-class texture budget (vehicle 80 MiB / 2560 px, building 64 / 2048, infantry 32 / 3072, a ratchet) with a
+  report-only roster census. `officer_armour` and `mbt_lavi_camo` reuse the Lavi's bake and do NOT carry the mark yet.

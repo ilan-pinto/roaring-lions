@@ -84,6 +84,7 @@ import {
   instantiateVehicleMesh,
 } from '../units/mesh-vehicle';
 import type { VehicleKitTiers } from '../units/vehicle-kit';
+import { TeamMaskSlots, VehicleTeamMaterials } from '../units/team-mask';
 import type { MeshFaction } from '../units/mesh-role';
 import { TEXTURED_INFANTRY_TYPES } from '../units/textured-infantry';
 import { TEXTURED_VEHICLE_TYPES } from '../units/textured-vehicle';
@@ -125,6 +126,10 @@ export interface GarageColors {
   readonly sky: string;
   readonly bounce: string;
   readonly ground: string;
+  /** L3 (GH-943): the viewer's OWN team colour (sRGB hex). Present, a vehicle with a team mark
+   *  (`extras.rl_team_mark`) wears it on its roof panel and turret band, as it does in a mission;
+   *  absent, the bake is drawn unmasked. */
+  readonly team?: string;
 }
 
 export interface GarageViewOptions {
@@ -551,6 +556,10 @@ function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationCli
   const build = (tiers: VehicleKitTiers | undefined): BuiltVehicle => {
     const tpl = buildVehicleMeshTemplate({ scene: cloneForBuild(pristine), animations: rest }, opts.typeId, textured, tiers);
     const ent = instantiateVehicleMesh(tpl, opts.typeId);
+    // L3 (GH-943): the bay shows the owner's colour on the team mark, exactly as a mission does.
+    const teamHex = opts.colors.team;
+    const teamMats = teamHex ? new VehicleTeamMaterials(new TeamMaskSlots([teamHex, teamHex, teamHex])) : null;
+    teamMats?.applyTo(ent, 0);
     if (ent.deathRoot) ent.deathRoot.visible = false;
     let pose: PoseSource = 'bind';
     const idle = ent.actions.get('idle');
@@ -572,6 +581,7 @@ function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationCli
       key: kitKey(tiers, ceiling),
       release: () => {
         disposeVehicleMeshEntity(ent);
+        teamMats?.dispose();
         disposeVehicleMeshTemplate(tpl);
       },
     };

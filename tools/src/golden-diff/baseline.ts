@@ -434,6 +434,14 @@ const GROUND_T11 =
   'full-gate runs (`t11-r{1,2,3}`, port 5195) on macOS 15 / M3 Pro, headless Chromium, software ' +
   'SwiftShader, frame loop frozen. ';
 
+/** Look uplift L3 (GH-943), the `team-mask` layer check: what it was measured with, written once. */
+const L3_MARK =
+  'Look uplift L3 (GH-943), measured 2 Nov 2026 with `tools/src/perf/relief-read-signal.ts --layers=team-mask`: the gate\'s own ' +
+  'capture, 3 fresh page loads, BIT-IDENTICAL across all three, on macOS / M3 Pro, headless Chromium, SwiftShader (ANGLE, Vulkan, ' +
+  'SwiftShader driver). Hiding `team-mask` writes the one strength every hooked material shares to 0: the crisp roof recognition ' +
+  'panel and the turret band (boxes tested on the object-space position, `units/team-mask.ts`) fall back to the bake. Floors are a ' +
+  'third of the smallest run, rounded down. ';
+
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
     // The camera sits on `town_center` while the sandbox force spawns at the
@@ -1143,6 +1151,16 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'A small signal by nature: a unit is ~25 px at this zoom and the pass moves its specular, not ' +
           'its colour. 43/40 px is under SUB_THRESHOLD_PX (100), so the pixel floor is 0 and the magnitude ' +
           'floor carries it (a third of the smallest, rounded down). WATCHED GOING RED: `setUnitSurfacePass` made a no-op (returns before writing) reads 0 px / 0.0000 on this frame, under both floors.',
+      },
+      {
+        layer: 'team-mask',
+        minDiffPixels: 94,
+        minMeanAbsChannelDelta: 0.0044,
+        rationale:
+          L3_MARK +
+          "The two Lavis' roof panel and turret band at zoom 1: 283 px / 0.0132 x3. " +
+          'WATCHED GOING RED: `setTeamMaskPass` made a no-op reads 0 px / 0.0000 here, under both floors; the mark\'s boxes moved off the ' +
+          'turret (x 50 m) read 0 px / 0.0000 too.',
       },
     ],
     rationale:

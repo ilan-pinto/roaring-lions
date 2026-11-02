@@ -897,6 +897,8 @@ describe('BASELINES layerChecks', () => {
         // GH-705 Task 6, 2026-10-23: relief-read-signal.ts --layers=unit-surface,
         // 3 fresh-page runs, bit-identical.
         'unit-surface': { px: 43, mean: 0.0202 },
+        // L3 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=team-mask, 3 fresh-page runs, bit-identical.
+        'team-mask': { px: 283, mean: 0.0132 },
       },
       // Plan 3 Task 8 (GH-238 K8), 2026-10-07: `kit:capture -- --toggle`, the
       // gate's own capture code, 3 fresh loads per layer, bit-identical
