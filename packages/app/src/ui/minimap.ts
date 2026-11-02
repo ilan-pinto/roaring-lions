@@ -962,8 +962,20 @@ export function flashAlpha(ageMs: number): number {
  */
 export const PING_MS = 2500;
 
-/** Dot edge, in box pixels. 6px filled, from the spec's own inline style. */
+/** Dot edge, in box pixels. 6px filled, from the spec's own inline style. This is the edge on a
+ *  48-tile map (4.375 px a tile) and on anything smaller; a bigger map shrinks it, `unitDotPx`. */
 const DOT = 6;
+/** The smallest unit dot, box pixels. Under 3 a filled mark is a speck and loses its colour. */
+const DOT_MIN = 3;
+/**
+ * The unit dot's edge for a minimap drawn at `scale` box pixels a tile (GH-920). The dot is tied to
+ * the tile, not to the box: a 6 px mark is 1.4 tiles across on a 48 map and 2.7 on a 96 one (2.19 px
+ * a tile), where a squad one tile apart is one blob. So it shrinks in proportion to the scale, never
+ * below `DOT_MIN`, and never above `DOT`: a 48 map, and every smaller one, keeps its 6 px exactly.
+ */
+export function unitDotPx(scale: number): number {
+  return Math.min(DOT, Math.max(DOT_MIN, Math.round((DOT * scale) / (MINIMAP_SIZE / 48))));
+}
 /** Diamond edge before the 45-degree turn, in box pixels. Spec: 8px stroked. */
 const DIAMOND = 8;
 /** The objective zone mark (VR-36): 2 px edge on a 4 px keyline, a 3/2 dash
@@ -1499,7 +1511,7 @@ export class Minimap {
   }
 
   /**
-   * One unit mark, `DOT` box pixels tall whichever silhouette it wears.
+   * One unit mark, `unitDotPx` box pixels tall whichever silhouette it wears.
    *
    * The square keeps its rounded integer rect -- a 6px axis-aligned fill on a
    * half-pixel boundary is a blurred 7px one, and the player's own units are
@@ -1514,6 +1526,7 @@ export class Minimap {
    */
   private dot(at: MinimapPoint, shape: DotShape): void {
     const { ctx } = this;
+    const edge = unitDotPx(this.proj.scale);
     if (shape === 'hollow') {
       // VR-36: a suspected contact, the world's hollow diamond in miniature --
       // the colour the fill would have had, as a stroke over the keyline.
@@ -1558,22 +1571,22 @@ export class Minimap {
       return;
     }
     if (shape === 'square') {
-      ctx.fillRect(Math.round(at.x - DOT / 2), Math.round(at.y - DOT / 2), DOT, DOT);
+      ctx.fillRect(Math.round(at.x - edge / 2), Math.round(at.y - edge / 2), edge, edge);
       return;
     }
     if (shape === 'circle') {
       ctx.beginPath();
-      ctx.arc(at.x, at.y, DOT / 2, 0, Math.PI * 2);
+      ctx.arc(at.x, at.y, edge / 2, 0, Math.PI * 2);
       ctx.fill();
       return;
     }
-    // Equilateral, `DOT` tall, apex up. The centroid sits one third of the
+    // Equilateral, `edge` tall, apex up. The centroid sits one third of the
     // height above the base, so the apex is 2/3 up and the base 1/3 down.
-    const half = DOT / Math.sqrt(3);
+    const half = edge / Math.sqrt(3);
     ctx.beginPath();
-    ctx.moveTo(at.x, at.y - (DOT * 2) / 3);
-    ctx.lineTo(at.x + half, at.y + DOT / 3);
-    ctx.lineTo(at.x - half, at.y + DOT / 3);
+    ctx.moveTo(at.x, at.y - (edge * 2) / 3);
+    ctx.lineTo(at.x + half, at.y + edge / 3);
+    ctx.lineTo(at.x - half, at.y + edge / 3);
     ctx.closePath();
     ctx.fill();
   }

@@ -34,6 +34,7 @@ import {
   CHROME,
   FLASH_MS,
   MINIMAP_SIZE,
+  unitDotPx,
   RING_BY_TIER,
   objectiveMarks,
   incomeMarks,
@@ -2039,5 +2040,49 @@ describe('supply routes on the minimap (C3)', () => {
     expect(last).toBeGreaterThan(-1);
     expect(last).toBeLessThan(firstDot);
     expect(last).toBeLessThan(firstGlyph);
+  });
+});
+
+// --- unit dots on a big map (GH-920) --------------------------------------
+
+/** `n`x`n` open field, one friendly (square) and one identified hostile (triangle) at distinct tiles; the sizes the draw path used. */
+function dotSizes(n: number): { own: number[]; hostile: number[] } {
+  const sim = new Sim({ seed: 1, width: n, height: n, capacity: 16 });
+  const t = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
+  sim.spawn(t, 0, fx.from(10), fx.from(10));
+  sim.identifyTo(0, sim.spawn(t, 1, fx.from(20), fx.from(20)));
+  recorder.ops.length = 0;
+  new Minimap(document.body, {
+    sim,
+    map: makeMap({ width: n, height: n, blocked: new Uint8Array(n * n), boulder: new Uint8Array(n * n), cover: new Uint8Array(n * n) }),
+    view: makeView(() => true),
+    tones: TONES,
+    teamColors: TEAM,
+    objectives: () => [],
+  });
+  const of = (color: string): number[] => recorder.dots().filter((d) => d.style === color).map((d) => d.size);
+  return { own: of('blue'), hostile: of('red') };
+}
+
+describe('unit dot size', () => {
+  it('is 6 px on a 48-tile map and on every smaller one, exactly as before', () => {
+    for (const n of [24, 32, 40, 48]) {
+      expect(unitDotPx(MINIMAP_SIZE / n)).toBe(6);
+      expect(dotSizes(n)).toEqual({ own: [6], hostile: [6] });
+    }
+  });
+
+  it('shrinks with the tile on a bigger map: 4 px at 80, 3 px at 96', () => {
+    expect(dotSizes(80)).toEqual({ own: [4], hostile: [4] });
+    expect(dotSizes(96)).toEqual({ own: [3], hostile: [3] });
+  });
+
+  it('never falls below 3 px (a literal, not DOT_MIN), however big the map', () => {
+    expect(unitDotPx(MINIMAP_SIZE / 400)).toBe(3);
+    expect(dotSizes(200).own).toEqual([3]);
+  });
+
+  it('stays within 1.6 tiles across on every map from 48 to 96, so a squad one tile apart is still a squad', () => {
+    for (let n = 48; n <= 96; n++) expect(unitDotPx(MINIMAP_SIZE / n) / (MINIMAP_SIZE / n)).toBeLessThanOrEqual(1.6);
   });
 });
