@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "146cc528b2bb56052134b82fe0acc9ea5b0e52ba",
-  "blessedAt": "2026-11-02T06:46:44.267Z",
-  "reason": "PR 948 (GH-943 L1, look uplift): environment lighting on by default (per-material PMREM sky, hemisphere 0.70/0.82/0.65, metal cap 0.7), the lead-approved middle column of the 2 Nov mock. Every gated scenario moves (CI: quiet 96px/1.52, open-ground 3/1.34, vehicle 516/1.49, kitted 755/1.51, relief 9497/1.76, aftermath 10663/2.95; all self-checks pass); new gated scenario 'fogged' gets its first baseline.",
+  "commit": "5f1a86887fe1f9f54e8badac590618c0ccd33e17",
+  "blessedAt": "2026-11-02T12:33:21.304Z",
+  "reason": "PR 952 (GH-943 L2, colour grading): new gated scenario 'graded' (vehicle framing under the dusk grade at x0.5, the lead-approved mock value) gets its first baseline. Every other gated scenario passed unchanged on the PR's CI (day is identity).",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -110,6 +110,20 @@
       },
       "region": null,
       "sha256": "550dd5e4ec5fc9a3f4f927a93a61ae6f217d8c58f80d53030834b9829e3e3f09"
+    },
+    "graded": {
+      "tick": 140,
+      "camera": {
+        "x": 4.5,
+        "y": 20.5,
+        "zoom": 1
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": null,
+      "sha256": "8bfac90855442c76c907ad8f12676ee562110a30b790db305f0b9e22fcd4027a"
     }
   }
 }
