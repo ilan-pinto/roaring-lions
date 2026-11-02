@@ -162,7 +162,7 @@ export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfa
  *  A TWIN of `cap_minutes` in data/versus/<map>.json, kept here because the Worker imports @lions/net and
  *  not @lions/data (it would pull every map into the bundle for one number).
  *  `tools/src/validate_versus_rules.test.ts` holds this table to every rules file, both ways. */
-export const MAP_CAP_MINUTES: Readonly<Record<string, number>> = { rujm_sawda: 35, wadi_tarfan_l: 35 };
+export const MAP_CAP_MINUTES: Readonly<Record<string, number>> = { rujm_sawda: 35, wadi_tarfan_l: 35, milh_flats_l: 35 };
 
 /** The match cap every map has unless `MAP_CAP_MINUTES` says more: 25 minutes. */
 export const MATCH_CAP_MINUTES_DEFAULT = 25;

@@ -10,7 +10,8 @@
 //   1. shape: the spec's side, one elevation digit per tile;
 //   2. the half-turn (x, y) -> (size - 1 - x, size - 1 - y): every tile, every elevation digit, every
 //      marker and zone (bar a named centre), every building, both camps, both tunnel sets, and the
-//      income of each zone against its twin's; the seats on the main diagonal;
+//      income of each zone against its twin's; the seats on the main diagonal (the anti-diagonal for a spec that
+//      says so);
 //   3. seat-to-seat flow cost, both ways, on foot and on wheels, equal and finite;
 //   4. (optional) a cut: with every named crossing plugged no vehicle crosses, and each crossing alone
 //      carries one;
@@ -74,6 +75,8 @@ export interface LargeMapSpec {
   coverShare?: readonly [number, number];
   /** How many 2x2 diagonal steps the relief may have; none when absent. */
   maxFatStairs?: number;
+  /** The seats stand on the anti-diagonal (x + y = size - 1) rather than the main one (x = y): Milh Flats'. */
+  antiDiagonal?: boolean;
   /** Markers that may stand without a twin tile (a named centre on the seam), none when absent. */
   lone?: readonly string[];
   /** A name the report prints. */
@@ -149,7 +152,8 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
   else if (mirror(markers.versus_0).join() !== markers.versus_1.join()) fail(`symmetry: versus_1 ${markers.versus_1} is not versus_0 ${markers.versus_0} mirrored`);
   for (const seat of ['versus_0', 'versus_1'] as const) {
     const p = markers[seat];
-    if (p && p[0] !== p[1]) fail(`seats: ${seat} (${p}) is not on the main diagonal (x == y)`);
+    if (p && !spec.antiDiagonal && p[0] !== p[1]) fail(`seats: ${seat} (${p}) is not on the main diagonal (x == y)`);
+    if (p && spec.antiDiagonal && p[0] + p[1] !== SIZE - 1) fail(`seats: ${seat} (${p}) is not on the anti-diagonal (x + y == ${SIZE - 1})`);
   }
   const markerAt = new Map(Object.entries(markers).map(([n, p]) => [p.join(','), n]));
   const lonely = Object.entries(markers).filter(([, p]) => !markerAt.has(mirror(p).join(','))).map(([n]) => n).sort();
@@ -438,6 +442,18 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
       { name: 'sw_ford', marker: 'sw_ford', radius: 4 },
       { name: 'centre', zone: 'centre_ford' },
     ],
+  }),
+  // GH-920 B3. An open plain: no cut, no tunnels (the original has no rules file), a lone centre marker, and the
+  // seats on the anti-diagonal. The income is a table a mirror room never reads.
+  milh_flats_l: () => ({
+    label: 'Milh Flats (large)',
+    size: 96,
+    routesPerEnd: 0,
+    income: { zones: 7, perMin: 220 },
+    reference: maps.milh_flats as unknown as MapJson,
+    coverShare: [0.085, 0.11],
+    antiDiagonal: true,
+    lone: ['centre'],
   }),
 };
 

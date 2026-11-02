@@ -32,6 +32,11 @@
 // (symmetry); an elevation digit lowered at (2,2) (symmetry); versus_1 moved from (75,75) to (76,75) (3 red: seat mirror, marker
 // pairs, the KDF mirror's spawn); a `^` on a formation tile at (22,25), seat 0's own (2, 5) offset, its twin left alone (4 red:
 // symmetry and the spawns). tools/src/large_map_verify.test.ts runs these and the census distortions against the verifier.
+//
+// Falsified again for milh_flats_l (GH-920 B3), the same four on the shipped data/maps/milh_flats_l.json, each seen red and then
+// restored (build.mjs rewritten, --check exit 0): a row character flipped, (40,5) '.' -> '1' (symmetry); an elevation digit changed, (40,5)
+// '2' -> '1' (symmetry); versus_1 moved from (75,20) to (76,20) (3 red: seat mirror, marker pairs, the KDF mirror's spawn); a `^` on a
+// formation tile at (22,80), seat 0's own (2, 5) offset, its twin left alone (4 red: symmetry and the three pairings' spawns).
 import { describe, expect, it } from 'vitest';
 import { applyTerrain, maps, parseMap, units, type MapJson } from '@lions/data';
 import type { Faction } from '@lions/net';
@@ -41,20 +46,20 @@ import { standMapStructures } from '../../packages/app/src/map-sim';
 import { sandboxAnchors } from '../../packages/app/src/sandbox-anchors';
 import { versusForceOf, versusSpawns } from '../../packages/app/src/net/versus-force';
 
-const VERSUS_MAPS = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l'] as const;
+const VERSUS_MAPS = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'] as const;
 
 /** Each map's side, in tiles. */
-const SIDE: Record<(typeof VERSUS_MAPS)[number], number> = { wadi_tarfan: 48, milh_flats: 48, rujm_sawda: 80, wadi_tarfan_l: 96 };
+const SIDE: Record<(typeof VERSUS_MAPS)[number], number> = { wadi_tarfan: 48, milh_flats: 48, rujm_sawda: 80, wadi_tarfan_l: 96, milh_flats_l: 96 };
 
 /** The maps that name a pair by prefix (`bluff_near_0` / `bluff_near_1`). Rujm Sawda's twins have
  *  their own names (`well_n_0` faces `well_s_1`), so its pairs are found by the mirrored tile or rect. */
-const PAIRED_BY_PREFIX: readonly string[] = ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'];
+const PAIRED_BY_PREFIX: readonly string[] = ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l', 'milh_flats_l'];
 
 /** Markers with no twin, by name, and why. Milh Flats' `centre` sits on
  *  (23,23), one of the four tiles round the true centre (23.5,23.5): as a
  *  single goal it favours seat 1 by 0.6 tiles, so anything that scores held
  *  ground scores the `bir_milh` zone, which IS its own twin. */
-const UNPAIRED: Record<string, readonly string[]> = { wadi_tarfan: [], milh_flats: ['centre'], rujm_sawda: ['centre'], wadi_tarfan_l: [] };
+const UNPAIRED: Record<string, readonly string[]> = { wadi_tarfan: [], milh_flats: ['centre'], rujm_sawda: ['centre'], wadi_tarfan_l: [], milh_flats_l: ['centre'] };
 
 type Pt = readonly [number, number];
 const PAIRINGS: readonly (readonly [Faction, Faction])[] = [['kdf', 'kdf'], ['kdf', 'sarim'], ['sarim', 'kdf']];

@@ -33,12 +33,12 @@ export const MATCHUP_MAPS = ['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l'];
 export const MIRROR_RULES_MAPS = ['rujm_sawda'];
 
 /** Maps with a rules file that no room offers yet: in neither of @lions/net's VERSUS_FAIR_MAPS and
- *  FACTION_MATCHUP_MAPS. EMPTY since GH-920 B7 opened the large Wadi Tarfan (it moved into MATCHUP_MAPS: B4 read both
- *  faction cells inside 60/40 at its seats). The list stays so the next large map (Milh Flats L, Tel Marum L) has a place to
- *  wait. Opening one means moving it into MIRROR_RULES_MAPS (or MATCHUP_MAPS) in the same commit;
- *  tools/src/validate_versus_rules.test.ts pins this list against both net lists, so it is red the
+ *  FACTION_MATCHUP_MAPS. The large Wadi Tarfan of GH-920 waited here until B7 opened it (it moved into MATCHUP_MAPS: B4 read
+ *  both faction cells inside 60/40 at its seats); the large Milh Flats (B3) waits on its own B4 to B7 and the lead, and the
+ *  next large map (Tel Marum L) has a place to wait. Opening one means moving it into MIRROR_RULES_MAPS (or MATCHUP_MAPS) in
+ *  the same commit; tools/src/validate_versus_rules.test.ts pins this list against both net lists, so it is red the
  *  moment a map is offered without its rules file being reclassified. */
-export const RULES_ONLY_MAPS = [];
+export const RULES_ONLY_MAPS = ['milh_flats_l'];
 
 /** packages/app/src/net/versus-seats.ts VERSUS_SEATS. */
 export const VERSUS_SEATS = {
