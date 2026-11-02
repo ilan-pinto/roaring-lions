@@ -289,6 +289,13 @@ const L1_ENV =
   '(`EnvironmentRegistry.setEnabled`, a material-field write nothing per-frame re-asserts), so the frame is lit by the ' +
   'hemisphere and the sun alone. Floors are a third of the smallest of the three, rounded down. ';
 
+/** Look uplift L2 (GH-943), the `graded` scenario's layer checks: what they were measured with, written once. */
+const L2_GRADE =
+  'Look uplift L2 (GH-943), measured 2 Nov 2026 with `tools/src/perf/relief-read-signal.ts --scenario=graded ' +
+  '--layers=grade,units,environment`: the gate\'s own capture, 3 fresh page loads, BIT-IDENTICAL across all three, repaint ' +
+  'control 0 px / 0.0000 on every one, macOS host, SwiftShader (ANGLE, Vulkan, SwiftShader driver). Floors are a third of the ' +
+  'smallest of the three, rounded down. ';
+
 /** Every floor below is ONE THIRD of this machine's measured signal, on both
  *  metrics, rounded down to a readable number.
  *
@@ -1311,6 +1318,54 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     rationale:
       'whole frame: shroud, haze, the off-map fade and the force\'s mesh vehicles at zoom 0.5. 40 px / 0.004, ' +
       "`vehicle`'s ceiling carried over (see the comment above); the double-count falsifier moves it 87 px / 0.3183.",
+  },
+  graded: {
+    // Look uplift L2 (GH-943), `GRADED_SCENARIO`. No baseline exists for it in ANY environment: it ships in the change
+    // that adds it, and the first one comes from the post-merge bless. In an environment whose manifest already exists a
+    // missing entry is exit 1, not 3, so CI's `visual` job is red until that bless -- the `fogged` and `kitted`
+    // precedent, and intended. What votes meanwhile are the three reference-free checks.
+    //
+    // 40 px / 0.004 is `vehicle`'s own ceiling (GH-803), carried over rather than re-derived: the same sandbox force at
+    // the same tick and camera, a frozen frame whose zero-time repaint control reads a literal 0 px / 0.0000 (three of
+    // three fresh loads here). The grade adds no time-varying term: the dither is a hash of the pixel position. It has NOT
+    // been read against a stored `graded` baseline, since none exists: re-derive it from the first CI runs after the
+    // bless, as GH-803 did for the others.
+    region: null,
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
+    layerChecks: [
+      {
+        layer: 'grade',
+        minDiffPixels: 62,
+        minMeanAbsChannelDelta: 1.68,
+        rationale:
+          L2_GRADE +
+          'Hiding `grade` zeroes the lookup and the dither in `OutputPass` (`OutputGrade.enabled`, a uniform nothing per-frame ' +
+          're-asserts), so the frame is the ungraded dusk frame bit for bit. Measured 186 px / 5.0668; floor a third of that. ' +
+          'Almost all of the signal is under pixelmatch\'s 0.1 threshold (the dusk grade is a half-strength tint), so the ' +
+          'magnitude floor carries it. WATCHED GOING RED: `OutputGrade.apply` made to build nothing (returns false before ' +
+          'compiling the lookup) reads 0 px / 0.0000 on this frame, under both floors.',
+      },
+      {
+        layer: 'units',
+        minDiffPixels: 16700,
+        minMeanAbsChannelDelta: 0.62,
+        rationale:
+          L2_GRADE +
+          'Proves the vehicles are really in the graded frame: hiding every unit body moves 50100 px / 1.8734.',
+      },
+      {
+        layer: 'environment',
+        minDiffPixels: 64,
+        minMeanAbsChannelDelta: 0.11,
+        rationale:
+          L2_GRADE +
+          'The sky environment still reaches the vehicles under the grade (L1 + L2 together): 192 px / 0.3496.',
+      },
+    ],
+    rationale:
+      'whole frame: `vehicle`\'s mesh vehicles under the dusk preset and the dusk grade. 40 px / 0.004, `vehicle`\'s ' +
+      'ceiling carried over (see the comment above); repaint control 0 px / 0.0000.',
   },
   relief: {
     // MAP COVERAGE. The other four scenarios look at two of the five shipped

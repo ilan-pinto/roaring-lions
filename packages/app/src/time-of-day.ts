@@ -62,10 +62,11 @@ export function lightOverrideOf(mission: { readonly map: object } | null): Light
 }
 
 /**
- * Look uplift L2 (GH-943): while the lead judges the mock sheet, no grade draws unless `&grade` is in the URL. The
- * ship PR flips this one constant; `&grade=0` stays as the A/B switch, `&envlight`'s shape.
+ * Look uplift L2 (GH-943): the colour grade is ON by default since the lead judged the mock (2 Nov 2026: dawn as
+ * authored, dusk at half strength, baked into `data/grades/dusk.json`). `&grade=0` is the A/B switch, `&envlight`'s
+ * shape. Day is the identity grade and has no file, so a day map draws today's frame to the bit.
  */
-export const GRADE_ON_BY_DEFAULT = false;
+export const GRADE_ON_BY_DEFAULT = true;
 
 /** The `&grade=<value>` strengths a flag may ask for: 0 is the identity, 1 the file as authored. */
 export const GRADE_STRENGTH_MAX = 2;
@@ -81,8 +82,8 @@ export interface GradeChoice {
  * Which colour grade draws the map (look uplift L2, GH-943), beside `timeOfDayOf` and for the same
  * reason: the APP reads it, never the sim's mission type.
  *
- *  - Off unless `&grade` is present (`GRADE_ON_BY_DEFAULT`), and `&grade=0|off|false` always means off.
- *  - `&grade`, `&grade=auto` or `=1`: the grade shipped for `tod` (`dawn`, `dusk`; `night` is dusk, D10).
+ *  - On unless `&grade=0|off|false` (`GRADE_ON_BY_DEFAULT`), which always means off.
+ *  - Absent, `&grade`, `&grade=auto` or `=1`: the grade shipped for `tod` (`dawn`, `dusk`; `night` is dusk, D10).
  *    **Day is the identity and ships no file**, so `auto` on a day map draws today's frame.
  *  - `&grade=<id>` names a file in `data/grades/`; `&grade=<id>:<strength>` scales it (0..2, 1 = as authored).
  *    An unknown id falls back to no grade and says why.

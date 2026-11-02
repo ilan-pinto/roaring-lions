@@ -472,8 +472,8 @@ export interface RendererOptions {
    * vignette (`three/output-grade.ts`, maths in `three/grade-maths.ts`). `json` is a `data/grades/<id>.json`
    * file; `strength` scales every deviation from identity (1 = as authored, 0 = identity, default 1).
    * Absent, or an identity grade, builds NO pass: the frame is today's, bit for bit. Day ships no grade.
-   * The app reads it (`gradeOf`, beside `timeOfDayOf`) and passes it only behind `&grade`; it is OFF by
-   * default while the lead judges the mock. Three-only. Presentation only: nothing here is read by the sim.
+   * The app reads it (`gradeOf`, beside `timeOfDayOf`); it is ON by default for dawn and dusk
+   * (`&grade=0` is the A/B switch). Three-only. Presentation only: nothing here is read by the sim.
    */
   grade?: { readonly json: GradeJson; readonly strength?: number };
   /**

@@ -1,6 +1,6 @@
 # Look uplift: environment light, grade, unit materials, crowds
 
-Status: **L1 SHIPPED 2 Nov 2026 (GH-943); L2-L5 design, not started.** L1's numbers were judged on a mock
+Status: **L1 and L2 SHIPPED 2 Nov 2026 (GH-943); L3-L5 design, not started.** L2 (colour grade): the lead shipped dawn at x1.0 and dusk at x0.5 of the mock's authored values (baked into `data/grades/dusk.json`), day stays the identity, dither on graded frames only (banded dark pixels 8.0% against 21.9% for a 16-bit target alone and 18.5% ungraded); the grade is folded into `OutputPass` before the vignette rather than a pass after it (GH-829). The `grade` layer check rides the gated `graded` scenario. L1's numbers were judged on a mock
 sheet and the lead shipped its middle column (the census-solved hemisphere 0.70 / 0.82 / 0.65, not the
 starting 0.5 / 0.6 / 0.47; glass 0.6, props 0.3). The rest of §7 still waits on the lead
 (approve art numbers before any render). Written 2026-11-01 after the lead

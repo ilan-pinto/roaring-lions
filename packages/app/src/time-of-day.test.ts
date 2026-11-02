@@ -87,10 +87,12 @@ describe('gradeOf', () => {
   const grades = [g('dawn'), g('dusk')];
   const q = (s: string): URLSearchParams => new URLSearchParams(s);
 
-  it('is OFF by default while the lead judges the mock, and the constant says so', () => {
-    expect(GRADE_ON_BY_DEFAULT).toBe(false);
-    expect(gradeOf(null, q(''), 'dusk', grades).grade).toBeNull();
-    expect(gradeOf(null, q('tod=dusk'), 'dusk', grades).grade).toBeNull();
+  it('is ON by default, per time of day: dawn and dusk draw their grade, day (the identity) draws none', () => {
+    expect(GRADE_ON_BY_DEFAULT).toBe(true);
+    expect(gradeOf(null, q(''), 'dusk', grades).grade?.id).toBe('dusk');
+    expect(gradeOf(null, q('tod=dawn'), 'dawn', grades).grade?.id).toBe('dawn');
+    expect(gradeOf(null, q(''), 'night', grades).grade?.id).toBe('dusk');
+    expect(gradeOf(null, q(''), 'day', grades).grade).toBeNull();
   });
 
   it('`&grade=0|off|false` is always off, even over a mission that authors one', () => {
@@ -130,9 +132,10 @@ describe('gradeOf', () => {
     }
   });
 
-  it('a mission\'s authored map.grade wins over the flag\'s id, and needs the flag present while it is off by default', () => {
+  it('a mission\'s authored map.grade wins over the flag\'s id and over the time of day\'s, but not over an explicit off', () => {
     expect(gradeOf({ map: { grade: 'dawn' } }, q('grade=dusk'), 'dusk', grades).grade?.id).toBe('dawn');
-    expect(gradeOf({ map: { grade: 'dawn' } }, q(''), 'dusk', grades).grade).toBeNull();
+    expect(gradeOf({ map: { grade: 'dawn' } }, q(''), 'dusk', grades).grade?.id).toBe('dawn');
+    expect(gradeOf({ map: { grade: 'dawn' } }, q('grade=0'), 'dusk', grades).grade).toBeNull();
     expect(gradeOf({ map: { grade: 'nope' } }, q('grade'), 'dusk', grades).warning).toMatch(/unknown &grade "nope"/);
   });
 });

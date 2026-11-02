@@ -303,16 +303,17 @@
  *                 read 0 px. It is witnessed by `tools/src/perf/look-l1-captures.ts`
  *                 and its entry lands with the ship PR, beside its scenario.
  *
- * ONE FOR LOOK UPLIFT L2 (GH-943), behind the `&grade` flag:
+ * ONE FOR LOOK UPLIFT L2 (GH-943), on by default for dawn and dusk (`&grade=0` is the A/B switch):
  * - `grade`       the colour grade (`output-grade.ts`), toggled by its own `enabled`:
  *                 `vignette`'s shape exactly, a uniform inside `OutputPass`'s shader
  *                 that no per-frame path re-asserts, so it holds across the gate's
  *                 repaint. Hidden is the ungraded output, bit for bit. Returns 1 when
  *                 it changed something and 0 with no grade compiled in (day, no
  *                 `&grade`, an identity), the honest reading for a check to fail on.
- *                 NO `layerChecks` entry yet, for `environment`'s reason: with the
- *                 flag off on main it writes nothing. It lands with the ship PR,
- *                 beside the gated dusk scenario that carries the grade.
+ *                 Witnessed by the `graded` scenario's `grade` layer check
+ *                 (`BASELINES.graded`, dusk preset, the dusk grade on by default): hidden
+ *                 reads 0 px / 0.0000 against a measured 186 px / 5.0668. Day and every
+ *                 other gated scenario draw no grade, so none of them carries the check.
  *
  * ONE MORE FOR GH-471, the `missiles` rule again:
  * - `tunnel-xray` the x-ray of an identified tunnel (`../tunnel-xray.ts`):

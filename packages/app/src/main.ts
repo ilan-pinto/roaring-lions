@@ -2134,7 +2134,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const tod = timeOfDayOf((mission as { map: object } | undefined) ?? null, params);
   if (tod.warning) console.warn(`[lions] ${tod.warning}`);
   const lightOverride = lightOverrideOf((mission as { map: object } | undefined) ?? null);
-  // Look uplift L2 (GH-943): the colour grade, OFF unless `&grade` is in the URL while the lead judges the mock.
+  // Look uplift L2 (GH-943): the colour grade, ON by default (`&grade=0` is the A/B switch).
   // A mission's own `map.grade` wins over the flag's id, like `time_of_day`. Day is the identity and builds no pass.
   const gradeChoice = gradeOf((mission as { map: object } | undefined) ?? null, params, tod.value, grades);
   if (gradeChoice.warning) console.warn(`[lions] ${gradeChoice.warning}`);
