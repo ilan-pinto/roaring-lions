@@ -3,16 +3,18 @@
 // real-process checks use `--bogus` and a command that does not exist. The
 // temp root is this file's own (`LIONS_ARENA_TMPDIR`), so a directory the bot
 // leaves behind is seen by the test that made it.
-import { spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  BOT_ADDENDUM, botMcpConfig, botPrompt, classify, fileStem, reportMarkdown, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, parseBotArgs, resolveModel, runBot, USAGE,
+  BOT_ADDENDUM, botMcpConfig, botPrompt, classify, fileStem, harnessLines, harnessRefusedBuild, joinRefusedMessage, reportMarkdown, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, parseBotArgs, resolveModel, runBot, USAGE,
   type SignalSource,
 } from './bot';
 import { HARNESS_AGENT, HARNESS_TSX, standingPrompt, type SpawnFn } from './external-player';
@@ -66,7 +68,9 @@ class FakeChild extends EventEmitter {
 
 interface Call { command: string; args: readonly string[]; options: SpawnOptions; child: FakeChild; dirEntries: string[]; config: string; prompt: string }
 /** A SpawnFn that records the call (and the files as they stood), then lets `script` drive the child. */
-function fakeSpawn(calls: Call[], script: (child: FakeChild, call: Call) => void, startError?: Error): SpawnFn {
+/** What a harness that came up writes to the log file it was given, as the real one does. */
+const READY = 'agent: command on seat 1 of ABC234 (tel_marum, paced)';
+function fakeSpawn(calls: Call[], script: (child: FakeChild, call: Call) => void, startError?: Error, harnessOut: readonly string[] = [READY]): SpawnFn {
   return (command, args, options) => {
     const child = new FakeChild();
     const dir = options.cwd as string;
@@ -78,7 +82,16 @@ function fakeSpawn(calls: Call[], script: (child: FakeChild, call: Call) => void
     };
     calls.push(call);
     // A client that cannot start emits `error` and never `spawn`, as a missing binary does.
-    queueMicrotask(() => { if (startError !== undefined) { child.emit('error', startError); return; } child.emit('spawn'); script(child, call); });
+    queueMicrotask(() => {
+      if (startError !== undefined) { child.emit('error', startError); return; }
+      // The harness is the client's child: its lines reach us only through the `--log-file` it was handed.
+      const cfg = JSON.parse(call.config) as { mcpServers: { lions: { args: string[] } } };
+      const a = cfg.mcpServers.lions.args;
+      const file = a[a.indexOf('--log-file') + 1];
+      for (const l of harnessOut) appendFileSync(file, `${NOW.toISOString()} har ${l}\n`);
+      child.emit('spawn');
+      script(child, call);
+    });
     return child as unknown as ChildProcess;
   };
 }
@@ -96,14 +109,25 @@ class FakeSignals implements SignalSource {
 const resultLine = (o: Record<string, unknown>): string => `${JSON.stringify({ type: 'result', is_error: false, ...o })}\n`;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-function harness(script: (child: FakeChild, call: Call) => void, extra: { env?: NodeJS.ProcessEnv; killMs?: number; startError?: Error } = {}) {
+const TICKET = 'tkt-PAYLOAD.sig-SECRET';
+interface JoinCall { url: string; body: Record<string, unknown>; headers: Record<string, string> }
+function harness(script: (child: FakeChild, call: Call) => void, extra: { env?: NodeJS.ProcessEnv; killMs?: number; startError?: Error; harnessOut?: readonly string[]; join?: number | Error | Promise<number> } = {}) {
+  const joins: JoinCall[] = [];
+  const fake: typeof fetch = async (input, init) => {
+    joins.push({ url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown>, headers: init?.headers as Record<string, string> });
+    const j = extra.join ?? 200;
+    if (j instanceof Error) throw j;
+    const status = await j;
+    return status === 200 ? Response.json({ code: 'ABC234', seat: 1, ticket: TICKET }) : new Response('', { status });
+  };
   const calls: Call[] = [];
   const logs: string[] = [];
   const printed: string[] = [];
   const signals = new FakeSignals();
   const exits: number[] = [];
   const opts = {
-    spawn: fakeSpawn(calls, script, extra.startError),
+    spawn: fakeSpawn(calls, script, extra.startError, extra.harnessOut),
+    fetch: fake,
     env: extra.env ?? { PATH: '/usr/bin' },
     signals,
     exit: (c: number) => { exits.push(c); },
@@ -114,7 +138,7 @@ function harness(script: (child: FakeChild, call: Call) => void, extra: { env?: 
     now: () => NOW,
     build: '0.1.0+abcdef1',
   };
-  return { calls, logs, printed, signals, exits, opts };
+  return { calls, logs, printed, signals, exits, opts, joins };
 }
 
 describe('arguments and aliases', () => {
@@ -160,12 +184,12 @@ describe('arguments and aliases', () => {
 });
 
 describe('the MCP config, the prompt and the client command', () => {
-  it('names this checkout\'s harness, joining as a command-scope bot, with no ticket anywhere', () => {
-    const cfg = botMcpConfig({ server: 'https://g.example', room: 'ABC234', callsign: 'Sonnet Bot' });
+  it('names this checkout\'s harness on the ticket FILE and the bot log, never --join and never a ticket value', () => {
+    const cfg = botMcpConfig({ server: 'https://g.example', room: 'ABC234' }, '/t/ticket', '/r/bot.log');
     expect(cfg).toEqual({
-      mcpServers: { lions: { command: HARNESS_TSX, args: [HARNESS_AGENT, '--server', 'https://g.example', '--code', 'ABC234', '--scope', 'command', '--join', '--callsign', 'Sonnet Bot'] } },
+      mcpServers: { lions: { command: HARNESS_TSX, args: [HARNESS_AGENT, '--server', 'https://g.example', '--code', 'ABC234', '--scope', 'command', '--ticket-file', '/t/ticket', '--log-file', '/r/bot.log'] } },
     });
-    expect(JSON.stringify(cfg).toLowerCase()).not.toContain('ticket');
+    expect(JSON.stringify(cfg)).not.toContain('--join');
   });
   it('builds the client argv: print mode, the model, the config, json output and only the harness\'s tools', () => {
     expect(clientArgs({ model: 'claude-sonnet-5-5', client: ['claude'] }, '/t/mcp.json')).toEqual([
@@ -178,6 +202,8 @@ describe('the MCP config, the prompt and the client command', () => {
       expect(mode(call.options.cwd as string)).toBe(0o700);
       expect(mode(join(call.options.cwd as string, 'mcp.json'))).toBe(0o600);
       expect(mode(join(call.options.cwd as string, 'prompt.md'))).toBe(0o600);
+      expect(mode(join(call.options.cwd as string, 'ticket'))).toBe(0o600);
+      expect(readFileSync(join(call.options.cwd as string, 'ticket'), 'utf8')).toBe(TICKET);   // the one place it lives
       c.stdout.write(resultLine({ result: 'done', usage: { input_tokens: 10, output_tokens: 5 } }));
       c.end(0);
     });
@@ -196,9 +222,20 @@ describe('the MCP config, the prompt and the client command', () => {
     expect(call.options.env).toBe(env);
     expect((call.options.stdio as unknown[])[1]).toBe('pipe');
     expect(typeof (call.options.stdio as unknown[])[0]).toBe('number');   // the prompt file, opened for reading
-    expect(call.dirEntries).toEqual(['mcp.json', 'prompt.md']);
-    expect(call.args.join(' ').toLowerCase()).not.toContain('ticket');
-    expect(JSON.parse(call.config)).toEqual(botMcpConfig({ server: LIVE_SERVER, room: 'ABC234', callsign: 'Haiku Bot' }));
+    expect(call.dirEntries).toEqual(['mcp.json', 'prompt.md', 'ticket']);
+    expect(call.args.join(' ')).not.toContain(TICKET);
+    expect(JSON.stringify(call.options.env)).not.toContain(TICKET);
+    const dir = call.options.cwd as string;
+    expect(JSON.parse(call.config)).toEqual(botMcpConfig({ server: LIVE_SERVER, room: 'ABC234' }, join(dir, 'ticket'), join(cwd, 'bot-results', `${STEM.replace('claude-sonnet-5-5', 'claude-haiku-5-5')}.log`)));
+    expect(call.config).not.toContain(TICKET);
+    expect(call.prompt).not.toContain(TICKET);
+    expect(h.joins).toHaveLength(1);
+    expect(h.joins[0].url).toBe(`${LIVE_SERVER}/api/match/ABC234/join`);
+    expect(h.joins[0].body).toMatchObject({ kind: 'bot', callsign: 'Haiku Bot' });
+    expect(h.joins[0].headers.origin).toBe(LIVE_SERVER);
+    // The ticket reaches no log, no report, no message.
+    for (const f of resultsOf()) expect(readResult(f), f).not.toContain(TICKET);
+    expect([...h.logs, ...h.printed].join('\n')).not.toContain(TICKET);
     expect(call.prompt).toContain('You are seat 1 in match ABC234');
     expect(call.prompt).not.toMatch(/\{seat\}|\{code\}/);
     // The environment (a key among it) is never read back into a message.
@@ -213,9 +250,9 @@ describe('the MCP config, the prompt and the client command', () => {
     expect(call.args[0]).toBe('/tmp/pwned2');
     expect(call.args).toContain('m$(id)');
     expect(call.options.shell).toBe(false);
-    expect(call.args.some((a) => a.includes(nasty))).toBe(false);  // the callsign rides in the 0600 config only
-    const cfg = JSON.parse(call.config) as { mcpServers: { lions: { args: string[] } } };
-    expect(cfg.mcpServers.lions.args).toContain(nasty);
+    expect(call.args.some((a) => a.includes(nasty))).toBe(false);  // the callsign rides in the join's JSON body only
+    expect(h.joins[0].body.callsign).toBe(nasty);
+    expect(call.config).not.toContain(nasty);
   });
 });
 
@@ -316,9 +353,9 @@ describe('failure messages', () => {
   it('classifies the known causes', () => {
     expect(classify('agent: the room refused this client (build_mismatch)')).toBe('build');
     expect(classify('MCP server "lions" exited with code 2')).toBe('build');
-    expect(classify('the room refused the join: HTTP 409')).toBe('room');
-    expect(classify('the room refused the join: HTTP 404')).toBe('room');
-    expect(classify('the room refused the join: HTTP 410')).toBe('room');
+    expect(classify('MCP server "lions" failed to connect')).toBe('mcp');
+    expect(classify('Failed to start MCP server lions')).toBe('mcp');
+    expect(classify('the room refused the join: HTTP 409')).toBeNull();   // the join is bot.ts's now
     expect(classify('Failed to authenticate. API Error: 401')).toBe('auth');
     expect(classify('OAuth session expired')).toBe('auth');
     expect(classify('something else entirely')).toBeNull();
@@ -333,12 +370,11 @@ describe('failure messages', () => {
     const viaExit = await run('MCP server "lions" exited with code 2\n', '', 1);
     expect(viaExit.code).toBe(2);
   });
-  it('a full or missing room says to open a new one', async () => {
-    for (const status of [404, 409, 410]) {
-      const r = await run(`the room refused the join: HTTP ${status}\n`, '', 1);
-      expect(r.code).toBe(1);
-      expect(r.text).toContain('Open a new room');
-    }
+  it('the client\'s own MCP failure says the harness stopped and where to look', async () => {
+    const r = await run('MCP server "lions" failed to connect\n', '', 1);
+    expect(r.code).toBe(1);
+    expect(r.text).toContain('the game connection (harness) stopped');
+    expect(r.text).toContain(join(cwd, 'bot-results', `${STEM}.log`));
   });
   it('an authentication failure says /login, Terminal, and why not the desktop app', async () => {
     for (const out of ['Failed to authenticate', 'OAuth session expired']) {
@@ -355,9 +391,9 @@ describe('failure messages', () => {
     expect(r.text).toContain('exited with code 7');
     expect(r.text).toContain('kaboom');
   });
-  it('the three messages are distinct', () => {
-    const m = (['auth', 'build', 'room'] as const).map((f) => failureMessage(f, { server: LIVE_SERVER }));
-    expect(new Set(m).size).toBe(3);
+  it('the four messages are distinct', () => {
+    const m = (['auth', 'build', 'room', 'mcp'] as const).map((f) => failureMessage(f, { server: LIVE_SERVER }));
+    expect(new Set(m).size).toBe(4);
   });
 });
 
@@ -381,7 +417,6 @@ describe('a clean exit is never reclassified, and the model\'s own words are not
   it('classify reads the harness text for refusals and the model text for sign-in only', () => {
     expect(classify('', 'HTTP 409 build_mismatch exited with code 2')).toBeNull();
     expect(classify('', 'Failed to authenticate')).toBe('auth');
-    expect(classify('the room refused the join: HTTP 409')).toBe('room');
     expect(classify('room full, HTTP 400')).toBeNull();
     expect(classify('exited with code 2')).toBeNull();
   });
@@ -418,7 +453,7 @@ describe('the log', () => {
     expect(mode(logPath)).toBe(0o600);
     expect(mode(join(cwd, 'bot-results'))).toBe(0o700);
     const text = readResult(`${STEM}.log`);
-    for (const l of text.trimEnd().split('\n')) expect(l, l).toMatch(/^2026-11-03T10:15:30\.000Z (bot|out|err) /);
+    for (const l of text.trimEnd().split('\n')) expect(l, l).toMatch(/^2026-11-03T10:15:30\.000Z (bot|out|err|har) /);
     expect(text).toContain('err harness: seat 1 of ABC234');
     expect(text).toContain('out a plain progress line');
     expect(text).toContain('"result":"GG"');
@@ -531,6 +566,107 @@ describe('the match report', () => {
   });
 });
 
+describe('the join happens in bot.ts, before any model starts', () => {
+  const noModel = (h: ReturnType<typeof harness>): void => {
+    expect(h.calls).toHaveLength(0);          // no client, so no tokens
+    expect(leftovers()).toEqual([]);          // no temp directory, no ticket
+  };
+  it('a 404 says the code was not found; 409 that the seat is taken; 410 that it ended; 429 slow down; others the status', async () => {
+    const want: [number, RegExp][] = [[404, /not found.*check the code/], [409, /second seat.*open a new room/], [410, /has ended.*open a new room/], [400, /not found/], [429, /slow down/], [503, /HTTP 503/]];
+    for (const [status, re] of want) {
+      const h = harness((c) => { c.end(0); }, { join: status });
+      rmSync(join(cwd, 'bot-results'), { recursive: true, force: true });
+      expect(await runBot(['--room', 'ABC234'], h.opts), String(status)).toBe(1);
+      noModel(h);
+      expect(h.logs.join('\n'), String(status)).toMatch(re);
+      expect(readResult(`${STEM}-report.md`)).toContain(`No report was produced: the room refused the join (HTTP ${status})`);
+    }
+  });
+  it('an unreachable server is said, with no model started', async () => {
+    const h = harness((c) => { c.end(0); }, { join: new Error('fetch failed') });
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(1);
+    noModel(h);
+    expect(h.logs.join('\n')).toContain('could not join room ABC234');
+    expect(h.logs.join('\n')).toContain('fetch failed');
+  });
+  it('uses the seat the room answered for the prompt', async () => {
+    const h = harness((c) => { c.end(0); });
+    h.opts.fetch = async () => Response.json({ code: 'ABC234', seat: 0, ticket: TICKET });
+    await runBot(['--room', 'ABC234'], h.opts);
+    expect(h.calls[0].prompt).toContain('You are seat 0 in match ABC234');
+  });
+  it('a signal during the join returns 130 with no client, no ticket file and no directory', async () => {
+    let release: (n: number) => void = () => {};
+    const gate = new Promise<number>((res) => { release = res; });
+    const h = harness((c) => { c.end(0); }, { join: gate });
+    const run = runBot(['--room', 'ABC234'], h.opts);
+    await sleep(30);
+    h.signals.fire('SIGINT');
+    release(200);
+    expect(await run).toBe(130);
+    noModel(h);
+  });
+  it('joinRefusedMessage names the room and the status', () => {
+    expect(joinRefusedMessage(404, { room: 'ABC234', server: 's' })).toContain('ABC234');
+    expect(new Set([404, 409, 410, 429, 500].map((n) => joinRefusedMessage(n, { room: 'R', server: 's' }))).size).toBe(5);
+  });
+});
+
+describe('the harness\'s own refusal reaches us through the log it was given', () => {
+  it('parses only `har` lines, and only the exact build refusal counts', () => {
+    const text = '2026-11-03T10:15:30.000Z bot hello\n2026-11-03T10:15:30.000Z har agent: the room refused this client (build_mismatch)\n2026-11-03T10:15:31.000Z err agent: the room refused this client (build_mismatch)\n';
+    expect(harnessLines(text)).toEqual(['agent: the room refused this client (build_mismatch)']);
+    expect(harnessRefusedBuild(harnessLines(text))).toBe(true);
+    expect(harnessRefusedBuild(harnessLines('2026-11-03T10:15:31.000Z err agent: the room refused this client (build_mismatch)\n'))).toBe(false);
+    expect(harnessRefusedBuild(['agent: the room refused this client (bad_ticket)'])).toBe(false);
+  });
+  it('a build refusal in the harness log is the build message and exit 2, even when the client then exits cleanly (the model "could not reach the MCP")', async () => {
+    const h = harness((c) => {
+      c.stdout.write(resultLine({ result: 'I was not able to reach the MCP server, so I could not join a game.', usage: { input_tokens: 4, output_tokens: 4 } }));
+      c.end(0);
+    }, { harnessOut: ['agent: the room refused this client (build_mismatch)', 'agent: ended'] });
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(2);
+    const text = h.logs.join('\n');
+    expect(text).toContain('runs a different build than this checkout');
+    expect(text).toContain('Settings footer');
+    expect(h.printed).toEqual([]);
+    expect(readResult(`${STEM}-report.md`)).toContain('the room refused this checkout');
+  });
+  it('a harness that wrote nothing never came up: a clean exit is the game-connection message, exit 1', async () => {
+    const h = harness((c) => {
+      c.stdout.write(resultLine({ result: 'I was not able to reach the MCP.', usage: { input_tokens: 1, output_tokens: 1 } }));
+      c.end(0);
+    }, { harnessOut: [] });
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(1);
+    expect(h.logs.join('\n')).toContain(`the game connection (harness) stopped: see ${join(cwd, 'bot-results', `${STEM}.log`)}`);
+    expect(readResult(`${STEM}-report.md`)).toContain('No report was produced: the game connection (harness) stopped');
+  });
+  it('a failed run takes the build refusal from the harness log too', async () => {
+    const h = harness((c) => { c.end(1); }, { harnessOut: ['agent: the room refused this client (build_mismatch)'] });
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(2);
+  });
+  it('the harness is started on the ticket file and the bot log', async () => {
+    const h = harness((c) => { c.end(0); });
+    await runBot(['--room', 'ABC234'], h.opts);
+    const a = (JSON.parse(h.calls[0].config) as { mcpServers: { lions: { args: string[] } } }).mcpServers.lions.args;
+    expect(a).toContain('--ticket-file');
+    expect(a).not.toContain('--join');
+    expect(a[a.indexOf('--log-file') + 1]).toBe(join(cwd, 'bot-results', `${STEM}.log`));
+  });
+});
+
+describe('startup', () => {
+  it('says to run pnpm install when the harness runner is missing, before any seat is taken or model started', async () => {
+    const h = harness((c) => { c.end(0); });
+    expect(await runBot(['--room', 'ABC234'], { ...h.opts, exists: (p) => p !== HARNESS_TSX })).toBe(1);
+    expect(h.logs.join('\n')).toContain('run pnpm install in this checkout');
+    expect(h.joins).toHaveLength(0);
+    expect(h.calls).toHaveLength(0);
+    expect(leftovers()).toEqual([]);
+    expect(readResult(`${STEM}-report.md`)).toContain('pnpm install has not been run');
+  });
+});
+
 describe('the real entry point', () => {
   it('refuses a bad command line with the usage line and exit 1', () => {
     const r = spawnSync(TSX, [BOT, '--bogus'], { encoding: 'utf8', env: { ...process.env, LIONS_ARENA_TMPDIR: root, INIT_CWD: cwd } });
@@ -538,10 +674,29 @@ describe('the real entry point', () => {
     expect(r.stderr).toContain(USAGE);
     expect(leftovers()).toEqual([]);
   }, 30_000);
-  it('reports a client that does not exist (a real spawn of nothing) and leaves no directory', () => {
-    const r = spawnSync(TSX, [BOT, '--room', 'ABC234', '--client', join(root, 'no-such-client')], { encoding: 'utf8', env: { ...process.env, LIONS_ARENA_TMPDIR: root, INIT_CWD: cwd } });
-    expect(r.status).toBe(1);
-    expect(r.stderr).toContain('could not start the client');
-    expect(leftovers()).toEqual([]);
+  it('joins a loopback room over real HTTP, then reports a client that does not exist, leaving no directory', async () => {
+    // A server of this test's own on 127.0.0.1: the bot never reaches the live game from a spec.
+    const seen: string[] = [];
+    const server = createServer((req, res) => {
+      seen.push(`${req.method ?? ''} ${req.url ?? ''}`);
+      req.resume();
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ code: 'ABC234', seat: 1, ticket: TICKET }));
+    });
+    await new Promise<void>((res) => { server.listen(0, '127.0.0.1', res); });
+    try {
+      const port = (server.address() as AddressInfo).port;
+      const child = spawn(TSX, [BOT, '--room', 'ABC234', '--server', `http://127.0.0.1:${port}`, '--client', join(root, 'no-such-client')], { env: { ...process.env, LIONS_ARENA_TMPDIR: root, INIT_CWD: cwd } });
+      let stderr = '';
+      child.stderr.on('data', (c: Buffer) => { stderr += c.toString('utf8'); });
+      const status = await new Promise<number | null>((res) => { child.on('exit', (code) => { res(code); }); });
+      expect(status).toBe(1);
+      expect(stderr).toContain('could not start the client');
+      expect(stderr).not.toContain(TICKET);
+      expect(seen).toEqual(['POST /api/match/ABC234/join']);
+      expect(leftovers()).toEqual([]);
+    } finally {
+      server.close();
+    }
   }, 30_000);
 });

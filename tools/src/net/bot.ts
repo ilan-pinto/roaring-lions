@@ -43,10 +43,11 @@
  * failure or a usage error, 130/143 a signal.
  */
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
-import { appendFileSync, chmodSync, closeSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MAX_CALLSIGN_CHARS } from '@lions/net';
+import { joinRoom, JoinRefused } from './agent';
 import { buildId } from './build-id';
 import { HARNESS_AGENT, HARNESS_TSX, parseTemplate, standingPrompt, tempRoot, tokensOf, type SpawnFn } from './external-player';
 
@@ -133,14 +134,20 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
   };
 }
 
-/** The MCP config the client is handed: the harness of THIS checkout, joining `room` as a command-scope bot. */
-export function botMcpConfig(a: Pick<BotArgs, 'server' | 'room' | 'callsign'>): { mcpServers: { lions: { command: string; args: string[] } } } {
+/**
+ * The MCP config the client is handed: the harness of THIS checkout, playing
+ * the seat `pnpm bot` joined for it. The ticket is in `ticketFile` (0600, in the
+ * temp directory), never in an argument. `logFile` is the bot's own log: the
+ * harness is the client's child, so bot.ts sees neither its exit code nor its
+ * stderr, and this is how a refusal reaches us. `--build` and `--origin` are
+ * left to the harness: this checkout's build, the server's own origin.
+ */
+export function botMcpConfig(a: Pick<BotArgs, 'server' | 'room'>, ticketFile: string, logFile: string): { mcpServers: { lions: { command: string; args: string[] } } } {
   return {
     mcpServers: {
       lions: {
         command: HARNESS_TSX,
-        // `--build` and `--origin` are left to the harness: this checkout's build, the server's own origin.
-        args: [HARNESS_AGENT, '--server', a.server, '--code', a.room, '--scope', 'command', '--join', '--callsign', a.callsign],
+        args: [HARNESS_AGENT, '--server', a.server, '--code', a.room, '--scope', 'command', '--ticket-file', ticketFile, '--log-file', logFile],
       },
     },
   };
@@ -151,7 +158,7 @@ export function clientArgs(a: Pick<BotArgs, 'model' | 'client'>, mcpFile: string
   return [...a.client.slice(1), '-p', '--model', a.model, '--mcp-config', mcpFile, '--output-format', 'json', '--allowedTools', ALLOWED_TOOLS];
 }
 
-export type Failure = 'auth' | 'build' | 'room';
+export type Failure = 'auth' | 'build' | 'room' | 'mcp';
 
 /**
  * Which known failure a FAILED client run describes, or null. `harness` is the
@@ -164,12 +171,35 @@ export type Failure = 'auth' | 'build' | 'room';
 export function classify(harness: string, model = ''): Failure | null {
   if (/failed to authenticate|oauth (?:session|token) (?:has )?expired|authentication_error|invalid api key|please run \/login|not logged in/i.test(`${harness}\n${model}`)) return 'auth';
   if (/build_mismatch|\blions\b[^\n]*\bexit(?:ed)?(?: with)? code 2\b/i.test(harness)) return 'build';
-  if (/refused the join: HTTP (?:400|404|409|410)\b/.test(harness)) return 'room';
+  // The client's own words when the harness would not start or went away.
+  if (/mcp server[^\n]*(?:failed|disconnected|not connected|unavailable)|failed to (?:connect|start)[^\n]*mcp|mcp[^\n]*(?:failed to connect|connection (?:closed|failed))/i.test(harness)) return 'mcp';
   return null;
 }
 
+/** The harness's own lines in the bot's log (`<stamp> har <line>`), without the stamps. */
+export function harnessLines(logText: string): string[] {
+  return logText.split('\n').flatMap((l) => {
+    const m = /^\S+ har (.*)$/.exec(l);
+    return m === null ? [] : [m[1]];
+  });
+}
+
+/** The harness's refusal of this client (the build, at the socket's hello) in its own lines, or false. */
+export function harnessRefusedBuild(lines: readonly string[]): boolean {
+  return lines.some((l) => /^agent: the room refused this client \(build_mismatch\)$/.test(l));
+}
+
+/** What to tell the player when the room says no to the join, before any model has started. */
+export function joinRefusedMessage(status: number, a: Pick<BotArgs, 'room' | 'server'>): string {
+  if (status === 404 || status === 400) return `bot: room ${a.room} was not found on ${a.server} (HTTP ${status}): check the code, or open a new room in the game (Play with a friend -> Open a room).`;
+  if (status === 409) return `bot: room ${a.room} already has its second seat (HTTP 409): open a new room in the game (Play with a friend -> Open a room) and run pnpm bot with its code.`;
+  if (status === 410) return `bot: room ${a.room} has ended (HTTP 410): open a new room in the game (Play with a friend -> Open a room).`;
+  if (status === 429) return 'bot: the server says slow down (HTTP 429): wait a minute and run pnpm bot again.';
+  return `bot: the room refused the join (HTTP ${status}): check the code and the server, or open a new room.`;
+}
+
 /** What to tell the player about a known failure. */
-export function failureMessage(f: Failure, a: Pick<BotArgs, 'server'>): string {
+export function failureMessage(f: Failure, a: Pick<BotArgs, 'server'> & { logFile?: string }): string {
   switch (f) {
     case 'build':
       return [
@@ -178,7 +208,9 @@ export function failureMessage(f: Failure, a: Pick<BotArgs, 'server'>): string {
         '    git worktree add --detach ../roaring-lions-bot <commit> && cd ../roaring-lions-bot && pnpm install',
       ].join('\n');
     case 'room':
-      return 'bot: the room is full, closed or not found. Open a new room in the game (Play with a friend -> Open a room) and run `pnpm bot` with its code.';
+      return 'bot: the room is full, closed or not found. Check the code, or open a new room in the game (Play with a friend -> Open a room) and run `pnpm bot` with its code.';
+    case 'mcp':
+      return `bot: the game connection (harness) stopped: see ${a.logFile ?? 'the bot log'} for why.`;
     case 'auth':
       return [
         'bot: the client could not sign in. Run `claude`, type /login, and run `pnpm bot` again from macOS Terminal',
@@ -211,8 +243,8 @@ Your final message is saved as the match report: write nothing but the report in
 `;
 
 /** The standing prompt for the bot's seat (seat 1): the arena's, then the report addendum. */
-export function botPrompt(a: Pick<BotArgs, 'room'>): string {
-  return `${standingPrompt({ seat: 1, code: a.room })}\n${BOT_ADDENDUM}`;
+export function botPrompt(a: Pick<BotArgs, 'room'> & { seat?: 0 | 1 }): string {
+  return `${standingPrompt({ seat: a.seat ?? 1, code: a.room })}\n${BOT_ADDENDUM}`;
 }
 
 /** `YYYYMMDD-HHMMSS-<room>-<model>`: the stem of both files. The model is a flag value, so it is cut to filename-safe characters and can never leave the folder. */
@@ -286,6 +318,10 @@ export interface BotOptions {
   now?: () => Date;
   /** The build string for the report header; default this checkout's `buildId()`. */
   build?: string;
+  /** Tests inject the room's answer; default the global `fetch`. */
+  fetch?: typeof fetch;
+  /** Whether a path exists; default `fs.existsSync`. Tests use it for the missing harness. */
+  exists?: (path: string) => boolean;
 }
 
 /** The folder of logs and reports, under the invoking directory and never outside it. */
@@ -317,6 +353,8 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   const killMs = o.killMs ?? 3000;
 
   const now = o.now ?? (() => new Date());
+  const fetchFn = o.fetch ?? fetch;
+  const exists = o.exists ?? existsSync;
 
   const a = parseBotArgs(argv);
   if ('error' in a) { log(a.error); return 1; }
@@ -391,11 +429,43 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     // A signal that landed before the files exist has already removed the directory.
     if (signalled !== null) return SIGNAL_EXIT[signalled];
     chmodSync(dir, 0o700);
+
+    // The harness runner must exist, before a seat is taken: a checkout with no `pnpm install` has none.
+    if (!exists(HARNESS_TSX)) {
+      say(`bot: the harness runner is missing (${HARNESS_TSX}): run pnpm install in this checkout, then try again.`);
+      rec.outcome = 'failed';
+      rec.why = 'the harness runner (tsx) is missing: pnpm install has not been run in this checkout';
+      return 1;
+    }
+
+    // Join HERE, before any model starts: the harness is the client's child, so a refusal inside it
+    // would reach us only as "the MCP server failed". A bad code now costs no tokens.
+    say(`bot: joining room ${a.room} on ${a.server} as ${a.callsign}`);
+    let seat: 0 | 1;
+    let ticket: string;
+    try {
+      ({ seat, ticket } = await joinRoom(a.server, a.room, a.callsign, new URL(a.server).origin, fetchFn));
+    } catch (e) {
+      rec.outcome = 'failed';
+      if (e instanceof JoinRefused) {
+        say(joinRefusedMessage(e.status, a));
+        rec.why = `the room refused the join (HTTP ${e.status})`;
+      } else {
+        say(`bot: could not join room ${a.room} on ${a.server}: ${messageOf(e)}`);
+        rec.why = `the join failed (${messageOf(e)})`;
+      }
+      return 1;
+    }
+    // A signal during the join has already removed the directory.
+    if (signalled !== null) return SIGNAL_EXIT[signalled];
+    note('bot', `joined as seat ${seat}`);
+    const ticketFile = join(dir, 'ticket');
     const mcpFile = join(dir, 'mcp.json');
     const promptFile = join(dir, 'prompt.md');
-    // `wx`: a file that is somehow already there is an error, never reused.
-    writeFileSync(mcpFile, `${JSON.stringify(botMcpConfig(a), null, 2)}\n`, { mode: 0o600, flag: 'wx' });
-    writeFileSync(promptFile, botPrompt(a), { mode: 0o600, flag: 'wx' });
+    // `wx`: a file that is somehow already there is an error, never reused. The ticket lives in this 0600 file only.
+    writeFileSync(ticketFile, ticket, { mode: 0o600, flag: 'wx' });
+    writeFileSync(mcpFile, `${JSON.stringify(botMcpConfig(a, ticketFile, logFile), null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    writeFileSync(promptFile, botPrompt({ room: a.room, seat }), { mode: 0o600, flag: 'wx' });
 
     const command = a.client[0];
     const stdin = openSync(promptFile, 'r');
@@ -450,7 +520,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
       rec.why = `the client "${command}" could not start (${messageOf(e)})`;
       return 1;
     }
-    say(`bot: ${a.callsign} (${a.model}) is joining room ${a.room} on ${a.server}; Ctrl-C stops it`);
+    say(`bot: ${a.callsign} (${a.model}) holds seat ${seat} of room ${a.room}; Ctrl-C stops it`);
     // If a signal landed before the child existed, stop it now.
     if (signalled !== null) { try { live.kill('SIGTERM'); } catch { /* gone */ } }
 
@@ -464,17 +534,24 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     if (signalled !== null) return SIGNAL_EXIT[signalled];
 
     const parsed = last.result === null ? null : resultOf(last.result);
-    const harnessText = `${out}\n${errOut}`;
+    // The harness's own lines, from the log it appended to: the only place its refusal shows.
+    let theirs: string[] = [];
+    try { theirs = harnessLines(readFileSync(logFile, 'utf8')); } catch { /* no log, no harness lines */ }
+    const harnessText = `${out}\n${errOut}\n${theirs.join('\n')}`;
     const all = `${harnessText}\n${parsed?.result ?? ''}`;
     const failed = code !== 0 || signal !== null || parsed?.isError === true;
     rec.tokens = last.result === null ? null : tokensOf(last.result);
-    if (failed) {
+    // The harness's own words are not the model's chatter: a refusal there means the match never ran, even if
+    // the client then exited cleanly, and a harness that wrote nothing at all never came up.
+    const refusedBuild = harnessRefusedBuild(theirs);
+    const harnessMissing = !failed && !logBroken && theirs.length === 0;
+    if (failed || refusedBuild || harnessMissing) {
       rec.outcome = 'failed';
       rec.message = parsed?.result ?? null;
-      const known = classify(harnessText, parsed?.result ?? '');
+      const known: Failure | null = refusedBuild ? 'build' : harnessMissing ? 'mcp' : classify(harnessText, parsed?.result ?? '');
       if (known !== null) {
-        say(failureMessage(known, a));
-        rec.why = known === 'build' ? 'the room refused this checkout\'s build (the live site runs a different one)' : known === 'room' ? 'the room is full, closed or not found' : 'the client could not sign in';
+        say(failureMessage(known, { ...a, logFile }));
+        rec.why = known === 'build' ? 'the room refused this checkout\'s build (the live site runs a different one)' : known === 'room' ? 'the room is full, closed or not found' : known === 'mcp' ? 'the game connection (harness) stopped' : 'the client could not sign in';
         return known === 'build' ? 2 : 1;
       }
       const how = signal !== null ? `was killed by ${signal}` : `exited with code ${String(code)}`;
@@ -484,7 +561,8 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
       if (tail !== '' && parsed?.result == null) say(tail);
       return 1;
     }
-    // A clean exit is never reclassified: its output is the model's and the harness's chatter, not a refusal.
+    // A clean exit is not reclassified from the client's chatter (the model can quote anything); only the
+    // harness's own log lines, above, can turn it into a failure.
     rec.outcome = 'completed';
     rec.message = parsed?.result ?? null;
     rec.why = rec.message === null || rec.message.trim() === '' ? 'the client exited cleanly but printed no final message' : null;
