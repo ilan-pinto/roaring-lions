@@ -327,6 +327,8 @@ describe('showVersus (/versus)', () => {
       // The catalogue spells the map's short name: "Wadi Tarfan (large) — The Three Fords" -> "Wadi Tarfan (large)".
       expect(note, id).toContain(full.split(' — ')[0]);
     }
+    // 'Wadi Tarfan' is a substring of 'Wadi Tarfan (large)', so the loop alone cannot see the plain map dropped.
+    expect(note).toBe('KDF against Sarim is played on Tel Marum, Wadi Tarfan and Wadi Tarfan (large) only');
   });
 
   it('N3 Task 6: the KDF-v-Sarim options say the economy is on; the mirror says nothing of it', () => {
