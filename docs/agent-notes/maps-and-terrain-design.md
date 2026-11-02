@@ -147,3 +147,27 @@ What each stage does, and what measuring it found:
 Wadi Tarfan (large) is registered and NOT offered: `RULES_ONLY_MAPS` (`tools/validate_versus_rules.mjs`),
 `UNLISTED_MAP_IDS`, `VERSUS_FORMATIONS_CLOSED_MAPS`, in neither `@lions/net` list. B4 (fairness) and B5 (render and
 memory) come before B7 opens it.
+
+### Wadi Tarfan (large): what made it fair (GH-920 B4, 2 Nov 2026)
+
+The plain upscale led KDF on every faction cell (KDF-friendly 69.3% placed, 59-65% on the economy, tunnels cell 3
+at 96%) with a fair mirror. Each cause was found by toggling ONE difference between the real map and a naive 2x copy
+(`tools/src/backtest/scratch/b4run.ts`, not committed; features swapped one at a time, per-seed reads, 192 seeds)
+and fixed in the generator's data, with no sim or tuning change:
+- **Cover, ditch, walls, roads, zones, camps, income: no effect.** Rate-scale 1 or 130 moves the purse and not the
+  win rate; income does not decide a 5-minute fight. Do not tune those.
+- **The two pump houses at the centre ford** (native 1 tile; the sketch draws 2x2): KDF 69.3 -> 51.6 placed when the
+  2x2 is restored. Of the twelve buildings only that pair matters. Restoring it as COVER, knoll or boulder does
+  nothing (65-75), shifting the pair by 1-2 tiles does nothing, a partial plinth is chaotic (52-66): only a
+  full 2x2 of sight-blocking mass works, so the generator stands each on a `^` plinth (3 tiles of its cell block).
+  The building keeps its native footprint, so the B2 census is untouched.
+- **Two-level cliffs.** 9/3/3/1 turns every source step into a one-level ramp, which loses the 2-level cliffs of the
+  centre hill (two levels hide ground troops). `keepCliffs`: economy KDF 59 -> 54%. It needs `straightenStairs`
+  again after it, or the verifier refuses 18 fat diagonal steps.
+- **Tunnel vents.** Relaid at 2x distance they sit 15-20 tiles from the fight: 4,700 raid-seconds in 96 games
+  against the 48x48 map's 23,600, and cell 3 KDF 92-97% at every capacity (3, 5) and at 0.5 of the doubled offset.
+  `VENT_CENTRE_SHARE` 3/10 of the doubled offset from the centre brings the raids to 17,000 and cell 3 to 51-56%.
+  Neighbouring shares (7/20, 2/5) read KDF 65-69%: the response is DISCRETE, so the share is a measured value
+  and any other must be read again, on seeds that did not choose it.
+- **The landscape is chaotic per tile** (a one-tile move of a pump house swings a cell 10 points). Every number in
+  the PR is on seeds the choice did not see (2000-2191 and 4000+), the PR 947 method.

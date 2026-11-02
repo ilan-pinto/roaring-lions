@@ -71,6 +71,8 @@ const FORD_ZONES = ['ne_ford', 'sw_ford', 'centre_ford'];
 const BLOCK = '^bn';
 /** Structures, re-placed at their native footprint. */
 const BUILDING = 'hsp';
+/** The building type that stands on a rock plinth (step 3b). */
+const PLINTH_BUILDING = 'p';
 
 /** Where the hash picks the cell's scrub tiles: 3 of 4 for `1`, 2 of 4 for the acacia `o`. */
 function scrubTiles(cx, cy, symbol) {
@@ -81,13 +83,34 @@ function scrubTiles(cx, cy, symbol) {
   return pairs[h % 6].map((i) => quad[i]);
 }
 
+/**
+ * A step of two levels or more between neighbouring source cells stays a cliff (GH-920 B4). The 9/3/3/1
+ * rule turns every step into a ramp of one level a tile, and a two-level step is what hides ground
+ * troops from each other (maps-and-terrain-design.md), so on the centre hill the ramp took the cover
+ * the sketch has there: with the sketch's own cliffs the economy cell reads KDF 54 / 54% on 192 seeds,
+ * with the ramps 59 / 58%. A tile whose cell differs by 2 or more from any of the three cells it leans
+ * toward (the same three the 9/3/3/1 rule weighs) takes its own cell's level.
+ */
+export function keepCliffs(el, elev) {
+  const cell = (cx, cy) => elev[Math.max(0, Math.min(N - 1, cy))][Math.max(0, Math.min(N - 1, cx))];
+  return el.map((row, y) => row.map((v, x) => {
+    const cx = x >> 1;
+    const cy = y >> 1;
+    const nx = cx + (x & 1 ? 1 : -1);
+    const ny = cy + (y & 1 ? 1 : -1);
+    const me = cell(cx, cy);
+    const cliff = Math.abs(me - cell(nx, cy)) >= 2 || Math.abs(me - cell(cx, ny)) >= 2 || Math.abs(me - cell(nx, ny)) >= 2;
+    return cliff ? me : v;
+  }));
+}
+
 export function tileMap() {
   const { rows, elev } = loadSketch();
   const T = SIZE;
   const t = Array.from({ length: T }, () => Array(T).fill('.'));
   // 9/3/3/1, then every 2x2 staircase of the result straightened to one tile a step: the rule alone leaves
   // a diagonal cell contour as the same 2x2 staircase the nearest copy makes (straightenStairs says why)
-  const el = straightenStairs(interpElevation(elev));
+  const el = straightenStairs(keepCliffs(straightenStairs(interpElevation(elev)), elev));
   const cellLevel = (x, y) => elev[y >> 1][x >> 1];
   const pinned = []; // tiles that stand at their own cell's level: rock, buildings, walls
 
@@ -114,6 +137,20 @@ export function tileMap() {
       if (t[y][x] !== '.') throw new Error(`building ${b.sym} at ${b.cells[0]} lands on ${t[y][x]} at ${x},${y}`);
       t[y][x] = b.sym;
       pinned.push([x, y, elev[b.cells[0][1]][b.cells[0][0]]]);
+    }
+  }
+  // 3b. a pump house stands on a rock plinth: the other three tiles of its cell's 2x2 block are rock.
+  //     GH-920 B4: at its native one tile the pump house is too little to stop a line of fire across the
+  //     centre ford, and the map leans KDF; the 2x2 block the sketch has there (what the naive 2x copy
+  //     draws) is what keeps it level, and the rock gives the block back without growing the building.
+  for (const b of components(rows.map((r) => r.join('')), PLINTH_BUILDING)) {
+    for (const [cx, cy] of b.cells) {
+      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+        const [x, y] = [2 * cx + dx, 2 * cy + dy];
+        if (t[y][x] !== '.') continue;
+        t[y][x] = '^';
+        pinned.push([x, y, elev[cy][cx]]);
+      }
     }
   }
   // 4. walls, one tile thick
@@ -175,17 +212,33 @@ function nearestOpen(t, [x, y], what) {
 const AREA_ZONES = new Set(['camp_0', 'camp_1']);
 
 /**
- * Seat 0's tunnel routes (mouth first, vent last), as Wadi Tarfan lays them, re-laid for the large
- * map ALONG THE LINE OF ADVANCE (the seat-to-seat diagonal): with u = (x + y) / 2 along it and
- * v = (x - y) / 2 across it, a point goes to u' = 2u and v' = v. The distance from the seat doubles,
- * the lateral offset does not, so a vent stays a few tiles off the diagonal as it was, instead of
- * moving 7 or 8 (L5, Rujm Sawda: a vent 14 to 30 tiles off the line of advance cost the Sarim more
- * than the raids gave back). Seat 1's routes are the half-turn images.
+ * Seat 0's tunnel routes (mouth first, vent last), as Wadi Tarfan lays them, re-laid for the large map.
+ * The mouth and the middle point go ALONG THE LINE OF ADVANCE (the seat-to-seat diagonal): with
+ * u = (x + y) / 2 along it and v = (x - y) / 2 across it, a point goes to u' = 2u and v' = v. The
+ * distance from the seat doubles, the lateral offset does not, so the route keeps its shape.
+ *
+ * The VENT does not go there (GH-920 B4). Doubled, it lands 15 to 20 tiles from the centre, where no
+ * line of fire ever passes it: 4,700 raid-seconds in 96 games against the 48x48 map's 23,600, and a
+ * tunnel cell 3 of 96% KDF at every capacity and at 0.5 of the doubled offset. The fight is at the
+ * centre whatever the size of the map, so the vent keeps the offset it has from the centre on the
+ * small map, in tiles: `VENT_CENTRE_SHARE` (3/10) of the doubled offset, which is 0.6 of the source
+ * offset. At 3/10 cell 3 reads Sarim 51.0 / 50.5% on 384 held-out games a cell; at 7/20 and 2/5 it
+ * reads KDF 65-69% (the same two points), so the share is a measured value, not a trend.
+ * Seat 1's routes are the half-turn images.
  */
+const VENT_CENTRE_SHARE = [3, 10];
+
 function relaid([x, y]) {
   const u = (x + y) / 2;
   const v = (x - y) / 2;
   return [Math.floor(2 * u + v), Math.floor(2 * u - v)];
+}
+
+/** A route's vent pulled toward the centre: centre + share x (vent - centre), rounded to the nearest tile. */
+function ventNearCentre([x, y]) {
+  const c = (SIZE - 1) / 2;
+  const [num, den] = VENT_CENTRE_SHARE;
+  return [Math.round(c + ((x - c) * num) / den), Math.round(c + ((y - c) * num) / den)];
 }
 
 export function layout(t) {
@@ -195,7 +248,11 @@ export function layout(t) {
   const zones = topHalfRects(src.zones, N, (name, r) => rescaleRect(r, AREA_ZONES.has(name) ? 'area' : 'landmark'));
   const friendly = rules.tunnels.friendly.map((r) => ({
     id: r.id.replace(/^wt_/, 'wtl_'),
-    points: r.points.map((p, i) => (i === 0 || i === r.points.length - 1 ? nearestOpen(t, relaid(p), `route ${r.id} point ${i}`) : relaid(p))),
+    points: r.points.map((p, i) => {
+      if (i === 0) return nearestOpen(t, relaid(p), `route ${r.id} mouth`);
+      if (i < r.points.length - 1) return relaid(p);
+      return nearestOpen(t, ventNearCentre(nearestOpen(t, relaid(p), `route ${r.id} vent`)), `route ${r.id} vent near the centre`);
+    }),
     capacity: r.capacity,
   }));
   const hostile = friendly.map((r) => ({ id: r.id.replace('_f_', '_h_'), points: r.points.map(mirror), capacity: r.capacity }));

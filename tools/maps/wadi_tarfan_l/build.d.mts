@@ -7,6 +7,7 @@ export declare const SIZE: number;
 export declare const MAP_PATH: string;
 export declare const VERSUS_PATH: string;
 export declare function loadSketch(): { json: Record<string, unknown>; rows: string[][]; elev: number[][] };
+export declare function keepCliffs(el: number[][], elev: number[][]): number[][];
 export declare function tileMap(): { t: string[][]; el: number[][]; rows: string[][]; elev: number[][] };
 export declare function build(): { map: Record<string, unknown>; versus: Record<string, unknown> };
 export declare function serialise(doc: unknown): string;
