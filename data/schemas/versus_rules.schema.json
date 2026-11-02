@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "The map id (one file per map)." },
-    "map": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "A map id in data/maps; one of the faction-matchup maps (@lions/net FACTION_MATCHUP_MAPS), or a mirror-only map (MIRROR_RULES_MAPS in tools/validate_versus_rules.mjs; the large map of GH-913, offered for KDF v KDF and Sarim v Sarim only)." },
+    "map": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "A map id in data/maps; one of the faction-matchup maps (@lions/net FACTION_MATCHUP_MAPS), a mirror-only map (MIRROR_RULES_MAPS in tools/validate_versus_rules.mjs; the large map of GH-913, offered for KDF v KDF and Sarim v Sarim only), or a rules-only map that no room offers yet (RULES_ONLY_MAPS there; the large Wadi Tarfan of GH-920)." },
     "capacity": {
       "type": "integer",
       "minimum": 256,

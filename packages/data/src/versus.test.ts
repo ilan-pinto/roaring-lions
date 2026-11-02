@@ -11,7 +11,7 @@ describe('the exports', () => {
   });
   it('versusRules has one file per matchup map, and the large mirror-only map\'s, keyed by map id', () => {
     // rujm_sawda (GH-913) is in VERSUS_FAIR_MAPS (L8) and not in FACTION_MATCHUP_MAPS.
-    expect(Object.keys(versusRules).sort()).toEqual(['rujm_sawda', 'tel_marum', 'wadi_tarfan']);
+    expect(Object.keys(versusRules).sort()).toEqual(['rujm_sawda', 'tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']); // Was 3 rules files; wadi_tarfan_l is GH-920 B3
     for (const [id, r] of Object.entries(versusRules)) expect(r.map).toBe(id);
   });
 });

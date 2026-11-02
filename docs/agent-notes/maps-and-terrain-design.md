@@ -109,3 +109,41 @@ versus file; held out of the picker, see `UNLISTED_MAP_IDS`). Authored by hand a
 - Also: `buildMatchWorld` throws "no versus rules file" if a room names `ein_qasab`, as for `milh_flats` and `tile_*`
   (pre-existing class). `shippedContentDigest()` changed value, as it does for any map added, and nothing pins a
   literal.
+
+## Large maps: the generator library and Wadi Tarfan (large) (GH-920 B1-B3, 2 Nov 2026)
+
+A large map is a NEW map id beside its 48x48 original, drawn by a generator, never by hand
+(`_coord/bigger-maps/design.md`). The shared pieces are `tools/maps/lib/`: `common.mjs` (hash, half-turn,
+`serialise`, the `--check` CLI), `shapes.mjs` (Rujm Sawda's tile-stage helpers, lifted unchanged) and
+`upscale.mjs` (the 2x stages). `tools/maps/rujm_sawda/build.mjs --check` stays byte-identical on the library,
+and `tools/src/map_lib_mutations.test.ts` breaks each helper it uses by one line and requires that to go red.
+`tools/maps/wadi_tarfan_l/build.mjs` reads `data/maps/wadi_tarfan.json` as its 48-cell sketch.
+`tools/src/large_map_verify.ts` is the generic verifier (`npx tsx tools/src/large_map_verify.ts <id>`).
+
+What each stage does, and what measuring it found:
+- **Areas copy as 2x2 blocks; every LINE feature is redrawn.** Roads and walls are one-tile chains between
+  cells' ANCHORS (`anchorOf`: the tile of the cell's 2x2 block nearer the map centre, which is its own half-turn
+  image, so a road across the centre line stays joined). A diagonal edge is dropped when a cell beside it is also
+  road, or the chain closes a 2x2 block.
+- **The 9/3/3/1 elevation rule does not straighten a diagonal contour.** A cell contour `x + y >= 3` upsamples
+  to the very 2x2 staircase the nearest copy makes: every tile stays on its own cell's side of 1/2 (7/16 and
+  9/16 at the corners). A 3x3 majority filter and a blur-and-threshold are fixed points of that staircase too.
+  `straightenStairs` is the rule that does it: three 2-tall steps two columns apart become one tile a step. On
+  Wadi Tarfan the interpolation alone left 48 staircases (the naive copy 66); with the rule, none.
+- **`relief_census.ts`'s `fatStairs` is the census check ("no 2x2 diagonal steps"), and `contourWander` is report
+  only.** The wander (scallop.py generalised) reads 0.13 on a per-tile 45 degree bank and 1.08 on a 2x2 one, but
+  0.42 on a per-tile 2:1 bank and 0.76 on 3:1, and 0.85 on the 48x48 Wadi Tarfan's own hand-drawn relief, so it
+  measures how irregular a relief is, not whether it scallops. Rujm Sawda's two mesa discs, drawn on 2x2 cells
+  and left by the look pass, read 1.18 and carry 26 staircases (its spec names them as the one exemption).
+- **A ditch is thinned on the SKETCH, not on the 2x2 copy.** Thinning the copy erodes a two-tile stub to
+  nothing and the ford beside it grows by as much (the cut sprang a leak). `thinSimple` deletes simple points
+  (Bertrand, 8-connected foreground, 4-connected background), the grid's edge counts as foreground, and a ditch
+  within a cell of a ford is `keep`-protected. A diagonal-only chain still seals: a diagonal step needs both
+  companion tiles open.
+- **Markers: the top-half member of a twin pair is drawn at twice its tile and its twin is the half-turn image**
+  (2(47 - x) + 1 = 95 - 2x), never twice its own tile. The seats come out at (20,20) and (75,75), 77.8 apart.
+- **Zones keep their landmark size** (7x7 stays 7x7 about twice its centre); the two camp grounds double.
+
+Wadi Tarfan (large) is registered and NOT offered: `RULES_ONLY_MAPS` (`tools/validate_versus_rules.mjs`),
+`UNLISTED_MAP_IDS`, `VERSUS_FORMATIONS_CLOSED_MAPS`, in neither `@lions/net` list. B4 (fairness) and B5 (render and
+memory) come before B7 opens it.

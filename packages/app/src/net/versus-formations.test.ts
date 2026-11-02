@@ -20,7 +20,8 @@ describe('formationsOpenIn', () => {
   });
   it('GH-913 L8: a map in VERSUS_FORMATIONS_CLOSED_MAPS stays closed with the gate open; the others follow the gate', () => {
     // Was ['rujm_sawda', 'wadi_tarfan']: Wadi Tarfan left the list when S4 passed on its re-seated cells (GH-945).
-    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['rujm_sawda']);
+    // Was ['rujm_sawda']: Wadi Tarfan (large) is closed from birth, until its own S4 run (GH-920 B3).
+    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['rujm_sawda', 'wadi_tarfan_l']);
     expect(formationsOpenIn('versus', true, 'rujm_sawda')).toBe(false);
     // GH-945: Wadi Tarfan follows the gate like any other map: open with it open, shut with it shut.
     expect(formationsOpenIn('versus', true, 'wadi_tarfan')).toBe(true);
