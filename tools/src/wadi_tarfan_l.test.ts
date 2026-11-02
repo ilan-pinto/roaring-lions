@@ -138,7 +138,7 @@ describe('the fairness levers (B4)', () => {
   });
 
   it('a step of two levels between source cells stays a cliff; a step of one is still a ramp', () => {
-    // 96x96 levels all 1 (a stand-in for the ramp the 9/3/3/1 rule drew), cells 0 except (10,10) at 2
+    // el: a 96x96 grid of 1s (a stand-in for the ramp the 9/3/3/1 rule drew); elev: a 48x48 grid of source cells, all 0 except (10,10) at 2 and (30,30) at 1
     const elev = Array.from({ length: 48 }, () => Array<number>(48).fill(0));
     elev[10][10] = 2;
     elev[30][30] = 1;

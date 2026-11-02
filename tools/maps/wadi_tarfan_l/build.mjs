@@ -222,8 +222,9 @@ const AREA_ZONES = new Set(['camp_0', 'camp_1']);
  * tunnel cell 3 of 96% KDF at every capacity and at 0.5 of the doubled offset. The fight is at the
  * centre whatever the size of the map, so the vent keeps the offset it has from the centre on the
  * small map, in tiles: `VENT_CENTRE_SHARE` (3/10) of the doubled offset, which is 0.6 of the source
- * offset. At 3/10 cell 3 reads Sarim 51.0 / 50.5% on 384 held-out games a cell; at 7/20 and 2/5 it
- * reads KDF 65-69% (the same two points), so the share is a measured value, not a trend.
+ * offset. At 3/10 cell 3 reads Sarim 52.1 / 53.1% on the final map (seeds 2000-2191); the neighbouring
+ * shares read KDF 65-92% (7/20 and 2/5 land on the same two points), so the share is a measured value,
+ * not a trend.
  * Seat 1's routes are the half-turn images.
  */
 const VENT_CENTRE_SHARE = [3, 10];
