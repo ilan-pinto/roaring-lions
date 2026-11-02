@@ -585,7 +585,8 @@ describe('an economy room: both seats producing through frames (N3 Task 8)', () 
   }, 60_000);
 
   it('the Sarim seat\'s foot units went below, crawled to the vent, and came up on order (GH-681 T6)', () => {
-    expect(a.tunnel.below).toBe(1);
+    // GH-945: wt_f_north holds 3 (it held 1), so three of the four named foot units go below. Was 1.
+    expect(a.tunnel.below).toBe(3);
     expect(a.tunnel.surfaced).toBeGreaterThan(0);
     expect(b.tunnel).toEqual(a.tunnel);
   });

@@ -46,9 +46,11 @@ describe('a 256 room builds the world it always built', () => {
   // LITERALS measured on the build before this change (and so on the default path now): world hash and
   // runtime digest at tick 0, seed 1234. Nothing here may move with a capacity field that is absent.
   it('capacity 256, and the same tick-0 digest for each shipped matchup', () => {
+    // wadi_tarfan re-pinned for GH-945 (seats (11,11)/(36,36) -> (10,10)/(37,37), every tunnel route at capacity 3; the seats and the
+    // route state are hashed, the runtime digest is not). Was 886210996 (kdf/kdf) and 2315748974 (kdf/sarim); the digests did not move.
     const pins: [string, ['kdf' | 'sarim', 'kdf' | 'sarim'], number, number][] = [
-      ['wadi_tarfan', ['kdf', 'kdf'], 886210996, 0],
-      ['wadi_tarfan', ['kdf', 'sarim'], 2315748974, 3577900654],
+      ['wadi_tarfan', ['kdf', 'kdf'], 181436852, 0],
+      ['wadi_tarfan', ['kdf', 'sarim'], 1484097134, 3577900654],
       ['tel_marum', ['kdf', 'sarim'], 3736181609, 733838646],
     ];
     for (const [map, f, hash, digest] of pins) {
