@@ -154,8 +154,8 @@ export function censusTerrain(input: CensusInput, views: readonly CensusView[]):
     const edge = input.edges[layer];
     return edge === null ? null : chunkGridFor(w, h, layer, edge, 0);
   };
-  const ground = new ChunkedMeshLayer(scene, 'ground', groundMat, true, (d) => toGeometry(d), gridFor('ground'));
-  const scatter = new ChunkedMeshLayer(scene, 'scatter', scatterMat, true, (d) => toGeometry(d), gridFor('ground'));
+  const ground = new ChunkedMeshLayer(scene, 'ground', groundMat, true, (d, opts) => toGeometry(d, opts), gridFor('ground'));
+  const scatter = new ChunkedMeshLayer(scene, 'scatter', scatterMat, true, (d, opts) => toGeometry(d, opts), gridFor('ground'));
   ground.update(input.ground, null);
   scatter.update(input.scatter, null);
   const decor = buildDecorMesh(input.placements, input.decorSet);
