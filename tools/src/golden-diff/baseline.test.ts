@@ -908,6 +908,12 @@ describe('BASELINES layerChecks', () => {
         'unit-surface': { px: 40, mean: 0.0258 },
         environment: { px: 1542, mean: 0.4733 },
       },
+      // L2 (GH-943), 2 Nov 2026: relief-read-signal.ts --scenario=graded --layers=grade,units,environment, 3 fresh-page runs, bit-identical.
+      graded: {
+        grade: { px: 186, mean: 5.0668 },
+        units: { px: 50100, mean: 1.8734 },
+        environment: { px: 192, mean: 0.3496 },
+      },
       // L1 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=environment,fog,haze,units on `fogged`, 3 fresh-page runs, bit-identical.
       fogged: {
         environment: { px: 253, mean: 0.3295 },
@@ -984,6 +990,29 @@ describe('the `fogged` scenario (look uplift L1, GH-943)', () => {
     for (const id of ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'relief', 'aftermath']) {
       expect((BASELINES[id].layerChecks ?? []).some((c) => c.layer === 'environment'), id).toBe(true);
     }
+  });
+});
+
+describe('the `graded` scenario (look uplift L2, GH-943)', () => {
+  it('carries the grade layer check, and the vehicles and environment the frame is named for', () => {
+    const layers = (BASELINES.graded.layerChecks ?? []).map((c) => c.layer).sort();
+    expect(layers).toEqual(['environment', 'grade', 'units']);
+  });
+
+  it('is gated, and under the dusk preset with the grade on by default (no flag names it)', () => {
+    expect(BASELINES.graded.gated).not.toBe(false);
+    const sc = SCENARIOS.find((s) => s.id === 'graded');
+    expect(sc?.sandboxFlags).toEqual(['tod=dusk']);
+    expect(sc?.targetTick).toBe(140); // ABSOLUTE
+  });
+
+  it('its grade check fails a frame the grade did not move (a disabled grade), and passes the measured signal', () => {
+    const check = (BASELINES.graded.layerChecks ?? []).find((c) => c.layer === 'grade');
+    expect(check).toBeDefined();
+    if (!check) return;
+    // Literals, measured 2 Nov 2026 (3 of 3 bit-identical): the signal with the grade on, and the 0 a disabled grade reads.
+    expect(evaluateLayerCheck(summary({ diffPixels: 186, meanAbsChannelDelta: 5.0668 }), check).ok).toBe(true);
+    expect(evaluateLayerCheck(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), check).ok).toBe(false);
   });
 });
 

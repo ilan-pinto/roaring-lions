@@ -20,6 +20,7 @@ import type { RenderQuality } from './quality';
 // A type from a three-FREE module beside `lighting.ts` (it imports nothing),
 // so this file still reaches neither backend's library.
 import type { LightOverride, TimeOfDay } from './three/time-of-day';
+import type { GradeJson } from './three/grade-maths';
 import type { BackdropSpec } from './three/terrain/backdrop';
 // Three-free too (`three/units/building-fit.ts` imports nothing).
 import type { SupportAirPlan } from './three/support-air';
@@ -466,6 +467,15 @@ export interface RendererOptions {
    * the sim.
    */
   environmentLight?: boolean;
+  /**
+   * Look uplift L2 (GH-943): a colour grade, folded into the output pass between the tone map and the
+   * vignette (`three/output-grade.ts`, maths in `three/grade-maths.ts`). `json` is a `data/grades/<id>.json`
+   * file; `strength` scales every deviation from identity (1 = as authored, 0 = identity, default 1).
+   * Absent, or an identity grade, builds NO pass: the frame is today's, bit for bit. Day ships no grade.
+   * The app reads it (`gradeOf`, beside `timeOfDayOf`); it is ON by default for dawn and dusk
+   * (`&grade=0` is the A/B switch). Three-only. Presentation only: nothing here is read by the sim.
+   */
+  grade?: { readonly json: GradeJson; readonly strength?: number };
   /**
    * How each building mesh is scaled to its footprint (lead ruling 7 Oct,
    * "fit buildings to their plots"; `three/units/building-fit.ts` holds the

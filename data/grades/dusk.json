@@ -1,0 +1,13 @@
+{
+  "id": "dusk",
+  "lift": { "tint": "water.1", "amount": 0.0175, "level": 0 },
+  "gamma": { "tint": "limestone.1", "amount": 0, "value": 1.02 },
+  "gain": { "tint": "terracotta.0", "amount": 0.04, "value": 0.99 },
+  "saturation": 1,
+  "warmth": 0.15,
+  "split_tone": {
+    "shadows": { "tint": "water.1", "amount": 0.025 },
+    "highlights": { "tint": "terracotta.0", "amount": 0.02 },
+    "balance": -0.1
+  }
+}

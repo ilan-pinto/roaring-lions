@@ -88,6 +88,7 @@ import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 import { QUALITY_PRESETS, type RenderQuality } from '../quality';
 import { OutputVignette } from './vignette-pass';
+import { OutputGrade } from './output-grade';
 
 /** Retina is worth paying for; a 3x phone panel is not, and this canvas is
  *  full-window. 2 caps the drawing buffer at 4x the pixels of a CSS-sized
@@ -481,6 +482,13 @@ export interface PostChain {
    * nothing to dispose: `dispose()` below releases the output pass it lives in.
    */
   readonly vignette: OutputVignette;
+  /**
+   * The colour grade (look uplift L2, GH-943, `./output-grade.ts`): a 32^3 LUT lookup folded into
+   * `OutputPass` BETWEEN the sRGB encode and the vignette. Starts as no grade at all, which is the
+   * stock shader byte for byte; `grade.apply(resolved)` compiles the lookup in. An identity grade
+   * (day, or no grade) builds nothing.
+   */
+  readonly grade: OutputGrade;
   /** Releases the composer's targets and the four passes this module owns
    *  (RenderPass, OutputPass, SMAAPass, and the composer's own copy pass) --
    *  never a fog, AO or bloom pass handed in from outside. */
@@ -553,6 +561,7 @@ export function createPostChain(
   const renderPass = new RenderPass(scene, camera);
   const outputPass = new OutputPass();
   const vignette = new OutputVignette(outputPass);
+  const grade = new OutputGrade(outputPass);
   // `quality.smaa` gates construction, not merely whether it is slotted --
   // building an SMAAPass nobody adds would still fetch its two lookup
   // textures (`new Image()`, a base64 `src`) for a pass `low` never runs.
@@ -578,6 +587,7 @@ export function createPostChain(
   return {
     composer,
     vignette,
+    grade,
     get passNames() {
       return composer.passes.map(passName);
     },
@@ -624,6 +634,7 @@ export function createPostChain(
     dispose() {
       composer.dispose();
       renderPass.dispose();
+      grade.dispose();
       outputPass.dispose();
       smaa?.dispose();
     },

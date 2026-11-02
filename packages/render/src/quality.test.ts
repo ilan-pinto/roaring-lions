@@ -19,12 +19,13 @@ describe('QUALITY_PRESETS', () => {
       // lead removed the open-ground puddle terms at S-L1.
       // GH-871 cheap-wet: every preset gains `rain.ground`, how much of the wet ground program it compiles. Was: no
       // such field (every preset compiled the full program). high stays 'full' (byte-identical); medium 'lite', low 'minimal'.
-      low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' } },
-      medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' } },
+      low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' } },
+      medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' } },
       // GH-777: aoScale 0.25. Was 0.5 (absent). `high` missed 60 fps at DPR 2.
       // high smokeBillboardGain: Was 0.95 (the shared default). The lead, 23 Oct:
       // 0.8 on high, where the screen measured +1 to +5 ms median of its own.
       high: {
+        grade: true,
         ao: true,
         smaa: true,
         shadowMapSize: 4096,

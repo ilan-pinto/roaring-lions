@@ -470,6 +470,30 @@ export const FOGGED_SCENARIO: Scenario = {
   targetTick: VEHICLE_SCENARIO.targetTick,
 };
 
+/** `vehicle`'s own map, camera and tick under the dusk preset: the same mesh vehicles, lit by the dusk sun and DRAWN THROUGH
+ *  THE DUSK COLOUR GRADE (look uplift L2, GH-943; on by default, so no flag is needed). Deliberately not a new framing, for
+ *  the reason `DUSK_SCENARIO` gives: the useful comparison is the SAME shot under one more thing.
+ *
+ *  WHY IT EXISTS. `dusk` and `combat` are captured REPORT-ONLY, so a dusk look is covered by no baseline at all (spec
+ *  section 8). Without a gated frame that carries the grade, deleting the lookup from `OutputPass` would leave the gate
+ *  green. Its `grade` layer check asks whether the lookup contributes pixels (reference-free, so it votes before this
+ *  scenario has a baseline), and its ceilings hold the graded frame still against a stored picture.
+ *
+ *  GATED FROM BIRTH, with no baseline committed in the same change: the first `graded` entry in an existing environment's
+ *  manifest comes from the post-merge bless, so until then CI's `visual` job is red (exit 1) -- the `fogged` precedent,
+ *  and intended. Do not bless it from the branch. */
+export const GRADED_SCENARIO: Scenario = {
+  id: 'graded',
+  description:
+    "vehicle's own map, camera and tick (beit_sahwan_outskirts sandbox force's mbt_lavi tile, tick 140) under " +
+    'the dusk preset, drawn through the dusk colour grade -- the only gated frame carrying a grade (L2, GH-943).',
+  sandboxMap: VEHICLE_SCENARIO.sandboxMap,
+  sandboxFlags: ['tod=dusk'],
+  cameraTile: VEHICLE_SCENARIO.cameraTile,
+  ticks: VEHICLE_SCENARIO.ticks,
+  targetTick: VEHICLE_SCENARIO.targetTick,
+};
+
 /** Real combat: `beit_sahwan_3_clearance`'s own opening roster, ordered to
  *  fight. Closes the gap named in `docs/superpowers/specs/2026-08-29-phase-d-todo.md`
  *  #8 -- `.superpowers/d-combat-diff-report.md` measured 2.133%-3.395% on
@@ -697,6 +721,7 @@ export const SCENARIOS: readonly Scenario[] = [
   VEHICLE_SCENARIO,
   KITTED_SCENARIO,
   FOGGED_SCENARIO,
+  GRADED_SCENARIO,
   RELIEF_SCENARIO,
   AFTERMATH_SCENARIO,
   DUSK_SCENARIO,

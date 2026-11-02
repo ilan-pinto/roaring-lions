@@ -10,7 +10,7 @@
  * it, the same reason `town`/`phase` are read off the raw JSON in `main.ts`
  * rather than widening that type for a lookup only `app` makes.
  */
-import type { LightOverride, TimeOfDay } from '@lions/render';
+import type { GradeJson, LightOverride, TimeOfDay } from '@lions/render';
 
 export const TIMES_OF_DAY: readonly TimeOfDay[] = ['dawn', 'day', 'dusk', 'night'];
 
@@ -59,4 +59,79 @@ export function lightOverrideOf(mission: { readonly map: object } | null): Light
     ...(typeof raw.fill === 'number' ? { fill: raw.fill } : {}),
     ...(typeof raw.shadow === 'number' ? { shadow: raw.shadow } : {}),
   };
+}
+
+/**
+ * Look uplift L2 (GH-943): the colour grade is ON by default since the lead judged the mock (2 Nov 2026: dawn as
+ * authored, dusk at half strength, baked into `data/grades/dusk.json`). `&grade=0` is the A/B switch, `&envlight`'s
+ * shape. Day is the identity grade and has no file, so a day map draws today's frame to the bit.
+ */
+export const GRADE_ON_BY_DEFAULT = true;
+
+/** The `&grade=<value>` strengths a flag may ask for: 0 is the identity, 1 the file as authored. */
+export const GRADE_STRENGTH_MAX = 2;
+
+export interface GradeChoice {
+  /** The grade file to bake, or null for "draw the ungraded frame". */
+  readonly grade: GradeJson | null;
+  readonly strength: number;
+  readonly warning: string | null;
+}
+
+/**
+ * Which colour grade draws the map (look uplift L2, GH-943), beside `timeOfDayOf` and for the same
+ * reason: the APP reads it, never the sim's mission type. It follows `timeOfDayOf`'s precedent (N-23) to
+ * the letter: **`&grade=` is a SANDBOX flag.** A real mission's look is authored, and a dev flag must not
+ * change it, so on a mission (`mission !== null`) the flag is not read at all -- not an id, not a strength,
+ * not `=0`.
+ *
+ *  - A MISSION draws its own `map.grade` if it authors one (an unknown id warns and draws ungraded), else
+ *    the grade of its time of day. Strength 1, always.
+ *  - A SANDBOX is on unless `&grade=0|off|false` (`GRADE_ON_BY_DEFAULT`). Absent, `&grade`, `&grade=auto`
+ *    or `=1`: the grade shipped for `tod`. `&grade=<id>[:<strength>]` names a file in `data/grades/` and
+ *    scales it (0..2, 1 = as authored); an unknown id or strength warns and falls back.
+ *  - **Day is the identity and ships no file** (`dawn`, `dusk`; `night` is dusk, D10), so a day map draws
+ *    today's frame to the bit.
+ */
+export function gradeOf(
+  mission: { readonly map: object } | null,
+  params: URLSearchParams,
+  tod: TimeOfDay,
+  grades: readonly GradeJson[]
+): GradeChoice {
+  const none = (strength = 1, warning: string | null = null): GradeChoice => ({ grade: null, strength, warning });
+  const forTimeOfDay = (): string | null => (tod === 'day' ? null : tod === 'night' ? 'dusk' : tod);
+  const lookup = (id: string | null, strength: number, warning: string | null): GradeChoice => {
+    if (id === null) return none(strength, warning);
+    const found = grades.find((g) => g.id === id);
+    if (found === undefined) {
+      return none(strength, `unknown grade "${id}" (have ${grades.map((g) => g.id).join(', ')}) — drawing ungraded`);
+    }
+    return { grade: found, strength, warning };
+  };
+
+  if (mission !== null) {
+    // N-23: the flag is never read on a mission.
+    if (!GRADE_ON_BY_DEFAULT) return none();
+    const authored = (mission.map as { grade?: unknown }).grade;
+    return lookup(typeof authored === 'string' ? authored : forTimeOfDay(), 1, null);
+  }
+
+  const raw = params.get('grade');
+  if (raw === null && !GRADE_ON_BY_DEFAULT) return none();
+  const value = raw ?? '';
+  if (value === '0' || value === 'off' || value === 'false') return none();
+  const [name, strengthRaw] = value.split(':');
+  let strength = 1;
+  let warning: string | null = null;
+  if (strengthRaw !== undefined) {
+    const n = Number(strengthRaw);
+    if (strengthRaw === '' || !Number.isFinite(n) || n < 0 || n > GRADE_STRENGTH_MAX) {
+      warning = `unknown &grade strength "${strengthRaw}" (0 to ${GRADE_STRENGTH_MAX}) — using 1`;
+    } else {
+      strength = n;
+    }
+  }
+  const auto = name === '' || name === 'auto' || name === '1' || name === 'on';
+  return lookup(auto ? forTimeOfDay() : name, strength, warning);
 }

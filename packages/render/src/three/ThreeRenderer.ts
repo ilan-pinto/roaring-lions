@@ -183,6 +183,8 @@ import { disposeAndReleaseContext, noteSharedTextures } from './context-release'
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import type { OutputVignette } from './vignette-pass';
+import type { OutputGrade, ApplyOptions as GradeApplyOptions } from './output-grade';
+import { resolveGrade, type GradeJson } from './grade-maths';
 import { zoomFadeWeight } from './zoom-fade';
 import { BLOOM_STRENGTH, bloomPassFor, luminanceCensus, type LuminanceCensus, type QuarterBloomPass } from './bloom';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
@@ -2734,6 +2736,10 @@ export class ThreeRenderer implements Renderer {
    * contributes pixels.
    */
   private vignettePass: OutputVignette | null = null;
+  /** L2 (GH-943): the grade folded into `OutputPass` (`output-grade.ts`). Held for the `grade` debug layer and `setGrade`. */
+  private gradePass: OutputGrade | null = null;
+  /** `RenderQuality.grade` of this renderer's preset: false on `low`, whose `setGrade` then builds nothing. */
+  private gradeAllowed = true;
   /**
    * Defilade Task 4: the selective HDR bloom (`./bloom.ts`), after AO and
    * before `OutputPass`. Built in `init()` only when `quality.bloom` asks
@@ -2853,6 +2859,8 @@ export class ThreeRenderer implements Renderer {
       opts.weather === 'rain' ? { wet: true, wetProgram: WET_PROGRAM_TIERS[rainQualityOf(opts.quality).ground] } : {}
     );
     this.surfaceTable = surfaceTableFor(opts.weather, opts.environmentLight !== false);
+    // L2 (GH-943): `low` builds no grade until the GPU-timer read spec section 3 asks for (`RenderQuality.grade`).
+    this.gradeAllowed = (opts.quality ?? QUALITY_PRESETS.high).grade;
     this.viewer = opts.viewerSide ?? 0;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
@@ -3397,6 +3405,10 @@ export class ThreeRenderer implements Renderer {
     // chain owns the switch. See `vignette-pass.ts` for why it must sit there.
     this.vignettePass = this.post.vignette;
     this.vignettePass.enabled = true;
+    // Look uplift L2 (GH-943): the colour grade, folded in beside the vignette. Absent (or an identity) it
+    // builds nothing, so every frame without `&grade` is today's, to the bit.
+    this.gradePass = this.post.grade;
+    if (this.opts.grade !== undefined) this.setGrade(this.opts.grade.json, this.opts.grade.strength ?? 1);
     host.appendChild(this.renderer.domElement);
     // PixiRenderer gets this from `resizeTo: host` (renderer.ts). Without an
     // equivalent the three canvas would stay at boot size while `width`/
@@ -3893,6 +3905,7 @@ export class ThreeRenderer implements Renderer {
     this.aoPass = null;
     // The vignette lives in the chain's OutputPass (GH-829): nothing to free.
     this.vignettePass = null;
+    this.gradePass = null;
     // Defilade Task 4, the same rule and order: out of the chain, then
     // freed -- the bright target, ten blur mips and nine materials.
     this.post?.setBloomPass(null);
@@ -4294,6 +4307,14 @@ export class ThreeRenderer implements Renderer {
           if (this.vignettePass) this.vignettePass.enabled = visible;
           return this.vignettePass === null || was === visible ? 0 : 1;
         }
+      case 'grade': {
+        // L2 (GH-943): `vignette`'s shape exactly -- a uniform inside `OutputPass`'s shader that no
+        // per-frame path re-asserts. Returns 1 when a grade is compiled in and the switch moved, else 0
+        // (day, no `&grade`, an identity grade, or `init()` never ran).
+        const was = this.gradePass?.enabled ?? false;
+        if (this.gradePass) this.gradePass.enabled = visible;
+        return this.gradePass === null || !this.gradePass.active || was === visible ? 0 : 1;
+      }
       case 'bloom': {
         // Defilade Task 4: `vignette`'s shape exactly -- the pass's own
         // `enabled`, which no per-frame path re-asserts (the chain is rebuilt
@@ -4726,6 +4747,23 @@ export class ThreeRenderer implements Renderer {
     this.groundPhoto = this.photographGround(size);
     this.groundPhotoPx = this.groundPhoto === null ? 0 : size;
     return this.groundPhoto;
+  }
+
+  /**
+   * L2 (GH-943): installs a colour grade at `strength` (1 = as authored, 0 = identity), or removes it
+   * (`null`). A grade whose resolved values are an identity builds nothing. Returns whether a lookup is
+   * compiled into the output pass. Public for the mock instrument (`tools/src/perf/look-l2-captures.ts`)
+   * and `grade-identity.test.ts`; the app sets a grade through `RendererOptions.grade`. Presentation only.
+   */
+  setGrade(json: GradeJson | null, strength = 1, options?: GradeApplyOptions): boolean {
+    if (this.gradePass === null) return false;
+    if (!this.gradeAllowed) return this.gradePass.apply(null);
+    return this.gradePass.apply(json === null ? null : resolveGrade(json, strength, (key) => this.overlayColor(key)), options);
+  }
+
+  /** L2 (GH-943): whether a grade lookup is compiled into the output pass. */
+  get gradeActive(): boolean {
+    return this.gradePass?.active ?? false;
   }
 
   /**

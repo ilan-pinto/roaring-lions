@@ -20,6 +20,12 @@
  * (below) is the one knob added since that is not a no-op at `high`.
  */
 export interface RenderQuality {
+  /**
+   * Whether the output pass may compile in the colour grade (look uplift L2, GH-943). `false` on `low`: spec section 3
+   * gives `low` the grade only after a GPU-timer read of its cost, and that read is still owed (the timer extension
+   * returned nothing on ANGLE/Metal). A preset without it draws the identity frame whatever grade the app hands over.
+   */
+  grade: boolean;
   /** Whether the post chain builds and slots `WorldGTAOPass`. */
   ao: boolean;
   /** Whether the post chain builds and slots `SMAAPass`. */
@@ -104,9 +110,10 @@ export type WetGroundTier = 'full' | 'lite' | 'minimal';
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
   // Was drops 900 (and 1500 before it): the P4 final-tip cost run read NET (total wet) 0.5 / 0.5 / 0.4 ms against low's +0.4 budget (z1 / z1.6 / z2.5) at load 3-5 (GH-871).
   // The first step, 1500 -> 900, followed 0.7 and 0.9 ms at zoom 2.5, twice.
-  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' } },
-  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' } },
+  low: { grade: false, ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0, rain: { drops: 525, ripples: false, ground: 'minimal' } },
+  medium: { grade: true, ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1, rain: { drops: 3500, ripples: true, ground: 'lite' } },
   high: {
+    grade: true,
     ao: true,
     smaa: true,
     shadowMapSize: 4096,

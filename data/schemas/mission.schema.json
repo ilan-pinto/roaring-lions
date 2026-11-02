@@ -177,6 +177,11 @@
           ],
           "default": "day"
         },
+        "grade": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "description": "Look uplift L2 (GH-943): the id of a colour grade in data/grades/ this mission is drawn with, which wins over the sandbox's &grade=. App-read only, never by the sim (the same path time_of_day took). validate:data checks the file exists. No shipped mission names one; absent, the map's time-of-day grade (dawn, dusk; day has none) draws. &grade=0 is the A/B switch."
+        },
         "light": {
           "type": "object",
           "additionalProperties": false,
