@@ -2,9 +2,8 @@
 //   1. the generator (tools/maps/milh_flats_l/build.mjs) writes exactly the shipped files;
 //   2. the map is what the design says it is: Milh Flats' own landmarks at twice the tile, the seats 77.8 tiles apart on
 //      the ANTI-diagonal, a 35-minute cap in a 512-entity room, the two tell rocks kept at their native four tiles;
-//   3. it is REGISTERED but NOT OFFERED: held out of the Free Play picker, out of VERSUS_FAIR_MAPS and
-//      FACTION_MATCHUP_MAPS, and closed for formations, until B5 (render and memory) is read and the lead opens it.
-//      This package must not open the map.
+//   3. it is OFFERED for the MIRROR only (B7): on the Free Play picker and in VERSUS_FAIR_MAPS, in FACTION_MATCHUP_MAPS
+//      never (B4 read only the mirror cells), and still closed for formations until its own S4 run.
 // B4 (fairness) pulled no lever on this map: the first geometry read 50.5% on seeds 0-191 and 49.7% on the held-out
 // seeds 4000-4287 (the PR has the table), so there is no fairness lever to pin, only the geometry the numbers were read on.
 // The verifier's own tests are in large_map_verify.test.ts.
@@ -16,7 +15,7 @@ import { maps, versusRules, type MapJson, type VersusRulesJson } from '@lions/da
 import { formationsOpenIn } from '../../packages/app/src/net/versus-formations';
 import { UNLISTED_MAP_IDS } from '../../packages/app/src/ui/menu';
 import { SHIPPED_MAP_IDS } from '../../packages/worker/src/match/map-ids';
-import { RULES_ONLY_MAPS } from '../validate_versus_rules.mjs';
+import { MATCHUP_MAPS, MIRROR_RULES_MAPS, RULES_ONLY_MAPS } from '../validate_versus_rules.mjs';
 import { SEAT_0, SEAT_1, build, loadSketch, serialise } from '../maps/milh_flats_l/build.mjs';
 import { SPECS, shipped, verifyLargeMap } from './large_map_verify';
 
@@ -157,23 +156,28 @@ describe('the verifier on it (B2 checks, run on the shipped data)', () => {
   });
 });
 
-describe('registered, and NOT offered (B5 first)', () => {
-  it('is in neither versus list: no room may be hosted on it, in any pairing', () => {
-    expect(VERSUS_FAIR_MAPS).not.toContain('milh_flats_l');
-    expect(FACTION_MATCHUP_MAPS).not.toContain('milh_flats_l');
-    expect(versusMapAllowed('milh_flats_l')).toBe(false);
+describe('registered, and OFFERED for the mirror only (GH-920 B7: the lead\'s ruling opens it like its original)', () => {
+  it('is a fair map and NOT a faction map: a mirror room may be hosted on it, KDF v Sarim may not', () => {
+    // Was `not.toContain` in VERSUS_FAIR_MAPS (B3: registered, not offered); the opening commit flips it, with the validator's list.
+    expect(VERSUS_FAIR_MAPS).toContain('milh_flats_l');
+    expect(FACTION_MATCHUP_MAPS).not.toContain('milh_flats_l'); // B4 read only the mirror cells
+    expect(versusMapAllowed('milh_flats_l')).toBe(true);
+    expect(matchupAllowed('mirror', 'milh_flats_l')).toBe(true);
     for (const mode of ['kdf', 'sarim'] as const) expect(matchupAllowed(mode, 'milh_flats_l'), mode).toBe(false);
-    expect(RULES_ONLY_MAPS).toContain('milh_flats_l');
+    // its rules file is classified as a mirror-rules map, not rules-only and not a faction-matchup map
+    expect(RULES_ONLY_MAPS).not.toContain('milh_flats_l');
+    expect(MATCHUP_MAPS).not.toContain('milh_flats_l');
+    expect(MIRROR_RULES_MAPS).toContain('milh_flats_l');
     // the original stays offered, for the mirror
     expect(VERSUS_FAIR_MAPS).toContain('milh_flats');
   });
 
-  it('is held out of the Free Play picker, but is a shipped map the Worker knows', () => {
-    expect(UNLISTED_MAP_IDS.has('milh_flats_l')).toBe(true);
+  it('is on the Free Play picker, and is a shipped map the Worker knows', () => {
+    expect(UNLISTED_MAP_IDS.has('milh_flats_l')).toBe(false);
     expect(SHIPPED_MAP_IDS).toContain('milh_flats_l');
   });
 
-  it('is closed for formations even when the versus gate is open; a sandbox room on it is not a versus room', () => {
+  it('stays closed for formations even when the versus gate is open; a sandbox room on it is not a versus room', () => {
     expect(formationsOpenIn('versus', true, 'milh_flats_l')).toBe(false);
     expect(formationsOpenIn('versus', undefined, 'milh_flats_l')).toBe(false);
     expect(formationsOpenIn('sandbox', undefined, 'milh_flats_l')).toBe(true);

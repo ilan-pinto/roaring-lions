@@ -87,7 +87,7 @@ describe('the shipped versus rules', () => {
   it('MIRROR_RULES_MAPS are rules files for maps offered for the mirror only: fair, never a faction-matchup map', () => {
     // GH-913 L8: rujm_sawda is opened for KDF v KDF and Sarim v Sarim. This is red the moment a map is
     // moved into FACTION_MATCHUP_MAPS without its rules file being reclassified, or dropped from the fair list.
-    expect(MIRROR_RULES_MAPS).toEqual(['rujm_sawda']);
+    expect(MIRROR_RULES_MAPS).toEqual(['rujm_sawda', 'milh_flats_l']); // Was ['rujm_sawda']: Milh Flats (large) joined it at GH-920 B7
     for (const id of MIRROR_RULES_MAPS) {
       expect(FACTION_MATCHUP_MAPS, id).not.toContain(id);
       expect(VERSUS_FAIR_MAPS, id).toContain(id);
@@ -95,11 +95,12 @@ describe('the shipped versus rules', () => {
     }
   });
   it('RULES_ONLY_MAPS are rules files for maps no room offers: in neither list of @lions/net, and never in MIRROR_RULES_MAPS', () => {
-    // GH-920 B7 opened wadi_tarfan_l (it moved into MATCHUP_MAPS, both faction cells inside 60/40 at its seats), so the list held
-    // nothing until milh_flats_l (B3) joined it, unoffered. The next test guards the other direction, that every rules file is
+    // GH-920 B7 opened wadi_tarfan_l (it moved into MATCHUP_MAPS, both faction cells inside 60/40 at its seats) and then
+    // milh_flats_l (into MIRROR_RULES_MAPS, mirror only), so the list is EMPTY and the loop below is vacuous until the next
+    // large map waits here. The next test guards that vacuity: it pins the other direction, that every rules file is
     // classified, so a map offered without being reclassified is still red.
     // Opening a map means moving it into MIRROR_RULES_MAPS (or MATCHUP_MAPS) in the same commit.
-    expect(RULES_ONLY_MAPS).toEqual(['milh_flats_l']);
+    expect(RULES_ONLY_MAPS).toEqual([]);
     for (const id of RULES_ONLY_MAPS) {
       expect(FACTION_MATCHUP_MAPS, id).not.toContain(id);
       expect(VERSUS_FAIR_MAPS, id).not.toContain(id);

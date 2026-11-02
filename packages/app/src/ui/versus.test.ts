@@ -319,6 +319,24 @@ describe('showVersus (/versus)', () => {
     expect(checkedMap(stage)).toBe('wadi_tarfan_l'); // a faction pick keeps ground it plays on
   });
 
+  it('GH-920 B7: Milh Flats (large) is a MIRROR-ONLY map with a lobby card: 96 x 96, "Mirror only", greyed out for a faction pick', () => {
+    const large = { id: 'milh_flats_l', label: (maps as Record<string, { name: string }>).milh_flats_l!.name };
+    const stage = mountPick(deps({ maps: [...MAPS, large] }));
+    expect(enabledMaps(stage)).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'tel_marum', 'wadi_tarfan', 'milh_flats_l']);
+    expect(describedBy(mapRadio(stage, 'milh_flats_l'))).toBe('Mirror only');
+    pick(mapRadio(stage, 'milh_flats_l'));
+    const card = stage.querySelector<HTMLElement>('.rl-versus__mapcard')!;
+    expect(card.querySelector('.rl-versus__mapcard-name')?.textContent).toBe('Milh Flats (large)');
+    expect(card.querySelector('.rl-versus__mapcard-desc')?.textContent).toMatch(/^A large 96 by 96 map/);
+    expect(card.textContent).toContain('96 × 96 tiles');
+    expect(card.querySelector('.rl-versus__chip[data-kind="quiet"]')?.textContent).toBe('Mirror only');
+    expect(card.querySelector('.rl-versus__pic-canvas, .rl-versus__pic')).not.toBeNull();
+    pick(sideRadio(stage, 'sarim'));
+    expect(enabledMaps(stage)).toEqual(['tel_marum', 'wadi_tarfan']);
+    expect(mapRadio(stage, 'milh_flats_l').disabled).toBe(true);
+    expect(describedBy(mapRadio(stage, 'milh_flats_l'))).toBe('Mirror only: pick Mirror to play here');
+  });
+
   it('GH-920 B7: the side note names every KDF-v-Sarim map by its name (it is a catalogue string, so a map added to the list without it is red)', () => {
     const stage = mountPick(deps());
     const note = stage.querySelector<HTMLElement>('.rl-versus__side-note')!.textContent!;

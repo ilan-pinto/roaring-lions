@@ -197,8 +197,10 @@ and fixed in the generator's data, with no sim or tuning change:
 
 `tools/maps/milh_flats_l/build.mjs` reads `data/maps/milh_flats.json` as its 48-cell sketch, on the same library,
 and writes `data/maps/milh_flats_l.json` and `data/versus/milh_flats_l.json`. It is a MIRROR-ONLY map like its
-original, registered and NOT offered (`RULES_ONLY_MAPS`, `UNLISTED_MAP_IDS`, `VERSUS_FORMATIONS_CLOSED_MAPS`, in
-neither `@lions/net` list; `milh_flats` itself stays in `VERSUS_FAIR_MAPS`). What differs from Wadi Tarfan (large):
+original. It is OFFERED since the opening commit of GH-920 B7 (on the lead's ruling, after B4's mirror read, B5's render and
+memory and B6's census): in `VERSUS_FAIR_MAPS` and `MIRROR_RULES_MAPS` (`tools/validate_versus_rules.mjs`; `RULES_ONLY_MAPS` is
+empty again), out of `UNLISTED_MAP_IDS` (a Free Play card), in `FACTION_MATCHUP_MAPS` never (no faction cell was read), so the
+`versus.host.side.note` string is unchanged. Formations stay closed: `VERSUS_FORMATIONS_CLOSED_MAPS`. What differs from Wadi Tarfan (large):
 - **The seats are on the ANTI-diagonal** (x + y = 95): `(20,75)` and `(75,20)`, 77.8 tiles apart. Doubling the original's
   `(9,38)` and `(38,9)` would give 82.0, so the seats are authored (`SEAT_0`/`SEAT_1`), not doubled. The verifier's
   seat rule gained `antiDiagonal` in the spec; the main-diagonal rule is unchanged for the others.
@@ -234,3 +236,21 @@ The seat neighbourhood (each of the 8 one-tile shifts of seat 0, seat 1 its half
 seats are fixed data): KDF v KDF west share 53.5 / 47.2 / 50.7 / 49.0 / 52.4 / 42.4 / 51.0 / 45.1 (base 49.7), so 7 of 8
 within 5 points and all inside 60/40; Sarim v Sarim 58.7 / 61.5 / 55.2 / 60.4 / 53.1 / 54.2 / 22.9 / 39.2 (base 53.5),
 five of eight beyond it. The Sarim mirror was read and never fitted.
+
+### Milh Flats (large): the network budget (GH-920 B7, 2 Nov 2026)
+
+`pnpm net:budget -- --map=milh_flats_l --play=<heavy|idle|rush>`: the full 35-minute cap (42,000 ticks) through the local
+relay, both seats `human`, KDF v KDF. The tool refuses an unlisted map, so the three runs were made with a scratch wrapper
+that pushed the id into `VERSUS_FAIR_MAPS` in its own process only (never committed); after the opening commit the stock
+command works. Judged against design 4.5 and section 4:
+
+| Play | Rows, real-time pacing (bound 2,555 idle .. 4,655 busy) | Command-log characters (cap 2,800,000) | Snapshot held / largest upload (cap 64 KiB) | End world raw / gzip (caps 1 MiB / 64 KiB) | Result |
+|---|---|---|---|---|---|
+| idle | 2,562 (measured 2,164) | 0 | 6,193 B / 6,194 B | 398,608 B (389 KiB) / 6,127 B | draw on time at 42,000 |
+| heavy (120 orders a minute a seat, 30 ids) | 2,641 (measured 2,244) | 291,624 (10.4%), 3,352 commands | 7,425 B / 7,527 B | 404,640 B (395 KiB) / 7,348 B | draw on time at 42,000 |
+| rush (a real battle, not judged against the cap) | 151 (ends at 2.0 minutes) | 212 | 8,430 B / 8,430 B | 399,990 B / 8,567 B | side 1 by annihilation |
+
+Idle rows are exactly Rujm's and Wadi (large)'s 2,562 (PR 937, PR 957); heavy is 2,641 against Wadi (large)'s 2,646. The
+idle world is 389 KiB raw against design 4.5's 390 at capacity 512. Every figure is inside the bars; the log is at 10% of its
+cap, so the map needs no Worker change. The snapshot figures are the default 15-unit force, not the 150-a-side stress of 4.5
+(404 KiB raw, 23.2 KiB gzip), which is read from the design and not re-measured here.
