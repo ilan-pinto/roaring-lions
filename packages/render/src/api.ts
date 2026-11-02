@@ -457,6 +457,15 @@ export interface RendererOptions {
    */
   lightOverride?: LightOverride;
   /**
+   * Look uplift L1 (GH-943), BEHIND A FLAG, off by default: give the scene a sky
+   * environment (a PMREM built from the time-of-day palette keys), hand it per
+   * material class (`three/environment-classes.ts`), lower the hemisphere per
+   * preset to match and lift the unit metal cap from 0.45 to 0.7. Absent or false
+   * is today's frame, to the bit. Three-only. The app sets it from `&envlight`.
+   * Presentation only: nothing here is read by the sim.
+   */
+  environmentLight?: boolean;
+  /**
    * How each building mesh is scaled to its footprint (lead ruling 7 Oct,
    * "fit buildings to their plots"; `three/units/building-fit.ts` holds the
    * rule and its reasons). Absent is `DEFAULT_BUILDING_FIT`, `stretch`, with

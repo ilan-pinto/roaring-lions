@@ -18,13 +18,13 @@ ground decals, haze and three time-of-day presets.
 bloom, decals and VFX, and are not repeated here. Two items of GH-705 bind this
 spec:
 
-- **Task 6 (unit materials and readability) is still OPEN.** It prototypes
-  roughness/metal through the role ramps and a Fresnel rim in
-  `units/unit-surface.ts` (branch `feat/defilade-t6`, proposal in
-  `_coord/defilade-t6/proposal.md`, no PR, waiting on the lead). L1 edits the
-  same file and the same quantity (how metal reads). **L1 does not start until T6
-  has landed or been closed**, so L1 rebases the roughness table T6 settles, not
-  one it is about to replace (§8).
+- **Task 6 (unit materials and readability) SHIPPED in PR 773 (2b8a00ec6, 23 Oct).**
+  It gave each node role its own roughness and metalness through the role ramps in
+  `units/unit-surface.ts` (no Fresnel rim; metal capped at 0.45; a `unit-surface`
+  toggle floor). L1 edits the same file and the same quantity (how metal reads), so
+  it rebases the table T6 settled, not one it is about to replace (§8). This line
+  read "still OPEN" until 2 Nov and was stale: the sequencing constraint it states
+  was already met.
 - **The S4 ruling of 23 Oct was "keep today's lighting"** (mocks in
   `_coord/defilade-25/lighting-mock*`). L1 changes the lighting model (it lowers
   the hemisphere and adds an environment term), even though its intent is the same
@@ -126,9 +126,11 @@ L1 therefore **assigns the PMREM texture per material class through
    visible-toggle floor in `BaselineSpec.layerChecks` (a third of the smallest
    of three runs, as for every layer).
 
-**Sequencing and approval.** After GH-705 T6 lands or is closed (§0). Before code:
+**Sequencing and approval.** GH-705 T6 has landed (§0). Before it ships:
 a before/after mock sheet at the three presets, shown against the 23 Oct "keep
-today's lighting" ruling, and the lead's approval. Without that, L1 does not start.
+today's lighting" ruling, and the lead's approval. Without that, L1 does not ship: it is
+built behind `&envlight` (`RendererOptions.environmentLight`), off by default, so main is
+unchanged while the mock is judged.
 
 **Risks.** The textured buildings and vehicles (`TEXTURED_*_EXEMPT`) ship a bake
 that already contains ambient, so they may brighten twice. Measure them
@@ -344,7 +346,7 @@ Nothing here changes the sun, the shadow or the exposure.
 
 ## 8. Order and gates
 
-**Order.** GH-705 T6 lands or closes, then L1; then L2; then L3's pilots (after L1)
+**Order.** GH-705 T6 (landed, PR 773), then L1; then L2; then L3's pilots (after L1)
 and L4 (after f1 ships and `three-units.ts` is repointed) in parallel lanes
 (different files); then L5. Each phase lands on its own branch and PR, with its
 own CI bless and its falsification in the commit message: the new layer check

@@ -166,7 +166,9 @@ import {
   CAMERA_FAR,
 } from './camera';
 import { structureAtScreenThree, structureBoxes } from './structure-pick';
-import { createSceneLights, DAY_LIGHTS, shadowBoxRadius, shadowIntensityOf, withLightOverride, type ResolvedLights, type SceneLights } from './lighting';
+import { createSceneLights, DAY_LIGHTS, shadowBoxRadius, shadowIntensityOf, withLightOverride, withEnvironmentFill, type ResolvedLights, type SceneLights } from './lighting';
+import { EnvironmentRegistry } from './environment';
+import { envClassOfDecorMesh, type EnvClass } from './environment-classes';
 import { fitShadowBox, type ShadowFitMode, type ShadowFitResult } from './shadow-fit';
 import { WORLD_PER_LEVEL as SHADOW_WORLD_PER_LEVEL } from './terrain/shared';
 import {
@@ -1402,6 +1404,12 @@ export class ThreeRenderer implements Renderer {
    *  to both mesh template loaders; assigned in the constructor, beside
    *  `groundMat`, because a field initialiser runs before the options are seen. */
   private readonly surfaceTable: SurfaceTable;
+  /**
+   * Look uplift L1 (GH-943): the scene's environment and the registry that hands it to
+   * the material classes allowed to see it. NULL unless `opts.environmentLight` (the
+   * flag, off by default), and then nothing in the scene differs from main.
+   */
+  private readonly environment: EnvironmentRegistry | null;
   /** The falling rain (GH-871 P4 T8): ONE instanced draw, built lazily by the
    *  first `frame()` after the terrain exists and only under `weather: 'rain'`
    *  (`updateRain`), null on every other map. */
@@ -2844,7 +2852,7 @@ export class ThreeRenderer implements Renderer {
     this.groundMat = new GroundMaterial(
       opts.weather === 'rain' ? { wet: true, wetProgram: WET_PROGRAM_TIERS[rainQualityOf(opts.quality).ground] } : {}
     );
-    this.surfaceTable = surfaceTableFor(opts.weather);
+    this.surfaceTable = surfaceTableFor(opts.weather, opts.environmentLight === true);
     this.viewer = opts.viewerSide ?? 0;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
@@ -3178,7 +3186,7 @@ export class ThreeRenderer implements Renderer {
         ? rainLight(baseLights, this.lightPreset, (key) => this.overlayColor(key))
         : null;
     this.rainSettings = rain;
-    this.resolvedLights = withLightOverride(
+    const overridden = withLightOverride(
       rain === null
         ? baseLights
         : {
@@ -3187,6 +3195,13 @@ export class ThreeRenderer implements Renderer {
           },
       opts.lightOverride
     );
+    // L1 (GH-943): with the environment on, the hemisphere drops per preset (the
+    // environment supplies the rest of the ambient) and a mission's `fill` and
+    // rain's scale drop by the same factor. Off, `overridden` itself, to the bit.
+    this.environment = opts.environmentLight === true
+      ? new EnvironmentRegistry(this.timeOfDay, (key) => this.overlayColor(key))
+      : null;
+    this.resolvedLights = this.environment === null ? overridden : withEnvironmentFill(overridden, this.timeOfDay);
     const baseShadowMap = (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize;
     this.sceneLights = createSceneLights(
       sim.width,
@@ -3314,6 +3329,9 @@ export class ThreeRenderer implements Renderer {
     // `maxPixelRatio` (GH-469): the menu's backdrop asks for a lower one.
     this.pixelRatio = Math.min(globalThis.devicePixelRatio || 1, this.opts.maxPixelRatio ?? PIXEL_RATIO_CAP);
     this.renderer.setPixelRatio(this.pixelRatio);
+    // L1 (GH-943): the sky needs a live context, so it is painted here. Materials adopted
+    // before this line (none in practice: templates load after `init`) receive it now.
+    this.environment?.attach(this.renderer);
     this.renderer.shadowMap.enabled = true;
     // Filtered, not Basic: the sun casts one map-wide 4096 map
     // (`lighting.ts`), so a shadow texel is coarse in world terms and a hard
@@ -3620,6 +3638,9 @@ export class ThreeRenderer implements Renderer {
     this.disposed = true;
     // Before `releaseResources` disposes the materials it is read through.
     noteSharedTextures(this.renderer, this.scene);
+    // L1 (GH-943): strip the environment from every material it gave one to (a clone memoised on a
+    // shared GLB material outlives this renderer), then free the texture while the context lives.
+    this.environment?.dispose();
     try {
       this.releaseResources();
     } finally {
@@ -4569,6 +4590,9 @@ export class ThreeRenderer implements Renderer {
       // GH-705 Task 6: a material-field write nothing per-frame re-asserts.
       case 'unit-surface':
         return setUnitSurfacePass(visible);
+      // L1 (GH-943): envMap on/off across the registered materials. 0 with the flag off.
+      case 'environment':
+        return this.environment?.setEnabled(visible) ?? 0;
       case 'wounded-read':
         // GH-707: a FLAG for the ring (the overlay pass consults it every frame) plus a material-field
         // write for the albedo floor. Returns how many lifted materials it wrote.
@@ -7254,6 +7278,7 @@ export class ThreeRenderer implements Renderer {
         )
       );
     const templates = await buildSet(templateKitTiers(unitTypeId, 0, this.opts.unitKitTiers, bySide));
+    for (const t of templates) this.adoptEnvironment(t.materials, 'unitDielectric');
     // Per-seat kit: a second set only for a kitted team whose side-1 tiers
     // differ from side 0's (`templateKey`). Built before either is filed, so a
     // failure leaves the type with neither.
@@ -7263,6 +7288,7 @@ export class ThreeRenderer implements Renderer {
     if (INFANTRY_KIT_ENABLED && side1Key !== unitTypeId && templates.some((t) => t.kitted === true)) {
       try {
         side1Templates = await buildSet(templateKitTiers(unitTypeId, 1, this.opts.unitKitTiers, bySide));
+        for (const t of side1Templates) this.adoptEnvironment(t.materials, 'unitDielectric');
       } catch (err) {
         for (const template of templates) disposeMeshUnitTemplate(template);
         throw err;
@@ -7481,6 +7507,7 @@ export class ThreeRenderer implements Renderer {
       this.noteMeshFailure(unitTypeId, glbUrl, err);
       throw err;
     }
+    this.adoptEnvironment(template.materials, 'unitDielectric');
     if (this.opts.maxTextureSize !== undefined) await capTextureSize(template.root, this.opts.maxTextureSize);
     return template;
   }
@@ -8104,6 +8131,7 @@ export class ThreeRenderer implements Renderer {
       false,
       wallTreatmentOf(structureType)
     );
+    this.adoptEnvironment(idleTemplate.materials, 'building');
     if (this.opts.maxTextureSize !== undefined) await capTextureSize(idleTemplate.root, this.opts.maxTextureSize);
     const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
     if (previousIdle) {
@@ -8239,6 +8267,7 @@ export class ThreeRenderer implements Renderer {
       // The same concrete standing and fallen (#643).
       wallTreatmentOf(structureType)
     );
+    this.adoptEnvironment(wreckTemplate.materials, 'building');
     const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
     if (previousWreck) {
       const st = this.sim.structures;
@@ -11811,6 +11840,15 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * L1 (GH-943): hand a template's materials to the environment registry, each under the
+   * class its producer tagged it with, else `fallback`. A no-op while the flag is off, so
+   * the call sites cost nothing and change nothing on main.
+   */
+  private adoptEnvironment(materials: readonly THREE.Material[], fallback: EnvClass): void {
+    this.environment?.adopt(materials, fallback);
+  }
+
+  /**
    * The wet ground's two palette colours (GH-871 P4 T4): `uWetSky`, the water's
    * sky, is `overcast.0` linear x the `hazeRadiance` of the lights this scene is
    * lit by (the very factor `applyHaze` scales the haze tint with), and
@@ -13167,6 +13205,17 @@ export class ThreeRenderer implements Renderer {
     // the decor above. `null` when nothing is placed or nothing loaded.
     this.propMesh = buildPropMesh(composed.propPlacements, this.propSet);
     if (this.propMesh !== null) this.scene.add(freezeStatic(this.propMesh));
+    // L1 (GH-943): scenery (props, trees, foliage) is the `prop` class. These meshes are rebuilt
+    // on every terrain rebuild, so they are adopted here, after each one.
+    if (this.environment !== null) {
+      for (const root of [this.decorGroup, this.texturedDecorGroup, this.propMesh]) {
+        root?.traverse((o) => {
+          const mat = (o as THREE.Mesh).material;
+          // Ground litter (`decor-sand`) lies on the ground and reads as it: no environment.
+          if (mat) this.environment?.adopt(Array.isArray(mat) ? mat : [mat], envClassOfDecorMesh(o.name));
+        });
+      }
+    }
   }
 
   /**

@@ -310,6 +310,7 @@ import { decideOnHashTick, productionOf, matchResult, reportOver, roomEndingOutc
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { enginesOf } from './engines-flag';
 import { buildingFitOf } from './building-fit-flag';
+import { environmentLightOf } from './environment-flag';
 import { registerServiceWorker } from './service-worker';
 import {
   Router,
@@ -2146,6 +2147,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // PA-24: a mission's own `map.light` (First Light's lifted dawn fill).
     ...(lightOverride !== undefined ? { lightOverride } : {}),
     ...(fit.value !== undefined ? { buildingFit: fit.value } : {}),
+    // Look uplift L1 (GH-943): `&envlight`, off by default. Presentation only.
+    ...(environmentLightOf(params) ? { environmentLight: true } : {}),
     // Pass C2/C4 (P5): asked live, so the settings panel's motion switch
     // reaches the near-miss flinch mid-mission.
     reducedMotion: prefersReducedMotion,

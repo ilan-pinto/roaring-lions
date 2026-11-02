@@ -163,6 +163,13 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: 'a | b — which engine-loop candidate every vehicle plays (GH-35); a mission uses data/audio.json’s picks',
   },
   {
+    name: 'envlight',
+    // Look uplift L1 (GH-943). Off by default, so main is unchanged until the lead judges the
+    // mock. Not a SANDBOX_FLAGS entry: it works on a mission too and it is presentation only.
+    blurb:
+      'sky environment lighting on units, buildings and props, a lower hemisphere and a 0.7 metal cap (GH-943; off by default; =0 off)',
+  },
+  {
     name: 'fitbuildings',
     // Lead ruling 7 Oct. Not a SANDBOX_FLAGS entry: it works on a mission
     // too, and it is a value flag like `tod`. `building-fit-flag.ts` reads it.
