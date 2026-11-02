@@ -103,7 +103,7 @@ import { createShownTimer, incomeHeld, loadHintsSeen, markHintSeen, owedRule, ty
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { mountBelowGround, type BelowGroundStrip } from './ui/below-ground';
 import { trackCloseup } from './ui/garage-closeup';
-import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
+import { Minimap, minimapSizeFor, flipRows } from './ui/minimap';
 import { alertsForTick, initAlertState, missionEventTier, nextJump, type Alert, type AlertState, type JumpTarget } from './ui/alerts';
 import { roomAlertsForTick, roomArrivals } from './ui/sandbox-feed';
 import { PinnedSince } from './ui/pinned-since';
@@ -3911,7 +3911,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // canvas readback is black by design and `preserveDrawingBuffer` stays
     // off.
     groundImage: () => {
-      const shot = renderer.captureGroundAlbedo?.(MINIMAP_SIZE) ?? null;
+      const shot = renderer.captureGroundAlbedo?.(minimapSizeFor(map.width, map.height)) ?? null;
       if (shot === null) return null;
       if (shot === lastShot && lastFlipped !== null) return lastFlipped;
       lastShot = shot;

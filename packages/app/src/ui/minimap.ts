@@ -97,6 +97,19 @@ import { WOUND_DOWN, WOUND_STABILISED } from '@lions/sim';
  */
 export const MINIMAP_SIZE = 210;
 
+/**
+ * The box on a map above 48 tiles a side (GH-920): 280 px, 17.5rem, where a 96-tile map is 2.92 px a
+ * tile instead of 2.19. `theme.css` states it again under `[data-minimap='large']`, which this
+ * component sets on its host, and a test reads the two against each other.
+ */
+export const MINIMAP_SIZE_LARGE = 280;
+
+/** The box a `w`x`h` map gets: `MINIMAP_SIZE` up to 48 a side (every map shipped before the big
+ *  versus ones, unchanged), `MINIMAP_SIZE_LARGE` above. */
+export function minimapSizeFor(w: number, h: number): number {
+  return Math.max(w, h) > 48 ? MINIMAP_SIZE_LARGE : MINIMAP_SIZE;
+}
+
 /** A point in tile space. */
 export interface MinimapPoint {
   x: number;
@@ -426,6 +439,12 @@ export interface MinimapProjection {
 export function minimapProjection(w: number, h: number, size: number): MinimapProjection {
   const scale = size / Math.max(w, h);
   return { scale, ox: (size - w * scale) / 2, oy: (size - h * scale) / 2 };
+}
+
+/** CSS pixels on screen to box pixels: `size / shown`, where `shown` is the width the box really has on
+ *  screen (1 where the platform reports none, so a missing measurement is no scaling and never a NaN). */
+export function scaleToBox(size: number, shown: number): number {
+  return shown > 0 ? size / shown : 1;
 }
 
 /** Tile point → box pixel. */
@@ -1076,6 +1095,9 @@ export class Minimap {
   private dragMoved = false;
   /** Every listener this component owns, cut in one call by `destroy()`. */
   private readonly listeners = new AbortController();
+  /** The box, CSS pixels: `minimapSizeFor` the map. */
+  private readonly size: number;
+  private readonly host: HTMLElement;
 
   constructor(
     host: HTMLElement,
@@ -1083,15 +1105,20 @@ export class Minimap {
   ) {
     this.chrome = resolveChrome(host);
     this.teamColors = deps.teamColors;
-    this.proj = minimapProjection(deps.map.width, deps.map.height, MINIMAP_SIZE);
+    this.size = minimapSizeFor(deps.map.width, deps.map.height);
+    this.proj = minimapProjection(deps.map.width, deps.map.height, this.size);
+    // The panel's CSS size is the `--minimap` token, which the group bar and the centred rows also
+    // read; a big map raises it for all of them at once through this attribute (theme.css).
+    this.host = host;
+    if (this.size !== MINIMAP_SIZE) host.dataset.minimap = 'large';
     // Cap at 2: past that the backing store grows quadratically for a gain
     // nobody can see on a 210px box.
     this.dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
 
     this.el = document.createElement('canvas');
     this.el.className = 'rl-minimap';
-    this.el.width = MINIMAP_SIZE * this.dpr;
-    this.el.height = MINIMAP_SIZE * this.dpr;
+    this.el.width = this.size * this.dpr;
+    this.el.height = this.size * this.dpr;
     // Deliberately NOT pointer-events:none, and since Task 10 the reason has
     // changed rather than gone away. It used to be that a click falling
     // through would issue an order on ground the player did not aim at, so
@@ -1249,6 +1276,7 @@ export class Minimap {
     // nothing holds it.
     this.listeners.abort();
     this.el.remove();
+    delete this.host.dataset.minimap;
   }
 
   /**
@@ -1262,16 +1290,19 @@ export class Minimap {
    * anchored bottom-RIGHT, so its rect starts roughly 1200px in, and a raw
    * client coordinate would clamp every click to the far corner of the map.
    *
-   * No DPR term -- the backing store is `MINIMAP_SIZE * dpr` but the CSS box
-   * is `MINIMAP_SIZE`, and both `getBoundingClientRect` and `boxToTile` work
-   * in CSS pixels.
+   * No DPR term -- the backing store is `size * dpr` but the CSS box is `size` rem-scaled, and both
+   * `getBoundingClientRect` and `boxToTile` work in CSS pixels, brought to box pixels by `scaleToBox`.
    */
   private pointAt(ev: MouseEvent): MinimapPoint {
     const rect = this.el.getBoundingClientRect();
+    // The CSS box is in rem, so it is `size` px only at a 16 px root: at a 1.4 UI scale it is 294 and a raw
+    // offset read a click at the far edge as 1.4x too far (14 tiles off at the centre on a 48 map). Ask
+    // for the box's real width; jsdom has none, and there the box is taken as `size`.
+    const k = scaleToBox(this.size, this.el.clientWidth);
     return boxToTile(
       this.proj,
-      ev.clientX - rect.left,
-      ev.clientY - rect.top,
+      (ev.clientX - rect.left) * k,
+      (ev.clientY - rect.top) * k,
       this.deps.map.width,
       this.deps.map.height
     );
@@ -1421,7 +1452,7 @@ export class Minimap {
    *  `FLASH_MS`. */
   private draw(nowMs: number = performance.now(), replay = false): void {
     const { ctx, proj } = this;
-    const s = MINIMAP_SIZE;
+    const s = this.size;
     // Before anything is laid down: the ground is the bottom of the stack,
     // and a refresh after the blit would show the new picture one redraw
     // late for no gain.
