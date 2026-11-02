@@ -1161,6 +1161,16 @@ describe('bottom-centre controls hint', () => {
     expect(hint.textContent).toContain('order row above');
   });
 
+  // GH-920: the hint is ellipsised at narrow widths, so its title carries the whole line.
+  it('titles the hint with its full text, and clears it when there is no line', () => {
+    const plain = rig(mission(), { getSelection: () => [] }).host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(plain.title).toContain('click/drag select');
+    const fed = rig(mission(), { getSelection: () => [0], hint: () => ({ key: 'hud.hint.selected' }) }).host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(fed.title).toContain('order row above');
+    const none = rig(mission(), { getSelection: () => [0], hint: () => null }).host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(none.title).toBe('');
+  });
+
   // WP-P5 (PA-16): `hintFor` answers null once the order-row line has
   // retired, and an empty plate over the battlefield is still a plate.
   it('draws no line at all when the hint dep answers null', () => {

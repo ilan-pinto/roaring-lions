@@ -2149,11 +2149,14 @@ export class Hud {
     // the line is not drawn at all -- an empty plate is still a plate.
     if (!this.deps.hint) {
       this.hint.textContent = t('hud.controlHint');
+      // The hint is ellipsised at narrow widths (GH-920); the title keeps the whole line.
+      this.hint.title = this.hint.textContent;
       return;
     }
     const hint = this.deps.hint();
     if (!hint) {
       this.hint.textContent = '';
+      this.hint.title = '';
       this.hint.style.display = 'none';
       return;
     }
@@ -2172,6 +2175,7 @@ export class Hud {
           ? { ...hint.params, ...keyCaps }
           : hint.params;
     this.hint.textContent = t(hint.key, params);
+    this.hint.title = this.hint.textContent;
   }
 
   // ------------------------------------------------------------------

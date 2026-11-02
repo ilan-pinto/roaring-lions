@@ -2635,6 +2635,13 @@ body[data-outcome-beat] .rl-aar {
      paragraph lying on the map -- measured at 1440 with the longer key list
      this used to carry. */
   white-space: nowrap;
+  /* Bounded like the rows beside it (.rl-orders, .rl-cluster): the same room between the dock and the
+     minimap. Without it a nowrap line ran 100 to 200 px under the minimap at a 1.4 UI scale on 1280x720
+     (GH-920), and the line only exists to be read, so past the bound it ends in an ellipsis. */
+  box-sizing: border-box; /* the bound is the plate's outer edge, padding and border included */
+  max-width: calc(100vw - 2 * var(--minimap) - 4 * var(--s2) - 2 * var(--hud-centre-offset));
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* --- minimap ---------------------------------------------------------- */
@@ -2685,6 +2692,13 @@ body[data-outcome-beat] .rl-aar {
   cursor: crosshair;
   touch-action: none;
   z-index: 5;
+}
+
+/* A map above 48 tiles a side (GH-920) gets a larger box: minimap.ts sets this attribute on its host
+   and its backing store is MINIMAP_SIZE_LARGE. It is the token, not the canvas rule, that changes, so
+   the group bar and the centred rows' max-width calc follow it. 17.5rem is 280 px at a 16 px root. */
+[data-minimap='large'] {
+  --minimap: 17.5rem;
 }
 
 /* --- the control-group bar (Task 11) ----------------------------------- */

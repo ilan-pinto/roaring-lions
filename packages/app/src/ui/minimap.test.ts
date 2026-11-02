@@ -34,6 +34,9 @@ import {
   CHROME,
   FLASH_MS,
   MINIMAP_SIZE,
+  unitDotPx,
+  minimapSizeFor,
+  scaleToBox,
   RING_BY_TIER,
   objectiveMarks,
   incomeMarks,
@@ -2039,5 +2042,142 @@ describe('supply routes on the minimap (C3)', () => {
     expect(last).toBeGreaterThan(-1);
     expect(last).toBeLessThan(firstDot);
     expect(last).toBeLessThan(firstGlyph);
+  });
+});
+
+// --- unit dots and the panel on a big map (GH-920) ------------------------
+
+/** `n`x`n` open field with a friendly (square) and an identified hostile (triangle); the mounted pieces. */
+function bigMount(n: number, over: Partial<MinimapDeps> = {}): { sizes: { own: number[]; hostile: number[] }; minimap: Minimap } {
+  const sim = new Sim({ seed: 1, width: n, height: n, capacity: 16 });
+  const t = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
+  sim.spawn(t, 0, fx.from(10), fx.from(10));
+  sim.identifyTo(0, sim.spawn(t, 1, fx.from(20), fx.from(20)));
+  recorder.ops.length = 0;
+  const minimap = new Minimap(document.body, {
+    sim,
+    map: makeMap({ width: n, height: n, blocked: new Uint8Array(n * n), boulder: new Uint8Array(n * n), cover: new Uint8Array(n * n) }),
+    view: makeView(() => true),
+    tones: TONES,
+    teamColors: TEAM,
+    objectives: () => [],
+    ...over,
+  });
+  const of = (color: string): number[] => recorder.dots().filter((d) => d.style === color).map((d) => d.size);
+  return { sizes: { own: of('blue'), hostile: of('red') }, minimap };
+}
+const dotSizes = (n: number) => bigMount(n).sizes;
+
+describe('the panel size', () => {
+  afterEach(() => {
+    delete document.body.dataset.minimap;
+  });
+
+  it('is 210 up to 48 tiles a side and 280 above it, by the longer side (literals)', () => {
+    for (const n of [16, 24, 40, 48]) expect(minimapSizeFor(n, n)).toBe(210);
+    for (const n of [49, 80, 96, 200]) expect(minimapSizeFor(n, n)).toBe(280);
+    expect(minimapSizeFor(96, 48)).toBe(280);
+    expect(minimapSizeFor(48, 96)).toBe(280);
+    expect(MINIMAP_SIZE).toBe(210);
+  });
+
+  it('sets the canvas backing store and the host attribute from it, on the real path, and clears it on destroy', () => {
+    const small = bigMount(48);
+    expect(canvasOf().width).toBe(210 * Math.min(Math.max(window.devicePixelRatio || 1, 1), 2));
+    expect(document.body.dataset.minimap).toBeUndefined();
+    small.minimap.destroy();
+    document.body.innerHTML = '';
+    const big = bigMount(96);
+    expect(canvasOf().width).toBe(280 * Math.min(Math.max(window.devicePixelRatio || 1, 1), 2));
+    expect(document.body.dataset.minimap).toBe('large');
+    big.minimap.destroy();
+    expect(document.body.dataset.minimap).toBeUndefined();
+  });
+
+  it('is stated in theme.css as 13.125rem and, for a big map, 17.5rem, which are 210 and 280 at a 16 px root', () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'theme.css'), 'utf8');
+    const base = /^\s*--minimap:\s*([\d.]+)rem;/m.exec(css);
+    const large = /\[data-minimap='large'\]\s*\{\s*--minimap:\s*([\d.]+)rem;/.exec(css);
+    expect(Number(base?.[1]) * 16).toBe(210);
+    expect(Number(large?.[1]) * 16).toBe(280);
+  });
+});
+
+describe('the box is filled at the panel size', () => {
+  it('the ground fill covers 210x210 on a 48 map and 280x280 on a 96 map', () => {
+    const boxFills = (): number[] => recorder.fills().filter((f) => f.x === 0 && f.y === 0 && f.w === f.h && f.w >= 100).map((f) => f.w);
+    bigMount(48);
+    expect(boxFills()).toEqual([210]);
+    document.body.innerHTML = '';
+    bigMount(96);
+    expect(boxFills()).toEqual([280]);
+    delete document.body.dataset.minimap;
+  });
+});
+
+describe('the controls hint stays clear of the minimap (theme.css)', () => {
+  const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'theme.css'), 'utf8');
+  const rule = (sel: string): string => {
+    const m = new RegExp(`^${sel.replace('.', '\\.')}\\s*\\{([^}]*)\\}`, 'm').exec(css);
+    if (!m) throw new Error(`theme.css has no ${sel} rule`);
+    return m[1];
+  };
+  const bound = { exec: (t: string) => /max-width:\s*(calc\([^;]*\));/.exec(t)?.[1]?.replace(/\s+/g, ' ').replace('( ', '(').replace(' )', ')') };
+
+  it('has the same width bound as the rows beside it, measured to the outer edge, and ends in an ellipsis', () => {
+    const hint = rule('.rl-hint');
+    const orders = /\.rl-orders,\s*\.rl-cluster\s*\{([^}]*)\}/.exec(css);
+    expect(orders).not.toBeNull();
+    expect(bound.exec(hint)).toBe(bound.exec(orders?.[1] ?? ''));
+    expect(bound.exec(hint)).toContain('2 * var(--minimap)');
+    expect(hint).toContain('box-sizing: border-box');
+    expect(hint).toContain('overflow: hidden');
+    expect(hint).toContain('text-overflow: ellipsis');
+  });
+});
+
+describe('a click on a rem-scaled box', () => {
+  it('scaleToBox maps the shown width back to box pixels, and is 1 where there is no measurement', () => {
+    expect(scaleToBox(280, 392)).toBeCloseTo(0.7142857, 6);
+    expect(scaleToBox(210, 210)).toBe(1);
+    expect(scaleToBox(210, 0)).toBe(1);
+    expect(scaleToBox(210, Number.NaN)).toBe(1);
+  });
+
+  it('at a 1.4 UI scale (392 px shown for a 280 box) a click on the middle jumps to the middle of a 96 map', () => {
+    const jumps: MinimapPoint[] = [];
+    bigMount(96, { input: { ...noopInput, jumpTo: (x, y) => jumps.push({ x, y }) } });
+    const c = canvasOf();
+    Object.defineProperty(c, 'clientWidth', { value: 392 });
+    c.dispatchEvent(at('pointerdown', 196, 98, { button: 0 }));
+    c.dispatchEvent(at('pointerup', 196, 98, { button: 0 }));
+    expect(jumps[0].x).toBeCloseTo(48, 1);
+    expect(jumps[0].y).toBeCloseTo(24, 1);
+  });
+});
+
+describe('unit dot size', () => {
+  it('is 6 px on a 48-tile map and on every smaller one, exactly as before', () => {
+    for (const n of [24, 32, 40, 48]) {
+      expect(unitDotPx(210 / n)).toBe(6);
+      expect(dotSizes(n)).toEqual({ own: [6], hostile: [6] });
+    }
+  });
+
+  it('follows the tile on a bigger map, in its 280 px panel: 5 px at 80, 4 px at 96', () => {
+    expect(dotSizes(80)).toEqual({ own: [5], hostile: [5] });
+    expect(dotSizes(96)).toEqual({ own: [4], hostile: [4] });
+  });
+
+  it('never falls below 3 px (a literal, not DOT_MIN), however big the map', () => {
+    expect(unitDotPx(280 / 600)).toBe(3);
+    expect(dotSizes(600).own).toEqual([3]);
+  });
+
+  it('stays within 1.6 tiles across on every map from 48 to 96 in its own panel, so a squad one tile apart is still a squad', () => {
+    for (let n = 48; n <= 96; n++) {
+      const scale = minimapSizeFor(n, n) / n;
+      expect(unitDotPx(scale) / scale).toBeLessThanOrEqual(1.6);
+    }
   });
 });
