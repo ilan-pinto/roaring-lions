@@ -330,6 +330,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   if (build === '') { try { build = buildId(); } catch { build = 'unknown'; } }
   try {
     mkdirSync(resultsDir, { recursive: true, mode: 0o700 });
+    chmodSync(resultsDir, 0o700); // mkdir ignores the mode when the folder already exists
     writeFileSync(logFile, '', { mode: 0o600, flag: 'a' });
   } catch (e) {
     log(`bot: cannot write ${resultsDir}: ${messageOf(e)}`);

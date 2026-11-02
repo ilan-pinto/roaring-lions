@@ -5,7 +5,7 @@
 // leaves behind is seen by the test that made it.
 import { spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -409,10 +409,14 @@ describe('the log', () => {
     const inner = h.opts.spawn;
     h.opts.spawn = (...args) => { order.push('spawn'); return inner(...args); };
     h.opts.log = (l: string) => { order.push(l); h.logs.push(l); };
+    // A folder left looser than 0700 by an earlier run is tightened, not trusted.
+    mkdirSync(join(cwd, 'bot-results'), { recursive: true });
+    chmodSync(join(cwd, 'bot-results'), 0o755);
     expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(0);
     expect(resultsOf()).toEqual([`${STEM}-report.md`, `${STEM}.log`]);
     const logPath = join(cwd, 'bot-results', `${STEM}.log`);
     expect(mode(logPath)).toBe(0o600);
+    expect(mode(join(cwd, 'bot-results'))).toBe(0o700);
     const text = readResult(`${STEM}.log`);
     for (const l of text.trimEnd().split('\n')) expect(l, l).toMatch(/^2026-11-03T10:15:30\.000Z (bot|out|err) /);
     expect(text).toContain('err harness: seat 1 of ABC234');
