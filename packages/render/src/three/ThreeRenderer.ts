@@ -581,6 +581,7 @@ import {
   vehicleScarMixForBand,
   vehicleTakesDamageStates,
 } from './units/vehicle-damage';
+import { TeamMaskSlots, VehicleTeamMaterials, setNormalMapsPass, setTeamMaskPass } from './units/team-mask';
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
 import { TEXTURED_INFANTRY_TYPES } from './units/textured-infantry';
@@ -2465,6 +2466,13 @@ export class ThreeRenderer implements Renderer {
    * entity itself (`vehicleDrawnBand`), so a rebuilt clone starts clean.
    */
   private readonly vehicleScars = new Map<string, VehicleScarMaterials>();
+  /**
+   * L3 (GH-943): the team-colour mask's three shared slot colours (own, hostile, neutral; linear, rewritten by
+   * `setTeamColors`) and the per-TEMPLATE memo of colour-slot variants of the hull's authored materials
+   * (`units/team-mask.ts`). A variant is cut on a living vehicle's instantiation; a wreck takes none.
+   */
+  private teamMaskSlots: TeamMaskSlots | null = null;
+  private readonly vehicleTeamMaterials = new Map<string, VehicleTeamMaterials>();
   private readonly buildingBurning = new Map<number, { accumMs: number; remainingMs: number }>();
 
 
@@ -3815,6 +3823,8 @@ export class ThreeRenderer implements Renderer {
     this.buildingScars.clear();
     for (const scars of this.vehicleScars.values()) scars.dispose();
     this.vehicleScars.clear();
+    for (const team of this.vehicleTeamMaterials.values()) team.dispose();
+    this.vehicleTeamMaterials.clear();
     this.buildingDamageBand.clear();
     this.buildingBurning.clear();
     this.wreckSmoulder.clear();
@@ -4611,6 +4621,12 @@ export class ThreeRenderer implements Renderer {
       // GH-705 Task 6: a material-field write nothing per-frame re-asserts.
       case 'unit-surface':
         return setUnitSurfacePass(visible);
+      // L3 (GH-943): the authored normal maps off and on across every registered material; the team mask's
+      // shared strength to 0 and back. Both are writes nothing per-frame re-asserts.
+      case 'normal-maps':
+        return setNormalMapsPass(visible);
+      case 'team-mask':
+        return setTeamMaskPass(visible);
       // L1 (GH-943): envMap on/off across the registered materials. 0 with the flag off.
       case 'environment':
         return this.environment?.setEnabled(visible) ?? 0;
@@ -7462,6 +7478,8 @@ export class ThreeRenderer implements Renderer {
         // Its scars were cut from the outgoing template's materials.
         this.vehicleScars.get(key)?.dispose();
         this.vehicleScars.delete(key);
+        this.vehicleTeamMaterials.get(key)?.dispose();
+        this.vehicleTeamMaterials.delete(key);
       }
       // A reload whose kits now agree files no side-1 template: drop the old
       // one. (Side 0's key is overwritten below, in place, as it always was.)
@@ -9547,6 +9565,10 @@ export class ThreeRenderer implements Renderer {
       let entity = this.vehicleMeshEntities.get(i);
       if (!entity) {
         entity = instantiateVehicleMesh(template, type.id, key);
+        // L3 (GH-943): a living hull draws on the variant of its template's authored materials that carries
+        // ITS side's colour (own, hostile or neutral for this viewer): +0 draw calls. BEFORE the silhouette
+        // attach, which stamps the body material the hull actually draws with.
+        this.vehicleTeamFor(key).applyTo(entity, colorSlot(st.side[i], this.viewer));
         resetRunningGear(this.runningGear, i);
         // Same attach-once contract as `updateMeshUnits` above -- and here
         // the turret comes along for free, because a vehicle's turret
@@ -10480,6 +10502,21 @@ export class ThreeRenderer implements Renderer {
       this.vehicleScars.set(templateKey, scars);
     }
     return scars;
+  }
+
+  /**
+   * L3 (GH-943): the team-colour variants of one vehicle TEMPLATE's authored materials, minted on first use.
+   * The slot colours are shared by every variant of a slot, so `setTeamColors` is one write per slot.
+   * A minted variant goes to the environment registry under the class its surface clone was tagged with.
+   */
+  private vehicleTeamFor(templateKey: string): VehicleTeamMaterials {
+    let team = this.vehicleTeamMaterials.get(templateKey);
+    if (!team) {
+      if (!this.teamMaskSlots) this.teamMaskSlots = new TeamMaskSlots(this.opts.teamColors);
+      team = new VehicleTeamMaterials(this.teamMaskSlots, (m) => this.adoptEnvironment([m], 'unitDielectric'));
+      this.vehicleTeamMaterials.set(templateKey, team);
+    }
+    return team;
   }
 
   /**
@@ -11634,6 +11671,12 @@ export class ThreeRenderer implements Renderer {
    */
   setTeamColors(teamColors: [string, string, string], resolveColor: (paletteKey: string) => string): void {
     this.opts = { ...this.opts, teamColors, resolveColor };
+    // L3: the team mask's slot colours (linear uniforms shared by every variant). `needsUpdate` makes
+    // sure a material drawn twice in a row re-uploads; a colour-vision switch is this and nothing else.
+    if (this.teamMaskSlots) {
+      this.teamMaskSlots.set(teamColors);
+      for (const team of this.vehicleTeamMaterials.values()) for (const m of team.variants()) m.needsUpdate = true;
+    }
     SILHOUETTE_COLOR_KEY_BY_SIDE.forEach((key, slot) => {
       this.silhouetteMeshMaterials[slot].color.set(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]));
     });

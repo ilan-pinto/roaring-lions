@@ -1,7 +1,7 @@
 // What the garage's turnable model (GH-316) draws, resolved from the same
 // tables a mission loads from -- so the bay can never show a different GLB
 // from the one the unit fights as.
-import { paletteColor } from '@lions/data';
+import { paletteColor, paletteTeamColors } from '@lions/data';
 import { RIGGED_UNIT_MESHES, VEHICLE_UNIT_MESHES, meshUrl } from './mesh-catalogue';
 import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
 import type { GarageColors, ModelSource } from './ui/garage-viewer';
@@ -30,6 +30,9 @@ export function garageColors(): GarageColors {
     sky: paletteColor('water.0'),
     bounce: paletteColor('dust.4'),
     ground: TERRAIN_THEMES.arid.open,
+    // L3 (GH-943): the owner's colour on a vehicle's team mask. The default set; a colour-vision
+    // variant reaches a MISSION through `setTeamColors`, and the bay shows the default.
+    team: paletteTeamColors('default')[0],
   };
 }
 

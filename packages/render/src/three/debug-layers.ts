@@ -524,6 +524,13 @@ export const DEBUG_LAYERS = [
   'environment',
   // Look uplift L2 (GH-943): the colour grade folded into OutputPass. See the doc entry.
   'grade',
+  // Look uplift L3 (GH-943): the AUTHORED normal maps (`extras.rl_orm`) on unit bodies, and the team-colour mask
+  // in the ORM alpha. `normal-maps` drops `normalMap` on every registered material and puts it back
+  // (`units/authored-maps.ts`); `team-mask` writes the one strength every hooked material shares to 0 and back
+  // (`units/team-mask.ts`). Material and uniform writes nothing per-frame re-asserts. Witnessed by the gated
+  // `vehicle` scenario's layer checks.
+  'normal-maps',
+  'team-mask',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

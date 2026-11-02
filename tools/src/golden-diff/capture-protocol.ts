@@ -444,6 +444,29 @@ export const KITTED_SCENARIO: Scenario = {
   targetTick: VEHICLE_SCENARIO.targetTick,
 };
 
+/** `vehicle`'s own map, camera and tick at zoom 2.5: the framing at which a Lavi's authored normal
+ *  map (dents, welds, bolts: 4.6 texels per pixel) and its team mask are actually legible. Look
+ *  uplift L3 (GH-943).
+ *
+ *  WHY IT EXISTS. At `vehicle`'s zoom 1 the normal map is 11.5 texels per pixel and hiding it moves
+ *  0 px / 0.0009 -- present, but a floor of a third of that is a check on rounding noise. The lead's
+ *  ruling (2 Nov) allows a gated close scenario "only if the `normal-maps` A/B is too weak for a
+ *  floor"; this is that scenario, and it carries the `normal-maps` and `team-mask` checks.
+ *
+ *  GATED FROM BIRTH, with no baseline committed in the same change (the `kitted` and `fogged`
+ *  precedent): CI's `visual` job is red on the missing entry until the post-merge bless. */
+export const VEHICLE_CLOSE_SCENARIO: Scenario = {
+  id: 'vehicle-close',
+  description:
+    "vehicle's own map, camera and tick (beit_sahwan_outskirts sandbox force's mbt_lavi tile, tick 140) at " +
+    'zoom 2.5: the framing where the Lavi\'s authored normal map and team mask read (L3, GH-943).',
+  sandboxMap: VEHICLE_SCENARIO.sandboxMap,
+  cameraTile: VEHICLE_SCENARIO.cameraTile,
+  zoom: 2.5,
+  ticks: VEHICLE_SCENARIO.ticks,
+  targetTick: VEHICLE_SCENARIO.targetTick,
+};
+
 /** `vehicle`'s own map and tick, pulled out to zoom 0.5 and panned east of the force so the frame
  *  carries what `vehicle` does not: the fog-of-war shroud, the dust haze and the off-map fade, with
  *  the force's mesh vehicles (metal and painted hulls) standing in them. Look uplift L1 (GH-943).
@@ -719,6 +742,7 @@ export const SCENARIOS: readonly Scenario[] = [
   QUIET_SCENARIO,
   OPEN_GROUND_SCENARIO,
   VEHICLE_SCENARIO,
+  VEHICLE_CLOSE_SCENARIO,
   KITTED_SCENARIO,
   FOGGED_SCENARIO,
   GRADED_SCENARIO,

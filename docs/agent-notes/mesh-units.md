@@ -798,3 +798,26 @@ which register no tests: a test file that exports a helper re-registers its test
 
 `rebindVertices` makes the constructed failing input (a copy of a file with one bone's vertices moved to another); it throws
 if it moved nothing, so a mutation cannot silently be the shipped file.
+
+## L3: authored normal/ORM maps and the team mask (GH-943; the Lavi is the pilot)
+
+Spec `docs/superpowers/specs/2026-11-01-look-uplift-design.md` section 4; the lead's approval of 2 Nov is on GH-943.
+
+- **Pipeline.** export -> rescale -> running-gear -> `pnpm maps:meshes -- --id=mbt_lavi` -> kit -> wreck -> damage -> encode. The maps pass
+  refuses a re-run (`rl_maps`), an unrescaled file, one with no running gear, and one already kitted or wrecked. It runs
+  `tools/vehicles/lavi_maps.py` (numpy; each texel mapped back to its 3D position on the shipped geometry; seams, welds, bolts, dents, wear,
+  dust; hand-rolled `vnoise`/`fbm`, never `mathutils.noise`), replaces Meshy's flat maps with the generated PNGs and stamps `rl_orm`,
+  `rl_team_luma` and `rl_maps`. Source: `art/src/vehicles/mbt_lavi.blend`, now tracked.
+- **The frame.** three derives its tangent frame in the fragment shader (no tangents on this asset), and that frame is exactly
+  `(grad u, grad v, N)` over the larger of the two lengths; `GLTFLoader` negates `normalScale.y`. The generator writes `mx = -h_u M`, `my = +h_v M`.
+  `tools/src/meshes/lavi-maps.test.ts` re-derives the frame by a second transliteration of the GLSL and holds every probe within 2 degrees; a
+  flipped green channel fails it.
+- **Team mask.** About 2% of the surface (a roof recognition panel and a turret-side band), strength 0.85, in the ORM alpha, INVERTED (255 bake,
+  0 team) so a premultiply damages only the band. The hook is at `color_fragment`; `carryAuthored` re-applies it on every `clone()` (scar, running
+  gear). A wreck takes none. The kit's three pinned UV texels hold 16x16 flat, unmasked swatches (`check_kit_swatches`).
+- **Memory.** The Lavi's textures go from 21.3 to 64.0 MiB of GPU memory (3 x 2048 px); on the wire 2.45 to about 7.4 MiB. A per-class budget
+  (vehicle 80 MiB / 2560 px, building 64 / 2048, infantry 32 / 3072, today's maxima as a ratchet) and a report-only roster census are in
+  `validate:meshes`. KTX2 is decided before any second unit.
+- **Layers and gates.** `normal-maps` and `team-mask` debug layers; layer checks on `vehicle` and on the new gated `vehicle-close` scenario
+  (zoom 2.5, where the normal map is 8x stronger). `officer_armour` and `mbt_lavi_camo` reuse the Lavi's bake and do NOT carry the maps yet.
+- **The maps are checked by the byte gates above, not by a render**: `validate:meshes` renders a palette stand-in for a textured vehicle.
