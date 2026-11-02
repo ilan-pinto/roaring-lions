@@ -1262,6 +1262,12 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // environment counted twice -- moves this frame 87 px / 0.3183, past BOTH ceilings (2.2x on pixels, 80x on
     // magnitude). `vehicle` reads 250 px / 0.4233 for the same doubling. A scenario this frame could not see that
     // defect in would be a gate that cannot fail.
+    //
+    // THE HAZE HALF of the coupling (review N2), the reason this frame is zoomed out: the haze, rain, water and smoke read
+    // `resolvedLights.hemiIntensity`, which L1 scales (0.9 to 0.82 on day). `env-doublecount.ts --mode=haze` feeds the haze
+    // the UNSCALED lights while the ground keeps the scaled ones: 0 px / 0.0681 on this frame (3 of 3 bit-identical;
+    // `vehicle` 0 px / 0.0447). Every pixel is under pixelmatch's 0.1 threshold, so the pixel ceiling is blind to it and the
+    // MAGNITUDE ceiling carries it, 17x over 0.004. The gate fails on either ceiling (`evaluateBaseline`), so it sees it.
     region: null,
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.004,

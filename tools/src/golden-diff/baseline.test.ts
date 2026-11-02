@@ -962,6 +962,19 @@ describe('the `fogged` scenario (look uplift L1, GH-943)', () => {
     expect(doubled.mean).toBeGreaterThan(spec.maxMeanAbsChannelDelta);
   });
 
+  it('sees the haze fed the UNSCALED lights (review N2): under pixelmatch\'s threshold everywhere, so the magnitude ceiling carries it', () => {
+    // Measured 2 Nov 2026, `env-doublecount.ts --mode=haze`: 3 fresh loads, bit-identical. Literal, not recomputed.
+    const hazeMismatch = summary({ diffPixels: 0, meanAbsChannelDelta: 0.0681 });
+    const spec = BASELINES.fogged;
+    expect(hazeMismatch.diffPixels).toBeLessThanOrEqual(spec.maxDiffPixels);
+    expect(hazeMismatch.meanAbsChannelDelta).toBeGreaterThan(spec.maxMeanAbsChannelDelta);
+    // The gate's own verdict fails it, on the magnitude alone; and the doubled intensity (87 px / 0.3183) fails it too.
+    expect(evaluateBaseline(hazeMismatch, spec).ok).toBe(false);
+    expect(evaluateBaseline(summary({ diffPixels: 87, meanAbsChannelDelta: 0.3183 }), spec).ok).toBe(false);
+    // And a frame that did not move passes: the verdict is not "always red".
+    expect(evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), spec).ok).toBe(true);
+  });
+
   it('holds the shroud, the haze and the vehicles it is named for, and the environment on them', () => {
     const layers = (BASELINES.fogged.layerChecks ?? []).map((c) => c.layer).sort();
     expect(layers).toEqual(['environment', 'fog', 'haze', 'units']);

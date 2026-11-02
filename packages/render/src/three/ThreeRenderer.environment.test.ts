@@ -97,10 +97,11 @@ describe('environmentLight OFF (`&envlight=0`, the A/B switch): the pre-L1 frame
 });
 
 describe('environmentLight ON (the default since 2 Nov)', () => {
-  it('is on when the option is absent, and an explicit true is the same', () => {
+  it('is on when the option is absent, and an explicit true is the same, with scene.environment left null', () => {
     for (const extra of [{}, { environmentLight: true }]) {
       const r = make(extra);
       expect(inner(r).environment).not.toBeNull();
+      expect((r as unknown as { scene: THREE.Scene }).scene.environment).toBeNull();
       expect(inner(r).sceneLights.hemisphere.intensity).toBeCloseTo(ENV_HEMISPHERE_INTENSITY.day, 12);
       r.dispose();
     }
