@@ -17,8 +17,6 @@
  */
 import * as THREE from 'three';
 import { paletteHex } from './palette-hex';
-import { SHIPPED_METAL_CAP } from './environment-classes';
-import { isAuthoredMaterial, prepareAuthoredMaps, registerAuthored } from './units/authored-maps';
 
 export const WORLD_ROUGHNESS = 0.85;
 
@@ -85,19 +83,8 @@ export function texturedMaterial(loaded: THREE.Material): THREE.MeshStandardMate
     ? (loaded as THREE.MeshStandardMaterial)
     : new THREE.MeshStandardMaterial({ map });
   prepareTexturedMap(map);
-  if (isAuthoredMaterial(std)) {
-    // L3 (GH-943): the maps are AUTHORED (`extras.rl_orm`). Keep both, drive roughness at 1 (the map
-    // IS the roughness) and take the metal cap as the metalness factor (the map's blue is 0..1 of it).
-    // `surfaceMaterialFor` then sets the per-table factors on each class's clone; no
-    // `MR_MAP_ROUGHNESS_MEAN` rescale, and no dropping the metal map on a metal class.
-    prepareAuthoredMaps(std);
-    registerAuthored(std);
-    std.roughness = 1;
-    std.metalness = SHIPPED_METAL_CAP;
-  } else {
-    if (!std.metalnessMap) std.metalness = 0;
-    if (!std.roughnessMap) std.roughness = WORLD_ROUGHNESS;
-  }
+  if (!std.metalnessMap) std.metalness = 0;
+  if (!std.roughnessMap) std.roughness = WORLD_ROUGHNESS;
   std.envMapIntensity = 0;
   std.needsUpdate = true;
   return std;
@@ -233,13 +220,6 @@ export function charredTexturedMaterial(loaded: THREE.Material): THREE.MeshStand
   charred.color.copy(sootColor(bakeLuma));
   charred.roughness = 1;
   charred.metalness = 0;
-  if (isAuthoredMaterial(charred)) {
-    // L3: a burnt-out hull has no specular left, so the authored roughness and metal map go; the normal
-    // map (a dent is still a dent) and the micro-cavity AO stay, and share the live twin's upload.
-    charred.roughnessMap = null;
-    charred.metalnessMap = null;
-    registerAuthored(charred);
-  }
   charred.onBeforeCompile = sootOnBeforeCompile;
   charred.customProgramCacheKey = () => SOOT_PROGRAM_KEY;
   charred.needsUpdate = true;

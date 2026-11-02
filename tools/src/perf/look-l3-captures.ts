@@ -1,23 +1,21 @@
 /**
- * Look uplift L3 (GH-943): the APPROVAL instrument for the Lavi's normal/ORM maps and team mask -- not a gate.
+ * Look uplift L3 (GH-943): the APPROVAL instrument for the Lavi's team mark -- not a gate.
  *
  *   pnpm exec tsx tools/src/perf/look-l3-captures.ts --out=<dir> --today=<old encoded mbt_lavi.glb>
  *       [--only=garage,ingame] [--port=5187]
  *
  * One Metal Chromium, music off, its own dev server on its own port (never 5177), ONE page at a time.
  *
- * - **garage**  Sheet A. The bay's own turntable (`mountGarageView`, 1440x960 CSS px, DPR 2): three headings
- *               x {today, maps, maps + mask}, and a 2x crop of the turret for each. "today" is the Lavi as it
- *               shipped before this change: `--today` is that GLB, served in place of the new one by a route
- *               interception, so the two arms differ by the GLB alone.
- * - **ingame**  Sheet B. The gated `vehicle` framing (beit_sahwan_outskirts sandbox, tick 140), at zoom 1 and
- *               2.5, day / dawn / dusk, today vs L3; and the mask at zoom 2.5 as own, hostile and deuteranopia
- *               beside a mask-off column. Every column is the SAME page repainted at zero elapsed time, with only
- *               a debug layer or `setTeamColors` between two photographs. The HOSTILE column writes the hostile
- *               hex into the OWN slot: the hook reads one shared uniform per slot, so it is pixel-identical to a
- *               hostile hull, and the sheet says so.
+ * - **garage**  The bay's own turntable (`mountGarageView`, 1440x960 CSS px, DPR 2) at three headings, for
+ *               {today, the crisp mark}. "today" is the Lavi as it shipped before L3: `--today` is that GLB, served
+ *               in place of the new one by a route interception, so the two arms differ by the GLB alone.
+ * - **ingame**  The gated `vehicle` framing (beit_sahwan_outskirts sandbox, tick 140) at zoom 1 and 2.5: the mark as
+ *               own, hostile and deuteranopia, and with the `team-mask` layer off. Every column is the SAME page
+ *               repainted at zero elapsed time, with only the layer or `setTeamColors` between two photographs. The
+ *               HOSTILE column writes the hostile hex into the OWN slot: the hook reads one shared uniform per slot,
+ *               so it is pixel-identical to a hostile hull, and the sheet says so.
  *
- * Writes PNGs and `capture.json` (GPU, resolution, tick). `tools/look_l3_sheet.py` composes the two sheets.
+ * Writes PNGs and `capture.json` (GPU, resolution, tick). `tools/look_l3_sheet.py` composes the sheet.
  */
 import { chromium, type Page } from 'playwright';
 import fs from 'node:fs';
@@ -114,8 +112,7 @@ function crop(png: PNG, x: number, y: number, w: number, h: number): PNG {
 async function sheetA(): Promise<void> {
   const arms: { id: string; today: boolean; team: boolean }[] = [
     { id: 'today', today: true, team: false },
-    { id: 'maps', today: false, team: false },
-    { id: 'maps_mask', today: false, team: true },
+    { id: 'mark', today: false, team: true },
   ];
   const shots: Record<string, { file: string; crop: string }> = {};
   for (const arm of arms) {
@@ -221,74 +218,34 @@ const TEAM_SET_SCRIPT = `
 
 async function sheetB(): Promise<void> {
   const shots: Record<string, string> = {};
-  const rows: { tod: 'day' | 'dawn' | 'dusk'; zooms: number[] }[] = [
-    { tod: 'day', zooms: [1, 2.5] },
-    { tod: 'dawn', zooms: [1] },
-    { tod: 'dusk', zooms: [1] },
-  ];
-  for (const row of rows) {
-    // today: the old GLB, a page of its own
-    const today = await bootIngame(true, row.tod);
-    try {
-      for (const z of row.zooms) {
-        const name = `ingame_${row.tod}_z${z}_today.png`;
-        savePng(await frame(today, z), name);
-        shots[`${row.tod}/${z}/today`] = name;
-      }
-    } finally {
-      await today.close();
+  const page = await bootIngame(false, 'day');
+  try {
+    await page.evaluate(`(async () => {${TEAM_SET_SCRIPT}})()`);
+    const colours: Record<string, unknown> = {};
+    for (const z of [1, 2.5]) {
+      colours.own = await page.evaluate(() => (window as unknown as { __teamSet: (v: string) => unknown }).__teamSet('default'));
+      savePng(await frame(page, z), `ingame_own_z${z}.png`);
+      shots[`own/${z}`] = `ingame_own_z${z}.png`;
+      // Hostile: the hostile hex in the OWN slot.
+      colours.hostile = await page.evaluate(() => {
+        const t = (window as unknown as { __teamSet: (v: string) => string[] }).__teamSet('default');
+        return (window as unknown as { __teamSetRaw: (h: string[]) => string[] }).__teamSetRaw([t[1], t[1], t[1]]);
+      });
+      savePng(await frame(page, z), `ingame_hostile_z${z}.png`);
+      shots[`hostile/${z}`] = `ingame_hostile_z${z}.png`;
+      colours.deuteranopia = await page.evaluate(() => (window as unknown as { __teamSet: (v: string) => unknown }).__teamSet('deuteranopia'));
+      savePng(await frame(page, z), `ingame_deuteranopia_z${z}.png`);
+      shots[`deuteranopia/${z}`] = `ingame_deuteranopia_z${z}.png`;
+      await page.evaluate(() => (window as unknown as { __teamSet: (v: string) => unknown }).__teamSet('default'));
+      await page.evaluate(() => LL.renderer.setDebugLayerVisible('team-mask', false));
+      savePng(await frame(page, z), `ingame_off_z${z}.png`);
+      shots[`off/${z}`] = `ingame_off_z${z}.png`;
+      await page.evaluate(() => LL.renderer.setDebugLayerVisible('team-mask', true));
     }
-    const page = await bootIngame(false, row.tod);
-    try {
-      for (const z of row.zooms) {
-        const name = `ingame_${row.tod}_z${z}_l3.png`;
-        savePng(await frame(page, z), name);
-        shots[`${row.tod}/${z}/l3`] = name;
-        await page.evaluate(() => LL.renderer.setDebugLayerVisible('team-mask', false));
-        const off = `ingame_${row.tod}_z${z}_maskoff.png`;
-        savePng(await frame(page, z), off);
-        shots[`${row.tod}/${z}/maskoff`] = off;
-        await page.evaluate(() => LL.renderer.setDebugLayerVisible('team-mask', true));
-        await page.evaluate(() => LL.renderer.setDebugLayerVisible('normal-maps', false));
-        const nm = `ingame_${row.tod}_z${z}_nomaps.png`;
-        savePng(await frame(page, z), nm);
-        shots[`${row.tod}/${z}/nomaps`] = nm;
-        await page.evaluate(() => LL.renderer.setDebugLayerVisible('normal-maps', true));
-      }
-      if (row.tod === 'day') {
-        // The mask as own / hostile / deuteranopia at zoom 2.5. One page; only the slot colours move.
-        await page.evaluate(`(async () => {${TEAM_SET_SCRIPT}})()`);
-        const colours: Record<string, unknown> = {};
-        const variants: [string, string][] = [
-          ['own', 'default'],
-          ['deuteranopia_own', 'deuteranopia'],
-        ];
-        for (const [label, variant] of variants) {
-          colours[label] = await page.evaluate((v) => (window as unknown as { __teamSet: (v: string) => unknown }).__teamSet(v), variant);
-          const name = `ingame_mask_${label}_z2.5.png`;
-          savePng(await frame(page, 2.5), name);
-          shots[`mask/${label}`] = name;
-        }
-        // Hostile: the hostile hex in the OWN slot.
-        const hostile = await page.evaluate(() => {
-          const t = (window as unknown as { __teamSet: (v: string) => string[] }).__teamSet('default');
-          return (window as unknown as { __teamSetRaw: (h: string[]) => string[] }).__teamSetRaw([t[1], t[1], t[1]]);
-        });
-        colours.hostile = hostile;
-        savePng(await frame(page, 2.5), 'ingame_mask_hostile_z2.5.png');
-        shots['mask/hostile'] = 'ingame_mask_hostile_z2.5.png';
-        // mask off, restored colours
-        await page.evaluate((v) => (window as unknown as { __teamSet: (v: string) => unknown }).__teamSet(v), 'default');
-        await page.evaluate(() => LL.renderer.setDebugLayerVisible('team-mask', false));
-        savePng(await frame(page, 2.5), 'ingame_mask_off_z2.5.png');
-        shots['mask/off'] = 'ingame_mask_off_z2.5.png';
-        await page.evaluate(() => LL.renderer.setDebugLayerVisible('team-mask', true));
-        meta.teamColours = colours;
-      }
-      meta.tick = await page.evaluate(() => LL.sim.tickCount);
-    } finally {
-      await page.close();
-    }
+    meta.teamColours = colours;
+    meta.tick = await page.evaluate(() => LL.sim.tickCount);
+  } finally {
+    await page.close();
   }
   meta.ingame = { viewport: '1400x900 CSS, DPR 2', camera: 'goto(4.5, 20.5), zoom as named', sheetB: shots };
 }

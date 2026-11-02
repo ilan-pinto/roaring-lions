@@ -1230,15 +1230,14 @@ def _jpeg_size(data):
 #
 # Unit textures are the memory that scales with the roster: the heaviest mission
 # holds 882 of 1,015 MiB (`perf:memory`). Until L3 the only thing between a
-# 2048 map and a 4096 one was the contributor's care, and the Lavi pilot adds
-# 42.7 MiB on its own. So each class has a ceiling, set at TODAY'S MAXIMUM as a
+# 2048 map and a 4096 one was the contributor's care, and the first L3 cut
+# of the Lavi (normal and ORM maps) added 42.7 MiB on its own before the lead dropped it. So each class has a ceiling, set at TODAY'S MAXIMUM as a
 # RATCHET: it may be lowered, never raised to let an asset in. Raising one is a
 # lead decision, like `IOU_LIMIT`.
 #
 # What counts: LOGICAL bytes read from the image HEADERS (never decoded): width
 # x height x 4 bytes x the mip-chain factor, summed over every `images[]` entry
-# of one GLB. An image two texture slots share (the ORM map is both
-# `occlusionTexture` and `metallicRoughnessTexture`) is ONE image and counts
+# of one GLB. An image two texture slots share is ONE image and counts
 # once, which is what the GPU uploads. A KTX2 image counts the bytes of its
 # stored levels, which is what its transcoded form costs.
 MIB = 1024 * 1024
@@ -1356,26 +1355,51 @@ def texture_census(meshes_root, missions_dir, vehicles_dir=None):
 
 
 # ---------------------------------------------------------------------------
-# L3 (GH-943): the kit's SWATCHES in the maps. A kit part has no UVs of its own: the kit pass
-# collapses every one of them onto one of three texels of the host's bake (paint, metal, dark;
-# `export_vehicle_kit.py`), so a kit part draws whatever the NORMAL and ORM maps hold at that
-# texel. They must be a flat, unmasked swatch there, or a kit part inherits a dent, a bolt or a
-# team stripe from the hull it happens to be pinned beside.
-SWATCH_NORMAL = (128, 128, 255)
-SWATCH_NORMAL_TOL = 2
-SWATCH_VALUE_TOL = 1
+# L3 (GH-943): the TEAM MARK. A vehicle's hull and turret may declare `material.extras.rl_team_mark`: two boxes
+# in the mesh-local frame (a roof recognition panel and a flank band) the fragment shader tests. Not a texture.
+# The kit is merged INTO the host geometry at runtime and its parts have no UVs of their own (the kit pass pins
+# every one onto one of three bake texels), so the shader excludes a fragment whose UV is within
+# `exclude_radius` of a pin: every kit UV in the file must lie inside one.
+MARK_FRACTION_BAND = (0.015, 0.025)
 
 
-def _glb_image_pixels(js, bin_, image_index):
-    import io
-
-    import numpy as np
-    from PIL import Image
-
-    im = js["images"][image_index]
-    bv = js["bufferViews"][im["bufferView"]]
-    off = bv.get("byteOffset", 0)
-    return np.asarray(Image.open(io.BytesIO(bin_[off:off + bv["byteLength"]])).convert("RGBA"))
+def check_team_marks(vehicles_root):
+    """(failures, lines) over every uncompressed vehicle GLB whose material declares `rl_team_mark`."""
+    failures, lines = [], []
+    for path in sorted(glob.glob(os.path.join(vehicles_root, "*.glb"))):
+        name = os.path.basename(path)[:-4]
+        js, bin_ = _read_glb_chunks(path)
+        marked = [m for m in js.get("materials", []) if "rl_team_mark" in (m.get("extras") or {})]
+        if not marked:
+            continue
+        if len(marked) != 1:
+            failures.append(f"mark: {name} must have exactly one material with rl_team_mark, has {len(marked)}")
+            continue
+        mark = marked[0]["extras"]["rl_team_mark"]
+        try:
+            fraction = mark["team_fraction"]
+            for key in ("roof", "band"):
+                if mark[key]["x"][0] >= mark[key]["x"][1] or mark[key]["y"][0] >= mark[key]["y"][1]:
+                    failures.append(f"mark: {name}: the {key} box is empty or inside out")
+            if not mark["luma"] > 0:
+                failures.append(f"mark: {name}: rl_team_mark.luma must be positive")
+            pins = [tuple(uv) for uv in mark["exclude_uv"]]
+            radius = mark["exclude_radius"]
+        except (KeyError, IndexError, TypeError) as e:
+            failures.append(f"mark: {name}: rl_team_mark is malformed ({e!r})")
+            continue
+        if not (MARK_FRACTION_BAND[0] <= fraction <= MARK_FRACTION_BAND[1]):
+            failures.append(f"mark: {name}: the mark covers {fraction * 100:.2f}% of the surface, outside "
+                            f"{MARK_FRACTION_BAND[0] * 100:g}-{MARK_FRACTION_BAND[1] * 100:g}%")
+        stray = [uv for uv in sorted(_kit_uvs(js, bin_))
+                 if min(((uv[0] - p[0]) ** 2 + (uv[1] - p[1]) ** 2) ** 0.5 for p in pins) >= radius]
+        for uv in stray:
+            failures.append(f"mark: {name}: a kit part is pinned at uv {uv}, which no exclusion pin covers: the mark would paint it")
+        extra = [t.get("name") for t in js.get("images", []) if t.get("name") in ("normal", "orm", "metallic_roughness")]
+        if extra:
+            failures.append(f"mark: {name} carries {extra}: the L3 pilot ships base colour alone (the maps were dropped)")
+        lines.append(f"{name}: team mark {fraction * 100:.2f}% of the surface, {len(pins)} kit pin(s) excluded, no texture of its own")
+    return failures, lines
 
 
 def _kit_uvs(js, bin_):
@@ -1401,74 +1425,6 @@ def _kit_uvs(js, bin_):
             for uv in np.unique(np.round(arr.astype(float), 5), axis=0):
                 seen.add((float(uv[0]), float(uv[1])))
     return seen
-
-
-def check_kit_swatches(vehicles_root):
-    """(failures, lines) over every uncompressed vehicle GLB that carries `scene.extras.rl_maps`."""
-    import numpy as np
-
-    failures, lines = [], []
-    for path in sorted(glob.glob(os.path.join(vehicles_root, "*.glb"))):
-        name = os.path.basename(path)[:-4]
-        js, bin_ = _read_glb_chunks(path)
-        maps = ((js.get("scenes") or [{}])[0].get("extras") or {}).get("rl_maps")
-        authored = [m for m in js.get("materials", []) if (m.get("extras") or {}).get("rl_orm")]
-        if not maps:
-            if authored:
-                failures.append(f"maps: {name} has an `rl_orm` material but no scene extras.rl_maps")
-            continue
-        if len(authored) != 1:
-            failures.append(f"maps: {name} must have exactly one authored (`rl_orm`) material, has {len(authored)}")
-            continue
-        mat = authored[0]
-        try:
-            orm_tex = mat["occlusionTexture"]["index"]
-            if mat["pbrMetallicRoughness"]["metallicRoughnessTexture"]["index"] != orm_tex:
-                failures.append(f"maps: {name}: occlusionTexture and metallicRoughnessTexture must be ONE texture (one upload)")
-                continue
-            orm = _glb_image_pixels(js, bin_, js["textures"][orm_tex]["source"])
-            nrm = _glb_image_pixels(js, bin_, js["textures"][mat["normalTexture"]["index"]]["source"])
-        except KeyError as e:
-            failures.append(f"maps: {name} is missing {e} on its authored material")
-            continue
-        size = maps["size"]
-        if orm.shape[:2] != (size, size) or nrm.shape[:2] != (size, size):
-            failures.append(f"maps: {name}: normal {nrm.shape[1]}x{nrm.shape[0]} / ORM {orm.shape[1]}x{orm.shape[0]}, declared {size}")
-            continue
-        alpha = orm[..., 3]
-        if not np.isin(alpha, (0, 255)).all():
-            failures.append(f"maps: {name}: ORM alpha is not binary (0 team / 255 bake)")
-        zero = int((alpha == 0).sum())
-        if zero != maps.get("team_texels"):
-            failures.append(f"maps: {name}: ORM holds {zero} team texels, rl_maps declares {maps.get('team_texels')}")
-        swatches = maps.get("swatches") or {}
-        declared = {(round(sw["uv"][0], 5), round(sw["uv"][1], 5)): tone for tone, sw in swatches.items()}
-        for uv in sorted(_kit_uvs(js, bin_)):
-            if uv not in declared:
-                failures.append(f"maps: {name}: a kit part is pinned at uv {uv}, which no declared swatch covers")
-        for tone, sw in sorted(swatches.items()):
-            px, py = sw["texel"]
-            half = sw["window"] // 2
-            ys, xs = slice(py - half + 1, py + half + 1), slice(px - half + 1, px + half + 1)
-            o = orm[ys, xs].astype(int)
-            n = nrm[ys, xs, :3].astype(int)
-            want = [255, round(sw["rough"] * 255), round(sw["metal"] * 255), 255]
-            bad = []
-            if (o[..., 0] != 255).any():
-                bad.append("occlusion is not 255")
-            if (o[..., 3] != 255).any():
-                bad.append(f"{int((o[..., 3] != 255).sum())} texel(s) carry the team mask (alpha != 255)")
-            if (abs(o[..., 1] - want[1]) > SWATCH_VALUE_TOL).any():
-                bad.append(f"roughness is not {want[1]}")
-            if (abs(o[..., 2] - want[2]) > SWATCH_VALUE_TOL).any():
-                bad.append(f"metalness is not {want[2]}")
-            if (abs(n - np.array(SWATCH_NORMAL)) > SWATCH_NORMAL_TOL).any():
-                bad.append("the normal is not flat")
-            if bad:
-                failures.append(f"maps: {name}: kit swatch {tone!r} at texel {px},{py} ({sw['window']}x{sw['window']}): " + "; ".join(bad))
-        lines.append(f"{name}: {len(declared)} swatch(es) flat and unmasked, {zero} team texels, "
-                     f"{maps['team_fraction'] * 100:.2f}% of the surface")
-    return failures, lines
 
 
 def check_backdrop_meshes(backdrop_root):
@@ -3188,7 +3144,7 @@ def main():
         for line in rg_lines:
             print(f"    {line}")
 
-        # L3 (GH-943): the texture budget per class, the kit swatches in the maps, and the roster census.
+        # L3 (GH-943): the texture budget per class, the team mark, and the roster census.
         meshes_root = os.path.join(REPO, "art", "meshes")
         tex_failures, tex_rows = check_texture_budget(
             texture_class_roots(meshes_root, vehicles_dir if args.vehicles_dir else None))
@@ -3200,10 +3156,10 @@ def main():
                 top = max(mine, key=lambda r: r[2])
                 print(f"    {cls}: heaviest {top[1]} {top[2]:.1f} MiB (ceiling {TEXTURE_BUDGET[cls][0]:g}), "
                       f"widest image {max(r[3] for r in mine)} px (limit {TEXTURE_BUDGET[cls][1]})")
-        swatch_failures, swatch_lines = check_kit_swatches(vehicles_dir)
-        failures.extend(swatch_failures)
-        print(f"  maps: {len(swatch_lines)} vehicle(s) carry authored normal/ORM maps --")
-        for line in swatch_lines:
+        mark_failures, mark_lines = check_team_marks(vehicles_dir)
+        failures.extend(mark_failures)
+        print(f"  team mark: {len(mark_lines)} vehicle(s) carry one --")
+        for line in mark_lines:
             print(f"    {line}")
         census, _cost = texture_census(meshes_root, os.path.join(REPO, "data", "missions"),
                                        vehicles_dir if args.vehicles_dir else None)

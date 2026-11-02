@@ -434,14 +434,13 @@ const GROUND_T11 =
   'full-gate runs (`t11-r{1,2,3}`, port 5195) on macOS 15 / M3 Pro, headless Chromium, software ' +
   'SwiftShader, frame loop frozen. ';
 
-/** Look uplift L3 (GH-943), the `normal-maps` and `team-mask` layer checks: what they were measured with, written once. */
-const L3_MAPS =
-  'Look uplift L3 (GH-943), measured 2 Nov 2026 with `tools/src/perf/relief-read-signal.ts --layers=normal-maps,team-mask` ' +
-  '(`vehicle-close` also `units`): the gate\'s own capture, 3 fresh page loads per scenario, BIT-IDENTICAL across all three, repaint ' +
-  'control 0 px / 0.0000, on macOS / M3 Pro, headless Chromium, SwiftShader (ANGLE, Vulkan, SwiftShader driver). Hiding `normal-maps` ' +
-  'drops the Lavi\'s authored normal map on every registered material; hiding `team-mask` writes the one strength every hooked ' +
-  'material shares to 0 (the roof recognition panel and the turret band fall back to the bake). Floors are a third of the smallest ' +
-  'run, rounded down; a reading under SUB_THRESHOLD_PX (100) gets a pixel floor of 0 and the magnitude floor carries it. ';
+/** Look uplift L3 (GH-943), the `team-mask` layer check: what it was measured with, written once. */
+const L3_MARK =
+  'Look uplift L3 (GH-943), measured 2 Nov 2026 with `tools/src/perf/relief-read-signal.ts --layers=team-mask`: the gate\'s own ' +
+  'capture, 3 fresh page loads, BIT-IDENTICAL across all three, on macOS / M3 Pro, headless Chromium, SwiftShader (ANGLE, Vulkan, ' +
+  'SwiftShader driver). Hiding `team-mask` writes the one strength every hooked material shares to 0: the crisp roof recognition ' +
+  'panel and the turret band (boxes tested on the object-space position, `units/team-mask.ts`) fall back to the bake. Floors are a ' +
+  'third of the smallest run, rounded down. ';
 
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
@@ -1154,25 +1153,14 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'floor carries it (a third of the smallest, rounded down). WATCHED GOING RED: `setUnitSurfacePass` made a no-op (returns before writing) reads 0 px / 0.0000 on this frame, under both floors.',
       },
       {
-        layer: 'normal-maps',
-        minDiffPixels: 0,
-        minMeanAbsChannelDelta: 0.0003,
-        rationale:
-          L3_MAPS +
-          'At zoom 1 the Lavi\'s detail is 11.5 texels per pixel, so this is a WEAK witness by nature: 0 px / 0.0009 x3. 0 px is under ' +
-          'SUB_THRESHOLD_PX, so the magnitude floor (0.0003, a third of 0.0009) carries it, over a repaint control that reads a literal 0. ' +
-          '`vehicle-close` (zoom 2.5, 8x the signal) is the real witness. ' +
-          'WATCHED GOING RED: `setNormalMapsPass` made a no-op, and separately the GLB\'s `normalTexture` stripped at load, each read ' +
-          '0 px / 0.0000 here, under the floor.',
-      },
-      {
         layer: 'team-mask',
-        minDiffPixels: 96,
-        minMeanAbsChannelDelta: 0.0043,
+        minDiffPixels: 94,
+        minMeanAbsChannelDelta: 0.0044,
         rationale:
-          L3_MAPS +
-          'The two Lavis\' roof panel and turret band at zoom 1: 289 px / 0.0131 x3. ' +
-          'WATCHED GOING RED: `setTeamMaskPass` made a no-op reads 0 px / 0.0000 here, under both floors.',
+          L3_MARK +
+          "The two Lavis' roof panel and turret band at zoom 1: 283 px / 0.0132 x3. " +
+          'WATCHED GOING RED: `setTeamMaskPass` made a no-op reads 0 px / 0.0000 here, under both floors; the mark\'s boxes moved off the ' +
+          'turret (x 50 m) read 0 px / 0.0000 too.',
       },
     ],
     rationale:
@@ -1282,53 +1270,6 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       '(linux-x64-swiftshader, 12-24 Oct) read a literal 0 px / 0.0000, all 34 against the current ' +
       '2b8a00e baseline; the other 17 are blessed render changes, 38 px / 0.0256 (PR 788) the smallest. ' +
       'Same frame plus static geometry; repaint control 0 px / 0.0000.',
-  },
-  'vehicle-close': {
-    // Look uplift L3 (GH-943), `VEHICLE_CLOSE_SCENARIO`: `vehicle`'s own frame at zoom 2.5. No baseline exists for it in ANY
-    // environment: it ships in the change that adds it, and the first one comes from the post-merge bless, so CI's `visual`
-    // job is red on the missing entry until then (the `kitted` and `fogged` precedent, and intended). What votes meanwhile are
-    // the three reference-free checks.
-    //
-    // 40 px / 0.004 is `vehicle`'s own ceiling (GH-803), carried over rather than re-derived: the same sandbox force at the same
-    // tick and camera tile, a frozen frame whose zero-time repaint control reads a literal 0 px / 0.0000 (three of three fresh
-    // loads here). It has NOT been read against a stored `vehicle-close` baseline, since none exists: re-derive it from the
-    // first CI runs after the bless, as GH-803 did for the others.
-    region: null,
-    maxDiffPixels: 40,
-    maxMeanAbsChannelDelta: 0.004,
-    layerChecks: [
-      {
-        layer: 'normal-maps',
-        minDiffPixels: 0,
-        minMeanAbsChannelDelta: 0.0025,
-        rationale:
-          L3_MAPS +
-          'The Lavis at zoom 2.5, 4.6 texels per pixel: 4 px / 0.0076 x3. 4 px is under SUB_THRESHOLD_PX, so the pixel floor is 0 and ' +
-          'the magnitude floor (0.0025, a third of 0.0076) carries it. ' +
-          'WATCHED GOING RED: `setNormalMapsPass` made a no-op, and separately the GLB\'s `normalTexture` stripped at load, each read ' +
-          '0 px / 0.0000 here, under the floor.',
-      },
-      {
-        layer: 'team-mask',
-        minDiffPixels: 600,
-        minMeanAbsChannelDelta: 0.024,
-        rationale:
-          L3_MAPS +
-          'The Lavis\' roof panel and turret band at zoom 2.5: 1801 px / 0.0721 x3. ' +
-          'WATCHED GOING RED: `setTeamMaskPass` made a no-op reads 0 px / 0.0000 here, under both floors.',
-      },
-      {
-        layer: 'units',
-        minDiffPixels: 56725,
-        minMeanAbsChannelDelta: 5.03,
-        rationale:
-          L3_MAPS +
-          'Proves the vehicles are really in frame at this zoom: hiding every unit body moves 170177 px / 15.0991 x3.',
-      },
-    ],
-    rationale:
-      "whole frame, `vehicle`'s framing at zoom 2.5. 40 px / 0.004, `vehicle`'s ceiling carried over (see the comment above); " +
-      'repaint control 0 px / 0.0000.',
   },
   fogged: {
     // Look uplift L1 (GH-943), `FOGGED_SCENARIO`. No baseline exists for it in ANY environment: it ships in the

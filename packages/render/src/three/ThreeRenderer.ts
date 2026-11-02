@@ -581,7 +581,7 @@ import {
   vehicleScarMixForBand,
   vehicleTakesDamageStates,
 } from './units/vehicle-damage';
-import { TeamMaskSlots, VehicleTeamMaterials, setNormalMapsPass, setTeamMaskPass } from './units/team-mask';
+import { TeamMaskSlots, VehicleTeamMaterials, setTeamMaskPass } from './units/team-mask';
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
 import { TEXTURED_INFANTRY_TYPES } from './units/textured-infantry';
@@ -4621,10 +4621,7 @@ export class ThreeRenderer implements Renderer {
       // GH-705 Task 6: a material-field write nothing per-frame re-asserts.
       case 'unit-surface':
         return setUnitSurfacePass(visible);
-      // L3 (GH-943): the authored normal maps off and on across every registered material; the team mask's
-      // shared strength to 0 and back. Both are writes nothing per-frame re-asserts.
-      case 'normal-maps':
-        return setNormalMapsPass(visible);
+      // L3 (GH-943): the team mark's shared strength to 0 and back: a uniform write nothing per-frame re-asserts.
       case 'team-mask':
         return setTeamMaskPass(visible);
       // L1 (GH-943): envMap on/off across the registered materials. 0 with the flag off.

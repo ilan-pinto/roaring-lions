@@ -126,8 +126,8 @@ export interface GarageColors {
   readonly sky: string;
   readonly bounce: string;
   readonly ground: string;
-  /** L3 (GH-943): the viewer's OWN team colour (sRGB hex). Present, a vehicle with a team mask
-   *  (`extras.rl_team_luma`) wears it on its roof panel and turret band, as it does in a mission;
+  /** L3 (GH-943): the viewer's OWN team colour (sRGB hex). Present, a vehicle with a team mark
+   *  (`extras.rl_team_mark`) wears it on its roof panel and turret band, as it does in a mission;
    *  absent, the bake is drawn unmasked. */
   readonly team?: string;
 }
@@ -556,7 +556,7 @@ function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationCli
   const build = (tiers: VehicleKitTiers | undefined): BuiltVehicle => {
     const tpl = buildVehicleMeshTemplate({ scene: cloneForBuild(pristine), animations: rest }, opts.typeId, textured, tiers);
     const ent = instantiateVehicleMesh(tpl, opts.typeId);
-    // L3 (GH-943): the bay shows the owner's colour on the team mask, exactly as a mission does.
+    // L3 (GH-943): the bay shows the owner's colour on the team mark, exactly as a mission does.
     const teamHex = opts.colors.team;
     const teamMats = teamHex ? new VehicleTeamMaterials(new TeamMaskSlots([teamHex, teamHex, teamHex])) : null;
     teamMats?.applyTo(ent, 0);

@@ -52,7 +52,6 @@
 import * as THREE from 'three';
 import { applyRainRim, setRainRimPass } from './rain-rim';
 import { ENV_CLASS_OF_SURFACE, ENV_METAL_CAP, ENV_USERDATA_KEY } from '../environment-classes';
-import { isAuthoredMaterial, registerAuthored } from './authored-maps';
 
 export interface SurfaceParams {
   readonly roughness: number;
@@ -321,26 +320,14 @@ export function surfaceMaterialFor(
     mat.userData = { ...(mat.userData as Record<string, unknown>), [ENV_USERDATA_KEY]: ENV_CLASS_OF_SURFACE[cls] };
   }
   const mapped = mat.roughnessMap !== null;
-  // L3 (GH-943): an AUTHORED ORM map says where the metal and the gloss are, so the class does not:
-  // roughness is the map's (factor 1, or the table's wet/dry ratio on armour, 0.67 under rain), metalness
-  // is the table's metal cap (0.45, or 0.7 with an environment) times the map's blue, and the metal map is
-  // never dropped. The class only picks the environment intensity (hull 0.3, metal 0.6) via the tag above.
-  const authored = isAuthoredMaterial(std);
-  if (authored) registerAuthored(mat, std);
   const entry: SurfaceEntry = {
     mat,
     off: { roughness: std.roughness, metalness: std.metalness, metalnessMap: std.metalnessMap },
-    on: authored
-      ? {
-          roughness: table.armour.roughness / SURFACE_PARAMS.armour.roughness,
-          metalness: table.gunmetal.metalness,
-          metalnessMap: std.metalnessMap,
-        }
-      : {
-          roughness: mapped ? Math.min(1 / MR_MAP_ROUGHNESS_MEAN, p.roughness / MR_MAP_ROUGHNESS_MEAN) : p.roughness,
-          metalness: p.metalness,
-          metalnessMap: p.metalness > 0 ? null : std.metalnessMap,
-        },
+    on: {
+      roughness: mapped ? Math.min(1 / MR_MAP_ROUGHNESS_MEAN, p.roughness / MR_MAP_ROUGHNESS_MEAN) : p.roughness,
+      metalness: p.metalness,
+      metalnessMap: p.metalness > 0 ? null : std.metalnessMap,
+    },
     ...(rim ? { rim: true } : {}),
   };
   if (rim) applyRainRim(mat);

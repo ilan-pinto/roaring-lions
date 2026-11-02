@@ -3,7 +3,7 @@
  * below must turn the real Python check red; the unmutated tree must stay green, so a check that
  * stopped looking cannot pass by silence.
  *
- * The size oracle takes LITERALS: the Lavi's three 2048-px images are `22,369,621` bytes each
+ * The size oracle takes LITERALS: the Lavi's one 2048-px image is `22,369,621` bytes
  * (2048 x 2048 x 4 x 4/3, truncated), written out here by hand and never recomputed from the
  * module's own constants. A mutated mip-chain factor must move the Python's answer off the literal.
  */
@@ -98,7 +98,7 @@ describe('the texture budget per class', () => {
     expect(f).toEqual([]);
   });
 
-  it('three 2048 images in a vehicle pass (the Lavi pilot, 64.0 MiB of 80)', () => {
+  it('three 2048 images in a vehicle pass (64.0 MiB of 80)', () => {
     expect(budgetOf(roots({ vehicle: { a: [TWO_K, TWO_K, TWO_K] } }))).toEqual([]);
   });
 
@@ -130,12 +130,12 @@ describe('the size oracle takes literals', () => {
   const sizeOf = (pre = ''): number =>
     Number(py(`${pre}print(json.dumps({"failures": [], "value": v.glb_texture_bytes(${JSON.stringify(LAVI)})}))`).value);
 
-  it('the shipped Lavi holds exactly three 2048-px images: 3 x 22,369,621 logical bytes', () => {
-    expect(sizeOf()).toBe(67_108_863);
+  it('the shipped Lavi holds exactly one 2048-px image (its bake): 22,369,621 logical bytes', () => {
+    expect(sizeOf()).toBe(22_369_621);
   });
 
   it('a mutated mip-chain factor moves the answer off the literal', () => {
-    expect(sizeOf('v.MIP_CHAIN_FACTOR = 1.0\n')).not.toBe(67_108_863);
-    expect(sizeOf('v.MIP_CHAIN_FACTOR = 2.0\n')).not.toBe(67_108_863);
+    expect(sizeOf('v.MIP_CHAIN_FACTOR = 1.0\n')).not.toBe(22_369_621);
+    expect(sizeOf('v.MIP_CHAIN_FACTOR = 2.0\n')).not.toBe(22_369_621);
   });
 });

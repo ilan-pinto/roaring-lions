@@ -52,7 +52,7 @@ import { CHARRED_TINT_HEX, liftTone } from '../world-materials';
 import { BURN_BAND_MAX, SCAR_BAND_MAX } from './building-damage';
 import { CHARRED_RAMP } from './vehicle-mesh-role';
 import { runningGearBinding } from './running-gear-binding';
-import { carryAuthored } from './team-mask';
+import { carryTeamMark } from './team-mask';
 import type { VehicleMeshEntity } from './mesh-vehicle';
 
 /** A clean hull's band, and the band of anything never processed. */
@@ -131,8 +131,8 @@ export class VehicleScarMaterials {
     let scarred = perBand.get(band);
     if (!scarred) {
       scarred = std.clone();
-      // L3: a clone drops `onBeforeCompile`; keep the team mask and the `normal-maps` registration.
-      carryAuthored(scarred, std);
+      // L3: a clone drops `onBeforeCompile`; keep the team mark.
+      carryTeamMark(scarred, std);
       writeScar(scarred, std, mix);
       scarred.needsUpdate = true;
       perBand.set(band, scarred);

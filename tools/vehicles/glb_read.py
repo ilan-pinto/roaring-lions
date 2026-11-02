@@ -1,6 +1,6 @@
 """A minimal, dependency-free (numpy only) reader for the UNCOMPRESSED GLBs in
 `art/meshes/` (never `assets/meshes/`, which is Draco). Used by the L3 map
-generator (`lavi_maps.py`); it reads geometry, never writes a file.
+generator (`lavi_mark.py`); it reads geometry, never writes a file.
 """
 import json
 import struct
