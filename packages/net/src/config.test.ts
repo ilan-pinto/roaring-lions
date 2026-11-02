@@ -121,9 +121,10 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
     expect(isFactionPair('kdf,sarim')).toBe(false);
   });
 
-  it('KDF vs Sarim is Tel Marum and Wadi Tarfan only; the mirror plays anywhere (the lead, 2026-10-14)', () => {
-    expect([...FACTION_MATCHUP_MAPS]).toEqual(['tel_marum', 'wadi_tarfan']);
-    for (const map of ['tel_marum', 'wadi_tarfan']) {
+  it('KDF vs Sarim is Tel Marum, Wadi Tarfan and Wadi Tarfan (large) only; the mirror plays anywhere (the lead, 2026-10-14)', () => {
+    // Was ['tel_marum', 'wadi_tarfan']: Wadi Tarfan (large) joined at GH-920 B7 (both faction cells inside 60/40 at its seats).
+    expect([...FACTION_MATCHUP_MAPS]).toEqual(['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']);
+    for (const map of ['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']) {
       expect(matchupAllowed('sarim', map), map).toBe(true);
       expect(matchupAllowed('kdf', map), map).toBe(true);
     }
@@ -137,7 +138,8 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
   });
 
   it('a versus room is offered only on the maps measured close to even (the lead, 2026-10-14, #561)', () => {
-    expect([...VERSUS_FAIR_MAPS]).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda']);
+    // Was five maps; Wadi Tarfan (large) is the sixth (GH-920 B7).
+    expect([...VERSUS_FAIR_MAPS]).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l']);
     for (const map of VERSUS_FAIR_MAPS) expect(versusMapAllowed(map)).toBe(true);
     // Every other shipped map, a tile study, and things that are not a map id at all.
     for (const map of ['qarn_hadid', 'wadi_halam_basin', 'deir_amun', 'umm_zeitoun', 'khan_rafid', 'marj_perimeter', 'tel_marum_3', 'tile_road', 'tutorial_ground', '', '__proto__', 'Tel_Marum']) {

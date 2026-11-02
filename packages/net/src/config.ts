@@ -129,12 +129,17 @@ export function endOfSeat(seat: Seat): SpawnEnd {
  *  `beit_sahwan_outskirts`' room seats are no longer the heuristic's: after
  *  PR #721 the mirror read west 38 / east 10 there, and its measured seats
  *  live in `VERSUS_SEATS` (packages/app/src/net/versus-seats.ts). */
-export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda'];
+export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l'];
 
 // The large 80x80 map (GH-913 L8) joins as a MIRROR-ONLY map, the lead's ruling of 1 Nov: its mirror was
 // accepted at the shipped seat (12,12) on the 576-seed reading (west 52.3%), while its KDF-vs-Sarim cells
 // read KDF 66-74% and the tunnels cell about 96%, so it is in `FACTION_MATCHUP_MAPS` never. Opened after
 // the ground and decor chunking (PR 932) and a frame re-check on high.
+//
+// The large 96x96 Wadi Tarfan (GH-920 B7) joins for the mirror AND both faction cells (it is in
+// `FACTION_MATCHUP_MAPS` too): B4 read every offered cell at its shipped seats (20,20)/(75,75) inside 60/40 on held-out
+// seeds (set C, 4000-4287, 288 seeds a cell; the lead's ruling of 2 Nov: fair at its seats, the one-tile seat
+// neighbourhood is a report, not a gate). Formations stay closed on it (`VERSUS_FORMATIONS_CLOSED_MAPS`).
 
 /** Whether a versus room may be hosted on `map`. */
 export function versusMapAllowed(map: string): boolean {
@@ -151,7 +156,7 @@ export function versusMapAllowed(map: string): boolean {
  *  (KDF 68.8%), so it is a mirror-only map. The mirror plays on the fair maps
  *  (`VERSUS_FAIR_MAPS`); a non-mirror pairing is narrower still. The lobby
  *  offers no other pairing and the room refuses one (`matchupAllowed`). */
-export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfan'];
+export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l'];
 
 /** The match cap, in minutes, of a room on a map whose rules file says more than the default (GH-913 L8).
  *  A TWIN of `cap_minutes` in data/versus/<map>.json, kept here because the Worker imports @lions/net and
