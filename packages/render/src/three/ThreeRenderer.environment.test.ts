@@ -71,29 +71,22 @@ interface Internals {
 }
 const inner = (r: ThreeRenderer): Internals => r as unknown as Internals;
 
-describe('environmentLight OFF (the default): main is unchanged', () => {
+describe('environmentLight OFF (`&envlight=0`, the A/B switch): the pre-L1 frame', () => {
   it('builds no registry, keeps the shipped hemisphere and the shipped surface table by identity', () => {
     for (const tod of ['dawn', 'day', 'dusk'] as const) {
-      const r = make({ timeOfDay: tod });
+      const r = make({ timeOfDay: tod, environmentLight: false });
       expect(inner(r).environment, tod).toBeNull();
       expect(inner(r).sceneLights.hemisphere.intensity, tod).toBe(TIME_OF_DAY_PRESETS[tod].hemiIntensity);
       expect(inner(r).surfaceTable, tod).toBe(SURFACE_PARAMS);
       r.dispose();
     }
-    const wet = make({ weather: 'rain' });
+    const wet = make({ weather: 'rain', environmentLight: false });
     expect(inner(wet).surfaceTable).toBe(WET_SURFACE_PARAMS);
     wet.dispose();
   });
 
-  it('an explicit false is the same as absent', () => {
-    const r = make({ environmentLight: false });
-    expect(inner(r).environment).toBeNull();
-    expect(inner(r).sceneLights.hemisphere.intensity).toBe(0.9);
-    r.dispose();
-  });
-
   it('adopting a template and the environment layer are inert (the layer reads 0: there is no environment)', () => {
-    const r = make();
+    const r = make({ environmentLight: false });
     const m = new THREE.MeshStandardMaterial();
     inner(r).adoptEnvironment([m], 'unitMetal');
     expect(m.envMap).toBeNull();
@@ -103,10 +96,19 @@ describe('environmentLight OFF (the default): main is unchanged', () => {
   });
 });
 
-describe('environmentLight ON', () => {
+describe('environmentLight ON (the default since 2 Nov)', () => {
+  it('is on when the option is absent, and an explicit true is the same', () => {
+    for (const extra of [{}, { environmentLight: true }]) {
+      const r = make(extra);
+      expect(inner(r).environment).not.toBeNull();
+      expect(inner(r).sceneLights.hemisphere.intensity).toBeCloseTo(ENV_HEMISPHERE_INTENSITY.day, 12);
+      r.dispose();
+    }
+  });
+
   it('lowers the hemisphere to the per-preset value and lifts the metal cap to 0.7', () => {
     for (const tod of ['dawn', 'day', 'dusk'] as const) {
-      const r = make({ timeOfDay: tod, environmentLight: true });
+      const r = make({ timeOfDay: tod });
       expect(inner(r).environment?.currentPreset, tod).toBe(tod);
       expect(inner(r).sceneLights.hemisphere.intensity, tod).toBeCloseTo(ENV_HEMISPHERE_INTENSITY[tod], 12);
       expect(inner(r).sceneLights.hemisphere.intensity, tod).toBeLessThan(TIME_OF_DAY_PRESETS[tod].hemiIntensity);
@@ -116,15 +118,23 @@ describe('environmentLight ON', () => {
     }
   });
 
+  it('what the haze, rain and water read (resolvedLights) is the SCALED hemisphere the light was built from', () => {
+    for (const tod of ['dawn', 'day', 'dusk'] as const) {
+      const r = make({ timeOfDay: tod });
+      expect(inner(r).resolvedLights.hemiIntensity, tod).toBe(inner(r).sceneLights.hemisphere.intensity);
+      r.dispose();
+    }
+  });
+
   it('scales a mission\'s map.light.fill by the same factor, so a lifted dawn stays lifted by the same ratio', () => {
-    const r = make({ timeOfDay: 'dawn', environmentLight: true, lightOverride: { fill: 1.2 } });
+    const r = make({ timeOfDay: 'dawn', lightOverride: { fill: 1.2 } });
     expect(inner(r).sceneLights.hemisphere.intensity).toBeCloseTo(1.2 * (ENV_HEMISPHERE_INTENSITY.dawn / 0.75), 12);
     r.dispose();
   });
 
   it('keeps the sun exactly as shipped: this is ambient, not a new sun', () => {
-    const on = make({ environmentLight: true });
-    const off = make();
+    const on = make();
+    const off = make({ environmentLight: false });
     const sun = (r: ThreeRenderer) => (r as unknown as { sceneLights: { sun: THREE.DirectionalLight } }).sceneLights.sun;
     expect(sun(on).intensity).toBe(sun(off).intensity);
     expect(sun(on).position.toArray()).toEqual(sun(off).position.toArray());
@@ -133,7 +143,7 @@ describe('environmentLight ON', () => {
   });
 
   it('the wet surface table keeps its rim switch and its roughness, and only the metal cap moves', () => {
-    const r = make({ weather: 'rain', environmentLight: true });
+    const r = make({ weather: 'rain' });
     const t = inner(r).surfaceTable;
     expect(t.gunmetal).toEqual({ roughness: WET_SURFACE_PARAMS.gunmetal.roughness, metalness: ENV_METAL_CAP });
     expect(t.kdfRim).toBe(true);

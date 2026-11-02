@@ -22,9 +22,11 @@
  * target) and, on a metal class only, drops it for metalness, since a factor
  * cannot lift a map that reads 0.
  *
- * Metalness is capped at 0.45 (`gunmetal`): a unit material has no
- * environment map (`envMapIntensity = 0`), so a metal surface keeps only the
- * sun's specular lobe and no diffuse term. Higher draws near-black.
+ * Metalness is capped at 0.45 (`gunmetal`) in THESE tables, which are used only
+ * when the scene has no environment (`&envlight=0`): a metal surface then keeps
+ * only the sun's specular lobe and no diffuse term, and higher draws near-black.
+ * With the sky environment (L1, GH-943, on by default) `withMetalCap` lifts the
+ * cap to 0.7 and tags each clone with its environment class (`environment.ts`).
  *
  * The `unit-surface` debug layer writes every clone back to today's values
  * (and the pass back on). The registry holds clones WEAKLY, and a clone's
@@ -105,6 +107,7 @@ export type SurfaceTable = Readonly<Record<SurfaceClass, SurfaceParams>> & {
  * (and everything that destructures it) is untouched.
  */
 const environmentTables = new WeakSet<object>();
+const capped = new WeakMap<SurfaceTable, Map<number, SurfaceTable>>();
 
 /**
  * The wet table (GH-871 P4, T5): what a unit's surface answers under rain.
@@ -143,6 +146,10 @@ export function figureRimFor(table: SurfaceTable, faction: string): boolean {
  * are returned by identity.
  */
 export function withMetalCap(table: SurfaceTable, cap: number = ENV_METAL_CAP): SurfaceTable {
+  // One table per (base, cap): a renderer and the loaders it hands the table to compare by identity.
+  const memo = capped.get(table);
+  const hit = memo?.get(cap);
+  if (hit) return hit;
   const out: Record<string, SurfaceParams> = {};
   for (const cls of Object.keys(SURFACE_PARAMS) as SurfaceClass[]) {
     const p = table[cls];
@@ -153,6 +160,9 @@ export function withMetalCap(table: SurfaceTable, cap: number = ENV_METAL_CAP): 
     ...(table.kdfRim ? { kdfRim: true as const } : {}),
   };
   environmentTables.add(made);
+  const into = memo ?? new Map<number, SurfaceTable>();
+  into.set(cap, made);
+  capped.set(table, into);
   return made;
 }
 

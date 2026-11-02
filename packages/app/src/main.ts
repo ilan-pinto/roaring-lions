@@ -2147,8 +2147,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // PA-24: a mission's own `map.light` (First Light's lifted dawn fill).
     ...(lightOverride !== undefined ? { lightOverride } : {}),
     ...(fit.value !== undefined ? { buildingFit: fit.value } : {}),
-    // Look uplift L1 (GH-943): `&envlight`, off by default. Presentation only.
-    ...(environmentLightOf(params) ? { environmentLight: true } : {}),
+    // Look uplift L1 (GH-943): on by default; `&envlight=0` is the A/B switch. Presentation only.
+    ...(environmentLightOf(params) ? {} : { environmentLight: false }),
     // Pass C2/C4 (P5): asked live, so the settings panel's motion switch
     // reaches the near-miss flinch mid-mission.
     reducedMotion: prefersReducedMotion,

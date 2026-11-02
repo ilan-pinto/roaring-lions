@@ -62,6 +62,6 @@ describe('the aftermath scenario frames the showcase it exists for', () => {
     expect(SCENARIOS).toContain(AFTERMATH_SCENARIO);
     const spec = BASELINES.aftermath;
     expect(isGated(spec)).toBe(true);
-    expect((spec.layerChecks ?? []).map((c) => c.layer).sort()).toEqual(['crater-rims', 'crown', 'decals', 'height-contours', 'macro', 'props', 'roads', 'scatter', 'slope-light']);
+    expect((spec.layerChecks ?? []).map((c) => c.layer).sort()).toEqual(['crater-rims', 'crown', 'decals', 'environment', 'height-contours', 'macro', 'props', 'roads', 'scatter', 'slope-light']);
   });
 });

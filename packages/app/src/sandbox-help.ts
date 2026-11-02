@@ -164,10 +164,9 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   },
   {
     name: 'envlight',
-    // Look uplift L1 (GH-943). Off by default, so main is unchanged until the lead judges the
-    // mock. Not a SANDBOX_FLAGS entry: it works on a mission too and it is presentation only.
-    blurb:
-      'sky environment lighting on units, buildings and props, a lower hemisphere and a 0.7 metal cap (GH-943; off by default; =0 off)',
+    // Look uplift L1 (GH-943), ON by default since 2 Nov. Not a SANDBOX_FLAGS entry: it works on a
+    // mission too and it is presentation only. `=0` is the A/B switch.
+    blurb: '=0 draws the pre-L1 frame: no sky environment, the shipped hemisphere, the 0.45 metal cap (GH-943; on by default)',
   },
   {
     name: 'fitbuildings',

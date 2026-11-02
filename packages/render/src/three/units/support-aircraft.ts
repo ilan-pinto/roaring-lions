@@ -153,6 +153,14 @@ export class SupportAircraftManager {
     );
   }
 
+  /**
+   * Every material the loaded aircraft draw with (the helicopter template's and the jet's), for the
+   * environment registry (L1, GH-943). Empty before `load` lands.
+   */
+  materials(): readonly THREE.Material[] {
+    return [...(this.heliTemplate?.materials ?? []), ...this.jetOwned.materials];
+  }
+
   /** True once the meshes' textures are decoded and the aircraft can draw. */
   get isWarm(): boolean {
     return this.warmed;

@@ -701,6 +701,11 @@ export class SwarmBatch {
     }
   }
 
+  /** The body and wreck materials, for the environment registry (L1, GH-943). The rotor blur is a shader and takes none. */
+  envMaterials(): readonly THREE.Material[] {
+    return this.wreckMaterial ? [this.bodyMaterial, this.wreckMaterial] : [this.bodyMaterial];
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

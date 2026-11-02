@@ -19,7 +19,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
-import { SURFACE_PARAMS, WET_SURFACE_PARAMS, type SurfaceTable } from './units/unit-surface';
+import { SURFACE_PARAMS, WET_SURFACE_PARAMS, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
 import { buildMeshUnitTemplate } from './units/mesh-unit';
 import * as THREE from 'three';
 import { hexToLinear } from './terrain/shared';
@@ -156,7 +156,9 @@ describe('the decor batch is built with the wet flag under rain only', () => {
 describe('both mesh loaders get the renderer\'s own surface table', () => {
   it.each(CASES)('weather %s', async (_name, extra, wet) => {
     const { r } = setUp(extra);
-    const want = wet ? WET_SURFACE_PARAMS : SURFACE_PARAMS;
+    const want = surfaceTableFor(wet ? 'rain' : undefined, true);
+    // L1 (GH-943) is on by default: the renderer's table is the environment variant of the shipped one, and the same object every time.
+    expect(want).not.toBe(wet ? WET_SURFACE_PARAMS : SURFACE_PARAMS);
     expect(priv(r).surfaceTable).toBe(want);
     calls.vehicle.length = 0;
     calls.unit.length = 0;

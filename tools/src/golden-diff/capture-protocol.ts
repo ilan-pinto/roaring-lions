@@ -444,6 +444,32 @@ export const KITTED_SCENARIO: Scenario = {
   targetTick: VEHICLE_SCENARIO.targetTick,
 };
 
+/** `vehicle`'s own map and tick, pulled out to zoom 0.5 and panned east of the force so the frame
+ *  carries what `vehicle` does not: the fog-of-war shroud, the dust haze and the off-map fade, with
+ *  the force's mesh vehicles (metal and painted hulls) standing in them. Look uplift L1 (GH-943).
+ *
+ *  WHY IT EXISTS. The fog pass and the haze read the LIT frame, so an environment term that is
+ *  counted twice (once in the material, once in the lights the haze radiance is derived from) shows
+ *  up where the lit frame meets them, not on the open ground `vehicle` frames. `tools/src/perf/
+ *  env-doublecount.ts` doubles every environment intensity on this frame and reads how far it
+ *  moves: that number, against this scenario's ceilings, is the falsifier. The `environment`,
+ *  `fog` and `haze` layer checks say the frame really holds all three.
+ *
+ *  GATED FROM BIRTH, with no baseline committed in the same change: the first `fogged` entry in an
+ *  existing environment's manifest comes from the post-merge bless, so until then CI's `visual`
+ *  job is red (exit 1) -- the `aftermath` and `kitted` precedent, and intended. */
+export const FOGGED_SCENARIO: Scenario = {
+  id: 'fogged',
+  description:
+    "vehicle's own map and tick (beit_sahwan_outskirts sandbox force, tick 140) at zoom 0.5, panned " +
+    'east of the force: shroud, haze and the off-map fade with mesh vehicles in them (L1, GH-943).',
+  sandboxMap: VEHICLE_SCENARIO.sandboxMap,
+  cameraTile: [12.5, 22.5],
+  zoom: 0.5,
+  ticks: VEHICLE_SCENARIO.ticks,
+  targetTick: VEHICLE_SCENARIO.targetTick,
+};
+
 /** Real combat: `beit_sahwan_3_clearance`'s own opening roster, ordered to
  *  fight. Closes the gap named in `docs/superpowers/specs/2026-08-29-phase-d-todo.md`
  *  #8 -- `.superpowers/d-combat-diff-report.md` measured 2.133%-3.395% on
@@ -670,6 +696,7 @@ export const SCENARIOS: readonly Scenario[] = [
   OPEN_GROUND_SCENARIO,
   VEHICLE_SCENARIO,
   KITTED_SCENARIO,
+  FOGGED_SCENARIO,
   RELIEF_SCENARIO,
   AFTERMATH_SCENARIO,
   DUSK_SCENARIO,

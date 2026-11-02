@@ -5,15 +5,15 @@ import { KNOWN_PARAMS, unknownParams } from './sandbox-help';
 const of = (q: string) => environmentLightOf(new URLSearchParams(q));
 
 describe('environmentLightOf', () => {
-  it('is OFF when the flag is absent: main draws today\'s frame', () => {
-    expect(of('')).toBe(false);
-    expect(of('sandbox=tel_marum&tod=dusk')).toBe(false);
+  it('is ON when the flag is absent: L1 shipped on 2 Nov', () => {
+    expect(of('')).toBe(true);
+    expect(of('sandbox=tel_marum&tod=dusk')).toBe(true);
   });
   it('reads a bare flag and =1 as on', () => {
     expect(of('envlight')).toBe(true);
     expect(of('envlight=1')).toBe(true);
   });
-  it('lets a bookmark spell it off', () => {
+  it('lets a bookmark spell it off, for an A/B against the pre-L1 frame', () => {
     for (const v of ['0', 'off', 'false']) expect(of(`envlight=${v}`)).toBe(false);
   });
   it('is a known parameter, so it is not reported as a typo', () => {

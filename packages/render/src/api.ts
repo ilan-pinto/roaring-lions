@@ -457,12 +457,13 @@ export interface RendererOptions {
    */
   lightOverride?: LightOverride;
   /**
-   * Look uplift L1 (GH-943), BEHIND A FLAG, off by default: give the scene a sky
-   * environment (a PMREM built from the time-of-day palette keys), hand it per
-   * material class (`three/environment-classes.ts`), lower the hemisphere per
-   * preset to match and lift the unit metal cap from 0.45 to 0.7. Absent or false
-   * is today's frame, to the bit. Three-only. The app sets it from `&envlight`.
-   * Presentation only: nothing here is read by the sim.
+   * Look uplift L1 (GH-943): the scene's sky environment (a PMREM built from the
+   * time-of-day palette keys), handed per material class
+   * (`three/environment-classes.ts`), with the hemisphere set per preset to match
+   * and the unit metal cap lifted from 0.45 to 0.7. **ON by default**; only an
+   * explicit `false` draws the pre-L1 frame (the app's `&envlight=0` debug
+   * switch, an A/B tool). Three-only. Presentation only: nothing here is read by
+   * the sim.
    */
   environmentLight?: boolean;
   /**

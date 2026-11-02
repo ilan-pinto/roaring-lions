@@ -1,6 +1,8 @@
 # Look uplift: environment light, grade, unit materials, crowds
 
-Status: **design, not started.** Every number in §7 waits on the lead
+Status: **L1 SHIPPED 2 Nov 2026 (GH-943); L2-L5 design, not started.** L1's numbers were judged on a mock
+sheet and the lead shipped its middle column (the census-solved hemisphere 0.70 / 0.82 / 0.65, not the
+starting 0.5 / 0.6 / 0.47; glass 0.6, props 0.3). The rest of §7 still waits on the lead
 (approve art numbers before any render). Written 2026-11-01 after the lead
 asked whether three.js can reach the visual level of a Unity title. Revised the
 same day after the review in `_coord/look-uplift-review.md` (three factual
@@ -126,11 +128,9 @@ L1 therefore **assigns the PMREM texture per material class through
    visible-toggle floor in `BaselineSpec.layerChecks` (a third of the smallest
    of three runs, as for every layer).
 
-**Sequencing and approval.** GH-705 T6 has landed (§0). Before it ships:
-a before/after mock sheet at the three presets, shown against the 23 Oct "keep
-today's lighting" ruling, and the lead's approval. Without that, L1 does not ship: it is
-built behind `&envlight` (`RendererOptions.environmentLight`), off by default, so main is
-unchanged while the mock is judged.
+**Sequencing and approval.** GH-705 T6 has landed (§0). The mock sheet was shown against the 23 Oct
+"keep today's lighting" ruling and the lead shipped its middle column on 2 Nov. It was built behind
+`&envlight` while it was judged; it is now ON by default and `&envlight=0` is an A/B switch.
 
 **Risks.** The textured buildings and vehicles (`TEXTURED_*_EXEMPT`) ship a bake
 that already contains ambient, so they may brighten twice. Measure them
@@ -343,6 +343,11 @@ The hemisphere starts keep the 2:3 ratio to today's value; they are the census's
 first guess, not a derivation. A mission's `map.light.fill` is scaled by the same
 factor. Metal 0.7 and environment 0.6 interact strongly; they are tuned together.
 Nothing here changes the sun, the shadow or the exposure.
+
+**As shipped (2 Nov 2026).** The hemisphere census did not reproduce "about 0.5 / 0.6 / 0.47": with the
+ground, decals and smoke given exact-zero environment the ground-dominated frame loses its ambient and
+nothing hands it back, so those starting values darken the frame 9 / 3 / 10%. The solved values are
+**0.70 / 0.82 / 0.65**. Glass 0.6 and props 0.3 were unnumbered in the approval and shipped as picked.
 
 ## 8. Order and gates
 

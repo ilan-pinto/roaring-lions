@@ -5,7 +5,7 @@
  *       [--only=recon,stills,census,probe,layer] [--maps=beit_sahwan_outskirts,...]
  *
  * One Metal Chromium, music off, its own dev server on its own port (never
- * 5177), ONE page at a time. Flag OFF vs ON (`&envlight`) on the same sandbox,
+ * 5177), ONE page at a time. `&envlight=0` (the pre-L1 frame) vs the default on the same sandbox,
  * the same sim tick, the same camera, the frame loop frozen and the frame
  * repainted at zero elapsed time, so two photographs differ by the flag alone.
  *
@@ -27,7 +27,7 @@
  * - **layer**   the `environment` layer's visible-toggle delta against the
  *               repaint control (its floor is a third of the smallest delta).
  *
- * Frame-time is NOT here: `pnpm perf:fx -- --breakdown --query=&envlight`
+ * Frame-time is NOT here: `pnpm perf:fx -- --breakdown --query='&envlight=0'` for the pre-L1 arm
  * (docs/PERFORMANCE.md), run once per preset.
  */
 import { chromium, type Page } from 'playwright';
@@ -111,7 +111,7 @@ async function boot(map: string, tod: Preset, arm: Arm, tick = 200, extra = ''):
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: DPR });
   await page.addInitScript(musicOffInitScript({}, { quality: 'high' }));
   await page.addInitScript("window.__name = (f) => f; Object.defineProperty(window, 'LL', { get() { return window.__lions; } });");
-  const q = `?sandbox=${map}&tod=${tod}${arm !== 'off' ? `&envlight${ON_EXTRA}` : ''}${extra}`;
+  const q = `?sandbox=${map}&tod=${tod}${arm === 'off' ? '&envlight=0' : ON_EXTRA}${extra}`;
   await page.goto(`${base}/${q}`, { waitUntil: 'load' });
   await page.waitForFunction(() => !!(window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer, null, {
     timeout: 180000,

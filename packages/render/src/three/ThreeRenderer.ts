@@ -1406,8 +1406,8 @@ export class ThreeRenderer implements Renderer {
   private readonly surfaceTable: SurfaceTable;
   /**
    * Look uplift L1 (GH-943): the scene's environment and the registry that hands it to
-   * the material classes allowed to see it. NULL unless `opts.environmentLight` (the
-   * flag, off by default), and then nothing in the scene differs from main.
+   * the material classes allowed to see it. Built unless `opts.environmentLight === false`
+   * (the `&envlight=0` debug switch); null, nothing in the scene differs from the pre-L1 frame.
    */
   private readonly environment: EnvironmentRegistry | null;
   /** The falling rain (GH-871 P4 T8): ONE instanced draw, built lazily by the
@@ -2852,7 +2852,7 @@ export class ThreeRenderer implements Renderer {
     this.groundMat = new GroundMaterial(
       opts.weather === 'rain' ? { wet: true, wetProgram: WET_PROGRAM_TIERS[rainQualityOf(opts.quality).ground] } : {}
     );
-    this.surfaceTable = surfaceTableFor(opts.weather, opts.environmentLight === true);
+    this.surfaceTable = surfaceTableFor(opts.weather, opts.environmentLight !== false);
     this.viewer = opts.viewerSide ?? 0;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
@@ -3195,10 +3195,10 @@ export class ThreeRenderer implements Renderer {
           },
       opts.lightOverride
     );
-    // L1 (GH-943): with the environment on, the hemisphere drops per preset (the
+    // L1 (GH-943), ON by default: with the environment on, the hemisphere is set per preset (the
     // environment supplies the rest of the ambient) and a mission's `fill` and
     // rain's scale drop by the same factor. Off, `overridden` itself, to the bit.
-    this.environment = opts.environmentLight === true
+    this.environment = opts.environmentLight !== false
       ? new EnvironmentRegistry(this.timeOfDay, (key) => this.overlayColor(key))
       : null;
     this.resolvedLights = this.environment === null ? overridden : withEnvironmentFill(overridden, this.timeOfDay);
@@ -6419,6 +6419,8 @@ export class ThreeRenderer implements Renderer {
   async loadSupportAircraftMeshes(heliUrl: string, jetUrl: string): Promise<void> {
     this.supportAircraft.decoder = this.imageDecoder;
     await this.supportAircraft.load(heliUrl, jetUrl);
+    // L1 (GH-943): aircraft take the unit dielectric class throughout (their metal parts are not tagged).
+    this.adoptEnvironment(this.supportAircraft.materials(), 'unitDielectric');
   }
 
   /** GH-748: what the support layers hold right now (a harness read). */
@@ -7465,6 +7467,7 @@ export class ThreeRenderer implements Renderer {
     // reload that fails must leave the type with the batch it had, not with none.
     const batch = new SwarmBatch(this.scene, extractSwarmParts(template, unitTypeId));
     batch.setWrecksDebugHidden(this.swarmWrecksDebugHidden);
+    this.adoptEnvironment(batch.envMaterials(), 'unitDielectric');
     const old = this.swarmBatches.get(unitTypeId);
     this.swarmBatches.set(unitTypeId, batch);
     this.refreshSwarmBatchList();
