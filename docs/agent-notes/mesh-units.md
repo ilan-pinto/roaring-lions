@@ -325,7 +325,8 @@ for vehicles.
   measured in: the Blender scripts divide an imported rescaled GLB back
   (`tools/vehicles/rescale.py`), and the TS recipes multiply by `rescaleOf`.
   Pipeline: export -> `pnpm rescale:meshes -- --id=<id>` (and `--kit=mbt_lavi`
-  for a kit export) -> running-gear -> kit -> wreck -> damage -> encode. The
+  for a kit export) -> running-gear -> mark (a vehicle with a team mark: the Lavi) -> kit -> wreck ->
+  damage -> encode. The
   pass marks `extras.rl_rescale` and refuses a marked file; the kit pass
   refuses a source whose mark differs from its vehicle's.
 - **A mesh VEHICLE wears its bought kit since plan 3 (GH-238, 2026-10-07), in

@@ -125,6 +125,40 @@ describe('the texture budget per class', () => {
   });
 });
 
+describe('the ceilings themselves are pinned to independent literals', () => {
+  // Written out by hand from the lead's ruling of 2 Nov (GH-943: vehicle 80 MiB / 2560 px, building 64 / 2048, infantry 32)
+  // and from the shipped maxima (infantry's widest image today is a 3072x1024 atlas). The budget tests above feed the
+  // check the module's OWN numbers, so a ceiling raised to let an asset in would still pass them; these do not.
+  const budget = (): Record<string, [number, number]> => {
+    const r = py('print(json.dumps({"failures": [], "value": v.TEXTURE_BUDGET}))').value as Record<string, [number, number]>;
+    return r;
+  };
+
+  it('the MiB ceilings are exactly 80 / 64 / 32', () => {
+    const b = budget();
+    expect(b.vehicle![0]).toBe(80);
+    expect(b.building![0]).toBe(64);
+    expect(b.infantry![0]).toBe(32);
+  });
+
+  it('the edge limits are exactly 2560 / 2048 / 3072, and there are no other classes', () => {
+    const b = budget();
+    expect(b.vehicle![1]).toBe(2560);
+    expect(b.building![1]).toBe(2048);
+    expect(b.infantry![1]).toBe(3072);
+    expect(Object.keys(b).sort()).toEqual(['building', 'infantry', 'vehicle']);
+  });
+
+  it('a GLB a hair over each literal ceiling fails the REAL check (85.3 / 85.3 / 42.7 MiB are over 80 / 64 / 32)', () => {
+    // 2048 x 2048 x 4 x 4/3 = 21.33 MiB per image: four are 85.3 (> 80), four are 85.3 (> 64), two are 42.7 (> 32).
+    expect(budgetOf(roots({ vehicle: { a: [TWO_K, TWO_K, TWO_K, TWO_K] } })).join()).toMatch(/over the vehicle ceiling of 80 MiB/);
+    expect(budgetOf(roots({ building: { b: [TWO_K, TWO_K, TWO_K, TWO_K] } })).join()).toMatch(/over the building ceiling of 64 MiB/);
+    expect(budgetOf(roots({ infantry: { i: [TWO_K, TWO_K] } })).join()).toMatch(/over the infantry ceiling of 32 MiB/);
+    // and exactly at each literal ceiling passes: 80 MiB is 3.75 images, 64 is 3, 32 is 1.5
+    expect(budgetOf(roots({ building: { b: [TWO_K, TWO_K, TWO_K] } }))).toEqual([]);
+  }, 60_000);
+});
+
 describe('the size oracle takes literals', () => {
   const LAVI = path.join(REPO, 'art', 'meshes', 'vehicles', 'mbt_lavi.glb');
   const sizeOf = (pre = ''): number =>
