@@ -175,9 +175,10 @@ describe('the map cards (PA-25)', () => {
   });
 
   it('GH-920 B7: a large map\'s line says it is large and gives its real size, held or listed (the number is read off the map, not typed here)', () => {
-    // Rujm Sawda is 80 by 80 and Wadi Tarfan (large) 96 by 96. The line is written by hand, so a map resized
-    // without it (or a line copied from the other) is red here whether or not the card is on the picker yet.
-    for (const id of ['rujm_sawda', 'wadi_tarfan_l']) {
+    // Rujm Sawda is 80 by 80, Wadi Tarfan (large) and Milh Flats (large) 96 by 96. The line is written by hand, so a map resized
+    // without it (or a line copied from the other) is red here whether or not the card is on the picker yet. The 90-character
+    // bound is the one line of the card: Milh's first line ran to 113 and only this loop would have said so once it was listed.
+    for (const id of ['rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']) {
       const m = (maps as Record<string, MapJson>)[id];
       const line = cat[`freePlay.map.${id}`];
       expect(line, id).toMatch(/^A large \d+ by \d+ map/);
