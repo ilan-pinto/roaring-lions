@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { ChunkedMeshLayer } from './chunk-layer';
-import { chunkGridFor } from './chunks';
+import { chunkGridFor, sliceChunk } from './chunks';
 import { toGeometry } from './mesh';
 import { buildTiledMesh, spliceTiledMesh, type TileSink, type TiledMeshData } from './tiled-mesh';
 
@@ -128,5 +128,56 @@ describe('ChunkedMeshLayer', () => {
     const mesh = whole.root as THREE.Object3D;
     whole.dispose();
     expect(mesh.parent, 'a whole map\'s mesh leaves the scene too').toBeNull();
+  });
+});
+
+describe('ChunkedMeshLayer colours (GH-920 B5: sliced straight into the linear array)', () => {
+  /** Every tile its own colour, so a wrong tile range or a missed conversion shows. */
+  const coloured = (w: number, h: number): TiledMeshData =>
+    buildTiledMesh(w, h, [], (sink: TileSink, x: number, y: number) => {
+      const base = sink.positions.length / 3;
+      sink.positions.push(x, 0, y, x + 1, 0, y, x + 1, 0, y + 1, x, 0, y + 1);
+      for (let i = 0; i < 4; i++) sink.colors.push((x + 1) / 255, (y + 1) / 255, ((x * 7 + y) % 256) / 255);
+      sink.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    });
+
+  it('each chunk colour attribute is the sliced array itself, not a second copy, and equals the old two-step result', () => {
+    const seen: { sameArray: boolean; colors: Float32Array }[] = [];
+    const l = new ChunkedMeshLayer(
+      scene,
+      'colours',
+      material,
+      true,
+      (d, o) => {
+        const g = toGeometry(d, o);
+        seen.push({ sameArray: g.getAttribute('color').array === d.colors, colors: g.getAttribute('color').array as Float32Array });
+        return g;
+      },
+      (w, h) => chunkGridFor(w, h, 'ground', 4, 0)
+    );
+    const tiled = coloured(10, 10);
+    l.update(tiled, null);
+    expect(seen.length).toBe(9);
+    expect(seen.every((s) => s.sameArray), 'no second colour array per chunk').toBe(true);
+    // The old path: sRGB slice, then toGeometry's own conversion. Same bytes, every chunk.
+    const grid = chunkGridFor(10, 10, 'ground', 4, 0);
+    if (grid === null) throw new Error('no grid');
+    let compared = 0;
+    for (let c = 0; c < 9; c++) {
+      const old = toGeometry(sliceChunk(tiled, grid, c) as NonNullable<ReturnType<typeof sliceChunk>>).getAttribute('color').array as Float32Array;
+      expect(Array.from(seen[c].colors)).toEqual(Array.from(old));
+      compared += old.length;
+    }
+    expect(compared).toBeGreaterThan(300); // not vacuous: every vertex of the map was compared
+    // and the values are linear, not sRGB: byte 1/255 is 0.0003 linear, not 0.0039
+    expect(seen[0].colors[0]).toBeLessThan(0.001);
+  });
+
+  it('a map left whole still takes the two-step path: toGeometry converts a copy and leaves the build untouched', () => {
+    const tiled = coloured(6, 6);
+    const before = Array.from(tiled.mesh.colors);
+    const g = toGeometry(tiled.mesh);
+    expect(g.getAttribute('color').array).not.toBe(tiled.mesh.colors);
+    expect(Array.from(tiled.mesh.colors)).toEqual(before);
   });
 });

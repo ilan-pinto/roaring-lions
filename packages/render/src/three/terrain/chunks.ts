@@ -152,7 +152,14 @@ const ATTRIBUTES = [
  * A chunk row is a contiguous run of tiles in the row-major build, so each row moves with one
  * `set` per attribute.
  */
-export function sliceChunk(tiled: TiledMeshData, grid: ChunkGrid, chunk: number): MeshData | null {
+export function sliceChunk(
+  tiled: TiledMeshData,
+  grid: ChunkGrid,
+  chunk: number,
+  /** Applied to every colour component as it is copied (GH-920 B5: the linear conversion, so the chunk is
+   *  sliced straight into the array the GPU reads and the transient sRGB copy never exists). Absent: copied as is. */
+  mapColor?: (c: number) => number
+): MeshData | null {
   if (tiled.width !== grid.width || tiled.height !== grid.height) {
     throw new Error(`sliceChunk: mesh is ${tiled.width}x${tiled.height}, grid is ${grid.width}x${grid.height}`);
   }
@@ -186,6 +193,11 @@ export function sliceChunk(tiled: TiledMeshData, grid: ChunkGrid, chunk: number)
     const i1 = tiled.indexStart[end];
     for (const [name, size] of names) {
       const src = tiled.mesh[name] as Float32Array;
+      if (name === 'colors' && mapColor !== undefined) {
+        const dst = out.colors;
+        for (let k = v0 * size, o = outV * size; k < v1 * size; k++, o++) dst[o] = mapColor(src[k]);
+        continue;
+      }
       (out[name] as Float32Array).set(src.subarray(v0 * size, v1 * size), outV * size);
     }
     const shift = outV - v0;
