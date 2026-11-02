@@ -13,12 +13,22 @@
  * ticket is never accepted on the command line (every process on the
  * machine can read argv), never put in a URL, and never logged.
  *
+ * `--log-file <path>` also appends each log line, stamped, to that file (0600
+ * on creation): an MCP client started this process and may show none of its
+ * stderr, so `pnpm bot` points it at its own log to read why a room was refused.
+ *
  * stdout is the MCP protocol channel: every log line goes to stderr.
+ * Safe to restart: an MCP client may start this process, close it and start it
+ * again (Claude CLI probes a server first). It says `bye` -- which the room reads
+ * as a surrender, or a leave in the lobby -- only once the match has started and
+ * a tool has been called; closed before that it just drops the socket, and the
+ * next start with the same ticket takes the same seat back.
+ *
  * Exit codes: 0 on a result or the room ending, 2 when the room refuses the
  * ticket or the build, 3 on a desync (after printing its tick), 1 otherwise.
  */
 import { randomUUID } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { appendFileSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -41,10 +51,12 @@ export interface AgentArgs {
   build: string | null;
   /** null: the server's own origin (decision D9). */
   origin: string | null;
+  /** Also append every log line here (see the header); absent: stderr only. */
+  logFile?: string;
 }
 
-const USAGE = 'usage: pnpm agent -- --server <url> --code <code> --scope advise|assist|command (--ticket-file <path|-> | --join) [--callsign <name>] [--build <id>] [--origin <url>]';
-const VALUED = new Set(['server', 'code', 'scope', 'ticket-file', 'callsign', 'build', 'origin']);
+const USAGE = 'usage: pnpm agent -- --server <url> --code <code> --scope advise|assist|command (--ticket-file <path|-> | --join) [--callsign <name>] [--build <id>] [--origin <url>] [--log-file <path>]';
+const VALUED = new Set(['server', 'code', 'scope', 'ticket-file', 'callsign', 'build', 'origin', 'log-file']);
 const FLAGS = new Set(['join']);
 
 const httpUrl = (v: string): boolean => {
@@ -100,6 +112,7 @@ export function parseArgs(argv: readonly string[]): AgentArgs | { error: string 
     callsign: got.get('callsign') ?? 'Agent',
     build: got.get('build') ?? null,
     origin,
+    ...(got.has('log-file') ? { logFile: got.get('log-file') } : {}),
   };
 }
 
@@ -145,7 +158,14 @@ export function exitCodeFor(end: AgentEnd): number {
   }
 }
 
-const log = (line: string): void => { process.stderr.write(`${line}\n`); };
+/** Set from `--log-file` once the command line is read. */
+let logFile: string | null = null;
+const log = (line: string): void => {
+  process.stderr.write(`${line}\n`);
+  if (logFile === null) return;
+  // A log that cannot be written loses the log, never the match.
+  try { appendFileSync(logFile, `${new Date().toISOString()} har ${line}\n`, { mode: 0o600 }); } catch { /* stderr has it */ }
+};
 
 /** The first line of `stream`, leaving every byte after it in the stream for the next reader. */
 function readFirstLine(stream: Readable): Promise<string> {
@@ -179,20 +199,36 @@ export function readTicketFile(file: string, home: string = homedir()): string {
   return readFileSync(file.startsWith('~/') ? join(home, file.slice(2)) : file, 'utf8');
 }
 
+/** The room said no to a join: `status` is its HTTP status. */
+export class JoinRefused extends Error {
+  constructor(readonly status: number) {
+    super(`the room refused the join: HTTP ${status}`);
+    this.name = 'JoinRefused';
+  }
+}
+
+/**
+ * Takes the room's second seat as a bot: POST `/api/match/<code>/join` with a
+ * fresh player id and `kind: 'bot'`. Throws `JoinRefused` on any refusal. The
+ * ticket is returned to the caller and goes nowhere else. `pnpm bot` calls this
+ * too, before it starts a model, so a bad code costs no tokens.
+ */
+export async function joinRoom(server: string, code: string, callsign: string, origin: string, fetchFn: typeof fetch = fetch): Promise<{ seat: 0 | 1; ticket: string }> {
+  const base = new URL(server).origin;
+  const res = await fetchFn(`${base}/api/match/${encodeURIComponent(code)}/join`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify({ player: randomUUID(), callsign, kind: 'bot' }),
+  });
+  if (!res.ok) throw new JoinRefused(res.status);
+  const body = (await res.json()) as { seat?: unknown; ticket?: unknown };
+  if ((body.seat !== 0 && body.seat !== 1) || typeof body.ticket !== 'string') throw new Error('the join answered no seat and ticket');
+  return { seat: body.seat, ticket: body.ticket };
+}
+
 /** The seat to play and its ticket: the room's answer to a bot join, or the ticket file's. */
 async function seatAndTicket(a: AgentArgs, origin: string): Promise<{ seat: 0 | 1; ticket: string }> {
-  if ('join' in a.ticket) {
-    const base = new URL(a.server).origin;
-    const res = await fetch(`${base}/api/match/${encodeURIComponent(a.code)}/join`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin },
-      body: JSON.stringify({ player: randomUUID(), callsign: a.callsign, kind: 'bot' }),
-    });
-    if (!res.ok) throw new Error(`the room refused the join: HTTP ${res.status}`);
-    const body = (await res.json()) as { seat?: unknown; ticket?: unknown };
-    if ((body.seat !== 0 && body.seat !== 1) || typeof body.ticket !== 'string') throw new Error('the join answered no seat and ticket');
-    return { seat: body.seat, ticket: body.ticket };
-  }
+  if ('join' in a.ticket) return joinRoom(a.server, a.code, a.callsign, origin);
   const raw = a.ticket.file === '-' ? await readFirstLine(process.stdin) : readTicketFile(a.ticket.file);
   const ticket = raw.trim();
   const claims = ticketClaims(ticket);
@@ -219,6 +255,7 @@ export function endOf(client: AgentClient, ranNone: boolean): AgentEnd | null {
 async function main(argv: readonly string[]): Promise<number> {
   const a = parseArgs(argv);
   if ('error' in a) { log(a.error); return 1; }
+  logFile = a.logFile ?? null;
   const origin = a.origin ?? new URL(a.server).origin;
   const build = a.build ?? buildId();
   let seat: 0 | 1;
@@ -242,6 +279,17 @@ async function main(argv: readonly string[]): Promise<number> {
   const ctx = createContext(client, a.scope);
   const tools = toolsFor(a.scope);
 
+  // Claude CLI starts a stdio server to probe it, closes it, and starts it again, so this process must
+  // be safe to start, kill and restart: it says `bye` (a surrender, or a leave in the lobby) only once
+  // the match has started AND the model has called a tool. Before that it just lets go of the socket.
+  let toolCalled = false;
+  let started = false;
+  client.ready.then(() => { started = true; }, () => { /* AgentClient has said why on stderr */ });
+  const leave = (): void => {
+    if (toolCalled && started) client.close();
+    else client.release();
+  };
+
   const mcp = new McpServer({ name: 'roaring-lions-agent', version: build });
   // Plain JSON Schema tools: the tool table is the single source, so the
   // server answers list and call itself rather than restating every schema.
@@ -250,6 +298,7 @@ async function main(argv: readonly string[]): Promise<number> {
     tools: tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.schema as { type: 'object' } })),
   }));
   mcp.server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    toolCalled = true;
     const tool = tools.find((t) => t.name === req.params.name);
     const r = tool === undefined
       ? { ok: false, text: JSON.stringify({ error: 'not in this scope' }) }
@@ -267,7 +316,7 @@ async function main(argv: readonly string[]): Promise<number> {
       else if (end.kind === 'result') log(`agent: ${client.view().result ?? 'decided'}`);
       else if (end.kind === 'refused') log(`agent: the room refused this client (${end.code})`);
       else log(`agent: ${end.kind}`);
-      client.close();
+      leave();
       // Let the last messages (an `over`, a `bye`) leave the socket.
       setTimeout(() => { resolveExit(exitCodeFor(end)); }, 250);
     };

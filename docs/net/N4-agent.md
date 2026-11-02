@@ -106,10 +106,13 @@ Open a versus room in the browser (menu → **Play with a friend**, pick a map,
 pnpm bot -- --room ABC123 --model sonnet
 ```
 
-That is the whole of the steps below in one command: it writes the MCP config and
-the standing prompt to a private temp directory, runs `claude -p` with the
-harness on `--scope command --join`, prints the result and the token use, and
-removes the directory however it ends (Ctrl-C stops the client cleanly; a second
+That is the whole of the steps below in one command. It first **joins the room
+itself** (the same `POST /api/match/<code>/join` as `--join`), so a wrong or
+expired code (404), a taken seat (409) or an ended room (410) is reported before
+any model starts and costs no tokens. It then writes the ticket (a 0600 file),
+the MCP config and the standing prompt to a private temp directory, runs
+`claude -p` with the harness on `--scope command --ticket-file <that file>`,
+prints the result and the token use, and removes the directory however it ends (Ctrl-C stops the client cleanly; a second
 Ctrl-C exits at once). `--model` is `sonnet`, `opus`, `haiku` or a full model id;
 `--server`, `--callsign` and `--client` (the CLI to run, default `claude`) are
 optional. Because the client prints one JSON result when it finishes, the live
@@ -119,7 +122,14 @@ Every run leaves two files in `bot-results/` (git-ignored) under the directory
 you ran `pnpm bot` from, and prints their paths when it starts and when it ends:
 
 - `<date>-<room>-<model>.log`: the harness's and the client's stderr and stdout,
-  each line timestamped. It never holds the environment (there is no ticket).
+  each line timestamped. It never holds the environment or the ticket. The
+  harness is the client's child, so `pnpm bot` cannot see its exit code or its
+  stderr: it is started with `--log-file <this log>` and appends its own lines
+  (marked `har`). That is how a **build refusal** (`build_mismatch`, found only at
+  the socket's hello) reaches the bot, which then prints the build message and
+  exits 2 even if the client itself exited cleanly. A harness that wrote nothing
+  never came up: the bot says "the game connection (harness) stopped" and names
+  the log.
 - `<date>-<room>-<model>-report.md`: a header (room, model, server, build, result,
   tokens), then the model's final message. The bot's prompt asks the model to keep
   notes of anything odd as it plays and to end with a report under two headings,
@@ -128,6 +138,16 @@ you ran `pnpm bot` from, and prints their paths when it starts and when it ends:
   `none`). The addendum is the bot's alone; the arena's prompt is unchanged. If the
   client dies before a report, the file says no report was produced and why.
 
+- **A seat must survive a restart of the harness.** Claude CLI starts an MCP server
+  to probe it, closes it, and starts it again, so the harness cannot own the
+  join (`--join` in the server broke on the second start: HTTP 429, then 409).
+  `pnpm bot` joins once and every start of the harness presents the same ticket,
+  which the room takes as the same seat coming back. The harness sends `bye` (a
+  surrender; in the lobby, a leave) only after the match has started **and** a
+  tool has been called; closed before that it just drops its socket. A seat that
+  rejoins a lobby where the other seat readied while it was away says ready again,
+  so the match still starts.
+- **The runner must be installed.** If `tools/node_modules/.bin/tsx` is missing the bot says so (run `pnpm install` in this checkout) before it takes a seat.
 - **The build must match.** The room refuses a different commit (`build_mismatch`).
   Read the commit in the game's **Settings** footer and run `pnpm bot` from a
   checkout at it: `git worktree add --detach ../roaring-lions-bot <commit>`, then
