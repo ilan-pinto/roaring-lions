@@ -15,7 +15,7 @@ import { formationsOpenIn } from '../../packages/app/src/net/versus-formations';
 import { UNLISTED_MAP_IDS } from '../../packages/app/src/ui/menu';
 import { SHIPPED_MAP_IDS } from '../../packages/worker/src/match/map-ids';
 import { RULES_ONLY_MAPS } from '../validate_versus_rules.mjs';
-import { build, loadSketch, serialise } from '../maps/wadi_tarfan_l/build.mjs';
+import { build, keepCliffs, loadSketch, serialise } from '../maps/wadi_tarfan_l/build.mjs';
 
 const ROOT = join(__dirname, '..', '..');
 const large = maps.wadi_tarfan_l as unknown as MapJson;
@@ -104,6 +104,52 @@ describe('the map is Wadi Tarfan at twice the tile', () => {
     expect(rules.cap_minutes).toBe(35);
     expect(matchCapMinutes('wadi_tarfan_l')).toBe(35);
     expect(MAP_CAP_MINUTES.wadi_tarfan_l).toBe(35);
+  });
+});
+
+// GH-920 B4: fairness. The three data levers the generator pulls, each held by a literal oracle; the readings that
+// chose them (placed, economy and tunnel arms, 192 + 192 seeds a cell) are in the PR and need no test, they are the
+// reason the numbers below are these numbers.
+describe('the fairness levers (B4)', () => {
+  const rowsOf = large.rows as string[];
+  const at = (x: number, y: number) => rowsOf[y][x];
+
+  it('each pump house stands on a rock plinth: the other three tiles of its 2x2 cell block are `^`', () => {
+    // 1 tile of pump house is too little to stop a line of fire across the centre ford (KDF 69% placed); the 2x2
+    // the sketch draws there reads 52%. The building stays its native one tile (large_map_verify holds that).
+    const pumps: string[] = [];
+    for (let y = 0; y < 96; y++) for (let x = 0; x < 96; x++) if (at(x, y) === 'p') pumps.push(`${x},${y}`);
+    expect(pumps).toEqual(['45,41', '50,54']);
+    // the block of the top one is (44..45, 40..41) and of its half-turn twin (50..51, 54..55)
+    expect([at(44, 40), at(45, 40), at(44, 41), at(45, 41)]).toEqual(['^', '^', '^', 'p']);
+    expect([at(50, 54), at(51, 54), at(50, 55), at(51, 55)]).toEqual(['p', '^', '^', '^']);
+  });
+
+  it('the vents sit near the centre, 0.3 of the doubled offset from it; the mouths stay where doubling put them', () => {
+    // (40,33) and (30,38) are where doubling the 48x48 vents puts them: 15 to 20 tiles off the fight, where the
+    // Sarim raid never finds a target (tunnel cell 3 read KDF 96%). 3/10 of the offset from (47.5, 47.5) is these.
+    const t = rules.tunnels;
+    expect(t?.friendly?.map((r) => r.points)).toEqual([[[25, 23], [32, 28], [45, 43]], [[23, 25], [26, 31], [42, 45]]]);
+    expect(t?.hostile?.map((r) => r.points)).toEqual([[[70, 72], [63, 67], [50, 52]], [[72, 70], [69, 64], [53, 50]]]);
+    for (const r of [...(t?.friendly ?? []), ...(t?.hostile ?? [])]) {
+      const [vx, vy] = r.points[r.points.length - 1];
+      expect(Math.hypot(vx - 47.5, vy - 47.5), r.id).toBeLessThan(7);
+    }
+  });
+
+  it('a step of two levels between source cells stays a cliff; a step of one is still a ramp', () => {
+    // el: a 96x96 grid of 1s (a stand-in for the ramp the 9/3/3/1 rule drew); elev: a 48x48 grid of source cells, all 0 except (10,10) at 2 and (30,30) at 1
+    const elev = Array.from({ length: 48 }, () => Array<number>(48).fill(0));
+    elev[10][10] = 2;
+    elev[30][30] = 1;
+    const out = keepCliffs(Array.from({ length: 96 }, () => Array<number>(96).fill(1)), elev);
+    expect(out[20][20]).toBe(2); // inside the high cell, leaning toward a cell two lower: its own level
+    expect(out[19][19]).toBe(0); // in a low cell, leaning (diagonally) toward the high one: its own level
+    expect(out[19][20]).toBe(0); // the same, along an axis
+    expect(out[18][18]).toBe(1); // in a low cell leaning away from it: untouched
+    expect(out[60][60]).toBe(1); // a cell one level above its neighbours: a ramp, untouched
+    expect(out[61][61]).toBe(1);
+    expect(out[5][5]).toBe(1);
   });
 });
 

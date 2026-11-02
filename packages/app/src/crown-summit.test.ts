@@ -127,7 +127,7 @@ describe('crown summits on the shipped maps', () => {
     tally.rejected += rejected;
   });
 
-  it('29 summits in all, and none of the other 49 small clusters', () => {
+  it('29 summits in all, and none of the other 51 small clusters', () => {
     // Jebel Matar (GH-912) adds 3 summits and 4 rejected clusters (7 small ones); Ein Qasab III has none.
     // Rujm Sawda (GH-913 L4) adds 4: its four 8-tile rocks (both mesa crowns, both tells) are all
     // summits by an independent flood fill over its rows and elevation, and its two corner ridges
@@ -138,7 +138,11 @@ describe('crown summits on the shipped maps', () => {
     // Wadi Tarfan (large) (GH-920 B3) adds 4 rejected clusters and no summit: its four `^` blocks, 2x2 each (one per source
     // cell, two a half), and the two of a half touch corner to corner, so every one has a blocked 8-neighbour; by a Python
     // flood fill of its rows. Was 45.
-    expect(tally).toEqual({ summits: 29, rejected: 49 });
+    // Its fairness pass (GH-920 B4) adds 2 more: the pump-house plinth, the three tiles of the 2x2 cell block beside
+    // each of the two pump houses, an L of 3 `^` with the pump house in the fourth corner. A Python flood fill of the
+    // rows reads 4 clusters by 8-neighbour (the two 8-tile diagonal pairs and the two 3-tile Ls), 6 by 4-neighbour;
+    // the Ls are too small to be a crown and touch nothing, so no summit. Was 49.
+    expect(tally).toEqual({ summits: 29, rejected: 51 });
   });
 
   it('lifts a crown by exactly the sim\'s BLOCK_RISE -- the lift at which what the player sees is what blocks sight', () => {

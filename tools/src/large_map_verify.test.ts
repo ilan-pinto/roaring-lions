@@ -37,14 +37,18 @@ const setBoth = (rows: string[], x: number, y: number, c: string) => {
 const failures = (d: Doc) => verifyLargeMap(d.json, d.rules as unknown as VersusRulesJson, SPECS.wadi_tarfan_l()).failures;
 const has = (d: Doc, needle: string) => failures(d).some((f) => f.includes(needle));
 
-/** The top-left corner of a free square of `side` open tiles in the top half, clear of every road and the seat. */
+/**
+ * The top-left corner of a free square of `side` open tiles in the top half, one open tile clear of every
+ * other feature on each side, off the seat and the diagonal the roads run along. (The margin was two until
+ * GH-920 B4: the pump-house plinth and the vents near the centre took the last 10 x 10 clear ground.)
+ */
 function freeSquare(d: Doc, side: number, after = 0): [number, number] {
   const rows = rowsOf(d);
   let seen = 0;
   for (let y = 4; y < 40; y++) {
     for (let x = 4; x < W - 4 - side; x++) {
       let ok = true;
-      for (let yy = y - 2; yy < y + side + 2 && ok; yy++) for (let xx = x - 2; xx < x + side + 2 && ok; xx++) if (rows[yy][xx] !== '.') ok = false;
+      for (let yy = y - 1; yy < y + side + 1 && ok; yy++) for (let xx = x - 1; xx < x + side + 1 && ok; xx++) if (rows[yy][xx] !== '.') ok = false;
       // keep off the seat's formation and the diagonal the roads run along
       if (ok && !(x < 30 && y < 32) && Math.abs(x - y) > 6 && seen++ === after) return [x, y];
     }
