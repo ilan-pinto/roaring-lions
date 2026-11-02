@@ -190,7 +190,11 @@ export class AgentClient {
         }
         // A seat readies as soon as the room has it; a human seat's lobby
         // button is the browser's, and the room starts when both are ready.
-        if (o.role === 'seat' && seats.find((s) => s.seat === you)?.ready !== true) this.transport.ready();
+        // A seat that comes BACK to the lobby (an MCP client restarted the harness, GH-954) is still
+        // ready, and the other seat may have readied while it was away, when the room would not start:
+        // so it says ready again when every seat is ready and here yet the room has not started.
+        // The room starts on that very message, so this cannot repeat.
+        if (o.role === 'seat' && (seats.find((s) => s.seat === you)?.ready !== true || (seats.length === 2 && seats.every((s) => s.ready && s.connected)))) this.transport.ready();
       },
       onStart: (config) => {
         try {
@@ -376,6 +380,13 @@ export class AgentClient {
     if (this.closed) return;
     this.closed = true;
     this.transport.detach();
+  }
+
+  /** Leaves WITHOUT a `bye`: the socket goes, the seat stays. For a harness whose MCP client
+   *  went away before it did anything (Claude CLI starts a server to probe it, closes it and
+   *  starts it again): the next hello with the same ticket is the same seat's rejoin. */
+  release(): void {
+    this.abort();
   }
 
   /** A seat quitting a match still in play says `bye` (the room reads it as a
