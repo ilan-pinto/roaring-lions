@@ -92,6 +92,7 @@ import {
   videoManifest,
   coupons,
   formations,
+  grades,
 } from '@lions/data';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
@@ -307,7 +308,7 @@ import { describeCommand, mountAdvisorPanel, type AdvisorPanel } from './ui/advi
 import { NetScoreboard, advisorPresenceHook } from './ui/net-score';
 import { scoreOf, showsScoreboard } from './net/scoreboard';
 import { decideOnHashTick, productionOf, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
-import { lightOverrideOf, timeOfDayOf } from './time-of-day';
+import { gradeOf, lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { enginesOf } from './engines-flag';
 import { buildingFitOf } from './building-fit-flag';
 import { environmentLightOf } from './environment-flag';
@@ -2133,6 +2134,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const tod = timeOfDayOf((mission as { map: object } | undefined) ?? null, params);
   if (tod.warning) console.warn(`[lions] ${tod.warning}`);
   const lightOverride = lightOverrideOf((mission as { map: object } | undefined) ?? null);
+  // Look uplift L2 (GH-943): the colour grade, OFF unless `&grade` is in the URL while the lead judges the mock.
+  // A mission's own `map.grade` wins over the flag's id, like `time_of_day`. Day is the identity and builds no pass.
+  const gradeChoice = gradeOf((mission as { map: object } | undefined) ?? null, params, tod.value, grades);
+  if (gradeChoice.warning) console.warn(`[lions] ${gradeChoice.warning}`);
   // `&fitbuildings=<rule>` (lead ruling 7 Oct): compare building fits, on a
   // mission as well as the sandbox. Absent leaves the renderer's default.
   const fit = buildingFitOf(params);
@@ -2149,6 +2154,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ...(fit.value !== undefined ? { buildingFit: fit.value } : {}),
     // Look uplift L1 (GH-943): on by default; `&envlight=0` is the A/B switch. Presentation only.
     ...(environmentLightOf(params) ? {} : { environmentLight: false }),
+    ...(gradeChoice.grade !== null ? { grade: { json: gradeChoice.grade, strength: gradeChoice.strength } } : {}),
     // Pass C2/C4 (P5): asked live, so the settings panel's motion switch
     // reaches the near-miss flinch mid-mission.
     reducedMotion: prefersReducedMotion,

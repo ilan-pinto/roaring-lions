@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { lightOverrideOf, timeOfDayOf } from './time-of-day';
+import type { GradeJson } from '@lions/render';
+import { gradeOf, GRADE_ON_BY_DEFAULT, lightOverrideOf, timeOfDayOf } from './time-of-day';
 
 const P = (q: string): URLSearchParams => new URLSearchParams(q);
 const MISSIONS = join(__dirname, '../../../data/missions');
@@ -77,5 +78,61 @@ describe('lightOverrideOf (PA-24)', () => {
       if (o !== undefined) lit[m.id] = o;
     }
     expect(lit).toEqual({ beit_sahwan_breach: { fill: 0.9, shadow: 0.7 } });
+  });
+});
+
+// Look uplift L2 (GH-943): `gradeOf`.
+describe('gradeOf', () => {
+  const g = (id: string): GradeJson => ({ id }) as unknown as GradeJson;
+  const grades = [g('dawn'), g('dusk')];
+  const q = (s: string): URLSearchParams => new URLSearchParams(s);
+
+  it('is OFF by default while the lead judges the mock, and the constant says so', () => {
+    expect(GRADE_ON_BY_DEFAULT).toBe(false);
+    expect(gradeOf(null, q(''), 'dusk', grades).grade).toBeNull();
+    expect(gradeOf(null, q('tod=dusk'), 'dusk', grades).grade).toBeNull();
+  });
+
+  it('`&grade=0|off|false` is always off, even over a mission that authors one', () => {
+    for (const v of ['0', 'off', 'false']) {
+      expect(gradeOf(null, q(`grade=${v}`), 'dusk', grades).grade).toBeNull();
+      expect(gradeOf({ map: { grade: 'dusk' } }, q(`grade=${v}`), 'dusk', grades).grade).toBeNull();
+    }
+  });
+
+  it('auto (bare, =auto, =1) is the time of day\'s grade, night is dusk, and DAY IS THE IDENTITY (no file)', () => {
+    for (const v of ['grade', 'grade=auto', 'grade=1']) {
+      expect(gradeOf(null, q(v), 'dawn', grades).grade?.id).toBe('dawn');
+      expect(gradeOf(null, q(v), 'dusk', grades).grade?.id).toBe('dusk');
+      expect(gradeOf(null, q(v), 'night', grades).grade?.id).toBe('dusk');
+      expect(gradeOf(null, q(v), 'day', grades).grade).toBeNull();
+    }
+  });
+
+  it('names a grade, with an optional strength 0..2', () => {
+    const c = gradeOf(null, q('grade=dusk:0.5'), 'day', grades);
+    expect(c.grade?.id).toBe('dusk');
+    expect(c.strength).toBe(0.5);
+    expect(c.warning).toBeNull();
+    expect(gradeOf(null, q('grade=dawn'), 'dusk', grades).strength).toBe(1);
+    expect(gradeOf(null, q('grade=dawn:2'), 'dusk', grades).strength).toBe(2);
+  });
+
+  it('warns on an unknown id or a bad strength, and draws ungraded / strength 1', () => {
+    const unknown = gradeOf(null, q('grade=noon'), 'day', grades);
+    expect(unknown.grade).toBeNull();
+    expect(unknown.warning).toMatch(/unknown &grade "noon"/);
+    for (const bad of ['dusk:3', 'dusk:-1', 'dusk:x', 'dusk:']) {
+      const c = gradeOf(null, q(`grade=${bad}`), 'day', grades);
+      expect(c.strength, bad).toBe(1);
+      expect(c.warning, bad).toMatch(/strength/);
+      expect(c.grade?.id, bad).toBe('dusk');
+    }
+  });
+
+  it('a mission\'s authored map.grade wins over the flag\'s id, and needs the flag present while it is off by default', () => {
+    expect(gradeOf({ map: { grade: 'dawn' } }, q('grade=dusk'), 'dusk', grades).grade?.id).toBe('dawn');
+    expect(gradeOf({ map: { grade: 'dawn' } }, q(''), 'dusk', grades).grade).toBeNull();
+    expect(gradeOf({ map: { grade: 'nope' } }, q('grade'), 'dusk', grades).warning).toMatch(/unknown &grade "nope"/);
   });
 });

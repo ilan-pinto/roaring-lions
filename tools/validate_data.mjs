@@ -14,6 +14,7 @@
 //                    menu and budget rules in tools/validate_doctrine.mjs
 //   data/versus/**   against data/schemas/versus_rules.schema.json, plus the camp,
 //                    zone and one-per-matchup-map rules in tools/validate_versus_rules.mjs
+//   data/grades/**   against data/schemas/grade.schema.json, plus the palette-key rules (GH-943 L2)
 //   data/formations/** against data/schemas/formation.schema.json, plus the
 //                    cross-file rules in tools/validate_formations.mjs (GH-859)
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
@@ -24,7 +25,7 @@
 //   one contributor quietly breaks the contrast rule for the whole game.
 
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
-import { join, dirname, relative } from 'node:path';
+import { join, dirname, relative, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { elevationFailures } from './validate_map_grid.mjs';
@@ -196,6 +197,7 @@ const schemas = {
   doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
   versus: loadJson(join(ROOT, 'data/schemas/versus_rules.schema.json')),
   formation: loadJson(join(ROOT, 'data/schemas/formation.schema.json')),
+  grade: loadJson(join(ROOT, 'data/schemas/grade.schema.json')),
   coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
 };
 
@@ -203,7 +205,7 @@ let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.formation && schemas.coupons
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.formation && schemas.grade && schemas.coupons
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -221,6 +223,7 @@ if (
     doctrine: ajv.compile(schemas.doctrine),
     versus: ajv.compile(schemas.versus),
     formation: ajv.compile(schemas.formation),
+    grade: ajv.compile(schemas.grade),
     coupons: ajv.compile(schemas.coupons),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
@@ -231,6 +234,7 @@ if (
   checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema');
   checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema');
   checked += validateDir(join(ROOT, 'data/formations'), validators.formation, 'formation.schema');
+  checked += validateDir(join(ROOT, 'data/grades'), validators.grade, 'grade.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
   // is generated geometry, commander.json is hand-authored. Each gets its own schema.
@@ -1545,6 +1549,40 @@ if (palette) {
         failures.push(`${rel(file)}: ${path} references unknown palette key "${ref}"`);
       }
     }
+  }
+}
+
+// --- grade palette keys (look uplift L2, GH-943) ------------------------------
+// Every `tint` in data/grades/*.json is a palette key, and a ramp key must name a step that exists:
+// the renderer resolves it at boot (`paletteHex` throws on an unknown key). The reserved vfx and team
+// bands are runtime-only, so a grade may not lean on one either. The filename is the id.
+if (palette) {
+  const gradeIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/grades'))) {
+    const doc = loadJson(file);
+    if (!doc) continue;
+    const walk = (node, at) => {
+      if (Array.isArray(node)) return node.forEach((v, i) => walk(v, `${at}[${i}]`));
+      if (node && typeof node === 'object') {
+        for (const [k, v] of Object.entries(node)) {
+          if (k === 'tint' && typeof v === 'string') {
+            if (!paletteKeys.has(v)) failures.push(`${rel(file)}: ${at}.${k} names unknown palette key "${v}"`);
+            else if (/^(vfx|team|group)\./.test(v)) failures.push(`${rel(file)}: ${at}.${k} "${v}" is a runtime-only reserved band; a grade is built from the ramps`);
+          } else walk(v, `${at}.${k}`);
+        }
+      }
+    };
+    walk(doc, '');
+    if (`${doc.id}.json` !== basename(file)) failures.push(`${rel(file)}: id "${doc.id}" must match the filename`);
+    if (doc.id === 'day') failures.push(`${rel(file)}: day is the identity grade and ships no file`);
+    if (gradeIds.has(doc.id)) failures.push(`${rel(file)}: duplicate grade id "${doc.id}"`);
+    gradeIds.add(doc.id);
+  }
+  // A mission's `map.grade` must name a shipped grade.
+  for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
+    const doc = loadJson(file);
+    const g = doc?.map?.grade;
+    if (g !== undefined && !gradeIds.has(g)) failures.push(`${rel(file)}: map.grade "${g}" is not a file in data/grades/`);
   }
 }
 

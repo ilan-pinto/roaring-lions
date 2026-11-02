@@ -303,6 +303,17 @@
  *                 read 0 px. It is witnessed by `tools/src/perf/look-l1-captures.ts`
  *                 and its entry lands with the ship PR, beside its scenario.
  *
+ * ONE FOR LOOK UPLIFT L2 (GH-943), behind the `&grade` flag:
+ * - `grade`       the colour grade (`output-grade.ts`), toggled by its own `enabled`:
+ *                 `vignette`'s shape exactly, a uniform inside `OutputPass`'s shader
+ *                 that no per-frame path re-asserts, so it holds across the gate's
+ *                 repaint. Hidden is the ungraded output, bit for bit. Returns 1 when
+ *                 it changed something and 0 with no grade compiled in (day, no
+ *                 `&grade`, an identity), the honest reading for a check to fail on.
+ *                 NO `layerChecks` entry yet, for `environment`'s reason: with the
+ *                 flag off on main it writes nothing. It lands with the ship PR,
+ *                 beside the gated dusk scenario that carries the grade.
+ *
  * ONE MORE FOR GH-471, the `missiles` rule again:
  * - `tunnel-xray` the x-ray of an identified tunnel (`../tunnel-xray.ts`):
  *                 bore and shafts, surface collars, the figures inside and
@@ -510,6 +521,8 @@ export const DEBUG_LAYERS = [
   'rain',
   // Look uplift L1 (GH-943): the sky environment on units, buildings and props. See the doc entry.
   'environment',
+  // Look uplift L2 (GH-943): the colour grade folded into OutputPass. See the doc entry.
+  'grade',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

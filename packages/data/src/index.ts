@@ -89,6 +89,9 @@ import wadiTarfanLVersus from '../../../data/versus/wadi_tarfan_l.json';
 import formationAmbush from '../../../data/formations/ambush.json';
 import formationAttack from '../../../data/formations/attack.json';
 import formationColumn from '../../../data/formations/column.json';
+// Look uplift L2 (GH-943): the colour grades, one file per shipped time of day. Day is the identity and has no file.
+import gradeDawn from '../../../data/grades/dawn.json';
+import gradeDusk from '../../../data/grades/dusk.json';
 import type { DoctrineJson, VersusRulesJson } from './versus';
 import structureCatalogue from '../../../data/structures.json';
 import couponsJson from '../../../data/coupons.json';
@@ -324,6 +327,11 @@ export const versusRules: Readonly<Record<string, VersusRulesJson>> = {
  *  sorted directory order. Hand-kept, so `index.test.ts` pins it to the directory: an
  *  unregistered file would be silently unorderable. The sim's `addFormationType` compiles each. */
 export const formations = [formationAmbush, formationAttack, formationColumn] as const;
+
+/** Colour grades (look uplift L2, GH-943): data/grades/*.json against grade.schema.json, in sorted
+ *  directory order. Hand-kept, so `index.test.ts` pins it to the directory: an unregistered file
+ *  would be silently inert. The renderer bakes the one the app picks (`gradeOf`) into a 32^3 LUT. */
+export const grades = [gradeDawn, gradeDusk] as const;
 
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
 export const maps = {

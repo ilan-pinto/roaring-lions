@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   formations,
+  grades,
   maps,
   missions,
   paletteColor,
@@ -126,6 +127,29 @@ describe('formations is pinned to the directory it comes from', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual([...ids].sort());
     expect(ids).toEqual(['ambush', 'attack', 'column']);
+  });
+});
+
+describe('grades is pinned to the directory it comes from', () => {
+  // GH-943 L2: the same shape as the formations pin above. data/grades/*.json is read by nobody but this
+  // hand-kept array, so a file that ships without an import line is a grade `gradeOf` can never find:
+  // `&grade=<id>` would warn "unknown grade" for a file that is sitting right there.
+  const gradesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data/grades');
+
+  it('carries every grade file on disk, by id', () => {
+    const onDisk = readdirSync(gradesDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => JSON.parse(readFileSync(path.join(gradesDir, f), 'utf8')).id as string)
+      .sort();
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(grades.map((g) => g.id).sort()).toEqual(onDisk);
+  });
+
+  it('registers each of them exactly once, in sorted order, and ships no day grade (day is the identity)', () => {
+    const ids = grades.map((g) => g.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual([...ids].sort());
+    expect(ids).toEqual(['dawn', 'dusk']);
   });
 });
 

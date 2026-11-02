@@ -10,7 +10,7 @@
  * it, the same reason `town`/`phase` are read off the raw JSON in `main.ts`
  * rather than widening that type for a lookup only `app` makes.
  */
-import type { LightOverride, TimeOfDay } from '@lions/render';
+import type { GradeJson, LightOverride, TimeOfDay } from '@lions/render';
 
 export const TIMES_OF_DAY: readonly TimeOfDay[] = ['dawn', 'day', 'dusk', 'night'];
 
@@ -59,4 +59,65 @@ export function lightOverrideOf(mission: { readonly map: object } | null): Light
     ...(typeof raw.fill === 'number' ? { fill: raw.fill } : {}),
     ...(typeof raw.shadow === 'number' ? { shadow: raw.shadow } : {}),
   };
+}
+
+/**
+ * Look uplift L2 (GH-943): while the lead judges the mock sheet, no grade draws unless `&grade` is in the URL. The
+ * ship PR flips this one constant; `&grade=0` stays as the A/B switch, `&envlight`'s shape.
+ */
+export const GRADE_ON_BY_DEFAULT = false;
+
+/** The `&grade=<value>` strengths a flag may ask for: 0 is the identity, 1 the file as authored. */
+export const GRADE_STRENGTH_MAX = 2;
+
+export interface GradeChoice {
+  /** The grade file to bake, or null for "draw the ungraded frame". */
+  readonly grade: GradeJson | null;
+  readonly strength: number;
+  readonly warning: string | null;
+}
+
+/**
+ * Which colour grade draws the map (look uplift L2, GH-943), beside `timeOfDayOf` and for the same
+ * reason: the APP reads it, never the sim's mission type.
+ *
+ *  - Off unless `&grade` is present (`GRADE_ON_BY_DEFAULT`), and `&grade=0|off|false` always means off.
+ *  - `&grade`, `&grade=auto` or `=1`: the grade shipped for `tod` (`dawn`, `dusk`; `night` is dusk, D10).
+ *    **Day is the identity and ships no file**, so `auto` on a day map draws today's frame.
+ *  - `&grade=<id>` names a file in `data/grades/`; `&grade=<id>:<strength>` scales it (0..2, 1 = as authored).
+ *    An unknown id falls back to no grade and says why.
+ *  - A mission's authored `map.grade` WINS over the flag's id (not over an explicit off), the way its
+ *    `time_of_day` wins over `&tod=`. No shipped mission authors one.
+ */
+export function gradeOf(
+  mission: { readonly map: object } | null,
+  params: URLSearchParams,
+  tod: TimeOfDay,
+  grades: readonly GradeJson[]
+): GradeChoice {
+  const none = (warning: string | null = null): GradeChoice => ({ grade: null, strength: 1, warning });
+  const raw = params.get('grade');
+  if (raw === null && !GRADE_ON_BY_DEFAULT) return none();
+  const value = raw ?? '';
+  if (value === '0' || value === 'off' || value === 'false') return none();
+  const [name, strengthRaw] = value.split(':');
+  let strength = 1;
+  let warning: string | null = null;
+  if (strengthRaw !== undefined) {
+    const n = Number(strengthRaw);
+    if (strengthRaw === '' || !Number.isFinite(n) || n < 0 || n > GRADE_STRENGTH_MAX) {
+      warning = `unknown &grade strength "${strengthRaw}" (0 to ${GRADE_STRENGTH_MAX}) — using 1`;
+    } else {
+      strength = n;
+    }
+  }
+  const authored = mission === null ? undefined : (mission.map as { grade?: unknown }).grade;
+  const auto = name === '' || name === 'auto' || name === '1' || name === 'on';
+  const id = typeof authored === 'string' ? authored : auto ? (tod === 'day' ? null : tod === 'night' ? 'dusk' : tod) : name;
+  if (id === null) return { grade: null, strength, warning };
+  const found = grades.find((g) => g.id === id);
+  if (found === undefined) {
+    return { grade: null, strength, warning: `unknown &grade "${id}" (have ${grades.map((g) => g.id).join(', ')}) — drawing ungraded` };
+  }
+  return { grade: found, strength, warning };
 }

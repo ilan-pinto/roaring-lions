@@ -169,6 +169,13 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: '=0 draws the pre-L1 frame: no sky environment, the shipped hemisphere, the 0.45 metal cap (GH-943; on by default)',
   },
   {
+    name: 'grade',
+    // Look uplift L2 (GH-943), OFF by default while the lead judges the mock. A value flag like `tod`, not a
+    // SANDBOX_FLAGS boolean, and it works on a mission too (presentation only). `time-of-day.ts`'s `gradeOf`
+    // reads it. Day is the identity grade and has no file, so `auto` on a day map is today's frame.
+    blurb: '<id>[:<strength 0-2>] | auto | 0 — colour grade (GH-943): dawn, dusk, or auto for the time of day; off unless present',
+  },
+  {
     name: 'fitbuildings',
     // Lead ruling 7 Oct. Not a SANDBOX_FLAGS entry: it works on a mission
     // too, and it is a value flag like `tod`. `building-fit-flag.ts` reads it.

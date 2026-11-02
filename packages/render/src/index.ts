@@ -15,6 +15,8 @@ export const RENDER_VERSION = 1;
 // it stays a static export of the barrel -- see `decor.ts`.
 export { TERRAIN_DECOR } from './decor';
 export type { RendererOptions, TerrainTones, TerrainScatter, OpenScatter, GroveFamily, AimFootprint, PlacementPreview, AuraRingView, SupplyRouteView, RallyMarkView, ObjectiveZoneView, TimeOfDay, LightOverride, BuildingFit, BackdropSpec } from './api';
+// L2 (GH-943): the grade file's type, three-free, so the app can name what it hands the renderer.
+export type { GradeJson } from './three/grade-maths';
 // Backend-neutral by construction (no three import -- see the file's own
 // header), so it stays a static export of the barrel like `TERRAIN_DECOR`
 // rather than joining a lazy entry point. `main.ts` reads `QUALITY_PRESETS`
