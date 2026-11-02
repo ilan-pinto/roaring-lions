@@ -97,6 +97,35 @@ and its disconnecting never stalls or ends your match.
 
 ## 2. A bot opponent
 
+### Play against a bot
+
+Open a versus room in the browser (menu → **Play with a friend**, pick a map,
+**Open a room**), then, from a checkout:
+
+```sh
+pnpm bot -- --room ABC123 --model sonnet
+```
+
+That is the whole of the steps below in one command: it writes the MCP config and
+the standing prompt to a private temp directory, runs `claude -p` with the
+harness on `--scope command --join`, prints the result and the token use, and
+removes the directory however it ends (Ctrl-C stops the client cleanly; a second
+Ctrl-C exits at once). `--model` is `sonnet`, `opus`, `haiku` or a full model id;
+`--server`, `--callsign` and `--client` (the CLI to run, default `claude`) are
+optional. Because the client prints one JSON result when it finishes, the live
+output is only its stderr; the result and tokens arrive at the end.
+
+- **The build must match.** The room refuses a different commit (`build_mismatch`).
+  Read the commit in the game's **Settings** footer and run `pnpm bot` from a
+  checkout at it: `git worktree add --detach ../roaring-lions-bot <commit>`, then
+  `pnpm install` there. `pnpm bot` says this when the room refuses.
+- **Run it from macOS Terminal, not inside the Claude desktop app.** Inside the
+  app the inherited `CLAUDE_CODE_*` / `ANTHROPIC_BASE_URL` environment breaks a
+  child CLI (the bot warns when `CLAUDE_CODE_ENTRYPOINT` is set). If it reports an
+  authentication failure, run `claude`, type `/login`, and try again.
+
+The manual form, for any other MCP client:
+
 Create a versus room in the browser (menu → **Play with a friend**, pick a map,
 **Open a room**), then, instead of sending the code to a friend, seat a bot:
 
