@@ -1,9 +1,9 @@
 /**
  * The mark pass: give a vehicle GLB its team mark.
  *
- *     pnpm mark:meshes -- --id=mbt_lavi
+ *     pnpm mark:meshes -- --id=mbt_lavi --id=mbt_lavi_camo --id=officer_armour
  *
- * It runs `tools/vehicles/lavi_mark.py` (the boxes, the covered share and the bake's luma under them), writes
+ * It runs `tools/vehicles/lavi_mark.py` for the vehicle (its own boxes, the covered share and the bake's luma under them), writes
  * `material.extras.rl_team_mark` and a scene marker, and DROPS whatever normal, metallic-roughness and occlusion
  * textures the export carried (a Meshy export's are flat: 89% of normal texels tilt under 0.05). The GLB goes
  * back to carrying its base colour alone. See `mark-contract.ts` for what the mark is.
@@ -35,6 +35,7 @@ export interface MarkMeasure {
   };
   readonly luma: number;
   readonly team_fraction: number;
+  readonly team_fraction_basis?: 'texel' | 'triangle';
   readonly team_area_m2: number;
   readonly surface_area_m2: number;
 }
@@ -98,6 +99,7 @@ export function applyMark(doc: Document, id: string, measure: MarkMeasure): Mark
     exclude_radius: measure.mark.exclude_radius,
     luma: measure.luma,
     team_fraction: measure.team_fraction,
+    ...(measure.team_fraction_basis ? { team_fraction_basis: measure.team_fraction_basis } : {}),
   };
   material.setExtras({ ...(material.getExtras() as Record<string, unknown>), [MARK_EXTRAS_KEY]: mark });
   const scene = doc.getRoot().listScenes()[0];
@@ -108,7 +110,9 @@ export function applyMark(doc: Document, id: string, measure: MarkMeasure): Mark
 export function measureMark(id: string, glbPath: string): MarkMeasure {
   const recipe = MARK_RECIPES[id];
   if (!recipe) throw new Error(`mark:meshes: no recipe for "${id}" (have ${Object.keys(MARK_RECIPES).join(', ')})`);
-  const run = spawnSync('python3', [path.join(REPO, recipe.script), '--glb', glbPath, '--kit', path.join(REPO, recipe.kit)], {
+  const argv = [path.join(REPO, recipe.script), '--id', id, '--glb', glbPath];
+  if (recipe.kit !== null) argv.push('--kit', path.join(REPO, recipe.kit));
+  const run = spawnSync('python3', argv, {
     encoding: 'utf8',
     maxBuffer: 1 << 24,
   });
