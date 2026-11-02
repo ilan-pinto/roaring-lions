@@ -34,6 +34,7 @@ function probe(id: MapId): void {
   for (const [n, arr] of [['decor', c.decorPlacements], ['prop', c.propPlacements]] as const) {
     const a = arr as unknown as unknown[];
     lines.push(`PROBE ${n} count=${a.length} ${H(JSON.stringify(a))}`);
+    if (n === 'decor') for (let i = 6500; i < 6600; i++) lines.push(`PROBE e${i} ${JSON.stringify(a[i])}`);
     const parts: string[] = [];
     for (let o = 0; o < a.length; o += 100) parts.push(H(JSON.stringify(a.slice(o, o + 100))));
     lines.push(`PROBE ${n}.blocks ${parts.join(',')}`);
