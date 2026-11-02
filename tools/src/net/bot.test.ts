@@ -5,32 +5,40 @@
 // leaves behind is seen by the test that made it.
 import { spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  botMcpConfig, classify, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, parseBotArgs, resolveModel, runBot, USAGE,
+  BOT_ADDENDUM, botMcpConfig, botPrompt, classify, fileStem, reportMarkdown, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, parseBotArgs, resolveModel, runBot, USAGE,
   type SignalSource,
 } from './bot';
-import { HARNESS_AGENT, HARNESS_TSX, type SpawnFn } from './external-player';
+import { HARNESS_AGENT, HARNESS_TSX, standingPrompt, type SpawnFn } from './external-player';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const TSX = join(resolve(here, '../..'), 'node_modules/.bin/tsx');
 const BOT = join(here, 'bot.ts');
 
 let root = '';
+/** The invoking directory: `bot-results/` is made in it, apart from the temp root the leftovers are read from. */
+let cwd = '';
 const savedTmp = process.env.LIONS_ARENA_TMPDIR;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'bot-test-'));
+  cwd = mkdtempSync(join(tmpdir(), 'bot-cwd-'));
   process.env.LIONS_ARENA_TMPDIR = root;
 });
 afterEach(() => {
   if (savedTmp === undefined) delete process.env.LIONS_ARENA_TMPDIR; else process.env.LIONS_ARENA_TMPDIR = savedTmp;
   rmSync(root, { recursive: true, force: true });
+  rmSync(cwd, { recursive: true, force: true });
 });
+const NOW = new Date('2026-11-03T10:15:30.000Z');
+const STEM = '20261103-101530-ABC234-claude-sonnet-5-5';
+const resultsOf = (): string[] => (existsSync(join(cwd, 'bot-results')) ? readdirSync(join(cwd, 'bot-results')).sort() : []);
+const readResult = (name: string): string => readFileSync(join(cwd, 'bot-results', name), 'utf8');
 const leftovers = (): string[] => readdirSync(root);
 const mode = (p: string): number => statSync(p).mode & 0o777;
 
@@ -102,6 +110,9 @@ function harness(script: (child: FakeChild, call: Call) => void, extra: { env?: 
     log: (l: string) => { logs.push(l); },
     print: (l: string) => { printed.push(l); },
     killMs: extra.killMs ?? 20,
+    cwd,
+    now: () => NOW,
+    build: '0.1.0+abcdef1',
   };
   return { calls, logs, printed, signals, exits, opts };
 }
@@ -386,15 +397,145 @@ describe('a signal before the files exist', () => {
   });
 });
 
+describe('the log', () => {
+  it('writes every client line, timestamped, to bot-results/<date>-<room>-<model>.log, and prints the paths at the start and the end', async () => {
+    const order: string[] = [];
+    const h = harness((c) => {
+      c.stderr.write('harness: seat 1 of ABC234\n');
+      c.stdout.write('a plain progress line\n');
+      c.stdout.write(resultLine({ result: 'GG', usage: { input_tokens: 2, output_tokens: 3 } }));
+      c.end(0);
+    }, { env: { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'sk-test-not-a-real-key' } });
+    const inner = h.opts.spawn;
+    h.opts.spawn = (...args) => { order.push('spawn'); return inner(...args); };
+    h.opts.log = (l: string) => { order.push(l); h.logs.push(l); };
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(0);
+    expect(resultsOf()).toEqual([`${STEM}-report.md`, `${STEM}.log`]);
+    const logPath = join(cwd, 'bot-results', `${STEM}.log`);
+    expect(mode(logPath)).toBe(0o600);
+    const text = readResult(`${STEM}.log`);
+    for (const l of text.trimEnd().split('\n')) expect(l, l).toMatch(/^2026-11-03T10:15:30\.000Z (bot|out|err) /);
+    expect(text).toContain('err harness: seat 1 of ABC234');
+    expect(text).toContain('out a plain progress line');
+    expect(text).toContain('"result":"GG"');
+    expect(text).toContain('bot bot: finished. tokens: 5');
+    // Never the environment, never a ticket.
+    expect(text).not.toContain('sk-test-not-a-real-key');
+    expect(text.toLowerCase()).not.toContain('ticket');
+    // The paths: before the client starts, and again at the end.
+    const at = (needle: string): number[] => order.flatMap((l, i) => (l === needle ? [i] : []));
+    const logLine = `bot: log: ${logPath}`;
+    expect(at(logLine)).toHaveLength(2);
+    expect(at(logLine)[0]).toBeLessThan(order.indexOf('spawn'));
+    expect(at(logLine)[1]).toBeGreaterThan(order.indexOf('spawn'));
+    expect(at(`bot: report: ${join(cwd, 'bot-results', `${STEM}-report.md`)}`)).toHaveLength(2);
+  });
+  it('stays under the invoking directory whatever the model flag says', async () => {
+    expect(fileStem(NOW, 'ABC234', '../../etc/x')).toBe('20261103-101530-ABC234-__.._etc_x');
+    const h = harness((c) => { c.end(0); });
+    await runBot(['--room', 'ABC234', '--model', '../../../evil/m'], h.opts);
+    expect(readdirSync(cwd)).toEqual(['bot-results']);
+    expect(resultsOf()).toHaveLength(2);
+    for (const f of resultsOf()) expect(f).not.toMatch(/[\\/]/);
+  });
+  it('uses INIT_CWD when no directory is injected', async () => {
+    const saved = process.env.INIT_CWD;
+    process.env.INIT_CWD = cwd;
+    try {
+      const h = harness((c) => { c.end(0); });
+      const { cwd: _unused, ...rest } = h.opts;
+      void _unused;
+      await runBot(['--room', 'ABC234'], rest);
+    } finally {
+      if (saved === undefined) delete process.env.INIT_CWD; else process.env.INIT_CWD = saved;
+    }
+    expect(resultsOf()).toHaveLength(2);
+  });
+  it('refuses at once when the folder cannot be made, and starts nothing', async () => {
+    writeFileSync(join(cwd, 'bot-results'), 'a file where the folder should go');
+    const h = harness((c) => { c.end(0); });
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(1);
+    expect(h.calls).toHaveLength(0);
+    expect(h.logs.join('\n')).toContain('cannot write');
+    expect(leftovers()).toEqual([]);
+  });
+});
+
+describe('the match report', () => {
+  it('adds a bot-only addendum to the prompt and leaves the arena\'s prompt alone', async () => {
+    const h = harness((c) => { c.end(0); });
+    await runBot(['--room', 'ABC234'], h.opts);
+    const prompt = h.calls[0].prompt;
+    expect(prompt).toBe(botPrompt({ room: 'ABC234' }));
+    expect(prompt).toContain(BOT_ADDENDUM);
+    for (const w of ['## Conclusion', '## Bugs noticed', '"none"', 'keep short notes', 'FINAL message']) expect(prompt, w).toContain(w);
+    expect(readFileSync(join(here, 'arena-prompt.md'), 'utf8')).not.toMatch(/Bugs noticed|FINAL message/);
+    expect(standingPrompt({ seat: 1, code: 'ABC234' })).not.toContain('Bugs noticed');
+  });
+  it('saves the final message under a header: room, model, server, build, result, tokens', async () => {
+    const message = '## Conclusion\nWon by flanking.\n\n## Bugs noticed\nnone';
+    const h = harness((c) => { c.stdout.write(resultLine({ result: message, usage: { input_tokens: 700, output_tokens: 34 } })); c.end(0); });
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(0);
+    const report = readResult(`${STEM}-report.md`);
+    expect(mode(join(cwd, 'bot-results', `${STEM}-report.md`))).toBe(0o600);
+    expect(report).toContain('- Room: ABC234');
+    expect(report).toContain('- Model: claude-sonnet-5-5');
+    expect(report).toContain(`- Server: ${LIVE_SERVER}`);
+    expect(report).toContain('- Build: 0.1.0+abcdef1');
+    expect(report).toContain('- Result: completed');
+    expect(report).toContain('- Tokens: 734');
+    expect(report.endsWith(`${message}\n`)).toBe(true);
+    expect(report).not.toContain('No report was produced');
+  });
+  it('is written even when the client dies first, and says why', async () => {
+    const cases: { name: string; h: ReturnType<typeof harness>; code: number; why: RegExp; outcome: string }[] = [
+      { name: 'exit code', h: harness((c) => { c.stderr.write('kaboom\n'); c.end(7); }), code: 1, why: /No report was produced: the client exited with code 7/, outcome: 'failed' },
+      { name: 'killed', h: harness((c) => { c.end(null, 'SIGKILL'); }), code: 1, why: /No report was produced: the client was killed by SIGKILL/, outcome: 'failed' },
+      { name: 'build refused', h: harness((c) => { c.stderr.write('agent: the room refused this client (build_mismatch)\n'); c.end(1); }), code: 2, why: /No report was produced: the room refused this checkout's build/, outcome: 'failed' },
+      { name: 'cannot start', h: harness(() => {}, { startError: new Error('spawn claude ENOENT') }), code: 1, why: /No report was produced: the client "claude" could not start \(spawn claude ENOENT\)/, outcome: 'failed' },
+      { name: 'clean but silent', h: harness((c) => { c.end(0); }), code: 0, why: /No report was produced: the client exited cleanly but printed no final message/, outcome: 'completed' },
+    ];
+    for (const k of cases) {
+      rmSync(join(cwd, 'bot-results'), { recursive: true, force: true });
+      expect(await runBot(['--room', 'ABC234'], k.h.opts), k.name).toBe(k.code);
+      const report = readResult(`${STEM}-report.md`);
+      expect(report, k.name).toMatch(k.why);
+      expect(report, k.name).toContain(`- Result: ${k.outcome}`);
+      expect(report, k.name).toContain('- Room: ABC234');
+    }
+  });
+  it('is written when a signal stops the bot, and quotes a last message from a failed client', async () => {
+    const h = harness(() => {});
+    const run = runBot(['--room', 'ABC234'], h.opts);
+    await sleep(30);
+    h.signals.fire('SIGTERM');
+    expect(await run).toBe(143);
+    const report = readResult(`${STEM}-report.md`);
+    expect(report).toContain('No report was produced: stopped by SIGTERM');
+    expect(report).toContain('- Result: stopped');
+
+    rmSync(join(cwd, 'bot-results'), { recursive: true, force: true });
+    const failing = harness((c) => { c.stdout.write(resultLine({ is_error: true, result: 'Failed to authenticate' })); c.end(1); });
+    await runBot(['--room', 'ABC234'], failing.opts);
+    expect(readResult(`${STEM}-report.md`)).toContain('> Failed to authenticate');
+  });
+  it('reportMarkdown shows unknown tokens, and a message only when nothing failed', () => {
+    const base = { room: 'R', model: 'm', server: 's', build: 'b', outcome: 'completed', tokens: null, logName: 'x.log' };
+    expect(reportMarkdown({ ...base, message: 'hi', why: null })).toContain('- Tokens: unknown');
+    expect(reportMarkdown({ ...base, message: 'hi', why: null })).not.toContain('No report');
+    expect(reportMarkdown({ ...base, message: 'hi', why: 'died' })).toContain('No report was produced: died.');
+  });
+});
+
 describe('the real entry point', () => {
   it('refuses a bad command line with the usage line and exit 1', () => {
-    const r = spawnSync(TSX, [BOT, '--bogus'], { encoding: 'utf8', env: { ...process.env, LIONS_ARENA_TMPDIR: root } });
+    const r = spawnSync(TSX, [BOT, '--bogus'], { encoding: 'utf8', env: { ...process.env, LIONS_ARENA_TMPDIR: root, INIT_CWD: cwd } });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain(USAGE);
     expect(leftovers()).toEqual([]);
   }, 30_000);
   it('reports a client that does not exist (a real spawn of nothing) and leaves no directory', () => {
-    const r = spawnSync(TSX, [BOT, '--room', 'ABC234', '--client', join(root, 'no-such-client')], { encoding: 'utf8', env: { ...process.env, LIONS_ARENA_TMPDIR: root } });
+    const r = spawnSync(TSX, [BOT, '--room', 'ABC234', '--client', join(root, 'no-such-client')], { encoding: 'utf8', env: { ...process.env, LIONS_ARENA_TMPDIR: root, INIT_CWD: cwd } });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('could not start the client');
     expect(leftovers()).toEqual([]);

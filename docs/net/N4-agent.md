@@ -115,6 +115,19 @@ Ctrl-C exits at once). `--model` is `sonnet`, `opus`, `haiku` or a full model id
 optional. Because the client prints one JSON result when it finishes, the live
 output is only its stderr; the result and tokens arrive at the end.
 
+Every run leaves two files in `bot-results/` (git-ignored) under the directory
+you ran `pnpm bot` from, and prints their paths when it starts and when it ends:
+
+- `<date>-<room>-<model>.log`: the harness's and the client's stderr and stdout,
+  each line timestamped. It never holds the environment (there is no ticket).
+- `<date>-<room>-<model>-report.md`: a header (room, model, server, build, result,
+  tokens), then the model's final message. The bot's prompt asks the model to keep
+  notes of anything odd as it plays and to end with a report under two headings,
+  **Conclusion** (what happened, why it won or lost, its key decisions) and
+  **Bugs noticed** (refused orders, tool errors, inconsistent `observe` data, or
+  `none`). The addendum is the bot's alone; the arena's prompt is unchanged. If the
+  client dies before a report, the file says no report was produced and why.
+
 - **The build must match.** The room refuses a different commit (`build_mismatch`).
   Read the commit in the game's **Settings** footer and run `pnpm bot` from a
   checkout at it: `git worktree add --detach ../roaring-lions-bot <commit>`, then
