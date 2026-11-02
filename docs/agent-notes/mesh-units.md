@@ -813,12 +813,22 @@ Spec `docs/superpowers/specs/2026-11-01-look-uplift-design.md` section 4; the le
   one pixel, and the mark turns with the turret: the turret meshes hang off `turret_pivot`, and the attributes never see its rotation. Pipeline: export
   -> rescale -> running-gear -> mark -> kit -> wreck -> damage -> encode. The pass refuses a re-run, an unrescaled file, one with no running gear and
   one already kitted or wrecked; it drops the export's flat normal and metal-roughness textures, so the GLB is back to its base colour alone.
+- **The two variants (GH-943, 2 Nov).** `mbt_lavi_camo` (the Ambush Tank) and `officer_armour` (the command Lavi) are cut from the shipped
+  `mbt_lavi.glb`, so each has its OWN boxes in `lavi_mark.py`'s `MARKS`, placed for what it adds. The command Lavi's raised cupola stands in the middle
+  of the Lavi's roof box and would hide a third of the panel, so its roof panel moves forward of the cupola (x -0.55..0.60, |z| <= 0.80); its band is the
+  Lavi's. The Ambush Tank's net carries 59 foliage tufts: with the Lavi's thresholds every tuft in the box turned blue (seen on the garage bay), so its
+  panel stays under the tuft tips (y 2.28..2.95) and wants `min_ny` 0.55. Three things are different from the Lavi: (1) the export scripts drop the
+  imported Lavi's mark (`rescale.drop_imported_mark`) or its boxes would ride in on the variant's material; (2) they have no kit, so their exclusion pins
+  are `NO_PIN` (UV -1,-1, outside the unit square; the runtime still wants three); (3) their `team_fraction` is the TRIANGLE share, not the texel share,
+  because a part UV-pinned to one bake texel has no texel area (the net's 9,626 triangles and the cupola's 92 were invisible to the texel count) and
+  `team_fraction_basis: 'triangle'` says so. The Lavi keeps its texel 2.11% (1.66% on the triangle basis). `officer_armour` has no roster entry (it is
+  a held unit), so the garage cannot mount it by id; `look-l3-captures.ts` names its GLB directly.
 - **Who carries it.** One VARIANT per (template material x colour slot: own, hostile, neutral), minted lazily, +0 draw calls, +0 textures, and only
   on `rl_role: hull` meshes (the barrel, antennas and tracks are other roles). A kit part is merged INTO the host geometry at runtime and has no UVs
   of its own (the kit pass pins each onto one of three bake texels), so the shader excludes a fragment whose UV is within `exclude_radius` of a pin.
   A wreck takes none. `carryTeamMark` re-applies the hook on scar and running-gear clones (`Material.clone()` drops `onBeforeCompile`); a clone must
   never carry the program key without the patch. The slot colours are shared linear uniforms, so `setTeamColors` (colour vision) is one write.
 - **Gates.** The `team-mask` debug layer (the shared strength to 0) and its layer check on the gated `vehicle` scenario; `check_team_marks` in
-  `validate:meshes`; `mark-pass.test.ts` (an independent triangle-centroid measurement of the boxes, 95% of the area on `turret_hull`, every kit UV
+  `validate:meshes`; `mark-pass.test.ts` (an independent triangle-centroid measurement of the boxes, 95% of the area on `turret_hull` (80% on the Ambush Tank, whose net drapes beside the ring), every kit UV
   inside a pin); and the per-class texture budget (vehicle 80 MiB / 2560 px, building 64 / 2048, infantry 32 / 3072, a ratchet) with a
-  report-only roster census. `officer_armour` and `mbt_lavi_camo` reuse the Lavi's bake and do NOT carry the mark yet.
+  report-only roster census. `validate:meshes` requires a mark on `mbt_lavi`, `mbt_lavi_camo` and `officer_armour` (`MARK_REQUIRED`, pinned to `MARK_RECIPES`). The rest of the fleet has none yet.

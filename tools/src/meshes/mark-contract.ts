@@ -21,9 +21,15 @@ export const MARK_SCENE_KEY = 'rl_team_mark_pass';
 
 export const MARK_VERSION = 1;
 
-/** Which vehicles have a mark recipe. */
-export const MARK_RECIPES: Readonly<Record<string, { readonly script: string; readonly kit: string }>> = {
+/**
+ * Which vehicles have a mark recipe, and so MUST carry one (`validate:meshes` refuses a roster id without it).
+ * All three are one hull and one bake (`tools/vehicles/lavi_mark.py`, `MARKS`), each with its own boxes. `kit` is the
+ * kit source whose pinned UVs the shader excludes; the two variants have no kit and exclude nothing.
+ */
+export const MARK_RECIPES: Readonly<Record<string, { readonly script: string; readonly kit: string | null }>> = {
   mbt_lavi: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/mbt_lavi.glb' },
+  mbt_lavi_camo: { script: 'tools/vehicles/lavi_mark.py', kit: null },
+  officer_armour: { script: 'tools/vehicles/lavi_mark.py', kit: null },
 };
 
 /** The mark's share of the covered surface the lead approved (about 2%), and the band a shipped number must sit in. */
@@ -39,4 +45,6 @@ export interface TeamMark {
   /** Mean linear luma of the base colour under the mark. */
   readonly luma: number;
   readonly team_fraction: number;
+  /** What `team_fraction` counts: `texel` (the Lavi, as shipped) or `triangle` (a variant, whose added parts have no texel area). */
+  readonly team_fraction_basis?: 'texel' | 'triangle';
 }

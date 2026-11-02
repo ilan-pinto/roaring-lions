@@ -1,8 +1,13 @@
 /**
  * Look uplift L3 (GH-943): the APPROVAL instrument for the Lavi's team mark -- not a gate.
  *
- *   pnpm exec tsx tools/src/perf/look-l3-captures.ts --out=<dir> --today=<old encoded mbt_lavi.glb>
- *       [--only=garage,ingame] [--port=5187]
+ *   pnpm exec tsx tools/src/perf/look-l3-captures.ts --out=<dir> --today=<old encoded <id>.glb>
+ *       [--id=mbt_lavi] [--only=garage,ingame] [--port=5187]
+ *
+ * `--id` (default `mbt_lavi`) names the vehicle. For a variant (`mbt_lavi_camo`, `officer_armour`; GH-943 sheet D) the
+ * garage mounts that id itself, and the in-game frame serves the variant's shipped GLB under the Lavi's own path:
+ * the sandbox task force places no variant, and the renderer draws a unit from the GLB it loads, so the mark takes
+ * the same code path. capture.json says so.
  *
  * One Metal Chromium, music off, its own dev server on its own port (never 5177), ONE page at a time.
  *
@@ -33,16 +38,21 @@ const args = process.argv.slice(2);
 const flag = (n: string): string | undefined => args.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3);
 const OUT = path.resolve(flag('out') ?? path.join(REPO_ROOT, '.superpowers/look-l3'));
 const only = new Set((flag('only') ?? 'garage,ingame').split(','));
+const ID = flag('id') ?? 'mbt_lavi';
+/** An experiment: serve this GLB to the MARK arm instead of the dev server's own (to try boxes without a pipeline run). */
+const NEW_GLB = flag('new');
 const TODAY = flag('today');
-if (!TODAY || !fs.existsSync(TODAY)) throw new Error('--today=<the pre-change encoded mbt_lavi.glb> is required');
+if (!TODAY || !fs.existsSync(TODAY)) throw new Error(`--today=<the pre-change encoded ${ID}.glb> is required`);
 const todayBytes = fs.readFileSync(TODAY);
+/** In game, a variant is drawn by serving its shipped GLB at the Lavi's path (the sandbox places only the Lavi). */
+const VARIANT_BYTES = ID === 'mbt_lavi' ? null : fs.readFileSync(path.join(REPO_ROOT, 'assets', 'meshes', 'vehicles', `${ID}.glb`));
 fs.mkdirSync(OUT, { recursive: true });
 
 const GARAGE_W = 1440;
 const GARAGE_H = 960;
 const GARAGE_YAWS = [30, 150, 270];
 const STUB = '/__look-l3-garage__';
-const meta: Record<string, unknown> = { tag: TAG, generated: new Date().toISOString() };
+const meta: Record<string, unknown> = { tag: TAG, vehicle: ID, generated: new Date().toISOString() };
 
 const { port } = await claimPortOrAttach(TAG, 'LOOK_L3_PORT', 5187);
 const stopServer = devServerStopper(await ensureDevServer(port, REPO_ROOT, TAG), TAG);
@@ -62,10 +72,18 @@ async function gpuOf(page: Page): Promise<string> {
   });
 }
 
-/** Replaces the Lavi GLB the page requests with the pre-change one. */
+/** Replaces the vehicle GLB the page requests (`--id`'s own) with the pre-change one. */
 async function serveToday(page: Page): Promise<void> {
-  await page.route('**/vehicles/mbt_lavi.glb*', (route) =>
+  await page.route(`**/vehicles/${ID}.glb*`, (route) =>
     route.fulfill({ status: 200, contentType: 'model/gltf-binary', body: todayBytes })
+  );
+}
+
+/** In game: the variant's shipped GLB at the Lavi's path (no-op for the Lavi itself). */
+async function serveVariantAsLavi(page: Page): Promise<void> {
+  if (VARIANT_BYTES === null) return;
+  await page.route('**/vehicles/mbt_lavi.glb*', (route) =>
+    route.fulfill({ status: 200, contentType: 'model/gltf-binary', body: VARIANT_BYTES })
   );
 }
 
@@ -80,12 +98,13 @@ function stubHtml(): string {
 <script type="module">
 import { mountGarageView } from ${JSON.stringify(fsPath('packages/render/src/three/garage/garage-view.ts'))};
 import { garageModelSource, garageColors, garageGroundTexture } from ${JSON.stringify(fsPath('packages/app/src/garage-model-source.ts'))};
-import { dracoDecoderPath } from ${JSON.stringify(fsPath('packages/app/src/mesh-catalogue.ts'))};
+import { dracoDecoderPath, meshUrl } from ${JSON.stringify(fsPath('packages/app/src/mesh-catalogue.ts'))};
 let view = null;
 window.__dispose = () => { if (view) { view.dispose(); view = null; } };
 window.__mount = async (id, withTeam) => {
   window.__dispose();
-  const source = garageModelSource(id);
+  // officer_armour is a held unit with no roster entry, so the bay has no source for it: name its GLB directly.
+  const source = garageModelSource(id) ?? { kind: 'vehicle', url: meshUrl('vehicles/' + id + '.glb') };
   const colors = garageColors();
   const c = withTeam ? colors : { key: colors.key, fill: colors.fill, sky: colors.sky, bounce: colors.bounce, ground: colors.ground };
   view = await mountGarageView(document.getElementById('host'), {
@@ -123,13 +142,14 @@ async function sheetA(): Promise<void> {
         if (m.type() === 'error') say(`  page error: ${m.text()}`);
       });
       if (arm.today) await serveToday(page);
+      else if (NEW_GLB) await page.route(`**/vehicles/${ID}.glb*`, (r) => r.fulfill({ status: 200, contentType: 'model/gltf-binary', body: fs.readFileSync(NEW_GLB) }));
       await page.route(`${base}${STUB}`, (route) => route.fulfill({ contentType: 'text/html', body: stubHtml() }));
       await page.goto(`${base}${STUB}`, { waitUntil: 'load', timeout: 120_000 });
       await page.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true, null, { timeout: 120_000 });
       meta.gpu = await gpuOf(page);
       const info = await page.evaluate(
         ([id, team]) => (window as unknown as { __mount: (i: string, t: boolean) => Promise<unknown> }).__mount(id, team),
-        ['mbt_lavi', arm.team] as [string, boolean]
+        [ID, arm.team] as [string, boolean]
       );
       say(`garage ${arm.id}: ${JSON.stringify(info)}`);
       for (const yaw of GARAGE_YAWS) {
@@ -172,6 +192,7 @@ async function bootIngame(today: boolean, tod: 'day' | 'dawn' | 'dusk'): Promise
   await page.addInitScript(musicOffInitScript({}, { quality: 'high' }));
   await page.addInitScript("window.__name = (f) => f; Object.defineProperty(window, 'LL', { get() { return window.__lions; } });");
   if (today) await serveToday(page);
+  else await serveVariantAsLavi(page);
   const todParam = tod === 'day' ? '' : `&tod=${tod}`;
   await page.goto(`${base}/?sandbox=beit_sahwan_outskirts${todParam}`, { waitUntil: 'load' });
   await page.waitForFunction(() => !!(window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer, null, { timeout: 180_000 });
@@ -247,7 +268,12 @@ async function sheetB(): Promise<void> {
   } finally {
     await page.close();
   }
-  meta.ingame = { viewport: '1400x900 CSS, DPR 2', camera: 'goto(4.5, 20.5), zoom as named', sheetB: shots };
+  meta.ingame = {
+    viewport: '1400x900 CSS, DPR 2',
+    camera: 'goto(4.5, 20.5), zoom as named',
+    drawnAs: VARIANT_BYTES === null ? 'mbt_lavi (its own GLB)' : `${ID}.glb (assets/meshes) served at the mbt_lavi path of the sandbox Lavi`,
+    sheetB: shots,
+  };
 }
 
 try {

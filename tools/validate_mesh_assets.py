@@ -1361,11 +1361,24 @@ def texture_census(meshes_root, missions_dir, vehicles_dir=None):
 # every one onto one of three bake texels), so the shader excludes a fragment whose UV is within
 # `exclude_radius` of a pin: every kit UV in the file must lie inside one.
 MARK_FRACTION_BAND = (0.015, 0.025)
+#: The vehicles that MUST carry a mark: the Lavi (the pilot) and the two variants cut from its hull (the lead, 2 Nov:
+#: the camo Lavi and the officer tank). Pinned against `MARK_RECIPES` (mark-contract.ts) by `mark-pass.test.ts`.
+MARK_REQUIRED = ("mbt_lavi", "mbt_lavi_camo", "officer_armour")
 
 
-def check_team_marks(vehicles_root):
-    """(failures, lines) over every uncompressed vehicle GLB whose material declares `rl_team_mark`."""
+def check_team_marks(vehicles_root, required=MARK_REQUIRED):
+    """(failures, lines) over every uncompressed vehicle GLB whose material declares `rl_team_mark`, and over every
+    id in `required`, which fails if its GLB is missing or carries no mark (a vehicle silently losing its mark
+    would otherwise just stop being checked)."""
     failures, lines = [], []
+    for name in required:
+        path = os.path.join(vehicles_root, f"{name}.glb")
+        if not os.path.exists(path):
+            failures.append(f"mark: {name}: no GLB at {path}, but it must carry a team mark")
+            continue
+        js, _ = _read_glb_chunks(path)
+        if not any("rl_team_mark" in (m.get("extras") or {}) for m in js.get("materials", [])):
+            failures.append(f"mark: {name} carries no rl_team_mark, but it must (MARK_REQUIRED)")
     for path in sorted(glob.glob(os.path.join(vehicles_root, "*.glb"))):
         name = os.path.basename(path)[:-4]
         js, bin_ = _read_glb_chunks(path)
@@ -1398,7 +1411,9 @@ def check_team_marks(vehicles_root):
         extra = [t.get("name") for t in js.get("images", []) if t.get("name") in ("normal", "orm", "metallic_roughness")]
         if extra:
             failures.append(f"mark: {name} carries {extra}: the L3 pilot ships base colour alone (the maps were dropped)")
-        lines.append(f"{name}: team mark {fraction * 100:.2f}% of the surface, {len(pins)} kit pin(s) excluded, no texture of its own")
+        real = [p for p in pins if all(0.0 <= c <= 1.0 for c in p)]  # a kit-less vehicle's pins are NO_PIN (UV -1,-1)
+        basis = mark.get("team_fraction_basis", "texel")
+        lines.append(f"{name}: team mark {fraction * 100:.2f}% of the {basis}-measured surface, {len(real)} kit pin(s) excluded, no texture of its own")
     return failures, lines
 
 

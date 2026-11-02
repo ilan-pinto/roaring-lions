@@ -2,7 +2,12 @@
 """L3 (GH-943): the Lavi's TEAM MARK -- where it is, how much of the surface it covers, and how bright the
 bake is under it.
 
-    python3 tools/vehicles/lavi_mark.py --glb art/meshes/vehicles/mbt_lavi.glb --kit art/parts/kit/mbt_lavi.glb [--size 1024]
+    python3 tools/vehicles/lavi_mark.py --id mbt_lavi --glb art/meshes/vehicles/mbt_lavi.glb --kit art/parts/kit/mbt_lavi.glb [--size 1024]
+    python3 tools/vehicles/lavi_mark.py --id officer_armour --glb art/meshes/vehicles/officer_armour.glb
+
+Three vehicles share one hull and one bake and each has its OWN boxes (`MARKS`): the Lavi, the Ambush Tank
+(`mbt_lavi_camo`, a draped net on the same hull) and the command Lavi (`officer_armour`, a raised cupola on the
+same turret). The two variants have no kit, so they take no `--kit` and their exclusion pins are `NO_PIN`.
 
 The mark is a clean rectangular roof recognition panel plus a band on each side of the turret. It is NOT a
 texture: the shader (`packages/render/src/three/units/team-mask.ts`) tests the fragment's OBJECT-space position
@@ -13,7 +18,8 @@ turns with the turret: the turret meshes hang off `turret_pivot` and the shader 
 
 What this script measures (the shader needs only the numbers in `MARK`):
   - `team_fraction`: the share of the covered surface (texel areas, like the shader sees it) the mark covers;
-  - `luma`: the mean LINEAR luminance of the BASE COLOUR over those texels, which the hook divides by so the
+  - `luma`: the mean LINEAR luminance of the BASE COLOUR under the mark (texels for the Lavi; area-weighted over
+    the triangles' own UV texels for a variant, whose added parts have no texel area), which the hook divides by so the
     panel keeps the bake's grime and averages to the team colour;
   - the kit source still pins its parts to the three UVs the shader excludes (the kit is merged INTO the host
     geometry at runtime, so a kit part inside a box would otherwise be painted).
@@ -35,8 +41,11 @@ from glb_read import Glb  # noqa: E402
 
 SIZE = 1024
 
-#: The mark, metres, in the SHIPPED mesh-local frame (X forward, Y up, Z lateral; the turret's meshes carry the
-#: hull frame, so the mark turns with the turret). Only meshes whose `rl_role` is `hull` carry it: the barrel,
+#: A kit-less vehicle's exclusion pin: a UV outside [0, 1], which no fragment ever has.
+NO_PIN = [-1.0, -1.0]
+
+#: The Lavi's mark, metres, in the SHIPPED mesh-local frame (X forward, Y up, Z lateral; the turret's meshes carry
+#: the hull frame, so the mark turns with the turret). Only meshes whose `rl_role` is `hull` carry it: the barrel,
 #: the antennas and the tracks are other roles.
 MARK = dict(
     # An up-facing box on the turret roof. `z_half`: the box is symmetric about the centreline.
@@ -51,6 +60,38 @@ MARK = dict(
     # The edge is a hard line anti-aliased over this many screen pixels.
     edge_px=1.0,
 )
+
+#: The command Lavi's mark. Same hull and turret as the Lavi, but its raised commander's cupola (x -1.38..-0.63,
+#: z -0.03..0.74, to y 2.96) stands in the middle of the Lavi's roof box and would hide about a third of that panel,
+#: leaving an L. So the ROOF panel moves FORWARD of the cupola, onto the clean forward roof (up-facing, y 2.2-2.4),
+#: wider in z to make up the area the lower roof gives (2.45 m2 against the Lavi's 2.27). The flank band is the
+#: Lavi's: the cupola's walls stand above it (y > 2.4) and its x range is the turret's flank under the cupola.
+#: The antenna stubs, whips and mast are `turret_metal`, a role the mark never touches.
+MARK_OFFICER = dict(
+    roof=dict(x=[-0.55, 0.60], z_half=0.80, y=[2.18, 2.50], min_ny=0.60),
+    band=dict(x=[-1.70, -0.40], y=[2.12, 2.30], min_nz=0.60),
+    exclude_uv=[NO_PIN, NO_PIN, NO_PIN],
+    exclude_radius=0.0002,
+    edge_px=1.0,
+)
+
+#: The Ambush Tank's mark. Its draped net (3,594 turret triangles against the Lavi's 943) is lumpy and carries 59
+#: foliage tufts, thin blades standing up to y ~3.4. Painted with the Lavi's clean thresholds the panel came out as
+#: blue spikes (first cut, looked at on the garage bay: every tuft in the box turned blue). So the roof panel stays
+#: BELOW the tuft tips (`y` top 2.95; the net's own hump tops out near 2.8) and wants a steeper surface than the
+#: Lavi's (`min_ny` 0.55, a blade is near vertical), and it is wider (x -1.55..-0.50, |z| <= 0.55) to take the area the
+#: stricter normal test gives back. The band is the Lavi's flank band, narrowed to the same x range; the net hangs
+#: over the flank there, so its faces are lumpier (`min_nz` 0.45). A few band faces fall on `hull_hull`: the net draped
+#: beside the turret ring (about 14% of the marked area, which is why the test allows 80% on the turret, not 95%).
+MARK_CAMO = dict(
+    roof=dict(x=[-1.55, -0.50], z_half=0.55, y=[2.28, 2.95], min_ny=0.55),
+    band=dict(x=[-1.55, -0.50], y=[2.12, 2.30], min_nz=0.45),
+    exclude_uv=[NO_PIN, NO_PIN, NO_PIN],
+    exclude_radius=0.0002,
+    edge_px=1.0,
+)
+
+MARKS = {"mbt_lavi": MARK, "mbt_lavi_camo": MARK_CAMO, "officer_armour": MARK_OFFICER}
 PARTS = ("hull_hull", "hull_rubber", "turret_hull", "turret_metal")
 MARK_ROLES = ("hull_hull", "turret_hull")  # `rl_role` hull meshes; everything else is untouched
 
@@ -132,7 +173,43 @@ def mask_np(P, N, mark=None):
     return roof | band
 
 
-def measure(glb_path, kit_path, size=SIZE):
+def triangle_fraction(parts, mark_def, luma_img=None):
+    """The mark's share of the TRIANGLE area of every live mesh, ADDED GEOMETRY INCLUDED.
+
+    `measure` counts texels, and a part UV-pinned to one bake texel (the Ambush Tank's net, the command Lavi's
+    cupola) has no UV area: its 9,626 / 92 triangles are invisible to the texel count, so on those two the
+    texel share says nothing about the surface the shader paints. This is that share by the per-triangle
+    centroid and mean vertex normal, the same oracle `mark-pass.test.ts` re-derives in TypeScript.
+    """
+    total = 0.0
+    marked = 0.0
+    luma_sum = 0.0
+    for p in parts:
+        t = p["pos"][p["tri"]]
+        n = p["nrm"][p["tri"]].mean(axis=1)
+        n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+        area = 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
+        total += float(area.sum())
+        if p["name"] in MARK_ROLES:
+            hit = mask_np(t.mean(axis=1), n, mark_def)
+            marked += float(area[hit].sum())
+            if luma_img is not None and hit.any():
+                # the bake under a (pinned) triangle is the texel at its UV centroid
+                uv = p["uv"][p["tri"]].mean(axis=1)[hit]
+                size = luma_img.shape[0]
+                xs = np.clip((uv[:, 0] * size).astype(int), 0, size - 1)
+                ys = np.clip((uv[:, 1] * size).astype(int), 0, size - 1)
+                luma_sum += float((area[hit] * luma_img[ys, xs]).sum())
+    return marked / total, marked, total, (luma_sum / marked if marked > 0 else 0.0)
+
+
+#: Which count a vehicle DECLARES as `team_fraction`. The Lavi keeps the texel share it shipped with (PR 958); a
+#: variant declares the triangle share, the only one that sees the geometry it adds.
+BASIS = {"mbt_lavi": "texel", "mbt_lavi_camo": "triangle", "officer_armour": "triangle"}
+
+
+def measure(glb_path, kit_path, size=SIZE, vehicle="mbt_lavi"):
+    mark_def = MARKS[vehicle]
     parts = load_parts(glb_path)
     g = Glb(glb_path)
     r = rasterise(parts, size)
@@ -153,7 +230,7 @@ def measure(glb_path, kit_path, size=SIZE):
         N[sel] = b[0][:, None] * p["nrm"][c[:, 0]] + b[1][:, None] * p["nrm"][c[:, 1]] + b[2][:, None] * p["nrm"][c[:, 2]]
     N /= np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-12)
     carries = np.isin(part, [PARTS.index(x) for x in MARK_ROLES])
-    mask = mask_np(P, N) & carries
+    mask = mask_np(P, N, mark_def) & carries
     # texel surface area = |Pu x Pv| / size^2 per triangle
     area_tri = []
     for p in parts:
@@ -189,33 +266,49 @@ def measure(glb_path, kit_path, size=SIZE):
     luma = float(luma_img[ys[mask], xs[mask]].mean()) if mask.any() else 0.0
 
     # the kit source must still pin to exactly the UVs the shader excludes
-    kit_uvs = set()
-    kit = Glb(kit_path)
-    for nd in kit.js["nodes"]:
-        if "mesh" in nd:
-            pr = kit.js["meshes"][nd["mesh"]]["primitives"][0]
-            for uv in kit.accessor(pr["attributes"]["TEXCOORD_0"]):
-                kit_uvs.add((round(float(uv[0]), 5), round(float(uv[1]), 5)))
-    pinned = {(round(a, 5), round(b, 5)) for a, b in MARK["exclude_uv"]}
-    if kit_uvs != pinned:
-        raise SystemExit(f"the kit source pins {sorted(kit_uvs)}, MARK excludes {sorted(pinned)} -- review exclude_uv")
+    pinned = {(round(a, 5), round(b, 5)) for a, b in mark_def["exclude_uv"]}
+    if kit_path is None:
+        # a kit-less vehicle (the variants) excludes nothing: every pin is `NO_PIN`
+        if pinned != {tuple(NO_PIN)}:
+            raise SystemExit(f"{vehicle}: no kit source given, but its exclude_uv {sorted(pinned)} are not NO_PIN")
+    else:
+        kit_uvs = set()
+        kit = Glb(kit_path)
+        for nd in kit.js["nodes"]:
+            if "mesh" in nd:
+                pr = kit.js["meshes"][nd["mesh"]]["primitives"][0]
+                for uv in kit.accessor(pr["attributes"]["TEXCOORD_0"]):
+                    kit_uvs.add((round(float(uv[0]), 5), round(float(uv[1]), 5)))
+        if kit_uvs != pinned:
+            raise SystemExit(f"the kit source pins {sorted(kit_uvs)}, MARK excludes {sorted(pinned)} -- review exclude_uv")
+    tri_fraction, tri_marked, tri_total, tri_luma = triangle_fraction(parts, mark_def, luma_img)
+    if BASIS[vehicle] == "triangle":
+        luma = tri_luma
+    texel_fraction = marked / total
     return dict(
         size=size,
-        team_fraction=round(marked / total, 5),
+        team_fraction=round(tri_fraction if BASIS[vehicle] == "triangle" else texel_fraction, 5),
+        team_fraction_basis=BASIS[vehicle],
+        team_fraction_texel=round(texel_fraction, 5),
+        team_fraction_triangle=round(tri_fraction, 5),
+        team_area_tri_m2=round(tri_marked, 4),
+        surface_area_tri_m2=round(tri_total, 4),
         team_area_m2=round(marked, 4),
         surface_area_m2=round(total, 4),
         luma=round(luma, 5),
-        mark=MARK,
+        luma_texel=round(float(luma_img[ys[mask], xs[mask]].mean()) if mask.any() else 0.0, 5),
+        mark=mark_def,
     )
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--glb", required=True)
-    ap.add_argument("--kit", required=True)
+    ap.add_argument("--id", default="mbt_lavi", choices=sorted(MARKS))
+    ap.add_argument("--kit", default=None, help="the kit source; omit for a kit-less vehicle")
     ap.add_argument("--size", type=int, default=SIZE)
     a = ap.parse_args()
-    print(json.dumps(measure(a.glb, a.kit, a.size), sort_keys=True))
+    print(json.dumps(measure(a.glb, a.kit, a.size, a.id), sort_keys=True))
 
 
 if __name__ == "__main__":
