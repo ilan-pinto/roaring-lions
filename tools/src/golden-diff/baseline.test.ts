@@ -792,6 +792,8 @@ describe('BASELINES layerChecks', () => {
     // did not change, so lit ground did not change.
     const MEASURED: Record<string, Record<string, { px: number; mean: number }>> = {
       quiet: {
+        // L1 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=environment, 3 fresh-page runs, bit-identical.
+        environment: { px: 69, mean: 0.8959 },
         scatter: { px: 2105, mean: 0.4032 },
         // Ground plan 2, Task 11, 2026-09-28: re-measured once, 3 runs,
         // bit-identical -- more than double the 10505/0.7573 this floor was
@@ -823,6 +825,8 @@ describe('BASELINES layerChecks', () => {
         haze: { px: 2959, mean: 0.7545 },
       },
       'open-ground': {
+        // L1: as above. 4 px is under SUB_THRESHOLD_PX; the magnitude floor carries it.
+        environment: { px: 4, mean: 0.0814 },
         scatter: { px: 3615, mean: 1.6088 },
         // Ground plan 2, Task 11, 2026-09-28: re-measured once, 3 runs,
         // bit-identical -- up 12.6%/10.9% from the 1025/0.646 this floor was
@@ -833,6 +837,8 @@ describe('BASELINES layerChecks', () => {
         macro: { px: 0, mean: 0.8773 },
       },
       relief: {
+        // L1: as above.
+        environment: { px: 12848, mean: 1.2654 },
         // Ground plan 2, Task 9, 2026-09-28: 4 px is sub-threshold -- the far
         // ramp is smooth -- so the pixel floor is 0 and the magnitude carries it.
         haze: { px: 4, mean: 0.3875 },
@@ -879,12 +885,15 @@ describe('BASELINES layerChecks', () => {
         // Crater rims (Defilade Task 5), 2026-10-23: relief-read-signal.ts
         // --layers=crater-rims, 3 fresh-page runs, bit-identical.
         'crater-rims': { px: 10133, mean: 0.615 },
+        environment: { px: 17317, mean: 2.3523 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the
       // weakest reading rather than the flattering one.
       vehicle: {
         units: { px: 29622, mean: 2.96 },
+        // L1 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=environment, 3 fresh-page runs, bit-identical.
+        environment: { px: 1074, mean: 0.4642 },
         // GH-705 Task 6, 2026-10-23: relief-read-signal.ts --layers=unit-surface,
         // 3 fresh-page runs, bit-identical.
         'unit-surface': { px: 43, mean: 0.0202 },
@@ -897,6 +906,14 @@ describe('BASELINES layerChecks', () => {
         units: { px: 37565, mean: 3.7734 },
         kit: { px: 6460, mean: 0.4278 },
         'unit-surface': { px: 40, mean: 0.0258 },
+        environment: { px: 1542, mean: 0.4733 },
+      },
+      // L1 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=environment,fog,haze,units on `fogged`, 3 fresh-page runs, bit-identical.
+      fogged: {
+        environment: { px: 253, mean: 0.3295 },
+        fog: { px: 350407, mean: 29.3152 },
+        haze: { px: 285, mean: 0.9784 },
+        units: { px: 9036, mean: 0.6724 },
       },
     };
     /** Below this many pixels a count is not a measurement you can take a
@@ -930,6 +947,42 @@ describe('BASELINES layerChecks', () => {
         expect(evaluateLayerCheck(summary({ diffPixels: m.px, meanAbsChannelDelta: m.mean }), check).ok).toBe(true);
         expect(evaluateLayerCheck(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), check).ok).toBe(false);
       }
+    }
+  });
+});
+
+describe('the `fogged` scenario (look uplift L1, GH-943)', () => {
+  it('sees a double-counted environment: doubling every envMapIntensity moves it past BOTH ceilings', () => {
+    // Measured 2 Nov 2026, `tools/src/perf/env-doublecount.ts`: the gate's own capture, 3 fresh loads, bit-identical.
+    // A literal, not a recomputation: the oracle must not import what it checks.
+    const doubled = { px: 87, mean: 0.3183 };
+    const spec = BASELINES.fogged;
+    expect(spec).toBeDefined();
+    expect(doubled.px).toBeGreaterThan(spec.maxDiffPixels);
+    expect(doubled.mean).toBeGreaterThan(spec.maxMeanAbsChannelDelta);
+  });
+
+  it('sees the haze fed the UNSCALED lights (review N2): under pixelmatch\'s threshold everywhere, so the magnitude ceiling carries it', () => {
+    // Measured 2 Nov 2026, `env-doublecount.ts --mode=haze`: 3 fresh loads, bit-identical. Literal, not recomputed.
+    const hazeMismatch = summary({ diffPixels: 0, meanAbsChannelDelta: 0.0681 });
+    const spec = BASELINES.fogged;
+    expect(hazeMismatch.diffPixels).toBeLessThanOrEqual(spec.maxDiffPixels);
+    expect(hazeMismatch.meanAbsChannelDelta).toBeGreaterThan(spec.maxMeanAbsChannelDelta);
+    // The gate's own verdict fails it, on the magnitude alone; and the doubled intensity (87 px / 0.3183) fails it too.
+    expect(evaluateBaseline(hazeMismatch, spec).ok).toBe(false);
+    expect(evaluateBaseline(summary({ diffPixels: 87, meanAbsChannelDelta: 0.3183 }), spec).ok).toBe(false);
+    // And a frame that did not move passes: the verdict is not "always red".
+    expect(evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), spec).ok).toBe(true);
+  });
+
+  it('holds the shroud, the haze and the vehicles it is named for, and the environment on them', () => {
+    const layers = (BASELINES.fogged.layerChecks ?? []).map((c) => c.layer).sort();
+    expect(layers).toEqual(['environment', 'fog', 'haze', 'units']);
+  });
+
+  it('every gated scenario that holds a unit, building or prop votes the environment', () => {
+    for (const id of ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'relief', 'aftermath']) {
+      expect((BASELINES[id].layerChecks ?? []).some((c) => c.layer === 'environment'), id).toBe(true);
     }
   });
 });

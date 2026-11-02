@@ -88,6 +88,25 @@ vi.mock('../../packages/render/node_modules/three/build/three.module.js', async 
 });
 
 const FIXTURE = join(__dirname, 'theme-identity.fixture.json');
+/*
+ * LOOK UPLIFT L1 (GH-943) shipped on 2 Nov 2026 and moved these pins, regenerated
+ * with UPDATE_THEME_IDENTITY=1 and nothing else. Why each moved, and what it was
+ * (first 12 hex digits of the sha-256):
+ *
+ *  - `program` did NOT move on any case: the ground gets no environment, and the
+ *    ground shader's compiled source is byte-identical (the spec's "confirm no
+ *    environment chunk runs", measured).
+ *  - `scene`, because `surfaces` records the surface table in force and its
+ *    gunmetal metalness is 0.7 now. Was 0.45.
+ *      arid, green and highland: 6bb56a5afc7f. Was e1e5a1317039.
+ *      wetland:                  5d65653d9ca7. Was 90e380cc4fdc.
+ *  - `light`, because the hemisphere is the per-preset census value (day 0.82,
+ *    was 0.9) and the haze tint is scaled by the lights it reads (hazeRadiance).
+ *      beit_sahwan_outskirts: 9453d06f9c68. Was 25bf8031d5ff.
+ *      wadi_halam_basin:      e65f15a8268c. Was a1d7cdfd7f49.
+ *      tel_marum:             0e3068ca202e. Was 8c3d8a18f478.
+ *      wetland (rain):        de5c90a2d67a. Was a62c229f4269.
+ */
 const UPDATE = process.env.UPDATE_THEME_IDENTITY === '1';
 const HIGH = { colorVision: 'default', quality: 'high' } as const;
 
@@ -511,7 +530,8 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
       const f = identityOf(WETLAND_FIXTURE, 'clear').lightFields;
       expect(f.shadowMapSize).toEqual([4096, 4096]);
       expect(f.sunIntensity).toBe(2.6);
-      expect(f.hemiIntensity).toBe(0.9);
+      // L1 (GH-943) shipped on: the day hemisphere is the census-solved 0.82. Was 0.9.
+      expect(f.hemiIntensity).toBe(0.82);
       expect(f.hazeLow).toBe(0.06);
     });
     it('boots the rain light (GH-871 P4 T2), as literals', () => {
@@ -520,7 +540,8 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
       // Under rain the shadow map is one step down from high's 4096, by design.
       expect(f.shadowMapSize).toEqual([2048, 2048]);
       expect(f.sunIntensity as number).toBeCloseTo(1.196, 9);
-      expect(f.hemiIntensity).toBe(1.35);
+      // Rain's 1.5 x the fill, then L1's day factor 0.82 / 0.9: 1.35 x 0.82 / 0.9. Was 1.35.
+      expect(f.hemiIntensity as number).toBeCloseTo(1.23, 9);
       expect(f.hazeFar).toBe(0.26);
       expect(f.hazeLow).toBe(0.1);
       expect(f.exposure).toBe(1);
