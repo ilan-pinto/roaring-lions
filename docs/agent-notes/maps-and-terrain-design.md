@@ -171,3 +171,45 @@ and fixed in the generator's data, with no sim or tuning change:
   and any other must be read again, on seeds that did not choose it.
 - **The landscape is chaotic per tile** (a one-tile move of a pump house swings a cell 10 points). Every number in
   the PR is on seeds the choice did not see (2000-2191 and 4000+), the PR 947 method.
+
+## Milh Flats (large) (GH-920 B3-B4, 2 Nov 2026)
+
+`tools/maps/milh_flats_l/build.mjs` reads `data/maps/milh_flats.json` as its 48-cell sketch, on the same library,
+and writes `data/maps/milh_flats_l.json` and `data/versus/milh_flats_l.json`. It is a MIRROR-ONLY map like its
+original, registered and NOT offered (`RULES_ONLY_MAPS`, `UNLISTED_MAP_IDS`, `VERSUS_FORMATIONS_CLOSED_MAPS`, in
+neither `@lions/net` list; `milh_flats` itself stays in `VERSUS_FAIR_MAPS`). What differs from Wadi Tarfan (large):
+- **The seats are on the ANTI-diagonal** (x + y = 95): `(20,75)` and `(75,20)`, 77.8 tiles apart. Doubling the original's
+  `(9,38)` and `(38,9)` would give 82.0, so the seats are authored (`SEAT_0`/`SEAT_1`), not doubled. The verifier's
+  seat rule gained `antiDiagonal` in the spec; the main-diagonal rule is unchanged for the others.
+- **No rules file on the original, no tunnels on the twin.** The twin's rules file carries the capacity (512), the
+  cap (35) and a camp and an income table (220 a minute over seven zones) that a mirror room never reads; it is
+  there because `capacity` and `cap_minutes` live in a rules file and the schema wants a camp and an income zone.
+- **The lone `centre` marker** `(23,23)` is one of the four tiles round the true centre; it goes to `(47,47)`, the same
+  tile of the same four, and the verifier's spec names it as the one marker without a twin.
+- **The tell rocks keep their native four tiles.** A `^` cell copied as a 2x2 block is a 16-tile rock, past
+  `CROWN_MAX_TILES` (12): the renderer reads no crown, and "two crowned tells" would lose both. Each rock is
+  re-placed at its native footprint on twice the source centre, on a knoll (the rest of its 4x4 block is `n`).
+  `crown-summit.test.ts` pins 2 summits for the map (an independent Python flood fill reads the same).
+- **Cover** `2` cells are copied as two of their four tiles (the hash picks them), `1` as three, `o` as two: cover
+  reads 9.5% (Rujm's band 8.5-11%; the sketch is 11.7% and a whole-cell copy would be over). No `dress` stage: the
+  sketch's own scatter is already enough.
+- **`keepCliffs` is not applied**: no two neighbouring cells of this sketch differ by two levels, so it would change
+  no tile (checked: 0 of 9,216).
+- **Contour wander reads 1.30** (the 48x48 original 0.95; Wadi Tarfan (large) 1.31). It is report-only (see above);
+  the gate is `fatStairs`, which reads 0.
+
+### What B4 read (mirror only, 2 Nov 2026)
+
+`pnpm versus:probe` with `--maps=milh_flats_l --arr=kdf/kdf,sarim/sarim --cap=2100` (the 35-minute cap; the probe's
+self-check passes at it), placed forces. No lever was pulled: the first geometry was read once on seeds 0-191 and
+again on held-out 4000-4287, and no choice was made on either.
+
+| Cell (west share) | 0-95 | 96-191 | pooled 0-191 | held-out 4000-4287 | pooled 480 |
+|---|---|---|---|---|---|
+| KDF v KDF (the offered cell) | 52.1% | 49.0% | 50.5% (97/95) | 49.7% (143/145) | 50.0% |
+| Sarim v Sarim (report only) | 51.0% | 65.6% | 58.3% | 53.5% | 55.4% |
+
+The seat neighbourhood (each of the 8 one-tile shifts of seat 0, seat 1 its half-turn; seeds 4000-4287; REPORT ONLY, the
+seats are fixed data): KDF v KDF west share 53.5 / 47.2 / 50.7 / 49.0 / 52.4 / 42.4 / 51.0 / 45.1 (base 49.7), so 7 of 8
+within 5 points and all inside 60/40; Sarim v Sarim 58.7 / 61.5 / 55.2 / 60.4 / 53.1 / 54.2 / 22.9 / 39.2 (base 53.5),
+five of eight beyond it. The Sarim mirror was read and never fitted.

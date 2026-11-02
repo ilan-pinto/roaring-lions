@@ -151,15 +151,16 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
 });
 
 describe('the per-map match cap (GH-913 L8)', () => {
-  it('is 25 minutes on every map but the two large ones, Rujm Sawda and Wadi Tarfan (large), which get 35', () => {
+  it('is 25 minutes on every map but the three large ones, Rujm Sawda, Wadi Tarfan (large) and Milh Flats (large), which get 35', () => {
     expect(MATCH_CAP_MINUTES_DEFAULT).toBe(25);
     // Was { rujm_sawda: 35 }: Wadi Tarfan (large) is 35 minutes too (GH-920 B3, the lead's ruling of 2 Nov: the seats are as far apart).
-    expect({ ...MAP_CAP_MINUTES }).toEqual({ rujm_sawda: 35, wadi_tarfan_l: 35 });
+    expect({ ...MAP_CAP_MINUTES }).toEqual({ rujm_sawda: 35, wadi_tarfan_l: 35, milh_flats_l: 35 }); // milh_flats_l: GH-920 B3, the same seat distance
     for (const map of ['tel_marum', 'wadi_tarfan', 'milh_flats', 'beit_sahwan_outskirts', '', '__proto__', 'constructor', 'toString']) expect(matchCapMinutes(map), map).toBe(25);
     expect(matchCapMinutes(null)).toBe(25);
     expect(matchCapMinutes(undefined)).toBe(25);
     expect(matchCapMinutes('rujm_sawda')).toBe(35);
     expect(matchCapMinutes('wadi_tarfan_l')).toBe(35);
+    expect(matchCapMinutes('milh_flats_l')).toBe(35);
   });
   it('in 20 Hz ticks: 30,000 by default, 42,000 on Rujm Sawda', () => {
     expect(matchCapTicks('tel_marum')).toBe(30_000);

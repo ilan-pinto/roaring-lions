@@ -40,6 +40,8 @@ const EVERY = 1200;
  * positive; seeds 1, 2, 4, 5 and 6 read positive as well and seed 7 reads negative, so seed 7 stands. Was seed 3.
  * GH-920 B3 (2 Nov): `data/maps/wadi_tarfan_l.json` and its rules file are content too. Seed 7 went positive; seeds 1, 2, 5 and 6 read
  * negative (3, 4, 8 and 9 read positive), so seed 1 stands. Was seed 7.
+ * GH-920 B3 (2 Nov): `data/maps/milh_flats_l.json` and its rules file are content too. Seed 1 stays negative (-891211569; 2, 4, 5, 6, 7, 8 and 9
+ * read negative as well, 3 reads positive; the economy room reads +1182050052), read by a scratch copy of this file's own `play` and `digestOf`.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;

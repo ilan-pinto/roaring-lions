@@ -13,7 +13,7 @@
 /** OPEN (the lead, 1 Nov, GH-859): S4 passed clean (0 TRIP of 27 cells, tunnels A+B pooled, 192 seeds paired with each cell's own
  *  baseline) on Beit Sahwan, Tel Marum and Milh Flats with the shipped Attack (aircraft left out, `legs: false`), and again on Wadi Tarfan
  *  (0 TRIP of 21 cells, GH-945) once its seats and tunnel capacities were re-measured. Rujm Sawda stays closed through
- *  `VERSUS_FORMATIONS_CLOSED_MAPS`, and so is Wadi Tarfan (large) from birth (GH-920): a formation amplifies a base lean 2.5 to 5
+ *  `VERSUS_FORMATIONS_CLOSED_MAPS`, and so are Wadi Tarfan (large) and Milh Flats (large) from birth (GH-920): a formation amplifies a base lean 2.5 to 5
  *  times (GH-945), so a large map's base is level before it is offered with formations. Closing it again is this one constant. */
 export const VERSUS_FORMATIONS_OPEN = true;
 
@@ -22,7 +22,7 @@ export const VERSUS_FORMATIONS_OPEN = true;
  *  (the lead, 1 Nov, GH-859) until its Sarim lean was settled; GH-945 re-seated it and its entry is gone.
  *  When a map passes its own run, DELETE its entry. `rujm_sawda.test.ts` pins the Rujm entry and `versus-formations.test.ts`
  *  the predicate, with the gate open. */
-export const VERSUS_FORMATIONS_CLOSED_MAPS: readonly string[] = ['rujm_sawda', 'wadi_tarfan_l'];
+export const VERSUS_FORMATIONS_CLOSED_MAPS: readonly string[] = ['rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
 
 /** The HUD row's reason line when formations are inactive in a versus room (a `t()` key). */
 export const FORMATION_VERSUS_REASON_KEY = 'hud.formation.inert.versus';

@@ -31,8 +31,8 @@ import en from '../i18n/en.json';
 // P3's art (GH-871, GH-912); Rujm Sawda was held out until the lead opened it and L8 did (GH-913), so it
 // is a card now. LITERALS, so these specs do not read the answer off the code under test. Delete
 // them here with the entries in menu.ts's UNLISTED_MAP_IDS.
-// Was ['ein_qasab', 'ein_qasab_3', 'jebel_matar']: Wadi Tarfan (large) is held out too, unopened (GH-920 B3).
-const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'wadi_tarfan_l'];
+// Was ['ein_qasab', 'ein_qasab_3', 'jebel_matar']: Wadi Tarfan (large) is held out too, unopened (GH-920 B3), and so is Milh Flats (large).
+const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'wadi_tarfan_l', 'milh_flats_l'];
 const listedIds = (): string[] => Object.keys(maps).filter((id) => !HELD_OUT.includes(id));
 
 const render = (): HTMLElement => {
@@ -71,8 +71,8 @@ describe('the map list', () => {
   });
 
   it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
-    // 40 maps ship (Was 39: Wadi Tarfan (large), GH-920 B3); the picker lists 36. Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(40);
+    // 41 maps ship (Was 40: Milh Flats (large), GH-920 B3; 39 before Wadi Tarfan (large)); the picker lists 36. Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(41);
     for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
@@ -85,10 +85,11 @@ describe('the map list', () => {
     }
   });
 
-  it('pins the unlisted set to exactly the Ein Qasab town maps and the unopened large Wadi Tarfan', () => {
+  it('pins the unlisted set to exactly the Ein Qasab town maps and the two unopened large maps', () => {
     // Delete the pin with the entries when P3 ships. Rujm Sawda left the set when the lead opened it (GH-913 L8).
     // Was ['ein_qasab', 'ein_qasab_3', 'jebel_matar']: Wadi Tarfan (large) joined it unopened (GH-920 B3); delete its entry when B7 opens it.
-    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'wadi_tarfan_l']);
+    // Milh Flats (large) joined it too, unopened (GH-920 B3).
+    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'wadi_tarfan_l', 'milh_flats_l']);
   });
 
   it('lists Rujm Sawda (GH-913 L8): a card with its name and an honest "large" line, linking to its free-play route', () => {

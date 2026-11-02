@@ -36,9 +36,10 @@ describe('versusCapacityOf', () => {
 });
 
 describe('the shipped capacities (literals)', () => {
-  it('rujm_sawda and wadi_tarfan_l are 512 and every other rules file is the default 256', () => {
+  it('rujm_sawda, wadi_tarfan_l and milh_flats_l are 512 and every other rules file is the default 256', () => {
     expect(roomCapacity('rujm_sawda')).toBe(512);
     expect(roomCapacity('wadi_tarfan_l')).toBe(512); // GH-920 B3
+    expect(roomCapacity('milh_flats_l')).toBe(512); // GH-920 B3 (Milh Flats (large))
     for (const map of ['tel_marum', 'wadi_tarfan', 'beit_sahwan_outskirts', 'milh_flats']) expect(roomCapacity(map), map).toBe(256);
   });
 });

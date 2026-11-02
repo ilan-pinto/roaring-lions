@@ -48,6 +48,7 @@ const failures = (r: { file: string; doc: Rules }[]): string[] =>
 describe('the shipped versus rules', () => {
   it('pass the schema and every rule', () => {
     expect(shipped.map((s) => s.file)).toEqual([
+      'data/versus/milh_flats_l.json',
       'data/versus/rujm_sawda.json',
       'data/versus/tel_marum.json',
       'data/versus/wadi_tarfan.json',
@@ -61,7 +62,7 @@ describe('the shipped versus rules', () => {
     const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
     for (const s of shipped) expect(validate(s.doc), JSON.stringify(validate.errors)).toBe(true);
   });
-  it('GH-913 L3: the schema takes a capacity of 256..1024 and refuses the rest; only rujm_sawda and wadi_tarfan_l declare one (512)', () => {
+  it('GH-913 L3: the schema takes a capacity of 256..1024 and refuses the rest; only rujm_sawda, wadi_tarfan_l and milh_flats_l declare one (512)', () => {
     const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
     const ajv = new (Ajv2020 as unknown as new (o: object) => {
       compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
@@ -71,7 +72,7 @@ describe('the shipped versus rules', () => {
     for (const ok of [256, 512, 1024]) expect(validate(doc(ok)), String(ok)).toBe(true);
     for (const bad of [255, 1025, 0, 300.5, '512', null]) expect(validate(doc(bad)), String(bad)).toBe(false);
     const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, (s.doc as { capacity?: number }).capacity]));
-    expect(declared).toEqual({ rujm_sawda: 512, tel_marum: undefined, wadi_tarfan: undefined, wadi_tarfan_l: 512 }); // Was no wadi_tarfan_l (GH-920 B3)
+    expect(declared).toEqual({ milh_flats_l: 512, rujm_sawda: 512, tel_marum: undefined, wadi_tarfan: undefined, wadi_tarfan_l: 512 }); // Was no wadi_tarfan_l or milh_flats_l (GH-920 B3)
   });
   it('the validator\'s anchors are versusAnchors\' answer for both matchup maps', () => {
     expect(CAMP_REACH).toBe(6);
@@ -97,7 +98,7 @@ describe('the shipped versus rules', () => {
     // GH-920 B3: wadi_tarfan_l waits on B4 (fairness) and B5 (render and memory). Opening it means moving it into
     // MIRROR_RULES_MAPS (or MATCHUP_MAPS) in the same commit, so this is red the moment a map is offered without
     // its rules file being reclassified, and the other way round.
-    expect(RULES_ONLY_MAPS).toEqual(['wadi_tarfan_l']);
+    expect(RULES_ONLY_MAPS).toEqual(['wadi_tarfan_l', 'milh_flats_l']); // Was ['wadi_tarfan_l']: Milh Flats (large) joined it (GH-920 B3)
     for (const id of RULES_ONLY_MAPS) {
       expect(FACTION_MATCHUP_MAPS, id).not.toContain(id);
       expect(VERSUS_FAIR_MAPS, id).not.toContain(id);
@@ -110,7 +111,7 @@ describe('the shipped versus rules', () => {
       expect(where, doc.map).toHaveLength(1);
     }
   });
-  it('GH-913 L8: the schema takes a cap_minutes of 25..60 and refuses the rest; only rujm_sawda and wadi_tarfan_l declare one (35)', () => {
+  it('GH-913 L8: the schema takes a cap_minutes of 25..60 and refuses the rest; only rujm_sawda, wadi_tarfan_l and milh_flats_l declare one (35)', () => {
     const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
     const ajv = new (Ajv2020 as unknown as new (o: object) => {
       compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
@@ -120,7 +121,7 @@ describe('the shipped versus rules', () => {
     for (const ok of [25, 35, 60]) expect(validate(doc(ok)), String(ok)).toBe(true);
     for (const bad of [24, 0, -1, 61, 35.5, '35', null]) expect(validate(doc(bad)), String(bad)).toBe(false);
     const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, s.doc.cap_minutes]));
-    expect(declared).toEqual({ rujm_sawda: 35, tel_marum: undefined, wadi_tarfan: undefined, wadi_tarfan_l: 35 }); // Was no wadi_tarfan_l (GH-920 B3)
+    expect(declared).toEqual({ milh_flats_l: 35, rujm_sawda: 35, tel_marum: undefined, wadi_tarfan: undefined, wadi_tarfan_l: 35 }); // Was no wadi_tarfan_l or milh_flats_l (GH-920 B3)
   });
   it('GH-913 L8: @lions/net\'s MAP_CAP_MINUTES twin is every rules file\'s cap_minutes, both ways', () => {
     // The Worker imports @lions/net and not @lions/data, so it reads the twin. A rules file that says 35 while
