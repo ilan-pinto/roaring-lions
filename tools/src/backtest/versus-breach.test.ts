@@ -92,7 +92,7 @@ describe('the swap', () => {
         expect(read(mine.sim)).toEqual(read(shipped.sim));
       }
     }
-    expect(pairings).toBe(12); // 6 mirrors (rujm_sawda from GH-913 L8, wadi_tarfan_l from GH-920 B7) + 3 faction maps x 2 orders: the loop ran (was 9)
+    expect(pairings).toBe(13); // 7 mirrors (rujm_sawda from GH-913 L8, wadi_tarfan_l and milh_flats_l from GH-920 B7) + 3 faction maps x 2 orders: the loop ran (was 12 before milh_flats_l, 9 before the large Wadi)
   });
   it('moves only the side labels: same tiles, same ids, camp A first', () => {
     const tiles = (arm: 'normal' | 'swapped') => {

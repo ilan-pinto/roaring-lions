@@ -197,8 +197,10 @@ and fixed in the generator's data, with no sim or tuning change:
 
 `tools/maps/milh_flats_l/build.mjs` reads `data/maps/milh_flats.json` as its 48-cell sketch, on the same library,
 and writes `data/maps/milh_flats_l.json` and `data/versus/milh_flats_l.json`. It is a MIRROR-ONLY map like its
-original, registered and NOT offered (`RULES_ONLY_MAPS`, `UNLISTED_MAP_IDS`, `VERSUS_FORMATIONS_CLOSED_MAPS`, in
-neither `@lions/net` list; `milh_flats` itself stays in `VERSUS_FAIR_MAPS`). What differs from Wadi Tarfan (large):
+original. It is OFFERED since the opening commit of GH-920 B7 (on the lead's ruling, after B4's mirror read, B5's render and
+memory and B6's census): in `VERSUS_FAIR_MAPS` and `MIRROR_RULES_MAPS` (`tools/validate_versus_rules.mjs`; `RULES_ONLY_MAPS` is
+empty again), out of `UNLISTED_MAP_IDS` (a Free Play card), in `FACTION_MATCHUP_MAPS` never (no faction cell was read), so the
+`versus.host.side.note` string is unchanged. Formations stay closed: `VERSUS_FORMATIONS_CLOSED_MAPS`. What differs from Wadi Tarfan (large):
 - **The seats are on the ANTI-diagonal** (x + y = 95): `(20,75)` and `(75,20)`, 77.8 tiles apart. Doubling the original's
   `(9,38)` and `(38,9)` would give 82.0, so the seats are authored (`SEAT_0`/`SEAT_1`), not doubled. The verifier's
   seat rule gained `antiDiagonal` in the spec; the main-diagonal rule is unchanged for the others.

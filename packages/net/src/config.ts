@@ -129,7 +129,7 @@ export function endOfSeat(seat: Seat): SpawnEnd {
  *  `beit_sahwan_outskirts`' room seats are no longer the heuristic's: after
  *  PR #721 the mirror read west 38 / east 10 there, and its measured seats
  *  live in `VERSUS_SEATS` (packages/app/src/net/versus-seats.ts). */
-export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l'];
+export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
 
 // The large 80x80 map (GH-913 L8) joins as a MIRROR-ONLY map, the lead's ruling of 1 Nov: its mirror was
 // accepted at the shipped seat (12,12) on the 576-seed reading (west 52.3%), while its KDF-vs-Sarim cells
@@ -140,6 +140,10 @@ export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'te
 // `FACTION_MATCHUP_MAPS` too): B4 read every offered cell at its shipped seats (20,20)/(75,75) inside 60/40 on held-out
 // seeds (set C, 4000-4287, 288 seeds a cell; the lead's ruling of 2 Nov: fair at its seats, the one-tile seat
 // neighbourhood is a report, not a gate). Formations stay closed on it (`VERSUS_FORMATIONS_CLOSED_MAPS`).
+//
+// The large 96x96 Milh Flats (GH-920 B7) joins as a MIRROR-ONLY map, like its 48x48 original, and is in
+// `FACTION_MATCHUP_MAPS` never: B4 read only the mirror cells at its seats (20,75)/(75,20), KDF v KDF 50.0% pooled over
+// 480 seeds (49.7% on the held-out 4000-4287), Sarim v Sarim 55.4% (report only). Formations stay closed on it.
 
 /** Whether a versus room may be hosted on `map`. */
 export function versusMapAllowed(map: string): boolean {
