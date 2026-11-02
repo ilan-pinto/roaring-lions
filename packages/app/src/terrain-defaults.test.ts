@@ -42,6 +42,12 @@ const FIXTURE = join(__dirname, 'terrain-defaults.fixture.json');
 const UPDATE = process.env.UPDATE_TERRAIN_DEFAULTS === '1';
 const HIGH = { colorVision: 'default', quality: 'high' } as const;
 
+/** The placements are doubles in the sim-free composer but the renderer takes them as Float32 instances, so the
+ *  digest quantises to what is drawn. Printing all 17 digits pinned the last bit of `Math.cos`/`Math.sin`, which
+ *  differs by 1 ulp between the machine that records the fixture (macOS, Node 25) and CI (Linux, Node 22):
+ *  wadi_tarfan_l's cluster member 6545 read x=3.1476028949550487 here and ...483 there (GH-920 B3). */
+const float32 = (_key: string, v: unknown): unknown => (typeof v === 'number' ? Math.fround(v) : v);
+
 function digest(id: MapId): string {
   const parsed = parseMap(maps[id]);
   const sim = new Sim({ seed: 20260727, width: parsed.width, height: parsed.height, capacity: 256 });
@@ -63,8 +69,8 @@ function digest(id: MapId): string {
     h.update(Buffer.from(mesh.colors.buffer, mesh.colors.byteOffset, mesh.colors.byteLength));
     h.update(Buffer.from(mesh.indices.buffer, mesh.indices.byteOffset, mesh.indices.byteLength));
   }
-  h.update(JSON.stringify(c.decorPlacements));
-  h.update(JSON.stringify(c.propPlacements));
+  h.update(JSON.stringify(c.decorPlacements, float32));
+  h.update(JSON.stringify(c.propPlacements, float32));
   return h.digest('hex');
 }
 
