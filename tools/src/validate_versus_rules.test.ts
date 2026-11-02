@@ -95,10 +95,11 @@ describe('the shipped versus rules', () => {
     }
   });
   it('RULES_ONLY_MAPS are rules files for maps no room offers: in neither list of @lions/net, and never in MIRROR_RULES_MAPS', () => {
-    // GH-920 B3: wadi_tarfan_l waits on B4 (fairness) and B5 (render and memory). Opening it means moving it into
-    // MIRROR_RULES_MAPS (or MATCHUP_MAPS) in the same commit, so this is red the moment a map is offered without
-    // its rules file being reclassified, and the other way round.
-    expect(RULES_ONLY_MAPS).toEqual(['wadi_tarfan_l', 'milh_flats_l']); // Was ['wadi_tarfan_l']: Milh Flats (large) joined it (GH-920 B3)
+    // GH-920 B7 opened wadi_tarfan_l (it moved into MATCHUP_MAPS, both faction cells inside 60/40 at its seats), so the list held
+    // nothing until milh_flats_l (B3) joined it, unoffered. The next test guards the other direction, that every rules file is
+    // classified, so a map offered without being reclassified is still red.
+    // Opening a map means moving it into MIRROR_RULES_MAPS (or MATCHUP_MAPS) in the same commit.
+    expect(RULES_ONLY_MAPS).toEqual(['milh_flats_l']);
     for (const id of RULES_ONLY_MAPS) {
       expect(FACTION_MATCHUP_MAPS, id).not.toContain(id);
       expect(VERSUS_FAIR_MAPS, id).not.toContain(id);
@@ -152,20 +153,24 @@ describe('the shipped versus rules', () => {
         for (const ids of w.bySide) for (const i of ids) occupied.add(`${Math.floor(w.sim.state.posX[i] / 65536)},${Math.floor(w.sim.state.posY[i] / 65536)}`);
         for (const end of ['friendly', 'hostile'] as const) {
           const [ax, ay] = doc.ends[end].camp.at;
-          for (const t of [`${ax},${ay}`, `${ax + 1},${ay}`, `${ax},${ay + 1}`, `${ax + 1},${ay + 1}`]) {
+          const [cw, ch] = doc.ends[end].camp.size as [number, number]; // the camp's own size (2x2 on every map today)
+          for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
+            const t = `${ax + dx},${ay + dy}`;
             expect(occupied.has(t), `${doc.map} ${end} camp tile ${t} under a unit (${factions.join('/')})`).toBe(false);
           }
         }
       }
-      expect(parsed.width).toBe(48);
+      // GH-920 B7: the large Wadi Tarfan is a faction-matchup map at 96 (literals, not read off the map)
+      expect(parsed.width).toBe(doc.map === 'wadi_tarfan_l' ? 96 : 48);
     }
   });
 });
 
 describe('versusRulesFailures, one mutation at a time', () => {
-  it('passes both shipped files', () => {
+  it('passes the shipped files', () => {
     expect(failures(rulesFor('wadi_tarfan'))).toEqual([]);
     expect(failures(rulesFor('tel_marum'))).toEqual([]);
+    expect(failures(rulesFor('wadi_tarfan_l'))).toEqual([]); // GH-920 B7: a faction-matchup map now, held to the same rules
   });
   it('refuses a camp tile off the map', () => {
     const r = rulesFor('wadi_tarfan');
@@ -207,8 +212,10 @@ describe('versusRulesFailures, one mutation at a time', () => {
     r[0].doc.map = 'milh_flats';
     r[0].doc.id = 'milh_flats';
     expect(failures(r).join('\n')).toContain('is not a faction-matchup map');
+    // Was one line (wadi_tarfan): wadi_tarfan_l is a faction-matchup map too from GH-920 B7, so a lone tel_marum file misses both.
     expect(versusRulesFailures(rulesFor('tel_marum'), mapsById)).toEqual([
       'data/versus: no rules file for the faction-matchup map "wadi_tarfan"',
+      'data/versus: no rules file for the faction-matchup map "wadi_tarfan_l"',
     ]);
   });
   it('refuses a rate outside 1..120, a duplicate zone, and overlapping camps', () => {

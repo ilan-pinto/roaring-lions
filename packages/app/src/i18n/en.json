@@ -241,7 +241,7 @@
   "versus.title": "Play with a friend",
   "versus.callsign": "Your callsign",
   "versus.host.open": "Open a room",
-  "versus.host.side.note": "KDF against Sarim is played on Tel Marum and Wadi Tarfan only",
+  "versus.host.side.note": "KDF against Sarim is played on Tel Marum, Wadi Tarfan and Wadi Tarfan (large) only",
   "versus.host.kit": "Bring your brigade",
   "versus.room.kit": "Kit",
   "versus.room.kit.value": "{kit, select, brigade {Brigades (friends only)} other {Standard kit for both}}",

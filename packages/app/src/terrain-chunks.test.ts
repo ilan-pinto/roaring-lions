@@ -246,6 +246,7 @@ describe('a chunk is the bytes of its tiles in the whole-map build', () => {
   const CASES: { id: MapId; edge: number; label: string }[] = [
     { id: 'rujm_sawda', edge: CHUNK_EDGE_TILES.ground, label: 'rujm_sawda at the ground edge' },
     { id: 'rujm_sawda', edge: 16, label: 'rujm_sawda at 16' },
+    { id: 'wadi_tarfan_l', edge: CHUNK_EDGE_TILES.ground, label: 'wadi_tarfan_l (96x96, a 3x3 grid) at the ground edge' },
     { id: 'qarn_hadid', edge: 20, label: 'qarn_hadid (all ten terrain symbols) at 20' },
     { id: 'tel_marum', edge: 16, label: 'tel_marum (boulders) at 16' },
     { id: 'beit_sahwan_2', edge: 20, label: 'beit_sahwan_2 (relief under a town) at 20' },

@@ -144,9 +144,30 @@ What each stage does, and what measuring it found:
   (2(47 - x) + 1 = 95 - 2x), never twice its own tile. The seats come out at (20,20) and (75,75), 77.8 apart.
 - **Zones keep their landmark size** (7x7 stays 7x7 about twice its centre); the two camp grounds double.
 
-Wadi Tarfan (large) is registered and NOT offered: `RULES_ONLY_MAPS` (`tools/validate_versus_rules.mjs`),
-`UNLISTED_MAP_IDS`, `VERSUS_FORMATIONS_CLOSED_MAPS`, in neither `@lions/net` list. B4 (fairness) and B5 (render and
-memory) come before B7 opens it.
+Wadi Tarfan (large) is OFFERED since the opening commit of GH-920 B7 (the lead's ruling, after B4's fairness, B5's render and memory
+and B6's census): in `VERSUS_FAIR_MAPS` and `FACTION_MATCHUP_MAPS` (the mirror and both KDF-v-Sarim cells, at seats (20,20) and
+(75,75), the one-tile neighbourhood a report only), out of `UNLISTED_MAP_IDS` (a Free Play card), in `MATCHUP_MAPS` of
+`tools/validate_versus_rules.mjs` (`RULES_ONLY_MAPS` is empty, kept for the next large map). Formations stay closed on it:
+`VERSUS_FORMATIONS_CLOSED_MAPS`, until it passes its own S4 run. Opening a map touches a catalogue string too: `versus.host.side.note`
+names the faction maps in `en.json`, and `versus.test.ts` holds it to `FACTION_MATCHUP_MAPS`.
+
+### Wadi Tarfan (large): the network budget (GH-920 B7, 2 Nov 2026)
+
+`pnpm net:budget -- --map=wadi_tarfan_l --play=<heavy|idle|rush>`: the full 35-minute cap (42,000 ticks) through the local
+relay, both seats `human`. The tool refuses an unlisted map (the room route answers 400), so the three runs were made
+BEFORE the opening commit with a scratch wrapper that pushed the id into `VERSUS_FAIR_MAPS` in its own process only
+(not committed); after the opening commit the stock command works. Judged against design 4.5 and section 4:
+
+| Play | Rows, real-time pacing (bound 2,555 idle .. 4,655 busy) | Command-log characters (cap 2,800,000) | Snapshot held / largest upload (cap 64 KiB) | End world raw / gzip (caps 1 MiB / 64 KiB) | Result |
+|---|---|---|---|---|---|
+| idle | 2,562 (measured 2,163) | 0 | 6,665 B / 6,667 B | 398,652 B (389 KiB) / 6,596 B | draw on time at 42,000 |
+| heavy (120 orders a minute a seat, 30 ids) | 2,646 (measured 2,251) | 291,624 (10.4%), 3,352 commands | 7,901 B / 8,012 B | 404,684 B (395 KiB) / 7,841 B | draw on time at 42,000 |
+| rush (a real battle, not judged against the cap) | 146 (ends at 1.9 minutes) | 212 | 8,976 B / 8,976 B | 400,170 B / 9,144 B | side 0 by annihilation |
+
+Idle rows are exactly Rujm's 2,562 (PR 937); heavy is 2,646 against Rujm's 2,796 (this map's heavy play sends the same orders to
+fewer live moves). The idle world is 389 KiB raw against design 4.5's 390 at capacity 512. Every figure is inside the bars; the
+log is at 10% of its cap, so the map needs no Worker change. The snapshot figures are the default 15-unit force, not the
+150-a-side stress of 4.5 (404 KiB raw, 23.2 KiB gzip): that bound is read from the design, not re-measured here.
 
 ### Wadi Tarfan (large): what made it fair (GH-920 B4, 2 Nov 2026)
 
