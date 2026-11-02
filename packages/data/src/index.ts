@@ -45,6 +45,7 @@ import telMarum3 from '../../../data/maps/tel_marum_3.json';
 // `sandboxAnchors`). No mission references either.
 import milhFlats from '../../../data/maps/milh_flats.json';
 import wadiTarfan from '../../../data/maps/wadi_tarfan.json';
+import wadiTarfanL from '../../../data/maps/wadi_tarfan_l.json';
 // The large 80x80 network map (GH-913 L4, 2026-11-01): point-symmetric, seats named as above.
 // Registered so free play can walk it; no room offers it until L5's fairness runs and the lead.
 import rujmSawda from '../../../data/maps/rujm_sawda.json';
@@ -83,6 +84,7 @@ import sarimDoctrine from '../../../data/doctrines/sarim.json';
 import rujmSawdaVersus from '../../../data/versus/rujm_sawda.json';
 import telMarumVersus from '../../../data/versus/tel_marum.json';
 import wadiTarfanVersus from '../../../data/versus/wadi_tarfan.json';
+import wadiTarfanLVersus from '../../../data/versus/wadi_tarfan_l.json';
 // GH-859 P1a: the combat formations, registered in sorted directory order.
 import formationAmbush from '../../../data/formations/ambush.json';
 import formationAttack from '../../../data/formations/attack.json';
@@ -315,6 +317,7 @@ export const versusRules: Readonly<Record<string, VersusRulesJson>> = {
   rujm_sawda: rujmSawdaVersus as unknown as VersusRulesJson,
   tel_marum: telMarumVersus as unknown as VersusRulesJson,
   wadi_tarfan: wadiTarfanVersus as unknown as VersusRulesJson,
+  wadi_tarfan_l: wadiTarfanLVersus as unknown as VersusRulesJson,
 };
 
 /** Combat formations (GH-859 P1a): data/formations/*.json against formation.schema.json, in
@@ -363,6 +366,7 @@ export const maps = {
   wadi_halam_4: wadiHalam4,
   wadi_halam_5: wadiHalam5,
   wadi_tarfan: wadiTarfan,
+  wadi_tarfan_l: wadiTarfanL,
 } as const;
 
 export type MapId = keyof typeof maps;

@@ -2,9 +2,10 @@
 // versus_rules.schema.json cannot see. Its own module for the reason every validate_*.mjs is one:
 // validate_data.mjs runs its whole sweep at import time and exits.
 //
-//   - `map` is one of the faction-matchup maps or one of the MIRROR_RULES_MAPS (a map offered for the
-//     mirror only, whose rules file carries its camps, zones, routes and limits), `id` is the map, and
-//     each of them has exactly one file;
+//   - `map` is one of the faction-matchup maps, one of the MIRROR_RULES_MAPS (a map offered for the
+//     mirror only, whose rules file carries its camps, zones, routes and limits) or one of the
+//     RULES_ONLY_MAPS (authored, offered by no room yet), `id` is the map, and each of them has
+//     exactly one file;
 //   - every camp tile is inside the map, on open ground (a row character in OPEN_SYMBOLS: not a
 //     ridge `^`, not a boulder or ditch `b`/`d`, not any structure symbol), and within
 //     CAMP_REACH tiles (Chebyshev) of its end's anchor; the two camps do not overlap;
@@ -30,6 +31,13 @@ export const MATCHUP_MAPS = ['tel_marum', 'wadi_tarfan'];
  *  VERSUS_FAIR_MAPS and not in its FACTION_MATCHUP_MAPS; tools/src/validate_versus_rules.test.ts pins
  *  that, and the `cap_minutes` twin table, for every entry. */
 export const MIRROR_RULES_MAPS = ['rujm_sawda'];
+
+/** Maps with a rules file that no room offers yet: in neither of @lions/net's VERSUS_FAIR_MAPS and
+ *  FACTION_MATCHUP_MAPS. The large Wadi Tarfan of GH-920 (B3) waits on B4's fairness runs and the lead.
+ *  Opening one means moving it into MIRROR_RULES_MAPS (or MATCHUP_MAPS) in the same commit;
+ *  tools/src/validate_versus_rules.test.ts pins this list against both net lists, so it is red the
+ *  moment a map is offered without its rules file being reclassified. */
+export const RULES_ONLY_MAPS = ['wadi_tarfan_l'];
 
 /** packages/app/src/net/versus-seats.ts VERSUS_SEATS. */
 export const VERSUS_SEATS = {
@@ -73,8 +81,8 @@ export function versusRulesFailures(rulesFiles, mapsById) {
   for (const { file, doc } of rulesFiles) {
     if (!doc || typeof doc !== 'object') continue; // the schema check reports it
     if (doc.id !== doc.map) out.push(`${file}: id "${doc.id}" is not its map "${doc.map}" -- one file per map, named by it`);
-    if (!MATCHUP_MAPS.includes(doc.map) && !MIRROR_RULES_MAPS.includes(doc.map)) {
-      out.push(`${file}: map "${doc.map}" is not a faction-matchup map (${MATCHUP_MAPS.join(', ')}) or a mirror-rules map (${MIRROR_RULES_MAPS.join(', ')})`);
+    if (!MATCHUP_MAPS.includes(doc.map) && !MIRROR_RULES_MAPS.includes(doc.map) && !RULES_ONLY_MAPS.includes(doc.map)) {
+      out.push(`${file}: map "${doc.map}" is not a faction-matchup map (${MATCHUP_MAPS.join(', ')}), a mirror-rules map (${MIRROR_RULES_MAPS.join(', ')}) or a rules-only map (${RULES_ONLY_MAPS.join(', ')})`);
     }
     if (seen.has(doc.map)) out.push(`${file}: a second rules file for "${doc.map}" (after ${seen.get(doc.map)})`);
     else seen.set(doc.map, file);

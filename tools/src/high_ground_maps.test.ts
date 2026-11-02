@@ -21,7 +21,9 @@ const MAP_DIR = join(__dirname, '..', '..', 'data', 'maps');
  *  run): 26 relief maps, 123 rises, 11 flat. Ein Qasab III's lower causeway (GH-912) is the 27th, 1
  *  rise (read on first run): 27 relief maps, 124
  *  rises, 11 flat. Rujm Sawda (GH-913 L4, 1 Nov 2026) is the 28th, 28 rises, read on first run from
- *  the shipped map: 28 relief maps, 152 rises, 11 flat. Three relief maps pin 0 -- they have an elevation grid
+ *  the shipped map: 28 relief maps, 152 rises, 11 flat. Wadi Tarfan (large) (GH-920 B3, 2 Nov 2026) is the 29th, 0 rises, by an
+ *  independent Python flood fill of its rows and levels (median open level 3, floor 5, no 4-connected open run at 5 or above):
+ *  29 relief maps, 152 rises, 11 flat. Three relief maps pin 0 -- they have an elevation grid
  *  and no tile two levels over their own median -- and the pin still guards them against a rise
  *  appearing. */
 const RISES: Record<string, number> = {
@@ -53,6 +55,7 @@ const RISES: Record<string, number> = {
   wadi_halam_5: 1,
   wadi_halam_basin: 1,
   wadi_tarfan: 0,
+  wadi_tarfan_l: 0,
 };
 
 function measure(id: string): { relief: boolean; count: number; median: number; open: number } {
@@ -92,7 +95,7 @@ describe('shipped maps: high ground', () => {
     expect(ids.length).toBeGreaterThan(30);
     const relief = ids.filter((id) => results.get(id)?.relief);
     const flat = ids.filter((id) => !results.get(id)?.relief);
-    expect(relief.length).toBe(28);
+    expect(relief.length).toBe(29); // Was 28: Wadi Tarfan (large), GH-920 B3
     expect(flat.length).toBe(11);
   });
 
