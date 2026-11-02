@@ -21,6 +21,15 @@
  * `--client` value is split by `parseTemplate`, which treats every shell
  * metacharacter as a literal one.
  *
+ * Every run writes two files to `bot-results/` (git-ignored) under the directory
+ * pnpm was run from (`INIT_CWD`), never outside it: `<date>-<room>-<model>.log`,
+ * the harness's and the client's stderr and stdout, each line timestamped (never
+ * the environment; there is no ticket), and `<date>-<room>-<model>-report.md`,
+ * the model's final message under a header (room, model, server, build, result,
+ * tokens), or the reason there is none. The model is asked for that message by
+ * `BOT_ADDENDUM`, appended here to the standing prompt; `arena-prompt.md`, which
+ * the arena also reads, is not touched. Both paths print at the start and the end.
+ *
  * `--output-format json` makes the client print ONE result object when it is
  * done, so the live part of the progress is the client's stderr and any plain
  * stdout line; the result and the tokens (`tokensOf`) come at the end.
@@ -34,10 +43,11 @@
  * failure or a usage error, 130/143 a signal.
  */
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
-import { chmodSync, closeSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, chmodSync, closeSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MAX_CALLSIGN_CHARS } from '@lions/net';
+import { buildId } from './build-id';
 import { HARNESS_AGENT, HARNESS_TSX, parseTemplate, standingPrompt, tempRoot, tokensOf, type SpawnFn } from './external-player';
 
 /** The live game: the default `--server`. */
@@ -179,6 +189,74 @@ export function failureMessage(f: Failure, a: Pick<BotArgs, 'server'>): string {
 
 export const ENTRYPOINT_WARNING = 'bot: CLAUDE_CODE_ENTRYPOINT is set, so this shell was started by Claude Code (or its desktop app). The environment it passes on can break a child `claude`; if the bot cannot sign in, run `pnpm bot` from macOS Terminal.';
 
+/**
+ * What `pnpm bot` adds to the standing prompt, for a bot seat only (the arena
+ * reads `arena-prompt.md` alone). The model's FINAL message is saved as the
+ * match report, so it is told exactly what that message is.
+ */
+export const BOT_ADDENDUM = `
+## Your match report (this is a bot seat)
+
+As you play, keep short notes of anything odd: an order refused or dropped for no reason you can see, a tool error, \`observe\` data that looks inconsistent (a unit that vanishes, a count that does not add up, a position off the map), or anything else that seems broken in the game or the tools. For each, note what you did, what you expected and what happened.
+
+When the match is over (\`status\` shows a result, or an acting tool answers \`match over\`), stop playing and make your FINAL message a report in Markdown with exactly these two headings:
+
+## Conclusion
+What happened, why you won or lost, and your key decisions.
+
+## Bugs noticed
+The oddities from your notes as a list, or the single word "none" if there were none.
+
+Your final message is saved as the match report: write nothing but the report in it.
+`;
+
+/** The standing prompt for the bot's seat (seat 1): the arena's, then the report addendum. */
+export function botPrompt(a: Pick<BotArgs, 'room'>): string {
+  return `${standingPrompt({ seat: 1, code: a.room })}\n${BOT_ADDENDUM}`;
+}
+
+/** `YYYYMMDD-HHMMSS-<room>-<model>`: the stem of both files. The model is a flag value, so it is cut to filename-safe characters and can never leave the folder. */
+export function fileStem(now: Date, room: string, model: string): string {
+  const d = now.toISOString().replace(/\.\d+Z$/, '').replace(/[-:]/g, '').replace('T', '-');
+  const safe = model.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '_').slice(0, 80);
+  return `${d}-${room}-${safe}`;
+}
+
+export interface ReportInput {
+  room: string;
+  model: string;
+  server: string;
+  build: string;
+  /** How the run ended: `completed`, `failed` or `stopped`. */
+  outcome: string;
+  tokens: number | null;
+  logName: string;
+  /** The model's final message, when the client printed one. */
+  message: string | null;
+  /** Why there is no report, when there is not. */
+  why: string | null;
+}
+
+/** The report file: a header, then the model's final message, or the reason there is none. */
+export function reportMarkdown(r: ReportInput): string {
+  const head = [
+    '# Bot match report',
+    '',
+    `- Room: ${r.room}`,
+    `- Model: ${r.model}`,
+    `- Server: ${r.server}`,
+    `- Build: ${r.build}`,
+    `- Result: ${r.outcome}`,
+    `- Tokens: ${r.tokens === null ? 'unknown' : String(r.tokens)}`,
+    `- Log: ${r.logName}`,
+    '',
+  ];
+  if (r.why === null && r.message !== null) return `${[...head, r.message.trimEnd()].join('\n')}\n`;
+  const body = [`No report was produced: ${r.why ?? 'the client printed no final message'}.`];
+  if (r.message !== null) body.push('', 'The client\'s last message was:', '', ...r.message.trimEnd().split('\n').map((l) => `> ${l}`));
+  return `${[...head, ...body].join('\n')}\n`;
+}
+
 /** The conventional exit for a process ended by a signal: 128 + its number. */
 export const SIGNAL_EXIT: Readonly<Record<'SIGINT' | 'SIGTERM', number>> = { SIGINT: 130, SIGTERM: 143 };
 
@@ -202,7 +280,16 @@ export interface BotOptions {
   print?: (line: string) => void;
   /** After SIGTERM, how long before SIGKILL; default 3 s. */
   killMs?: number;
+  /** The directory `bot-results/` is made in; default where pnpm was run (`INIT_CWD`), else the cwd. */
+  cwd?: string;
+  /** The clock for the file names and log stamps. */
+  now?: () => Date;
+  /** The build string for the report header; default this checkout's `buildId()`. */
+  build?: string;
 }
+
+/** The folder of logs and reports, under the invoking directory and never outside it. */
+export const RESULTS_DIR = 'bot-results';
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 /** The most of the client's output kept for classification and its last line. */
@@ -229,9 +316,47 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   const exit = o.exit ?? ((code: number) => { process.exit(code); });
   const killMs = o.killMs ?? 3000;
 
+  const now = o.now ?? (() => new Date());
+
   const a = parseBotArgs(argv);
   if ('error' in a) { log(a.error); return 1; }
-  if (env.CLAUDE_CODE_ENTRYPOINT !== undefined && env.CLAUDE_CODE_ENTRYPOINT !== '') log(ENTRYPOINT_WARNING);
+
+  // The log and the report: made before anything starts, so a folder that cannot be written is said at once.
+  const resultsDir = join(resolve(o.cwd ?? process.env.INIT_CWD ?? process.cwd()), RESULTS_DIR);
+  const stem = fileStem(now(), a.room, a.model);
+  const logFile = join(resultsDir, `${stem}.log`);
+  const reportFile = join(resultsDir, `${stem}-report.md`);
+  let build = o.build ?? '';
+  if (build === '') { try { build = buildId(); } catch { build = 'unknown'; } }
+  try {
+    mkdirSync(resultsDir, { recursive: true, mode: 0o700 });
+    chmodSync(resultsDir, 0o700); // mkdir ignores the mode when the folder already exists
+    writeFileSync(logFile, '', { mode: 0o600, flag: 'a' });
+  } catch (e) {
+    log(`bot: cannot write ${resultsDir}: ${messageOf(e)}`);
+    return 1;
+  }
+  let logBroken = false;
+  /** One timestamped log line per line of `text`. A log that cannot be written loses the log, never the game. */
+  const note = (kind: 'bot' | 'out' | 'err', text: string): void => {
+    if (logBroken) return;
+    try {
+      const stamp = now().toISOString();
+      appendFileSync(logFile, text.replace(/\n$/, '').split('\n').map((l) => `${stamp} ${kind} ${l}\n`).join(''));
+    } catch (e) {
+      logBroken = true;
+      log(`bot: the log ${logFile} could not be written: ${messageOf(e)}`);
+    }
+  };
+  const say = (line: string): void => { log(line); note('bot', line); };
+  note('bot', `room ${a.room}, model ${a.model}, server ${a.server}, build ${build}, client ${a.client[0]}`);
+  say(`bot: log: ${logFile}`);
+  say(`bot: report: ${reportFile}`);
+  const rec: { outcome: string; why: string | null; message: string | null; tokens: number | null } = {
+    outcome: 'stopped', why: 'the bot ended before the client finished', message: null, tokens: null,
+  };
+
+  if (env.CLAUDE_CODE_ENTRYPOINT !== undefined && env.CLAUDE_CODE_ENTRYPOINT !== '') say(ENTRYPOINT_WARNING);
 
   const dir = mkdtempSync(join(tempRoot(), 'lions-bot-'));
   let child: ChildProcess | null = null;
@@ -242,12 +367,13 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   const onSignal = (signal: 'SIGINT' | 'SIGTERM'): void => {
     if (signalled !== null) {
       removeDir();
-      log(`bot: second ${signal}: exiting now`);
+      say(`bot: second ${signal}: exiting now`);
       exit(SIGNAL_EXIT[signal]);
       return;
     }
     signalled = signal;
-    log(`bot: ${signal}: stopping the client and removing ${dir}`);
+    say(`bot: ${signal}: stopping the client and removing ${dir}`);
+    rec.why = `stopped by ${signal}`;
     removeDir();
     if (child !== null && !childGone) {
       try { child.kill('SIGTERM'); } catch { /* already gone */ }
@@ -269,7 +395,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     const promptFile = join(dir, 'prompt.md');
     // `wx`: a file that is somehow already there is an error, never reused.
     writeFileSync(mcpFile, `${JSON.stringify(botMcpConfig(a), null, 2)}\n`, { mode: 0o600, flag: 'wx' });
-    writeFileSync(promptFile, standingPrompt({ seat: 1, code: a.room }), { mode: 0o600, flag: 'wx' });
+    writeFileSync(promptFile, botPrompt(a), { mode: 0o600, flag: 'wx' });
 
     const command = a.client[0];
     const stdin = openSync(promptFile, 'r');
@@ -293,6 +419,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     const last: { result: string | null } = { result: null };
     const line = (l: string): void => {
       if (l.trim() === '') return;
+      note('out', l);
       // The one JSON result object is held for the end; anything else is progress.
       if (resultOf(l) !== null) last.result = l; else { print(l); out += `${l}\n`; }
     };
@@ -305,6 +432,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     live.stderr?.setEncoding('utf8');
     live.stderr?.on('data', (chunk: string) => {
       log(chunk.replace(/\n$/, ''));
+      note('err', chunk);
       errOut = (errOut + chunk).slice(-TAIL_CHARS);
     });
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((res) => {
@@ -317,10 +445,12 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
         live.once('error', (e) => { rej(e); });
       });
     } catch (e) {
-      log(`bot: could not start the client "${command}": ${messageOf(e)}. Install Claude Code, or name the command with --client.`);
+      say(`bot: could not start the client "${command}": ${messageOf(e)}. Install Claude Code, or name the command with --client.`);
+      rec.outcome = 'failed';
+      rec.why = `the client "${command}" could not start (${messageOf(e)})`;
       return 1;
     }
-    log(`bot: ${a.callsign} (${a.model}) is joining room ${a.room} on ${a.server}; Ctrl-C stops it`);
+    say(`bot: ${a.callsign} (${a.model}) is joining room ${a.room} on ${a.server}; Ctrl-C stops it`);
     // If a signal landed before the child existed, stop it now.
     if (signalled !== null) { try { live.kill('SIGTERM'); } catch { /* gone */ } }
 
@@ -337,27 +467,50 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     const harnessText = `${out}\n${errOut}`;
     const all = `${harnessText}\n${parsed?.result ?? ''}`;
     const failed = code !== 0 || signal !== null || parsed?.isError === true;
+    rec.tokens = last.result === null ? null : tokensOf(last.result);
     if (failed) {
+      rec.outcome = 'failed';
+      rec.message = parsed?.result ?? null;
       const known = classify(harnessText, parsed?.result ?? '');
       if (known !== null) {
-        log(failureMessage(known, a));
+        say(failureMessage(known, a));
+        rec.why = known === 'build' ? 'the room refused this checkout\'s build (the live site runs a different one)' : known === 'room' ? 'the room is full, closed or not found' : 'the client could not sign in';
         return known === 'build' ? 2 : 1;
       }
-      log(`bot: the client ${signal !== null ? `was killed by ${signal}` : `exited with code ${String(code)}`}${parsed?.result != null ? `: ${parsed.result}` : ''}`);
+      const how = signal !== null ? `was killed by ${signal}` : `exited with code ${String(code)}`;
+      rec.why = `the client ${how}`;
+      say(`bot: the client ${how}${parsed?.result != null ? `: ${parsed.result}` : ''}`);
       const tail = all.trim().split('\n').slice(-10).join('\n');
-      if (tail !== '' && parsed?.result == null) log(tail);
+      if (tail !== '' && parsed?.result == null) say(tail);
       return 1;
     }
     // A clean exit is never reclassified: its output is the model's and the harness's chatter, not a refusal.
-    const tokens = last.result === null ? null : tokensOf(last.result);
+    rec.outcome = 'completed';
+    rec.message = parsed?.result ?? null;
+    rec.why = rec.message === null || rec.message.trim() === '' ? 'the client exited cleanly but printed no final message' : null;
     print(parsed?.result ?? '(the client printed no result)');
-    log(`bot: finished. tokens: ${tokens === null ? 'unknown' : String(tokens)}`);
+    say(`bot: finished. tokens: ${rec.tokens === null ? 'unknown' : String(rec.tokens)}`);
     return 0;
+  } catch (e) {
+    rec.outcome = 'failed';
+    rec.why = messageOf(e);
+    throw e;
   } finally {
     signals.off('SIGINT', onInt);
     signals.off('SIGTERM', onTerm);
     if (killTimer !== null) clearTimeout(killTimer);
     removeDir();
+    // The report is written on every way out: the model's message, or the reason there is none.
+    try {
+      writeFileSync(reportFile, reportMarkdown({
+        room: a.room, model: a.model, server: a.server, build, outcome: rec.outcome, tokens: rec.tokens,
+        logName: `${stem}.log`, message: rec.message, why: rec.why,
+      }), { mode: 0o600 });
+    } catch (e) {
+      log(`bot: the report ${reportFile} could not be written: ${messageOf(e)}`);
+    }
+    say(`bot: log: ${logFile}`);
+    say(`bot: report: ${reportFile}`);
   }
 }
 
