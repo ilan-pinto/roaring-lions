@@ -13193,8 +13193,8 @@ export class ThreeRenderer implements Renderer {
     // the camera cannot see; one mesh, built as ever, on every other map. A splice names the tiles
     // it re-emitted (`build.dirtyTiles`) and only the chunks holding one are rebuilt.
     if (this.groundLayer === null || this.scatterLayer === null) {
-      this.groundLayer = new ChunkedMeshLayer(this.scene, 'ground', this.groundMat, true, (data) => toGeometry(data));
-      this.scatterLayer = new ChunkedMeshLayer(this.scene, 'scatter', this.terrainMat, true, (data) => toGeometry(data));
+      this.groundLayer = new ChunkedMeshLayer(this.scene, 'ground', this.groundMat, true, (data, opts) => toGeometry(data, opts));
+      this.scatterLayer = new ChunkedMeshLayer(this.scene, 'scatter', this.terrainMat, true, (data, opts) => toGeometry(data, opts));
     }
     this.groundLayer.update(build.state.ground, build.dirtyTiles);
     this.scatterLayer.update(build.state.scatter, build.dirtyTiles);
