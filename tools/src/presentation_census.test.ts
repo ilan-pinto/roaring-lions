@@ -167,6 +167,59 @@ describe('presentation census: the two absolute relief checks go red (GH-913 loo
   });
 });
 
+describe('presentation census: Wadi Tarfan (large), 96x96 (GH-920 B6)', async () => {
+  const { json, map } = loadMap('wadi_tarfan_l');
+  const c = await census(map, json.rows);
+  const [s0, s1] = c.seats;
+  const elev = json.elevation as string[];
+  const read = async (elevation: string[]): Promise<Census> => {
+    const j: MapJson = { ...json, elevation };
+    return census(parseMap(j), j.rows);
+  };
+
+  it('measures something, and counts the same slope tiles for both seats (the map is exactly half-turn symmetric)', () => {
+    // 613 / 613 enemy-facing slope tiles, 918 / 923 approach tiles: an instrument that found nothing
+    // would read 0 against 0 and pass every bar.
+    expect(s0.slopeTiles).toBe(613);
+    expect(s1.slopeTiles).toBe(613);
+    expect(s0.approachTiles).toBeGreaterThan(500);
+    expect(s0.lit).toBeGreaterThan(0);
+    expect(s0.shadowed).toBeGreaterThan(0);
+  });
+
+  it('relief: the lit difference is inside the bar (196 against 184, 2.0% of 613)', () => {
+    expect(s0.lit).toBe(196);
+    expect(s1.lit).toBe(184);
+    expect(litDifferenceShare(c)).toBeLessThanOrEqual(LIT_DIFFERENCE_MAX);
+  });
+
+  it('relief: the twin mismatches are RECORDED at 390, which is OVER the 150 bar (reported, not widened)', () => {
+    // Report-only (lead ruling 1 Nov 2026). The elevation and the rows are exactly half-turn symmetric
+    // (0 differing tiles), so none of the 390 is a map asymmetry: every one is a lit tile whose twin is
+    // shadowed (380: 196 + 184) or a neutral one (10), the fixed sun against a slope that does not face
+    // along the seat axis. The count therefore scales with the lit slope tiles (613 here, 362 on Rujm Sawda:
+    // 138 there). A per-map no-worse ratchet, as Rujm's was; the bar itself is the lead's to rule on.
+    const n = twinMismatches(c, map.width, map.height);
+    expect(n).toBeLessThanOrEqual(390);
+    expect(n).toBeGreaterThan(TWIN_MISMATCH_MAX); // the demotion: if this fails the reading came under the bar, so pin it to the bar
+  });
+
+  it('RED: the bottom half x-flipped splits the lit counts past the bar (10.3% against 7%)', async () => {
+    const flipped = elev.map((r, y) => (y < 48 ? r : elev[95 - y]));
+    const f = await read(flipped);
+    expect(litDifferenceShare(f)).toBeGreaterThan(LIT_DIFFERENCE_MAX);
+    expect(litDifferenceShare(f)).toBeGreaterThan(4 * litDifferenceShare(c));
+  });
+
+  it('control: re-deriving the bottom half as the half-turn reads exactly as shipped', async () => {
+    const turned = elev.map((r, y) => (y < 48 ? r : [...elev[95 - y]].reverse().join('')));
+    const t = await read(turned);
+    expect(t.seats[0].lit).toBe(196);
+    expect(t.seats[1].lit).toBe(184);
+    expect(twinMismatches(t, 96, 96)).toBe(twinMismatches(c, 96, 96));
+  });
+});
+
 describe('presentation census: the instrument', () => {
   it('RED: one tall building on one bank only splits the seats far outside the bar', async () => {
     const rows = open();
