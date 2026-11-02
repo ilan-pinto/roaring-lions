@@ -289,6 +289,20 @@
  *                 entry: no gated scenario lays smoke. `blast:capture`'s
  *                 `smoke_eitan` subject votes it.
  *
+ * ONE FOR LOOK UPLIFT L1 (GH-943), behind the `&envlight` flag:
+ * - `environment` the sky environment (`environment.ts`) on every material that
+ *                 carries it: hiding strips `envMap` from the registered
+ *                 materials (units, buildings, props) so the frame is lit by
+ *                 the hemisphere and the sun alone; showing hands it back. A
+ *                 material-field write nothing per-frame re-asserts, so it
+ *                 holds across the gate's repaint. Returns how many live
+ *                 materials it wrote: 0 while the flag is off (there is no
+ *                 environment), the honest reading for a check to fail on.
+ *                 NO `layerChecks` entry yet, deliberately: with the flag off
+ *                 on main the layer writes nothing, so a gated check would
+ *                 read 0 px. It is witnessed by `tools/src/perf/look-l1-captures.ts`
+ *                 and its entry lands with the ship PR, beside its scenario.
+ *
  * ONE MORE FOR GH-471, the `missiles` rule again:
  * - `tunnel-xray` the x-ray of an identified tunnel (`../tunnel-xray.ts`):
  *                 bore and shafts, surface collars, the figures inside and
@@ -494,6 +508,8 @@ export const DEBUG_LAYERS = [
   // GH-871 P4 T8: the falling rain's mesh (`units/rain-batch.ts`), behind a flag the per-frame
   // visibility write consults. 0 on a map that does not rain. P5's `wet` scenario votes it.
   'rain',
+  // Look uplift L1 (GH-943): the sky environment on units, buildings and props. See the doc entry.
+  'environment',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

@@ -280,6 +280,15 @@ export interface BaselineSpec {
  *  desaturated annulus to the frame. Re-check both when you add or re-frame a
  *  scenario; a preview ring is a legitimate picture, so a baseline blessed
  *  with one in it looks entirely correct. */
+/** Look uplift L1 (GH-943), the `environment` layer checks: what they were measured with, written once. */
+const L1_ENV =
+  'Look uplift L1 (GH-943), measured 2 Nov 2026 with `tools/src/perf/relief-read-signal.ts --layers=environment` ' +
+  '(`fogged` also `--layers=environment,fog,haze,units`): the gate\'s own capture, 3 fresh page loads per scenario, ' +
+  'BIT-IDENTICAL across all three, repaint control 0 px / 0.0000 on every one, macOS host, SwiftShader (ANGLE, Vulkan, ' +
+  'SwiftShader driver). Hiding `environment` strips the sky `envMap` from every unit, building and prop material ' +
+  '(`EnvironmentRegistry.setEnabled`, a material-field write nothing per-frame re-asserts), so the frame is lit by the ' +
+  'hemisphere and the sun alone. Floors are a third of the smallest of the three, rounded down. ';
+
 /** Every floor below is ONE THIRD of this machine's measured signal, on both
  *  metrics, rounded down to a readable number.
  *
@@ -439,6 +448,15 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
+      {
+        layer: 'environment',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.29,
+        rationale:
+          L1_ENV +
+          'The town frame: buildings, props and decor take the sky. 69 px is under SUB_THRESHOLD_PX (100), so the pixel floor is 0 and the magnitude floor carries it. Measured 69 px / 0.8959; floor a third of that. ' +
+          'WATCHED GOING RED: `EnvironmentRegistry.setEnabled` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
+      },
       {
         layer: 'haze',
         minDiffPixels: 986,
@@ -779,6 +797,15 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxMeanAbsChannelDelta: 0.02,
     layerChecks: [
       {
+        layer: 'environment',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.027,
+        rationale:
+          L1_ENV +
+          'Open ground at zoom 3: only a few props and decor stand in it, so the signal is small by nature (the ground itself takes no environment). 4 px is under SUB_THRESHOLD_PX (100), so the pixel floor is 0 and the magnitude floor carries it. Measured 4 px / 0.0814; floor a third of that. ' +
+          'WATCHED GOING RED: `EnvironmentRegistry.setEnabled` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
+      },
+      {
         layer: 'scatter',
         // GROUND TASK 11: hiding the grain mesh moves 3476 px / 1.4088 inside this crop,
         // bit-identical across r1-r3 -- within 0.1% of D9's 3479/1.4086. Unchanged.
@@ -1052,6 +1079,15 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // been re-derived.
     layerChecks: [
       {
+        layer: 'environment',
+        minDiffPixels: 358,
+        minMeanAbsChannelDelta: 0.15,
+        rationale:
+          L1_ENV +
+          'The mesh vehicles take the sky on their metal and painted parts. Measured 1074 px / 0.4642; floor a third of that. ' +
+          'WATCHED GOING RED: `EnvironmentRegistry.setEnabled` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
+      },
+      {
         layer: 'units',
         minDiffPixels: 9800,
         minMeanAbsChannelDelta: 0.98,
@@ -1150,6 +1186,15 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
       {
+        layer: 'environment',
+        minDiffPixels: 514,
+        minMeanAbsChannelDelta: 0.15,
+        rationale:
+          L1_ENV +
+          'The same vehicles with the kit merged into the host geometry. Measured 1542 px / 0.4733; floor a third of that. ' +
+          'WATCHED GOING RED: `EnvironmentRegistry.setEnabled` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
+      },
+      {
         layer: 'units',
         minDiffPixels: 9800,
         minMeanAbsChannelDelta: 0.98,
@@ -1201,6 +1246,72 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       '2b8a00e baseline; the other 17 are blessed render changes, 38 px / 0.0256 (PR 788) the smallest. ' +
       'Same frame plus static geometry; repaint control 0 px / 0.0000.',
   },
+  fogged: {
+    // Look uplift L1 (GH-943), `FOGGED_SCENARIO`. No baseline exists for it in ANY environment: it ships in the
+    // change that adds it, and the first one comes from the post-merge bless. In an environment whose manifest
+    // already exists a missing entry is exit 1, not 3, so CI's `visual` job is red until that bless -- the
+    // `aftermath` and `kitted` precedent, and intended. What votes meanwhile are the four reference-free checks.
+    //
+    // 40 px / 0.004 is `vehicle`'s own ceiling (GH-803), carried over rather than re-derived: the same sandbox force
+    // at the same tick, the same mesh vehicles, a frozen frame whose zero-time repaint control reads a literal
+    // 0 px / 0.0000 (three of three fresh loads here). It has NOT been read against a stored `fogged` baseline, since
+    // none exists: re-derive it from the first CI runs after the bless, as GH-803 did for the others.
+    //
+    // THE FALSIFIER, measured 2 Nov 2026 with `tools/src/perf/env-doublecount.ts` (the gate's own capture, 3 fresh
+    // loads, bit-identical): multiplying every environment-carrying material's `envMapIntensity` by 2 -- the
+    // environment counted twice -- moves this frame 87 px / 0.3183, past BOTH ceilings (2.2x on pixels, 80x on
+    // magnitude). `vehicle` reads 250 px / 0.4233 for the same doubling. A scenario this frame could not see that
+    // defect in would be a gate that cannot fail.
+    //
+    // THE HAZE HALF of the coupling (review N2), the reason this frame is zoomed out: the haze, rain, water and smoke read
+    // `resolvedLights.hemiIntensity`, which L1 scales (0.9 to 0.82 on day). `env-doublecount.ts --mode=haze` feeds the haze
+    // the UNSCALED lights while the ground keeps the scaled ones: 0 px / 0.0681 on this frame (3 of 3 bit-identical;
+    // `vehicle` 0 px / 0.0447). Every pixel is under pixelmatch's 0.1 threshold, so the pixel ceiling is blind to it and the
+    // MAGNITUDE ceiling carries it, 17x over 0.004. The gate fails on either ceiling (`evaluateBaseline`), so it sees it.
+    region: null,
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
+    layerChecks: [
+      {
+        layer: 'environment',
+        minDiffPixels: 84,
+        minMeanAbsChannelDelta: 0.1,
+        rationale:
+          L1_ENV +
+          'The vehicles standing in shroud and haze. Measured 253 px / 0.3295; floor a third of that. ' +
+          'WATCHED GOING RED: `EnvironmentRegistry.setEnabled` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
+      },
+      {
+        layer: 'fog',
+        minDiffPixels: 116802,
+        minMeanAbsChannelDelta: 9.7,
+        rationale:
+          L1_ENV +
+          'Proves the frame really holds the shroud: revealing every tile (`uRevealAll`) moves 350407 px / 29.3152 here, ' +
+          'a third of the smallest of three. Without it this scenario would be `vehicle` at a smaller zoom.',
+      },
+      {
+        layer: 'haze',
+        minDiffPixels: 95,
+        minMeanAbsChannelDelta: 0.32,
+        rationale:
+          L1_ENV +
+          'Proves the frame really holds the dust haze (`uHazeAmp` to 0): 285 px / 0.9784, floor a third of that.',
+      },
+      {
+        layer: 'units',
+        minDiffPixels: 3012,
+        minMeanAbsChannelDelta: 0.22,
+        rationale:
+          L1_ENV +
+          'Proves the vehicles are really in frame: hiding every unit body moves 9036 px / 0.6724. A small share of the ' +
+          'frame at zoom 0.5 by design; the shroud is the rest.',
+      },
+    ],
+    rationale:
+      'whole frame: shroud, haze, the off-map fade and the force\'s mesh vehicles at zoom 0.5. 40 px / 0.004, ' +
+      "`vehicle`'s ceiling carried over (see the comment above); the double-count falsifier moves it 87 px / 0.3183.",
+  },
   relief: {
     // MAP COVERAGE. The other four scenarios look at two of the five shipped
     // maps, both of them flat and boulder-free, which is how deleting every
@@ -1225,6 +1336,15 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
+      {
+        layer: 'environment',
+        minDiffPixels: 4282,
+        minMeanAbsChannelDelta: 0.42,
+        rationale:
+          L1_ENV +
+          'Decor and props on the hillside take the sky. Measured 12848 px / 1.2654; floor a third of that. ' +
+          'WATCHED GOING RED: `EnvironmentRegistry.setEnabled` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
+      },
       {
         layer: 'haze',
         minDiffPixels: 0,
@@ -1487,6 +1607,15 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
+      {
+        layer: 'environment',
+        minDiffPixels: 5772,
+        minMeanAbsChannelDelta: 0.78,
+        rationale:
+          L1_ENV +
+          'The showcase frame has no unit in it; decor, props and the wrecked car take the sky. Measured 17317 px / 2.3523; floor a third of that. ' +
+          'WATCHED GOING RED: `EnvironmentRegistry.setEnabled` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
+      },
       {
         layer: 'props',
         minDiffPixels: 1783,

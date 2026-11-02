@@ -163,6 +163,12 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: 'a | b — which engine-loop candidate every vehicle plays (GH-35); a mission uses data/audio.json’s picks',
   },
   {
+    name: 'envlight',
+    // Look uplift L1 (GH-943), ON by default since 2 Nov. Not a SANDBOX_FLAGS entry: it works on a
+    // mission too and it is presentation only. `=0` is the A/B switch.
+    blurb: '=0 draws the pre-L1 frame: no sky environment, the shipped hemisphere, the 0.45 metal cap (GH-943; on by default)',
+  },
+  {
     name: 'fitbuildings',
     // Lead ruling 7 Oct. Not a SANDBOX_FLAGS entry: it works on a mission
     // too, and it is a value flag like `tod`. `building-fit-flag.ts` reads it.

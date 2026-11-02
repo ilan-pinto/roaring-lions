@@ -80,7 +80,8 @@
  * at 18 degrees or more.
  */
 import * as THREE from 'three';
-import { DAY_SUN_DIRECTION, type LightOverride } from './time-of-day';
+import { DAY_SUN_DIRECTION, TIME_OF_DAY_PRESETS, type LightOverride, type LitTimeOfDay } from './time-of-day';
+import { ENV_HEMISPHERE_INTENSITY } from './environment-classes';
 import { paletteHex } from './palette-hex';
 
 export const SUN_DIRECTION = new THREE.Vector3(...DAY_SUN_DIRECTION).normalize();
@@ -213,4 +214,19 @@ export function withLightOverride(lights: ResolvedLights, o: LightOverride | und
 /** PA-24: the sun's shadow strength; 1 (three's default) unless overridden. */
 export function shadowIntensityOf(o: LightOverride | undefined): number {
   return o?.shadow ?? 1;
+}
+
+/**
+ * Look uplift L1 (GH-943): the lights WITH an environment. The hemisphere is the
+ * old flat ambient; the environment now supplies part of it to the classes that
+ * may see it (`environment-classes.ts`), so the hemisphere drops by the
+ * preset's factor, `ENV_HEMISPHERE_INTENSITY[tod] / TIME_OF_DAY_PRESETS[tod]
+ * .hemiIntensity` (the shipped 0.75 / 0.9 / 0.7 down to the census-solved
+ * values). Whatever already adjusted the fill (a mission's `map.light.fill`, the
+ * rain scale) is scaled by the same factor, so a lifted dawn stays lifted by the
+ * same RATIO. Only called when the flag is on; off, the caller keeps its lights.
+ */
+export function withEnvironmentFill(lights: ResolvedLights, tod: LitTimeOfDay): ResolvedLights {
+  const factor = ENV_HEMISPHERE_INTENSITY[tod] / TIME_OF_DAY_PRESETS[tod].hemiIntensity;
+  return { ...lights, hemiIntensity: lights.hemiIntensity * factor };
 }
