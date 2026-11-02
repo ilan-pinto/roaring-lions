@@ -331,10 +331,13 @@ describe('the seat table (N3 Task 7: a room\'s, by default)', () => {
     // SAME game under both tables (side 0, 2000 ticks), and of seeds 0-39 the first that differs is
     // seedOf(1) = 8919: side 0 by annihilation at 2520 under the room's table, at 2060 under the
     // single-player one. Was seedOf(17) = 135623 (side 1 at 4440 / side 0 at 3480).
-    const seed = seedOf(1);
-    expect(seed).toBe(8919);
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 0, by: 'annihilation', ticks: 2520 });
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 0, by: 'annihilation', ticks: 2060 });
+    // Re-read for GH-945 (Wadi Tarfan seats (10,10)/(37,37), every tunnel route at capacity 3): of seeds 0-39 the first
+    // where the tables differ is seedOf(0) = 1000: side 1 by annihilation at 3240 under the room's table, at 2920
+    // under the single-player one. Was seedOf(1) = 8919 (side 0 at 2520 / 2060).
+    const seed = seedOf(0);
+    expect(seed).toBe(1000);
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 3240 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 2920 });
   }, FULL_GAMES_TIMEOUT_MS);
 });
 

@@ -435,7 +435,8 @@ describe('the economy runtime (N3 Task 3)', () => {
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was -1498380144 (tel_marum) and -1972637780 (wadi_tarfan).
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): so the Sarim spawn moved; the north routes this room registers are unchanged. Was -502812528.
     // tel_marum re-pinned 28 Oct 2026 for its friendly camp at (21,46) (GH-560 Task 7B): the camp moved and the room's world follows it. Was 750746188. wadi_tarfan (955375532) did not move.
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -87577684], ['wadi_tarfan', 955375532]] as const;
+    // wadi_tarfan re-pinned for GH-945 (seats (11,11)/(36,36) -> (10,10)/(37,37), every route at capacity 3). Was 955375532.
+    const VERSUS_ECONOMY_PINS = [['tel_marum', -87577684], ['wadi_tarfan', -1823744084]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
@@ -450,8 +451,9 @@ describe('the Sarim seat\'s routes (GH-681, T3)', () => {
   const CASES = [
     ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], [4, 4]],
     ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], [4, 4]],
-    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], [1, 3]],
-    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], [1, 2]],
+    // GH-945: every Wadi route at capacity 3. Was [1, 3] (hostile) and [1, 2] (friendly).
+    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], [3, 3]],
+    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], [3, 3]],
   ] as const;
   it.each(CASES)('%s, host %j: exactly the Sarim end\'s routes, owned by the Sarim side, pre-dug, at the capacity the file authors', (map, factions, end, ids, capacity) => {
     const w = buildMatchWorld(config(map, [factions[0], factions[1]], 7));
