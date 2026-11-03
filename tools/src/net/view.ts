@@ -12,11 +12,28 @@ import type { MatchWorld } from '../../../packages/app/src/net/match-world';
 import { scoreFor, scoreOf, type SideScore } from '../../../packages/app/src/net/scoreboard';
 import { heldBuildings, heldShown } from '../../../packages/render/src/three/units/held-building';
 import { unitIsObserved } from '../../../packages/render/src/three/units/observed';
-import { fx, WOUND_DOWN, WOUND_NONE, WOUND_STABILISED } from '@lions/sim';
+import { fx, WOUND_DOWN, WOUND_NONE, WOUND_STABILISED, type Command } from '@lions/sim';
 import { isIdle } from '../../../packages/app/src/ui/idle';
+import { economyView, type EconomyView } from './economy-view';
 import type { FogTracker } from './fog-tracker';
 
-export interface UnitLine { id: number; type: string; tile: [number, number]; hp: number; flags: string[] }
+/** What `setStance` takes: `Command['kind']`'s own union, so a stance the sim adds is a compile error here. */
+export type StanceName = Extract<Command, { kind: 'setStance' }>['stance'];
+const STANCE_NAMES: Record<StanceName, true> = { hold: true, ambush: true, patrol: true };
+/** The stances `order` with verb `setStance` accepts, in the order `observe` lists them. */
+export const STANCES = Object.keys(STANCE_NAMES) as StanceName[];
+/** A unit's stance as the sim keeps it: `hold` is a halt and leaves no state behind, so a held unit reads `free`. */
+export type StanceNow = 'free' | 'ambush' | 'patrol';
+
+export interface UnitLine {
+  id: number; type: string; tile: [number, number]; hp: number; flags: string[];
+  /** Own units only (GH-954). */
+  stance: StanceNow;
+  /** Ambush: the radius, in tiles, a target must close to before the unit springs it. */
+  radius?: number;
+  /** Patrol: how many points its beat has. */
+  points?: number;
+}
 export interface ContactLine { id: number; type: string; tile: [number, number]; hp: number }
 /** A wounded man (GH-973): down on the field, in nobody's order of battle. Never an orderable combat unit. */
 export interface CasualtyLine { id: number; type: string; tile: [number, number]; state: 'down' | 'stabilised' | 'other'; bleeding?: number }
@@ -35,6 +52,10 @@ export interface SideView {
   /** Wounded bodies, listed apart from `units` and `contacts`: `mine` (rescue is a medic's job; none are orderable) and `theirs` in sight. */
   casualties: { mine: CasualtyLine[]; theirs: CasualtyLine[] };
   held: HeldLine[];
+  /** The stances `order` accepts with verb `setStance` (GH-954): every room allows all three. */
+  stances: StanceName[];
+  /** Your production, purse and menu (GH-954); absent in a room with no economy (a mirror room). Yours alone. */
+  economy?: EconomyView;
   score: { mine: SideScore; theirs: SideScore };
   result: string | null;
 }
@@ -93,7 +114,15 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
         curTarget: st.curTarget[i], curStructure: st.curStructure[i], demoTarget: st.demoTarget[i],
         carriedBy: st.carriedBy[i], garrisonedIn: st.garrisonedIn[i],
       }, side)) flags.push('idle');
-      units.push({ id: i, type: type.id, tile, hp, flags });
+      const unit: UnitLine = { id: i, type: type.id, tile, hp, flags, stance: 'free' };
+      if (sim.isPatrolling(i)) {
+        unit.stance = 'patrol';
+        unit.points = sim.patrolCountOf(i);
+      } else if (sim.ambushRadiusSqOf(i) > 0) {
+        unit.stance = 'ambush';
+        unit.radius = Math.round(Math.sqrt(fx.toNumber(sim.ambushRadiusSqOf(i))) * 10) / 10;
+      }
+      units.push(unit);
       continue;
     }
     // The renderer's draw gate, with this seat's fog: hidden inside a
@@ -115,6 +144,7 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
   // By END, which follows the seat (LD1): a Sarim host is side 1 on `friendly`.
   const camp = campOf(w.anchors, w.endOfSide[side]);
   const enemyCamp = campOf(w.anchors, w.endOfSide[side === 0 ? 1 : 0]);
+  const economy = economyView(w, side);
   return {
     tick: sim.tickCount,
     clock: clockOf(sim.tickCount),
@@ -128,6 +158,8 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
     contacts,
     casualties,
     held,
+    stances: [...STANCES],
+    ...(economy === null ? {} : { economy }),
     score: scoreFor(scoreOf(sim), side),
     result,
   };

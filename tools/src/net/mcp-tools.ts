@@ -5,7 +5,8 @@
  * Every tool answers JSON text. An acting tool answers what was accepted, or
  * why not: `queue_full`, `not your unit`, `not a contact`, `unknown verb`,
  * `off the map`, `invalid`, `not in this scope`, `match over`,
- * `not available against a human seat`. The pre-check
+ * `not available against a human seat`, and, for the four production verbs the
+ * economy runtime would set aside (GH-954), `refused` with the runtime's reason. The pre-check
  * runs ownership's own `validateCommand` on the harness's world, and it is
  * ADVISORY: the authoritative drop is `applyFrame`'s, on both machines, and
  * the order ledger reports it (`dropped`).
@@ -17,11 +18,12 @@
  */
 import { COMMAND_KINDS, cleanAdvisorMsg, cleanChat, cleanCommand, type TransportStatus } from '@lions/net';
 import { formations } from '@lions/data';
-import { fx, type Command } from '@lions/sim';
+import { AMBUSH_RADIUS_MAX, MAX_LINE_QUEUE, MAX_PATROL_WAYPOINTS, MAX_PRODUCTION_LINES, fx, type Command } from '@lions/sim';
 import type { AgentClient } from './agent-client';
 import { CRITERIA, CRITERION_IDS, MAX_REASON_CHARS, SCORE_MAX, SCORE_MIN, replyFormat, rubricText, statsGlossary, validateScores, writeScoreFile } from './match-score';
+import { productionRefusal } from './economy-view';
 import type { OrderRecord } from './order-desk';
-import type { SideView } from './view';
+import { STANCES, type SideView } from './view';
 
 export type Scope = 'advise' | 'assist' | 'command';
 export const SCOPES: readonly Scope[] = ['advise', 'assist', 'command'];
@@ -57,22 +59,39 @@ export interface ToolDef {
   run(ctx: ToolContext, args: unknown): Promise<ToolResult>;
 }
 
-/** The verbs `order` builds: every command kind but the intel two, which a versus room drops (#559 F1). */
-// setStance, build, support, cancelBuild, setRally and clearRally are excluded from ORDER_VERBS; a model verb is an N3/N4 follow-up.
 /** The `detail` of an `order` refused for its `formation` alone (GH-859 P1b, M8). */
 export const FORMATIONS_CLOSED_IN_VERSUS = 'formations-closed-in-versus';
 
-export const ORDER_VERBS = COMMAND_KINDS.filter(
-  (k) => k !== 'reveal' && k !== 'callStrike' && k !== 'setStance' && k !== 'build' && k !== 'support' &&
-    k !== 'cancelBuild' && k !== 'setRally' && k !== 'clearRally' &&
-    // Field works (GH-277): the sim's construct/cancelConstruct never travel, and
-    // raiseWorks/cancelWorks are runtime-priced like build (dropped in versus).
-    k !== 'construct' && k !== 'cancelConstruct' && k !== 'raiseWorks' && k !== 'cancelWorks' &&
-    // Versus tunnels (GH-681): `observe` shows a seat neither its routes nor
-    // its buried units yet, so a model verb would be blind; an N4 follow-up.
-    k !== 'enterTunnel' && k !== 'vent',
-);
-type Verb = (typeof ORDER_VERBS)[number];
+/**
+ * Every command kind `order` does NOT build, and why. The other kinds are `ORDER_VERBS`, so the two lists
+ * partition `COMMAND_KINDS` and a kind cannot be in neither by accident (GH-954, D-W8: N2 added `setStance`, `build`
+ * and the rest and the old filter, which named the kinds it left out, never noticed). `order-verbs.test.ts` measures
+ * which kinds a versus room accepts and fails on one that is neither a verb nor listed here as withheld on purpose.
+ * `legal` says whether a versus room accepts the kind: the test checks that the claim is true.
+ */
+export const ORDER_WITHHELD = {
+  // The intel two are priced, cooled down and ranged by the mission runtime, which a room does not run (#559 F1).
+  reveal: { legal: false, why: 'intel is a mission runtime\'s; a versus room drops it (#559 F1)' },
+  callStrike: { legal: false, why: 'intel is a mission runtime\'s; a versus room drops it (#559 F1)' },
+  // Fire support stays OUT of every versus room (LD5), so a verb for it would only ever be refused.
+  support: { legal: false, why: 'fire support is dropped in every versus room (LD5)' },
+  // Field works (GH-277): the sim's own two never travel (`cleanCommand` refuses them); the client's two are runtime-priced like `build` and dropped in versus.
+  construct: { legal: false, why: 'the sim\'s own field-works order never travels (GH-277)' },
+  cancelConstruct: { legal: false, why: 'the sim\'s own field-works order never travels (GH-277)' },
+  raiseWorks: { legal: false, why: 'field works are priced by the mission runtime and dropped in versus (GH-277)' },
+  cancelWorks: { legal: false, why: 'field works are priced by the mission runtime and dropped in versus (GH-277)' },
+  // Versus tunnels (GH-681): `observe` shows a seat neither its routes nor its buried units yet, so a model verb would be blind.
+  enterTunnel: { legal: true, why: 'observe shows no tunnel routes yet, so a model could not name one (GH-681)' },
+  vent: { legal: true, why: 'observe shows no buried units yet, so a model could not name one (GH-681)' },
+} as const satisfies Partial<Record<Command['kind'], { legal: boolean; why: string }>>;
+
+type Verb = Exclude<(typeof COMMAND_KINDS)[number], keyof typeof ORDER_WITHHELD>;
+/** The verbs `order` builds: every command kind but those in `ORDER_WITHHELD`. */
+export const ORDER_VERBS: readonly Verb[] = COMMAND_KINDS.filter((k): k is Verb => !(k in ORDER_WITHHELD));
+/** The four production kinds carry no unit ids: they are the seat's side's (GH-954). */
+const PRODUCTION_VERBS = ['build', 'cancelBuild', 'setRally', 'clearRally'] as const;
+type ProductionVerb = (typeof PRODUCTION_VERBS)[number];
+const isProductionVerb = (v: string): v is ProductionVerb => (PRODUCTION_VERBS as readonly string[]).includes(v);
 export const WAIT_MAX_TICKS = 200;
 /** How often `wait` looks again, and the longest it blocks in wall time. */
 export const WAIT_POLL_MS = 10;
@@ -224,12 +243,18 @@ function describeOrder(r: OrderRecord, listed: Set<number>): Record<string, unkn
   if (isInt(c.carrier) && listed.has(c.carrier)) out.carrier = c.carrier;
   if (isInt(c.structure)) out.structure = c.structure;
   if (isInt(c.tunnel)) out.tunnel = c.tunnel;
+  // GH-954: stance and production orders.
+  if (typeof c.stance === 'string') out.stance = c.stance;
+  if (Array.isArray(c.waypoints)) out.points = c.waypoints.length;
+  if (typeof c.unit === 'string') out.unit = c.unit;
+  if (isInt(c.line)) out.line = c.line;
+  if (isInt(c.index)) out.index = c.index;
   return out;
 }
 
 const observe: ToolDef = {
   name: 'observe',
-  description: 'What your seat may know now: your units (id, type, tile, hp %, flags), enemy contacts in sight, held buildings, the score, the clock, and your recent orders (command) or proposals (assist). Tiles, never world units.',
+  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight, held buildings, the legal stances, the score, the clock, and your recent orders (command) or proposals (assist). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
@@ -363,12 +388,86 @@ const ping: ToolDef = {
   },
 };
 
+type Refused = { error: string; detail?: string };
+
+/**
+ * `setStance` (GH-954): `hold` halts and stands, `ambush` halts and holds fire until a target closes to `radius`
+ * tiles (default 3), `patrol` walks 2-4 tiles in order and round again. `radius` is the ambush's alone and
+ * `waypoints` the patrol's, as `cleanCommand` has it. Whether the seat may send it is `validateCommand`'s.
+ */
+function stanceOrder(view: SideView, ids: number[], a: Record<string, unknown>): Command | Refused {
+  const stance = (STANCES as readonly unknown[]).find((s) => s === a.stance);
+  if (stance === undefined) return { error: 'invalid', detail: `setStance needs a stance: one of ${STANCES.join(', ')}` };
+  if (stance !== 'ambush' && a.radius !== undefined) return { error: 'invalid', detail: 'radius is for the ambush stance only' };
+  if (stance !== 'patrol' && a.waypoints !== undefined) return { error: 'invalid', detail: 'waypoints are for the patrol stance only' };
+  if (stance === 'hold') return { kind: 'setStance', ids, stance: 'hold' };
+  if (stance === 'ambush') {
+    if (a.radius === undefined) return { kind: 'setStance', ids, stance: 'ambush' };
+    const max = AMBUSH_RADIUS_MAX >> 16;
+    if (!isInt(a.radius) || a.radius < 1 || a.radius > max) return { error: 'invalid', detail: `radius is an integer 1-${max} (tiles)` };
+    return { kind: 'setStance', ids, stance: 'ambush', radius: fx.from(a.radius) };
+  }
+  const wps = a.waypoints;
+  if (!Array.isArray(wps) || wps.length < 2 || wps.length > MAX_PATROL_WAYPOINTS) {
+    return { error: 'invalid', detail: `a patrol needs waypoints: 2-${MAX_PATROL_WAYPOINTS} tiles, each [x, y]` };
+  }
+  const waypoints: [number, number][] = [];
+  for (const w of wps as unknown[]) {
+    if (!Array.isArray(w) || w.length !== 2 || !isInt(w[0]) || !isInt(w[1])) return { error: 'invalid', detail: 'each waypoint is a pair of integer tiles [x, y]' };
+    if (w[0] < 0 || w[1] < 0 || w[0] >= view.size[0] || w[1] >= view.size[1]) return { error: 'off the map' };
+    waypoints.push([tileFx(w[0]), tileFx(w[1])]);
+  }
+  return { kind: 'setStance', ids, stance: 'patrol', waypoints };
+}
+
+/**
+ * The four production verbs (GH-954): `build` a menu unit, `cancelBuild` a queued item, `setRally` and `clearRally`.
+ * They name a camp's line (`observe`'s `economy.lines`), never unit ids, and always the seat's OWN side: the side is
+ * read from the view, so a model cannot ask for the other one. Whether the room has production at all, and whether
+ * the seat may use it, is `validateCommand`'s; whether the runtime would take THIS order now is its own pre-check's.
+ */
+function buildProduction(view: SideView, verb: ProductionVerb, a: Record<string, unknown>): Command | Refused {
+  const side = view.side;
+  const lineArg = (): number | Refused =>
+    isInt(a.line) && a.line >= 0 && a.line < MAX_PRODUCTION_LINES
+      ? a.line
+      : { error: 'invalid', detail: `${verb} needs a line: an integer 0-${MAX_PRODUCTION_LINES - 1}, from economy.lines in observe` };
+  switch (verb) {
+    case 'build': {
+      if (typeof a.unit !== 'string' || a.unit === '') return { error: 'invalid', detail: 'build needs a unit: an id from economy.menu in observe' };
+      if (a.line === undefined) return { kind: verb, side, unit: a.unit };
+      const line = lineArg();
+      return typeof line === 'number' ? { kind: verb, side, unit: a.unit, line } : line;
+    }
+    case 'cancelBuild': {
+      const line = lineArg();
+      if (typeof line !== 'number') return line;
+      if (!isInt(a.index) || a.index < -1 || a.index >= MAX_LINE_QUEUE) {
+        return { error: 'invalid', detail: `cancelBuild needs an index: -1 for the item in production, or 0-${MAX_LINE_QUEUE - 1} for one waiting` };
+      }
+      return { kind: verb, side, line, index: a.index };
+    }
+    case 'setRally': {
+      const line = lineArg();
+      if (typeof line !== 'number') return line;
+      if (!isInt(a.x) || !isInt(a.y)) return { error: 'invalid', detail: 'setRally needs integer tiles x and y' };
+      if (a.x < 0 || a.y < 0 || a.x >= view.size[0] || a.y >= view.size[1]) return { error: 'off the map' };
+      return { kind: verb, side, line, x: tileFx(a.x), y: tileFx(a.y) };
+    }
+    case 'clearRally': {
+      const line = lineArg();
+      return typeof line === 'number' ? { kind: verb, side, line } : line;
+    }
+  }
+}
+
 /** The command an `order` call describes, or why it cannot be one. */
 function buildOrder(view: SideView, a: Record<string, unknown>): Command | { error: string; detail?: string } {
   if (typeof a.verb !== 'string' || !(ORDER_VERBS as readonly string[]).includes(a.verb)) {
     return { error: 'unknown verb', detail: `one of ${ORDER_VERBS.join(', ')}` };
   }
   const verb = a.verb as Verb;
+  if (isProductionVerb(verb)) return buildProduction(view, verb, a);
   if (!Array.isArray(a.ids) || a.ids.length === 0 || !a.ids.every(isInt)) return { error: 'invalid', detail: 'ids is a non-empty list of unit ids' };
   const ids = [...new Set(a.ids as number[])];
   const own = new Set(view.units.map((u) => u.id));
@@ -422,6 +521,8 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
     case 'halt':
     case 'unload':
       return { kind: verb, ids };
+    case 'setStance':
+      return stanceOrder(view, ids, a);
     case 'garrison':
     case 'demolish': {
       const s = need('structure');
@@ -470,7 +571,7 @@ function sweepRefusal(ctx: ToolContext): ToolResult | null {
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack, rescue: a medic goes to treat and carry a wounded); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units, or your production. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack, rescue: a medic goes to treat and carry a wounded); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',
@@ -483,11 +584,21 @@ const order: ToolDef = {
       structure: { type: 'integer' },
       carrier: { type: 'integer' },
       tunnel: { type: 'integer' },
+      stance: { type: 'string', enum: [...STANCES], description: 'setStance only' },
+      radius: { type: 'integer', minimum: 1, maximum: AMBUSH_RADIUS_MAX >> 16, description: 'setStance ambush only: tiles' },
+      waypoints: {
+        type: 'array', minItems: 2, maxItems: MAX_PATROL_WAYPOINTS,
+        items: { type: 'array', items: { type: 'integer' }, minItems: 2, maxItems: 2 },
+        description: 'setStance patrol only: 2-4 tiles, each [x, y]',
+      },
+      unit: { type: 'string', description: 'build only: a unit id from economy.menu in observe' },
+      line: { type: 'integer', minimum: 0, maximum: MAX_PRODUCTION_LINES - 1, description: 'a production line from economy.lines in observe (build: optional, default the shortest queue)' },
+      index: { type: 'integer', minimum: -1, maximum: MAX_LINE_QUEUE - 1, description: 'cancelBuild only: -1 the item in production, 0 upward those waiting' },
       formation: { type: 'string', description: 'move or attackMove only: a shipped formation id (column, ambush: move; attack: attackMove). The units take its slots about the tile', enum: formations.map((f) => f.id) },
       sweep: { type: 'boolean', description: 'attackMove only, and only bot against bot in command scope: on arrival, go on to hunt remembered enemies' },
       note: { type: 'string' },
     },
-    required: ['verb', 'ids'],
+    required: ['verb'],
     additionalProperties: false,
   },
   async run(ctx, raw) {
@@ -513,7 +624,18 @@ const order: ToolDef = {
       if ('formation' in cmd && cmd.formation !== undefined && ctx.client.precheck({ ...cmd, formation: undefined } as Command)) {
         return refuse('invalid', { detail: FORMATIONS_CLOSED_IN_VERSUS });
       }
+      // GH-954: ownership drops production in a room that has none. `observe` shows `economy` exactly when it has.
+      if (isProductionVerb(cmd.kind) && view.economy === undefined) {
+        return refuse('invalid', { detail: `${cmd.kind} is for KDF-against-Sarim rooms, which have a production economy; this room has none (observe shows no economy)` });
+      }
       return refuse('invalid');
+    }
+    // GH-954: ownership said yes; the runtime may still set the order aside unspent (purse, population, queue, camp,
+    // tile). Its own pre-checks say why, as the dock's click does, and the order is refused here with that reason.
+    if (isProductionVerb(cmd.kind)) {
+      const w = ctx.client.world();
+      const why = w === null ? null : productionRefusal(w, view.side, cmd);
+      if (why !== null) return refuse('refused', { detail: why });
     }
     if (ctx.scope === 'command') {
       const r = ctx.client.desk.submit(cmd, ctx.client.tick());

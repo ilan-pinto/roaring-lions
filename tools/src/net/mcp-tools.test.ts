@@ -87,10 +87,8 @@ describe('order in command scope (case 2)', () => {
     expect(body(refused).error).toBe('not your unit');
     const unknown = await call(ctx, 'order', { verb: 'callStrike', ids: [own] });
     expect(body(unknown).error).toBe('unknown verb');
-    expect(body(await call(ctx, 'order', { verb: 'setStance', ids: [own] })).error).toBe('unknown verb');
-    expect(body(await call(ctx, 'order', { verb: 'build', ids: [own] })).error).toBe('unknown verb');
-    expect(body(await call(ctx, 'order', { verb: 'support', ids: [own] })).error).toBe('unknown verb');
-    for (const verb of ['cancelBuild', 'setRally', 'clearRally', 'enterTunnel', 'vent']) {
+    // GH-954 (D-W8): the stance and production verbs are verbs now; what stays out is fire support and the tunnel two.
+    for (const verb of ['support', 'enterTunnel', 'vent', 'reveal', 'raiseWorks', 'cancelWorks', 'construct', 'cancelConstruct']) {
       expect(body(await call(ctx, 'order', { verb, ids: [own] })).error, verb).toBe('unknown verb');
     }
     const off = await call(ctx, 'order', { verb: 'move', ids: [own], x: 999, y: 3 });

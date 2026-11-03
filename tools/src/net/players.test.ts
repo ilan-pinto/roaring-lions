@@ -126,9 +126,9 @@ const NO_SCORE = { lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remai
 function viewOf(units: { id: number; tile: [number, number]; flags: string[] }[], contacts: { id: number; tile: [number, number] }[] = []): SideView {
   return {
     tick: 120, clock: '00:06', side: 0, faction: 'kdf', map: MAP, size: [48, 48], camp: [24, 44], enemyCamp: [28, 16],
-    units: units.map((u) => ({ ...u, type: 'inf_squad', hp: 100 })),
+    units: units.map((u) => ({ ...u, type: 'inf_squad', hp: 100, stance: 'free' as const })),
     contacts: contacts.map((c) => ({ ...c, type: 'inf_squad', hp: 100 })),
-    casualties: { mine: [], theirs: [] }, held: [], score: { mine: NO_SCORE, theirs: NO_SCORE }, result: null,
+    casualties: { mine: [], theirs: [] }, held: [], stances: ['hold', 'ambush', 'patrol'], score: { mine: NO_SCORE, theirs: NO_SCORE }, result: null,
   };
 }
 
