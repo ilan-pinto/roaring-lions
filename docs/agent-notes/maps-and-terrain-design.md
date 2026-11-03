@@ -339,8 +339,25 @@ Inside 60/40 on both reads. The first build read KDF 50.5% / 49.7% (50.0% pooled
 
 ### Opening it (what the swap changes)
 
-The swap is a file copy of the staged map and rules over `data/maps/milh_flats_l.json` and `data/versus/milh_flats_l.json`, plus
-every pin the new data moves, each re-read independently of the code: `high_ground_maps.test.ts` `milh_flats_l: 2` (and the
-relief total, 154), `presentation_census.test.ts` (160 slope tiles a seat, lit 0/160 and 160/0, twin mismatches 160, x-flip
-285/135), the Free Play card line in `en.json`, the generator (`tools/maps/milh_flats_l/build.mjs` becomes the redo's) and
-`milh_flats_l.test.ts`. `_coord/milh-l-redo/swap.patch` holds that commit, tested.
+The swap is a file copy of the staged map and rules over `data/maps/milh_flats_l.json` and `data/versus/milh_flats_l.json`, the
+redo's generator and sketch in place of `tools/maps/milh_flats_l/build.mjs`, the redo spec under `milh_flats_l` in
+`large_map_verify.ts`, and the pins the new data moves. A full `pnpm test` run on the copied data (3 Nov, with the budget still to
+fit) reads exactly these, and nothing else, red:
+
+- `high_ground_maps.test.ts`: `milh_flats_l: 2` (was 6; an independent Python flood fill reads 2 runs of 124 tiles at level 4 or
+  above, median open level 2) and the relief total, 154;
+- `presentation_census.test.ts` (Milh block): 160 slope tiles a seat (was 422), lit 0/160 and 160/0, twin mismatches 160 (still
+  over the 150 bar), the x-flip mutation 285/135, the half-turn control 160/160;
+- `terrain-defaults.fixture.json`: `milh_flats_l` `f79c04c8...` becomes `9a7cb199...` (one line);
+- `snapshot-rejoin.test.ts`: the premise seed (2) reads a non-negative digest on the new map, so the premise needs another seed
+  that reads negative, found by the test's own `play` and `digestOf`;
+- `milh_flats_l.test.ts`: the first build's own landmarks (the original's markers and zones by name, the 14x14 hamlet) become the
+  redo's, which is `milh_flats_l_redo.test.ts` with the registration block put back;
+- `en.json`: the Free Play card line ("a gravel plain ... a hamlet") becomes "two wadis, two crowned tells and a walled town" (82
+  characters; the bound is 90);
+- `versus-probe.test.ts` "the economy self-check passes on each map" is a 60 s test that read red on both trees under this
+  machine's load (it passes alone): not a pin.
+
+`crown-summit.test.ts` (2), `ambience.test.ts` ('open', 0.76% built), `terrain-chunks.test.ts` and `versus_maps.test.ts` pass
+on the new data unchanged. B4 and the budget (above) are read on the same bytes. Before opening, fit the walls (instance
+per-tile structures, design decision 7) and the JS ceiling, then re-read perf and memory.
