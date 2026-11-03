@@ -54,6 +54,20 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   seats and the south pair at 4 stay. The 2x2 on the map's south rows reads
  *   inside for x = 20, 21 and 22; row 45 is mixed ((21,45) Sarim friendly
  *   61%).
+ *   GH-990 (3 Nov, after the faster Spike, PR 987): the economy cell with Sarim friendly read Sarim
+ *   62.5-64.9% on 4000-4287 (medic off / on) and 63.2% on 6000-6287 at the seat (27,45), outside 60/40.
+ *   Income rates and camp moves were screened and failed (lever-report.md of the GH-707 search; four more
+ *   hostile camps here, (25,18) (25,20) (22,20) (28,20): 58.6-59.6%, and Sarim 91.4% at (28,20)). A Sarim
+ *   opening purse of 1800 / 1500 (instead of 2400) moves the cell 4 / 6 points but sends tunnel cell 3 to
+ *   KDF 60.9% / 64.1%. The friendly seat one tile west, (26,45), with the camp (21,46) and every route
+ *   as they were, reads, seeds 0-383: economy Sarim friendly KDF 54.9% and KDF friendly Sarim 55.5%, tunnel
+ *   cell 3 Sarim 53.1% (KDF friendly) / KDF 54.2% (Sarim friendly), mirror east 54.9%, placed Sarim 50.3% (KDF friendly) / KDF 59.1% (Sarim friendly).
+ *   Its neighbours swing: (27,44) mirror west 59.4%, (27,46) tunnel cell 3 KDF 64.1% and the Sarim mirror
+ *   87.2%, (26,44) the Sarim mirror 71.4%, (28,46) economy Sarim 60.1%, (26,46) mirror east 62%.
+ *   Held out (7000-7287 and 4000-4287, 288 seeds a cell): economy Sarim friendly Sarim 56.6 / 62.5% -> KDF
+ *   53.8 / KDF 56.3% (medic off), Sarim 56.3 / 64.9% -> KDF 53.5 / Sarim 51.0% (medic on); every other
+ *   cell inside 60/40, both arms. The Sarim-v-Sarim mirror (a report cell) read east 62.8 / 70.8% and now
+ *   reads 55.6 / 55.9%. The full table is in the PR for GH-990.
  * - `wadi_tarfan` (mirror and KDF-vs-Sarim; the lead's ruling, 23 Oct,
  *   GH-769): its own `versus_0`/`versus_1` markers (10,10)/(37,37) read
  *   KDF-vs-Sarim outside 60/40 at 96 seeds with wounds on (placed force, KDF
@@ -110,7 +124,7 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  */
 export const VERSUS_SEATS: Readonly<Record<string, SandboxAnchors>> = {
   beit_sahwan_outskirts: { friendly: [4, 22], hostile: [40, 23] },
-  tel_marum: { friendly: [27, 45], hostile: [29, 17] },
+  tel_marum: { friendly: [26, 45], hostile: [29, 17] },
   wadi_tarfan: { friendly: [10, 10], hostile: [37, 37] },
 };
 
