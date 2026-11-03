@@ -14,10 +14,14 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  BOT_ADDENDUM, botMcpConfig, buildMessage, harnessRoomBuild, shortBuild, botPrompt, classify, fileStem, harnessLines, harnessRefusedBuild, joinRefusedMessage, reportMarkdown, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, parseBotArgs, resolveModel, runBot, USAGE,
+  scoreNames, scoresSection, BOT_ADDENDUM, botMcpConfig, buildMessage, harnessRoomBuild, shortBuild, botPrompt, classify, fileStem, harnessLines, harnessRefusedBuild, joinRefusedMessage, reportMarkdown, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, parseBotArgs, resolveModel, runBot, USAGE,
   type SignalSource, type StopSignal,
 } from './bot';
 import { HARNESS_AGENT, HARNESS_TSX, standingPrompt, type SpawnFn } from './external-player';
+import { RefereeTally, writeScoreFile, type RefereeStats, type ScoreSet } from './match-score';
+import { loose, playerScore, setPath } from './score-fixture';
+import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
+import { versusConfig } from './test-config';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const TSX = join(resolve(here, '../..'), 'node_modules/.bin/tsx');
@@ -228,7 +232,7 @@ describe('the MCP config, the prompt and the client command', () => {
     expect(call.args.join(' ')).not.toContain(TICKET);
     expect(JSON.stringify(call.options.env)).not.toContain(TICKET);
     const dir = call.options.cwd as string;
-    expect(JSON.parse(call.config)).toEqual(botMcpConfig({ server: LIVE_SERVER, room: 'ABC234' }, join(dir, 'ticket'), join(cwd, 'bot-results', `${STEM.replace('claude-sonnet-5-5', 'claude-haiku-5-5')}.log`), '0.1.0+abcdef1'));
+    expect(JSON.parse(call.config)).toEqual(botMcpConfig({ server: LIVE_SERVER, room: 'ABC234' }, join(dir, 'ticket'), join(cwd, 'bot-results', `${STEM.replace('claude-sonnet-5-5', 'claude-haiku-5-5')}.log`), '0.1.0+abcdef1', join(cwd, 'bot-results', `${STEM.replace('claude-sonnet-5-5', 'claude-haiku-5-5')}-scores.json`)));
     expect(h.joins[0].body.build).toBe('0.1.0+abcdef1');   // the join names the build the harness will
     expect(call.config).not.toContain(TICKET);
     expect(call.prompt).not.toContain(TICKET);
@@ -452,7 +456,7 @@ describe('the log', () => {
     mkdirSync(join(cwd, 'bot-results'), { recursive: true });
     chmodSync(join(cwd, 'bot-results'), 0o755);
     expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(0);
-    expect(resultsOf()).toEqual([`${STEM}-report.md`, `${STEM}.log`]);
+    expect(resultsOf()).toEqual([`${STEM}-report.md`, `${STEM}-scores.json`, `${STEM}.log`]);
     const logPath = join(cwd, 'bot-results', `${STEM}.log`);
     expect(mode(logPath)).toBe(0o600);
     expect(mode(join(cwd, 'bot-results'))).toBe(0o700);
@@ -478,7 +482,7 @@ describe('the log', () => {
     const h = harness((c) => { c.end(0); });
     await runBot(['--room', 'ABC234', '--model', '../../../evil/m'], h.opts);
     expect(readdirSync(cwd)).toEqual(['bot-results']);
-    expect(resultsOf()).toHaveLength(2);
+    expect(resultsOf()).toHaveLength(3);
     for (const f of resultsOf()) expect(f).not.toMatch(/[\\/]/);
   });
   it('uses INIT_CWD when no directory is injected', async () => {
@@ -492,7 +496,7 @@ describe('the log', () => {
     } finally {
       if (saved === undefined) delete process.env.INIT_CWD; else process.env.INIT_CWD = saved;
     }
-    expect(resultsOf()).toHaveLength(2);
+    expect(resultsOf()).toHaveLength(3);
   });
   it('refuses at once when the folder cannot be made, and starts nothing', async () => {
     writeFileSync(join(cwd, 'bot-results'), 'a file where the folder should go');
@@ -527,7 +531,8 @@ describe('the match report', () => {
     expect(report).toContain('- Build: 0.1.0+abcdef1');
     expect(report).toContain('- Result: completed');
     expect(report).toContain('- Tokens: 734');
-    expect(report.endsWith(`${message}\n`)).toBe(true);
+    // The model's message comes first and whole; the scores section follows it (GH-973).
+    expect(report).toContain(`\n${message}\n\n## Scores\n`);
     expect(report).not.toContain('No report was produced');
   });
   it('is written even when the client dies first, and says why', async () => {
@@ -822,4 +827,126 @@ describe('the real entry point', () => {
       server.close();
     }
   }, 30_000);
+});
+
+// GH-973 (the lead's ruling of 3 Nov): the bot scores BOTH players. The harness is the client's child, so it
+// leaves the referee's stats and the accepted scores in the file named by `--score-file`; these cases play the
+// harness by writing that file from the fake client, and watch what the bot makes of it.
+describe('match scoring (GH-973)', () => {
+  const referee = (): RefereeStats => new RefereeTally().stats(buildMatchWorld(versusConfig('tel_marum')).sim, { map: 'tel_marum', sides: [0, 1], factions: ['kdf', 'kdf'], result: 'seat 1 won (annihilation)' });
+  const scores = (a = 3, b = 8): ScoreSet => ({ seat0: playerScore(a), seat1: playerScore(b) });
+  const scoreFileOf = (call: Call): string => {
+    const a = (JSON.parse(call.config) as { mcpServers: { lions: { args: string[] } } }).mcpServers.lions.args;
+    return a[a.indexOf('--score-file') + 1];
+  };
+  /** A fake client that finishes the match, scores it through the harness's file, and prints a final message. */
+  const scorer = (write: (file: string) => void) => (c: FakeChild, call: Call): void => {
+    write(scoreFileOf(call));
+    c.stdout.write(resultLine({ result: '## Conclusion\nLost on the flank.\n\n## Bugs noticed\nnone', usage: { input_tokens: 5, output_tokens: 6 } }));
+    c.end(0);
+  };
+  const json = (): { status: string; problems?: string[]; scores?: unknown; referee: { seats: unknown[] } | null; submittedTick?: number; [k: string]: unknown } => JSON.parse(readResult(`${STEM}-scores.json`)) as ReturnType<typeof json>;
+
+  it('starts the harness with --score-file in bot-results, beside the report, and the addendum names the tools and the rubric', async () => {
+    const h = harness((c) => { c.end(0); });
+    await runBot(['--room', 'ABC234'], h.opts);
+    expect(scoreFileOf(h.calls[0])).toBe(join(cwd, 'bot-results', `${STEM}-scores.json`));
+    for (const w of ['match_stats', 'submit_score', 'BOTH players', 'fewer_deaths', 'wounded_care', 'force_preservation', 'tempo_initiative', 'adaptation', 'do not repeat them']) expect(BOT_ADDENDUM, w).toContain(w);
+    // The scoring step comes BEFORE the final report.
+    expect(BOT_ADDENDUM.indexOf('submit_score')).toBeLessThan(BOT_ADDENDUM.indexOf('Then make your FINAL message'));
+  });
+
+  it('puts both players\' scores and the referee\'s numbers in the report, and the JSON record beside it; the bot is named as "you"', async () => {
+    const h = harness(scorer((f) => { writeScoreFile(f, { version: 1, seat: 1, referee: referee(), scores: scores(3, 8), submittedTick: 812 }); }));
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(0);
+    const report = readResult(`${STEM}-report.md`);
+    expect(report).toContain('\n## Scores\n');
+    expect(report).toContain('Scored by the bot itself');
+    // Seat 1 is the bot: it is named "you", and seat 0 is the opponent.
+    expect(report).toContain('| 0 | opponent | 3 | 3 | 3 | 3 | 3 | 3 |');
+    expect(report).toContain('| 1 | Sonnet Bot (you) | 8 | 8 | 8 | 8 | 8 | 8 |');
+    expect(report).toContain('- Fewer deaths: 3. fewer_deaths: 3 lost against 5');
+    expect(report).toContain("### Referee's stats");
+    const rec = json();
+    expect(rec).toMatchObject({ version: 1, room: 'ABC234', model: 'claude-sonnet-5-5', seat: 1, status: 'scored', submittedTick: 812 });
+    expect(rec.scores).toEqual(scores(3, 8));
+    expect(rec.referee?.seats).toHaveLength(2);
+    expect(mode(join(cwd, 'bot-results', `${STEM}-scores.json`))).toBe(0o600);
+    // The model's own message is still first and whole.
+    expect(report).toContain('## Conclusion\nLost on the flank.');
+  });
+
+  it('an out-of-range score in the file is INVALID: recorded as such, never shown as a score, and the exit code is the run\'s', async () => {
+    const bad = setPath(loose(scores()), 'seat1.criteria.adaptation.score', 11);
+    const h = harness(scorer((f) => { writeFileSync(f, JSON.stringify({ version: 1, seat: 1, referee: referee(), scores: bad, submittedTick: 9 })); }));
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(0);
+    const report = readResult(`${STEM}-report.md`);
+    expect(report).toContain('Not scored: the scores in the score file failed validation and are not shown');
+    expect(report).toContain('- seat1.criteria.adaptation.score is 11, outside 1-10');
+    expect(report).not.toContain('Sonnet Bot (you) | 8');
+    expect(report).not.toContain('Scored by the bot itself');
+    const rec = json();
+    expect(rec.status).toBe('invalid');
+    expect(rec.problems).toEqual(['seat1.criteria.adaptation.score is 11, outside 1-10']);
+    expect(rec).not.toHaveProperty('scores');
+    // The referee's numbers are still shown: they are the harness's, not the model's.
+    expect(report).toContain("### Referee's stats");
+  });
+
+  it('a model that never scored is MISSING, with the stats if the match left them, and nothing invented', async () => {
+    const h = harness(scorer((f) => { writeScoreFile(f, { version: 1, seat: 1, referee: referee(), scores: null, submittedTick: null }); }));
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(0);
+    const report = readResult(`${STEM}-report.md`);
+    expect(report).toContain('Not scored: the model did not submit scores');
+    expect(report).toContain("### Referee's stats");
+    expect(json()).toMatchObject({ status: 'missing' });
+    expect(json()).not.toHaveProperty('scores');
+
+    // ...and with no file at all.
+    const h2 = harness((c) => { c.stdout.write(resultLine({ result: 'done' })); c.end(0); });
+    await runBot(['--room', 'ABC234'], h2.opts);
+    expect(readResult(`${STEM}-report.md`)).toContain('Not scored: no scores were submitted and the match left no stats');
+    expect(json()).toMatchObject({ status: 'missing', referee: null });
+  });
+
+  it('a score file of an earlier run with the same name is not this run\'s', async () => {
+    mkdirSync(join(cwd, 'bot-results'), { recursive: true });
+    writeScoreFile(join(cwd, 'bot-results', `${STEM}-scores.json`), { version: 1, seat: 1, referee: referee(), scores: scores(), submittedTick: 1 });
+    const h = harness((c) => { c.stdout.write(resultLine({ result: 'done' })); c.end(0); });
+    await runBot(['--room', 'ABC234'], h.opts);
+    expect(json().status).toBe('missing');
+  });
+
+  it('a score file the model could have tampered with cannot break the report: a bad referee block is dropped, a non-JSON file is invalid', async () => {
+    const h = harness(scorer((f) => {
+      const r = loose(referee());
+      (r.seats as Record<string, unknown>[])[0].deaths = 'many';
+      writeFileSync(f, JSON.stringify({ version: 1, seat: 1, referee: r, scores: scores(), submittedTick: 1 }));
+    }));
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(0);
+    expect(readResult(`${STEM}-report.md`)).toContain('Scored by the bot itself');
+    expect(readResult(`${STEM}-report.md`)).not.toContain("### Referee's stats");
+    const h2 = harness(scorer((f) => { writeFileSync(f, '{ not json'); }));
+    expect(await runBot(['--room', 'ABC234'], h2.opts)).toBe(0);
+    expect(json().status).toBe('invalid');
+  });
+
+  it('a client that dies still gets a scores section (not scored), and a run that never took a seat has no scores file', async () => {
+    const dies = harness((c) => { c.stderr.write('kaboom\n'); c.end(7); });
+    expect(await runBot(['--room', 'ABC234'], dies.opts)).toBe(1);
+    expect(readResult(`${STEM}-report.md`)).toContain('## Scores');
+    expect(json().status).toBe('missing');
+    rmSync(join(cwd, 'bot-results'), { recursive: true, force: true });
+    const refused = harness(() => {}, { join: 404 });
+    expect(await runBot(['--room', 'ABC234'], refused.opts)).toBe(1);
+    expect(resultsOf()).toEqual([`${STEM}-report.md`, `${STEM}.log`]);
+    expect(readResult(`${STEM}-report.md`)).toContain('Not scored: no scores were submitted');
+  });
+
+  it('names the two players by seat: the bot as "you", the other as the opponent', () => {
+    expect(scoreNames(1, 'Opus Bot')).toEqual(['opponent', 'Opus Bot (you)']);
+    expect(scoreNames(0, 'Opus Bot')).toEqual(['Opus Bot (you)', 'opponent']);
+    expect(scoreNames(null, undefined)).toEqual(['seat 0', 'seat 1']);
+    expect(scoresSection({ status: 'missing', reason: 'x', referee: null }, ['a', 'b']).join('\n')).toContain('Not scored: x.');
+  });
 });

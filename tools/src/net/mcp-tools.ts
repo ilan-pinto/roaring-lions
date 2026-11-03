@@ -19,6 +19,7 @@ import { COMMAND_KINDS, cleanAdvisorMsg, cleanChat, cleanCommand, type Transport
 import { formations } from '@lions/data';
 import { fx, type Command } from '@lions/sim';
 import type { AgentClient } from './agent-client';
+import { CRITERIA, CRITERION_IDS, MAX_REASON_CHARS, SCORE_MAX, SCORE_MIN, replyFormat, rubricText, statsGlossary, validateScores, writeScoreFile } from './match-score';
 import type { OrderRecord } from './order-desk';
 import type { SideView } from './view';
 
@@ -43,6 +44,8 @@ export interface ToolContext {
   lobbyWaitMs?: number;
   /** Whether a tool has yet looked at the started match (the first look has a short grace; see `firstSight`). */
   seen?: boolean;
+  /** `pnpm bot` only (GH-973): where an accepted score is written (`--score-file`). Absent: `match_stats` and `submit_score` are not offered. */
+  scoreFile?: string;
 }
 
 export interface ToolDef {
@@ -550,9 +553,78 @@ const endRound: ToolDef = {
   },
 };
 
-export const TOOLS: readonly ToolDef[] = [observe, status, wait, inbox, say, ping, order, endRound];
+/**
+ * A room that has ended hands the client its result only once the frames it still holds have run (`drained`, on the
+ * harness's own 10 ms pump). The scoring tools wait that out, bounded, so the stats name how the match ended; a
+ * room that ended with no result (a void, a desync) is read as it stands after the bound.
+ */
+export const RESULT_SETTLE_MS = 1500;
+async function settleResult(ctx: ToolContext): Promise<void> {
+  const deadline = Date.now() + RESULT_SETTLE_MS;
+  while (ctx.client.result() === null && terminal(ctx.client.transport.status()) && Date.now() < deadline) await sleep(WAIT_POLL_MS);
+}
 
-/** The tools a model in `scope` is given. */
-export function toolsFor(scope: Scope): ToolDef[] {
-  return TOOLS.filter((t) => t.scopes.includes(scope));
+/**
+ * The match scoring tools (GH-973), offered to a `pnpm bot` seat only (the harness is started with `--score-file`):
+ * the arena's players are scored by a separate judge, never by themselves. Both answer `match not over` until the
+ * match has a result, because the referee's numbers cover both sides and would otherwise see through the fog.
+ */
+const matchStats: ToolDef = {
+  name: 'match_stats',
+  description: 'After the match is over: the referee\'s end-of-match stats for BOTH seats (deaths, wounded fallen/rescued/died, value lost and destroyed, idle time, orders, a 30-second timeline). Not fog-limited, so it answers `match not over` until there is a result. Read it before `submit_score`.',
+  scopes: ['command'],
+  schema: { type: 'object', properties: {}, additionalProperties: false },
+  async run(ctx) {
+    if (ctx.scoreFile === undefined) return refuse('not in this scope');
+    await settleReplay(ctx);
+    if (ctx.client.config() === null) return notStarted(ctx);
+    if (!over(ctx)) return refuse('match not over', { detail: 'the referee\'s numbers cover both sides and are shown once there is a result' });
+    await settleResult(ctx);
+    const stats = ctx.client.refereeStats();
+    if (stats === null) return notStarted(ctx);
+    return ok({ stats, glossary: statsGlossary(), seat: ctx.client.seat });
+  },
+};
+
+const criterionSchema = { type: 'object', properties: { score: { type: 'integer', minimum: SCORE_MIN, maximum: SCORE_MAX }, reason: { type: 'string', minLength: 1, maxLength: MAX_REASON_CHARS, description: 'one line' } }, required: ['score', 'reason'], additionalProperties: false };
+const playerSchema = {
+  type: 'object',
+  properties: {
+    criteria: { type: 'object', properties: Object.fromEntries(CRITERION_IDS.map((id) => [id, criterionSchema])), required: [...CRITERION_IDS], additionalProperties: false },
+    overall: criterionSchema,
+  },
+  required: ['criteria', 'overall'],
+  additionalProperties: false,
+};
+
+const submitScore: ToolDef = {
+  name: 'submit_score',
+  description: `After the match is over and you have read \`match_stats\`: score BOTH players (seat0 and seat1, yourself included). ${CRITERIA.length} criteria (${CRITERION_IDS.join(', ')}) and an overall, each \`{score, reason}\`: a whole number ${SCORE_MIN}-${SCORE_MAX} and a ONE-line reason (at most ${MAX_REASON_CHARS} characters) that cites a number from the stats. A score that does not validate is refused with every problem listed: fix them and submit again; a later valid submission replaces an earlier one.`,
+  scopes: ['command'],
+  schema: { type: 'object', properties: { seat0: playerSchema, seat1: playerSchema }, required: ['seat0', 'seat1'], additionalProperties: false },
+  async run(ctx, raw) {
+    if (ctx.scoreFile === undefined) return refuse('not in this scope');
+    if (ctx.client.config() === null) return notStarted(ctx);
+    if (!over(ctx)) return refuse('match not over', { detail: 'score once the match has a result' });
+    const v = validateScores(raw);
+    if (!v.ok) return refuse('invalid', { problems: v.problems, rubric: rubricText(), format: replyFormat() });
+    await settleResult(ctx);
+    const stats = ctx.client.refereeStats();
+    if (stats === null) return notStarted(ctx);
+    try {
+      writeScoreFile(ctx.scoreFile, { version: 1, seat: ctx.client.seat, referee: stats, scores: v.scores, submittedTick: ctx.client.tick() });
+    } catch (e) {
+      return refuse('not saved', { detail: e instanceof Error ? e.message : String(e) });
+    }
+    return ok({ accepted: true, note: 'the scores are saved in the match report; do not repeat them in your final message' });
+  },
+};
+
+export const TOOLS: readonly ToolDef[] = [observe, status, wait, inbox, say, ping, order, endRound, matchStats, submitScore];
+/** The tools only a scoring seat (`ToolContext.scoreFile`) is given. */
+const SCORING_TOOLS: readonly string[] = [matchStats.name, submitScore.name];
+
+/** The tools a model in `scope` is given; the two scoring tools only with `scoring` (the harness's `--score-file`). */
+export function toolsFor(scope: Scope, o: { scoring?: boolean } = {}): ToolDef[] {
+  return TOOLS.filter((t) => t.scopes.includes(scope) && (o.scoring === true || !SCORING_TOOLS.includes(t.name)));
 }

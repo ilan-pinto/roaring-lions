@@ -34,6 +34,21 @@
  * done, so the live part of the progress is the client's stderr and any plain
  * stdout line; the result and the tokens (`tokensOf`) come at the end.
  *
+ * Scoring (GH-973, the lead's ruling of 3 Nov): at the end of the match the bot
+ * scores BOTH players, 1-10 on five criteria with a one-line reason each and an
+ * overall, from the referee's end-of-match stats. It does so through the harness
+ * (`--score-file <bot-results>/<stem>-scores.json`): two extra tools, `match_stats`
+ * (the referee's numbers for both seats, shown only once the match has a result)
+ * and `submit_score` (strictly validated, refused with every problem listed so the
+ * model can fix and resubmit). The harness is the client's child, so it leaves the
+ * accepted scores in that file and this process reads it back (`readScoreFile`,
+ * which validates AGAIN: a missing or invalid score is recorded as such, never
+ * invented), puts a `## Scores` section into the report and rewrites the file as
+ * the JSON record. A tool, not a final prompt turn: `claude -p` is a single
+ * session, so a second turn would need `--resume` and a second spend; the tool
+ * keeps the scoring inside the one run and lets the validator answer the model.
+ * Scoring never changes the result, the exit code or anything the sim holds.
+ *
  * Signals (the arena's rule, `arena.ts#installSignalCleanup`): the first
  * SIGINT/SIGTERM/SIGHUP (the terminal closing) removes the directory, stops the client (SIGTERM, then
  * SIGKILL after `killMs`) and ends with 130/143; a second one removes the
@@ -50,6 +65,7 @@ import { pathToFileURL } from 'node:url';
 import { MAX_CALLSIGN_CHARS } from '@lions/net';
 import { joinRoom, JoinRefused } from './agent';
 import { buildId } from './build-id';
+import { readScoreFile, refereeMarkdown, rubricText, scoresMarkdown, type ScoreOutcome } from './match-score';
 import { HARNESS_AGENT, HARNESS_TSX, parseTemplate, standingPrompt, tempRoot, tokensOf, type SpawnFn } from './external-player';
 
 /** The live game: the default `--server`. */
@@ -144,12 +160,12 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
  * left to the harness: this checkout's build (`build`, when given, so the join
  * and the hello name the same string), the server's own origin.
  */
-export function botMcpConfig(a: Pick<BotArgs, 'server' | 'room'>, ticketFile: string, logFile: string, build?: string): { mcpServers: { lions: { command: string; args: string[] } } } {
+export function botMcpConfig(a: Pick<BotArgs, 'server' | 'room'>, ticketFile: string, logFile: string, build?: string, scoreFile?: string): { mcpServers: { lions: { command: string; args: string[] } } } {
   return {
     mcpServers: {
       lions: {
         command: HARNESS_TSX,
-        args: [HARNESS_AGENT, '--server', a.server, '--code', a.room, '--scope', 'command', '--ticket-file', ticketFile, '--log-file', logFile, ...(build === undefined ? [] : ['--build', build])],
+        args: [HARNESS_AGENT, '--server', a.server, '--code', a.room, '--scope', 'command', '--ticket-file', ticketFile, '--log-file', logFile, ...(build === undefined ? [] : ['--build', build]), ...(scoreFile === undefined ? [] : ['--score-file', scoreFile])],
       },
     },
   };
@@ -265,6 +281,8 @@ export function harnessRoomBuild(lines: readonly string[]): string | null {
 
 export const ENTRYPOINT_WARNING = 'bot: CLAUDE_CODE_ENTRYPOINT is set, so this shell was started by Claude Code (or its desktop app). The environment it passes on can break a child `claude`; if the bot cannot sign in, run `pnpm bot` from macOS Terminal.';
 
+/** The scoring rubric, as the addendum states it (one copy: `match-score.ts`). */
+const RUBRIC = rubricText();
 /**
  * What `pnpm bot` adds to the standing prompt, for a bot seat only (the arena
  * reads `arena-prompt.md` alone). The model's FINAL message is saved as the
@@ -285,7 +303,16 @@ An order that the game could not carry out shows as \`dropped\` with a \`reason\
 
 As you play, keep short notes of anything odd: an order refused or dropped for no reason you can see, a tool error, \`observe\` data that looks inconsistent (a unit that vanishes, a count that does not add up, a position off the map), or anything else that seems broken in the game or the tools. For each, note what you did, what you expected and what happened.
 
-When the match is over (\`status\` shows a result, or an acting tool answers \`match over\`), stop playing and make your FINAL message a report in Markdown with exactly these two headings:
+When the match is over (\`status\` shows a result, or an acting tool answers \`match over\`), stop playing and score the match BEFORE you write your report:
+
+1. Call \`match_stats\`. It gives the referee's numbers for BOTH seats (deaths, wounded who fell, were rescued or died, value lost and destroyed, idle time, orders, a timeline), with no fog. It answers \`match not over\` until there is a result.
+2. Call \`submit_score\` with a score for BOTH players, yourself included (\`seat0\` and \`seat1\`, as numbered in \`match_stats\`; you are the seat in your prompt). Each has the five criteria and an \`overall\`, each \`{score, reason}\`. Be honest: score how each player played against the numbers, not who won, and do not flatter yourself. If \`submit_score\` refuses, it lists every problem: fix them and submit again.
+
+${RUBRIC}
+
+Your accepted scores are put into the match report for you: do not repeat them in your final message.
+
+Then make your FINAL message a report in Markdown with exactly these two headings:
 
 ## Conclusion
 What happened, why you won or lost, and your key decisions.
@@ -321,10 +348,39 @@ export interface ReportInput {
   message: string | null;
   /** Why there is no report, when there is not. */
   why: string | null;
+  /** The scores section's content (GH-973); absent or null: no section (the early `unfinished` file). */
+  scores?: ScoreOutcome | null;
+  /** The seat the bot took, and its callsign: they name the two players in the scores. */
+  seat?: 0 | 1 | null;
+  callsign?: string;
+}
+
+/** The two players' names, BY SEAT: the bot's own seat first named as itself, the other as the opponent. */
+export function scoreNames(seat: 0 | 1 | null | undefined, callsign: string | undefined): [string, string] {
+  if (seat === null || seat === undefined) return ['seat 0', 'seat 1'];
+  const me = `${callsign ?? 'the bot'} (you)`;
+  return seat === 0 ? [me, 'opponent'] : ['opponent', me];
+}
+
+/** The `## Scores` section: both players' scores and the referee's numbers, or why there are none. */
+export function scoresSection(o: ScoreOutcome, names: readonly [string, string]): string[] {
+  const out: string[] = ['', '## Scores', ''];
+  if (o.status === 'scored') {
+    out.push('Scored by the bot itself, at the end of the match, for both players: 1-10 per criterion with a one-line reason, from the referee\'s stats. Scores are for reading; they change no result.', '');
+    out.push(...scoresMarkdown(o.scores, names));
+  } else if (o.status === 'invalid') {
+    out.push('Not scored: the scores in the score file failed validation and are not shown (an invalid score is never repaired):', '');
+    out.push(...o.problems.map((p) => `- ${p}`));
+  } else {
+    out.push(`Not scored: ${o.reason}.`);
+  }
+  if (o.referee !== null) out.push('', '### Referee\'s stats', '', ...refereeMarkdown(o.referee, names));
+  return out;
 }
 
 /** The report file: a header, then the model's final message, or the reason there is none. */
 export function reportMarkdown(r: ReportInput): string {
+  const tail = r.scores === undefined || r.scores === null ? [] : scoresSection(r.scores, scoreNames(r.seat, r.callsign));
   const head = [
     '# Bot match report',
     '',
@@ -337,10 +393,10 @@ export function reportMarkdown(r: ReportInput): string {
     `- Log: ${r.logName}`,
     '',
   ];
-  if (r.why === null && r.message !== null) return `${[...head, r.message.trimEnd()].join('\n')}\n`;
+  if (r.why === null && r.message !== null) return `${[...head, r.message.trimEnd(), ...tail].join('\n')}\n`;
   const body = [`No report was produced: ${r.why ?? 'the client printed no final message'}.`];
   if (r.message !== null) body.push('', 'The client\'s last message was:', '', ...r.message.trimEnd().split('\n').map((l) => `> ${l}`));
-  return `${[...head, ...body].join('\n')}\n`;
+  return `${[...head, ...body, ...tail].join('\n')}\n`;
 }
 
 /** The conventional exit for a process ended by a signal: 128 + its number. */
@@ -426,12 +482,16 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   const stem = fileStem(now(), a.room, a.model);
   const logFile = join(resultsDir, `${stem}.log`);
   const reportFile = join(resultsDir, `${stem}-report.md`);
+  /** The harness leaves the referee's stats and the accepted scores here; this process rewrites it as the JSON record. */
+  const scoreFile = join(resultsDir, `${stem}-scores.json`);
   let build = o.build ?? '';
   if (build === '') { try { build = buildId(); } catch { build = 'unknown'; } }
   try {
     mkdirSync(resultsDir, { recursive: true, mode: 0o700 });
     chmodSync(resultsDir, 0o700); // mkdir ignores the mode when the folder already exists
     writeFileSync(logFile, '', { mode: 0o600, flag: 'a' });
+    // A score file of an earlier run with the same stem is not this run's.
+    rmSync(scoreFile, { force: true });
   } catch (e) {
     log(`bot: cannot write ${resultsDir}: ${messageOf(e)}`);
     return 1;
@@ -452,22 +512,32 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   note('bot', `room ${a.room}, model ${a.model}, server ${a.server}, build ${build}, client ${a.client[0]}`);
   say(`bot: log: ${logFile}`);
   say(`bot: report: ${reportFile}`);
-  const rec: { outcome: string; why: string | null; message: string | null; tokens: number | null } = {
-    outcome: 'stopped', why: 'the bot ended before the client finished', message: null, tokens: null,
+  const rec: { outcome: string; why: string | null; message: string | null; tokens: number | null; seat: 0 | 1 | null } = {
+    outcome: 'stopped', why: 'the bot ended before the client finished', message: null, tokens: null, seat: null,
   };
-  const writeReport = (r: { outcome: string; why: string | null; message: string | null; tokens: number | null }): void => {
+  const writeReport = (r: { outcome: string; why: string | null; message: string | null; tokens: number | null; seat: 0 | 1 | null }, scores: ScoreOutcome | null = null): void => {
     try {
       writeFileSync(reportFile, reportMarkdown({
         room: a.room, model: a.model, server: a.server, build, outcome: r.outcome, tokens: r.tokens,
-        logName: `${stem}.log`, message: r.message, why: r.why,
+        logName: `${stem}.log`, message: r.message, why: r.why, scores, seat: r.seat, callsign: a.callsign,
       }), { mode: 0o600 });
     } catch (e) {
       log(`bot: the report ${reportFile} could not be written: ${messageOf(e)}`);
     }
   };
+  /** `<stem>-scores.json`: the record of the scoring, replacing the harness's raw file. Only for a run that took a seat. */
+  const writeScoresJson = (o: ScoreOutcome): void => {
+    if (rec.seat === null) { rmSync(scoreFile, { force: true }); return; }
+    const body = {
+      version: 1, room: a.room, model: a.model, server: a.server, build, seat: rec.seat, callsign: a.callsign, status: o.status,
+      ...(o.status === 'scored' ? { scores: o.scores, submittedTick: o.submittedTick } : o.status === 'invalid' ? { problems: o.problems } : { reason: o.reason }),
+      referee: o.referee,
+    };
+    try { writeFileSync(scoreFile, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 }); } catch (e) { log(`bot: the scores ${scoreFile} could not be written: ${messageOf(e)}`); }
+  };
   // Written NOW, before anything can go wrong: a bot that is killed outright (SIGKILL, a crash) runs no
   // `finally`, and the lead's first full match left no report at all. The real report replaces this one.
-  writeReport({ outcome: 'unfinished', why: 'this run was still going when the file was written, or the bot was killed before it could finish (SIGKILL, a crash); the log has what it saw', message: null, tokens: null });
+  writeReport({ outcome: 'unfinished', why: 'this run was still going when the file was written, or the bot was killed before it could finish (SIGKILL, a crash); the log has what it saw', message: null, tokens: null, seat: null });
 
   if (env.CLAUDE_CODE_ENTRYPOINT !== undefined && env.CLAUDE_CODE_ENTRYPOINT !== '') say(ENTRYPOINT_WARNING);
 
@@ -546,12 +616,13 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     // A signal during the join has already removed the directory.
     if (signalled !== null) return SIGNAL_EXIT[signalled];
     note('bot', `joined as seat ${seat}`);
+    rec.seat = seat;
     const ticketFile = join(dir, 'ticket');
     const mcpFile = join(dir, 'mcp.json');
     const promptFile = join(dir, 'prompt.md');
     // `wx`: a file that is somehow already there is an error, never reused. The ticket lives in this 0600 file only.
     writeFileSync(ticketFile, ticket, { mode: 0o600, flag: 'wx' });
-    writeFileSync(mcpFile, `${JSON.stringify(botMcpConfig(a, ticketFile, logFile, build), null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    writeFileSync(mcpFile, `${JSON.stringify(botMcpConfig(a, ticketFile, logFile, build, scoreFile), null, 2)}\n`, { mode: 0o600, flag: 'wx' });
     writeFileSync(promptFile, botPrompt({ room: a.room, seat }), { mode: 0o600, flag: 'wx' });
 
     const command = a.client[0];
@@ -681,8 +752,11 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     if (watch !== null) clearInterval(watch);
     if (killTimer !== null) clearTimeout(killTimer);
     removeDir();
-    // The report is written on every way out: the model's message, or the reason there is none.
-    writeReport(rec);
+    // The report is written on every way out: the model's message, or the reason there is none, and the scores
+    // (GH-973) as the harness left them, validated again here: a missing or invalid score is recorded as such.
+    const scores = readScoreFile(scoreFile);
+    writeReport(rec, scores);
+    writeScoresJson(scores);
     say(`bot: log: ${logFile}`);
     say(`bot: report: ${reportFile}`);
   }

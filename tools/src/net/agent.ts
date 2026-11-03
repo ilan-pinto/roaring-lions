@@ -41,6 +41,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { AgentClient, matchSocketTarget } from './agent-client';
 import { buildId } from './build-id';
+import { leaveStatsIfAbsent } from './match-score';
 import { createContext, SCOPES, toolsFor, type Scope } from './mcp-tools';
 import { nodeSocket } from './node-socket';
 
@@ -56,10 +57,12 @@ export interface AgentArgs {
   origin: string | null;
   /** Also append every log line here (see the header); absent: stderr only. */
   logFile?: string;
+  /** `pnpm bot` (GH-973): the file the referee's stats and the bot's accepted scores are written to. Command scope only; it also turns on the `match_stats` and `submit_score` tools. */
+  scoreFile?: string;
 }
 
-const USAGE = 'usage: pnpm agent -- --server <url> --code <code> --scope advise|assist|command (--ticket-file <path|-> | --join) [--callsign <name>] [--build <id>] [--origin <url>] [--log-file <path>]';
-const VALUED = new Set(['server', 'code', 'scope', 'ticket-file', 'callsign', 'build', 'origin', 'log-file']);
+const USAGE = 'usage: pnpm agent -- --server <url> --code <code> --scope advise|assist|command (--ticket-file <path|-> | --join) [--callsign <name>] [--build <id>] [--origin <url>] [--log-file <path>] [--score-file <path>]';
+const VALUED = new Set(['server', 'code', 'scope', 'ticket-file', 'callsign', 'build', 'origin', 'log-file', 'score-file']);
 const FLAGS = new Set(['join']);
 
 const httpUrl = (v: string): boolean => {
@@ -107,6 +110,7 @@ export function parseArgs(argv: readonly string[]): AgentArgs | { error: string 
   if (join && scope !== 'command') return { error: '--join is for --scope command: it seats a bot. An advisor joins with the ticket its seat minted (--ticket-file)' };
   const origin = got.get('origin') ?? null;
   if (origin !== null && !httpUrl(origin)) return { error: '--origin is an http(s) URL' };
+  if (got.has('score-file') && scope !== 'command') return { error: '--score-file is for --scope command: only a seat that plays is asked to score the match' };
   return {
     server,
     code,
@@ -116,6 +120,7 @@ export function parseArgs(argv: readonly string[]): AgentArgs | { error: string 
     build: got.get('build') ?? null,
     origin,
     ...(got.has('log-file') ? { logFile: got.get('log-file') } : {}),
+    ...(got.has('score-file') ? { scoreFile: got.get('score-file') } : {}),
   };
 }
 
@@ -292,7 +297,16 @@ async function main(argv: readonly string[]): Promise<number> {
     () => { /* AgentClient has said why on stderr */ },
   );
   const ctx = createContext(client, a.scope);
-  const tools = toolsFor(a.scope);
+  if (a.scoreFile !== undefined) ctx.scoreFile = a.scoreFile;
+  const tools = toolsFor(a.scope, { scoring: a.scoreFile !== undefined });
+  /** The referee's numbers for `pnpm bot`'s report, left at the result, unless a score is already there (a respawned harness replays the end). */
+  const leaveStats = (): void => {
+    const file = a.scoreFile;
+    if (file === undefined) return;
+    const referee = client.refereeStats();
+    if (referee === null) return;
+    try { leaveStatsIfAbsent(file, seat, referee); } catch (e) { log(`agent: the score file could not be written: ${e instanceof Error ? e.message : String(e)}`); }
+  };
 
   // Claude CLI starts a stdio server to probe it, closes it, and starts it again, so this process must
   // be safe to start, kill and restart: it says `bye` (a surrender, or a leave in the lobby) only once
@@ -352,6 +366,7 @@ async function main(argv: readonly string[]): Promise<number> {
         if (held) return;
         held = true;
         log(end.kind === 'result' ? `agent: ${client.view().result ?? 'decided'}` : `agent: ${end.kind}`);
+        if (end.kind === 'result') leaveStats();
         leave();   // over: the socket detaches, no bye
         return;
       }
