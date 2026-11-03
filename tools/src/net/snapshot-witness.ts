@@ -203,7 +203,8 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
     driveAt: (t) => {
       if (t % ORDER_EVERY_TICKS === 0) {
         plan?.beforeProduction(rt);
-        for (const side of sideOfEnd) planRound(rt, m.sim, menus[side], mixes[side], side);
+        // The arm is named, not defaulted: these frozen worlds must not move when the probe's default arm does.
+        for (const side of sideOfEnd) planRound(rt, m.sim, menus[side], mixes[side], side, 'opening');
         plan?.round(t);
         order(m.sim, (side) => marchersOf(m.sim, side, (id) => id === home || (plan !== null && plan.holds(id))), sideOfEnd);
       }
