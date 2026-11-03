@@ -115,6 +115,17 @@ describe('order in command scope (case 2)', () => {
     expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: enemy })).error).toBe('not a casualty');
     expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: 99999 })).error).toBe('not a casualty');
     expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: other })).error).toBe('not a casualty'); // a healthy unit of his own
+    // An ENEMY casualty in sight: a wounded body of side 1 two tiles from one of seat 0's units. He is listed under
+    // `casualties.theirs` (so he is no unit and no contact), and `rescue` on his id is refused like any other non-own id:
+    // the order is for your own side's wounded only.
+    const woundedIdx = w.sim.unitTypes.findIndex((t) => t.id === 'wounded_kdf');
+    expect(woundedIdx).toBeGreaterThanOrEqual(0);
+    const foe = w.sim.spawn(woundedIdx, 1, w.sim.state.posX[own] + (2 << 16), w.sim.state.posY[own]);
+    w.sim.tick();
+    (a.client as unknown as { live: { fog: { step(): void } } }).live.fog.step(); // the seat's fog sees the body, as the harness tick does
+    const theirs = body(await call(ctx, 'observe')) as { casualties: { theirs: { id: number }[] } };
+    expect(theirs.casualties.theirs.map((c) => c.id)).toContain(foe);
+    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: foe })).error).toBe('not a casualty');
     // A real casualty: one of seat 0's infantry squads, hit until a man falls wounded and goes DOWN. He is listed under
     // `casualties.mine` and not under `units`, and that is the id a medic is sent to.
     const squad = sideIds(w, 0).find((i) => w.sim.unitTypes[w.sim.state.typeIdx[i]].id === 'inf_squad');
