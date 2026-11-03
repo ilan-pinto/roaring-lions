@@ -9,11 +9,11 @@ import { readFileSync } from 'node:fs';
 import { setImmediate as realImmediate } from 'node:timers/promises';
 import { execSync } from 'node:child_process';
 import { WsTransport, gunzipCapped, readSnapshotHeader, type Frame, type ServerMsg, type SocketLike } from '@lions/net';
-import { SnapshotRefused, type Command } from '@lions/sim';
+import { SnapshotRefused, WOUND_NONE, type Command } from '@lions/sim';
 import { buildMatchWorld, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-step';
 import { decideOnHashTick, type LocalDecision } from '../../../packages/app/src/net/outcome';
-import { AgentClient, matchSocketTarget, type AgentSnapshotOptions } from './agent-client';
+import { AgentClient, attackDropReason, matchSocketTarget, type AgentSnapshotOptions } from './agent-client';
 import type { SnapshotLink } from '../../../packages/app/src/net/snapshot-link';
 import { endOf, exitCodeFor } from './agent';
 import { FogTracker } from './fog-tracker';
@@ -61,7 +61,17 @@ function agent(loop: Loop, ticket: string, seat: 0 | 1, build = BUILD): AgentCli
   return new AgentClient({ server: 'https://room.test', code: CODE, ticket, build, role: 'seat', seat, open: loop.open, log: () => {} });
 }
 
+/** The side's orderable units. A wounded body (GH-973) is a casualty: `observe` lists it apart, and it takes no order. */
 const sideIds = (w: MatchWorld, side: 0 | 1): number[] => {
+  const st = w.sim.state;
+  const out: number[] = [];
+  for (let i = 0; i < w.sim.entityCount; i++) {
+    if (st.alive[i] === 1 && st.side[i] === side && st.woundState[i] === WOUND_NONE && !w.sim.unitTypes[st.typeIdx[i]].isWounded) out.push(i);
+  }
+  return out;
+};
+/** Every living entity of the side, wounded or not. */
+const livingIds = (w: MatchWorld, side: 0 | 1): number[] => {
   const st = w.sim.state;
   const out: number[] = [];
   for (let i = 0; i < w.sim.entityCount; i++) if (st.alive[i] === 1 && st.side[i] === side) out.push(i);
@@ -113,6 +123,16 @@ describe('AgentClient against the real room', () => {
     // The view: every own unit, and contacts only of the other side.
     const v = a.view();
     expect(v.units.map((u) => u.id).sort((x, y) => x - y)).toEqual(sideIds(aw, 0));
+    // Nobody is lost between the two lists: units plus casualties are every living man of the side, however many fell by now.
+    expect([...v.units.map((u) => u.id), ...v.casualties.mine.map((c) => c.id)].sort((x, y) => x - y)).toEqual(livingIds(aw, 0));
+    // Deterministically, whatever the pump did: a wounded body forced in AFTER the run (no tick follows) is a casualty, not a unit.
+    const woundedType = aw.sim.unitTypes.findIndex((t) => t.isWounded);
+    expect(woundedType).toBeGreaterThanOrEqual(0);
+    const id = aw.sim.spawn(woundedType, 0, aw.sim.state.posX[v.units[0].id], aw.sim.state.posY[v.units[0].id]);
+    const after = a.view();
+    expect(after.units.map((u) => u.id)).not.toContain(id);
+    expect(after.casualties.mine.map((c) => c.id)).toContain(id);
+    expect([...after.units.map((u) => u.id), ...after.casualties.mine.map((c) => c.id)].sort((x, y) => x - y)).toEqual(livingIds(aw, 0));
     expect(v.contacts.length).toBeGreaterThan(0);
     for (const c of v.contacts) expect(aw.sim.state.side[c.id]).toBe(1);
     // ...exactly the contacts side 0's fog shows over the browser's own sim.
@@ -557,5 +577,18 @@ describe('AgentClient and snapshots: opt-in only (snapshot S4 task 11)', () => {
     for (const f of ['agent.ts', 'arena.ts', 'players.ts', 'external-player.ts', 'two-engine.ts']) {
       expect(readFileSync(new URL(`./${f}`, import.meta.url), 'utf8'), f).not.toMatch(/\bsnapshots\s*:/);
     }
+  });
+});
+
+describe('attackDropReason (GH-973)', () => {
+  it('is null for anything but an attack, and for an attack at least one shooter can take', () => {
+    expect(attackDropReason({ kind: 'halt', ids: [1] }, () => false)).toBeNull();
+    expect(attackDropReason({ kind: 'attack', ids: [1, 2, 3], target: 9 }, (id) => id === 2)).toBeNull();
+  });
+  it('names the reason when the sim would refuse every shooter, asking its own predicate per shooter and target', () => {
+    const asked: [number, number][] = [];
+    const why = attackDropReason({ kind: 'attack', ids: [1, 2], target: 9 }, (id, t) => { asked.push([id, t]); return false; });
+    expect(why).toMatch(/not in sight/);
+    expect(asked).toEqual([[1, 9], [2, 9]]);
   });
 });

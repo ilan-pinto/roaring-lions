@@ -147,6 +147,21 @@ you ran `pnpm bot` from, and prints their paths when it starts and when it ends:
   tool has been called; closed before that it just drops its socket. A seat that
   rejoins a lobby where the other seat readied while it was away says ready again,
   so the match still starts.
+- **The harness stays up after the match.** On a result (or the room ending) it
+  says so once and keeps answering with the final result until its MCP client goes,
+  because a server that exits is started again, and a start into an ended room
+  replays the match from the room's log. If that happens anyway (a crash), the
+  respawned harness lets the replay run to its end before it answers: `wait`
+  returns `ended`/`result` at the final tick, and `order` says `match over`, never
+  `match not started`.
+- **A casualty is not a unit.** `observe` lists wounded men under `casualties`
+  (`mine`, and `theirs` in sight), apart from `units` and `contacts`; they take no
+  order. An `attack` the sim will not take (the enemy left sight, died, or cannot
+  be hurt) shows `dropped` with a `reason` in `orders`, not `applied`.
+- **A bot that is killed still leaves a file.** The report is written as soon as
+  the run starts (result `unfinished`: still running, or killed outright) and
+  replaced when it ends; SIGINT, SIGTERM and SIGHUP (a closed terminal) all stop
+  the client and write the log and the real report.
 - **The runner must be installed.** If `tools/node_modules/.bin/tsx` is missing the bot says so (run `pnpm install` in this checkout) before it takes a seat.
 - **The build must match, and the bot tells you which.** The room refuses a
   different build (`build_mismatch`), and the site redeploys on every merge, so a

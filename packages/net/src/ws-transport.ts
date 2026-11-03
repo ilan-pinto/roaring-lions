@@ -42,7 +42,8 @@ export interface WsTransportHooks {
   /** `factions`, by seat: the room's matchup (absent from an older room: the mirror).
    *  `kit`: the room's kit rule, named only for `brigade` (absent is matched). */
   onLobby?(seats: SeatState[], you: Seat, map: string, factions?: [Faction, Faction], kit?: LobbyKit): void;
-  onStart(config: MatchConfig): void;
+  /** `fromLog`: the room answered the hello with its log (this seat joined a match already under way), not a live `start`. */
+  onStart(config: MatchConfig, fromLog?: boolean): void;
   onDesync?(tick: number, hashes: [number, number]): void;
   onEnded?(reason: string, seat?: Seat): void;
   /** A seat paused: how long the room will hold the pause, and each seat's pauses left. */
@@ -258,7 +259,7 @@ export class WsTransport implements MatchTransport {
   private begin(config: MatchConfig, fromLog: boolean): void {
     this.config = config;
     this.clock = new LockstepClock(config.bufferTicks, fromLog ? (this.startFrom ?? 0) : 0);
-    this.hooks.onStart(config);
+    this.hooks.onStart(config, fromLog);
   }
   /** Desync and closed are final: nothing the room says afterwards revives the transport. */
   private terminal(): boolean {

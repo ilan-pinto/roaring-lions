@@ -22,7 +22,10 @@
  * again (Claude CLI probes a server first). It says `bye` -- which the room reads
  * as a surrender, or a leave in the lobby -- only once the match has started and
  * a tool has been called; closed before that it just drops the socket, and the
- * next start with the same ticket takes the same seat back.
+ * next start with the same ticket takes the same seat back. Once the match is
+ * over it stays up, answering with the final result, until its MCP client goes
+ * (stdin closes): a server that exits is started again, and the respawn would
+ * replay the match from the room's log as if it were new.
  *
  * Exit codes: 0 on a result or the room ending, 2 when the room refuses the
  * ticket or the build, 3 on a desync (after printing its tick), 1 otherwise.
@@ -337,10 +340,22 @@ async function main(argv: readonly string[]): Promise<number> {
       // Let the last messages (an `over`, a `bye`) leave the socket.
       setTimeout(() => { resolveExit(exitCodeFor(end)); }, 250);
     };
+    // The match is over: say so ONCE and stay up. An MCP client (Claude CLI) that finds its server gone
+    // starts it again, and a respawn into an ended room replays the whole match as if it were new; a
+    // server that stays answers with the final result until the client itself goes (GH-973).
+    let held = false;
     const timer = setInterval(() => {
       const ran = client.pump(20);
       const end = endOf(client, ran === 0);
-      if (end !== null) finish(end);
+      if (end === null) return;
+      if (end.kind === 'result' || end.kind === 'ended') {
+        if (held) return;
+        held = true;
+        log(end.kind === 'result' ? `agent: ${client.view().result ?? 'decided'}` : `agent: ${end.kind}`);
+        leave();   // over: the socket detaches, no bye
+        return;
+      }
+      finish(end);
     }, 10);
     const transport = new StdioServerTransport();
     transport.onclose = () => { log('agent: the MCP client went away'); finish({ kind: 'ended' }); };

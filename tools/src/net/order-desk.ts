@@ -26,6 +26,8 @@ export interface OrderRecord {
   queuedTick: number;
   sentTick: number | null;
   settledTick: number | null;
+  /** Why a `dropped` order was dropped, when the harness knows (GH-973). */
+  reason?: string;
 }
 
 export class OrderDesk {
@@ -77,12 +79,13 @@ export class OrderDesk {
   }
 
   /** This seat's commands in a frame, in canonical order, with ownership's verdict on each. */
-  onOwnCommands(cmds: readonly { cmd: Command; valid: boolean }[], tick: number): void {
-    for (const { cmd, valid } of cmds) {
+  onOwnCommands(cmds: readonly { cmd: Command; valid: boolean; reason?: string }[], tick: number): void {
+    for (const { cmd, valid, reason } of cmds) {
       const key = JSON.stringify(cmd);
       const rec = this.ring.find((r) => r.status === 'sent' && JSON.stringify(r.cmd) === key);
       if (!rec) continue;
       rec.status = valid ? 'applied' : 'dropped';
+      if (!valid && reason !== undefined) rec.reason = reason;
       rec.settledTick = tick;
     }
   }

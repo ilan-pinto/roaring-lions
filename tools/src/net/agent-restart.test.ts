@@ -174,3 +174,64 @@ describe('a build refusal names the room\'s build (GH-954), through the real roo
     expect(text).toMatch(new RegExp(` har agent: the room runs build ${BUILD}$`, 'm'));
   }, 30_000);
 });
+
+describe('the harness stays up after the match, and a respawn into the ended room reports the result (GH-973)', () => {
+  async function endedMatch(): Promise<{ relay: LocalRelay; code: string; ticketFile: string; first: ReturnType<typeof mcpClient>; p0: RunningPlayer }> {
+    const relay = await startLocalRelay({ log: () => {}, tickMs: 5, seedFor: () => 1000 });
+    cleanups.push(() => relay.close());
+    const { code, tickets } = await room(relay);
+    const dir = mkdtempSync(join(tmpdir(), 'agent-over-'));
+    cleanups.push(() => { rmSync(dir, { recursive: true, force: true }); });
+    const ticketFile = join(dir, 'ticket');
+    writeFileSync(ticketFile, tickets[1], { mode: 0o600 });
+    const p0 = await inProcess('p0', passive, { log: () => {} }).start({ server: relay.url, origin: relay.origin, code, seat: 0, ticket: tickets[0], build: BUILD });
+    cleanups.push(() => p0.stop());
+    const first = mcpClient(relay, code, ticketFile);
+    await first.client.connect(first.transport);
+    expect(await playRounds(first.client, 2)).toBe(2);
+    p0.client?.transport.surrender();   // seat 0 gives up: the match is over, seat 1 has won
+    return { relay, code, ticketFile, first, p0 };
+  }
+  const resultOf = async (client: Client): Promise<unknown> => {
+    for (let i = 0; i < 100; i++) {
+      const st = await call(client, 'status');
+      if (st.body.result !== null && st.body.result !== undefined) return st.body.result;
+      await sleep(50);
+    }
+    return null;
+  };
+
+  it('answers with the final result for as long as its client stays, and says match over to an order', async () => {
+    const { first } = await endedMatch();
+    expect(await resultOf(first.client)).not.toBeNull();
+    await sleep(1000);   // a harness that exited on the result would be gone by now, and Claude CLI would have started another
+    const again = await call(first.client, 'status');
+    expect(again.ok).toBe(true);
+    expect(again.body.result).not.toBeNull();
+    const w = await call(first.client, 'wait', { ticks: 20 });
+    expect(w.ok).toBe(true);
+    expect(w.body.reason).toMatch(/^(result|ended)$/);
+    const o = await call(first.client, 'order', { verb: 'halt', ids: [1] });
+    expect(o.ok).toBe(false);
+    expect(o.body.error).toBe('match over');
+  }, 90_000);
+
+  it('a respawn into the ended room replays to the end and reports the result: wait reaches it, order is match over, never "not started"', async () => {
+    const { relay, code, ticketFile, first } = await endedMatch();
+    const finalTick = (await call(first.client, 'status')).body.tick as number;
+    expect(await resultOf(first.client)).not.toBeNull();
+    await first.client.close();
+    await sleep(300);
+    const second = mcpClient(relay, code, ticketFile);
+    await second.client.connect(second.transport);
+    // The model's first calls, as the lead's log saw them: wait, then order, then status.
+    const w = await call(second.client, 'wait', { ticks: 20 });
+    expect(w.body.reason).toMatch(/^(result|ended)$/);
+    expect(w.body.tick).toBeGreaterThanOrEqual(finalTick - 40);   // the replay ran on to the end, not 20 ticks into it
+    const o = await call(second.client, 'order', { verb: 'halt', ids: [1] });
+    expect(o.body.error).toBe('match over');
+    const st = await call(second.client, 'status');
+    expect(st.body.result).not.toBeNull();
+    await second.client.close();
+  }, 90_000);
+});

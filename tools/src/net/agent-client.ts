@@ -119,6 +119,18 @@ export function snapshotFetch(server: string, base?: typeof fetch): typeof fetch
     (base ?? globalThis.fetch)(input, { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), origin } })) as typeof fetch;
 }
 
+/**
+ * Why an `attack` the room accepted still changes nothing, or null (GH-973). The sim's `attack` branch skips
+ * every shooter `canFocus` refuses ("a refused id changes nothing"); when it refuses ALL of them the order
+ * did nothing, and calling it `applied` told a model its shot was ordered. Ownership (`validateCommand`) is
+ * the room's filter and is untouched; this is the sim's, asked with the sim's own predicate, not a copy.
+ */
+export function attackDropReason(cmd: Command, canFocus: (shooter: number, target: number) => boolean): string | null {
+  if (cmd.kind !== 'attack') return null;
+  const target = cmd.target;
+  return cmd.ids.some((id) => canFocus(id, target)) ? null : 'target not in sight (out of sight, dead or not attackable)';
+}
+
 export class AgentClient {
   readonly ready: Promise<MatchConfig>;
   readonly desk: OrderDesk;
@@ -130,6 +142,7 @@ export class AgentClient {
   private drained = false;
   private closed = false;
   private refusedBuild: string | null = null;
+  private underway = false;
   private failure: string | null = null;
   private outcome: RejoinOutcome | null = null;
   private readonly link: SnapshotLink | null;
@@ -197,7 +210,8 @@ export class AgentClient {
         // The room starts on that very message, so this cannot repeat.
         if (o.role === 'seat' && (seats.find((s) => s.seat === you)?.ready !== true || (seats.length === 2 && seats.every((s) => s.ready && s.connected)))) this.transport.ready();
       },
-      onStart: (config) => {
+      onStart: (config, fromLog) => {
+        this.underway = fromLog === true;
         try {
           this.begin(config);
         } catch (err) {
@@ -340,7 +354,14 @@ export class AgentClient {
       beforeFrame: (f: Frame) => {
         const own = canonicalOrder(f.cmds)
           .filter((s) => s.seat === seat)
-          .map((s) => ({ cmd: s.cmd, valid: validateCommand(s.cmd, s.seat, seatWorld) }));
+          .map((s) => {
+            const valid = validateCommand(s.cmd, s.seat, seatWorld);
+            // Ownership is not the whole of it (GH-973): an `attack` the sim will refuse for EVERY shooter -- the
+            // target left sight, died, or cannot be hurt -- changes nothing, and is not `applied`. The sim's own
+            // `canFocus` is the filter its `attack` branch uses; this is asked before the frame runs it.
+            const why = valid ? attackDropReason(s.cmd, (id, target) => sim.canFocus(id, target)) : null;
+            return why === null ? { cmd: s.cmd, valid } : { cmd: s.cmd, valid: false, reason: why };
+          });
         if (own.length > 0) this.desk.onOwnCommands(own, f.tick);
         this.desk.onTick(f.tick);
       },
@@ -375,6 +396,11 @@ export class AgentClient {
       ? null
       : roomEndingOutcome(this.ending.reason, this.ending.seat, live.side, (s) => live.config.seats[s].side as 0 | 1);
     return matchResult(local, ending, this.drained);
+  }
+
+  /** Whether this client joined a match already under way (the room answered its hello with the log), as a respawned harness does. */
+  joinedUnderway(): boolean {
+    return this.underway;
   }
 
   /** The build the room said it runs, when it refused ours (`build_mismatch`); null when it did not say. */

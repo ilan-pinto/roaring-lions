@@ -41,6 +41,8 @@ export interface ToolContext {
   nextProposal: number;
   /** How long `wait` blocks in a lobby; default `LOBBY_WAIT_MAX_MS`. A spec shortens it. */
   lobbyWaitMs?: number;
+  /** Whether a tool has yet looked at the started match (the first look has a short grace; see `firstSight`). */
+  seen?: boolean;
 }
 
 export interface ToolDef {
@@ -129,6 +131,60 @@ function terminal(s: TransportStatus): boolean {
   return s.kind === 'closed' || s.kind === 'desync';
 }
 
+/**
+ * The refusal for a tool that needs a started match. A room that has ENDED is
+ * `match over`, never "not started": a harness respawned after the end hears the
+ * room's log and its `ended` before it has built a world, and the model must not
+ * read that as a match still to begin (GH-973).
+ */
+function notStarted(ctx: ToolContext): ToolResult {
+  return terminal(ctx.client.transport.status()) ? refuse('match over', { detail: 'the room has ended' }) : refuse('match not started');
+}
+
+/** More frames behind than a live match ever is: this client joined a match already under way and is replaying its log. */
+export const CATCHUP_TICKS = 40;
+/** How long the first look at a match joined mid-way waits for the room's follow-up (an `ended` right behind the log). */
+export const FIRST_SIGHT_GRACE_MS = 250;
+
+/**
+ * Whether the world is mid-replay, not the match as it stands: an ended room still feeding its log into this client
+ * (a respawned harness), or a live one this harness joined under way and is far behind. A fresh match is never this.
+ */
+function replaying(ctx: ToolContext): boolean {
+  const behind = ctx.client.transport.behind();
+  return terminal(ctx.client.transport.status()) ? behind > 0 : behind > CATCHUP_TICKS;
+}
+
+/**
+ * The first look at a match this harness joined UNDER WAY (its log has frames): the room says `ended` right behind
+ * the log, and a tool that answered in between would take a finished match for a live one. A fresh match has no frames
+ * behind it and is not delayed.
+ */
+function graceDue(ctx: ToolContext): boolean {
+  if (ctx.seen === true || ctx.client.config() === null) return false;
+  ctx.seen = true;
+  // Joined under way: the log has just arrived, and an `ended` may be right behind it.
+  return ctx.client.joinedUnderway() && (ctx.client.transport.behind() > 0 || ctx.client.tick() > 0) && !terminal(ctx.client.transport.status());
+}
+async function firstSight(ctx: ToolContext): Promise<void> {
+  if (graceDue(ctx)) await sleep(FIRST_SIGHT_GRACE_MS);
+}
+
+/** Lets a replay finish before a read, bounded, so a model never reads a half-replayed world as the match. */
+async function settleReplay(ctx: ToolContext): Promise<void> {
+  await firstSight(ctx);
+  const deadline = Date.now() + WAIT_MAX_MS;
+  let last = ctx.client.tick();
+  let still = 0;
+  while (replaying(ctx) && Date.now() < deadline) {
+    await sleep(WAIT_POLL_MS);
+    const now = ctx.client.tick();
+    still = now === last ? still + 1 : 0;
+    last = now;
+    if (still >= WAIT_STILL_POLLS) return;
+  }
+}
+
 /** Whether an acting tool should answer `match over`. */
 function over(ctx: ToolContext): boolean {
   return ctx.client.result() !== null || terminal(ctx.client.transport.status());
@@ -154,6 +210,7 @@ function roundOf(ctx: ToolContext): { index: number; ticks: number; doneRound: n
 function describeOrder(r: OrderRecord, listed: Set<number>): Record<string, unknown> {
   const c = r.cmd as Record<string, unknown>;
   const out: Record<string, unknown> = { ref: r.ref, status: r.status, verb: r.cmd.kind, queuedTick: r.queuedTick, settledTick: r.settledTick };
+  if (r.reason !== undefined) out.reason = r.reason;
   if (Array.isArray(c.ids)) {
     const ids = (c.ids as number[]).filter((id) => listed.has(id));
     out.ids = ids;
@@ -173,8 +230,9 @@ const observe: ToolDef = {
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
+    await settleReplay(ctx);
     const view = started(ctx);
-    if (view === null) return refuse('match not started');
+    if (view === null) return notStarted(ctx);
     const listed = new Set([...view.units.map((u) => u.id), ...view.contacts.map((u) => u.id)]);
     let orders: unknown[] = [];
     if (ctx.scope === 'command') orders = ctx.client.desk.records(ORDER_RECORDS).map((r) => describeOrder(r, listed));
@@ -189,6 +247,7 @@ const status: ToolDef = {
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
+    await settleReplay(ctx);
     const config = ctx.client.config();
     const view = started(ctx);
     return ok({
@@ -225,6 +284,8 @@ const wait: ToolDef = {
       }
     }
     const client = ctx.client;
+    // Synchronous unless the grace is due: `from` is read at the call, not after a turn that frames can run in.
+    if (graceDue(ctx)) await sleep(FIRST_SIGHT_GRACE_MS);
     const from = client.tick();
     const deadline = Date.now() + WAIT_MAX_MS;
     let last = from;
@@ -235,10 +296,12 @@ const wait: ToolDef = {
       still = now === last ? still + 1 : 0;
       last = now;
       if (client.result() !== null) { reason = 'result'; break; }
-      if (now - from >= a.ticks) { reason = 'ticks'; break; }
       // A terminal room whose frames have stopped running (drained, or
-      // never to run: a void, a desync): nothing more will come.
+      // never to run: a void, a desync): nothing more will come. Asked BEFORE the tick count: a respawned harness
+      // that replays an ended room's log has run its ticks by the time it is drained, and 'ended' is the truth.
       if (terminal(client.transport.status()) && (client.transport.behind() === 0 || still >= WAIT_STILL_POLLS)) { reason = 'ended'; break; }
+      // ...and a replay (an ended room's log, or a match joined far behind) runs on: the model asks for the match, not for tick 1020 of it.
+      if (now - from >= a.ticks && !replaying(ctx)) { reason = 'ticks'; break; }
       // Paced: the room mints nothing more until this seat's `end_round`.
       if (roundOf(ctx)?.awaitingEndRound === true) { reason = 'round'; break; }
       if (Date.now() >= deadline) { reason = 'timeout'; break; }
@@ -269,7 +332,7 @@ const say: ToolDef = {
   async run(ctx, raw) {
     const text = cleanChat(argsOf(raw).text);
     if (text === '') return refuse('invalid', { detail: 'text is empty' });
-    if (ctx.client.config() === null) return refuse('match not started');
+    if (ctx.client.config() === null) return notStarted(ctx);
     if (over(ctx)) return refuse('match over');
     if (ctx.scope === 'command') ctx.client.transport.chat(text);
     else ctx.client.transport.advisor({ kind: 'text', text });
@@ -286,7 +349,7 @@ const ping: ToolDef = {
     if (ctx.scope === 'command') return refuse('not in this scope');
     const a = argsOf(raw);
     const view = started(ctx);
-    if (view === null) return refuse('match not started');
+    if (view === null) return notStarted(ctx);
     if (over(ctx)) return refuse('match over');
     if (!isInt(a.x) || !isInt(a.y)) return refuse('invalid', { detail: 'x and y are integer tiles' });
     if (a.x < 0 || a.y < 0 || a.x >= view.size[0] || a.y >= view.size[1]) return refuse('off the map');
@@ -427,7 +490,7 @@ const order: ToolDef = {
   async run(ctx, raw) {
     if (ctx.scope === 'advise') return refuse('not in this scope');
     const view = started(ctx);
-    if (view === null) return refuse('match not started');
+    if (view === null) return notStarted(ctx);
     if (over(ctx)) return refuse('match over');
     const a = argsOf(raw);
     if (a.sweep !== undefined) {
@@ -473,7 +536,7 @@ const endRound: ToolDef = {
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
     if (ctx.scope !== 'command') return refuse('not in this scope');
-    if (ctx.client.config() === null) return refuse('match not started');
+    if (ctx.client.config() === null) return notStarted(ctx);
     if (over(ctx)) return refuse('match over');
     const round = roundOf(ctx);
     if (round === null) return refuse('not a paced room');

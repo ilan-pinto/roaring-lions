@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BOT_ADDENDUM, botMcpConfig, buildMessage, harnessRoomBuild, shortBuild, botPrompt, classify, fileStem, harnessLines, harnessRefusedBuild, joinRefusedMessage, reportMarkdown, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, parseBotArgs, resolveModel, runBot, USAGE,
-  type SignalSource,
+  type SignalSource, type StopSignal,
 } from './bot';
 import { HARNESS_AGENT, HARNESS_TSX, standingPrompt, type SpawnFn } from './external-player';
 
@@ -98,12 +98,12 @@ function fakeSpawn(calls: Call[], script: (child: FakeChild, call: Call) => void
 class FakeSignals implements SignalSource {
   private h = new Map<string, Set<() => void>>();
   /** A signal that is already there when the first handler is installed. */
-  fireOnInstall: 'SIGINT' | 'SIGTERM' | null = null;
-  on(s: 'SIGINT' | 'SIGTERM', h: () => void): this {
+  fireOnInstall: StopSignal | null = null;
+  on(s: StopSignal, h: () => void): this {
     if (this.fireOnInstall === s) { h(); }
     (this.h.get(s) ?? this.h.set(s, new Set()).get(s)!).add(h); return this; }
-  off(s: 'SIGINT' | 'SIGTERM', h: () => void): this { this.h.get(s)?.delete(h); return this; }
-  fire(s: 'SIGINT' | 'SIGTERM'): void { for (const h of [...(this.h.get(s) ?? [])]) h(); }
+  off(s: StopSignal, h: () => void): this { this.h.get(s)?.delete(h); return this; }
+  fire(s: StopSignal): void { for (const h of [...(this.h.get(s) ?? [])]) h(); }
   count(): number { return [...this.h.values()].reduce((n, s) => n + s.size, 0); }
 }
 const resultLine = (o: Record<string, unknown>): string => `${JSON.stringify({ type: 'result', is_error: false, ...o })}\n`;
@@ -722,6 +722,59 @@ describe('the first build refusal stops the client at once', () => {
     expect(h.calls[0].child.kills).toEqual([]);
     h.calls[0].child.end(0);
     await run;
+  });
+});
+
+describe('a closed terminal and a killed bot still leave a report (GH-973: the lead\'s first full match left none)', () => {
+  it('SIGHUP (the terminal closing) stops the client like SIGTERM, logs it, and writes the no-report file', async () => {
+    const h = harness(() => {});
+    const run = runBot(['--room', 'ABC234'], h.opts);
+    await sleep(40);
+    h.signals.fire('SIGHUP');
+    expect(h.calls[0].child.kills).toEqual(['SIGTERM']);
+    expect(await run).toBe(129);
+    expect(leftovers()).toEqual([]);
+    expect(h.logs.join('\n')).toContain('SIGHUP: stopping the client');
+    expect(readResult(`${STEM}.log`)).toContain('SIGHUP: stopping the client');
+    expect(readResult(`${STEM}-report.md`)).toContain('No report was produced: stopped by SIGHUP');
+    expect(h.signals.count()).toBe(0);   // the SIGHUP handler is taken down too
+  });
+  it('a terminal that is gone (every write to stderr/stdout throws) does not stop the cleanup or the report', async () => {
+    const h = harness(() => {});
+    const dead = (): void => { throw new Error('EIO: the terminal is gone'); };
+    h.opts.log = dead;
+    h.opts.print = dead;
+    const run = runBot(['--room', 'ABC234'], h.opts);
+    await sleep(40);
+    h.signals.fire('SIGHUP');   // the handler logs first: it must still go on to stop the client
+    expect(h.calls[0].child.kills).toEqual(['SIGTERM']);
+    expect(await run).toBe(129);
+    expect(leftovers()).toEqual([]);
+    expect(readResult(`${STEM}-report.md`)).toContain('No report was produced: stopped by SIGHUP');
+    expect(readResult(`${STEM}.log`)).toContain('SIGHUP: stopping the client');   // the log file has what the terminal could not show
+  });
+  it('the report file exists from the start, saying the run may have been killed, and is replaced when the run ends', async () => {
+    const h = harness(() => {});
+    const run = runBot(['--room', 'ABC234'], h.opts);
+    await sleep(60);
+    // A bot killed outright (SIGKILL, a crash) runs no cleanup: this is all that is left.
+    const early = readResult(`${STEM}-report.md`);
+    expect(early).toContain('- Result: unfinished');
+    expect(early).toContain('killed before it could finish (SIGKILL, a crash)');
+    h.calls[0].child.stdout.write(resultLine({ result: '## Conclusion\nwon', usage: { input_tokens: 1, output_tokens: 1 } }));
+    h.calls[0].child.end(0);
+    expect(await run).toBe(0);
+    const done = readResult(`${STEM}-report.md`);
+    expect(done).toContain('- Result: completed');
+    expect(done).not.toContain('unfinished');
+  });
+});
+
+describe('the addendum (GH-973)', () => {
+  it('says the room is realtime (never end_round), what a dozer is for, where wounded men are, and what dropped means', () => {
+    for (const w of ['REALTIME', 'Never call `end_round`', 'not a paced room', '`observe`, `order`, `wait`', 'dozer_d9', 'unarmed', '`demolish`', '`casualties`', 'not orderable units', '`dropped`', '`reason`']) {
+      expect(BOT_ADDENDUM, w).toContain(w);
+    }
   });
 });
 

@@ -100,3 +100,35 @@ describe('sideView', () => {
     expect(src).not.toMatch(/^import /m);
   });
 });
+
+describe('casualties (GH-973)', () => {
+  const woundedIdx = (w: ReturnType<typeof buildMatchWorld>): number => w.sim.unitTypes.findIndex((t) => t.id === 'wounded_kdf');
+  it('lists a wounded man of its own side apart from the units: not a unit, not orderable', () => {
+    const w = buildMatchWorld(versusConfig('tel_marum'));
+    const fog = new FogTracker(w.sim, 0);
+    const mine = w.bySide[0][0];
+    expect(woundedIdx(w)).toBeGreaterThanOrEqual(0);   // a versus room registers the wounded bodies
+    const before = sideView(w, 0, fog, null);
+    const id = w.sim.spawn(woundedIdx(w), 0, w.sim.state.posX[mine], w.sim.state.posY[mine]);
+    const v = sideView(w, 0, fog, null);
+    expect(v.units.map((u) => u.id)).not.toContain(id);
+    expect(v.units).toHaveLength(before.units.length);
+    expect(v.casualties.mine).toEqual([expect.objectContaining({ id, type: 'wounded_kdf', state: 'down' })]);
+    expect(typeof v.casualties.mine[0].bleeding).toBe('number');
+    expect(v.casualties.theirs).toEqual([]);
+    expect(before.casualties).toEqual({ mine: [], theirs: [] });
+  });
+  it('lists an enemy wounded man in sight under theirs, not as a contact, and one out of sight not at all', () => {
+    const w = buildMatchWorld(versusConfig('tel_marum'));
+    const fog = new FogTracker(w.sim, 0);
+    const mine = w.bySide[0][0];
+    const near = w.sim.spawn(woundedIdx(w), 1, w.sim.state.posX[mine] + (2 << 16), w.sim.state.posY[mine]);
+    const far = w.sim.spawn(woundedIdx(w), 1, w.sim.state.posX[w.bySide[1][0]], w.sim.state.posY[w.bySide[1][0]]);
+    w.sim.tick(); fog.step();
+    const v = sideView(w, 0, fog, null);
+    expect(v.contacts.map((c) => c.id)).not.toContain(near);
+    expect(v.casualties.theirs.map((c) => c.id)).toContain(near);
+    expect(v.casualties.theirs.map((c) => c.id)).not.toContain(far);
+    expect(v.casualties.mine).toEqual([]);
+  });
+});

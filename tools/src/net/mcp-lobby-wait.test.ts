@@ -23,6 +23,7 @@ function stub(): Stub {
     view: () => ({ result: 'seat 0 won' }),
     transport: { status: () => (closed ? { kind: 'closed', reason: 'ended' } : { kind: 'open' }), behind: () => 0, onHooks: () => {}, setHooks: () => {} },
     seat: 1,
+    joinedUnderway: () => false,
   } as unknown as AgentClient;
   return Object.assign(s, { client });
 }
