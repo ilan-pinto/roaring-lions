@@ -402,8 +402,11 @@ function resultOf(lastLine: string): { result: string | null; isError: boolean }
 
 /** The bot, from a command line. Resolves to the exit code; never calls `process.exit` itself except through a second signal. */
 export async function runBot(argv: readonly string[], o: BotOptions = {}): Promise<number> {
-  const log = o.log ?? ((line: string) => { process.stderr.write(`${line}\n`); });
-  const print = o.print ?? ((line: string) => { process.stdout.write(`${line}\n`); });
+  // After a real SIGHUP the terminal is gone and a write to stderr/stdout can throw (EPIPE, EIO): that must never
+  // stop the cleanup or the report, so every write to the terminal is guarded.
+  const quiet = (f: (line: string) => void) => (line: string): void => { try { f(line); } catch { /* the terminal is gone; the log file has it */ } };
+  const log = quiet(o.log ?? ((line: string) => { process.stderr.write(`${line}\n`); }));
+  const print = quiet(o.print ?? ((line: string) => { process.stdout.write(`${line}\n`); }));
   const spawn = o.spawn ?? ((command, args, options) => nodeSpawn(command, args, options));
   const env = o.env ?? process.env;
   const signals: SignalSource = o.signals ?? process;
@@ -696,6 +699,9 @@ function isEntry(): boolean {
   }
 }
 if (isEntry()) {
+  // A write to a closed terminal also arrives as an 'error' event on the stream, asynchronously: unhandled, it kills the process.
+  process.stderr.on('error', () => {});
+  process.stdout.on('error', () => {});
   runBot(process.argv.slice(2)).then(
     (code) => { process.exit(code); },
     (err: unknown) => { process.stderr.write(`bot: ${messageOf(err)}\n`); process.exit(1); },

@@ -739,6 +739,20 @@ describe('a closed terminal and a killed bot still leave a report (GH-973: the l
     expect(readResult(`${STEM}-report.md`)).toContain('No report was produced: stopped by SIGHUP');
     expect(h.signals.count()).toBe(0);   // the SIGHUP handler is taken down too
   });
+  it('a terminal that is gone (every write to stderr/stdout throws) does not stop the cleanup or the report', async () => {
+    const h = harness(() => {});
+    const dead = (): void => { throw new Error('EIO: the terminal is gone'); };
+    h.opts.log = dead;
+    h.opts.print = dead;
+    const run = runBot(['--room', 'ABC234'], h.opts);
+    await sleep(40);
+    h.signals.fire('SIGHUP');   // the handler logs first: it must still go on to stop the client
+    expect(h.calls[0].child.kills).toEqual(['SIGTERM']);
+    expect(await run).toBe(129);
+    expect(leftovers()).toEqual([]);
+    expect(readResult(`${STEM}-report.md`)).toContain('No report was produced: stopped by SIGHUP');
+    expect(readResult(`${STEM}.log`)).toContain('SIGHUP: stopping the client');   // the log file has what the terminal could not show
+  });
   it('the report file exists from the start, saying the run may have been killed, and is replaced when the run ends', async () => {
     const h = harness(() => {});
     const run = runBot(['--room', 'ABC234'], h.opts);
