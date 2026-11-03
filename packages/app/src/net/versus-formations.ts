@@ -17,11 +17,11 @@
  *  Closing it again is this one constant. */
 export const VERSUS_FORMATIONS_OPEN = true;
 
-/** Versus maps formations stay OFF on even with the gate open: a map that has not passed its own S4 run. Wadi Tarfan (large) is the one left
- *  (GH-913 L8 / GH-920, the lead's ruling): one trip in 21 cells on 3 Nov. Wadi Tarfan itself was closed the same way until GH-945 re-seated it;
+/** Versus maps formations stay OFF on even with the gate open: a map that has not passed its own S4 run. Wadi Tarfan (large) is one
+ *  (GH-913 L8 / GH-920, the lead's ruling): one trip in 21 cells on 3 Nov. Tel Marum (large) is closed from birth (GH-920 B3), until its own S4 run. Wadi Tarfan itself was closed the same way until GH-945 re-seated it;
  *  Rujm Sawda and Milh Flats (large) left on 3 Nov. When a map passes its own run, DELETE its entry.
  *  `wadi_tarfan_l.test.ts` pins the Wadi Tarfan (large) entry and `versus-formations.test.ts` the predicate, with the gate open. */
-export const VERSUS_FORMATIONS_CLOSED_MAPS: readonly string[] = ['wadi_tarfan_l'];
+export const VERSUS_FORMATIONS_CLOSED_MAPS: readonly string[] = ['wadi_tarfan_l', 'tel_marum_l'];
 
 /** The HUD row's reason line when formations are inactive in a versus room (a `t()` key). */
 export const FORMATION_VERSUS_REASON_KEY = 'hud.formation.inert.versus';

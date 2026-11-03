@@ -145,6 +145,8 @@ describe('crown summits on the shipped maps', () => {
     // the Ls are too small to be a crown and touch nothing, so no summit. Was 49.
     // Milh Flats (large) (GH-920 B3) adds 2 summits and no rejected cluster: its two tell rocks are 4 tiles each, as the original's
     // are, with no neighbouring `^`, no building and nothing higher (a Python flood fill). Was 29.
+    // Tel Marum (large) (GH-920 B3) adds nothing: its four `^` clusters are 24, 244, 1,248 and 1,476 tiles (a Python flood fill of the rows),
+    // none within CROWN_MAX_TILES. The original's 6-tile outcrop is a summit (SUMMITS.tel_marum: 1); copied as 2x2 blocks it is the 24.
     expect(tally).toEqual({ summits: 31, rejected: 51 });
   });
 

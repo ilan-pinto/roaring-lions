@@ -42,6 +42,9 @@ const EVERY = 1200;
  * negative (3, 4, 8 and 9 read positive), so seed 1 stands. Was seed 7.
  * GH-920 B3 (2 Nov): `data/maps/milh_flats_l.json` and its rules file are content too. Seed 1 stays negative (-891211569; 2, 4, 5, 6, 7, 8 and 9
  * read negative as well, 3 reads positive; the economy room reads +1182050052), read by a scratch copy of this file's own `play` and `digestOf`.
+ * GH-920 B3 (3 Nov): `data/maps/tel_marum_l.json` and its rules file are content too. The premise holds on seed 1 through the economy room alone:
+ * the mirror room reads +938436255 and the economy room -1512887500 (the mirror was negative before), read by a temporary write of this test's own
+ * `room.digest` values.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;
