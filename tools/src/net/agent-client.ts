@@ -20,7 +20,7 @@ import {
   type SeatWorld,
   type SocketLike,
 } from '@lions/net';
-import type { Command } from '@lions/sim';
+import type { Command, SimEvent } from '@lions/sim';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { prepareRejoin, snapshotLink, type Prepared, type SnapshotLink } from '../../../packages/app/src/net/snapshot-link';
 import { SnapshotProducer, type ProducerStats } from '../../../packages/app/src/net/snapshot-producer';
@@ -37,6 +37,7 @@ import {
   type MatchResult,
 } from '../../../packages/app/src/net/outcome';
 import { FogTracker } from './fog-tracker';
+import { RefereeTally, resultText, type RefereeStats } from './match-score';
 import { OrderDesk } from './order-desk';
 import { sideView, type SideView } from './view';
 import { nodeSocket } from './node-socket';
@@ -95,6 +96,8 @@ interface Live {
   dataDigest: number;
   /** The snapshot producer, when this seat produces. */
   producer: SnapshotProducer | null;
+  /** The referee's running tally (GH-973): idle time, orders, a timeline. Reads the sim; writes nothing. */
+  tally: RefereeTally;
 }
 
 /** Where a room's socket lives, and the Origin to send it: the browser's own
@@ -284,7 +287,7 @@ export class AgentClient {
           log: this.log,
         })
       : null;
-    this.live = { config, w, side, fog: new FogTracker(w.sim, side), seatWorld: seatWorldFor(config, w.sim), dataDigest: shippedContentDigest(), producer };
+    this.live = { config, w, side, fog: new FogTracker(w.sim, side), seatWorld: seatWorldFor(config, w.sim), dataDigest: shippedContentDigest(), producer, tally: new RefereeTally() };
     this.log(`match ${config.code} started: ${config.map}, seat ${this.o.seat} (side ${side}, ${w.factions[side]})`);
   }
 
@@ -340,18 +343,23 @@ export class AgentClient {
   pump(maxTicks: number): number {
     const live = this.live;
     if (live === null || this.decided !== null) return 0;
-    const { config, w, fog, seatWorld, dataDigest, producer } = live;
+    const { config, w, fog, seatWorld, dataDigest, producer, tally } = live;
     const sim = w.sim;
     const seat = this.o.seat;
+    const sides: [0 | 1, 0 | 1] = [config.seats[0].side, config.seats[1].side];
+    const tick = harnessTick(w, fog, this.o.runtimeDigest, (ev) => { tally.onEvents(sim, ev); });
     const { ran } = runFrames({
       transport: this.transport,
       sim,
       seatWorld,
-      ...harnessTick(w, fog, this.o.runtimeDigest),
+      ...tick,
+      // The referee's tally samples after the tick has run (GH-973): a read of the sim, nothing written.
+      runTick: () => { tick.runTick(); tally.onTick(sim, sides); },
       config,
       dataDigest,
       ...(producer === null ? {} : { afterFrame: (tick: number, digest: number | null) => { producer.onFrame(tick, digest); } }),
       beforeFrame: (f: Frame) => {
+        tally.onFrame(f.tick, f.cmds);
         const own = canonicalOrder(f.cmds)
           .filter((s) => s.seat === seat)
           .map((s) => {
@@ -385,6 +393,23 @@ export class AgentClient {
     if (live === null) throw new Error('AgentClient.view: the match has not started');
     const r = this.result();
     return sideView(live.w, live.side, live.fog, r === null ? null : resultLine(r, live.side));
+  }
+
+  /**
+   * The referee's end-of-match numbers for BOTH seats, read from this client's own sim (GH-973), or null before the
+   * match has started. Not fog-limited, so a caller shows them only once the match has a result. `result`: the match's
+   * outcome in words; default the client's own result, if it has one.
+   */
+  refereeStats(result?: string | null): RefereeStats | null {
+    const live = this.live;
+    if (live === null) return null;
+    const sides: [0 | 1, 0 | 1] = [live.config.seats[0].side, live.config.seats[1].side];
+    return live.tally.stats(live.w.sim, {
+      map: live.config.map,
+      sides,
+      factions: [live.config.seats[0].faction, live.config.seats[1].faction],
+      result: result !== undefined ? result : resultText(this.result(), sides),
+    });
   }
 
   /** The sim's own result; failing that, the room's ending once its frames are run. */
@@ -446,9 +471,11 @@ export function harnessTick(
   w: Pick<MatchWorld, 'sim' | 'runtime'>,
   fog: { step(): void },
   runtimeDigest?: () => number,
+  /** The tick's sim events, read-only (the referee's tally, GH-973). Absent: dropped, as before. */
+  onEvents?: (events: readonly SimEvent[]) => void,
 ): { runTick: () => void; runtimeDigest: () => number } {
   return {
-    runTick: () => { matchTick(w); fog.step(); },
+    runTick: () => { const ev = matchTick(w); onEvents?.(ev.sim); fog.step(); },
     runtimeDigest: runtimeDigest ?? (() => w.runtime?.digest() ?? 0),
   };
 }
