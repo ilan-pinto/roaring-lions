@@ -180,7 +180,7 @@ A mission's camp is registered without the block: no campaign camp admits anybod
 **Orders.** `rescue` only targets the seat's own side's wounded in a versus room (`validateCommand`, both machines), and the
 click does not offer an enemy's (`simIntentWorld`). The model's `order` verb takes a `casualties.mine` id. A rescue unit does
 not keep a side alive (`armedStanding`) and is not counted as fieldable armed production (`productionFor`): a side with only
-medic teams left has lost. A bot or model cannot BUY a medic (`build` is not in `ORDER_VERBS`).
+medic teams left has lost. A bot or model buys one with the `build` verb (PR 986).
 
 **The probe's rescue arm** (`pnpm versus:probe -- --economy [--tunnels] [--rescue-buy=<mode>]`; the table prints `med/adm/rej`:
 medic teams delivered, men admitted at the camp, men sent back to a squad, per game). Two things were wrong with PR 907's arm,
@@ -228,3 +228,18 @@ Tel Marum K 61.5%, Wadi Tarfan L K 65.6% and S 60.4%.
 - The tax is the whole effect: the rescued men are a small return. Whether to lower the price, change the unit, or accept the
   cell is the lead's call; this PR changes neither.
 
+
+**Re-read on the rebased head (3 Nov 2026, with the Spike, GH-982 / PR 987, and PR 986 in; 96 seeds, 192 where noted).** `off` is main
+with the Spike. The Tel Marum Sarim-friendly economy cell is a defect of main, tracked separately as **GH-990**; the lead shipped the
+medic with it.
+
+| Cell | main = `off` | `opening` (default) | `opening`, 192 | `off`, 192 |
+|---|---|---|---|---|
+| Economy, Tel Marum K / S | level / Sarim 59.4 | KDF 56.3 / **Sarim 64.6 OUTSIDE** | KDF 52.6 / **Sarim 61.5 OUTSIDE** | Sarim 51.6 / Sarim 57.8 |
+| Economy, Wadi Tarfan K / S | KDF 51 / Sarim 55.2 | Sarim 51 / Sarim 56.3 | KDF 50.5 / Sarim 53.6 | KDF 50.5 / Sarim 50.5 |
+| Economy, Wadi Tarfan L K / S | KDF 53.1 / KDF 53.1 | KDF 51 / Sarim 52.1 | Sarim 53.6 / Sarim 55.7 | KDF 52.6 / KDF 54.7 |
+| Tunnels 3, Tel Marum K / S | KDF 57.3 / KDF 52.1 | KDF 60.4 OUTSIDE (96) / level | KDF 57.8 / Sarim 53.6 | KDF 56.3 / Sarim 51 |
+| Tunnels 3, Wadi Tarfan K / S | Sarim 56.3 / KDF 56.3 | Sarim 54.2 / KDF 51 | Sarim 54.7 / level | Sarim 52.6 / KDF 54.2 |
+| Tunnels 3, Wadi Tarfan L K / S | Sarim 53.1 / Sarim 58.3 | Sarim 58.3 / Sarim 60.4 OUTSIDE (96) | Sarim 54.2 / Sarim 56.3 | KDF 50.5 / Sarim 55.2 |
+
+The two tunnels-cell-3 readings that touched 60.4% at 96 seeds read 57.8% and 56.3% at 192. The economy cell stays outside at 192 (61.5%).
