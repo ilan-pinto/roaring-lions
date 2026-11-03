@@ -67,6 +67,17 @@ describe('objective side (GH-976)', () => {
     expect(w.rt.objectiveStatus('hold')).toBe('complete');
   });
 
+  it('a side-1 unit alone completes a side-1 capture, and a side-0 unit alone does not', () => {
+    const one = world([{ id: 'cap1', type: 'capture', primary: false, target: 'west', seconds: 3, side: 1 }]);
+    one.put(1, 5, 5);
+    one.step(3 * 20 + 2);
+    expect(one.rt.objectiveStatus('cap1')).toBe('complete');
+    const zero = world([{ id: 'cap1', type: 'capture', primary: false, target: 'west', seconds: 3, side: 1 }]);
+    zero.put(0, 5, 5);
+    zero.step(3 * 20 + 2);
+    expect(zero.rt.objectiveStatus('cap1')).toBe('active');
+  });
+
   it('a side-1 capture is contested by side 0, not by side 1 itself', () => {
     const w = world([{ id: 'cap1', type: 'capture', primary: false, target: 'west', seconds: 3, side: 1 }]);
     w.put(1, 5, 5);

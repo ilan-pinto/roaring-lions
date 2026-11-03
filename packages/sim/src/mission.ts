@@ -782,6 +782,7 @@ const SUPPORT_PROFILE: Readonly<Record<'smoke_screen' | 'mortar_barrage', number
 interface ObjectiveState {
   def: ObjectiveJson;
   status: ObjectiveStatus;
+  /** Ticks held, for a timed hold; for a `score` (GH-976) the points banked, in 1/1200ths of a point. */
   holdTicks: number;
   /** Why a timed hold is not counting down, if it is not. */
   paused: 'contested' | 'unheld' | null;
@@ -1370,7 +1371,7 @@ export class MissionRuntime {
    *  points, the side-1 buyer's index, the
    *  settled identifications, high ground, population and caps, F2's zones and
    *  corridors -- then, in this order: each objective in authored order (status
-   *  code, holdTicks, paused code); each trigger's fired latch; each wave's
+   *  code, holdTicks -- a `score`'s points in 1/1200ths, GH-976 -- paused code); each trigger's fired latch; each wave's
    *  spawned latch; the ROE score (floored) and its failed latch; the civilian
    *  latches (fled, evacuated: size then ids ascending). Integer-only, composed
    *  with the sim's own `hashWord`. Read-only.

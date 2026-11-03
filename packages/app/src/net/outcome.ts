@@ -168,8 +168,11 @@ export function goalsOf(w: GoalsWorld): OutcomeGoals | undefined {
   return { mode: w.winMode, sideWon: (s) => runtime.sideWon(s), scoreUnitsOf: (s) => runtime.scoreUnitsOf(s) };
 }
 
-/** The goal's verdict, or null while no side has completed one. Both on the same tick: the higher score wins
- *  a points race, and anything level is a mutual end. Read from state both machines share (the runtime's
+/** The goal's verdict, or null while no side has completed one. `outcomeOf` asks only on a hash window (every 20
+ *  ticks), and a completed score is frozen at its own completion, so two sides that finished inside one window are
+ *  compared on their frozen scores: the larger overshoot wins a points race (the side that reached the target FIRST
+ *  can lose to it), and anything level is a mutual end. P2 TODO: store the completion tick before a lobby offers
+ *  `points`, so first-to-target decides. Read from state both machines share (the runtime's
  *  objectives and score, hashed through its digest). */
 function goalOutcome(goals: OutcomeGoals): MatchResult | null {
   const a = goals.sideWon(0);

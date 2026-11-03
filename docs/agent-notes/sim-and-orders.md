@@ -730,6 +730,7 @@ yet** (the lobby, the bot harness and the scoring are later phases), and the onl
   `seconds`**: a primary `raze` in a MISSION must declare one (an unwinnable-and-unlosable trap), but a room has the
   match cap and annihilation, and `validate_versus_modes.mjs` refuses a `seconds` in a mode file.
 - **`outcome.ts`.** `won by: 'objective'` with `mode`; `goalsOf(world)` is undefined for every annihilation and economy
-  room, and the goal is asked FIRST (a side that razed the camp as its last unit fell has won). Both goals on one tick:
-  the higher score, else a mutual draw. Annihilation, the stalemate and the cap still apply behind it.
+  room, and the goal is asked FIRST (a side that razed the camp as its last unit fell has won). Both goals complete inside one 20-tick
+  hash window: the frozen scores are compared, the larger overshoot wins, else a mutual draw (P2 TODO: store the completion
+  tick before a lobby offers `points`). Annihilation, the stalemate and the cap still apply behind it.
 - **Measured at P1**, and the open question it leaves: `_coord/win-modes/report.md`.
