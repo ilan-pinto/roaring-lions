@@ -43,7 +43,7 @@ describe('Spike AT team (GH-982)', () => {
     expect(shotsAt('heli_peten', 50)).toBeGreaterThanOrEqual(4);
   });
 
-  it('fires at a Lavi once every 12 s: 5 shots in 50 s, not 3', () => {
+  it('fires at a Lavi once every 12 s: 4 to 6 shots in 50 s, not 3', () => {
     const n = shotsAt('mbt_lavi', 50);
     expect(n).toBeGreaterThanOrEqual(4);
     expect(n).toBeLessThanOrEqual(6);
