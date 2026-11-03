@@ -90,7 +90,7 @@ In a 7-minute (420 s) mission that is the column "max per line in 420 s" (an upp
 | `inf_squad` | KDF | 15 | 292 | 28 |
 | `at_team` | KDF | 18 | 236 | 23 |
 | `mortar_team` | KDF | 18 | 209 | 23 |
-| `inf_medic_squad` | KDF | 18 | 295 | 23 (versus: held, lead 30 Oct) |
+| `inf_medic_squad` | KDF | 18 | 295 | 23 (versus: on the KDF menu, lead 3 Nov) |
 | `breach_team` | KDF | 20 | 306 | 21 |
 | `demo_squad` | KDF | 20 | 300 | 21 |
 | `sniper_team` | KDF | 20 | 260 | 21 |
@@ -150,15 +150,16 @@ D7 (no enemy camp in a shipped mission) is the open design call for the campaign
 costs a plan one seed of thirty. Whether a shipped mission should author one is the lead's, with `data/missions` held for
 the lead's own edit.
 
-## 6. The Nemala medic team at a versus camp (GH-707, 30 Oct 2026) -- versus: HELD (lead 30 Oct)
+## 6. The Nemala medic team at a versus camp (GH-707, 30 Oct and 3 Nov 2026)
 
-**Status.** The lead opened the medic team to the KDF versus menu on 30 Oct 2026 and held it out again the same day (PR 907):
-the fairness gate cannot judge rescue yet (last paragraph). `inf_medic_squad` is in `VERSUS_HELD_UNITS` and on no menu; the rest
-of this section is what a room does when the rescue tests and `--rescue-buy` put it in one IN MEMORY
-(`packages/app/src/net/medic-room.test-helper.ts`).
+**Status (3 Nov 2026).** The lead ruled rescue ON in versus, in its own PR with a fairness check (30 Oct: opened, then held out
+the same day, PR 907). `inf_medic_squad` is the last tile of `data/doctrines/kdf.json` and out of `VERSUS_HELD_UNITS`. **The
+fairness check did not come back clean** (the table below), so the PR that puts it on the menu is a DRAFT and the lead decides.
+No unit's stats or price were changed.
 
-A room prices a unit from its own JSON, so the numbers would be the unit's: **295 logistics, 18 s, population 1**. Sarim has no
-rescue unit. The ambulance and the medevac stay out of every room.
+A room prices a unit from its own JSON: **295 logistics, 18 s, population 1**. Sarim has no rescue unit. The ambulance and the
+medevac stay out of every room (`VERSUS_HELD_UNITS`). The medic also carries an aura (stationary, `heal_per_s` 0.02 on foot
+within 2.5 tiles), which spawning one turns on (`fwLive`, `unitAuraLive`): the snapshot witness's economy worlds now see it.
 
 **Why 295 and 18 s, on the same basis as the other infantry.**
 - *The cost curve* (`special-units-design.md` §3, `validate_balance.py`): the fitted curve prices a unit of its power (0.9) at
@@ -166,24 +167,64 @@ rescue unit. The ambulance and the medevac stay out of every room.
 - *Neighbours.* `inf_squad` 292 / 15 s, `at_team` 236 / 18 s, `yahalom_squad` 260 / 20 s, `mortar_team` 209 / 18 s. The medic
   is a two-man team on the infantry build band (15-20 s), and its 295 / 18 s is 16.4 logistics per second of line against
   `at_team` 13.1 and `inf_squad` 19.5. Twenty-three fit one line in 420 s, as for `at_team` and `mortar_team`.
-- *Price is not the lever on the fairness gate.* At the band floor (223) the Wadi Tarfan Sarim-friendly economy cell still read
-  60.4% (see the PR's table): no price inside the curve band changes the verdict.
+- *Price is not obviously the lever.* At the band floor (223) the Wadi Tarfan Sarim-friendly economy cell read 60.4% in PR 907
+  (on the tree of that day). That was read with a probe whose medic did nothing; it has not been re-read here.
 
-**The drop-off.** A rescued man needs somewhere to go. A room has no field works (`construct` is dropped in every versus room)
-and no `wounded_evac` marker, so the camp is the drop-off: in a versus economy room the camp type takes its `versus_aid` block
-(`data/structures.json`; admit 1.5 tiles, treat 20 s, dispatch 12 tiles) as its `aid` block (`standMapStructures`), and a NEUTRAL
-camp that produces for a side is that side's aid post (`Sim.aidSideOf`). It is not owned, so it is no target and adds no
-field-works fold. A man carried to his own camp is admitted, treated (half time if stabilised) and rejoins his squad "weaker each
-time", exactly as at a field aid post. A mission's camp is registered without the block: no campaign camp admits anybody.
+**The drop-off.** A rescued man needs somewhere to go. A room has no field works and no `wounded_evac` marker, so the camp is
+the drop-off: in a versus economy room the camp type takes its `versus_aid` block (`data/structures.json`; admit 1.5 tiles,
+treat 20 s, dispatch 12 tiles) as its `aid` block (`standMapStructures`), and a NEUTRAL camp that produces for a side is that
+side's aid post (`Sim.aidSideOf`). It is not owned, so it is no target and adds no field-works fold. A man carried to his own
+camp is admitted, treated (half time if stabilised) and rejoins his squad "weaker each time" if one stands, else is evacuated.
+A mission's camp is registered without the block: no campaign camp admits anybody.
 
 **Orders.** `rescue` only targets the seat's own side's wounded in a versus room (`validateCommand`, both machines), and the
-click does not offer an enemy's (`simIntentWorld`). A rescue unit does not keep a side alive (`armedStanding`) and is not
-counted as fieldable armed production (`productionFor`): a side with only medic teams left has lost.
+click does not offer an enemy's (`simIntentWorld`). The model's `order` verb takes a `casualties.mine` id. A rescue unit does
+not keep a side alive (`armedStanding`) and is not counted as fieldable armed production (`productionFor`): a side with only
+medic teams left has lost. A bot or model cannot BUY a medic (`build` is not in `ORDER_VERBS`).
 
-**What the probe can say** (report-only; a `--rescue-buy` run puts the medic on the KDF menu in memory; `pnpm versus:probe -- --economy --rescue-buy=<after|before|save|opening|off>`). The plan does not buy a
-rescue unit as a combat unit. By the lead's rule (`after`) it buys one only when a man is down and the purse still covers it after
-its combat purchases; the opening purse (1500) is spent at tick 0 and income is ~0.3 logistics a second, so it never does
-(0.0 medic teams per game over 96 seeds, every cell byte-identical to the baseline). That reading cannot fail on any property of the
-unit, so the PR also prints `opening`, which buys one with the starting purse. The probe's two blobs fight in the open, a man
-down is almost always within sight of an enemy, and `rescueRound` will not send a medic into fire: a medic team delivered 1.0 a
-game and got 0.0 to 0.1 men back into a squad. With `opening` the Tel Marum Sarim-friendly economy cell reads Sarim 63.5% at 96 and at 192 seeds, outside 60/40: that, and the 0.0, are why the medic is held.
+**The probe's rescue arm** (`pnpm versus:probe -- --economy [--tunnels] [--rescue-buy=<mode>]`; the table prints `med/adm/rej`:
+medic teams delivered, men admitted at the camp, men sent back to a squad, per game). Two things were wrong with PR 907's arm,
+and both are fixed in the probe and not in the unit:
+
+1. *A buy that happens.* The KDF opening purse (1500) is spent at tick 0 and income is about 1 logistic a second, so a medic
+   (295) bought after the combat purchases is never affordable: `after`, the ruled rule of 30 Oct, delivers 0.0 a game and is
+   byte-identical to main (the control). `opening` buys the medic FIRST, in the first round (a player who wants his wounded
+   treated, GH-973's scoring criterion); `reserve` is the literal "buy when a man is down": it holds 295 back from the combat
+   purchases for the first 60 s and buys at the first round a man is down.
+2. *A rescue that completes.* The medic used to wait at the camp, 30 tiles from the fight, and was only ordered to a man with no
+   enemy within 10 tiles. It now walks to a station 5 tiles behind the centroid of the side's standing armed units, toward its
+   camp, and is ordered to a man further off when no armed enemy is within 10 tiles of him or the front has moved past him; from
+   the station the engine's own pick takes a man within its 8 tiles (or the camp's 12).
+
+**What the arms read** (96 seeds a cell, room seat table, seeds `seedOf(0..95)`; 3 Nov 2026 on `abd3d3ed8` plus this PR; K =
+KDF friendly, S = Sarim friendly; the share is the leader's). `off` is the unbought control and reads **byte-identical to main**
+in every cell (the medic is registered and on the menu and nothing buys it).
+
+| Cell | main = `off` | `reserve` | `opening` | `opening`, 192 seeds |
+|---|---|---|---|---|
+| Economy, Tel Marum K | KDF 54.2% | Sarim 52.1% | Sarim 53.1% | Sarim 52.6% |
+| Economy, Tel Marum S | **Sarim 60.4% OUTSIDE** (192: 59.9%) | Sarim 56.3% (192: 57.8%) | **Sarim 67.7% OUTSIDE** | **Sarim 63.0% OUTSIDE** |
+| Economy, Wadi Tarfan K | KDF 54.2% | KDF 53.1% | Sarim 55.2% | Sarim 54.2% |
+| Economy, Wadi Tarfan S | Sarim 56.3% | Sarim 54.2% | Sarim 51% | level |
+| Economy, Wadi Tarfan L K | level | Sarim 55.2% | Sarim 59.4% | Sarim 58.9% |
+| Economy, Wadi Tarfan L S | KDF 54.2% | Sarim 56.3% | Sarim 54.2% | Sarim 54.7% |
+| Tunnels cell 3, Tel Marum K / S | KDF 51% / Sarim 55.2% | KDF 54.2% / Sarim 53.1% | KDF 52.1% / KDF 51% | KDF 52.6% / KDF 51.6% |
+| Tunnels cell 3, Wadi Tarfan K / S | Sarim 53.1% / KDF 53.1% | level / level | Sarim 56.3% / Sarim 51% | Sarim 57.8% / Sarim 53.1% |
+| Tunnels cell 3, Wadi Tarfan L K / S | Sarim 52.1% / Sarim 58.3% | KDF 52.1% / Sarim 54.2% | level / Sarim 55.2% | KDF 51% / Sarim 57.3% |
+| Mirror (7 maps) and placed force (7 maps, both spawns) | | identical to main | identical to main | |
+
+`med/adm/rej` per game: `opening` 1.0/0.9-1.7/0.0-0.2; `reserve` 1.0/0.1-0.3/0.0-0.1. Tunnels cells 2 and 4 are report cells:
+cell 4 (turtle) is outside as designed; cell 2 reads outside on Tel Marum Sarim friendly on main (67.7%) and `opening` adds
+Tel Marum K 61.5%, Wadi Tarfan L K 65.6% and S 60.4%.
+
+**How to read it.**
+- `reserve` is inside 60/40 everywhere and **does not rescue anyone**: the single production line queues the medic behind the
+  opening units, it is built at about 90 s, and the casualties of a probe game fall in its first 90 s and bleed out in 60.
+  It buys and it is late; its `med/adm/rej` of 1.0/0.2/0.0 is the reading PR 907 asked for in form only.
+- `opening` completes rescues (0.9 to 1.7 men a game admitted at the camp; 0.0 to 0.2 back into a standing squad, because the
+  squad is usually dead: those men are evacuated) and **trips one bar cell**: Economy, Tel Marum, Sarim friendly, 67.7% at 96
+  and 63.0% at 192, against 60.4% and 59.9% on main. The cell was already on the line before the medic; the medic is a tax of
+  295 on a 1500 opening purse (about 4% of the KDF force value) and it returns well under that. Every other bar cell is inside.
+- The tax is the whole effect: the rescued men are a small return. Whether to lower the price, change the unit, or accept the
+  cell is the lead's call; this PR changes neither.
+
