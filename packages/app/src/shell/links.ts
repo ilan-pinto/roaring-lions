@@ -62,4 +62,6 @@ export const routes = {
   // `false` there, so the branch is dead code). `pnpm arena --watch` prints the same path with the run's key in
   // the fragment, which an href here never carries.
   arenaWatch: (): string => (import.meta.env.DEV ? href('/arena/watch') : href('/')),
+  // GH-954 W2: the arena setup screen, DEV only on the same terms as `arenaWatch` (the menu in a production build).
+  arenaSetup: (): string => (import.meta.env.DEV ? href('/arena') : href('/')),
 } as const;

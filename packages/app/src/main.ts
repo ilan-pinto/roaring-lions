@@ -1355,6 +1355,21 @@ async function main(): Promise<void> {
   // `pnpm arena --watch` (`tools/src/net/arena-serve.ts`), which hands the page its key in the URL fragment.
   const arenaRoutes: RouteDef[] = import.meta.env.DEV
     ? [
+        // GH-954 W2: `/arena`, the setup screen of `pnpm arena --serve`. Start goes to `/arena/watch` SOFTLY, so the
+        // key held in `arenaHash` (the fragment the router rewrites) is still the one the watch screen reads.
+        {
+          name: 'arena-setup',
+          pattern: '/arena',
+          mount: async (host) => {
+            const [{ showArenaSetup }, { keyFromHash }] = await Promise.all([import('./ui/arena-setup'), import('./net/watch-connect')]);
+            return showArenaSetup(host, {
+              key: keyFromHash(arenaHash),
+              fetch: window.fetch.bind(window),
+              maps: versusMaps(),
+              watch: () => void router.navigate(routes.arenaWatch()),
+            });
+          },
+        },
         {
           name: 'arena-watch',
           pattern: '/arena/watch',
