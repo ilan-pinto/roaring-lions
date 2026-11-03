@@ -54,7 +54,7 @@
 // same series run clean: see `selfChecks`.
 
 import { fileURLToPath } from 'node:url';
-import { fx, type MissionRuntime, type Sim } from '@lions/sim';
+import { fx, Sim, type MissionRuntime } from '@lions/sim';
 import { WOUND_ADMITTED } from '../../../packages/sim/src/tuning';
 import { withMedicInRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 import { doctrines, type MapId } from '@lions/data';
@@ -347,6 +347,37 @@ export function goldenFormations(): SnapWorld {
   });
 }
 const FORMATION_DUTIES_SEEN = new WeakMap<Sim, { out: Set<string>; ret: Set<string> }>();
+/**
+ * The group-order world (GH-972): a squad ordered into a house with `spread`, two other squads ordered plainly into the
+ * same house that fill it while the group is still walking, so the group's flagged units turn to the next house (a third
+ * is out of their reach). The only world in which `spreadGoal` and `spreadLive` move: a versus room is driven by
+ * attack-moves, and no golden script gives a spread order. Cuts land before the order, mid-walk, as the house fills
+ * and after the redirect.
+ */
+export function spreadWorld(): SnapWorld {
+  const sim = new Sim({ seed: 972, width: 48, height: 32, capacity: 32 });
+  const house = sim.addStructureType({ id: 'spread_house', name: 'House', hp_per_tile: 260, garrison_slots: 2, rubble_cover: 2 });
+  const rifles = sim.addUnitType({
+    id: 'spread_rifles',
+    role: 'infantry',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1.6 },
+    sensors: { optics: 1, sight_tiles: 10, signature: 0.6 },
+    abilities: ['garrison'],
+    weapons: [],
+  });
+  const rect = (x: number, y: number): number => sim.addStructure(house, [y * 48 + x, y * 48 + x + 1, (y + 1) * 48 + x, (y + 1) * 48 + x + 1]);
+  const a = rect(24, 10);
+  rect(24, 14);
+  rect(24, 18);
+  const put = (x: number, y: number): number => sim.spawn(rifles, 0, fx.from(x), fx.from(y));
+  const group = [0, 1, 2, 3].map((k) => put(4.5, 10 + k));
+  const locals = [0, 1].map((k) => put(22.5, 11 + k));
+  return simWorld(sim, (t) => {
+    if (t === 5) sim.queueCommand({ kind: 'garrison', ids: group, structure: a, spread: true });
+    if (t === 6) sim.queueCommand({ kind: 'garrison', ids: locals, structure: a });
+  });
+}
 export function goldenEconomy(): SnapWorld {
   const ew = economySetup(ECONOMY_SEED);
   return {
@@ -458,6 +489,18 @@ export function worldSpecs(): WorldSpec[] {
       }
       if (!it.fmHomeX.some((x) => x !== 0)) return 'the formation world stopped calling: every fmHome is empty';
       return null;
+    },
+  });
+  out.push({
+    id: 'group spread (600)',
+    plan: goldenPlan(600),
+    build: spreadWorld,
+    exercised: (a) => {
+      const it = internals(a.sim) as unknown as { spreadLive: boolean; spreadGoal: Uint8Array };
+      if (!it.spreadLive) return 'the group-spread world stopped giving a spread order: spreadLive is still false at its end';
+      if (!it.spreadGoal.some((f) => f === 1)) return 'the group-spread world stopped flagging units: no spreadGoal is set at its end';
+      const held = Array.from(a.sim.state.garrisonedIn).filter((g, i) => i < a.sim.entityCount && g >= 0).length;
+      return held === 6 ? null : `the group-spread world stopped spreading: ${held} of 6 squads are inside a house at its end`;
     },
   });
   out.push({ id: `golden economy (${ECONOMY_TICKS})`, plan: goldenPlan(ECONOMY_TICKS), build: goldenEconomy });
