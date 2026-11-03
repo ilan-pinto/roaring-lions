@@ -295,6 +295,8 @@ The other player may take a while to press Ready: until the match has started, k
 
 This room has a human in it, so play is REALTIME, not the paced match described above: the match runs while you think. Never call \`end_round\` (it answers "not a paced room"). Your loop is \`observe\`, \`order\`, \`wait\` (20 to 200 ticks, then look again), until \`status\` shows a result. Check \`pace\` in \`status\`; only if it says paced do rounds and \`end_round\` apply.
 
+If \`observe\` shows an \`economy\`, you can build: send a \`build\` order for a unit on \`economy.menu\` (cost in logistics, against your \`purse\` and your population cap), and set a \`setRally\` point so the new units gather where you want them. A build is paid a few seconds after you send it, so check \`purse\` in \`observe\` before the next one. A unit's \`stance\` (\`hold\`, \`ambush\`, \`patrol\`) is set with the \`setStance\` verb of \`order\`.
+
 Your D9 dozer (\`dozer_d9\`) is unarmed and slow: it cannot fight. Its job is to bring down buildings with the \`demolish\` order (and to repair and clear), so send it where there is a structure to take down and keep it behind your troops.
 
 \`observe\` lists wounded men under \`casualties\` (\`mine\`, \`theirs\`), apart from \`units\` and \`contacts\`. They are not orderable units; a medic's \`rescue\` is how they are saved.
