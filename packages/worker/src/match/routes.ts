@@ -1,4 +1,8 @@
-/** `/api/match*` (spec §3.2.1): create, join, the advisor ticket, the snapshot and the socket upgrade. Origin
+/** `/api/match*` (spec §3.2.1): create, join, the advisor ticket, the snapshot, the local-only watch ticket and the
+ *  socket upgrade. GH-954 W1: a seat's `kind` ('bot' or 'human') is ASSERTED BY THE CLIENT at create and join, so in
+ *  production nothing proves a room is a bot match: `/watch`'s "both seats are bots" check is a local sanity check,
+ *  and the real guards are its 404 (no `ARENA_WATCH`, set only by the local relay) and the HMAC ticket. Never weaken
+ *  the 404 on the strength of the bots check. Origin
  *  is REQUIRED (the `/api/feedback` rule, `../origin.ts`), on the upgrade too.
  *  ROOM_LIMIT counts create, join and the advisor ticket only: a client reconnecting once a
  *  second would trip a six-a-minute limit on the upgrade (R20). The upgrade

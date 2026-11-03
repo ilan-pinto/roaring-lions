@@ -1,6 +1,6 @@
 /**
  * The DEV-only `/arena/watch` screen (GH-954 W1): watch a `pnpm arena --watch` run live. This module is reached
- * only by a dynamic `import()` inside `import.meta.env.DEV` in `main.ts`, so it is not in a production bundle
+ * only by a dynamic `import()` inside `import.meta.env.DEV` in `main.ts`, so a production build has no route, API path, key header or watch module (the strip CSS and the `arena.*` strings ship, inert)
  * (`tools/src/net/arena-serve.test.ts` pins that against a real `vite build`).
  *
  * It owns the strip, the poll loop (`net/watch-run.ts`) and one stage element per game. Each game is a

@@ -5082,14 +5082,14 @@ export class ThreeRenderer implements Renderer {
       const headY = fx.toNumber(head[1]) + 0.5;
       routes.push({
         alive: sim.tnAlive[r] !== 0,
-        contactLevel: routeLevelFor(sim, this.viewer, r),
+        contactLevel: routeLevelFor(sim, this.fogViewer, r),
         ventOpen: sim.tnVentOpen[r] !== 0,
         progressTiles: fx.toNumber(sim.tnProgress[r]),
         lengthTiles: fx.toNumber(sim.tnLength[r]),
         mouth: [fx.toNumber(mouth[0]) + 0.5, fx.toNumber(mouth[1]) + 0.5],
         vent: [fx.toNumber(vent[0]), fx.toNumber(vent[1])],
         digHead: [headX, headY],
-        digHeadSeen: sim.sideSeesTile(this.viewer, Math.floor(headX), Math.floor(headY)),
+        digHeadSeen: sim.sideSeesTile(this.fogViewer, Math.floor(headX), Math.floor(headY)),
       });
     }
     return {
@@ -5136,13 +5136,13 @@ export class ThreeRenderer implements Renderer {
     const sim = this.sim;
     const now = presentationSimMs(sim.tickCount, 1) / 1000;
     for (let r = 0; r < sim.tunnelCount; r++) {
-      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r));
+      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.fogViewer, r));
       // GH-681: the seat's own route is held for good -- it dug it -- so it
       // never fades to the lapsed floor the way a found enemy route does.
-      let held = ownsRoute(sim, this.viewer, r);
+      let held = ownsRoute(sim, this.fogViewer, r);
       if (level === 2 && !held) {
         for (const t of this.xrayRouteTiles[r]) {
-          if (sim.markerSeesTile(this.viewer, t % sim.width, Math.floor(t / sim.width))) {
+          if (sim.markerSeesTile(this.fogViewer, t % sim.width, Math.floor(t / sim.width))) {
             held = true;
             break;
           }
@@ -5167,7 +5167,7 @@ export class ThreeRenderer implements Renderer {
       // this the occupant list held every buried unit on every route, and
       // only the bore's eased strength stood between it and the other seat.
       const r = st.tunnelIn[i];
-      if (collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r)) !== 2) continue;
+      if (collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.fogViewer, r)) !== 2) continue;
       occ.push([r, i]);
     }
     this.tunnelXray.update(presentationSimMs(sim.tickCount, alpha) / 1000, occ);
@@ -5186,12 +5186,12 @@ export class ThreeRenderer implements Renderer {
       // rung. A level-2 route still shows its spoil exactly as a suspected
       // one does: the dirt is real whatever the player knows about it.
       routeLevel: (r) => {
-        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r));
+        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.fogViewer, r));
         return lv === 2 ? 1 : lv;
       },
       tunnelUnderTile: (r, x, y) => sim.tunnelUnderTile(r, x, y),
-      seenByAnyone: (x, y) => sim.sideSeesTile(this.viewer, x, y),
-      seenByCarrier: (x, y) => sim.markerSeesTile(this.viewer, x, y),
+      seenByAnyone: (x, y) => sim.sideSeesTile(this.fogViewer, x, y),
+      seenByCarrier: (x, y) => sim.markerSeesTile(this.fogViewer, x, y),
     };
   }
 

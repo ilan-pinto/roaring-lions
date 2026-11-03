@@ -338,7 +338,6 @@ describe('GH-954 W1: --watch', () => {
     };
   }
   const BASE = ['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'tel_marum', '--pace', '40', '--cap-ticks', '400'];
-  const stable = (g: GameRecord): unknown => ({ ...g, referee: g.referee });
 
   it('reads --watch and --serve: watch implies serve and defaults --tick-ms to 50, an explicit one wins, --serve alone is only the server', () => {
     const plain = parseArgs(['--a', 'rush', '--b', 'passive']);
@@ -438,7 +437,7 @@ describe('GH-954 W1: --watch', () => {
     for (const w of watchers) w.client.close();
 
     expect(watchers).toHaveLength(4);
-    expect(watched.games.map(stable)).toEqual(plain.games.map(stable));
+    expect(watched.games).toEqual(plain.games);
     for (const w of watchers) {
       const ref = refs.get(w.n);
       expect(ref).toBeDefined();
@@ -459,6 +458,6 @@ describe('GH-954 W1: --watch', () => {
     expect(fast.code).toBe(0);
     expect(slow.code).toBe(0);
     expect(slow.games).toHaveLength(2);
-    expect(slow.games.map(stable)).toEqual(fast.games.map(stable));
+    expect(slow.games).toEqual(fast.games);
   }, 120_000);
 });

@@ -1078,7 +1078,8 @@ export class MatchRoom {
    *  retired; at most `MAX_WATCHERS` (a third is told `full` and closed). No `seatJoin`, no state change, no row.
    *  Its going is only a socket going. A route that mints the ticket exists only on the local relay
    *  (`env.ARENA_WATCH`), but the room does not rely on that: it admits a `watch` ticket only into a room whose
-   *  seats are both bots. */
+   *  seats are both bots. NOTE: a seat's `kind` is asserted by the client at create and join, so in production this
+   *  check proves nothing; the real guards are the route's 404 (no `ARENA_WATCH`) and the HMAC ticket. */
   private watchHello(ws: WebSocket, st: RoomState, from?: number): void {
     const bots = (this.meta?.kinds ?? ['human', 'human']).every((k) => k === 'bot');
     if (!bots) { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'not a bot match'); return; }

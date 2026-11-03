@@ -2704,8 +2704,16 @@ describe('watch sockets (GH-954 W1)', () => {
     expect(ws0.closed).toBeNull();
     expect(ws1.closed).toBeNull();
     expect(ofType(ws0, 'log')).toEqual([]);
-    // No badge to anyone: it is not an advisor.
+    // Not an advisor: its hello badges nobody.
     for (const ws of [ws0, ws1, w]) expect(ofType(ws, 'advisors')).toEqual([]);
+    // And it hears no advisor traffic that comes AFTER it joined: a badge when an advisor arrives, an advisor's text.
+    const adv = await hello(room, 0, await advisorTicket(0, 'assist'));
+    expect(last(ws0)).toEqual({ t: 'advisors', present: ['assist', null] });
+    await say(room, adv, { t: 'advisor', a: { kind: 'text', text: 'ridge' } });
+    await say(room, ws0, { t: 'advisor', a: { kind: 'text', text: 'ok' } });
+    expect(ofType(ws0, 'advisor').length).toBeGreaterThan(0);
+    expect(ofType(w, 'advisors')).toEqual([]);
+    expect(ofType(w, 'advisor')).toEqual([]);
     expect(state.storage.rowsWritten).toBe(before);
     expect((await persisted(state)).seats).toEqual(seatsBefore);
     await vi.advanceTimersByTimeAsync(TICK_MS);

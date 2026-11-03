@@ -1349,8 +1349,8 @@ async function main(): Promise<void> {
   // redirect onto these paths on boot and on click -- so the tools and
   // bookmarks that drive the app by query string keep working.
   // GH-954 W1: the arena watch screen exists in a DEV build only. `import.meta.env.DEV` is replaced by `false` in a
-  // production build, so this list is empty there and the dynamic imports inside it are dead code: no route, no
-  // module (`tools/src/net/arena-serve.test.ts` builds the app and pins that). It is also served only by
+  // production build, so this list is empty there and the dynamic imports inside it are dead code: no route, API
+  // path, key header or watch module (the `arena.*` strings, the strip CSS and the `spectate` branches ship, inert) (`tools/src/net/arena-serve.test.ts` builds the app and pins that). It is also served only by
   // `pnpm arena --watch` (`tools/src/net/arena-serve.ts`), which hands the page its key in the URL fragment.
   const arenaRoutes: RouteDef[] = import.meta.env.DEV
     ? [
