@@ -23,7 +23,7 @@ const MAP_DIR = join(__dirname, '..', '..', 'data', 'maps');
  *  rises, 11 flat. Rujm Sawda (GH-913 L4, 1 Nov 2026) is the 28th, 28 rises, read on first run from
  *  the shipped map: 28 relief maps, 152 rises, 11 flat. Wadi Tarfan (large) (GH-920 B3, 2 Nov 2026) is the 29th, 0 rises, by an
  *  independent Python flood fill of its rows and levels (median open level 3, floor 5, no 4-connected open run at 5 or above):
- *  29 relief maps, 152 rises, 11 flat. Milh Flats (large) (GH-920 B3) is the 30th, 6 rises, by the same flood fill of its rows and levels (median open level 2, floor 4, six 4-connected open runs at 4 or above, the original's own count): 30 relief maps, 158 rises, 11 flat. Three relief maps pin 0 -- they have an elevation grid
+ *  29 relief maps, 152 rises, 11 flat. Milh Flats (large) (GH-920 B3) is the 30th, 6 rises, by the same flood fill of its rows and levels (median open level 2, floor 4, six 4-connected open runs at 4 or above, the original's own count): 30 relief maps, 158 rises, 11 flat. Tel Marum (large) (GH-920 B3) is the 31st, 3 rises, by the same flood fill of its rows and levels (median open level 0, floor 2, three 4-connected open runs at 2 or above, the original's own count): 31 relief maps, 161 rises, 11 flat. Three relief maps pin 0 -- they have an elevation grid
  *  and no tile two levels over their own median -- and the pin still guards them against a rise
  *  appearing. */
 const RISES: Record<string, number> = {
@@ -46,6 +46,7 @@ const RISES: Record<string, number> = {
   tel_marum_1: 2,
   tel_marum_2: 1,
   tel_marum_3: 10,
+  tel_marum_l: 3,
   umm_zeitoun: 8,
   umm_zeitoun_2: 6,
   umm_zeitoun_3: 5,
@@ -96,7 +97,7 @@ describe('shipped maps: high ground', () => {
     expect(ids.length).toBeGreaterThan(30);
     const relief = ids.filter((id) => results.get(id)?.relief);
     const flat = ids.filter((id) => !results.get(id)?.relief);
-    expect(relief.length).toBe(30); // Was 29: Milh Flats (large), GH-920 B3 (28: Wadi Tarfan (large))
+    expect(relief.length).toBe(31); // Was 30: Tel Marum (large), GH-920 B3 (29: Milh Flats (large); 28: Wadi Tarfan (large))
     expect(flat.length).toBe(11);
   });
 

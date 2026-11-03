@@ -256,3 +256,52 @@ Idle rows are exactly Rujm's and Wadi (large)'s 2,562 (PR 937, PR 957); heavy is
 idle world is 389 KiB raw against design 4.5's 390 at capacity 512. Every figure is inside the bars; the log is at 10% of its
 cap, so the map needs no Worker change. The snapshot figures are the default 15-unit force, not the 150-a-side stress of 4.5
 (404 KiB raw, 23.2 KiB gzip), which is read from the design and not re-measured here.
+
+## Tel Marum (large) (GH-920 B3-B4, 3 Nov 2026)
+
+`tools/maps/tel_marum_l/build.mjs` reads `data/maps/tel_marum.json` as its 48-cell sketch, on the same library, and writes
+`data/maps/tel_marum_l.json` and `data/versus/tel_marum_l.json`. Registered and NOT offered (`RULES_ONLY_MAPS`,
+`UNLISTED_MAP_IDS`, `VERSUS_FORMATIONS_CLOSED_MAPS`, in neither `@lions/net` list; `tel_marum` stays in both). B5 to B7 are not done.
+What differs from the other three large maps:
+- **It is not point-symmetric**, so there is no half-turn anywhere: the generator draws the whole map, and `large_map_verify.ts`
+  reads it with `asymmetric: true` (it skips the half-turn, the seat diagonal and equal flow cost both ways; it asks instead for the
+  real placer's moves to equal the spec's `displaced` literals, 7 / 13 / 10 per pairing, and for every unit to land open to wheels and
+  off the camps). The original's own seats move 10 / 11 / 15 units the same way: its formation overlaps rock and `placeOnOpen` spirals.
+- **Seats are the original's measured seats doubled**, `(54,90)` and `(58,34)`, as `versus_0`/`versus_1` markers (the original names
+  them in `VERSUS_SEATS`). They stand 56.1 tiles apart, not the 78 of the other large maps: the second seat is in the bowl before the
+  pass, and that is what a twin gives. Both seats are SOUTH of the wall band, so no seat-to-seat route crosses it and the verifier has no
+  `crossings`.
+- **Camps keep their tile offset from the seat** (`(-6,+1)`, `(-4,-3)`); a tunnel mouth and middle point double; a **vent keeps its tile
+  offset from the approach** (the fight), the lesson of PR 953 (a doubled vent sat 15-20 tiles from any line of fire). A rule fixed
+  before any seed was read, not a value fitted.
+- Rock and the boulder corridor copy as 2x2 blocks (the corridor is 4 x 12, 48 `b` tiles, plus the 16-tile scree apron); the village
+  keeps its native 3x2; `keepCliffs` is applied (the sketch is full of two-level steps: wall band, pass bowl, a 2-level berm).
+  The 6-tile rock outcrop in the valley is a crown summit in the original; copied as 2x2 blocks it is 24 tiles and crowns nothing
+  (`crown-summit.test.ts` tally unchanged at 31 / 51). Contour wander reads 0.154. No cover is added: the sketch has none.
+- Pins swept with an independent count each: rises 3 (Python flood fill, the original's own count), crown clusters (Python: 24, 244,
+  1,248, 1,476 tiles, none within `CROWN_MAX_TILES`), sandbox anchors by literal, terrain-defaults one line added and none moved,
+  snapshot-rejoin premise (seed 1 holds through the economy room: -1512887500; the mirror room reads +938436255), displaced units
+  7 / 13 / 10 (Python, over the rows and the two force tables).
+
+### The saddle doctrine, carried to 2x (`tools/src/tel_marum_l_doctrine.test.ts`)
+
+Terrain-and-line-of-sight facts carry over; arithmetic on a range does not (speeds and ranges are unchanged, distances double).
+HOLDS: the west pocket sees the approach and not the hollow or the narrow saddle; the corridor is watched along its length from the
+northern plain and not from its mouth; the corridor is infantry-only (foot 16 steps against the original's 8, wheels 55 against 28,
+the wide saddle 76 against 38 with and without the field, the flank closed to armour, 94 on foot); a boulder blocks wheels and not
+sight; the field splits the task force; the battery prefers the nearer target. DOES NOT HOLD (pinned as the negative, with a control
+where the same code sees the thing): the Grad at its marker reaches the pass and the wide saddle but not the narrow saddle (34.0) or the
+approach (36.1) against a range of 20; the corridor's watcher is 26.3 from it, outside the envelope; the approach zone is 21 of 35
+tiles spottable and none shellable (so no gradient); the village is 4.0 from the battery, past the 3.0 splash; the shipped spotter sees 0
+of 48 corridor tiles (16.0 from the mouth against a sight of 9); the best sight-9 post sees 20 of 48, still 4.0 away; half the corridor
+costs a sight-12 post 6.1 (inside a Spike's reach; the original: 0.2 outside); a battery at its marker never fires at the flanker, and
+from 12.6 tiles it does. A Tel Marum mission on this map would need its battery and spotter markers laid by tile offset, not doubled.
+
+### What B4 read (3 Nov 2026)
+
+`pnpm versus:probe --maps=tel_marum_l --cap=2100`, placed forces, the economy arm and the tunnel arm; the self-check passed at the
+35-minute cap in every run. No lever was pulled: the first geometry was read once on 0-191 and again on 4000-4287. The same cells on
+the 48x48 original (25-minute cap, seeds 0-191): mirror west 52.6%, KDF friendly Sarim 54.7%, Sarim friendly Sarim 51.6%, economy
+KDF friendly KDF 50.5%, economy Sarim friendly Sarim 59.9%; held-out 4000-4287: mirror 52.4%, KDF friendly Sarim 55.6%, Sarim friendly
+level. The tables are in the PR. The twin leans Sarim where Sarim holds the bowl in front of the pass and KDF walks the valley to it
+(placed 66.5% and economy 69.2% pooled over 480, against the original's 54.7% and 49.5%), and the tunnel arm is not near the bar (cell 3 KDF 80-98%).

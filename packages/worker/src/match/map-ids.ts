@@ -31,6 +31,7 @@ export const SHIPPED_MAP_IDS: readonly string[] = [
   'tel_marum_1',
   'tel_marum_2',
   'tel_marum_3',
+  'tel_marum_l',
   'tile_green',
   'tile_knoll',
   'tile_orchard',

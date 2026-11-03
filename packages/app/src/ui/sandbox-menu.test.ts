@@ -32,8 +32,8 @@ import en from '../i18n/en.json';
 // is a card now. LITERALS, so these specs do not read the answer off the code under test. Delete
 // them here with the entries in menu.ts's UNLISTED_MAP_IDS.
 // Wadi Tarfan (large) was held out too, unopened (GH-920 B3), and left this list when B7 opened it. Milh Flats (large) is held out, unopened (GH-920 B3).
-// Milh Flats (large) was held out too, unopened (GH-920 B3), and left this list when B7 opened it.
-const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar'];
+// Milh Flats (large) was held out too, unopened (GH-920 B3), and left this list when B7 opened it. Tel Marum (large) is held out, unopened (GH-920 B3).
+const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'tel_marum_l'];
 const listedIds = (): string[] => Object.keys(maps).filter((id) => !HELD_OUT.includes(id));
 
 const render = (): HTMLElement => {
@@ -72,8 +72,8 @@ describe('the map list', () => {
   });
 
   it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
-    // 41 maps ship (Was 40: Milh Flats (large), GH-920 B3); the picker lists 38 (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(41);
+    // 42 maps ship (Was 41: Tel Marum (large), GH-920 B3); the picker lists 38 (Tel Marum (large) is held out). Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(42);
     for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
@@ -86,11 +86,12 @@ describe('the map list', () => {
     }
   });
 
-  it('pins the unlisted set to exactly the Ein Qasab town maps', () => {
+  it('pins the unlisted set to exactly the Ein Qasab town maps and the unopened large Tel Marum', () => {
     // Delete the pin with the entries when P3 ships. Rujm Sawda left the set when the lead opened it (GH-913 L8), and
     // Wadi Tarfan (large) and Milh Flats (large) did when their B7s opened them (GH-920): it was
-    // ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'milh_flats_l'] before this one.
-    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
+    // ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'milh_flats_l'] before this one. Tel Marum (large) joined it unopened (GH-920 B3);
+    // delete its entry when its B7 opens it.
+    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'tel_marum_l']);
   });
 
   it('lists Milh Flats (large) (GH-920 B7): a card with its name and an honest "large 96 by 96" line, linking to its free-play route', () => {
@@ -190,7 +191,7 @@ describe('the map cards (PA-25)', () => {
     // Rujm Sawda is 80 by 80, Wadi Tarfan (large) and Milh Flats (large) 96 by 96. The line is written by hand, so a map resized
     // without it (or a line copied from the other) is red here whether or not the card is on the picker yet. The 90-character
     // bound is the one line of the card: Milh's first line ran to 113 and only this loop would have said so once it was listed.
-    for (const id of ['rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']) {
+    for (const id of ['rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l', 'tel_marum_l']) {
       const m = (maps as Record<string, MapJson>)[id];
       const line = cat[`freePlay.map.${id}`];
       expect(line, id).toMatch(/^A large \d+ by \d+ map/);
