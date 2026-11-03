@@ -201,11 +201,42 @@ describe('MatchRoom', () => {
     expect((await persisted(state)).seats).toEqual([null, null]);
   });
 
-  it('refuses a client built from something else', async () => {
+  it('refuses a client built from something else, and tells a verified seat which build the room runs (GH-954)', async () => {
     const { room } = await created();
     const ws = await hello(room, 0, undefined, 'b2');
-    expect(msgs(ws)).toEqual([{ t: 'error', code: 'build_mismatch' }]);
+    expect(msgs(ws)).toEqual([{ t: 'error', code: 'build_mismatch', build: BUILD }]);
     expect(ws.closed?.code).toBe(4002);
+  });
+
+  it('does not tell the room\'s build to a hello whose ticket does not verify', async () => {
+    const { room } = await created();
+    const ws = await hello(room, 0, 'not.a.ticket', 'b2');
+    expect(msgs(ws)).toEqual([{ t: 'error', code: 'bad_ticket' }]);
+  });
+
+  describe('/join with a build (GH-954)', () => {
+    const joinWith = (room: MatchRoom, body: Record<string, unknown>): Promise<Response> =>
+      room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', callsign: 'Guest', ...body }) }));
+    it('refuses a mismatching build with 412 naming the room\'s, BEFORE reserving the seat', async () => {
+      const { room } = await created(new FakeState(), { join: false });
+      const bad = await joinWith(room, { build: 'other' });
+      expect(bad.status).toBe(412);
+      expect(await bad.json()).toEqual({ error: 'build_mismatch', build: BUILD });
+      // The seat is still free: the retry on the right build (or a browser that names none) gets it.
+      expect((await joinWith(room, { build: BUILD })).status).toBe(200);
+    });
+    it('a browser that names no build joins as before, and so does an empty one', async () => {
+      const a = await created(new FakeState(), { join: false });
+      expect((await joinWith(a.room, {})).status).toBe(200);
+      const b = await created(new FakeState(), { join: false });
+      expect((await joinWith(b.room, { build: '' })).status).toBe(200);
+    });
+    it('a full room says 409 and does not disclose its build', async () => {
+      const { room } = await created();
+      const r = await joinWith(room, { build: 'other' });
+      expect(r.status).toBe(409);
+      expect(await r.text()).toBe('full');
+    });
   });
 
   it('starts when both seats are ready: one start, to both, with the map and build /create fixed', async () => {

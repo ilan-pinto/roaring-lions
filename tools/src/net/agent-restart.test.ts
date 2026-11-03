@@ -4,7 +4,8 @@
 // surrender, or a leave in the lobby); the next start must take the same seat
 // back and play. Real harness processes over stdio, against the local relay on
 // 127.0.0.1; the "model" is this file driving the tools. No model, no key.
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -141,4 +142,35 @@ describe('the harness survives an MCP probe: close, restart on the same ticket, 
     expect(await playRounds(again.client, 2)).toBe(2);
     await again.client.close();
   }, 90_000);
+});
+
+describe('a build refusal names the room\'s build (GH-954), through the real room', () => {
+  it('the join refuses a mismatching build with 412 and the room\'s own, without taking the seat', async () => {
+    const relay = await startLocalRelay({ log: () => {}, tickMs: 5, seedFor: () => 1000 });
+    cleanups.push(() => relay.close());
+    const created = await fetch(`${relay.url}/api/match`, { method: 'POST', headers: { origin: relay.origin, 'content-type': 'application/json' }, body: JSON.stringify({ player: 'bot-a', callsign: 'A', build: BUILD, map: 'tel_marum', mode: 'versus', kind: 'bot' }) });
+    const { code } = (await created.json()) as { code: string };
+    const join = (build: string): Promise<Response> => fetch(`${relay.url}/api/match/${code}/join`, { method: 'POST', headers: { origin: relay.origin, 'content-type': 'application/json' }, body: JSON.stringify({ player: 'bot-b', callsign: 'B', kind: 'bot', build }) });
+    const bad = await join('0.0.0+deadbeef');
+    expect(bad.status).toBe(412);
+    expect(await bad.json()).toEqual({ error: 'build_mismatch', build: BUILD });
+    expect((await join(BUILD)).status).toBe(200);   // the refusal took no seat
+  });
+  it('the harness\'s hello refusal writes the room\'s build to its --log-file', async () => {
+    const relay = await startLocalRelay({ log: () => {}, tickMs: 5, seedFor: () => 1000 });
+    cleanups.push(() => relay.close());
+    const { code, tickets } = await room(relay);
+    const dir = mkdtempSync(join(tmpdir(), 'agent-refused-'));
+    cleanups.push(() => { rmSync(dir, { recursive: true, force: true }); });
+    const ticketFile = join(dir, 'ticket');
+    writeFileSync(ticketFile, tickets[1], { mode: 0o600 });
+    const logFile = join(dir, 'bot.log');
+    const child = spawn(TSX, [AGENT, '--server', relay.url, '--code', code, '--scope', 'command', '--ticket-file', ticketFile, '--build', '0.0.0+deadbeef', '--origin', relay.origin, '--log-file', logFile], { stdio: ['pipe', 'ignore', 'ignore'] });
+    cleanups.push(() => { child.kill('SIGKILL'); });
+    const status = await new Promise<number | null>((res) => { child.on('exit', (c) => { res(c); }); });
+    expect(status).toBe(2);
+    const text = readFileSync(logFile, 'utf8');
+    expect(text).toMatch(/ har agent: the room refused this client \(build_mismatch\)$/m);
+    expect(text).toMatch(new RegExp(` har agent: the room runs build ${BUILD}$`, 'm'));
+  }, 30_000);
 });

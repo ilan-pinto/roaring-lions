@@ -201,7 +201,8 @@ export function readTicketFile(file: string, home: string = homedir()): string {
 
 /** The room said no to a join: `status` is its HTTP status. */
 export class JoinRefused extends Error {
-  constructor(readonly status: number) {
+  /** `roomBuild`: on a 412, the build the room runs (the join named another). */
+  constructor(readonly status: number, readonly roomBuild: string | null = null) {
     super(`the room refused the join: HTTP ${status}`);
     this.name = 'JoinRefused';
   }
@@ -211,15 +212,26 @@ export class JoinRefused extends Error {
  * Takes the room's second seat as a bot: POST `/api/match/<code>/join` with a
  * fresh player id and `kind: 'bot'`. Throws `JoinRefused` on any refusal. The
  * ticket is returned to the caller and goes nowhere else. `pnpm bot` calls this
- * too, before it starts a model, so a bad code costs no tokens.
+ * too, before it starts a model, so a bad code costs no tokens. With `build`
+ * the room compares it BEFORE it reserves the seat and, on a mismatch, answers
+ * 412 naming the build it runs (`JoinRefused.roomBuild`): a retry on the right
+ * checkout still finds the seat free.
  */
-export async function joinRoom(server: string, code: string, callsign: string, origin: string, fetchFn: typeof fetch = fetch): Promise<{ seat: 0 | 1; ticket: string }> {
+export async function joinRoom(server: string, code: string, callsign: string, origin: string, fetchFn: typeof fetch = fetch, build?: string): Promise<{ seat: 0 | 1; ticket: string }> {
   const base = new URL(server).origin;
   const res = await fetchFn(`${base}/api/match/${encodeURIComponent(code)}/join`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin },
-    body: JSON.stringify({ player: randomUUID(), callsign, kind: 'bot' }),
+    body: JSON.stringify({ player: randomUUID(), callsign, kind: 'bot', ...(build === undefined ? {} : { build }) }),
   });
+  if (res.status === 412) {
+    let theirs: string | null = null;
+    try {
+      const b = (await res.json()) as { build?: unknown };
+      if (typeof b.build === 'string' && /^[\x20-\x7e]{1,80}$/.test(b.build)) theirs = b.build;
+    } catch { /* an answer with no build */ }
+    throw new JoinRefused(412, theirs);
+  }
   if (!res.ok) throw new JoinRefused(res.status);
   const body = (await res.json()) as { seat?: unknown; ticket?: unknown };
   if ((body.seat !== 0 && body.seat !== 1) || typeof body.ticket !== 'string') throw new Error('the join answered no seat and ticket');
@@ -228,7 +240,7 @@ export async function joinRoom(server: string, code: string, callsign: string, o
 
 /** The seat to play and its ticket: the room's answer to a bot join, or the ticket file's. */
 async function seatAndTicket(a: AgentArgs, origin: string): Promise<{ seat: 0 | 1; ticket: string }> {
-  if ('join' in a.ticket) return joinRoom(a.server, a.code, a.callsign, origin);
+  if ('join' in a.ticket) return joinRoom(a.server, a.code, a.callsign, origin, fetch, a.build ?? buildId());
   const raw = a.ticket.file === '-' ? await readFirstLine(process.stdin) : readTicketFile(a.ticket.file);
   const ticket = raw.trim();
   const claims = ticketClaims(ticket);
@@ -314,7 +326,12 @@ async function main(argv: readonly string[]): Promise<number> {
       clearInterval(timer);
       if (end.kind === 'desync') log(`desync at tick ${end.tick}`);
       else if (end.kind === 'result') log(`agent: ${client.view().result ?? 'decided'}`);
-      else if (end.kind === 'refused') log(`agent: the room refused this client (${end.code})`);
+      else if (end.kind === 'refused') {
+        log(`agent: the room refused this client (${end.code})`);
+        // The room names its own build in a refusal: the line `pnpm bot` reads to tell the player which commit to run.
+        const theirs = client.roomBuild();
+        if (end.code === 'build_mismatch' && theirs !== null) log(`agent: the room runs build ${theirs}`);
+      }
       else log(`agent: ${end.kind}`);
       leave();
       // Let the last messages (an `over`, a `bye`) leave the socket.

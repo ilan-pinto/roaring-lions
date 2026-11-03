@@ -148,10 +148,26 @@ you ran `pnpm bot` from, and prints their paths when it starts and when it ends:
   rejoins a lobby where the other seat readied while it was away says ready again,
   so the match still starts.
 - **The runner must be installed.** If `tools/node_modules/.bin/tsx` is missing the bot says so (run `pnpm install` in this checkout) before it takes a seat.
-- **The build must match.** The room refuses a different commit (`build_mismatch`).
-  Read the commit in the game's **Settings** footer and run `pnpm bot` from a
-  checkout at it: `git worktree add --detach ../roaring-lions-bot <commit>`, then
-  `pnpm install` there. `pnpm bot` says this when the room refuses.
+- **The build must match, and the bot tells you which.** The room refuses a
+  different build (`build_mismatch`), and the site redeploys on every merge, so a
+  room opened before the latest merge keeps its older build. The game shows only
+  `Build <version>` in its footer, never the commit, so you do not look it up: the
+  bot's join names its build and the room refuses a mismatch with **its own**
+  (before it takes the seat, so a retry still finds it free; a refusal at the
+  harness's hello carries the same build). The bot prints, for example:
+
+  ```
+  bot: this room runs 0.129.24+abc1234, this checkout is 0.129.25+31c732f; ...
+    git -C ~/dev/roaring-lions-bot fetch origin && git -C ~/dev/roaring-lions-bot checkout --detach <sha> && pnpm --dir ~/dev/roaring-lions-bot install
+  ```
+
+  (the path is this checkout's), or says to open a new room, which runs the
+  current deploy. A refusal that only shows later, in the harness's log, stops the
+  model at once (the bot watches the log), so no more tokens are spent.
+- **`wait` blocks in a lobby.** Until the match starts, `wait` waits (up to ten
+  minutes, then answers `match not started: still waiting for the other player to
+  press Ready`), because the human may take a while to press Ready; the bot's
+  prompt says to keep calling it.
 - **Run it from macOS Terminal, not inside the Claude desktop app.** Inside the
   app the inherited `CLAUDE_CODE_*` / `ANTHROPIC_BASE_URL` environment breaks a
   child CLI (the bot warns when `CLAUDE_CODE_ENTRYPOINT` is set). If it reports an

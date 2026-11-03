@@ -28,7 +28,7 @@ function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string
       const room = rooms.get(name);
       if (path === '/create') { createBodies.push(await req.json() as Record<string, unknown>); rooms.set(name, { seats: 1 }); created.push(name); return Response.json({ ok: true }); }
       if (path === '/state') return room ? Response.json({ status: 'lobby', seats: room.seats }) : new Response('', { status: 404 });
-      if (path === '/join') { joinBodies.push(await req.json() as Record<string, unknown>); if (!room) return new Response('', { status: 404 }); if (room.seats >= 2) return new Response('', { status: 409 }); room.seats++; return Response.json({ seat: 1 }); }
+      if (path === '/join') { const jb = await req.json() as Record<string, unknown>; joinBodies.push(jb); if (!room) return new Response('', { status: 404 }); if (jb.build === 'other-build') return Response.json({ error: 'build_mismatch', build: 'b1' }, { status: 412 }); if (room.seats >= 2) return new Response('', { status: 409 }); room.seats++; return Response.json({ seat: 1 }); }
       if (path === '/ws') { wsSeen.push(req); return new Response('upgraded', { status: room ? 200 : 404 }); }
       if (path === '/snapshot') {
         snapSeen.push({ room: name, url: req.url, method: req.method, authorization: req.headers.get('authorization'), tick: req.headers.get('x-snapshot-tick'), body: new Uint8Array(await req.arrayBuffer()) });
@@ -164,6 +164,20 @@ describe('/api/match', () => {
     expect(await verifyTicket('secret', joined.ticket, NOW)).toMatchObject({ matchId: code, seat: 1, player: 'p-guest' });
     expect((await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p-third', callsign: 'Third' }), env, NOW)).status).toBe(409);
     expect((await handleMatch(post(`${ORIGIN}/api/match/ZZZZZZ/join`, { player: 'p-lost', callsign: 'Lost' }), env, NOW)).status).toBe(404);
+  });
+  it('passes a joiner\'s build to the room, and relays its 412 (the room\'s own build) without a ticket (GH-954)', async () => {
+    const { env, joinBodies } = fakeRooms();
+    const { code } = await (await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-host', callsign: 'Host', build: 'b1' }), env, NOW)).json() as { code: string };
+    const bad = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p-bot', callsign: 'Bot', kind: 'bot', build: 'other-build' }), env, NOW);
+    expect(bad.status).toBe(412);
+    expect(await bad.json()).toEqual({ error: 'build_mismatch', build: 'b1' });
+    expect(joinBodies.at(-1)).toMatchObject({ build: 'other-build' });
+    const ok = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p-bot', callsign: 'Bot', kind: 'bot', build: 'b1' }), env, NOW);
+    expect(ok.status).toBe(200);
+    expect(joinBodies.at(-1)).toMatchObject({ build: 'b1' });
+    const browser = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p-x', callsign: 'X' }), env, NOW);
+    expect(browser.status).toBe(409);   // the seat is taken now; the point is the body it sent
+    expect(joinBodies.at(-1)).not.toHaveProperty('build');   // a browser names none: the room is not asked to compare
   });
   it('refuses a foreign or missing Origin, and fails closed with no TICKET_SECRET', async () => {
     const { env } = fakeRooms();

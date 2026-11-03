@@ -792,6 +792,11 @@ export class MatchRoom {
       if (st.status === 'ended') return new Response('ended', { status: 410 });
       const meta = this.meta ?? legacyMeta({}, st);
       if (st.seats[1] !== null || meta.seat1Reserved) return new Response('full', { status: 409 });
+      // A joiner that names its build (`pnpm bot` does; the browser does not) is refused BEFORE it takes the seat when
+      // the room runs another one, and is told which: its retry on the right build would otherwise find the seat taken.
+      if (typeof body.build === 'string' && body.build !== '' && meta.build !== '' && body.build !== meta.build) {
+        return Response.json({ error: 'build_mismatch', build: meta.build }, { status: 412 });
+      }
       this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true, kinds: [meta.kinds[0], seatKindField(body.kind)], claims: [meta.claims[0], seatTiersField(body.tiers)] };
       await this.ctx.storage.put('meta', this.meta);
       return Response.json({ seat: 1 });
@@ -1016,7 +1021,8 @@ export class MatchRoom {
     if (!ticket || ticket.matchId !== st.matchId) { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
     // /create refuses an empty build, so `''` here means meta was never written: fail closed.
     const build = this.meta?.build ?? '';
-    if (build === '' || msg.build !== build) { reply(ws, { t: 'error', code: 'build_mismatch' }); shut(ws, 4002, 'build'); return; }
+    // The ticket verified above, so only a seat of THIS match learns the room's build, which the client bundle already carries.
+    if (build === '' || msg.build !== build) { reply(ws, build === '' ? { t: 'error', code: 'build_mismatch' } : { t: 'error', code: 'build_mismatch', build }); shut(ws, 4002, 'build'); return; }
     if (ticket.role === 'advisor' && ticket.scope !== undefined) { this.advisorHello(ws, st, ticket.seat, ticket.scope, msg.from); return; }
     if (ticket.role !== 'seat') { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
     (ws as HibernatingSocket).serializeAttachment({ seat: ticket.seat } satisfies SocketAttachment);

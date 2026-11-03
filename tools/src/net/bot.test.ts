@@ -14,7 +14,7 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  BOT_ADDENDUM, botMcpConfig, botPrompt, classify, fileStem, harnessLines, harnessRefusedBuild, joinRefusedMessage, reportMarkdown, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, parseBotArgs, resolveModel, runBot, USAGE,
+  BOT_ADDENDUM, botMcpConfig, buildMessage, harnessRoomBuild, shortBuild, botPrompt, classify, fileStem, harnessLines, harnessRefusedBuild, joinRefusedMessage, reportMarkdown, clientArgs, ENTRYPOINT_WARNING, failureMessage, LIVE_SERVER, parseBotArgs, resolveModel, runBot, USAGE,
   type SignalSource,
 } from './bot';
 import { HARNESS_AGENT, HARNESS_TSX, standingPrompt, type SpawnFn } from './external-player';
@@ -111,13 +111,14 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 const TICKET = 'tkt-PAYLOAD.sig-SECRET';
 interface JoinCall { url: string; body: Record<string, unknown>; headers: Record<string, string> }
-function harness(script: (child: FakeChild, call: Call) => void, extra: { env?: NodeJS.ProcessEnv; killMs?: number; startError?: Error; harnessOut?: readonly string[]; join?: number | Error | Promise<number> } = {}) {
+function harness(script: (child: FakeChild, call: Call) => void, extra: { env?: NodeJS.ProcessEnv; killMs?: number; startError?: Error; harnessOut?: readonly string[]; join?: number | Error | Promise<number>; roomBuild?: string } = {}) {
   const joins: JoinCall[] = [];
   const fake: typeof fetch = async (input, init) => {
     joins.push({ url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown>, headers: init?.headers as Record<string, string> });
     const j = extra.join ?? 200;
     if (j instanceof Error) throw j;
     const status = await j;
+    if (status === 412) return Response.json({ error: 'build_mismatch', build: extra.roomBuild }, { status: 412 });
     return status === 200 ? Response.json({ code: 'ABC234', seat: 1, ticket: TICKET }) : new Response('', { status });
   };
   const calls: Call[] = [];
@@ -137,6 +138,7 @@ function harness(script: (child: FakeChild, call: Call) => void, extra: { env?: 
     cwd,
     now: () => NOW,
     build: '0.1.0+abcdef1',
+    pollMs: 10,
   };
   return { calls, logs, printed, signals, exits, opts, joins };
 }
@@ -185,9 +187,9 @@ describe('arguments and aliases', () => {
 
 describe('the MCP config, the prompt and the client command', () => {
   it('names this checkout\'s harness on the ticket FILE and the bot log, never --join and never a ticket value', () => {
-    const cfg = botMcpConfig({ server: 'https://g.example', room: 'ABC234' }, '/t/ticket', '/r/bot.log');
+    const cfg = botMcpConfig({ server: 'https://g.example', room: 'ABC234' }, '/t/ticket', '/r/bot.log', '1.0.0+abc1234');
     expect(cfg).toEqual({
-      mcpServers: { lions: { command: HARNESS_TSX, args: [HARNESS_AGENT, '--server', 'https://g.example', '--code', 'ABC234', '--scope', 'command', '--ticket-file', '/t/ticket', '--log-file', '/r/bot.log'] } },
+      mcpServers: { lions: { command: HARNESS_TSX, args: [HARNESS_AGENT, '--server', 'https://g.example', '--code', 'ABC234', '--scope', 'command', '--ticket-file', '/t/ticket', '--log-file', '/r/bot.log', '--build', '1.0.0+abc1234'] } },
     });
     expect(JSON.stringify(cfg)).not.toContain('--join');
   });
@@ -226,7 +228,8 @@ describe('the MCP config, the prompt and the client command', () => {
     expect(call.args.join(' ')).not.toContain(TICKET);
     expect(JSON.stringify(call.options.env)).not.toContain(TICKET);
     const dir = call.options.cwd as string;
-    expect(JSON.parse(call.config)).toEqual(botMcpConfig({ server: LIVE_SERVER, room: 'ABC234' }, join(dir, 'ticket'), join(cwd, 'bot-results', `${STEM.replace('claude-sonnet-5-5', 'claude-haiku-5-5')}.log`)));
+    expect(JSON.parse(call.config)).toEqual(botMcpConfig({ server: LIVE_SERVER, room: 'ABC234' }, join(dir, 'ticket'), join(cwd, 'bot-results', `${STEM.replace('claude-sonnet-5-5', 'claude-haiku-5-5')}.log`), '0.1.0+abcdef1'));
+    expect(h.joins[0].body.build).toBe('0.1.0+abcdef1');   // the join names the build the harness will
     expect(call.config).not.toContain(TICKET);
     expect(call.prompt).not.toContain(TICKET);
     expect(h.joins).toHaveLength(1);
@@ -365,8 +368,9 @@ describe('failure messages', () => {
     const r = await run('agent: the room refused this client (build_mismatch)\n', '', 1);
     expect(r.code).toBe(2);
     expect(r.text).toContain('runs a different build than this checkout');
-    expect(r.text).toContain('Settings footer');
-    expect(r.text).toContain('git worktree add');
+    expect(r.text).not.toContain('Settings footer');
+    expect(r.text).toContain('Open a new room');
+    expect(r.text).toContain('checkout --detach origin/main');   // the room did not say its build
     const viaExit = await run('MCP server "lions" exited with code 2\n', '', 1);
     expect(viaExit.code).toBe(2);
   });
@@ -507,7 +511,7 @@ describe('the match report', () => {
     const prompt = h.calls[0].prompt;
     expect(prompt).toBe(botPrompt({ room: 'ABC234' }));
     expect(prompt).toContain(BOT_ADDENDUM);
-    for (const w of ['## Conclusion', '## Bugs noticed', '"none"', 'keep short notes', 'FINAL message']) expect(prompt, w).toContain(w);
+    for (const w of ['## Conclusion', '## Bugs noticed', '"none"', 'keep short notes', 'FINAL message', 'take a while to press Ready', 'keep calling `wait`']) expect(prompt, w).toContain(w);
     expect(readFileSync(join(here, 'arena-prompt.md'), 'utf8')).not.toMatch(/Bugs noticed|FINAL message/);
     expect(standingPrompt({ seat: 1, code: 'ABC234' })).not.toContain('Bugs noticed');
   });
@@ -628,7 +632,7 @@ describe('the harness\'s own refusal reaches us through the log it was given', (
     expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(2);
     const text = h.logs.join('\n');
     expect(text).toContain('runs a different build than this checkout');
-    expect(text).toContain('Settings footer');
+    expect(text).not.toContain('Settings footer');
     expect(h.printed).toEqual([]);
     expect(readResult(`${STEM}-report.md`)).toContain('the room refused this checkout');
   });
@@ -652,6 +656,72 @@ describe('the harness\'s own refusal reaches us through the log it was given', (
     expect(a).toContain('--ticket-file');
     expect(a).not.toContain('--join');
     expect(a[a.indexOf('--log-file') + 1]).toBe(join(cwd, 'bot-results', `${STEM}.log`));
+  });
+});
+
+const ROOM_BUILD = '0.129.24+abc1234def5678abc1234def5678abc1234def56';
+describe('message 1: which build the room runs', () => {
+  it('names the room\'s version and sha and the exact commands, and never the Settings footer', () => {
+    const m = buildMessage({ server: LIVE_SERVER, roomBuild: ROOM_BUILD, ourBuild: '0.129.25+1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', root: '/Users/x/dev/roaring-lions-bot' });
+    expect(m).toContain('this room runs 0.129.24+abc1234, this checkout is 0.129.25+1111111');
+    expect(m).toContain('git -C /Users/x/dev/roaring-lions-bot fetch origin && git -C /Users/x/dev/roaring-lions-bot checkout --detach abc1234def5678abc1234def5678abc1234def56 && pnpm --dir /Users/x/dev/roaring-lions-bot install');
+    expect(m).not.toContain('Settings');
+    expect(buildMessage({ server: LIVE_SERVER, roomBuild: null, root: '/r' })).toContain('It did not say which');
+    expect(buildMessage({ server: LIVE_SERVER, roomBuild: '0.1.0+', root: '/r' })).toContain('It did not say which');   // no commit in it: never guessed
+  });
+  it('quotes a checkout path that needs it', () => {
+    expect(buildMessage({ server: 's', roomBuild: ROOM_BUILD, root: "/a b/it's" })).toContain(`git -C '/a b/it'\\''s' fetch`);
+  });
+  it('shortBuild and harnessRoomBuild read only what they are given', () => {
+    expect(shortBuild(ROOM_BUILD)).toBe('0.129.24+abc1234');
+    expect(shortBuild('weird')).toBe('weird');
+    expect(harnessRoomBuild(['x', `agent: the room runs build ${ROOM_BUILD}`])).toBe(ROOM_BUILD);
+    expect(harnessRoomBuild(['agent: the room runs build'])).toBeNull();
+  });
+  it('a join the room refuses with 412 names its build, takes no seat, starts no model and exits 2', async () => {
+    const h = harness((c) => { c.end(0); }, { join: 412, roomBuild: ROOM_BUILD });
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(2);
+    expect(h.calls).toHaveLength(0);
+    expect(leftovers()).toEqual([]);
+    const text = h.logs.join('\n');
+    expect(text).toContain('this room runs 0.129.24+abc1234, this checkout is 0.1.0+abcdef1');
+    expect(text).toContain('checkout --detach abc1234def5678abc1234def5678abc1234def56');
+    expect(text).not.toContain('Settings');
+    expect(readResult(`${STEM}-report.md`)).toContain('the room runs 0.129.24+abc1234, this checkout 0.1.0+abcdef1');
+  });
+  it('a refusal at the harness\'s hello names the room\'s build from its log lines', async () => {
+    const h = harness((c) => { c.end(0); }, { harnessOut: ['agent: the room refused this client (build_mismatch)', `agent: the room runs build ${ROOM_BUILD}`] });
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(2);
+    expect(h.logs.join('\n')).toContain('this room runs 0.129.24+abc1234');
+  });
+});
+
+describe('the first build refusal stops the client at once', () => {
+  it('kills the client as soon as the harness log shows the refusal, however long it would have run', async () => {
+    // A client that would run for minutes (tokens spent) unless it is stopped.
+    const h = harness((_c, call) => {
+      setTimeout(() => {
+        const cfg = JSON.parse(call.config) as { mcpServers: { lions: { args: string[] } } };
+        const a = cfg.mcpServers.lions.args;
+        appendFileSync(a[a.indexOf('--log-file') + 1], `${NOW.toISOString()} har agent: the room refused this client (build_mismatch)\n${NOW.toISOString()} har agent: the room runs build ${ROOM_BUILD}\n`);
+      }, 40);
+    });
+    const t0 = Date.now();
+    expect(await runBot(['--room', 'ABC234'], h.opts)).toBe(2);
+    expect(Date.now() - t0).toBeLessThan(1500);
+    expect(h.calls[0].child.kills).toEqual(['SIGTERM']);
+    const text = h.logs.join('\n');
+    expect(text).toContain('stopping the client now');
+    expect(text.match(/this room runs/g)).toHaveLength(1);   // message 1, once
+    expect(leftovers()).toEqual([]);
+  });
+  it('leaves a healthy client alone', async () => {
+    const h = harness(() => {});
+    const run = runBot(['--room', 'ABC234'], h.opts);
+    await sleep(120);
+    expect(h.calls[0].child.kills).toEqual([]);
+    h.calls[0].child.end(0);
+    await run;
   });
 });
 

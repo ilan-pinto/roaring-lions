@@ -43,8 +43,9 @@
  * failure or a usage error, 130/143 a signal.
  */
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
+import { homedir } from 'node:os';
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MAX_CALLSIGN_CHARS } from '@lions/net';
 import { joinRoom, JoinRefused } from './agent';
@@ -140,14 +141,15 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
  * temp directory), never in an argument. `logFile` is the bot's own log: the
  * harness is the client's child, so bot.ts sees neither its exit code nor its
  * stderr, and this is how a refusal reaches us. `--build` and `--origin` are
- * left to the harness: this checkout's build, the server's own origin.
+ * left to the harness: this checkout's build (`build`, when given, so the join
+ * and the hello name the same string), the server's own origin.
  */
-export function botMcpConfig(a: Pick<BotArgs, 'server' | 'room'>, ticketFile: string, logFile: string): { mcpServers: { lions: { command: string; args: string[] } } } {
+export function botMcpConfig(a: Pick<BotArgs, 'server' | 'room'>, ticketFile: string, logFile: string, build?: string): { mcpServers: { lions: { command: string; args: string[] } } } {
   return {
     mcpServers: {
       lions: {
         command: HARNESS_TSX,
-        args: [HARNESS_AGENT, '--server', a.server, '--code', a.room, '--scope', 'command', '--ticket-file', ticketFile, '--log-file', logFile],
+        args: [HARNESS_AGENT, '--server', a.server, '--code', a.room, '--scope', 'command', '--ticket-file', ticketFile, '--log-file', logFile, ...(build === undefined ? [] : ['--build', build])],
       },
     },
   };
@@ -199,14 +201,9 @@ export function joinRefusedMessage(status: number, a: Pick<BotArgs, 'room' | 'se
 }
 
 /** What to tell the player about a known failure. */
-export function failureMessage(f: Failure, a: Pick<BotArgs, 'server'> & { logFile?: string }): string {
+export function failureMessage(f: Failure, a: Pick<BotArgs, 'server'> & { logFile?: string; roomBuild?: string | null; ourBuild?: string; root?: string }): string {
   switch (f) {
-    case 'build':
-      return [
-        `bot: the live site (${a.server}) runs a different build than this checkout, and a room never plays two builds against each other.`,
-        '  Read the commit in the game\'s Settings footer, then run `pnpm bot` from a checkout at that commit:',
-        '    git worktree add --detach ../roaring-lions-bot <commit> && cd ../roaring-lions-bot && pnpm install',
-      ].join('\n');
+    case 'build': return buildMessage(a);
     case 'room':
       return 'bot: the room is full, closed or not found. Check the code, or open a new room in the game (Play with a friend -> Open a room) and run `pnpm bot` with its code.';
     case 'mcp':
@@ -219,6 +216,53 @@ export function failureMessage(f: Failure, a: Pick<BotArgs, 'server'> & { logFil
   }
 }
 
+/** This checkout's root, as the player's shell would say it (`~` for the home directory), quoted if it needs it. */
+export const CHECKOUT_ROOT = resolve(dirname(HARNESS_AGENT), '../../..');
+function pathForShell(path: string): string {
+  const home = homedir();
+  const short = path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+  return /^[\w@%+=:,./~-]+$/.test(short) ? short : `'${short.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Message 1: the room runs another build than this checkout. The room names its
+ * own build (in the join's 412, or in the hello's refusal), so the player is
+ * told WHICH commit to run from, not to look it up: the game shows only
+ * `Build <version>` in its footer, never the commit.
+ */
+export function buildMessage(a: { server: string; roomBuild?: string | null; ourBuild?: string; root?: string }): string {
+  const root = pathForShell(a.root ?? CHECKOUT_ROOT);
+  const ours = a.ourBuild === undefined ? '' : `, this checkout is ${shortBuild(a.ourBuild)}`;
+  const sha = a.roomBuild === null || a.roomBuild === undefined ? null : /\+([0-9a-f]{7,40})$/.exec(a.roomBuild)?.[1] ?? null;
+  if (a.roomBuild !== null && a.roomBuild !== undefined && sha !== null) {
+    return [
+      `bot: this room runs ${shortBuild(a.roomBuild)}${ours}; a room never plays two builds against each other (the site redeploys on every merge, so a room opened before the latest one keeps its older build).`,
+      '  Run pnpm bot from that commit:',
+      `    git -C ${root} fetch origin && git -C ${root} checkout --detach ${sha} && pnpm --dir ${root} install`,
+      '  Or open a new room in the game now, which runs the current deploy.',
+    ].join('\n');
+  }
+  return [
+    `bot: the room (${a.server}) runs a different build than this checkout${ours}, and a room never plays two builds against each other. It did not say which (an older room), and the site redeploys on every merge.`,
+    '  Open a new room in the game (Play with a friend -> Open a room) and run pnpm bot from the latest main:',
+    `    git -C ${root} fetch origin && git -C ${root} checkout --detach origin/main && pnpm --dir ${root} install`,
+  ].join('\n');
+}
+/** `<version>+<sha7>` of a build string. */
+export function shortBuild(b: string): string {
+  const m = /^(.*)\+([0-9a-f]{7,40})$/.exec(b);
+  return m === null ? b : `${m[1]}+${m[2].slice(0, 7)}`;
+}
+
+/** The room's own build, from the harness's lines (`agent: the room runs build <build>`), or null. */
+export function harnessRoomBuild(lines: readonly string[]): string | null {
+  for (const l of lines) {
+    const m = /^agent: the room runs build (\S+)$/.exec(l);
+    if (m !== null) return m[1];
+  }
+  return null;
+}
+
 export const ENTRYPOINT_WARNING = 'bot: CLAUDE_CODE_ENTRYPOINT is set, so this shell was started by Claude Code (or its desktop app). The environment it passes on can break a child `claude`; if the bot cannot sign in, run `pnpm bot` from macOS Terminal.';
 
 /**
@@ -229,7 +273,7 @@ export const ENTRYPOINT_WARNING = 'bot: CLAUDE_CODE_ENTRYPOINT is set, so this s
 export const BOT_ADDENDUM = `
 ## Your match report (this is a bot seat)
 
-As you play, keep short notes of anything odd: an order refused or dropped for no reason you can see, a tool error, \`observe\` data that looks inconsistent (a unit that vanishes, a count that does not add up, a position off the map), or anything else that seems broken in the game or the tools. For each, note what you did, what you expected and what happened.
+The other player may take a while to press Ready: until the match has started, keep calling \`wait\` (it blocks) and do not give up. As you play, keep short notes of anything odd: an order refused or dropped for no reason you can see, a tool error, \`observe\` data that looks inconsistent (a unit that vanishes, a count that does not add up, a position off the map), or anything else that seems broken in the game or the tools. For each, note what you did, what you expected and what happened.
 
 When the match is over (\`status\` shows a result, or an acting tool answers \`match over\`), stop playing and make your FINAL message a report in Markdown with exactly these two headings:
 
@@ -320,6 +364,8 @@ export interface BotOptions {
   build?: string;
   /** Tests inject the room's answer; default the global `fetch`. */
   fetch?: typeof fetch;
+  /** How often the harness's log is checked for a build refusal while the client runs; default 250 ms. */
+  pollMs?: number;
   /** Whether a path exists; default `fs.existsSync`. Tests use it for the missing harness. */
   exists?: (path: string) => boolean;
 }
@@ -355,6 +401,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   const now = o.now ?? (() => new Date());
   const fetchFn = o.fetch ?? fetch;
   const exists = o.exists ?? existsSync;
+  const pollMs = o.pollMs ?? 250;
 
   const a = parseBotArgs(argv);
   if ('error' in a) { log(a.error); return 1; }
@@ -401,7 +448,16 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   let childGone = false;
   let signalled: 'SIGINT' | 'SIGTERM' | null = null;
   let killTimer: NodeJS.Timeout | null = null;
+  let watch: NodeJS.Timeout | null = null;
   const removeDir = (): void => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* the finally tries again */ } };
+  /** SIGTERM the client, then SIGKILL after `killMs`. */
+  const stopChild = (): void => {
+    if (child === null || childGone) return;
+    try { child.kill('SIGTERM'); } catch { /* already gone */ }
+    const c = child;
+    killTimer ??= setTimeout(() => { if (!childGone) { try { c.kill('SIGKILL'); } catch { /* already gone */ } } }, killMs);
+    killTimer.unref();
+  };
   const onSignal = (signal: 'SIGINT' | 'SIGTERM'): void => {
     if (signalled !== null) {
       removeDir();
@@ -413,12 +469,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     say(`bot: ${signal}: stopping the client and removing ${dir}`);
     rec.why = `stopped by ${signal}`;
     removeDir();
-    if (child !== null && !childGone) {
-      try { child.kill('SIGTERM'); } catch { /* already gone */ }
-      const c = child;
-      killTimer = setTimeout(() => { if (!childGone) { try { c.kill('SIGKILL'); } catch { /* already gone */ } } }, killMs);
-      killTimer.unref();
-    }
+    stopChild();
   };
   const onInt = (): void => { onSignal('SIGINT'); };
   const onTerm = (): void => { onSignal('SIGTERM'); };
@@ -444,9 +495,15 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     let seat: 0 | 1;
     let ticket: string;
     try {
-      ({ seat, ticket } = await joinRoom(a.server, a.room, a.callsign, new URL(a.server).origin, fetchFn));
+      ({ seat, ticket } = await joinRoom(a.server, a.room, a.callsign, new URL(a.server).origin, fetchFn, build));
     } catch (e) {
       rec.outcome = 'failed';
+      if (e instanceof JoinRefused && e.status === 412) {
+        // The room runs another build and said which, before it gave us the seat: no model starts, the seat stays free.
+        say(failureMessage('build', { ...a, roomBuild: e.roomBuild, ourBuild: build }));
+        rec.why = `the room runs ${e.roomBuild === null ? 'a different build' : shortBuild(e.roomBuild)}, this checkout ${shortBuild(build)}`;
+        return 2;
+      }
       if (e instanceof JoinRefused) {
         say(joinRefusedMessage(e.status, a));
         rec.why = `the room refused the join (HTTP ${e.status})`;
@@ -464,7 +521,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     const promptFile = join(dir, 'prompt.md');
     // `wx`: a file that is somehow already there is an error, never reused. The ticket lives in this 0600 file only.
     writeFileSync(ticketFile, ticket, { mode: 0o600, flag: 'wx' });
-    writeFileSync(mcpFile, `${JSON.stringify(botMcpConfig(a, ticketFile, logFile), null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    writeFileSync(mcpFile, `${JSON.stringify(botMcpConfig(a, ticketFile, logFile, build), null, 2)}\n`, { mode: 0o600, flag: 'wx' });
     writeFileSync(promptFile, botPrompt({ room: a.room, seat }), { mode: 0o600, flag: 'wx' });
 
     const command = a.client[0];
@@ -520,6 +577,18 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
       rec.why = `the client "${command}" could not start (${messageOf(e)})`;
       return 1;
     }
+    // The harness is the client's child: its refusal reaches us only through the log. Watch it, and stop the
+    // client at the FIRST build refusal, so no more model tokens are spent on a match that cannot start.
+    let refusalSeen = false;
+    watch = setInterval(() => {
+      if (refusalSeen || childGone) return;
+      let mine: string[];
+      try { mine = harnessLines(readFileSync(logFile, 'utf8')); } catch { return; }
+      if (!harnessRefusedBuild(mine)) return;
+      refusalSeen = true;
+      say('bot: the room refused the harness\'s build: stopping the client now');
+      stopChild();
+    }, pollMs);
     say(`bot: ${a.callsign} (${a.model}) holds seat ${seat} of room ${a.room}; Ctrl-C stops it`);
     // If a signal landed before the child existed, stop it now.
     if (signalled !== null) { try { live.kill('SIGTERM'); } catch { /* gone */ } }
@@ -543,6 +612,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     rec.tokens = last.result === null ? null : tokensOf(last.result);
     // The harness's own words are not the model's chatter: a refusal there means the match never ran, even if
     // the client then exited cleanly, and a harness that wrote nothing at all never came up.
+    if (watch !== null) clearInterval(watch);
     const refusedBuild = harnessRefusedBuild(theirs);
     const harnessMissing = !failed && !logBroken && theirs.length === 0;
     if (failed || refusedBuild || harnessMissing) {
@@ -550,8 +620,9 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
       rec.message = parsed?.result ?? null;
       const known: Failure | null = refusedBuild ? 'build' : harnessMissing ? 'mcp' : classify(harnessText, parsed?.result ?? '');
       if (known !== null) {
-        say(failureMessage(known, { ...a, logFile }));
-        rec.why = known === 'build' ? 'the room refused this checkout\'s build (the live site runs a different one)' : known === 'room' ? 'the room is full, closed or not found' : known === 'mcp' ? 'the game connection (harness) stopped' : 'the client could not sign in';
+        const roomBuild = harnessRoomBuild(theirs);
+        say(failureMessage(known, { ...a, logFile, roomBuild, ourBuild: build }));
+        rec.why = known === 'build' ? `the room refused this checkout's build (the room runs ${roomBuild === null ? 'a different one' : shortBuild(roomBuild)}, this checkout ${shortBuild(build)})` : known === 'room' ? 'the room is full, closed or not found' : known === 'mcp' ? 'the game connection (harness) stopped' : 'the client could not sign in';
         return known === 'build' ? 2 : 1;
       }
       const how = signal !== null ? `was killed by ${signal}` : `exited with code ${String(code)}`;
@@ -576,6 +647,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   } finally {
     signals.off('SIGINT', onInt);
     signals.off('SIGTERM', onTerm);
+    if (watch !== null) clearInterval(watch);
     if (killTimer !== null) clearTimeout(killTimer);
     removeDir();
     // The report is written on every way out: the model's message, or the reason there is none.

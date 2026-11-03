@@ -50,7 +50,8 @@ export interface WsTransportHooks {
   onChat?(seat: Seat, text: string): void;
   /** The room dropped a command this seat sent, because a pause was in force (an order in flight when it began). */
   onCmdRefused?(): void;
-  onError?(code: string): void;
+  /** `detail.build`: the room's own build, on a `build_mismatch` (GH-954). */
+  onError?(code: string, detail?: { build?: string }): void;
   /** What this seat's pair (its human or its advisor) said, relayed by the room (N4a). */
   onAdvisor?(from: 'human' | 'advisor', a: AdvisorMsg): void;
   /** The advisor scope each seat has seated, or null (N4a). */
@@ -340,7 +341,7 @@ export class WsTransport implements MatchTransport {
         this.hooks.onEnded?.(msg.reason, msg.seat);
         return;
       case 'error':
-        this.hooks.onError?.(msg.code);
+        this.hooks.onError?.(msg.code, msg.build === undefined ? undefined : { build: msg.build });
         if (msg.code === 'bad_ticket' || msg.code === 'build_mismatch') { this.setStalled(null); this.st = { kind: 'closed', reason: msg.code }; }
         return;
     }

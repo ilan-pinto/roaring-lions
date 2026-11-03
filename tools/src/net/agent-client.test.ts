@@ -245,12 +245,12 @@ describe('AgentClient against the real room', () => {
     const { loop, ticket } = await newRoom();
     const a = agent(loop, await ticket(0), 0, 'other');
     const refused = expect(a.ready).rejects.toThrow(
-      'the room refused build "other"; it runs a different build. Check out that build\'s commit, or pass --build',
+      `the room refused build "other"; it runs build "${ROOM_BUILD}". Check out that build's commit, or pass --build`,
     );
     await loop.flush();
     await refused;
     const heard = [...loop.received.values()][0];
-    expect(heard).toContainEqual({ t: 'error', code: 'build_mismatch' });
+    expect(heard).toContainEqual({ t: 'error', code: 'build_mismatch', build: ROOM_BUILD });
     expect(closed).toHaveBeenCalled();
     expect(a.world()).toBeNull();
   });
