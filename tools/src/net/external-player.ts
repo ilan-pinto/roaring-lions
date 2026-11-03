@@ -81,7 +81,7 @@ const isSpace = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' ||
  * and globs are literal characters of literal arguments. A leading `cmd:` is
  * dropped. Placeholders are checked here and filled by `renderTemplate`.
  */
-export function parseTemplate(template: string): ParsedTemplate {
+export function parseTemplate(template: string, allowed: readonly string[] = PLACEHOLDERS): ParsedTemplate {
   const s = template.startsWith('cmd:') ? template.slice(4) : template;
   const tokens: { text: string; redirect: boolean }[] = [];
   let i = 0;
@@ -122,8 +122,8 @@ export function parseTemplate(template: string): ParsedTemplate {
   if (argv.length === 0) throw new Error('the template is empty');
   for (const text of [...argv, ...(stdinFrom === null ? [] : [stdinFrom])]) {
     for (const m of text.matchAll(/\{([A-Za-z_]+)\}/g)) {
-      if (!(PLACEHOLDERS as readonly string[]).includes(m[1])) {
-        throw new Error(`the template names {${m[1]}}, which is not a placeholder: ${PLACEHOLDERS.map((p) => `{${p}}`).join(', ')}`);
+      if (!allowed.includes(m[1])) {
+        throw new Error(`the template names {${m[1]}}, which is not a placeholder: ${allowed.map((p) => `{${p}}`).join(', ')}`);
       }
     }
   }
@@ -131,9 +131,9 @@ export function parseTemplate(template: string): ParsedTemplate {
 }
 
 /** `parseTemplate`, then each placeholder filled in INSIDE its argument: a value never splits into two. */
-export function renderTemplate(template: string, values: Record<Placeholder, string>): ParsedTemplate {
-  const p = parseTemplate(template);
-  const fill = (t: string): string => t.replace(/\{([A-Za-z_]+)\}/g, (_, name: string) => values[name as Placeholder]);
+export function renderTemplate(template: string, values: Readonly<Record<string, string>>, allowed: readonly string[] = PLACEHOLDERS): ParsedTemplate {
+  const p = parseTemplate(template, allowed);
+  const fill = (t: string): string => t.replace(/\{([A-Za-z_]+)\}/g, (_, name: string) => values[name]);
   return { argv: p.argv.map(fill), stdinFrom: p.stdinFrom === null ? null : fill(p.stdinFrom) };
 }
 
@@ -202,8 +202,13 @@ const DRAIN_MS = 2000;
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** A seat that is still live: its temp directory, and its child once spawned. */
-interface LiveSeat { dir: string; child: ChildProcess | null; exited: boolean; exit: Promise<unknown> | null }
+export interface LiveSeat { dir: string; child: ChildProcess | null; exited: boolean; exit: Promise<unknown> | null }
 const liveSeats = new Set<LiveSeat>();
+/** Puts a child the arena started (the judge, GH-973) in the signal registry; the returned function takes it out. */
+export function trackLiveSeat(seat: LiveSeat): () => void {
+  liveSeats.add(seat);
+  return () => { liveSeats.delete(seat); };
+}
 /** Set, for good, by the first `abortExternalPlayers`: no seat starts after it. */
 let stopLatch = false;
 

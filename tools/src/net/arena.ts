@@ -37,6 +37,15 @@
  * PASS iff p < 0.05 for A over B over the non-void games, printed as one line
  * `gate: PASS|FAIL  <A> over <B>  n=<n>  score=<s>  p=<p>` (`gateVerdict`).
  *
+ * `--judge "cmd:<template>"` (GH-973, the lead's ruling of 3 Nov) has a THIRD model
+ * score both players of each finished game, 1-10 on five criteria with a one-line
+ * reason each and an overall, from the referee's end-of-match stats (`judge.ts`,
+ * `match-score.ts`). The stats are in every record (`referee`), judged or not; the
+ * judge's outcome is `judge` (scored, invalid, failed or skipped, with the reason).
+ * Scores are for reading: the judge runs after the game's relay is closed and
+ * touches no outcome, tally, gate or exit code (D7). Without `--judge` the report's
+ * score section says "Not judged".
+ *
  * Exit codes: 0 every game played (voids included: a void is a result of the
  * arena, not a failure of it); 1 a bad command line, a player that cannot be
  * built, or a game that could not be played (a relay, a room or a start
@@ -65,8 +74,9 @@ import { AgentClient } from './agent-client';
 import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, type GateVerdict, type Tally } from './arena-score';
 import { buildId } from './build-id';
 import { capOutcome } from './cap';
+import { JUDGE_PLACEHOLDERS, runJudge, type JudgeJob, type JudgeRecord } from './judge';
 import { startLocalRelay, type LocalRelay, type LocalRelayOptions } from './local-relay';
-import { abortExternalPlayers, externalPlayer, externalPlayersStopped } from './external-player';
+import { abortExternalPlayers, externalPlayer, externalPlayersStopped, parseTemplate } from './external-player';
 import { inProcess, passive, rush, type ArenaPlayer, type PlayerReport, type RunningPlayer } from './players';
 
 export interface ArenaArgs {
@@ -89,13 +99,17 @@ export interface ArenaArgs {
   out: string | null;
   /** Judge the run: exit 3 unless A beats B with p < 0.05. */
   gate: boolean;
+  /** `cmd:<template>` of the third model that scores both players of each game (GH-973); null: not judged. */
+  judge: string | null;
+  /** How long one judge may take, per game. */
+  judgeTimeoutMs: number;
 }
 
 /** `--gate` FAILED: every game was played and A was not told from B at p < 0.05. */
 export const EXIT_GATE_FAIL = 3;
 
-const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--first-seed 0] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate]\n  a player is passive, rush, or cmd:<template>';
-const VALUED = new Set(['a', 'b', 'seeds', 'first-seed', 'map', 'matchup', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out']);
+const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--first-seed 0] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate] [--judge "cmd:<template>"] [--judge-timeout-ms 180000]\n  a player is passive, rush, or cmd:<template>; the judge scores both players of each game on the rubric (placeholders {prompt}, {stats})';
+const VALUED = new Set(['a', 'b', 'seeds', 'first-seed', 'map', 'matchup', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out', 'judge', 'judge-timeout-ms']);
 /** Options that take no value. */
 const FLAGS = new Set(['gate']);
 const BUILT_IN: Record<string, (log: (line: string) => void) => ArenaPlayer> = {
@@ -153,7 +167,13 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
   const roundWallMs = intIn('round-wall-ms', got.get('round-wall-ms'), 120_000, 1000, 600_000);
   const capTicks = intIn('cap-ticks', got.get('cap-ticks'), 12_000, 1, matchCapTicks(got.get('map') ?? 'tel_marum'));
   const tickMs = intIn('tick-ms', got.get('tick-ms'), 2, 1, 1000);
-  for (const v of [seeds, firstSeed, pace, roundWallMs, capTicks, tickMs]) if (typeof v !== 'number') return v;
+  const judgeTimeoutMs = intIn('judge-timeout-ms', got.get('judge-timeout-ms'), 180_000, 1000, 1_800_000);
+  for (const v of [seeds, firstSeed, pace, roundWallMs, capTicks, tickMs, judgeTimeoutMs]) if (typeof v !== 'number') return v;
+  const judge = got.get('judge') ?? null;
+  if (judge !== null) {
+    if (!EXTERNAL.test(judge)) return { error: '--judge is cmd:<template>, in the players\' own form (no key belongs in it)' };
+    try { parseTemplate(judge, JUDGE_PLACEHOLDERS); } catch (e) { return { error: `--judge: ${messageOf(e)}` }; }
+  }
   return {
     a, b,
     seeds: seeds as number,
@@ -166,6 +186,8 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
     tickMs: tickMs as number,
     out: got.get('out') ?? null,
     gate: flags.has('gate'),
+    judge,
+    judgeTimeoutMs: judgeTimeoutMs as number,
   };
 }
 
@@ -196,6 +218,8 @@ export interface ArenaDeps {
   resolvePlayer?: (spec: string, log: (line: string) => void) => ArenaPlayer;
   /** The reader for a game with no in-process seat; default `startObserver`. */
   startObserver?: typeof startObserver;
+  /** The judge (GH-973); default `runJudge`. A spec injects a stub: no spec runs a model. */
+  runJudge?: (job: JudgeJob) => Promise<JudgeRecord>;
   now?: () => Date;
 }
 
@@ -449,9 +473,12 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     const verdict = timedOut ? { outcome: 'void' as const, by: 'timeout' } : judge(seen, sides, a.capTicks, a.map);
     const sim = referee.world()?.sim;
     if (sim === undefined) throw new Error('the reading seat never built its world');
+    // The referee's numbers for both seats (GH-973): a read of the reading seat's sim, after the verdict, written to nothing.
+    const stats = referee.refereeStats(verdictText(g.names, verdict));
     return {
       seed: g.seed, map: a.map, matchup: a.matchup, players: g.names, factions,
       outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: bySeat(scoreOf(sim), sides), reports,
+      ...(stats === null ? {} : { referee: stats }),
     };
   } finally {
     // Every close is guarded: one that fails is logged and the next still runs.
@@ -467,6 +494,29 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     try { await relay.close(); } catch (e) { log(`closing the relay: ${messageOf(e)}`); }
     liveRelays.delete(relay);
   }
+}
+
+/** The arena's verdict in words, BY NAME: what the judge is told, and the referee's `result`. */
+export function verdictText(names: readonly [string, string], v: { outcome: GameRecord['outcome']; by: string }): string {
+  if (v.outcome === 'seat0' || v.outcome === 'seat1') return `seat ${v.outcome === 'seat0' ? 0 : 1} (${names[v.outcome === 'seat0' ? 0 : 1]}) won (${v.by})`;
+  return v.outcome === 'draw' ? `draw (${v.by})` : `void (${v.by})`;
+}
+
+/**
+ * The judge's turn for one finished game (GH-973). A void game has no result to
+ * judge. The judge's outcome goes ONLY into `record.judge`: nothing here touches
+ * `outcome`, `by`, the score board or the tally (D7).
+ */
+async function judgeGame(record: GameRecord, a: ArenaArgs, logBase: string, judge: NonNullable<ArenaDeps['runJudge']>, log: (line: string) => void): Promise<JudgeRecord | undefined> {
+  if (a.judge === null) return undefined;
+  if (record.outcome === 'void') return { status: 'skipped', reason: `the game was void (${record.by})` };
+  if (record.referee === undefined) return { status: 'skipped', reason: 'the arena has no referee stats for this game' };
+  const j = await judge({
+    template: a.judge, stats: record.referee, players: record.players, outcome: verdictText(record.players, record),
+    logFile: `${logBase}-judge.log`, timeoutMs: a.judgeTimeoutMs,
+  });
+  log(`arena: seed ${record.seed}: judge: ${j.status}${j.status === 'failed' ? ` (${j.reason})` : j.status === 'invalid' ? ` (${j.problems[0] ?? ''})` : ''}`);
+  return j;
 }
 
 /** The first `<base><n>.jsonl`/`.md` pair not already in `dir`. */
@@ -524,6 +574,9 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
         // A signal's cleanup has begun: no new relay, no new seat.
         if (externalPlayersStopped()) throw new Error('the arena is stopping (a signal): no further game');
         const record = await playGame(g, a, build, startRelay, observe, log);
+        // After the game, with its relay closed: a slow judge holds up the next game, never this one's result.
+        const judged = await judgeGame(record, a, g.logBase, deps.runJudge ?? runJudge, log);
+        if (judged !== undefined) record.judge = judged;
         games.push(record);
         appendFileSync(files.jsonl, `${JSON.stringify(record)}\n`);
         const winner = record.outcome === 'seat0' ? record.players[0] : record.outcome === 'seat1' ? record.players[1] : record.outcome;
@@ -538,6 +591,10 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   const t = tally(games);
   print(`arena: ${games.length} game(s) -> ${files.jsonl}`);
   print(`arena: report -> ${files.md}`);
+  if (a.judge !== null) {
+    const n = (k: JudgeRecord['status']): number => games.filter((g) => g.judge?.status === k).length;
+    print(`arena: judge: ${n('scored')} scored, ${n('invalid')} invalid, ${n('failed')} failed, ${n('skipped')} skipped`);
+  }
   for (const row of t.values()) {
     print(`  ${row.player}: score ${Number.isNaN(row.score) ? '—' : row.score.toFixed(3)} (${row.wins} won, ${row.draws} drawn, ${row.losses} lost, ${row.voids} void)`);
   }

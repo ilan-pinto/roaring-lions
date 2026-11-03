@@ -10,6 +10,8 @@
  */
 import type { Faction, Matchup } from '@lions/net';
 import type { MatchScore, SideScore } from '../../../packages/app/src/net/scoreboard';
+import type { JudgeRecord } from './judge';
+import { CRITERIA, CRITERION_IDS, SEAT_KEYS, refereeMarkdown, scoresMarkdown, type RefereeStats } from './match-score';
 import type { PlayerReport } from './players';
 
 export interface GameRecord {
@@ -33,6 +35,10 @@ export interface GameRecord {
   score: MatchScore;
   /** By seat. */
   reports: [PlayerReport, PlayerReport];
+  /** The referee's end-of-match stats for both seats (GH-973), from the reading seat's sim; absent on a record from before. */
+  referee?: RefereeStats;
+  /** The judge's scores (GH-973); absent: not judged. Scores are for reading and never change `outcome` or a tally (D7). */
+  judge?: JudgeRecord;
 }
 
 export interface Tally {
@@ -187,6 +193,81 @@ function winnerOf(g: GameRecord): string {
   return g.outcome;
 }
 
+/**
+ * The scores (GH-973): what the judge made of each game, or `not judged`. A
+ * table of every judged game, each player's mean per criterion, then the
+ * judge's reasons game by game, with the referee's numbers beside them. A game
+ * the judge could not score says why; nothing is filled in.
+ */
+export function scoreSections(games: readonly GameRecord[]): string[] {
+  const out: string[] = ['', '## Scores', ''];
+  if (!games.some((g) => g.judge !== undefined)) {
+    out.push('Not judged. Run with `--judge "cmd:<template>"` to have a third model score both players of each game 1-10 on five criteria.');
+    if (games.some((g) => g.referee !== undefined)) {
+      out.push('', '### Referee\'s stats', '');
+      out.push(...refereeTable(games));
+    }
+    return out;
+  }
+  out.push('A third model (the judge) scored both players of each game, 1-10 per criterion with a one-line reason each, from the referee\'s stats. Scores are for reading: they change no result and no tally (D7).');
+  out.push('');
+  out.push(line(['game', 'seed', 'seat', 'player', ...CRITERIA.map((c) => c.label), 'Overall']));
+  out.push(line(Array.from({ length: 5 + CRITERIA.length }, () => '---')));
+  const sums = new Map<string, { n: number; crit: number[]; overall: number }>();
+  games.forEach((g, i) => {
+    const j = g.judge;
+    if (j?.status === 'scored') {
+      for (const seat of [0, 1] as const) {
+        const p = j.scores[SEAT_KEYS[seat]];
+        out.push(line([i + 1, g.seed, seat, g.players[seat], ...CRITERION_IDS.map((id) => p.criteria[id].score), p.overall.score]));
+        const acc = sums.get(g.players[seat]) ?? { n: 0, crit: CRITERION_IDS.map(() => 0), overall: 0 };
+        acc.n++;
+        CRITERION_IDS.forEach((id, k) => { acc.crit[k] += p.criteria[id].score; });
+        acc.overall += p.overall.score;
+        sums.set(g.players[seat], acc);
+      }
+    } else {
+      out.push(line([i + 1, g.seed, '—', '—', ...(j === undefined ? ['not judged'] : [judgeNote(j)]), ...Array.from({ length: CRITERIA.length }, () => '')]));
+    }
+  });
+  if (sums.size > 0) {
+    out.push('', '### Mean scores by player', '');
+    out.push(line(['player', 'games scored', ...CRITERIA.map((c) => c.label), 'Overall']));
+    out.push(line(Array.from({ length: 3 + CRITERIA.length }, () => '---')));
+    for (const [player, a] of sums) out.push(line([player, a.n, ...a.crit.map((v) => (v / a.n).toFixed(1)), (a.overall / a.n).toFixed(1)]));
+  }
+  games.forEach((g, i) => {
+    out.push('', `### Game ${i + 1}: seed ${g.seed}, ${g.players[0]} (seat 0) vs ${g.players[1]} (seat 1)`, '');
+    if (g.referee !== undefined) out.push(...refereeMarkdown(g.referee, g.players), '');
+    const j = g.judge;
+    if (j === undefined) out.push('Not judged.');
+    else if (j.status === 'scored') out.push(...scoresMarkdown(j.scores, g.players));
+    else out.push(`Not scored: ${judgeNote(j)}.`, ...(j.status === 'invalid' ? j.problems.map((p) => `- ${p}`) : []));
+  });
+  return out;
+}
+
+function judgeNote(j: JudgeRecord): string {
+  switch (j.status) {
+    case 'scored': return 'scored';
+    case 'invalid': return `the judge's reply was not a valid score (${j.problems.length} problem(s))`;
+    case 'failed': return `the judge failed: ${j.reason}`;
+    case 'skipped': return `skipped: ${j.reason}`;
+  }
+}
+
+/** The referee's numbers for every game, one row per seat. */
+function refereeTable(games: readonly GameRecord[]): string[] {
+  const out: string[] = [line(['game', 'seed', 'seat', 'player', 'deaths', 'men killed', 'units lost (value)', 'destroyed (value)', 'wounded fell', 'rescued', 'died', 'idle %', 'orders', 'first order']), line(Array.from({ length: 14 }, () => '---'))];
+  games.forEach((g, i) => {
+    if (g.referee === undefined) return;
+    for (const s of g.referee.seats) {
+      out.push(line([i + 1, g.seed, s.seat, g.players[s.seat], s.deaths, s.menKilled, `${s.unitsLost} (${s.lostValue})`, `${s.destroyed} (${s.destroyedValue})`, s.woundedFell, s.woundedRescued, s.woundedDied, s.idlePct ?? '—', s.ordersSent, s.firstOrderTick ?? '—']));
+    }
+  });
+  return out;
+}
+
 /** The report: each player's tally (whole, by seat, by faction), A against B
  *  with its one-sided p, then every game with its scoreboard, then tokens --
  *  only when a player said any. `pair` is [A, B]; by default the first game's
@@ -239,6 +320,7 @@ export function markdownReport(games: readonly GameRecord[], pair: readonly [str
       out.push(line([g.seed, g.players[0], g.reports[0].tokens ?? '—', g.players[1], g.reports[1].tokens ?? '—']));
     }
   }
+  out.push(...scoreSections(games));
   const troubled = games.flatMap((g) => ([0, 1] as const).filter((s) => g.reports[s].timeouts > 0 || g.reports[s].errors.length > 0).map((s) => ({ g, s })));
   if (troubled.length > 0) {
     out.push('');
