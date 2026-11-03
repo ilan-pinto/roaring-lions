@@ -140,11 +140,16 @@ if (!Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight)) {
 const { port } = await claimPortOrAttach(TAG, 'RENDER_FRAME_COST_PORT', 5178);
 const stopServer = devServerStopper(await ensureDevServer(port, REPO_ROOT, TAG), TAG);
 const base = `http://localhost:${port}`;
-const VIEWS: [number, number, number][] = [
-  [5, 22, 2.5],
-  [22, 24, 0.5],
-  [26, 22, 1.6],
-];
+// `--views=x,y,zoom;x,y,zoom` replaces the three default views (GH-984 N1: the wind is measured on wadi_tarfan_l at zoom 1).
+const viewsFlag = flag('views');
+const VIEWS: [number, number, number][] = viewsFlag
+  ? viewsFlag.split(';').map((v) => v.split(',').map(Number) as [number, number, number])
+  : [
+      [5, 22, 2.5],
+      [22, 24, 0.5],
+      [26, 22, 1.6],
+    ];
+if (VIEWS.some((v) => v.length !== 3 || v.some((n) => !Number.isFinite(n)))) throw new Error(`--views=${viewsFlag} is not x,y,zoom;x,y,zoom`);
 
 const browser = await chromium.launch({
   headless: true,
