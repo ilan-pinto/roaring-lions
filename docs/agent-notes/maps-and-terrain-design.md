@@ -256,3 +256,91 @@ Idle rows are exactly Rujm's and Wadi (large)'s 2,562 (PR 937, PR 957); heavy is
 idle world is 389 KiB raw against design 4.5's 390 at capacity 512. Every figure is inside the bars; the log is at 10% of its
 cap, so the map needs no Worker change. The snapshot figures are the default 15-unit force, not the 150-a-side stress of 4.5
 (404 KiB raw, 23.2 KiB gzip), which is read from the design and not re-measured here.
+
+## Milh Flats (large), REDONE (GH-974, 3 Nov 2026): STAGED, not offered
+
+The lead (GH-974): the maps have too few obstacles, houses, roads and cover forcing a strategy, so a match is an all-in fight.
+Design: `_coord/versus-maps-design/design.md` (principles in its section 1, caps in 2, this map in 3), approved 3 Nov. This
+map is the first built on it. A mirror room has NO economy and no goal (design section 0), so terrain shapes the fight and
+nothing yet removes the all-in: it would be offered for the annihilation mirror only, as before; win modes are GH-976.
+
+**It is STAGED, not shipped.** `data/maps/milh_flats_l.json` is still the first build (GH-920 B3). The redo is in
+`docs/campaign/staged_maps/milh_flats_l_redo/{map,versus}.json`, written by `tools/maps/milh_flats_l_redo/build.mjs` (`--check`
+exits 0), byte for byte what B4 and the budget measured; its JSON carries the id `milh_flats_l`, so opening it is a file copy
+plus the pins below. It stays staged because the render and memory budget FAILED, and the rule for a failed budget is that
+the PR must not change what is offered:
+
+| Read on the redo, Apple M3 Pro, ANGLE Metal, 1440x900 @2x, music off, paired against the 48x48 | Redo | First build (PR 961) | Bar |
+|---|---|---|---|
+| frame, high, centre z1 (the town) | +3.85 ms (23.2 vs 19.5) | +0.75 | +0.5 |
+| frame, high, centre z1.6 | +3.3 | -0.65 | +0.5 |
+| frame, medium, centre z1 | +3.95 | +0.20 | +0.5 |
+| frame, either preset, the seats (versus_0 z1) | +0.9 / +1.05 | +0.45 / +0.70 | +0.5 |
+| draw calls / triangles, high, centre z1 | 1,106 / 8.4 M | 314 / 3.6 M (48x48: 269 / 3.2 M) | |
+| perf:memory sandbox JS (1400x900 @1x) | **154.3 MiB** | 152.0 | **153** (a ratchet) |
+| perf:memory sandbox GPU | 604.3 MiB | 540.0 | 1,015 |
+| live versus room JS / GPU | 135.5 / 963.4 MiB | 134.6 / 952.5 | 153 / 1,015 |
+
+Where the frame goes (high, centre z1, 8 rounds, same tool): no walls and no buildings reads -0.7 ms against the 48 (the wadis,
+ditches and scrub are cheaper than the first build's), no walls 1.1, the whole redo 3.95. So the 172 wall tiles cost about 2.9 ms
+(744 draw calls: a wall clone is two primitives, drawn in the colour, shadow and AO passes) and the houses, sheds and the rest 1.8.
+Design decision 7 says to instance the per-tile structures above +1 ms; that is renderer work, and with walls instanced the
+centre reads about +1.1, the first build's own figure. The extra JS (+2.3 MiB) and building textures (+64 MiB of GPU: a house, a
+shanty, a concrete block and a pump house, which the first build mostly lacked) are the town's new mesh types.
+
+What the redo is:
+
+- **Its own sketch.** `tools/maps/milh_flats_l_redo/sketch.mjs` keeps the 48x48 original's skeleton (the two corner boulder
+  masses, the two tell hills with their rock crowns, the level-3 seat plateau, its scrub) and drops everything else; the
+  offered 48x48 is untouched. Everything new is drawn by `build.mjs` at TILE level, top half only, the bottom half its half-turn.
+- **Three lanes.**
+  - open armour ground between the wadis and the flank roads;
+  - **Bir Milh**, a 24x24 enclosure on the centre (zone `town`): a ditch belt (north, south) and wall (east, west) ring closed to
+    wheels but for TWO four-tile gates, six walled yards (6 houses, 14 two-tile sheds, 2 concrete blocks, 2 pump houses, 124 wall
+    tiles), a plus of four-tile streets and a khan court (zone `bir_milh`, 8x8). The east-west street ends in a two-tile FOOT gate
+    (a ditch in the wall) on each side;
+  - a covered infantry lane in each seat's **wadi**: a four-tile bed of scree (`b`, foot only, open to sight) at level 0 on a plain
+    at level 2, so each bank is a 2-level cliff (246 bed-bank pairs, each exactly two levels). It runs from beside the seat's flag
+    at the top edge, at 45 degrees (every contour one tile a row: no 2x2 staircase), then straight, to a 4x4 FORD gap with a
+    level-1 ramp tile either side.
+- **The seal.** wadi_1, its ford, the town's north-west corner, the town through its two gates, the south-east corner, the other
+  ford and wadi_0 are one point-symmetric line from the top edge to the bottom edge. A vehicle crosses at the left ford, the
+  right ford or through the town. `large_map_verify.ts` cuts it: all plugged, no route; each alone carries one at the same cost
+  both ways. **The town is ONE crossing** (`marker: 'gate_1'`, a plug of radius 3 at its north gate: the interior has no other exit,
+  so closing one gate closes it). Plugging the whole enclosure hides a hole in its ring (the plug covers the ring), and plugging
+  only the court lets a vehicle route round it through the yards (traced through the real flow field: cost 990 against 912
+  through the court).
+- **Roads** are cosmetic: no road speed (the lead's ruling), and a room never sets `supply_corridor`.
+- **High ground.** The tells' slopes are bare (the `n` cover-2 field is gone: 24 `n` tiles remain, the two 12-tile rings); the
+  first build's mid-map hills are flat, so the map has 2 high-ground rises, not 6, and the presentation census reads 160 slope
+  tiles a seat, not 422.
+- **Cover** 10.4% (band 10-14%, was 8.5-11%): scrub belts on the foot routes, never cover 3.
+- **The versus visibility gate** (`map_visibility.ts` `measureVersus`, `VERSUS_CAPS`): whole map visible >= 95%, seat corridor and
+  every scoring zone >= 92%, a town zone >= 85%, building tiles <= 3% of the map and <= 25% of a town, no building over two floors,
+  no apartment or warehouse, houses <= 40% of the building tiles. Walls and fences are per-tile, low-profile and hide nothing, so
+  they are not building tiles. The redo reads 99.5% / 97.5% / 89.0% (town) / 92.0% (the court), 0.76% built, houses 34%.
+  `large_map_verify.ts` runs it for a spec with `visibility`, and its CLI prints it. Read report-only on the maps that ship, it
+  finds the first build of this map at houses 53% of its building tiles, Wadi Tarfan (large) at 90% in two farms and 67% houses, and
+  Rujm Sawda's four walled wells at 91.7%: the caps are the bar for the maps built to the design, not a verdict on these.
+- **The built-share cap is per map** (`LargeMapSpec.maxBuiltShare`, required): it was one global 1%, an upscale-fidelity check.
+  The three upscaled maps keep 1%; the redo's is the gate's 3%.
+
+### What B4 read on the redo (mirror only, 3 Nov 2026)
+
+`pnpm versus:probe --maps=milh_flats_l --arr=kdf/kdf,sarim/sarim --cap=2100` on the staged geometry (the files' sha256 is the same
+as the staged ones'), placed forces. The first geometry was read once on seeds 0-191 and on held-out 4000-4287; no lever was pulled.
+
+| Cell (west share) | 0-191 | held-out 4000-4287 | pooled 480 |
+|---|---|---|---|
+| KDF v KDF (the offered cell) | 56.3% (108/84) | 53.1% (153/135) | 54.4% (261/219) |
+| Sarim v Sarim (report only) | 44.3% (85/107) | 50.3% (145/143) | 47.9% (230/250) |
+
+Inside 60/40 on both reads. The first build read KDF 50.5% / 49.7% (50.0% pooled).
+
+### Opening it (what the swap changes)
+
+The swap is a file copy of the staged map and rules over `data/maps/milh_flats_l.json` and `data/versus/milh_flats_l.json`, plus
+every pin the new data moves, each re-read independently of the code: `high_ground_maps.test.ts` `milh_flats_l: 2` (and the
+relief total, 154), `presentation_census.test.ts` (160 slope tiles a seat, lit 0/160 and 160/0, twin mismatches 160, x-flip
+285/135), the Free Play card line in `en.json`, the generator (`tools/maps/milh_flats_l/build.mjs` becomes the redo's) and
+`milh_flats_l.test.ts`. `_coord/milh-l-redo/swap.patch` holds that commit, tested.

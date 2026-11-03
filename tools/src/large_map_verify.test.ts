@@ -10,7 +10,7 @@
 // must be red on every distortion at once: that is what the verifier is for.
 import { describe, expect, it } from 'vitest';
 import { maps, versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
-import { SPECS, shipped, verifyLargeMap } from './large_map_verify';
+import { SPECS, shipped, staged, verifyLargeMap } from './large_map_verify';
 
 const W = 96;
 
@@ -363,5 +363,46 @@ describe('red on everything the Rujm verifier has always refused, on this map', 
   it('is the shipped data the verifier read (a spec keyed to a map that does not exist throws)', () => {
     expect(() => shipped('nowhere')).toThrow('no large-map spec for "nowhere"');
     expect((versusRules as Record<string, VersusRulesJson>).wadi_tarfan_l.cap_minutes).toBe(35);
+  });
+});
+
+// --- the built-share cap is PER MAP (GH-974) ----------------------------------------------------------------------------
+// It was one global 1% (MAX_BUILT_SHARE), an upscale-fidelity check: a naive 2x copy draws every building four times its
+// footprint, so a map's share quadruples. Milh Flats (large), redone (STAGED), has a town of its own (0.76% built, 1.2% in the
+// design's mock, and the versus visibility gate holds a town to 3%), so the cap is the spec's: `maxBuiltShare`, required.
+describe('the built-share cap is per map', () => {
+  const milh = () => {
+    const s = staged('milh_flats_l_redo');
+    return { json: JSON.parse(JSON.stringify(s.json)) as MapJson, rules: s.rules, spec: s.spec };
+  };
+  const built = (r: { failures: string[] }) => r.failures.some((f) => f.includes('buildings: built share'));
+
+  it('each spec names its own cap: the three upscaled maps the old 1%, the redo of Milh Flats (large) 3%', () => {
+    expect(SPECS.rujm_sawda().maxBuiltShare).toBe(0.01);
+    expect(SPECS.wadi_tarfan_l().maxBuiltShare).toBe(0.01);
+    expect(SPECS.milh_flats_l().maxBuiltShare).toBe(0.01);
+    expect(SPECS.milh_flats_l_redo().maxBuiltShare).toBe(0.03);
+  });
+
+  it('RED: a cap just under a map\'s own share fails that map (the redo: 70 building tiles of 9,216 = 0.76%)', () => {
+    const { json, rules, spec } = milh();
+    expect(verifyLargeMap(json, rules, spec).failures).toEqual([]);
+    const tight = verifyLargeMap(json, rules, { ...spec, maxBuiltShare: 0.007 });
+    expect(built(tight)).toBe(true);
+    expect(tight.failures.filter((f) => !f.includes('buildings: built share'))).toEqual([]); // and nothing else is red
+    expect(built(verifyLargeMap(json, rules, { ...spec, maxBuiltShare: 0.0077 }))).toBe(false);
+  });
+
+  it('the cap is the spec\'s, not a global: 54 more sheds take the redo past 1% (red under a 1% spec) and not past 3% (green under its own)', () => {
+    const { json, rules, spec } = milh();
+    const rows = json.rows as string[];
+    // single shanty tiles, two apart, on open plain north of the town and wadi (rows 3 and 5), each with its half-turn twin
+    for (let x = 22; x <= 54; x += 2) setBoth(rows, x, 3, 's');
+    for (let x = 22; x <= 40; x += 2) setBoth(rows, x, 5, 's');
+    const own = verifyLargeMap(json, rules, spec);
+    expect(Number(own.facts.built_share)).toBeGreaterThan(0.01);
+    expect(Number(own.facts.built_share)).toBeLessThan(0.03);
+    expect(built(own)).toBe(false);
+    expect(built(verifyLargeMap(json, rules, { ...spec, maxBuiltShare: 0.01 }))).toBe(true);
   });
 });
