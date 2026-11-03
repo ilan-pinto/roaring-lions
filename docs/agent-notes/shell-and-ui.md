@@ -12,6 +12,13 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   `?telemetry` -- never from `pnpm dev`, tests or CI, because `pnpm ui:routes` fails on any
   console error. `?tester=<name>` labels a tester, `?notrack` opts out (persisted). Results
   are read from the terminal with `packages/worker/QUERIES.sql` (`npx wrangler d1 execute roaring-lions-telemetry --remote --file ...`), still available as an alternative; `/stats` is behind a password set with `npx wrangler secret put STATS_PASSWORD` -- make it long and random (e.g. `openssl rand -base64 24`), not a memorised phrase, since a captured session cookie hands over the signing key too -- and answers 403 until that secret is set. Spec: `docs/superpowers/specs/2026-09-24-telemetry-design.md`.
+- **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
+  `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
+  `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the
+  deployed build has it with no git), then `GITHUB_SHA` (GitHub Actions), then `git rev-parse HEAD`. With none of
+  them (no git, a tarball) the footer reads `dev`. It is the first 7 digits of the same full commit that the room's
+  build id carries (`${version}+${commit}`), so `pnpm bot` against a deployed room can be matched to a checkout.
+  Display only; never in a URL.
 - **In-game feedback (GH-464) is a PUBLIC write endpoint**, open to every player in v1 by the
   lead's ruling. `POST /api/feedback` (multipart: `meta` JSON against
   `data/schemas/feedback.schema.json`, whose Worker twin is `packages/worker/src/feedback-meta.ts`;

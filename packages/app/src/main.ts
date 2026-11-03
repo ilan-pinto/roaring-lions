@@ -890,6 +890,7 @@ async function main(): Promise<void> {
         }),
     }),
     build: __APP_BUILD__,
+    commit: __APP_COMMIT__,
   };
 
   /** What the opening cinematic needs besides the settings (`ui/intro.ts`): the
