@@ -43,6 +43,12 @@ describe('parseArgs', () => {
   it('--join seats a bot, so it is for command scope only', () => {
     expect(refused([...base, '--scope', 'advise', '--join'])).toMatch(/--join is for --scope command/);
   });
+  it('--score-file (GH-973, pnpm bot) is for a seat that plays; an advisor is never asked to score', () => {
+    expect(parsed([...base, '--scope', 'command', '--ticket-file', '/tmp/t', '--score-file', '/r/s.json']).scoreFile).toBe('/r/s.json');
+    expect(parsed([...base, '--scope', 'command', '--ticket-file', '/tmp/t']).scoreFile).toBeUndefined();
+    expect(refused([...base, '--scope', 'assist', '--ticket-file', '/tmp/t', '--score-file', '/r/s.json'])).toMatch(/--score-file is for --scope command/);
+    expect(refused([...base, '--scope', 'command', '--ticket-file', '/tmp/t', '--score-file'])).toMatch(/--score-file needs a value/);
+  });
   it('--scope is checked', () => {
     expect(refused([...base, '--scope', 'overlord', '--join'])).toMatch(/--scope is advise, assist or command/);
     expect(refused([...base, '--join'])).toMatch(/--scope is advise, assist or command/);
