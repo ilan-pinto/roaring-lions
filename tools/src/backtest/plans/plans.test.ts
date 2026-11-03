@@ -185,7 +185,7 @@ describe('the shared plans: Ein Qasab', () => {
   });
 
   it('seed 424242, down the chain: the lines pnpm playtest prints, and the marks the carries leave', { timeout: 120_000 }, () => {
-    // Literals, read off `pnpm playtest` (GH-912 re-key, 2026-11-01: II and III moved with their beats). The ledger is built the way the harness
+    // Literals, read off `pnpm playtest` (GH-912 re-key, 2026-11-01: II and III moved with their beats). Re-read 2026-11-03 for GH-982 (the Spike reloads in 12 s and engages aircraft): was II 7.0 min and III 6.0 min, now 6.8 and 5.7; credits, ROE and stars did not move. The ledger is built the way the harness
     // builds it: Wadi Halam I..III first, then each Ein Qasab mission on the ledger the one before produced.
     expect(process.env.PT_SEED).toBeUndefined();
     const lines: string[] = [];
@@ -200,8 +200,8 @@ describe('the shared plans: Ein Qasab', () => {
     }
     expect(lines).toEqual([
       'ein_qasab_1_recon: VICTORY in 1.3 min, ROE 100, stars 3, credits 250',
-      'ein_qasab_2_foothold: VICTORY in 7.0 min, ROE 95, stars 3, credits 255',
-      'ein_qasab_3_buildup: VICTORY in 6.0 min, ROE 85, stars 2, credits 195',
+      'ein_qasab_2_foothold: VICTORY in 6.8 min, ROE 95, stars 3, credits 255',
+      'ein_qasab_3_buildup: VICTORY in 5.7 min, ROE 85, stars 2, credits 195',
     ]);
     // What Ein Qasab III reads: I leaves the reed cell (its carrying secondary) and the causeway RPG team (the drone's
     // mark); II adds the saddle truck (its carrying secondary).

@@ -221,7 +221,9 @@ describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)
       const players: [ArenaPlayer, ArenaPlayer] = rushSeat === 0
         ? [inProcess('rush', rush, { log: () => {} }), inProcess('passive', passive, { log: () => {} })]
         : [inProcess('passive', passive, { log: () => {} }), inProcess('rush', rush, { log: () => {} })];
-      // Seed 56433 (seedOf(7)); was 48514 (seedOf(6)) until GH-560 (HP alone ends a vehicle, 2026-10-28), after
+      // Seed 1000 (seedOf(0)); was 56433 (seedOf(7)) until GH-982 (the Spike reloads in 12 s and engages aircraft,
+      // 2026-11-03), after which rush no longer won from both seats on 56433; seedOf(0) is won by rush from both seats
+      // at pace 40 cap 6000 and at pace 60 cap 12000. Before that: seed 56433 (seedOf(7)); was 48514 (seedOf(6)) until GH-560 (HP alone ends a vehicle, 2026-10-28), after
       // which rush no longer won from both seats on 48514. Of seeds 0-11 only 7 is won by rush from both seats
       // at pace 40 cap 6000 and at pace 60 cap 12000 (seed 0 wins both seats at pace 60 only).
       // Before: seed 48514 (seedOf(6)); was 8919 until tel_marum's seat 1 moved to (29,17) for
@@ -236,7 +238,7 @@ describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)
       // 0-11, rush won from both seats on 0, 1, 7, 9 and 10 (history: under the HP model of
       // GH-560 only 7 does, and 0 at pace 60). (Was 3 until seat 0
       // moved to (24,46) on 2026-10-22.)
-      const game = await play(players, { seed: 56433, capTicks: CAP, roundTicks: PACE, timeoutMs: 150_000 });
+      const game = await play(players, { seed: 1000, capTicks: CAP, roundTicks: PACE, timeoutMs: 150_000 });
       expect(game.result.kind).toBe('won');
       if (game.result.kind !== 'won') return;
       expect(game.result.side).toBe(rushSeat);
