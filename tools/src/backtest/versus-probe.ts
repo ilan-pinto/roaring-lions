@@ -183,7 +183,6 @@ import { versusForceOf, versusSpawns } from '../../../packages/app/src/net/versu
 import { outcomeOf, productionOf, unitCost, type MatchResult, type OutcomeProduction } from '../../../packages/app/src/net/outcome';
 import { versusRoster } from '../../../packages/app/src/net/versus-roster';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
-import { withMedicInRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 import { PER_SEED_SCHEMA, type PerSeedCell, type PerSeedFile } from './per-seed';
 
 /** 20 Hz, like the sim. */
@@ -1450,9 +1449,8 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   const armed: PlayFn = rescueArg === undefined ? withFormation : (m, a, sd, o) => withFormation(m, a, sd, { ...o, rescueBuy: rescueArg });
   if (formation !== undefined) console.log(`formation arm: ${formation.id} on ${endArg === undefined ? 'both ends' : `the ${endArg} end only`}`);
   const run = (): number => withOverrides(overrides, () => report({ economy, tunnels, rules, mapIds, arrangements, seeds, seedFrom, tunnelCell, perSeed, formation, capTicks, overrides, playFn: armed }));
-  // The medic team is HELD out of versus until the lead opens it: an economy run puts it on the KDF menu IN MEMORY, for this run only.
-  if (rescueArg !== undefined) console.log(`rescue arm: ${rescueArg} (the default is ${RESCUE_BUY_DEFAULT}); the medic team is put on the KDF menu in memory`);
-  return economy ? withMedicInRoom(run) : run();
+  if (rescueArg !== undefined) console.log(`rescue arm: ${rescueArg} (the default is ${RESCUE_BUY_DEFAULT})`);
+  return run();
 }
 
 interface ReportArgs {

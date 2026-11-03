@@ -6,15 +6,14 @@
 import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { doctrines, versusRules, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
 import { fx, MED_TO_WOUNDED, type Command } from '@lions/sim';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
-import { enterMedicRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
-  MEDIC_STATION_BACK_TILES, MEDIC_STATION_SLACK_TILES, RESCUE_FRONT_MARGIN_TILES, RESCUE_RESERVE_SECONDS, RESCUE_SAFE_TILES, reserveOf, candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, loneSurvivorOf, main, marchersOf, order, parseArrangements, parsePair, planRescueBuy, planRound, play,
+  MEDIC_STATION_BACK_TILES, MEDIC_STATION_SLACK_TILES, RESCUE_BUY_DEFAULT, RESCUE_FRONT_MARGIN_TILES, RESCUE_RESERVE_SECONDS, RESCUE_SAFE_TILES, reserveOf, candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, loneSurvivorOf, main, marchersOf, order, parseArrangements, parsePair, planRescueBuy, planRound, play,
   rescueRound, reading, roomConfig, seedOf, selfCheck, tally, withOverrides, world, type Played, type PlayFn,
   TUNNEL_CELLS, playTunnelCells, tunnelSelfCheck, withoutVersusRoutes,
 } from './versus-probe';
@@ -770,10 +769,6 @@ describe('seed sets, one tunnel cell and per-seed files (GH-859 P1b Task 7, the 
 
 // The rescue arm (GH-707, the lead, 30 Oct 2026). LITERALS throughout.
 describe('the rescue arm', () => {
-  // The medic team is held out of versus: this block puts it in a room in memory.
-  let leaveMedicRoom = (): void => {};
-  beforeAll(() => { leaveMedicRoom = enterMedicRoom(); });
-  afterAll(() => leaveMedicRoom());
   const room = (start?: [number, number]) => {
     const w = withOverrides(start === undefined ? {} : { start }, () => buildMatchWorld(roomConfig('tel_marum', ['kdf', 'sarim'], 1000)));
     const rt = w.runtime;
@@ -989,18 +984,24 @@ describe('the rescue arm', () => {
   });
 });
 
-describe('the rescue arm puts the held medic team in the room in memory, for the run only (PR 907)', () => {
-  it('--rescue-buy=opening delivers a medic team and leaves the shipped menu and held set as they were; without the flag none is delivered', () => {
+describe('the rescue arm on the shipped menu (GH-707, 3 Nov 2026)', () => {
+  it('the medic team is on the KDF menu as shipped; a plain economy run buys one (the default arm), `after` and `off` buy none, and the menu is left as it was', () => {
     const logged: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { logged.push(a.join(' ')); });
-    expect(doctrines.kdf.menu).not.toContain('inf_medic_squad');
-    expect(main(['--economy', '--maps=wadi_tarfan', '--seeds=1', '--arr=sarim/kdf', '--rescue-buy=opening'])).toBe(0);
-    const row = logged.find((l) => l.startsWith('wadi_tarfan')) ?? '';
-    expect(row).toMatch(/\s1\.0\/\d\.\d\/\d\.\d\s/); // med/adm/rej: one medic team a game
-    expect(logged.some((l) => l.includes('put on the KDF menu in memory'))).toBe(true);
-    expect(doctrines.kdf.menu).not.toContain('inf_medic_squad'); // put back
-    logged.length = 0;
-    expect(main(['--economy', '--maps=wadi_tarfan', '--seeds=1', '--arr=sarim/kdf'])).toBe(0);
-    expect(logged.find((l) => l.startsWith('wadi_tarfan')) ?? '').toMatch(/\s1\.0\/\d\.\d\/\d\.\d\s/);
-  }, 120_000);
+    const menu = [...doctrines.kdf.menu];
+    expect(menu).toContain('inf_medic_squad');
+    expect(RESCUE_BUY_DEFAULT).toBe('opening');
+    const row = (flags: string[]): string => {
+      logged.length = 0;
+      expect(main(['--economy', '--maps=wadi_tarfan', '--seeds=1', '--arr=sarim/kdf', ...flags])).toBe(0);
+      return logged.find((l) => l.startsWith('wadi_tarfan')) ?? '';
+    };
+    expect(row([])).toMatch(/\s1\.0\/\d\.\d\/\d\.\d\s/); // med/adm/rej: one medic team a game
+    expect(row(['--rescue-buy=opening'])).toMatch(/\s1\.0\/\d\.\d\/\d\.\d\s/);
+    // The ruled rule and the unbought control read the same as main: no medic team.
+    expect(row(['--rescue-buy=after'])).toMatch(/\s0\.0\/0\.0\/0\.0\s/);
+    expect(row(['--rescue-buy=off'])).toMatch(/\s0\.0\/0\.0\/0\.0\s/);
+    expect(logged.some((l) => l.includes('the default is opening'))).toBe(true);
+    expect(doctrines.kdf.menu).toEqual(menu);
+  }, 240_000);
 });
