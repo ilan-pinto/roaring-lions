@@ -643,70 +643,71 @@ async function costPhase(browser: Browser, errors: string[]): Promise<void> {
     })()`) as { w: number; h: number; cap: number; live: number; hulls: number; men: number; buf: string; cx: number; cz: number };
     say(`[cost ${preset}] ${map} ${info.w}x${info.h}; ${info.live} living units (24 hulls driving, ${info.men} riflemen; the sandbox sim's capacity is ${info.cap}); gl=${gl}; drawing buffer ${info.buf} (css 1440x900, dpr 2); load ${load()}`);
     const rows: string[] = [];
-    for (const zoom of [0.5, 1]) {
-      const sample = (): Promise<{ cpuMed: number; cpuP95: number; gpuMed: number; gpuP95: number; calls: number; programs: number; n: number }> =>
-        page.evaluate(
-          ([cx, cz, z]) => {
-            const L = (window as unknown as { __lions: { renderer: Record<string, unknown> } }).__lions;
-            const r = L.renderer as unknown as {
-              canvas: HTMLCanvasElement; camera: { x: number; y: number; zoom: number }; frame(a: number, dt: number): void;
-              disturbU: { n: { value: number } }; renderer: { info: { autoReset: boolean; reset(): void; render: { calls: number }; programs?: unknown[] } };
-            };
-            r.camera.x = cx as number; r.camera.y = cz as number; r.camera.zoom = z as number;
-            for (let i = 0; i < 30; i++) r.frame(1, 16);
-            const info = r.renderer.info;
-            const auto = info.autoReset; info.autoReset = false; info.reset(); r.frame(1, 16);
-            const calls = info.render.calls; const programs = info.programs?.length ?? -1; info.autoReset = auto;
-            const gl2 = r.canvas.getContext('webgl2');
-            if (!gl2 || gl2.getContextAttributes()?.stencil !== true) throw new Error("not the renderer own context");
-            const cpu: number[] = []; const wall: number[] = [];
-            for (let i = 0; i < 240; i++) { const t0 = performance.now(); r.frame(1, 16); cpu.push(performance.now() - t0); }
-            gl2.finish();
-            for (let i = 0; i < 120; i++) { const t0 = performance.now(); r.frame(1, 16); gl2.finish(); wall.push(performance.now() - t0); }
-            cpu.sort((a, b) => a - b); wall.sort((a, b) => a - b);
-            return { cpuMed: cpu[120], cpuP95: cpu[228], gpuMed: wall[60], gpuP95: wall[114], calls, programs, n: r.disturbU.n.value };
-          },
-          [info.cx, info.cz, zoom] as const
-        );
-      const set = async (on: boolean, slots?: number): Promise<void> => {
-        await page.evaluate(([v, s]) => {
-          const r = (window as unknown as { __lions: { renderer: { setDebugLayerVisible(n: string, v: boolean): number; opts: { quality?: Record<string, unknown> } } } }).__lions.renderer;
-          r.setDebugLayerVisible('disturb', v as boolean);
-          if (s !== undefined) {
-            const q = r.opts.quality ?? {};
-            r.opts.quality = { ...q, nature: { wakes: true, foot: true, ...((q.nature as Record<string, unknown>) ?? {}), slots: s } };
-          }
-        }, [on, slots] as const);
-      };
-      // Interleaved A B A B A B so a drifting machine hits both arms alike.
-      const A: Awaited<ReturnType<typeof sample>>[] = [];
-      const B: Awaited<ReturnType<typeof sample>>[] = [];
-      for (let round = 0; round < 3; round++) {
-        await set(false);
-        A.push(await sample());
-        await set(true);
-        B.push(await sample());
-      }
-      const med = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
-      const f = (xs: Awaited<ReturnType<typeof sample>>[], k: 'cpuMed' | 'cpuP95' | 'gpuMed' | 'gpuP95'): number => med(xs.map((x) => x[k]));
-      const line = `z${zoom}: off gpu p95 ${f(A, 'gpuP95').toFixed(2)} / on ${f(B, 'gpuP95').toFixed(2)} -> delta ${(f(B, 'gpuP95') - f(A, 'gpuP95')).toFixed(2)} ms; gpu median ${f(A, 'gpuMed').toFixed(2)} / ${f(B, 'gpuMed').toFixed(2)}; cpu median ${f(A, 'cpuMed').toFixed(2)} / ${f(B, 'cpuMed').toFixed(2)}; cpu p95 ${f(A, 'cpuP95').toFixed(2)} / ${f(B, 'cpuP95').toFixed(2)}; draw calls ${A[0].calls} / ${B[0].calls}; programs ${A[0].programs} / ${B[0].programs}; disturber slots live ${B[0].n}; rounds off ${A.map((x) => x.gpuP95.toFixed(1)).join(',')} on ${B.map((x) => x.gpuP95.toFixed(1)).join(',')}`;
-      say(`[cost ${preset}] ${line}`);
-      rows.push(`| ${preset} | ${zoom} | ${f(A, 'gpuP95').toFixed(2)} | ${f(B, 'gpuP95').toFixed(2)} | ${(f(B, 'gpuP95') - f(A, 'gpuP95')).toFixed(2)} | ${f(A, 'cpuMed').toFixed(2)} | ${f(B, 'cpuMed').toFixed(2)} | ${A[0].calls} / ${B[0].calls} | ${A[0].programs} / ${B[0].programs} | ${B[0].n} |`);
-      // The ladder on this page: each rung against the same off arm.
-      for (const rung of [24, 16, 8, 0]) {
-        await set(true, rung);
-        const Bs: Awaited<ReturnType<typeof sample>>[] = [];
-        const As: Awaited<ReturnType<typeof sample>>[] = [];
-        for (let round = 0; round < 2; round++) {
+    type Sample = { cpuMed: number; cpuP95: number; gpuMed: number; gpuP95: number; calls: number; programs: number; n: number };
+    const sample = (zoom: number): Promise<Sample> =>
+      page.evaluate(
+        ([cx, cz, z]) => {
+          const L = (window as unknown as { __lions: { renderer: Record<string, unknown> } }).__lions;
+          const r = L.renderer as unknown as {
+            canvas: HTMLCanvasElement; camera: { x: number; y: number; zoom: number }; frame(a: number, dt: number): void;
+            disturbU: { n: { value: number } }; renderer: { info: { autoReset: boolean; reset(): void; render: { calls: number }; programs?: unknown[] } };
+          };
+          r.camera.x = cx as number; r.camera.y = cz as number; r.camera.zoom = z as number;
+          for (let i = 0; i < 30; i++) r.frame(1, 16);
+          const info = r.renderer.info;
+          const auto = info.autoReset; info.autoReset = false; info.reset(); r.frame(1, 16);
+          const calls = info.render.calls; const programs = info.programs?.length ?? -1; info.autoReset = auto;
+          const gl2 = r.canvas.getContext('webgl2');
+          if (!gl2 || gl2.getContextAttributes()?.stencil !== true) throw new Error("not the renderer own context");
+          const cpu: number[] = []; const wall: number[] = [];
+          for (let i = 0; i < 240; i++) { const t0 = performance.now(); r.frame(1, 16); cpu.push(performance.now() - t0); }
+          gl2.finish();
+          for (let i = 0; i < 120; i++) { const t0 = performance.now(); r.frame(1, 16); gl2.finish(); wall.push(performance.now() - t0); }
+          cpu.sort((a, b) => a - b); wall.sort((a, b) => a - b);
+          return { cpuMed: cpu[120], cpuP95: cpu[228], gpuMed: wall[60], gpuP95: wall[114], calls, programs, n: r.disturbU.n.value };
+        },
+        [info.cx, info.cz, zoom] as const
+      );
+    const set = async (on: boolean, slots: number): Promise<void> => {
+      await page.evaluate(([v, s]) => {
+        const r = (window as unknown as { __lions: { renderer: { setDebugLayerVisible(n: string, v: boolean): number; opts: { quality?: Record<string, unknown> } } } }).__lions.renderer;
+        r.setDebugLayerVisible('disturb', v as boolean);
+        const q = r.opts.quality ?? {};
+        r.opts.quality = { ...q, nature: { wakes: true, foot: true, ...((q.nature as Record<string, unknown>) ?? {}), slots: s } };
+      }, [on, slots] as const);
+    };
+    const med = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+    const f = (xs: Sample[], k: 'cpuMed' | 'cpuP95' | 'gpuMed' | 'gpuP95'): number => med(xs.map((x) => x[k]));
+    const budget = preset === 'high' ? 0.6 : preset === 'medium' ? 0.5 : 0.3;
+    const shipped = preset === 'high' ? 24 : preset === 'medium' ? 16 : 8;
+    // The shipped rung first; over budget on either zoom steps down the 24/16/8/0 ladder and re-measures.
+    for (const rung of [shipped, ...[16, 8, 0].filter((r) => r < shipped)]) {
+      let worst = -Infinity;
+      for (const zoom of [0.5, 1]) {
+        // Interleaved A B A B A B so a drifting machine hits both arms alike; the load is read either side of every round.
+        const A: Sample[] = [];
+        const B: Sample[] = [];
+        const loads: string[] = [];
+        for (let round = 0; round < 3; round++) {
+          const l0 = load();
           await set(false, rung);
-          As.push(await sample());
+          A.push(await sample(zoom));
           await set(true, rung);
-          Bs.push(await sample());
+          B.push(await sample(zoom));
+          loads.push(`${l0} -> ${load()}`);
         }
-        say(`[cost ${preset}]   ladder z${zoom} slots ${rung}: gpu p95 off ${f(As, 'gpuP95').toFixed(2)} on ${f(Bs, 'gpuP95').toFixed(2)} delta ${(f(Bs, 'gpuP95') - f(As, 'gpuP95')).toFixed(2)} ms (live ${Bs[0].n})`);
+        const delta = f(B, 'gpuP95') - f(A, 'gpuP95');
+        worst = Math.max(worst, delta);
+        say(`[cost ${preset}] slots ${rung} z${zoom}: off gpu p95 ${f(A, 'gpuP95').toFixed(2)} / on ${f(B, 'gpuP95').toFixed(2)} -> delta ${delta.toFixed(2)} ms (budget ${budget}); gpu median ${f(A, 'gpuMed').toFixed(2)} / ${f(B, 'gpuMed').toFixed(2)}; cpu median ${f(A, 'cpuMed').toFixed(2)} / ${f(B, 'cpuMed').toFixed(2)}; draw calls ${A[0].calls} / ${B[0].calls}; programs ${A[0].programs} / ${B[0].programs}; slots live ${B[0].n}; rounds off ${A.map((x) => x.gpuP95.toFixed(1)).join(',')} on ${B.map((x) => x.gpuP95.toFixed(1)).join(',')}; load (1/5/15 min) per round, start -> end: ${loads.join(' | ')}`);
+        rows.push(`| ${preset} | ${rung} | ${zoom} | ${f(A, 'gpuP95').toFixed(2)} | ${f(B, 'gpuP95').toFixed(2)} | ${delta.toFixed(2)} | ${budget} | ${f(A, 'cpuMed').toFixed(2)} / ${f(B, 'cpuMed').toFixed(2)} | ${A[0].calls} / ${B[0].calls} | ${loads.map((l) => l.split(' ')[0] + '->' + l.split(' -> ')[1].split(' ')[0]).join(' ')} |`);
       }
-      await set(true, preset === 'high' ? 24 : preset === 'medium' ? 16 : 8);
+      if (worst <= budget) {
+        say(`[cost ${preset}] slots ${rung}: within budget (worst delta ${worst.toFixed(2)} <= ${budget})`);
+        break;
+      }
+      say(`[cost ${preset}] slots ${rung}: OVER budget (worst delta ${worst.toFixed(2)} > ${budget}); stepping down the ladder`);
     }
+    await set(true, shipped);
     costRows.push(...rows);
     await page.close();
   }
@@ -757,7 +758,7 @@ async function main(): Promise<void> {
         '# N2 measurements (GH-984)',
         '',
         ...(costRows.length
-          ? ['| preset | zoom | gpu p95 off | gpu p95 on | delta ms | cpu median off | cpu median on | draw calls off / on | programs off / on | slots live |', '|---|---|---|---|---|---|---|---|---|---|', ...costRows, '']
+          ? ['| preset | slots | zoom | gpu p95 off | gpu p95 on | delta ms | budget | cpu median off / on | draw calls off / on | load 1 min per round (start->end) |', '|---|---|---|---|---|---|---|---|---|---|', ...costRows, '']
           : []),
         '```',
         ...lines,
