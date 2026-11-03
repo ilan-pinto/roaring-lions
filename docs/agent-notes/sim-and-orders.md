@@ -28,6 +28,36 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   and the garrisoned town; no passing band yet, L-4). Run
   `pnpm --filter @lions/tools exec tsx src/backtest/garrison-probes.ts`.
 
+- **A big selection spreads across houses and carriers (GH-972, lead 3 Nov).** The assignment lives in the SIM, opted
+  into by the player's command, not in the app: `garrison` gains `spread?: boolean`, `load` gains `carriers?: number[]`.
+  Absent, the order is today's bit for bit (scripted garrison stances, AI, every shipped mission). The app sets them
+  (`dispatch` in `input/intents.ts`): `spread` for two or more units, `carriers` when two or more carriers were selected.
+  Why not the app splitting per-unit commands: it only sees the click's state, so a house that fills WHILE squads walk
+  is lost, and it would duplicate occupancy/capacity rules the sim owns. Why it cannot desync in versus: the wire still
+  carries ONE command per click, ownership-checked as before (`carriers` too), and both machines re-derive the plan
+  from identical state. **`cleanCommand` (`packages/net/src/protocol.ts`) must carry the new fields or the room drops
+  them silently: the sender would run a spread order and the receiver a plain one.** `snapshot.ts`'s `COMMAND_FIELDS` too.
+  - **Garrison plan (`garrisonSpread`).** The named house first, then open houses within `SPREAD_REACH_SQ` (10 tiles,
+    centroid to centroid, nearest first, ties by structure id), only as many as the group needs. Round-robin: each house
+    in turn takes the unit nearest to it (ties by entity id), so 6 squads and two 4-seat houses are 3 and 3, not 4 and 2.
+    A group that fits the named house all goes there. Seats are `garrison_slots - occupants - units already walking there`.
+    Not a target: a dead or unfinished house, one owned by the other side, one held by any other side's men, a protected
+    site that the player did not name.
+  - **Mid-walk fill (`redirectSpread`, in `stepGarrison`).** A unit with `spreadGoal` set whose building is full (`occupants >=
+    slots`, walking or at the door) looks once in eight ticks (staggered by id) for the nearest open house in reach of that
+    building, counting the others bound for each, and turns to it. `spreadGoal` is written by BOTH garrison paths so a
+    scripted or plain order never inherits it. It is hashed and snapshotted behind the `spreadLive` latch (the `airLive`
+    shape), so no pin moved except the snapshot FORMAT pin (two new schema rows).
+  - **Load plan (`loadSpread`).** Only the ground carriers of the list (an air carrier or a single ground carrier is the
+    plain order). Seats are `transport_slots - passengers - riders already walking there`. Round-robin, nearest carrier to any
+    rider first, each taking the rider nearest it that `seatEligible` allows (the role/wounded rule of `canSeat` without the seat
+    count); each rider walks to its OWN carrier. **A carrier that fills mid-walk is NOT redirected**: the rider keeps closing
+    on it and waits beside it, today's behaviour (only the garrison has a runtime redirect).
+  - **A unit that fits nowhere in reach keeps today's order**: it walks to the named house (or carrier) and waits at the
+    door, stopped, order kept; flagged for garrison, it moves on if a seat opens within reach.
+  - Tests: `group-spread.test.ts` (sim), `net/group-spread-wire.test.ts` (JSON round trip + two machines), protocol/ownership
+    tests, `intents.test.ts` / `resolve.test.ts`.
+
 <!-- CLAUDE.md lines 339-367, section "Dev instruments" -->
 
 - **A right-click on an identified enemy is an `attack` order, not an attack-move**

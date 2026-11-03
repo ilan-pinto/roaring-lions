@@ -74,7 +74,8 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
     case 'chargeTunnel':
       return cmd.ids.length > 0 && cmd.ids.every(own) && world.tunnelExists(cmd.tunnel);
     case 'load':
-      return cmd.ids.length > 0 && cmd.ids.every(own) && own(cmd.carrier);
+      // GH-972: every carrier a group load names is the seat's own, or the sim would send riders to a rival's hull.
+      return cmd.ids.length > 0 && cmd.ids.every(own) && own(cmd.carrier) && (cmd.carriers === undefined || cmd.carriers.every(own));
     case 'enterTunnel':
       // GH-681 (T-R4): the Sarim seat's verb, on a route its own side owns. The
       // KDF seat's tunnel verb is `chargeTunnel`. The sim refuses the same

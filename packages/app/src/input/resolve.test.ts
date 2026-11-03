@@ -286,6 +286,18 @@ describe('the keyboard verbs, resolved the same way', () => {
     expect(r.note?.text).toBe('<b>mount up</b> — infantry boarding');
   });
 
+  it('GH-972: with two or more carriers selected the mount names all of them, and with one it does not', () => {
+    const ctx = (ids: number[]) => ({
+      ids, x: 0, y: 0,
+      isCarrier: (i: number) => i <= 2, canEmbark: (i: number) => i > 2,
+      canSmoke: () => false, passengerCount: () => 0,
+    });
+    expect(resolveKeyVerb(world(), 'mount', ctx([1, 2, 3, 4])).intents).toEqual([
+      { kind: 'mount', riders: [3, 4], carrier: 1, carriers: [1, 2] },
+    ]);
+    expect(resolveKeyVerb(world(), 'mount', ctx([1, 3, 4])).intents).toEqual([{ kind: 'mount', riders: [3, 4], carrier: 1 }]);
+  });
+
   it('explains itself when there is no carrier', () => {
     const r = resolveKeyVerb(world(), 'mount', {
       ids: [2, 3], x: 0, y: 0,

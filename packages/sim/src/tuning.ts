@@ -82,6 +82,10 @@ export const COVER_HIT = new Int32Array([65536, 24576, 9011, 5898]); // 1, .375,
  *  (docs/superpowers/plans/2026-10-14-garrison-overhaul.md): §5.7 identical for
  *  both; +2 broke two more missions and two unlock gates. */
 export const GARRISON_RANGE_BONUS = 65536; // 1 tile
+/** GH-972: how far a group order may spill past the building the player named, to the nearest one with room
+ *  (measured centroid to centroid from that building). 10 tiles squared, in the
+ *  `distSqFx` scale (a tile is 256 units, so a tile squared is 65536), the shape of `LOAD_RANGE_SQ`. */
+export const SPREAD_REACH_SQ = 6553600;
 export const TARGET_MOTION_MOD = 45875; // 0.7
 export const MOVING_STANCE_MOD = 36045; // 0.55
 /** k in accuracy_mult = 1 / (1 + k * S). */

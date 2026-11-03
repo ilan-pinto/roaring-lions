@@ -403,7 +403,11 @@ describe('snapshot format pin', () => {
     // fmHomeY), encoded even when empty; this world orders no formation. With those fourteen rows cut from
     // snapshot-schema.ts the same run reads 3512584427 again, so the move is exactly the new rows. 128788725 is
     // read off a fresh run.
-    expect(h >>> 0).toBe(128788725);
+    // Was 128788725. GH-972 (group orders that spread) appended one `state` column (spreadGoal) and the
+    // `spreadLive` scalar after `garrisonGoal`, encoded even when empty; this world gives no spread order. With
+    // those two rows cut from snapshot-schema.ts the same run reads 128788725 again, so the move is exactly the
+    // new rows. 3624532085 is read off a fresh run.
+    expect(h >>> 0).toBe(3624532085);
   });
 });
 

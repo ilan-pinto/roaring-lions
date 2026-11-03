@@ -40,7 +40,9 @@ export type PlayerIntent =
   /** GH-681: these buried units come up at their vent -- `raid` for the
    *  pop-up and back down, `exit` to stay. The "Below ground" strip's verb. */
   | { kind: 'vent'; ids: number[]; mode: 'raid' | 'exit' }
-  | { kind: 'mount'; riders: number[]; carrier: number }
+  /** `carriers` (GH-972): every carrier the selection held, when it held two or more. The sim shares the
+   *  riders across the ground ones (`load.carriers`); absent, everyone boards `carrier`. */
+  | { kind: 'mount'; riders: number[]; carrier: number; carriers?: number[] }
   | { kind: 'dismount'; carriers: number[] }
   | { kind: 'smoke'; ids: number[]; x: number; y: number }
   | { kind: 'halt'; ids: number[] }
@@ -109,7 +111,14 @@ export function applyIntent(sink: CommandSink, intent: PlayerIntent, map: MapSiz
       sink.queueCommand({ kind: 'rescue', ids: intent.ids, target: intent.target });
       return;
     case 'garrison':
-      sink.queueCommand({ kind: 'garrison', ids: intent.ids, structure: intent.structure });
+      // GH-972: two or more units are a group, and a group is shared out across the houses in reach by the
+      // sim (`spread`); a lone unit keeps the plain order and waits at a full door as before.
+      sink.queueCommand({
+        kind: 'garrison',
+        ids: intent.ids,
+        structure: intent.structure,
+        ...(intent.ids.length >= 2 ? { spread: true } : {}),
+      });
       return;
     case 'demolish':
       sink.queueCommand({ kind: 'demolish', ids: intent.ids, structure: intent.structure });
@@ -124,7 +133,12 @@ export function applyIntent(sink: CommandSink, intent: PlayerIntent, map: MapSiz
       sink.queueCommand({ kind: 'vent', ids: intent.ids, mode: intent.mode });
       return;
     case 'mount':
-      sink.queueCommand({ kind: 'load', ids: intent.riders, carrier: intent.carrier });
+      sink.queueCommand({
+        kind: 'load',
+        ids: intent.riders,
+        carrier: intent.carrier,
+        ...(intent.carriers !== undefined ? { carriers: intent.carriers } : {}),
+      });
       return;
     case 'dismount':
       sink.queueCommand({ kind: 'unload', ids: intent.carriers });
@@ -692,8 +706,10 @@ export function resolveKeyVerb(
         note: { text: t('intent.load.needsTransport'), tone: 'mute' },
       };
     }
+    // GH-972: more than one carrier selected means the riders spread across them (the sim picks the ground ones).
+    const carriers = ctx.ids.filter(ctx.isCarrier);
     return {
-      intents: [{ kind: 'mount', riders, carrier }],
+      intents: [{ kind: 'mount', riders, carrier, ...(carriers.length >= 2 ? { carriers } : {}) }],
       roe: free,
       marker: false,
       note: { text: t(ctx.isAirCarrier?.(carrier) === true ? 'intent.load.airLanding' : 'intent.load.mounting'), tone: 'info' },

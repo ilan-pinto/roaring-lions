@@ -56,6 +56,13 @@ describe('validateCommand', () => {
     expect(validateCommand({ kind: 'reveal', side: 1, x: 0, y: 0 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'reveal', side: 0, x: 0, y: 0 }, 0, world)).toBe(true);
   });
+  it('GH-972: a group load names only the seat\'s own carriers, and a group garrison passes as a garrison', () => {
+    expect(validateCommand({ kind: 'load', ids: [1], carrier: 2, carriers: [2, 3] }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'load', ids: [1], carrier: 2, carriers: [2, 12] }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'load', ids: [1], carrier: 2, carriers: [2, 999999] }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'garrison', ids: [1, 2], structure: 3, spread: true }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'garrison', ids: [1, 12], structure: 3, spread: true }, 0, world)).toBe(false);
+  });
   it('#559 F1: drops every callStrike and reveal in versus, and only those kinds', () => {
     const versus = { ...world, versus: true };
     expect(validateCommand({ kind: 'callStrike', caller: 1, x: 0, y: 0 }, 0, versus)).toBe(false);

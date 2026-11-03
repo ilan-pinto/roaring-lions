@@ -190,11 +190,20 @@ export function cleanCommand(v: unknown): Command | null {
     case 'halt':
     case 'unload':
       return ids === null ? null : { kind, ids };
-    case 'garrison':
     case 'demolish':
       return ids === null || !isInt(c.structure) ? null : { kind, ids, structure: c.structure };
-    case 'load':
-      return ids === null || !isInt(c.carrier) ? null : { kind, ids, carrier: c.carrier };
+    case 'garrison':
+      // GH-972: `spread` rides the wire, or a versus seat's group order would be a plain one on every machine
+      // but the sender's. A non-boolean voids the order, as `append` does.
+      if (ids === null || !isInt(c.structure) || !optBool(c.spread)) return null;
+      return c.spread === undefined ? { kind, ids, structure: c.structure } : { kind, ids, structure: c.structure, spread: c.spread as boolean };
+    case 'load': {
+      if (ids === null || !isInt(c.carrier)) return null;
+      if (c.carriers === undefined) return { kind, ids, carrier: c.carrier };
+      // GH-972: the other carriers of a group load, cleaned as ids are.
+      const carriers = cleanIds(c.carriers);
+      return carriers === null ? null : { kind, ids, carrier: c.carrier, carriers };
+    }
     case 'chargeTunnel':
     case 'enterTunnel':
       return ids === null || !isInt(c.tunnel) ? null : { kind, ids, tunnel: c.tunnel };
