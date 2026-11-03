@@ -76,7 +76,7 @@ function digest(id: MapId): string {
 
 /** Every shipped map whose theme is not `wetland` (GH-871 P2 T7). A wetland map is MEANT to move through
  *  P3-P5 (art, rain, final layouts), so it cannot hold a byte pin; its checks are the marsh and greybox
- *  tests. The 38 recorded keys are exactly the maps the wetland work must never move. */
+ *  tests. The 39 recorded keys are exactly the maps the wetland work must never move. */
 const wetland = (Object.keys(maps) as MapId[]).filter((id) => parseMap(maps[id]).terrain === 'wetland').sort();
 const shipped = (Object.keys(maps) as MapId[]).filter((id) => parseMap(maps[id]).terrain !== 'wetland').sort();
 
@@ -93,10 +93,10 @@ describe('every shipped map composes byte-for-byte to its recorded terrain (GH-3
 
   it('covers every shipped map that is not wetland, and only those', () => {
     expect(Object.keys(recorded).sort()).toEqual(shipped);
-    // Not vacuous: the filter excludes the wetland greybox and keeps the 38 recorded keys (Was 37: Milh Flats (large), GH-920 B3; 36 before Wadi Tarfan (large)).
+    // Not vacuous: the filter excludes the wetland greybox and keeps the 39 recorded keys (Was 38: Tel Marum (large), GH-920 B3; 37 before Milh Flats (large); 36 before Wadi Tarfan (large)).
     expect(wetland).toContain('ein_qasab');
     expect(shipped).not.toContain('ein_qasab');
-    expect(shipped).toHaveLength(38);
+    expect(shipped).toHaveLength(39);
   });
 
   for (const id of shipped) {

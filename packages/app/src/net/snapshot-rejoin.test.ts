@@ -56,6 +56,9 @@ const EVERY = 1200;
  * the premise (2, 6 and 8 fail it), so seed 1 stands. Was seed 3. Sim hash and runtime digest are untouched; only `shippedContentDigest()` moved.
  * GH-976 (5 Nov, camp wipe): `modes.camp.wipe: "after_camp"` in `data/versus/modes/milh_flats.json` is content too, and moves `shippedContentDigest()`.
  * Seed 1 went positive; seeds 2, 5, 6, 7 and 9 pass the premise (3, 4 and 8 fail it), so seed 2 stands. Was seed 1.
+ * GH-920 B3 (3 Nov): `data/maps/tel_marum_l.json` and its rules file are content too. The premise holds on seed 1 through the economy room alone:
+ * the mirror room reads +938436255 and the economy room -1512887500 (the mirror was negative before), read by a temporary write of this test's own
+ * `room.digest` values.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;

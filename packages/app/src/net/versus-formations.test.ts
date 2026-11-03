@@ -25,7 +25,12 @@ describe('formationsOpenIn', () => {
     // Was ['rujm_sawda']: Wadi Tarfan (large) is closed from birth, until its own S4 run (GH-920 B3).
     // Was ['rujm_sawda', 'wadi_tarfan_l']: Milh Flats (large) is closed from birth too (GH-920 B3).
     // Was ['rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']: Rujm Sawda and Milh Flats (large) passed their own S4 run on 3 Nov (GH-913); Wadi Tarfan (large) tripped one cell of 21 and stays.
-    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['wadi_tarfan_l']);
+    // Was ['wadi_tarfan_l']: Tel Marum (large) is closed from birth too, until its own S4 run (GH-920 B3).
+    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['wadi_tarfan_l', 'tel_marum_l']);
+    expect(formationsOpenIn('versus', true, 'tel_marum_l')).toBe(false);
+    expect(formationsOpenIn('versus', undefined, 'tel_marum_l')).toBe(false);
+    // the original follows the gate
+    expect(formationsOpenIn('versus', true, 'tel_marum')).toBe(true);
     expect(formationsOpenIn('versus', true, 'wadi_tarfan_l')).toBe(false);
     expect(formationsOpenIn('versus', undefined, 'wadi_tarfan_l')).toBe(false);
     // The two that passed follow the gate like any other map: open with it open, shut with it shut.

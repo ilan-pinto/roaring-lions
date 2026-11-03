@@ -51,6 +51,7 @@ describe('the shipped versus rules', () => {
       'data/versus/milh_flats_l.json',
       'data/versus/rujm_sawda.json',
       'data/versus/tel_marum.json',
+      'data/versus/tel_marum_l.json',
       'data/versus/wadi_tarfan.json',
       'data/versus/wadi_tarfan_l.json',
     ]);
@@ -62,7 +63,7 @@ describe('the shipped versus rules', () => {
     const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
     for (const s of shipped) expect(validate(s.doc), JSON.stringify(validate.errors)).toBe(true);
   });
-  it('GH-913 L3: the schema takes a capacity of 256..1024 and refuses the rest; only rujm_sawda, wadi_tarfan_l and milh_flats_l declare one (512)', () => {
+  it('GH-913 L3: the schema takes a capacity of 256..1024 and refuses the rest; only rujm_sawda, wadi_tarfan_l, milh_flats_l and tel_marum_l declare one (512)', () => {
     const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
     const ajv = new (Ajv2020 as unknown as new (o: object) => {
       compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
@@ -72,7 +73,7 @@ describe('the shipped versus rules', () => {
     for (const ok of [256, 512, 1024]) expect(validate(doc(ok)), String(ok)).toBe(true);
     for (const bad of [255, 1025, 0, 300.5, '512', null]) expect(validate(doc(bad)), String(bad)).toBe(false);
     const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, (s.doc as { capacity?: number }).capacity]));
-    expect(declared).toEqual({ milh_flats_l: 512, rujm_sawda: 512, tel_marum: undefined, wadi_tarfan: undefined, wadi_tarfan_l: 512 }); // Was no wadi_tarfan_l or milh_flats_l (GH-920 B3)
+    expect(declared).toEqual({ milh_flats_l: 512, rujm_sawda: 512, tel_marum: undefined, tel_marum_l: 512, wadi_tarfan: undefined, wadi_tarfan_l: 512 }); // Was no tel_marum_l (GH-920 B3); no wadi_tarfan_l or milh_flats_l (GH-920 B3)
   });
   it('GH-859 (5 Nov): the schema takes `formations_closed_in` as a unique list of mirror, placed, economy and refuses the rest; only tel_marum declares it (economy)', () => {
     const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
@@ -108,11 +109,11 @@ describe('the shipped versus rules', () => {
   });
   it('RULES_ONLY_MAPS are rules files for maps no room offers: in neither list of @lions/net, and never in MIRROR_RULES_MAPS', () => {
     // GH-920 B7 opened wadi_tarfan_l (it moved into MATCHUP_MAPS, both faction cells inside 60/40 at its seats) and then
-    // milh_flats_l (into MIRROR_RULES_MAPS, mirror only), so the list is EMPTY and the loop below is vacuous until the next
-    // large map waits here. The next test guards that vacuity: it pins the other direction, that every rules file is
-    // classified, so a map offered without being reclassified is still red.
+    // milh_flats_l (into MIRROR_RULES_MAPS, mirror only), so the list was EMPTY until the last large map, tel_marum_l (GH-920 B3),
+    // waited here, unoffered. The next test guards the other direction, that every rules file is classified, so a map offered
+    // without being reclassified is still red.
     // Opening a map means moving it into MIRROR_RULES_MAPS (or MATCHUP_MAPS) in the same commit.
-    expect(RULES_ONLY_MAPS).toEqual([]);
+    expect(RULES_ONLY_MAPS).toEqual(['tel_marum_l']);
     for (const id of RULES_ONLY_MAPS) {
       expect(FACTION_MATCHUP_MAPS, id).not.toContain(id);
       expect(VERSUS_FAIR_MAPS, id).not.toContain(id);
@@ -125,7 +126,7 @@ describe('the shipped versus rules', () => {
       expect(where, doc.map).toHaveLength(1);
     }
   });
-  it('GH-913 L8: the schema takes a cap_minutes of 25..60 and refuses the rest; only rujm_sawda, wadi_tarfan_l and milh_flats_l declare one (35)', () => {
+  it('GH-913 L8: the schema takes a cap_minutes of 25..60 and refuses the rest; only rujm_sawda, wadi_tarfan_l, milh_flats_l and tel_marum_l declare one (35)', () => {
     const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
     const ajv = new (Ajv2020 as unknown as new (o: object) => {
       compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
@@ -135,7 +136,7 @@ describe('the shipped versus rules', () => {
     for (const ok of [25, 35, 60]) expect(validate(doc(ok)), String(ok)).toBe(true);
     for (const bad of [24, 0, -1, 61, 35.5, '35', null]) expect(validate(doc(bad)), String(bad)).toBe(false);
     const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, s.doc.cap_minutes]));
-    expect(declared).toEqual({ milh_flats_l: 35, rujm_sawda: 35, tel_marum: undefined, wadi_tarfan: undefined, wadi_tarfan_l: 35 }); // Was no wadi_tarfan_l or milh_flats_l (GH-920 B3)
+    expect(declared).toEqual({ milh_flats_l: 35, rujm_sawda: 35, tel_marum: undefined, tel_marum_l: 35, wadi_tarfan: undefined, wadi_tarfan_l: 35 }); // Was no tel_marum_l (GH-920 B3), nor wadi_tarfan_l or milh_flats_l
   });
   it('GH-913 L8: @lions/net\'s MAP_CAP_MINUTES twin is every rules file\'s cap_minutes, both ways', () => {
     // The Worker imports @lions/net and not @lions/data, so it reads the twin. A rules file that says 35 while
