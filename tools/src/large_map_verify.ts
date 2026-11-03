@@ -4,7 +4,8 @@
 // the map's own facts lifted into a `LargeMapSpec`, plus the design's census (design 2.2): a naive 2x
 // upscale distorts buildings, walls, roads, contours and markers, and each distortion has a check.
 //
-//   npx tsx tools/src/large_map_verify.ts <map id>      prints the report, exits 1 on any failure
+//   cd tools && ./node_modules/.bin/tsx src/large_map_verify.ts <map id>   prints the report, exits 1 on any failure
+//   (run from tools/: from the repo root it exits non-zero with no output)
 //
 // What it checks:
 //   1. shape: the spec's side, one elevation digit per tile;
@@ -29,6 +30,8 @@
 //        wander on the drawn ground is a REPORTED fact, not a gate;
 //      - (via 2) a marker at 2x on both halves is not its twin's half-turn image;
 //   9. the rules file, by the data gate's own function, and the economy the spec names.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyTerrain, doctrines, maps, parseMap, structures, units, versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
 import type { Faction } from '@lions/net';
@@ -40,7 +43,14 @@ import { sandboxAnchors } from '../../packages/app/src/sandbox-anchors';
 import { versusForceOf, versusSpawns } from '../../packages/app/src/net/versus-force';
 import { versusRulesFailures } from '../validate_versus_rules.mjs';
 import { contourWander, fatStairs } from './relief_census';
+import { measureVersus, type VersusVisibilitySpec } from './map_visibility';
 
+/**
+ * The built-share cap of a spec that does not name its own. It was the one global cap (1%), an upscale-fidelity check: a
+ * naive 2x copy draws every building four times its footprint, so the share quadruples. GH-974 replaced it with a cap PER
+ * MAP (`LargeMapSpec.maxBuiltShare`, required): a map with a town of its own (Milh Flats, large) has a share the upscale
+ * never made, and the versus visibility gate (`VERSUS_CAPS`, 3%) holds a town to what the eye can see.
+ */
 export const MAX_BUILT_SHARE = 0.01;
 /** How far round a crossing's marker the plug reaches by default, in tiles (Chebyshev). */
 export const DEFAULT_PLUG_RADIUS = 4;
@@ -71,6 +81,17 @@ export interface LargeMapSpec {
   routesPerEnd: number;
   /** The 48x48 map this one is the twin of: its building shapes are the large map's, exactly. */
   reference?: MapJson;
+  /**
+   * The most the buildings may cover, as a share of the map (`builtShare`, the share the ambience bed reads). Required
+   * since GH-974: the cap is the map's own, written next to the numbers it was read on.
+   */
+  maxBuiltShare: number;
+  /**
+   * The versus visibility gate (map_visibility.ts `measureVersus`), REQUIRED: either the town zones it holds, or an explicit
+   * exemption with its reason. A spec that names neither is red (`verifyVersusVisibility`), so a new map cannot skip the gate
+   * by forgetting a field; the exempt set is pinned over `Object.keys(SPECS)` in large_map_verify.test.ts.
+   */
+  visibility: { towns: readonly string[] } | { exempt: string };
   /** The share of tiles that are cover (`1 2 3 o n`), as [lowest, highest], if the map keeps a band. */
   coverShare?: readonly [number, number];
   /** How many 2x2 diagonal steps the relief may have; none when absent. */
@@ -330,7 +351,7 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
   // 7. built share
   const parsedShare = builtShare(map);
   facts.built_share = Number(parsedShare.toFixed(5));
-  if (parsedShare > MAX_BUILT_SHARE) fail(`buildings: built share ${(parsedShare * 100).toFixed(2)}% is over ${MAX_BUILT_SHARE * 100}%`);
+  if (parsedShare > spec.maxBuiltShare) fail(`buildings: built share ${(parsedShare * 100).toFixed(2)}% is over ${spec.maxBuiltShare * 100}%`);
   const sdata = structures as Record<string, { low_profile?: boolean } | undefined>;
   if (sdata.wall?.low_profile !== true) fail('buildings: the wall type is not low-profile, so it would block sight');
 
@@ -411,10 +432,15 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
 }
 
 /** The shipped large maps, by id, as the CLI and the tests read them. */
+/** The reason the three maps offered before the versus gate (GH-974) are exempt from it: they were built to the old rules. */
+export const SHIPPED_BEFORE_GATE = 'offered before the versus visibility gate (GH-974); read report-only in map_visibility.test.ts';
+
 export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
   rujm_sawda: () => ({
     label: 'Rujm Sawda',
+    visibility: { exempt: SHIPPED_BEFORE_GATE },
     size: 80,
+    maxBuiltShare: MAX_BUILT_SHARE,
     routesPerEnd: 3,
     income: { zones: 11, perMin: 360 },
     lone: ['centre'],
@@ -432,7 +458,9 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
   }),
   wadi_tarfan_l: () => ({
     label: 'Wadi Tarfan (large)',
+    visibility: { exempt: SHIPPED_BEFORE_GATE },
     size: 96,
+    maxBuiltShare: MAX_BUILT_SHARE,
     routesPerEnd: 2,
     income: { zones: 11, perMin: 300 },
     reference: maps.wadi_tarfan as unknown as MapJson,
@@ -444,10 +472,12 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
     ],
   }),
   // GH-920 B3. An open plain: no cut, no tunnels (the original has no rules file), a lone centre marker, and the
-  // seats on the anti-diagonal. The income is a table a mirror room never reads.
+  // seats on the anti-diagonal. The income is a table a mirror room never reads. This is the FIRST build, the one offered.
   milh_flats_l: () => ({
     label: 'Milh Flats (large)',
+    visibility: { exempt: SHIPPED_BEFORE_GATE },
     size: 96,
+    maxBuiltShare: MAX_BUILT_SHARE,
     routesPerEnd: 0,
     income: { zones: 7, perMin: 220 },
     reference: maps.milh_flats as unknown as MapJson,
@@ -455,7 +485,55 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
     antiDiagonal: true,
     lone: ['centre'],
   }),
+  // GH-974. The REDO of the map above, STAGED (docs/campaign/staged_maps/milh_flats_l_redo, `staged()` below): a town of its
+  // own, so the versus visibility gate runs and the built-share cap is the gate's 3%; the cut has three crossings, the two
+  // fords and the town. It has no `reference`: its buildings are its own, held to the generic ceilings and the gate.
+  milh_flats_l_redo: () => ({
+    label: 'Milh Flats (large), redone',
+    size: 96,
+    // 0.76% built, with a town of its own: the cap is the versus gate's 3% (VERSUS_CAPS), not the upscale's 1%
+    maxBuiltShare: 0.03,
+    visibility: { towns: ['town'] },
+    routesPerEnd: 0,
+    income: { zones: 7, perMin: 220 },
+    coverShare: [0.1, 0.14],
+    antiDiagonal: true,
+    lone: ['centre'],
+    crossings: [
+      { name: 'ford_nw', zone: 'ford_nw' },
+      { name: 'ford_se', zone: 'ford_se' },
+      // the town is ONE crossing: its interior has no exit but its two gates, so closing one closes it. The plug is the north
+      // gate's box, not the whole enclosure (which would plug the ring too and hide a hole in it) and not the court (the yards
+      // route round it)
+      { name: 'town', marker: 'gate_1', radius: 3 },
+    ],
+  }),
 };
+
+/**
+ * The versus visibility gate on a shipped map (GH-974): the seat corridor, the scoring zones (the zones its rules file pays
+ * for) and the towns it names, against `VERSUS_CAPS`. Async because it reads the building meshes.
+ */
+export async function verifyVersusVisibility(json: MapJson, rules: VersusRulesJson, spec: LargeMapSpec, caps?: VersusVisibilitySpec['caps']): Promise<{ failures: string[]; facts: Record<string, string | number> }> {
+  const v = spec.visibility as LargeMapSpec['visibility'] | undefined;
+  if (v === undefined) return { failures: [`visibility: the spec for ${spec.label ?? 'this map'} names neither \`towns\` nor \`exempt\`, so the versus gate is not bound`], facts: {} };
+  if ('exempt' in v) return { failures: [], facts: { visibility_exempt: v.exempt } };
+  const map = parseMap(json);
+  const scoring = rules.income_zones.map((z) => z.zone).filter((z) => !v.towns.includes(z));
+  return measureVersus(map, { towns: v.towns, scoring, caps });
+}
+
+/** The maps a large-map spec reads from docs/campaign/staged_maps instead of the data registry: authored, measured, NOT offered. */
+const STAGED_IDS: ReadonlySet<string> = new Set(['milh_flats_l_redo']);
+
+/** A STAGED large map (see STAGED_IDS): its map and rules as the generator wrote them, read from disk, never from `@lions/data`. */
+export function staged(id: string): { json: MapJson; rules: VersusRulesJson; spec: LargeMapSpec } {
+  const dir = id;
+  const spec = SPECS[id];
+  if (!STAGED_IDS.has(id) || !spec) throw new Error(`no staged large map "${id}" (${[...STAGED_IDS].join(', ')})`);
+  const read = (f: string) => JSON.parse(readFileSync(join(fileURLToPath(new URL('../..', import.meta.url)), 'docs', 'campaign', 'staged_maps', dir, f), 'utf8'));
+  return { json: read('map.json') as MapJson, rules: read('versus.json') as VersusRulesJson, spec: spec() };
+}
 
 export function shipped(id: string): { json: MapJson; rules: VersusRulesJson; spec: LargeMapSpec } {
   const spec = SPECS[id];
@@ -469,8 +547,11 @@ export function shipped(id: string): { json: MapJson; rules: VersusRulesJson; sp
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const id = process.argv[2] ?? 'wadi_tarfan_l';
-  const { json, rules, spec } = shipped(id);
+  const { json, rules, spec } = STAGED_IDS.has(id) ? staged(id) : shipped(id);
   const r = verifyLargeMap(json, rules, spec);
+  const vis = await verifyVersusVisibility(json, rules, spec);
+  r.failures.push(...vis.failures);
+  Object.assign(r.facts, vis.facts);
   for (const [k, v] of Object.entries(r.facts)) console.log(`${k.padEnd(30)} ${v}`);
   if (r.failures.length > 0) {
     console.error(`\n${r.failures.length} failure(s):`);
