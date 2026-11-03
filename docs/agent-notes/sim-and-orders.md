@@ -209,9 +209,11 @@ diagnosis `_coord/formations-p1a/t6/s4-diagnosis.md` and its `t6/*.txt` tables.
 **Current state.** S4 passed clean (0 TRIP of 27 cells, tunnels A+B pooled, 192 seeds paired with each cell's own baseline) with the Attack leaving
 aircraft out and `legs: false`, on Beit Sahwan, Tel Marum and Milh Flats, so `VERSUS_FORMATIONS_OPEN` is `true`. Wadi Tarfan was closed until its Sarim lean was
 settled and opened by GH-945 (re-seated at its own markers (10,10)/(37,37), every tunnel route at capacity 3; S4 0 TRIP of 21 cells on seeds the choice never saw;
-the formation amplifies a base lean about 2.5 to 5 times, so a map needs a LEVEL base, not one merely inside 60/40). Rujm Sawda stays closed through
-`VERSUS_FORMATIONS_CLOSED_MAPS`. The tests that witness the CLOSED path inject the gate
-(`seatWorldFor(cfg, sim, false)`, `roomOrderSink(..., false)`) or use a closed map (`mcp-tools.test.ts` runs its refusal on Rujm Sawda). The text below is the
+the formation amplifies a base lean about 2.5 to 5 times, so a map needs a LEVEL base, not one merely inside 60/40). **3 Nov (GH-913): the same S4 on the three
+large maps, seeds 30000-30383 that no choice had seen** (shipped Attack, A+B pooled where a RERUN or the tunnels cell asks): Rujm Sawda (mirror, 0 TRIP of 3) and
+Milh Flats (large) (mirror, 0 TRIP of 3) OPENED; Wadi Tarfan (large) (21 cells) tripped one, placed Attack-on-both-ends Sarim friendly (the KDF end 60.4% pooled
+against a 56.5% base, bar 60), and stays closed through `VERSUS_FORMATIONS_CLOSED_MAPS`. The tests that witness the CLOSED path inject the gate
+(`seatWorldFor(cfg, sim, false)`, `roomOrderSink(..., false)`) or use the closed map (`mcp-tools.test.ts` runs its refusal on Wadi Tarfan (large)). The text below is the
 history of the closed gate; its mechanism is unchanged.
 
 ### (History) Versus: formations were OFF (lead's ruling, 29 Oct, GH-859; still off after P1b, S4 failed)
