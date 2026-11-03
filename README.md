@@ -73,7 +73,7 @@ The war opens with *First Light* in Beit Sahwan. Sur opens after Deir Amun III, 
 
 - **Deploy.** Before a mission you pick which veterans fill its slots. Units keep a service record, and veterans aim better and resist suppression.
 - **Objectives.** Locate, hold for a time, survive until relief, capture, eliminate a target, evacuate civilians, collapse a tunnel, raze a building, or destroy everything.
-- **Conduct and stars.** Every mission scores Conduct from 0 to 100. A win earns one star; a second for Conduct above the mission's floor; a third for completing every secondary objective. The debrief lists each Conduct deduction by reason, your losses by name, and the credit payout.
+- **Conduct and stars.** Every mission scores Conduct from 0 to 100. A win earns one star; a second for Conduct above the mission's floor; a third for completing every secondary objective that counts toward it (only secondaries flagged as carrying do), so a mission with none tops out at two stars. The debrief lists each Conduct deduction by reason, your losses by name, and the credit payout.
 - **Wounded men.** An infantryman who falls may go down wounded instead of dying. He bleeds out unless a medic reaches him, and nobody fires on him. Most missions loan you a Nemala Medic Team, and rescuing a wounded man, enemy or civilian, earns Conduct.
 - **Intel and the ledger.** Recon in one mission can change the next. The ledger carries your named units, Conduct, stars, intel, evacuated civilians and recovered hostages from mission to mission.
 
@@ -100,7 +100,7 @@ Your brigade starts with the five units marked *start*. The rest open on **Condu
 | Eitan APC | Carrier | Armour that keeps up with the tanks, seats for two, and a gun that answers aircraft. | start |
 | Kipod Screen Carrier | Carrier | Six seats behind reactive plate, and a gun that pins people without killing a truck. | 44 stars |
 | Shoded Jeep | Light vehicle | Fast and thin. Two seats, a machine gun, nothing that stops a rocket. | start |
-| Shachaf Scout Car | Recon | A ground eye that sees sixteen tiles and cannot be shot down. Carries a mast, not a gun. | 30 stars |
+| Shachaf Scout Car | Recon | A ground eye that sees sixteen tiles and cannot be shot down. Lightly armed: one cupola machine gun, 6 tiles. | 30 stars |
 | Recon Drone | Drone | Sees sixteen tiles and marks what it finds. No weapon. | Conduct 70 |
 | Loitering Munition | Drone | Flies itself at the nearest thing your side has identified, and does not come back. | Conduct 72 |
 | Chadaf Recon Robot | Drone | Walks boulders and alleys no wheel can, and finds tunnel routes. Unarmed and cheap to lose. | credits |
@@ -169,7 +169,7 @@ A one-versus-one match over the internet. Both browsers run the same determinist
 
 1. The host opens the menu, **Play with a friend**, enters a callsign, and picks a side and a map (below).
 2. The host presses **Open a room** and sends the friend the six-character code, or **Copy link**.
-3. The friend opens the link (or types the code under *Join a match*), enters a callsign, and joins.
+3. The friend opens the link (or types the code into *Room code* under *Got a code from a friend?* and presses *Join*), enters a callsign, and joins.
 4. Both press **Ready**. The match starts for both.
 
 Both of you need the same version of the game: reload the page if the room reports a mismatch.
@@ -204,8 +204,8 @@ Both of you need the same version of the game: reload the page if the room repor
 
 - Each of you sees only what your own side sees. Enemy fire from fog draws no tracer, and a hidden enemy cannot be selected.
 - `Esc` pauses: three pauses each, 90 seconds each, and only the player who paused can resume early. `Enter` opens chat.
-- If a window reloads or drops, it rejoins by itself and catches up; the other shows "Waiting for ..." until it does.
-- A match ends when a force has no armed unit left, when someone surrenders or leaves, or at the time cap: 25 minutes, 35 on Rujm Sawda and the two 96 x 96 maps. At the cap the larger surviving force wins.
+- If a window reloads or drops, it rejoins by itself and catches up; the other shows "Waiting for ..." while it does. A seat that stays gone for 60 seconds forfeits, and the other side sees a countdown to the win.
+- A match ends when a force has no armed unit left, when someone surrenders, leaves or forfeits by disconnecting, or at the time cap: 25 minutes, 35 on Rujm Sawda and the two 96 x 96 maps. At the cap the larger surviving force wins.
 - **Bring your brigade** is a host toggle, for friends only: each of you fields the upgrades you have bought. The default is the same standard kit for both.
 - Formations (`r` `t` `y`) work in a room on the 48 x 48 maps; they are off on Rujm Sawda and the two large maps.
 - If the two simulations ever disagree, the match is halted and marked void, never silently patched up.
@@ -217,7 +217,7 @@ Both of you need the same version of the game: reload the page if the room repor
 The browser has no computer opponent for a versus room. Instead an AI model can take the second seat of a room exactly as a friend would, through the same orders a human sends. It needs a checkout of this repository (Node 22 and pnpm), the [Claude Code](https://claude.com/claude-code) CLI signed in, and a model you can pay for.
 
 1. In the browser, open a room as above (**Play with a friend**, pick a map, **Open a room**) and note the code.
-2. From a checkout at the same commit as the live game (the foot of Settings reads `Build <version>+<commit>`):
+2. From a checkout of the latest `origin/main`, once the site's deploy for that commit has finished (main redeploys on every merge). If the live build differs from your checkout, `pnpm bot` tells you plainly:
 
 ```bash
 pnpm install
