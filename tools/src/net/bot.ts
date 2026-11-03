@@ -281,12 +281,13 @@ export function harnessRoomBuild(lines: readonly string[]): string | null {
 
 export const ENTRYPOINT_WARNING = 'bot: CLAUDE_CODE_ENTRYPOINT is set, so this shell was started by Claude Code (or its desktop app). The environment it passes on can break a child `claude`; if the bot cannot sign in, run `pnpm bot` from macOS Terminal.';
 
+/** The scoring rubric, as the addendum states it (one copy: `match-score.ts`). */
+const RUBRIC = rubricText();
 /**
  * What `pnpm bot` adds to the standing prompt, for a bot seat only (the arena
  * reads `arena-prompt.md` alone). The model's FINAL message is saved as the
  * match report, so it is told exactly what that message is.
  */
-const RUBRIC = rubricText();
 export const BOT_ADDENDUM = `
 ## Your match report (this is a bot seat)
 

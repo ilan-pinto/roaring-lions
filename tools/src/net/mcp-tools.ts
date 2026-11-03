@@ -554,11 +554,6 @@ const endRound: ToolDef = {
 };
 
 /**
- * The match scoring tools (GH-973), offered to a `pnpm bot` seat only (the harness is started with `--score-file`):
- * the arena's players are scored by a separate judge, never by themselves. Both answer `match not over` until the
- * match has a result, because the referee's numbers cover both sides and would otherwise see through the fog.
- */
-/**
  * A room that has ended hands the client its result only once the frames it still holds have run (`drained`, on the
  * harness's own 10 ms pump). The scoring tools wait that out, bounded, so the stats name how the match ended; a
  * room that ended with no result (a void, a desync) is read as it stands after the bound.
@@ -569,6 +564,11 @@ async function settleResult(ctx: ToolContext): Promise<void> {
   while (ctx.client.result() === null && terminal(ctx.client.transport.status()) && Date.now() < deadline) await sleep(WAIT_POLL_MS);
 }
 
+/**
+ * The match scoring tools (GH-973), offered to a `pnpm bot` seat only (the harness is started with `--score-file`):
+ * the arena's players are scored by a separate judge, never by themselves. Both answer `match not over` until the
+ * match has a result, because the referee's numbers cover both sides and would otherwise see through the fog.
+ */
 const matchStats: ToolDef = {
   name: 'match_stats',
   description: 'After the match is over: the referee\'s end-of-match stats for BOTH seats (deaths, wounded fallen/rescued/died, value lost and destroyed, idle time, orders, a 30-second timeline). Not fog-limited, so it answers `match not over` until there is a result. Read it before `submit_score`.',
