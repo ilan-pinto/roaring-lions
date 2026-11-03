@@ -479,7 +479,6 @@ import {
   type ChurnEvent,
   type ChurnState,
 } from './units/ground-churn';
-import { footprintHalfExtents } from './units/rain-maths';
 import {
   makeVehicleWeightArrays,
   stepVehicleWeight,
@@ -11097,14 +11096,16 @@ export class ThreeRenderer implements Renderer {
       return;
     }
     const f = this.disturbFrame;
-    const half = footprintHalfExtents({ zoom: this.camera.zoom, width: this.width, height: this.height });
+    // `footprintHalfExtents`' arithmetic written out (it returns a fresh object): half the ground footprint along the screen's two axes.
+    const halfA = this.width / (TILE_W * this.camera.zoom * Math.SQRT2);
+    const halfB = this.height / (TILE_H * this.camera.zoom * Math.SQRT2);
     f.count = this.snapshottedCount;
     f.tick = this.sim.tickCount;
     f.alpha = alpha;
     f.focusX = this.camera.x;
     f.focusZ = this.camera.y;
     // The ground footprint's corner is the farthest point on screen; the widest hull's reach beyond it can still touch it.
-    f.viewRadius = Math.hypot(half.a, half.b) + 2.5 * DISTURB_REACH + 2;
+    f.viewRadius = Math.hypot(halfA, halfB) + 2.5 * DISTURB_REACH + 2;
     f.slots = quality.slots;
     f.wakes = quality.wakes;
     f.foot = quality.foot;

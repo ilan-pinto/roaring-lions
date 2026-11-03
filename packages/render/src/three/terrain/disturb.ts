@@ -285,7 +285,8 @@ export class WakeRing {
 
 // --- choosing and building the disturbers ---------------------------------------------------------
 
-/** What a unit TYPE does to vegetation: nothing (air is N3's, and a gun team stands still), a hull, or a man on foot. */
+/** What a unit TYPE does to vegetation: nothing (air is N3's), a hull (`mobility.wheeled`, tracked included), or anything else on foot, which
+ *  bends grass weakly at `high` whether it walks or stands (a parked crew included: a man standing in grass presses it too). */
 export const DISTURB_KIND_NONE = 0;
 export const DISTURB_KIND_HULL = 1;
 export const DISTURB_KIND_FOOT = 2;
