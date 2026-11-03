@@ -9,6 +9,10 @@ import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
 import { WIND_SKEW_MAX_DEG, WIND_STRENGTH_MAX } from '@lions/data';
+import {
+  WIND_SKEW_MAX_DEG as RENDER_SKEW_MAX_DEG,
+  WIND_STRENGTH_MAX as RENDER_STRENGTH_MAX,
+} from '../../packages/render/src/three/terrain/wind';
 
 const ROOT = join(__dirname, '../..');
 const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
@@ -37,6 +41,8 @@ describe('map.schema.json wind block', () => {
   it('agrees with the bounds @lions/data and the renderer clamp use', () => {
     expect(WIND_SKEW_MAX_DEG).toBe(30);
     expect(WIND_STRENGTH_MAX).toBe(2);
+    expect(RENDER_SKEW_MAX_DEG).toBe(WIND_SKEW_MAX_DEG);
+    expect(RENDER_STRENGTH_MAX).toBe(WIND_STRENGTH_MAX);
     const props = (JSON.parse(readFileSync(join(ROOT, 'data/schemas/map.schema.json'), 'utf8')) as { properties: { wind: { properties: Record<string, { minimum?: number; maximum?: number }> } } }).properties.wind.properties;
     expect(props.skew_deg).toMatchObject({ minimum: -WIND_SKEW_MAX_DEG, maximum: WIND_SKEW_MAX_DEG });
     expect(props.strength).toMatchObject({ minimum: 0, maximum: WIND_STRENGTH_MAX });

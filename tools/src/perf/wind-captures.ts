@@ -32,12 +32,13 @@ import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { CAPTURE_VIEWPORT, FREEZE_FRAME_LOOP_STATEMENTS, HIDE_ALERT_FEED_STATEMENTS } from '../golden-diff/capture-protocol';
 import { gpuLaunchArgs } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
-import { claimPortOrAttach } from '../ui-review/port';
+import { claimPortOrAttach, resolvePort } from '../ui-review/port';
 import { windGust, windHeading } from '../../../packages/render/src/three/terrain/wind';
 
 const TAG = 'wind';
 const arg = (k: string, d: string): string => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
-if (arg('port', '') === '5177') {
+// The RESOLVED port (flag, then WIND_CAPTURE_PORT, then the default), not just `--port=`: 5177 is the lead's.
+if (resolvePort(process.argv.slice(2), process.env, 'WIND_CAPTURE_PORT', 5181).port === 5177) {
   console.error("[wind] refusing port 5177: it is the lead's dev server");
   process.exit(2);
 }

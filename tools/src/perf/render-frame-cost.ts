@@ -137,9 +137,7 @@ const [viewportWidth, viewportHeight] = size.split('x').map(Number);
 if (!Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight)) {
   throw new Error(`second argument must be WIDTHxHEIGHT, got ${JSON.stringify(size)}`);
 }
-const { port } = await claimPortOrAttach(TAG, 'RENDER_FRAME_COST_PORT', 5178);
-const stopServer = devServerStopper(await ensureDevServer(port, REPO_ROOT, TAG), TAG);
-const base = `http://localhost:${port}`;
+// Validated BEFORE a dev server is started: a bad `--views` must not leave a child behind.
 // `--views=x,y,zoom;x,y,zoom` replaces the three default views (GH-984 N1: the wind is measured on wadi_tarfan_l at zoom 1).
 const viewsFlag = flag('views');
 const VIEWS: [number, number, number][] = viewsFlag
@@ -150,6 +148,9 @@ const VIEWS: [number, number, number][] = viewsFlag
       [26, 22, 1.6],
     ];
 if (VIEWS.some((v) => v.length !== 3 || v.some((n) => !Number.isFinite(n)))) throw new Error(`--views=${viewsFlag} is not x,y,zoom;x,y,zoom`);
+const { port } = await claimPortOrAttach(TAG, 'RENDER_FRAME_COST_PORT', 5178);
+const stopServer = devServerStopper(await ensureDevServer(port, REPO_ROOT, TAG), TAG);
+const base = `http://localhost:${port}`;
 
 const browser = await chromium.launch({
   headless: true,

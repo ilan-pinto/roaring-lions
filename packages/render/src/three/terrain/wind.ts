@@ -15,7 +15,7 @@
  * - `dir`: a unit vector on the ground plane. By default it is the screen-right
  *   axis `(+x, -z) / sqrt2` -- the lean that reads on this fixed camera -- and a
  *   map may turn it by at most `WIND_SKEW_MAX_DEG` either side of screen-right
- *   or screen-left (`windHeading`; `tools/validate_wind.mjs` enforces the same
+ *   or screen-left (`windHeading`; `map.schema.json` via `tools/validate_data.mjs`, and `parseMap`, enforce the same
  *   bound on the data). A lean along the view axis would read as nothing.
  * - the gust: hand-rolled 1-D value noise over `s = t - dot(p, dir) / SPEED`, so
  *   a gust FRONT travels across the map along the wind at

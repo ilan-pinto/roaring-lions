@@ -106,6 +106,14 @@ describe('design §7 start values', () => {
       ['tree', 0.035, 3.8],
     ]);
   });
+  it('pins each class: stiffness, gust gain and the height basis, as literals', () => {
+    expect(WIND_CLASSES.map((c) => [c.name, c.stiffness, c.gustGain, c.worldBasis])).toEqual([
+      ['grass', 2, 1.5, false],
+      ['reed', 1.5, 1.5, false],
+      ['shrub', 2, 1.5, false],
+      ['tree', 2, 1.5, true],
+    ]);
+  });
   it('pins the gust: x1.5, front 3 tiles/s, strength 0..2, skew 30 deg', () => {
     expect(WIND_GUST_GAIN).toBe(1.5);
     expect(WIND_GUST_SPEED_TPS).toBe(3);
