@@ -31,6 +31,7 @@ const ID_ARGS = new Set(['id', 'ids']);
 const ALLOWED: Readonly<Record<string, string>> = {
   // Empty at WP-P2: every hit the sweep found was reworded rather than
   // exempted. Add `key: 'reason'` here for a use a player genuinely needs.
+  'arena.strip.clock': 'GH-954 W1: the arena watch strip is an operator view, dev-only (the route does not exist in a production build); it names the room clock\'s tick beside the match time because a run is compared by tick',
 };
 
 /** Every reason a value would read as developer language, or [] if none. */

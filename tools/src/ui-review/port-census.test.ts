@@ -34,6 +34,13 @@ const OS_ASSIGNED: Readonly<Record<string, string>> = {
   'net/local-relay.ts': "the arena's local relay (N4b): one per game, listen(0) on 127.0.0.1",
 };
 
+/** Servers that bind 127.0.0.1 on a port their CALLER names (default 0, the OS's) and never attach: a held port
+ *  makes `listen` fail with EADDRINUSE, so they cannot reach another session's server either. Held to that shape
+ *  below: every `listen` names 127.0.0.1, they start no dev server and spell no literal port. */
+const LOOPBACK_BIND: Readonly<Record<string, string>> = {
+  'net/arena-serve.ts': "the arena's local server (GH-954 W1): `--serve-port`, default 0; Vite in middleware mode, so it binds nothing itself",
+};
+
 const SERVES = /\bensureDevServer\(|\bstartPreview\(|\bthreeUrl\(|https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])[:/$]/;
 const CLAIMS = /\b(?:claimPort|claimPortOrAttach|decidePort|requireAttach)\(/;
 const ENV_KEY = /'([A-Z0-9_]+_PORT)'/g;
@@ -67,7 +74,7 @@ function serverHarnesses(root = SRC): Map<string, string> {
   const found = new Map<string, string>();
   for (const file of walk(root)) {
     const rel = relative(root, file).split('\\').join('/');
-    if (rel in LIBRARY || rel in OS_ASSIGNED) continue;
+    if (rel in LIBRARY || rel in OS_ASSIGNED || rel in LOOPBACK_BIND) continue;
     const body = code(readFileSync(file, 'utf8'));
     if (SERVES.test(body)) found.set(rel, body);
   }
@@ -95,6 +102,17 @@ describe('port census', () => {
       const body = code(readFileSync(join(SRC, rel), 'utf8'));
       expect(/\.listen\(0, '127\.0\.0\.1'/.test(body), `${rel} listens on port 0 on 127.0.0.1`).toBe(true);
       expect(/\.listen\((?!0, '127\.0\.0\.1')/.test(body), `${rel} listens nowhere else`).toBe(false);
+      expect(/\bensureDevServer\(|\bstartPreview\(|\bthreeUrl\(/.test(body), `${rel} starts no dev server`).toBe(false);
+      expect(/(?:localhost|127\.0\.0\.1|\[::1\]):\d/.test(body), `${rel} spells no literal port`).toBe(false);
+    }
+  });
+
+  it('every caller-port loopback exemption binds 127.0.0.1 only, attaches to nothing and spells no fixed port', () => {
+    for (const rel of Object.keys(LOOPBACK_BIND)) {
+      const body = code(readFileSync(join(SRC, rel), 'utf8'));
+      const listens = [...body.matchAll(/\.listen\(([^)]*)\)/g)].map((m) => m[1]);
+      expect(listens.length, `${rel} listens somewhere`).toBeGreaterThan(0);
+      for (const args of listens) expect(/,\s*'127\.0\.0\.1'/.test(args), `${rel}: listen(${args}) names 127.0.0.1`).toBe(true);
       expect(/\bensureDevServer\(|\bstartPreview\(|\bthreeUrl\(/.test(body), `${rel} starts no dev server`).toBe(false);
       expect(/(?:localhost|127\.0\.0\.1|\[::1\]):\d/.test(body), `${rel} spells no literal port`).toBe(false);
     }

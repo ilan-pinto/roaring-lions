@@ -130,6 +130,26 @@ describe('arena-serve: over a socket', () => {
   });
 });
 
+describe('arena-serve: with the app (Vite in middleware mode)', () => {
+  it('serves the app\'s index at /arena/watch and a module under it, while /arena/api stays its own and a bad Host never reaches Vite', async () => {
+    const s = await serveOf({ app: true });
+    const page = await raw(s, { path: '/arena/watch', headers: { accept: 'text/html' } });
+    expect(page.status).toBe(200);
+    expect(page.headers['content-type']).toContain('text/html');
+    expect(page.text).toContain('<div id=');
+    // A module of the dev app is served by Vite, as a dev page needs it.
+    const mod = await raw(s, { path: '/src/net/watch-connect.ts' });
+    expect(mod.status).toBe(200);
+    expect(mod.text).toContain('/arena/api/live');
+    // The API is ours, before Vite: the key is still required, and an action path is not Vite's SPA fallback.
+    expect((await raw(s, { path: '/arena/api/live', headers: { accept: 'text/html' } })).status).toBe(403);
+    expect(JSON.parse((await api(s, '/arena/api/live', { accept: 'text/html' })).text)).toMatchObject({ state: 'waiting' });
+    expect((await api(s, '/arena/api/stop', { accept: 'text/html' })).status).toBe(404);
+    // The wrong Host is refused before Vite sees it.
+    expect((await raw(s, { path: '/arena/watch', headers: { host: 'evil.example', accept: 'text/html' } })).status).toBe(421);
+  }, 90_000);
+});
+
 describe('arena-serve: /arena/api/live against a real relay', () => {
   const start = (relay: LocalRelay, code: string, seatTicket: string, n = 1): GameStart => ({
     n, of: 4, seed: 1000, map: 'tel_marum', matchup: 'mirror', names: ['rush', 'passive'], factions: ['kdf', 'kdf'], code,
