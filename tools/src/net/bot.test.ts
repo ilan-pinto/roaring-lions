@@ -22,6 +22,7 @@ import { RefereeTally, writeScoreFile, type RefereeStats, type ScoreSet } from '
 import { loose, playerScore, setPath } from './score-fixture';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
 import { versusConfig } from './test-config';
+import { ORDER_VERBS } from './mcp-tools';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const TSX = join(resolve(here, '../..'), 'node_modules/.bin/tsx');
@@ -772,6 +773,19 @@ describe('a closed terminal and a killed bot still leave a report (GH-973: the l
     const done = readResult(`${STEM}-report.md`);
     expect(done).toContain('- Result: completed');
     expect(done).not.toContain('unfinished');
+  });
+});
+
+describe('the standing prompt says what `rescue` takes (GH-707, 3 Nov 2026; every verb is held to the prompt by order-verbs.test.ts)', () => {
+  it('the `order` bullet names `rescue` with its own-side target, and a wounded-men section says what a medic team does', () => {
+    const text = readFileSync(join(here, 'arena-prompt.md'), 'utf8');
+    expect(ORDER_VERBS).toContain('rescue');
+    const orderBullet = text.split('\n').find((l) => l.startsWith('- `order`')) ?? '';
+    expect(orderBullet).toContain('`rescue`');
+    expect(orderBullet).toContain('`casualties.mine`');
+    for (const w of ['`casualties`', '`inf_medic_squad`', 'your own side\'s wounded only']) expect(text, w).toContain(w);
+    // The same text reaches the bot seat, which adds its report instructions after it.
+    expect(botPrompt({ room: 'ABC234' })).toContain('`casualties.mine`');
   });
 });
 
