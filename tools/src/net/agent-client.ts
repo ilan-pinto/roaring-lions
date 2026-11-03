@@ -29,6 +29,7 @@ import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-ste
 import { shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 import {
   decideOnHashTick,
+  goalsOf,
   productionOf,
   matchResult,
   reportOver,
@@ -374,7 +375,7 @@ export class AgentClient {
         this.desk.onTick(f.tick);
       },
       stopAfter: (tick) => {
-        this.decided = decideOnHashTick(this.decided, tick, config, sim, productionOf(w));
+        this.decided = decideOnHashTick(this.decided, tick, config, sim, productionOf(w), goalsOf(w));
         if (this.decided === null) return false;
         // As the browser does through its end panel: the sim's result, told once.
         reportOver(this.o.role === 'seat' ? this.transport : null, this.decided.result, this.decided);

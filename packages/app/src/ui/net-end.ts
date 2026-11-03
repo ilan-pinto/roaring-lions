@@ -46,6 +46,8 @@ export function netEndReason(o: MatchResult, viewer: 0 | 1): string {
     const theirs = viewer === 0 ? 1 : 0;
     return t(`versus.end.forces.${verdict}`, { cause: o.by, mine: amount(o.forces[viewer]), theirs: amount(o.forces[theirs]) });
   }
+  // GH-976: a win mode names its goal, and each seat reads its own side of it.
+  if (o.by === 'objective') return t(verdict === 'lost' ? 'versus.end.objective.lost' : 'versus.end.objective.won', { mode: o.mode });
   // The loser reads its own side of the same reason: "Your force is destroyed".
   return t(verdict === 'lost' ? 'versus.end.reason.lost' : 'versus.end.reason', { by: o.by });
 }

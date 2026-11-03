@@ -695,3 +695,41 @@ model. The S4 re-run and the decision to open versus are written up separately.
   - The P0 plain-order floored centroid (base-game chirality, moves every pin); the alternative comparator above was the diagnosis's `ZZ_AIR_PLAIN`
     hunk (`_coord/formations-p1c/scripts/zz-air-plain-alt.patch`, on top of `acc51a850`).
 
+
+## Versus win modes (GH-976 P1)
+
+A versus room may play a WIN MODE beside annihilation: `MatchConfig.winMode` (`'camp'` | `'points'`, absent is
+annihilation and every room that has ever been played). Phase 1 is the engine and the instrument; **no room offers a mode
+yet** (the lobby, the bot harness and the scoring are later phases), and the only ways in are a test and
+`pnpm versus:probe -- --mode=...`.
+
+- **Data.** `data/versus/modes/<map>.json` against `versus_mode.schema.json`, registered in `@lions/data`'s
+  `versusModes` (`index.test.ts`-style pin: `tools/src/validate_versus_modes.test.ts`). It carries the map's camps by END
+  (the `camp` mode; a mirror room has no rules file, so the file brings its own) and the points race's numbers. The
+  loader `versusModeMissionOf` turns a mode into one primary objective per SIDE, in side order, so a mode is symmetric by
+  construction. `validate:data` sweeps `data/versus/` for rules files with `modes/` skipped, and `modes/` on its own.
+- **The runtime is goals-only.** `buildMatchWorld` builds a `MissionRuntime` with `ctx.goalsOnly` in a mode room, a mirror
+  too (`economyRoom` is false for it, whoever the factions are). `step()` returns into `stepGoals` before anything else:
+  no income, production, ROE, trigger, wave, patrol or high ground, no production line, and **`checkEnd` never ends it**
+  (`outcome.ts` decides, as for an economy room). A completed objective pays no intel and earns no stripe there.
+- **`side` on an objective.** Optional, 0 or 1, absent is 0 (a pin: `win-modes.test.ts` compares `digest()` and `hash()`
+  every tick for an explicit `side: 0` and none). `capture` and `hold_for` count that side's units; `score` credits it;
+  `raze` only names who the razing wins for; any other type refuses it at construction. `contestedIn` is NOT told the
+  side: "a living unit of each side stands in the zone within the contest radius" is the same fact from either seat, so
+  the side-0 form answers a side-1 objective (a mutation of the side argument was green; it was deleted, not kept).
+- **`score`: the points race.** `{zones:[{zone, per_min}], per_value_destroyed, target}`, `goalsOnly` rooms only (it throws
+  elsewhere). The state is the objective's own `holdTicks`, in 1/1200ths of a point (a minute of ticks), so a zone's
+  `per_min` is that many units a tick, exactly, and a kill is `value x per_value_destroyed x 12` (`per_value_destroyed` is
+  points per 100 value). Integers all the way; `scoreOf(side)` floors. Its zones are registered as rate-0 income zones, so
+  the holder is the `zoneStates` rule income uses (alone in the zone holds it, both is contested and pays nobody).
+  **Nothing was added to `MissionRuntime`'s own properties**, so the runtime snapshot schema, its digest, `digest()` and
+  `hash()` did not move, and a mode room snapshots and rejoins through the existing `ObjectiveState` rows
+  (`validate_versus_modes.test.ts` restores a real room mid-race and plays it on to the same hash).
+- **The camp.** `raze` on the camp's footprint (a zone the loader derives, `camp_yard_<end>`), the camp raised owned by the
+  side at that end (`owner`, which sets `fwLive` and makes it a target once seen; a plain camp is not one). There is **no
+  `seconds`**: a primary `raze` in a MISSION must declare one (an unwinnable-and-unlosable trap), but a room has the
+  match cap and annihilation, and `validate_versus_modes.mjs` refuses a `seconds` in a mode file.
+- **`outcome.ts`.** `won by: 'objective'` with `mode`; `goalsOf(world)` is undefined for every annihilation and economy
+  room, and the goal is asked FIRST (a side that razed the camp as its last unit fell has won). Both goals on one tick:
+  the higher score, else a mutual draw. Annihilation, the stalemate and the cap still apply behind it.
+- **Measured at P1**, and the open question it leaves: `_coord/win-modes/report.md`.

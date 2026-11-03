@@ -4,7 +4,7 @@ import { versusAnchors } from './versus-seats';
 import { runFrames, seatWorldFor } from './frame-step';
 import { versusSpawns } from './versus-force';
 import { buildWorld } from './versus-world.test-helper';
-import { MATCH_CAP_TICKS, decideOnHashTick, forcesOf, hashTickOutcome, matchResult, outcomeOf, reportOver, roomEndingOutcome, unitCost, type LocalDecision, type OutcomeSim } from './outcome';
+import { MATCH_CAP_TICKS, decideOnHashTick, forcesOf, goalsOf, hashTickOutcome, matchResult, outcomeOf, productionOf, reportOver, roomEndingOutcome, unitCost, type LocalDecision, type OutcomeGoals, type OutcomeSim } from './outcome';
 
 /** Type 0 is armed, type 1 is not (a drone, a truck), type 2 is armed and
  *  has no movement at all (speed 0), type 3 is an armed aircraft. All but
@@ -387,3 +387,63 @@ const CONFIG_FOR_WIRE: MatchConfig = {
   ],
   pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0,
 };
+
+describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
+  const goals = (won: readonly boolean[], units: readonly number[] = [0, 0], mode: 'camp' | 'points' = 'camp'): OutcomeGoals => ({
+    mode,
+    sideWon: (side) => won[side],
+    scoreUnitsOf: (side) => units[side],
+  });
+  const both = world([[0, 1, 0], [1, 1, 0]]);
+
+  it('no goal done is the plain rule: ongoing with both standing, and absent goals change nothing', () => {
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([false, false]))).toEqual({ kind: 'ongoing' });
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, undefined)).toEqual({ kind: 'ongoing' });
+  });
+
+  it('a completed goal wins by objective and names the mode, for either side', () => {
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, false]))).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'camp' });
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([false, true], [0, 0], 'points'))).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'points' });
+  });
+
+  it('a goal beats annihilation: the side that razed the camp as its last unit fell has won, and the wiped side does not', () => {
+    const wiped = world([[0, 0, 0], [1, 1, 0]]); // side 0 has no unit; side 1 has one
+    expect(outcomeOf(wiped, 100, costOf, undefined, MATCH_CAP_TICKS)).toEqual({ kind: 'won', side: 1, by: 'annihilation' });
+    expect(outcomeOf(wiped, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, false]))).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'camp' });
+  });
+
+  it('a goal beats the cap and a stalemate', () => {
+    expect(outcomeOf(both, MATCH_CAP_TICKS, costOf, undefined, MATCH_CAP_TICKS, goals([false, true]))).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'camp' });
+    expect(outcomeOf(world([[0, 1, 2], [1, 1, 2]]), 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, false]))).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'camp' });
+  });
+
+  it('both goals on one tick: the higher score wins a points race, level scores are a mutual end', () => {
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [720100, 720000], 'points'))).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'points' });
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [720000, 720400], 'points'))).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'points' });
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [720000, 720000], 'points'))).toEqual({ kind: 'draw', by: 'mutual' });
+    // Two camps razed on one tick: nothing separates them.
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true]))).toEqual({ kind: 'draw', by: 'mutual' });
+  });
+
+  it('asked only on a hash tick, like the rest of the rule', () => {
+    const config = { hashEveryTicks: 20 } as MatchConfig;
+    const sim = { ...both, tickCount: 40 };
+    expect(hashTickOutcome(19, config, sim, undefined, goals([true, false]))).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'camp' });
+    expect(hashTickOutcome(18, config, sim, undefined, goals([true, false]))).toBeNull();
+  });
+
+  it('goalsOf: none for an annihilation world, the runtime\'s sideWon and score for a mode world', () => {
+    const rt = { sideWon: (s: 0 | 1) => s === 1, scoreUnitsOf: (s: 0 | 1) => 5 + s, productionLines: () => [], logisticsOf: () => 0, popCapped: () => false };
+    expect(goalsOf({ runtime: null, winMode: null })).toBeUndefined();
+    expect(goalsOf({ runtime: rt, winMode: null })).toBeUndefined(); // an economy room has a runtime and no mode
+    const g = goalsOf({ runtime: rt, winMode: 'points' })!;
+    expect([g.mode, g.sideWon(0), g.sideWon(1), g.scoreUnitsOf(1)]).toEqual(['points', false, true, 6]);
+  });
+
+  it('a mode room has no production to ask about, whatever its runtime', () => {
+    const rt = { sideWon: () => false, scoreUnitsOf: () => 0, productionLines: () => [{ alive: true, current: 'inf_squad', items: [] as string[] }], logisticsOf: () => 9999, popCapped: () => false };
+    const world2 = { runtime: rt, factions: ['kdf', 'kdf'] as ['kdf', 'kdf'] };
+    expect(productionOf({ ...world2, winMode: null })).toBeDefined(); // the control: an economy room with a line that can field
+    expect(productionOf({ ...world2, winMode: 'camp' })).toBeUndefined();
+  });
+});

@@ -1,0 +1,22 @@
+{
+  "id": "wadi_tarfan",
+  "map": "wadi_tarfan",
+  "camps": {
+    "friendly": { "at": [7, 7], "size": [2, 2] },
+    "hostile": { "at": [39, 39], "size": [2, 2] }
+  },
+  "modes": {
+    "camp": {},
+    "points": {
+      "zones": [
+        { "zone": "centre_ford", "per_min": 30 },
+        { "zone": "ne_ford", "per_min": 20 },
+        { "zone": "sw_ford", "per_min": 20 },
+        { "zone": "bluff_near_0", "per_min": 10 },
+        { "zone": "bluff_near_1", "per_min": 10 }
+      ],
+      "per_value_destroyed": 1,
+      "target": 600
+    }
+  }
+}
