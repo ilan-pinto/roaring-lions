@@ -1,0 +1,22 @@
+{
+  "id": "milh_flats",
+  "map": "milh_flats",
+  "camps": {
+    "friendly": { "at": [4, 40], "size": [2, 2] },
+    "hostile": { "at": [42, 6], "size": [2, 2] }
+  },
+  "modes": {
+    "camp": {},
+    "points": {
+      "zones": [
+        { "zone": "bir_milh", "per_min": 50 },
+        { "zone": "tell_nw", "per_min": 20 },
+        { "zone": "tell_se", "per_min": 20 },
+        { "zone": "knoll_0", "per_min": 10 },
+        { "zone": "knoll_1", "per_min": 10 }
+      ],
+      "per_value_destroyed": 1,
+      "target": 600
+    }
+  }
+}

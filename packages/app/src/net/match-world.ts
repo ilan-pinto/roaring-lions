@@ -1,5 +1,5 @@
-import { applyTerrain, doctrines, formations, maps, parseMap, roadMaskOf, units, versusCapacityOf, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
-import { economyRoom, endOfSeat, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd } from '@lions/net';
+import { applyTerrain, doctrines, formations, maps, parseMap, roadMaskOf, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
+import { economyRoom, endOfSeat, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';
 import { standMapStructures } from '../map-sim';
@@ -8,6 +8,7 @@ import { versusAnchors } from './versus-seats';
 import { upgradePrepass, type UpgradePrepass } from '../upgrade-prepass';
 import { factionsBySide, versusSpawns } from './versus-force';
 import { versusRoster } from './versus-roster';
+import { unitCost } from './outcome';
 
 /** One unit of the shipped roster, as the prepass takes and returns it. */
 export type RosterUnit = (typeof units)[keyof typeof units];
@@ -41,6 +42,10 @@ export interface MatchWorld {
    *  plays today's placed-force match and nothing else. It never ends by
    *  itself (no objectives, `checkEnd`); `outcome.ts` decides the match. */
   runtime: MissionRuntime | null;
+  /** GH-976: the win mode the room plays (`config.winMode`), or null for annihilation. In a mode room
+   *  `runtime` is a GOALS-ONLY one (objectives with a side, no economy), mirror included, and
+   *  `outcome.ts` reads it through `goalsOf`. */
+  winMode: WinMode | null;
   /** The structure types the economy runtime stands (its rules file's camps, through
    *  `versusMissionOf`), so the browser loads their meshes (N3 Task 6): a room has no
    *  mission whose `structures` the mesh plan could read. `[]` in a mirror room. */
@@ -126,10 +131,13 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);
   // The runtime comes AFTER both forces, so every entity id a mirror room
   // spawned, and so every mirror byte, is what it was; a mirror builds none.
-  const built = economy ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide, tunnelRoutes) : null;
+  // GH-976: a win-mode room (never an economy room, `economyRoom`) plays a goals-only runtime instead.
+  const built = economy
+    ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide, tunnelRoutes)
+    : config.winMode !== undefined ? modeRuntime(sim, config.map, config.winMode, map, typeOf, endOfSide) : null;
   const runtime = built?.runtime ?? null;
   const structureTypes = built?.structureTypes ?? [];
-  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, runtime, structureTypes };
+  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, runtime, winMode: config.winMode ?? null, structureTypes };
 }
 
 /** The entity capacity of the room on `mapId`: its rules file's `capacity`, else 256. Mirror rooms
@@ -246,6 +254,44 @@ function economyRuntime(
     },
   };
   const runtime = new MissionRuntime(sim, mission as MissionJson, ctx);
+  runtime.start();
+  return { runtime, structureTypes: [...new Set(mission.structures.map((st) => st.type))] };
+}
+
+/**
+ * The runtime a win-mode room plays (GH-976): the map's mode file (`data/versus/modes/<map>.json`) turned into
+ * one primary objective per side, GOALS ONLY (`ctx.goalsOnly`): no camp menu, no purse, no income, no
+ * production, and `checkEnd` never ends it -- `outcome.ts` reads `sideWon` and decides. Side `s` stands at
+ * `endOfSide[s]`, so its camp (the `camp` mode) is that end's. Throws on a map with no such mode, which
+ * `validate:data` and the lobby (a later phase) keep out of a room.
+ */
+function modeRuntime(
+  sim: Sim,
+  mapId: string,
+  mode: WinMode,
+  map: ParsedMap,
+  typeOf: ReadonlyMap<string, number>,
+  endOfSide: readonly [SpawnEnd, SpawnEnd],
+): { runtime: MissionRuntime; structureTypes: string[] } {
+  const file = versusModes[mapId];
+  if (file === undefined || file.modes[mode] === undefined) throw new Error(`buildMatchWorld: map "${mapId}" has no "${mode}" win mode`);
+  const sideAt = (end: SpawnEnd): 0 | 1 => (endOfSide[0] === end ? 0 : 1);
+  const { mission, zones } = versusModeMissionOf(file, mode, { friendly: sideAt('friendly'), hostile: sideAt('hostile') });
+  for (const name of Object.keys(zones)) {
+    if (Object.hasOwn(map.zones, name)) throw new Error(`versus mode "${mapId}": zone "${name}" is already a zone of the map`);
+  }
+  const ctx: MissionContext = {
+    typeIdOf: (id) => {
+      const t = typeOf.get(id);
+      if (t === undefined) throw new Error(`versus mode runtime references unknown unit ${id}`);
+      return t;
+    },
+    markers: map.markers,
+    zones: { ...map.zones, ...zones },
+    goalsOnly: true,
+    unitValueOf: unitCost,
+  };
+  const runtime = new MissionRuntime(sim, mission as unknown as MissionJson, ctx);
   runtime.start();
   return { runtime, structureTypes: [...new Set(mission.structures.map((st) => st.type))] };
 }

@@ -14,7 +14,7 @@
  * ending (`over`) is no result of its own -- the panel is already up.
  */
 import { doctrines, units } from '@lions/data';
-import { endingLoser, matchCapTicks, type MatchConfig, type Seat } from '@lions/net';
+import { endingLoser, matchCapTicks, type MatchConfig, type Seat, type WinMode } from '@lions/net';
 import { isHashTick } from './frame-step';
 
 /** Each side's surviving force value, by SIDE (index 0 is side 0). */
@@ -23,6 +23,8 @@ export type Forces = readonly [number, number];
 export type MatchOutcome =
   | { kind: 'ongoing' }
   | { kind: 'won'; side: 0 | 1; by: 'annihilation' | 'surrender' | 'left' | 'forfeit' }
+  /** GH-976: the winner completed its win mode's goal (the enemy camp razed, the points target reached). */
+  | { kind: 'won'; side: 0 | 1; by: 'objective'; mode: WinMode }
   /** Decided on surviving unit value (the lead's ruling, 2026-10-13): every
    *  unit on both sides immobile (`stalemate`), or the 25-minute cap (`time`). */
   | { kind: 'won'; side: 0 | 1; by: 'stalemate' | 'time'; forces: Forces }
@@ -140,6 +142,51 @@ function armedStanding(sim: OutcomeSim, side: 0 | 1): boolean {
   return false;
 }
 
+/** What a win-mode room adds to the win rule (GH-976): which sides have completed their goal. Absent -- every
+ *  annihilation room -- the rule is the existing one, exactly. */
+export interface OutcomeGoals {
+  readonly mode: WinMode;
+  /** Whether `side` has completed a primary objective of its own. */
+  sideWon(side: 0 | 1): boolean;
+  /** `side`'s score in exact integer units, the tie-break when both complete on one tick; 0 with no score. */
+  scoreUnitsOf(side: 0 | 1): number;
+}
+
+/** The slice of `MatchWorld` that `goalsOf` reads. */
+export interface GoalsWorld {
+  readonly runtime: {
+    sideWon(side: 0 | 1): boolean;
+    scoreUnitsOf(side: 0 | 1): number;
+  } | null;
+  readonly winMode: WinMode | null;
+}
+
+/** The goals of a win-mode room, or undefined for annihilation (and for any world with no mode). */
+export function goalsOf(w: GoalsWorld): OutcomeGoals | undefined {
+  const runtime = w.runtime;
+  if (runtime === null || w.winMode === null) return undefined;
+  return { mode: w.winMode, sideWon: (s) => runtime.sideWon(s), scoreUnitsOf: (s) => runtime.scoreUnitsOf(s) };
+}
+
+/** The goal's verdict, or null while no side has completed one. `outcomeOf` asks only on a hash window (every 20
+ *  ticks), and a completed score is frozen at its own completion, so two sides that finished inside one window are
+ *  compared on their frozen scores: the larger overshoot wins a points race (the side that reached the target FIRST
+ *  can lose to it), and anything level is a mutual end. P2 TODO: store the completion tick before a lobby offers
+ *  `points`, so first-to-target decides. Read from state both machines share (the runtime's
+ *  objectives and score, hashed through its digest). */
+function goalOutcome(goals: OutcomeGoals): MatchResult | null {
+  const a = goals.sideWon(0);
+  const b = goals.sideWon(1);
+  if (!a && !b) return null;
+  if (a && b) {
+    const sa = goals.scoreUnitsOf(0);
+    const sb = goals.scoreUnitsOf(1);
+    if (sa === sb) return { kind: 'draw', by: 'mutual' };
+    return { kind: 'won', side: sa > sb ? 0 : 1, by: 'objective', mode: goals.mode };
+  }
+  return { kind: 'won', side: a ? 0 : 1, by: 'objective', mode: goals.mode };
+}
+
 /** What an economy room adds to the win rule (N3 Task 5): whether a side that
  *  has no armed unit standing can still field one. Absent -- every mirror
  *  room -- the rule is the units-only rule, exactly. */
@@ -156,6 +203,8 @@ export interface ProductionWorld {
     popCapped(unitId: string, side: 0 | 1): boolean;
   } | null;
   readonly factions: readonly ['kdf' | 'sarim', 'kdf' | 'sarim'];
+  /** GH-976: a win-mode room's runtime is goals-only and has no production to ask about. */
+  readonly winMode?: WinMode | null;
 }
 
 /** A unit id the shipped data knows to carry a weapon and not to be a rescue unit (`armedStanding`'s own test). */
@@ -171,7 +220,7 @@ function armedType(id: string): boolean {
  *  covers the cheapest ARMED unit on its menu). Undefined with no runtime. */
 export function productionOf(w: ProductionWorld): OutcomeProduction | undefined {
   const runtime = w.runtime;
-  if (runtime === null) return undefined;
+  if (runtime === null || (w.winMode ?? null) !== null) return undefined;
   return productionFor(runtime, [doctrines[w.factions[0]].menu, doctrines[w.factions[1]].menu]);
 }
 
@@ -199,7 +248,12 @@ export function productionFor(runtime: NonNullable<ProductionWorld['runtime']>, 
  *  cap (25 minutes, or the map's `cap_minutes`; `capTicks`), which until then
  *  was always a draw. There is no production
  *  in a sandbox, so the counts are the whole test. */
-export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string) => number = unitCost, production?: OutcomeProduction, capTicks: number = MATCH_CAP_TICKS): MatchOutcome {
+export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string) => number = unitCost, production?: OutcomeProduction, capTicks: number = MATCH_CAP_TICKS, goals?: OutcomeGoals): MatchOutcome {
+  // GH-976: a goal completed beats everything below it (a side that razed the camp as its last unit fell has won).
+  if (goals !== undefined) {
+    const g = goalOutcome(goals);
+    if (g !== null) return g;
+  }
   const standing = SIDES.filter((side) => armedStanding(sim, side) || production?.canField(side) === true);
   if (standing.length === 0) return { kind: 'draw', by: 'mutual' };
   if (standing.length === 1) return { kind: 'won', side: standing[0], by: 'annihilation' };
@@ -214,10 +268,10 @@ export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string
  *  hash sent on that tick covers the state the decision was read from. The
  *  cap is measured on the sim's own tick count. Null while it is ongoing,
  *  on any other tick, and without a room. */
-export function hashTickOutcome(frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction): MatchResult | null {
+export function hashTickOutcome(frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction, goals?: OutcomeGoals): MatchResult | null {
   if (!isHashTick(frameTick, config)) return null;
   // The cap is the MAP's (GH-913 L8): 25 minutes, or the longer one its rules file declares.
-  const o = outcomeOf(sim, sim.tickCount, unitCost, production, matchCapTicks(config?.map));
+  const o = outcomeOf(sim, sim.tickCount, unitCost, production, matchCapTicks(config?.map), goals);
   return o.kind === 'ongoing' ? null : o;
 }
 
@@ -229,10 +283,10 @@ export interface LocalDecision { readonly result: MatchResult; readonly tick: nu
  *  first decision stands. Both seats read it on the same frame tick, so both
  *  report the same `over` tick. */
 export function decideOnHashTick(
-  prev: LocalDecision | null, frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction,
+  prev: LocalDecision | null, frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction, goals?: OutcomeGoals,
 ): LocalDecision | null {
   if (prev !== null) return prev;
-  const result = hashTickOutcome(frameTick, config, sim, production);
+  const result = hashTickOutcome(frameTick, config, sim, production, goals);
   return result === null ? null : { result, tick: frameTick };
 }
 

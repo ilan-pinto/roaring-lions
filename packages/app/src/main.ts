@@ -308,7 +308,7 @@ import { showNetEnd } from './ui/net-end';
 import { describeCommand, mountAdvisorPanel, type AdvisorPanel } from './ui/advisor';
 import { NetScoreboard, advisorPresenceHook } from './ui/net-score';
 import { scoreOf, showsScoreboard } from './net/scoreboard';
-import { decideOnHashTick, productionOf, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
+import { decideOnHashTick, goalsOf, productionOf, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
 import { gradeOf, lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { enginesOf } from './engines-flag';
 import { buildingFitOf } from './building-fit-flag';
@@ -6465,7 +6465,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ...(versusRoom
       ? {
           stopAfter: (tick: number): boolean => {
-            matchDecided = decideOnHashTick(matchDecided, tick, netConfig, sim, versusWorld !== null ? productionOf(versusWorld) : undefined);
+            matchDecided = decideOnHashTick(matchDecided, tick, netConfig, sim, versusWorld !== null ? productionOf(versusWorld) : undefined, versusWorld !== null ? goalsOf(versusWorld) : undefined);
             return matchDecided !== null;
           },
         }

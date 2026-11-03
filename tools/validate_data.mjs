@@ -12,7 +12,9 @@
 //   data/tutorial/** against data/schemas/tutorial.schema.json
 //   data/doctrines/** against data/schemas/doctrine.schema.json, plus the
 //                    menu and budget rules in tools/validate_doctrine.mjs
-//   data/versus/**   against data/schemas/versus_rules.schema.json, plus the camp,
+//   data/versus/modes/** against data/schemas/versus_mode.schema.json (GH-976), plus the camp, zone and
+//                    anchor rules in tools/validate_versus_modes.mjs
+//   data/versus/*    against data/schemas/versus_rules.schema.json, plus the camp,
 //                    zone and one-per-matchup-map rules in tools/validate_versus_rules.mjs
 //   data/grades/**   against data/schemas/grade.schema.json, plus the palette-key rules (GH-943 L2)
 //   data/formations/** against data/schemas/formation.schema.json, plus the
@@ -25,7 +27,7 @@
 //   one contributor quietly breaks the contrast rule for the whole game.
 
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
-import { join, dirname, relative, basename } from 'node:path';
+import { join, dirname, relative, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { elevationFailures } from './validate_map_grid.mjs';
@@ -39,6 +41,7 @@ import { incomeFailures } from './validate_income.mjs';
 import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
+import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
@@ -136,19 +139,22 @@ function rel(p) {
   return relative(ROOT, p);
 }
 
-function jsonFilesIn(dir) {
+// `skipDirs` names sub-directories of `dir` to leave out: data/versus/modes/ holds the win-mode files (GH-976),
+// a second kind of document under the rules files' directory, with its own schema and its own sweep below.
+function jsonFilesIn(dir, skipDirs = []) {
   if (!existsSync(dir)) return [];
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
     if (entry.isFile() && entry.name.endsWith('.json')) {
+      if (skipDirs.includes(relative(dir, entry.parentPath).split(sep)[0])) continue;
       out.push(join(entry.parentPath, entry.name));
     }
   }
   return out.sort();
 }
 
-function validateDir(dir, validate, schemaName) {
-  const files = jsonFilesIn(dir);
+function validateDir(dir, validate, schemaName, skipDirs = []) {
+  const files = jsonFilesIn(dir, skipDirs);
   for (const file of files) {
     const doc = loadJson(file);
     if (doc === null) continue;
@@ -196,6 +202,7 @@ const schemas = {
   structure: loadJson(join(ROOT, 'data/schemas/structure.schema.json')),
   doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
   versus: loadJson(join(ROOT, 'data/schemas/versus_rules.schema.json')),
+  versusMode: loadJson(join(ROOT, 'data/schemas/versus_mode.schema.json')),
   formation: loadJson(join(ROOT, 'data/schemas/formation.schema.json')),
   grade: loadJson(join(ROOT, 'data/schemas/grade.schema.json')),
   coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
@@ -205,7 +212,7 @@ let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.formation && schemas.grade && schemas.coupons
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -222,6 +229,7 @@ if (
     structure: ajv.compile(schemas.structure),
     doctrine: ajv.compile(schemas.doctrine),
     versus: ajv.compile(schemas.versus),
+    versusMode: ajv.compile(schemas.versusMode),
     formation: ajv.compile(schemas.formation),
     grade: ajv.compile(schemas.grade),
     coupons: ajv.compile(schemas.coupons),
@@ -232,7 +240,8 @@ if (
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
   checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema');
-  checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema');
+  checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema', ['modes']);
+  checked += validateDir(join(ROOT, 'data/versus/modes'), validators.versusMode, 'versus_mode.schema');
   checked += validateDir(join(ROOT, 'data/formations'), validators.formation, 'formation.schema');
   checked += validateDir(join(ROOT, 'data/grades'), validators.grade, 'grade.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
@@ -1370,8 +1379,11 @@ const garrisonableSymbols = new Set(
     const m = loadJson(file);
     if (m?.id) mapsById.set(m.id, m);
   }
-  const rulesFiles = jsonFilesIn(join(ROOT, 'data/versus')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  const rulesFiles = jsonFilesIn(join(ROOT, 'data/versus'), ['modes']).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...versusRulesFailures(rulesFiles, mapsById));
+  // GH-976: the win-mode files (data/versus/modes/), their own cross-file rules.
+  const modeFiles = jsonFilesIn(join(ROOT, 'data/versus/modes')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...versusModeFailures(modeFiles, mapsById));
 }
 
 // --- formations (GH-859): the rules formation.schema.json cannot see ---------
