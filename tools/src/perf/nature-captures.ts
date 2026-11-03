@@ -69,6 +69,8 @@ const { port: PORT } = await claimPortOrAttach(TAG, 'NATURE_CAPTURE_PORT', NATUR
 const OUT = resolve(arg('out', 'nature-sheets-out'));
 const PHASES = arg('phase', 'sheets,signal,cost').split(',');
 const ONLY = arg('only', 'arid,green').split(',');
+/** Which clips of the `sheets` phase to shoot (`--scenes=pivot` re-shoots the pivot alone). */
+const SCENES = arg('scenes', 'drive,parked,pivot').split(',');
 const ROOT = resolve(import.meta.dirname, '../../..');
 mkdirSync(OUT, { recursive: true });
 const lines: string[] = [];
@@ -421,7 +423,9 @@ async function sheetsPhase(browser: Browser, errors: string[]): Promise<void> {
 
     // ---- drive ----
     const drive = await findDrive(page, list, st0.w, st0.h);
-    if (drive === null) {
+    if (!SCENES.includes('drive')) {
+      say('  (drive not asked for: --scenes)');
+    } else if (drive === null) {
       say(`  (no drive path with undergrowth on ${theme.id}: drive skipped)`);
     } else {
       const sx = drive.mx - 4.3 * D.x;
@@ -472,6 +476,11 @@ async function sheetsPhase(browser: Browser, errors: string[]): Promise<void> {
       say(`  (no clear grass cluster on ${theme.id}: parked skipped)`);
     } else {
       say(`  parked: at (${park.x}, ${park.z}); grass ${park.grass} shrub ${park.shrub} within 1.7 tiles`);
+      themePark.set(theme.id, park);
+      if (!SCENES.includes('parked')) {
+        await page.close();
+        continue;
+      }
       let cur = (await call<{ tick: number }>(page, 'state')).tick;
       await call(page, 'place', lavi, park.x, park.z, DRIVE_TURNS);
       cur = await stepTo(page, cur + 1);
@@ -505,7 +514,7 @@ async function sheetsPhase(browser: Browser, errors: string[]): Promise<void> {
   for (const theme of THEMES) {
     if (!ONLY.includes(theme.id)) continue;
     const park = themePark.get(theme.id);
-    if (park === undefined) continue;
+    if (park === undefined || !SCENES.includes('pivot')) continue;
     const pview: View = { id: 'close', label: 'close, zoom 2.0', zoom: 2.0, cw: 560, ch: 350 };
     const tilesPiv: string[][] = [[], []];
     const cols: string[] = [];

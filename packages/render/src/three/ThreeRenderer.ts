@@ -470,6 +470,7 @@ import {
   CLOD_MAX_LIFE_MS,
   CLOD_PIVOT_DIRS,
   CLOD_PIVOT_MAGNITUDE,
+  CLOD_SPAWN_OFFSET_TILES,
   churnStamps,
   makeChurnState,
   resetChurn,
@@ -11142,15 +11143,16 @@ export class ThreeRenderer implements Renderer {
         const dirs = kind === CHURN_EVENT_PIVOT ? CLOD_PIVOT_DIRS : [CLOD_LAUNCH_DIR];
         const prio = clods.budget_priority ?? 2;
         const rand = washRand(i, tick);
-        // A launch throws from behind the hull, as the dust does; a pivot from each flank.
-        const anchor = vehicleFxAnchor(this.clodX[slot], this.clodY[slot], facing, kind === CHURN_EVENT_LAUNCH ? 0.5 : 0);
+        // A burst is born at the hull's EDGE along its own direction of throw (clods draw below the units, so one born
+        // under the hull is hidden by it): behind the hull for a launch, out of each flank for a pivot.
         for (const dir of dirs) {
+          const rad = (facing + dir) * Math.PI * 2;
           for (const layer of clods.particles) {
             const fxLayer = fxLayerIndex(clods.layer, layer.additive ?? false);
             this.particleSystem.spawn(
               layer,
-              kind === CHURN_EVENT_LAUNCH ? anchor.x : this.clodX[slot],
-              kind === CHURN_EVENT_LAUNCH ? anchor.y : this.clodY[slot],
+              this.clodX[slot] + Math.cos(rad) * CLOD_SPAWN_OFFSET_TILES,
+              this.clodY[slot] + Math.sin(rad) * CLOD_SPAWN_OFFSET_TILES,
               (((facing + dir) % 1) + 1) % 1,
               magnitude,
               prio,

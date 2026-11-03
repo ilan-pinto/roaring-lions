@@ -83,10 +83,10 @@ describe('churnStamps', () => {
     const pivot = churnStamps(CHURN_EVENT_PIVOT, 10, 10, 0, 'tracked');
     expect(pivot).toHaveLength(2);
     expect(pivot.map((p) => p.y).sort((a, b) => a - b)).toEqual([9.78, 10.22]);
-    expect(pivot.every((p) => p.halfLength === 0.3 && p.halfWidth === 0.3)).toBe(true);
+    expect(pivot.every((p) => p.halfLength === 0.5 && p.halfWidth === 0.5)).toBe(true);
     const launch = churnStamps(CHURN_EVENT_LAUNCH, 10, 10, 0, 'wheeled');
     expect(launch).toHaveLength(2);
-    expect(launch.every((p) => Math.abs(p.x - 9.6) < 1e-9)).toBe(true);
+    expect(launch.every((p) => Math.abs(p.x - 9.2) < 1e-9)).toBe(true);
     expect(launch[0].halfLength).toBeGreaterThan(launch[0].halfWidth);
     expect(churnStamps(CHURN_EVENT_NONE, 0, 0, 0, 'tracked')).toEqual([]);
     // A motorcycle has one track line.

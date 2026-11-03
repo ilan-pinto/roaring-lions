@@ -34,11 +34,11 @@ export const CHURN_STAND_SHARE = 0.1;
 export const CHURN_LAUNCH_STOPPED_TICKS = 6;
 export const CHURN_LAUNCH_COOLDOWN_TICKS = 40;
 /** The scuff's half extents, tiles: a pivot's round one under each track, a launch's long one behind each driven wheel or track. */
-export const CHURN_PIVOT_RADIUS_TILES = 0.3;
-export const CHURN_LAUNCH_HALF_LENGTH_TILES = 0.42;
+export const CHURN_PIVOT_RADIUS_TILES = 0.5;
+export const CHURN_LAUNCH_HALF_LENGTH_TILES = 0.5;
 export const CHURN_LAUNCH_HALF_WIDTH_TILES = 0.2;
-/** How far behind the hull's centre a launch digs in, tiles. */
-export const CHURN_LAUNCH_BACK_TILES = 0.4;
+/** How far behind the hull's centre a launch digs in, tiles: past a hull's rear edge, so the scuff is not all under it. */
+export const CHURN_LAUNCH_BACK_TILES = 0.8;
 
 /** The wrapped change of a heading in turns, in [-0.5, 0.5). */
 export function turnDelta(prevTurns: number, curTurns: number): number {
@@ -167,3 +167,5 @@ export const CLOD_LAUNCH_MAGNITUDE = 0.9;
 export const CLOD_PIVOT_DIRS: readonly [number, number] = [0.25, 0.75];
 /** A launch throws them straight back. */
 export const CLOD_LAUNCH_DIR = 0.5;
+/** Where a burst is born, tiles from the hull's centre along its own direction of throw: at the hull's edge, not under it (clods draw below the units). */
+export const CLOD_SPAWN_OFFSET_TILES = 0.6;
