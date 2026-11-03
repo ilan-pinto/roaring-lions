@@ -26,8 +26,9 @@
  * buildings' own band (`GARRISON_BANNER_RENDER_ORDER`, an alias of
  * `WORLD_RENDER_ORDER`; `render-order.ts`'s table).
  *
- * THE SWAY is the foliage's (`../terrain/sway.ts`): the same sim clock,
- * shared by reference, and the same gust, as a slow swing out from the wall
+ * THE SWAY is the foliage's (`../terrain/wind.ts`): the same sim clock,
+ * shared by reference, and the same travelling gust and strength (GH-984 N1; reduced motion plays
+ * the old periodic gust), as a slow swing out from the wall
  * growing toward the hem. A pinned tick repeats and a zero-time repaint
  * moves nothing. The shadow and AO passes keep the rest pose, as the crowns'
  * do (R-11). Presentation only -- nothing here reads or writes sim state.
@@ -38,6 +39,8 @@ import { VIEW_DIRECTION } from '../camera';
 import { paletteHex } from '../palette-hex';
 import { WORLD_ROUGHNESS } from '../world-materials';
 import { SWAY_GUST_EVERY_S, SWAY_GUST_GAIN, SWAY_GUST_WIDTH_S, SWAY_PHASE_X, SWAY_PHASE_Z } from '../terrain/sway';
+import { WIND_GUST_GAIN, windGustGlsl } from '../terrain/wind';
+import { legacyWindUniforms, type WindUniformSet } from '../terrain/wind-uniforms';
 import { BANNER_STANDOFF, placeBanner, type BannerSpot } from './banner-placement';
 import type { FitScale } from './building-fit';
 import { GARRISON_BANNER_RENDER_ORDER } from './render-order';
@@ -160,13 +163,19 @@ function glsl(k: number): string {
 function swayChunk(): string {
   return `
   float rlPh = ${glsl(SWAY_PHASE_X)} * instanceMatrix[3].x + ${glsl(SWAY_PHASE_Z)} * instanceMatrix[3].z;
-  float rlGustT = mod(uBannerTime, ${glsl(SWAY_GUST_EVERY_S)});
-  float rlBump = 0.0;
-  if (rlGustT < ${glsl(SWAY_GUST_WIDTH_S)}) {
-    float rlB = sin(PI * rlGustT / ${glsl(SWAY_GUST_WIDTH_S)});
-    rlBump = rlB * rlB;
+  float rlGust;
+  if (uWindMode > 0.5) {
+    float rlG = rlWindGust(uBannerTime, instanceMatrix[3].x, instanceMatrix[3].z, uWindDir.x, uWindDir.y);
+    rlGust = (1.0 + (${glsl(WIND_GUST_GAIN)} - 1.0) * rlG) * uWindStrength;
+  } else {
+    float rlGustT = mod(uBannerTime, ${glsl(SWAY_GUST_EVERY_S)});
+    float rlBump = 0.0;
+    if (rlGustT < ${glsl(SWAY_GUST_WIDTH_S)}) {
+      float rlB = sin(PI * rlGustT / ${glsl(SWAY_GUST_WIDTH_S)});
+      rlBump = rlB * rlB;
+    }
+    rlGust = 1.0 + (${glsl(SWAY_GUST_GAIN)} - 1.0) * rlBump;
   }
-  float rlGust = 1.0 + (${glsl(SWAY_GUST_GAIN)} - 1.0) * rlBump;
   float rlS = uBannerAmp * ${glsl(BANNER_SWAY)} * rlGust * sin(PI2 * uBannerTime / ${glsl(BANNER_SWAY_PERIOD_S)} + rlPh);
   transformed.z += max(0.0, rlS) * aHem * aHem;
   transformed.x += 0.4 * rlS * aHem * aHem;
@@ -179,6 +188,8 @@ export class GarrisonBannerBatch {
   readonly time: { value: number };
   /** 1 in play; 0 holds every cloth at rest. */
   readonly amp = { value: 1 };
+  /** The wind's mode, strength and heading, shared by reference with the crowns'. */
+  readonly wind: WindUniformSet;
   /** The cloth's self-lit floor, a share of its own albedo: see
    *  `BANNER_GLOW`. */
   readonly glow = { value: BANNER_GLOW };
@@ -187,8 +198,9 @@ export class GarrisonBannerBatch {
   /** What the buffers hold, so an unchanged frame uploads nothing. */
   private shown: { s: number; hex: string }[] = [];
 
-  constructor(time: { value: number }, capacity = CAPACITY) {
+  constructor(time: { value: number }, capacity = CAPACITY, wind: WindUniformSet = legacyWindUniforms()) {
     this.time = time;
+    this.wind = wind;
     const material = new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: WORLD_ROUGHNESS,
@@ -199,10 +211,13 @@ export class GarrisonBannerBatch {
       shader.uniforms.uBannerTime = this.time;
       shader.uniforms.uBannerAmp = this.amp;
       shader.uniforms.uBannerGlow = this.glow;
+      shader.uniforms.uWindMode = this.wind.mode;
+      shader.uniforms.uWindStrength = this.wind.strength;
+      shader.uniforms.uWindDir = this.wind.dir;
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <common>',
-          '#include <common>\nuniform float uBannerTime;\nuniform float uBannerAmp;\nattribute float aTeam;\nattribute float aHem;\nvarying float vRlTeam;'
+          `#include <common>\nuniform float uBannerTime;\nuniform float uBannerAmp;\nuniform float uWindMode;\nuniform float uWindStrength;\nuniform vec2 uWindDir;\n${windGustGlsl()}\nattribute float aTeam;\nattribute float aHem;\nvarying float vRlTeam;`
         )
         .replace('#include <begin_vertex>', `#include <begin_vertex>\n#ifdef USE_INSTANCING\n${swayChunk()}\n#endif`)
         // The cloth takes the instance's team colour; the steel keeps its own.

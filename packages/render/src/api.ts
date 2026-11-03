@@ -402,6 +402,14 @@ export interface RendererOptions {
    */
   weather?: 'clear' | 'rain';
   /**
+   * GH-984 N1: the wind a mission draws under -- the map's `wind` block, else its theme's
+   * `TERRAIN_WIND`. `strength` 0..2 scales every lean; `side` is the screen side it blows toward and
+   * `skewDeg` (clamped to +-30) turns that heading. Presentation only: the sim never reads it.
+   * Absent is strength 1 toward the screen's east, which is the sway the game always had.
+   * Reduced motion ignores all of it and plays today's sway. Three-only.
+   */
+  wind?: { readonly strength: number; readonly side: 'east' | 'west'; readonly skewDeg: number };
+  /**
    * GH-469: the drawing buffer's pixel ratio is `min(devicePixelRatio, this)`
    * -- `PIXEL_RATIO_CAP` (2) when absent. Three-only. The menu's backdrop
    * passes a lower one: every full-screen target scales with its square.

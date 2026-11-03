@@ -76,6 +76,7 @@ export * from './decor-place';
 export * from './prop-role';
 export * from './prop-place';
 export * from './sway';
+export * from './wind';
 export * from './tiled-mesh';
 export * from './chunks';
 export * from './incremental';

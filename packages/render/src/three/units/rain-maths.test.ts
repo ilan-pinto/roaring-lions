@@ -42,6 +42,7 @@ import {
   splashRadius,
   streakWidthWorld,
   toHalfFloat,
+  windDirOf,
   windowLow,
   type GroundBox,
   type RainView,
@@ -710,5 +711,44 @@ describe('the wind (GH-940): slanted rain and gusts on the sim clock', () => {
     expect(dx(calm)).toBeCloseTo(6 * 0.249328 * Math.SQRT1_2, 5);
     expect(dx(gust)).toBeCloseTo(6 * 0.249328 * 2.1 * Math.SQRT1_2, 5);
     expect(RAIN_SLANT_TAN).toBeCloseTo(0.249328, 6);
+  });
+});
+
+describe('the rain reads the same wind as the foliage (GH-984 N1)', () => {
+  it('takes the travelling gust when given one: bump 0 is the meander alone, bump 1 adds the full 0.9', () => {
+    const meander = (t: number) => 1 + 0.2 * Math.sin((2 * Math.PI * t) / 8.3);
+    expect(rainWindScale(1.25, 0)).toBeCloseTo(meander(1.25), 12);
+    expect(rainWindScale(1.25, 1)).toBeCloseTo(meander(1.25) + 0.9, 12);
+    expect(rainWindScale(1.25, 0.5)).toBeCloseTo(meander(1.25) + 0.45, 12);
+    // No gust given: the old periodic bump, untouched (the existing literals above).
+    expect(rainWindScale(1.25)).toBeCloseTo(2.0627, 3);
+  });
+  it('defaults the heading to the foliage`s old axis and takes the view`s otherwise', () => {
+    expect(windDirOf({})).toEqual({ x: Math.SQRT1_2, z: -Math.SQRT1_2 });
+    expect(windDirOf({ windX: -0.6, windZ: 0.8 })).toEqual({ x: -0.6, z: 0.8 });
+  });
+  it('a west wind grows the footprint box on the other two sides (the landing points move -x, +z)', () => {
+    const base = { x: 24, y: 24, zoom: 1, width: 1400, height: 900 };
+    const east = footprintBox(base);
+    const west = footprintBox({ ...base, windX: -Math.SQRT1_2, windZ: Math.SQRT1_2 });
+    expect(west.minX).toBeLessThan(east.minX);
+    expect(west.maxZ).toBeGreaterThan(east.maxZ);
+    expect(west.maxX).toBeLessThan(east.maxX);
+    expect(west.minZ).toBeGreaterThan(east.minZ);
+  });
+  it('a head sits up-wind of its landing along the VIEW`s heading', () => {
+    const seed: [number, number, number] = [0.5, 0, 0.5];
+    const p = dropPosition(seed, { x: 0, z: 0 }, 8, 0, 0, 1, { x: -0.6, z: 0.8 });
+    expect(p.landX - p.x).toBeCloseTo(6 * 0.249328 * -0.6, 5);
+    expect(p.landZ - p.z).toBeCloseTo(6 * 0.249328 * 0.8, 5);
+  });
+  it('the keep cache keys on the heading as well as the zoom', () => {
+    const c = new RainKeepCache();
+    const v = { zoom: 1.6, width: 1400, height: 900 };
+    c.get(v, 16);
+    c.get(v, 16);
+    expect(c.hits).toBe(1);
+    c.get({ ...v, windX: -0.6, windZ: 0.8 }, 16);
+    expect(c.misses).toBe(2);
   });
 });
