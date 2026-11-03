@@ -81,6 +81,19 @@ describe('parseClientMsg', () => {
     // Duplicates do not count against the cap: what is kept is what is bounded.
     expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [...ids(MAX_CMD_IDS), 0, 1, 2] } }))).not.toBeNull();
   });
+  it('GH-972: a group garrison keeps its spread flag and a group load its carriers, through the rebuild', () => {
+    const parse = (cmd: Record<string, unknown>) => parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd }));
+    const g = { kind: 'garrison', ids: [1, 2], structure: 4, spread: true };
+    expect(parse(g)).toEqual({ t: 'cmd', seq: 0, cmd: g });
+    expect(parse({ ...g, pad: 'x' })).toEqual({ t: 'cmd', seq: 0, cmd: g });
+    const l = { kind: 'load', ids: [1, 2], carrier: 7, carriers: [7, 8, 9] };
+    expect(parse(l)).toEqual({ t: 'cmd', seq: 0, cmd: l });
+    // Duplicate carriers collapse, as ids do; the rest is refused rather than turned into a plain order.
+    expect(parse({ ...l, carriers: [7, 8, 8] })).toEqual({ t: 'cmd', seq: 0, cmd: { ...l, carriers: [7, 8] } });
+    expect(parse({ ...g, spread: 'yes' })).toBeNull();
+    expect(parse({ ...l, carriers: 'all' })).toBeNull();
+    expect(parse({ ...l, carriers: [7, 1.5] })).toBeNull();
+  });
   it('GH-420: accepts an attack with ids and an integer target, and refuses the rest', () => {
     const ok = { kind: 'attack', ids: [1, 2], target: 14 };
     expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: ok }))).toEqual({ t: 'cmd', seq: 0, cmd: ok });

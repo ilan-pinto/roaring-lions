@@ -220,6 +220,7 @@ import {
   MAX_FORMATION_TYPES,
   MAX_FORMATION_GROUPS_PER_SIDE,
   type SupportKind,
+  SPREAD_REACH_SQ,
 } from './tuning';
 import { bestCoverTile, figuresStanding, rescuePriority, scaleDown, scarredShare } from './wounds';
 
@@ -1207,9 +1208,16 @@ export type Command =
    *  whole command. */
   | { kind: 'setStance'; ids: number[]; stance: 'hold' | 'ambush'; radius?: Fx }
   | { kind: 'setStance'; ids: number[]; stance: 'patrol'; waypoints: [Fx, Fx][] }
-  | { kind: 'garrison'; ids: number[]; structure: number }
-  /** Climb aboard a vehicle with seats. */
-  | { kind: 'load'; ids: number[]; carrier: number }
+  /** `spread` (GH-972): a player's group order. The `ids` are shared out across `structure` and the nearest
+   *  open buildings in reach (`planGarrisonSpread`), and a unit that finds its building full (while walking
+   *  or at the door) goes to the nearest one with room (`redirectSpread`). Absent = today's order: every
+   *  unit walks to `structure`, and the overflow waits at its door. Scripted garrisons never set it. */
+  | { kind: 'garrison'; ids: number[]; structure: number; spread?: boolean }
+  /** Climb aboard a vehicle with seats.
+   *  `carriers` (GH-972): the other carriers the player had selected. With two or more ground carriers in
+   *  all (this one included) the riders are shared out across them by free seats (`planLoadSpread`), each
+   *  walking to its own. Absent = today's order: everyone boards `carrier`. */
+  | { kind: 'load'; ids: number[]; carrier: number; carriers?: number[] }
   /** Put the passengers down beside the vehicle. */
   | { kind: 'unload'; ids: number[] }
   /** Bought with intel: reveal everything hostile around a point. */
@@ -1883,6 +1891,17 @@ export class Sim {
   private readonly garrisonedIn: Int32Array;
   /** Structure this unit has been ordered into but has not reached yet. */
   private readonly garrisonGoal: Int32Array;
+  /** GH-972: 1 while this unit's `garrisonGoal` came from a `spread` order, which lets `stepGarrison` send
+   *  it on to the nearest building with room when its own is full. Written by both garrison branches of
+   *  `applyCommands` (so a stale 1 can never leak onto a scripted order) and read only with a goal set.
+   *  Hashed behind `spreadLive`, the `airLive` shape: no world without a spread order moves a pin. */
+  private readonly spreadGoal: Uint8Array;
+  private spreadLive = false;
+  /** GH-972 scratch: what the buildings owe, rebuilt by `garrisonLedger` before every read (never carried
+   *  between calls), grown only when the structure count outgrows them. Units walking to each building, and
+   *  which side holds it (-1 empty, a side, or 3 when mixed). */
+  private ledReserved = new Int32Array(0);
+  private ledHeld = new Int8Array(0);
   /** 1 when the unit actually changed position this tick. */
   private readonly displaced: Uint8Array;
   /** GH-421: the valve count of a separating hull -- +2 a tick standing blocked, +1 a tick steering
@@ -2307,6 +2326,8 @@ export class Sim {
     readonly routed: Uint8Array;
     /** Structure the unit is fighting from, -1 when in the open. */
     readonly garrisonedIn: Int32Array;
+    /** Structure a unit has been ordered into but has not reached; -1 none. */
+    readonly garrisonGoal: Int32Array;
     /** Structure the unit is currently shooting at, -1 when none. */
     readonly curStructure: Int32Array;
     /** Structure the unit is currently demolishing, -1 when none. */
@@ -2507,6 +2528,7 @@ export class Sim {
     this.ambushRadiusSq = new Int32Array(n);
     this.garrisonedIn = new Int32Array(n).fill(-1);
     this.garrisonGoal = new Int32Array(n).fill(-1);
+    this.spreadGoal = new Uint8Array(n);
     this.displaced = new Uint8Array(n);
     this.sepWait = new Uint8Array(n);
     this.sepLast = new Uint8Array(n);
@@ -2663,6 +2685,7 @@ export class Sim {
       curTarget: this.curTarget,
       routed: this.routed,
       garrisonedIn: this.garrisonedIn,
+      garrisonGoal: this.garrisonGoal,
       curStructure: this.curStructure,
       demoTarget: this.demoTarget,
       carriedBy: this.carriedBy,
@@ -5884,25 +5907,18 @@ export class Sim {
             gy = this.goalY[car];
           }
         }
+        // GH-972: a player's group order names every carrier it selected; the riders are shared out
+        // across the ground ones. Anything else (one carrier, an air carrier, no list) is today's order.
+        if (cmd.carriers !== undefined && !this.unitTypes[this.typeIdx[car]].isAirCarrier) {
+          const set = this.loadSpreadSet(car, cmd.carriers);
+          if (set.length >= 2) {
+            this.loadSpread(cmd.ids, car, set);
+            continue;
+          }
+        }
         for (const id of cmd.ids) {
-          if (this.alive[id] === 0 || this.routed[id] === 1 || id === car) continue;
-          // Only dismounted elements ride. This also covers vehicle stacking,
-          // since no carrier is a foot role.
-          if (!this.unitTypes[this.typeIdx[id]].canEmbark) continue;
-          if (this.carriedBy[id] >= 0) continue;
-          // GH-707 D3: a carrying medic boards nothing (canSeat refuses him too); refused here
-          // so he is not walked to a hull that will never take him.
-          if (this.unitTypes[this.typeIdx[id]].rescue !== null && this.passengers[id] > 0) continue;
-          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
-          this.boardGoal[id] = car;
-          this.wpCount[id] = 0;
-          this.goalX[id] = gx;
-          this.goalY[id] = gy;
-          this.fieldRef[id] = this.fieldFor(fx.toInt(gx), fx.toInt(gy), this.domainOf(id));
-          this.moving[id] = 1;
-          this.attackMove[id] = 0;
-          this.sweepOrder[id] = 0;
-          this.stance[id] = 0;
+          if (!this.canBoardOrder(id, car)) continue;
+          this.sendToCarrier(id, car, gx, gy);
         }
       } else if (cmd.kind === 'unload') {
         for (const id of cmd.ids) {
@@ -5957,26 +5973,18 @@ export class Sim {
         // (and `removeStructure` relies on it: an unfinished one is empty).
         if (this.stProgress[s] < ONE) continue;
         // Walk to the doorway; stepGarrison lets them in when they arrive
-        // and there is room. Overflow simply waits outside.
-        const [gx, gy] = [this.stCx[s], this.stCy[s]];
-        // Same fix as `demolish` above, for the same reason: the centroid is
-        // always blocked, so the field routes to the nearest open tile and
-        // goalX/goalY keep the true centroid for the final approach.
-        const gtx = fx.toInt(gx);
-        const gty = fx.toInt(gy);
+        // and there is room. Overflow simply waits outside (unless `spread`,
+        // GH-972, which shares the group out and sends the overflow on).
+        // `sendToGarrison` carries the `demolish` fix, for the same reason:
+        // the centroid is always blocked, so the field routes to the nearest
+        // open tile and goalX/goalY keep the true centroid for the final approach.
+        if (cmd.spread === true) {
+          this.garrisonSpread(cmd.ids, s);
+          continue;
+        }
         for (const id of cmd.ids) {
-          if (this.alive[id] === 0 || this.routed[id] === 1) continue;
-          if (!this.unitTypes[this.typeIdx[id]].canGarrison) continue;
-          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
-          this.garrisonGoal[id] = s;
-          this.goalX[id] = gx;
-          this.goalY[id] = gy;
-          this.fieldRef[id] = this.fieldToward(id, gtx, gty);
-          this.moving[id] = 1;
-          this.attackMove[id] = 0;
-          this.sweepOrder[id] = 0;
-          this.engaging[id] = 0;
-          this.stance[id] = 0;
+          if (!this.canGarrisonOrder(id)) continue;
+          this.sendToGarrison(id, s, false);
         }
       } else if (cmd.kind === 'chargeTunnel') {
         const r = cmd.tunnel;
@@ -10244,6 +10252,14 @@ export class Sim {
     if (car < 0 || car >= this.count || this.alive[car] === 0) return false;
     const slots = this.unitTypes[this.typeIdx[car]].transportSlots;
     if (slots === 0 || this.passengers[car] >= slots) return false;
+    return this.seatEligible(car, id, atSpawn);
+  }
+
+  /** `canSeat` without the count of free seats: may `id` ride in `car` if there were room? Also the
+   *  question a group `load` asks (GH-972), which does its own count of seats. */
+  private seatEligible(car: number, id: number, atSpawn: boolean): boolean {
+    if (car < 0 || car >= this.count || this.alive[car] === 0) return false;
+    if (this.unitTypes[this.typeIdx[car]].transportSlots === 0) return false;
     if (id === car || id < 0 || id >= this.count || this.alive[id] === 0) return false;
     // Only dismounted elements ride. This also covers vehicle stacking, since no
     // carrier is a foot role.
@@ -10742,7 +10758,316 @@ export class Sim {
     }
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // GH-972: group orders that spread. Everything below is reached only from a `garrison` command with
+  // `spread`, a `load` command with `carriers`, or a unit whose `spreadGoal` is set. Integer distance
+  // (`distSqFx`), ties by entity or structure id, scans in index order: no float, no RNG, nothing a second
+  // machine could resolve differently. See docs/agent-notes/sim-and-orders.md.
+  // ---------------------------------------------------------------------------------------------
+
+  /** The filters a `garrison` order applies to each id (alive, standing, able to garrison). */
+  private canGarrisonOrder(id: number): boolean {
+    if (id < 0 || id >= this.count) return false;
+    if (this.alive[id] === 0 || this.routed[id] === 1) return false;
+    return this.unitTypes[this.typeIdx[id]].canGarrison;
+  }
+
+  /** Send one unit to walk into structure `s`; the body `garrison` always had. */
+  private sendToGarrison(id: number, s: number, spread: boolean): void {
+    if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    const gx = this.stCx[s];
+    const gy = this.stCy[s];
+    this.garrisonGoal[id] = s;
+    this.spreadGoal[id] = spread ? 1 : 0;
+    this.goalX[id] = gx;
+    this.goalY[id] = gy;
+    this.fieldRef[id] = this.fieldToward(id, fx.toInt(gx), fx.toInt(gy));
+    this.moving[id] = 1;
+    this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
+    this.engaging[id] = 0;
+    this.stance[id] = 0;
+  }
+
+  /**
+   * What the buildings already owe: per structure, the units walking to it that are not inside yet
+   * (`reserved`), and which side holds it (`held`: -1 empty, a side, or 3 when mixed). `skip` names ids
+   * whose goals the caller is about to rewrite, so they do not count against themselves.
+   */
+  private garrisonLedger(skip: Uint8Array | null): void {
+    const n = this.structureCount_;
+    if (this.ledReserved.length < n) {
+      this.ledReserved = new Int32Array(n);
+      this.ledHeld = new Int8Array(n);
+    }
+    this.ledReserved.fill(0, 0, n);
+    this.ledHeld.fill(-1, 0, n);
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const inside = this.garrisonedIn[i];
+      if (inside >= 0) {
+        const h = this.ledHeld[inside];
+        this.ledHeld[inside] = h === -1 || h === this.side[i] ? this.side[i] : 3;
+        continue;
+      }
+      const g = this.garrisonGoal[i];
+      if (g >= 0 && (skip === null || skip[i] === 0)) this.ledReserved[g]++;
+    }
+  }
+
+  /**
+   * Seats `side` could still take in structure `c` right now: 0 for anything standing but not open to it
+   * (dead, unfinished, no slots, owned by the other side, held by anyone else's men, or a protected site
+   * that the player did not name themselves). Free slots minus the units already on their way.
+   */
+  private spreadRoom(c: number, side: number, named: boolean): number {
+    if (c < 0 || c >= this.structureCount_ || this.stAlive[c] === 0) return 0;
+    if (this.stProgress[c] < ONE) return 0;
+    const slots = this.structureTypes[this.stTypeIdx[c]].garrisonSlots;
+    if (slots === 0) return 0;
+    const owner = this.stOwner[c];
+    if ((owner === 0 || owner === 1) && owner !== side) return 0;
+    if (this.ledHeld[c] !== -1 && this.ledHeld[c] !== side) return 0;
+    if (!named && this.isProtected(c)) return 0;
+    const free = slots - this.stOccupants[c] - this.ledReserved[c];
+    return free > 0 ? free : 0;
+  }
+
+  /**
+   * A group `garrison` (GH-972). The eligible units are shared out across the named structure `s0` and the
+   * nearest open ones in reach, ROUND-ROBIN: each building in turn (the named one first, then by distance
+   * from it, ties by structure id) takes the unit nearest to it (ties by entity id), until the seats or the
+   * units run out. The buildings used are the fewest that hold the group, so a group that fits the named
+   * building all goes there, exactly as before. A unit with no seat anywhere in reach is left with today's
+   * order: walk to `s0` and wait at its door (and, flagged, move on if a seat opens nearby).
+   */
+  private garrisonSpread(ids: number[], s0: number): void {
+    const units: number[] = [];
+    const seen = new Uint8Array(this.count);
+    for (const id of ids) {
+      if (!this.canGarrisonOrder(id) || seen[id] === 1) continue;
+      seen[id] = 1;
+      units.push(id);
+    }
+    if (units.length === 0) return;
+    // Out of any building first, as the plain order does, so the seats counted below are real.
+    for (const id of units) if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.spreadLive = true;
+    const side = this.side[units[0]];
+    this.garrisonLedger(seen);
+    // The named building, then the rest of the buildings in reach, nearest first.
+    const order: number[] = [];
+    const room: number[] = [];
+    const named = this.spreadRoom(s0, side, true);
+    let total = named;
+    if (named > 0) {
+      order.push(s0);
+      room.push(named);
+    }
+    if (total < units.length) {
+      const near: number[] = [];
+      for (let c = 0; c < this.structureCount_; c++) {
+        if (c === s0 || this.spreadRoom(c, side, false) === 0) continue;
+        const d = distSqFx(fx.sub(this.stCx[c], this.stCx[s0]), fx.sub(this.stCy[c], this.stCy[s0]));
+        if (d > SPREAD_REACH_SQ) continue;
+        // Insertion sort on (distance, id); `c` ascends, so equal distances keep id order.
+        let k = near.length;
+        near.push(c);
+        while (k > 0) {
+          const o = near[k - 1];
+          const od = distSqFx(fx.sub(this.stCx[o], this.stCx[s0]), fx.sub(this.stCy[o], this.stCy[s0]));
+          if (od <= d) break;
+          near[k] = o;
+          k--;
+        }
+        near[k] = c;
+      }
+      for (const c of near) {
+        if (total >= units.length) break;
+        const r = this.spreadRoom(c, side, false);
+        order.push(c);
+        room.push(r);
+        total += r;
+      }
+    }
+    const where = new Int32Array(units.length).fill(-1);
+    let left = units.length;
+    let progressed = true;
+    while (left > 0 && progressed) {
+      progressed = false;
+      for (let k = 0; k < order.length && left > 0; k++) {
+        if (room[k] === 0) continue;
+        const c = order[k];
+        let best = -1;
+        let bestD = 0;
+        for (let u = 0; u < units.length; u++) {
+          if (where[u] !== -1) continue;
+          const id = units[u];
+          const d = distSqFx(fx.sub(this.posX[id], this.stCx[c]), fx.sub(this.posY[id], this.stCy[c]));
+          if (best === -1 || d < bestD || (d === bestD && id < units[best])) {
+            best = u;
+            bestD = d;
+          }
+        }
+        where[best] = c;
+        room[k]--;
+        left--;
+        progressed = true;
+      }
+    }
+    for (let u = 0; u < units.length; u++) {
+      this.sendToGarrison(units[u], where[u] === -1 ? s0 : where[u], true);
+    }
+  }
+
+  /**
+   * A flagged unit whose building is full looks for the open one nearest to it within reach of that building
+   * (ties by structure id), counting the units already walking to each, and walks there instead. False, and
+   * nothing written, when there is none: it then keeps today's behaviour (wait at the door, order kept).
+   */
+  private redirectSpread(i: number, s: number): boolean {
+    const side = this.side[i];
+    let best = -1;
+    let bestD = 0;
+    for (let c = 0; c < this.structureCount_; c++) {
+      if (c === s || this.spreadRoom(c, side, false) === 0) continue;
+      // In reach of the building it was bound for; nearest to where the unit is now.
+      if (distSqFx(fx.sub(this.stCx[c], this.stCx[s]), fx.sub(this.stCy[c], this.stCy[s])) > SPREAD_REACH_SQ) continue;
+      const d = distSqFx(fx.sub(this.posX[i], this.stCx[c]), fx.sub(this.posY[i], this.stCy[c]));
+      if (best === -1 || d < bestD) {
+        best = c;
+        bestD = d;
+      }
+    }
+    if (best === -1) return false;
+    if (this.ledReserved[s] > 0) this.ledReserved[s]--;
+    this.ledReserved[best]++;
+    this.sendToGarrison(i, best, true);
+    return true;
+  }
+
+  /** The filters a `load` order applies to each rider id. */
+  private canBoardOrder(id: number, car: number): boolean {
+    if (id < 0 || id >= this.count) return false;
+    if (this.alive[id] === 0 || this.routed[id] === 1 || id === car) return false;
+    // Only dismounted elements ride. This also covers vehicle stacking,
+    // since no carrier is a foot role.
+    if (!this.unitTypes[this.typeIdx[id]].canEmbark) return false;
+    if (this.carriedBy[id] >= 0) return false;
+    // GH-707 D3: a carrying medic boards nothing (canSeat refuses him too); refused here
+    // so he is not walked to a hull that will never take him.
+    if (this.unitTypes[this.typeIdx[id]].rescue !== null && this.passengers[id] > 0) return false;
+    return true;
+  }
+
+  /** Send one rider to walk to carrier `car` (whose position, or LZ, is `gx, gy`); the body `load` always had. */
+  private sendToCarrier(id: number, car: number, gx: Fx, gy: Fx): void {
+    if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.boardGoal[id] = car;
+    this.wpCount[id] = 0;
+    this.goalX[id] = gx;
+    this.goalY[id] = gy;
+    this.fieldRef[id] = this.fieldFor(fx.toInt(gx), fx.toInt(gy), this.domainOf(id));
+    this.moving[id] = 1;
+    this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
+    this.stance[id] = 0;
+  }
+
+  /** The ground carriers a group `load` may share riders across: the named one first, then the others in
+   *  the order the player's list gave them, each once, alive, with seats, on the surface. */
+  private loadSpreadSet(car: number, others: number[]): number[] {
+    const set: number[] = [];
+    const take = (c: number): void => {
+      if (c < 0 || c >= this.count || this.alive[c] === 0 || set.includes(c)) return;
+      const t = this.unitTypes[this.typeIdx[c]];
+      if (t.transportSlots === 0 || t.isAirCarrier || this.tunnelIn[c] >= 0) return;
+      set.push(c);
+    };
+    take(car);
+    for (const c of others) take(c);
+    return set;
+  }
+
+  /**
+   * A group `load` (GH-972). Riders are shared out across `set` by free seats (seats minus passengers
+   * minus riders already walking there), ROUND-ROBIN: the carrier nearest to any rider goes first (ties by
+   * id), and each carrier in turn takes the rider nearest to it that it can seat (ties by id). Each rider
+   * then walks to its OWN carrier, so the squads gather around their own hull instead of one. A rider no
+   * carrier has a seat for keeps today's order: walk to the named carrier `car`.
+   */
+  private loadSpread(ids: number[], car: number, set: number[]): void {
+    const riders: number[] = [];
+    const seen = new Uint8Array(this.count);
+    for (const id of ids) {
+      if (!this.canBoardOrder(id, car) || seen[id] === 1) continue;
+      seen[id] = 1;
+      riders.push(id);
+    }
+    if (riders.length === 0) return;
+    const reserved = new Int32Array(this.count);
+    for (let i = 0; i < this.count; i++) {
+      const g = this.boardGoal[i];
+      if (g >= 0 && this.alive[i] === 1 && this.carriedBy[i] < 0 && seen[i] === 0) reserved[g]++;
+    }
+    const room = new Int32Array(set.length);
+    const near = new Int32Array(set.length);
+    for (let k = 0; k < set.length; k++) {
+      const c = set[k];
+      const free = this.unitTypes[this.typeIdx[c]].transportSlots - this.passengers[c] - reserved[c];
+      room[k] = free > 0 ? free : 0;
+      let best = 0x7fffffff;
+      for (const id of riders) {
+        const d = distSqFx(fx.sub(this.posX[c], this.posX[id]), fx.sub(this.posY[c], this.posY[id]));
+        if (d < best) best = d;
+      }
+      near[k] = best;
+    }
+    // Nearest carrier first; set order (named first) breaks ties, and `set` never repeats a carrier.
+    const rota: number[] = [];
+    for (let k = 0; k < set.length; k++) {
+      let j = rota.length;
+      rota.push(k);
+      while (j > 0 && (near[rota[j - 1]] > near[k] || (near[rota[j - 1]] === near[k] && set[rota[j - 1]] > set[k]))) {
+        rota[j] = rota[j - 1];
+        j--;
+      }
+      rota[j] = k;
+    }
+    const where = new Int32Array(riders.length).fill(-1);
+    let progressed = true;
+    while (progressed) {
+      progressed = false;
+      for (const k of rota) {
+        if (room[k] === 0) continue;
+        const c = set[k];
+        let best = -1;
+        let bestD = 0;
+        for (let u = 0; u < riders.length; u++) {
+          const id = riders[u];
+          if (where[u] !== -1 || !this.seatEligible(c, id, false)) continue;
+          const d = distSqFx(fx.sub(this.posX[c], this.posX[id]), fx.sub(this.posY[c], this.posY[id]));
+          if (best === -1 || d < bestD || (d === bestD && id < riders[best])) {
+            best = u;
+            bestD = d;
+          }
+        }
+        if (best === -1) continue;
+        where[best] = c;
+        room[k]--;
+        progressed = true;
+      }
+    }
+    for (let u = 0; u < riders.length; u++) {
+      const c = where[u] === -1 ? car : where[u];
+      this.sendToCarrier(riders[u], c, this.posX[c], this.posY[c]);
+    }
+  }
+
   private stepGarrison(): void {
+    // GH-972: what the buildings owe, built the first tick a flagged unit needs it and kept for the rest of
+    // the pass (a redirect updates it, so two units do not pick the same last seat).
+    let ledBuilt = false;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
       const s = this.garrisonGoal[i];
@@ -10754,6 +11079,17 @@ export class Sim {
       const type = this.structureTypes[this.stTypeIdx[s]];
       const atDoor = this.structDistSq(s, this.posX[i], this.posY[i]) <= GARRISON_ENTER_RANGE_SQ;
       if (this.stOccupants[s] >= type.garrisonSlots) {
+        // GH-972: a unit from a group order does not wait on a building that is full, walking or at the
+        // door: it goes to the nearest one with room in reach. Staggered by id (one look in eight ticks)
+        // so a crowd with nowhere to go costs a scan per unit per 0.4 s, not per tick; a unit with nowhere
+        // to go falls through to today's behaviour below.
+        if (this.spreadGoal[i] === 1 && ((this.tickCount + i) & 7) === 0) {
+          if (!ledBuilt) {
+            this.garrisonLedger(null);
+            ledBuilt = true;
+          }
+          if (this.redirectSpread(i, s)) continue;
+        }
         // Full: wait at the door, stopped, with the order kept (B3, ruling
         // 2026-10-14). A unit left `moving` pressed on the wall for good --
         // a halt-to-fire man never knelt, so never fired. Stopped, stepBrace
@@ -12614,6 +12950,12 @@ export class Sim {
     h = hashArray(h, this.prStructure);
     h = hashArray(h, this.garrisonedIn);
     h = hashArray(h, this.garrisonGoal);
+    // GH-972: the spread flag, folded only once a spread order has been given (the deferred fold: an
+    // all-zero array would still move every digest). The marker keeps "folded" distinct from the words after.
+    if (this.spreadLive) {
+      h = hashWord(h, 0x53500972); // 'SP' GH-972
+      h = hashArray(h, this.spreadGoal);
+    }
     h = hashArray(h, this.displaced);
     h = hashArray(h, this.demoTicks);
     h = hashArray(h, this.demoTarget);

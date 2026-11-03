@@ -66,6 +66,22 @@ describe('applyIntent', () => {
     expect(s.out).toEqual([]);
   });
 
+  it('GH-972: a mount that names several carriers sends them, and one that names none sends none', () => {
+    const s = sink();
+    applyIntent(s, { kind: 'mount', riders: [5, 6], carrier: 9, carriers: [9, 10, 11] }, MAP);
+    expect(s.out).toEqual([{ kind: 'load', ids: [5, 6], carrier: 9, carriers: [9, 10, 11] }]);
+  });
+
+  it('GH-972: a garrison of two or more is a spread order, of one is the plain order', () => {
+    const s = sink();
+    applyIntent(s, { kind: 'garrison', ids: [5, 6], structure: 3 }, MAP);
+    applyIntent(s, { kind: 'garrison', ids: [5], structure: 3 }, MAP);
+    expect(s.out).toEqual([
+      { kind: 'garrison', ids: [5, 6], structure: 3, spread: true },
+      { kind: 'garrison', ids: [5], structure: 3 },
+    ]);
+  });
+
   it('loads riders into the carrier on a mount intent', () => {
     const s = sink();
     applyIntent(s, { kind: 'mount', riders: [5, 6], carrier: 9 }, MAP);
