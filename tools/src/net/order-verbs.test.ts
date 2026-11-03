@@ -10,9 +10,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { COMMAND_KINDS, validateCommand, type SeatWorld } from '@lions/net';
+import { COMMAND_KINDS, validateCommand, type Faction, type SeatWorld } from '@lions/net';
 import type { Command } from '@lions/sim';
+import { seatWorldFor } from '../../../packages/app/src/net/frame-step';
 import { ORDER_VERBS, ORDER_WITHHELD, TOOLS } from './mcp-tools';
+import { versusConfig } from './test-config';
 import { BOT_ADDENDUM } from './bot';
 
 const F = 65536;
@@ -46,27 +48,30 @@ const SAMPLE: { [K in Command['kind']]: Extract<Command, { kind: K }> } = {
   vent: { kind: 'vent', ids: [1], mode: 'raid' },
 };
 
-/** A seat's world in a versus room: seat s is side s, route 0 is the Sarim seat's. */
-const room = (o: { economy: boolean; seat0: 'kdf' | 'sarim' }): SeatWorld => ({
-  sideOfSeat: (seat) => seat,
-  sideOfEntity: (id) => (id >= 1 && id < 10 ? 0 : id >= 10 && id < 20 ? 1 : undefined),
-  width: 48,
-  height: 48,
-  structureExists: (id) => id === 3,
-  tunnelExists: (id) => id === 0,
-  factionOfSeat: (seat) => (seat === 0 ? o.seat0 : o.seat0 === 'kdf' ? 'sarim' : 'kdf'),
-  tunnelOwner: () => 0,
-  versus: true,
-  economy: o.economy,
-  formationAllowed: () => true,
-});
+/**
+ * Seat 0's world in a versus room, built by the room's own `seatWorldFor` from a real `MatchConfig`
+ * (`versusConfig` validates through `validateConfig`), so the flags the pin reads (`versus`, `economy`, the faction of
+ * each seat) are the ones the room sets. Only the sim is a stand-in: ids 1-9 are seat 0's side, 10-19 seat 1's, there
+ * are four structures, and route 0 is seat 0's.
+ */
+function room(map: string, factions: [Faction, Faction]): SeatWorld {
+  const config = versusConfig(map, { factions });
+  const side = new Int8Array(20);
+  side.fill(config.seats[0].side, 1, 10);
+  side.fill(config.seats[1].side, 10, 20);
+  return seatWorldFor(config, {
+    entityCount: 20, width: 48, height: 48, structureCount: 4, tunnelCount: 1,
+    state: { side },
+    tunnelOwner: () => config.seats[0].side,
+  });
+}
 
 /** The kinds a versus room accepts from some seat: a mirror room, and an economy room played from each side. */
 function legalInVersus(): Set<string> {
   const worlds = [
-    room({ economy: false, seat0: 'kdf' }),
-    room({ economy: true, seat0: 'kdf' }),
-    room({ economy: true, seat0: 'sarim' }),
+    room('tel_marum', ['kdf', 'kdf']),
+    room('wadi_tarfan', ['kdf', 'sarim']),
+    room('wadi_tarfan', ['sarim', 'kdf']),
   ];
   const out = new Set<string>();
   for (const kind of COMMAND_KINDS) for (const w of worlds) if (validateCommand(SAMPLE[kind], 0, w)) out.add(kind);
@@ -84,7 +89,7 @@ describe('every command kind a versus room accepts is an order verb or withheld 
       expect(legal.has(kind), `${kind} is not legal in a versus room`).toBe(false);
     }
     // The four production kinds are the economy room's alone.
-    const mirror = room({ economy: false, seat0: 'kdf' });
+    const mirror = room('tel_marum', ['kdf', 'kdf']);
     for (const kind of ['build', 'cancelBuild', 'setRally', 'clearRally'] as const) expect(validateCommand(SAMPLE[kind], 0, mirror), kind).toBe(false);
   });
 

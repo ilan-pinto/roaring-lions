@@ -262,7 +262,7 @@ describe('order: build, cancelBuild, setRally, clearRally (GH-954)', () => {
     expect(open).not.toBeNull();
     expect(wall).not.toBeNull();
     const refused = await call(s.ctx, 'order', { verb: 'setRally', line: 0, x: wall![0], y: wall![1] });
-    expect(body(refused)).toEqual({ error: 'refused', detail: 'the rally point must be an open tile (not a building, ridge or boulder)' });
+    expect(body(refused)).toEqual({ error: 'refused', detail: 'the rally point must be an open tile (not a building or ridge)' });
     expect((await send(s, { verb: 'setRally', line: 0, x: open![0], y: open![1] })).ok).toBe(true);
     expect((await observe(s.ctx)).economy.lines[0].rally).toEqual(open);
     expect((await send(s, { verb: 'clearRally', line: 0 })).ok).toBe(true);

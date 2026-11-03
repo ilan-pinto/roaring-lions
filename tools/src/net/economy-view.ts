@@ -11,6 +11,7 @@
 import { doctrines } from '@lions/data';
 import type { Command } from '@lions/sim';
 import { versusUnitInfo, type MatchWorld } from '../../../packages/app/src/net/match-world';
+import { zoneRatePerMin } from '../../../packages/app/src/net/zone-rate';
 
 /** One camp's production line, as `productionLines(side)` snapshots it. `line` is the index every production order carries. */
 export interface LineLine {
@@ -76,9 +77,8 @@ export function economyView(w: MatchWorld, side: 0 | 1): EconomyView | null {
     queued: l.items,
     rally: l.rally === null ? null : [l.rally[0] >> 16, l.rally[1] >> 16],
   }));
-  // What the strip shows (`roomEconomyView`): the zones this side holds, per minute. Not imported: that module's types reach the UI, and the harness's stdout purity walks imports.
-  let perMin = 0;
-  for (const z of rt.incomeZones) if (z.holder === side) perMin += z.paysPerMin;
+  // What the strip shows (`roomEconomyView`), by the one function both call.
+  const perMin = zoneRatePerMin(rt.incomeZones, side);
   return { purse, perMin, population: rt.populationView(side), lines, menu };
 }
 
@@ -113,7 +113,7 @@ export function productionRefusal(w: MatchWorld, side: 0 | 1, cmd: Command): str
       return buildRefusal(w, side, cmd.unit, cmd.line);
     case 'setRally':
       if (rt.canSetRally(cmd.line, cmd.x, cmd.y, side)) return null;
-      return rt.productionLines(side)[cmd.line]?.alive === true ? 'the rally point must be an open tile (not a building, ridge or boulder)' : lineRefusal(w, side, cmd.line);
+      return rt.productionLines(side)[cmd.line]?.alive === true ? 'the rally point must be an open tile (not a building or ridge)' : lineRefusal(w, side, cmd.line);
     case 'clearRally':
       return rt.productionLines(side)[cmd.line]?.alive === true ? null : lineRefusal(w, side, cmd.line);
     case 'cancelBuild': {

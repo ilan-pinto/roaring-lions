@@ -260,7 +260,7 @@ field works (dropped in versus), and `enterTunnel` and `vent`, because `observe`
 shows a seat neither its tunnel routes nor its buried units yet.
 
 **Legality is the room's.** Every order goes through the same `validateCommand`
-the room runs; the tools add no rule of their own. A refusal says why:
+the room runs; the tools add no legality rule of their own, only argument-shape checks (a stance name, a radius or waypoint count, a line or index in range, a tile on the map) that give a refusal its specific `detail`; `cleanCommand` stays authoritative. A refusal says why:
 
 - `invalid` with a `detail`: the arguments are malformed, or the room has no
   production (`observe` shows no `economy`).
@@ -282,7 +282,7 @@ room it also has `economy`: `purse`, `perMin`, `population` against its cap, eac
 camp's `lines` (`building`, `progress`, `secondsLeft`, `contested`, `queued`,
 `rally`) and the `menu` (`cost`, `population`, `buildSeconds`, and `blocked` with
 the reason while a `build` would be refused). All of it is the seat's own side:
-nothing of the other side's purse, queue or menu is read.
+nothing of the other side's purse, queue or menu is read. (`contested` is the strip's own flag, not fogged: an enemy ground unit stands at the exit of the seat's own camp, where its own units see.)
 
 **The pin.** `tools/src/net/order-verbs.test.ts` asks `validateCommand` which
 command kinds a versus room accepts (a sample of every kind, in a mirror room and
