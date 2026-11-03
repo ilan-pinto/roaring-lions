@@ -407,7 +407,10 @@ describe('snapshot format pin', () => {
     // `spreadLive` scalar after `garrisonGoal`, encoded even when empty; this world gives no spread order. With
     // those two rows cut from snapshot-schema.ts the same run reads 128788725 again, so the move is exactly the
     // new rows. 3624532085 is read off a fresh run.
-    expect(h >>> 0).toBe(3624532085);
+    // Was 3624532085. GH-972 review: the group-order ledger became two reusable scratch buffers (ledReserved,
+    // ledHeld, `scratch` rows after spreadLive), and the format digest covers scratch rows too. With those two
+    // rows cut the same run reads 3624532085 again. 3423221345 is read off a fresh run.
+    expect(h >>> 0).toBe(3423221345);
   });
 });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
+import { encodeSim, restoreSim } from './snapshot';
 
 // GH-972 (lead, 3 Nov 2026): a big selection ordered to LOAD spreads across the carriers it selected, and one
 // ordered into a house spreads across the houses in reach, when it is ordered with `spread` / `carriers`.
@@ -331,5 +332,43 @@ describe('versus: both seats resolve the same order alike (GH-972)', () => {
     // The west pair of houses take the west seat's five (2 + 2, one waits: 2 houses of 2), the east pair the east seat's.
     expect(counts(r.sim, r.mine, r.houses)).toEqual([2, 2, 0, 0]);
     expect(counts(r.sim, r.theirs, r.houses)).toEqual([0, 0, 2, 2]);
+  });
+});
+
+describe('a snapshot taken mid-spread (GH-972)', () => {
+  /** The mid-walk fill world, built and populated but not yet ordered. */
+  function scene() {
+    const { sim, t, u } = world(9);
+    const a = rect(sim, t.small, 24, 10);
+    const b = rect(sim, t.small, 24, 14);
+    const c = rect(sim, t.small, 24, 18);
+    const group = squads(sim, u.rifles, 4, 4.5, 10);
+    const locals = squads(sim, u.rifles, 2, 22.5, 11);
+    return { sim, a, b, c, group, locals };
+  }
+
+  it('restores the spread flag and its latch: the restored world hashes like the uninterrupted one, tick by tick', () => {
+    const live = scene();
+    live.sim.queueCommand({ kind: 'garrison', ids: live.group, structure: live.a, spread: true });
+    run(live.sim, 1);
+    live.sim.queueCommand({ kind: 'garrison', ids: live.locals, structure: live.a });
+    // Until the house is full with the group still walking to it: the flag is live and not yet spent.
+    let k = 0;
+    while (live.sim.structures.occupants[live.a] < 2 && k++ < 20 * 30) live.sim.tick();
+    expect(live.sim.structures.occupants[live.a]).toBe(2);
+    const walkers = live.group.filter((i) => live.sim.state.garrisonGoal[i] === live.a);
+    expect(walkers.length, 'someone is still bound for the full house').toBeGreaterThan(0);
+
+    const restored = scene();
+    restoreSim(restored.sim, encodeSim(live.sim));
+    expect(restored.sim.hash()).toBe(live.sim.hash());
+    for (let n = 0; n < 20 * 40; n++) {
+      live.sim.tick();
+      restored.sim.tick();
+      expect(restored.sim.hash(), `tick +${n}`).toBe(live.sim.hash());
+    }
+    // And the restored world did the redirect: the walkers ended in the third house, not at the full door.
+    expect(counts(restored.sim, live.group, [live.a, live.b, live.c])).toEqual(counts(live.sim, live.group, [live.a, live.b, live.c]));
+    expect(counts(restored.sim, live.group, [live.c])[0]).toBeGreaterThan(0);
   });
 });

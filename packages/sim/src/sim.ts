@@ -1897,6 +1897,11 @@ export class Sim {
    *  Hashed behind `spreadLive`, the `airLive` shape: no world without a spread order moves a pin. */
   private readonly spreadGoal: Uint8Array;
   private spreadLive = false;
+  /** GH-972 scratch: what the buildings owe, rebuilt by `garrisonLedger` before every read (never carried
+   *  between calls), grown only when the structure count outgrows them. Units walking to each building, and
+   *  which side holds it (-1 empty, a side, or 3 when mixed). */
+  private ledReserved = new Int32Array(0);
+  private ledHeld = new Int8Array(0);
   /** 1 when the unit actually changed position this tick. */
   private readonly displaced: Uint8Array;
   /** GH-421: the valve count of a separating hull -- +2 a tick standing blocked, +1 a tick steering
@@ -10789,20 +10794,25 @@ export class Sim {
    * (`reserved`), and which side holds it (`held`: -1 empty, a side, or 3 when mixed). `skip` names ids
    * whose goals the caller is about to rewrite, so they do not count against themselves.
    */
-  private garrisonLedger(skip: Uint8Array | null): { reserved: Int32Array; held: Int8Array } {
-    const reserved = new Int32Array(this.structureCount_);
-    const held = new Int8Array(this.structureCount_).fill(-1);
+  private garrisonLedger(skip: Uint8Array | null): void {
+    const n = this.structureCount_;
+    if (this.ledReserved.length < n) {
+      this.ledReserved = new Int32Array(n);
+      this.ledHeld = new Int8Array(n);
+    }
+    this.ledReserved.fill(0, 0, n);
+    this.ledHeld.fill(-1, 0, n);
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
       const inside = this.garrisonedIn[i];
       if (inside >= 0) {
-        held[inside] = held[inside] === -1 || held[inside] === this.side[i] ? this.side[i] : 3;
+        const h = this.ledHeld[inside];
+        this.ledHeld[inside] = h === -1 || h === this.side[i] ? this.side[i] : 3;
         continue;
       }
       const g = this.garrisonGoal[i];
-      if (g >= 0 && (skip === null || skip[i] === 0)) reserved[g]++;
+      if (g >= 0 && (skip === null || skip[i] === 0)) this.ledReserved[g]++;
     }
-    return { reserved, held };
   }
 
   /**
@@ -10810,16 +10820,16 @@ export class Sim {
    * (dead, unfinished, no slots, owned by the other side, held by anyone else's men, or a protected site
    * that the player did not name themselves). Free slots minus the units already on their way.
    */
-  private spreadRoom(c: number, side: number, led: { reserved: Int32Array; held: Int8Array }, named: boolean): number {
+  private spreadRoom(c: number, side: number, named: boolean): number {
     if (c < 0 || c >= this.structureCount_ || this.stAlive[c] === 0) return 0;
     if (this.stProgress[c] < ONE) return 0;
     const slots = this.structureTypes[this.stTypeIdx[c]].garrisonSlots;
     if (slots === 0) return 0;
     const owner = this.stOwner[c];
     if ((owner === 0 || owner === 1) && owner !== side) return 0;
-    if (led.held[c] !== -1 && led.held[c] !== side) return 0;
+    if (this.ledHeld[c] !== -1 && this.ledHeld[c] !== side) return 0;
     if (!named && this.isProtected(c)) return 0;
-    const free = slots - this.stOccupants[c] - led.reserved[c];
+    const free = slots - this.stOccupants[c] - this.ledReserved[c];
     return free > 0 ? free : 0;
   }
 
@@ -10844,11 +10854,11 @@ export class Sim {
     for (const id of units) if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
     this.spreadLive = true;
     const side = this.side[units[0]];
-    const led = this.garrisonLedger(seen);
+    this.garrisonLedger(seen);
     // The named building, then the rest of the buildings in reach, nearest first.
     const order: number[] = [];
     const room: number[] = [];
-    const named = this.spreadRoom(s0, side, led, true);
+    const named = this.spreadRoom(s0, side, true);
     let total = named;
     if (named > 0) {
       order.push(s0);
@@ -10857,7 +10867,7 @@ export class Sim {
     if (total < units.length) {
       const near: number[] = [];
       for (let c = 0; c < this.structureCount_; c++) {
-        if (c === s0 || this.spreadRoom(c, side, led, false) === 0) continue;
+        if (c === s0 || this.spreadRoom(c, side, false) === 0) continue;
         const d = distSqFx(fx.sub(this.stCx[c], this.stCx[s0]), fx.sub(this.stCy[c], this.stCy[s0]));
         if (d > SPREAD_REACH_SQ) continue;
         // Insertion sort on (distance, id); `c` ascends, so equal distances keep id order.
@@ -10874,7 +10884,7 @@ export class Sim {
       }
       for (const c of near) {
         if (total >= units.length) break;
-        const r = this.spreadRoom(c, side, led, false);
+        const r = this.spreadRoom(c, side, false);
         order.push(c);
         room.push(r);
         total += r;
@@ -10915,12 +10925,12 @@ export class Sim {
    * (ties by structure id), counting the units already walking to each, and walks there instead. False, and
    * nothing written, when there is none: it then keeps today's behaviour (wait at the door, order kept).
    */
-  private redirectSpread(i: number, s: number, led: { reserved: Int32Array; held: Int8Array }): boolean {
+  private redirectSpread(i: number, s: number): boolean {
     const side = this.side[i];
     let best = -1;
     let bestD = 0;
     for (let c = 0; c < this.structureCount_; c++) {
-      if (c === s || this.spreadRoom(c, side, led, false) === 0) continue;
+      if (c === s || this.spreadRoom(c, side, false) === 0) continue;
       // In reach of the building it was bound for; nearest to where the unit is now.
       if (distSqFx(fx.sub(this.stCx[c], this.stCx[s]), fx.sub(this.stCy[c], this.stCy[s])) > SPREAD_REACH_SQ) continue;
       const d = distSqFx(fx.sub(this.posX[i], this.stCx[c]), fx.sub(this.posY[i], this.stCy[c]));
@@ -10930,8 +10940,8 @@ export class Sim {
       }
     }
     if (best === -1) return false;
-    if (led.reserved[s] > 0) led.reserved[s]--;
-    led.reserved[best]++;
+    if (this.ledReserved[s] > 0) this.ledReserved[s]--;
+    this.ledReserved[best]++;
     this.sendToGarrison(i, best, true);
     return true;
   }
@@ -11057,7 +11067,7 @@ export class Sim {
   private stepGarrison(): void {
     // GH-972: what the buildings owe, built the first tick a flagged unit needs it and kept for the rest of
     // the pass (a redirect updates it, so two units do not pick the same last seat).
-    let led: { reserved: Int32Array; held: Int8Array } | null = null;
+    let ledBuilt = false;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
       const s = this.garrisonGoal[i];
@@ -11074,8 +11084,11 @@ export class Sim {
         // so a crowd with nowhere to go costs a scan per unit per 0.4 s, not per tick; a unit with nowhere
         // to go falls through to today's behaviour below.
         if (this.spreadGoal[i] === 1 && ((this.tickCount + i) & 7) === 0) {
-          if (led === null) led = this.garrisonLedger(null);
-          if (this.redirectSpread(i, s, led)) continue;
+          if (!ledBuilt) {
+            this.garrisonLedger(null);
+            ledBuilt = true;
+          }
+          if (this.redirectSpread(i, s)) continue;
         }
         // Full: wait at the door, stopped, with the order kept (B3, ruling
         // 2026-10-14). A unit left `moving` pressed on the wall for good --

@@ -158,6 +158,8 @@ const SCRATCH = [
   'detDistSq', 'aimTurned', 'aimDesired', 'aimFrom', 'braceWant', 'sealQueue', 'sealStamp', 'fieldLive',
   'approachField', 'snapX', 'snapY', 'presentedArc', 'engageDSq', 'engageOX', 'engageOY', 'eyeX', 'eyeY',
   'spreadTiles', 'sepHead', 'sepNext', 'sepCap', 'sepOut', 'sepHitStationary',
+  // GH-972: the group-order ledger, rebuilt by garrisonLedger before every read.
+  'ledReserved', 'ledHeld',
 ];
 
 describe('snapshot schema: completeness', () => {
