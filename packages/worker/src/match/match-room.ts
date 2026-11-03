@@ -183,8 +183,11 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
  *  counted as a live socket and sent what the room sends everyone, and it is
  *  never one of `socketsFor(seat)`, so it holds no seat, gets no seat-targeted
  *  message, and its close marks nobody gone. Who it is lives here and nowhere
- *  else, so the advisor survives an eviction with no row written. */
-interface SocketAttachment { seat: Seat | null; at?: number; role?: 'advisor'; scope?: AdvisorScope }
+ *  else, so the advisor survives an eviction with no row written.
+ *  `role: 'watch'` (GH-954 W1) is a SPECTATOR: seatless (`seat: null`), no scope, counted as a live
+ *  socket, sent the broadcast stream and nothing else, and heard from never (`webSocketMessage` drops every
+ *  message after its hello). It is none of `socketsFor`, `advisorsFor` or `advisorsPresent`. */
+interface SocketAttachment { seat: Seat | null; at?: number; role?: 'advisor' | 'watch'; scope?: AdvisorScope }
 /**
  * #559 M-1: what one room lets sockets do.
  * - `HELLO_TIMEOUT_MS`: a socket with no seat after 10 s is closed, and so is
@@ -200,6 +203,8 @@ interface SocketAttachment { seat: Seat | null; at?: number; role?: 'advisor'; s
  */
 export const HELLO_TIMEOUT_MS = 10_000;
 export const MAX_ROOM_SOCKETS = 8;
+/** GH-954 W1: spectator sockets one room serves (inside `MAX_ROOM_SOCKETS`); a third `watch` hello is refused. */
+export const MAX_WATCHERS = 2;
 export const SOCKET_BUDGET = { burst: 160, perSecond: 80 } as const;
 /** N4a: the least gap between two advisor messages one advisor socket may have relayed;
  *  a quicker one is dropped. Memory only, like the socket budget it sits beside. */
@@ -216,7 +221,11 @@ function attachmentOf(ws: WebSocket): SocketAttachment | null {
 /** The seat this socket SPEAKS FOR: null for a seatless socket and for an advisor. */
 function seatOf(ws: WebSocket): Seat | null {
   const a = attachmentOf(ws);
-  return a === null || a.role === 'advisor' ? null : a.seat;
+  return a === null || a.role === 'advisor' || a.role === 'watch' ? null : a.seat;
+}
+/** Whether this socket is a spectator (GH-954 W1). */
+function isWatcher(ws: WebSocket): boolean {
+  return attachmentOf(ws)?.role === 'watch';
 }
 /** The seat this socket advises, and how, or null when it is not an advisor. */
 function advisorOf(ws: WebSocket): { seat: Seat; scope: AdvisorScope } | null {
@@ -485,6 +494,10 @@ export class MatchRoom {
   private socketsFor(seat: Seat): WebSocket[] {
     return this.ctx.getWebSockets().filter((ws) => seatOf(ws) === seat);
   }
+  /** The spectator sockets (GH-954 W1): `MAX_WATCHERS` at most. */
+  private watchers(): WebSocket[] {
+    return this.ctx.getWebSockets().filter(isWatcher);
+  }
   /** `seat`'s advisor sockets: one at most while the room is healthy (a retired one is disowned). */
   private advisorsFor(seat: Seat): WebSocket[] {
     return this.ctx.getWebSockets().filter((ws) => advisorOf(ws)?.seat === seat);
@@ -503,6 +516,12 @@ export class MatchRoom {
       const text = JSON.stringify(msg.t === 'lobby' ? this.lobbyFor(msg, seat) : msg);
       const targets = to === 'all' ? [...this.socketsFor(seat), ...this.advisorsFor(seat)] : this.socketsFor(seat);
       for (const ws of targets) { try { ws.send(text); } catch { /* closing */ } }
+    }
+    // A spectator hears the broadcast stream (frames, stalls, pauses, the end) and none of the seats' own
+    // business: no lobby (it has no seat), no advisor badge and no advisor text. Never a seat-targeted message.
+    if (to === 'all' && msg.t !== 'lobby' && msg.t !== 'advisors' && msg.t !== 'advisor') {
+      const text = JSON.stringify(msg);
+      for (const ws of this.watchers()) { try { ws.send(text); } catch { /* closing */ } }
     }
   }
   /** Which scope each seat's advisor has, read from the sockets' attachments:
@@ -783,6 +802,8 @@ export class MatchRoom {
       if (req.method === 'GET') return this.snapshotServe(req);
       return new Response('method', { status: 405 });
     }
+    // GH-954 W1: the Worker's watch route asks whether both seats are bots. Read-only.
+    if (pathname === '/kinds') return Response.json({ kinds: (this.meta ?? legacyMeta({}, st)).kinds });
     if (pathname === '/state') return Response.json({ status: st.status, seats: st.seats.filter((s) => s !== null).length });
     if (pathname === '/join' && req.method === 'POST') {
       // The body is read BEFORE the check-and-set below: an await between them lets a
@@ -913,7 +934,7 @@ export class MatchRoom {
   acceptSocket(ws: HibernatingSocket): void {
     const now = Date.now();
     this.closeStaleSockets(now);
-    const live = this.ctx.getWebSockets().filter((s) => { const a = attachmentOf(s); return a !== null && (a.seat !== null || a.at !== undefined); }).length;
+    const live = this.ctx.getWebSockets().filter((s) => { const a = attachmentOf(s); return a !== null && (a.seat !== null || a.at !== undefined || a.role === 'watch'); }).length;
     this.ctx.acceptWebSocket(ws);
     if (live >= MAX_ROOM_SOCKETS) {
       ws.serializeAttachment({ seat: null } satisfies SocketAttachment);
@@ -963,6 +984,10 @@ export class MatchRoom {
         if (advising !== null) this.send('all', this.advisorsPresent());
         return;
       }
+      // A spectator (GH-954 W1) is heard once, at its hello, and never again: whatever it sends afterwards is
+      // dropped here, after its budget was spent (a flood still closes it), before anything can act on it.
+      // Not `advisor`, `cmd`, `pause`, `ready`, `over`, `bye`, a malformed line: nothing, and no reply.
+      if (isWatcher(ws)) return;
       const seat = seatOf(ws);
       const advisor = advisorOf(ws);
       if (msg === null) {
@@ -1024,6 +1049,7 @@ export class MatchRoom {
     // The ticket verified above, so only a seat of THIS match learns the room's build, which the client bundle already carries.
     if (build === '' || msg.build !== build) { reply(ws, build === '' ? { t: 'error', code: 'build_mismatch' } : { t: 'error', code: 'build_mismatch', build }); shut(ws, 4002, 'build'); return; }
     if (ticket.role === 'advisor' && ticket.scope !== undefined) { this.advisorHello(ws, st, ticket.seat, ticket.scope, msg.from); return; }
+    if (ticket.role === 'watch') { this.watchHello(ws, st, msg.from); return; }
     if (ticket.role !== 'seat') { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
     (ws as HibernatingSocket).serializeAttachment({ seat: ticket.seat } satisfies SocketAttachment);
     await this.apply(seatJoin(st, ticket.seat, ticket.player, this.meta?.callsigns[ticket.seat] ?? '', Date.now(), () => this.readLogFrom(msg.from), msg.from), ws);
@@ -1045,6 +1071,23 @@ export class MatchRoom {
       if (st.pause !== null) reply(ws, pausedMsg(st, Date.now(), st.pause));
     }
     this.send('all', this.advisorsPresent());
+  }
+
+  /** A spectator's hello (GH-954 W1, D-W1): a socket with no seat, no advisor slot and no badge. It is told the
+   *  log and a pause in force, as an advisor is, and then only the broadcast. It retires nobody and is never
+   *  retired; at most `MAX_WATCHERS` (a third is told `full` and closed). No `seatJoin`, no state change, no row.
+   *  Its going is only a socket going. A route that mints the ticket exists only on the local relay
+   *  (`env.ARENA_WATCH`), but the room does not rely on that: it admits a `watch` ticket only into a room whose
+   *  seats are both bots. */
+  private watchHello(ws: WebSocket, st: RoomState, from?: number): void {
+    const bots = (this.meta?.kinds ?? ['human', 'human']).every((k) => k === 'bot');
+    if (!bots) { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'not a bot match'); return; }
+    if (this.watchers().filter((w) => w !== ws).length >= MAX_WATCHERS) { reply(ws, { t: 'error', code: 'full' }); shut(ws, POLICY_CLOSE, 'too many watchers'); return; }
+    (ws as HibernatingSocket).serializeAttachment({ seat: null, role: 'watch' } satisfies SocketAttachment);
+    if (st.status !== 'lobby' && st.config !== null) {
+      for (const part of logParts(st.config, this.readLogFrom(from), LOG_PART_CHARS, from)) reply(ws, part);
+      if (st.pause !== null) reply(ws, pausedMsg(st, Date.now(), st.pause));
+    }
   }
 
   /** Whether a hello to an ENDED room may have the log: the ending names a
@@ -1072,6 +1115,8 @@ export class MatchRoom {
       shut(ws, 1000, 'closed');
       const seat = seatOf(ws);
       const advisor = advisorOf(ws);
+      // A spectator going is only a socket going: nothing to tell, nothing to write.
+      if (isWatcher(ws)) { disown(ws); return; }
       disown(ws);
       const st = await this.begin();
       if (!st) return;

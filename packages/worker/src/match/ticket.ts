@@ -6,8 +6,10 @@ import { ADVISOR_SCOPES, type AdvisorScope, type Seat } from '@lions/net';
 
 /** `role` absent means `seat` (every ticket minted before N4). An `advisor`
  *  ticket names the seat it advises and carries a `scope`; an advisor is never
- *  a seat, and the room treats the two differently (N4a). */
-export interface Ticket { matchId: string; seat: Seat; player: string; exp: number; role?: 'seat' | 'advisor'; scope?: AdvisorScope }
+ *  a seat, and the room treats the two differently (N4a). A `watch` ticket
+ *  (GH-954 W1) is a spectator's: seat 0 and player `watch` by convention, no
+ *  scope, and the room gives it no seat, no advisor slot and no voice. */
+export interface Ticket { matchId: string; seat: Seat; player: string; exp: number; role?: 'seat' | 'advisor' | 'watch'; scope?: AdvisorScope }
 
 function b64url(bytes: Uint8Array): string {
   let bin = '';
@@ -55,5 +57,7 @@ export async function verifyTicket(secret: string, raw: string, now: number): Pr
   if (v.role === undefined || v.role === 'seat') return { ...base, role: 'seat' };
   // An advisor without a valid scope is nothing: never guessed at `advise`.
   if (v.role === 'advisor' && (ADVISOR_SCOPES as readonly unknown[]).includes(v.scope)) return { ...base, role: 'advisor', scope: v.scope as AdvisorScope };
+  // A spectator carries no scope: a stray one is dropped, as a seat's is.
+  if (v.role === 'watch') return { ...base, role: 'watch' };
   return null;
 }

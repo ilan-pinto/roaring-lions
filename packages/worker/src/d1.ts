@@ -50,4 +50,8 @@ export interface Env {
   /** N0: signs seat tickets. Its own secret, never STATS_PASSWORD. Unset fails
    *  closed: every /api/match path answers 503. */
   TICKET_SECRET?: string;
+  /** GH-954 W1: "1" lets `POST /api/match/:code/watch` mint a spectator ticket. Set ONLY by the local
+   *  relay (`tools/src/net/local-relay.ts`), never in `wrangler.jsonc` and never as a secret: without it the
+   *  route answers 404 and the Worker cannot be watched. */
+  ARENA_WATCH?: string;
 }

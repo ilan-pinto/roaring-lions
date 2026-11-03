@@ -69,7 +69,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   const secret = env.TICKET_SECRET;
   const rooms = env.ROOMS;
   if (!secret || !rooms) return new Response('matches are not configured', { status: 503 });
-  const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws|advisor|snapshot))?$/);
+  const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws|advisor|snapshot|watch))?$/);
   if (!m) return new Response('not found', { status: 404 });
   const [, rawCode, action] = m;
   // Codes are minted upper case; a lower-case one typed into a URL is the same room.
@@ -118,6 +118,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   if (!isCode(code)) return new Response('bad code', { status: 400 });
   if (action === 'advisor') return advisorTicket(req, env, secret, code, now);
   if (action === 'snapshot') return snapshot(req, env, secret, rooms, code, now);
+  if (action === 'watch') return watchTicket(req, env, secret, rooms, code, now);
   const stub = rooms.get(rooms.idFromName(code));
   if (action === 'join') {
     if (req.method !== 'POST') return new Response('method', { status: 405 });
@@ -159,6 +160,32 @@ async function advisorTicket(req: Request, env: Env, secret: string, code: strin
   const seat = typeof body.ticket === 'string' ? await verifyTicket(secret, body.ticket, now) : null;
   if (seat === null || seat.role !== 'seat' || seat.matchId !== code) return new Response('bad ticket', { status: 403 });
   const ticket = await signTicket(secret, { matchId: code, seat: seat.seat, player: 'advisor', exp: seat.exp, role: 'advisor', scope });
+  return Response.json({ ticket });
+}
+
+/**
+ * `POST /api/match/:code/watch` (GH-954 W1, decisions D-W1 and D-W2): a seat trades its own seat ticket for a
+ * SPECTATOR ticket, `{role:'watch', seat:0, player:'watch'}`, expiring when the seat ticket does. The route does
+ * not exist unless `env.ARENA_WATCH === '1'`, which only the local relay sets: in production, and anywhere the
+ * flag is absent, it answers 404 before it reads anything, so the Worker cannot be watched. A room is
+ * watchable only when BOTH seats are bots (`kind: 'bot'` at create and join): a human's match is never offered
+ * to a spectator, and a room whose second seat has not joined yet reads as human. The room is asked, and
+ * nothing is written. Only a seat ticket for this code is accepted, so a watch (or advisor) ticket mints nothing.
+ */
+async function watchTicket(req: Request, env: Env, secret: string, rooms: NonNullable<Env['ROOMS']>, code: string, now: number): Promise<Response> {
+  if (env.ARENA_WATCH !== '1') return new Response('not found', { status: 404 });
+  if (req.method !== 'POST') return new Response('method', { status: 405 });
+  if (await limited(req, env.ROOM_LIMIT)) return new Response('slow down', { status: 429 });
+  const body = await readBody(req);
+  if (body === null) return tooLarge();
+  const seat = typeof body.ticket === 'string' ? await verifyTicket(secret, body.ticket, now) : null;
+  if (seat === null || seat.role !== 'seat' || seat.matchId !== code) return new Response('bad ticket', { status: 403 });
+  const res = await rooms.get(rooms.idFromName(code)).fetch(new Request('https://room/kinds'));
+  if (res.status === 404) return new Response('no such room', { status: 404 });
+  if (!res.ok) return new Response('room', { status: 502 });
+  const { kinds } = (await res.json()) as { kinds?: unknown };
+  if (!Array.isArray(kinds) || kinds.length !== 2 || !kinds.every((k) => k === 'bot')) return new Response('not a bot match', { status: 403 });
+  const ticket = await signTicket(secret, { matchId: code, seat: 0, player: 'watch', exp: seat.exp, role: 'watch' });
   return Response.json({ ticket });
 }
 
