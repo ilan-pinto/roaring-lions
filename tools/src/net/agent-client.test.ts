@@ -13,7 +13,7 @@ import { SnapshotRefused, type Command } from '@lions/sim';
 import { buildMatchWorld, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-step';
 import { decideOnHashTick, type LocalDecision } from '../../../packages/app/src/net/outcome';
-import { AgentClient, matchSocketTarget, type AgentSnapshotOptions } from './agent-client';
+import { AgentClient, attackDropReason, matchSocketTarget, type AgentSnapshotOptions } from './agent-client';
 import type { SnapshotLink } from '../../../packages/app/src/net/snapshot-link';
 import { endOf, exitCodeFor } from './agent';
 import { FogTracker } from './fog-tracker';
@@ -557,5 +557,18 @@ describe('AgentClient and snapshots: opt-in only (snapshot S4 task 11)', () => {
     for (const f of ['agent.ts', 'arena.ts', 'players.ts', 'external-player.ts', 'two-engine.ts']) {
       expect(readFileSync(new URL(`./${f}`, import.meta.url), 'utf8'), f).not.toMatch(/\bsnapshots\s*:/);
     }
+  });
+});
+
+describe('attackDropReason (GH-973)', () => {
+  it('is null for anything but an attack, and for an attack at least one shooter can take', () => {
+    expect(attackDropReason({ kind: 'halt', ids: [1] }, () => false)).toBeNull();
+    expect(attackDropReason({ kind: 'attack', ids: [1, 2, 3], target: 9 }, (id) => id === 2)).toBeNull();
+  });
+  it('names the reason when the sim would refuse every shooter, asking its own predicate per shooter and target', () => {
+    const asked: [number, number][] = [];
+    const why = attackDropReason({ kind: 'attack', ids: [1, 2], target: 9 }, (id, t) => { asked.push([id, t]); return false; });
+    expect(why).toMatch(/not in sight/);
+    expect(asked).toEqual([[1, 9], [2, 9]]);
   });
 });

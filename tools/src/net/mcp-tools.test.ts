@@ -611,3 +611,26 @@ describe('a view before the start', () => {
     expect(body(r).error).toBe('match not started');
   });
 });
+
+// GH-973 item 5: an `attack` the sim refuses for every shooter (the enemy left sight, or was never identified)
+// changes nothing, and is shown `dropped` with the reason, not `applied`.
+describe('an attack on a target the sim will not take (GH-973)', () => {
+  it('shows dropped with a reason in observe, while a plain move beside it is applied', async () => {
+    const { loop, a, c } = await twoSeats();
+    const ctx = createContext(a.client, 'command');
+    const w = a.client.world() as MatchWorld;
+    const own = sideIds(w, 0)[0];
+    const enemy = sideIds(w, 1)[0];   // at its own camp: nowhere near identified
+    // Straight to the desk: the `order` tool would refuse a target that is not a contact NOW, and the case is one that stopped
+    // being one between the model's order and the frame that carried it.
+    const atk = a.client.desk.submit({ kind: 'attack', ids: [own], target: enemy }, a.client.tick()) as { ref: number };
+    const mv = a.client.desk.submit({ kind: 'move', ids: [own], x: fx.from(12.5), y: fx.from(14.5) }, a.client.tick()) as { ref: number };
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 60 }));
+    const orders = body(await call(ctx, 'observe')).orders as { ref: number; status: string; reason?: string }[];
+    const got = (ref: number) => orders.find((o) => o.ref === ref);
+    expect(got(atk.ref)?.status).toBe('dropped');
+    expect(got(atk.ref)?.reason).toMatch(/not in sight/);
+    expect(got(mv.ref)?.status).toBe('applied');
+    expect(got(mv.ref)?.reason).toBeUndefined();
+  });
+});

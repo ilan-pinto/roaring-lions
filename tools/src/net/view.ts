@@ -12,12 +12,14 @@ import type { MatchWorld } from '../../../packages/app/src/net/match-world';
 import { scoreFor, scoreOf, type SideScore } from '../../../packages/app/src/net/scoreboard';
 import { heldBuildings, heldShown } from '../../../packages/render/src/three/units/held-building';
 import { unitIsObserved } from '../../../packages/render/src/three/units/observed';
-import { fx } from '@lions/sim';
+import { fx, WOUND_DOWN, WOUND_NONE, WOUND_STABILISED } from '@lions/sim';
 import { isIdle } from '../../../packages/app/src/ui/idle';
 import type { FogTracker } from './fog-tracker';
 
 export interface UnitLine { id: number; type: string; tile: [number, number]; hp: number; flags: string[] }
 export interface ContactLine { id: number; type: string; tile: [number, number]; hp: number }
+/** A wounded man (GH-973): down on the field, in nobody's order of battle. Never an orderable combat unit. */
+export interface CasualtyLine { id: number; type: string; tile: [number, number]; state: 'down' | 'stabilised' | 'other'; bleeding?: number }
 export interface HeldLine { structure: number; tile: [number, number]; side: 0 | 1 }
 export interface SideView {
   tick: number;
@@ -30,6 +32,8 @@ export interface SideView {
   enemyCamp: [number, number];
   units: UnitLine[];
   contacts: ContactLine[];
+  /** Wounded bodies, listed apart from `units` and `contacts`: `mine` (rescue is a medic's job; none are orderable) and `theirs` in sight. */
+  casualties: { mine: CasualtyLine[]; theirs: CasualtyLine[] };
   held: HeldLine[];
   score: { mine: SideScore; theirs: SideScore };
   result: string | null;
@@ -50,6 +54,7 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
   const visibleAt = (x: number, y: number): boolean => fog.visibleTile(x, y);
   const units: UnitLine[] = [];
   const contacts: ContactLine[] = [];
+  const casualties: { mine: CasualtyLine[]; theirs: CasualtyLine[] } = { mine: [], theirs: [] };
   for (let i = 0; i < sim.entityCount; i++) {
     if (st.alive[i] === 0) continue;
     const s = st.side[i];
@@ -57,6 +62,17 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
     const type = sim.unitTypes[st.typeIdx[i]];
     const hp = Math.round((fx.toNumber(st.hp[i]) * 100) / fx.toNumber(type.hp));
     const tile: [number, number] = [st.posX[i] >> 16, st.posY[i] >> 16];
+    // A wounded body (a `wounded` role, or any wound state) is a casualty, not a unit: it takes no order.
+    const down = st.woundState[i] !== WOUND_NONE || type.isWounded;
+    if (down) {
+      const state = st.woundState[i] === WOUND_DOWN ? 'down' : st.woundState[i] === WOUND_STABILISED ? 'stabilised' : 'other';
+      if (s === side) {
+        casualties.mine.push({ id: i, type: type.id, tile, state, bleeding: sim.woundBleedRate(i) });
+      } else if (st.garrisonedIn[i] < 0 && st.carriedBy[i] < 0 && st.tunnelIn[i] < 0 && unitIsObserved(s, side, st.posX[i] / 65536, st.posY[i] / 65536, visibleAt)) {
+        casualties.theirs.push({ id: i, type: type.id, tile, state });
+      }
+      continue;
+    }
     if (s === side) {
       const flags: string[] = [];
       if (st.moving[i] !== 0) flags.push('moving');
@@ -110,6 +126,7 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
     enemyCamp: [enemyCamp[0], enemyCamp[1]],
     units,
     contacts,
+    casualties,
     held,
     score: scoreFor(scoreOf(sim), side),
     result,

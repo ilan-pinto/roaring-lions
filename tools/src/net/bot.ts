@@ -35,7 +35,7 @@
  * stdout line; the result and the tokens (`tokensOf`) come at the end.
  *
  * Signals (the arena's rule, `arena.ts#installSignalCleanup`): the first
- * SIGINT/SIGTERM removes the directory, stops the client (SIGTERM, then
+ * SIGINT/SIGTERM/SIGHUP (the terminal closing) removes the directory, stops the client (SIGTERM, then
  * SIGKILL after `killMs`) and ends with 130/143; a second one removes the
  * directory again and exits at once.
  *
@@ -273,7 +273,17 @@ export const ENTRYPOINT_WARNING = 'bot: CLAUDE_CODE_ENTRYPOINT is set, so this s
 export const BOT_ADDENDUM = `
 ## Your match report (this is a bot seat)
 
-The other player may take a while to press Ready: until the match has started, keep calling \`wait\` (it blocks) and do not give up. As you play, keep short notes of anything odd: an order refused or dropped for no reason you can see, a tool error, \`observe\` data that looks inconsistent (a unit that vanishes, a count that does not add up, a position off the map), or anything else that seems broken in the game or the tools. For each, note what you did, what you expected and what happened.
+The other player may take a while to press Ready: until the match has started, keep calling \`wait\` (it blocks) and do not give up.
+
+This room has a human in it, so play is REALTIME, not the paced match described above: the match runs while you think. Never call \`end_round\` (it answers "not a paced room"). Your loop is \`observe\`, \`order\`, \`wait\` (20 to 200 ticks, then look again), until \`status\` shows a result. Check \`pace\` in \`status\`; only if it says paced do rounds and \`end_round\` apply.
+
+Your D9 dozer (\`dozer_d9\`) is unarmed and slow: it cannot fight. Its job is to bring down buildings with the \`demolish\` order (and to repair and clear), so send it where there is a structure to take down and keep it behind your troops.
+
+\`observe\` lists wounded men under \`casualties\` (\`mine\`, \`theirs\`), apart from \`units\` and \`contacts\`. They are not orderable units; a medic's \`rescue\` is how they are saved.
+
+An order that the game could not carry out shows as \`dropped\` with a \`reason\` (an \`attack\` on an enemy that left your sight, for instance). Look at \`orders\` and re-issue.
+
+As you play, keep short notes of anything odd: an order refused or dropped for no reason you can see, a tool error, \`observe\` data that looks inconsistent (a unit that vanishes, a count that does not add up, a position off the map), or anything else that seems broken in the game or the tools. For each, note what you did, what you expected and what happened.
 
 When the match is over (\`status\` shows a result, or an acting tool answers \`match over\`), stop playing and make your FINAL message a report in Markdown with exactly these two headings:
 
@@ -334,11 +344,13 @@ export function reportMarkdown(r: ReportInput): string {
 }
 
 /** The conventional exit for a process ended by a signal: 128 + its number. */
-export const SIGNAL_EXIT: Readonly<Record<'SIGINT' | 'SIGTERM', number>> = { SIGINT: 130, SIGTERM: 143 };
+export type StopSignal = 'SIGINT' | 'SIGTERM' | 'SIGHUP';
+/** SIGHUP is the terminal going away (a closed window): the run ends cleanly with its log and report, as SIGTERM does. */
+export const SIGNAL_EXIT: Readonly<Record<StopSignal, number>> = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 };
 
 export interface SignalSource {
-  on(signal: 'SIGINT' | 'SIGTERM', handler: () => void): unknown;
-  off(signal: 'SIGINT' | 'SIGTERM', handler: () => void): unknown;
+  on(signal: StopSignal, handler: () => void): unknown;
+  off(signal: StopSignal, handler: () => void): unknown;
 }
 
 export interface BotOptions {
@@ -346,7 +358,7 @@ export interface BotOptions {
   spawn?: SpawnFn;
   /** Default `process.env`, passed on unchanged. */
   env?: NodeJS.ProcessEnv;
-  /** Where SIGINT/SIGTERM come from; default `process`. */
+  /** Where SIGINT/SIGTERM/SIGHUP come from; default `process`. */
   signals?: SignalSource;
   /** What a second signal calls; default `process.exit`. */
   exit?: (code: number) => void;
@@ -440,13 +452,26 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   const rec: { outcome: string; why: string | null; message: string | null; tokens: number | null } = {
     outcome: 'stopped', why: 'the bot ended before the client finished', message: null, tokens: null,
   };
+  const writeReport = (r: { outcome: string; why: string | null; message: string | null; tokens: number | null }): void => {
+    try {
+      writeFileSync(reportFile, reportMarkdown({
+        room: a.room, model: a.model, server: a.server, build, outcome: r.outcome, tokens: r.tokens,
+        logName: `${stem}.log`, message: r.message, why: r.why,
+      }), { mode: 0o600 });
+    } catch (e) {
+      log(`bot: the report ${reportFile} could not be written: ${messageOf(e)}`);
+    }
+  };
+  // Written NOW, before anything can go wrong: a bot that is killed outright (SIGKILL, a crash) runs no
+  // `finally`, and the lead's first full match left no report at all. The real report replaces this one.
+  writeReport({ outcome: 'unfinished', why: 'this run was still going when the file was written, or the bot was killed before it could finish (SIGKILL, a crash); the log has what it saw', message: null, tokens: null });
 
   if (env.CLAUDE_CODE_ENTRYPOINT !== undefined && env.CLAUDE_CODE_ENTRYPOINT !== '') say(ENTRYPOINT_WARNING);
 
   const dir = mkdtempSync(join(tempRoot(), 'lions-bot-'));
   let child: ChildProcess | null = null;
   let childGone = false;
-  let signalled: 'SIGINT' | 'SIGTERM' | null = null;
+  let signalled: StopSignal | null = null;
   let killTimer: NodeJS.Timeout | null = null;
   let watch: NodeJS.Timeout | null = null;
   const removeDir = (): void => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* the finally tries again */ } };
@@ -458,7 +483,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     killTimer ??= setTimeout(() => { if (!childGone) { try { c.kill('SIGKILL'); } catch { /* already gone */ } } }, killMs);
     killTimer.unref();
   };
-  const onSignal = (signal: 'SIGINT' | 'SIGTERM'): void => {
+  const onSignal = (signal: StopSignal): void => {
     if (signalled !== null) {
       removeDir();
       say(`bot: second ${signal}: exiting now`);
@@ -473,7 +498,9 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
   };
   const onInt = (): void => { onSignal('SIGINT'); };
   const onTerm = (): void => { onSignal('SIGTERM'); };
+  const onHup = (): void => { onSignal('SIGHUP'); };
   signals.on('SIGINT', onInt);
+  signals.on('SIGHUP', onHup);
   signals.on('SIGTERM', onTerm);
 
   try {
@@ -646,19 +673,13 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     throw e;
   } finally {
     signals.off('SIGINT', onInt);
+    signals.off('SIGHUP', onHup);
     signals.off('SIGTERM', onTerm);
     if (watch !== null) clearInterval(watch);
     if (killTimer !== null) clearTimeout(killTimer);
     removeDir();
     // The report is written on every way out: the model's message, or the reason there is none.
-    try {
-      writeFileSync(reportFile, reportMarkdown({
-        room: a.room, model: a.model, server: a.server, build, outcome: rec.outcome, tokens: rec.tokens,
-        logName: `${stem}.log`, message: rec.message, why: rec.why,
-      }), { mode: 0o600 });
-    } catch (e) {
-      log(`bot: the report ${reportFile} could not be written: ${messageOf(e)}`);
-    }
+    writeReport(rec);
     say(`bot: log: ${logFile}`);
     say(`bot: report: ${reportFile}`);
   }
