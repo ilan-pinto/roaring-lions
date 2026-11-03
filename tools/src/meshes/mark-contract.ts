@@ -23,13 +23,18 @@ export const MARK_VERSION = 1;
 
 /**
  * Which vehicles have a mark recipe, and so MUST carry one (`validate:meshes` refuses a roster id without it).
- * All three are one hull and one bake (`tools/vehicles/lavi_mark.py`, `MARKS`), each with its own boxes. `kit` is the
- * kit source whose pinned UVs the shader excludes; the two variants have no kit and exclude nothing.
+ * The first three are one hull and one bake (`tools/vehicles/lavi_mark.py`, `MARKS`), each with its own boxes; the carriers are
+ * three Meshy hulls with a weapon station. `kit` is the kit source whose pinned UVs the shader excludes; the two Lavi variants
+ * have no kit and exclude nothing.
  */
 export const MARK_RECIPES: Readonly<Record<string, { readonly script: string; readonly kit: string | null }>> = {
   mbt_lavi: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/mbt_lavi.glb' },
   mbt_lavi_camo: { script: 'tools/vehicles/lavi_mark.py', kit: null },
   officer_armour: { script: 'tools/vehicles/lavi_mark.py', kit: null },
+  // GH-943 batch 3, the KDF carriers: a Meshy hull with its remote weapon station, each with the pins its own kit source declares.
+  ifv_namer: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/ifv_namer.glb' },
+  apc_eitan: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/apc_eitan.glb' },
+  apc_kipod: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/apc_kipod.glb' },
 };
 
 /** The mark's share of the covered surface the lead approved (about 2%), and the band a shipped number must sit in. */

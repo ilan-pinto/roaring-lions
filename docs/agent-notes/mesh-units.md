@@ -823,6 +823,20 @@ Spec `docs/superpowers/specs/2026-11-01-look-uplift-design.md` section 4; the le
   because a part UV-pinned to one bake texel has no texel area (the net's 9,626 triangles and the cupola's 92 were invisible to the texel count) and
   `team_fraction_basis: 'triangle'` says so. The Lavi keeps its texel 2.11% (1.66% on the triangle basis). `officer_armour` has no roster entry (it is
   a held unit), so the garage cannot mount it by id; `look-l3-captures.ts` names its GLB directly.
+- **The three KDF carriers (GH-943, 3 Nov): `ifv_namer`, `apc_eitan`, `apc_kipod`.** A Meshy hull (`hull_hull`) with tyres or tracks (`hull_rubber`) and the
+  remote weapon station (`turret_metal`, `turret_plate`) on `turret_pivot`; no turret body, so the mark rides the hull alone (`CARRIER_PARTS` and
+  `CARRIER_ROLES` in `lavi_mark.py`) and the roof panel is a hull-roof panel. Placement: the roof box sits on the clear deck (the Namer between its two
+  hatches and the station, the Eitan aft of the station, the Kipod FORWARD of its station because its rear deck is hatches), the band on a flank
+  stretch with no baked vision blocks (the Namer's first cut, x -1.6..-0.05, painted across its four baked windows; it now sits forward of them), and
+  no hull vertex rises above a panel, no kit vertex is in either box, and the station's plan is clear (`mark-pass.test.ts`). They declare the TEXEL
+  share like the Lavi (their hull is UV-mapped): 2.02% / 2.03% / 1.99%. A Meshy roof is a few HUGE triangles, so a centroid oracle reads 40% high; the
+  test SUBDIVIDES every hull triangle (12 x 12) and tests the sub-centroids, which agrees with the texel share to a quarter of a point.
+  **How the pass ran: `peel-host.ts`.** None of the three has a re-runnable export (the Namer's Meshy source is not in the tree; the Eitan and Kipod
+  went through `rws-swap.ts`), and the mark pass refuses a kitted or wrecked file, so `pnpm --filter @lions/tools exec tsx src/meshes/peel-host.ts --
+  --id=<id>` strips damage, wreck and kit (each pass's own idempotent strip) and the pipeline resumes at `mark:meshes`. Peeling then re-running kit, wreck
+  and damage with no mark writes the shipped bytes back (checked with `cmp` on all three before any box was placed), and after marking every live, kit
+  and `WRECK_` accessor is byte-identical to the shipped file: only the material changed (the mark, and the normal and metal-roughness maps dropped: those two maps were flat, roughness 0.80 with a
+  std of 0.7 and metal 0, so nothing is lost). Their `.blend` sources are `art/src/vehicles/<id>_host.blend`, written by `save_carrier_blend.py`.
 - **Who carries it.** One VARIANT per (template material x colour slot: own, hostile, neutral), minted lazily, +0 draw calls, +0 textures, and only
   on `rl_role: hull` meshes (the barrel, antennas and tracks are other roles). A kit part is merged INTO the host geometry at runtime and has no UVs
   of its own (the kit pass pins each onto one of three bake texels), so the shader excludes a fragment whose UV is within `exclude_radius` of a pin.
@@ -831,4 +845,4 @@ Spec `docs/superpowers/specs/2026-11-01-look-uplift-design.md` section 4; the le
 - **Gates.** The `team-mask` debug layer (the shared strength to 0) and its layer check on the gated `vehicle` scenario; `check_team_marks` in
   `validate:meshes`; `mark-pass.test.ts` (an independent triangle-centroid measurement of the boxes, 95% of the area on `turret_hull` (80% on the Ambush Tank, whose net drapes beside the ring), every kit UV
   inside a pin); and the per-class texture budget (vehicle 80 MiB / 2560 px, building 64 / 2048, infantry 32 / 3072, a ratchet) with a
-  report-only roster census. `validate:meshes` requires a mark on `mbt_lavi`, `mbt_lavi_camo` and `officer_armour` (`MARK_REQUIRED`, pinned to `MARK_RECIPES`). The rest of the fleet has none yet.
+  report-only roster census. `validate:meshes` requires a mark on `mbt_lavi`, `mbt_lavi_camo`, `officer_armour`, `ifv_namer`, `apc_eitan` and `apc_kipod` (`MARK_REQUIRED`, pinned to `MARK_RECIPES`). The rest of the fleet has none yet.

@@ -1362,8 +1362,8 @@ def texture_census(meshes_root, missions_dir, vehicles_dir=None):
 # `exclude_radius` of a pin: every kit UV in the file must lie inside one.
 MARK_FRACTION_BAND = (0.015, 0.025)
 #: The vehicles that MUST carry a mark: the Lavi (the pilot) and the two variants cut from its hull (the lead, 2 Nov:
-#: the camo Lavi and the officer tank). Pinned against `MARK_RECIPES` (mark-contract.ts) by `mark-pass.test.ts`.
-MARK_REQUIRED = ("mbt_lavi", "mbt_lavi_camo", "officer_armour")
+#: the camo Lavi and the officer tank; 3 Nov: the Namer, Eitan and Kipod). Pinned against `MARK_RECIPES` (mark-contract.ts) by `mark-pass.test.ts`.
+MARK_REQUIRED = ("mbt_lavi", "mbt_lavi_camo", "officer_armour", "ifv_namer", "apc_eitan", "apc_kipod")
 
 
 def check_team_marks(vehicles_root, required=MARK_REQUIRED):

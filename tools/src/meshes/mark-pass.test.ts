@@ -6,6 +6,9 @@
  * - The shipped Lavi, the Ambush Tank and the command Lavi (one describe each): an independent TS measurement of the boxes (per-triangle centroids, no UV, no python) must
  *   agree with the declared coverage; the mark rides the TURRET mesh, which turns on `turret_pivot`; and no
  *   texture but the base colour ships.
+ * - The three KDF carriers (Namer, Eitan, Kipod; lead, 3 Nov): the mark rides the hull alone, an independent SUBDIVIDED
+ *   measurement agrees with the declared texel share, and the boxes stand on the clear deck (no hatch, station or kit part
+ *   in them). `peel-host.ts` is what let the mark pass run on a shipped, already-kitted file.
  * - `check_team_marks` (validate_mesh_assets.py) is falsified on scratch copies: a kit UV outside every
  *   exclusion pin, a coverage outside the band and a leftover map each turn it red.
  */
@@ -19,6 +22,7 @@ import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { afterAll, describe, expect, it } from 'vitest';
 import { MARK_EXTRAS_KEY, MARK_RECIPES, MARK_SCENE_KEY, TEAM_FRACTION_BAND, type TeamMark } from './mark-contract';
 import { applyMark, parseMarkArgs, type MarkMeasure } from './mark-pass';
+import { peelToHost } from './peel-host';
 import { RG_EXTRAS_KEY } from './running-gear-contract';
 import { RESCALE_EXTRAS_KEY } from './rescale-contract';
 
@@ -26,6 +30,9 @@ const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const VEHICLES = path.join(REPO, 'art', 'meshes', 'vehicles');
 /** Every vehicle with a mark: the Lavi, and the two variants cut from its hull (lead, 2 Nov). */
 const MARKED = ['mbt_lavi', 'mbt_lavi_camo', 'officer_armour'] as const;
+/** The KDF carriers (lead, 3 Nov, GH-943): a Meshy hull and a remote weapon station, no turret body. */
+const CARRIERS = ['ifv_namer', 'apc_eitan', 'apc_kipod'] as const;
+const ALL_MARKED = [...MARKED, ...CARRIERS] as const;
 const glbOf = (id: string): string => path.join(VEHICLES, `${id}.glb`);
 const scratch = mkdtempSync(path.join(os.tmpdir(), 'rl-mark-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -286,7 +293,228 @@ describe('the roster pin: validate:meshes requires a mark on exactly the recipe 
     if (r.status !== 0) throw new Error(`python failed: ${r.stderr}`);
     const required = (JSON.parse(r.stdout.trim().split('\n').pop()!) as string[]).sort();
     expect(required).toEqual(Object.keys(MARK_RECIPES).sort());
-    expect(required).toEqual([...MARKED].sort());
+    expect(required).toEqual([...ALL_MARKED].sort());
+  }, 60_000);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The KDF carriers (GH-943, 3 Nov): Namer, Eitan, Kipod. A Meshy hull whose roof is a few HUGE triangles, so a centroid
+// test says nothing; the independent oracle here SUBDIVIDES every hull triangle and tests the sub-triangle centroids with
+// the interpolated normal, which is what the fragment shader does. No UV, no python.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const SUBDIV = 12;
+
+interface SubCover {
+  covered: number;
+  total: number;
+  /** Covered area on the +z and -z flanks (the band), and on the roof (the panel). */
+  band: { plus: number; minus: number };
+  roof: number;
+}
+
+function subdividedCoverage(doc: Document, mark: TeamMark): SubCover {
+  const node = doc.getRoot().listNodes().find((n) => n.getName() === 'hull_hull')!;
+  const prim = node.getMesh()!.listPrimitives()[0]!;
+  const pos = prim.getAttribute('POSITION')!;
+  const nrm = prim.getAttribute('NORMAL')!;
+  const idx = prim.getIndices()!.getArray()!;
+  const out: SubCover = { covered: 0, total: 0, band: { plus: 0, minus: 0 }, roof: 0 };
+  const { roof, band } = mark;
+  for (let t = 0; t < idx.length; t += 3) {
+    const P = [0, 1, 2].map((k) => pos.getElement(idx[t + k]!, [0, 0, 0]) as V3);
+    const N = [0, 1, 2].map((k) => nrm.getElement(idx[t + k]!, [0, 0, 0]) as V3);
+    const e1 = [P[1]![0] - P[0]![0], P[1]![1] - P[0]![1], P[1]![2] - P[0]![2]];
+    const e2 = [P[2]![0] - P[0]![0], P[2]![1] - P[0]![1], P[2]![2] - P[0]![2]];
+    const area = 0.5 * Math.hypot(e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!);
+    out.total += area;
+    const share = area / (SUBDIV * SUBDIV);
+    // the SUBDIV^2 sub-triangles of a regular grid: an 'up' triangle and a 'down' triangle per cell
+    for (let i = 0; i < SUBDIV; i++) {
+      for (let j = 0; j < SUBDIV - i; j++) {
+        for (const up of [true, false]) {
+          if (!up && j >= SUBDIV - i - 1) continue;
+          const bu = up ? (i + 1 / 3) / SUBDIV : (i + 2 / 3) / SUBDIV;
+          const bv = up ? (j + 1 / 3) / SUBDIV : (j + 2 / 3) / SUBDIV;
+          const bw = 1 - bu - bv;
+          const c = [0, 1, 2].map((a) => bw * P[0]![a]! + bu * P[1]![a]! + bv * P[2]![a]!);
+          const n = [0, 1, 2].map((a) => bw * N[0]![a]! + bu * N[1]![a]! + bv * N[2]![a]!);
+          const len = Math.hypot(n[0]!, n[1]!, n[2]!);
+          const inRoof = c[0]! >= roof.x[0] && c[0]! <= roof.x[1] && Math.abs(c[2]!) <= roof.z_half && c[1]! >= roof.y[0] && c[1]! <= roof.y[1] && n[1]! / len >= roof.min_ny;
+          const inBand = c[0]! >= band.x[0] && c[0]! <= band.x[1] && c[1]! >= band.y[0] && c[1]! <= band.y[1] && Math.abs(n[2]! / len) >= band.min_nz;
+          if (!inRoof && !inBand) continue;
+          out.covered += share;
+          if (inRoof) out.roof += share;
+          if (inBand) out[('band')][c[2]! > 0 ? 'plus' : 'minus'] += share;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** Every vertex of every kit node of a kit SOURCE (vehicle world space). */
+async function kitVertices(id: string): Promise<V3[]> {
+  const d = await io.read(path.join(REPO, MARK_RECIPES[id]!.kit!));
+  const v: V3[] = [];
+  for (const n of d.getRoot().listNodes()) {
+    const mesh = n.getMesh();
+    if (!mesh) continue;
+    const pos = mesh.listPrimitives()[0]!.getAttribute('POSITION')!;
+    for (let i = 0; i < pos.getCount(); i++) v.push(pos.getElement(i, [0, 0, 0]) as V3);
+  }
+  return v;
+}
+
+/** The distinct (5 dp) TEXCOORD_0 values of a kit SOURCE. */
+async function kitPins(id: string): Promise<string[]> {
+  const d = await io.read(path.join(REPO, MARK_RECIPES[id]!.kit!));
+  const s = new Set<string>();
+  for (const n of d.getRoot().listNodes()) {
+    const uv = n.getMesh()?.listPrimitives()[0]?.getAttribute('TEXCOORD_0');
+    if (!uv) continue;
+    for (let i = 0; i < uv.getCount(); i++) {
+      const [u, v] = uv.getElement(i, [0, 0]) as [number, number];
+      s.add(`${u.toFixed(5)},${v.toFixed(5)}`);
+    }
+  }
+  return [...s].sort();
+}
+
+function bounds(doc: Document, name: string): { min: V3; max: V3 } {
+  const pos = doc.getRoot().listNodes().find((n) => n.getName() === name)!.getMesh()!.listPrimitives()[0]!.getAttribute('POSITION')!;
+  const min: V3 = [Infinity, Infinity, Infinity];
+  const max: V3 = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < pos.getCount(); i++) {
+    const p = pos.getElement(i, [0, 0, 0]) as V3;
+    for (let a = 0; a < 3; a++) {
+      min[a] = Math.min(min[a]!, p[a]!);
+      max[a] = Math.max(max[a]!, p[a]!);
+    }
+  }
+  return { min, max };
+}
+
+describe.each(CARRIERS)('the shipped carrier %s', (id) => {
+  it('carries its mark on the HULL alone, ships the base colour alone, and keeps its wreck and bake luma', async () => {
+    const doc = await load(id);
+    const m = markOf(doc);
+    expect(m.team_fraction_basis).toBe('texel');
+    expect(m.team_fraction).toBeGreaterThanOrEqual(TEAM_FRACTION_BAND[0]);
+    expect(m.team_fraction).toBeLessThanOrEqual(TEAM_FRACTION_BAND[1]);
+    expect(doc.getRoot().listTextures().map((t) => t.getName())).toEqual(['base_color']);
+    expect(doc.getRoot().listScenes()[0]!.getExtras()).toHaveProperty(MARK_SCENE_KEY);
+    const mat = doc.getRoot().listMaterials()[0]!;
+    expect(mat.getExtras()).toHaveProperty('rl_bake_luma');
+    const live = doc.getRoot().listNodes().filter((n) => n.getMesh() && !n.getName().startsWith('kit_') && !n.getName().startsWith('WRECK_'));
+    expect(live.filter((n) => (n.getExtras() as { rl_role?: string }).rl_role === 'hull').map((n) => n.getName())).toEqual(['hull_hull']);
+    const wrecks = doc.getRoot().listNodes().filter((n) => n.getName().startsWith('WRECK_'));
+    expect(wrecks.length).toBe(4);
+    expect(doc.getRoot().listMaterials()).toHaveLength(1);
+  });
+
+  it('about 2% of the live surface, by SUBDIVIDED sub-triangle centroids (no UV, no python)', async () => {
+    const doc = await load(id);
+    const m = markOf(doc);
+    const sub = subdividedCoverage(doc, m);
+    const live = ['hull_hull', 'hull_rubber', 'turret_metal', 'turret_plate'].reduce((s, n) => s + coverage(doc, n, m).total, 0);
+    const fraction = sub.covered / live;
+    expect(fraction).toBeGreaterThan(0.015);
+    expect(fraction).toBeLessThan(0.025);
+    // the declared number is the TEXEL share; the geometric share must agree with it to a quarter of a point
+    expect(Math.abs(fraction - m.team_fraction)).toBeLessThan(0.0025);
+    // and it really is a roof panel plus a band on BOTH flanks, each a real part of it
+    expect(sub.roof / sub.covered).toBeGreaterThan(0.4);
+    expect(sub.roof / sub.covered).toBeLessThan(0.85);
+    expect(sub.band.plus).toBeGreaterThan(0.15 * sub.covered / 2);
+    expect(sub.band.minus).toBeGreaterThan(0.15 * sub.covered / 2);
+  });
+
+  it('the roof panel is on the clear deck: nothing of the hull stands above it in plan, the station is clear, no kit part is in either box', async () => {
+    const doc = await load(id);
+    const { roof, band } = markOf(doc);
+    // hull vertices over the panel's plan: none rises above the panel's top (a hatch, ring or mast would)
+    const pos = doc.getRoot().listNodes().find((n) => n.getName() === 'hull_hull')!.getMesh()!.listPrimitives()[0]!.getAttribute('POSITION')!;
+    let inPlan = 0;
+    for (let i = 0; i < pos.getCount(); i++) {
+      const [x, y, z] = pos.getElement(i, [0, 0, 0]) as V3;
+      if (x < roof.x[0] || x > roof.x[1] || Math.abs(z) > roof.z_half) continue;
+      inPlan++;
+      expect(y, `hull vertex ${i} stands above the panel at (${x}, ${y}, ${z})`).toBeLessThanOrEqual(roof.y[1]);
+    }
+    expect(inPlan).toBeGreaterThan(100); // the plan really contains the roof
+    // the station (turret_metal, turret_plate) is another role and its plan does not overlap the panel
+    for (const name of ['turret_metal', 'turret_plate']) {
+      const b = bounds(doc, name);
+      expect(b.min[0] > roof.x[1] || b.max[0] < roof.x[0], `${name} x ${b.min[0]}..${b.max[0]} overlaps the roof panel`).toBe(true);
+    }
+    // kit parts are merged into the hull at runtime: none of their vertices lies in either box
+    for (const [x, y, z] of await kitVertices(id)) {
+      const inRoof = x >= roof.x[0] && x <= roof.x[1] && Math.abs(z) <= roof.z_half && y >= roof.y[0] && y <= roof.y[1];
+      const inBand = x >= band.x[0] && x <= band.x[1] && y >= band.y[0] && y <= band.y[1];
+      expect(inRoof || inBand, `a kit vertex at (${x}, ${y}, ${z}) is inside a mark box`).toBe(false);
+    }
+  }, 60_000);
+
+  it('excludes exactly the three texels its own kit source pins every part to', async () => {
+    const doc = await load(id);
+    const declared = markOf(doc).exclude_uv.map(([u, v]) => `${u.toFixed(5)},${v.toFixed(5)}`).sort();
+    expect(declared).toEqual(await kitPins(id));
+    expect(MARK_RECIPES[id]!.kit).toBe(`art/parts/kit/${id}.glb`);
+  });
+});
+
+describe('the carriers\' boxes are placed for THEIR hulls, not copied from the Lavi or from each other', () => {
+  it('three different roofs and three different flank bands', async () => {
+    const marks = await Promise.all([...CARRIERS, 'mbt_lavi'].map(async (id) => markOf(await load(id))));
+    for (let i = 0; i < marks.length; i++) {
+      for (let j = i + 1; j < marks.length; j++) {
+        expect(marks[i]!.roof).not.toEqual(marks[j]!.roof);
+        expect(marks[i]!.band).not.toEqual(marks[j]!.band);
+      }
+    }
+  });
+  it('the Kipod panel is FORWARD of its station (its rear deck is hatches); the Eitan and Namer panels are aft of theirs', async () => {
+    const side = async (id: string): Promise<'fore' | 'aft'> => {
+      const doc = await load(id);
+      const r = markOf(doc).roof;
+      return bounds(doc, 'turret_metal').min[0] > r.x[1] ? 'aft' : 'fore';
+    };
+    expect(await side('apc_kipod')).toBe('fore'); // station BEHIND the panel
+    expect(await side('apc_eitan')).toBe('aft');
+    expect(await side('ifv_namer')).toBe('aft');
+  });
+});
+
+describe('the carriers\' shipped boxes', () => {
+  it('the shipped boxes are the ones placed against each hull\'s own deck and flank (literals, read off the top and side views)', async () => {
+    const lit = {
+      ifv_namer: { roof: { x: [-1.7, 0], z_half: 0.75, y: [2.95, 3.3], min_ny: 0.6 }, band: { x: [1, 1.95], y: [2.45, 2.85], min_nz: 0.6 } },
+      apc_eitan: { roof: { x: [-2.65, -1.4], z_half: 0.65, y: [2.5, 2.85], min_ny: 0.6 }, band: { x: [-2.45, -1.55], y: [2.2, 2.5], min_nz: 0.6 } },
+      apc_kipod: { roof: { x: [0.2, 1.3], z_half: 0.8, y: [2.8, 3.2], min_ny: 0.6 }, band: { x: [0.15, 1.3], y: [2.35, 2.75], min_nz: 0.6 } },
+    } as const;
+    for (const id of CARRIERS) {
+      const m = markOf(await load(id));
+      expect({ roof: m.roof, band: m.band }).toEqual(lit[id]);
+    }
+  });
+});
+
+describe('peel-host: strips exactly what the kit, wreck and damage passes added', () => {
+  it.each(CARRIERS)('%s peels to the four live meshes and the pivot, with no kit node, no death_root and no clip', async (id) => {
+    const doc = await io.read(glbOf(id));
+    const stripped = peelToHost(doc);
+    expect(stripped).toBe(11);
+    const names = doc.getRoot().listNodes().map((n) => n.getName()).sort();
+    expect(names).toEqual(['hull_hull', 'hull_rubber', 'turret_metal', 'turret_pivot', 'turret_plate']);
+    expect(doc.getRoot().listAnimations()).toHaveLength(0);
+    // every accessor left is held by a live node: nothing from the stripped passes rides along as dead weight
+    const held = new Set<unknown>();
+    for (const n of doc.getRoot().listNodes()) for (const p of n.getMesh()?.listPrimitives() ?? []) {
+      for (const a of p.listAttributes()) held.add(a);
+      held.add(p.getIndices());
+    }
+    expect(doc.getRoot().listAccessors().filter((a) => !held.has(a))).toEqual([]);
   }, 60_000);
 });
 
@@ -323,7 +551,7 @@ async function check(
 }
 
 describe('check_team_marks (validate:meshes)', () => {
-  it.each(MARKED)('the shipped %s passes', async (id) => {
+  it.each(ALL_MARKED)('the shipped %s passes', async (id) => {
     expect(await check(undefined, { id })).toEqual([]);
   }, 60_000);
   it('a kit part pinned outside every exclusion pin fails: the mark would paint it', async () => {
@@ -332,7 +560,7 @@ describe('check_team_marks (validate:meshes)', () => {
     });
     expect(f.join('\n')).toMatch(/a kit part is pinned at uv .* no exclusion pin covers/);
   }, 60_000);
-  it.each(MARKED)('%s: a mark outside the 1.5-2.5% band fails', async (id) => {
+  it.each(ALL_MARKED)('%s: a mark outside the 1.5-2.5% band fails', async (id) => {
     const f = await check((m) => {
       m.team_fraction = 0.06;
     }, { id });
@@ -346,7 +574,7 @@ describe('check_team_marks (validate:meshes)', () => {
     expect(f.join('\n')).toMatch(/roof box is empty or inside out/);
     expect(f.join('\n')).toMatch(/luma must be positive/);
   }, 60_000);
-  it.each(['mbt_lavi_camo', 'officer_armour'])('%s losing its mark fails: a vehicle on the roster cannot silently stop being checked', async (id) => {
+  it.each(['mbt_lavi_camo', 'officer_armour', ...CARRIERS])('%s losing its mark fails: a vehicle on the roster cannot silently stop being checked', async (id) => {
     const f = await check(undefined, { id, strip: true });
     expect(f.join('\n')).toMatch(new RegExp(`${id} carries no rl_team_mark, but it must`));
   }, 60_000);
