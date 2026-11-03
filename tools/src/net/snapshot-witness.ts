@@ -730,9 +730,12 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
       'what is missing is a world in which the row holds a value other than its build value at a cut. Covered dynamically by a world that adds structures ' +
       'or tunnels mid-match (a field-works mission), or one that promotes veterancy and lays a new evacuation point'
   ),
+  // `fwLive` and `unitAuraLive` are NOT here since 3 Nov 2026 (GH-707): the economy worlds' plan buys the Nemala medic team, an
+  // aura carrier, a few seconds in, and spawning one turns both flags on mid-match. The census saw them move and said to delete
+  // the exemption; every fork of those worlds restores them. The site, aura-rate and ownership columns below still never move.
   ...rows(
-    'siteAlive siteType siteX siteY siteSide siteStructure buildSite stProgress constructedAt fwLive stOwner stKnown sealGen ' +
-      'auraCompAt auraRepairTicks auraAccMult unitAuraLive',
+    'siteAlive siteType siteX siteY siteSide siteStructure buildSite stProgress constructedAt stOwner stKnown sealGen ' +
+      'auraCompAt auraRepairTicks auraAccMult',
     'field works: construction sites, owned structures, their auras and the fog latch on an owned structure. No witness world builds, owns or auras a structure ' +
       '(versus never uses field works). Covered by a field-works mission world'
   ),

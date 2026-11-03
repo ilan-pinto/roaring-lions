@@ -353,7 +353,7 @@ describe('the economy arm (N3 Task 7)', () => {
     const w = withOverrides({ start: [3000, 4800] }, () => buildMatchWorld(roomConfig(map, arr, 1000)));
     const rt = w.runtime;
     if (rt === null) throw new Error('no runtime');
-    return { w, rt, plan: (side: 0 | 1) => planRound(rt, w.sim, doctrines[w.factions[side]].menu, forceMixOf(w.factions[side]), side) };
+    return { w, rt, plan: (side: 0 | 1) => planRound(rt, w.sim, doctrines[w.factions[side]].menu, forceMixOf(w.factions[side]), side, 'after') };
   };
   it('the plan rebuilds the force mix: a fresh purse buys the missing type, then one of each in menu order', () => {
     const { rt, plan } = freshPlan(['kdf', 'sarim']);
