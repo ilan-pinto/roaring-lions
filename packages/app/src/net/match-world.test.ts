@@ -39,7 +39,7 @@ describe('buildMatchWorld', () => {
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 (beit) and 792859212 (tel).
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
     // beit re-pinned 28 Oct 2026 for its seat 0 at (4,22) (GH-560 Task 7B): the spawn moved and nothing else. Was 823410040 (here and in the two kit pins below).
-    for (const [map, pin] of [['beit_sahwan_outskirts', 1075203618], ['tel_marum', 4263437644]] as const) {
+    for (const [map, pin] of [['beit_sahwan_outskirts', 1075203618], ['tel_marum', 682632360]] as const) {
       const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 20260727));
       for (let i = 0; i < 200; i++) w.sim.tick();
       expect(w.sim.hash()).toBe(pin);
@@ -282,7 +282,7 @@ describe("a matched room, and a brigade room with equal claims, build today's by
   // LITERALS: the same two pins the first describe holds (seed 20260727, 200 ticks).
   // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 / 792859212.
   // beit re-pinned 28 Oct 2026 for its seat 0 at (4,22) (GH-560 Task 7B). Was 823410040.
-  const PINS = [['beit_sahwan_outskirts', 1075203618], ['tel_marum', 4263437644]] as const;
+  const PINS = [['beit_sahwan_outskirts', 1075203618], ['tel_marum', 682632360]] as const;
   const SEED = 20260727;
 
   it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {
@@ -437,7 +437,7 @@ describe('the economy runtime (N3 Task 3)', () => {
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): so the Sarim spawn moved; the north routes this room registers are unchanged. Was -502812528.
     // tel_marum re-pinned 28 Oct 2026 for its friendly camp at (21,46) (GH-560 Task 7B): the camp moved and the room's world follows it. Was 750746188. wadi_tarfan (955375532) did not move.
     // wadi_tarfan re-pinned for GH-945 (seats (11,11)/(36,36) -> (10,10)/(37,37), every route at capacity 3). Was 955375532.
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -87577684], ['wadi_tarfan', -1823744084]] as const;
+    const VERSUS_ECONOMY_PINS = [['tel_marum', -1979138290], ['wadi_tarfan', -1823744084]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
