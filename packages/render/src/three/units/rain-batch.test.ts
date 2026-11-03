@@ -406,8 +406,10 @@ describe('the GLSL carries the maths` constants (G-6)', () => {
     ] as const) {
       expect(RAIN_VERTEX_SHADER, name).toContain(`const float ${name} = ${v.toFixed(8)};`);
     }
-    // The wind is the foliage sway's axis (0.70710678, -0.70710678).
-    expect(RAIN_VERTEX_SHADER).toContain('const vec2 RAIN_WIND = vec2(0.70710678, -0.70710678);');
+    // GH-984 N1: the wind is a uniform now (the map's heading), no longer a compiled constant.
+    expect(RAIN_VERTEX_SHADER).not.toContain('RAIN_WIND');
+    expect(RAIN_VERTEX_SHADER).toContain('uniform vec2 uWindDir;');
+    expect(RAIN_VERTEX_SHADER).toContain('land.x - tanS * h * uWindDir.x');
     expect(RAIN_FRAGMENT_SHADER).toContain('const float RAIN_SPLASH_QUAD = 1.25000000;');
     expect(RAIN_SPLASH_QUAD).toBe(1.25);
     expect(glslFloat(0.42)).toBe('0.42000000');
@@ -487,5 +489,19 @@ describe('dispose', () => {
     batch.dispose();
     expect(disposed).toBe(3);
     expect(h.scene.children).not.toContain(batch.mesh);
+  });
+});
+
+describe('the wind uniforms (GH-984 N1)', () => {
+  it('uWindDir follows the view`s heading and uWind the travelling gust handed in', () => {
+    const { batch } = setUp();
+    const u = batch.mesh.material.uniforms;
+    expect((u.uWindDir.value as THREE.Vector2).toArray()).toEqual([Math.SQRT1_2, -Math.SQRT1_2]);
+    batch.update({ simSec: 1.25, gust: 1, view: { x: 12, y: 12, zoom: 1, width: 1400, height: 900, windX: -0.6, windZ: 0.8 }, dpr: 1 });
+    expect((u.uWindDir.value as THREE.Vector2).toArray()).toEqual([-0.6, 0.8]);
+    expect(u.uWind.value).toBeCloseTo(1 + 0.2 * Math.sin((2 * Math.PI * 1.25) / 8.3) + 0.9, 12);
+    batch.update({ simSec: 1.25, gust: 0, view: { x: 12, y: 12, zoom: 1, width: 1400, height: 900 }, dpr: 1 });
+    expect(u.uWind.value).toBeCloseTo(1 + 0.2 * Math.sin((2 * Math.PI * 1.25) / 8.3), 12);
+    expect((u.uWindDir.value as THREE.Vector2).toArray()).toEqual([Math.SQRT1_2, -Math.SQRT1_2]);
   });
 });

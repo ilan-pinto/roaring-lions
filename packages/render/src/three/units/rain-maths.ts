@@ -116,6 +116,16 @@ export interface RainView {
   readonly zoom: number;
   readonly width: number;
   readonly height: number;
+  /** The wind's heading on the ground plane (`terrain/wind.ts`, GH-984 N1): a unit vector, world x
+   *  and z. Absent is the foliage's old fixed axis, `SWAY_DIR`, so a view that never heard of the
+   *  wind is exactly what it was. */
+  readonly windX?: number;
+  readonly windZ?: number;
+}
+
+/** The rain's heading for `view`: its wind, else `SWAY_DIR`. */
+export function windDirOf(view: Pick<RainView, 'windX' | 'windZ'>): { x: number; z: number } {
+  return { x: view.windX ?? SWAY_DIR_X, z: view.windZ ?? SWAY_DIR_Z };
 }
 
 /** A box on the ground plane, world x and z. */
@@ -149,8 +159,10 @@ export const RAIN_SLANT_OFFSET = RAIN_FALL_HEIGHT * RAIN_SLANT_TAN * RAIN_WIND_M
  * gust slants the rain exactly while the reeds lean hardest. The sim clock only: the caller passes
  * `presentationSimMs / 1000`. `rain-batch.ts` writes it as `uWind` once a frame.
  */
-export function rainWindScale(tSec: number): number {
-  const bump = (gustFactor(tSec, true) - 1) / (RAIN_SWAY_GUST - 1);
+export function rainWindScale(tSec: number, gust?: number): number {
+  // GH-984 N1: the renderer passes the TRAVELLING gust under the camera's focus (`terrain/wind.ts`,
+  // `windGust`, already in [0, 1]); a caller with none gets the old periodic bump.
+  const bump = gust ?? (gustFactor(tSec, true) - 1) / (RAIN_SWAY_GUST - 1);
   return 1 + RAIN_WIND_MEANDER * Math.sin((2 * Math.PI * tSec) / RAIN_WIND_MEANDER_PERIOD_S) + RAIN_WIND_GUST * bump;
 }
 
@@ -180,8 +192,9 @@ export function footprintBox(view: RainView, maxGround = 0): GroundBox {
   // box grows only on the sides that move reaches toward: +x and -z. (Growing all four sides by the full offset,
   // as before GH-940, made the period 6 tiles wider at the highest zoom than the coverage needs and thinned
   // the rain there.)
-  const slantX = RAIN_SLANT_OFFSET * SWAY_DIR_X;
-  const slantZ = RAIN_SLANT_OFFSET * SWAY_DIR_Z;
+  const wind = windDirOf(view);
+  const slantX = RAIN_SLANT_OFFSET * wind.x;
+  const slantZ = RAIN_SLANT_OFFSET * wind.z;
   return {
     minX: view.x - half + Math.min(0, slantX),
     maxX: view.x + half + reach + Math.max(0, slantX),
@@ -196,10 +209,13 @@ export function footprintBox(view: RainView, maxGround = 0): GroundBox {
  * from the box itself carries the focus's rounding (1e-15 tiles), and a period that follows the pan
  * at the 15th digit is a period that follows the pan.
  */
-export function footprintExtent(view: Pick<RainView, 'zoom' | 'width' | 'height'>, maxGround = 0): number {
+export function footprintExtent(
+  view: Pick<RainView, 'zoom' | 'width' | 'height' | 'windX' | 'windZ'>,
+  maxGround = 0
+): number {
   const { a, b } = footprintHalfExtents(view);
   const half = (a + b) / Math.SQRT2;
-  return 2 * half + rainReach(maxGround) / Math.SQRT2 + RAIN_SLANT_OFFSET * Math.abs(SWAY_DIR_X);
+  return 2 * half + rainReach(maxGround) / Math.SQRT2 + RAIN_SLANT_OFFSET * Math.abs(windDirOf(view).x);
 }
 
 /**
@@ -301,12 +317,16 @@ export const RAIN_AREA_SAMPLES = 8;
  * clip to (GH-940) the shift changes nothing until the period caps; it is kept because the cap
  * still clips a very wide screen.
  */
-export function footprintAreaInView(view: Pick<RainView, 'zoom' | 'width' | 'height'>, period: number): number {
+export function footprintAreaInView(
+  view: Pick<RainView, 'zoom' | 'width' | 'height' | 'windX' | 'windZ'>,
+  period: number
+): number {
   const towards = 1 / (Math.SQRT2 * Math.tan(ELEVATION));
+  const wind = windDirOf(view);
   let sum = 0;
   for (let k = 0; k < RAIN_AREA_SAMPLES; k++) {
     const h = ((k + 0.5) / RAIN_AREA_SAMPLES) * RAIN_FALL_HEIGHT;
-    sum += footprintAreaInWindow(view, period, h * (towards + RAIN_SLANT_TAN * SWAY_DIR_X), h * (towards + RAIN_SLANT_TAN * SWAY_DIR_Z));
+    sum += footprintAreaInWindow(view, period, h * (towards + RAIN_SLANT_TAN * wind.x), h * (towards + RAIN_SLANT_TAN * wind.z));
   }
   return sum / RAIN_AREA_SAMPLES;
 }
@@ -319,12 +339,12 @@ export function footprintAreaInView(view: Pick<RainView, 'zoom' | 'width' | 'hei
  * (S-L2 ruling 2). Never above 1: a screen too small to hold that many keeps every drop it has.
  * A pure function of the zoom, the viewport and the period -- never the pan, and never the map.
  */
-export function rainKeep(view: Pick<RainView, 'zoom' | 'width' | 'height'>, period: number, cache?: RainKeepCache): number {
+export function rainKeep(view: Pick<RainView, 'zoom' | 'width' | 'height' | 'windX' | 'windZ'>, period: number, cache?: RainKeepCache): number {
   if (cache !== undefined) return cache.get(view, period);
   return rainKeepUncached(view, period);
 }
 
-function rainKeepUncached(view: Pick<RainView, 'zoom' | 'width' | 'height'>, period: number): number {
+function rainKeepUncached(view: Pick<RainView, 'zoom' | 'width' | 'height' | 'windX' | 'windZ'>, period: number): number {
   const area = footprintAreaInView(view, period);
   if (area <= 0) return 1;
   return Math.min(1, (RAIN_DENSITY_FRACTION * period * period) / area);
@@ -343,8 +363,9 @@ export class RainKeepCache {
   private key: readonly number[] | null = null;
   private value = 1;
 
-  get(view: Pick<RainView, 'zoom' | 'width' | 'height'>, period: number): number {
-    const key = [view.zoom, view.width, view.height, period];
+  get(view: Pick<RainView, 'zoom' | 'width' | 'height' | 'windX' | 'windZ'>, period: number): number {
+    const wind = windDirOf(view);
+    const key = [view.zoom, view.width, view.height, period, wind.x, wind.z];
     if (this.key !== null && this.key.every((v, i) => v === key[i])) {
       this.hits++;
       return this.value;
@@ -425,15 +446,16 @@ export function dropPosition(
   period: number,
   tSec: number,
   groundY: number,
-  windScale = 1
+  windScale = 1,
+  wind: { readonly x: number; readonly z: number } = { x: SWAY_DIR_X, z: SWAY_DIR_Z }
 ): { x: number; y: number; z: number; landX: number; landZ: number; height: number; phase: number } {
   const land = dropLanding(seed, lo, period);
   const phase = dropPhase(seed[1], tSec);
   const height = RAIN_FALL_HEIGHT - phase;
   return {
-    x: land.x - RAIN_SLANT_TAN * windScale * height * SWAY_DIR_X,
+    x: land.x - RAIN_SLANT_TAN * windScale * height * wind.x,
     y: groundY + height,
-    z: land.z - RAIN_SLANT_TAN * windScale * height * SWAY_DIR_Z,
+    z: land.z - RAIN_SLANT_TAN * windScale * height * wind.z,
     landX: land.x,
     landZ: land.z,
     height,

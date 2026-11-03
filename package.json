@@ -62,6 +62,7 @@
     "e6:capture": "pnpm --filter @lions/tools e6:capture",
     "tunnel:capture": "pnpm --filter @lions/tools tunnel:capture",
     "banner:capture": "pnpm --filter @lions/tools banner:capture",
+    "wind:capture": "pnpm --filter @lions/tools wind:capture",
     "radio:clips": "pnpm --filter @lions/tools radio:clips",
     "audio:mix": "pnpm --filter @lions/tools audio:mix",
     "weight:capture": "pnpm --filter @lions/tools weight:capture",

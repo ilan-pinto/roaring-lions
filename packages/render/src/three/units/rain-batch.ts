@@ -58,6 +58,7 @@ import {
   dropSeed,
   heightTexels,
   rainWindow,
+  windDirOf,
   RainKeepCache,
   posMod,
   RAIN_EDGE_FADE,
@@ -85,6 +86,7 @@ attribute float aKeep;
 uniform float uKeep;
 uniform float uFall;
 uniform float uWind;
+uniform vec2 uWindDir;
 uniform vec2 uLow;
 uniform float uPeriod;
 uniform vec2 uMapSize;
@@ -100,7 +102,6 @@ const float RAIN_H = ${glslFloat(RAIN_FALL_HEIGHT)};
 const float RAIN_V = ${glslFloat(RAIN_FALL_SPEED)};
 const float RAIN_LEN = ${glslFloat(RAIN_STREAK_LENGTH)};
 const float RAIN_TAN = ${glslFloat(RAIN_SLANT_TAN)};
-const vec2 RAIN_WIND = vec2(${glslFloat(SWAY_DIR_X)}, ${glslFloat(SWAY_DIR_Z)});
 const float RAIN_STREAK_A = ${glslFloat(RAIN_STREAK_ALPHA)};
 const float RAIN_SPLASH_A = ${glslFloat(RAIN_SPLASH_ALPHA)};
 const float RAIN_SPLASH_MS = ${glslFloat(RAIN_SPLASH_MS)};
@@ -138,8 +139,8 @@ void main() {
     // sine and cosine are tan / sqrt(1 + tan^2) and 1 / sqrt(1 + tan^2).
     float tanS = RAIN_TAN * uWind;
     float invLen = inversesqrt(1.0 + tanS * tanS);
-    vec3 head = vec3(land.x - tanS * h * RAIN_WIND.x, ground + h, land.y - tanS * h * RAIN_WIND.y);
-    vec3 dirMove = vec3(tanS * invLen * RAIN_WIND.x, -invLen, tanS * invLen * RAIN_WIND.y);
+    vec3 head = vec3(land.x - tanS * h * uWindDir.x, ground + h, land.y - tanS * h * uWindDir.y);
+    vec3 dirMove = vec3(tanS * invLen * uWindDir.x, -invLen, tanS * invLen * uWindDir.y);
     vec3 tail = head - dirMove * RAIN_LEN;
     // The strip faces the camera: its width axis is perpendicular to the path and the view.
     vec3 fwd = -vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
@@ -206,6 +207,8 @@ export interface RainBatchOptions {
 export interface RainFrame {
   /** The SIM clock, seconds (`presentationSimMs / 1000`). */
   readonly simSec: number;
+  /** The travelling gust in [0, 1] under the camera's focus (`terrain/wind.ts`); absent is the old periodic bump. */
+  readonly gust?: number;
   readonly view: RainView;
   /** The drawing buffer's pixel ratio. */
   readonly dpr: number;
@@ -268,6 +271,8 @@ export class RainBatch {
       uniforms: {
         uFall: { value: 0 },
         uWind: { value: 1 },
+        // The heading (GH-984 N1): the map's wind, set every frame; SWAY_DIR until the first.
+        uWindDir: { value: new THREE.Vector2(SWAY_DIR_X, SWAY_DIR_Z) },
         uLow: { value: new THREE.Vector2() },
         uPeriod: { value: 8 },
         // Nothing thinned until the first `update` computes the fraction for the view.
@@ -343,7 +348,9 @@ export class RainBatch {
   update(frame: RainFrame): void {
     const u = this.mesh.material.uniforms;
     u.uFall.value = posMod(RAIN_FALL_SPEED * frame.simSec, RAIN_FALL_HEIGHT);
-    u.uWind.value = rainWindScale(frame.simSec);
+    u.uWind.value = rainWindScale(frame.simSec, frame.gust);
+    const heading = windDirOf(frame.view);
+    (u.uWindDir.value as THREE.Vector2).set(heading.x, heading.z);
     const { period, low: lo, keep } = rainWindow(frame.view, this.maxGround, this.keepCache);
     this.periodNow = period;
     this.keepNow = keep;

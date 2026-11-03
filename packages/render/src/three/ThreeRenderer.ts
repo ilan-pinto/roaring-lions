@@ -319,6 +319,8 @@ import {
 } from './terrain/control-map';
 import { ROAD_GRAIN_GAIN, buildRoadGraph } from './terrain/road-graph';
 import { hexToLinear } from './terrain/shared';
+import { DEFAULT_WIND, windGust, windHeading } from './terrain/wind';
+import { makeWindUniforms, type WindUniformSet } from './terrain/wind-uniforms';
 import type { TerrainInput, MeshData } from './terrain/types';
 import {
   buildDecorMesh,
@@ -1666,6 +1668,17 @@ export class ThreeRenderer implements Renderer {
     return this.disposed ? Promise.resolve() : this.groundTexturesPending;
   }
   /**
+   * The wind (GH-984 N1; `terrain/wind.ts`): its mode, strength and heading, shared BY REFERENCE
+   * with every foliage and trunk batch and with the banners. `mode` is written once a frame from
+   * the reduced-motion preference (0 plays today's sway); `strength` and `dir` once, from
+   * `opts.wind` in the constructor. The clock is `sway.time` below. Presentation only: the sim
+   * never reads any of it.
+   */
+  private readonly windU: WindUniformSet = makeWindUniforms();
+  /** The heading the rain slants along and the gust is sampled against (unit, world x/z). */
+  private windDirX = DEFAULT_WIND.dirX;
+  private windDirZ = DEFAULT_WIND.dirZ;
+  /**
    * The crown sway's two uniforms (ground plan 2, Task 7; `terrain/sway.ts`),
    * shared BY REFERENCE with every foliage batch `buildDecorMesh` builds, so a
    * terrain rebuild never needs to be told the clock. `time` is SIM time,
@@ -1674,7 +1687,7 @@ export class ThreeRenderer implements Renderer {
    * so the crowns move at 60 fps while the sim ticks at 20. `amp` is 1 and
    * only the `wind` debug layer writes it; nothing in `frame()` does.
    */
-  private readonly sway: SwayUniforms = { time: { value: 0 }, amp: { value: 1 } };
+  private readonly sway: SwayUniforms = { time: { value: 0 }, amp: { value: 1 }, wind: this.windU };
   /**
    * Owns the muzzle-flash/blast light pool (`./flash-light.ts`'s own top
    * comment) -- one instance for the whole renderer, `FLASH_CAPACITY` real
@@ -2618,7 +2631,7 @@ export class ThreeRenderer implements Renderer {
    *  banner.ts`): every banner on the map in one instanced mesh, swaying on
    *  the crowns' own sim clock (`sway.time`, shared by reference). It
    *  replaced the held badge this class used to draw in `updateOverlays`. */
-  private readonly garrisonBanners = new GarrisonBannerBatch(this.sway.time);
+  private readonly garrisonBanners = new GarrisonBannerBatch(this.sway.time, undefined, this.windU);
   /** Each garrisonable building TYPE's banner spot, read once off its
    *  standing template as it loads (`loadBuildingMesh`); null where neither
    *  camera-facing face has room for one. */
@@ -2866,6 +2879,13 @@ export class ThreeRenderer implements Renderer {
     this.groundMat = new GroundMaterial(
       opts.weather === 'rain' ? { wet: true, wetProgram: WET_PROGRAM_TIERS[rainQualityOf(opts.quality).ground] } : {}
     );
+    if (opts.wind !== undefined) {
+      const w = windHeading(opts.wind.side, opts.wind.skewDeg, opts.wind.strength);
+      this.windU.strength.value = w.strength;
+      this.windU.dir.value.set(w.dirX, w.dirZ);
+      this.windDirX = w.dirX;
+      this.windDirZ = w.dirZ;
+    }
     this.surfaceTable = surfaceTableFor(opts.weather, opts.environmentLight !== false);
     // L2 (GH-943): `low` builds no grade until the GPU-timer read spec section 3 asks for (`RenderQuality.grade`).
     this.gradeAllowed = (opts.quality ?? QUALITY_PRESETS.high).grade;
@@ -4163,13 +4183,18 @@ export class ThreeRenderer implements Renderer {
     // tick repeats, and the gate's zero-time repaint moves no leaf. One
     // uniform write, shared by reference with every foliage batch.
     this.sway.time.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
-    // Reduced motion is asked ONCE a frame, live (a settings change mid-mission takes effect at
+    // The wind plays unless the player asked for no motion, asked LIVE once a frame (like `reducedNow`,
+    // but on every map: the sway has always run on dry ones). Reduced motion keeps today's sway and
+    // adds nothing new (GH-984 decision 6), so mode 0 is the legacy branch of the shader.
+    const reducedPref = this.opts.reducedMotion?.() === true;
+    this.windU.mode.value = reducedPref ? 0 : 1;
+    // Reduced motion is asked ONCE a frame (`reducedPref`, just above, which the wind shares), live (a settings change mid-mission takes effect at
     // the next frame), and the answer is shared by the rain-visibility write and the ripple
     // amplitude write below (GH-871 P4 T9, R-9). Both are per-frame writes; the debug toggles
     // call them between frames and read the last answer, so a show never turns motion back on.
     // Rain-only: both writes are (a dry map has no rain and no ripples), so a dry renderer does no new
     // per-frame work; `reducedNow` stays false there. The wound ring asks for itself, elsewhere.
-    this.reducedNow = this.opts.weather === 'rain' && this.opts.reducedMotion?.() === true;
+    this.reducedNow = this.opts.weather === 'rain' && reducedPref;
     this.writeRippleUniforms(alpha);
     this.updateRain(alpha);
     this.updateSilhouetteOutlineWidth();
@@ -11873,14 +11898,19 @@ export class ThreeRenderer implements Renderer {
       this.rain.bakeHeights((x, z) => groundWorldY(elevation, w, h, x, z));
       this.rainHeightStale = false;
     }
+    const simSec = presentationSimMs(this.sim.tickCount, alpha) / 1000;
     this.rain.update({
-      simSec: presentationSimMs(this.sim.tickCount, alpha) / 1000,
+      simSec,
+      // The same wind the foliage reads (GH-984 N1): its travelling gust under the camera's focus.
+      gust: windGust(simSec, this.camera.x, this.camera.y, this.windDirX, this.windDirZ),
       view: {
         x: this.camera.x,
         y: this.camera.y,
         zoom: this.camera.zoom,
         width: this.cssWidth,
         height: this.cssHeight,
+        windX: this.windDirX,
+        windZ: this.windDirZ,
       },
       dpr: this.pixelRatio,
     });

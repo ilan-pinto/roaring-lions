@@ -516,3 +516,24 @@ Spec: `docs/superpowers/specs/2026-11-01-look-uplift-design.md` §2 and §7. The
 - The menu scene host is a stock `ThreeRenderer` and takes L1 too (its day hemisphere drops 0.9 to 0.82); `assets/ui/menu_host_plate.jpg` was re-photographed with `pnpm plate:host` on 2 Nov so the plate and the live host agree.
 - The theme-identity `program` digests did not move (the ground shader is byte-identical); `scene` moved with the 0.45 -> 0.7 cap and `light` with the hemisphere and haze (`tools/src/theme-identity.test.ts` lists the Was values).
 - Instruments: `tools/src/perf/look-l1-captures.ts` (mock, census, probe, layer) and `tools/look_l1_sheet.py`. Frame cost, 2 Nov, `perf:fx --breakdown`: +0.1 to +0.3 ms on high and medium, draw calls and triangles identical.
+
+## The wind (GH-984 N1)
+
+`terrain/wind.ts` is the one three-free field every swaying thing reads (grass, reeds, shrubs, crowns, TRUNKS, the held-building banners, the
+rain's slant); `sway.ts` keeps only the legacy maths, which is what reduced motion plays (`windU.mode` 0: the old shader branch, crowns only,
+the periodic 11 s gust on the fixed axis; a trunk holds still). Facts that cost thinking:
+
+- **`rlNature` (vec2: height, class) is normalised to the box of ALL the foliage and trunk parts of one `<family>_<variant>` key**, not to the
+  part's own box (design section 3 said "the geometry's own bbox"): a bush's foliage starts half way up its trunk, and per-part
+  normalisation would give the halves of one bush different bend curves. A tree uses WORLD height over `SWAY_TOP` squared, so trunk and
+  crown at one height move identically and "trunk follows crown" is exact where they meet.
+- **The GLSL `rlWindLean` / `rlWindGust` are written in a scalar subset and `wind.test.ts` transpiles and RUNS them** against `windLean` /
+  `windGust` (the hash from its own text, in BigInt `uint`). A constant-search alone passes a shader that computes the wrong thing.
+- **A gust is travelling value noise** (`s = t - dot(p, dir) / 3 tiles/s`, lattice 3 s, `smoothstep(0.5, 0.85)`): median 11.8 s between
+  gusts at a point (p10 5.9 s). A gust also leans the stand downwind by `WIND_GUST_LEAN` x amp (an addition to the design; one constant).
+- **Map data** is `wind: { strength 0-2, side east|west, skew_deg -30..30 }` (`map.schema.json`, `parseMap`), each field optional and falling
+  back to `TERRAIN_WIND[theme]` in the app; `RendererOptions.wind` carries it and the sim never reads it. The rain uses the heading and the
+  travelling gust under the camera focus; `strength` scales foliage only (the rain's culling bounds assume `RAIN_WIND_MAX`).
+- **`reducedMotion` is now asked every frame on every map** (the wind plays on dry maps), shared with the wet writes: a dry renderer asks twice
+  a frame (wound ring + wind), a wet one still twice.
+- Shadow and AO passes keep the rest pose (unchanged from the old sway). Instrument: `pnpm wind:capture` (the mock clip sheets).

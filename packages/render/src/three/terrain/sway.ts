@@ -1,12 +1,10 @@
 /**
- * Crown sway (ground plan 2, Task 7; N-16, N-17): the maths of how far a
- * foliage vertex leans, and the GLSL that does it on the GPU.
- *
- * Pure and three-free, so it is barrel-exported and tested under node. The
- * shader in `swayVertexChunk()` is NOT a transcription of `swayOffset`: every
- * number in it is interpolated from the constants below, and `sway.test.ts`
- * pins that the source contains them. A constant changed here changes the
- * GPU in the same edit, or the test goes red.
+ * Crown sway (ground plan 2, Task 7; N-16, N-17): the LEGACY maths of how far
+ * a foliage vertex leans. GH-984 N1 moved the constants and the GLSL to
+ * `wind.ts`; what is left here is what reduced motion plays -- today's sway,
+ * the periodic 11 s gust on one fixed axis -- as a pure oracle for the legacy
+ * branch of `windVertexChunk`, plus the weight and gust the rain maths and the
+ * tests still read.
  *
  * THE CLOCK IS SIM TIME. `tSec` is `presentationSimMs(sim.tickCount, alpha) /
  * 1000` (`../decal-maths.ts`), the clock the decals already age on -- read,
@@ -34,31 +32,36 @@
  *   read as nothing.
  */
 
-export const SWAY_AMPLITUDE = 0.035; // world units at weight 1
-export const SWAY_PERIOD_S = 3.8;
-export const SWAY_GUST_GAIN = 1.4;
-export const SWAY_GUST_EVERY_S = 11;
-export const SWAY_GUST_WIDTH_S = 2.5;
-export const SWAY_TOP = 1.0; // world units above the instance origin
-export const SWAY_DIR_X = Math.SQRT1_2;
-export const SWAY_DIR_Z = -Math.SQRT1_2;
-export const SWAY_PHASE_X = 1.7;
-export const SWAY_PHASE_Z = 2.3;
+import {
+  RAIN_SWAY_AMP,
+  RAIN_SWAY_GUST,
+  SWAY_AMPLITUDE,
+  SWAY_DIR_X,
+  SWAY_DIR_Z,
+  SWAY_GUST_EVERY_S,
+  SWAY_GUST_GAIN,
+  SWAY_GUST_WIDTH_S,
+  SWAY_PERIOD_S,
+  SWAY_PHASE_X,
+  SWAY_PHASE_Z,
+  SWAY_TOP,
+} from './wind';
 
-/**
- * The wet sway (GH-871 P4 T5, R-3): under rain a crown leans `RAIN_SWAY_AMP`
- * times as far (a wet branch is heavy and the wind that comes with rain is
- * stronger) and a gust peaks at `RAIN_SWAY_GUST` instead of `SWAY_GUST_GAIN`.
- * Nothing else changes: period, gust cadence and width, the axis, the phase
- * travel and the weight are today's, and the clock is the SIM clock as ever.
- * GH-940 raised them from 1.5 and 1.8 (the lead wanted the wind to read): the reeds and the crowns
- * lean 2.2x as far and 3.0x at a gust's peak, and the rain slants with the same gust (`weather.ts`).
- * It is a COMPILE-TIME variant (`swayVertexChunk(true)`), not a value written
- * into `uSwayAmp`, which the `wind` debug layer owns: writing 1.5 there would
- * fight that layer's stash. A shipped map never builds it.
- */
-export const RAIN_SWAY_AMP = 2.2;
-export const RAIN_SWAY_GUST = 3.0;
+// The constants live in `wind.ts` (GH-984 N1) and are re-exported here, so every importer is unchanged.
+export {
+  RAIN_SWAY_AMP,
+  RAIN_SWAY_GUST,
+  SWAY_AMPLITUDE,
+  SWAY_DIR_X,
+  SWAY_DIR_Z,
+  SWAY_GUST_EVERY_S,
+  SWAY_GUST_GAIN,
+  SWAY_GUST_WIDTH_S,
+  SWAY_PERIOD_S,
+  SWAY_PHASE_X,
+  SWAY_PHASE_Z,
+  SWAY_TOP,
+};
 
 /** `(h / TOP)^2`, clamped to [0, 1]. */
 export function swayWeight(heightWu: number): number {
@@ -92,63 +95,4 @@ export function swayOffset(
     gustFactor(tSec, wet) *
     Math.sin((2 * Math.PI * tSec) / SWAY_PERIOD_S + SWAY_PHASE_X * originX + SWAY_PHASE_Z * originZ);
   return { dx: SWAY_DIR_X * s, dz: SWAY_DIR_Z * s };
-}
-
-/** A GLSL float literal carrying enough digits that `toFixed(4)` of the same
- *  constant is a prefix of it. */
-function glsl(k: number): string {
-  return k.toFixed(8);
-}
-
-/**
- * The GLSL spliced after `#include <project_vertex>`, constants interpolated.
- *
- * AFTER `project_vertex`, not in `begin_vertex`, because the lean needs the
- * instance's WORLD origin and the vertex's WORLD height -- scale and yaw come
- * from the batch's per-instance matrix, so a big olive and a small one weigh
- * their own heights -- and `batchingMatrix` is what carries that. It is in
- * scope here: `batching_vertex` declares it before `project_vertex` in r170's
- * `meshphysical` vertex shader. The lean is added to `mvPosition` in VIEW
- * space (`viewMatrix * vec4(dir, 0)`), then `gl_Position` is rewritten.
- *
- * `vViewPosition` (what the lights read) is assigned from `mvPosition` AFTER
- * `#include <project_vertex>` in r170's
- * `ShaderLib/meshphysical.glsl.js` (line 44 includes it, line 48 assigns
- * `vViewPosition = - mvPosition.xyz`), so a moved vertex is lit where it is
- * drawn. The shadow and AO passes draw with their own materials, which carry
- * none of this, so shadow receive and the AO pass both sample the rest pose
- * -- spec §3.5 accepts that (at most 2.2 px).
- *
- * `uSwayAmp` is 1 in shipping code; the `wind` debug layer sets it to 0.
- */
-export function swayVertexChunk(wet = false): string {
-  // The two constants the wet variant changes, and only those. A dry chunk is
-  // built from exactly the values it always was (`SWAY_AMPLITUDE * 1` is
-  // exact in binary, and the literal printed is the same string).
-  const amp = wet ? SWAY_AMPLITUDE * RAIN_SWAY_AMP : SWAY_AMPLITUDE;
-  const gust = wet ? RAIN_SWAY_GUST : SWAY_GUST_GAIN;
-  return `
-{
-#ifdef USE_BATCHING
-  mat4 rlSwayModel = modelMatrix * batchingMatrix;
-#else
-  mat4 rlSwayModel = modelMatrix;
-#endif
-  vec3 rlSwayOrigin = rlSwayModel[3].xyz;
-  float rlSwayH = (rlSwayModel * vec4(transformed, 1.0)).y - rlSwayOrigin.y;
-  float rlSwayR = clamp(rlSwayH / ${glsl(SWAY_TOP)}, 0.0, 1.0);
-  float rlSwayPh = mod(uSwayTime, ${glsl(SWAY_GUST_EVERY_S)});
-  float rlSwayBump = 0.0;
-  if (rlSwayPh < ${glsl(SWAY_GUST_WIDTH_S)}) {
-    float rlSwayB = sin(PI * rlSwayPh / ${glsl(SWAY_GUST_WIDTH_S)});
-    rlSwayBump = rlSwayB * rlSwayB;
-  }
-  float rlSwayGust = 1.0 + (${glsl(gust)} - 1.0) * rlSwayBump;
-  float rlSway = uSwayAmp * ${glsl(amp)} * rlSwayR * rlSwayR * rlSwayGust
-    * sin(PI2 * uSwayTime / ${glsl(SWAY_PERIOD_S)}
-      + ${glsl(SWAY_PHASE_X)} * rlSwayOrigin.x + ${glsl(SWAY_PHASE_Z)} * rlSwayOrigin.z);
-  mvPosition += viewMatrix * vec4(${glsl(SWAY_DIR_X)} * rlSway, 0.0, ${glsl(SWAY_DIR_Z)} * rlSway, 0.0);
-  gl_Position = projectionMatrix * mvPosition;
-}
-`;
 }

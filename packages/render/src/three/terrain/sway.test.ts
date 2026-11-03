@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   SWAY_AMPLITUDE, SWAY_DIR_X, SWAY_DIR_Z, SWAY_GUST_EVERY_S, SWAY_GUST_GAIN, SWAY_GUST_WIDTH_S,
-  SWAY_PERIOD_S, SWAY_PHASE_X, SWAY_PHASE_Z, SWAY_TOP,
+  SWAY_PERIOD_S, SWAY_TOP,
   RAIN_SWAY_AMP, RAIN_SWAY_GUST,
-  gustFactor, swayOffset, swayVertexChunk, swayWeight,
+  gustFactor, swayOffset, swayWeight,
 } from './sway';
+import * as wind from './wind';
 
 describe('sway maths (N-16, N-17)', () => {
   it('weighs by (h / top)^2, clamped', () => {
@@ -46,26 +47,12 @@ describe('sway maths (N-16, N-17)', () => {
   it('travels: two trees a tile apart are out of phase', () => {
     expect(swayOffset(SWAY_TOP, 3, 0, 0).dx).not.toBeCloseTo(swayOffset(SWAY_TOP, 3, 1, 0).dx, 3);
   });
-  it('the GLSL carries the tested constants, not a transcription of them', () => {
-    const src = swayVertexChunk();
-    // A bare `toContain(k.toFixed(4))` is a substring search: SWAY_TOP's
-    // "1.0000" is also a substring of an unrelated "21.00000000" or
-    // "1.00001234" literal, so it can pass without the constant actually
-    // being the one embedded. `glsl()` (sway.ts) always emits `toFixed(8)`,
-    // so pin that exact literal, delimited on both sides so it cannot match
-    // as a fragment of a longer number. SWAY_DIR_X/SWAY_DIR_Z (the sway
-    // axis) were not pinned at all before -- add them here too.
-    for (const k of [
-      SWAY_AMPLITUDE, SWAY_PERIOD_S, SWAY_GUST_GAIN, SWAY_GUST_EVERY_S, SWAY_GUST_WIDTH_S,
-      SWAY_TOP, SWAY_PHASE_X, SWAY_PHASE_Z, SWAY_DIR_X, SWAY_DIR_Z,
-    ]) {
-      const literal = k.toFixed(8).replace(/\./g, '\\.');
-      const pattern = new RegExp(`(?<![0-9.])${literal}(?![0-9])`);
-      expect(src).toMatch(pattern);
+  it('re-exports wind.ts`s constants (GH-984 N1 moved them; the GLSL pin lives in wind.test.ts)', () => {
+    for (const k of ['SWAY_AMPLITUDE', 'SWAY_PERIOD_S', 'SWAY_GUST_GAIN', 'SWAY_GUST_EVERY_S', 'SWAY_GUST_WIDTH_S', 'SWAY_TOP', 'SWAY_PHASE_X', 'SWAY_PHASE_Z', 'SWAY_DIR_X', 'SWAY_DIR_Z', 'RAIN_SWAY_AMP', 'RAIN_SWAY_GUST'] as const) {
+      expect((wind as Record<string, unknown>)[k]).toBeTypeOf('number');
     }
-    expect(src).toContain('uSwayTime');
-    expect(src).toContain('uSwayAmp');
-    expect(src).toContain('USE_BATCHING');
+    expect(SWAY_AMPLITUDE).toBe(wind.SWAY_AMPLITUDE);
+    expect(SWAY_DIR_X).toBe(wind.SWAY_DIR_X);
   });
 });
 
@@ -96,24 +83,5 @@ describe('the wet sway (GH-871 P4 T5, R-3)', () => {
 
   it('a dry offset is exactly what it was (the wet flag defaults off)', () => {
     expect(swayOffset(1, 3, 4, 9)).toEqual(swayOffset(1, 3, 4, 9, false));
-  });
-
-  it('the wet chunk differs from the dry one in exactly the amplitude and the gust literal', () => {
-    const dry = swayVertexChunk();
-    const wet = swayVertexChunk(true);
-    expect(wet).not.toBe(dry);
-    // The literals the shipped chunk carries, and the wet ones it does not.
-    expect(dry).toContain('uSwayAmp * 0.03500000 *');
-    expect(dry).toContain('(1.40000000 - 1.0)');
-    expect(dry).not.toContain('0.07700000');
-    expect(dry).not.toContain('3.00000000');
-    expect(wet).toContain('uSwayAmp * 0.07700000 *');
-    expect(wet).toContain('(3.00000000 - 1.0)');
-    expect(wet).not.toContain('0.03500000');
-    expect(wet).not.toContain('1.40000000');
-    // Swap exactly those two back and the wet chunk IS the dry one, byte for byte:
-    // nothing else (period, gust cadence, axis, phase) moved.
-    const swapped = wet.replace('0.07700000', '0.03500000').replace('3.00000000', '1.40000000');
-    expect(swapped).toBe(dry);
   });
 });

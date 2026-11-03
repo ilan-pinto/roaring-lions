@@ -161,6 +161,29 @@ describe('the backdrop block (GH-161)', () => {
   });
 });
 
+describe('the wind block (GH-984 N1)', () => {
+  const wind = (w: Record<string, unknown>): MapJson => ({ ...TINY, wind: w as never });
+
+  it('is null on a map without one, and carries what it names (and only that) on a map with one', () => {
+    expect(parseMap(TINY).wind).toBeNull();
+    expect(parseMap(wind({ strength: 1.5, side: 'west', skew_deg: -12 })).wind).toEqual({ strength: 1.5, side: 'west', skewDeg: -12 });
+    expect(parseMap(wind({ strength: 0 })).wind).toEqual({ strength: 0 });
+    expect(parseMap(wind({ skew_deg: 30 })).wind).toEqual({ skewDeg: 30 });
+  });
+
+  it('refuses a heading more than 30 degrees off the screen side, a wind beyond 2, and an unknown side', () => {
+    expect(() => parseMap(wind({ skew_deg: 30.5 }))).toThrow(/skew_deg/);
+    expect(() => parseMap(wind({ skew_deg: -31 }))).toThrow(/skew_deg/);
+    expect(() => parseMap(wind({ strength: 2.01 }))).toThrow(/strength/);
+    expect(() => parseMap(wind({ strength: -0.1 }))).toThrow(/strength/);
+    expect(() => parseMap(wind({ side: 'north' }))).toThrow(/side/);
+  });
+
+  it('is on no shipped map yet (every map takes its theme`s wind)', () => {
+    expect(Object.values(maps).filter((m) => parseMap(m as MapJson).wind !== null)).toEqual([]);
+  });
+});
+
 describe('terrain symbols and the decor layer', () => {
   const TERRAIN: MapJson = {
     id: 'terrain',
