@@ -68,10 +68,17 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   Sarim 54.2% (KDF friendly) / KDF 51.6% (Sarim friendly). The seat's neighbours swing: (27,44) mirror west 59.4%, (27,46) tunnel cell 3
  *   KDF 64.1% and the Sarim mirror 87.2%, (26,44) the Sarim mirror 71.4%, (28,46) economy Sarim 60.1%,
  *   (26,46) mirror east 62%.
- *   Held out, seeds 7000-7287 and 4000-4287 (288 a cell), the final seat and camp: economy Sarim friendly
- *   KDF 55.2 / 54.2% (medic off) and Sarim 51.0 / 51.7% (medic on), where main read Sarim 56.6 / 62.5% and
- *   56.3 / 64.9%; the other economy and tunnel cells, both arms, 50.3-57.6%, and the placed and mirror cells 51.0-58.0%. The Sarim-v-Sarim mirror (a report cell) read
- *   east 62.8 / 70.8% and now reads 55.6 / 55.9%.
+ *   With the medic on the menu (PR 985) the seat and camp send tunnel cell 3 with Sarim friendly Sarim-ward
+ *   (Sarim 58.6% pooled over five ranges, 60.8% on 6000-6287, 64.1% on 8000-8191; the old seat 50.5%), so the
+ *   south tunnel pair went 4 / 4 -> 3 / 3 (`data/versus/tel_marum.json`; it is the Sarim seat's routes only
+ *   when Sarim stands south, so it touches that one cell): Sarim 55.5% -> 52.9% (0-383), 60.8% -> 53.5%
+ *   (6000-6287). 4 / 3 read 54.2% / 52.8% medic on and is worse medic off; 3 / 4 read 63.3% / 61.5%.
+ *   Held out, 7000-7287, 4000-4287 and a fresh 9000-9287 (288 a cell, medic on / off): economy Sarim
+ *   friendly, main Sarim 56.9 / 56.6, 68.1 / 62.5 and 67.7 / 60.8%, now Sarim 52.1 / KDF 55.2, Sarim 50.3 /
+ *   KDF 54.2 and Sarim 56.3 / KDF 51.7%. On 7000 and 4000 every other economy, tunnel cell 3, placed and
+ *   mirror cell is inside 60/40 but one: cell 3 with Sarim friendly, medic off, KDF 62.5% on 7000 (KDF 57.3%
+ *   on 4000, 55.6% on 9000, 58.4% pooled). 9000 ran the two Sarim-friendly cells only. The Sarim-v-Sarim
+ *   mirror (a report cell) read east 62.8 / 70.8% and now reads 55.6 / 55.9%.
  * - `wadi_tarfan` (mirror and KDF-vs-Sarim; the lead's ruling, 23 Oct,
  *   GH-769): its own `versus_0`/`versus_1` markers (10,10)/(37,37) read
  *   KDF-vs-Sarim outside 60/40 at 96 seeds with wounds on (placed force, KDF
