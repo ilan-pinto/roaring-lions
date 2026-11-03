@@ -46,6 +46,17 @@
  * touches no outcome, tally, gate or exit code (D7). Without `--judge` the report's
  * score section says "Not judged".
  *
+ * `--watch` (GH-954 W1, `docs/net/arena-watch.md` when written, the design in `_coord/arena-watch/design.md`)
+ * lets you WATCH a run live in a browser, LOCAL ONLY. It implies `--serve`: one 127.0.0.1 process
+ * (`arena-serve.ts`) that serves the DEV-only screen `/arena/watch` through Vite's dev server in middleware
+ * mode and `/arena/api/live` (the running game's relay, code, a spectator ticket). It prints the URL with the
+ * one-run token in the fragment. Each game's relay then allows the server's origin, mints spectator tickets
+ * (`ARENA_WATCH`), and lingers 5 s after the game so the page hears the result. `--tick-ms` defaults to 50
+ * (real time between a model's holds) instead of 2; the room's clock is a recorded parameter and results are
+ * comparable only at the same pace. A watcher is a separate ticket role the room ignores after hello: it
+ * cannot change a record (arena.test pins that with 0 and 2 watchers). `--serve` alone starts the server
+ * without the watch features (the setup screen, W2).
+ *
  * Exit codes: 0 every game played (voids included: a void is a result of the
  * arena, not a failure of it); 1 a bad command line, a player that cannot be
  * built, or a game that could not be played (a relay, a room or a start
@@ -76,6 +87,7 @@ import { buildId } from './build-id';
 import { capOutcome } from './cap';
 import { JUDGE_PLACEHOLDERS, runJudge, type JudgeJob, type JudgeRecord } from './judge';
 import { startLocalRelay, type LocalRelay, type LocalRelayOptions } from './local-relay';
+import { startArenaServe, type ArenaServe, type ArenaServeOptions, type GameStart } from './arena-serve';
 import { abortExternalPlayers, externalPlayer, externalPlayersStopped, parseTemplate } from './external-player';
 import { inProcess, passive, rush, type ArenaPlayer, type PlayerReport, type RunningPlayer } from './players';
 
@@ -103,15 +115,26 @@ export interface ArenaArgs {
   judge: string | null;
   /** How long one judge may take, per game. */
   judgeTimeoutMs: number;
+  /** GH-954 W1: serve the DEV-only watch screen and let a browser watch each game live. Implies `serve`. */
+  watch: boolean;
+  /** GH-954 W1: run `arena-serve.ts` (127.0.0.1, token-guarded). */
+  serve: boolean;
+  /** The port `--serve` binds; 0: the OS picks. */
+  servePort: number;
 }
+
+/** The relay's linger after a game's result, so a spectator hears it (`--watch`). */
+export const WATCH_LINGER_MS = 5000;
+/** `--tick-ms` under `--watch`: the room's own clock, real time between holds (decision D-W5). */
+export const WATCH_TICK_MS = 50;
 
 /** `--gate` FAILED: every game was played and A was not told from B at p < 0.05. */
 export const EXIT_GATE_FAIL = 3;
 
-const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--first-seed 0] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate] [--judge "cmd:<template>"] [--judge-timeout-ms 180000]\n  a player is passive, rush, or cmd:<template>; the judge scores both players of each game on the rubric (placeholders {prompt}, {stats})';
-const VALUED = new Set(['a', 'b', 'seeds', 'first-seed', 'map', 'matchup', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out', 'judge', 'judge-timeout-ms']);
+const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--first-seed 0] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate] [--judge "cmd:<template>"] [--judge-timeout-ms 180000] [--watch] [--serve] [--serve-port 0]\n  --watch: watch a run live in a browser (local only; implies --serve; --tick-ms defaults to 50); a player is passive, rush, or cmd:<template>; the judge scores both players of each game on the rubric (placeholders {prompt}, {stats})';
+const VALUED = new Set(['a', 'b', 'seeds', 'first-seed', 'map', 'matchup', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out', 'judge', 'judge-timeout-ms', 'serve-port']);
 /** Options that take no value. */
-const FLAGS = new Set(['gate']);
+const FLAGS = new Set(['gate', 'watch', 'serve']);
 const BUILT_IN: Record<string, (log: (line: string) => void) => ArenaPlayer> = {
   passive: (log) => inProcess('passive', passive, { log }),
   rush: (log) => inProcess('rush', rush, { log }),
@@ -166,9 +189,11 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
   const pace = intIn('pace', got.get('pace'), 60, 20, 1200);
   const roundWallMs = intIn('round-wall-ms', got.get('round-wall-ms'), 120_000, 1000, 600_000);
   const capTicks = intIn('cap-ticks', got.get('cap-ticks'), 12_000, 1, matchCapTicks(got.get('map') ?? 'tel_marum'));
-  const tickMs = intIn('tick-ms', got.get('tick-ms'), 2, 1, 1000);
+  const watch = flags.has('watch');
+  const tickMs = intIn('tick-ms', got.get('tick-ms'), watch ? WATCH_TICK_MS : 2, 1, 1000);
+  const servePort = intIn('serve-port', got.get('serve-port'), 0, 0, 65_535);
   const judgeTimeoutMs = intIn('judge-timeout-ms', got.get('judge-timeout-ms'), 180_000, 1000, 1_800_000);
-  for (const v of [seeds, firstSeed, pace, roundWallMs, capTicks, tickMs, judgeTimeoutMs]) if (typeof v !== 'number') return v;
+  for (const v of [seeds, firstSeed, pace, roundWallMs, capTicks, tickMs, judgeTimeoutMs, servePort]) if (typeof v !== 'number') return v;
   const judge = got.get('judge') ?? null;
   if (judge !== null) {
     if (!EXTERNAL.test(judge)) return { error: '--judge is cmd:<template>, in the players\' own form (no key belongs in it)' };
@@ -188,6 +213,9 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
     gate: flags.has('gate'),
     judge,
     judgeTimeoutMs: judgeTimeoutMs as number,
+    watch,
+    serve: watch || flags.has('serve'),
+    servePort: servePort as number,
   };
 }
 
@@ -221,6 +249,13 @@ export interface ArenaDeps {
   /** The judge (GH-973); default `runJudge`. A spec injects a stub: no spec runs a model. */
   runJudge?: (job: JudgeJob) => Promise<JudgeRecord>;
   now?: () => Date;
+  /** GH-954 W1: the server `--serve` starts; default `startArenaServe`. A spec injects a stub. */
+  startServe?: (o: ArenaServeOptions) => Promise<ArenaServe>;
+  /** Called once a game's room is confirmed and its players are running (its relay, code and seat ticket are in
+   *  `info`), BEFORE the game is played to its end. A throw is logged and never stops the game. */
+  onGameStart?: (info: GameStart) => void;
+  /** Called with the game's record once its verdict is known, before its relay's linger and close. */
+  onGameEnd?: (end: { n: number; of: number; record: GameRecord; referee: RefereeDigest }) => void;
 }
 
 export interface ArenaRun {
@@ -341,6 +376,9 @@ export function untrusted(config: Pick<MatchConfig, 'pace' | 'seed' | 'map' | 's
 }
 
 interface GameSpec {
+  /** 1-based number in the run, and the run's total (`--seeds` x 2): what a watcher's strip shows. */
+  n: number;
+  of: number;
   seed: number;
   players: [ArenaPlayer, ArenaPlayer];
   names: [string, string];
@@ -418,12 +456,27 @@ export async function startObserver(relay: Pick<LocalRelay, 'url' | 'origin'>, c
 /** What is running right now, for a signal: `playGame` adds each relay and
  *  player as it starts and removes it once its own `finally` has closed it. */
 const liveRelays = new Set<LocalRelay>();
+const liveServes = new Set<ArenaServe>();
 const livePlayers = new Set<RunningPlayer>();
+
+/** What `runArena` hands one game beyond its spec: the server's origins the relay must allow, and the two hooks. */
+interface GameHooks {
+  allowOrigins?: readonly string[];
+  onStart?: (info: GameStart) => void;
+  onEnd?: (record: GameRecord, referee: RefereeDigest) => void;
+}
+
+/** The referee's sim at the game's end: its tick and `sim.hash()`. A headless watcher compares its own against it. */
+export interface RefereeDigest { tick: number; hash: number }
 
 /** One game on its own relay, to a result or the cap. Every player and the
  *  relay are closed before it returns, whatever happened. */
-async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: NonNullable<ArenaDeps['startRelay']>, observe: typeof startObserver, log: (line: string) => void): Promise<GameRecord> {
-  const relay = await startRelay({ tickMs: a.tickMs, seedFor: () => g.seed, log });
+async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: NonNullable<ArenaDeps['startRelay']>, observe: typeof startObserver, log: (line: string) => void, hooks: GameHooks = {}): Promise<GameRecord> {
+  const relay = await startRelay({
+    tickMs: a.tickMs, seedFor: () => g.seed, log,
+    ...(a.watch ? { watch: true, lingerMs: WATCH_LINGER_MS } : {}),
+    ...(hooks.allowOrigins === undefined ? {} : { allowOrigins: hooks.allowOrigins }),
+  });
   liveRelays.add(relay);
   const running: RunningPlayer[] = [];
   let observer: (RunningPlayer & { client: AgentClient }) | null = null;
@@ -448,6 +501,11 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     const distrust = untrusted(config, a, g.seed);
     if (distrust !== null) throw new Error(distrust);
     const factions: GameRecord['factions'] = [config.seats[0].faction, config.seats[1].faction];
+    // GH-954 W1: the room is confirmed and its players are in: a watcher may be sent here now. A hook that
+    // throws costs the watch, never the game.
+    try {
+      hooks.onStart?.({ n: g.n, of: g.of, seed: g.seed, map: a.map, matchup: a.matchup, names: g.names, factions, code, relay: { url: relay.url, origin: relay.origin }, seatTicket: tickets[0], build, capTicks: a.capTicks, pace: a.pace, roundWallMs: a.roundWallMs });
+    } catch (e) { log(`arena: onGameStart hook failed: ${messageOf(e)}`); }
 
     // A backstop only: every round waited out by wall time, plus a minute.
     const budgetMs = (Math.ceil(a.capTicks / a.pace) + 2) * a.roundWallMs + 60_000;
@@ -475,11 +533,13 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     if (sim === undefined) throw new Error('the reading seat never built its world');
     // The referee's numbers for both seats (GH-973): a read of the reading seat's sim, after the verdict, written to nothing.
     const stats = referee.refereeStats(verdictText(g.names, verdict));
-    return {
+    const record: GameRecord = {
       seed: g.seed, map: a.map, matchup: a.matchup, players: g.names, factions,
       outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: bySeat(scoreOf(sim), sides), reports,
       ...(stats === null ? {} : { referee: stats }),
     };
+    try { hooks.onEnd?.(record, { tick: referee.tick(), hash: sim.hash() }); } catch (e) { log(`arena: onGameEnd hook failed: ${messageOf(e)}`); }
+    return record;
   } finally {
     // Every close is guarded: one that fails is logged and the next still runs.
     if (observer !== null) {
@@ -576,19 +636,38 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   const build = buildId();
   const games: GameRecord[] = [];
   let code = 0;
+  // GH-954 W1: the local server, started BEFORE the first relay so its origins can be allowed on every one.
+  let serve: ArenaServe | null = null;
+  if (a.serve) {
+    try {
+      serve = await (deps.startServe ?? startArenaServe)({ port: a.servePort, log, ...(a.watch ? { runLabel: `${names[0]} vs ${names[1]}` } : {}) });
+    } catch (e) {
+      return fail(1, `could not start the arena server: ${messageOf(e)}`);
+    }
+    liveServes.add(serve);
+    print(`arena: ${a.watch ? 'watch' : 'serve'}: ${serve.url(a.watch ? '/arena/watch' : '/arena')}`);
+  }
+  const hooks: GameHooks = {
+    ...(serve === null ? {} : { allowOrigins: serve.origins }),
+    onStart: (info) => { serve?.gameStarted(info); deps.onGameStart?.(info); },
+    onEnd: (record) => { serve?.gameEnded(record); },
+  };
   log(`arena: ${names[0]} vs ${names[1]}, ${a.seeds} seed(s) x 2 on ${a.map} (${a.matchup}), pace ${a.pace}, cap ${a.capTicks}`);
   try {
     for (let n = 0; n < a.seeds; n++) {
       const seed = seedOf(a.firstSeed + n);
       // Game 1: A on seat 0. Game 2: the same seed with the seats swapped.
       const orders: GameSpec[] = [
-        { seed, players: [A, B], names: [names[0], names[1]], logBase: join(dir, `${base}-game${2 * n + 1}`) },
-        { seed, players: [B, A], names: [names[1], names[0]], logBase: join(dir, `${base}-game${2 * n + 2}`) },
+        { n: 2 * n + 1, of: 2 * a.seeds, seed, players: [A, B], names: [names[0], names[1]], logBase: join(dir, `${base}-game${2 * n + 1}`) },
+        { n: 2 * n + 2, of: 2 * a.seeds, seed, players: [B, A], names: [names[1], names[0]], logBase: join(dir, `${base}-game${2 * n + 2}`) },
       ];
       for (const g of orders) {
         // A signal's cleanup has begun: no new relay, no new seat.
         if (externalPlayersStopped()) throw new Error('the arena is stopping (a signal): no further game');
-        const record = await playGame(g, a, build, startRelay, observe, log);
+        const record = await playGame(g, a, build, startRelay, observe, log, {
+          ...hooks,
+          onEnd: (r, ref) => { hooks.onEnd?.(r, ref); deps.onGameEnd?.({ n: g.n, of: g.of, record: r, referee: ref }); },
+        });
         // After the game, with its relay closed: a slow judge holds up the next game, never this one's result.
         const judged = await judgeGame(record, a, g.logBase, deps.runJudge ?? runJudge, log);
         if (judged !== undefined) record.judge = judged;
@@ -603,6 +682,12 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
     code = 1;
   }
   writeFileSync(files.md, markdownReport(games));
+  // The run is over: the page is told, and the server goes (a signal's cleanup closes it too, idempotently).
+  if (serve !== null) {
+    serve.runFinished();
+    try { await serve.close(); } catch (e) { log(`arena: closing the server: ${messageOf(e)}`); }
+    liveServes.delete(serve);
+  }
   const t = tally(games);
   print(`arena: ${games.length} game(s) -> ${files.jsonl}`);
   print(`arena: report -> ${files.md}`);
@@ -665,7 +750,8 @@ export function installSignalCleanup(o: { log?: (line: string) => void; exit?: (
     cleaning = (async () => {
       await bounded(abortExternalPlayers(), SIGNAL_STEP_MS);
       await Promise.all([...livePlayers].map((r) => bounded(r.stop(), SIGNAL_STEP_MS)));
-      await Promise.all([...liveRelays].map((r) => bounded(r.close(), SIGNAL_STEP_MS)));
+      await Promise.all([...liveRelays].map((r) => bounded(r.close({ now: true }), SIGNAL_STEP_MS)));
+      await Promise.all([...liveServes].map((x) => bounded(x.close({ now: true }), SIGNAL_STEP_MS)));
       // No second sweep: the latch the first one set refuses every later seat.
     })().finally(() => { exit(SIGNAL_EXIT[signal]); });
   };

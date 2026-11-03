@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { bySeat, judge, parseArgs, refusalOf, resolvePlayer, runArena, untrusted, type SeatSnapshot } from './arena';
-import type { AgentClient } from './agent-client';
+import { AgentClient } from './agent-client';
 import type { ArenaPlayer } from './players';
 import type { GameRecord } from './arena-score';
 import { startLocalRelay } from './local-relay';
@@ -319,4 +319,146 @@ describe('bySeat (LD1)', () => {
     expect(bySeat([a, b], [0, 1])).toEqual([a, b]);
     expect(bySeat([a, b], [1, 0])).toEqual([b, a]);
   });
+});
+
+// GH-954 W1: watching a run must be invisible to it. A watcher is a third socket that the room ignores after its
+// hello, so the same seed must give the same record with none and with two; and the room's clock (`--tick-ms`) is
+// a recorded parameter that must not change a result.
+describe('GH-954 W1: --watch', () => {
+  /** A stand-in for the arena server: no Vite, no socket; remembers what it was told. */
+  function stubServe(): { start: (o: { port?: number }) => Promise<import('./arena-serve').ArenaServe>; told: string[]; origins: string[] } {
+    const told: string[] = [];
+    const origins = ['http://127.0.0.1:5001', 'http://localhost:5001'];
+    return {
+      told, origins,
+      start: async () => ({
+        origin: origins[0], origins, port: 5001, address: '127.0.0.1', token: 't', url: (p: string) => `${origins[0]}${p}#k=t`,
+        gameStarted: (i) => { told.push(`start ${i.n}/${i.of}`); }, gameEnded: (r) => { told.push(`end ${r.outcome}`); }, runFinished: () => { told.push('finished'); }, close: async () => { told.push('closed'); },
+      }),
+    };
+  }
+  const BASE = ['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'tel_marum', '--pace', '40', '--cap-ticks', '400'];
+  const stable = (g: GameRecord): unknown => ({ ...g, referee: g.referee });
+
+  it('reads --watch and --serve: watch implies serve and defaults --tick-ms to 50, an explicit one wins, --serve alone is only the server', () => {
+    const plain = parseArgs(['--a', 'rush', '--b', 'passive']);
+    expect(plain).toMatchObject({ watch: false, serve: false, servePort: 0, tickMs: 2 });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--watch'])).toMatchObject({ watch: true, serve: true, tickMs: 50 });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--watch', '--tick-ms', '2'])).toMatchObject({ watch: true, serve: true, tickMs: 2 });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--serve'])).toMatchObject({ watch: false, serve: true, tickMs: 2 });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--serve-port', '5184'])).toMatchObject({ servePort: 5184 });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--serve-port', '70000'])).toHaveProperty('error');
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--watch=1'])).toHaveProperty('error');
+  });
+
+  it('starts the server before the first relay, allows its origins on every relay, turns watch and the 5 s linger on, and tells it each game', async () => {
+    const out = outDir();
+    const serve = stubServe();
+    const seen: Parameters<NonNullable<Parameters<typeof runArena>[1]>['startRelay'] & ((o: never) => unknown)>[0][] = [];
+    const printed: string[] = [];
+    const starts: number[] = [];
+    const ends: string[] = [];
+    const r = await runArena([...BASE, '--tick-ms', '1', '--watch', '--out', out], {
+      log: () => {}, print: (l) => { printed.push(l); },
+      startServe: serve.start,
+      startRelay: (o) => { seen.push(o as never); return startLocalRelay({ ...o, lingerMs: 50 }); },
+      onGameStart: (i) => { starts.push(i.n); expect(i.of).toBe(2); expect(i.seatTicket.length).toBeGreaterThan(10); },
+      onGameEnd: (e) => { ends.push(`${e.n}:${e.record.outcome}:${e.referee.tick}`); },
+    });
+    expect(r.code).toBe(0);
+    expect(printed).toContain('arena: watch: http://127.0.0.1:5001/arena/watch#k=t');
+    expect(seen).toHaveLength(2);
+    for (const o of seen) expect(o).toMatchObject({ watch: true, lingerMs: 5000, allowOrigins: serve.origins });
+    expect(starts).toEqual([1, 2]);
+    expect(ends).toHaveLength(2);
+    expect(serve.told.filter((t) => t.startsWith('start'))).toEqual(['start 1/2', 'start 2/2']);
+    expect(serve.told.at(-2)).toBe('finished');
+    expect(serve.told.at(-1)).toBe('closed');
+  }, 60_000);
+
+  it('without --watch no relay is asked for watch, linger or origins, and no server starts', async () => {
+    const out = outDir();
+    const seen: unknown[] = [];
+    let served = 0;
+    const r = await runArena([...BASE, '--tick-ms', '1', '--out', out], {
+      ...quiet, startServe: async () => { served++; throw new Error('no'); },
+      startRelay: (o) => { seen.push(o); return startLocalRelay(o); },
+    });
+    expect(r.code).toBe(0);
+    expect(served).toBe(0);
+    for (const o of seen) { expect(o).not.toHaveProperty('watch'); expect(o).not.toHaveProperty('lingerMs'); expect(o).not.toHaveProperty('allowOrigins'); }
+  }, 60_000);
+
+  it('a hook that throws costs the watch, never the game; a server that will not start is exit 1 before any room', async () => {
+    const out = outDir();
+    const lines: string[] = [];
+    const r = await runArena([...BASE, '--tick-ms', '1', '--watch', '--out', out], {
+      log: (l) => { lines.push(l); }, print: () => {}, startServe: stubServe().start,
+      startRelay: (o) => startLocalRelay({ ...o, lingerMs: 0 }),
+      onGameStart: () => { throw new Error('boom'); },
+      onGameEnd: () => { throw new Error('bang'); },
+    });
+    expect(r.code).toBe(0);
+    expect(r.games).toHaveLength(2);
+    expect(lines.some((l) => l.includes('onGameStart hook failed: boom'))).toBe(true);
+    expect(lines.some((l) => l.includes('onGameEnd hook failed: bang'))).toBe(true);
+    let relays = 0;
+    const bad = await runArena([...BASE, '--watch', '--out', outDir()], { ...quiet, startServe: async () => { throw new Error('port in use'); }, startRelay: (o) => { relays++; return startLocalRelay(o); } });
+    expect(bad.code).toBe(1);
+    expect(relays).toBe(0);
+  }, 60_000);
+
+  it('the same seed gives an equal record with 0 and with 2 watchers, and each watcher\'s digest equals the referee\'s at the end', async () => {
+    const plain = await runArena([...BASE, '--tick-ms', '1', '--out', outDir()], quiet);
+    expect(plain.code).toBe(0);
+
+    const watchers: { client: AgentClient; n: number }[] = [];
+    const timers: ReturnType<typeof setInterval>[] = [];
+    const refs = new Map<number, { tick: number; hash: number }>();
+    const watched = await runArena([...BASE, '--tick-ms', '1', '--watch', '--out', outDir()], {
+      log: () => {}, print: () => {}, startServe: stubServe().start,
+      startRelay: (o) => startLocalRelay({ ...o, lingerMs: 1500 }),
+      onGameStart: (info) => {
+        void (async () => {
+          const res = await fetch(`${info.relay.url}/api/match/${info.code}/watch`, { method: 'POST', headers: { origin: info.relay.origin, 'content-type': 'application/json' }, body: JSON.stringify({ ticket: info.seatTicket }) });
+          const { ticket } = (await res.json()) as { ticket: string };
+          for (let i = 0; i < 2; i++) {
+            const client = new AgentClient({ server: info.relay.url, code: info.code, ticket, build: info.build, role: 'watch', seat: 0, log: () => {} });
+            watchers.push({ client, n: info.n });
+            timers.push(setInterval(() => { if (client.tick() < info.capTicks) client.pump(Math.min(50, info.capTicks - client.tick())); }, 1));
+          }
+        })();
+      },
+      onGameEnd: (e) => { refs.set(e.n, e.referee); },
+    });
+    expect(watched.code).toBe(0);
+    // Let the watchers drain what the linger let them receive, then stop them.
+    await new Promise((r) => setTimeout(r, 1500));
+    for (const t of timers) clearInterval(t);
+    for (const w of watchers) w.client.close();
+
+    expect(watchers).toHaveLength(4);
+    expect(watched.games.map(stable)).toEqual(plain.games.map(stable));
+    for (const w of watchers) {
+      const ref = refs.get(w.n);
+      expect(ref).toBeDefined();
+      // A real game: past the first rounds, so an empty comparison cannot pass.
+      expect(ref?.tick).toBeGreaterThan(100);
+      const sim = w.client.world()?.sim;
+      expect(sim).toBeDefined();
+      // The watcher ran the SAME frames to the same tick, so its sim is the referee's, bit for bit.
+      expect(w.client.tick()).toBe(ref?.tick);
+      expect(sim?.hash()).toBe(ref?.hash);
+    }
+  }, 120_000);
+
+  it('the room\'s clock does not change a result: one seed at --tick-ms 2 and 50 gives equal records', async () => {
+    const SHORT = ['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'tel_marum', '--pace', '20', '--cap-ticks', '100'];
+    const fast = await runArena([...SHORT, '--tick-ms', '2', '--out', outDir()], quiet);
+    const slow = await runArena([...SHORT, '--tick-ms', '50', '--out', outDir()], quiet);
+    expect(fast.code).toBe(0);
+    expect(slow.code).toBe(0);
+    expect(slow.games).toHaveLength(2);
+    expect(slow.games.map(stable)).toEqual(fast.games.map(stable));
+  }, 120_000);
 });
