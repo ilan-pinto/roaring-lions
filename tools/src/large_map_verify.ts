@@ -12,6 +12,9 @@
 //      marker and zone (bar a named centre), every building, both camps, both tunnel sets, and the
 //      income of each zone against its twin's; the seats on the main diagonal (the anti-diagonal for a spec that
 //      says so);
+//      An ASYMMETRIC spec (`asymmetric: true`, Tel Marum (large)) skips all of 2 bar the markers' bounds and the seat markers'
+//      existence, reads no seat diagonal, and in 3 and 5 asks for finite costs (reported both ways) and for the real placer's
+//      moves to equal the spec's `displaced` literals and land on ground open to wheels and off the camps;
 //   3. seat-to-seat flow cost, both ways, on foot and on wheels, equal and finite;
 //   4. (optional) a cut: with every named crossing plugged no vehicle crosses, and each crossing alone
 //      carries one;
@@ -79,6 +82,16 @@ export interface LargeMapSpec {
   antiDiagonal?: boolean;
   /** Markers that may stand without a twin tile (a named centre on the seam), none when absent. */
   lone?: readonly string[];
+  /**
+   * The map is NOT point-symmetric (Tel Marum (large), GH-920 B3: a campaign valley played from two measured seats). The
+   * half-turn checks (tiles, elevation, markers, zones, structures, camps, routes, income pairs), the seat diagonal and the
+   * equal flow cost both ways are skipped; what stays is everything about a single side of the map. The spawn check reads the
+   * real placer instead of the formation tiles (a seat's formation may overlap rock: the placer moves the unit to the nearest
+   * open tile, as the original does), and `displaced` pins how many units it moves, per pairing, as a literal.
+   */
+  asymmetric?: boolean;
+  /** With `asymmetric`: the units the real placer moves off their formation tile, per pairing "f0/f1" (a literal, from an independent count). */
+  displaced?: Readonly<Record<string, number>>;
   /** A name the report prints. */
   label?: string;
 }
@@ -137,7 +150,8 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
   const zones = (json.zones ?? {}) as Record<string, readonly number[]>;
   const { map, sim } = world(json);
 
-  // 2. the half-turn
+  // 2. the half-turn (skipped, bar the seat markers' existence and the markers' bounds, for an asymmetric map)
+  const sym = !spec.asymmetric;
   const tileOff: string[] = [];
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -145,31 +159,39 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
       if (elev[y][x] !== elev[H - 1 - y][W - 1 - x]) tileOff.push(`elevation ${x},${y}`);
     }
   }
-  if (tileOff.length > 0) fail(`symmetry: ${tileOff.length} tiles are not their half-turn twin, first ${tileOff.slice(0, 6).join('; ')}`);
+  if (sym && tileOff.length > 0) fail(`symmetry: ${tileOff.length} tiles are not their half-turn twin, first ${tileOff.slice(0, 6).join('; ')}`);
   facts.asymmetric_tiles = tileOff.length;
 
-  if (!markers.versus_0 || !markers.versus_1) fail('symmetry: a seat marker is missing');
-  else if (mirror(markers.versus_0).join() !== markers.versus_1.join()) fail(`symmetry: versus_1 ${markers.versus_1} is not versus_0 ${markers.versus_0} mirrored`);
+  // a map with no seat marker has nothing else to read (every later check starts from the two seats)
+  if (!markers.versus_0 || !markers.versus_1) {
+    fail('symmetry: a seat marker is missing');
+    return { failures, facts };
+  } else if (sym && mirror(markers.versus_0).join() !== markers.versus_1.join()) fail(`symmetry: versus_1 ${markers.versus_1} is not versus_0 ${markers.versus_0} mirrored`);
   for (const seat of ['versus_0', 'versus_1'] as const) {
     const p = markers[seat];
+    if (!sym) break;
     if (p && !spec.antiDiagonal && p[0] !== p[1]) fail(`seats: ${seat} (${p}) is not on the main diagonal (x == y)`);
     if (p && spec.antiDiagonal && p[0] + p[1] !== SIZE - 1) fail(`seats: ${seat} (${p}) is not on the anti-diagonal (x + y == ${SIZE - 1})`);
   }
   const markerAt = new Map(Object.entries(markers).map(([n, p]) => [p.join(','), n]));
-  const lonely = Object.entries(markers).filter(([, p]) => !markerAt.has(mirror(p).join(','))).map(([n]) => n).sort();
-  if (lonely.join() !== [...(spec.lone ?? [])].sort().join()) {
-    fail(`symmetry: markers with no twin tile: ${lonely.join(', ') || '(none)'}; ${spec.lone?.length ? `only ${spec.lone.join(', ')} may be alone` : 'every marker needs one'}`);
-  }
-  for (const [n, p] of Object.entries(markers)) {
-    if (!n.endsWith('_0')) continue;
-    const twin = markerAt.get(mirror(p).join(','));
-    if (twin === undefined || !twin.endsWith('_1')) fail(`symmetry: ${n}'s twin tile holds ${twin ?? 'no marker'}, not a _1 marker`);
+  if (sym) {
+    const lonely = Object.entries(markers).filter(([, p]) => !markerAt.has(mirror(p).join(','))).map(([n]) => n).sort();
+    if (lonely.join() !== [...(spec.lone ?? [])].sort().join()) {
+      fail(`symmetry: markers with no twin tile: ${lonely.join(', ') || '(none)'}; ${spec.lone?.length ? `only ${spec.lone.join(', ')} may be alone` : 'every marker needs one'}`);
+    }
+    for (const [n, p] of Object.entries(markers)) {
+      if (!n.endsWith('_0')) continue;
+      const twin = markerAt.get(mirror(p).join(','));
+      if (twin === undefined || !twin.endsWith('_1')) fail(`symmetry: ${n}'s twin tile holds ${twin ?? 'no marker'}, not a _1 marker`);
+    }
   }
   const zoneAt = new Map(Object.entries(zones).map(([n, r]) => [r.join(','), n]));
-  for (const [n, [x, y, w, h]] of Object.entries(zones)) {
-    const twin = zoneAt.get([W - x - w, H - y - h, w, h].join(','));
-    if (twin === undefined) fail(`symmetry: zone ${n} has no mirrored zone`);
-    else if (n.endsWith('_0') && !twin.endsWith('_1')) fail(`symmetry: zone ${n}'s twin is ${twin}, not a _1 zone`);
+  if (sym) {
+    for (const [n, [x, y, w, h]] of Object.entries(zones)) {
+      const twin = zoneAt.get([W - x - w, H - y - h, w, h].join(','));
+      if (twin === undefined) fail(`symmetry: zone ${n} has no mirrored zone`);
+      else if (n.endsWith('_0') && !twin.endsWith('_1')) fail(`symmetry: zone ${n}'s twin is ${twin}, not a _1 zone`);
+    }
   }
   for (const [n, p] of Object.entries(markers)) {
     if (p[0] < 0 || p[1] < 0 || p[0] >= W || p[1] >= H) fail(`markers: ${n} (${p}) is off the map`);
@@ -179,7 +201,7 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
   const structKey = (type: string, tiles: readonly number[]) => `${type}:${[...tiles].sort((a, b) => a - b).join(' ')}`;
   const have = new Set(map.structures.map((s) => structKey(s.type, s.tiles)));
   for (const s of map.structures) {
-    if (!have.has(structKey(s.type, s.tiles.map((t) => W * H - 1 - t)))) fail(`symmetry: ${s.type} at tile ${s.tiles[0]} has no mirrored twin`);
+    if (sym && !have.has(structKey(s.type, s.tiles.map((t) => W * H - 1 - t)))) fail(`symmetry: ${s.type} at tile ${s.tiles[0]} has no mirrored twin`);
   }
 
   const camps = rules.ends;
@@ -192,7 +214,7 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
   for (let y = camps.hostile.camp.at[1]; y < camps.hostile.camp.at[1] + camps.hostile.camp.size[1]; y++) {
     for (let x = camps.hostile.camp.at[0]; x < camps.hostile.camp.at[0] + camps.hostile.camp.size[0]; x++) hostileCamp.push(`${x},${y}`);
   }
-  if (campTiles(camps.friendly.camp).join(';') !== hostileCamp.sort().join(';')) fail('symmetry: the hostile camp is not the friendly camp mirrored');
+  if (sym && campTiles(camps.friendly.camp).join(';') !== hostileCamp.sort().join(';')) fail('symmetry: the hostile camp is not the friendly camp mirrored');
 
   const routes = { friendly: rules.tunnels?.friendly ?? [], hostile: rules.tunnels?.hostile ?? [] };
   if (routes.friendly.length !== spec.routesPerEnd || routes.hostile.length !== spec.routesPerEnd) {
@@ -200,7 +222,7 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
   }
   routes.friendly.forEach((r, i) => {
     const t = routes.hostile[i];
-    if (!t) return;
+    if (!t || !sym) return;
     if (r.points.map((p) => mirror(p).join(',')).join(';') !== t.points.map((p) => p.join(',')).join(';') || r.capacity !== t.capacity) {
       fail(`symmetry: hostile route ${t.id} is not friendly route ${r.id} mirrored (points and capacity)`);
     }
@@ -215,7 +237,7 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
   for (const z of rules.income_zones) {
     const r = zones[z.zone];
     if (!r) continue;
-    const twin = zoneAt.get([W - r[0] - r[2], H - r[1] - r[3], r[2], r[3]].join(','));
+    const twin = sym ? zoneAt.get([W - r[0] - r[2], H - r[1] - r[3], r[2], r[3]].join(',')) : undefined;
     if (twin !== undefined && rate.get(twin) !== z.rate_per_min) fail(`economy: ${z.zone} pays ${z.rate_per_min} and its twin ${twin} pays ${rate.get(twin)}`);
   }
 
@@ -231,7 +253,8 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
     const there = cost(mask, seat0, seat1);
     const back = cost(mask, seat1, seat0);
     facts[`${domain}_seat_to_seat`] = there;
-    if (there !== back) fail(`flow: ${domain} seat 0 to seat 1 costs ${there} and back costs ${back}`);
+    if (!sym) facts[`${domain}_seat_to_seat_back`] = back;
+    if (sym && there !== back) fail(`flow: ${domain} seat 0 to seat 1 costs ${there} and back costs ${back}`);
     if (!(there > 0 && there < FAR)) fail(`flow: ${domain} seat 0 to seat 1 is ${there}, not a finite route`);
   }
   facts.seat_distance = Number(Math.hypot(seat1[0] - seat0[0], seat1[1] - seat0[1]).toFixed(1));
@@ -271,7 +294,7 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
         facts[`wheels_via_${name}_only`] = there >= FAR ? 'no route' : there;
         if (there >= FAR) fail(`cut: ${name} alone does not carry a vehicle from seat 0 to seat 1`);
         if (back >= FAR) fail(`cut: ${name} alone does not carry a vehicle from seat 1 to seat 0`);
-        if (there < FAR && back < FAR && there !== back) fail(`cut: ${name} alone costs ${there} one way and ${back} the other`);
+        if (sym && there < FAR && back < FAR && there !== back) fail(`cut: ${name} alone costs ${there} one way and ${back} the other`);
       }
     }
   }
@@ -289,7 +312,7 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
     const c = rules.ends[end].camp;
     for (let y = c.at[1]; y < c.at[1] + c.size[1]; y++) for (let x = c.at[0]; x < c.at[0] + c.size[0]; x++) campTilesOf.add(`${x},${y}`);
   }
-  for (const [f0, f1] of PAIRINGS) {
+  for (const [f0, f1] of sym ? PAIRINGS : []) {
     for (const [side, faction] of [[0, f0], [1, f1]] as const) {
       const [ax, ay] = side === 0 ? seat0 : seat1;
       const sgn = side === 0 ? 1 : -1;
@@ -317,8 +340,23 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
         if (got[0] !== ax + sgn * dx || got[1] !== ay + sgn * dy) moved++;
       });
     }
-    if (moved > 0) fail(`spawns: ${f0}/${f1}: ${moved} units were not placed on their formation tile`);
-    if (f0 === f1) {
+    if (sym && moved > 0) fail(`spawns: ${f0}/${f1}: ${moved} units were not placed on their formation tile`);
+    if (!sym) {
+      // An asymmetric map's formation may overlap rock; the placer moves the unit to the nearest open tile. The count it moves is
+      // pinned (spec.displaced, a literal), and every unit must land on ground open to wheels and off the camps.
+      facts[`displaced_${f0}_${f1}`] = moved;
+      const want = spec.displaced?.[`${f0}/${f1}`];
+      if (want === undefined) fail(`spawns: ${f0}/${f1}: the spec pins no displaced count (the placer moved ${moved})`);
+      else if (moved !== want) fail(`spawns: ${f0}/${f1}: the placer moved ${moved} units off their formation tile, the spec says ${want}`);
+      for (const side of [0, 1] as const) {
+        force.bySide[side].forEach((e, i) => {
+          const [x, y] = tileOf(e);
+          if (sim.blockedVehicle[y * W + x] !== 0) fail(`spawns: ${f0}/${f1} side ${side} unit #${i} landed on ${json.rows[y][x]} at (${x},${y}), closed to wheels`);
+          if (campTilesOf.has(`${x},${y}`)) fail(`spawns: ${f0}/${f1} side ${side} unit #${i} landed on a camp tile (${x},${y})`);
+        });
+      }
+    }
+    if (sym && f0 === f1) {
       force.bySide[0].forEach((e, i) => {
         const m = mirror(tileOf(e));
         const o = tileOf(force.bySide[1][i]);
@@ -442,6 +480,21 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
       { name: 'sw_ford', marker: 'sw_ford', radius: 4 },
       { name: 'centre', zone: 'centre_ford' },
     ],
+  }),
+  // GH-920 B3. Tel Marum's valley, NOT point-symmetric: two measured seats (the original's, doubled), four tunnel routes and a
+  // five-zone economy, no cover on the sketch and none on the twin. No cut: both seats stand SOUTH of the wall band (the second in
+  // the bowl before the pass), so no seat-to-seat route crosses it; the pass and the infantry-only corridor are pinned in
+  // tel_marum_l_doctrine.test.ts instead.
+  tel_marum_l: () => ({
+    label: 'Tel Marum (large)',
+    size: 96,
+    routesPerEnd: 2,
+    income: { zones: 5, perMin: 140 },
+    reference: maps.tel_marum as unknown as MapJson,
+    asymmetric: true,
+    // the real placer's moves, each by an independent count of the formation tiles that are rock, a building or off the map (Python,
+    // over the rows and the two force tables): 7, 13 and 10 of 30, 41 and 41 units. The original's own seats move 10, 11 and 15.
+    displaced: { 'kdf/kdf': 7, 'kdf/sarim': 13, 'sarim/kdf': 10 },
   }),
   // GH-920 B3. An open plain: no cut, no tunnels (the original has no rules file), a lone centre marker, and the
   // seats on the anti-diagonal. The income is a table a mirror room never reads.
