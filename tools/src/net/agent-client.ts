@@ -70,7 +70,8 @@ export interface AgentClientOptions {
   ticket: string;
   /** What the room checks on hello (`buildId()`). */
   build: string;
-  role: 'seat' | 'advisor';
+  /** `watch` (GH-954 W1) is a spectator's socket: it runs the match from the frames and says only hello. */
+  role: 'seat' | 'advisor' | 'watch';
   seat: Seat;
   /** Tests pass a fake; default `nodeSocket(<server>/api/match/<code>/ws, origin(server))`. */
   open?: () => SocketLike;

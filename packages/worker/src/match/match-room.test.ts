@@ -11,7 +11,7 @@ import { OVER_CLOSE_MS, sha256Hex, validateConfig, type AdvisorMsg, type Advisor
 import type { D1Like, Env } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
-import { ADVISOR_MIN_GAP_MS, BATCH_TICKS, HELLO_TIMEOUT_MS, MAX_ROOM_SOCKETS, MatchRoom, PURGE_AFTER_MS, SOCKET_BUDGET, TICK_MS, WATCHDOG_MS } from './match-room';
+import { ADVISOR_MIN_GAP_MS, BATCH_TICKS, HELLO_TIMEOUT_MS, MAX_ROOM_SOCKETS, MAX_WATCHERS, MatchRoom, PURGE_AFTER_MS, SOCKET_BUDGET, TICK_MS, WATCHDOG_MS } from './match-room';
 import { ROOM_TTL_MS } from './room-core';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
@@ -2677,5 +2677,166 @@ describe('snapshot upload (snapshot S3)', () => {
       const r = await rig();
       expect((await r.room.fetch(new Request('https://room/snapshot', { method: 'PUT', body: 'x' }))).status).toBe(405);
     }, 2_000);
+  });
+});
+
+/** GH-954 W1: a spectator rides a seatless socket that hears the broadcast and is heard never. */
+describe('watch sockets (GH-954 W1)', () => {
+  const BOTS: CreateOpts = { mode: 'versus', kind: 'bot', joinKind: 'bot' };
+  const watchTicket = (matchId = CODE): Promise<string> => signTicket(SECRET, { matchId, seat: 0, player: 'watch', exp: NOW + 3600 * 1000, role: 'watch' });
+  const advisorTicket = (seat: Seat, scope: AdvisorScope): Promise<string> => signTicket(SECRET, { matchId: CODE, seat, player: 'advisor', exp: NOW + 3600 * 1000, role: 'advisor', scope });
+  const watchHello = async (room: MatchRoom): Promise<FakeSocket> => hello(room, 0, await watchTicket());
+  const EVERY_VERB: unknown[] = [
+    { t: 'hello', ticket: 'x', build: BUILD }, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, { t: 'ready' }, { t: 'pause' }, { t: 'resume' },
+    { t: 'surrender' }, { t: 'chat', text: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
+    { t: 'advisor', a: { kind: 'text', text: 'ridge' } }, { t: 'advisor', a: { kind: 'proposal', id: 1, cmd: { kind: 'halt', ids: [3] }, note: 'hold' } }, '{not json',
+  ];
+
+  it('a watch hello in a running bot match gets the log, takes no seat and no advisor slot, writes nothing, and hears the next frame', async () => {
+    const { state, room, ws0, ws1 } = await running(BOTS);
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    const before = state.storage.rowsWritten;
+    const seatsBefore = (await persisted(state)).seats;
+    const w = await watchHello(room);
+    expect(w.closed).toBeNull();
+    const [log] = ofType(w, 'log');
+    expect(log.frames.map((f) => f.tick)).toEqual([0, 1, 2]);
+    expect(ws0.closed).toBeNull();
+    expect(ws1.closed).toBeNull();
+    expect(ofType(ws0, 'log')).toEqual([]);
+    // Not an advisor: its hello badges nobody.
+    for (const ws of [ws0, ws1, w]) expect(ofType(ws, 'advisors')).toEqual([]);
+    // And it hears no advisor traffic that comes AFTER it joined: a badge when an advisor arrives, an advisor's text.
+    const adv = await hello(room, 0, await advisorTicket(0, 'assist'));
+    expect(last(ws0)).toEqual({ t: 'advisors', present: ['assist', null] });
+    await say(room, adv, { t: 'advisor', a: { kind: 'text', text: 'ridge' } });
+    await say(room, ws0, { t: 'advisor', a: { kind: 'text', text: 'ok' } });
+    expect(ofType(ws0, 'advisor').length).toBeGreaterThan(0);
+    expect(ofType(w, 'advisors')).toEqual([]);
+    expect(ofType(w, 'advisor')).toEqual([]);
+    expect(state.storage.rowsWritten).toBe(before);
+    expect((await persisted(state)).seats).toEqual(seatsBefore);
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    expect(last(w)).toMatchObject({ t: 'frame', tick: 3 });
+    expect(last(ws0)).toMatchObject({ t: 'frame', tick: 3 });
+    // And it is told no lobby: it has no seat to describe.
+    expect(ofType(w, 'lobby')).toEqual([]);
+  });
+
+  it('every verb a client has, sent by a watcher, changes nothing: frames, rows, advisors and the observer stay as they were', async () => {
+    const { state, room, ws0, ws1 } = await running(BOTS);
+    await vi.advanceTimersByTimeAsync(25 * TICK_MS);
+    // The arena's own observer: seat 0's advise advisor. A watcher must not retire it.
+    const observer = await hello(room, 0, await advisorTicket(0, 'advise'));
+    const w = await watchHello(room);
+    const before = state.storage.rowsWritten;
+    const stBefore = await persisted(state);
+    const seen = (ws: FakeSocket): number => msgs(ws).length;
+    const heard = [ws0, ws1, observer].map(seen);
+    for (const m of EVERY_VERB) await say(room, w, m);
+    expect(w.closed).toBeNull();
+    expect(observer.closed).toBeNull();
+    expect(state.storage.rowsWritten).toBe(before);
+    // Nothing was relayed or answered: no seat, no observer and no watcher heard anything for it.
+    expect([ws0, ws1, observer].map(seen)).toEqual(heard);
+    expect(msgs(w).filter((m) => m.t === 'error')).toEqual([]);
+    await vi.advanceTimersByTimeAsync(10 * TICK_MS);
+    const after = await persisted(state);
+    expect(after.status).toBe('running');
+    expect(after.pausesLeft).toEqual(stBefore.pausesLeft);
+    expect(after.over).toEqual([-1, -1]);
+    expect(after.surrendered).toBeNull();
+    for (const ws of [ws0, ws1, observer, w]) {
+      expect(ofType(ws, 'frame').every((f) => f.cmds.length === 0)).toBe(true);
+      expect(ofType(ws, 'frame').at(-1)?.tick).toBe(34);
+      for (const t of ['ended', 'paused', 'chat', 'desync', 'cmdRefused', 'advisor'] as const) expect(ofType(ws, t), t).toEqual([]);
+    }
+    // The observer is still the seat's advisor: the room names it, and nobody else.
+    await say(room, observer, { t: 'advisor', a: { kind: 'text', text: 'still me' } });
+    expect(msgs(w).some((m) => m.t === 'advisor')).toBe(false);
+  });
+
+  it('a watch ticket is admitted only into a room whose seats are both bots', async () => {
+    const human = await running({ mode: 'versus' });
+    const w = await watchHello(human.room);
+    expect(msgs(w)).toEqual([{ t: 'error', code: 'bad_ticket' }]);
+    expect(w.closed?.code).toBe(4001);
+    const halfBot = await running({ ...BOTS, joinKind: 'human' });
+    const w2 = await watchHello(halfBot.room);
+    expect(w2.closed?.code).toBe(4001);
+  });
+
+  it('at most MAX_WATCHERS: a third is told full and closed, the first two stay and are never retired', async () => {
+    const { room, ws0 } = await running(BOTS);
+    const a = await watchHello(room);
+    const b = await watchHello(room);
+    const c = await watchHello(room);
+    expect(MAX_WATCHERS).toBe(2);
+    expect(msgs(c)).toEqual([{ t: 'error', code: 'full' }]);
+    expect(c.closed?.code).toBe(1008);
+    expect(a.closed).toBeNull();
+    expect(b.closed).toBeNull();
+    // A watcher that goes frees a place.
+    await deliverClose(room, a, 1000, 'closed');
+    const d = await watchHello(room);
+    expect(d.closed).toBeNull();
+    expect(ws0.closed).toBeNull();
+  });
+
+  it('a watcher counts toward the 8 sockets, and a flood closes it 1008 with no badge and no row', async () => {
+    const { state, room, ws0, ws1 } = await running(BOTS);
+    const a = await watchHello(room);
+    const b = await watchHello(room);
+    const flight = Array.from({ length: MAX_ROOM_SOCKETS - 4 }, () => openSocket(room));
+    expect([a, b, ...flight].every((w) => w.closed === null)).toBe(true);
+    expect(openSocket(room).closed).toEqual({ code: 1008, reason: 'too many sockets' });
+    const before = state.storage.rowsWritten;
+    for (let i = 0; i < SOCKET_BUDGET.burst - 1; i++) await say(room, a, { t: 'ack', tick: 0 });
+    expect(a.closed).toBeNull();
+    await say(room, a, { t: 'ack', tick: 0 });
+    expect(a.closed).toEqual({ code: 1008, reason: 'rate' });
+    expect(ws0.closed).toBeNull();
+    expect(ws1.closed).toBeNull();
+    expect(state.storage.rowsWritten).toBe(before);
+  });
+
+  it('closing a watcher mid-match stalls nothing, drops nobody, forfeits nothing and writes nothing', async () => {
+    const { state, room, ws0, ws1 } = await running(BOTS);
+    const w = await watchHello(room);
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    const before = state.storage.rowsWritten;
+    const stBefore = await persisted(state);
+    await deliverClose(room, w, 1000, 'closed');
+    await vi.advanceTimersByTimeAsync(5 * TICK_MS);
+    expect(ws0.closed).toBeNull();
+    expect(ws1.closed).toBeNull();
+    const after = await persisted(state);
+    expect(after.seats.map((x) => x?.connected)).toEqual(stBefore.seats.map((x) => x?.connected));
+    expect(after.status).toBe('running');
+    expect(ofType(ws0, 'dropped')).toEqual([]);
+    expect(state.storage.rowsWritten - before).toBeLessThanOrEqual(1);   // the clock's own batch row, if one closed
+  });
+
+  it('through an eviction the watcher is still a watcher: its attachment says so, and it is still ignored', async () => {
+    const { state, room, ws0 } = await running(BOTS);
+    const w = await watchHello(room);
+    evict();
+    const revived = new MatchRoom(state, env, YIELD);
+    // The first message wakes the room (it re-arms its own alarm, a row of its own); what follows must write none.
+    await say(revived, w, { t: 'ready' });
+    const before = state.storage.rowsWritten;
+    await say(revived, w, { t: 'surrender' });
+    await say(revived, w, { t: 'advisor', a: { kind: 'text', text: 'hi' } });
+    expect(w.closed).toBeNull();
+    expect(ws0.closed).toBeNull();
+    expect((await persisted(state)).status).toBe('running');
+    expect(state.storage.rowsWritten).toBe(before);
+  });
+
+  it('a watcher hears the ending a seat\'s surrender brings, and the room does not close it', async () => {
+    const { room, ws0 } = await running(BOTS);
+    const w = await watchHello(room);
+    await say(room, ws0, { t: 'surrender' });
+    expect(ofType(w, 'ended')).toEqual([{ t: 'ended', reason: 'surrender', seat: 0 }]);
   });
 });

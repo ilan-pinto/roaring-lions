@@ -536,10 +536,11 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
       if (!isInt(a.carrier) || !own.has(a.carrier)) return { error: 'not your unit', detail: 'carrier must be one of your units' };
       return { kind: verb, ids, carrier: a.carrier };
     case 'rescue':
-      // GH-707: a medic is sent to a wounded man the seat can see: one of its own units or a
-      // contact in observe. Anything else answers alike, as `attack` does.
-      if (!isInt(a.target) || !(own.has(a.target) || view.contacts.some((c) => c.id === a.target))) {
-        return { error: 'not a contact', detail: 'target must be one of your units or a contact in observe' };
+      // GH-707: a medic is sent to a wounded man of the seat's OWN side, one of `casualties.mine` in observe (a
+      // wounded man is a casualty and not a unit, so `own` never holds him; a versus room refuses an enemy's anyway,
+      // `validateCommand`). Anything else answers alike, as `attack` does.
+      if (!isInt(a.target) || !view.casualties.mine.some((c) => c.id === a.target)) {
+        return { error: 'not a casualty', detail: 'target must be one of your wounded men in observe (casualties.mine)' };
       }
       return { kind: verb, ids, target: a.target };
     case 'attack':
@@ -571,7 +572,7 @@ function sweepRefusal(ctx: ToolContext): ToolResult | null {
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units, or your production. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack, rescue: a medic goes to treat and carry a wounded); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units, or your production. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack), or one of your wounded men from casualties.mine (rescue: a medic goes to treat and carry him to your camp); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',

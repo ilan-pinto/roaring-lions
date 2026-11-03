@@ -140,8 +140,11 @@ export class WsTransport implements MatchTransport {
     /** `advisor`: an AI advisor's socket (N4a). It runs no sim of its own to
      *  report on, so it never acks, hashes, readies, reports `over` or says
      *  `bye`; the room would ignore all five, and a leaving advisor must not
-     *  read as a seat leaving. It still hellos, and it still listens. */
-    private readonly role: 'seat' | 'advisor' = 'seat',
+     *  read as a seat leaving. It still hellos, and it still listens.
+     *  `watch` (GH-954 W1): a spectator. It says `hello` and NOTHING else, ever: `send` drops every other
+     *  verb at the one place a message leaves, so no method below (a command, a pause, a surrender, a chat,
+     *  an advisor line, a `done`, a ready, a bye) can reach the room whatever calls it. */
+    private readonly role: 'seat' | 'advisor' | 'watch' = 'seat',
     /** `from`: this client's world already holds every frame below it (a restored
      *  snapshot, S4). The first `hello` carries it and the clock starts there. */
     opts: { from?: number } = {},
@@ -247,6 +250,7 @@ export class WsTransport implements MatchTransport {
     };
   }
   private send(msg: ClientMsg): void {
+    if (this.role === 'watch' && msg.t !== 'hello') return;
     try { this.sock?.send(JSON.stringify(msg)); } catch { /* closing; the reconnect carries on */ }
   }
   private onMessage(raw: string): void {

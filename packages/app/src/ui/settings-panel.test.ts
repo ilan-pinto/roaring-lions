@@ -19,6 +19,7 @@ function deps(overrides: Partial<Parameters<typeof settingsPanel>[1]> = {}) {
       locales: LOCALES,
       keymap: null,
       build: '0.68.0',
+      commit: '0123456789abcdef0123456789abcdef01234567',
       onChange: () => () => {},
       ...overrides,
     },
@@ -59,6 +60,21 @@ describe('settingsPanel', () => {
     const heads = [...el.querySelectorAll('h3')].map((h) => h.textContent);
     expect(heads).toEqual(['Video', 'Audio', 'Accessibility', 'Language']);
     expect(el.textContent).toContain('0.68.0');
+  });
+  // The foot names the build AND its short commit, so a `pnpm bot` checkout can
+  // be matched to the room's build. Falsified by hand: a foot that prints only
+  // `common.build` (no sha) turns the first two cases red.
+  it('prints the build and the short commit in the foot', () => {
+    const { d } = deps();
+    const { el } = settingsPanel(document.body, d);
+    const foot = [...el.querySelectorAll('p.rl-settings__hint')].at(-1)?.textContent;
+    expect(foot).toBe('Build 0.68.0 \u00b7 0123456');
+    expect(foot).not.toContain('0123456789');
+  });
+  it('prints "dev" when the build carries no commit', () => {
+    const { d } = deps({ commit: '' });
+    const { el } = settingsPanel(document.body, d);
+    expect(el.textContent).toContain('Build 0.68.0 \u00b7 dev');
   });
   it('changing the UI scale persists through set() and applies at once', () => {
     const { d, set } = deps();

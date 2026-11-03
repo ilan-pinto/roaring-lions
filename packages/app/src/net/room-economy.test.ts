@@ -61,7 +61,7 @@ const tileIds = (host: HTMLElement): string[] =>
 describe('an economy room\'s dock is the viewer\'s side (N3 Task 6)', () => {
   // Literals: an oracle that reads its expectation from the doctrine files cannot fail
   // when the dock reads the same file the wrong way round (CLAUDE.md).
-  const KDF_MENU = ['mbt_lavi', 'ifv_namer', 'apc_eitan', 'inf_squad', 'at_team', 'mortar_team', 'jeep_shoded', 'recon_drone', 'dozer_d9', 'heli_peten', 'yahalom_squad'];
+  const KDF_MENU = ['mbt_lavi', 'ifv_namer', 'apc_eitan', 'inf_squad', 'at_team', 'mortar_team', 'jeep_shoded', 'recon_drone', 'dozer_d9', 'heli_peten', 'yahalom_squad', 'inf_medic_squad'];
   const SARIM_MENU = ['sarim_rifles', 'atgm_cell', 'gun_truck', 'manpad_team', 'rocket_battery', 'recoilless_team'];
 
   it('a Sarim host (seat 0, side 1): the six Sarim menu ids in doctrine order, 2400 in the purse; build, cancelBuild and clearRally carry side 1', () => {
