@@ -3,7 +3,7 @@
 //   2. the map is what the design says it is: Milh Flats' own landmarks at twice the tile, the seats 77.8 tiles apart on
 //      the ANTI-diagonal, a 35-minute cap in a 512-entity room, the two tell rocks kept at their native four tiles;
 //   3. it is OFFERED for the MIRROR only (B7): on the Free Play picker and in VERSUS_FAIR_MAPS, in FACTION_MATCHUP_MAPS
-//      never (B4 read only the mirror cells), and still closed for formations until its own S4 run.
+//      never (B4 read only the mirror cells), and open for formations since its own S4 run (3 Nov, GH-913).
 // B4 (fairness) pulled no lever on this map: the first geometry read 50.5% on seeds 0-191 and 49.7% on the held-out
 // seeds 4000-4287 (the PR has the table), so there is no fairness lever to pin, only the geometry the numbers were read on.
 // The verifier's own tests are in large_map_verify.test.ts.
@@ -177,9 +177,11 @@ describe('registered, and OFFERED for the mirror only (GH-920 B7: the lead\'s ru
     expect(SHIPPED_MAP_IDS).toContain('milh_flats_l');
   });
 
-  it('stays closed for formations even when the versus gate is open; a sandbox room on it is not a versus room', () => {
-    expect(formationsOpenIn('versus', true, 'milh_flats_l')).toBe(false);
-    expect(formationsOpenIn('versus', undefined, 'milh_flats_l')).toBe(false);
+  it('follows the versus gate for formations since its own S4 run (3 Nov, GH-913; closed from birth until then); a sandbox room on it is open either way', () => {
+    // S4 on the mirror cell, 192 paired seeds 30000-30191: Attack on both ends hostile 53.1% (base 56.3), friendly only 46.9% (base 43.8), hostile only 43.2% (base 56.3): 0 TRIP of 3.
+    expect(formationsOpenIn('versus', true, 'milh_flats_l')).toBe(true);
+    expect(formationsOpenIn('versus', undefined, 'milh_flats_l')).toBe(true);
+    expect(formationsOpenIn('versus', false, 'milh_flats_l')).toBe(false);
     expect(formationsOpenIn('sandbox', undefined, 'milh_flats_l')).toBe(true);
     expect(formationsOpenIn(undefined, undefined, 'milh_flats_l')).toBe(true);
     // the original stays open

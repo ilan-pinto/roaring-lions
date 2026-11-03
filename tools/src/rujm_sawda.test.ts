@@ -104,13 +104,14 @@ describe('the shipped map', () => {
     expect(versusRules.rujm_sawda.cap_minutes).toBe(35);
   });
 
-  it('keeps formations off even when the versus gate opens (L8): out of the S4 check until it passes its own run', () => {
-    expect(formationsOpenIn('versus', true, 'rujm_sawda')).toBe(false);
-    // (Wadi Tarfan joined the closed list on 1 Nov, GH-859; the gate itself opened that day on the maps S4 covered.)
+  it('follows the versus gate for formations since it passed its own S4 run (3 Nov, GH-913; it was closed by L8 until then)', () => {
+    // S4 on the mirror cell, 192 paired seeds 30000-30191: Attack on both ends 51.6% (base 50.0), friendly only 47.4%, hostile only 47.4%: 0 TRIP of 3.
+    expect(formationsOpenIn('versus', true, 'rujm_sawda')).toBe(true);
+    expect(formationsOpenIn('versus', false, 'rujm_sawda')).toBe(false);
     expect(formationsOpenIn('versus', true, 'tel_marum')).toBe(true);
     expect(formationsOpenIn('versus', false, 'tel_marum')).toBe(false);
-    expect(formationsOpenIn('versus', undefined, 'rujm_sawda')).toBe(false);
-    // Free Play and a sandbox room on this map are not a versus room.
+    expect(formationsOpenIn('versus', undefined, 'rujm_sawda')).toBe(true);
+    // Free Play and a sandbox room on this map are not a versus room, and open either way.
     expect(formationsOpenIn(undefined, undefined, 'rujm_sawda')).toBe(true);
     expect(formationsOpenIn('sandbox', undefined, 'rujm_sawda')).toBe(true);
   });

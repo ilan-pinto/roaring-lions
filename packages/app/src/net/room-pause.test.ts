@@ -471,10 +471,15 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
     expect(open.got).toEqual([move(), attackMove()]);
   });
 
-  it('GH-913 L8: with the gate open a Rujm Sawda room still strips the formation (the sender); another map delivers it', () => {
+  it('GH-913 L8: with the gate open a Wadi Tarfan (large) room still strips the formation (the sender); another map delivers it, Rujm Sawda and Milh Flats (large) since 3 Nov', () => {
     const rujm = collect();
-    roomOrderSink(LIVE, rujm.sink, () => {}, 'versus', true, 'rujm_sawda').queueCommand(move());
+    roomOrderSink(LIVE, rujm.sink, () => {}, 'versus', true, 'wadi_tarfan_l').queueCommand(move());
     expect(rujm.got).toEqual([withoutFormation(move())]);
+    for (const map of ['rujm_sawda', 'milh_flats_l']) {
+      const open = collect();
+      roomOrderSink(LIVE, open.sink, () => {}, 'versus', true, map).queueCommand(move());
+      expect(open.got, map).toEqual([move()]);
+    }
     const tel = collect();
     roomOrderSink(LIVE, tel.sink, () => {}, 'versus', true, 'tel_marum').queueCommand(move());
     expect(tel.got).toEqual([move()]);
@@ -485,7 +490,7 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
     expect(wadi.got).toEqual([move()]);
   });
 
-  it('GH-913 L8: every main.ts consumer of the predicate passes the room\'s map (a call that drops it would open Rujm Sawda)', () => {
+  it('GH-913 L8: every main.ts consumer of the predicate passes the room\'s map (a call that drops it would open Wadi Tarfan (large))', () => {
     const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
     expect(main).toContain('formationsOpenIn(netConfig?.mode, undefined, netConfig?.map)');
     expect(main.match(/netConfig\??\.mode, undefined, netConfig\??\.map\)/g)).toHaveLength(4);

@@ -4,7 +4,7 @@ import { t } from '../i18n/t';
 
 // GH-859 P1a: the one predicate behind the sender strip, the receiver gate and the HUD row's inert state.
 describe('formationsOpenIn', () => {
-  it('the gate ships OPEN since S4 passed on Beit Sahwan, Tel Marum, Milh Flats and Wadi Tarfan (GH-859, lead 1 Nov; GH-945)', () => {
+  it('the gate ships OPEN since S4 passed on Beit Sahwan, Tel Marum, Milh Flats and Wadi Tarfan (GH-859, lead 1 Nov; GH-945), and on Rujm Sawda and Milh Flats (large) (3 Nov)', () => {
     expect(VERSUS_FORMATIONS_OPEN).toBe(true);
   });
   it('a versus room follows the gate on a map that is not closed; every other place is open', () => {
@@ -22,8 +22,16 @@ describe('formationsOpenIn', () => {
     // Was ['rujm_sawda', 'wadi_tarfan']: Wadi Tarfan left the list when S4 passed on its re-seated cells (GH-945).
     // Was ['rujm_sawda']: Wadi Tarfan (large) is closed from birth, until its own S4 run (GH-920 B3).
     // Was ['rujm_sawda', 'wadi_tarfan_l']: Milh Flats (large) is closed from birth too (GH-920 B3).
-    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']);
-    expect(formationsOpenIn('versus', true, 'rujm_sawda')).toBe(false);
+    // Was ['rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']: Rujm Sawda and Milh Flats (large) passed their own S4 run on 3 Nov (GH-913); Wadi Tarfan (large) tripped one cell of 21 and stays.
+    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['wadi_tarfan_l']);
+    expect(formationsOpenIn('versus', true, 'wadi_tarfan_l')).toBe(false);
+    expect(formationsOpenIn('versus', undefined, 'wadi_tarfan_l')).toBe(false);
+    // The two that passed follow the gate like any other map: open with it open, shut with it shut.
+    for (const map of ['rujm_sawda', 'milh_flats_l']) {
+      expect(formationsOpenIn('versus', true, map), map).toBe(true);
+      expect(formationsOpenIn('versus', undefined, map), map).toBe(true);
+      expect(formationsOpenIn('versus', false, map), map).toBe(false);
+    }
     // GH-945: Wadi Tarfan follows the gate like any other map: open with it open, shut with it shut.
     expect(formationsOpenIn('versus', true, 'wadi_tarfan')).toBe(true);
     expect(formationsOpenIn('versus', undefined, 'wadi_tarfan')).toBe(true);
@@ -33,8 +41,8 @@ describe('formationsOpenIn', () => {
     expect(formationsOpenIn('versus', true, null)).toBe(true);
     expect(formationsOpenIn('versus', true)).toBe(true);
     // The map only narrows a versus room: sandbox and single player stay open on it.
-    expect(formationsOpenIn('sandbox', undefined, 'rujm_sawda')).toBe(true);
-    expect(formationsOpenIn(undefined, undefined, 'rujm_sawda')).toBe(true);
+    expect(formationsOpenIn('sandbox', undefined, 'wadi_tarfan_l')).toBe(true);
+    expect(formationsOpenIn(undefined, undefined, 'wadi_tarfan_l')).toBe(true);
   });
   it('the reason line is a real catalogue string', () => {
     expect(FORMATION_VERSUS_REASON_KEY).toBe('hud.formation.inert.versus');

@@ -148,7 +148,9 @@ Wadi Tarfan (large) is OFFERED since the opening commit of GH-920 B7 (the lead's
 and B6's census): in `VERSUS_FAIR_MAPS` and `FACTION_MATCHUP_MAPS` (the mirror and both KDF-v-Sarim cells, at seats (20,20) and
 (75,75), the one-tile neighbourhood a report only), out of `UNLISTED_MAP_IDS` (a Free Play card), in `MATCHUP_MAPS` of
 `tools/validate_versus_rules.mjs` (`RULES_ONLY_MAPS` is empty, kept for the next large map). Formations stay closed on it:
-`VERSUS_FORMATIONS_CLOSED_MAPS`, until it passes its own S4 run. Opening a map touches a catalogue string too: `versus.host.side.note`
+`VERSUS_FORMATIONS_CLOSED_MAPS`, after its own S4 run of 3 Nov (seeds 30000-30383, shipped Attack, 21 cells) tripped one: placed, Attack on both ends,
+Sarim friendly, the KDF end leads 60.4% pooled (232 of 384) against a 56.5% base and the 60% pooled bar. The base already leans KDF in the placed cells
+(56.8 / 56.5) and the formation adds 1.6 and 3.9 points, the GH-945 shape; it re-opens by levelling the base and re-running S4 on fresh seeds, not by widening the bar. Opening a map touches a catalogue string too: `versus.host.side.note`
 names the faction maps in `en.json`, and `versus.test.ts` holds it to `FACTION_MATCHUP_MAPS`.
 
 ### Wadi Tarfan (large): the network budget (GH-920 B7, 2 Nov 2026)
@@ -200,7 +202,7 @@ and writes `data/maps/milh_flats_l.json` and `data/versus/milh_flats_l.json`. It
 original. It is OFFERED since the opening commit of GH-920 B7 (on the lead's ruling, after B4's mirror read, B5's render and
 memory and B6's census): in `VERSUS_FAIR_MAPS` and `MIRROR_RULES_MAPS` (`tools/validate_versus_rules.mjs`; `RULES_ONLY_MAPS` is
 empty again), out of `UNLISTED_MAP_IDS` (a Free Play card), in `FACTION_MATCHUP_MAPS` never (no faction cell was read), so the
-`versus.host.side.note` string is unchanged. Formations stay closed: `VERSUS_FORMATIONS_CLOSED_MAPS`. What differs from Wadi Tarfan (large):
+`versus.host.side.note` string is unchanged. Formations are OPEN since 3 Nov (its own S4 run, mirror cell, seeds 30000-30191: 0 TRIP of 3; the east end's base lean, 56.3%, is not made worse). What differs from Wadi Tarfan (large):
 - **The seats are on the ANTI-diagonal** (x + y = 95): `(20,75)` and `(75,20)`, 77.8 tiles apart. Doubling the original's
   `(9,38)` and `(38,9)` would give 82.0, so the seats are authored (`SEAT_0`/`SEAT_1`), not doubled. The verifier's
   seat rule gained `antiDiagonal` in the spec; the main-diagonal rule is unchanged for the others.

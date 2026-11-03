@@ -314,13 +314,13 @@ describe('seatWorldFor', () => {
     expect(validateCommand({ kind: 'attackMove', ids: [4], x: 0, y: 0, formation: 'attack' }, 1, w)).toBe(false);
     expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0 }, 1, w)).toBe(true);
   });
-  it('GH-859 (1 Nov): the SHIPPED gate is open on a Tel Marum, Beit Sahwan, Milh Flats or Wadi Tarfan (GH-945) room and closed on Rujm Sawda', () => {
+  it('GH-859 (1 Nov): the SHIPPED gate is open on a Tel Marum, Beit Sahwan, Milh Flats, Wadi Tarfan (GH-945), Rujm Sawda or Milh Flats (large) (3 Nov) room and closed on Wadi Tarfan (large)', () => {
     const sim = fakeSim();
-    for (const map of ['tel_marum', 'beit_sahwan_outskirts', 'milh_flats', 'wadi_tarfan']) {
+    for (const map of ['tel_marum', 'beit_sahwan_outskirts', 'milh_flats', 'wadi_tarfan', 'rujm_sawda', 'milh_flats_l']) {
       const cfg = config({ mode: 'versus', map });
       expect(seatWorldFor(cfg, sim).formationAllowed(0, 'attack'), map).toBe(true);
     }
-    for (const map of ['rujm_sawda']) {
+    for (const map of ['wadi_tarfan_l']) {
       const cfg = config({ mode: 'versus', map });
       expect(seatWorldFor(cfg, sim).formationAllowed(0, 'attack'), map).toBe(false);
     }
@@ -335,9 +335,9 @@ describe('seatWorldFor', () => {
     // single-player ignores the versus gate either way
     expect(seatWorldFor(null, sim, false).formationAllowed(0, 'column')).toBe(true);
   });
-  it('GH-913 L8: with the gate OPEN a Rujm Sawda room still fields NO formation, and the receiver drops the order', () => {
+  it('GH-913 L8: with the gate OPEN a Wadi Tarfan (large) room still fields NO formation, and the receiver drops the order', () => {
     const sim = fakeSim();
-    const rujm = config({ mode: 'versus', map: 'rujm_sawda' });
+    const rujm = config({ mode: 'versus', map: 'wadi_tarfan_l' });
     rujm.seats[1] = { ...rujm.seats[1], side: 1 };
     const w = seatWorldFor(rujm, sim, true);
     for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);

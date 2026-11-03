@@ -130,12 +130,12 @@ const BOTS = { host: 'bot', guest: 'bot' } as const;
 // GH-859 P1a: the agent harness orders a combat formation through the same door a human's click will use.
 describe('order: the formation field (GH-859 P1a)', () => {
   // Task 6V (the lead's ruling, 29 Oct): formations are OFF in versus rooms until S4 passed. They opened on 1 Nov on the maps S4 covered, so
-  // the refusal is witnessed on Rujm Sawda, which stays closed (`VERSUS_FORMATIONS_CLOSED_MAPS`; it was Wadi Tarfan until GH-945); the open map is the last test of this block.
+  // the refusal is witnessed on Wadi Tarfan (large), which stays closed (`VERSUS_FORMATIONS_CLOSED_MAPS`; it was Wadi Tarfan until GH-945, and Rujm Sawda until 3 Nov); the open map is the last test of this block.
   // `twoSeats` is a versus room. The agent
   // harness checks an order with the same `validateCommand` the receiver runs, so a formation order is refused before it is sent.
   // The open-gate plumbing (stamped, framed, the same group on both sims) is witnessed in `two-client.test.ts` ("GATE OPEN").
   it('a Column move in a versus room is refused as invalid and nothing is sent; the plain move goes through and forms no group', async () => {
-    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'rujm_sawda' });
+    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'wadi_tarfan_l' });
     const ctx = createContext(a.client, 'command');
     const wa = a.client.world() as MatchWorld;
     const wc = c.client.world() as MatchWorld;
@@ -160,7 +160,7 @@ describe('order: the formation field (GH-859 P1a)', () => {
     expect(wa.sim.hash()).toBe(wc.sim.hash());
   });
   it('an attack formation on an attackMove is refused the same way, and the plain attackMove forms no group', async () => {
-    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'rujm_sawda' });
+    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'wadi_tarfan_l' });
     const ctx = createContext(a.client, 'command');
     const wa = a.client.world() as MatchWorld;
     const own = sideIds(wa, 0).slice(0, 3);
