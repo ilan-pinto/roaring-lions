@@ -451,7 +451,7 @@ describe('the Sarim seat\'s routes (GH-681, T3)', () => {
   // wadi_tarfan re-priced 28 Oct 2026 (GH-560 Task 7B): wt_h_south 2 -> 1, wt_f_west 1 -> 2. Was [2, 3] and [1, 1].
   const CASES = [
     ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], [4, 4]],
-    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], [4, 4]],
+    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], [3, 3]], // Was [4, 4] until GH-990 (3 Nov),
     // GH-945: every Wadi route at capacity 3. Was [1, 3] (hostile) and [1, 2] (friendly).
     ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], [3, 3]],
     ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], [3, 3]],
