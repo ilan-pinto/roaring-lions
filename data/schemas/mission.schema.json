@@ -392,6 +392,13 @@
             "type": "boolean",
             "description": "This evacuate_before brings back people the enemy took. On completion its count is written to the ledger key civ.hostages_recovered for this mission, and the campaign board's account of the taken moves. Legal ONLY on evacuate_before, and enforced -- the runtime counts a completed hostages objective's `count` and nothing else, so the flag on any other type is a silent no-op that reads in the JSON as though the mission recovers people."
           },
+          "side": {
+            "enum": [
+              0,
+              1
+            ],
+            "description": "GH-976: the side this objective belongs to. Absent is side 0, the player, as every mission has always read it. Read by capture and hold_for (that side's units hold the ground and the other side's contest it), raze (who the razing wins for) and, in a versus win-mode room, score. Any other type refuses it at construction. No shipped mission authors one: it exists for data/versus/modes/*.json, whose rows become objectives."
+          },
           "text": {
             "type": "string"
           },
