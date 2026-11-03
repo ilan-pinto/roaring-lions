@@ -204,4 +204,19 @@ describe('--log-file and joinRoom (GH-954)', () => {
     }
     await expect(joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', async () => Response.json({ seat: 2 }))).rejects.toThrow(/no seat and ticket/);
   });
+  it('joinRoom names its build, and a 412 carries the room\'s (only a short printable one)', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const answer = (res: () => Response): typeof fetch => async (_input, init) => { bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>); return res(); };
+    const e = await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', answer(() => Response.json({ error: 'build_mismatch', build: '0.1.0+abc1234' }, { status: 412 })), '0.2.0+def5678').catch((err: unknown) => err);
+    expect(bodies[0].build).toBe('0.2.0+def5678');
+    expect(e).toBeInstanceOf(JoinRefused);
+    expect((e as JoinRefused).status).toBe(412);
+    expect((e as JoinRefused).roomBuild).toBe('0.1.0+abc1234');
+    const junk = await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', answer(() => Response.json({ build: 'a\nb' }, { status: 412 })), 'x').catch((err: unknown) => err);
+    expect((junk as JoinRefused).roomBuild).toBeNull();
+    const none = await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', answer(() => new Response('', { status: 412 })), 'x').catch((err: unknown) => err);
+    expect((none as JoinRefused).roomBuild).toBeNull();
+    await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', answer(() => Response.json({ seat: 1, ticket: 't' }))).catch(() => {});
+    expect('build' in bodies[bodies.length - 1]).toBe(false);   // not named: not sent
+  });
 });

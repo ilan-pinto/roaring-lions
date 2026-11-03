@@ -126,7 +126,9 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     if (body === null) return tooLarge();
     const player = playerOf(body);
     if (player === '') return new Response('player required', { status: 400 });
-    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind), tiers: seatTiersField(body.tiers) }) }));
+    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind), tiers: seatTiersField(body.tiers), ...(textField(body.build, '') === '' ? {} : { build: textField(body.build, '') }) }) }));
+    // 412: the joiner named a build the room does not run; the room's answer names its own (see /join in match-room).
+    if (res.status === 412) return new Response(await res.text(), { status: 412, headers: { 'content-type': 'application/json' } });
     if (res.status !== 200) return new Response('', { status: res.status });
     const { seat } = (await res.json()) as { seat: 0 | 1 };
     const ticket = await signTicket(secret, { matchId: code, seat, player, exp: now + TICKET_MS });

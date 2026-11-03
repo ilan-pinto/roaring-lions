@@ -39,6 +39,8 @@ export interface ToolContext {
   doneRound: number;
   /** The id the next proposal takes. */
   nextProposal: number;
+  /** How long `wait` blocks in a lobby; default `LOBBY_WAIT_MAX_MS`. A spec shortens it. */
+  lobbyWaitMs?: number;
 }
 
 export interface ToolDef {
@@ -70,6 +72,8 @@ export const WAIT_MAX_TICKS = 200;
 /** How often `wait` looks again, and the longest it blocks in wall time. */
 export const WAIT_POLL_MS = 10;
 export const WAIT_MAX_MS = 60_000;
+/** `wait` in a lobby blocks this long for the match to start: the other player may take a while to press Ready. */
+export const LOBBY_WAIT_MAX_MS = 600_000;
 /** Polls with no frame run, in a room that has ended, before `wait` calls it over. */
 const WAIT_STILL_POLLS = 5;
 /** An assist advisor remembers this many proposals' fates (the newest). */
@@ -205,13 +209,21 @@ const sleep = (ms: number): Promise<void> => new Promise((res) => { setTimeout(r
 
 const wait: ToolDef = {
   name: 'wait',
-  description: `Let the match run: resolves after \`ticks\` (1-${WAIT_MAX_TICKS}) more frames (20 a second), or at once on a result, the room ending, or (command, paced) when the room waits on your end_round. Never longer than ${WAIT_MAX_MS / 1000} s.`,
+  description: `Let the match run: resolves after \`ticks\` (1-${WAIT_MAX_TICKS}) more frames (20 a second), or at once on a result, the room ending, or (command, paced) when the room waits on your end_round. Never longer than ${WAIT_MAX_MS / 1000} s. Before the match has started it blocks (up to ${LOBBY_WAIT_MAX_MS / 60_000} minutes) until it does, because the other player may take a while to press Ready; then it answers \`match not started\`, and you call it again.`,
   scopes: SCOPES,
   schema: { type: 'object', properties: { ticks: { type: 'integer', minimum: 1, maximum: WAIT_MAX_TICKS } }, required: ['ticks'], additionalProperties: false },
   async run(ctx, raw) {
     const a = argsOf(raw);
     if (!isInt(a.ticks) || a.ticks < 1 || a.ticks > WAIT_MAX_TICKS) return refuse('invalid', { detail: `ticks is an integer 1-${WAIT_MAX_TICKS}` });
-    if (ctx.client.config() === null) return refuse('match not started');
+    if (ctx.client.config() === null) {
+      // The lobby: block until the room starts the match (the other player presses Ready), the room closes, or the bound.
+      const lobbyDeadline = Date.now() + (ctx.lobbyWaitMs ?? LOBBY_WAIT_MAX_MS);
+      while (ctx.client.config() === null) {
+        if (terminal(ctx.client.transport.status())) return refuse('match over', { detail: 'the room closed before the match started' });
+        if (Date.now() >= lobbyDeadline) return refuse('match not started', { detail: 'still waiting for the other player to press Ready' });
+        await sleep(WAIT_POLL_MS);
+      }
+    }
     const client = ctx.client;
     const from = client.tick();
     const deadline = Date.now() + WAIT_MAX_MS;

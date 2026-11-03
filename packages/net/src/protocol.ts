@@ -120,7 +120,9 @@ export type ServerMsg =
   | { t: 'advisor'; from: 'human' | 'advisor'; a: AdvisorMsg }
   /** Which advisor scope each seat has seated, or null: the badge both seats see (decision D1). */
   | { t: 'advisors'; present: [AdvisorScope | null, AdvisorScope | null] }
-  | { t: 'error'; code: ErrorCode };
+  /** `build`: on a `build_mismatch`, the build the ROOM runs, so a refused client can name it (GH-954).
+   *  Sent only after the hello's ticket verified, and the string is the one the client bundle already carries. */
+  | { t: 'error'; code: ErrorCode; build?: string };
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 /** A frame tick on the wire: an integer in 0..0x7fffffff. */
@@ -410,7 +412,12 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       const ok = (v: unknown): v is AdvisorScope | null => v === null || (ADVISOR_SCOPES as readonly unknown[]).includes(v);
       return Array.isArray(p) && p.length === 2 && ok(p[0]) && ok(p[1]) ? { t: 'advisors', present: [p[0], p[1]] } : null;
     }
-    case 'error': return (ERROR_CODES as readonly unknown[]).includes(m.code) ? { t: 'error', code: m.code as ErrorCode } : null;
+    case 'error': {
+      if (!(ERROR_CODES as readonly unknown[]).includes(m.code)) return null;
+      const code = m.code as ErrorCode;
+      // A build is a short printable string; anything else is dropped, never trusted.
+      return typeof m.build === 'string' && /^[\x20-\x7e]{1,80}$/.test(m.build) ? { t: 'error', code, build: m.build } : { t: 'error', code };
+    }
     default: return null;
   }
 }

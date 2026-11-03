@@ -139,6 +139,11 @@ describe('parseServerMsg', () => {
   });
   it('accepts only the declared error codes', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'full' }))).toEqual({ t: 'error', code: 'full' });
+    // GH-954: a build_mismatch may name the room's build; anything that is not a short printable string is dropped.
+    expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'build_mismatch', build: '0.1.0+abc1234' }))).toEqual({ t: 'error', code: 'build_mismatch', build: '0.1.0+abc1234' });
+    expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'build_mismatch', build: 'x'.repeat(81) }))).toEqual({ t: 'error', code: 'build_mismatch' });
+    expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'build_mismatch', build: 'a\nb' }))).toEqual({ t: 'error', code: 'build_mismatch' });
+    expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'build_mismatch', build: 7 }))).toEqual({ t: 'error', code: 'build_mismatch' });
     expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'teapot' }))).toBeNull();
   });
 });

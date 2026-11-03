@@ -129,6 +129,7 @@ export class AgentClient {
   private ending: { reason: string; seat?: Seat } | null = null;
   private drained = false;
   private closed = false;
+  private refusedBuild: string | null = null;
   private failure: string | null = null;
   private outcome: RejoinOutcome | null = null;
   private readonly link: SnapshotLink | null;
@@ -215,10 +216,12 @@ export class AgentClient {
         }
         resolve(config);
       },
-      onError: (code) => {
+      onError: (code, detail) => {
         if (code === 'build_mismatch') {
-          // The room does not say which build it runs, so only ours can be named.
-          const e = new Error(`the room refused build "${o.build}"; it runs a different build. Check out that build's commit, or pass --build`);
+          // The room names its own build in the refusal (GH-954); an older room does not.
+          this.refusedBuild = detail?.build ?? null;
+          const theirs = detail?.build === undefined ? 'a different build' : `build "${detail.build}"`;
+          const e = new Error(`the room refused build "${o.build}"; it runs ${theirs}. Check out that build's commit, or pass --build`);
           this.log(e.message);
           reject(e);
           this.close();
@@ -372,6 +375,11 @@ export class AgentClient {
       ? null
       : roomEndingOutcome(this.ending.reason, this.ending.seat, live.side, (s) => live.config.seats[s].side as 0 | 1);
     return matchResult(local, ending, this.drained);
+  }
+
+  /** The build the room said it runs, when it refused ours (`build_mismatch`); null when it did not say. */
+  roomBuild(): string | null {
+    return this.refusedBuild;
   }
 
   /** Closes WITHOUT a `bye`: this socket is not the seat it was meant to be,
