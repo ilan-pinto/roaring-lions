@@ -4,7 +4,7 @@
  * so `externalPlayer` can be tested end to end -- arena, temp directory, MCP
  * config, spawned `pnpm agent`, room -- with nothing billed.
  *
- *   tsx tools/src/net/test-mcp-client.ts <mcp config path>
+ *   tsx tools/src/net/test-mcp-client.ts <mcp config path> [--score-file <path>]
  *
  * It reads the MCP config the arena wrote, spawns the server it names (the
  * harness) over stdio, and loops: `wait` until the room waits on this seat's
@@ -17,6 +17,11 @@
  * this file's: `order` takes a verb, ids and a tile, so rush's `sweep: true`
  * does not cross (a model cannot ask for a cursor sweep either).
  *
+ * With `--score-file <path>` it starts the harness with `--score-file` (GH-973, the way `pnpm bot`
+ * does), asks for `match_stats` once mid-match (it must be refused: the numbers cover both sides),
+ * and when the match is over reads them and submits a canned score of both players, citing the
+ * numbers it read. That is the whole of the bot's scoring path, over a real stdio MCP session.
+ *
  * stdout carries exactly one line, at the end -- on a SIGTERM from the arena
  * too: what a real client prints, a JSON object with `usage` (this one spends
  * no tokens, so both are 0). Every log line goes to stderr.
@@ -26,6 +31,7 @@ import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { Command } from '@lions/sim';
+import { CRITERION_IDS } from './match-score';
 import { rush } from './players';
 import type { SideView } from './view';
 
@@ -66,8 +72,26 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   return { ok: r.isError !== true, body: JSON.parse(text) as Record<string, unknown> };
 }
 
-async function play(client: Client): Promise<string> {
+/** A canned score of both players that cites the referee's own numbers. */
+function cannedScores(stats: { seats: { deaths: number; ordersSent: number }[] }): Record<string, unknown> {
+  const player = (seat: number, n: number): Record<string, unknown> => ({
+    criteria: Object.fromEntries(CRITERION_IDS.map((id) => [id, { score: n, reason: `${id}: ${stats.seats[seat].deaths} deaths, ${stats.seats[seat].ordersSent} orders` }])),
+    overall: { score: n, reason: `stand-in client, ${stats.seats[seat].deaths} deaths` },
+  });
+  return { seat0: player(0, 6), seat1: player(1, 4) };
+}
+
+/** After the match: read the referee's stats and score both players. Returns what happened, in words. */
+async function score(client: Client): Promise<string> {
+  const m = await call(client, 'match_stats');
+  if (!m.ok) return `match_stats refused: ${String(m.body.error)}`;
+  const submitted = await call(client, 'submit_score', cannedScores(m.body.stats as { seats: { deaths: number; ordersSent: number }[] }));
+  return submitted.ok ? 'scored' : `submit_score refused: ${JSON.stringify(submitted.body)}`;
+}
+
+async function play(client: Client, scoring: boolean): Promise<string> {
   let orders = 0;
+  let early = '';
   for (;;) {
     const w = await call(client, 'wait', { ticks: 200 });
     if (!w.ok) {
@@ -75,24 +99,30 @@ async function play(client: Client): Promise<string> {
       return `wait refused: ${String(w.body.error)}`;
     }
     const reason = w.body.reason;
-    if (reason === 'result' || reason === 'ended') return `${String(reason)} after ${orders} order(s)`;
+    if (reason === 'result' || reason === 'ended') return `${String(reason)} after ${orders} order(s)${scoring ? `; ${early}; ${await score(client)}` : ''}`;
     if (reason !== 'round') continue;
     const o = await call(client, 'observe');
     if (!o.ok) return `observe refused: ${String(o.body.error)}`;
+    if (scoring && early === '') {
+      const m = await call(client, 'match_stats');
+      early = m.ok ? 'early match_stats ANSWERED' : `early match_stats: ${String(m.body.error)}`;
+    }
     for (const cmd of await rush(o.body as unknown as SideView)) {
       const r = await call(client, 'order', orderArgs(cmd));
       if (r.ok) orders++;
       else log(`order refused: ${String(r.body.error)}`);
     }
     const e = await call(client, 'end_round');
-    if (!e.ok && e.body.error === 'match over') return `match over after ${orders} order(s)`;
+    if (!e.ok && e.body.error === 'match over') return `match over after ${orders} order(s)${scoring ? `; ${early}; ${await score(client)}` : ''}`;
   }
 }
 
 async function main(argv: readonly string[]): Promise<void> {
   const path = argv[0];
-  if (path === undefined) { log('usage: tsx tools/src/net/test-mcp-client.ts <mcp config>'); process.exit(1); }
+  if (path === undefined) { log('usage: tsx tools/src/net/test-mcp-client.ts <mcp config> [--score-file <path>]'); process.exit(1); }
+  const scoreFile = argv[1] === '--score-file' ? argv[2] : undefined;
   const server = serverOf(readFileSync(path, 'utf8'));
+  if (scoreFile !== undefined) server.args.push('--score-file', scoreFile);
   const transport = new StdioClientTransport({ command: server.command, args: server.args, env: process.env as Record<string, string>, stderr: 'inherit' });
   const client = new Client({ name: 'lions-test-mcp-client', version: '0' });
   let closing: Promise<void> | null = null;
@@ -103,7 +133,7 @@ async function main(argv: readonly string[]): Promise<void> {
   log(`harness pid ${String(transport.pid)}`);
   let outcome: string;
   try {
-    outcome = await play(client);
+    outcome = await play(client, scoreFile !== undefined);
   } catch (e) {
     outcome = `failed: ${e instanceof Error ? e.message : String(e)}`;
   }

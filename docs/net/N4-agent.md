@@ -119,7 +119,8 @@ optional. Because the client prints one JSON result when it finishes, the live
 output is only its stderr; the result and tokens arrive at the end.
 
 Every run leaves two files in `bot-results/` (git-ignored) under the directory
-you ran `pnpm bot` from, and prints their paths when it starts and when it ends:
+you ran `pnpm bot` from (a run that took a seat also leaves `<date>-<room>-<model>-scores.json`,
+the scoring record below), and prints the first two paths when it starts and when it ends:
 
 - `<date>-<room>-<model>.log`: the harness's and the client's stderr and stdout,
   each line timestamped. It never holds the environment or the ticket. The
@@ -158,6 +159,35 @@ you ran `pnpm bot` from, and prints their paths when it starts and when it ends:
   (`mine`, and `theirs` in sight), apart from `units` and `contacts`; they take no
   order. An `attack` the sim will not take (the enemy left sight, died, or cannot
   be hurt) shows `dropped` with a `reason` in `orders`, not `applied`.
+- **Both players are scored (GH-973, the lead's ruling of 3 Nov).** At the end of
+  the match the bot scores **both** players, itself included: 1-10 on five criteria
+  (fewer deaths; wounded treatment and evacuation; force preservation; tempo and
+  initiative; adaptation), a **one-line reason** for each, and an overall score. It
+  does so through two extra harness tools, offered to a `pnpm bot` seat only (the
+  harness is started with `--score-file`; the arena's players are scored by a judge
+  instead, section 3):
+  - `match_stats`: the **referee's end-of-match stats for both seats**, not
+    fog-limited: units lost with their value, enemy units destroyed, wounded who
+    fell / were rescued / died / are still down, idle time, orders sent and the first
+    order and first loss of each seat, and a 30-second timeline. It answers `match
+    not over` until the match has a result, so it can never be used to see through
+    the fog.
+  - `submit_score`: the scores, validated strictly (`match-score.ts`): exactly
+    `seat0` and `seat1`, each with the five criteria and an `overall`, every score a
+    whole number 1-10, every reason one non-empty line of at most 240 characters. A
+    score that fails is refused with **every** problem listed, so the model fixes and
+    resubmits; a later valid submission replaces an earlier one.
+
+  Why tools and not a final prompt turn: `claude -p` is one session, so a second turn
+  would need `--resume` and a second spend; a tool keeps the scoring inside the one run
+  and lets the validator answer the model. The harness is the client's child, so it
+  leaves the referee's stats and the accepted scores in `bot-results/<date>-<room>-<model>-scores.json`,
+  and `pnpm bot` reads that file back, **validates it again**, puts a `## Scores`
+  section (both players' tables, every reason, the referee's numbers; the bot is "you")
+  into the report and rewrites the file as the JSON record (`status`: `scored`,
+  `invalid` or `missing`, with the problems or the reason). **A missing or invalid
+  score is recorded as such, never invented**, and scoring changes nothing else: not
+  the result, not the exit code (D7).
 - **A bot that is killed still leaves a file.** The report is written as soon as
   the run starts (result `unfinished`: still running, or killed outright) and
   replaced when it ends; SIGINT, SIGTERM and SIGHUP (a closed terminal) all stop
@@ -333,6 +363,43 @@ Two things to know about external players:
   gets a grace period (10 s) to finish by itself and print its usage line
   before it is stopped (then terminated, then killed). The model plays and
   spends tokens during that grace.
+
+### A judge for the arena (GH-973)
+
+```sh
+pnpm arena -- --a "cmd:<player A>" --b "cmd:<player B>" --seeds 5 \
+  --judge "cmd:claude -p --model <model-id> --output-format json < {prompt}"
+```
+
+`--judge` is a **third model** that scores both players of each finished game on
+the same rubric the bot uses (five criteria, 1-10, a one-line reason each, an
+overall). Its value is a `cmd:` template in the players' own form: split by the
+arena, never through a shell, run with your environment unchanged. **The arena
+never reads a key and none belongs in a template** (it is written into the
+results). Placeholders: `{prompt}` (the judge's prompt: the rubric, what the stats
+mean, the **referee's stats for both seats** and the event timeline, and the exact
+reply format; use `< {prompt}` for stdin) and `{stats}` (the stats alone, as a JSON
+file). There is no MCP config: the judge plays nothing. It runs in a temp directory
+of its own (0700, files 0600, removed when it ends and on a signal), so use absolute
+paths; its stdout and stderr go to `<out>/<date>-<a>-vs-<b>-game<n>-judge.log`.
+`--judge-timeout-ms` (default 180,000) bounds each call.
+
+- **The referee's stats are in every record** (`referee` in the `.jsonl`), judged or
+  not: per seat, units lost and destroyed with their value, the force left, wounded
+  who fell / were rescued / died / are still down, `deaths` (units lost + wounded who
+  died), the idle share of unit-seconds, orders sent (by verb), the tick of the first
+  order and of the first loss, and a timeline every 30 game seconds. They are read from
+  the reading seat's sim, after the verdict, and write nothing.
+- **The reply is parsed strictly**: one JSON object (or one fenced block), exactly
+  `seat0` and `seat1`, every criterion present, every score a whole number 1-10, every
+  reason one line. Anything else is recorded as `invalid` with the problems; a judge
+  that fails to start, exits non-zero, times out or reports an error is `failed`; a
+  void game is `skipped`. The `.md` has a **Scores** section with one row per judged
+  player, each player's mean per criterion, and each game's reasons beside its
+  referee numbers. **Without `--judge` that section says "Not judged".**
+- **Scores never change a result (D7).** The judge runs after the game's relay is
+  closed; its outcome goes only into the record's `judge` field. No outcome, tally,
+  gate or exit code reads it.
 
 ## 4. What the harness trusts
 
