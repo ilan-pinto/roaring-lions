@@ -27,14 +27,17 @@ export const MARK_VERSION = 1;
  * three Meshy hulls with a weapon station. `kit` is the kit source whose pinned UVs the shader excludes; the two Lavi variants
  * have no kit and exclude nothing.
  */
-export const MARK_RECIPES: Readonly<Record<string, { readonly script: string; readonly kit: string | null }>> = {
+export const MARK_RECIPES: Readonly<Record<string, { readonly script: string; readonly kit: string | null; readonly keepNormal?: true }>> = {
   mbt_lavi: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/mbt_lavi.glb' },
   mbt_lavi_camo: { script: 'tools/vehicles/lavi_mark.py', kit: null },
   officer_armour: { script: 'tools/vehicles/lavi_mark.py', kit: null },
   // GH-943 batch 3, the KDF carriers: a Meshy hull with its remote weapon station, each with the pins its own kit source declares.
-  ifv_namer: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/ifv_namer.glb' },
-  apc_eitan: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/apc_eitan.glb' },
-  apc_kipod: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/apc_kipod.glb' },
+  // `keepNormal`: their shipped normal map carries real baked detail (track links, wheel hubs, ribs: 30-37% of texels tilt
+  // past 0.05, mean tilt 0.20-0.25) and GLTFLoader binds it, so the pass leaves it byte-identical. Only the metal-roughness
+  // map was flat (roughness 0.80, metal 0) and is dropped. The Lavi line's normal maps were dropped by the lead's 2 Nov ruling.
+  ifv_namer: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/ifv_namer.glb', keepNormal: true },
+  apc_eitan: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/apc_eitan.glb', keepNormal: true },
+  apc_kipod: { script: 'tools/vehicles/lavi_mark.py', kit: 'art/parts/kit/apc_kipod.glb', keepNormal: true },
 };
 
 /** The mark's share of the covered surface the lead approved (about 2%), and the band a shipped number must sit in. */

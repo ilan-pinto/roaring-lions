@@ -8,11 +8,13 @@
  *   texture but the base colour ships.
  * - The three KDF carriers (Namer, Eitan, Kipod; lead, 3 Nov): the mark rides the hull alone, an independent SUBDIVIDED
  *   measurement agrees with the declared texel share, and the boxes stand on the clear deck (no hatch, station or kit part
- *   in them). `peel-host.ts` is what let the mark pass run on a shipped, already-kitted file.
+ *   in them). `peel-host.ts` is what let the mark pass run on a shipped, already-kitted file. They KEEP their normal map
+ *   byte-identical (it holds real baked detail; only the flat metal-roughness map goes).
  * - `check_team_marks` (validate_mesh_assets.py) is falsified on scratch copies: a kit UV outside every
  *   exclusion pin, a coverage outside the band and a leftover map each turn it red.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -88,6 +90,16 @@ describe('mark pass refusals', () => {
     expect(mark.luma).toBe(0.17);
     expect(mark.roof.x).toEqual([-1.7, -0.4]);
     expect(doc.getRoot().listScenes()[0]!.getExtras()).toHaveProperty(MARK_SCENE_KEY);
+  });
+  it('a `keepNormal` recipe (a carrier) keeps its normal map and drops only the flat metal-roughness map', () => {
+    const doc = docOf(good);
+    const normal = doc.getRoot().listMaterials()[0]!.getNormalTexture()!;
+    const r = applyMark(doc, 'ifv_namer', measure());
+    expect(r.droppedTextures).toBe(1);
+    const mat = doc.getRoot().listMaterials()[0]!;
+    expect(mat.getNormalTexture()).toBe(normal);
+    expect(mat.getMetallicRoughnessTexture()).toBeNull();
+    expect(doc.getRoot().listTextures().map((t) => t.getName()).sort()).toEqual(['base_color', 'normal']);
   });
   it('names its vehicle: no default, no unknown id', () => {
     expect(() => parseMarkArgs([])).toThrow(/at least one --id/);
@@ -295,6 +307,19 @@ describe('the roster pin: validate:meshes requires a mark on exactly the recipe 
     expect(required).toEqual(Object.keys(MARK_RECIPES).sort());
     expect(required).toEqual([...ALL_MARKED].sort());
   }, 60_000);
+  it('MARK_KEEPS_NORMAL (python) equals the `keepNormal` recipes (TypeScript), and is exactly the carriers', () => {
+    const code =
+      'import sys, json\n' +
+      `sys.path.insert(0, ${JSON.stringify(path.join(REPO, 'tools'))})\n` +
+      'sys.argv = ["x"]\n' +
+      'import validate_mesh_assets as v\n' +
+      'print(json.dumps(list(v.MARK_KEEPS_NORMAL)))\n';
+    const r = spawnSync('python3', ['-c', code], { cwd: REPO, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`python failed: ${r.stderr}`);
+    const keeps = (JSON.parse(r.stdout.trim().split('\n').pop()!) as string[]).sort();
+    expect(keeps).toEqual(Object.keys(MARK_RECIPES).filter((k) => MARK_RECIPES[k]!.keepNormal === true).sort());
+    expect(keeps).toEqual([...CARRIERS].sort());
+  }, 60_000);
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -396,13 +421,13 @@ function bounds(doc: Document, name: string): { min: V3; max: V3 } {
 }
 
 describe.each(CARRIERS)('the shipped carrier %s', (id) => {
-  it('carries its mark on the HULL alone, ships the base colour alone, and keeps its wreck and bake luma', async () => {
+  it('carries its mark on the HULL alone, ships its normal map and base colour only, and keeps its wreck and bake luma', async () => {
     const doc = await load(id);
     const m = markOf(doc);
     expect(m.team_fraction_basis).toBe('texel');
     expect(m.team_fraction).toBeGreaterThanOrEqual(TEAM_FRACTION_BAND[0]);
     expect(m.team_fraction).toBeLessThanOrEqual(TEAM_FRACTION_BAND[1]);
-    expect(doc.getRoot().listTextures().map((t) => t.getName())).toEqual(['base_color']);
+    expect(doc.getRoot().listTextures().map((t) => t.getName()).sort()).toEqual(['base_color', 'normal']);
     expect(doc.getRoot().listScenes()[0]!.getExtras()).toHaveProperty(MARK_SCENE_KEY);
     const mat = doc.getRoot().listMaterials()[0]!;
     expect(mat.getExtras()).toHaveProperty('rl_bake_luma');
@@ -464,6 +489,24 @@ describe.each(CARRIERS)('the shipped carrier %s', (id) => {
   });
 });
 
+/** sha256 of each carrier's normal map as it shipped BEFORE the mark (read off `origin/main`'s GLBs, 3 Nov). */
+const NORMAL_SHA256: Record<(typeof CARRIERS)[number], string> = {
+  ifv_namer: '9e55762d4e4760eca6b9d3c1fe2f3864b362caacbd810dc44fd8eef9d4729fc5',
+  apc_eitan: 'c5a5031375f3e2a2633f8f93e67a94fffea15c15f68ef09b71e6b0d182838ee3',
+  apc_kipod: '45ec504341bba6784ffaf9a108d5cf6ab8b3baa165b178106d91c0dcdbc03aae',
+};
+
+describe.each(CARRIERS)('the shipped carrier %s keeps its normal map', (id) => {
+  it('still binds a normalTexture, byte-identical to the one it shipped with before the mark (literal sha256)', async () => {
+    const mat = (await load(id)).getRoot().listMaterials()[0]!;
+    const normal = mat.getNormalTexture();
+    expect(normal, `${id} lost its normalTexture`).not.toBeNull();
+    expect(createHash('sha256').update(normal!.getImage()!).digest('hex')).toBe(NORMAL_SHA256[id]);
+    // the flat metal-roughness map is the one that went
+    expect(mat.getMetallicRoughnessTexture()).toBeNull();
+  });
+});
+
 describe('the carriers\' boxes are placed for THEIR hulls, not copied from the Lavi or from each other', () => {
   it('three different roofs and three different flank bands', async () => {
     const marks = await Promise.all([...CARRIERS, 'mbt_lavi'].map(async (id) => markOf(await load(id))));
@@ -521,12 +564,13 @@ describe('peel-host: strips exactly what the kit, wreck and damage passes added'
 let n = 0;
 async function check(
   mutate?: (mark: Record<string, unknown>) => void,
-  opts: { id?: string; required?: readonly string[]; strip?: boolean } = {}
+  opts: { id?: string; required?: readonly string[]; strip?: boolean; doc?: (d: Document) => void } = {}
 ): Promise<string[]> {
   const id = opts.id ?? 'mbt_lavi';
   const dir = path.join(scratch, `v${n++}`);
   mkdirSync(dir, { recursive: true });
   const d = await io.read(glbOf(id));
+  opts.doc?.(d);
   const mat = d.getRoot().listMaterials()[0]!;
   const extras = { ...(mat.getExtras() as Record<string, unknown>) };
   const mark = JSON.parse(JSON.stringify(extras[MARK_EXTRAS_KEY])) as Record<string, unknown>;
@@ -577,6 +621,38 @@ describe('check_team_marks (validate:meshes)', () => {
   it.each(['mbt_lavi_camo', 'officer_armour', ...CARRIERS])('%s losing its mark fails: a vehicle on the roster cannot silently stop being checked', async (id) => {
     const f = await check(undefined, { id, strip: true });
     expect(f.join('\n')).toMatch(new RegExp(`${id} carries no rl_team_mark, but it must`));
+  }, 60_000);
+  it.each(CARRIERS)('%s: a carrier that has lost its normal map fails (MARK_KEEPS_NORMAL)', async (id) => {
+    const f = await check(undefined, {
+      id,
+      doc: (d) => {
+        const mat = d.getRoot().listMaterials()[0]!;
+        const t = mat.getNormalTexture()!;
+        mat.setNormalTexture(null);
+        t.dispose();
+      },
+    });
+    expect(f.join('\n')).toMatch(new RegExp(`${id} has lost its normal map`));
+  }, 60_000);
+  it('a carrier that still carries the flat metal-roughness map fails', async () => {
+    const f = await check(undefined, {
+      id: 'ifv_namer',
+      doc: (d) => {
+        const mat = d.getRoot().listMaterials()[0]!;
+        mat.setMetallicRoughnessTexture(d.createTexture('metallic_roughness').setImage(new Uint8Array([3])).setMimeType('image/jpeg'));
+      },
+    });
+    expect(f.join('\n')).toMatch(/carries \['metallic_roughness'\]/);
+  }, 60_000);
+  it('a Lavi-line vehicle that carries a normal map fails: only the carriers keep one', async () => {
+    const f = await check(undefined, {
+      id: 'mbt_lavi',
+      doc: (d) => {
+        const mat = d.getRoot().listMaterials()[0]!;
+        mat.setNormalTexture(d.createTexture('normal').setImage(new Uint8Array([2])).setMimeType('image/jpeg'));
+      },
+    });
+    expect(f.join('\n')).toMatch(/carries \['normal'\]/);
   }, 60_000);
   it('a required id with no GLB at all fails', async () => {
     const f = await check(undefined, { id: 'mbt_lavi', required: ['mbt_lavi', 'officer_armour'] });

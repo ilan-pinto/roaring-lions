@@ -5,8 +5,9 @@
  *
  * It runs `tools/vehicles/lavi_mark.py` for the vehicle (its own boxes, the covered share and the bake's luma under them), writes
  * `material.extras.rl_team_mark` and a scene marker, and DROPS whatever normal, metallic-roughness and occlusion
- * textures the export carried (a Meshy export's are flat: 89% of normal texels tilt under 0.05). The GLB goes
- * back to carrying its base colour alone. See `mark-contract.ts` for what the mark is.
+ * textures the export carried (the Lavi line's are flat: 89% of normal texels tilt under 0.05), so the GLB goes
+ * back to carrying its base colour alone. EXCEPT a recipe with `keepNormal` (the Namer, Eitan and Kipod, whose normal
+ * maps hold real baked detail): its normal map is left byte-identical and only the flat metal-roughness map goes. See `mark-contract.ts` for what the mark is.
  *
  * Not idempotent, on purpose, like the rescale pass: it refuses a file that is already marked, not rescaled,
  * with no running gear, or already kitted or wrecked (it measures the host meshes alone).
@@ -85,7 +86,10 @@ export function applyMark(doc: Document, id: string, measure: MarkMeasure): Mark
 
   const base = material.getBaseColorTexture();
   let dropped = 0;
+  // A carrier (`keepNormal`) keeps its normal map byte-identical: it holds real baked detail, not a flat export default.
+  const keep = MARK_RECIPES[id]?.keepNormal === true ? material.getNormalTexture() : null;
   for (const t of new Set([material.getNormalTexture(), material.getMetallicRoughnessTexture(), material.getOcclusionTexture(), material.getEmissiveTexture()])) {
+    if (t && t === keep) continue;
     if (t && t !== base) {
       t.dispose();
       dropped++;
@@ -145,7 +149,7 @@ export async function runMarkPass(ids: readonly string[], dir: string = VEHICLES
     await io.write(file, doc);
     out.push(report);
     console.log(
-      `MARK_OK ${id}: team mark ${(report.teamFraction * 100).toFixed(2)}% of the surface, bake luma ${report.luma}, ${report.droppedTextures} flat texture(s) dropped`
+      `MARK_OK ${id}: team mark ${(report.teamFraction * 100).toFixed(2)}% of the surface, bake luma ${report.luma}, ${report.droppedTextures} texture(s) dropped${MARK_RECIPES[id]?.keepNormal ? ', normal map kept' : ''}`
     );
   }
   return out;
