@@ -11,7 +11,6 @@
 import { doctrines } from '@lions/data';
 import type { Command } from '@lions/sim';
 import { versusUnitInfo, type MatchWorld } from '../../../packages/app/src/net/match-world';
-import { roomEconomyView } from '../../../packages/app/src/net/room-economy';
 
 /** One camp's production line, as `productionLines(side)` snapshots it. `line` is the index every production order carries. */
 export interface LineLine {
@@ -77,8 +76,10 @@ export function economyView(w: MatchWorld, side: 0 | 1): EconomyView | null {
     queued: l.items,
     rally: l.rally === null ? null : [l.rally[0] >> 16, l.rally[1] >> 16],
   }));
-  const strip = roomEconomyView(rt, side, faction);
-  return { purse, perMin: strip.ratePerMin, population: rt.populationView(side), lines, menu };
+  // What the strip shows (`roomEconomyView`): the zones this side holds, per minute. Not imported: that module's types reach the UI, and the harness's stdout purity walks imports.
+  let perMin = 0;
+  for (const z of rt.incomeZones) if (z.holder === side) perMin += z.paysPerMin;
+  return { purse, perMin, population: rt.populationView(side), lines, menu };
 }
 
 /** Why `build` would refuse `unit` now (on `line`, or the shortest queue), in the runtime's own words, or null. */
