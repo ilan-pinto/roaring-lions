@@ -252,12 +252,14 @@ describe('a model over MCP, end to end (the stand-in client, no model, no key)',
   it('case 1: cmd:<test-mcp-client> playing rush through observe/order/end_round beats passive from both seats', async () => {
     const out = tempDir('ext-e2e-');
     const fake = `cmd:${TSX} ${CLIENT} {mcp}`;
-    const r = await runArena(['--a', fake, '--b', 'passive', '--seeds', '1', '--first-seed', '14', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], quiet);
+    const r = await runArena(['--a', fake, '--b', 'passive', '--seeds', '1', '--first-seed', '2', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], quiet);
     expect(r.code).toBe(0);
     const g: GameRecord[] = r.games;
     expect(g).toHaveLength(2);
-    // Game 1: the fake on seat 0; game 2: on seat 1. It wins both on seed 111866
-    // (`--first-seed 14`: cap on seat 0, annihilation at 1960 ticks on seat 1).
+    // Game 1: the fake on seat 0; game 2: on seat 1. It wins both on seed 16838 (`--first-seed 2`).
+    // Re-seeded 2026-11-03 for GH-982 (the Spike reloads in 12 s and engages aircraft): was seed 111866
+    // (`--first-seed 14`: cap on seat 0, annihilation at 1960 ticks on seat 1), which the stand-in no longer wins
+    // from both seats. Of seedOf(0..11) at pace 40 and cap 6,000 it wins both seats on 2, 3 and 9; this is the first.
     // Re-seeded 2026-10-25 from seed 1000 (`--first-seed 0`) under movers-only vehicle
     // avoidance (GH-421 Stage 2): on 1000 passive beats the stand-in on seat 0. The stand-in
     // is weaker than the in-process rush (which wins both seats on seeds 0-3 and 11 of 0-11),

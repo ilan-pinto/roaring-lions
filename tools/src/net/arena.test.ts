@@ -3,7 +3,10 @@
 // arena starts it closes itself; the test's own `--out` is a temp directory,
 // removed after each test.
 //
-// The recorded run (seed 56433 = seedOf(7), `--first-seed 7`, tel_marum,
+// Re-seeded 2026-11-03 for GH-982 (the Spike reloads in 12 s and engages aircraft): was seed 56433 (seedOf(7), `--first-seed 7`),
+// after which rush no longer won from both seats on it. Of seedOf(0..3) at pace 40 cap 6000, seedOf(0) = 1000 is won by rush from
+// both seats, and at pace 60 cap 12000 too (the seed players.test.ts uses); `--first-seed 0`.
+// The recorded run before that (seed 56433 = seedOf(7), `--first-seed 7`, tel_marum,
 // pace 40, cap 6,000, tick 1 ms) is a regression pin, not evidence of a rate:
 // rush's rate against passive is not 1.0. This seed is one rush wins from both
 // seats. Re-seeded 2026-10-28 from 48514 (seedOf(6)) for GH-560 (HP alone ends a vehicle): under the new
@@ -49,7 +52,7 @@ describe('pnpm arena', () => {
   it('plays a seed twice with the seats swapped, writes two records and scores rush 1.0 on this seed', async () => {
     const out = outDir();
     const printed: string[] = [];
-    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], { ...quiet, print: (l) => { printed.push(l); } });
+    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], { ...quiet, print: (l) => { printed.push(l); } });
     expect(r.code).toBe(0);
     // A over B, one-sided: printed with or without --gate, and without --gate never a verdict.
     expect(printed).toContain('  rush over passive: n=2  score=1.000  p=0.2500 (one-sided exact binomial, draws half)');
@@ -65,7 +68,7 @@ describe('pnpm arena', () => {
     // Game 1 has A on seat 0; game 2 has B there. Same seed, same map.
     expect(records[0].players).toEqual(['rush', 'passive']);
     expect(records[1].players).toEqual(['passive', 'rush']);
-    expect(records.map((g) => g.seed)).toEqual([56433, 56433]);
+    expect(records.map((g) => g.seed)).toEqual([1000, 1000]);
     expect(records.map((g) => g.factions)).toEqual([['kdf', 'kdf'], ['kdf', 'kdf']]);
     for (const g of records) {
       expect(g.outcome).not.toBe('void');
@@ -191,7 +194,7 @@ describe('pnpm arena', () => {
   it('--gate judges rush over passive and exits 3 on FAIL: one seed is two games, p 0.25 at best', async () => {
     const out = outDir();
     const printed: string[] = [];
-    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--gate', '--out', out], { log: () => {}, print: (l) => { printed.push(l); } });
+    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--gate', '--out', out], { log: () => {}, print: (l) => { printed.push(l); } });
     expect(r.code).toBe(3);
     expect(r.gate).toMatchObject({ n: 2, score: 1, p: 0.25, pass: false });
     expect(printed).toContain('gate: FAIL  rush over passive  n=2  score=1.000  p=0.2500');
