@@ -239,6 +239,59 @@ Closing the agent, or the MCP client that owns it, mid-match sends `bye`, which
 the room reads as a **surrender**: you win. To walk away from a bot without
 that, use the game's own surrender or leave instead.
 
+### What a model can order (GH-954, D-W8)
+
+A model has the orders a human has in a versus room, bar two. `order` takes a
+`verb`; the verbs are `ORDER_VERBS` in `tools/src/net/mcp-tools.ts`, which is
+every command kind except those listed in `ORDER_WITHHELD`, each with its reason:
+
+| Verb | Arguments | Where |
+|---|---|---|
+| `move`, `attackMove`, `halt`, `smoke`, `garrison`, `load`, `unload`, `demolish`, `chargeTunnel`, `attack`, `rescue` | `ids` plus the verb's own (`x`/`y`, `target`, `structure`, `carrier`, `tunnel`) | every versus room |
+| `setStance` | `ids`, `stance` = `hold`, `ambush` (optional `radius`, integer tiles 1-10, default 3) or `patrol` (`waypoints`, 2-4 tiles `[x, y]`) | every versus room |
+| `build` | `unit` (an id from `economy.menu`), optional `line` (default: the shortest queue) | KDF against Sarim |
+| `cancelBuild` | `line`, `index` (-1 is the item in production, 0 upward those waiting) | KDF against Sarim |
+| `setRally`, `clearRally` | `line` (and `x`, `y` for `setRally`) | KDF against Sarim |
+
+The four production verbs carry no `ids`: the side is the seat's own, read from
+its view, so a model cannot name the other one. **Withheld on purpose:** fire
+support (`support`, `callStrike`, `reveal`; LD5, dropped in every versus room),
+field works (dropped in versus), and `enterTunnel` and `vent`, because `observe`
+shows a seat neither its tunnel routes nor its buried units yet.
+
+**Legality is the room's.** Every order goes through the same `validateCommand`
+the room runs; the tools add no rule of their own. A refusal says why:
+
+- `invalid` with a `detail`: the arguments are malformed, or the room has no
+  production (`observe` shows no `economy`).
+- `refused` with a `detail`, for the four production verbs, when ownership accepts
+  the order but the economy runtime's own pre-check (`canBuild`,
+  `buildBlockedReason`, `canSetRally`, the dock's line snapshot) would set it aside
+  unspent: `not enough logistics (costs 906, you have 594)`, `population cap
+  reached (22/40)`, `production queue full (16)`, `no such line`, `that camp has
+  fallen`, `the rally point must be an open tile`, `nothing is queued at index 3`.
+  This is advisory, as every pre-check here is: the authoritative drop is
+  `applyQueued`'s, a frame later. A build is paid when it runs, so two builds sent
+  in one round are each checked against the purse as it stands, not as the first
+  will leave it; `observe`'s `economy.purse` is what to read before the next.
+
+**`observe` shows what these verbs need.** Each own unit has `stance` (`free`,
+`ambush` with `radius`, `patrol` with `points`; a held unit reads `free`, since
+`hold` is a halt and keeps no state) and the view lists `stances`. In an economy
+room it also has `economy`: `purse`, `perMin`, `population` against its cap, each
+camp's `lines` (`building`, `progress`, `secondsLeft`, `contested`, `queued`,
+`rally`) and the `menu` (`cost`, `population`, `buildSeconds`, and `blocked` with
+the reason while a `build` would be refused). All of it is the seat's own side:
+nothing of the other side's purse, queue or menu is read.
+
+**The pin.** `tools/src/net/order-verbs.test.ts` asks `validateCommand` which
+command kinds a versus room accepts (a sample of every kind, in a mirror room and
+in the economy room from each seat) and fails on one that is neither an
+`ORDER_VERB` nor in `ORDER_WITHHELD`; the test's own literal names the two that may
+be (`enterTunnel`, `vent`). It replaces the old `toolsFor` pin, which filtered the
+kinds out by name and so could not go red when one was missing (spec §11c.8).
+It also fails if `arena-prompt.md` does not name every verb.
+
 ## 3. The arena
 
 `pnpm arena` plays one player against another over a set of seeds and scores
