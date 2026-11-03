@@ -13,7 +13,7 @@ import { markdownReport, scoreSections } from './arena-score';
 import type { JudgeJob, JudgeRecord } from './judge';
 import type { ScoreSet } from './match-score';
 import { playerScore } from './score-fixture';
-import type { ArenaPlayer } from './players';
+import { inProcess, rush, type ArenaPlayer } from './players';
 
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length > 0) rmSync(dirs.pop() ?? '', { recursive: true, force: true }); });
@@ -105,22 +105,44 @@ describe('--judge', () => {
   }, 120_000);
 
   it('NEVER changes a result (D7): the same games with a judge that favours the loser are record for record the same', async () => {
+    // Cap 2400 on this seed: rush wins game 1 from seat 0 and game 2 from seat 1, so a judge that pushes an outcome
+    // in EITHER direction (toward seat 0, toward seat 1) changes a record here.
+    const argv = [...ARGV.slice(0, -1), '2400'];
     const plain = outDir();
     const judged = outDir();
-    const a = await runArena([...ARGV, '--out', plain], quiet);
+    const a = await runArena([...argv, '--out', plain], quiet);
+    expect(readRecords(plain).map((g) => g.outcome)).toEqual(['seat0', 'seat1']);
     // A judge that gives the LOSER 10 and the winner 1, whoever that is.
     const contrarian = (job: JudgeJob): Promise<JudgeRecord> => {
       const seat0Won = job.outcome.startsWith('seat 0');
       return Promise.resolve({ status: 'scored', scores: seat0Won ? scores(1, 10) : scores(10, 1), tokens: null });
     };
-    const b = await runArena([...ARGV, '--judge', 'cmd:judge-cli < {prompt}', '--out', judged], { ...quiet, runJudge: contrarian });
+    const b = await runArena([...argv, '--judge', 'cmd:judge-cli < {prompt}', '--out', judged], { ...quiet, runJudge: contrarian });
     expect(b.code).toBe(a.code);
     const strip = (g: GameRecord): Omit<GameRecord, 'judge'> => { const { judge, ...rest } = g; void judge; return rest; };
     expect(readRecords(judged).map(strip)).toEqual(readRecords(plain).map(strip));
     expect(readRecords(judged).every((g) => g.judge?.status === 'scored')).toBe(true);
     expect([...(b.tally ?? new Map()).values()]).toEqual([...(a.tally ?? new Map()).values()]);
     expect(b.gate).toEqual(a.gate);
-  }, 240_000);
+  }, 300_000);
+
+  it('tells the judge neutral labels, never a cmd: template (local paths, model ids); the results files keep the real names', async () => {
+    const out = outDir();
+    const jobs: JudgeJob[] = [];
+    const secret = 'cmd:/Users/someone/bin/claude-wrapper --model claude-secret-9 {mcp} < {prompt}';
+    const make = (spec: string, log: (line: string) => void): ArenaPlayer => (spec === secret ? inProcess(spec, rush, { log }) : resolvePlayer(spec, log));
+    await runArena(['--a', secret, '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '400', '--judge', 'cmd:judge-cli < {prompt}', '--out', out], {
+      ...quiet, resolvePlayer: make,
+      runJudge: (job): Promise<JudgeRecord> => { jobs.push(job); return Promise.resolve({ status: 'scored', scores: scores(5, 5), tokens: null }); },
+    });
+    expect(jobs.map((j) => j.players)).toEqual([['Player A', 'passive'], ['passive', 'Player A']]);
+    for (const j of jobs) {
+      expect(j.outcome).not.toContain('cmd:');
+      expect(j.outcome).not.toContain('claude-secret');
+    }
+    // The real name is in the results (it is the tally's key), not in what the judge is told.
+    expect(readMd(out)).toContain('claude-secret-9');
+  }, 120_000);
 
   it('a judge that fails or answers badly is recorded as such; the games, the tally and the exit code stand', async () => {
     const out = outDir();

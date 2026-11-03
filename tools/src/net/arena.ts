@@ -507,12 +507,27 @@ export function verdictText(names: readonly [string, string], v: { outcome: Game
  * judge. The judge's outcome goes ONLY into `record.judge`: nothing here touches
  * `outcome`, `by`, the score board or the tally (D7).
  */
+/**
+ * What the judge calls a player: a scripted control by its name, anything else (a `cmd:` template, which can carry
+ * local paths and a model id) as `Player A` / `Player B`. The results files keep the real names; the judge's prompt does not.
+ */
+export function judgeLabel(spec: string, which: 'A' | 'B'): string {
+  return EXTERNAL.test(spec) ? `Player ${which}` : spec;
+}
+
 async function judgeGame(record: GameRecord, a: ArenaArgs, logBase: string, judge: NonNullable<ArenaDeps['runJudge']>, log: (line: string) => void): Promise<JudgeRecord | undefined> {
   if (a.judge === null) return undefined;
   if (record.outcome === 'void') return { status: 'skipped', reason: `the game was void (${record.by})` };
   if (record.referee === undefined) return { status: 'skipped', reason: 'the arena has no referee stats for this game' };
+  // A is `--a`, B is `--b`, whichever seat each sat on; a player against itself is `x#a` / `x#b`.
+  const label = (seat: 0 | 1): string => {
+    const isA = record.players[seat] === (a.a === a.b ? `${a.a}#a` : a.a);
+    const l = judgeLabel(isA ? a.a : a.b, isA ? 'A' : 'B');
+    return a.a === a.b && !EXTERNAL.test(a.a) ? `${l} (${isA ? 'A' : 'B'})` : l;
+  };
+  const players: [string, string] = [label(0), label(1)];
   const j = await judge({
-    template: a.judge, stats: record.referee, players: record.players, outcome: verdictText(record.players, record),
+    template: a.judge, stats: record.referee, players, outcome: verdictText(players, record),
     logFile: `${logBase}-judge.log`, timeoutMs: a.judgeTimeoutMs,
   });
   log(`arena: seed ${record.seed}: judge: ${j.status}${j.status === 'failed' ? ` (${j.reason})` : j.status === 'invalid' ? ` (${j.problems[0] ?? ''})` : ''}`);
