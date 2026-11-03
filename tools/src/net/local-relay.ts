@@ -58,8 +58,10 @@ export interface LocalRelay {
   /** The fake Durable Object state of the room with this code, or undefined: how a measuring tool reads the
    *  rows written (`storage.rowsWritten`), the stored batches and the snapshot row (GH-913 L8). Read-only use. */
   stateOf(code: string): FakeState | undefined;
-  /** Closes every socket, stops every room's clock and alarm, and frees the port. Idempotent. */
-  close(): Promise<void>;
+  /** Closes every socket, stops every room's clock and alarm, and frees the port. Idempotent.
+   *  With `lingerMs` (GH-954 W1) the relay first serves on for that long, so a spectator hears the result;
+   *  `now: true` skips the wait (a signal's cleanup, a failed game), and cuts one already running short. */
+  close(o?: { now?: boolean }): Promise<void>;
 }
 
 export interface LocalRelayOptions {
@@ -77,6 +79,16 @@ export interface LocalRelayOptions {
    *  (`MatchRoomOptions.snapshotEveryTicks`); 0 turns snapshots off. Default
    *  the room's own `SNAPSHOT_EVERY_TICKS`. */
   snapshotEveryTicks?: number;
+  /** Origins the relay accepts beside its own (GH-954 W1): the page that watches a game is served from another
+   *  port (`arena-serve.ts`) and dials this relay, so its `Origin` must be allowed. Joined with `extraOrigins`.
+   *  Default none. Only ever loopback origins, which the caller (`arena-serve.ts`) builds itself. */
+  allowOrigins?: readonly string[];
+  /** GH-954 W1: sets `env.ARENA_WATCH = '1'`, which is the only thing that lets `POST /api/match/:code/watch`
+   *  mint a spectator ticket (a bot match only). Default off: the relay then answers 404 there, as production. */
+  watch?: boolean;
+  /** GH-954 W1: how long `close()` keeps serving after it is called, so a spectator receives the result before
+   *  its socket goes. Default 0. */
+  lingerMs?: number;
 }
 
 /** How often a room's scheduled alarm is checked. */
@@ -179,6 +191,7 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
   const noD1 = (): never => { throw new Error('the local relay has no D1'); };
   const env = {
     TICKET_SECRET: o.ticketSecret,
+    ...(o.watch === true ? { ARENA_WATCH: '1' } : {}),
     ROOMS: rooms,
     DB: { prepare: noD1, batch: noD1 },
     ASSETS: { fetch: async () => new Response('not found', { status: 404 }) },
@@ -308,11 +321,23 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
   }
   const addr = server.address() as AddressInfo;
   origin = `http://127.0.0.1:${addr.port}`;
-  env.ALLOWED_ORIGINS = [origin, ...(o.extraOrigins ?? [])].join(',');
+  env.ALLOWED_ORIGINS = [origin, ...(o.extraOrigins ?? []), ...(o.allowOrigins ?? [])].join(',');
   log(`local relay: listening on ${origin}`);
 
-  const close = (): Promise<void> => {
+  let cutLinger: () => void = () => {};
+  let skipLinger = false;
+  const close = (c?: { now?: boolean }): Promise<void> => {
+    if (c?.now === true) { skipLinger = true; cutLinger(); }
     closed ??= (async () => {
+      const linger = o.lingerMs ?? 0;
+      // Still serving while it waits: `closing` is not set until the wait is over.
+      if (linger > 0 && !skipLinger) {
+        await new Promise<void>((res) => {
+          const timer = setTimeout(res, linger);
+          cutLinger = () => { clearTimeout(timer); res(); };
+          if (skipLinger) cutLinger();
+        });
+      }
       closing = true;
       // Every socket goes, and its close reaches its room: each seat is gone,
       // so each room stops its own clock (`wantsClock`).

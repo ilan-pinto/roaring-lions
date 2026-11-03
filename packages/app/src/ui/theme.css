@@ -9535,3 +9535,58 @@ fieldset.rl-versus__maps {
   margin: var(--s3) auto 0;
   font-size: var(--t-m);
 }
+
+/* GH-954 W1: the arena watch strip (dev-only route). Over the top of the battlefield, clear of the HUD strip. */
+.rl-arena-strip {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s2));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s4);
+  max-width: calc(100vw - var(--s6));
+  padding: var(--s1) var(--s3);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  color: var(--ink);
+  font: 600 var(--t-s) var(--font-body);
+  z-index: 40;
+}
+.rl-arena-strip span[hidden] {
+  display: none;
+}
+.rl-arena-strip__players {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.rl-arena-strip__status {
+  color: var(--ink-mute);
+}
+.rl-arena-strip__verdict {
+  color: var(--good);
+}
+.rl-arena-strip__views {
+  display: inline-flex;
+  gap: var(--s1);
+}
+.rl-arena-strip__view,
+.rl-arena-strip__stop {
+  padding: var(--s1) var(--s2);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.rl-arena-strip__view[aria-checked='true'] {
+  border-color: var(--selected);
+  color: var(--selected);
+}
+
+/* GH-954 W1: one stage per watched game, under the strip. */
+.rl-arena-stage {
+  position: absolute;
+  inset: 0;
+}

@@ -281,7 +281,7 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type Seat, type TransportStatus } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
@@ -296,6 +296,7 @@ import { settleRejoin } from './net/snapshot-rejoin';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
 import { buildMatchWorld, matchTick, tunnelRouteOf } from './net/match-world';
+import { SPECTATOR_SHOWN, spectatorSink, type SpectateEnd, type SpectateHooks } from './net/spectator';
 import { roomDockMenu, roomDockRuntime, roomEconomyView } from './net/room-economy';
 import { screenKit } from './net/room-kit';
 import { shippedContentDigest } from './net/content-digest';
@@ -319,6 +320,7 @@ import {
   legacyRedirect,
   stripBase,
   type Disposer,
+  type RouteDef,
   type RouteRequest,
 } from './shell/router';
 import { routes } from './shell/links';
@@ -807,6 +809,9 @@ const loadBrigadePortrait = (id: string): { url: string; isIcon: boolean } | nul
 };
 
 async function main(): Promise<void> {
+  // GH-954 W1: the arena watch page's key rides in the URL FRAGMENT and the router rewrites the URL on start, so
+  // it is read here, before anything can, and held in memory only (DEV: `false` in a production build).
+  const arenaHash = import.meta.env.DEV ? window.location.hash : '';
   // The first statement, so the shell's own question -- did that navigation
   // reload the page? -- has an answer. One `rl:boot` mark per document,
   // however many screens the player walks through.
@@ -1344,10 +1349,45 @@ async function main(): Promise<void> {
   // URLs (`?campaign`, `?mission=`, `?sandbox=`, `?sandboxes`, `?brigade`)
   // redirect onto these paths on boot and on click -- so the tools and
   // bookmarks that drive the app by query string keep working.
+  // GH-954 W1: the arena watch screen exists in a DEV build only. `import.meta.env.DEV` is replaced by `false` in a
+  // production build, so this list is empty there and the dynamic imports inside it are dead code: no route, API
+  // path, key header or watch module (the `arena.*` strings, the strip CSS and the `spectate` branches ship, inert) (`tools/src/net/arena-serve.test.ts` builds the app and pins that). It is also served only by
+  // `pnpm arena --watch` (`tools/src/net/arena-serve.ts`), which hands the page its key in the URL fragment.
+  const arenaRoutes: RouteDef[] = import.meta.env.DEV
+    ? [
+        {
+          name: 'arena-watch',
+          pattern: '/arena/watch',
+          // A battlefield owns its focus: its keys reach the game.
+          focus: false,
+          mount: async (host) => {
+            const [{ showArenaWatch }, { keyFromHash }] = await Promise.all([import('./ui/arena-watch'), import('./net/watch-connect')]);
+            return showArenaWatch(host, {
+              key: keyFromHash(arenaHash),
+              fetch: window.fetch.bind(window),
+              openSocket: (url) => new WebSocket(url),
+              boot: (stageEl, signal, spectate, live) =>
+                bootBattlefield(stageEl, {
+                  missionId: null,
+                  sandboxMap: live.game.map,
+                  query: new URLSearchParams(),
+                  signal,
+                  navigate: (href, opts) => void router.navigate(href, opts),
+                  settings: settingsDeps,
+                  restart: () => {},
+                  spectate,
+                }),
+              leave: () => void router.navigate(routes.menu()),
+            });
+          },
+        },
+      ]
+    : [];
   const router = new Router({
     base: BASE,
     stage,
     routes: [
+      ...arenaRoutes,
       { name: 'menu', pattern: '/', mount: (host) => mountMenu(host) },
       { name: 'campaign', pattern: '/campaign', mount: (host, req) => mountCampaign(host, req) },
       { name: 'brigade', pattern: '/brigade', mount: (host, req) => mountBrigade(host, req) },
@@ -1503,6 +1543,17 @@ export interface BattlefieldRequest {
    *  and boots a fresh one, so there is no second teardown path to keep in
    *  step with the real one. */
   restart(): void;
+  /** GH-954 W1: this battlefield WATCHES a bot-vs-bot arena game instead of playing one (the DEV-only
+   *  `/arena/watch` route builds it; no other screen does). The room is joined with a spectator ticket through
+   *  `connect`, and the battlefield then has no command path at all: no order, pause, surrender, chat, advisor
+   *  or dock reaches the sim or the room, and the HUD is trimmed to `SPECTATOR_SHOWN`. `hooks` is how the watch
+   *  screen learns the handle it may look through and how the game ended; `capTicks` is the arena's cap, at
+   *  which the page stops stepping as the arena's own players do. */
+  spectate?: {
+    connect(signal: AbortSignal): Promise<Connected>;
+    hooks: SpectateHooks;
+    capTicks: number;
+  };
 }
 
 /**
@@ -1540,7 +1591,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  room runs the sandbox only, and no sandbox flag reaches its sim: two
    *  machines must boot the same world, so a flag one player typed would
    *  desync them at tick 0. Decided here, before the kit below reads `&kit`. */
-  const inRoom = params.get('net') !== null;
+  const spectate = req.spectate;
+  const spectating = spectate !== undefined;
+  const inRoom = params.get('net') !== null || spectating;
   if (inRoom && req.missionId !== null) throw new Error('a room runs Free Play only -- open /free-play/<map>?net=new');
   const flags = roomFlags(readFlags(params), inRoom, (k) => console.warn(`[net] sandbox flag &${k} is ignored in a room`));
   const audio = battleAudio();
@@ -1774,7 +1827,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // and a room must refuse a pair whose code differs.
   let match: Connected;
   try {
-    match = await connectMatch(params, mapId, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
+    match = spectate !== undefined ? await spectate.connect(req.signal) : await connectMatch(params, mapId, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
       fetch: window.fetch.bind(window),
       origin: location.origin,
       openSocket: (url) => new WebSocket(url),
@@ -2616,6 +2669,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // context.
   if (req.signal.aborted) abandon('left while the renderer was starting');
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
+  // GH-954 W1: a spectator opens on Both sides (no veil, no draw gate); the watch strip's toggle changes it.
+  if (spectating) renderer.setViewer('all');
 
   // No sprite sheets load any more (WP-A3.3): every unit and structure draws
   // a mesh, loaded above. The loading bar has nothing to count and reads
@@ -3308,7 +3363,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     map,
     structureCatalogue as Readonly<Record<string, { name: string } | undefined>>
   );
-  let hudShown: ReadonlySet<HudElement> = hudVisibility(null, null, (mission ?? null) as MissionHudJson | null);
+  let hudShown: ReadonlySet<HudElement> = spectating ? SPECTATOR_SHOWN : hudVisibility(null, null, (mission ?? null) as MissionHudJson | null);
   const isShown = (el: HudElement): boolean => hudShown.has(el);
 
   /** The cursor `updateHover` last chose, bare (no badge). The fire panel
@@ -3436,7 +3491,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A room's exit is the pause menu's (M-1): a confirmed Surrender while
     // the match can be given up, its Quit once it cannot. Absent in
     // single-player, whose leave control is unchanged.
-    ...(room !== null
+    ...(room !== null && !spectating
       ? {
           exit: {
             // Read per hover: the match ends under a HUD that was built mid-match.
@@ -3490,11 +3545,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  this one's own echoed back -- go to the HUD feed. The feed sets
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
-  const netChat = room !== null && netConfig !== null
+  const netChat = room !== null && netConfig !== null && !spectating
     ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => netConfig.seats[seat].callsign })
     : null;
   if (netChat !== null) onDispose(() => netChat.dispose());
-  if (room !== null && netConfig !== null) {
+  if (room !== null && netConfig !== null && !spectating) {
     room.setHooks({ onChat: (seat, text) => hud.note(chatFeedLine(netConfig.seats[seat].callsign, text), 'info') });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
@@ -3517,7 +3572,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  `runtime.applyQueued()` before `sim.tick()`. In a paused room the command
    *  is dropped with the pause notice, as every other order is. Declared up
    *  here, not beside `dispatch`, because the dock is built before it. */
-  const cmdSink: CommandSink = room === null
+  const cmdSink: CommandSink = spectating
+    ? spectatorSink
+    : room === null
     ? transport
     : roomOrderSink(() => room.status(), transport, () => { blockedNotes?.blocked(); }, netConfig?.mode, undefined, netConfig?.map);
   /** The advisor's panel and proposal strip (N4a task 10), a versus room only.
@@ -3528,7 +3585,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  the ownership check on the live sim, and refuses while the room is paused
    *  (a paused room would drop the order, and the advisor must be told no). */
   let advisorPanel: AdvisorPanel | null = null;
-  if (room !== null && netConfig !== null && netSeat !== null && versusRoom) {
+  if (room !== null && netConfig !== null && netSeat !== null && versusRoom && !spectating) {
     const myNetSeat: Seat = netSeat;
     const orderSink = roomOrderSink(() => room.status(), transport, () => blockedNotes?.blocked(), netConfig.mode, undefined, netConfig.map);
     const panel = mountAdvisorPanel(document.body, {
@@ -3764,6 +3821,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         : undefined,
   });
   const pause = (): void => {
+    if (spectating) return;
     if (room !== null) {
       roomPause(room);
       return;
@@ -3788,7 +3846,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  task 11): the menu opens on its Feedback tab with no replay to attach,
    *  and the room -- void already -- is asked for nothing. */
   const roomPause = (r: WsTransport, report = false): void => {
-    if (pauseHandle !== null) return;
+    if (spectating || pauseHandle !== null) return;
     const call = report ? { send: false, note: false } : roomPauseCall(r.status(), roomPausesLeft);
     if (call.send) r.pause();
     const onSurrender = (): void => confirmSurrender(r);
@@ -4067,6 +4125,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (start) {
     renderer.camera.x = start[0];
     renderer.camera.y = start[1];
+  } else if (spectating) {
+    // GH-954 W1: a spectator belongs to neither camp: it opens on the middle of the map (the minimap jumps).
+    renderer.camera.x = map.width / 2;
+    renderer.camera.y = map.height / 2;
   } else if (netConfig !== null) {
     // A room's seat starts on its own camp, not on side 0's: its own END,
     // which follows the seat, not the side (LD1 -- a Sarim host is side 1 on
@@ -4549,6 +4611,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // order: the listeners (voice, telemetry, the replay log) never see it.
   // Identical feed lines merge, so a spammed click does not flood the feed.
   const dispatch = (intent: PlayerIntent): void => {
+    // GH-954 W1: a spectator orders nothing. Every right-click, hotkey, minimap gesture and dock click ends here
+    // (selection is the renderer's own and never passes through); no intent is applied or observed.
+    if (spectating) return;
     let refused = false;
     applyIntent(
       room === null ? transport : roomOrderSink(() => room.status(), transport, () => { refused = true; }, netConfig?.mode, undefined, netConfig?.map),
@@ -4609,7 +4674,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** GH-345: recompute the disclosure set from the tutorial as it stands.
    *  Cheap (a set of at most eighteen), and called wherever `tut` changes. */
   const refreshHudShown = (): void => {
-    hudShown = hudVisibility(tut, stepList ?? null, (mission ?? null) as MissionHudJson | null);
+    hudShown = spectating ? SPECTATOR_SHOWN : hudVisibility(tut, stepList ?? null, (mission ?? null) as MissionHudJson | null);
   };
   /** Where the camera stood when the tutorial first ticked, for beat 1's
    *  `camera` predicate. Captured lazily on that first tick rather than at
@@ -6416,7 +6481,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   };
   /** The room's one HUD line (waiting, a stall, a desync). A room only: in
    *  single-player there is nothing to say and nothing is mounted. */
-  const netStatus = netSeat !== null
+  // (Not for a spectator: its lines speak to a seat -- "until you win by forfeit" -- and the strip says what the room is doing.)
+  const netStatus = netSeat !== null && !spectating
     ? new NetStatusLine(document.body, (seat) => netConfig?.seats[seat ?? netSeat].callsign ?? '', {
         code: netConfig?.code ?? '',
         // Report only where it leads somewhere: a room, with the feedback
@@ -6431,14 +6497,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  mount nothing. */
   const otherSeat = netSeat === 0 ? 1 : 0;
   const scoreNames = { theirs: netConfig?.seats[otherSeat].callsign ?? '' };
-  const netScore = showsScoreboard(netConfig) ? new NetScoreboard(document.body, me, scoreNames) : null;
+  const netScore = showsScoreboard(netConfig) && !spectating ? new NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
   /** Who has an advisor (decision D1): this seat's own to its panel, both
    *  seats' to the board, so an advisor admitted into the running room shows
    *  to the friend as well as in the lobby. Installed here, after both exist:
    *  `setHooks` replays the room's last `advisors` at once, and clears to
    *  none on a relink. */
-  if (room !== null && netSeat !== null && versusRoom) {
+  if (room !== null && netSeat !== null && versusRoom && !spectating) {
     room.setHooks({ onAdvisors: advisorPresenceHook(netSeat, { panel: advisorPanel, board: netScore }, () => netEnd === null) });
   }
   /** The match is over on this screen (N1b task 10). The sim is stepped no
@@ -6448,8 +6514,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  offer. The status line is hidden -- it would only report the stall the
    *  stopped seats now make -- and comes back for a desync alone
    *  (`lineOverMatchEnd`), which voids the result on the panel. */
+  /** GH-954 W1: a spectated game is over on this page. The sim is stepped no more (as `showMatchEnd` stops
+   *  it) and the watch screen is told how; there is no panel and nothing to navigate to. */
+  const endSpectate = (how: SpectateEnd): void => {
+    if (netEnd !== null || spectate === undefined) return;
+    netEnd = (): void => {};
+    spectate.hooks.onEnd(how);
+  };
   const showMatchEnd = (result: MatchResult): void => {
     if (netEnd !== null) return;
+    if (spectating) { endSpectate(matchDecided !== null ? 'result' : 'ended'); return; }
     // The sim's own result is told to the room, which closes itself two
     // minutes later (L-1); a result from the room's own ending owes nothing.
     reportOver(room, result, matchDecided);
@@ -6964,7 +7038,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (stepFrames(ticks) > 0) lastTickAt = now;
     } else if (netEnd === null) {
       const t0 = performance.now();
-      const ran = stepFrames(roomTickCap(transport.status(), tickCostMs, room?.behind()));
+      // A spectated game stops at the arena's cap tick, as the arena's own players do.
+      const room1 = roomTickCap(transport.status(), tickCostMs, room?.behind());
+      const ran = stepFrames(spectate === undefined ? room1 : Math.max(0, Math.min(room1, spectate.capTicks - sim.tickCount)));
       if (ran > 0) {
         lastTickAt = now;
         tickCostMs = tickCostEma(tickCostMs, (performance.now() - t0) / ran);
@@ -6974,6 +7050,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (versusRoom) {
         const result = matchResult(matchDecided?.result ?? null, roomEnding, ran === 0);
         if (result !== null) showMatchEnd(result);
+        else if (spectate !== undefined && sim.tickCount >= spectate.capTicks) endSpectate('cap');
       }
     }
     if (netEnd === null) netScore?.update(scoreOf(sim));
@@ -7096,6 +7173,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     updateHover();
   };
   rafId = requestAnimationFrame(loop);
+  if (spectate !== undefined && netConfig !== null) {
+    const cfg: MatchConfig = netConfig;
+    spectate.hooks.onReady({
+      setViewer: (v) => renderer.setViewer(v),
+      read: () => ({ config: cfg, tick: sim.tickCount, behind: room?.behind() ?? 0, score: scoreOf(sim), over: netEnd !== null }),
+    });
+  }
   // The load-bearing line of this whole teardown, and the one the route walk
   // is calibrated against: without it the loop re-requests itself forever,
   // ticking the sim and asking a disposed renderer for frames from behind

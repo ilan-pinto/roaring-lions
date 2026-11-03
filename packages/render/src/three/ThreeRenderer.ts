@@ -1172,6 +1172,12 @@ export class ThreeRenderer implements Renderer {
    *  so every viewer-0 path is exactly the old `side === 0` one. Read once:
    *  `setTeamColors` may swap `opts`, but the seat never changes mid-mission. */
   private readonly viewer: number;
+  /** The side whose FOG this screen draws (GH-954 W1, `setViewer`). Always `viewer` unless a spectator chose
+   *  the other seat's view: it feeds ONLY the fog gates (what is drawn, picked, shown as fire or smoke, what
+   *  the fog reveals), never a colour, so a unit's team colour does not change under the spectator. */
+  private fogViewer: number;
+  /** `setViewer('all')` (GH-954 W1): both sides drawn, no veil, no draw gate. Only a spectator sets it. */
+  private viewAll = false;
   /** `opts.versus` (network design §5.1): fog is private to this seat, so the
    *  two leaks close -- picking a hidden unit, and seeing hostile fire through
    *  fog. False in single-player, where every one of those gates is skipped
@@ -2246,7 +2252,7 @@ export class ThreeRenderer implements Renderer {
     simTick: 0,
     simSec: 0,
     groundAt: (x: number, z: number): number => groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z),
-    drawnAt: (side: number, x: number, z: number): boolean => unitIsDrawn(-1, side, this.viewer, x, z, this.fogVisibleAt),
+    drawnAt: (side: number, x: number, z: number): boolean => unitIsDrawn(-1, side, this.fogViewer, x, z, this.fogVisibleAt),
     exploredAt: (x: number, z: number): boolean => this.isExplored(x, z),
     bodiesHidden: false,
     quiet: false,
@@ -2890,6 +2896,7 @@ export class ThreeRenderer implements Renderer {
     // L2 (GH-943): `low` builds no grade until the GPU-timer read spec section 3 asks for (`RenderQuality.grade`).
     this.gradeAllowed = (opts.quality ?? QUALITY_PRESETS.high).grade;
     this.viewer = opts.viewerSide ?? 0;
+    this.fogViewer = this.viewer;
     this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
     // The world never moves (a shake moves a COPY of the camera), so the scene
@@ -3399,6 +3406,7 @@ export class ThreeRenderer implements Renderer {
     // does NOT take ownership (see `PostChain.setFogPass`), so `dispose()`
     // releases this one.
     this.fogPass = this.createFogPass();
+    if (this.viewAll) this.fogPass.uniforms.uRevealAll.value = 1;
     this.post.setFogPass(this.fogPass);
     this.applyBackdropFog();
     // Ground plan 2, Task 9: the dust haze lives in the same pass (R-14).
@@ -5074,14 +5082,14 @@ export class ThreeRenderer implements Renderer {
       const headY = fx.toNumber(head[1]) + 0.5;
       routes.push({
         alive: sim.tnAlive[r] !== 0,
-        contactLevel: routeLevelFor(sim, this.viewer, r),
+        contactLevel: routeLevelFor(sim, this.fogViewer, r),
         ventOpen: sim.tnVentOpen[r] !== 0,
         progressTiles: fx.toNumber(sim.tnProgress[r]),
         lengthTiles: fx.toNumber(sim.tnLength[r]),
         mouth: [fx.toNumber(mouth[0]) + 0.5, fx.toNumber(mouth[1]) + 0.5],
         vent: [fx.toNumber(vent[0]), fx.toNumber(vent[1])],
         digHead: [headX, headY],
-        digHeadSeen: sim.sideSeesTile(this.viewer, Math.floor(headX), Math.floor(headY)),
+        digHeadSeen: sim.sideSeesTile(this.fogViewer, Math.floor(headX), Math.floor(headY)),
       });
     }
     return {
@@ -5128,13 +5136,13 @@ export class ThreeRenderer implements Renderer {
     const sim = this.sim;
     const now = presentationSimMs(sim.tickCount, 1) / 1000;
     for (let r = 0; r < sim.tunnelCount; r++) {
-      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r));
+      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.fogViewer, r));
       // GH-681: the seat's own route is held for good -- it dug it -- so it
       // never fades to the lapsed floor the way a found enemy route does.
-      let held = ownsRoute(sim, this.viewer, r);
+      let held = ownsRoute(sim, this.fogViewer, r);
       if (level === 2 && !held) {
         for (const t of this.xrayRouteTiles[r]) {
-          if (sim.markerSeesTile(this.viewer, t % sim.width, Math.floor(t / sim.width))) {
+          if (sim.markerSeesTile(this.fogViewer, t % sim.width, Math.floor(t / sim.width))) {
             held = true;
             break;
           }
@@ -5159,7 +5167,7 @@ export class ThreeRenderer implements Renderer {
       // this the occupant list held every buried unit on every route, and
       // only the bore's eased strength stood between it and the other seat.
       const r = st.tunnelIn[i];
-      if (collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r)) !== 2) continue;
+      if (collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.fogViewer, r)) !== 2) continue;
       occ.push([r, i]);
     }
     this.tunnelXray.update(presentationSimMs(sim.tickCount, alpha) / 1000, occ);
@@ -5178,12 +5186,12 @@ export class ThreeRenderer implements Renderer {
       // rung. A level-2 route still shows its spoil exactly as a suspected
       // one does: the dirt is real whatever the player knows about it.
       routeLevel: (r) => {
-        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r));
+        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.fogViewer, r));
         return lv === 2 ? 1 : lv;
       },
       tunnelUnderTile: (r, x, y) => sim.tunnelUnderTile(r, x, y),
-      seenByAnyone: (x, y) => sim.sideSeesTile(this.viewer, x, y),
-      seenByCarrier: (x, y) => sim.markerSeesTile(this.viewer, x, y),
+      seenByAnyone: (x, y) => sim.sideSeesTile(this.fogViewer, x, y),
+      seenByCarrier: (x, y) => sim.markerSeesTile(this.fogViewer, x, y),
     };
   }
 
@@ -5362,7 +5370,7 @@ export class ThreeRenderer implements Renderer {
       sightByType: this.sightByType,
       blocked: this.sim.blocked,
       isLowProfile: (x, y) => this.isLowProfileTile(x, y),
-      viewerSide: this.viewer,
+      viewerSide: this.fogViewer,
       extraObservers: this.worksObservers(),
     };
     this.fog = computeFog(this.fog, input);
@@ -5382,11 +5390,11 @@ export class ThreeRenderer implements Renderer {
     const g = sim.state;
     const garrisoned: { structure: number; sight: number }[] = [];
     for (let i = 0; i < sim.entityCount; i++) {
-      if (g.alive[i] === 0 || g.side[i] !== this.viewer || g.garrisonedIn[i] < 0) continue;
+      if (g.alive[i] === 0 || g.side[i] !== this.fogViewer || g.garrisonedIn[i] < 0) continue;
       garrisoned.push({ structure: g.garrisonedIn[i], sight: this.sightByType[g.typeIdx[i]] });
     }
     return collectWorksObservers({
-      viewer: this.viewer,
+      viewer: this.fogViewer,
       structureCount: sim.structureCount,
       alive: st.alive,
       owner: st.owner,
@@ -5560,15 +5568,15 @@ export class ThreeRenderer implements Renderer {
           const py = fx.toNumber(e.y);
           // Versus: a hostile caller's thud is thrown only where the seat can
           // see the point (the same rule as the carrier pop above).
-          if (hostileEffectVisible(this.versus, layer < 0 || isOwnSide(this.sim.state.side[layer], this.viewer), this.isVisible(px, py))) {
+          if (hostileEffectVisible(this.versus, layer < 0 || isOwnSide(this.sim.state.side[layer], this.fogViewer), this.isVisible(px, py))) {
             this.spawnNamedBurst('mortar_base_dust', px, py, 0);
           }
         } else if (
           layer < 0 ||
           hostileEffectVisible(
             this.versus,
-            isOwnSide(this.sim.state.side[layer], this.viewer),
-            unitIsObserved(this.sim.state.side[layer], this.viewer, this.curX[layer], this.curY[layer], this.fogVisibleAt)
+            isOwnSide(this.sim.state.side[layer], this.fogViewer),
+            unitIsObserved(this.sim.state.side[layer], this.fogViewer, this.curX[layer], this.curY[layer], this.fogVisibleAt)
           )
         ) {
           this.spawnSmokeDischarge(layer, fx.toNumber(e.x), fx.toNumber(e.y));
@@ -5926,7 +5934,7 @@ export class ThreeRenderer implements Renderer {
       !this.versus ||
       fireVisible(
         st.side[e.shooter],
-        this.viewer,
+        this.fogViewer,
         this.isVisible(this.curX[e.shooter], this.curY[e.shooter]),
         this.isVisible(tx, ty)
       );
@@ -5941,7 +5949,7 @@ export class ThreeRenderer implements Renderer {
     // before; the fog read is skipped there too.
     const shooterShown = hostileEffectVisible(
       this.versus,
-      isOwnSide(st.side[e.shooter], this.viewer),
+      isOwnSide(st.side[e.shooter], this.fogViewer),
       this.versus && this.isVisible(this.curX[e.shooter], this.curY[e.shooter])
     );
     const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
@@ -6190,7 +6198,7 @@ export class ThreeRenderer implements Renderer {
         if (isIndirectShell(shellKind)) {
           const hiddenUntil = arcHiddenUntil(
             this.versus,
-            isOwnSide(st.side[e.shooter], this.viewer),
+            isOwnSide(st.side[e.shooter], this.fogViewer),
             this.isVisible(this.curX[e.shooter], this.curY[e.shooter])
           );
           if (hiddenUntil > 0) shell.hiddenUntil = hiddenUntil;
@@ -7027,7 +7035,22 @@ export class ThreeRenderer implements Renderer {
    * guarantee still holds with a real answer behind it.
    */
   isVisible(wx: number, wy: number): boolean {
+    // A spectator's "both sides": every tile on the map is in sight. Off the map is still false.
+    if (this.viewAll) return wx >= 0 && wy >= 0 && wx < this.sim.width && wy < this.sim.height;
     return isFogVisible(this.fog, this.sim.width, this.sim.height, wx, wy);
+  }
+
+  /** GH-954 W1: whose eyes this screen draws with. `0` and `1` are that SIDE's fog, exactly the draw gates a
+   *  seat of that side has (the fog it reveals, the units it may see, the fire it may see); `'all'` is both
+   *  sides with no veil. Presentation only: it reads and writes nothing the sim owns. Colours do not follow
+   *  it (side A stays side A's colour), and a side's explored memory starts when it is first chosen. */
+  setViewer(v: 0 | 1 | 'all'): void {
+    this.viewAll = v === 'all';
+    this.fogViewer = v === 'all' ? this.viewer : v;
+    // The other side's explored ground is not this side's: start from nothing and recompute at once.
+    this.fog = new Uint8Array(this.fog.length);
+    if (this.fogPass) this.fogPass.uniforms.uRevealAll.value = this.viewAll ? 1 : 0;
+    this.recomputeFog();
   }
   /** `isVisible` as a value, bound once at construction rather than
    *  re-closed per entity per frame -- `units/observed.ts` takes fog as a
@@ -7041,7 +7064,7 @@ export class ThreeRenderer implements Renderer {
    *  and `this.versus` at call time, so it is safe as a field initialiser. */
   private readonly hiddenFromViewer = (i: number): boolean =>
     this.versus &&
-    !unitIsObserved(this.sim.state.side[i], this.viewer, this.curX[i], this.curY[i], this.fogVisibleAt);
+    !unitIsObserved(this.sim.state.side[i], this.fogViewer, this.curX[i], this.curY[i], this.fogVisibleAt);
   /** A unit the viewer may select: their own, or another they can see (§5.1).
    *  Every unit in single-player, as before. */
   private readonly pickable = (i: number): boolean => !this.hiddenFromViewer(i);
@@ -7123,7 +7146,7 @@ export class ThreeRenderer implements Renderer {
     const entries = this.bannerEntries;
     let n = 0;
     for (const b of heldBuildings(this.sim, this.snapshottedCount)) {
-      if (!heldShown(this.sim, b, this.viewer, this.fogVisibleAt)) continue;
+      if (!heldShown(this.sim, b, this.fogViewer, this.fogVisibleAt)) continue;
       const root = this.buildingMeshIdleEntities.get(b.s);
       const spot = this.bannerSpots.get(this.sim.structureTypes[this.sim.structures.typeIdx[b.s]].id);
       if (!root || !spot) continue;
@@ -7788,7 +7811,7 @@ export class ThreeRenderer implements Renderer {
       input.groundY = groundWorldY(elevation, this.sim.width, this.sim.height, wx, wy);
       input.liftY = this.airLiftY(i, alpha);
       input.yaw = meshYawFromFacing(fx.toNumber(st.facing[i]));
-      input.drawn = unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
+      input.drawn = unitIsDrawn(st.tunnelIn[i], st.side[i], this.fogViewer, wx, wy, this.fogVisibleAt);
       batch.updateEntity(input, this.swarmDiveRequests.get(i), events);
       // Everything of the dead entity that outlives it is in the batch's exits.
       if (!alive) batch.forget(i);
@@ -7892,7 +7915,7 @@ export class ThreeRenderer implements Renderer {
 
     const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
     const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-    const shown = unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
+    const shown = unitIsDrawn(st.tunnelIn[i], st.side[i], this.fogViewer, wx, wy, this.fogVisibleAt);
     if (lockout && shown) {
       // Out of the power module at the carrier's BACK, drifting backwards and rising for 1.2 s
       // (`beam_vent.json`): from where the carrier is drawn this frame, aimed away from its facing.
@@ -7908,7 +7931,7 @@ export class ThreeRenderer implements Renderer {
       const t = s.target;
       const tx = this.prevX[t] + (this.curX[t] - this.prevX[t]) * alpha;
       const ty = this.prevY[t] + (this.curY[t] - this.prevY[t]) * alpha;
-      if (!unitIsDrawn(st.tunnelIn[t], st.side[t], this.viewer, tx, ty, this.fogVisibleAt)) {
+      if (!unitIsDrawn(st.tunnelIn[t], st.side[t], this.fogViewer, tx, ty, this.fogVisibleAt)) {
         // The target is in fog: no beam into the dark, and no stale end to fade onto either.
         bs.haveEnd = false;
         return;
@@ -8072,7 +8095,7 @@ export class ThreeRenderer implements Renderer {
       if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(this.vehicleTemplateKey(type.id, st.side[i]))) continue;
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      if (this.unitsDebugHidden || !unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, x, z, this.fogVisibleAt)) continue;
+      if (this.unitsDebugHidden || !unitIsDrawn(st.tunnelIn[i], st.side[i], this.fogViewer, x, z, this.fogVisibleAt)) continue;
       const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
       const lift = type.isAir ? this.airLiftY(i, alpha) : 0;
       const facing = fx.toNumber(st.facing[i]);
@@ -9212,7 +9235,7 @@ export class ThreeRenderer implements Renderer {
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
       // GH-681: a buried unit has no body on the surface, for any viewer.
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.fogViewer, wx, wy, this.fogVisibleAt);
 
       const anim: UnitAnimInput = {
         alive: st.alive[i],
@@ -9813,7 +9836,7 @@ export class ThreeRenderer implements Renderer {
       // `ThreeRenderer.vehicle-weight.test.ts` pins the sign in world space.
       entity.root.rotation.set(-roll, meshYawFromFacing(facingNorm), pitch, 'YZX');
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, px, py, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.fogViewer, px, py, this.fogVisibleAt);
 
       if (entity.turretPivot) {
         const target = this.resolveTurretTarget(i);
@@ -12134,7 +12157,7 @@ export class ThreeRenderer implements Renderer {
     const st = this.sim.state;
     if (i >= this.snapshottedCount || st.alive[i] === 0) return false;
     // In a versus room a selected hostile shows no range envelope (§5.1).
-    if (this.versus && !isOwnSide(st.side[i], this.viewer)) return false;
+    if (this.versus && !isOwnSide(st.side[i], this.fogViewer)) return false;
     const type = this.sim.unitTypes[st.typeIdx[i]];
     if (type.weapons.length === 0) return false;
     return fx.toNumber(type.weapons[0].effectiveRange) > 0;
@@ -12258,7 +12281,7 @@ export class ThreeRenderer implements Renderer {
       // (that method's own top comment, "Task B4.2: a non-player unit is
       // now skipped..."), ported here separately because this loop is
       // separate (see this method's own top comment for why).
-      if (!isOwnSide(side, this.viewer) && !this.isVisible(ix, iy)) continue;
+      if (!isOwnSide(side, this.fogViewer) && !this.isVisible(ix, iy)) continue;
       // GH-681: nor for a buried unit, own or not -- no body, no bar, no ring.
       if (st.tunnelIn[i] >= 0) continue;
 
@@ -12688,7 +12711,7 @@ export class ThreeRenderer implements Renderer {
       for (const i of this.selection) {
         if (i >= n || st.alive[i] === 0 || st.moving[i] === 0) continue;
         // In a versus room a selected hostile's route is its orders (§5.1).
-        if (this.versus && !isOwnSide(st.side[i], this.viewer)) continue;
+        if (this.versus && !isOwnSide(st.side[i], this.fogViewer)) continue;
         const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
         const iy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
         const goal = this.sim.goalOf(i);

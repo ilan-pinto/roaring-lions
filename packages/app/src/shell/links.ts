@@ -57,4 +57,9 @@ export const routes = {
   // Play with a friend (N1b): the host-or-join screen, and one room's lobby.
   versus: (): string => href('/versus'),
   versusRoom: (code: string): string => href(`/versus/${encodeURIComponent(code)}`),
+  // GH-954 W1: the arena watch screen. DEV only: `main.ts` registers the route under `import.meta.env.DEV`, so in
+  // a production build this returns the menu and the path is not in the bundle (`import.meta.env.DEV` is
+  // `false` there, so the branch is dead code). `pnpm arena --watch` prints the same path with the run's key in
+  // the fragment, which an href here never carries.
+  arenaWatch: (): string => (import.meta.env.DEV ? href('/arena/watch') : href('/')),
 } as const;

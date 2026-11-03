@@ -972,3 +972,51 @@ describe('N4a: a paced room releases a closed round past the buffer', () => {
     expect(t.take(100).at(-1)?.tick).toBe(37);
   });
 });
+
+describe('GH-954 W1: the watch role', () => {
+  it('says hello and then NOTHING: every verb a transport has is dropped at the socket', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0, 'watch');
+    sock.open();
+    expect(sock.sent.map((s) => JSON.parse(s))).toEqual([{ t: 'hello', ticket: 'tkt', build: 'b' }]);
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.sent.length = 0;
+    t.queueCommand({ kind: 'halt', ids: [1] });
+    t.pause();
+    t.resume();
+    t.surrender();
+    t.chat('hi');
+    t.advisor({ kind: 'ping', x: 3, y: 4 });
+    t.done(2);
+    t.ready();
+    t.over(5);
+    t.reportTick(9, null);
+    t.reportTick(19, 123);
+    t.close();
+    expect(sock.sent).toEqual([]);
+  });
+  it('still listens: frames feed take() and the room\'s end is heard', () => {
+    const sock = fakeSocket();
+    const ended: string[] = [];
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onEnded: (r) => ended.push(r) }, () => 0, 'watch');
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    for (let tick = 0; tick < 3; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
+    expect(t.take(10).map((f) => f.tick)).toEqual([0]);
+    sock.recv({ t: 'ended', reason: 'over' });
+    expect(ended).toEqual(['over']);
+  });
+  it('a reconnect says hello again with the log it already ran, and still nothing else', () => {
+    vi.useFakeTimers();
+    const socks: Fake[] = [];
+    const t = new WsTransport(() => { const s = fakeSocket(); socks.push(s); return s; }, 'tkt', 'b', { onStart: () => {} }, () => 0, 'watch');
+    socks[0].open();
+    socks[0].recv({ t: 'start', config: CONFIG });
+    for (let tick = 0; tick < 4; tick++) socks[0].recv({ t: 'frame', tick, cmds: [] });
+    t.take(10);
+    socks[0].closeFromServer(1006);
+    vi.advanceTimersByTime(RECONNECT_DELAY_MS + 1);
+    socks[1].open();
+    expect(socks[1].sent.map((s) => JSON.parse(s))).toEqual([{ t: 'hello', ticket: 'tkt', build: 'b', from: 4 }]);
+  });
+});

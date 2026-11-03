@@ -703,6 +703,13 @@ export interface Renderer {
   /** E6 chunk C: how many heat-shimmer sites the fog pass was handed last frame (0 with no beam). */
   beamShimmerSites(): number;
   isVisible(wx: number, wy: number): boolean;
+  /**
+   * GH-954 W1, a spectator's choice of eyes: `0` or `1` draws exactly what that side's seat draws (its fog, the
+   * units it may see, the fire it may see), and `'all'` draws both sides with no veil and no draw gate, so
+   * `isVisible` answers true for every tile on the map. Presentation only: nothing the sim owns is read or
+   * written, and team colours do not follow it. A player's screen never calls it.
+   */
+  setViewer(v: 0 | 1 | 'all'): void;
   /** Living units whose screen position falls inside a screen-space rect.
    *  Box-select is a projection question, so only the renderer can answer it. */
   unitsInScreenRect(x0: number, y0: number, x1: number, y1: number): number[];
