@@ -105,9 +105,10 @@ describe('--judge', () => {
   }, 120_000);
 
   it('NEVER changes a result (D7): the same games with a judge that favours the loser are record for record the same', async () => {
-    // Cap 2400 on this seed: rush wins game 1 from seat 0 and game 2 from seat 1, so a judge that pushes an outcome
-    // in EITHER direction (toward seat 0, toward seat 1) changes a record here.
-    const argv = [...ARGV.slice(0, -1), '2400'];
+    // Seed 3 at cap 2400: rush wins game 1 from seat 0 and game 2 from seat 1, so a judge that pushes an outcome
+    // in EITHER direction (toward seat 0, toward seat 1) changes a record here. (Was seed 7: the Spike's faster
+    // reload, GH-982, made seat 0 win both games there.)
+    const argv = ARGV.map((v, i) => (ARGV[i - 1] === '--first-seed' ? '3' : ARGV[i - 1] === '--cap-ticks' ? '2400' : v));
     const plain = outDir();
     const judged = outDir();
     const a = await runArena([...argv, '--out', plain], quiet);
