@@ -3,6 +3,7 @@
   "campaign.next.label": "Next: {name}",
   "campaign.next.generic": "Next operation",
   "common.build": "Build {build}",
+  "settings.buildCommit": "Build {build} · {commit}",
 
   "boot.savesUnavailable.title": "Saves unavailable",
   "boot.savesUnavailable.body": "This browser has no local storage this game can reach.",
