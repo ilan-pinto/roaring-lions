@@ -4,12 +4,13 @@
  * swapped, and a player's score is its own results wherever it sat --
  * `(wins + draws / 2) / (games - voids)`. Reported per seat and per faction
  * beside the whole, with the scoreboard (decision 25) in place of Conduct.
- * Tokens are reported when an external player printed them, never scored.
+ * Tokens, cache tokens and cost are reported when an external player printed them (`usageOf`), never scored.
  *
  * Pure: records in, numbers and markdown out. Nothing here plays a game.
  */
 import type { Faction, Matchup } from '@lions/net';
 import type { MatchScore, SideScore } from '../../../packages/app/src/net/scoreboard';
+import type { Usage } from './external-player';
 import type { JudgeRecord } from './judge';
 import { CRITERIA, CRITERION_IDS, SEAT_KEYS, refereeMarkdown, scoresMarkdown, type RefereeStats } from './match-score';
 import type { PlayerReport } from './players';
@@ -182,6 +183,57 @@ export function gateVerdict(games: readonly GameRecord[], a: string, b: string, 
 
 /** p to four significant figures. */
 export const pval = (p: number): string => p.toPrecision(4);
+/** What several clients said they spent. A field is null when NO source said it (not zero: a client that did not
+ *  say is not a client that spent nothing). */
+export type UsageSum = Usage;
+
+const addNullable = (a: number | null, b: number | null): number | null => (a === null ? b : b === null ? a : a + b);
+
+/** The sum of the usages that exist; null when none does. */
+export function sumUsage(list: readonly (Usage | null | undefined)[]): UsageSum | null {
+  let out: UsageSum | null = null;
+  for (const u of list) {
+    if (u === null || u === undefined) continue;
+    out = out === null
+      ? { ...u }
+      : {
+        inputTokens: out.inputTokens + u.inputTokens,
+        outputTokens: out.outputTokens + u.outputTokens,
+        cacheCreationInputTokens: addNullable(out.cacheCreationInputTokens, u.cacheCreationInputTokens),
+        cacheReadInputTokens: addNullable(out.cacheReadInputTokens, u.cacheReadInputTokens),
+        costUsd: addNullable(out.costUsd, u.costUsd),
+      };
+  }
+  return out;
+}
+
+/** A run's spend (GH-954 W2): per player (by the name a tally keys on), the judge's, and all together. Reported, never scored (D7). */
+export interface UsageTotals {
+  byPlayer: { player: string; usage: UsageSum }[];
+  judge: UsageSum | null;
+  all: UsageSum | null;
+}
+
+export function usageTotals(games: readonly GameRecord[]): UsageTotals {
+  const by = new Map<string, Usage[]>();
+  for (const g of games) {
+    for (const s of [0, 1] as const) {
+      const u = g.reports[s].usage;
+      if (u !== undefined) by.set(g.players[s], [...(by.get(g.players[s]) ?? []), u]);
+    }
+  }
+  const judges = games.map((g) => (g.judge === undefined || g.judge.status === 'skipped' ? undefined : g.judge.usage));
+  const judge = sumUsage(judges);
+  const byPlayer = [...by.entries()].flatMap(([player, list]) => {
+    const usage = sumUsage(list);
+    return usage === null ? [] : [{ player, usage }];
+  });
+  return { byPlayer, judge, all: sumUsage([...byPlayer.map((b) => b.usage), judge]) };
+}
+
+const orDash = (v: number | null): string | number => (v === null ? '—' : v);
+const usd = (v: number | null): string => (v === null ? '—' : `$${v.toFixed(4)}`);
+
 const num = (v: number): string => (Number.isNaN(v) ? '—' : v.toFixed(3));
 const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 const line = (cells: readonly (string | number)[]): string => `| ${cells.map((c) => cell(String(c))).join(' | ')} |`;
@@ -319,6 +371,31 @@ export function markdownReport(games: readonly GameRecord[], pair: readonly [str
     for (const g of games) {
       out.push(line([g.seed, g.players[0], g.reports[0].tokens ?? '—', g.players[1], g.reports[1].tokens ?? '—']));
     }
+  }
+  if (games.some((g) => g.reports.some((r) => r.usage !== undefined))) {
+    out.push('');
+    out.push('## Usage');
+    out.push('');
+    out.push('Input, output and cache tokens and the client\'s own cost, as each external player printed them (— = it did not say); never scored (D7).');
+    out.push('');
+    out.push(line(['seed', 'seat', 'player', 'input', 'output', 'cache written', 'cache read', 'cost']));
+    out.push(line(Array.from({ length: 8 }, () => '---')));
+    for (const g of games) {
+      for (const s of [0, 1] as const) {
+        const u = g.reports[s].usage;
+        if (u !== undefined) out.push(line([g.seed, s, g.players[s], u.inputTokens, u.outputTokens, orDash(u.cacheCreationInputTokens), orDash(u.cacheReadInputTokens), usd(u.costUsd)]));
+      }
+    }
+    const totals = usageTotals(games);
+    out.push('');
+    out.push('Run totals:');
+    out.push('');
+    out.push(line(['', 'input', 'output', 'cache written', 'cache read', 'cost']));
+    out.push(line(Array.from({ length: 6 }, () => '---')));
+    const row = (who: string, u: UsageSum): string => line([who, u.inputTokens, u.outputTokens, orDash(u.cacheCreationInputTokens), orDash(u.cacheReadInputTokens), usd(u.costUsd)]);
+    for (const b of totals.byPlayer) out.push(row(b.player, b.usage));
+    if (totals.judge !== null) out.push(row('judge', totals.judge));
+    if (totals.all !== null) out.push(row('all', totals.all));
   }
   out.push(...scoreSections(games));
   const troubled = games.flatMap((g) => ([0, 1] as const).filter((s) => g.reports[s].timeouts > 0 || g.reports[s].errors.length > 0).map((s) => ({ g, s })));

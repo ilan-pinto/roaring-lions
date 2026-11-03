@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runArena } from './arena';
 import type { GameRecord } from './arena-score';
-import { externalPlayer, parseTemplate, renderTemplate, tempRoot, tokensOf, type SpawnFn } from './external-player';
+import { externalPlayer, parseTemplate, renderTemplate, tempRoot, tokensOf, usageOf, type SpawnFn } from './external-player';
 import { startLocalRelay, type LocalRelay } from './local-relay';
 import { inProcess, passive, type ArenaPlayer, type RunningPlayer } from './players';
 
@@ -113,6 +113,18 @@ describe('the template parser', () => {
     expect(tokensOf('{"usage":{"input_tokens":"5","output_tokens":1}}')).toBeNull();
     expect(tokensOf('done')).toBeNull();
     expect(tokensOf('')).toBeNull();
+  });
+  // GH-954 W2 (D-W7): the cache counts and the client's own cost, beside the tokens. Literals, not recomputed.
+  it('usageOf reads the cache counts and total_cost_usd where the line has them, null where it does not, and never guesses', () => {
+    const line = '{"type":"result","total_cost_usd":0.4321,"usage":{"input_tokens":100,"output_tokens":20,"cache_creation_input_tokens":3000,"cache_read_input_tokens":45000}}';
+    expect(usageOf(line)).toEqual({ inputTokens: 100, outputTokens: 20, cacheCreationInputTokens: 3000, cacheReadInputTokens: 45000, costUsd: 0.4321 });
+    expect(tokensOf(line)).toBe(120);
+    expect(usageOf('{"usage":{"input_tokens":7,"output_tokens":1}}')).toEqual({ inputTokens: 7, outputTokens: 1, cacheCreationInputTokens: null, cacheReadInputTokens: null, costUsd: null });
+    // A malformed optional is null (not 0, not NaN), and the required pair still decides whether there is a usage at all.
+    expect(usageOf('{"total_cost_usd":"1.2","usage":{"input_tokens":7,"output_tokens":1,"cache_read_input_tokens":-5,"cache_creation_input_tokens":null}}')).toEqual({ inputTokens: 7, outputTokens: 1, cacheCreationInputTokens: null, cacheReadInputTokens: null, costUsd: null });
+    expect(usageOf('{"total_cost_usd":1.5,"usage":{"cache_read_input_tokens":9}}')).toBeNull();
+    expect(usageOf('[]')).toBeNull();
+    expect(usageOf('null')).toBeNull();
   });
 });
 

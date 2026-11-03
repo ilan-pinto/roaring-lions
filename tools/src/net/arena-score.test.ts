@@ -4,7 +4,7 @@
 // own run is arena.test.ts.
 import { describe, expect, it } from 'vitest';
 import type { Faction, Matchup } from '@lions/net';
-import { binomialP, gateVerdict, headToHead, markdownReport, tally, type GameRecord } from './arena-score';
+import { binomialP, gateVerdict, headToHead, markdownReport, sumUsage, tally, usageTotals, type GameRecord } from './arena-score';
 
 const LINE = { lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remaining: 100 };
 const REPORT = { tokens: null, timeouts: 0, errors: [] };
@@ -81,6 +81,43 @@ describe('markdownReport', () => {
     spoken.reports = [{ tokens: 4321, timeouts: 0, errors: [] }, REPORT];
     expect(markdownReport([spoken])).toMatch(/tokens/i);
     expect(markdownReport([spoken])).toContain('4321');
+  });
+});
+
+// GH-954 W2 (D-W7): cache tokens and cost, per game and per run, reported and never scored. Literals throughout.
+describe('usage (cache tokens and cost)', () => {
+  const u = (i: number, o: number, cw: number | null, cr: number | null, cost: number | null) => ({ inputTokens: i, outputTokens: o, cacheCreationInputTokens: cw, cacheReadInputTokens: cr, costUsd: cost });
+  const spent = (): GameRecord[] => {
+    const g1 = game(['A', 'B'], 'seat0', { seed: 1 });
+    g1.reports = [{ tokens: 120, usage: u(100, 20, 3000, 45000, 0.25), timeouts: 0, errors: [] }, { tokens: 11, usage: u(10, 1, null, null, null), timeouts: 0, errors: [] }];
+    const g2 = game(['B', 'A'], 'seat1', { seed: 1 });
+    g2.reports = [{ tokens: 11, usage: u(10, 1, null, 5, 0.5), timeouts: 0, errors: [] }, { tokens: 220, usage: u(200, 20, 1000, 2000, 0.75), timeouts: 0, errors: [] }];
+    g2.judge = { status: 'failed', reason: 'timed out', tokens: 60, usage: u(50, 10, null, null, 0.125) };
+    return [g1, g2];
+  };
+  it('sums per player by name (a field nobody said stays null, not 0), the judge apart, and all together', () => {
+    const t = usageTotals(spent());
+    expect(t.byPlayer).toEqual([
+      { player: 'A', usage: u(300, 40, 4000, 47000, 1.0) },
+      { player: 'B', usage: u(20, 2, null, 5, 0.5) },
+    ]);
+    expect(t.judge).toEqual(u(50, 10, null, null, 0.125));
+    expect(t.all).toEqual(u(370, 52, 4000, 47005, 1.625));
+    expect(sumUsage([null, undefined])).toBeNull();
+    expect(usageTotals([game(['A', 'B'], 'seat0')])).toEqual({ byPlayer: [], judge: null, all: null });
+  });
+  it('the report shows each game\'s usage and the run totals, only when a player said any, and changes no score', () => {
+    expect(markdownReport([game(['A', 'B'], 'seat0')])).not.toMatch(/## Usage/);
+    const md = markdownReport(spent());
+    expect(md).toContain('## Usage');
+    expect(md).toMatch(/\| 1 \| 0 \| A \| 100 \| 20 \| 3000 \| 45000 \| \$0\.2500 \|/);
+    expect(md).toMatch(/\| 1 \| 1 \| B \| 10 \| 1 \| — \| — \| — \|/);
+    expect(md).toMatch(/\| A \| 300 \| 40 \| 4000 \| 47000 \| \$1\.0000 \|/);
+    expect(md).toMatch(/\| judge \| 50 \| 10 \| — \| — \| \$0\.1250 \|/);
+    expect(md).toMatch(/\| all \| 370 \| 52 \| 4000 \| 47005 \| \$1\.6250 \|/);
+    // D7: the same games without any usage score the same.
+    const bare = spent().map((g) => ({ ...g, reports: [{ ...g.reports[0], usage: undefined }, { ...g.reports[1], usage: undefined }] as GameRecord['reports'] }));
+    expect([...tally(spent()).values()].map((r) => r.score)).toEqual([...tally(bare).values()].map((r) => r.score));
   });
 });
 
