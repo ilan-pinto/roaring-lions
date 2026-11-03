@@ -561,6 +561,17 @@ export function writeScoreFile(path: string, f: ScoreFile): void {
   renameSync(tmp, path);
 }
 
+/**
+ * The referee's numbers, left at the result for a bot that never scores. A file that is already there is NEVER
+ * replaced: a harness respawned into an ended room replays the end, and must not wipe the scores the model
+ * already submitted. Returns whether it wrote.
+ */
+export function leaveStatsIfAbsent(path: string, seat: Seat, referee: RefereeStats): boolean {
+  if (existsSync(path)) return false;
+  writeScoreFile(path, { version: 1, seat, referee, scores: null, submittedTick: null });
+  return true;
+}
+
 /** The largest score file bot.ts reads. */
 export const SCORE_FILE_MAX_BYTES = 256 * 1024;
 

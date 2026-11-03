@@ -9,7 +9,7 @@ import { WOUND_GONE, WOUND_STABILISED } from '../../../packages/sim/src/tuning';
 import { matchTick, buildMatchWorld } from '../../../packages/app/src/net/match-world';
 import { scoreOf } from '../../../packages/app/src/net/scoreboard';
 import {
-  CRITERIA, CRITERION_IDS, MAX_REASON_CHARS, RefereeTally, SCORE_MAX, SCORE_MIN, checkReferee, clientReply, extractJson, judgePrompt, parseScoreReply,
+  CRITERIA, CRITERION_IDS, MAX_REASON_CHARS, RefereeTally, SCORE_MAX, SCORE_MIN, checkReferee, clientReply, leaveStatsIfAbsent, extractJson, judgePrompt, parseScoreReply,
   readScoreFile, refereeMarkdown, replyFormat, resultText, rubricText, scan, scoresMarkdown, validateScores, writeScoreFile, type RefereeStats,
 } from './match-score';
 import { delPath, loose, setPath, validScores } from './score-fixture';
@@ -312,6 +312,17 @@ describe('the score file the harness leaves for `pnpm bot`', () => {
     const r = readScoreFile(f);
     expect(r.status).toBe('scored');
     if (r.status === 'scored') { expect(r.scores).toEqual(good()); expect(r.submittedTick).toBe(812); expect(r.referee).toEqual(referee); }
+  });
+  it('stats left at the result never replace a file that is there: a respawned harness must not wipe accepted scores', () => {
+    const f = join(tmp(), 's.json');
+    expect(leaveStatsIfAbsent(f, 1, sampleStats())).toBe(true);
+    expect(readScoreFile(f).status).toBe('missing');   // stats, no scores yet
+    writeScoreFile(f, { version: 1, seat: 1, referee: sampleStats(), scores: good(), submittedTick: 812 });
+    // The replay of the end (a second harness) leaves the accepted scores alone.
+    expect(leaveStatsIfAbsent(f, 1, sampleStats())).toBe(false);
+    const r = readScoreFile(f);
+    expect(r.status).toBe('scored');
+    if (r.status === 'scored') expect(r.scores).toEqual(good());
   });
   it('a file with stats and no scores is MISSING, with the stats kept', () => {
     const f = join(tmp(), 's.json');

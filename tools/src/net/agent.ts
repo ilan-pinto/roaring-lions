@@ -31,7 +31,7 @@
  * ticket or the build, 3 on a desync (after printing its tick), 1 otherwise.
  */
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
+import { appendFileSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -41,7 +41,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { AgentClient, matchSocketTarget } from './agent-client';
 import { buildId } from './build-id';
-import { writeScoreFile } from './match-score';
+import { leaveStatsIfAbsent } from './match-score';
 import { createContext, SCOPES, toolsFor, type Scope } from './mcp-tools';
 import { nodeSocket } from './node-socket';
 
@@ -302,10 +302,10 @@ async function main(argv: readonly string[]): Promise<number> {
   /** The referee's numbers for `pnpm bot`'s report, left at the result, unless a score is already there (a respawned harness replays the end). */
   const leaveStats = (): void => {
     const file = a.scoreFile;
-    if (file === undefined || existsSync(file)) return;
+    if (file === undefined) return;
     const referee = client.refereeStats();
     if (referee === null) return;
-    try { writeScoreFile(file, { version: 1, seat, referee, scores: null, submittedTick: null }); } catch (e) { log(`agent: the score file could not be written: ${e instanceof Error ? e.message : String(e)}`); }
+    try { leaveStatsIfAbsent(file, seat, referee); } catch (e) { log(`agent: the score file could not be written: ${e instanceof Error ? e.message : String(e)}`); }
   };
 
   // Claude CLI starts a stdio server to probe it, closes it, and starts it again, so this process must
