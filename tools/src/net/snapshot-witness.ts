@@ -56,7 +56,6 @@
 import { fileURLToPath } from 'node:url';
 import { fx, Sim, type MissionRuntime } from '@lions/sim';
 import { WOUND_ADMITTED } from '../../../packages/sim/src/tuning';
-import { withMedicInRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 import { doctrines, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS, matchDigest, type Faction } from '@lions/net';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
@@ -183,8 +182,7 @@ export function mirrorWorld(map: MapId, seed: number): SnapWorld {
  * `tunnels`, the tunnel plan is laid over it exactly as that arm lays it.
  */
 export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels?: TunnelCell, rescue = false): SnapWorld {
-  // The medic team is held out of versus (the lead, 30 Oct 2026): the rescue world puts it in the room in memory, to build it.
-  const m = rescue ? withMedicInRoom(() => buildMatchWorld(roomConfig(map, arr, seed))) : buildMatchWorld(roomConfig(map, arr, seed));
+  const m = buildMatchWorld(roomConfig(map, arr, seed));
   const rt = m.runtime;
   if (rt === null) throw new Error(`snapshot witness: ${map} built no economy runtime`);
   for (const side of [0, 1] as const) {
@@ -205,7 +203,8 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
     driveAt: (t) => {
       if (t % ORDER_EVERY_TICKS === 0) {
         plan?.beforeProduction(rt);
-        for (const side of sideOfEnd) planRound(rt, m.sim, menus[side], mixes[side], side);
+        // The arm is named, not defaulted: these frozen worlds must not move when the probe's default arm does.
+        for (const side of sideOfEnd) planRound(rt, m.sim, menus[side], mixes[side], side, 'opening');
         plan?.round(t);
         order(m.sim, (side) => marchersOf(m.sim, side, (id) => id === home || (plan !== null && plan.holds(id))), sideOfEnd);
       }
@@ -221,7 +220,7 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
 }
 
 /**
- * The rescue loop in a room (GH-707, 30 Oct 2026; the medic team is put in the room in memory, being held out of versus), set up before tick 0 so that it completes inside the horizon: one
+ * The rescue loop in a room (GH-707, 30 Oct 2026; the medic team is on the KDF versus menu from 3 Nov 2026), set up before tick 0 so that it completes inside the horizon: one
  * medic team standing at the KDF camp's exit, and, a few tiles off on open ground, a rifle squad hit until a man lies
  * DOWN. `rescueRound` (the probe's own, run every second by the drive) sends the medic; the engine treats him, lifts
  * him, carries him to the camp -- the room's drop-off, the one place `stProducesFor` and the `versus_aid` block meet --
@@ -732,9 +731,12 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
       'what is missing is a world in which the row holds a value other than its build value at a cut. Covered dynamically by a world that adds structures ' +
       'or tunnels mid-match (a field-works mission), or one that promotes veterancy and lays a new evacuation point'
   ),
+  // `fwLive` and `unitAuraLive` are NOT here since 3 Nov 2026 (GH-707): the economy worlds' plan buys the Nemala medic team, an
+  // aura carrier, a few seconds in, and spawning one turns both flags on mid-match. The census saw them move and said to delete
+  // the exemption; every fork of those worlds restores them. The site, aura-rate and ownership columns below still never move.
   ...rows(
-    'siteAlive siteType siteX siteY siteSide siteStructure buildSite stProgress constructedAt fwLive stOwner stKnown sealGen ' +
-      'auraCompAt auraRepairTicks auraAccMult unitAuraLive',
+    'siteAlive siteType siteX siteY siteSide siteStructure buildSite stProgress constructedAt stOwner stKnown sealGen ' +
+      'auraCompAt auraRepairTicks auraAccMult',
     'field works: construction sites, owned structures, their auras and the fog latch on an owned structure. No witness world builds, owns or auras a structure ' +
       '(versus never uses field works). Covered by a field-works mission world'
   ),

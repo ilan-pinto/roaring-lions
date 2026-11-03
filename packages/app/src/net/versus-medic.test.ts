@@ -1,20 +1,19 @@
 /**
- * GH-707. The lead opened the Nemala Medic Team (`inf_medic_squad`) to a KDF camp's production line in a versus
- * room on 30 Oct 2026 and HELD it out again the same day (PR 907): the fairness gate cannot judge rescue yet. So the
- * first block asserts the shipped state (the medic, the ambulance and the medevac are all held), and the rest runs the
- * rescue path with the medic put in a room IN MEMORY (`medic-room.test-helper.ts`), never through the shipped menu.
+ * GH-707. The Nemala Medic Team (`inf_medic_squad`) is on the KDF versus camp menu (the lead, 3 Nov 2026, after it was
+ * opened and held out again on 30 Oct, PR 907). The first block asserts the shipped state: the medic is on the KDF menu
+ * and in a room's roster, the ambulance and the medevac stay held, Sarim has no rescue unit. The rest runs the
+ * rescue path on the shipped menu: build at a KDF camp, a rescue order from a frame, the camp as drop-off, the win rule.
  *
  * Driven the way a room's frames reach the sim: `runFrames` -> `applyFrame` -> `validateCommand` -> the
  * runtime's `applyQueued` -> `matchTick`, on a real KDF-v-Sarim `tel_marum` room. Nothing here calls
  * `requestBuild` directly except the refusal reads, which ask the runtime the question a click would.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { doctrines, units } from '@lions/data';
 import { sidesOfFactions, validateConfig, type Frame, type MatchConfig, type MatchTransport, type TransportStatus } from '@lions/net';
 import { fx, MED_IDLE, WOUND_DOWN, type Command } from '@lions/sim';
 import { runFrames, seatWorldFor } from './frame-step';
 import { buildMatchWorld, matchTick, type MatchWorld } from './match-world';
-import { enterMedicRoom } from './medic-room.test-helper';
 import { outcomeOf } from './outcome';
 import { VERSUS_HELD_UNITS, versusRoster } from './versus-roster';
 
@@ -113,46 +112,32 @@ function hit(w: MatchWorld, id: number, hp: number, by: number): void {
   (w.sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(id, fx.fromInt(hp), by);
 }
 
-describe('the shipped state: the medic team is HELD out of versus (the lead, 30 Oct 2026)', () => {
-  it('a room registers none of the three rescue units, and all three are held', () => {
+describe('the shipped state: the medic team is on the KDF menu, the ambulance and the medevac are held (the lead, 3 Nov 2026)', () => {
+  it('a room registers the medic team; the ambulance and the medevac are held and not registered', () => {
     const ids = new Set(versusRoster().map((u) => u.id));
-    for (const id of ['inf_medic_squad', 'veh_ambulance', 'air_medevac_heli']) {
+    expect(ids.has('inf_medic_squad')).toBe(true);
+    expect(VERSUS_HELD_UNITS.has('inf_medic_squad')).toBe(false);
+    for (const id of ['veh_ambulance', 'air_medevac_heli']) {
       expect(ids.has(id), id).toBe(false);
       expect(VERSUS_HELD_UNITS.has(id), id).toBe(true);
     }
   });
 
-  it('no doctrine menu offers any of them, and a KDF room refuses to build the medic', () => {
-    for (const d of Object.values(doctrines)) for (const id of ['inf_medic_squad', 'veh_ambulance', 'air_medevac_heli']) expect(d.menu, id).not.toContain(id);
+  it('only the KDF menu offers a rescue unit, and only the medic team; a KDF room builds it, and charges the unit\'s own price', () => {
+    for (const d of Object.values(doctrines)) {
+      for (const id of ['veh_ambulance', 'air_medevac_heli']) expect(d.menu, id).not.toContain(id);
+    }
+    expect(doctrines.kdf.menu).toContain('inf_medic_squad');
+    expect(doctrines.sarim.menu).not.toContain('inf_medic_squad');
     const w = buildMatchWorld(roomConfig());
     const rt = w.runtime!;
     const purse = rt.logisticsOf(0);
-    expect(rt.requestBuild('inf_medic_squad', undefined, 0)).toBe(false);
-    expect(rt.logisticsOf(0)).toBe(purse);
-  });
-
-  it('the harness puts the medic in and takes it out again', () => {
-    const leave = enterMedicRoom();
-    expect(doctrines.kdf.menu).toContain('inf_medic_squad');
-    expect(versusRoster().some((u) => u.id === 'inf_medic_squad')).toBe(true);
-    leave();
-    expect(doctrines.kdf.menu).not.toContain('inf_medic_squad');
-    expect(versusRoster().some((u) => u.id === 'inf_medic_squad')).toBe(false);
+    expect(rt.requestBuild('inf_medic_squad', undefined, 0)).toBe(true);
+    expect(rt.logisticsOf(0)).toBe(purse - units.inf_medic_squad.cost.logistics);
   });
 });
 
-describe('with the medic put in a room in memory: the menu and the price (GH-707)', () => {
-  let leave = (): void => {};
-  beforeAll(() => { leave = enterMedicRoom(); });
-  afterAll(() => leave());
-
-  it('a room registers it; the ambulance and the medevac stay out', () => {
-    const ids = new Set(versusRoster().map((u) => u.id));
-    expect(ids.has('inf_medic_squad')).toBe(true);
-    expect(ids.has('veh_ambulance')).toBe(false);
-    expect(ids.has('air_medevac_heli')).toBe(false);
-  });
-
+describe('the menu and the price (GH-707)', () => {
   it('its price is the unit JSON\'s: 295 logistics, 18 s, population 1 (production-numbers.md)', () => {
     expect(units.inf_medic_squad.cost).toEqual({ logistics: 295, build_time_s: 18, population: 1 });
   });
@@ -174,11 +159,7 @@ describe('with the medic put in a room in memory: the menu and the price (GH-707
   });
 });
 
-describe('a medic team in a versus room does its job (GH-707; the medic put in memory)', () => {
-  let leave = (): void => {};
-  beforeAll(() => { leave = enterMedicRoom(); });
-  afterAll(() => leave());
-
+describe('a medic team in a versus room does its job (GH-707)', () => {
   it('the KDF seat builds it from a frame, the Sarim seat\'s build of it is refused, a rescue order from a frame stabilises and lifts a downed man', () => {
     const feed = new Feed(2600);
     feed.at(0, 0, { kind: 'build', side: 0, unit: 'inf_medic_squad' });
@@ -230,11 +211,7 @@ describe('a medic team in a versus room does its job (GH-707; the medic put in m
   }, 60_000); // 2,600 ticks of a room: about a second idle, several times that under a loaded full run
 });
 
-describe('a room\'s win rule and a medic team (GH-707, 30 Oct 2026; the medic put in memory)', () => {
-  let leave = (): void => {};
-  beforeAll(() => { leave = enterMedicRoom(); });
-  afterAll(() => leave());
-
+describe('a room\'s win rule and a medic team (GH-707, 30 Oct 2026)', () => {
   it('on the real sim: a KDF side reduced to one medic team has lost by annihilation', () => {
     const w = buildMatchWorld(roomConfig());
     for (const id of w.bySide[0]) w.sim.debugKill(id);

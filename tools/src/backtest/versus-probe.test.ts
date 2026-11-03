@@ -6,15 +6,14 @@
 import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { doctrines, versusRules, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
 import { fx, MED_TO_WOUNDED, type Command } from '@lions/sim';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
-import { enterMedicRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
-  RESCUE_SAFE_TILES, candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, loneSurvivorOf, main, marchersOf, order, parseArrangements, parsePair, planRescueBuy, planRound, play,
+  MEDIC_STATION_BACK_TILES, MEDIC_STATION_SLACK_TILES, RESCUE_BUY_DEFAULT, RESCUE_FRONT_MARGIN_TILES, RESCUE_RESERVE_SECONDS, RESCUE_SAFE_TILES, reserveOf, candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, loneSurvivorOf, main, marchersOf, order, parseArrangements, parsePair, planRescueBuy, planRound, play,
   rescueRound, reading, roomConfig, seedOf, selfCheck, tally, withOverrides, world, type Played, type PlayFn,
   TUNNEL_CELLS, playTunnelCells, tunnelSelfCheck, withoutVersusRoutes,
 } from './versus-probe';
@@ -354,7 +353,7 @@ describe('the economy arm (N3 Task 7)', () => {
     const w = withOverrides({ start: [3000, 4800] }, () => buildMatchWorld(roomConfig(map, arr, 1000)));
     const rt = w.runtime;
     if (rt === null) throw new Error('no runtime');
-    return { w, rt, plan: (side: 0 | 1) => planRound(rt, w.sim, doctrines[w.factions[side]].menu, forceMixOf(w.factions[side]), side) };
+    return { w, rt, plan: (side: 0 | 1) => planRound(rt, w.sim, doctrines[w.factions[side]].menu, forceMixOf(w.factions[side]), side, 'after') };
   };
   it('the plan rebuilds the force mix: a fresh purse buys the missing type, then one of each in menu order', () => {
     const { rt, plan } = freshPlan(['kdf', 'sarim']);
@@ -770,10 +769,6 @@ describe('seed sets, one tunnel cell and per-seed files (GH-859 P1b Task 7, the 
 
 // The rescue arm (GH-707, the lead, 30 Oct 2026). LITERALS throughout.
 describe('the rescue arm', () => {
-  // The medic team is held out of versus: this block puts it in a room in memory.
-  let leaveMedicRoom = (): void => {};
-  beforeAll(() => { leaveMedicRoom = enterMedicRoom(); });
-  afterAll(() => leaveMedicRoom());
   const room = (start?: [number, number]) => {
     const w = withOverrides(start === undefined ? {} : { start }, () => buildMatchWorld(roomConfig('tel_marum', ['kdf', 'sarim'], 1000)));
     const rt = w.runtime;
@@ -884,6 +879,91 @@ describe('the rescue arm', () => {
     void man;
   });
 
+  it('reserve: the combat purchases leave the medic\'s price in the purse for the first minute; the first man down buys the medic; the reserve is released after the window', () => {
+    // A fresh 1500 purse (the KDF opening), nobody down: the combat plan spends it down to the 295 the reserve keeps.
+    const a = room();
+    expect(RESCUE_RESERVE_SECONDS).toBe(60);
+    expect(reserveOf(a.rt, a.w.sim, menu0, 0)).toBe(295);
+    const bought = planRound(a.rt, a.w.sim, menu0, forceMixOf('kdf'), 0, 'reserve');
+    expect(bought).not.toContain('inf_medic_squad');
+    expect(bought.length).toBeGreaterThan(0);
+    expect(a.rt.logisticsOf(0)).toBeGreaterThanOrEqual(295);
+    // CONTROL (the other half of the falsification): the same room under `off` spends below 295.
+    const b = room();
+    planRound(b.rt, b.w.sim, menu0, forceMixOf('kdf'), 0, 'off');
+    expect(b.rt.logisticsOf(0)).toBeLessThan(295);
+    // A man down: the next round buys the medic FIRST, from that reserve.
+    downManAt(a.w, 2);
+    const next = planRound(a.rt, a.w.sim, menu0, forceMixOf('kdf'), 0, 'reserve');
+    expect(next[0]).toBe('inf_medic_squad');
+    expect(reserveOf(a.rt, a.w.sim, menu0, 0)).toBe(0); // bought: nothing left to hold back for
+    // Sarim has no rescue unit on its menu: it holds nothing back.
+    expect(reserveOf(a.rt, a.w.sim, doctrines.sarim.menu, 1)).toBe(0);
+    // After the window the reserve is released.
+    const c = room();
+    for (let i = 0; i < RESCUE_RESERVE_SECONDS * 20; i++) c.w.sim.tick();
+    expect(reserveOf(c.rt, c.w.sim, menu0, 0)).toBe(0);
+  }, 60_000);
+
+  it('opening buys the medic in the first round with nobody down, once; `before` waits for a man to be down', () => {
+    const a = room();
+    expect(planRound(a.rt, a.w.sim, menu0, forceMixOf('kdf'), 0, 'opening')[0]).toBe('inf_medic_squad');
+    const b = room();
+    expect(planRound(b.rt, b.w.sim, menu0, forceMixOf('kdf'), 0, 'before')).not.toContain('inf_medic_squad');
+    // A later round with the medic dead (none living or queued) and nobody down: `opening` does not buy a second.
+    const c = room([3000, 4800]);
+    for (let i = 0; i < ORDER_EVERY_TICKS; i++) c.w.sim.tick();
+    expect(planRound(c.rt, c.w.sim, menu0, forceMixOf('kdf'), 0, 'opening')).not.toContain('inf_medic_squad');
+  }, 60_000);
+
+  it('rescueRound walks an idle medic to his station behind the line, leaves him once there, and does not re-order a walking one', () => {
+    expect(MEDIC_STATION_BACK_TILES).toBe(5);
+    expect(MEDIC_STATION_SLACK_TILES).toBe(4);
+    const { w } = room();
+    const camp = w.anchors[w.endOfSide[0]];
+    const medic = w.sim.spawn(typeIdx(w, 'inf_medic_squad'), 0, fx.from(camp[0] + 0.5), fx.from(camp[1] + 0.5));
+    // The line is the side's armed units: put one 20 tiles out along the row, remove the rest, so the station is known.
+    const line = w.bySide[0].filter((id) => w.sim.state.alive[id] === 1);
+    for (const id of line) w.sim.debugKill(id);
+    const front = w.sim.spawn(typeIdx(w, 'inf_squad'), 0, fx.from(camp[0] + 20.5), fx.from(camp[1] + 0.5));
+    const x0 = w.sim.state.posX[medic];
+    expect(rescueRound(w.sim, 0)).toBe(0); // no camp given: no station walk (the placed-force worlds)
+    expect(rescueRound(w.sim, 0, camp)).toBe(1);
+    for (let i = 0; i < 40; i++) w.sim.tick();
+    expect(w.sim.state.moving[medic]).toBe(1);
+    expect(w.sim.state.posX[medic]).toBeGreaterThan(x0); // toward the line
+    expect(rescueRound(w.sim, 0, camp)).toBe(0); // walking: not re-ordered
+    // Within the slack of his station: left alone. The station is 5 tiles behind the line, toward the camp.
+    const there = room().w;
+    const c2 = there.anchors[there.endOfSide[0]];
+    for (const id of there.bySide[0]) there.sim.debugKill(id);
+    there.sim.spawn(typeIdx(there, 'inf_squad'), 0, fx.from(c2[0] + 20.5), fx.from(c2[1] + 0.5));
+    const m2 = there.sim.spawn(typeIdx(there, 'inf_medic_squad'), 0, fx.from(c2[0] + 15.5), fx.from(c2[1] + 0.5));
+    void m2; void front;
+    expect(rescueRound(there.sim, 0, c2)).toBe(0);
+    // No standing armed unit left: no line, no station.
+    for (let i = 0; i < there.sim.entityCount; i++) if (there.sim.state.alive[i] === 1 && there.sim.state.side[i] === 0 && there.sim.unitTypes[there.sim.state.typeIdx[i]].rescue == null) there.sim.debugKill(i);
+    expect(rescueRound(there.sim, 0, c2)).toBe(0);
+  }, 60_000);
+
+  it('rescueRound goes to a man with an enemy near him when the front has moved past him (his own line is nearer the enemy), not when it has not', () => {
+    expect(RESCUE_FRONT_MARGIN_TILES).toBe(3);
+    const { w } = room();
+    const [ax, ay] = w.anchors[w.endOfSide[0]];
+    for (const id of w.bySide[0]) w.sim.debugKill(id);
+    w.sim.spawn(typeIdx(w, 'inf_medic_squad'), 0, fx.from(ax + 0.5), fx.from(ay + 0.5));
+    downManAt(w, 3);
+    // A Sarim rifle squad 6 tiles from him: inside RESCUE_SAFE_TILES; none of his own armed units stands anywhere near.
+    const foe = w.sim.spawn(typeIdx(w, 'sarim_rifles'), 1, fx.from(ax + 3 + 6 + 0.5), fx.from(ay + 0.5));
+    expect(rescueRound(w.sim, 0)).toBe(0);
+    // His own rifle squad 1 tile from the foe, 5 tiles nearer it than he is: the front is past him.
+    const ours = w.sim.spawn(typeIdx(w, 'inf_squad'), 0, fx.from(ax + 3 + 6 - 1 + 0.5), fx.from(ay + 0.5));
+    expect(rescueRound(w.sim, 0)).toBe(1);
+    // CONTROL: it is the line that makes the difference, not the foe leaving.
+    w.sim.debugKill(ours);
+    expect(w.sim.state.alive[foe]).toBe(1);
+  }, 60_000);
+
   it('a rescue unit is left out of the attack-move, so the next re-order does not take it off the job', () => {
     const { w } = room();
     const [ax, ay] = w.anchors[w.endOfSide[0]];
@@ -899,23 +979,29 @@ describe('the rescue arm', () => {
   }, 60_000);
 
   it('--rescue-buy is validated and needs --economy', () => {
-    expect(() => main(['--economy', '--rescue-buy=often'])).toThrow(/not after, before, save, opening or off/);
+    expect(() => main(['--economy', '--rescue-buy=often'])).toThrow(/not reserve, after, before, save, opening or off/);
     expect(() => main(['--rescue-buy=after'])).toThrow(/needs --economy/);
   });
 });
 
-describe('the rescue arm puts the held medic team in the room in memory, for the run only (PR 907)', () => {
-  it('--rescue-buy=opening delivers a medic team and leaves the shipped menu and held set as they were; without the flag none is delivered', () => {
+describe('the rescue arm on the shipped menu (GH-707, 3 Nov 2026)', () => {
+  it('the medic team is on the KDF menu as shipped; a plain economy run buys one (the default arm), `after` and `off` buy none, and the menu is left as it was', () => {
     const logged: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { logged.push(a.join(' ')); });
-    expect(doctrines.kdf.menu).not.toContain('inf_medic_squad');
-    expect(main(['--economy', '--maps=wadi_tarfan', '--seeds=1', '--arr=sarim/kdf', '--rescue-buy=opening'])).toBe(0);
-    const row = logged.find((l) => l.startsWith('wadi_tarfan')) ?? '';
-    expect(row).toMatch(/\s1\.0\/\d\.\d\s/); // med/rej: one medic team a game
-    expect(logged.some((l) => l.includes('put on the KDF menu in memory'))).toBe(true);
-    expect(doctrines.kdf.menu).not.toContain('inf_medic_squad'); // put back
-    logged.length = 0;
-    expect(main(['--economy', '--maps=wadi_tarfan', '--seeds=1', '--arr=sarim/kdf'])).toBe(0);
-    expect(logged.find((l) => l.startsWith('wadi_tarfan')) ?? '').toMatch(/\s0\.0\/0\.0\s/);
-  }, 120_000);
+    const menu = [...doctrines.kdf.menu];
+    expect(menu).toContain('inf_medic_squad');
+    expect(RESCUE_BUY_DEFAULT).toBe('opening');
+    const row = (flags: string[]): string => {
+      logged.length = 0;
+      expect(main(['--economy', '--maps=wadi_tarfan', '--seeds=1', '--arr=sarim/kdf', ...flags])).toBe(0);
+      return logged.find((l) => l.startsWith('wadi_tarfan')) ?? '';
+    };
+    expect(row([])).toMatch(/\s1\.0\/\d\.\d\/\d\.\d\s/); // med/adm/rej: one medic team a game
+    expect(row(['--rescue-buy=opening'])).toMatch(/\s1\.0\/\d\.\d\/\d\.\d\s/);
+    // The ruled rule and the unbought control read the same as main: no medic team.
+    expect(row(['--rescue-buy=after'])).toMatch(/\s0\.0\/0\.0\/0\.0\s/);
+    expect(row(['--rescue-buy=off'])).toMatch(/\s0\.0\/0\.0\/0\.0\s/);
+    expect(logged.some((l) => l.includes('the default is opening'))).toBe(true);
+    expect(doctrines.kdf.menu).toEqual(menu);
+  }, 240_000);
 });
