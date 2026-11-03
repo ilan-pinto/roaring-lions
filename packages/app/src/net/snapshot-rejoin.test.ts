@@ -42,8 +42,8 @@ const EVERY = 1200;
  * negative (3, 4, 8 and 9 read positive), so seed 1 stands. Was seed 7.
  * GH-920 B3 (2 Nov): `data/maps/milh_flats_l.json` and its rules file are content too. Seed 1 stays negative (-891211569; 2, 4, 5, 6, 7, 8 and 9
  * read negative as well, 3 reads positive; the economy room reads +1182050052), read by a scratch copy of this file's own `play` and `digestOf`.
- * GH-707 (3 Nov): the Spike change (GH-982, rof 5 and air; unit JSON is content too) rebased under the medic-on-the-menu branch: seed 1 went
- * positive; seeds 2, 7 and 8 read negative (3, 4, 5, 6 and 9 read positive), so seed 2 stands. Was seed 1.
+ * GH-707 (3 Nov): `inf_medic_squad` on the KDF menu in `data/doctrines/kdf.json` is content too (the review showed seed 1 still passes with the
+ * medic off, on main plus the Spike): seed 1 went positive; seeds 2, 7 and 8 read negative (3, 4, 5, 6 and 9 read positive), so seed 2 stands. Was seed 1.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;

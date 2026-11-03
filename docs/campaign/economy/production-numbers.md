@@ -154,8 +154,8 @@ the lead's own edit.
 
 **Status (3 Nov 2026).** The lead ruled rescue ON in versus, in its own PR with a fairness check (30 Oct: opened, then held out
 the same day, PR 907). `inf_medic_squad` is the last tile of `data/doctrines/kdf.json` and out of `VERSUS_HELD_UNITS`. **The
-fairness check did not come back clean** (the table below), so the PR that puts it on the menu is a DRAFT and the lead decides.
-No unit's stats or price were changed.
+fairness check left one cell outside** (Economy / Tel Marum / Sarim friendly, a pre-existing defect of main, GH-990); the lead ruled
+to ship the medic with it. No unit's stats or price were changed.
 
 A room prices a unit from its own JSON: **295 logistics, 18 s, population 1**. Sarim has no rescue unit. The ambulance and the
 medevac stay out of every room (`VERSUS_HELD_UNITS`). The medic also carries an aura (stationary, `heal_per_s` 0.02 on foot

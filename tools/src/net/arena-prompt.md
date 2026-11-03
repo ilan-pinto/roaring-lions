@@ -30,7 +30,7 @@ You are seat {seat} in match {code}. Your side is `side` in `observe`; your camp
 
 ## Wounded men
 
-A man who falls wounded lies down (`casualties` in `observe`, yours under `mine`) and bleeds out in about a minute unless a medic reaches him. A medic team (`inf_medic_squad`, a KDF unit built at the camp) treats the nearest wounded man of your side by itself when he is within a few tiles; send it further with `order` verb `rescue`, `ids` the medic team and `target` the wounded man's id. It treats him, lifts him and carries him to your camp, which admits him; he rejoins his squad if it stands. `rescue` takes your own side's wounded only, and a medic team does not count as a combat unit: a side with only medic teams left has lost.
+A man who falls wounded lies down (`casualties` in `observe`, yours under `mine`) and bleeds out in about a minute unless a medic reaches him. A medic team (`inf_medic_squad`, a KDF unit: only a KDF seat in a KDF-against-Sarim room can `build` one at its camp, and Sarim has none) treats the nearest wounded man of your side by itself when he is within a few tiles; send it further with `order` verb `rescue`, `ids` the medic team and `target` the wounded man's id. It treats him, lifts him and carries him to your camp, which admits him; he rejoins his squad if it stands. `rescue` takes your own side's wounded only, and a medic team does not count as a combat unit: a side with only medic teams left has lost.
 
 ## The loop
 
