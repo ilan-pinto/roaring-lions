@@ -3,7 +3,7 @@
 // default camera, with no building's mesh over more than half of a rifleman standing there.
 // See map_visibility.ts for the metric and for why the floor is 0.84.
 import { describe, expect, it } from 'vitest';
-import { parseMap, type MapJson } from '../../packages/data/src/index';
+import { maps, parseMap, versusRules, type MapJson } from '../../packages/data/src/index';
 import {
   VISIBLE_FLOOR,
   bodyHiddenShare,
@@ -273,5 +273,37 @@ describe('the versus gate: each cap, red on an input built to fail it', () => {
     expect(VERSUS_CAPS.wholeMap).toBe(0.95);
     expect(VERSUS_CAPS.corridorAndZones).toBe(0.92);
     expect(VERSUS_CAPS.town).toBe(0.85);
+  });
+});
+
+// The gate read REPORT-ONLY on the three maps offered before it (GH-974): the numbers the PR and the notes quote, pinned so a change
+// to a shipped map, or to the instrument, is noticed. None of them is a verdict: their specs are exempt (`visibility.exempt`).
+describe('the versus gate on the shipped large maps (report only)', () => {
+  const read = async (id: 'milh_flats_l' | 'wadi_tarfan_l' | 'rujm_sawda') => {
+    const rules = (versusRules as unknown as Record<string, { income_zones: { zone: string }[] }>)[id];
+    const m = parseMap((maps as unknown as Record<string, MapJson>)[id]);
+    return measureVersus(m, { towns: [], scoring: rules.income_zones.map((z) => z.zone) });
+  };
+
+  it('Milh Flats (large), the first build: 99.8% whole map, houses 53% of its 30 building tiles (over the 40% cap, only failure)', async () => {
+    const r = await read('milh_flats_l');
+    expect(r.facts.building_tiles).toBe(30);
+    expect(Number(r.facts.visible_whole_map)).toBeCloseTo(0.9976, 3);
+    expect(r.failures).toEqual(['buildings: houses are 53% of the building tiles, over 40%']);
+  });
+
+  it('Wadi Tarfan (large): the two far farms of seat 1 read 89.7% and 90.2%, houses 67%', async () => {
+    const r = await read('wadi_tarfan_l');
+    expect(Number(r.facts.visible_farm_near_1)).toBeCloseTo(0.8974, 3);
+    expect(Number(r.facts.visible_farm_far_1)).toBeCloseTo(0.9024, 3);
+    expect(r.failures.length).toBe(3);
+    expect(r.failures.some((f) => f.includes('houses are 67%'))).toBe(true);
+  });
+
+  it('Rujm Sawda: its four walled wells read 91.7% each, one tile under the 92% scoring cap', async () => {
+    const r = await read('rujm_sawda');
+    for (const w of ['well_n_0', 'well_w_0', 'well_s_1', 'well_e_1']) expect(Number(r.facts[`visible_${w}`])).toBeCloseTo(0.9167, 3);
+    expect(r.failures.length).toBe(4);
+    expect(r.failures.every((f) => f.includes('well_'))).toBe(true);
   });
 });

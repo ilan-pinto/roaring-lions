@@ -360,12 +360,14 @@ describe('the verifier on it (B2 checks and the versus visibility gate, run on t
 
   it('holds the versus visibility gate: the whole map, the seat corridor, the scoring zones and the town', async () => {
     const { json, rules: r, spec } = staged('milh_flats_l_redo');
-    expect(spec.visibility?.towns).toEqual(['town']);
+    expect('towns' in spec.visibility ? spec.visibility.towns : null).toEqual(['town']);
     const v = await verifyVersusVisibility(json, r, spec);
     expect(v.failures).toEqual([]);
     expect(Number(v.facts.visible_whole_map)).toBeGreaterThanOrEqual(0.95);
     expect(Number(v.facts.visible_corridor)).toBeGreaterThanOrEqual(0.92);
     expect(Number(v.facts.visible_town)).toBeGreaterThanOrEqual(0.85);
+    // the court sits EXACTLY on its 92% scoring cap (0.92, no margin): one tile of the court's furniture moved flips it, so read this one first
+    expect(Number(v.facts.visible_bir_milh)).toBe(0.92);
     expect(Number(v.facts.building_share)).toBeLessThanOrEqual(0.03);
     expect(Number(v.facts.house_share)).toBeLessThanOrEqual(0.4);
     expect(v.facts.building_tiles).toBe(70); // 24 house + 28 shed + 8 farmhouse + 8 concrete + 2 pump, by the flood fill above
@@ -397,7 +399,7 @@ describe('STAGED, not offered: the shipped Milh Flats (large) is still the first
   });
 
   it('its generator is not the shipped one: build.mjs of milh_flats_l still writes the first build', () => {
-    expect(SPECS.milh_flats_l().visibility).toBeUndefined();
+    expect('exempt' in SPECS.milh_flats_l().visibility).toBe(true);
     expect(SPECS.milh_flats_l().maxBuiltShare).toBe(0.01);
     expect(SPECS.milh_flats_l().reference?.id).toBe('milh_flats');
   });

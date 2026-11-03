@@ -4,7 +4,8 @@
 // the map's own facts lifted into a `LargeMapSpec`, plus the design's census (design 2.2): a naive 2x
 // upscale distorts buildings, walls, roads, contours and markers, and each distortion has a check.
 //
-//   npx tsx tools/src/large_map_verify.ts <map id>      prints the report, exits 1 on any failure
+//   cd tools && ./node_modules/.bin/tsx src/large_map_verify.ts <map id>   prints the report, exits 1 on any failure
+//   (run from tools/: from the repo root it exits non-zero with no output)
 //
 // What it checks:
 //   1. shape: the spec's side, one elevation digit per tile;
@@ -85,8 +86,12 @@ export interface LargeMapSpec {
    * since GH-974: the cap is the map's own, written next to the numbers it was read on.
    */
   maxBuiltShare: number;
-  /** The versus visibility gate (map_visibility.ts `measureVersus`): the town zones. Absent: the gate is not run on this map. */
-  visibility?: { towns: readonly string[] };
+  /**
+   * The versus visibility gate (map_visibility.ts `measureVersus`), REQUIRED: either the town zones it holds, or an explicit
+   * exemption with its reason. A spec that names neither is red (`verifyVersusVisibility`), so a new map cannot skip the gate
+   * by forgetting a field; the exempt set is pinned over `Object.keys(SPECS)` in large_map_verify.test.ts.
+   */
+  visibility: { towns: readonly string[] } | { exempt: string };
   /** The share of tiles that are cover (`1 2 3 o n`), as [lowest, highest], if the map keeps a band. */
   coverShare?: readonly [number, number];
   /** How many 2x2 diagonal steps the relief may have; none when absent. */
@@ -427,9 +432,13 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
 }
 
 /** The shipped large maps, by id, as the CLI and the tests read them. */
+/** The reason the three maps offered before the versus gate (GH-974) are exempt from it: they were built to the old rules. */
+export const SHIPPED_BEFORE_GATE = 'offered before the versus visibility gate (GH-974); read report-only in map_visibility.test.ts';
+
 export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
   rujm_sawda: () => ({
     label: 'Rujm Sawda',
+    visibility: { exempt: SHIPPED_BEFORE_GATE },
     size: 80,
     maxBuiltShare: MAX_BUILT_SHARE,
     routesPerEnd: 3,
@@ -449,6 +458,7 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
   }),
   wadi_tarfan_l: () => ({
     label: 'Wadi Tarfan (large)',
+    visibility: { exempt: SHIPPED_BEFORE_GATE },
     size: 96,
     maxBuiltShare: MAX_BUILT_SHARE,
     routesPerEnd: 2,
@@ -465,6 +475,7 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
   // seats on the anti-diagonal. The income is a table a mirror room never reads. This is the FIRST build, the one offered.
   milh_flats_l: () => ({
     label: 'Milh Flats (large)',
+    visibility: { exempt: SHIPPED_BEFORE_GATE },
     size: 96,
     maxBuiltShare: MAX_BUILT_SHARE,
     routesPerEnd: 0,
@@ -504,20 +515,22 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
  * for) and the towns it names, against `VERSUS_CAPS`. Async because it reads the building meshes.
  */
 export async function verifyVersusVisibility(json: MapJson, rules: VersusRulesJson, spec: LargeMapSpec, caps?: VersusVisibilitySpec['caps']): Promise<{ failures: string[]; facts: Record<string, string | number> }> {
-  if (!spec.visibility) return { failures: [], facts: {} };
+  const v = spec.visibility as LargeMapSpec['visibility'] | undefined;
+  if (v === undefined) return { failures: [`visibility: the spec for ${spec.label ?? 'this map'} names neither \`towns\` nor \`exempt\`, so the versus gate is not bound`], facts: {} };
+  if ('exempt' in v) return { failures: [], facts: { visibility_exempt: v.exempt } };
   const map = parseMap(json);
-  const scoring = rules.income_zones.map((z) => z.zone).filter((z) => !spec.visibility!.towns.includes(z));
-  return measureVersus(map, { towns: spec.visibility.towns, scoring, caps });
+  const scoring = rules.income_zones.map((z) => z.zone).filter((z) => !v.towns.includes(z));
+  return measureVersus(map, { towns: v.towns, scoring, caps });
 }
 
 /** The maps a large-map spec reads from docs/campaign/staged_maps instead of the data registry: authored, measured, NOT offered. */
-const STAGED_FILES: Readonly<Record<string, string>> = { milh_flats_l_redo: 'milh_flats_l_redo' };
+const STAGED_IDS: ReadonlySet<string> = new Set(['milh_flats_l_redo']);
 
-/** A STAGED large map (see STAGED_FILES): its map and rules as the generator wrote them, read from disk, never from `@lions/data`. */
+/** A STAGED large map (see STAGED_IDS): its map and rules as the generator wrote them, read from disk, never from `@lions/data`. */
 export function staged(id: string): { json: MapJson; rules: VersusRulesJson; spec: LargeMapSpec } {
-  const dir = STAGED_FILES[id];
+  const dir = id;
   const spec = SPECS[id];
-  if (!dir || !spec) throw new Error(`no staged large map "${id}" (${Object.keys(STAGED_FILES).join(', ')})`);
+  if (!STAGED_IDS.has(id) || !spec) throw new Error(`no staged large map "${id}" (${[...STAGED_IDS].join(', ')})`);
   const read = (f: string) => JSON.parse(readFileSync(join(fileURLToPath(new URL('../..', import.meta.url)), 'docs', 'campaign', 'staged_maps', dir, f), 'utf8'));
   return { json: read('map.json') as MapJson, rules: read('versus.json') as VersusRulesJson, spec: spec() };
 }
@@ -534,7 +547,7 @@ export function shipped(id: string): { json: MapJson; rules: VersusRulesJson; sp
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const id = process.argv[2] ?? 'wadi_tarfan_l';
-  const { json, rules, spec } = STAGED_FILES[id] ? staged(id) : shipped(id);
+  const { json, rules, spec } = STAGED_IDS.has(id) ? staged(id) : shipped(id);
   const r = verifyLargeMap(json, rules, spec);
   const vis = await verifyVersusVisibility(json, rules, spec);
   r.failures.push(...vis.failures);

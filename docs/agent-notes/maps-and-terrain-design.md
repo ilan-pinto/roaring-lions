@@ -358,6 +358,18 @@ fit) reads exactly these, and nothing else, red:
 - `versus-probe.test.ts` "the economy self-check passes on each map" is a 60 s test that read red on both trees under this
   machine's load (it passes alone): not a pin.
 
+**Formations are already OPEN on `milh_flats_l`** (above: the FIRST build's S4, mirror cell, seeds 30000-30191), and
+`VERSUS_FORMATIONS_CLOSED_MAPS` holds only `wadi_tarfan_l`. The redo has had NO S4 run of its own, and a map's base must be level
+before it is offered with formations (GH-945 amplifies a lean 2.5-5x). So a file-copy swap would open an unchecked geometry with
+formations on: in the same commit, either re-run S4 on fresh seeds (`pnpm s4:gate` over `versus:probe --per-seed` files) or add
+`milh_flats_l` to `VERSUS_FORMATIONS_CLOSED_MAPS`.
+
+Design checks (design section 4) NOT yet run on the redo, all before opening: the lane probe (armour left, infantry right, against
+the blob, equal from both seats); `pnpm net:budget` at the town's structure count (172 wall tiles and 70 building tiles in the
+redo, against 32 structures today); the tick probe for `recomputeFields('opened')` when a wall tile is destroyed; the seat-shift
+report. The court (`bir_milh`) reads exactly 0.92 against its 92% scoring cap: one tile of its furniture moved flips it, and
+`milh_flats_l_redo.test.ts` pins it.
+
 `crown-summit.test.ts` (2), `ambience.test.ts` ('open', 0.76% built), `terrain-chunks.test.ts` and `versus_maps.test.ts` pass
 on the new data unchanged. B4 and the budget (above) are read on the same bytes. Before opening, fit the walls (instance
 per-tile structures, design decision 7) and the JS ceiling, then re-read perf and memory.

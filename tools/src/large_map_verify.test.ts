@@ -10,7 +10,7 @@
 // must be red on every distortion at once: that is what the verifier is for.
 import { describe, expect, it } from 'vitest';
 import { maps, versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
-import { SPECS, shipped, staged, verifyLargeMap } from './large_map_verify';
+import { SPECS, shipped, staged, verifyLargeMap, verifyVersusVisibility } from './large_map_verify';
 
 const W = 96;
 
@@ -404,5 +404,33 @@ describe('the built-share cap is per map', () => {
     expect(Number(own.facts.built_share)).toBeLessThan(0.03);
     expect(built(own)).toBe(false);
     expect(built(verifyLargeMap(json, rules, { ...spec, maxBuiltShare: 0.01 }))).toBe(true);
+  });
+});
+
+// --- the versus gate cannot be skipped by forgetting a field (GH-974 review) ---------------------------------------------
+describe('the visibility gate is required of every spec', () => {
+  it('the exempt set is exactly the three maps offered before the gate; every other spec holds a town list', () => {
+    const exempt = Object.keys(SPECS).filter((id) => 'exempt' in SPECS[id]().visibility).sort();
+    expect(exempt).toEqual(['milh_flats_l', 'rujm_sawda', 'wadi_tarfan_l']);
+    const bound = Object.keys(SPECS).filter((id) => 'towns' in SPECS[id]().visibility);
+    expect(bound).toEqual(['milh_flats_l_redo']);
+    expect(Object.keys(SPECS).length).toBe(exempt.length + bound.length);
+  });
+
+  it('RED: a spec that names neither `towns` nor `exempt` fails the gate (a fourth map that forgets the field)', async () => {
+    const { json, rules, spec } = staged('milh_flats_l_redo');
+    expect((await verifyVersusVisibility(json, rules, spec)).failures).toEqual([]);
+    const forgot = { ...spec } as Partial<typeof spec>;
+    delete forgot.visibility;
+    const out = await verifyVersusVisibility(json, rules, forgot as typeof spec);
+    expect(out.failures.some((f) => f.includes('names neither `towns` nor `exempt`'))).toBe(true);
+  });
+
+  it('an exempt spec is not measured (and says why), a bound one is', async () => {
+    const w = shipped('wadi_tarfan_l');
+    const out = await verifyVersusVisibility(w.json, w.rules, w.spec);
+    expect(out.failures).toEqual([]);
+    expect(String(out.facts.visibility_exempt)).toContain('GH-974');
+    expect(out.facts.visible_whole_map).toBeUndefined();
   });
 });
