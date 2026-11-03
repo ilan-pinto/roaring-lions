@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "004df9d4e3a2085a07ef0a6f8cc5bbe63f4f934f",
-  "blessedAt": "2026-11-02T17:28:38.102Z",
-  "reason": "PR 958 (GH-943 L3): the Lavi's crisp procedural team mark (object-space roof box + flank band, 2.11%, strength 0.85, no texture), lead-approved sheet C on 2 Nov. Only the four scenarios that frame Lavis moved (CI: vehicle 321px/0.0151, kitted 197/0.0090, fogged 74/0.0039, graded 167/0.0084; every self-check passes; team-mask layer 321px over floor 94).",
+  "commit": "d58a318b2b94cec419cc5f48eb938a71145ebf40",
+  "blessedAt": "2026-11-03T07:01:16.823Z",
+  "reason": "PR 971 (GH-943): crisp team mark on the Namer, Eitan and Kipod (lead-approved sheet E, 3 Nov); normal maps kept byte-identical. Only the four scenarios that frame the sandbox Namers and Eitan moved (CI: vehicle 909px/0.0439, kitted 890/0.0434, fogged 239/0.0109, graded 658/0.0235; every self-check passes).",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "74c72b770540d8cf3f9f12ec57a9a9d22e127c8ac2e950f20e18d1be4404646a"
+      "sha256": "3a07713b7c284c359915bae6600c189739e2168986062a0244740b5c032e65e5"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c2e20e16a0443c458ab3dcac65ef3a8f89b9a00567f220fde0615634b31894f2"
+      "sha256": "18f7a0abf70dcb6c55ef8f77be92f24188c2783d0f47c64970c31cf8696d5cad"
     },
     "fogged": {
       "tick": 140,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "dae2cf465e3cf9188186d461eb8e8c49a1121c6491808e8c4205028cc0f8865e"
+      "sha256": "bbecb09275cb49ee583a6aad133a8ef6586e12fd2943af3d34c1d85a79013a58"
     },
     "relief": {
       "tick": 500,
@@ -123,7 +123,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "89cc95a66b2b6ea786a935b682b1a87e46cef05087c82ea33f1f55009d952cd2"
+      "sha256": "84f11e0caa2b643aa9ece31eea61e54a0219488b413b349172e2d1026c267cd6"
     }
   }
 }
