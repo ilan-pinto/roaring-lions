@@ -59,15 +59,19 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   Income rates and camp moves were screened and failed (lever-report.md of the GH-707 search; four more
  *   hostile camps here, (25,18) (25,20) (22,20) (28,20): 58.6-59.6%, and Sarim 91.4% at (28,20)). A Sarim
  *   opening purse of 1800 / 1500 (instead of 2400) moves the cell 4 / 6 points but sends tunnel cell 3 to
- *   KDF 60.9% / 64.1%. The friendly seat one tile west, (26,45), with the camp (21,46) and every route
- *   as they were, reads, seeds 0-383: economy Sarim friendly KDF 54.9% and KDF friendly Sarim 55.5%, tunnel
- *   cell 3 Sarim 53.1% (KDF friendly) / KDF 54.2% (Sarim friendly), mirror east 54.9%, placed Sarim 50.3% (KDF friendly) / KDF 59.1% (Sarim friendly).
- *   Its neighbours swing: (27,44) mirror west 59.4%, (27,46) tunnel cell 3 KDF 64.1% and the Sarim mirror
- *   87.2%, (26,44) the Sarim mirror 71.4%, (28,46) economy Sarim 60.1%, (26,46) mirror east 62%.
- *   Held out (7000-7287 and 4000-4287, 288 seeds a cell): economy Sarim friendly Sarim 56.6 / 62.5% -> KDF
- *   53.8 / KDF 56.3% (medic off), Sarim 56.3 / 64.9% -> KDF 53.5 / Sarim 51.0% (medic on); every other
- *   cell inside 60/40, both arms. The Sarim-v-Sarim mirror (a report cell) read east 62.8 / 70.8% and now
- *   reads 55.6 / 55.9%. The full table is in the PR for GH-990.
+ *   KDF 60.9% / 64.1%. The friendly seat one tile west, (26,45), reads, seeds 0-383: economy Sarim
+ *   friendly KDF 54.9% and KDF friendly Sarim 55.5%, tunnel cell 3 Sarim 53.1% (KDF friendly) / KDF 54.2%
+ *   (Sarim friendly), mirror east 54.9%, placed Sarim 50.3% (KDF friendly) / KDF 59.1% (Sarim friendly).
+ *   At the new seat the Sarim force's row 47 stands on the camp's tile (22,47) (the placed-force camp test
+ *   refuses it), so the friendly camp moved with it, (21,46) -> (20,46): the same offset from the seat. At
+ *   (20,46) the same 0-383 reads economy KDF 50.8% (Sarim friendly) / KDF 51.3% (KDF friendly), tunnel cell 3
+ *   Sarim 54.2% (KDF friendly) / KDF 51.6% (Sarim friendly). The seat's neighbours swing: (27,44) mirror west 59.4%, (27,46) tunnel cell 3
+ *   KDF 64.1% and the Sarim mirror 87.2%, (26,44) the Sarim mirror 71.4%, (28,46) economy Sarim 60.1%,
+ *   (26,46) mirror east 62%.
+ *   Held out, seeds 7000-7287 and 4000-4287 (288 a cell), the final seat and camp: economy Sarim friendly
+ *   KDF 55.2 / 54.2% (medic off) and Sarim 51.0 / 51.7% (medic on), where main read Sarim 56.6 / 62.5% and
+ *   56.3 / 64.9%; the other economy and tunnel cells, both arms, 50.3-57.6%, and the placed and mirror cells 51.0-58.0%. The Sarim-v-Sarim mirror (a report cell) read
+ *   east 62.8 / 70.8% and now reads 55.6 / 55.9%.
  * - `wadi_tarfan` (mirror and KDF-vs-Sarim; the lead's ruling, 23 Oct,
  *   GH-769): its own `versus_0`/`versus_1` markers (10,10)/(37,37) read
  *   KDF-vs-Sarim outside 60/40 at 96 seeds with wounds on (placed force, KDF
