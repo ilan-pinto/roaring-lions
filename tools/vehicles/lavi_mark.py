@@ -4,10 +4,16 @@ bake is under it.
 
     python3 tools/vehicles/lavi_mark.py --id mbt_lavi --glb art/meshes/vehicles/mbt_lavi.glb --kit art/parts/kit/mbt_lavi.glb [--size 1024]
     python3 tools/vehicles/lavi_mark.py --id officer_armour --glb art/meshes/vehicles/officer_armour.glb
+    python3 tools/vehicles/lavi_mark.py --id ifv_namer --glb art/meshes/vehicles/ifv_namer.glb --kit art/parts/kit/ifv_namer.glb
 
 Three vehicles share one hull and one bake and each has its OWN boxes (`MARKS`): the Lavi, the Ambush Tank
 (`mbt_lavi_camo`, a draped net on the same hull) and the command Lavi (`officer_armour`, a raised cupola on the
 same turret). The two variants have no kit, so they take no `--kit` and their exclusion pins are `NO_PIN`.
+
+The three KDF carriers (`ifv_namer`, `apc_eitan`, `apc_kipod`, GH-943 batch 3) are a different build: a Meshy hull
+(`hull_hull`) and tyres or tracks (`hull_rubber`) plus the remote weapon station (`turret_metal`, `turret_plate`),
+with no turret body, so the mark rides on the hull alone (`PARTS_BY` / `MARK_ROLES_BY`). Each has the kit pins its own
+kit source declares. They keep the Lavi's texel basis: their hull is UV-mapped, so the texels see all of its surface.
 
 The mark is a clean rectangular roof recognition panel plus a band on each side of the turret. It is NOT a
 texture: the shader (`packages/render/src/three/units/team-mask.ts`) tests the fragment's OBJECT-space position
@@ -91,15 +97,68 @@ MARK_CAMO = dict(
     edge_px=1.0,
 )
 
-MARKS = {"mbt_lavi": MARK, "mbt_lavi_camo": MARK_CAMO, "officer_armour": MARK_OFFICER}
+#: The three KDF carriers' marks (GH-943 batch 3). Each hull is a Meshy remesh whose roof is a few huge triangles, so the
+#: boxes are sized on TEXEL area (`measure`), never by centroid. Roofs and flanks, in metres, X forward:
+#:
+#: - `ifv_namer`: the roof is flat at y 3.1. The two hatches stand at x -2.9..-1.8 and the remote weapon station's ring
+#:   at x 0.3..1.5, so the panel takes the clear deck between them (x -1.7..0.0, |z| <= 0.75, which also stays inside
+#:   the sensor mast kit part at z 0.78..1.12). The band is the hull's upper flank FORWARD of the baked vision-block
+#:   windows (x -2.6..0.9; the first cut, x -1.6..-0.05, painted across them), x 1.0..1.95, above the tier-2 skirt
+#:   plates (y 1.89..2.41) and clear of every kit vertex.
+#: - `apc_eitan`: the roof is flat at y 2.6-2.7. The rear hatch panels and the sensor mast (x < -2.8) are clear, the
+#:   station (x -1.1..0.6) is clear, so the panel sits between them (x -2.65..-1.4, |z| <= 0.65); the band is the plain
+#:   flank above the first two arches.
+#: - `apc_kipod`: the roof is flat at y 2.9-3.1 with the station on a raised ring at x -1.7..-0.6 and rear hatches at
+#:   x < -2.4, so the panel goes FORWARD of the station (x 0.2..1.3, |z| <= 0.8, short of the periscope kit part at
+#:   x 1.38); the band is the flank beneath it, clear of the protruding side box at x -0.7..0.1.
+MARK_NAMER = dict(
+    roof=dict(x=[-1.70, 0.00], z_half=0.75, y=[2.95, 3.30], min_ny=0.60),
+    band=dict(x=[1.00, 1.95], y=[2.45, 2.85], min_nz=0.60),
+    exclude_uv=[[0.07832, 0.05054], [0.44395, 0.71655], [0.59082, 0.57983]],
+    exclude_radius=0.0002,
+    edge_px=1.0,
+)
+MARK_EITAN = dict(
+    roof=dict(x=[-2.65, -1.40], z_half=0.65, y=[2.50, 2.85], min_ny=0.60),
+    band=dict(x=[-2.45, -1.55], y=[2.20, 2.50], min_nz=0.60),
+    exclude_uv=[[0.41738, 0.94897], [0.44551, 0.30835], [0.67207, 0.73999]],
+    exclude_radius=0.0002,
+    edge_px=1.0,
+)
+MARK_KIPOD = dict(
+    roof=dict(x=[0.20, 1.30], z_half=0.80, y=[2.80, 3.20], min_ny=0.60),
+    band=dict(x=[0.15, 1.30], y=[2.35, 2.75], min_nz=0.60),
+    exclude_uv=[[0.3627, 0.86499], [0.38145, 0.96069], [0.6002, 0.44312]],
+    exclude_radius=0.0002,
+    edge_px=1.0,
+)
+
+MARKS = {"mbt_lavi": MARK, "mbt_lavi_camo": MARK_CAMO, "officer_armour": MARK_OFFICER,
+         "ifv_namer": MARK_NAMER, "apc_eitan": MARK_EITAN, "apc_kipod": MARK_KIPOD}
 PARTS = ("hull_hull", "hull_rubber", "turret_hull", "turret_metal")
 MARK_ROLES = ("hull_hull", "turret_hull")  # `rl_role` hull meshes; everything else is untouched
 
+#: The carriers' meshes: no turret body, a station on a pivot (`turret_metal`, `turret_plate`). Only `hull_hull` has the
+#: `hull` role, so only it carries the mark; the station and the tyres are other roles.
+CARRIER_PARTS = ("hull_hull", "hull_rubber", "turret_metal", "turret_plate")
+CARRIER_ROLES = ("hull_hull",)
+CARRIERS = ("ifv_namer", "apc_eitan", "apc_kipod")
 
-def load_parts(glb_path):
+
+def parts_of(vehicle):
+    """The mesh names measured for `vehicle`."""
+    return CARRIER_PARTS if vehicle in CARRIERS else PARTS
+
+
+def roles_of(vehicle):
+    """The measured meshes that carry the mark (`rl_role` hull)."""
+    return CARRIER_ROLES if vehicle in CARRIERS else MARK_ROLES
+
+
+def load_parts(glb_path, names=PARTS):
     g = Glb(glb_path)
     parts = []
-    for name in PARTS:
+    for name in names:
         pos, nrm, uv, tri = g.primitive(name)
         t = g.node_translation(name)
         # Mesh-local -> hull frame. The turret's node chain nets to the identity
@@ -173,7 +232,7 @@ def mask_np(P, N, mark=None):
     return roof | band
 
 
-def triangle_fraction(parts, mark_def, luma_img=None):
+def triangle_fraction(parts, mark_def, luma_img=None, roles=MARK_ROLES):
     """The mark's share of the TRIANGLE area of every live mesh, ADDED GEOMETRY INCLUDED.
 
     `measure` counts texels, and a part UV-pinned to one bake texel (the Ambush Tank's net, the command Lavi's
@@ -190,7 +249,7 @@ def triangle_fraction(parts, mark_def, luma_img=None):
         n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
         area = 0.5 * np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
         total += float(area.sum())
-        if p["name"] in MARK_ROLES:
+        if p["name"] in roles:
             hit = mask_np(t.mean(axis=1), n, mark_def)
             marked += float(area[hit].sum())
             if luma_img is not None and hit.any():
@@ -205,12 +264,14 @@ def triangle_fraction(parts, mark_def, luma_img=None):
 
 #: Which count a vehicle DECLARES as `team_fraction`. The Lavi keeps the texel share it shipped with (PR 958); a
 #: variant declares the triangle share, the only one that sees the geometry it adds.
-BASIS = {"mbt_lavi": "texel", "mbt_lavi_camo": "triangle", "officer_armour": "triangle"}
+BASIS = {"mbt_lavi": "texel", "mbt_lavi_camo": "triangle", "officer_armour": "triangle",
+         "ifv_namer": "texel", "apc_eitan": "texel", "apc_kipod": "texel"}
 
 
 def measure(glb_path, kit_path, size=SIZE, vehicle="mbt_lavi"):
     mark_def = MARKS[vehicle]
-    parts = load_parts(glb_path)
+    names, roles = parts_of(vehicle), roles_of(vehicle)
+    parts = load_parts(glb_path, names)
     g = Glb(glb_path)
     r = rasterise(parts, size)
     ys, xs, bary, tri, meta = r["ys"], r["xs"], r["bary"], r["tri"], r["meta"]
@@ -229,7 +290,7 @@ def measure(glb_path, kit_path, size=SIZE, vehicle="mbt_lavi"):
         P[sel] = b[0][:, None] * p["pos"][c[:, 0]] + b[1][:, None] * p["pos"][c[:, 1]] + b[2][:, None] * p["pos"][c[:, 2]]
         N[sel] = b[0][:, None] * p["nrm"][c[:, 0]] + b[1][:, None] * p["nrm"][c[:, 1]] + b[2][:, None] * p["nrm"][c[:, 2]]
     N /= np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-12)
-    carries = np.isin(part, [PARTS.index(x) for x in MARK_ROLES])
+    carries = np.isin(part, [names.index(x) for x in roles])
     mask = mask_np(P, N, mark_def) & carries
     # texel surface area = |Pu x Pv| / size^2 per triangle
     area_tri = []
@@ -281,7 +342,7 @@ def measure(glb_path, kit_path, size=SIZE, vehicle="mbt_lavi"):
                     kit_uvs.add((round(float(uv[0]), 5), round(float(uv[1]), 5)))
         if kit_uvs != pinned:
             raise SystemExit(f"the kit source pins {sorted(kit_uvs)}, MARK excludes {sorted(pinned)} -- review exclude_uv")
-    tri_fraction, tri_marked, tri_total, tri_luma = triangle_fraction(parts, mark_def, luma_img)
+    tri_fraction, tri_marked, tri_total, tri_luma = triangle_fraction(parts, mark_def, luma_img, roles)
     if BASIS[vehicle] == "triangle":
         luma = tri_luma
     texel_fraction = marked / total

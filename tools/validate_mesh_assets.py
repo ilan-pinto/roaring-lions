@@ -1362,8 +1362,12 @@ def texture_census(meshes_root, missions_dir, vehicles_dir=None):
 # `exclude_radius` of a pin: every kit UV in the file must lie inside one.
 MARK_FRACTION_BAND = (0.015, 0.025)
 #: The vehicles that MUST carry a mark: the Lavi (the pilot) and the two variants cut from its hull (the lead, 2 Nov:
-#: the camo Lavi and the officer tank). Pinned against `MARK_RECIPES` (mark-contract.ts) by `mark-pass.test.ts`.
-MARK_REQUIRED = ("mbt_lavi", "mbt_lavi_camo", "officer_armour")
+#: the camo Lavi and the officer tank; 3 Nov: the Namer, Eitan and Kipod). Pinned against `MARK_RECIPES` (mark-contract.ts) by `mark-pass.test.ts`.
+MARK_REQUIRED = ("mbt_lavi", "mbt_lavi_camo", "officer_armour", "ifv_namer", "apc_eitan", "apc_kipod")
+#: The marked vehicles that KEEP their shipped normal map (the carriers': real baked detail, GLTFLoader binds it). The rest
+#: of the marked fleet ships base colour alone. Pinned against `MARK_RECIPES[id].keepNormal` (mark-contract.ts) by
+#: `mark-pass.test.ts`. The metal-roughness map is dropped everywhere: it was flat.
+MARK_KEEPS_NORMAL = ("ifv_namer", "apc_eitan", "apc_kipod")
 
 
 def check_team_marks(vehicles_root, required=MARK_REQUIRED):
@@ -1409,11 +1413,16 @@ def check_team_marks(vehicles_root, required=MARK_REQUIRED):
         for uv in stray:
             failures.append(f"mark: {name}: a kit part is pinned at uv {uv}, which no exclusion pin covers: the mark would paint it")
         extra = [t.get("name") for t in js.get("images", []) if t.get("name") in ("normal", "orm", "metallic_roughness")]
+        keeps = name in MARK_KEEPS_NORMAL
+        if keeps and not any(t.get("name") == "normal" for t in js.get("images", [])):
+            failures.append(f"mark: {name} has lost its normal map, which it must keep (MARK_KEEPS_NORMAL: real baked detail)")
+        extra = [n for n in extra if not (keeps and n == "normal")]
         if extra:
-            failures.append(f"mark: {name} carries {extra}: the L3 pilot ships base colour alone (the maps were dropped)")
+            failures.append(f"mark: {name} carries {extra}: it ships {'its normal map and ' if keeps else ''}base colour alone (the other maps were dropped)")
         real = [p for p in pins if all(0.0 <= c <= 1.0 for c in p)]  # a kit-less vehicle's pins are NO_PIN (UV -1,-1)
         basis = mark.get("team_fraction_basis", "texel")
-        lines.append(f"{name}: team mark {fraction * 100:.2f}% of the {basis}-measured surface, {len(real)} kit pin(s) excluded, no texture of its own")
+        lines.append(f"{name}: team mark {fraction * 100:.2f}% of the {basis}-measured surface, {len(real)} kit pin(s) excluded, no texture of its own"
+                     f"{', normal map kept' if keeps else ''}")
     return failures, lines
 
 
