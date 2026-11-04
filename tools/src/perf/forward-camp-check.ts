@@ -88,9 +88,17 @@ async function main(): Promise<void> {
     page.on('console', (m) => {
       if (m.type() === 'error') errors.push(`console: ${m.text()}`);
     });
-    await page.goto(`http://localhost:${PORT}/?sandbox=${MAP}&works`, { waitUntil: 'load', timeout: 120_000 });
+    // A cold dev server compiles the whole app on the first load, and this machine is shared: the waits are generous, and a
+    // timeout says what the page printed instead of only that it timed out.
+    await page.goto(`http://localhost:${PORT}/?sandbox=${MAP}&works`, { waitUntil: 'load', timeout: 600_000 });
     await page.mouse.move(2, 2);
-    await page.waitForFunction(() => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined', null, { timeout: 120_000 });
+    try {
+      await page.waitForFunction(() => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined', null, { timeout: 600_000 });
+    } catch (e) {
+      console.log(`FAIL  the page never defined __lions; url ${page.url()}; errors so far ${JSON.stringify(errors.slice(0, 6))}`);
+      await shot(page, '00-boot-timeout.png');
+      throw e;
+    }
     await sleep(5000); // meshes and the first frames
     const gl = await page.evaluate(() => {
       const c = document.createElement('canvas').getContext('webgl2');
