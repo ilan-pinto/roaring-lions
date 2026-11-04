@@ -1506,9 +1506,13 @@ export class MissionRuntime {
   }
 
   /** GH-277 follow-on: open a production line at the tail of side 0's lines, anchored to the completed
-   *  structure `s`. Idempotent per structure. Returns whether a line was added. */
+   *  structure `s`. Idempotent per structure. Returns whether a line was added. Throws at the cap: `worksReason` counts the
+   *  slot of every work in flight (`no_line_slot`), so a completing work always has one, and silence here would hide a wiring fault. */
   private appendLine(s: number): boolean {
-    if (this.appendedAnchors.includes(s) || this.lines[0].length >= MAX_PRODUCTION_LINES) return false;
+    if (this.appendedAnchors.includes(s)) return false;
+    if (this.lines[0].length >= MAX_PRODUCTION_LINES) {
+      throw new Error(`mission ${this.mission.id}: a production work completed with side 0 already at ${MAX_PRODUCTION_LINES} lines`);
+    }
     this.lines[0].push({ side: 0, anchor: s, queue: [], current: null, ticksLeft: 0, rally: null });
     this.appendedAnchors.push(s);
     return true;

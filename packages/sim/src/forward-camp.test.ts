@@ -264,6 +264,17 @@ describe('the line cap (gate 6)', () => {
   });
 });
 
+describe('appendLine fails loudly at the cap', () => {
+  it('a work that completes with side 0 already at four lines throws, instead of opening nothing', () => {
+    // Constructed input: three authored camps and one work in flight (the fourth slot), then a stray line pushed in before it completes.
+    const w = world({ camps: [[2, 2], [2, 8], [2, 14]] });
+    expect(w.rt.requestConstruct('fwd_camp', FWD_PAD[0], FWD_PAD[1])).toBe(true);
+    w.step(100);
+    (priv(w.rt).lines as unknown[][])[0].push({ side: 0, anchor: -1, queue: [], current: null, ticksLeft: 0, rally: null });
+    expect(() => w.step(60)).toThrow(/already at 4 lines/);
+  });
+});
+
 describe('the enemy line table is not touched (gate 8, D7)', () => {
   it('completing a work appends to side 0 alone: side 1 has no line and no cursor', () => {
     const w = raised();

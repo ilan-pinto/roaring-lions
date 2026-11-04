@@ -809,8 +809,6 @@ maps) and stays reachable from a test and `pnpm versus:probe -- --mode=camp` onl
   public by design, like the score of a race; no unit is named. The bot prompt (`win-rule.ts`) swaps in the raid rule and what to
   defend, and its points fallback now says the cap goes to the higher score.
 
-- **Not done in P2:** the arena setup screen has no mode control (the CLI has); `camp` stays unoffered; at the cap a mode room is still
-  decided on surviving value, not points (lead decision, P1 item 3).
 
 ## Production works: the forward camp (GH-277 follow-on, 4 Nov 2026)
 
@@ -840,7 +838,7 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   carries `produces_for` (it would be the convoy rear), names a role no KDF unit has, or is placed by a mission's `structures[]`.
 - **What it is not.** Never the rear (`produces_for` stays camp-only, so `productionAnchor`, `syncRear`, demolition and the AI are
   untouched), pays no income, is captured by nobody, is not on the enemy's line table (`lines[1]`, `enemyLast` do not grow: D7), and is
-  off in versus (`raiseWorks` from a side-1 seat is dropped in `applyQueued`). Fog: an owned structure is a target once the enemy has seen it.
+  off in versus (`raiseWorks`/`cancelWorks` are dropped for every versus room in `packages/net/src/ownership.ts`, and `applyQueued` refuses them from any side but 0). Fog: an owned structure is a target once the enemy has seen it.
 - **Snapshot.** `restoreAppendedLines` makes the tail in the restore's apply step, before the line records merge in place; the plan decodes
   against placeholders and `checkAppended` refuses an anchor that is not a complete production work, a repeat, or too many. The witness
   world is `runtime-forward-world.test-helper.ts` (a TEST work with `roles` and `build_time_mult` set, so both paths run); it is the only

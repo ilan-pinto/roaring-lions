@@ -351,6 +351,7 @@ export function run(
         string,
         | {
             faction: string;
+            role?: string;
             unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number };
             cost: { logistics: number; build_time_s?: number; population?: number };
           }
@@ -361,6 +362,8 @@ export function run(
         logistics: d.cost.logistics,
         buildTimeS: d.cost.build_time_s ?? 20,
         population: d.cost.population ?? 1,
+        // GH-277: a production work's `production.roles` reads it.
+        ...(d.role === undefined ? {} : { role: d.role }),
         // `bought` resolved here as in `main.ts`'s `kdfUnlockGate`: `requestBuild` reads THIS
         // gate through `buildBlockedReason`, so without it a purchase opened `resolveUpgrades`
         // and stayed closed to the build queue.
