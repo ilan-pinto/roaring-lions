@@ -64,6 +64,7 @@
     "stills:cinematics": "tsx src/perf/cinematic-stills.ts",
     "plates:units": "tsx src/perf/unit-plates.ts",
     "kit:capture": "tsx src/perf/kit-captures.ts",
+    "gun-out:mock": "tsx src/perf/gun-out-mock.ts",
     "inf-kit:capture": "tsx src/perf/inf-kit-capture.ts",
     "vdmg:capture": "tsx src/perf/vehicle-damage-captures.ts",
     "closeups:garage": "tsx src/perf/garage-closeups.ts",
