@@ -65,7 +65,7 @@ import { pathToFileURL } from 'node:url';
 import { MAX_CALLSIGN_CHARS, type WinMode } from '@lions/net';
 import { joinRoom, JoinRefused } from './agent';
 import { buildId } from './build-id';
-import { readScoreFile, refereeMarkdown, rubricText, scoresMarkdown, type ScoreOutcome } from './match-score';
+import { readScoreFile, refereeMarkdown, replyFormat, rubricText, scoresMarkdown, type ScoreOutcome } from './match-score';
 import { HARNESS_AGENT, HARNESS_TSX, parseTemplate, standingPrompt, tempRoot, tokensOf, type SpawnFn } from './external-player';
 import { MODE_FLAG_VALUES, modeFlag } from './win-rule';
 
@@ -291,6 +291,8 @@ export const ENTRYPOINT_WARNING = 'bot: CLAUDE_CODE_ENTRYPOINT is set, so this s
 
 /** The scoring rubric, as the addendum states it (one copy: `match-score.ts`). */
 const RUBRIC = rubricText();
+/** The exact `submit_score` argument object (one copy: `match-score.ts`'s `replyFormat`), which a test submits to the validator. */
+const SCORE_SHAPE = replyFormat();
 /**
  * What `pnpm bot` adds to the standing prompt, for a bot seat only (the arena
  * reads `arena-prompt.md` alone). The model's FINAL message is saved as the
@@ -319,6 +321,12 @@ When the match is over (\`status\` shows a result, or an acting tool answers \`m
 
 1. Call \`match_stats\`. It gives the referee's numbers for BOTH seats (deaths, wounded who fell, were rescued or died, value lost and destroyed, idle time, orders, a timeline), with no fog. It answers \`match not over\` until there is a result.
 2. Call \`submit_score\` with a score for BOTH players, yourself included (\`seat0\` and \`seat1\`, as numbered in \`match_stats\`; you are the seat in your prompt). Each has the five criteria and an \`overall\`, each \`{score, reason}\`. Be honest: score how each player played against the numbers, not who won, and do not flatter yourself. If \`submit_score\` refuses, it lists every problem: fix them and submit again.
+
+The arguments of \`submit_score\` are exactly this one JSON object (the keys \`seat0\` and \`seat1\` at the top level, not wrapped in another key and with no others; every \`score\` a whole number, every \`reason\` a string; the 6s and the reasons are placeholders):
+
+\`\`\`json
+${SCORE_SHAPE}
+\`\`\`
 
 ${RUBRIC}
 

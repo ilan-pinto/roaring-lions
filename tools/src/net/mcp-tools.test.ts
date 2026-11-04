@@ -391,7 +391,7 @@ describe('observe respects the seat\'s fog (case 4)', () => {
 });
 
 describe('an order record hides what the seat can no longer see', () => {
-  it('a unit that died since the order is no longer named (gone), and an attack target that left sight reads out of sight', async () => {
+  it('a unit that died since the order reads as lost (died), and an attack target that left sight reads out of sight', async () => {
     const { loop, a, c } = await twoSeats();
     const ctx = createContext(a.client, 'command');
     await play(loop, 10, [a.client, c.client], () => a.client.tick() >= 5 && c.client.tick() >= 5);
@@ -438,8 +438,10 @@ describe('an order record hides what the seat can no longer see', () => {
     expect(w.sim.state.alive[enemy]).toBe(1);
     expect(view.contacts.map((u) => u.id)).not.toContain(enemy);
     const after = await record();
-    expect(after).toMatchObject({ ids: [mine], gone: 1, target: 'out of sight' });
-    expect(idsIn(after)).toEqual([mine]);   // no id-naming key carries the dead unit or the fogged target
+    // The dead unit is OURS, so its id and its fate are the seat's own (the 4 Nov bot report, item 2): `lost`, not a bare `gone`.
+    expect(after).toMatchObject({ ids: [mine], lost: [{ id: spare, fate: 'died' }], target: 'out of sight' });
+    expect(after).not.toHaveProperty('gone');
+    expect(idsIn(after)).toEqual([mine, spare]);   // no id-naming key carries the fogged target
     expect(a.client.transport.stats().desyncTick).toBeNull();
   });
 });
