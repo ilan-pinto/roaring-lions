@@ -47,6 +47,12 @@
     { "unit": "recon_drone", "count": 1, "at": [24, 43] },
     { "unit": "inf_medic_squad", "count": 1, "at": [24, 44] }
   ],
+  "field_works": {
+    "kdf_medic_station": 1,
+    "kdf_outpost": 1,
+    "kdf_workshop": 1,
+    "kdf_intel_centre": 1
+  },
   "resources": {
     "logistics_start": 500,
     "logistics_rate_per_min": 150,
