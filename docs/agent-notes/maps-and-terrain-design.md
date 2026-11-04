@@ -379,3 +379,111 @@ per-tile structures, design decision 7) and the JS ceiling, then re-read perf an
 +2.90, medium z1 +3.15; the seats +0.60 and +0.85; JS 153.9 MiB against 153. What is left is TRIANGLES: the redo draws 5.2 M more
 than the 48x48 (walls 1.59 M of them: 3,010 a tile, three passes), at about 0.65 ns each. The levers are a wall LOD, fewer or
 cheaper houses and sheds, and the 0.9 MiB of JS, in that order of size; none is done.
+
+## Rujm Sawda, REDONE (GH-974, 4 Nov 2026): STAGED, not offered
+
+The second map built on `_coord/versus-maps-design/design.md` (Milh Flats (large) was the first, above). The design's order puts Rujm
+Sawda next: it is offered for the mirror, it was 0.8% built, and it had walled wells and a generator to build on. **It is STAGED,
+not shipped.** `data/maps/rujm_sawda.json` and `data/versus/rujm_sawda.json` are byte for byte main's. The redo is in
+`docs/campaign/staged_maps/rujm_sawda_redo/{map,versus}.json`, written by `tools/maps/rujm_sawda_redo/build.mjs` (`--check` exits 0; `--print`
+and `--print-elev` draw it); its JSON carries the id `rujm_sawda`, so opening it is a file copy plus the pins below. Its rules file is
+the shipped one to the byte (same seats, camps, three tunnel routes an end, eleven income zones paying 360 a minute), because the
+redo changes the ground and leaves the economy to a KDF v Sarim room.
+
+**It is drawn to a triangle budget.** PR 1001 found that the cost of a town is TRIANGLES, not draw calls, so the plan was drawn
+counting them (`tools/src/map_triangles.ts`; `cd tools && ./node_modules/.bin/tsx src/map_triangles.ts staged:rujm_sawda_redo rujm_sawda milh_flats`):
+
+| One structure, standing mesh (Python parse of `art/meshes/buildings`, `decor/ditch_0.glb`) | Triangles | In a frame (x3 passes) |
+|---|---|---|
+| wall tile | 3,087 | 9.3k |
+| shanty (a shed) / concrete block / pump house | 7,157 / 7,155 / 7,594 | 21.5k / 21.5k / 22.8k |
+| house (two floors) | 39,016 (12.6 walls) | 117k |
+| fence tile | 19,616 (6.4 walls) | 59k |
+| ditch tile (`d`) | 38,240 | 115k |
+
+So the plan has no ditch and no concrete, one two-floor house on each bank of the town, one-floor sheds in the wells, and its walls are
+the cheapest thing that blocks. The bar is the 48x48 control (`milh_flats`, the map the +0.5 ms budget is read against): in the centre
+48x48 window and in the DENSEST 48x48 window anywhere, the redo's structures draw no more triangles in one pass than the control's
+whole map (694,926). `LargeMapSpec.triangles` holds that and a test makes it fail with eight houses in the centre.
+
+| Structure triangles a pass | Whole map | Centre 48x48 | Densest 48x48 | Predicted frame cost against the control (x3 passes x 0.65 ns) |
+|---|---|---|---|---|
+| 48x48 control (`milh_flats`) | 694,926 | 694,926 | 694,926 | 0 |
+| Rujm Sawda, shipped | 659,596 | 133,092 | 351,706 (0,3) | -1.1 ms centre |
+| **Rujm Sawda, redone** | **807,760** | **408,692** | **529,631 (25,4)** | **-0.56 ms centre, -0.32 ms densest** |
+| Milh Flats (large), redone (measured +3.40 ms) | 2,591,000 | 2,429,000 | 2,463,000 | +3.4 ms centre (5.2 M frame triangles over the control) |
+
+The redo adds 148k a pass over the whole map and 276k at the centre to what Rujm Sawda already draws (0.44 M and 0.83 M a frame, about
++0.54 ms at the centre by the 0.65 ns rule). It stays UNDER the control everywhere. A caveat from the first Milh build: its centre bill
+was the control's within 2%, and it still read +0.45 to +0.75 ms against the 48x48 (a large map shows more ground), so the structure term
+here is -0.56 and the unexplained large-map term is a measurement for the budget step, not a prediction. The redo uses the same four
+mesh types the shipped map does (wall, house, shanty, pump house), so the building-texture GPU memory does not grow. **The sim holds 256
+structures and every wall tile is one:** the redo stands 222 (208 walls, 14 buildings), 34 under the cap, and the test pins both numbers.
+
+What the redo is (the plan, against the design's principles; the skeleton is the shipped map's):
+
+- **A wadi that is a lane.** The shipped bed was a one-level dip with an open floor. The redo's is five tiles of scree (`b`) at level 0 on a
+  plain at level 2, so each bank is a 2-LEVEL cliff (172 bed-bank pairs, each exactly two levels) and a rifleman in the bed is hidden from
+  the plain; vehicles cannot enter it. It keeps the S-curve (amplitude 3.2, period 104 along `x - y`) and the three fords (`x - y` at 0 and
+  +-27), each a gap of five `x - y` values with a level-1 ramp tile on each bank. A house on the lip has eyes (`floors - 1` levels) into it.
+- **Bir Sawda, a town at the centre ford.** Four six-tile walled yards (16 wall tiles each, two two-tile gates facing the road): A north-east
+  of the road and B south-west of it on seat 0's bank, their half-turns on seat 1's. A holds the two-floor house, on the lip over the ford,
+  and a shed; B a shed and a pump house. 64 wall tiles, 2 houses, 4 sheds, 2 pump houses; 24 building tiles, 3.6% of the `town` zone
+  (27,27,26,26), which is the new zone the visibility gate holds to 85%. The main road runs between the yards, 5 or more tiles off every corner.
+- **Tells with bare slopes.** A stepped hill (one level a tile on a 45-degree line, so no 2x2 staircase), a crown of 8 rock tiles at level 5
+  and a ring of 12 knoll at level 4, then open ground at 3: nothing grows on the slope. The shipped tell was a field of cover-2 knoll blocks.
+- **Octagon mesas.** A crown of 8 rock tiles at level 6, a plateau at 5, a skirt at 4 and a scree ring at 3 that runs off BOTH map edges (so
+  the NE corner is a closed pocket and the ring is the seal), with a west and a south ramp. The shipped mesas were discs drawn on 2x2
+  cells, which is where its 26 fat stairs came from; the redo reads 0 (the exemption `maxFatStairs: 26` is not carried).
+- **The funnel.** Two jagged strips of scree (`b`, level 2: a wall to wheels, open ground to a man on foot) beside the main road from the
+  shelf's lip to the town, an unbroken core of two tiles and a hashed fringe. Armour on the centre road is committed; infantry walk over.
+- **Cover** 10.75% (band 10-14%), scrub belts on the foot lanes and acacia along the cliff lip, never cover 3, none on the armour lanes
+  (the road, the ford tracks) and none inside a yard. The wells keep their walled 8x8 yards and gates but hold a one-floor shed where the
+  shipped map had a two-floor house; they now read 97.2% / 94.4% against the 92% scoring cap (the shipped wells read 91.7%).
+- **The seal.** The bed, the three fords and the two mesas are one line from corner to corner. A vehicle crosses at a ford or over a mesa
+  and nowhere else (`large_map_verify.ts`: all plugged, no route; the centre ford alone 800, the inner fords 966, the mesas 1,192, each
+  equal both ways). A hole in the bed turns it red. A hole in a mesa's ring does not: the plug covers the whole mesa rectangle, so only the
+  bed can leak (the test does not claim otherwise).
+
+The versus visibility gate reads it at **99.75% whole map, 100% corridor, 98.6% town, 100% centre, 0.75% built, houses 17%**. The spec
+(`SPECS.rujm_sawda_redo`) holds a `towns: ['town']` list, so it is OUT of the exempt set (which stays the three offered maps) and the
+built-share cap is 1%.
+
+### What B4 read on the redo (mirror only, 4 Nov 2026)
+
+`versus:probe --maps=rujm_sawda --arr=kdf/kdf,sarim/sarim --cap=2100` on the staged geometry (copied over the data paths in a SCRATCH
+worktree, sha256 `917460716f3f...` for the map, `6dd0c6826c9b...` for the rules), placed forces, on the base `d1c2c2649` (an arena commit
+past the branch's: no sim change). The geometry was read once on seeds 0-191 and once on the held-out 4000-4287; no lever was pulled.
+
+| Cell (west / east, east share) | 0-191 | held-out 4000-4287 | pooled 480 | the SHIPPED map, same seeds |
+|---|---|---|---|---|
+| KDF v KDF (the offered cell) | 88 / 104 (east 54.2%) | 135 / 153 (east 53.1%) | 223 / 257 (**east 53.5%**) | 241 / 239 (west 50.2%) |
+| Sarim v Sarim (report only) | 85 / 107 (east 55.7%) | 136 / 152 (east 52.8%) | 221 / 259 (east 54.0%) | 240 / 240 (50.0%) |
+
+Inside 60/40 on both reads. The redo leans east by about 3.5 points where the shipped map reads even; at 480 games the standard error is
+2.3 points, so that is 1.5 sigma, a lean to watch and not a finding. Not re-read: one-tile seat shifts, S4 formations, the economy and
+tunnel cells (the redo changes none of the economy, but its ground is new: a KDF v Sarim opening needs them), and the lane probe of design
+section 4. **Formations are OPEN on `rujm_sawda`** (`VERSUS_FORMATIONS_CLOSED_MAPS` holds only `wadi_tarfan_l`; the shipped geometry passed
+its own S4 on 3 Nov), so a file-copy swap would open an unchecked geometry with formations on: in the same commit either re-run S4 on fresh
+seeds (`pnpm s4:gate` over `versus:probe --per-seed` files) or add `rujm_sawda` to `VERSUS_FORMATIONS_CLOSED_MAPS`.
+
+### Opening it (what the swap changes)
+
+A file copy of the staged map over `data/maps/rujm_sawda.json` (the rules file is already identical), the redo's generator in place of
+`tools/maps/rujm_sawda/build.mjs`, `SPECS.rujm_sawda_redo` under `rujm_sawda` in `large_map_verify.ts` (and its test file's registration
+block), and the pins the new data moves. A full `pnpm test` on the copied data (4 Nov, scratch worktree, nothing else changed) reads
+exactly these 14 tests in 7 files red, and nothing else:
+
+- `terrain-defaults.test.ts`: the `rujm_sawda` digest in `terrain-defaults.fixture.json`;
+- `high_ground_maps.test.ts`: the `rujm_sawda` rise count and the relief total;
+- `presentation_census.test.ts` (Rujm block, 4 tests): the slope counts a seat, the x-flip mutation's 16.6% / 307 and the half-turn control;
+- `rujm_sawda.test.ts` (5 tests) and `large_map_verify.test.ts` ("Rujm Sawda passes every check, its mesas' 26 staircases"): the shipped map's own
+  landmarks, verifier and 26-step exemption become the redo's, which is `rujm_sawda_redo.test.ts` with the registration block put back;
+- `map_visibility.test.ts`: the report-only reading "its four walled wells read 91.7%" is gone (they read 97.2% / 94.4%);
+- `map_lib_mutations.test.ts`: the library control that rebuilds the shipped Rujm files from `tools/maps/lib`.
+
+`snapshot-rejoin`, `versus_maps`, `ambience`, `crown-summit` and the Free Play card line did not move. The Free Play line for Rujm Sawda
+should still be read against the redo's description. **Before opening:** S4 or the `VERSUS_FORMATIONS_CLOSED_MAPS` entry (above); the budget
+step (`perf:fx` at the centre and a seat, `perf:memory`; no new mesh type, so no GPU growth is expected); `pnpm net:budget` at 222 structures;
+the tick probe for `recomputeFields('opened')` when a wall is destroyed; the lane probe; and, for a KDF v Sarim opening, the economy and
+tunnel cells on the new ground.

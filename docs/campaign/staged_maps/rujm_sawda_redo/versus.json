@@ -1,0 +1,126 @@
+{
+  "id": "rujm_sawda",
+  "map": "rujm_sawda",
+  "capacity": 512,
+  "cap_minutes": 35,
+  "ends": {
+    "friendly": {
+      "camp": {
+        "at": [8, 8],
+        "size": [2, 2]
+      }
+    },
+    "hostile": {
+      "camp": {
+        "at": [70, 70],
+        "size": [2, 2]
+      }
+    }
+  },
+  "tunnels": {
+    "friendly": [
+      {
+        "id": "rs_f_well",
+        "points": [
+          [19, 10],
+          [27, 9],
+          [32, 8]
+        ],
+        "capacity": 2
+      },
+      {
+        "id": "rs_f_tell",
+        "points": [
+          [20, 21],
+          [31, 23],
+          [41, 24]
+        ],
+        "capacity": 2
+      },
+      {
+        "id": "rs_f_centre",
+        "points": [
+          [21, 17],
+          [28, 26],
+          [34, 31]
+        ],
+        "capacity": 2
+      }
+    ],
+    "hostile": [
+      {
+        "id": "rs_h_well",
+        "points": [
+          [60, 69],
+          [52, 70],
+          [47, 71]
+        ],
+        "capacity": 2
+      },
+      {
+        "id": "rs_h_tell",
+        "points": [
+          [59, 58],
+          [48, 56],
+          [38, 55]
+        ],
+        "capacity": 2
+      },
+      {
+        "id": "rs_h_centre",
+        "points": [
+          [58, 62],
+          [51, 53],
+          [45, 48]
+        ],
+        "capacity": 2
+      }
+    ]
+  },
+  "income_zones": [
+    {
+      "zone": "home_0",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "home_1",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "well_n_0",
+      "rate_per_min": 30
+    },
+    {
+      "zone": "well_w_0",
+      "rate_per_min": 30
+    },
+    {
+      "zone": "well_s_1",
+      "rate_per_min": 30
+    },
+    {
+      "zone": "well_e_1",
+      "rate_per_min": 30
+    },
+    {
+      "zone": "tell_ne",
+      "rate_per_min": 30
+    },
+    {
+      "zone": "tell_sw",
+      "rate_per_min": 30
+    },
+    {
+      "zone": "mesa_ne",
+      "rate_per_min": 40
+    },
+    {
+      "zone": "mesa_sw",
+      "rate_per_min": 40
+    },
+    {
+      "zone": "centre",
+      "rate_per_min": 60
+    }
+  ]
+}
