@@ -25,6 +25,7 @@ import type { ReplayDigest, ReplayEnd } from '../../../packages/app/src/net/repl
 import type { GameBody, JudgeBody, ResultsBody, RunBody, UsageBody } from '../../../packages/app/src/net/arena-results-api';
 import type { ApiRoute } from './arena-serve';
 import { displayName } from './arena-frames';
+import { runFieldsOf } from './arena-record';
 import { sumUsage, usageTotals, type GameRecord } from './arena-score';
 import type { Usage } from './external-player';
 import { CRITERIA } from './match-score';
@@ -188,6 +189,8 @@ export function listResults(o: ResultsOptions): ResultsBody {
         costUsd: spent?.costUsd ?? null,
         digest: referee === null ? null : { referee, watcher, agree: watcher === null ? null : watcher.tick === referee.tick && watcher.hash === referee.hash },
         buildMatches: peek?.build == null ? null : peek.build === build,
+        // GH-954 P1: from the record itself, all five or null (an older record). Never read from the frames file or guessed.
+        terms: runFieldsOf(r),
       };
     });
     const t = usageTotals(records);

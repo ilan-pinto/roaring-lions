@@ -6,6 +6,7 @@ import type { ArenaDeps } from './arena';
 import { createArenaControl, parseStartBody, TOKEN_ENV, type ArenaControl } from './arena-control';
 import { parsePresets } from './arena-presets';
 import type { GameRecord } from './arena-score';
+import { RUN_FIELDS } from './score-fixture';
 import { startArenaServe, type ArenaServe } from './arena-serve';
 
 const RUN_TOKEN = 'a-long-random-run-token';
@@ -105,7 +106,7 @@ interface Rig {
   stopReleases: boolean;
 }
 const record = (): GameRecord => ({
-  seed: 1000, map: 'tel_marum', matchup: 'mirror', players: ['rush', 'opus-5.5'], factions: ['kdf', 'kdf'], outcome: 'seat0', by: 'cap', ticks: 400,
+  ...RUN_FIELDS, seed: 1000, map: 'tel_marum', matchup: 'mirror', players: ['rush', 'opus-5.5'], factions: ['kdf', 'kdf'], outcome: 'seat0', by: 'cap', ticks: 400,
   score: [{ lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remaining: 1 }, { lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remaining: 1 }],
   reports: [{ tokens: null, timeouts: 0, errors: [] }, { tokens: 120, usage: { inputTokens: 100, outputTokens: 20, cacheCreationInputTokens: 30, cacheReadInputTokens: 40, costUsd: 0.5 }, timeouts: 0, errors: [] }],
 });

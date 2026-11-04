@@ -14,6 +14,9 @@ export function playerScore(n: number, tag = ''): PlayerScore {
 
 export const validScores = (a = 7, b = 4): ScoreSet => ({ seat0: playerScore(a, 'seat 0'), seat1: playerScore(b, 'seat 1') });
 
+/** The five run fields every new `GameRecord` carries (GH-954 P1): fixed values, for a fake record. */
+export const RUN_FIELDS = { build: '0.0.0+abcdef0', pace: 40, roundWallMs: 1500, capTicks: 6000, promptDigest: 'f'.repeat(64) } as const;
+
 type Loose = { [key: string]: unknown };
 
 /** A deep copy as loose JSON, which a spec may break one field of with `setPath` / `delPath`. */

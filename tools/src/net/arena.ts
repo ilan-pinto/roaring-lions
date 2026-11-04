@@ -99,6 +99,7 @@ import { AgentClient } from './agent-client';
 import { displayName, recordGame, writeFrames, type GameFrames } from './arena-frames';
 import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, type GateVerdict, type Tally } from './arena-score';
 import { buildId } from './build-id';
+import { currentPromptDigest } from './arena-record';
 import { capOutcome } from './cap';
 import { JUDGE_PLACEHOLDERS, runJudge, type JudgeJob, type JudgeRecord } from './judge';
 import { startLocalRelay, type LocalRelay, type LocalRelayOptions } from './local-relay';
@@ -558,7 +559,7 @@ export interface RefereeDigest { tick: number; hash: number }
 
 /** One game on its own relay, to a result or the cap. Every player and the
  *  relay are closed before it returns, whatever happened. */
-async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: NonNullable<ArenaDeps['startRelay']>, observe: typeof startObserver, log: (line: string) => void, hooks: GameHooks = {}): Promise<GameRecord> {
+async function playGame(g: GameSpec, a: ArenaArgs, build: string, promptDigest: string, startRelay: NonNullable<ArenaDeps['startRelay']>, observe: typeof startObserver, log: (line: string) => void, hooks: GameHooks = {}): Promise<GameRecord> {
   const relay = await startRelay({
     tickMs: a.tickMs, seedFor: () => g.seed, log,
     ...(a.watch ? { watch: true, lingerMs: WATCH_LINGER_MS } : {}),
@@ -624,6 +625,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     const stats = referee.refereeStats(verdictText(g.names, verdict));
     const record: GameRecord = {
       seed: g.seed, map: a.map, matchup: a.matchup, players: g.names, factions,
+      build, pace: a.pace, roundWallMs: a.roundWallMs, capTicks: a.capTicks, promptDigest,
       outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: bySeat(scoreOf(sim), sides), reports,
       ...(stats === null ? {} : { referee: stats }),
     };
@@ -748,6 +750,10 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
     return fail(1, messageOf(e));
   }
 
+  // GH-954 P1: read before any file is made, so a prompt that cannot be read leaves no empty results file behind.
+  let promptDigest: string;
+  try { promptDigest = currentPromptDigest(); } catch (e) { return fail(1, `could not read the standing prompt: ${messageOf(e)}`); }
+
   // `pnpm --filter` runs this from tools/: a relative path means what it says where the user ran pnpm.
   const dir = resolve(process.env.INIT_CWD ?? process.cwd(), a.out ?? 'arena-results');
   mkdirSync(dir, { recursive: true });
@@ -803,7 +809,7 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
         // A signal's cleanup has begun: no new relay, no new seat.
         if (externalPlayersStopped()) throw new Error('the arena is stopping (a signal): no further game');
         let kept: { r: GameRecord; ref: RefereeDigest; fr: GameFrames } | null = null;
-        const record = await playGame(g, a, build, startRelay, observe, log, {
+        const record = await playGame(g, a, build, promptDigest, startRelay, observe, log, {
           ...hooks,
           onEnd: (r, ref, fr) => {
             // Only kept here: the watcher's replay of the game takes seconds on a long map, and runs below, once the game's

@@ -199,11 +199,16 @@ export function mcpConfig(s: Pick<SeatStart, 'server' | 'origin' | 'code' | 'bui
   };
 }
 
+/** The standing prompt as it is on disk, the placeholders still in it (GH-954: what `promptDigest` hashes). */
+export function readStandingPrompt(): string {
+  return readFileSync(PROMPT_SOURCE, 'utf8');
+}
+
 /** The standing prompt for a seat. It names the SEAT only: since LD1 (N3) a
  *  seat's side follows its faction -- a Sarim host is side 1 -- and the prompt
  *  is written before the room's config exists; `observe` reports the side. */
 export function standingPrompt(s: Pick<SeatStart, 'seat' | 'code'>): string {
-  return readFileSync(PROMPT_SOURCE, 'utf8')
+  return readStandingPrompt()
     .replaceAll('{seat}', String(s.seat))
     .replaceAll('{code}', s.code);
 }

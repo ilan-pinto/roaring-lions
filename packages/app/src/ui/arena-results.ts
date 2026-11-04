@@ -61,6 +61,22 @@ export function judgeWords(j: JudgeBody | null): string {
   return t(JUDGE_STATUS_KEY[j.status]);
 }
 
+/** How much of the prompt digest the line shows: the whole one is in the file. */
+export const DIGEST_SHOWN = 12;
+
+/**
+ * The run's terms in one line (GH-954 P1): build, pace, round wall time, cap and the first characters of the prompt
+ * digest. A run is one command, so its games share them; a game of an older record has none and the line says so
+ * ("older record") rather than showing the others' values for it.
+ */
+export function termsLine(run: Pick<RunBody, 'games'>): string {
+  const terms = run.games.map((g) => g.terms);
+  const first = terms[0];
+  if (terms.length === 0 || terms.some((x) => x === null) || first === null || first === undefined) return t('arena.results.terms.older');
+  if (terms.some((x) => x === null || JSON.stringify(x) !== JSON.stringify(first))) return t('arena.results.terms.mixed');
+  return t('arena.results.terms', { build: first.build, pace: first.pace, wall: first.roundWallMs, cap: first.capTicks, digest: first.promptDigest.slice(0, DIGEST_SHOWN) });
+}
+
 export function showArenaResults(host: HTMLElement, deps: ArenaResultsDeps): Disposer {
   const ac = new AbortController();
   let disposed = false;
@@ -135,6 +151,7 @@ export function showArenaResults(host: HTMLElement, deps: ArenaResultsDeps): Dis
     const block = el('section', 'rl-arena-results__run');
     block.appendChild(el('h2', 'rl-arena-results__runtitle', run.id));
     block.appendChild(el('p', 'rl-arena-results__runcost', t('arena.results.runCost', { cost: fmtCost(run.costUsd), games: run.games.length })));
+    block.appendChild(el('p', 'rl-arena-results__terms', termsLine(run)));
     const table = el('table', 'rl-arena-setup__table');
     table.appendChild(row([t('arena.setup.col.game'), t('arena.setup.col.players'), t('arena.results.col.map'), t('arena.results.col.mode'), t('arena.setup.col.result'), t('arena.results.col.judge'), t('arena.setup.col.cost'), t('arena.results.col.digest'), ''], true));
     for (const g of run.games) {
