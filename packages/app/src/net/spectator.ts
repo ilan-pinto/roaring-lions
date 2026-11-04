@@ -59,6 +59,9 @@ export interface SpectatorHandle {
   setViewer(v: 0 | 1 | 'all'): void;
   /** What the strip prints, read from the page's own sim and transport. */
   read(): SpectatorReading;
+  /** The page's sim at this moment: the ticks it has run and its `sim.hash()`. A replay (GH-954 W3) compares it with
+   *  the referee's at the end of the game. A read: it changes nothing. */
+  digest(): { tick: number; hash: number };
 }
 export interface SpectatorReading {
   config: MatchConfig;

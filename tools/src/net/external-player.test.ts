@@ -304,7 +304,9 @@ describe('a model over MCP, end to end (the stand-in client, no model, no key)',
     expect(g[0].reports[0].tokens).toBe(0);
     expect(g[1].reports[1].tokens).toBe(0);
     expect(g[0].reports[0].errors).toEqual([]);
-    expect(r.tally?.get(fake)?.score).toBe(1);
+    // The tally's key is the display name: a command line is never a name (GH-954 W3).
+    expect(r.tally?.get('Player A')?.score).toBe(1);
+    expect(r.tally?.get(fake)).toBeUndefined();
     // One log per game and seat, under --out; and the harness each client ran is gone.
     const logs = readdirSync(out).filter((f) => f.endsWith('.log')).sort();
     expect(logs).toHaveLength(2);

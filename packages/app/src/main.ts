@@ -1367,6 +1367,48 @@ async function main(): Promise<void> {
               fetch: window.fetch.bind(window),
               maps: versusMaps(),
               watch: () => void router.navigate(routes.arenaWatch()),
+              results: () => void router.navigate(routes.arenaResults()),
+            });
+          },
+        },
+        // GH-954 W3: the saved runs, game by game, and the replay of one recorded game. Both go SOFTLY, so the key held in
+        // `arenaHash` is still the one they read.
+        {
+          name: 'arena-results',
+          pattern: '/arena/results',
+          mount: async (host) => {
+            const [{ showArenaResults }, { keyFromHash }] = await Promise.all([import('./ui/arena-results'), import('./net/watch-connect')]);
+            return showArenaResults(host, {
+              key: keyFromHash(arenaHash),
+              fetch: window.fetch.bind(window),
+              replay: (file) => void router.navigate(routes.arenaReplay(file)),
+              setup: () => void router.navigate(routes.arenaSetup()),
+            });
+          },
+        },
+        {
+          name: 'arena-replay',
+          pattern: '/arena/replay',
+          // A battlefield owns its focus: its keys reach the game.
+          focus: false,
+          mount: async (host, req) => {
+            const [{ showArenaReplay }, { keyFromHash }] = await Promise.all([import('./ui/arena-replay'), import('./net/watch-connect')]);
+            return showArenaReplay(host, {
+              key: keyFromHash(arenaHash),
+              game: req.query.get('game'),
+              fetch: window.fetch.bind(window),
+              boot: (stageEl, signal, spectate, map) =>
+                bootBattlefield(stageEl, {
+                  missionId: null,
+                  sandboxMap: map,
+                  query: new URLSearchParams(),
+                  signal,
+                  navigate: (href, opts) => void router.navigate(href, opts),
+                  settings: settingsDeps,
+                  restart: () => {},
+                  spectate,
+                }),
+              back: () => void router.navigate(routes.arenaResults()),
             });
           },
         },
@@ -7193,6 +7235,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     spectate.hooks.onReady({
       setViewer: (v) => renderer.setViewer(v),
       read: () => ({ config: cfg, tick: sim.tickCount, behind: room?.behind() ?? 0, score: scoreOf(sim), over: netEnd !== null }),
+      digest: () => ({ tick: sim.tickCount, hash: sim.hash() }),
     });
   }
   // The load-bearing line of this whole teardown, and the one the route walk

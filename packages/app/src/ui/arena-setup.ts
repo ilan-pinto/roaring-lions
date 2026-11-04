@@ -26,6 +26,8 @@ export interface ArenaSetupDeps {
   maps: readonly { id: string; label: string }[];
   /** Go to the watch screen. */
   watch(): void;
+  /** GH-954 W3: go to the saved results. Absent: no button. */
+  results?(): void;
   /** For a spec. */
   setInterval?: (fn: () => void, ms: number) => unknown;
   clearInterval?: (h: unknown) => void;
@@ -218,7 +220,11 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
   stopBtn.type = 'button';
   const watchBtn = el('button', 'rl-arena-setup__watch', t('arena.setup.watch'));
   watchBtn.type = 'button';
-  actions.append(startBtn, watchBtn, stopBtn);
+  const resultsBtn = el('button', 'rl-arena-setup__watch', t('arena.setup.results'));
+  resultsBtn.type = 'button';
+  resultsBtn.hidden = deps.results === undefined;
+  resultsBtn.addEventListener('click', () => { if (!disposed) deps.results?.(); });
+  actions.append(startBtn, watchBtn, stopBtn, resultsBtn);
   root.append(grid, actions);
 
   // --- the status ----------------------------------------------------------------------------------------------

@@ -317,6 +317,23 @@ describe('the disposer contract', () => {
   });
 });
 
+describe('the saved results (GH-954 W3)', () => {
+  it('has a Results button when the route gives it somewhere to go, and none when it does not', async () => {
+    let went = 0;
+    const withIt = rig({ results: () => { went++; } });
+    showArenaSetup(withIt.host, withIt.deps);
+    await settle();
+    const btn = [...withIt.host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Saved results') as HTMLButtonElement;
+    expect(btn.hidden).toBe(false);
+    btn.click();
+    expect(went).toBe(1);
+    const without = rig();
+    showArenaSetup(without.host, without.deps);
+    await settle();
+    expect([...without.host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Saved results')?.hidden).toBe(true);
+  });
+});
+
 describe('every string goes through t()', () => {
   const DATA = new Set([...MAPS.map((m) => m.label), ...PLAYERS.map((p) => p.label), 'rush', 'opus-5.5']);
   it('under ?pseudo=1 every string on the screen, in every state, is bracketed except the maps\' and players\' own names', async () => {

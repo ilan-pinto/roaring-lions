@@ -2,7 +2,7 @@
 // where a test says so; `node:http` is used because `fetch` will not let a test set `Host`.
 import { request } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import { startArenaServe, requestRefusal, tokenMatches, ownOrigins, type ArenaServe, type GameStart } from './arena-serve';
+import { startArenaServe, requestRefusal, tokenMatches, ownOrigins, servePortRefusal, type ArenaServe, type GameStart } from './arena-serve';
 import { startLocalRelay, type LocalRelay } from './local-relay';
 import type { GameRecord } from './arena-score';
 
@@ -51,6 +51,11 @@ describe('arena-serve: the guards (pure)', () => {
     expect(requestRefusal(ok, { ...o, tokenHeader: 'nope' }, true, 'GET')).toEqual({ status: 403, why: 'token' });
     // A page needs no token (it cannot carry one in a request line); its host and origin are still judged.
     expect(requestRefusal(ok, o, false, 'GET')).toBeNull();
+  });
+  it('servePortRefusal: 5177 is the lead\'s dev server and is never bound; any other port, and 0 (the OS\'s pick), is fine', async () => {
+    expect(servePortRefusal(5177)).toMatch(/5177/);
+    for (const p of [0, 5176, 5178, 5190, 8080]) expect(servePortRefusal(p), String(p)).toBeNull();
+    await expect(startArenaServe({ app: false, port: 5177, token: TOKEN, log: () => {} })).rejects.toThrow(/5177/);
   });
   it('tokenMatches takes only the exact string', () => {
     expect(tokenMatches('abc', 'abc')).toBe(true);

@@ -14,6 +14,10 @@ import type { StripText, ViewChoice } from '../net/spectator';
 export interface ArenaStripDeps {
   onView(choice: ViewChoice): void;
   onStop(): void;
+  /** GH-954 W3: the replay screen's own controls, placed before the stop button. The strip does not own them. */
+  extra?: HTMLElement;
+  /** GH-954 W3: the stop button's words (the replay's is "Back to the results"); default the watch screen's. */
+  stopLabel?: string;
 }
 
 export interface ArenaStrip {
@@ -45,9 +49,9 @@ export function mountArenaStrip(host: HTMLElement, deps: ArenaStripDeps): ArenaS
   const stop = document.createElement('button');
   stop.type = 'button';
   stop.className = 'rl-arena-strip__stop';
-  stop.textContent = t('arena.watch.stop');
+  stop.textContent = deps.stopLabel ?? t('arena.watch.stop');
   stop.addEventListener('click', () => deps.onStop());
-  el.append(game, players, score, force, clock, status, verdict, views, stop);
+  el.append(game, players, score, force, clock, status, verdict, views, ...(deps.extra === undefined ? [] : [deps.extra]), stop);
   host.appendChild(el);
 
   let painted = '';

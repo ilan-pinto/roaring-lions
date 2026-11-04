@@ -64,4 +64,8 @@ export const routes = {
   arenaWatch: (): string => (import.meta.env.DEV ? href('/arena/watch') : href('/')),
   // GH-954 W2: the arena setup screen, DEV only on the same terms as `arenaWatch` (the menu in a production build).
   arenaSetup: (): string => (import.meta.env.DEV ? href('/arena') : href('/')),
+  // GH-954 W3: the arena results list and the replay of one recorded game (`file` is a name from that list, which the
+  // server checks again). DEV only, on the same terms: in a production build both are the menu.
+  arenaResults: (): string => (import.meta.env.DEV ? href('/arena/results') : href('/')),
+  arenaReplay: (file: string): string => (import.meta.env.DEV ? href('/arena/replay', new URLSearchParams({ game: file })) : href('/')),
 } as const;

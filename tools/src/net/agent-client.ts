@@ -85,6 +85,9 @@ export interface AgentClientOptions {
   runtimeDigest?: () => number;
   /** Off by default: see `AgentSnapshotOptions`. */
   snapshots?: AgentSnapshotOptions;
+  /** GH-954 W3: keep every frame this client runs, in order (`framesRan()`), so the arena can record the referee's
+   *  game for replay. Off by default: a long-lived `pnpm agent` must not grow an array of its whole match. */
+  keepFrames?: boolean;
 }
 
 /** The match's state, built at `start` (or the first `log`). */
@@ -150,6 +153,8 @@ export class AgentClient {
   private underway = false;
   private failure: string | null = null;
   private outcome: RejoinOutcome | null = null;
+  /** The frames run, when `keepFrames` (GH-954 W3). */
+  private readonly kept: Frame[] = [];
   private readonly link: SnapshotLink | null;
   private readonly log: (line: string) => void;
 
@@ -335,6 +340,12 @@ export class AgentClient {
     return this.ran;
   }
 
+  /** Every frame this client has run, oldest first: empty unless the client was built with `keepFrames` (GH-954 W3).
+   *  The frames are the room's own objects, never changed here. */
+  framesRan(): readonly Frame[] {
+    return this.kept;
+  }
+
   /** Why this client gave up on a match it could not play (a world this
    *  checkout cannot build), or null. */
   failed(): string | null {
@@ -361,6 +372,7 @@ export class AgentClient {
       dataDigest,
       ...(producer === null ? {} : { afterFrame: (tick: number, digest: number | null) => { producer.onFrame(tick, digest); } }),
       beforeFrame: (f: Frame) => {
+        if (this.o.keepFrames === true) this.kept.push(f);
         tally.onFrame(f.tick, f.cmds);
         const own = canonicalOrder(f.cmds)
           .filter((s) => s.seat === seat)

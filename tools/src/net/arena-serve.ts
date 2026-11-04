@@ -15,9 +15,11 @@
  *     a log; the page reads it from `location.hash` and sends it as the header.
  *  5. The method is the route's own: a GET for a POST route (an action) is 405, never run.
  *  6. The API handlers run BEFORE Vite's middlewares, so Vite never sees an `/arena/api` path.
- * Unknown `/arena/api` paths are 404. A body is read only for a POST, capped at 8 KiB. Nothing here reads a key,
- * a template or a file; the one thing a response carries beyond the run's labels is a spectator ticket, in the
- * JSON body and nowhere else (never a URL, a header or storage).
+ * Unknown `/arena/api` paths are 404. A body is read only for a POST, capped at 8 KiB. Nothing here reads a key
+ * or a template; the one thing a response carries beyond the run's labels is a spectator ticket, in the
+ * JSON body and nowhere else (never a URL, a header or storage). With `resultsDir` (GH-954 W3) it also lists the
+ * saved runs and serves one recorded game's frames by NAME (`arena-results.ts`: a file name from the listing, checked
+ * against the directory, never a path).
  *
  * The ticket: `/arena/api/live` asks the CURRENT game's relay for a fresh `watch` ticket (`POST
  * /api/match/:code/watch`, traded from the seat ticket the arena holds). The relay answers only because the
@@ -30,6 +32,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Matchup } from '@lions/net';
 import type { GameRecord } from './arena-score';
+import { buildId } from './build-id';
+import { resultsRoutes } from './arena-results';
 
 /** What `playGame` tells the server when a game's room is confirmed and its players are running. */
 export interface GameStart {
@@ -66,6 +70,13 @@ export interface ArenaServeOptions {
   finishedGraceMs?: number;
   /** Extra API routes, for a spec or a later phase. Registered beside `live`. */
   routes?: Record<string, ApiRoute>;
+  /** GH-954 W3: the results directory. With it the server also answers `GET /arena/api/results` and
+   *  `GET /arena/api/replay?game=<name>` (`arena-results.ts`); without it neither route exists. */
+  resultsDir?: string;
+  /** GH-954 W3: the build this server runs, for the replay's build check; default `buildId()`. */
+  build?: () => string;
+  /** GH-954 W3: a preset id to its label, for the names the results show. */
+  labelOf?: (id: string) => string | null;
 }
 
 export interface ApiRoute {
@@ -168,7 +179,14 @@ function readJson(req: IncomingMessage): Promise<unknown | null> {
   });
 }
 
+/** The ports this server will not bind: 5177 is the lead's everyday dev server (CLAUDE.md, house rules). Pure. */
+export function servePortRefusal(port: number): string | null {
+  return port === 5177 ? 'port 5177 is the lead\'s dev server; pick another with --serve-port' : null;
+}
+
 export async function startArenaServe(o: ArenaServeOptions = {}): Promise<ArenaServe> {
+  const refused = servePortRefusal(o.port ?? 0);
+  if (refused !== null) throw new Error(refused);
   const log = o.log ?? ((s: string) => { process.stderr.write(`${s}\n`); });
   const token = o.token ?? randomBytes(24).toString('base64url');
   const graceMs = o.finishedGraceMs ?? 4000;
@@ -211,7 +229,8 @@ export async function startArenaServe(o: ArenaServeOptions = {}): Promise<ArenaS
     return { status: 200, body };
   };
 
-  const routes: Record<string, ApiRoute> = { live: { method: 'GET', handle: live }, ...(o.routes ?? {}) };
+  const results = o.resultsDir === undefined ? {} : resultsRoutes({ dir: o.resultsDir, build: o.build ?? (() => buildId()), ...(o.labelOf === undefined ? {} : { labelOf: o.labelOf }) });
+  const routes: Record<string, ApiRoute> = { live: { method: 'GET', handle: live }, ...results, ...(o.routes ?? {}) };
 
   const onRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
@@ -253,6 +272,12 @@ export async function startArenaServe(o: ArenaServeOptions = {}): Promise<ArenaS
     server.listen(o.port ?? 0, '127.0.0.1', () => { server.off('error', rej); res(); });
   });
   port = (server.address() as AddressInfo).port;
+  // The OS's pick (port 0) is checked too, once it is known.
+  const bound = servePortRefusal(port);
+  if (bound !== null) {
+    await new Promise<void>((res) => { server.close(() => { res(); }); });
+    throw new Error(bound);
+  }
   const origin = `http://127.0.0.1:${port}`;
 
   if (o.app !== false) {

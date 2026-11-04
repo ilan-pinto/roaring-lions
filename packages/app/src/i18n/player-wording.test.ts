@@ -34,6 +34,11 @@ const ALLOWED: Readonly<Record<string, string>> = {
   'arena.strip.clock': 'GH-954 W1: the arena watch strip is an operator view, dev-only (the route does not exist in a production build); it names the room clock\'s tick beside the match time because a run is compared by tick',
   'arena.setup.pace': 'GH-954 W2: the arena setup screen is an operator view, dev-only (the route does not exist in a production build); the round length is the sim\'s own unit, the tick, which the CLI (--pace) and the results name',
   'arena.setup.cap': 'GH-954 W2: the same operator view; the cap is a tick count (--cap-ticks), compared by tick like the watch strip\'s clock',
+  'arena.results.digest.agree': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
+  'arena.results.digest.differ': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
+  'arena.replay.progress': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
+  'arena.replay.digest.same': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
+  'arena.replay.digest.differs': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
 };
 
 /** Every reason a value would read as developer language, or [] if none. */
