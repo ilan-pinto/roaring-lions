@@ -85,6 +85,7 @@ describe('order: the exact argument shape is in the prompt and in the tool (item
     const shown = ORDER_EXAMPLES.filter((e) => e.inDescription);
     expect(shown.length).toBeGreaterThanOrEqual(8);
     expect(d).toContain(orderExamplesForDescription());
+    expect(d).toMatch(/\}, \{"verb"/);   // the examples are comma-separated
     for (const e of shown) {
       expect(d, e.verb).toContain(e.json);
       expect(orderSchema(JSON.parse(e.json)), e.json).toBe(true);

@@ -23,8 +23,8 @@ export const LAST_SEEN_MAX = 2048;
 
 export class SeatMemory {
   private readonly seen = new Map<number, LastSeen>();
-  /** Own units found dead: the tick the death was noticed, or -1 for one that was already dead when memory began (a rejoin). */
-  private readonly died = new Map<number, number>();
+  /** Own units no longer in play: the tick it was noticed, with how (`died`: destroyed; `removed`: taken off the board alive, `removeFromPlay` / `admitAboard`), or tick -1 and `unknown` for one already gone when memory began (a rejoin). */
+  private readonly gone = new Map<number, { fate: 'died' | 'removed' | 'unknown'; tick: number }>();
   private fogGeneration = -1;
 
   constructor(
@@ -34,7 +34,7 @@ export class SeatMemory {
   ) {
     // A client that joins a match under way starts on a world that may already hold dead units: their tick is unknown.
     const st = sim.state;
-    for (let i = 0; i < sim.entityCount; i++) if (st.alive[i] === 0 && st.side[i] === side) this.died.set(i, -1);
+    for (let i = 0; i < sim.entityCount; i++) if (st.alive[i] === 0 && st.side[i] === side) this.gone.set(i, { fate: 'unknown', tick: -1 });
   }
 
   /** Call once after every sim tick and its fog step. */
@@ -44,7 +44,7 @@ export class SeatMemory {
     const tick = sim.tickCount;
     for (let i = 0; i < sim.entityCount; i++) {
       if (st.side[i] === this.side) {
-        if (st.alive[i] === 0 && !this.died.has(i)) this.died.set(i, tick);
+        if (st.alive[i] === 0 && !this.gone.has(i)) this.gone.set(i, { fate: st.removed[i] !== 0 ? 'removed' : 'died', tick });
       }
     }
     if (this.fog.generation === this.fogGeneration) return;
@@ -72,8 +72,8 @@ export class SeatMemory {
     return this.seen.get(id) ?? null;
   }
 
-  /** Own unit `id`'s death: the tick it was noticed, -1 when dead before memory began, null while it lives (or is not this side's). */
-  diedAt(id: number): number | null {
-    return this.died.get(id) ?? null;
+  /** What became of own unit `id` and when it was noticed, or null while it is in play (or is not this side's). `unknown`: gone before memory began, tick -1. */
+  fateOf(id: number): { fate: 'died' | 'removed' | 'unknown'; tick: number } | null {
+    return this.gone.get(id) ?? null;
   }
 }

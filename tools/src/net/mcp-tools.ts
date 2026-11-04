@@ -232,10 +232,11 @@ function roundOf(ctx: ToolContext): { index: number; ticks: number; doneRound: n
 
 /**
  * An order record as the model sees it: tiles, and only the ids the view lists now. An own unit that is no longer
- * listed says what became of it (the 4 Nov bot report, item 2): `lost` carries `{ id, fate: 'died', tick }` for a unit
- * found dead (`fate: 'lost'` when it was dead before the harness began to watch, with no tick), or `fate: 'wounded'`
+ * listed says what became of it (the 4 Nov bot report, item 2): `fates` carries `{ id, fate: 'died', tick }` for a unit
+ * found dead, `fate: 'removed'` (taken off the board alive: carried away, admitted aboard), `fate: 'unknown'` (gone before
+ * the harness began to watch, no tick), or `fate: 'wounded'`
  * for one lying down (`casualties.mine`). The record's own `status` is untouched: an order that was `applied` before
- * its unit died is still `applied`, with its `settledTick`, and `lost` says the unit is gone since. `gone` counts only
+ * its unit died is still `applied`, with its `settledTick`, and `fates` says what became of the unit since. `gone` counts only
  * ids with no known fate.
  */
 function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null): Record<string, unknown> {
@@ -247,16 +248,16 @@ function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null
     const all = c.ids as number[];
     const ids = all.filter((id) => listed.has(id));
     out.ids = ids;
-    const lost: Record<string, unknown>[] = [];
+    const fates: Record<string, unknown>[] = [];
     let gone = 0;
     for (const id of all) {
       if (listed.has(id)) continue;
-      const died = memory?.diedAt(id) ?? null;
-      if (died !== null) lost.push(died >= 0 ? { id, fate: 'died', tick: died } : { id, fate: 'lost' });
-      else if (view.casualties.mine.some((m) => m.id === id)) lost.push({ id, fate: 'wounded' });
+      const f = memory?.fateOf(id) ?? null;
+      if (f !== null) fates.push(f.tick >= 0 ? { id, fate: f.fate, tick: f.tick } : { id, fate: f.fate });
+      else if (view.casualties.mine.some((m) => m.id === id)) fates.push({ id, fate: 'wounded' });
       else gone++;
     }
-    if (lost.length > 0) out.lost = lost;
+    if (fates.length > 0) out.fates = fates;
     if (gone > 0) out.gone = gone;
   }
   if (isInt(c.x) && isInt(c.y)) out.tile = [c.x >> 16, c.y >> 16];
@@ -296,7 +297,7 @@ export function clockOfCtx(ctx: ToolContext): { simTick: number; relayTick: numb
 
 const observe: ToolDef = {
   name: 'observe',
-  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight, held buildings, the legal stances, the score, the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `lost: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was), or proposals (assist). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units.',
+  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight, held buildings, the legal stances, the score, the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was), or proposals (assist). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
@@ -307,7 +308,8 @@ const observe: ToolDef = {
     // Oldest first, the order the log happened in (the desk keeps newest first).
     if (ctx.scope === 'command') orders = ctx.client.desk.records(ORDER_RECORDS).reverse().map((r) => describeOrder(r, view, ctx.client.memory()));
     else if (ctx.scope === 'assist') orders = [...ctx.proposals].slice(-ORDER_RECORDS).map(([proposal, status]) => ({ proposal, status }));
-    return ok({ ...view, ...clockOfCtx(ctx), tick: view.tick, orders });
+    const clock = clockOfCtx(ctx);
+    return ok({ ...view, ...clock, tick: clock.simTick, orders });
   },
 };
 

@@ -124,12 +124,16 @@ describe('item 1: an attack on a target that left sight (the 4 Nov bot report)',
     expect(stale).not.toContain(`"tile":[${camp[0]},${camp[1]}]`);
   });
 
-  it('a target that is a contact now is a plain attack, and a dropped attack record carries the last sighting', async () => {
+  it('an attack accepted while the target is in sight stays `applied` when it leaves sight, and its record shows `out of sight` with the last sighting (not `dropped`)', async () => {
     const f = await metEnemy();
     const ok = await call(f.ctx, 'order', { verb: 'attack', ids: [f.mine], target: f.enemy });
     expect(ok.ok, ok.text).toBe(true);
+    // The order is carried (applied) while the target is still a contact; ownership never checks sight.
+    await drive(f.loop, [f.a.client, f.c.client], call(f.ctx, 'wait', { ticks: 45 }));
     await loseSight(f);
     const rec = body(await call(f.ctx, 'observe')).orders.find((o: { ref: number }) => o.ref === body(ok).ref);
+    expect(rec.status).toBe('applied');
+    expect(rec.reason).toBeUndefined();
     expect(rec.target).toBe('out of sight');
     expect(rec.lastSeen.tile).toEqual(f.metTile);
   });
@@ -155,11 +159,25 @@ describe('item 2: the order log (the 4 Nov bot report)', () => {
     expect(rec.status).toBe('applied');                     // the order WAS applied, and still reads so
     expect(rec.settledTick).toBeGreaterThan(0);
     expect(rec.ids).toEqual([f.mine]);
-    expect(rec.lost).toEqual([{ id: f.spare, fate: 'died', tick: expect.any(Number) }]);
-    expect(rec.lost[0].tick).toBeGreaterThan(killedAt - 1);
-    expect(rec.lost[0].tick).toBeLessThanOrEqual(killedAt + 3);
+    expect(rec.fates).toEqual([{ id: f.spare, fate: 'died', tick: expect.any(Number) }]);
+    expect(rec.fates[0].tick).toBeGreaterThan(killedAt - 1);
+    expect(rec.fates[0].tick).toBeLessThanOrEqual(killedAt + 3);
     expect(rec).not.toHaveProperty('gone');                 // `gone` was the unexplained one; the death is explained now
-    expect(orders.find((o) => o.ref === second.ref)).not.toHaveProperty('lost');   // it never named the dead unit
+    expect(orders.find((o) => o.ref === second.ref)).not.toHaveProperty('fates');   // it never named the dead unit
+  });
+});
+
+describe('item 2: a unit taken off the board alive is not called dead', () => {
+  it('reads `removed`, with its tick, where a destroyed one reads `died`', async () => {
+    const f = await metEnemy(false);
+    const first = body(await call(f.ctx, 'order', { verb: 'halt', ids: [f.mine, f.spare] })) as { ref: number };
+    await drive(f.loop, [f.a.client, f.c.client], call(f.ctx, 'wait', { ticks: 45 }));
+    for (const sim of f.sims) sim.removeFromPlay(f.spare);
+    const at = f.a.client.tick();
+    await play(f.loop, 10, [f.a.client, f.c.client], () => f.a.client.tick() >= at + 3 && f.c.client.tick() >= at + 3);
+    const rec = (body(await call(f.ctx, 'observe')).orders as Record<string, any>[]).find((o) => o.ref === first.ref) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(rec.fates).toEqual([{ id: f.spare, fate: 'removed', tick: expect.any(Number) }]);
+    expect(rec.status).toBe('applied');
   });
 });
 
@@ -176,7 +194,8 @@ function stubCtx(): Stub {
   };
   const client = {
     config: () => ({ seats: [{ kind: 'bot' }, { kind: 'bot' }], pace: { kind: 'realtime' } }),
-    view: () => ({ ...view, tick }),
+    // The view's own tick (the sim's count) is made to differ: the clock must come from one place.
+    view: () => ({ ...view, tick: tick - 1 }),
     tick: () => tick,
     result: () => ({ kind: 'won', side: 0, by: 'annihilation' }),
     joinedUnderway: () => false,

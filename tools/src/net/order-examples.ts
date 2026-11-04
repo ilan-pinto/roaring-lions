@@ -44,5 +44,5 @@ export const ORDER_EXAMPLES: readonly OrderExample[] = [
 
 /** The lines the tool's description carries. */
 export function orderExamplesForDescription(): string {
-  return ORDER_EXAMPLES.filter((e) => e.inDescription).map((e) => `${e.json}`).join(' ');
+  return ORDER_EXAMPLES.filter((e) => e.inDescription).map((e) => `${e.json}`).join(', ');
 }
