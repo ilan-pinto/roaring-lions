@@ -87,6 +87,8 @@ function strategyFor(url, request) {
   // dashboard behind a password login. A cached /stats is a stale dashboard,
   // or worse a cached login redirect.
   if (rest === 'stats' || rest.startsWith('stats/') || rest.startsWith('api/')) return 'passthrough';
+  // The public arena results (GH-954 P3): the Worker sets their cache headers; a cached page would outlive a kill switch.
+  if (rest === 'arena-results' || rest === 'arena-results.json') return 'passthrough';
   if (rest.startsWith('video/')) return 'passthrough';
   // `mode: 'navigate'` is the document request itself; the `index.html`
   // fallback the SPA serves for a deep link lands here too.

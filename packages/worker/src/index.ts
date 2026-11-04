@@ -5,6 +5,7 @@ import { withSecurityHeaders } from './security-headers';
 import { handleStats } from './stats';
 import { handleFeedback } from './feedback-ingest';
 import { purgeExpired } from './feedback-triage';
+import { handleArenaResults, isArenaPath } from './arena-results';
 import { handleMatch } from './match/routes';
 import { purgeDesyncs } from './match/desync-log';
 import { purgeSnapMismatches } from './match/snap-mismatch-log';
@@ -19,6 +20,8 @@ export default {
     if (pathname === '/api/events') return withSecurityHeaders(await handleIngest(req, env, Date.now()));
     if (pathname === '/api/feedback') return withSecurityHeaders(await handleFeedback(req, env, Date.now()));
     if (pathname === '/api/match' || pathname.startsWith('/api/match/')) return withSecurityHeaders(await handleMatch(req, env, Date.now()));
+    // GH-954 P3: public, bundled data, no D1 and no cookie. Not under /stats.
+    if (isArenaPath(pathname)) return withSecurityHeaders(handleArenaResults(req, env));
     if (pathname === '/stats' || pathname.startsWith('/stats/')) return withSecurityHeaders(await handleStats(req, env, Date.now()));
     // The game's files: `assets/_headers` gives them theirs.
     return env.ASSETS.fetch(req);

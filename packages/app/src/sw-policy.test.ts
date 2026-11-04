@@ -153,6 +153,16 @@ describe.each(DEPLOYMENTS)('the service worker policy ($name)', ({ sw, base }) =
   });
 });
 
+describe.each(DEPLOYMENTS)('the service worker and the public arena results ($name)', ({ sw, base }) => {
+  const strategyFor = loadWorker(sw);
+  it('never caches /arena-results or its JSON (GH-954 P3: a cached page would outlive the kill switch)', () => {
+    for (const path of ['arena-results', 'arena-results.json']) {
+      expect(strategyFor(new URL(path, base), GET), path).toBe('passthrough');
+      expect(strategyFor(new URL(path, base), NAVIGATE), path).toBe('passthrough');
+    }
+  });
+});
+
 describe('the service worker cache name', () => {
   it('carries the ?v= it was registered with, so a version bump is a new cache', () => {
     // The activate handler deletes every `lions-` cache that is not the

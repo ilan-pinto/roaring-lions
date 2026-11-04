@@ -15,7 +15,9 @@
 		"run_worker_first": [
 			"/api/*",
 			"/stats",
-			"/stats/*"
+			"/stats/*",
+			// GH-954 P3: the public arena results page and its JSON.
+			"/arena-results*"
 		]
 	},
 	// Cloudflare's own preview URLs (<hash>.roaring-lions.workers.dev) would be
