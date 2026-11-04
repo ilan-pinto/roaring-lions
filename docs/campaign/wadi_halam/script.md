@@ -249,7 +249,7 @@ deadline is the families.
 |---|---|---|---|---|
 | The brief plays | mission start | `briefing` — **already carries** "Hallaq's depot" (§0) | narrative §5.2 | live |
 | No dispatch | mission start | none | the act's dispatch belongs to I | live (as an absence) |
-| Depot razed in time | `objective(raze_depot, complete)` @≤300s | `objectives[].say` | idit: *"Seven buildings... The charges under Beit Sahwan came up this road. So did the rockets that fell on the north..."* — the line that closes all three acts | live |
+| Depot razed in time | `objective(raze_depot, complete)` @≤300s | `objectives[].say` | idit: *"Eight buildings... The charges under Beit Sahwan came up this road. So did the rockets that fell on the north..."* — the line that closes all three acts | live |
 | Depot NOT razed | `objective(raze_depot, failed)` @300s | `objectives[].say_on_fail`; **already loses the mission today** | shai: *"Five minutes, and the depot is standing..."* | live |
 | Gate held by Hallaq killed/taken | `objective(kill_gate_rpg, complete)` | `objectives[].say` | shai: *"That is Jubran Hallaq, in his own gateway... he would not walk twenty tiles east to leave it."* — the villain's end, flat | live |
 | Rubble held 4 min | `objective(hold_depot, complete)` @240s | `objectives[].say` | net: *"Depot ground held, four minutes. Nothing came back onto it."* | live |
@@ -993,7 +993,7 @@ nothing):
 `objectives[]`:
 
 ```json
-{ "id": "raze_depot", "say": { "speaker": "idit", "text": "Seven buildings, and everything in them came through here first. The charges under Beit Sahwan came up this road. So did the rockets that fell on the north for a week before anybody could say from where." }, "say_on_fail": { "speaker": "shai", "text": "Five minutes, and the depot is standing. Whatever we brought to bring it down is not going to bring it down now." } }
+{ "id": "raze_depot", "say": { "speaker": "idit", "text": "Eight buildings, and everything in them came through here first. The charges under Beit Sahwan came up this road. So did the rockets that fell on the north for a week before anybody could say from where." }, "say_on_fail": { "speaker": "shai", "text": "Five minutes, and the depot is standing. Whatever we brought to bring it down is not going to bring it down now." } }
 ```
 ```json
 { "id": "kill_gate_rpg", "say": { "speaker": "shai", "text": "That is Jubran Hallaq, in his own gateway. Everything that ever came up this road came up it for him, and he would not walk twenty tiles east to leave it." } }

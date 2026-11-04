@@ -3620,9 +3620,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // Khan Rafid II (firing position), Umm Zeitoun III and IV (observation post), Khan Rafid III (clinic + post), Beit Sahwan III
 // (clinic), Wadi Halam III and V (weapons workshop). Only two pay differently: Wadi Halam V 210 -> 220 (the workshop is the
 // eighth `raze` target, the plan levels it too, and the win comes at 5.0 min and not 5.3: `no_bleed` is still open when the last
-// primary falls, stars unchanged at 2) and Umm Zeitoun IV 259 -> 262 (ROE 94 -> 97 on 424242: the post on the ramp sees the
-// approach and the enemy's fire changes with it; read off the run lines, not traced round by round). Every other run line keeps its credits; Beit Sahwan III, Khan Rafid III and Umm Zeitoun III
-// move by 0.1 to 0.2 min only. Every plan still wins 30 of 30, every passive control still loses, no star or gate moved.
+// primary falls, stars unchanged at 2) and Umm Zeitoun IV 259 -> 262 (ROE 94 -> 97 on 424242: traced with a temporary `roe` event
+// print. Main bills two `heavy ordnance danger-close to civilians` hits, -3 each, at ticks 1604 and 1737; with the post on the ramp the
+// plan's ordnance lands elsewhere and only one is billed, at 2486. Nothing else in the run moved Conduct). Every other run line keeps its credits; Beit Sahwan III, Khan Rafid III and Umm Zeitoun III
+// move by 0.1 to 0.2 min on the seed-424242 run line; the SLOWEST of the 30 seeds moves more, and only because it is one tail seed:
+// Beit Sahwan III 2.9 -> 3.7 min (its clinic at (38,25); with the placement removed the sweep reads 2.9 again) and Khan Rafid III
+// 3.9 -> 2.0 min (the clinic at (22,15) alone gives 2.0; with both placements removed 3.9). Neither tail was traced seed by seed. Every plan still wins 30 of 30, every passive control still loses, no star or gate moved.
 const LADDER_CREDITS = 7007;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
