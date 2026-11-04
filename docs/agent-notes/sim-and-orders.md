@@ -808,3 +808,47 @@ maps) and stays reachable from a test and `pnpm versus:probe -- --mode=camp` onl
   solid until they hold it, theirs dashed until you do) and the `NetFlags` panel in the points panel's corner. Both flags' state is
   public by design, like the score of a race; no unit is named. The bot prompt (`win-rule.ts`) swaps in the raid rule and what to
   defend, and its points fallback now says the cap goes to the higher score.
+
+- **Not done in P2:** the arena setup screen has no mode control (the CLI has); `camp` stays unoffered; at the cap a mode room is still
+  decided on surviving value, not points (lead decision, P1 item 3).
+
+## Production works: the forward camp (GH-277 follow-on, 4 Nov 2026)
+
+Design: `_coord/producing-buildings/design.md`; the lead's rulings are the last three comments on GH-277 and win where they differ.
+`kdf_forward_camp` is a field work (owner 0, buildable) with a `production` block. Placeholders until G-NUM: 350 logistics, 40 s,
+300 hp a tile, 2x2, count 1. It sets neither optional field (`roles`, `build_time_mult`), so it builds the whole camp menu at the
+camp's speed; it carries the medic station's heal (radius 4, past the 70% cap) and the workshop's vehicle repair (radius 4, 30 s of
+component repair), the two existing aura blocks. Art: it draws `buildings/camp.glb` until the lead approves a new Meshy model.
+
+- **The line is the tail.** `stepWorks` on `structureComplete` of a type with `production` calls `appendLine`, which pushes onto the END of
+  `lines[0]`: no index a command carries ever shifts, and a destroyed work's line keeps its index and its slot (so does its count: not
+  returned). `lineAlive` is `alive && progress === ONE`, so a stake never has a live line. The first item can advance the tick after.
+- **State.** `appendedAnchors` (structure rows, in the order opened; snapshot `state`) and `authoredLines0` (where the tail begins;
+  `config`, set at the end of `buildLines`). The tail folds into `economyHash` AFTER everything else (`'FWL1'` marker, count, then each
+  anchor's structure type index) and only when `appendedAnchors.length > 0`; nothing else moves in a world that never completes such a
+  work, which is why ECONOMY_PIN, RUNTIME_DIGEST_PIN and the versus pins did not move. `FORWARD_LINE_PIN` (determinism.test.ts) is the
+  replay that sees it.
+- **The menu.** `production.roles` (a subset of unit roles) makes a per-line filter: `lineTakes` in `firstRefusal`, after the camp check and
+  BEFORE the population cap, so a tile pinned to a line that cannot build the unit reads `NOT_ON_LINE` (`'not_on_line'`, a code the dock
+  words) and not "population full". An unnamed build only ever goes to a line that takes the unit; `shortestLine(side, byRole, role)`.
+  `unitInfo` may carry a `role` (the app's does); a unit with none is not on a restricted line. `buildBlockedReasonOn(unit, line)` is the
+  named-line walk (a separate method: `buildBlockedReason`'s second parameter is the SIDE). `build_time_mult` (1.0..2.0) makes an item
+  `ceil(base x mult)` ticks on that line (`lineBuildTicks`; 1.0 returns `base` untouched).
+- **The cap.** `worksReason` returns `no_line_slot` (after `none_left`) when authored lines + lines opened + production works charged or
+  under construction would pass `MAX_PRODUCTION_LINES`; a join of a live site is never refused for it. `validate:data` counts the listed
+  production works toward the same bound (`validate_production.mjs`) and refuses a `production` type that is unbuildable, not owner 0,
+  carries `produces_for` (it would be the convoy rear), names a role no KDF unit has, or is placed by a mission's `structures[]`.
+- **What it is not.** Never the rear (`produces_for` stays camp-only, so `productionAnchor`, `syncRear`, demolition and the AI are
+  untouched), pays no income, is captured by nobody, is not on the enemy's line table (`lines[1]`, `enemyLast` do not grow: D7), and is
+  off in versus (`raiseWorks` from a side-1 seat is dropped in `applyQueued`). Fog: an owned structure is a target once the enemy has seen it.
+- **Snapshot.** `restoreAppendedLines` makes the tail in the restore's apply step, before the line records merge in place; the plan decodes
+  against placeholders and `checkAppended` refuses an anchor that is not a complete production work, a repeat, or too many. The witness
+  world is `runtime-forward-world.test-helper.ts` (a TEST work with `roles` and `build_time_mult` set, so both paths run); it is the only
+  world in which a field work is raised, so the sim-structure and works rows left `SNAPSHOT_COVERAGE_EXEMPT`.
+- **UI.** The works tile and glyph; the dock row is "Forward {n}" (n counts forward lines only, camps keep "Camp {index+1}"), and a lone
+  forward line always has a row; a tile pinned to a line is judged against THAT line's menu (`tileState(..., onLine)`). Placing shows the
+  footprint pad and two dashed rings (aura 4, contest 6; `worksShapeOf().contest`); selecting the camp shows the same rings. No world mark.
+  The `&works` sandbox lists the camp like any `kdf_` work and now has a unit menu (the KDF units it loads models for) so a unit can be
+  built from the line. Check: `tools/src/perf/forward-camp-check.ts` (port 5195, music off, one Metal browser).
+- **Cost.** A busy forward line adds one contest scan a tick, the same as any second authored camp: about 0.004 ms/tick at 303 units; an
+  idle one about 0.00001 ms.

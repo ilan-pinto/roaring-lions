@@ -60,6 +60,7 @@ import { doctrines, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS, matchDigest, type Faction } from '@lions/net';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { runtimeRowsOf } from '../../../packages/sim/src/runtime-snapshot-schema';
+import { FWD_TICKS, forwardAdvance, forwardDrive, forwardWorld } from '../../../packages/sim/src/runtime-forward-world.test-helper';
 import { rowsOf } from '../../../packages/sim/src/snapshot-schema';
 import { internals } from '../../../packages/sim/src/snapshot';
 import { forkWitnessSeries, stateRowsMoved, type SeriesForkVerdict, type WitnessWorld } from '../../../packages/sim/src/snapshot-witness';
@@ -377,6 +378,24 @@ export function spreadWorld(): SnapWorld {
     if (t === 6) sim.queueCommand({ kind: 'garrison', ids: locals, structure: a });
   });
 }
+/**
+ * The forward-camp world (GH-277 follow-on): an engineer raises a production work beside the authored camp, it completes at
+ * tick 136 and opens a second production line at the tail of side 0's lines, and both lines take builds (one refused: a tank
+ * is off the forward line's menu), a rally and a cancel. The only world in which a field work is staked, completed and
+ * standing, and so the one in which `runtime.appendedAnchors`, the works rows and the structure columns of a raised work move
+ * (a versus room never uses field works). The inputs are the sim package's own (`runtime-forward-world.test-helper.ts`).
+ */
+export function forwardCampWorld(): SnapWorld {
+  const { sim, rt } = forwardWorld();
+  return {
+    sim,
+    runtime: rt,
+    carried: [],
+    anchors: anchorsOf(sim, rt),
+    driveAt: (t) => forwardDrive(rt, t),
+    advanceOnce: () => forwardAdvance({ sim, rt }),
+  };
+}
 export function goldenEconomy(): SnapWorld {
   const ew = economySetup(ECONOMY_SEED);
   return {
@@ -503,6 +522,22 @@ export function worldSpecs(): WorldSpec[] {
     },
   });
   out.push({ id: `golden economy (${ECONOMY_TICKS})`, plan: goldenPlan(ECONOMY_TICKS), build: goldenEconomy });
+  out.push({
+    id: `forward camp (${FWD_TICKS})`,
+    // Cuts every 25 ticks from 0 to 200 (a site staked at 2, the work under way, the line opening at 136, the first item queued at
+    // 250 is a cut away) and then every 25 to the end: each phase of the work's life is a snapshot.
+    plan: { Ts: [0, 1, 2, 3, 97, 135, 136, 137, 250, 251, 260, 300, 350], horizon: 150, tailFrom: 100, end: FWD_TICKS },
+    build: forwardCampWorld,
+    // The world exists for an appended line: the work stands, the line is the tail of side 0's lines, and both lines built.
+    exercised: (a) => {
+      const rt = a.runtime;
+      if (rt === null) return 'the forward-camp world lost its runtime';
+      const lines = rt.productionLines(0);
+      if (lines.length !== 2 || !lines[1].appended) return `the forward-camp world stopped opening its line: ${lines.length} lines, the second appended = ${String(lines[1]?.appended)}`;
+      if (rt.worksOffers()[0]?.left !== 0) return 'the forward-camp world stopped spending its work count';
+      return null;
+    },
+  });
   return out;
 }
 // ---- one world --------------------------------------------------------------------------------
@@ -723,22 +758,23 @@ const rows = (names: string, reason: string): { readonly name: string; readonly 
  */
 export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonly reason: string }[] = [
   ...rows(
-    'elevation structureCount_ stMaxHp stTypeIdx stCx stCy stMinX stMinY stMaxX stMaxY stTiles structureOfTile stRouteMask ' +
+    'elevation stRouteMask ' +
       'stProducesFor tnLength tnOwner tnCapacity tnTravelTicks tnDigRate tnDigger tnVentX tnVentY tunnelCount_ ' +
       'evacX evacY evacSide evacCount aidPosts woundLive veterancy',
     'never moves after build in any witness world (written only by applyTerrain, addStructure, addTunnel, addEvacPoint, addUnitType and spawn at veterancy 0). ' +
       'Their RESTORE is proved in every fork regardless, because B\'s state rows are poisoned before `restoreSim` and a restore that skipped one fails; ' +
-      'what is missing is a world in which the row holds a value other than its build value at a cut. Covered dynamically by a world that adds structures ' +
-      'or tunnels mid-match (a field-works mission), or one that promotes veterancy and lays a new evacuation point'
+      'what is missing is a world in which the row holds a value other than its build value at a cut. Covered dynamically by a world that adds tunnels ' +
+      'mid-match, or one that promotes veterancy and lays a new evacuation point. (The structure rows left this list on 4 Nov 2026: the forward-camp world raises a ' +
+      'work mid-match, so structureCount_, stTypeIdx, stMaxHp, the centroid and bounds, stTiles and structureOfTile move.)'
   ),
   // `fwLive` and `unitAuraLive` are NOT here since 3 Nov 2026 (GH-707): the economy worlds' plan buys the Nemala medic team, an
   // aura carrier, a few seconds in, and spawning one turns both flags on mid-match. The census saw them move and said to delete
   // the exemption; every fork of those worlds restores them. The site, aura-rate and ownership columns below still never move.
   ...rows(
-    'siteAlive siteType siteX siteY siteSide siteStructure buildSite stProgress constructedAt stOwner stKnown sealGen ' +
-      'auraCompAt auraRepairTicks auraAccMult',
-    'field works: construction sites, owned structures, their auras and the fog latch on an owned structure. No witness world builds, owns or auras a structure ' +
-      '(versus never uses field works). Covered by a field-works mission world'
+    'siteSide stKnown auraCompAt auraRepairTicks auraAccMult',
+    'field works: the site\'s side, the fog latch on an owned structure and the aura-repair columns. The forward-camp world (4 Nov 2026) stakes, builds and completes a work, ' +
+      'so the site, progress, owner and builder rows moved and left this list; its work is the player\'s and never seen by a side-1 unit, and its aura covers no wounded or ' +
+      'damaged unit. Covered by a field-works mission world with an enemy that sees an owned work and a damaged vehicle in a repair area'
   ),
   ...rows('placedLive stChargeTicks stChargeBy', 'placed charges (setPlacedCharge): no witness driver sets one. Covered by a world whose driver places a charge on a structure'),
   ...rows('beamTgt beamDwell beamHeat beamAt beamLock beamLive', 'beam weapons (stepBeam): no unit of any witness world carries one. Covered by a world that fields a beam unit'),
@@ -784,8 +820,9 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
       'Covered by a campaign mission replay with a civic-hall zone (the ROE rows) and a promotion (promotedValue)'
   ),
   ...rows(
-    'runtime.worksList runtime.worksOfferList runtime.worksPending runtime.worksSites runtime.worksStructures',
-    'field works (the lazily built works list, the offers, pending charges, staked sites and raised structures): no witness world stakes a work (versus never uses field works). Covered by a field-works mission world'
+    'runtime.worksList runtime.worksPending',
+    'field works (the lazily built works list and the pending charges): the forward-camp world (4 Nov 2026) stakes a work, so the offers, the sites and the raised structures moved and left this list; ' +
+      'the list is built once (an unbuilt list is written as the built default) and a pending charge lives for the span of one tick, so no cut of any world holds one. Covered by a world whose frame queues a works request that the cut precedes'
   ),
   ...rows(
     'runtime.enemyLast runtime.markedThisMission runtime.pendingIntelEvents runtime.riseHold runtime.risePaid',

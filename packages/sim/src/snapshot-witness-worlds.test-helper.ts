@@ -10,6 +10,7 @@ import {
   type EconomyWorld,
 } from './golden-worlds.test-helper';
 import type { MissionRuntime } from './mission';
+import { FWD_TICKS, forwardAdvance, forwardDrive, forwardWorld } from './runtime-forward-world.test-helper';
 import { sinkAdvance, sinkDrive, sinkWorld } from './runtime-sink-world.test-helper';
 import type { Sim } from './sim';
 import type { WitnessHooks, WitnessWorld } from './snapshot-witness';
@@ -103,3 +104,28 @@ export function sinkSpec(cancelAt: number | null): RuntimeWorldSpec {
 export const SINK_WORLD: RuntimeWorldSpec = sinkSpec(null);
 /** Staked at tick 1, cancelled at tick 10: the window in which the runtime's mask copies are not the sim's masks. */
 export const SINK_WINDOW_WORLD: RuntimeWorldSpec = sinkSpec(10);
+
+/**
+ * The forward-camp world (GH-277 follow-on): a production work raised by an engineer, its line appended at the tail of
+ * side 0's lines the tick it completes (136), then items queued on both lines, a rally, a refused off-menu build and a
+ * cancel. The only world in which `appendedAnchors`, the tail of `lines[0]` and a COMPLETED work's rows hold a value
+ * other than their build value, so a cut at 20 (a site staked), 100 (mid-build), 136 (the completion tick), 250 and 300
+ * (items on both lines) restores each state.
+ */
+export const FORWARD_WORLD: RuntimeWorldSpec = {
+  name: `the forward-camp world (${FWD_TICKS} ticks)`,
+  ticks: FWD_TICKS,
+  hooks: {
+    build: (): RuntimeWorld => {
+      const { sim, rt } = forwardWorld();
+      return { sim, runtime: rt };
+    },
+    drive: (w, t) => {
+      forwardDrive(w.runtime, t);
+    },
+    advance: (w) => {
+      forwardAdvance({ sim: w.sim, rt: w.runtime });
+    },
+    hashEvery: 20,
+  },
+};
