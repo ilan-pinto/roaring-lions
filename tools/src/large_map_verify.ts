@@ -44,6 +44,7 @@ import { versusForceOf, versusSpawns } from '../../packages/app/src/net/versus-f
 import { versusRulesFailures } from '../validate_versus_rules.mjs';
 import { contourWander, fatStairs } from './relief_census';
 import { measureVersus, type VersusVisibilitySpec } from './map_visibility';
+import { PASSES, billOf, centreBill, densestWindow, meshesOf, msOf } from './map_triangles';
 
 /**
  * The built-share cap of a spec that does not name its own. It was the one global cap (1%), an upscale-fidelity check: a
@@ -92,6 +93,13 @@ export interface LargeMapSpec {
    * by forgetting a field; the exempt set is pinned over `Object.keys(SPECS)` in large_map_verify.test.ts.
    */
   visibility: { towns: readonly string[] } | { exempt: string };
+  /**
+   * The structure-triangle bill (map_triangles.ts), if the map is held to one (GH-974): PR 1001 found that the cost of a town is
+   * triangles, and a map drawn to a plan counts them as it places. In the centre `window` of tiles and in the densest `window`
+   * anywhere, the structures (walls, buildings, ditch segments) draw at most as many triangles in one pass as the whole of the
+   * `control` map, the 48x48 the render budget (+0.5 ms) is read against. Absent: not checked.
+   */
+  triangles?: { window: number; control: string };
   /** The share of tiles that are cover (`1 2 3 o n`), as [lowest, highest], if the map keeps a band. */
   coverShare?: readonly [number, number];
   /** How many 2x2 diagonal steps the relief may have; none when absent. */
@@ -355,6 +363,25 @@ export function verifyLargeMap(json: MapJson, rules: VersusRulesJson, spec: Larg
   const sdata = structures as Record<string, { low_profile?: boolean } | undefined>;
   if (sdata.wall?.low_profile !== true) fail('buildings: the wall type is not low-profile, so it would block sight');
 
+  // 7b. the structure-triangle bill
+  if (spec.triangles) {
+    const meshes = meshesOf(json, map);
+    const control = billOf(meshesOf(maps[spec.triangles.control as keyof typeof maps] as unknown as MapJson));
+    const edge = Math.min(spec.triangles.window, W);
+    const centre = centreBill(meshes, W, edge);
+    const dense = densestWindow(meshes, W, edge);
+    const whole = billOf(meshes);
+    facts.triangles_control_per_pass = control.perPass;
+    facts.triangles_whole_per_pass = whole.perPass;
+    facts.triangles_centre_per_pass = centre.perPass;
+    facts.triangles_densest_per_pass = dense.bill.perPass;
+    facts.triangles_densest_at = `${dense.x0},${dense.y0}`;
+    facts.triangles_centre_vs_control_ms = Number(msOf(PASSES * (centre.perPass - control.perPass)).toFixed(2));
+    facts.triangles_densest_vs_control_ms = Number(msOf(PASSES * (dense.bill.perPass - control.perPass)).toFixed(2));
+    if (centre.perPass > control.perPass) fail(`triangles: the centre ${edge}x${edge} draws ${centre.perPass} structure triangles a pass, over the ${spec.triangles.control} control's ${control.perPass}`);
+    if (dense.bill.perPass > control.perPass) fail(`triangles: the densest ${edge}x${edge} (at ${dense.x0},${dense.y0}) draws ${dense.bill.perPass} structure triangles a pass, over the ${spec.triangles.control} control's ${control.perPass}`);
+  }
+
   // 8. the census
   const shapes = buildingShapes(json);
   const over: string[] = [];
@@ -508,6 +535,28 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
       { name: 'town', marker: 'gate_1', radius: 3 },
     ],
   }),
+  // GH-974. The REDO of Rujm Sawda, STAGED (docs/campaign/staged_maps/rujm_sawda_redo): four walled yards at the centre ford
+  // are its town, so the versus visibility gate runs on them and the built-share cap is the map's own; the cut has the five
+  // crossings of the shipped map (three fords, two mesas); and the structure triangles are counted (`triangles`).
+  rujm_sawda_redo: () => ({
+    label: 'Rujm Sawda, redone',
+    size: 80,
+    maxBuiltShare: 0.01,
+    visibility: { towns: ['town'] },
+    routesPerEnd: 3,
+    income: { zones: 11, perMin: 360 },
+    lone: ['centre'],
+    triangles: { window: 48, control: 'milh_flats' },
+    // 10.75% cover (scrub belts on the foot lanes, never cover 3): the band is the Milh redo's
+    coverShare: [0.1, 0.14],
+    crossings: [
+      { name: 'ford_ne', marker: 'ford_ne' },
+      { name: 'ford_sw', marker: 'ford_sw' },
+      { name: 'centre', marker: 'centre' },
+      { name: 'mesa_ne', zone: 'mesa_ne' },
+      { name: 'mesa_sw', zone: 'mesa_sw' },
+    ],
+  }),
 };
 
 /**
@@ -524,7 +573,7 @@ export async function verifyVersusVisibility(json: MapJson, rules: VersusRulesJs
 }
 
 /** The maps a large-map spec reads from docs/campaign/staged_maps instead of the data registry: authored, measured, NOT offered. */
-const STAGED_IDS: ReadonlySet<string> = new Set(['milh_flats_l_redo']);
+const STAGED_IDS: ReadonlySet<string> = new Set(['milh_flats_l_redo', 'rujm_sawda_redo']);
 
 /** A STAGED large map (see STAGED_IDS): its map and rules as the generator wrote them, read from disk, never from `@lions/data`. */
 export function staged(id: string): { json: MapJson; rules: VersusRulesJson; spec: LargeMapSpec } {
