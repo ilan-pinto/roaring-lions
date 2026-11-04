@@ -1,4 +1,4 @@
-// The lane probe (GH-974, `_coord/versus-maps-design/design.md` section 4, check 5): does a map have a
+// The lane probe (GH-974, versus-maps design section 4, check 5): does a map have a
 // strategy to find, and is it the same strategy from both seats? REPORT-ONLY, exit 0 whatever it reads.
 //
 //   pnpm exec tsx src/backtest/lane-probe.ts --maps=rujm_sawda --lanes=ford_ne,ford_sw [--seeds=192] [--seed-from=6000] [--cap=2100]

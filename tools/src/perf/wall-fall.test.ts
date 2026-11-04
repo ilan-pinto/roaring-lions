@@ -25,7 +25,8 @@ describe('wallFall on Rujm Sawda', () => {
   });
 
   it('refuses a pool it cannot fill', () => {
-    expect(() => wallFall('rujm_sawda', 5000)).toThrow();
+    // more units than the sim holds is the sim's own refusal
+    expect(() => wallFall('rujm_sawda', 5000)).toThrow('sim at capacity');
   });
 });
 

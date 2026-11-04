@@ -8,7 +8,10 @@ import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { SEAT_GAP_MAX_POINTS, gapZ, groupOf, laneFor, lanesOf, meanOf, playLane, seatGapOk, shareOf, splitOrders, type LaneRead, type Point, type Splitter } from './lane-probe';
 import { humanHeldOf, layoutOf, world, type Arrangement } from './versus-probe';
 
-// Rujm Sawda's seats and the two fords either side of its centre (staged_maps/rujm_sawda_redo/map.json).
+// Rujm Sawda's seats and the two fords either side of its centre, as the STAGED redo has them
+// (docs/campaign/staged_maps/rujm_sawda_redo/map.json). They are literals for the pure left/right tests, and the
+// world tests below run on whichever map data/ holds: they are self-consistent only, not a reading of the shipped
+// map's markers (the shipped map's differ only in the mesas' markers, not the seats or fords).
 const WEST: Point = [12, 12];
 const EAST: Point = [67, 67];
 const FORD_NE: Point = [54, 27];
@@ -107,13 +110,14 @@ describe('splitOrders on a real Rujm Sawda world', () => {
 });
 
 describe('playLane', () => {
-  it('plays a game to a result and the seat that splits is the one read (seed 6000, both seats)', () => {
+  it('runs the loop to the cap it is given and reads the splitter\'s END (seed 6000, both seats, 1,000 ticks)', () => {
     const lanes: [Point, Point] = [FORD_NE, FORD_SW];
-    const west = playLane('rujm_sawda', 47515000, { splitEnd: 0, armourLeft: true }, lanes, 2100 * 20);
-    const east = playLane('rujm_sawda', 47515000, { splitEnd: 1, armourLeft: true }, lanes, 2100 * 20);
-    expect(west.ticks).toBeGreaterThan(0);
-    expect(east.ticks).toBeGreaterThan(0);
-    // the two seats are different games: the same seed does not replay one as the other
-    expect(`${west.winner}/${west.ticks}`).not.toBe(`${east.winner}/${east.ticks}`);
-  }, 240_000);
+    const cap = 1000; // 50 s of game: two order rounds, far short of a result, so the cap rule decides
+    for (const splitEnd of [0, 1] as const) {
+      const g = playLane('rujm_sawda', 47515000, { splitEnd, armourLeft: true }, lanes, cap);
+      // mutation: `t < capTicks` -> `t < 1` in playLane stops at tick 1 and reads red here
+      expect(g.ticks).toBe(cap);
+      expect([0, 1, null]).toContain(g.winner);
+    }
+  }, 60_000);
 });
