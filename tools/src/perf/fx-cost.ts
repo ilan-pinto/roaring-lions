@@ -17,6 +17,8 @@
  * p95 <= 16.7 ms. Refuses SwiftShader (exit 2). Frame time only: tick time is a
  * different budget and is not measured here.
  *
+ * GH-974 `--no-instancing` draws per-tile structures (walls, fence, HESCO) as clones, the BEFORE arm of that A/B.
+ *
  * GH-829 `--breakdown` (with `--map=<id> --dpr=<n> --rounds=<n> --burn=<k>`): swaps the FX rows
  * for a per-pass frame breakdown on one map. Each config switches ONE thing off (a composer
  * pass's `enabled`, the shadow casting pass, or a debug layer), is timed readPixels-synced, and
@@ -119,6 +121,15 @@ async function bootPage(quality: 'high' | 'medium' | 'low', mapId: string): Prom
   await page.goto(`http://localhost:${port}/?sandbox=${mapId}${extra}`, { waitUntil: 'load' });
   await page.waitForFunction(() => !!(window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer, null, { timeout: 120000 });
   await page.waitForTimeout(4000);
+  // GH-974: `--no-instancing` is the BEFORE arm of the per-tile instancing A/B -- walls, fences and HESCO are
+  // clones again (`ThreeRenderer.debugPerTileInstancing`). Both arms run the same build, so nothing else differs.
+  if (args.includes('--no-instancing')) {
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__lions.renderer.debugPerTileInstancing(false);
+    });
+    await page.waitForTimeout(1500);
+  }
   const gpu = await page.evaluate(() => {
     const c = document.createElement('canvas');
     const gl = c.getContext('webgl2');
