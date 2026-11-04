@@ -339,13 +339,20 @@ describe('pnpm arena --mode', () => {
   it('refuses, as the lobby would not offer it, a mode unfair on the map or off the mirror (exit 2, before any room)', () => {
     expect(refusalOf('wadi_tarfan', 'mirror', 'points')).toBeNull();
     expect(refusalOf('milh_flats', 'mirror', 'points')).toBeNull();
-    expect(refusalOf('tel_marum', 'mirror', 'points')).toMatch(/not offered on this map/);
+    expect(refusalOf('tel_marum', 'mirror', 'points')).toBeNull();   // GH-976 P4: the five other open maps
     expect(refusalOf('wadi_tarfan', 'mirror', 'camp')).toMatch(/not offered on this map/);
     expect(refusalOf('wadi_tarfan', 'mirror', 'flag')).toBeNull();
     expect(refusalOf('milh_flats', 'mirror', 'flag')).toBeNull();
-    expect(refusalOf('tel_marum', 'mirror', 'flag')).toMatch(/not offered on this map/);
-    expect(refusalOf('wadi_tarfan', 'kdf', 'flag')).toMatch(/mirror matchup/);
-    expect(refusalOf('wadi_tarfan', 'sarim', 'points')).toMatch(/mirror matchup/);
+    expect(refusalOf('tel_marum', 'mirror', 'flag')).toBeNull();
+    expect(refusalOf('tel_marum', 'mirror', 'camp')).toMatch(/not offered on this map/);
+    // GH-976 P4 review: no KDF-against-Sarim cell passed, so every faction pairing is refused for every mode.
+    expect(refusalOf('wadi_tarfan_l', 'kdf', 'points')).toMatch(/not offered on this map for this matchup/);
+    expect(refusalOf('wadi_tarfan_l', 'sarim', 'points')).toMatch(/not offered on this map for this matchup/);
+    expect(refusalOf('wadi_tarfan_l', 'kdf', 'flag')).toMatch(/not offered on this map for this matchup/);
+    expect(refusalOf('wadi_tarfan', 'kdf', 'flag')).toMatch(/not offered on this map for this matchup/);
+    expect(refusalOf('wadi_tarfan', 'sarim', 'points')).toMatch(/not offered on this map for this matchup/);
+    expect(refusalOf('tel_marum', 'sarim', 'points')).toMatch(/not offered on this map for this matchup/);
+    expect(refusalOf('milh_flats', 'kdf', 'points')).toMatch(/matchup is not offered on milh_flats \(mirror only\)/);   // a mirror-only map refuses the pairing first
     expect(refusalOf('wadi_tarfan', 'mirror')).toBeNull();   // annihilation: as ever
   });
   it('does not trust a room that started on another mode than it asked for', () => {
@@ -411,6 +418,32 @@ describe('a points race played through the arena (GH-976 P2)', () => {
       rmSync(out, { recursive: true, force: true });
     }
   }, 280_000);
+});
+
+// GH-976 P4: a KDF-v-Sarim mode room (not offered today: the arena refuses it) is a PLACED-force match (no production, no tunnels,
+// a goals-only runtime), so the harness shows no economy.
+describe('a KDF-against-Sarim mode room, and the arena that refuses to start one (GH-976 P4)', () => {
+  it('observe in a faction mode room: each seat reads its own faction, the board and no economy', () => {
+    const w = buildMatchWorld(modeConfig('wadi_tarfan_l', 'points', 4000, ['sarim', 'kdf']));
+    expect(w.factions).toEqual(['kdf', 'sarim']);
+    const sarimSeat = sideView(w, 1, new FogTracker(w.sim, 1), null);
+    const kdfSeat = sideView(w, 0, new FogTracker(w.sim, 0), null);
+    expect([sarimSeat.faction, kdfSeat.faction]).toEqual(['sarim', 'kdf']);
+    expect(sarimSeat.mode).toBe('points');
+    expect(sarimSeat.points?.target).toBe(600);
+    expect(sarimSeat).not.toHaveProperty('economy');   // the room is NOT an economy room, though the factions differ
+    expect(economyView(w, 1)).toBeNull();
+    // A Sarim host stands at the friendly end (the west): its camp point is the friendly anchor, the KDF seat's the hostile one.
+    expect(sarimSeat.camp).toEqual([w.anchors.friendly[0], w.anchors.friendly[1]]);
+    expect(kdfSeat.camp).toEqual([w.anchors.hostile[0], w.anchors.hostile[1]]);
+  });
+
+  it('the arena refuses the pairing before any room: no faction cell is offered (exit 2)', async () => {
+    const lines: string[] = [];
+    const run = await runArena(['--a', 'passive', '--b', 'passive', '--seeds', '1', '--map', 'wadi_tarfan_l', '--matchup', 'kdf', '--mode=points', '--out', '/nonexistent-arena-out'], { log: (l) => { lines.push(l); }, print: () => {} });
+    expect(run.code).toBe(2);
+    expect(lines.join('\n')).toMatch(/not offered on this map for this matchup/);
+  });
 });
 
 // One real flag raid, end to end: the Worker's route and room, two in-process players (a stub that sends two infantry squads at

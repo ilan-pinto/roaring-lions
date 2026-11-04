@@ -1666,8 +1666,15 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
   it('the room itself refuses an unknown mode and an unfair one (map, matchup), and makes no room', async () => {
     for (const [over, status] of [
       [{ winMode: 'points' }, 200],
-      [{ winMode: 'rally' }, 400], [{ winMode: 'camp' }, 400], [{ winMode: 'points', map: 'tel_marum' }, 400],
-      [{ winMode: 'points', matchup: 'sarim' }, 400], [{ winMode: 'points', mode: 'sandbox' }, 400],
+      [{ winMode: 'rally' }, 400], [{ winMode: 'camp' }, 400], [{ winMode: 'camp', map: 'tel_marum' }, 400],
+      // GH-976 P4: tel_marum plays the points race and the flag raid in the mirror now; KDF against Sarim plays no mode anywhere
+      // (the review removed the one cell), and the room asks the same question the route does.
+      [{ winMode: 'points', map: 'tel_marum' }, 200], [{ winMode: 'flag', map: 'milh_flats_l' }, 200],
+      [{ winMode: 'points', matchup: 'sarim' }, 400], [{ winMode: 'points', matchup: 'kdf' }, 400], [{ winMode: 'flag', matchup: 'kdf' }, 400],
+      [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
+      [{ winMode: 'flag', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'flag', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
+      [{ winMode: 'points', map: 'tel_marum', matchup: 'kdf' }, 400], [{ winMode: 'flag', map: 'tel_marum', matchup: 'sarim' }, 400],
+      [{ winMode: 'points', mode: 'sandbox' }, 400],
     ] as const) {
       const state = new FakeState();
       const room = new MatchRoom(state, env, YIELD);

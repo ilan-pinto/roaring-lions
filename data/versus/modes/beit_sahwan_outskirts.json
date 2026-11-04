@@ -1,0 +1,21 @@
+{
+  "id": "beit_sahwan_outskirts",
+  "map": "beit_sahwan_outskirts",
+  "flags": {
+    "friendly": { "at": [25, 17], "size": [5, 5] },
+    "hostile": { "at": [12, 25], "size": [5, 5] }
+  },
+  "modes": {
+    "flag": { "hold_s": 30 },
+    "points": {
+      "zones": [
+        { "zone": "clinic", "per_min": 40 },
+        { "zone": "tunnel_mouth_west", "per_min": 20 },
+        { "zone": "west_a", "per_min": 40, "at": [12, 14], "size": [6, 6] },
+        { "zone": "west_b", "per_min": 40, "at": [12, 28], "size": [6, 6] }
+      ],
+      "per_value_destroyed": 2,
+      "target": 600
+    }
+  }
+}

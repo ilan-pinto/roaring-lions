@@ -1,0 +1,22 @@
+{
+  "id": "rujm_sawda",
+  "map": "rujm_sawda",
+  "flags": {
+    "friendly": { "at": [35, 45], "size": [5, 5] },
+    "hostile": { "at": [40, 30], "size": [5, 5] }
+  },
+  "modes": {
+    "flag": { "hold_s": 30 },
+    "points": {
+      "zones": [
+        { "zone": "centre", "per_min": 60 },
+        { "zone": "well_n_0", "per_min": 30 },
+        { "zone": "well_s_1", "per_min": 30 },
+        { "zone": "well_w_0", "per_min": 30 },
+        { "zone": "well_e_1", "per_min": 30 }
+      ],
+      "per_value_destroyed": 1,
+      "target": 350
+    }
+  }
+}

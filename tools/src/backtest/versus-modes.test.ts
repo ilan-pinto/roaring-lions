@@ -4,8 +4,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MapId } from '@lions/data';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
+import { economyRoom } from '@lions/net';
 import {
-  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, flagOrder, idleSidesFor, parseZones, raidParty, withPointsOverride, campOrder, describeTally, fairWithin, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
+  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
   type ModePlayFn, type ModePlayed,
 } from './versus-modes';
 import { main as probeMain, seedOf } from './versus-probe';
@@ -30,6 +31,21 @@ describe('the readings', () => {
     expect(fairWithin(tallyModes([...games(57, 0), ...Array.from({ length: 39 }, () => game(null, 'cap'))]))).toBe(true);
   });
 
+  it('GH-976 P4: fair over the DECISIVE games is the leader\'s share of the games somebody won: draws cannot hide a lopsided read', () => {
+    // 58 v 35 and 40 draws: 58 of 133 is 43.6% of all the games, but 58 of 93 is 62.4% of those somebody won.
+    const hidden = tallyModes([...games(58, 35), ...Array.from({ length: 40 }, () => game(null, 'mutual'))]);
+    expect(fairWithin(hidden)).toBe(true);
+    expect(fairWithinDecisive(hidden)).toBe(false);
+    // The bar itself is in: 60 of 100 decisive is 60%, within; 61 of 100 is over; and draws on top change neither.
+    expect(fairWithinDecisive(tallyModes(games(60, 40)))).toBe(true);
+    expect(fairWithinDecisive(tallyModes(games(61, 39)))).toBe(false);
+    expect(fairWithinDecisive(tallyModes(games(39, 61)))).toBe(false);
+    expect(fairWithinDecisive(tallyModes([...games(60, 40), ...Array.from({ length: 50 }, () => game(null, 'mutual'))]))).toBe(true);
+    // A cell nobody won is empty, not fair: it must not pass on zero over zero.
+    expect(fairWithinDecisive(tallyModes(Array.from({ length: 96 }, () => game(null, 'mutual'))))).toBe(false);
+    expect(fairWithinDecisive(tallyModes([]))).toBe(false);
+  });
+
   it('the goal share is games decided by the goal against 70%: 68 of 96 (70.8%) ok, 67 of 96 (69.8%) low', () => {
     expect(GOAL_SHARE_MIN_PERCENT).toBe(70);
     const t = (goal: number): ModePlayed[] => [...games(goal, 0, 'objective'), ...games(0, 96 - goal, 'annihilation')];
@@ -49,6 +65,14 @@ describe('the readings', () => {
     expect(passiveLost(tallyModes([...games(0, 95), game(null, 'cap')]), 0)).toBe(false);
     expect(passiveLost(tallyModes([...games(0, 95), game(1, 'cap')]), 0)).toBe(true); // lost ON the cap's forces is still lost; the cap is in the by-counts
     expect(passiveLost(tallyModes(games(0, 96)), 1)).toBe(false); // the wrong end: east passive, west won none
+  });
+
+  it('GH-976 P4: a faction cell names the faction at each end, the mirror reads as it always did', () => {
+    const t = tallyModes(games(3, 2));
+    expect(describeTally(t)).toBe('west 3 / east 2 / draw 0  by goal 5, wipe 0, mutual 0, stalemate 0, cap 0  mean 60 s');
+    expect(describeTally(t, ['kdf', 'kdf'])).toBe(describeTally(t));
+    expect(describeTally(t, ['kdf', 'sarim'])).toBe('west (kdf) 3 / east (sarim) 2 / draw 0  by goal 5, wipe 0, mutual 0, stalemate 0, cap 0  mean 60 s');
+    expect(describeTally(t, ['sarim', 'kdf'])).toContain('west (sarim) 3 / east (kdf) 2');
   });
 
   it('describes every way a game ended', () => {
@@ -300,7 +324,7 @@ describe('the command line', () => {
   }, FULL_GAMES_TIMEOUT_MS);
 
   it('a map with no mode file, a mode that is not one, and a bad count are refused', () => {
-    expect(() => modeMain(['--mode=camp', '--maps=tel_marum'], fake)).toThrow(/has no win-mode file/);
+    expect(() => modeMain(['--mode=camp', '--maps=qarn_hadid'], fake)).toThrow(/has no win-mode file/);
     expect(() => modeMain(['--mode=rally'], fake)).toThrow(/--mode/);
     expect(() => modeMain(['--mode=camp', '--seeds=0'], fake)).toThrow(/--seeds/);
     expect(() => modeMain(['--mode=camp', '--wipe=maybe'], fake)).toThrow(/--wipe/);
@@ -314,7 +338,7 @@ describe('the command line', () => {
 
   it('a fake that always lets the active end win reads fair OUTSIDE, goal ok, and both passive ends LOSE', () => {
     const r = quiet(() => modeMain(['--mode=camp', '--maps=milh_flats', '--seeds=10', '--no-self-check'], fake));
-    expect(r.out).toContain('=> milh_flats camp: fair OUTSIDE (100.0%); goal share 100.0% ok; passive west loses (goal share 100.0%); passive east loses (goal share 100.0%)');
+    expect(r.out).toContain('=> milh_flats camp: fair OUTSIDE (100.0%); decisive OUTSIDE (100.0% of 10); goal share 100.0% ok; passive west loses (goal share 100.0%); passive east loses (goal share 100.0%)');
   });
 
   it('flags a passive end that did not lose', () => {
@@ -336,7 +360,7 @@ describe('the sweep knobs (in memory only)', () => {
     expect(JSON.stringify(versusModes.wadi_tarfan)).toBe(before);
     expect(() => withPointsOverride('wadi_tarfan', { target: 5 }, () => { throw new Error('boom'); })).toThrow('boom');
     expect(JSON.stringify(versusModes.wadi_tarfan)).toBe(before);
-    expect(() => withPointsOverride('tel_marum', { target: 5 }, () => 0)).toThrow(/no points block/);
+    expect(() => withPointsOverride('qarn_hadid', { target: 5 }, () => 0)).toThrow(/no points block/);
   });
 
   it('the override really reaches the game: a target of 1 point is won inside a second of a hold, and a rate of 1 point is not a 30', () => {
@@ -355,4 +379,121 @@ describe('the sweep knobs (in memory only)', () => {
     expect(() => modeMain(['--mode=camp', '--target=300'], () => ({ winner: 0, by: 'objective', ticks: 1 }))).toThrow(/need --mode=points/);
     expect(() => modeMain(['--mode=points', '--kill=-1']), '--kill').toThrow(/--kill/);
   });
+});
+
+describe('GH-976 P4: a KDF-v-Sarim cell is a mode room too (the two placed forces, a goals-only runtime, no economy)', () => {
+  it('modeConfig carries the arrangement by END: the host stands friendly, the KDF is side 0 wherever it stands, and the room is no economy room', () => {
+    const kdfHost = modeConfig('wadi_tarfan' as MapId, 'flag', seedOf(0), ['kdf', 'sarim']);
+    expect(kdfHost.seats.map((s) => [s.seat, s.side, s.faction])).toEqual([[0, 0, 'kdf'], [1, 1, 'sarim']]);
+    const sarimHost = modeConfig('wadi_tarfan' as MapId, 'flag', seedOf(0), ['sarim', 'kdf']);
+    expect(sarimHost.seats.map((s) => [s.seat, s.side, s.faction])).toEqual([[0, 1, 'sarim'], [1, 0, 'kdf']]);
+    for (const c of [kdfHost, sarimHost]) {
+      expect(c.winMode).toBe('flag');
+      expect(economyRoom(c)).toBe(false);
+    }
+    // The default is the mirror, as every reading before P4.
+    expect(modeConfig('wadi_tarfan' as MapId, 'flag', seedOf(0)).seats.map((s) => s.faction)).toEqual(['kdf', 'kdf']);
+  });
+
+  it('a faction mode room stands the two placed forces and a goals-only runtime: Sarim on side 1 at the friendly end when it hosts', () => {
+    const w = buildMatchWorld(modeConfig('wadi_tarfan' as MapId, 'points', seedOf(0), ['sarim', 'kdf']));
+    expect(w.factions).toEqual(['kdf', 'sarim']);
+    expect(w.endOfSide).toEqual(['hostile', 'friendly']);
+    expect(w.runtime).not.toBeNull();
+    expect(w.bySide[0].length).toBeGreaterThan(0);
+    expect(w.bySide[1].length).toBeGreaterThan(w.bySide[0].length); // Sarim fields the larger count of smaller units
+    expect(w.sim.unitTypes[w.sim.state.typeIdx[w.bySide[1][0]]].id).toBe('sarim_rifles');
+  });
+
+  it('a cut end loses in a faction cell, each end and each order: the arm reads the END, and the arrangement reaches the game', () => {
+    for (const arr of [['kdf', 'sarim'], ['sarim', 'kdf']] as const) {
+      expect(playMode('wadi_tarfan' as MapId, 'flag', seedOf(0), { arr, cutEnd: 1 }), `${arr.join('/')} east cut`).toMatchObject({ winner: 0 });
+      expect(playMode('wadi_tarfan' as MapId, 'flag', seedOf(0), { arr, cutEnd: 0 }), `${arr.join('/')} west cut`).toMatchObject({ winner: 1 });
+    }
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('the same seed under the two orders is two games, and one order twice is one game', () => {
+    const a = playMode('wadi_tarfan' as MapId, 'flag', seedOf(1), { arr: ['kdf', 'sarim'] });
+    expect(playMode('wadi_tarfan' as MapId, 'flag', seedOf(1), { arr: ['kdf', 'sarim'] })).toEqual(a);
+    const mirror = playMode('wadi_tarfan' as MapId, 'flag', seedOf(1));
+    expect(mirror).not.toEqual(a);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('the self-check hands the arrangement to every game it plays, and names a faction cell in what it says', () => {
+    const seen: string[] = [];
+    const spyFn: ModePlayFn = (_m, _mode, _s, o) => { seen.push((o?.arr ?? ['kdf', 'kdf']).join('/')); return { winner: 0, by: 'objective', ticks: 1 }; };
+    const failed = modeSelfCheck('wadi_tarfan' as MapId, 'flag', spyFn, ['sarim', 'kdf']);
+    expect(seen).toEqual(['sarim/kdf', 'sarim/kdf', 'sarim/kdf', 'sarim/kdf']);
+    expect(failed.length).toBeGreaterThan(0);
+    expect(failed.every((f) => f.startsWith('wadi_tarfan flag sarim/kdf:'))).toBe(true);
+    // A mirror says what it always said.
+    expect(modeSelfCheck('wadi_tarfan' as MapId, 'flag', spyFn)[0]).toMatch(/^wadi_tarfan flag: /);
+  });
+
+  it('--arr plays each arrangement as its own block of lines, and the default is the mirror alone', () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { lines.push(a.join(' ')); });
+    const seenArr: string[] = [];
+    const fake: ModePlayFn = (_m, _mode, _s, o) => { seenArr.push((o?.arr ?? ['kdf', 'kdf']).join('/')); return { winner: o?.passive === undefined ? 0 : o.passive === 0 ? 1 : 0, by: 'objective', ticks: 2400 }; };
+    try {
+      modeMain(['--mode=flag', '--maps=wadi_tarfan', '--seeds=2', '--no-self-check', '--arr=kdf/sarim,sarim/kdf'], fake);
+      expect([...new Set(seenArr)]).toEqual(['kdf/sarim', 'sarim/kdf']);
+      expect(lines.join('\n')).toContain('wadi_tarfan flag kdf/sarim active:   west (kdf) 2 / east (sarim) 0');
+      expect(lines.join('\n')).toContain('=> wadi_tarfan flag sarim/kdf: fair OUTSIDE');
+      expect(lines.join('\n')).toContain('decisive OUTSIDE (100.0% of 2)');
+      seenArr.length = 0;
+      lines.length = 0;
+      modeMain(['--mode=flag', '--maps=wadi_tarfan', '--seeds=2', '--no-self-check'], fake);
+      expect([...new Set(seenArr)]).toEqual(['kdf/kdf']);
+      expect(lines.join('\n')).toContain('wadi_tarfan flag active:   west 2 / east 0');
+    } finally { spy.mockRestore(); }
+    expect(() => modeMain(['--mode=flag', '--arr=kdf/ashwar'], fake)).toThrow(/--arr/);
+  });
+});
+
+describe('GH-976 P4: the flag sweep knob and a ground the mode declares (in memory only)', () => {
+  it('parses --flags as the friendly and the hostile rectangle, and refuses anything else', () => {
+    expect(parseFlags('6,30,5,5/37,13,5,5')).toEqual([[6, 30, 5, 5], [37, 13, 5, 5]]);
+    for (const bad of ['6,30,5,5', '6,30,5/37,13,5,5', '6,30,5,5/37,13,5,x', '6,30,0,5/37,13,5,5', '-1,30,5,5/37,13,5,5', '1,2,3,4/5,6,7,8/9,10,11,12']) expect(() => parseFlags(bad), bad).toThrow(/--flags/);
+  });
+
+  it('withFlagOverride moves the flag a room reads for the length of the call and puts it back, also on a throw', () => {
+    const before = JSON.stringify(versusModes.wadi_tarfan);
+    const seen = withFlagOverride('wadi_tarfan', { flags: [[10, 40, 4, 4], [33, 3, 4, 4]], holdS: 45 }, () => {
+      const w = buildMatchWorld(modeConfig('wadi_tarfan' as MapId, 'flag', seedOf(0)));
+      return { zones: [w.map.zones.flag_friendly, w.runtime!.incomeZones.length, versusModes.wadi_tarfan.modes.flag!.hold_s], rects: w.runtime!.objectiveList.length };
+    });
+    expect(seen.rects).toBe(2);
+    expect(JSON.stringify(versusModes.wadi_tarfan)).toBe(before);
+    expect(() => withFlagOverride('wadi_tarfan', { holdS: 5 }, () => { throw new Error('boom'); })).toThrow('boom');
+    expect(JSON.stringify(versusModes.wadi_tarfan)).toBe(before);
+    expect(() => withFlagOverride('qarn_hadid', { holdS: 5 }, () => 0)).toThrow(/no flag block/);
+  });
+
+  it('the override reaches the game: a raid sent to a nearer flag ends the game sooner', () => {
+    const normal = playMode('wadi_tarfan' as MapId, 'flag', seedOf(0), { passive: 1 });
+    // The east end sits still; the west raids the hostile flag. Moving that flag from (37,13) to (22,16) shortens the walk.
+    const near = withFlagOverride('wadi_tarfan', { flags: [[6, 30, 5, 5], [22, 16, 5, 5]] }, () => playMode('wadi_tarfan' as MapId, 'flag', seedOf(0), { passive: 1 }));
+    expect(near.winner).toBe(0);
+    expect(near.ticks).toBeLessThan(normal.ticks);
+    const longer = withFlagOverride('wadi_tarfan', { holdS: 60 }, () => playMode('wadi_tarfan' as MapId, 'flag', seedOf(0), { passive: 1 }));
+    expect(longer.ticks).toBeGreaterThan(normal.ticks + 20 * 20);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('--zones takes a ground to declare, rate then @x.y.w.h, and refuses a malformed one', () => {
+    expect(parseZones('hold_a:20@10.12.6.6,pass:40')).toEqual([{ zone: 'hold_a', per_min: 20, at: [10, 12], size: [6, 6] }, { zone: 'pass', per_min: 40 }]);
+    for (const bad of ['hold_a:20@10.12.6', 'hold_a:20@10.12.0.6', 'hold_a:20@a.b.c.d', 'hold_a:20@1.2.3.4@5']) expect(() => parseZones(bad), bad).toThrow(/--zones/);
+  });
+
+  it('a points race scores a ground the mode declares, and the probe\'s play walks to it', () => {
+    const declared = [{ zone: 'hold_a', per_min: 60, at: [20, 20], size: [8, 8] }, { zone: 'hold_b', per_min: 60, at: [26, 26], size: [8, 8] }];
+    const g = withPointsOverride('wadi_tarfan', { zones: declared as never, target: 300 }, () => {
+      const w = buildMatchWorld(modeConfig('wadi_tarfan' as MapId, 'points', seedOf(0)));
+      expect(w.map.zones.hold_a).toBeUndefined(); // the map does not have it...
+      expect(w.runtime!.incomeZones.map((z) => z.zone).sort()).toEqual(['hold_a', 'hold_b']); // ...the runtime does
+      return playMode('wadi_tarfan' as MapId, 'points', seedOf(0), { passive: 1 });
+    });
+    expect(g).toMatchObject({ winner: 0, by: 'objective' });
+    expect(g.points![0]).toBeGreaterThanOrEqual(300);
+  }, FULL_GAMES_TIMEOUT_MS);
 });

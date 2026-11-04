@@ -87,7 +87,12 @@ import telMarumVersus from '../../../data/versus/tel_marum.json';
 import wadiTarfanVersus from '../../../data/versus/wadi_tarfan.json';
 import wadiTarfanLVersus from '../../../data/versus/wadi_tarfan_l.json';
 import milhFlatsLVersus from '../../../data/versus/milh_flats_l.json';
+import beitSahwanOutskirtsModes from '../../../data/versus/modes/beit_sahwan_outskirts.json';
+import milhFlatsLModes from '../../../data/versus/modes/milh_flats_l.json';
 import milhFlatsModes from '../../../data/versus/modes/milh_flats.json';
+import rujmSawdaModes from '../../../data/versus/modes/rujm_sawda.json';
+import telMarumModes from '../../../data/versus/modes/tel_marum.json';
+import wadiTarfanLModes from '../../../data/versus/modes/wadi_tarfan_l.json';
 import wadiTarfanModes from '../../../data/versus/modes/wadi_tarfan.json';
 // GH-859 P1a: the combat formations, registered in sorted directory order.
 import formationAmbush from '../../../data/formations/ambush.json';
@@ -345,8 +350,13 @@ export const versusRules: Readonly<Record<string, VersusRulesJson>> = {
  *  plays. data/versus/modes/*.json against versus_mode.schema.json. Hand-kept, so `index.test.ts` pins it to
  *  the directory: an unregistered file would be a mode no room can reach. */
 export const versusModes: Readonly<Record<string, VersusModeFileJson>> = {
+  beit_sahwan_outskirts: beitSahwanOutskirtsModes as unknown as VersusModeFileJson,
   milh_flats: milhFlatsModes as unknown as VersusModeFileJson,
+  milh_flats_l: milhFlatsLModes as unknown as VersusModeFileJson,
+  rujm_sawda: rujmSawdaModes as unknown as VersusModeFileJson,
+  tel_marum: telMarumModes as unknown as VersusModeFileJson,
   wadi_tarfan: wadiTarfanModes as unknown as VersusModeFileJson,
+  wadi_tarfan_l: wadiTarfanLModes as unknown as VersusModeFileJson,
 };
 
 /** Combat formations (GH-859 P1a): data/formations/*.json against formation.schema.json, in

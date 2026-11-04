@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { VERSUS_FAIR_MAPS, WIN_MODES as NET_WIN_MODES, WIN_MODE_FAIR_MAPS, economyRoom, validateConfig, winModeAllowed, winModeField, type MatchConfig } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODES as NET_WIN_MODES, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, economyRoom, validateConfig, winModeAllowed, winModeField, type MatchConfig } from '@lions/net';
 import { campYardZone, flagZone, maps, versusModeMissionOf, versusModes, versusRules, WIN_MODES, type VersusModeFileJson } from '@lions/data';
 import { OFFERED_MAPS, WIN_MODES as MJS_WIN_MODES, versusModeFailures } from '../validate_versus_modes.mjs';
 import { buildMatchWorld } from '../../packages/app/src/net/match-world';
@@ -17,7 +17,7 @@ interface Doc {
   map: string;
   camps?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } };
   flags?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } };
-  modes: { camp?: Record<string, unknown>; flag?: { hold_s: number }; points?: { zones: { zone: string; per_min: number }[]; per_value_destroyed: number; target: number } };
+  modes: { camp?: Record<string, unknown>; flag?: { hold_s: number }; points?: { zones: { zone: string; per_min: number; at?: number[]; size?: number[] }[]; per_value_destroyed: number; target: number } };
 }
 const shipped: { file: string; doc: Doc }[] = readdirSync(DIR)
   .filter((f) => f.endsWith('.json'))
@@ -30,9 +30,16 @@ const modeFor = (map: string): { file: string; doc: Doc }[] => [clone(shipped.fi
 const ajv = new (AjvModule as unknown as new (o: object) => { compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown } })({ allErrors: true, strict: false });
 const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_mode.schema.json'), 'utf8')) as object);
 
+/** The maps whose rows and elevation are point-symmetric about the map centre (checked below, tile for tile), so a mode file
+ *  for them may be, and these are, point-symmetric too. `tel_marum` and `beit_sahwan_outskirts` are not: their files place a
+ *  flag and a scoring ground by measurement, and nothing here asks them to be images of each other (GH-976 P4). */
+const SYMMETRIC_MAPS = ['milh_flats', 'milh_flats_l', 'rujm_sawda', 'wadi_tarfan', 'wadi_tarfan_l'];
+const ASYMMETRIC_MAPS = ['beit_sahwan_outskirts', 'tel_marum'];
+
 describe('the shipped win-mode files', () => {
-  it('are the two open mirror maps, pass the schema and the cross-file rules, and are registered', () => {
-    expect(shipped.map((s) => s.doc.map)).toEqual(['milh_flats', 'wadi_tarfan']);
+  it('are the seven open versus maps, pass the schema and the cross-file rules, and are registered', () => {
+    expect(shipped.map((s) => s.doc.map)).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'milh_flats_l', 'rujm_sawda', 'tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']);
+    expect([...SYMMETRIC_MAPS, ...ASYMMETRIC_MAPS].sort()).toEqual(shipped.map((s) => s.doc.map));
     for (const s of shipped) expect(validate(s.doc), s.file).toBe(true);
     expect(versusModeFailures(shipped, mapsById)).toEqual([]);
     // index.ts is hand-kept: a file in the directory and not in `versusModes` is a mode no room can reach.
@@ -58,39 +65,106 @@ describe('the shipped win-mode files', () => {
         expect(versusModes[map]?.modes[mode], `${mode} on ${map} has its mode file`).toBeDefined();
         expect(winModeAllowed(mode, map)).toBe(true);
       }
+      // A KDF-v-Sarim cell is offered only on a map KDF meets Sarim on, and only where the file carries the mode.
+      for (const [map, hosts] of Object.entries(WIN_MODE_FAIR_FACTION_CELLS[mode])) {
+        expect(FACTION_MATCHUP_MAPS, `${mode} KDF v Sarim on ${map}`).toContain(map);
+        expect(versusModes[map]?.modes[mode], `${mode} on ${map} has its mode file`).toBeDefined();
+        expect(hosts.length, `${mode} on ${map}`).toBeGreaterThan(0);
+      }
     }
-    expect(WIN_MODE_FAIR_MAPS.points).toEqual(['wadi_tarfan', 'milh_flats']);
-    expect(WIN_MODE_FAIR_MAPS.flag).toEqual(['wadi_tarfan', 'milh_flats']); // GH-976 P3: 56.9% / 52.1%, 96.5% / 78.5% by the flag, passive ends lose 288 of 288: see config.ts
-    expect(WIN_MODE_FAIR_MAPS.camp).toEqual([]); // 4.9% / 58.3% decided by the camp, passive ends win 8-47 of 288: see config.ts
+    // The literals (GH-976 P4): each of the seven open maps carries both modes, each read fair in the mirror, in a fixed order.
+    const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+    expect(WIN_MODE_FAIR_MAPS.points).toEqual(SEVEN); // wadi_tarfan 56.3%, milh_flats 57.3% (P1); the other five 51-55% on 4000-4287: see config.ts
+    expect(WIN_MODE_FAIR_MAPS.flag).toEqual(SEVEN);   // wadi_tarfan 56.9%, milh_flats 52.1% (P3); the other five 44-55% (45-55% of the decisive games)
+    expect(WIN_MODE_FAIR_MAPS.camp).toEqual([]);      // 4.9% / 58.3% decided by the camp, passive ends win 8-47 of 288: see config.ts
+    expect([...VERSUS_FAIR_MAPS].sort()).toEqual([...SEVEN].sort());
+    for (const map of SEVEN) for (const mode of ['points', 'flag'] as const) expect(versusModes[map].modes[mode], `${map} ${mode}`).toBeDefined();
+    // ...and no KDF-v-Sarim cell: the one that passed (points on wadi_tarfan_l at 10 per 100) was a kill race and was removed.
+    expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: {}, points: {}, flag: {} });
     expect(winModeAllowed('camp', 'wadi_tarfan')).toBe(false);
-    expect(winModeAllowed('points', 'tel_marum')).toBe(false);
-    expect(winModeAllowed('flag', 'tel_marum')).toBe(false);
+    expect(winModeAllowed('points', 'wadi_tarfan_l', 'kdf')).toBe(false);
+    expect(winModeAllowed('points', 'wadi_tarfan_l', 'sarim')).toBe(false);
+    expect(winModeAllowed('flag', 'wadi_tarfan_l', 'kdf')).toBe(false);
+    expect(winModeAllowed('points', 'wadi_tarfan', 'sarim')).toBe(false);
+    expect(winModeAllowed('points', 'tel_marum', 'kdf')).toBe(false);
   });
 
-  it('GH-976 P3: the flag zones come in point-symmetric pairs, so both seats raid the same ground', () => {
+  it('GH-976 P4 review: a points race is mostly held ground: no file pays more than 2 points per 100 value destroyed', () => {
+    // Measured on 9000-9287: at 1-2 per 100 about 90% of the points on milh_flats_l, tel_marum and wadi_tarfan come from held ground; at
+    // 10 per 100 (wadi_tarfan_l, removed) 80% came from kills, a two-minute kill race under a hint that promises the ground.
+    for (const s of shipped) {
+      const p = s.doc.modes.points!;
+      expect(p.per_value_destroyed, s.doc.map).toBeLessThanOrEqual(2);
+      expect(p.target, s.doc.map).toBeGreaterThanOrEqual(350);
+    }
+    expect(shipped.find((s) => s.doc.map === 'wadi_tarfan_l')!.doc.modes.points).toMatchObject({ per_value_destroyed: 1, target: 600 });
+  });
+
+  it('GH-976 P4: the symmetric maps are point-symmetric tile for tile (rows and elevation), the two others are not: so the symmetry the next tests ask is a fact about the map', () => {
+    type M = { width: number; height: number; rows: string[]; elevation?: string[] };
+    const asym = (m: M, grid: string[]): number => { let n = 0; for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) if (grid[y][x] !== grid[m.height - 1 - y][m.width - 1 - x]) n++; return n; };
+    for (const id of SYMMETRIC_MAPS) {
+      const m = (maps as unknown as Record<string, M>)[id];
+      expect(asym(m, m.rows), `${id} rows`).toBe(0);
+      if (m.elevation !== undefined) expect(asym(m, m.elevation), `${id} elevation`).toBe(0);
+    }
+    for (const id of ASYMMETRIC_MAPS) {
+      const m = (maps as unknown as Record<string, M>)[id];
+      expect(asym(m, m.rows), `${id} rows`).toBeGreaterThan(100);
+    }
+  });
+
+  it('GH-976 P3: on a point-symmetric map the flag zones come in point-symmetric pairs, so both seats raid the same ground; on the others each flag is its own measured ground', () => {
     for (const s of shipped) {
       const map = (maps as unknown as Record<string, { width: number; height: number }>)[s.doc.map];
       const f = s.doc.flags!;
       expect(f.friendly.size, `${s.doc.map} size`).toEqual(f.hostile.size);
-      // A rectangle at (x, y) of size (w, h) is carried by the half turn to (W - x - w, H - y - h).
-      expect(f.hostile.at, `${s.doc.map} flags are a half turn apart`).toEqual([map.width - f.friendly.at[0] - f.friendly.size[0], map.height - f.friendly.at[1] - f.friendly.size[1]]);
       expect(s.doc.modes.flag!.hold_s).toBe(30);
+      // A rectangle at (x, y) of size (w, h) is carried by the half turn to (W - x - w, H - y - h).
+      const image = [map.width - f.friendly.at[0] - f.friendly.size[0], map.height - f.friendly.at[1] - f.friendly.size[1]];
+      if (SYMMETRIC_MAPS.includes(s.doc.map)) expect(f.hostile.at, `${s.doc.map} flags are a half turn apart`).toEqual(image);
+      else expect(f.hostile.at, `${s.doc.map} flags are not images of each other: the ground is not`).not.toEqual(image);
     }
   });
 
-  it('GH-976 P3: no flag tile is a tile the placed force spawns on, so no raid begins with a seat on its own flag', () => {
-    for (const { doc } of shipped) {
-      const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map: doc.map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'flag' } as never) as MatchConfig;
-      const w = buildMatchWorld(c);
-      const occupied = new Set<string>();
-      for (const ids of w.bySide) for (const i of ids) occupied.add(`${Math.floor(w.sim.state.posX[i] / 65536)},${Math.floor(w.sim.state.posY[i] / 65536)}`);
-      for (const end of ['friendly', 'hostile'] as const) {
-        const f = doc.flags![end];
-        for (let dy = 0; dy < f.size[1]; dy++) for (let dx = 0; dx < f.size[0]; dx++) {
-          expect(occupied.has(`${f.at[0] + dx},${f.at[1] + dy}`), `${doc.map} ${end} flag tile under a unit`).toBe(false);
-        }
+  const ARRANGEMENTS: readonly (readonly ['kdf' | 'sarim', 'kdf' | 'sarim'])[] = [['kdf', 'kdf'], ['kdf', 'sarim'], ['sarim', 'kdf']];
+  /** The ground a mode file gives a mode, as `[name, x, y, w, h]`, flags by END and points zones from the map or the file. */
+  const groundsOf = (doc: Doc, mode: 'flag' | 'points'): [string, number[]][] => {
+    if (mode === 'flag') return (['friendly', 'hostile'] as const).map((end) => [`${end} flag`, [doc.flags![end].at[0], doc.flags![end].at[1], doc.flags![end].size[0], doc.flags![end].size[1]]]);
+    const rects = (maps as unknown as Record<string, { zones: Record<string, number[]> }>)[doc.map].zones;
+    return doc.modes.points!.zones.map((z) => [z.zone, z.at !== undefined ? [z.at[0], z.at[1], z.size![0], z.size![1]] : rects[z.zone]]);
+  };
+  /** Every ground (flag or scoring) that has a unit of the placed forces on it at tick 0, in a room of this arrangement, as
+   *  `map arrangement mode ground unit-type`. A seat that stands on a scoring ground holds it from the first tick and is paid for
+   *  standing still; a unit on a flag ground starts a raid's hold or spoils the other's. A Sarim host is side 1 at the friendly end,
+   *  the KDF always side 0 (`sidesOfFactions`). */
+  const underAUnit = (map: string, arr: readonly ['kdf' | 'sarim', 'kdf' | 'sarim'], mode: 'flag' | 'points'): string[] => {
+    const sides: [0 | 1, 0 | 1] = arr[0] === 'sarim' && arr[1] === 'kdf' ? [1, 0] : [0, 1];
+    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: sides[s], faction: arr[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: mode } as never) as MatchConfig;
+    const w = buildMatchWorld(c);
+    const typeAt = new Map<string, string>();
+    for (const ids of w.bySide) for (const i of ids) typeAt.set(`${Math.floor(w.sim.state.posX[i] / 65536)},${Math.floor(w.sim.state.posY[i] / 65536)}`, w.sim.unitTypes[w.sim.state.typeIdx[i]].id);
+    expect(typeAt.size, `${map} ${arr.join('/')} spawned something`).toBeGreaterThan(20);
+    const out: string[] = [];
+    for (const [name, r] of groundsOf(shipped.find((x) => x.doc.map === map)!.doc, mode)) {
+      for (let y = r[1]; y < r[1] + r[3]; y++) for (let x = r[0]; x < r[0] + r[2]; x++) {
+        const t = typeAt.get(`${x},${y}`);
+        if (t !== undefined) out.push(`${map} ${arr.join('/')} ${mode} ${name} ${t}`);
       }
     }
+    return out;
+  };
+
+  it('GH-976 P3, P4: no flag and no scoring ground has a unit on it at tick 0 in the mirror, where every mode is offered', () => {
+    for (const { doc } of shipped) for (const mode of ['flag', 'points'] as const) expect(underAUnit(doc.map, ['kdf', 'kdf'], mode), `${doc.map} ${mode}`).toEqual([]);
+  });
+
+  it('GH-976 P4: in every KDF-v-Sarim arrangement a mode file can be offered in, the grounds under a unit are exactly the known three, each a Sarim atgm_cell (an exemption that stops being true must be deleted)', () => {
+    const found: string[] = [];
+    for (const map of FACTION_MATCHUP_MAPS) for (const arr of ARRANGEMENTS.slice(1)) for (const mode of ['flag', 'points'] as const) found.push(...underAUnit(map, arr, mode));
+    // None of these cells is offered (`WIN_MODE_FAIR_FACTION_CELLS` is empty); the first explains tel_marum's flag row in the PR: a
+    // Sarim atgm_cell stands on the friendly flag ground in the KDF-host room, so a Sarim raid there begins with its hold running.
+    expect(found).toEqual(['tel_marum kdf/sarim flag friendly flag atgm_cell', 'wadi_tarfan kdf/sarim points bluff_near_1 atgm_cell', 'wadi_tarfan sarim/kdf points bluff_near_0 atgm_cell']);
   });
 
   it('wadi_tarfan\'s camps are its rules file\'s, and milh_flats\' two camps are point-symmetric about the map centre', () => {
@@ -101,12 +175,15 @@ describe('the shipped win-mode files', () => {
     expect(m.hostile.at).toEqual([46 - m.friendly.at[0], 46 - m.friendly.at[1]]);
   });
 
-  it('points zones come in the map\'s point-symmetric pairs, so both seats are offered the same ground', () => {
-    for (const s of shipped) {
+  it('on a point-symmetric map the points zones come in the map\'s point-symmetric pairs, so both seats are offered the same ground', () => {
+    for (const s of shipped.filter((x) => SYMMETRIC_MAPS.includes(x.doc.map))) {
       const mapJson = (maps as unknown as Record<string, { zones: Record<string, number[]>; width: number }>)[s.doc.map];
       const rects = mapJson.zones;
       const pts = s.doc.modes.points!;
-      const centre = (n: string): [number, number] => [rects[n][0] + rects[n][2] / 2, rects[n][1] + rects[n][3] / 2];
+      // A ground the file declares is read from the file; the others from the map.
+      const declared = Object.fromEntries(pts.zones.filter((z) => z.at !== undefined).map((z) => [z.zone, [z.at![0], z.at![1], z.size![0], z.size![1]]]));
+      const rect = (n: string): number[] => declared[n] ?? rects[n];
+      const centre = (n: string): [number, number] => [rect(n)[0] + rect(n)[2] / 2, rect(n)[1] + rect(n)[3] / 2];
       const w = mapJson.width;
       const pair = new Map(pts.zones.map((z) => [z.zone, z.per_min]));
       for (const z of pts.zones) {
@@ -119,7 +196,8 @@ describe('the shipped win-mode files', () => {
   });
 
   it('no camp tile is a tile the placed force spawns on', () => {
-    for (const { doc } of shipped) {
+    // Only the two files that carry the `camp` mode have camps (the mode is read fair nowhere: GH-976 P1).
+    for (const { doc } of shipped.filter((x) => x.doc.camps !== undefined)) {
       const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map: doc.map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'camp' } as never) as MatchConfig;
       const w = buildMatchWorld(c);
       const occupied = new Set<string>();
@@ -181,6 +259,36 @@ describe('versusModeFailures, one mutation at a time', () => {
     const home = wt();
     home.modes.points!.zones.push({ zone: 'camp_0', per_min: 10 });
     expect(only(home)).toEqual(['data/versus/modes/wadi_tarfan.json: points zone "camp_0" holds the friendly anchor (10,10): that seat would score from its first tick']);
+  });
+
+  it('GH-976 P4: a points zone that declares its ground: at and size together, a name the map lacks, inside the map, half open, clear of the anchors', () => {
+    const declare = (z: Record<string, unknown>): Doc => {
+      const d = wt();
+      d.modes.points!.zones.push({ per_min: 10, ...z } as never);
+      return d;
+    };
+    const file = 'data/versus/modes/wadi_tarfan.json';
+    // A clean declared ground (open ground east of the centre) is fine, and its name is not in the map.
+    expect(only(declare({ zone: 'hold_a', at: [24, 36], size: [4, 4] }))).toEqual([]);
+    expect(Object.hasOwn((maps.wadi_tarfan as unknown as { zones: object }).zones, 'hold_a')).toBe(false);
+    // One of the pair is not a ground.
+    expect(only(declare({ zone: 'hold_a', at: [24, 36] }))).toEqual([`${file}: points zone "hold_a" gives \`at\` or \`size\` without the other`, `${file}: points zone "hold_a" is not a zone of map "wadi_tarfan"`]);
+    expect(only(declare({ zone: 'hold_a', size: [4, 4] }))[0]).toBe(`${file}: points zone "hold_a" gives \`at\` or \`size\` without the other`);
+    // A declared name the map already has, or one the loader gives a flag or a camp.
+    expect(only(declare({ zone: 'ne_ford', at: [24, 36], size: [4, 4] })).some((f) => /declares its own ground, and the map already has a zone of that name/.test(f))).toBe(true);
+    expect(only(declare({ zone: 'flag_x', at: [24, 36], size: [4, 4] })).some((f) => /takes a name the loader gives a flag or a camp/.test(f))).toBe(true);
+    expect(only(declare({ zone: 'camp_yard_x', at: [24, 36], size: [4, 4] })).some((f) => /takes a name the loader gives a flag or a camp/.test(f))).toBe(true);
+    // Off the map, and on the south-west boulder field (row 46-47 is all boulder: not open ground).
+    expect(only(declare({ zone: 'hold_a', at: [46, 46], size: [4, 4] })).some((f) => /tile \(48,46\) is off the 48x48 map/.test(f))).toBe(true);
+    expect(only(declare({ zone: 'hold_a', at: [0, 46], size: [4, 2] })).some((f) => /is 0 open tiles of 8: a side could hardly stand in it/.test(f))).toBe(true);
+    // Half open is enough; fewer is not (the boulder rows 46-47 against open row 45 tiles 9 and 14).
+    expect(only(declare({ zone: 'hold_a', at: [11, 44], size: [4, 2] }))).toEqual([]);
+    // Holding a seat's anchor is refused for a declared ground exactly as for a map zone.
+    expect(only(declare({ zone: 'hold_a', at: [9, 9], size: [3, 3] }))).toEqual([`${file}: points zone "hold_a" holds the friendly anchor (10,10): that seat would score from its first tick`]);
+    // Listed twice.
+    const twice = declare({ zone: 'hold_a', at: [24, 36], size: [4, 4] });
+    twice.modes.points!.zones.push({ zone: 'hold_a', per_min: 10, at: [30, 36], size: [4, 4] });
+    expect(only(twice)).toEqual([`${file}: points zone "hold_a" is listed twice`]);
   });
 
   const flags = (d: Doc): NonNullable<Doc['flags']> => d.flags!;
@@ -250,6 +358,17 @@ describe('versus_mode.schema.json', () => {
     expect(validate(d)).toBe(false);
   });
 
+  it('GH-976 P4: a points zone may declare its ground with at and size together, whole tiles, and takes nothing else', () => {
+    const d0 = doc();
+    d0.modes.points!.zones.push({ zone: 'hold_a', per_min: 10, at: [24, 36], size: [4, 4] });
+    expect(validate(d0)).toBe(true);
+    for (const bad of [{ at: [24, 36] }, { size: [4, 4] }, { at: [24], size: [4, 4] }, { at: [24, 36, 1], size: [4, 4] }, { at: [24.5, 36], size: [4, 4] }, { at: [-1, 36], size: [4, 4] }, { at: [24, 36], size: [0, 4] }, { at: [24, 36], size: [4, 4], rect: 1 }]) {
+      const d = doc();
+      d.modes.points!.zones.push({ zone: 'hold_a', per_min: 10, ...bad } as never);
+      expect(validate(d), JSON.stringify(bad)).toBe(false);
+    }
+  });
+
   it('GH-976 P3: the flag hold is a whole number of seconds, 5 to 120, and the flag block takes nothing else', () => {
     for (const hold_s of [4, 121, 30.5, '30']) {
       const d = doc();
@@ -298,6 +417,24 @@ describe('versusModeMissionOf', () => {
     expect(mission.objectives.map((o) => [o.id, o.side])).toEqual([['score_0', 0], ['score_1', 1]]);
     expect(mission.objectives[0].score).toEqual(mission.objectives[1].score);
     expect(mission.objectives[0].score).toEqual(file().modes.points);
+  });
+
+  it('GH-976 P4 points: a ground the file declares joins the zones the room adds, and the objective names it without the rectangle', () => {
+    const f = clone(file()) as unknown as { modes: { points: { zones: { zone: string; per_min: number; at?: number[]; size?: number[] }[] } } };
+    f.modes.points.zones.push({ zone: 'hold_a', per_min: 15, at: [24, 36], size: [4, 4] });
+    const { mission, zones } = versusModeMissionOf(f as unknown as VersusModeFileJson, 'points', { friendly: 0, hostile: 1 });
+    expect(zones).toEqual({ hold_a: [24, 36, 4, 4] });
+    const score = mission.objectives[0].score!;
+    expect(score.zones.at(-1)).toEqual({ zone: 'hold_a', per_min: 15 });
+    expect(Object.keys(score.zones.at(-1)!).sort()).toEqual(['per_min', 'zone']);
+    expect(mission.objectives[1].score).toEqual(score);
+    // The room refuses a declared name the map already has (the same check a flag's name meets).
+    const clash = clone(f);
+    clash.modes.points.zones.push({ zone: 'ne_ford', per_min: 5, at: [24, 36], size: [4, 4] });
+    const cfg = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map: 'wadi_tarfan', mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'points' } as never) as MatchConfig;
+    const was = versusModes.wadi_tarfan;
+    (versusModes as Record<string, unknown>).wadi_tarfan = clash;
+    try { expect(() => buildMatchWorld(cfg)).toThrow(/zone "ne_ford" is already a zone of the map/); } finally { (versusModes as Record<string, unknown>).wadi_tarfan = was; }
   });
 
   it('GH-976 P3 flag: each side captures the flag zone at the OTHER side\'s end, alone, for the same hold, and the zones are added', () => {

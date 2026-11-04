@@ -179,6 +179,10 @@ export type WinModeId = (typeof WIN_MODES)[number];
 export interface PointsZoneJson {
   readonly zone: string;
   readonly per_min: number;
+  /** GH-976 P4: a ground the mode DECLARES (top-left tile, then width and height; both or neither). Absent: `zone` names a
+   *  zone the map already has. The loader adds a declared ground to the map's zones, as it does a flag's. */
+  readonly at?: readonly number[];
+  readonly size?: readonly number[];
 }
 
 /** data/versus/modes/<map>.json. */
@@ -280,6 +284,8 @@ export function versusModeMissionOf(
   } else {
     const p = file.modes.points;
     if (p === undefined) throw new Error(`versus mode file "${file.id}": no points mode`);
+    // A ground the file declares (`at` + `size`) joins the map's zones, as a flag's does; the room refuses a name the map has.
+    for (const z of p.zones) if (z.at !== undefined && z.size !== undefined) zones[z.zone] = [z.at[0], z.at[1], z.size[0], z.size[1]];
     for (const side of sides) {
       mission.objectives.push({
         id: `score_${side}`, type: 'score', primary: true, side,
