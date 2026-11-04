@@ -333,7 +333,7 @@ So removing the redo's walls and banks only gets it to the empty plain's lean, a
    walls 68.8; a second pair of 2x2 85.4 and 79.2. Chaotic, as PR 953 found.
 5. *Size*: 3x3 at (41,37) **55.2 / 53.1** (56.3 / 57.3 on 0-383); at (40,37) the two blocks touch at a corner and seal the road, 93.8; (41,36) 80.2;
    (40,36) 64.6; (42,38) 65.6; 2x4 95.8. The official matrix on it (C1 below): every cell inside on the pooled seeds, but the placed Sarim-friendly
-   cell reads 63.2% on one 288-seed set and 60.9% on the held-out pool.
+   cell reads 63.2% on one 288-seed set and 60.9% on the 4000 + 9000 pool.
 6. *The ford scrub* on top: 22 tiles of scrub (cover 1) in the lane, nine diagonals short of each bank's bed, 25% of its open tiles. Six salts
    read the placed cells 34-56% KDF on 0-191 (a few tiles decide); salt 10 reads 54.7 / 47.9 there and 51.6 / 56.3 on 192-383, the centre of the
    six. (An early scrub screen was ASYMMETRIC, scrub on seat 0's bank only, and read 35-57: discarded, the map is a half-turn.)
@@ -342,28 +342,35 @@ So removing the redo's walls and banks only gets it to the empty plain's lean, a
 pockets: shots on a Namer rise from 778 to 1,800 a game and none meets cover, the Lavis are shot at (0.88 dead a game against 0.18) and the
 Kornet cells that reach the ford get to fire (9.9 of 13 dead against 13.5).
 
-**What it reads now** (the official `versus:probe`, `--cap=2100`, self-checks passed on every run; the staged data in memory, the shipped data paths
-untouched). The levers were chosen on placed forces on seeds 0-383, so the economy and tunnel cells were first read on seeds the choice never saw:
-4000-4287 and 9000-9287 as asked, and a third set, 12000-12287, fresh to the final map. KDF share unless noted (the mirror by end, the tunnel cell
-by Sarim):
+**What it reads now** (the official `versus:probe`, `--cap=2100`, self-checks passed on every run; the staged data in memory or copied over the data
+paths and restored, the shipped data untouched). The levers were chosen on placed forces on seeds 0-383. Every cell below is the **KDF share** (the
+mirror by west end; a draw is under 0.4% of games, so a share and its complement differ by less than that; the tunnel rows of the first four ranges
+are 100 minus Sarim's share). Six 288-seed ranges, none of them a pool to be called held-out: 4000-4287 and 9000-9287 were read for the gate-alone
+matrix before the scrub was chosen, 12000-12287 and 15000-15287 (the reviewer's fresh range) informed the salt-11 trial, and **18000-18287 and
+21000-21287 were read for both salts and no choice had seen them**:
 
-| Cell | B4, before (0-191 + 4000-4287, 480) | 4000-4287 | 9000-9287 | 12000-12287 | pooled 864 |
-|---|---|---|---|---|---|
-| KDF v KDF (the mirror), east wins | 52.3 | 54.5 | 50.3 | 45.5 | **50.1** |
-| Sarim v Sarim (report only), east wins | 56.0 | 47.6 | 53.8 | 50.0 | 50.5 |
-| Placed, KDF friendly, KDF wins | **87.9** | 48.6 | 49.7 | 51.0 | **49.8** |
-| Placed, Sarim friendly, KDF wins | **89.2** | 51.7 | 53.1 | 43.4 | **49.4** |
-| Economy, KDF friendly, KDF wins | **84.4** | 51.4 | 49.0 | 52.4 | **50.9** |
-| Economy, Sarim friendly, KDF wins | **81.3** | 46.5 | 47.6 | 48.3 | **47.5** |
-| Tunnels cell 3, KDF friendly, Sarim wins | 52.1 | 54.5 | 56.9 | 59.4 | **56.9** |
-| Tunnels cell 3, Sarim friendly, Sarim wins | 56.9 | 57.6 | **61.1** | 58.7 | **59.1** |
+| Cell (KDF share) | B4 before (480) | 4000 | 9000 | 12000 | 15000 | 18000 | 21000 |
+|---|---|---|---|---|---|---|---|
+| KDF v KDF (the mirror), west wins | 47.7 | 45.5 | 49.7 | 54.5 | 51.4 | 50.3 | 51.0 |
+| Placed, KDF friendly | **87.9** | 48.6 | 49.7 | 51.0 | 50.7 | 42.0 | 51.4 |
+| Placed, Sarim friendly | **89.2** | 51.7 | 53.1 | 43.4 | 47.9 | 48.3 | 49.3 |
+| Economy, KDF friendly | **84.4** | 51.4 | 49.0 | 52.4 | 45.1 | 48.6 | 49.7 |
+| Economy, Sarim friendly | **81.3** | 46.5 | 47.6 | 48.3 | 45.5 | 41.7 | 45.1 |
+| Tunnels cell 3, KDF friendly | 47.9 | 45.5 | 43.1 | 40.6 | 41.0 | 41.3 | 42.4 |
+| Tunnels cell 3, Sarim friendly | 43.1 | 42.4 | **38.9** | 41.3 | **37.8** | 43.8 | 43.8 |
 
-Every cell is inside 60/40 pooled. **The edge is the tunnel cell**: Sarim friendly reads 59.1% pooled and 61.1% on one 288-seed set (a set's
-standard error is 2.9 points). The scrub is what moved it (the gate alone read 52.5 / 53.4 there, with the placed cells at 58.2 / 59.1 pooled and
-60.9 on the held-out pool: the first official matrix, C1, 0-191 + 4000-4287 + 9000-9287). The trade is the Sarim-positive scrub against the
-tunnels: placed and economy are now level, and a weaker scrub may level the tunnel cell too (salt 11 read the placed cells 52.9 / 57.3 on
-seeds 0-383, 55 between the gate alone and salt 10); that is one more constant and one more matrix, past the round cap, and is the next step if
-the tunnel cell is read as a gate and not a report.
+Sarim v Sarim (report only), west wins, on the last two ranges: 51.7 and 52.8. The faction cells are inside 60/40 (40 to 60 either way) in 40 of
+the 42 range-cells after the fix, against none before. **The two outside are the tunnel cell, Sarim friendly, on 9000-9287 (Sarim 61.1%) and 15000-15287
+(62.2%)**, and that cell sits on the bar: over the six ranges Sarim wins it 57.6 / 61.1 / 58.7 / 62.2 / 56.2 / 56.2, mean 58.7%, two ranges outside. **Tunnel cell
+3, Sarim friendly, is a report cell and this map does not open on it**; the probe prints the tunnel arm as report-only, and the claim that every
+cell is inside is withdrawn. A lever that is a measured value moved it: the gate alone read the tunnels Sarim 52.5 / 53.4 (0-191 + 4000 + 9000) but
+the placed cells 58.2 / 59.1 KDF, and the scrub trades the one for the other.
+
+**Salt 11, tried and dropped.** The weaker scrub (20 tiles, placed 52.9 / 57.3 on 0-383) levelled the tunnel cell on 18000 and 21000 (KDF 44.4 /
+46.9 Sarim friendly, 51.0 / 53.1 KDF friendly) but read **placed KDF friendly 60.8%** on 21000-21287 (49.0 on 18000), outside, with economy 53.1 /
+56.6 and 48.3 / 48.3. Salt 10 on the same two ranges has every cell inside (worst: tunnels KDF friendly 41.3, Sarim 58.7; placed KDF friendly 42.0;
+economy Sarim friendly 41.7), so by the rule "keep the salt with the better worst cell across the two ranges" salt 10 stays (worst 58.7 against
+60.8). Raw per-seed files for both: `_coord/wadi-l-redo/fresh/`.
 
 **What does not pass or was not read.** The seat neighbourhood (a report, per the 2 Nov ruling; PR 953 found this map's neighbours at 31-82% and
 nothing here makes it less chaotic: a block of rock one tile over reads 66-94%). S4 (formations stay CLOSED on this map). The lane probe and the
@@ -389,7 +396,7 @@ else:
 - `net/snapshot-rejoin.test.ts` (2) and `net/rejoin-catchup.test.ts`: the digest and premise seed fold in every map; `backtest/versus-probe.test.ts`:
   the economy self-check on each rules-file map (the last two are timing-sensitive under load: re-run them alone before blaming the data).
 
-**Before opening:** the faction cells are inside 60/40 pooled after the fix round (the tunnel cell, Sarim friendly, at 59.1%, is the edge), the seat
+**Before opening:** the placed and economy cells and tunnel cell 3 KDF friendly read inside 60/40 on all six ranges, tunnel cell 3 Sarim friendly does not (mean Sarim 58.7%, two ranges over 60: a report cell, the map does not open on it), tunnel cells 2 and 4 are unread, the seat
 neighbourhood (PR 953 found this map's neighbours at 31-82%), S4 if formations are to open (they are CLOSED now), the budget step (`perf:fx` at
 the centre and a seat, `perf:memory`; no new mesh type), `pnpm net:budget` at 188 structures, the tick probe for `recomputeFields('opened')` on a
 wall, and the lane probe. The Free Play line for the map ("a dry wadi crossed at three fords") still fits.
