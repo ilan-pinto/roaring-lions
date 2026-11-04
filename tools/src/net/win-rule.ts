@@ -17,12 +17,19 @@ export const ANNIHILATION_RULE = [
 /** The start of lines 8-10 of the prompt, which a mode's three lines push down by one. */
 const SHIFTED = ['The arena may', 'Losing units costs', 'Positions are TILES'] as const;
 
+const FORCE_FALLBACK = '7. If neither side wins when the match\'s time limit comes (25 minutes in a room; in an arena match, the arena\'s own cap, which can be shorter), or every unit on both sides can no longer move, the side with the larger surviving force value wins; equal values draw.';
+
 /** Each mode's rule: how it is won, the fallback at the limit, and what to defend. */
 const RULES: Readonly<Record<WinMode, { won: string; fallback: string; defend: string }>> = {
   points: {
     won: '6. This match is a POINTS RACE: the first side to bank the target of points wins at once, whatever force it has left. `observe` shows `points`: both sides\' points, the target, and every zone with what it pays a minute and who holds it. A zone pays its holder each second it holds it and pays nobody while an enemy unit contests it or while it stands empty. Destroying enemy units pays too: 1 point for every 100 of their value. A side with no combat unit left still loses (annihilation).',
-    fallback: '7. If nobody reaches the target when the match\'s time limit comes (25 minutes in a room; in an arena match, the arena\'s own cap, which can be shorter), or every unit on both sides can no longer move, the side with the larger surviving force value wins; equal values draw.',
+    fallback: '7. If nobody reaches the target when the match\'s time limit comes (25 minutes in a room; in an arena match, the arena\'s own cap, which can be shorter), the side with MORE POINTS wins and level points draw; if instead every unit on both sides can no longer move, the side with the larger surviving force value wins.',
     defend: '8. Defend the ground you hold and your lead: a zone you leave empty or let an enemy contest stops paying you and may start paying them, and units sent chasing kills away from the zones lose the race to the side that holds them. Both sides\' points and every zone\'s holder are public; your enemy\'s units are not, so a held zone with nobody in sight near it may be contested soon.',
+  },
+  flag: {
+    won: '6. This match is won by CAPTURING THE ENEMY FLAG: the first side to hold the enemy flag ground ALONE for the hold time wins at once, whatever force it has left. `observe` shows `flags`: `theirs` is the flag you raid and `mine` the flag you defend, each with its tile rectangle `at` (x, y, width, height), a `state` (`open`: no raider on it; `raiding`: the raiders hold it alone and the count runs; `contested`: both sides are on it and the count is at zero; `captured`) and `held`, the seconds the hold has run; `holdSeconds` is the time needed. A unit of the raiding side must stand INSIDE the ground with no enemy unit inside it, for the whole time: an enemy unit entering it, or your raiders leaving it, starts the count again. A side with no combat unit left still loses (annihilation).',
+    fallback: FORCE_FALLBACK,
+    defend: '8. Defend your own flag ground (`flags.mine`): a flag nobody guards falls to a raid of two squads. Keep a unit inside it to contest a raid, and send a force there when `flags.mine.state` leaves `open`. The state of both flags is public; the units in them are not, so a raid you cannot see may already be holding your flag.',
   },
   camp: {
     won: '6. This match is won by DESTROYING THE ENEMY CAMP: the first side to raze the other\'s camp wins at once, whatever force it has left. `observe` gives `enemyCamp`, the tile to attack. A side with no combat unit left still loses (annihilation).',

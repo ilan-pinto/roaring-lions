@@ -19,11 +19,12 @@ export interface SeatConfig {
   kind: 'human' | 'bot';
 }
 
-/** How a versus room is WON beside annihilation (GH-976): `camp` razes the enemy camp, `points` is a points race.
+/** How a versus room is WON beside annihilation (GH-976): `camp` razes the enemy camp, `points` is a points race, `flag` is
+ *  capture the flag, v1 a RAID (GH-976 P3): hold the enemy flag zone alone for the mode file's `hold_s`; no carried flag.
  *  A twin of @lions/data's `WIN_MODES` (the Worker imports net and not data), held to it by
  *  `tools/src/validate_versus_modes.test.ts`. Absent on a config is annihilation, the default, and every room
  *  that has ever been played. */
-export const WIN_MODES = ['camp', 'points'] as const;
+export const WIN_MODES = ['camp', 'points', 'flag'] as const;
 export type WinMode = (typeof WIN_MODES)[number];
 
 /** The maps each win mode has been READ fair on (GH-976 P1; `pnpm versus:probe -- --mode=...`, 288 held-out seeds, 4000-4287,
@@ -36,10 +37,16 @@ export type WinMode = (typeof WIN_MODES)[number];
  *  - `camp` reads fair (53.5% and 58.0%) and FAILS the other two bars on both maps, so it is listed on none: 4.9% (wadi_tarfan)
  *    and 58.3% (milh_flats) of games were decided by the camp, against 70% required, because two blobs that attack-move on the
  *    other's camp meet and one wipes the other first; and a passive end won 29 and 8 of 288 games (wadi_tarfan), 47 and 38
- *    (milh_flats), where it must lose them all. Reported to the lead; the open question is in `_coord/win-modes/report.md`. */
+ *    (milh_flats), where it must lose them all. Reported to the lead; the open question is in `_coord/win-modes/report.md`.
+ *  - `flag` (GH-976 P3; the raid probe: two infantry squads go for the flag, the rest of the force plays the base probe) reads
+ *    fair on both, flag zones fitted on seeds 0-191 and read on 4000-4287 (288 each): wadi_tarfan east 164 / west 114 / draw 10,
+ *    leader 56.9%, 96.5% decided by the goal, the passive end lost 288 of 288 from each end; milh_flats east 150 / west 134 /
+ *    draw 4, leader 52.1%, 78.5% by the goal, the passive end lost 288 of 288 from each end. A same-tick double capture is a draw
+ *    (the two raids are exact mirrors), not a goal win, in that share. */
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
   camp: [],
   points: ['wadi_tarfan', 'milh_flats'],
+  flag: ['wadi_tarfan', 'milh_flats'],
 };
 
 /** Whether `map` is one `mode` has been read fair on (the lobby's question, later). */

@@ -5,8 +5,13 @@
     "friendly": { "at": [4, 40], "size": [2, 2] },
     "hostile": { "at": [42, 6], "size": [2, 2] }
   },
+  "flags": {
+    "friendly": { "at": [4, 11], "size": [5, 5] },
+    "hostile": { "at": [39, 32], "size": [5, 5] }
+  },
   "modes": {
     "camp": {},
+    "flag": { "hold_s": 30 },
     "points": {
       "zones": [
         { "zone": "bir_milh", "per_min": 50 },

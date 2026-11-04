@@ -1666,7 +1666,7 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
   it('the room itself refuses an unknown mode and an unfair one (map, matchup), and makes no room', async () => {
     for (const [over, status] of [
       [{ winMode: 'points' }, 200],
-      [{ winMode: 'flag' }, 400], [{ winMode: 'camp' }, 400], [{ winMode: 'points', map: 'tel_marum' }, 400],
+      [{ winMode: 'rally' }, 400], [{ winMode: 'camp' }, 400], [{ winMode: 'points', map: 'tel_marum' }, 400],
       [{ winMode: 'points', matchup: 'sarim' }, 400], [{ winMode: 'points', mode: 'sandbox' }, 400],
     ] as const) {
       const state = new FakeState();

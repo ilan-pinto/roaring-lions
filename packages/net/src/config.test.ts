@@ -204,9 +204,9 @@ describe('snapshotEveryTicks (snapshot S3)', () => {
 
 describe('the win mode a lobby offers and the Worker accepts (GH-976 P2)', () => {
   const versus = (map: string, matchup: 'mirror' | 'kdf' | 'sarim' = 'mirror') => ({ mode: 'versus' as const, map, matchup });
-  it('offers points on the two maps it was read fair on, in the mirror, and nothing else anywhere', () => {
-    expect(winModesOffered('wadi_tarfan')).toEqual(['points']);
-    expect(winModesOffered('milh_flats')).toEqual(['points']);
+  it('offers points and (GH-976 P3) the flag raid on the two maps they were read fair on, in the mirror, and nothing else anywhere', () => {
+    expect(winModesOffered('wadi_tarfan')).toEqual(['points', 'flag']);
+    expect(winModesOffered('milh_flats')).toEqual(['points', 'flag']);
     // camp failed the passive-seat bar on both; the other versus maps have no mode file
     for (const map of ['tel_marum', 'beit_sahwan_outskirts', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l', 'nowhere']) expect(winModesOffered(map), map).toEqual([]);
     // the probe read the mirror only: a KDF-vs-Sarim room plays its economy
@@ -216,7 +216,7 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2)', () =>
   it('a request is annihilation (no mode), a mode on a fair map, or a reason', () => {
     for (const none of [undefined, null, 'annihilation']) expect(winModeRequest(none, versus('tel_marum', 'kdf'))).toEqual({ mode: undefined });
     expect(winModeRequest('points', versus('milh_flats'))).toEqual({ mode: 'points' });
-    expect(winModeRequest('flag', versus('milh_flats')).refused).toBe('unknown win mode');
+    expect(winModeRequest('rally', versus('milh_flats')).refused).toBe('unknown win mode');
     expect(winModeRequest('', versus('milh_flats')).refused).toBe('unknown win mode');
     expect(winModeRequest('camp', versus('milh_flats')).refused).toBe('win mode not offered on this map');
     expect(winModeRequest('points', versus('tel_marum')).refused).toBe('win mode not offered on this map');
@@ -226,7 +226,7 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2)', () =>
   it('a config carries a mode in a versus room only, and one of the known modes', () => {
     const versusConfig = { ...CONFIG, mode: 'versus' as const };
     expect(validateConfig({ ...versusConfig, winMode: 'points' })?.winMode).toBe('points');
-    expect(validateConfig({ ...versusConfig, winMode: 'flag' })).toBeNull();
+    expect(validateConfig({ ...versusConfig, winMode: 'rally' })).toBeNull();
     expect(validateConfig({ ...CONFIG, winMode: 'points' })).toBeNull();
   });
 });

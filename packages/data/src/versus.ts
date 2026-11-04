@@ -172,7 +172,7 @@ export function versusTunnelsOf(rules: VersusRulesJson, end: 'friendly' | 'hosti
 /** The win modes a room may play beside annihilation, in the order the lobby will list them. A twin of
  *  `@lions/net`'s `WIN_MODES` (the Worker imports net and not data); `tools/src/validate_versus_modes.test.ts`
  *  holds the two together. */
-export const WIN_MODES = ['camp', 'points'] as const;
+export const WIN_MODES = ['camp', 'points', 'flag'] as const;
 export type WinModeId = (typeof WIN_MODES)[number];
 
 /** One zone a points race pays for. */
@@ -187,8 +187,12 @@ export interface VersusModeFileJson {
   readonly map: string;
   /** Camps by END, required by the `camp` mode. */
   readonly camps?: { readonly friendly: VersusEndJson['camp']; readonly hostile: VersusEndJson['camp'] };
+  /** Flag zones by END, required by the `flag` mode (GH-976 P3). */
+  readonly flags?: { readonly friendly: VersusEndJson['camp']; readonly hostile: VersusEndJson['camp'] };
   readonly modes: {
     readonly camp?: Readonly<Record<string, never>>;
+    /** Capture the flag, v1 a raid: seconds a side must hold the enemy flag zone alone. */
+    readonly flag?: { readonly hold_s: number };
     readonly points?: { readonly zones: readonly PointsZoneJson[]; readonly per_value_destroyed: number; readonly target: number };
   };
 }
@@ -197,10 +201,12 @@ export interface VersusModeFileJson {
  *  imports nothing). */
 export interface VersusModeObjectiveJson {
   id: string;
-  type: 'raze' | 'score';
+  type: 'raze' | 'score' | 'capture';
   primary: true;
   side: 0 | 1;
   target?: string;
+  /** A `capture`'s hold (GH-976 P3). */
+  seconds?: number;
   score?: { zones: { zone: string; per_min: number }[]; per_value_destroyed: number; target: number };
 }
 
@@ -218,6 +224,11 @@ export function campYardZone(end: 'friendly' | 'hostile'): string {
   return `camp_yard_${end}`;
 }
 
+/** The zone a flag stands in, by END: what the `flag` mode's `capture` names (the side at the OTHER end raids it). */
+export function flagZone(end: 'friendly' | 'hostile'): string {
+  return `flag_${end}`;
+}
+
 /**
  * The mission a win mode plays (GH-976). `sideAt` says which SIDE stands at each END, the room's call as in
  * `versusMissionOf`. Every side gets ONE primary objective, in side order, so a mode is symmetric by
@@ -225,7 +236,9 @@ export function campYardZone(end: 'friendly' | 'hostile'): string {
  *   camp:   side s razes the camp at the OTHER side's end; both camps stand, owned by the side that holds
  *           the end (an owned structure is a target in its own right, which a plain camp is not).
  *   points: side s runs the file's score block.
- * Throws on a mode the file does not carry, or `camp` with no `camps`, which `validate:data` refused.
+ *   flag:   side s holds the flag zone of the OTHER side's end (`capture`, `hold_s` seconds, alone: a contact or a
+ *           step out resets the count). A raid -- there is no carried flag (GH-976 P3).
+ * Throws on a mode the file does not carry, or `camp` with no `camps` / `flag` with no `flags`, which `validate:data` refused.
  */
 export function versusModeMissionOf(
   file: VersusModeFileJson,
@@ -254,6 +267,15 @@ export function versusModeMissionOf(
     for (const end of ends) zones[campYardZone(end)] = [camps[end].at[0], camps[end].at[1], camps[end].size[0], camps[end].size[1]];
     for (const side of sides) {
       mission.objectives.push({ id: `raze_camp_${side}`, type: 'raze', primary: true, side, target: campYardZone(endOf(side === 0 ? 1 : 0)) });
+    }
+  } else if (mode === 'flag') {
+    const flags = file.flags;
+    const f = file.modes.flag;
+    if (f === undefined || flags === undefined) throw new Error(`versus mode file "${file.id}": no flag mode`);
+    const endOf = (side: 0 | 1): 'friendly' | 'hostile' => (sideAt.friendly === side ? 'friendly' : 'hostile');
+    for (const end of ['friendly', 'hostile'] as const) zones[flagZone(end)] = [flags[end].at[0], flags[end].at[1], flags[end].size[0], flags[end].size[1]];
+    for (const side of sides) {
+      mission.objectives.push({ id: `raid_flag_${side}`, type: 'capture', primary: true, side, target: flagZone(endOf(side === 0 ? 1 : 0)), seconds: f.hold_s });
     }
   } else {
     const p = file.modes.points;

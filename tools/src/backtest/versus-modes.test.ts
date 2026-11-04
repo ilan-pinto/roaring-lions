@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { MapId } from '@lions/data';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
 import {
-  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, parseZones, withPointsOverride, campOrder, describeTally, fairWithin, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
+  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, flagOrder, idleSidesFor, parseZones, raidParty, withPointsOverride, campOrder, describeTally, fairWithin, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
   type ModePlayFn, type ModePlayed,
 } from './versus-modes';
 import { main as probeMain, seedOf } from './versus-probe';
@@ -60,7 +60,7 @@ describe('the readings', () => {
 describe('playMode: a room\'s own world', () => {
   it('a cut end loses to the other by annihilation or the goal on each map, each mode and each end: the sides are told apart', () => {
     for (const map of ['wadi_tarfan', 'milh_flats'] as MapId[]) {
-      for (const mode of ['camp', 'points'] as const) {
+      for (const mode of ['camp', 'points', 'flag'] as const) {
         expect(playMode(map, mode, seedOf(0), { cutEnd: 1 }), `${map} ${mode} east cut`).toMatchObject({ winner: 0 });
         expect(playMode(map, mode, seedOf(0), { cutEnd: 0 }), `${map} ${mode} west cut`).toMatchObject({ winner: 1 });
       }
@@ -73,6 +73,18 @@ describe('playMode: a room\'s own world', () => {
     expect(east.points![0]).toBe(600);
     expect(east.points![1]).toBeLessThan(600);
     expect(playMode('milh_flats', 'points', seedOf(0), { passive: 0 })).toMatchObject({ winner: 1, by: 'objective' });
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('GH-976 P3: a passive end that stays home loses a flag raid by the flag, each end, on each map, and the raid takes about a minute', () => {
+    for (const map of ['wadi_tarfan', 'milh_flats'] as MapId[]) {
+      const east = playMode(map, 'flag', seedOf(0), { passive: 1 });
+      expect(east, `${map} east passive`).toMatchObject({ winner: 0, by: 'objective' });
+      expect(playMode(map, 'flag', seedOf(0), { passive: 0 }), `${map} west passive`).toMatchObject({ winner: 1, by: 'objective' });
+      // 30 s of hold plus the walk: well past the hold, well short of the 25-minute cap.
+      expect(east.ticks).toBeGreaterThan(30 * 20);
+      expect(east.ticks).toBeLessThan(120 * 20);
+      expect(east.points).toBeUndefined();
+    }
   }, FULL_GAMES_TIMEOUT_MS);
 
   it('a camp raze decides by the goal when the other end stays home and wipes nobody', () => {
@@ -135,6 +147,78 @@ describe('both ends play the mode the same way (a half turn about the map centre
   });
 });
 
+describe('the raid of the flag play (GH-976 P3)', () => {
+  const worldOf = (map: MapId) => buildMatchWorld(modeConfig(map, 'flag', seedOf(0)));
+  const typeOf = (w: ReturnType<typeof worldOf>, id: number): string => w.sim.unitTypes[w.sim.state.typeIdx[id]].id;
+
+  it('a raid is two infantry squads: the first two in placement order, for each side, and nothing else', () => {
+    expect(RAID_SQUADS).toBe(2);
+    for (const map of ['wadi_tarfan', 'milh_flats'] as MapId[]) {
+      const w = worldOf(map);
+      for (const side of [0, 1] as const) {
+        const party = raidParty(w, side);
+        expect(party, `${map} side ${side}`).toHaveLength(2);
+        expect(party.map((id) => typeOf(w, id))).toEqual(['inf_squad', 'inf_squad']);
+        expect(party.every((id) => w.sim.state.side[id] === side)).toBe(true);
+        expect(party).toEqual(w.bySide[side].filter((id) => typeOf(w, id) === 'inf_squad').slice(0, 2));
+      }
+    }
+  });
+
+  it('the party moves on the ENEMY end\'s flag, an image of the other side\'s, and the rest of the force marches on the enemy centroid', () => {
+    for (const map of ['wadi_tarfan', 'milh_flats'] as MapId[]) {
+      const w = worldOf(map);
+      const spy = vi.spyOn(w.sim, 'queueCommand');
+      const parties = new Map<number, readonly number[]>([[0, raidParty(w, 0)], [1, raidParty(w, 1)]]);
+      flagOrder(w, map, parties, new Set(), [w.endOfSide[0] === 'friendly' ? 0 : 1, w.endOfSide[0] === 'friendly' ? 1 : 0]);
+      const raids = spy.mock.calls.map(([c]) => c).filter((c) => c.kind === 'attackMove' && c.ids.length === 2);
+      const blobs = spy.mock.calls.map(([c]) => c).filter((c) => c.kind === 'attackMove' && c.ids.length > 2);
+      expect(raids, map).toHaveLength(2);
+      expect(blobs, map).toHaveLength(2);
+      const flags = versusModes[map].flags!;
+      const centre = (f: { readonly at: readonly number[]; readonly size: readonly number[] }): [number, number] => [(f.at[0] + f.size[0] / 2) * 65536, (f.at[1] + f.size[1] / 2) * 65536];
+      for (const c of raids) {
+        if (c.kind !== 'attackMove') continue;
+        const side = w.sim.state.side[c.ids[0]];
+        const target = centre(flags[w.endOfSide[side === 0 ? 1 : 0]]);
+        expect([c.x, c.y], `${map} side ${side} raids the flag at the other end`).toEqual(target);
+      }
+      // The party is not in the blob's order.
+      const raiding = new Set([...parties.values()].flat());
+      for (const c of blobs) if (c.kind === 'attackMove') expect(c.ids.some((id) => raiding.has(id))).toBe(false);
+    }
+  });
+
+  it('the passive side, and in the flag control the cut side too, take no order: a one-man race against a raid is no control', () => {
+    expect([...idleSidesFor('flag', 1, -1)]).toEqual([1]);
+    expect([...idleSidesFor('flag', -1, 0)].sort()).toEqual([-1, 0]);
+    expect([...idleSidesFor('flag', 0, 1)].sort()).toEqual([0, 1]);
+    // the other modes keep their cut side ordered: the lone survivor still marches, as the P1 control has always had it
+    expect([...idleSidesFor('camp', -1, 0)]).toEqual([-1]);
+    expect([...idleSidesFor('points', -1, 0)]).toEqual([-1]);
+  });
+
+  it('a side that issues no order sends no raid and no blob; the other side still does', () => {
+    const w = worldOf('wadi_tarfan');
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    const parties = new Map<number, readonly number[]>([[0, raidParty(w, 0)], [1, raidParty(w, 1)]]);
+    flagOrder(w, 'wadi_tarfan', parties, new Set([1]), [0, 1]);
+    const sides = new Set(spy.mock.calls.map(([c]) => (c.kind === 'attackMove' ? w.sim.state.side[c.ids[0]] : -1)));
+    expect([...sides]).toEqual([0]);
+  });
+
+  it('a dead raider is not replaced from the blob: the party is latched', () => {
+    const w = worldOf('wadi_tarfan');
+    const party = raidParty(w, 0);
+    const parties = new Map<number, readonly number[]>([[0, party], [1, raidParty(w, 1)]]);
+    w.sim.debugKill(party[0]);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    flagOrder(w, 'wadi_tarfan', parties, new Set([1]), [0, 1]);
+    const raid = spy.mock.calls.map(([c]) => c).find((c) => c.kind === 'attackMove' && c.ids.length === 1);
+    expect(raid && raid.kind === 'attackMove' ? raid.ids : null).toEqual([party[1]]);
+  });
+});
+
 describe('the holding party of the points play', () => {
   it('units standing in a zone their side holds keep half of themselves there (at least one), and only the rest are ordered on', () => {
     const map = 'milh_flats' as MapId;
@@ -168,7 +252,7 @@ describe('the holding party of the points play', () => {
 
 describe('modeSelfCheck', () => {
   it('passes on the arm as shipped, on each map and mode', () => {
-    for (const map of ['wadi_tarfan', 'milh_flats'] as MapId[]) for (const mode of ['camp', 'points'] as const) expect(modeSelfCheck(map, mode), `${map} ${mode}`).toEqual([]);
+    for (const map of ['wadi_tarfan', 'milh_flats'] as MapId[]) for (const mode of ['camp', 'points', 'flag'] as const) expect(modeSelfCheck(map, mode), `${map} ${mode}`).toEqual([]);
   }, FULL_GAMES_TIMEOUT_MS);
 
   const swapped: ModePlayFn = (m, mode, s, o) => {
@@ -217,7 +301,7 @@ describe('the command line', () => {
 
   it('a map with no mode file, a mode that is not one, and a bad count are refused', () => {
     expect(() => modeMain(['--mode=camp', '--maps=tel_marum'], fake)).toThrow(/has no win-mode file/);
-    expect(() => modeMain(['--mode=flag'], fake)).toThrow(/--mode/);
+    expect(() => modeMain(['--mode=rally'], fake)).toThrow(/--mode/);
     expect(() => modeMain(['--mode=camp', '--seeds=0'], fake)).toThrow(/--seeds/);
     expect(() => modeMain(['--mode=camp', '--wipe=maybe'], fake)).toThrow(/--wipe/);
   });

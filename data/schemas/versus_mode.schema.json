@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/versus_mode.schema.json",
   "title": "Versus win modes",
-  "description": "The win modes of one versus map (GH-976, design versus-maps-design section 6): what a room that picks a mode plays for, beside the default annihilation. One file per map, data/versus/modes/<map>.json. Read by @lions/data's `versusModeMissionOf`, which turns the chosen mode into the objective rows (each with a `side`) and the camps a goals-only MissionRuntime takes -- no income, production, trigger or wave, and `checkEnd` never ends it, so `outcome.ts` decides the match ('won by objective', the mode named). `camp`: destroy the enemy camp (a `raze` on the camp's footprint, no `seconds`: the match cap is its clock). `points`: a points race (a `score` objective per side, built on the zone holder rule income uses). A mode file is NOT a rules file: it carries its own camps, because a mirror room has no rules file and no economy. `pnpm validate:data` (tools/validate_versus_modes.mjs) holds the cross-file rules the schema cannot see.",
+  "description": "The win modes of one versus map (GH-976, design versus-maps-design section 6): what a room that picks a mode plays for, beside the default annihilation. One file per map, data/versus/modes/<map>.json. Read by @lions/data's `versusModeMissionOf`, which turns the chosen mode into the objective rows (each with a `side`) and the camps a goals-only MissionRuntime takes -- no income, production, trigger or wave, and `checkEnd` never ends it, so `outcome.ts` decides the match ('won by objective', the mode named). `camp`: destroy the enemy camp (a `raze` on the camp's footprint, no `seconds`: the match cap is its clock). `points`: a points race (a `score` objective per side, built on the zone holder rule income uses). `flag`: capture the flag, v1 a RAID (GH-976 P3): a side wins by holding a `capture` on the enemy end's flag zone, alone, for `hold_s` seconds; an enemy unit inside the zone, or nobody of the side there, resets the hold. There is no carried flag. A mode file is NOT a rules file: it carries its own camps, because a mirror room has no rules file and no economy. `pnpm validate:data` (tools/validate_versus_modes.mjs) holds the cross-file rules the schema cannot see.",
   "type": "object",
   "required": ["id", "map", "modes"],
   "additionalProperties": false,
@@ -19,11 +19,30 @@
         "hostile": { "$ref": "#/$defs/camp" }
       }
     },
+    "flags": {
+      "type": "object",
+      "required": ["friendly", "hostile"],
+      "additionalProperties": false,
+      "description": "Where each END's flag zone stands in a room that plays the `flag` mode (the zones `flag_friendly` and `flag_hostile`, which the loader adds to the map's): top-left tile and footprint, by END like `camps`. Required when `modes.flag` is present. The side at an end defends its flag; the other side raids it.",
+      "properties": {
+        "friendly": { "$ref": "#/$defs/camp" },
+        "hostile": { "$ref": "#/$defs/camp" }
+      }
+    },
     "modes": {
       "type": "object",
       "minProperties": 1,
       "additionalProperties": false,
       "properties": {
+        "flag": {
+          "type": "object",
+          "required": ["hold_s"],
+          "additionalProperties": false,
+          "description": "Capture the flag, v1 a raid: each side holds the other end's flag zone alone for `hold_s` seconds. Both sides play the same number.",
+          "properties": {
+            "hold_s": { "type": "integer", "minimum": 5, "maximum": 120, "description": "Seconds a side must hold the enemy flag zone uncontested, in one go (a contact, or leaving, restarts the count)." }
+          }
+        },
         "camp": {
           "type": "object",
           "additionalProperties": false,
