@@ -487,3 +487,36 @@ should still be read against the redo's description. **Before opening:** S4 or t
 step (`perf:fx` at the centre and a seat, `perf:memory`; no new mesh type, so no GPU growth is expected); `pnpm net:budget` at 222 structures;
 the tick probe for `recomputeFields('opened')` when a wall is destroyed; the lane probe; and, for a KDF v Sarim opening, the economy and
 tunnel cells on the new ground.
+
+### What the opening checks read (GH-974, 4 Nov 2026): the redo is NOT opened
+
+Every check "Opening it" lists was run on the staged bytes (map sha256 `917460716f3f...`, rules `6dd0c6826c9b...`), copied over the data paths in a
+scratch tree and sha-checked back to main's (`74b35cbce41f...`, `6dd0c6826c9b...`) after each run. **Two fail, so the map stays staged**: the render
+budget (frame cost at the centre) and the lane probe (a 20-point seat gap on one lane). Raw files: `_coord/rujm-open-redo/out/`.
+
+| Check | Reading | Verdict |
+|---|---|---|
+| S4 formations (mirror, KDF v KDF, seeds 30000-30191 = set A, shipped Attack, the arms and seeds of PR 978) | (b) both ends 51.0% [base 47.9]; (c) friendly end formed 50.5% [47.9]; (c) hostile end formed 53.1% [52.1]. Bars 55 / 60 / 60. Paired sign test p 0.55 / 0.60 / 0.90 | PASS, 3 of 3, no RERUN, 0 TRIP. `VERSUS_FORMATIONS_CLOSED_MAPS` need not name it |
+| Lane probe (`tools/src/backtest/lane-probe.ts`, seeds 6000-6191 and 6192-6383, 35-minute cap) | armour left / infantry right, splitter west **90.6% and 89.6%**, east **72.9% and 67.7%**; pooled 384: west 90.1%, east 70.3%, gap **+19.8 points, z 4.5 and 5.2**. Armour right / infantry left: west 78.1% / 82.3%, east 77.6% / 74.5% (pooled 80.2 / 76.0, gap +4.2). The shipped map, same seeds and probe: gaps +8.9 and +3.6 | **FAIL** (bar 10 points, two of four reads over it and the pooled one at twice the bar) |
+| `net:budget` at 222 structures, 42,000 ticks (35.0 min) | idle 2,562 rows at real-time pacing (measured 2,165); heavy 2,671 (measured 2,280), log 291,624 characters of 2,800,000 (10.4%), snapshot 9,851 B gzip held, 9,945 B largest, end world 378,363 B raw / 9,738 B gzip; rush (a real battle) 133 rows, ends at 1.7 minutes. Bounds 2,555-4,655 rows, 64 KiB, 1 MiB | PASS |
+| Wall-fall tick probe (`tools/src/perf/wall-fall.ts`): every one of the 222 structures levelled, 128 flow fields followed (the pool's worst case) | CPU time per wall: median 0.75 ms, p95 2.2, p99 3.6, max 7.5 (n=1,110, five worlds). 16 followed: median 0.07, max 2.2. The shipped map (156 structures): median 0.54, p95 1.95, max 6.1 | PASS (plan threshold: median 10 ms; a tick is 50 ms) |
+| Render, `perf:fx --breakdown`, 12 cells paired with the 48x48 `milh_flats`, 12 rounds of 30 frames, dpr 2, 1440x900, ANGLE Metal on an Apple M3 Pro, one browser on :5198, music off, load average 9-13 | high centre **z1 +1.30 ms** (12 of 12 rounds slower), **z1.6 +1.20**, z2.5 -0.60; high seat z1 +0.30, z1.6 +0.05, z2.5 0.00; medium centre **z1 +1.45, z1.6 +1.00**, z2.5 -0.90; medium seat z1 +0.50 (12 of 12), z1.6 +0.20, z2.5 +0.05. Bar +0.5 | **FAIL**: 4 of 12 cells over the bar, all at the centre |
+| `perf:memory` sandbox, 1400x900 at 1x, 30 s of sim time | JS 138.8 MiB (ceiling 153), GPU ledger 860.1 MiB (1,015), all processes 2,208 MiB (2,880). ImageBitmaps 176 MiB against 161 FAIL, and the 48x48 control reads 364 on the same run (the roster artefact every large map has read) | PASS on the three budgets that bind; the bitmap line is the control's too |
+| Seat shifts (report only; each of the 8 one-tile shifts of seat 0, seat 1 its half-turn; seeds 4000-4287) | KDF v KDF west share, unshifted 46.9: shifts (-1,-1) 47.2, (0,-1) 50.7, (1,-1) 46.2, (-1,0) 52.4, (1,0) 50.3, (-1,1) 52.1, (0,1) 54.9, (1,1) 54.2. Sarim v Sarim, unshifted 47.2: 51.0, 50.3, 52.4, 49.0, 46.9, 47.0, 46.9, 49.3 (the (-1,1) cell has one draw) | all 16 inside 60/40; widest 54.9 |
+
+**The render budget fails by less than the first Milh build, and by more than the triangle estimate said.** The structure triangles are the control's
+(3,184k against 3,157k at the centre, z1) and the redo still reads +1.30 ms, with 237 draw calls against 203. Splitting the redo (high, centre z1, 10 rounds,
+paired with the control): no walls -1.00 ms, no walls and no buildings -1.50, whole +1.30 (the whole is the head-to-head run, the two splits their own runs of 10 rounds, so the differences between them are indicative). The 208 walls are about 2.3 ms of the
+cost and the 14 buildings about 0.5; with every wall and building removed the redo reads 1.5 ms UNDER the control. A wall LOD (or a cheaper wall mesh, 3,087 triangles
+a tile) is the lever; the walls are instanced already (`renderer.md`).
+
+**The lane probe is the new finding.** The map is exactly half-turn symmetric and the shipped map reads +8.9 and +3.6 under the same probe (a west edge of
+unknown cause, z 2.0 and 0.8 on one read), but the redo's armour-left cell reads +17.7 and +21.9 on two independent 192-seed sets: the west
+splitter wins 90% and the east one 70%. The cause is not isolated. What is known: the other assignment (armour right, infantry left) is level, so the gap
+is a property of the armour going through `ford_ne` (west) or `ford_sw` (east) while the infantry take the other ford, and the ground at the two fords is
+twin by construction. A flow-field tie-break that is not half-turn equivariant on the redo's cliff-banked bed is the first thing to check (the sim side of
+this is out of scope here). The bar (a seat gap of at most 10 points, about 2 standard errors at 192 seeds) is this PR's reading of the design's "it must win
+equally from both seats"; the lead may rule a different one. `lane-probe.ts` is report-only and exits 0.
+
+What the redo needs before it opens: a wall LOD or fewer wall tiles in the centre window (+1.3 ms to under +0.5), the lane gap explained or
+removed, and then a swap commit with the 14 pins listed above. S4, `net:budget`, the tick probe, `perf:memory` and the seat shifts need no further work.
