@@ -227,6 +227,8 @@ import vehicleMud from '../../../data/vfx/vehicle_mud.json';
 import vehicleClods from '../../../data/vfx/vehicle_clods.json';
 import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
 import vehicleDamagedSmoke from '../../../data/vfx/vehicle_damaged_smoke.json';
+import gunOutPuff from '../../../data/vfx/gun_out_puff.json';
+import gunOutFire from '../../../data/vfx/gun_out_fire.json';
 import armorRicochet from '../../../data/vfx/armor_ricochet.json';
 import armorPenetration from '../../../data/vfx/armor_penetration.json';
 import wreckSmoulder from '../../../data/vfx/wreck_smoulder.json';
@@ -651,6 +653,10 @@ export const vfxEmitters = [
   vehicleExhaust,
   // Pass C2/C4 (P3): a living vehicle with a mobility or firepower kill.
   vehicleDamagedSmoke,
+  // The lead's ruling of 4 Nov: a knocked-out main gun puffs once and burns small for 8-15 s; spawned BY NAME by the
+  // renderer (`units/gun-out-fx.ts`) on the sim clock; unregistered, both are silently inert.
+  gunOutPuff,
+  gunOutFire,
   rotorWash,
   // GH-85: the triggers the schema declared and nothing dispatched. A direct-
   // fire round glancing off (impact_armor) or punching through (penetration)
