@@ -419,6 +419,16 @@ describe('alertsForTick — the cue follows the tier (polish pass F, A2)', () =>
     expect(alertsForTick(initAlertState(), [call(1, 17, 'strike'), call(1, 13, 'spot')], [], world, 40).alerts).toEqual([]);
   });
 
+  it('a refused landing of ours raises one warn line with no world mark; the enemy\'s raises none (GH-1007)', () => {
+    const refused = (carrier: number): SimEvent => ({ kind: 'landRefused', tick: 0, carrier, reason: 'no_clear_ground' }) as SimEvent;
+    const a = alertsForTick(initAlertState(), [refused(7)], [], world, 40).alerts;
+    expect(a.map((x) => [x.kind, x.line?.key, x.tier, x.tone, x.marks])).toEqual([['landRefused', 'alert.landRefused', 'minor', 'warn', []]]);
+    expect((en as Record<string, string>)['alert.landRefused']).toBe('<b>No clear ground to land</b>{where, select, yes { · {place}} other {}}');
+    expect(alertsForTick(initAlertState(), [refused(17)], [], world, 40).alerts).toEqual([]);
+    // Two events, two lines (one per event, no cross-tick state to repeat from).
+    expect(alertsForTick(initAlertState(), [refused(7), refused(3)], [], world, 40).alerts).toHaveLength(2);
+  });
+
   it('a wave, a soldier taken and a Conduct penalty sound important; a civilian taken and an arrival are silent', () => {
     const cuesOf = (m: MissionEvent) => alertsForTick(initAlertState(), [], [m], world, 40).alerts.map((a) => a.cue);
     expect(cuesOf(ev<'wave'>({ kind: 'wave', tick: 0, count: 4 }))).toEqual(['alert.important']);
