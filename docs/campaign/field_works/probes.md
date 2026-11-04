@@ -12,13 +12,13 @@ is fixed and every structure type is read from `data/structures.json`, never fro
 | probe | band | measured | kind |
 |---|---|---|---|
 | `fw-garrison-supp` | a 2x2 garrison kills more than 0 against a raid (GH-280's pin) | 2 `inf_squad` in a 2x2 house vs 8 `militia_cell`, 20 seeds: **1.95 kills/run**, held 100% | test |
-| `fw-outpost-raid` | 3 `inf_squad` in an outpost: heavy-raid hold 40-80% (G-NUM measured 63%) | 30 seeds: heavy raid (12 `militia_cell` + 3 `rpg_team`) **hold 60%**; light raid (8 militia) hold 100% | test |
+| `fw-outpost-raid` (HP only: `range_bonus` does not move it) | 3 `inf_squad` in an outpost: heavy-raid hold 40-80% (G-NUM measured 63%) | 30 seeds: heavy raid (12 `militia_cell` + 3 `rpg_team`) **hold 60%**; light raid (8 militia) hold 100% | test |
 | `fw-fp-assault` | 4 inf + AT against the militia firing position: it falls >= 80% | 30 seeds, 300 s: 4 inf + AT **falls 83%**; 4 inf + mortar falls 73% | test |
-| `fw-medic-lull` | with a station behind the attacker: 2:1 <= 85% and >= 15 pp under 3:1 | 60 seeds: unscripted 0 / 30 / 100%; fall-back pulse, no station 0 / 2 / 100%; fall-back pulse, station **0 / 17 / 100%** (1:1 / 2:1 / 3:1) | test |
+| `fw-medic-lull` (**recorded ceiling, report-only**; the `hold_for` replay half is unbuilt) | with a station behind the attacker: 2:1 <= 85% and >= 15 pp under 3:1 | 60 seeds: unscripted 0 / 30 / 100%; fall-back pulse, no station 0 / 2 / 100%; fall-back pulse, station **0 / 17 / 100%** (1:1 / 2:1 / 3:1) | recorded ceiling (not a gate: 17-22% at any heal rate) |
 | `fw-urban-garrisoned` | x1.06 on every defender still passes the §5.7 urban band | 60 seeds: **0 / 25 / 100 / 100%** (1:1 .. 4:1); the §5.7 reading at the time of the spec was 0 / 42 / 100 / 100 | test |
 | `fw-workshop-pk` | recorded; a destroyed hull never returns | below | recorded |
 | `fw-op-saddle` | recorded; the lead's design call (L5) | below | recorded |
-| `fw-tunnel-radius` | no allow-listed mission has a flat 2x2 pad whose `tunnel_radius` covers a route a primary needs | 5 missions list the intel centre; none of their maps has a tunnel route, so 0 of 5 walks has anything to cover | test |
+| `fw-tunnel-radius` | no allow-listed mission has a flat 2x2 pad whose `tunnel_radius` covers a route a primary needs | 5 missions list the intel centre; none of their maps has a tunnel route, so 0 of 5 walks has anything to cover | test: a regression guard, true by absence today |
 
 ## Scenarios (these are mine to define; the spec gave the question and the band)
 
@@ -94,6 +94,7 @@ without the lead's call.**
    85% ceiling. Its band logic is pinned with literal inputs (`medicLullPasses`). The spec's `hold_for` wave replay half of
    this probe is **not built here**: it needs a mission, and Task 15's playtest of the foothold plans is the instrument
    (the endure-clock band, 0.70-1.00 of target, with a plan that builds).
+   The medic-only passive control (playtest.ts) stands in for it: six missions have one, **Beit Sahwan II has none** (it has no no-orders control either).
 2. **`fw-tunnel-radius` is true by absence.** None of the five missions that list the intel centre has a tunnel route on
    its map, so the radius covers nothing there. The test keeps it from passing on nothing: it pins `checked === 5`, walks
    every legal pad of each (a mission whose walk saw no pad fails), and runs `deir_amun_2_foothold` with the centre as a
@@ -105,7 +106,7 @@ It runs inside `pnpm playtest`, not `pnpm fw:probes`, because it needs a mission
 (`playtest.ts`, end of file). Each plan is the shipped winning plan plus a `kdf_forward_camp` ordered at 0:00 by the
 mission's own `demo_squad` (`tools/src/backtest/plans/forward_camp.ts`; the squad is lent back to the shipped plan once the
 camp stands, and a body that comes out of the camp's door is mustered at the front instead of being sent to the rear).
-Bands, fixed: both plans win 30/30, the passive control still loses (the no-orders controls above), the build plan's median
+Gate 10 is **one-sided**: it says the camp is "not a trap" (a median that rises past +15%, as Umm Zeitoun II's did); it cannot say "not dominant". The design's `build_time_mult` 0.5 mutation cannot be built (the parser refuses a multiplier under 1.0, `structures.ts`), and `cost` 0 left Ein Qasab III at +0.3%. Bands, fixed: both plans win 30/30, the passive control still loses (the no-orders controls above), the build plan's median
 win is within +-15% of the shipped plan's on the same seeds, and the camp stands before 120 s.
 
 | mission | wins with / without the camp | median win with / without | camp stood by | verdict |
@@ -115,7 +116,7 @@ win is within +-15% of the shipped plan's on the same seeds, and the camp stands
 
 Umm Zeitoun II: the 350 for the camp displaces the Remetz the plan buys at 0:00 (500 start), and the mission's win is
 quick (4.2 min) and does not need a second door, so the camp is a pure cost there, slower by 28%: a trap, not a dominant buy.
-Nothing was tuned; `kdf_forward_camp` is not listed in that mission, and its plan and numbers are not in `playtest.ts`.
+Nothing was tuned; `kdf_forward_camp` is not listed in that mission, per the coordinator's ruling on GH-277, 4 Nov: content adopts the camp per mission only after gate 10 passes (design §6/§9); Umm Zeitoun II read +28.1%. The lead approved both Build-up missions as candidates, so this one is open to a re-run if the plan or the numbers change; and its plan and numbers are not in `playtest.ts`.
 
 Seen red, then the data put back by hand (Ein Qasab III):
 - `build_time_s` 40 -> 120: the camp stood by **138 s**: gate 11 red.

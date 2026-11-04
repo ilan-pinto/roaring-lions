@@ -17,7 +17,7 @@ const run = (id: string) => {
 
 describe('the §9 probes (bands fixed at G-NUM)', () => {
   for (const id of ['fw-garrison-supp', 'fw-outpost-raid', 'fw-fp-assault', 'fw-medic-lull', 'fw-urban-garrisoned', 'fw-workshop-pk']) {
-    it(id, () => {
+    it(id === 'fw-medic-lull' ? 'fw-medic-lull (recorded ceiling, not a gate on the station)' : id === 'fw-outpost-raid' ? 'fw-outpost-raid (HP only)' : id, () => {
       const r = run(id);
       expect(r.measured).not.toBe('');
       expect(r.pass, `${r.id}: ${r.measured}`).toBe(true);

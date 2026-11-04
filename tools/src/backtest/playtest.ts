@@ -3608,8 +3608,11 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // missions list `field_works` (the five `*_2_foothold`, Umm Zeitoun II and Wadi Halam II); the three that fielded no
 // `demo_squad` (Beit Sahwan II, Deir Amun II, Khan Rafid II: plan L4, option (a)) are lent one, because a foothold with an
 // allow list and nobody to build is dead content. The plans do not use it. Beit Sahwan II 210 -> 220 (roster out 15 -> 16:
-// the squad comes home), Khan Rafid II 235 -> 240 (roster out 8, ROE 100 -> 95: one more body shifts every later entity id
-// and so the wave streams), Deir Amun II pays what it paid (its gate-open probe reads 247 -> 217, roster out 10 -> 8: report only). Every plan still wins 30 of 30, every passive control
+// the squad comes home), Khan Rafid II 235 -> 240 (roster out 8, ROE 100 -> 95 on 424242: one more body shifts every later entity id
+// and so the wave streams; over the 30 sweep seeds the plan's mean ROE is 95.33 without the lent squad and 95.17 with it, 26 and 25
+// seeds under 100, so 424242 was the lucky seed and the mean did not drop), Deir Amun II pays what it paid (its gate-open probe, a
+// report-only breach_team variant, reads 247 -> 217 and roster out 10 -> 8 for the same cause, an id shift in the later waves; its
+// own run line and its ROE 97 on all 30 seeds are unchanged). Every plan still wins 30 of 30, every passive control
 // still loses 30 of 30, and the new medic-only control (a station ordered at 1 s, nothing else) loses on 30 of 30 in each
 // of the six missions that have a no-orders control; no star or gate moved.
 const LADDER_CREDITS = 6994;
@@ -3996,6 +3999,8 @@ const BUILDING_PLANS = ['beit_sahwan_2_foothold', 'deir_amun_2_foothold', 'wadi_
 
 // --- GH-277 gates 10 and 11 of the producing-buildings design: the forward camp is interesting, not dominant -------------
 //
+// Gate 10 is ONE-SIDED: it catches a camp that is a trap (a median that rises past +15%, as Umm Zeitoun II's did) and not a dominant one
+// (cost 0 left Ein Qasab III at +0.3%; the design's build_time_mult 0.5 is refused by the parser, which takes 1.0..2.0).
 // Gate 10. In each of the two Build-up missions the plan with the camp wins on all 30 seeds (the plan sweep above holds
 // that: its label is a victory label), the passive control still loses (the no-orders control above), and its MEDIAN win
 // falls within +-15% of the same plan without the camp, seed for seed. A median that fell further would say the camp is

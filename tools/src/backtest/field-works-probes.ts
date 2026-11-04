@@ -277,7 +277,7 @@ export function outpostRaid(): ProbeResult {
   const light = seeds(101, RAID_SEEDS).map((x) => raid(x, 'kdf_outpost', 3, LIGHT_RAID));
   const hold = rate(heavy.map((r) => r.held));
   return {
-    id: 'fw-outpost-raid', kind: 'test', band: '3 inf_squad in an outpost: heavy-raid hold 40-80% (G-NUM measured 63%)',
+    id: 'fw-outpost-raid', kind: 'test', band: '3 inf_squad in an outpost: heavy-raid hold 40-80% (G-NUM measured 63%); moved by the outpost HP only, range_bonus does not move it',
     measured: `heavy (12 militia + 3 RPG) hold ${pct(hold)}, light (8 militia) hold ${pct(rate(light.map((r) => r.held)))}, ${RAID_SEEDS} seeds`,
     pass: hold >= 0.4 && hold <= 0.8,
   };
@@ -297,7 +297,7 @@ export function medicLullProbe(): ProbeResult {
   const r = medicLull();
   const fmt = (x: Rates): string => Object.entries(x).map(([k, v]) => `${k}=${pct(v)}`).join(' ');
   return {
-    id: 'fw-medic-lull', kind: 'test', band: 'with a station behind the attacker: 2:1 <= 85% and >= 15 pp under 3:1',
+    id: 'fw-medic-lull', kind: 'recorded', band: 'CEILING, report-only (no heal rate moves it: 17-22%): with a station behind the attacker 2:1 <= 85% and >= 15 pp under 3:1; the hold_for replay half is unbuilt',
     measured: `${URBAN_SEEDS} seeds: unscripted ${fmt(r.base)} | fall-back, no station ${fmt(r.bare)} | fall-back, station ${fmt(r.station)}`,
     pass: medicLullPasses(r.station),
   };
