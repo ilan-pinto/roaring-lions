@@ -301,7 +301,7 @@ describe('a points race played through the arena (GH-976 P2)', () => {
       expect(games).toHaveLength(2);
       for (const g of games) {
         expect(g.mode).toBe('points');
-        expect(g.outcome, `${g.players} ${g.by}`).toBe(g.players[0] === 'cmd:stub' ? 'seat0' : 'seat1');
+        expect(g.outcome, `${g.players} ${g.by}`).toBe(g.players[0] === 'Player A' ? 'seat0' : 'seat1');
         expect(g.by).toBe('objective');
         expect(g.ticks).toBeLessThan(24000);
         // the referee\'s stats: the winner reached the target, from zones above all, the loser banked less
