@@ -25,6 +25,7 @@
 // returned disposer removes the lot. Nothing goes on `document.body` or
 // `window`.
 import { t } from '../i18n/t';
+import { EARN } from '../roar-earn';
 import type { RoarReceipt } from '../roar-wallet';
 import type { Disposer } from '../shell/router';
 import {
@@ -197,6 +198,12 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
     const notice = el('p', 'rl-stores__notice', t('stores.offline'));
     notice.setAttribute('role', 'note');
     root.appendChild(notice);
+  } else {
+    // The honest line (GH-317): what the coins are, said once, with the numbers read
+    // from the table `roar-earn.ts` pays by. Then "How to earn", from the same table.
+    const about = el('p', 'rl-stores__notice rl-stores__about', t('stores.about', EARN));
+    about.setAttribute('role', 'note');
+    root.append(about, earnPanel());
   }
 
   // --- shelves: a tablist, Left/Right/Home/End, the garage's F8 pattern ----
@@ -374,6 +381,31 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
   return () => {
     root.remove();
   };
+}
+
+/** "How to earn": every payout, from `EARN`, and the things that pay nothing. A
+ *  function, so every string resolves when the screen is drawn, not at module load. */
+function earnPanel(): HTMLElement {
+  const panel = document.createElement('details');
+  panel.className = 'rl-stores__earn';
+  panel.appendChild(el('summary', 'rl-stores__earn-h', t('stores.earn.title')));
+  const list = el('ul', 'rl-stores__earn-list');
+  const rows: [string, number][] = [
+    ['welcome', EARN.welcome],
+    ['firstWin', EARN.firstWin],
+    ['star', EARN.star],
+    ['campaign', EARN.campaign],
+  ];
+  for (const [key, n] of rows) {
+    const li = el('li', 'rl-stores__earn-row');
+    li.dataset.earn = key;
+    li.appendChild(el('span', 'rl-stores__earn-n', t('stores.earn.plus', { n })));
+    li.appendChild(el('span', 'rl-stores__earn-what', t(`stores.earn.${key}`)));
+    list.appendChild(li);
+  }
+  panel.appendChild(list);
+  panel.appendChild(el('p', 'rl-stores__earn-none', t('stores.earn.nothing')));
+  return panel;
 }
 
 interface Ctx {

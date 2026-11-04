@@ -6306,6 +6306,36 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-band);
   color: var(--ink-mute);
 }
+.rl-menu--garage .rl-stores__earn {
+  margin: 0;
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__earn-h {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 600;
+}
+.rl-menu--garage .rl-stores__earn-list {
+  margin: var(--s2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.rl-menu--garage .rl-stores__earn-row {
+  display: flex;
+  gap: var(--s3);
+  padding: var(--s1) 0;
+}
+.rl-menu--garage .rl-stores__earn-n {
+  min-width: 4ch;
+  font-family: var(--font-display);
+  color: var(--roar);
+}
+.rl-menu--garage .rl-stores__earn-none {
+  margin: var(--s2) 0 0;
+  max-width: 80ch;
+}
 .rl-stores__bar {
   display: flex;
   flex-wrap: wrap;

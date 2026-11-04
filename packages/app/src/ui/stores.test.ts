@@ -202,9 +202,10 @@ describe('the Stores with a live wallet', () => {
     expect(packs.filter((b) => !b.disabled)).toEqual([]);
     buy('unit:apc_kipod')?.click();
     expect(asks).toEqual([{ kind: 'unit', unitId: 'apc_kipod' }]);
-    // The balance shows, and no preview line is drawn over a live wallet.
+    // The balance shows, and the live wallet says what the coins are, not "preview".
     expect(host.querySelector('.rl-stores__wallet-n')?.textContent).toBe('400');
-    expect(host.querySelector('.rl-stores__notice')).toBeNull();
+    expect(host.querySelector('.rl-stores__about')?.textContent).toMatch(/^Roar coins are free\./);
+    expect(host.querySelector('.rl-stores__notice')?.textContent).not.toMatch(/cannot keep/);
     dispose();
   });
 
