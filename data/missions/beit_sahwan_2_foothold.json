@@ -96,6 +96,14 @@
         3,
         23
       ]
+    },
+    {
+      "unit": "demo_squad",
+      "count": 1,
+      "at": [
+        4,
+        22
+      ]
     }
   ],
   "structures": [
@@ -111,6 +119,11 @@
       ]
     }
   ],
+  "field_works": {
+    "kdf_medic_station": 1,
+    "kdf_outpost": 1,
+    "kdf_workshop": 1
+  },
   "resources": {
     "logistics_start": 400,
     "logistics_rate_per_min": 120
