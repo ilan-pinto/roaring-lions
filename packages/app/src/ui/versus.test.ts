@@ -8,7 +8,9 @@ import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../
 import { takeHanded } from '../net/handoff';
 import { isDialogOpen } from './confirm';
 import { AdvisorRefused } from '../net/connect';
-import { missingKeys } from '../i18n/t';
+import { missingKeys, setCatalogue } from '../i18n/t';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
 
 /** The methods the screens call on a transport, recorded. */
 function fakeTransport() {
@@ -597,6 +599,139 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
     fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum', ['kdf', 'kdf'], 'brigade');
     expect(stage.querySelector('.rl-versus__room-kit')?.getAttribute('data-kit')).toBe('brigade');
     expect(stage.querySelector('.rl-versus__room-kit')?.innerHTML).not.toMatch(/<(?!\/?span)/);
+  });
+});
+
+// GH-976 P2: the host picks how the match is won; the lobby offers a mode only where it was read fair.
+describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => {
+  const winRadios = (stage: ParentNode) => [...stage.querySelectorAll<HTMLInputElement>('.rl-versus__win input.rl-versus__side-radio')];
+  const winGroup = (stage: ParentNode) => stage.querySelector<HTMLElement>('fieldset.rl-versus__win')!;
+  const created = async (stage: HTMLElement, open: ReturnType<typeof vi.fn>): Promise<RoomRequest> => {
+    stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    // The room opened here is parked for its lobby; mounting it takes it, as the router would.
+    room(document.createElement('div'), 'ABCDEF', deps());
+    return (open.mock.calls[0] as [RoomRequest])[0];
+  };
+  const mount = () => {
+    const { transport } = fakeTransport();
+    const open = vi.fn().mockResolvedValue(opened(transport));
+    return { open, stage: mountPick(deps({ open })) };
+  };
+
+  it('is hidden on ground no mode was read fair on, and a create from there says nothing of a mode', async () => {
+    const { open, stage } = mount();
+    expect(checkedMap(stage)).toBe('tel_marum');
+    expect(winGroup(stage).hidden).toBe(true);
+    expect(winRadios(stage)).toEqual([]);
+    expect('winMode' in (await created(stage, open))).toBe(false);
+  });
+
+  it('on a fair map it is Annihilation (the default) and Points race, in one labelled group with a hint', async () => {
+    const { open, stage } = mount();
+    pick(mapRadio(stage, 'wadi_tarfan'));
+    expect(winGroup(stage).hidden).toBe(false);
+    expect(winGroup(stage).querySelector('legend')?.textContent).toBe('How to win');
+    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+    expect(winRadios(stage).map((r) => r.closest('label')?.textContent)).toEqual(['Annihilation', 'Points race']);
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
+    expect(describedBy(winRadios(stage)[0]!)).toBe('Destroy every enemy combat unit');
+    expect('winMode' in (await created(stage, open))).toBe(false);   // the default asks for no mode at all
+  });
+
+  it('picking Points race says its target and the create carries it', async () => {
+    const { open, stage } = mount();
+    pick(mapRadio(stage, 'milh_flats'));
+    pick(winRadios(stage).find((r) => r.value === 'points')!);
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('points');
+    expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('first to 600 wins');
+    expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'milh_flats', matchup: 'mirror', winMode: 'points' });
+  });
+
+  it('a pick that the next ground does not offer is dropped, not carried to a map it was never read fair on', async () => {
+    const { open, stage } = mount();
+    pick(mapRadio(stage, 'wadi_tarfan'));
+    pick(winRadios(stage).find((r) => r.value === 'points')!);
+    pick(mapRadio(stage, 'tel_marum'));
+    expect(winGroup(stage).hidden).toBe(true);
+    expect(winRadios(stage)).toEqual([]);   // absent from the DOM, not merely hidden
+    expect('winMode' in (await created(stage, open))).toBe(false);
+  });
+
+  it('a faction pick (KDF against Sarim plays its economy) offers no mode and drops the pick', async () => {
+    const { open, stage } = mount();
+    pick(mapRadio(stage, 'wadi_tarfan'));
+    pick(winRadios(stage).find((r) => r.value === 'points')!);
+    pick(sideRadio(stage, 'sarim'));
+    expect(checkedMap(stage)).toBe('wadi_tarfan');   // a map KDF-v-Sarim plays, so the ground stays
+    expect(winRadios(stage)).toEqual([]);
+    const req = await created(stage, open);
+    expect(req).toMatchObject({ matchup: 'sarim' });
+    expect('winMode' in req).toBe(false);
+    // and back to the mirror: Annihilation again, not the dropped Points race
+    pick(sideRadio(stage, 'mirror'));
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
+  });
+
+  it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: never Destroy the camp', () => {
+    const stage = mountPick(deps());
+    const offered: Record<string, string[]> = {};
+    for (const m of MAPS) {
+      pick(mapRadio(stage, m.id));
+      offered[m.id] = winRadios(stage).map((r) => r.value);
+    }
+    expect(offered).toEqual({
+      beit_sahwan_outskirts: [], milh_flats: ['annihilation', 'points'], tel_marum: [], wadi_tarfan: ['annihilation', 'points'],
+    });
+  });
+
+  it('the room screen names the win mode to the host and the guest alike, and a lobby repaint moves it', async () => {
+    for (const mode of ['points', undefined] as const) {
+      const { transport } = fakeTransport();
+      const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'wadi_tarfan', factions: ['kdf', 'kdf'], kit: 'matched', ...(mode === undefined ? {} : { winMode: mode }) } }));
+      const stage = document.createElement('div');
+      room(stage, 'ABCDEF', deps({ open }));
+      stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+      await flush();
+      const line = stage.querySelector('.rl-versus__room-win');
+      expect(line?.querySelector('.rl-versus__label')?.textContent).toBe('How to win');
+      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, String(mode)).toBe(mode === 'points' ? 'Points race' : 'Annihilation');
+    }
+    const { fake, stage } = await hostedRoom();
+    expect(stage.querySelector('.rl-versus__room-win .rl-versus__kit-name')?.textContent).toBe('Annihilation');
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'wadi_tarfan', ['kdf', 'kdf'], 'matched', 'points');
+    expect(stage.querySelector('.rl-versus__room-win .rl-versus__kit-name')?.textContent).toBe('Points race');
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'wadi_tarfan', ['kdf', 'kdf'], 'matched');
+    expect(stage.querySelector('.rl-versus__room-win .rl-versus__kit-name')?.textContent).toBe('Annihilation');
+  });
+
+  it('?pseudo=1: every string of the win group and of the room line is bracketed, so none bypassed t()', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const stage = mountPick(deps());
+      pick(mapRadio(stage, 'wadi_tarfan'));
+      pick(winRadios(stage).find((r) => r.value === 'points')!);
+      const shown = [
+        winGroup(stage).querySelector('legend')!.textContent!,
+        ...[...winGroup(stage).querySelectorAll('.rl-versus__side-name, .rl-versus__win-hint')].map((e) => e.textContent!),
+      ];
+      expect(shown.length).toBe(4);   // the legend, two options, the hint
+      for (const text of shown) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
+      // the room line, for both modes
+      const { transport } = fakeTransport();
+      const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'wadi_tarfan', factions: ['kdf', 'kdf'], kit: 'matched', winMode: 'points' } }));
+      const roomStage = document.createElement('div');
+      room(roomStage, 'ABCDEF', deps({ open }));
+      roomStage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+      await flush();
+      for (const sel of ['.rl-versus__room-win .rl-versus__label', '.rl-versus__room-win .rl-versus__kit-name']) {
+        const text = roomStage.querySelector(sel)!.textContent!;
+        expect(text, sel).toMatch(/^⟦[\s\S]*⟧$/);
+      }
+      expect(missingKeys()).toEqual([]);
+    } finally {
+      setCatalogue('en', en);
+    }
   });
 });
 

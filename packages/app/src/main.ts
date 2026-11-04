@@ -93,6 +93,7 @@ import {
   coupons,
   formations,
   grades,
+  versusModes,
 } from '@lions/data';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
@@ -305,6 +306,8 @@ import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
+import { NetPoints } from './ui/net-points';
+import { pointsViewOf, type PointsView } from './net/points-view';
 import { describeCommand, mountAdvisorPanel, type AdvisorPanel } from './ui/advisor';
 import { NetScoreboard, advisorPresenceHook } from './ui/net-score';
 import { scoreOf, showsScoreboard } from './net/scoreboard';
@@ -1983,6 +1986,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const settled = netConfig !== null && room !== null ? settleRejoin(netConfig, match.rejoin, room) : null;
   if (settled?.rejoin) logRejoin(settled.rejoin, console);
   const versusWorld = versusRoom && netConfig !== null ? settled?.world ?? buildMatchWorld(netConfig) : null;
+  /** The runtime of an ECONOMY room (purse, production, rally, dock): a win-mode room has a runtime too (GH-976), but
+   *  it runs goals only -- no purse, no camp line -- so nothing that treats a room's runtime as an economy may see it. */
+  const economyRt = versusWorld !== null && versusWorld.winMode === null ? versusWorld.runtime : null;
   /** The kit this screen draws (`net/room-kit.ts`'s `screenKit`): the boot
    *  prepass above everywhere but a versus room, which reads each SIDE's kit
    *  from its world -- the HUD tables for this viewer's side (a card or chip
@@ -3479,7 +3485,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     placeName: mission ? undefined : mapJson.name,
     ...(versusRoom ? { versusFaction: versusFactions[me] } : {}),
     // N3 Task 6: an economy room's purse and (the KDF seat's only, LD7) Conduct.
-    ...(versusWorld?.runtime ? { roomEconomy: () => (versusWorld.runtime ? roomEconomyView(versusWorld.runtime, me, versusFactions[me]) : null) } : {}),
+    ...(economyRt !== null ? { roomEconomy: () => roomEconomyView(economyRt, me, versusFactions[me]) } : {}),
     commander: hudCommander,
     orders,
     armedOrder: () => armedOrder,
@@ -4294,7 +4300,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       (i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].canConstruct
     );
   /** An economy room's runtime (N3 Task 3): null in a mirror room and off a room. */
-  const roomRt = versusWorld?.runtime ?? null;
+  const roomRt = economyRt;
   /** The units an economy room's dock lists: the viewer faction's doctrine menu, in its
    *  order (N3 Task 6). Null off an economy room. */
   const roomMenu = roomRt !== null ? roomDockMenu(versusFactions[me]) : null;
@@ -4836,7 +4842,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // and a note where it refuses -- and it stays armed, so the player tries
       // again rather than starting over. Before support: arming one disarms
       // the other, so at most one is ever set.
-      const rallyRt = runtime ?? versusWorld?.runtime ?? null;
+      const rallyRt = runtime ?? economyRt;
       if (armedRally !== null && rallyRt) {
         const line = armedRally;
         const out = callRally(rallyRt, cmdSink, line, pointerView, sim, p.x, p.y, me);
@@ -5773,7 +5779,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // Nothing is scored: no objective, wave or Conduct line exists here.
     // A room adds its own runtime's purchases (N3 Task 6), each seat hearing its own only.
     if (!mission) announceAlerts(roomAlertsForTick(alertState, events, roomEvents, alertWorld, sim.tickCount));
-    if (versusWorld?.runtime && !tickQuiet) voice.onMission(roomArrivals(roomEvents));
+    if (economyRt !== null && !tickQuiet) voice.onMission(roomArrivals(roomEvents));
     // `&works`: the synthetic runtime settles the sim's answers (charges, refunds, counts) and
     // words the works events; nothing else of a mission runs for it.
     if (sandboxWorksRt) {
@@ -6556,6 +6562,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const scoreNames = { theirs: netConfig?.seats[otherSeat].callsign ?? '' };
   const netScore = showsScoreboard(netConfig) && !spectating ? new NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
+  /** The points race (GH-976 P2): both sides' points against the target, from the goals-only runtime. Scores and
+   *  zone holders are public by design (`net/points-view.ts`); no unit is shown. A points room only, never a spectator. */
+  const pointsRules = netConfig?.winMode === 'points' ? versusModes[netConfig.map]?.modes.points : undefined;
+  const pointsViewNow = (): PointsView | null =>
+    pointsRules !== undefined && versusWorld?.runtime != null && !spectating ? pointsViewOf(versusWorld.runtime, pointsRules, me) : null;
+  const netPoints = pointsViewNow() !== null ? new NetPoints(document.body, scoreNames) : null;
+  if (netPoints !== null) onDispose(() => netPoints.dispose());
   /** Who has an advisor (decision D1): this seat's own to its panel, both
    *  seats' to the board, so an advisor admitted into the running room shows
    *  to the friend as well as in the lobby. Installed here, after both exist:
@@ -6589,7 +6602,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     closeOpenDialog();
     netStatus?.hide();
     netScore?.hide();
+    netPoints?.hide();
     advisorPanel?.onPresence(null);
+    const endPoints = pointsViewNow();
     netEnd = showNetEnd(document.body, result, me, {
       again: () => req.navigate(routes.versus()),
       menu: () => req.navigate(routes.menu()),
@@ -6597,6 +6612,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // board both seats stopped on.
       score: { score: scoreOf(sim), names: scoreNames },
       factions: versusFactions,
+      ...(endPoints === null ? {} : { points: endPoints }),
     });
   };
   onDispose(() => netEnd?.());
@@ -6943,9 +6959,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // F4: the armed rally's cursor reads the runtime's own `canSetRally` at
     // the point the click would send (`callRally`'s `pointerPoint`).
     rallyAt:
-      armedRally !== null && (runtime ?? versusWorld?.runtime)
+      armedRally !== null && (runtime ?? economyRt)
         ? (x, y) => {
-            const rt = runtime ?? versusWorld?.runtime;
+            const rt = runtime ?? economyRt;
             return rt ? canRally(rt, armedRally ?? -1, x, y, me) : false;
           }
         : null,
@@ -7111,6 +7127,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
     }
     if (netEnd === null) netScore?.update(scoreOf(sim));
+    if (netEnd === null && netPoints !== null) { const pv = pointsViewNow(); if (pv !== null) netPoints.update(pv); }
     // The advisor's 2 s deadline counts the frames that run here, so a room pause holds it.
     if (netEnd === null && room !== null && !ordersWait(room.status())) advisorPanel?.frame();
     if (netEnd === null || lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status(), Date.now(), room?.forfeitClock() ?? null);

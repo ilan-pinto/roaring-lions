@@ -7941,6 +7941,13 @@ fieldset.rl-versus__maps {
   color: var(--ink-mute);
 }
 .rl-versus__side-note { text-align: left; grid-column: 1 / -1; }
+/* GH-976 P2: the win-mode group is the side group's twin; its options sit in a span that dissolves into the flex row. */
+.rl-versus__win-options {
+  display: contents;
+}
+.rl-versus__win[hidden] {
+  display: none;
+}
 .rl-versus__side-reason[hidden],
 .rl-versus__matchup-note[hidden],
 .rl-versus__side-note[hidden] {
@@ -9500,6 +9507,78 @@ fieldset.rl-versus__maps {
 .rl-net-score__advisor[data-row='mine'] .rl-net-score__who {
   color: var(--good);
 }
+/* The points race (ui/net-points.ts, GH-976 P2): both sides' points against the target, top centre of the field,
+   click-through like the status line and the scoreboard. */
+.rl-net-points {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s3));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 18rem;
+  padding: var(--s1) var(--s3);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  color: var(--ink);
+  font: 600 var(--t-s) var(--font-body);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 19;
+}
+.rl-net-points[hidden] {
+  display: none;
+}
+.rl-net-points__title,
+.rl-net-points__ground {
+  margin: 0;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+.rl-net-points__title {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.rl-net-points__row {
+  display: grid;
+  grid-template-columns: 6rem 1fr 3rem 6.5rem;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-net-points__who {
+  max-width: 6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rl-net-points__row[data-row='mine'] .rl-net-points__who {
+  color: var(--good);
+}
+.rl-net-points__bar {
+  position: relative;
+  height: 0.5rem;
+  background: color-mix(in srgb, var(--ink) 15%, transparent);
+}
+.rl-net-points__fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--ink-dim);
+}
+.rl-net-points__row[data-row='mine'] .rl-net-points__fill {
+  background: var(--good);
+}
+.rl-net-points__row[data-row='theirs'] .rl-net-points__fill {
+  background: var(--bad);
+}
+.rl-net-points__n {
+  text-align: right;
+}
+.rl-net-points__rate {
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
 .rl-net-board {
   border-collapse: collapse;
   color: var(--ink);
@@ -9528,7 +9607,8 @@ fieldset.rl-versus__maps {
   color: var(--good);
 }
 /* KDF vs Sarim (2026-10-14): which force this seat commanded, under the reason. */
-.rl-net-end__played {
+.rl-net-end__played,
+.rl-net-end__points {
   color: var(--ink-dim);
 }
 .rl-net-end .rl-net-board {
