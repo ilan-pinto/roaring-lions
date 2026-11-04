@@ -9607,7 +9607,7 @@ fieldset.rl-versus__maps {
 }
 .rl-arena-setup__title {
   margin-block: 0 var(--s2);
-  font: 700 var(--t-l) var(--font-body);
+  font: 600 var(--t-l) var(--font-body);
   color: var(--title-accent);
 }
 .rl-arena-setup__blurb,
@@ -9632,7 +9632,7 @@ fieldset.rl-versus__maps {
   gap: var(--s1);
 }
 .rl-arena-setup__label {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink-label);
 }
 .rl-arena-setup__control {
@@ -9644,6 +9644,7 @@ fieldset.rl-versus__maps {
 }
 .rl-arena-setup__control:disabled {
   opacity: var(--disabled-opacity);
+  cursor: not-allowed;
 }
 .rl-arena-setup__actions {
   display: flex;
@@ -9668,7 +9669,7 @@ fieldset.rl-versus__maps {
 .rl-arena-setup__start:disabled,
 .rl-arena-setup__stop:disabled {
   opacity: var(--disabled-opacity);
-  cursor: default;
+  cursor: not-allowed;
 }
 .rl-arena-setup__status[hidden],
 .rl-arena-setup__watch[hidden],

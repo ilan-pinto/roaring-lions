@@ -32,6 +32,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
   // Every hit the WP-P2 sweep found was reworded rather than exempted; the one entry below is the operator strip's.
   // Add `key: 'reason'` here for a use a player genuinely needs.
   'arena.strip.clock': 'GH-954 W1: the arena watch strip is an operator view, dev-only (the route does not exist in a production build); it names the room clock\'s tick beside the match time because a run is compared by tick',
+  'arena.setup.pace': 'GH-954 W2: the arena setup screen is an operator view, dev-only (the route does not exist in a production build); the round length is the sim\'s own unit, the tick, which the CLI (--pace) and the results name',
+  'arena.setup.cap': 'GH-954 W2: the same operator view; the cap is a tick count (--cap-ticks), compared by tick like the watch strip\'s clock',
 };
 
 /** Every reason a value would read as developer language, or [] if none. */
