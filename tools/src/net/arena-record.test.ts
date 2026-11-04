@@ -150,3 +150,12 @@ describe('the results list reads an older record', () => {
     expect(JSON.stringify(list)).not.toContain('sk-ant-leak9');
   });
 });
+
+describe('the prompt digest follows the mode (GH-976 P2)', () => {
+  it('annihilation is the digest every earlier record carries; a mode is the digest of ITS prompt, one per mode', () => {
+    expect(currentPromptDigest(null)).toBe(currentPromptDigest());
+    expect(currentPromptDigest('points')).not.toBe(currentPromptDigest());
+    expect(currentPromptDigest('points')).not.toBe(currentPromptDigest('camp'));
+    expect(currentPromptDigest('points')).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
