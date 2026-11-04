@@ -417,9 +417,12 @@ export const BUILDING_MESHES: Readonly<
     wreck: 'buildings/kdf_aid_post_wreck.glb',
     construction: 'buildings/kdf_aid_post_construction.glb',
   },
-  // GH-277 forward camp (4 Nov 2026): until its own Meshy building is approved and made, the type draws the field camp's
-  // mesh and wreck (no construction state), so it draws. The lead approves the credits for the new model first.
-  kdf_forward_camp: { idle: 'buildings/camp.glb', wreck: 'buildings/camp_wreck.glb' },
+  // GH-277 forward camp (4 Nov 2026): its own Meshy-7 base finished in Blender (zero materials, role split), lead-approved.
+  kdf_forward_camp: {
+    idle: 'buildings/kdf_forward_camp.glb',
+    wreck: 'buildings/kdf_forward_camp_wreck.glb',
+    construction: 'buildings/kdf_forward_camp_construction.glb',
+  },
   militia_field_clinic: { idle: 'buildings/militia_field_clinic.glb', wreck: 'buildings/militia_field_clinic_wreck.glb' },
   militia_firing_position: { idle: 'buildings/militia_firing_position.glb', wreck: 'buildings/militia_firing_position_wreck.glb' },
   militia_observation_post: { idle: 'buildings/militia_observation_post.glb', wreck: 'buildings/militia_observation_post_wreck.glb' },
@@ -558,7 +561,7 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 /**
  * Art that has landed AHEAD of the type that will draw it -- the opposite
  * of retirement. Two batches hold files here today (the GH-277 field works
- * left at Task 13 and now live in `BUILDING_MESHES`): GH-298's four officers
+ * and the forward camp now live in `BUILDING_MESHES`): GH-298's four officers
  * (spec `2026-09-30-field-commanders-design.md` §7, §8.2 E1), whose unit
  * types arrive at Stage 5 (which moves each file into `RIGGED_UNIT_MESHES`
  * / `VEHICLE_UNIT_MESHES`, runs `pnpm gait:meshes` on the teams -- it is

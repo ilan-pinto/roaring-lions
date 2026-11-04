@@ -613,3 +613,46 @@ They are listed in a named holding list in `mesh-catalogue.ts`
 (`HELD_MESH_FILES`, each with the structure type that will claim it) rather
 than in `RETIRED_MESH_FILES`, so "not drawn yet" and "decided not to draw"
 stay distinguishable; Task 13 moves each entry into `BUILDING_MESHES`.
+
+
+## Forward camp — `kdf_forward_camp` (GH-277 follow-on, 4 Nov 2026)
+
+Lead-approved on GH-277 (4 Nov): 25 credits planned, cap 45, raised to 65 when
+the two Meshy-6 previews each came back as one fused object and the lead moved
+the building to Meshy-7. **Spent: 65 credits** (3 previews at 20, one remesh at
+5), palette-painted (no refine, no texture), `--formats glb`. Preview 3 was
+accepted by the lead: the first preview with two separate parts, a gabled frame
+tent and an open bay under a pitched camouflage net.
+
+**Preview 1 (Meshy-6, rejected: one fused object, 20 credits)** — `01a1a636-84a3-76db-9c3d-a7a8b53f713f`, `meshy-6`, 30,000 triangle budget, seed 2500463769, negative prompt: _perimeter wall, sandbag ring, gabion, shipping container, corrugated roof, solid roof over the bay, pyramid tent, arched tent, tall mast, flag, red cross, crescent, star, emblem, text, people, vehicles, tank, truck_
+
+> A single low-poly game-ready military forward command post, a field work of a fictional army in plain matte olive-drab canvas and paint with dark gunmetal fittings and tan sandbags, clean and military. Side by side on one square pad: on the left a boxy olive frame command tent with vertical walls, a low-pitched roof and a rolled-up door flap at the front, a stretcher rack by the door; on the right an open-sided vehicle bay, a sand-coloured camouflage net on four tall steel poles, sagging between them, a low steel ramp under it, a tool chest and jerrycans. Footprint about 6 by 6 metres, tent 3 metres, poles 4.2 metres. Plain even lighting, no baked shadows, no ground, no base, centred, one object, door and bay facing forward. No insignia, flags, crosses, text or markings.
+
+**Preview 2 (Meshy-6, rejected: one fused object, 20 credits)** — `01a1a63a-e28d-768c-8bd5-48c52cf2de5d`, `meshy-6`, 30,000 triangle budget, seed 4145751927, negative prompt: _vehicle, car, jeep, buggy, truck, tank, one large tent, marquee, single tent covering everything, solid roof over the bay, perimeter wall, sandbag ring, gabion, shipping container, corrugated roof, tall mast, flag, red cross, crescent, star, emblem, text, people_
+
+> A single low-poly game-ready military forward command post of a fictional army, plain matte olive-drab canvas and dark gunmetal steel, clean and military. Two separate parts on one square pad with a gap between them. Left half: a small boxy olive frame tent with vertical walls, a low-pitched roof and a rolled-up door flap. Right half: an EMPTY vehicle bay with no vehicle in it, roofed only by a loose sand-coloured camouflage net on four tall steel poles, sagging in deep scallops, open on all sides, a low steel ramp on the ground beneath. Jerrycans and a few sandbags by the tent door. Footprint about 6 by 6 metres, tent 3 metres, poles 4.2 metres. Plain even lighting, no baked shadows, no ground, no base, centred, one object, facing forward. No insignia, flags, crosses, text or markings.
+
+**Preview 3 (Meshy-7, ACCEPTED, 20 credits)** — `01a1a640-7f7a-7778-9511-117cb545fbff`, `meshy-7`, 30,000 triangle budget, seed 2453155186, negative prompt: _vehicle, car, jeep, buggy, truck, tank, one large tent, marquee, single tent covering everything, solid roof over the bay, perimeter wall, sandbag ring, gabion, shipping container, corrugated roof, tall mast, flag, red cross, crescent, star, emblem, text, people_
+
+> Two separate low-poly game-ready military field objects of a fictional army side by side, a metre apart, plain matte olive-drab canvas and dark gunmetal steel, clean and military. Left object: a small rectangular olive frame tent, 3 by 4 metres, vertical walls, low gabled roof, rolled-up door flap at the front, jerrycans and a few sandbags by the door. Right object: an empty open-sided carport, four tall thin steel poles at its corners holding a flat sand-coloured camouflage net that sags between them, nothing under it but a flat low steel ramp lying on the ground. Whole layout 6 by 6 metres, tent 3 metres tall, poles 4.2 metres. Plain even lighting, no baked shadows, no ground, no base, no platform, centred, facing forward. No insignia, flags, crosses, text or markings.
+
+**Remesh** — `01a1a645-f68b-7057-8a9e-1b8a03157cb0`, 6,000 triangles requested,
+5,431 delivered, triangle topology, from preview 3. Folder
+`art/meshy/kdf-forward-camp-remesh-20261104-01a1a645/` (`model.glb` is the one
+tracked source; the three 25.7 MB previews stay on disk).
+
+**What Blender did to it** (0 credits; `tools/buildings/export_fw_works.py`,
+`build_kdf_forward_camp`; source `art/src/buildings/kdf_forward_camp.blend`):
+
+| Step | Detail |
+|---|---|
+| Carve | the remesh is one shell, 2,741 loose pieces; the tent is every face with centre x in (-0.82, -0.09) and \|y\| < 0.47 (the guy-ropes fall outside), the net lid every face right of x 0.05 and above raw z 0.135 (the curtains, the fringe and the ground slab fall below) |
+| Re-pack | tent to x[-3.0, -0.2] y[-1.75, 1.85] z[0, 2.2]; net lid to x[0.15, 3.0] y[0.1, 3.0] z[3.6, 4.25], then sagged 0.30 m at the middle by a paraboloid; plot 6.0 x 6.0 m, scale 1 under the `stretch` fit |
+| Kit | four steel poles on base plates, a door pane (`glass`, behind a door widened to 0.7 m, so `building_facing.py` has an opening to judge) and a pale `dome` band over it, a low steel ramp at the door, a two-course sandbag L at the near corner, a 3.9 m mast with a 1.1 m whip, crates, a tool chest, three spare roadwheels |
+| Construction | tent cut to a 1.0 m wall stub, poles to 1.9 m stubs, the shared scaffold kit (moved clear of the ramp and the tent) |
+| Wreck | tent diced and crushed to about 0.6 m, net torn down in 0.4 m cells of hash-seeded height, ONE pole standing at a 16 degree lean, one snapped pole across the bay, two stubs, mast fallen diagonally, stores scattered |
+
+**Numbers**: tris 3,189 standing / 1,283 construction / 5,171 wreck (cap 7,000
+each); roles `wall` tent, `roof` net, `metal` poles, ramp and mast, `wood`
+sandbags and crates, `glass` door pane, `dome` band; zero materials. Held in
+`HELD_MESH_FILES` until the `kdf_forward_camp` structure type is on main.

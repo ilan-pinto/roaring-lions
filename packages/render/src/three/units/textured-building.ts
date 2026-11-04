@@ -39,7 +39,4 @@ export const TEXTURED_BUILDING_TYPES: ReadonlySet<string> = new Set([
   // GH-66 field works (2026-10-15): the HESCO bastion run, through
   // `export_meshy_ramp.py` like the two above.
   'hesco',
-  // GH-277 forward camp (4 Nov 2026): until its own model lands it draws the field camp's GLB, which ships the camp's bake, so the
-  // type is textured as the camp is. Held to the camp's mesh by `SHARES_MESH` in tools/src/mesh_roster.test.ts.
-  'kdf_forward_camp',
 ]);

@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready military forward command post, a field work of a fictional army in plain matte olive-drab canvas and paint with dark gunmetal fittings and tan sandbags, clean and military. Side by side on one square pad: on the left a boxy olive frame command tent with vertical walls, a low-pitched roof and a rolled-up door flap at the front, a stretcher rack by the door; on the right an open-sided vehicle bay, a sand-coloured camouflage net on four tall steel poles, sagging between them, a low steel ramp under it, a tool chest and jerrycans. Footprint about 6 by 6 metres, tent 3 metres, poles 4.2 metres. Plain even lighting, no baked shadows, no ground, no base, centred, one object, door and bay facing forward. No insignia, flags, crosses, text or markings.",
+    "negative_prompt": "perimeter wall, sandbag ring, gabion, shipping container, corrugated roof, solid roof over the bay, pyramid tent, arched tent, tall mast, flag, red cross, crescent, star, emblem, text, people, vehicles, tank, truck",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a1a636-84a3-76db-9c3d-a7a8b53f713f",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2500463769,
+    "prompt": "A single low-poly game-ready military forward command post, a field work of a fictional army in plain matte olive-drab canvas and paint with dark gunmetal fittings and tan sandbags, clean and military. Side by side on one square pad: on the left a boxy olive frame command tent with vertical walls, a low-pitched roof and a rolled-up door flap at the front, a stretcher rack by the door; on the right an open-sided vehicle bay, a sand-coloured camouflage net on four tall steel poles, sagging between them, a low steel ramp under it, a tool chest and jerrycans. Footprint about 6 by 6 metres, tent 3 metres, poles 4.2 metres. Plain even lighting, no baked shadows, no ground, no base, centred, one object, door and bay facing forward. No insignia, flags, crosses, text or markings.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1793789954717,
+    "progress": 100,
+    "started_at": 1793789954727,
+    "finished_at": 1793790054673,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1a636-84a3-76db-9c3d-a7a8b53f713f/output/model.glb?Expires=4947350400&Signature=ndOEQHEVxDSIvD1OvOxmUgqjm3LAzvpeqM75GCX5LeVypI5cli-YgxmcS6gTbNvOwPcjFIEK37QX5mvFBxTkUiCF5rCaF9cmlLtC~T~glbNKx0bwmNFxVx6TvGTYV-7Rb5a5zL5WKBHrNODVjRaXyyC5hW74C~ypFUXg-9y1vb5uZXN8x5-0Vm7xBl9K8tGPF2BuHp-u~7lRC5kMnP5nWa4R1bV0IPR7I6VP-~c-FamlGqah-tMpO8XjGCM~JV32GJXi4tnSyE~s4PqJDZZsYOgpQc3yzoGM1cQuUNiE4a831S1tqBtOK52nuVXiFccl0rdE20eNtd9YTFBysPZ6QQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1a636-84a3-76db-9c3d-a7a8b53f713f/output/preview.png?Expires=4947350400&Signature=HAgvEzOsD4RYZQcribbHBLFtWJGbRXbIqjajXUWLjfZ3NCFkGzaOhGISj-HSWiw9niLphQT9d4OPUxQu5UDkIBX01-YRW1ZgB5z3zz79iILY-s7ZtI4Mh9TK8Eax0qlw2DPwOc56IkdaKBTomdxhnbAL7BeNYZMafM~ui0qbRT1UMoRiDueCqZtDXgpnIaZ7OI1gB2hLJgHPuGjMWFZ8UQDsuXYR9I5SBPGYs-SDLKJB7qE-TEVWzASCZ8QOs-i4JdMm8hGXDHskSSlVqZjvyUy6iZVYAafwzc4vPwKgnQJB0WIC0AaitiSTWVtu0jkO10fdAXXSbw7my4bvfW5~2A__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1793789954717,
+    "started_at": 1793789954727,
+    "finished_at": 1793790054673
+  },
+  "usd_estimated": 0.4
+}

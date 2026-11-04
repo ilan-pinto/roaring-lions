@@ -227,9 +227,6 @@ TEXTURED_BUILDING_EXEMPT = {
     # GH-66 field works (2026-10-15): the HESCO bastion run, the same
     # exporter and the same kind of bake (8k refine shipped at 2048).
     "hesco",
-    # GH-277 forward camp (4 Nov 2026): draws the field camp's GLB (which ships the camp's bake) until its own model is approved
-    # and made; the type has no file of its own yet, so this entry checks nothing today and is the one the new model will need.
-    "kdf_forward_camp",
 }
 
 # 2026-09-07: the identical override, extended by the project lead to six

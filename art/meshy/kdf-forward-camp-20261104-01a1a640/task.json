@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "Two separate low-poly game-ready military field objects of a fictional army side by side, a metre apart, plain matte olive-drab canvas and dark gunmetal steel, clean and military. Left object: a small rectangular olive frame tent, 3 by 4 metres, vertical walls, low gabled roof, rolled-up door flap at the front, jerrycans and a few sandbags by the door. Right object: an empty open-sided carport, four tall thin steel poles at its corners holding a flat sand-coloured camouflage net that sags between them, nothing under it but a flat low steel ramp lying on the ground. Whole layout 6 by 6 metres, tent 3 metres tall, poles 4.2 metres. Plain even lighting, no baked shadows, no ground, no base, no platform, centred, facing forward. No insignia, flags, crosses, text or markings.",
+    "negative_prompt": "vehicle, car, jeep, buggy, truck, tank, one large tent, marquee, single tent covering everything, solid roof over the bay, perimeter wall, sandbag ring, gabion, shipping container, corrugated roof, tall mast, flag, red cross, crescent, star, emblem, text, people",
+    "model_type": "standard",
+    "ai_model": "meshy-7",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a1a640-7f7a-7778-9511-117cb545fbff",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2453155186,
+    "prompt": "Two separate low-poly game-ready military field objects of a fictional army side by side, a metre apart, plain matte olive-drab canvas and dark gunmetal steel, clean and military. Left object: a small rectangular olive frame tent, 3 by 4 metres, vertical walls, low gabled roof, rolled-up door flap at the front, jerrycans and a few sandbags by the door. Right object: an empty open-sided carport, four tall thin steel poles at its corners holding a flat sand-coloured camouflage net that sags between them, nothing under it but a flat low steel ramp lying on the ground. Whole layout 6 by 6 metres, tent 3 metres tall, poles 4.2 metres. Plain even lighting, no baked shadows, no ground, no base, no platform, centred, facing forward. No insignia, flags, crosses, text or markings.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1793790609152,
+    "progress": 100,
+    "started_at": 1793790609165,
+    "finished_at": 1793790645102,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1a640-7f7a-7778-9511-117cb545fbff/output/model.glb?Expires=4947350400&Signature=P4gkEPQpA0kyLYCMe79M08snn1condIC8dnThg-qEmPuiMWM7f2CnVXQMM6Iteku3NuFgxsZpdfZMqCkjnQfO88jeRdmHcOHmNSFY5Gj11egFLXng0EGjjQNDH-aBa33Y-RKHPKu8js4v2G2Wn3v9qj5bd4vnP4CLfNNB7Qf48UR8z9elJ6h3NAFw4VfHc-0WFVTw-bkqfY6NndMIUJUWbDLtwX2i0Zi9EjC3LiQ0oScCWcvobelJf1wlAx1xXM~oXIZ4donKUyYTEN-pCffhRG5uZzZVQInYSNOJcxujHLD0x7EcbTT-0vPz3fT56TPsmacpjiw-ojhDhLtjsEBlg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1a640-7f7a-7778-9511-117cb545fbff/output/preview.png?Expires=4947350400&Signature=M6l0pI0VToyOe7n0oP0kOSPM4oJSomW9iM4lf1FL9Gr69vMoqGmktPJ7zAynAmdomSxYseA0E5YfqL8sZ4fZC8X39a6mEKyBbNvMgvXtw~1LKqOqNPNzpCdsXrvh2JfnjvBmcpAxApNCDPhEZFRhQPttBypY84D7YtIgEiHVwtrDt7YsjL4eqd5wASIzb9DHOTYi80Fpo~Dz-MauoX5c3q27WCr4znxhJeu9M2Vw~RlpNee8VXo7av6c4ia-trhWQ52PCobCGNvWedc6NbebUzncbB19mvybc9Jup7mTigVpwl5GYougD7HUyZ8OwbEswcSfUCG4-FOtb~cQnjPdWQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1793790609152,
+    "started_at": 1793790609165,
+    "finished_at": 1793790645102
+  },
+  "usd_estimated": 0.4
+}

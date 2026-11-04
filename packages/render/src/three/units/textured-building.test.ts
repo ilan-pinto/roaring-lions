@@ -37,7 +37,7 @@ const texture = () => new THREE.Texture();
 // against the CURRENT material shape).
 
 describe('the textured opt-out is a named list', () => {
-  it('covers exactly the six supplied Meshy buildings, the three GH-277 militia works, the four A3.2 ramp buildings, the two A3.2 remainder buildings, the GH-66 HESCO run and the GH-277 forward camp (which draws the camp\'s GLB)', () => {
+  it('covers exactly the six supplied Meshy buildings, the three GH-277 militia works, the four A3.2 ramp buildings, the two A3.2 remainder buildings, and the GH-66 HESCO run (the GH-277 forward camp is NOT textured: zero materials)', () => {
     expect([...TEXTURED_BUILDING_TYPES].sort()).toEqual([
       'apartment',
       'camp',
@@ -47,7 +47,6 @@ describe('the textured opt-out is a named list', () => {
       'hall',
       'hesco',
       'house',
-      'kdf_forward_camp',
       'militia_field_clinic',
       'militia_observation_post',
       'militia_weapons_workshop',

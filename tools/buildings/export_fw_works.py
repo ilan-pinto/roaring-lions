@@ -4,6 +4,12 @@ building GLB triples/pairs, mesh contract v2's BUILDINGS section.
     /Applications/Blender.app/Contents/MacOS/Blender --background \
         --python tools/buildings/export_fw_works.py -- all
     ... -- kdf_medic_station          # one building, all its states
+    ... -- kdf_forward_camp           # also saves art/src/buildings/kdf_forward_camp.blend
+                                      # (a full run only; --states or --out-dir skip it)
+
+The forward camp (`kdf_forward_camp`, GH-277 follow-on, 4 Nov) is the ninth KDF-style
+work: a Meshy-7 remesh of two separate objects, a tent and a net-roofed bay, carved
+apart and re-packed onto the 2x2 plot -- see `build_kdf_forward_camp`.
 
 Writes, per building, `art/meshes/buildings/<id>.glb` (standing) and
 `<id>_wreck.glb`; the four KDF works also get `<id>_construction.glb`
@@ -418,12 +424,16 @@ def sandbag_wall(label, start, end, base_z, courses, role="wood", size=(0.62, 0.
     return out
 
 
-def scaffold_kit(seed):
+def scaffold_kit(seed, scaffold=(1.9, -1.9), pallet_at=(-1.9, -2.0), spoil_at=(-1.8, 1.9),
+                 spoil_r=1.1, spill_at=(0.4, -2.4)):
     """The shared construction kit: one two-lift scaffold tower at the
     front-right (+X/-Y) corner, a pallet of sandbags front-left, a spoil heap
-    rear-left. Asymmetric on purpose (see module docstring)."""
+    rear-left. Asymmetric on purpose (see module docstring). The positions are
+    parameters because a work whose own plan fills those spots (the forward
+    camp's ramp and tent) moves the kit; the defaults are the original four
+    works' and reproduce their files exactly."""
     objs = []
-    cx, cy = 1.9, -1.9
+    cx, cy = scaffold
     for dx in (-0.9, 0.9):
         for dy in (-0.9, 0.9):
             objs.append(kit.box(f"scaf_post_{dx}_{dy}", (0.09, 0.09, 4.4), (cx + dx, cy + dy, 2.2), "metal"))
@@ -440,7 +450,7 @@ def scaffold_kit(seed):
                       @ Matrix.Translation((-(cx + 0.92), -cy, -1.6)))
     objs.append(br)
     # pallet of sandbags, front-left
-    px, py = -1.9, -2.0
+    px, py = pallet_at
     objs.append(kit.box("pallet", (1.2, 1.0, 0.12), (px, py, 0.06), "wood"))
     for i in range(3):
         for j in range(2):
@@ -448,8 +458,8 @@ def scaffold_kit(seed):
                 objs.append(kit.box(f"pal_bag_{i}{j}{c}", (0.36, 0.44, 0.22),
                                     (px - 0.38 + 0.38 * i, py - 0.24 + 0.48 * j, 0.12 + 0.11 + 0.22 * c), "wood"))
     # spoil heap, rear-left
-    objs.append(kit.cylinder("spoil", 1.1, 0.7, (-1.8, 1.9, 0.0), "roof", segments=10, taper=0.15))
-    objs += scatter_bags("spill", 4, (0.4, -2.4), 0.8, seed)
+    objs.append(kit.cylinder("spoil", spoil_r, 0.7, (spoil_at[0], spoil_at[1], 0.0), "roof", segments=10, taper=0.15))
+    objs += scatter_bags("spill", 4, spill_at, 0.8, seed)
     return objs
 
 
@@ -741,6 +751,221 @@ def build_kdf_workshop(state):
     return parts
 
 
+# --- the forward camp (GH-277 follow-on) ----------------------------------
+#
+# Meshy-7 text-to-3D delivered TWO separate objects in one remesh (task
+# 01a1a645, from preview 01a1a640): a gabled frame tent on -X and an open
+# vehicle bay under a pitched camouflage net on +X, side by side, 1.9 units
+# across. Neither fits a 2x2 plot as delivered (the pair is 1.9 x 1.2 units,
+# a long rectangle, and the bay carries curtains on three sides), so this
+# recipe carves the two shells apart, drops what the lead cut (the curtains,
+# the ground slab, the guy-ropes), re-fits each onto its own corner of the
+# 6 x 6 m plot, and rebuilds the four poles as steel.
+#
+# PLAN, Blender axes (X east, Y north; the dimetric camera sees the +X and -Y
+# faces, so -Y is the front). The camera's screen-right axis is (+1,+1): the
+# tent takes the screen-left corner (-X/-Y) and the net the screen-right one
+# (+X/+Y), so the tall net never stands in front of the low tent. The
+# near corner (+X/-Y) is a low sandbag L, the rear-left strip (-X/+Y) holds
+# the mast and the crates, and the tent door opens on -Y onto a steel ramp.
+#
+#   y= 3 |  mast  crates |  net (4 poles, 3.6-4.25 m)
+#        |    tent       |
+#        |  (2.2 m)      |
+#   y=-2 |  [ramp]       |  sandbag L ...........
+#   y=-3 +----------------------------------------> x
+#       -3                0                      3
+FC_TENT_BOX = ((-3.0, -1.75, 0.0), (-0.2, 1.85, 2.2))     # target bounds of the tent shell
+FC_NET_BOX = ((0.15, 0.10, 3.60), (3.0, 3.0, 4.25))       # target bounds of the net lid
+FC_TENT_SRC = (-0.82, -0.09, 0.47)  # raw body: x range, |y| limit (everything beyond is rope)
+FC_NET_Z0 = 0.135                   # raw z above which a face belongs to the net lid (below: curtains)
+FC_POLE_H = 4.1
+FC_SAG = 0.30                       # m of sag at the middle of the net
+FC_MAST_AT = (-2.65, 2.35)
+FC_MAST_H = 3.9                     # the steel mast; its whip takes the top to 5.0 m
+FC_DOOR_X = -1.65                   # tent door centre (x), ray-cast on the fitted mesh
+FC_DOOR_W = 0.7                     # opening width after widening
+FC_DOOR_H = 1.5                     # opening height (the flap closes above z 1.5)
+FC_FRONT_Y = -1.55                  # the canvas front plane at the door, ray-cast on the fitted mesh
+FC_POLES = ((0.34, 0.28), (2.79, 0.28), (0.34, 2.79), (2.79, 2.79))
+
+
+def carve(src, keep, name):
+    """A new object holding only the faces of `src` whose centre satisfies
+    `keep`. The source is untouched."""
+    me = src.data.copy()
+    me.name = name
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    doomed = [f for f in bm.faces if not keep(f.calc_center_median())]
+    bmesh.ops.delete(bm, geom=doomed, context="FACES")
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    ob = bpy.data.objects.new(name, me)
+    bpy.context.collection.objects.link(ob)
+    return ob
+
+
+def remap_box(ob, lo_to, hi_to):
+    """Affine-map an object's own bounds onto [lo_to, hi_to], per axis (the
+    plan stretches differently in x, y and z, as `fit_plan` does). Vertex
+    work at real coordinates; the object transform stays identity."""
+    apply_all([ob])
+    lo, hi = bounds([ob])
+    k = [(hi_to[i] - lo_to[i]) / (hi[i] - lo[i]) for i in range(3)]
+    m = Matrix.Translation(Vector(lo_to)) @ Matrix.Diagonal(Vector(k)).to_4x4() @ Matrix.Translation(-lo)
+    ob.data.transform(m)
+    ob.data.update()
+    return k
+
+
+def build_kdf_forward_camp(state):
+    src = os.path.join(meshy_dir("kdf-forward-camp-remesh"), "model.glb")
+    objs = import_glb(src)
+    raw = objs[0]
+    apply_all([raw])
+    x0, x1, ylim = FC_TENT_SRC
+    tent = carve(raw, lambda c: x0 < c.x < x1 and abs(c.y) < ylim, "tent")
+    net = carve(raw, lambda c: c.x > 0.05 and c.z >= FC_NET_Z0, "net")
+    bpy.data.objects.remove(raw, do_unlink=True)
+    tent["rl_role"] = "wall"
+    net["rl_role"] = "roof"
+    kt = remap_box(tent, *FC_TENT_BOX)
+    kn = remap_box(net, *FC_NET_BOX)
+    # the net sags between its four poles: a deterministic paraboloid, deepest
+    # in the middle, zero at the corners (hand-rolled; no mathutils.noise)
+    nlo, nhi = bounds([net])
+    for v in net.data.vertices:
+        u = 2 * (v.co.x - nlo.x) / (nhi.x - nlo.x) - 1
+        w = 2 * (v.co.y - nlo.y) / (nhi.y - nlo.y) - 1
+        v.co.z -= FC_SAG * (1 - u * u) * (1 - w * w)
+    net.data.update()
+    print(f"    tent {len(tent.data.polygons)} faces (scale {kt[0]:.2f} {kt[1]:.2f} {kt[2]:.2f}), "
+          f"net {len(net.data.polygons)} faces (scale {kn[0]:.2f} {kn[1]:.2f} {kn[2]:.2f})")
+    # The door. Ray-cast on the fitted mesh (x scan at z 0.5-1.3, from -Y): the
+    # canvas front plane is y -1.5 to -1.6, and the rolled flap leaves a slit
+    # only ~0.35 m wide at x -1.8..-1.5, closed again above z 1.5, with the
+    # back wall (y +1.6) showing through. Widened here to 0.7 m so a dark
+    # opening reads at gameplay zoom, and backed by a `glass` pane 0.2 m behind
+    # the front plane, which also gives `building_facing.py` an opening to judge.
+    dx, dw = FC_DOOR_X, FC_DOOR_W
+    delete_faces_where(tent, lambda c: abs(c.x - dx) < dw / 2 and c.y < FC_FRONT_Y + 0.55 and c.z < FC_DOOR_H)
+    door = kit.box("door_pane", (dw + 0.3, 0.04, FC_DOOR_H + 0.1), (dx, FC_FRONT_Y + 0.35, (FC_DOOR_H + 0.1) / 2), "glass")
+    # the pale `dome` band over the door -- the aid post's established "aid"
+    # sign (this camp also gives medic care): a plain strip, no glyph
+    band = kit.box("door_band", (1.1, 0.12, 0.26), (dx, FC_FRONT_Y - 0.1, FC_DOOR_H + 0.28), "dome")
+    # the low steel ramp at the door: a wedge rising toward the tent, plus a landing
+    ramp = [kit.wedge("ramp", (1.3, 1.15, 0.36), (dx, FC_FRONT_Y - 0.12 - 0.575, 0.0), "metal", axis="y"),
+            kit.box("ramp_landing", (1.3, 0.14, 0.36), (dx, FC_FRONT_Y - 0.12 + 0.07, 0.18), "metal")]
+    # steel poles under the net, and their base plates
+    poles = []
+    for i, (px, py) in enumerate(FC_POLES):
+        poles.append(kit.box(f"pole{i}", (0.14, 0.14, FC_POLE_H), (px, py, FC_POLE_H / 2), "metal"))
+        poles.append(kit.box(f"pole_plate{i}", (0.36, 0.36, 0.07), (px, py, 0.035), "metal"))
+    # a low sandbag L at the near corner (+X/-Y): two courses, open at the
+    # tent end and at the bay's rear -- not a ring (that is `camp`'s outline)
+    bags = sandbag_wall("wallA", (-0.5, -2.78), (2.78, -2.78), 0.0, 2)
+    bags += sandbag_wall("wallB", (2.78, -2.78), (2.78, -0.5), 0.0, 2)
+    # the mast: a 3.9 m telescoping steel mast at the rear-left, with a whip
+    mx, my = FC_MAST_AT
+    mast = [kit.box("mast_plate", (0.5, 0.5, 0.08), (mx, my, 0.04), "metal"),
+            kit.box("mast", (0.1, 0.1, FC_MAST_H), (mx, my, FC_MAST_H / 2), "metal"),
+            kit.box("mast_whip", (0.05, 0.05, 1.1), (mx, my, FC_MAST_H + 0.55), "metal")]
+    # stores: crates beside the mast, a drum, the bay's tool chest and spare roadwheels
+    crates = [kit.box("crate0", (0.85, 0.6, 0.55), (-1.5, 2.45, 0.275), "wood"),
+              kit.box("crate1", (0.6, 0.6, 0.5), (-0.85, 2.5, 0.25), "wood"),
+              kit.box("crate2", (0.6, 0.5, 0.45), (-1.35, 2.42, 0.78), "wood")]
+    crates[2].data.transform(Matrix.Translation((-1.35, 2.42, 0)) @ Matrix.Rotation(0.25, 4, "Z")
+                             @ Matrix.Translation((1.35, -2.42, 0)))
+    chest = kit.box("tool_chest", (0.95, 0.5, 0.6), (1.1, 1.1, 0.3), "metal")
+    wheels = [kit.cylinder(f"wheel{i}", 0.46, 0.26, (2.35, 1.0, 0.26 * i), "metal", segments=12) for i in range(3)]
+    parts = [tent, net, door, band] + ramp + poles + bags + mast + crates + [chest] + wheels
+    if state == "wreck":
+        parts = _fc_wreck(tent, net, door, band, ramp, poles, bags, mast, crates, chest, wheels)
+    return parts
+
+
+def _remove(objs):
+    for o in objs:
+        bpy.data.objects.remove(o, do_unlink=True)
+
+
+def _fc_wreck(tent, net, door, band, ramp, poles, bags, mast, crates, chest, wheels):
+    """The forward camp down. ONE pole stays standing at a lean -- the element
+    that tells this wreck from the medic station's and the workshop's -- with
+    the net torn down in the bay, the tent flat at about 0.6 m, the mast
+    fallen across the pad, the stores scattered. Per-part rigid moves and
+    hash-seeded jitter only (`_hash01`; no mathutils.noise)."""
+    _remove([door, band] + bags)
+    # tent: diced, crushed to a low ragged heap
+    _dice([tent], 1.0)
+    collapse([tent], 0.0, FC_TENT_BOX[1][2])
+    tcx = (FC_TENT_BOX[0][0] + FC_TENT_BOX[1][0]) / 2
+    tcy = (FC_TENT_BOX[0][1] + FC_TENT_BOX[1][1]) / 2
+    scale_about(tent, (tcx, tcy, 0), (1.0, 1.0, 0.5))
+    # net: torn down onto the bay floor in ragged folds -- height per 0.4 m cell from a hash
+    for v in net.data.vertices:
+        h = _hash01(int(v.co.x / 0.4) + 50, int(v.co.y / 0.4) + 50, 97)
+        v.co.z = 0.12 + 0.5 * h
+    net.data.update()
+    translate(net, (-0.15, -0.1, 0))
+    # poles: pole 1 (near right) stands, leaning; pole 0 lies across the bay on the diagonal;
+    # poles 2 and 3 are snapped stubs. Plates stay where they were.
+    pole = [o for o in poles if o.name.startswith("pole") and not o.name.startswith("pole_plate")]
+    plates = [o for o in poles if o.name.startswith("pole_plate")]
+    (px, py) = FC_POLES[1]
+    rotate_about(pole[1], (px, py, 0.07), (1, 0, 0), 16)          # the survivor, leaning toward the camera
+    (qx, qy) = FC_POLES[0]
+    bisect_keep_below(pole[0], 2.6)                                 # snapped: 2.6 m of it fits across the bay
+    rotate_about(pole[0], (qx, qy, 0.07), (1, 0, 0), -88)          # down along +Y ...
+    rotate_about(pole[0], (qx, qy, 0.07), (0, 0, 1), -37)          # ... and swung across the bay
+    for o in (pole[2], pole[3]):
+        bisect_keep_below(o, 0.55)
+    # mast: down across the pad, tip resting on the heap
+    for m in mast:
+        if m.name.startswith("mast_plate"):
+            continue
+        rotate_about(m, (FC_MAST_AT[0], FC_MAST_AT[1], 0.08), (1, 0, 0), 82)
+        rotate_about(m, (FC_MAST_AT[0], FC_MAST_AT[1], 0.08), (0, 0, 1), 40)
+    # crates thrown about; the chest over on its side; wheels flat and scattered
+    for i, c in enumerate(crates):
+        rotate_about(c, (-1.2, 2.45, 0.0), (0, 0, 1), -50 + 40 * i)
+        translate(c, (0.3 * (i - 1), -0.9 - 0.7 * i, 0))
+    rotate_about(chest, (1.1, 1.1, 0.0), (1, 0, 0), 90)
+    translate(chest, (-0.2, -0.5, 0))
+    for i, w in enumerate(wheels):
+        translate(w, (-1.3 + 0.55 * i, -0.6 - 0.5 * _hash01(33, i), 0))
+        translate(w, (0, 0, -0.26 * i))
+    spill = scatter_bags("spill", 16, (1.0, -1.6), 1.25, 81)
+    heap = sandbag_wall("heap", (-0.4, -2.75), (2.0, -2.75), 0.0, 1)
+    parts = [tent, net] + ramp + pole + plates + mast + crates + [chest] + wheels + spill + heap
+    ground(parts)
+    return parts
+
+
+def _fc_construction(parts, seed):
+    """The forward camp under construction: the tent cut to a 1.0 m wall stub
+    (about half its own height) and the four poles to 1.9 m stubs (45% of the
+    4.25 m net line), the net, mast, band, sandbag L and stores not yet put up,
+    the ramp (steel, laid first) and the shared scaffold kit standing where
+    this plan is clear: the scaffold at the near corner, the pallet by the
+    ramp, the spoil heap at the rear-left."""
+    keep = []
+    for p in parts:
+        n = p.name
+        if n.startswith(("net", "mast", "door_band", "wall", "crate", "tool_chest", "wheel")):
+            bpy.data.objects.remove(p, do_unlink=True)
+            continue
+        if n.startswith("tent") or n.startswith("door_pane"):
+            bisect_keep_below(p, 1.0)
+        elif n.startswith("pole") and not n.startswith("pole_plate"):
+            bisect_keep_below(p, 0.45 * FC_NET_BOX[1][2])
+        keep.append(p)
+    return keep + scaffold_kit(seed, scaffold=(1.9, -1.9), pallet_at=(0.3, -2.0),
+                               spoil_at=(-1.6, 2.2), spoil_r=0.8, spill_at=(0.5, -0.6))
+
+
 def _construction(parts, seed):
     """The standing parts cut at CONSTRUCTION_FRACTION of the building's own
     height, plus the shared scaffold kit."""
@@ -914,6 +1139,7 @@ KDF = {
     "kdf_intel_centre": build_kdf_intel_centre,
     "kdf_workshop": build_kdf_workshop,
     "kdf_aid_post": build_kdf_aid_post,
+    "kdf_forward_camp": build_kdf_forward_camp,
 }
 # yaw (degrees about z) that puts the opening on Blender +X / -Y, from the
 # four-view renders (report), and the militia workshop's roof band.
@@ -931,7 +1157,7 @@ TEXTURED = {"militia_observation_post", "militia_weapons_workshop", "militia_fie
 NAMES = {
     "kdf_medic_station": "KDF medic station", "kdf_outpost": "KDF outpost",
     "kdf_intel_centre": "KDF intel centre", "kdf_workshop": "KDF workshop",
-    "kdf_aid_post": "KDF aid post",
+    "kdf_aid_post": "KDF aid post", "kdf_forward_camp": "KDF forward camp",
     "militia_observation_post": "militia observation post",
     "militia_weapons_workshop": "militia weapons workshop",
     "militia_field_clinic": "militia field clinic",
@@ -957,10 +1183,48 @@ def run(bid, states=None):
         wipe()
         parts = builder("wreck" if state == "wreck" else "idle")
         if state == "construction":
-            parts = _construction(parts, seed=sum(ord(c) for c in bid))
+            seed = sum(ord(c) for c in bid)
+            parts = _fc_construction(parts, seed) if bid == "kdf_forward_camp" else _construction(parts, seed)
         suffix = "" if state == "idle" else f"_{state}"
         results[state] = export(os.path.join(OUT_DIR, f"{bid}{suffix}.glb"), credit_for(bid), bid in TEXTURED)
     return results
+
+
+SRC_DIR = os.path.join(REPO, "art", "src", "buildings")
+# Works whose `.blend` source is committed beside the GLBs. The four 30 Sep KDF
+# works shipped without one (their source is the remesh plus this script); the
+# forward camp closes that gap for itself, because "never commit a mesh without
+# its .blend" is the repository's own rule.
+BLEND_SOURCES = {"kdf_forward_camp": os.path.join(SRC_DIR, "kdf_forward_camp.blend")}
+BLEND_STATE_SPACING = 9.0  # m between the three states laid side by side in the source file
+
+
+def save_source_blend(bid):
+    """Rebuild the three states in ONE scene -- idle at x 0, construction at +9,
+    wreck at +18, one collection each -- and save it. Not the GLB's own
+    scene (which is wiped per state): this is the file a person opens to see
+    the parts, the roles (`rl_role` on every object) and the kit."""
+    builder = KDF[bid]
+    wipe()
+    for k, state in enumerate(("idle", "construction", "wreck")):
+        before = set(bpy.data.objects)
+        parts = builder("wreck" if state == "wreck" else "idle")
+        if state == "construction":
+            _fc_construction(parts, seed=sum(ord(c) for c in bid))
+        new = [o for o in bpy.data.objects if o not in before]
+        coll = bpy.data.collections.new(state)
+        bpy.context.scene.collection.children.link(coll)
+        for o in new:
+            for c in list(o.users_collection):
+                c.objects.unlink(o)
+            coll.objects.link(o)
+            if k:
+                o.data.transform(Matrix.Translation((k * BLEND_STATE_SPACING, 0, 0)))
+                o.data.update()
+    path = BLEND_SOURCES[bid]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    bpy.ops.wm.save_as_mainfile(filepath=path, compress=True)
+    print(f"  saved {os.path.relpath(path, REPO)} ({len(bpy.data.objects)} objects)")
 
 
 if __name__ == "__main__":
@@ -973,3 +1237,5 @@ if __name__ == "__main__":
         want = list(KDF) + list(MILITIA)
     for b in want:
         run(b, only_states)
+        if b in BLEND_SOURCES and only_states is None and OUT_DIR == SHIPPED:
+            save_source_blend(b)
