@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { judgeLabel, parseArgs, parseServeOnly, nameOf, resolvePlayer, runArena, type ArenaRun } from './arena';
+import { judgeLabel, parseArgs, parseServeOnly, nameOf, rearm, resolvePlayer, runArena, stopRun, type ArenaRun } from './arena';
+import type { AgentClient } from './agent-client';
 import { TOKEN_ENV } from './arena-control';
 import { loadPresets, parsePresets } from './arena-presets';
 import { startArenaServe, type ArenaServe } from './arena-serve';
@@ -330,6 +331,95 @@ describe('the results files are redacted too', () => {
       expect(text, p).toContain('[redacted]');
     }
   }, 60_000);
+});
+
+describe('the results files are redacted in their JSON-escaped form too', () => {
+  it('a token with a quote and a backslash (which JSON escapes) never reaches the .jsonl, in either spelling', async () => {
+    const TRICKY = 'sk-fake-"quote\\back-0123456789';
+    const escaped = JSON.stringify(TRICKY).slice(1, -1);
+    expect(escaped).not.toBe(TRICKY);   // not vacuous: the two spellings differ
+    const out = tmp('arena-results-escape-');
+    const wrap = (p: ArenaPlayer): ArenaPlayer => ({ name: p.name, start: async (s) => { const r = await p.start(s); return { ...r, done: r.done.then((rep) => ({ ...rep, errors: [`the client printed ${TRICKY}`] })) }; } });
+    const lines: string[] = [];
+    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '200', '--out', out], {
+      log: (l) => { lines.push(l); }, print: () => {},
+      env: { [TOKEN_ENV]: TRICKY },
+      resolvePlayer: (spec) => wrap(spec === 'rush' ? inProcess('rush', rush) : inProcess('passive', passive)),
+    });
+    expect(r.code).toBe(0);
+    for (const [p, text] of filesUnder(out)) {
+      expect(text.includes(TRICKY), `${p} has the token`).toBe(false);
+      expect(text.includes(escaped), `${p} has the escaped token`).toBe(false);
+      expect(text, p).toContain('[redacted]');
+    }
+  }, 60_000);
+});
+
+describe('a Stop at any moment ends the run at once (no wait for a match that cannot start)', () => {
+  const stubPlayer = (name: string, seatStarts: { n: number }, gate: Promise<void>): ArenaPlayer => ({
+    name,
+    start: async () => {
+      const n = ++seatStarts.n;
+      if (n === 2) await gate;   // seat 1 is still starting when the Stop lands
+      return { client: null, done: Promise.resolve({ tokens: null, timeouts: 0, errors: [] }), stop: async () => {} };
+    },
+  });
+  const never = new Promise<never>(() => {});
+  const endsSoon = async (run: Promise<ArenaRun>): Promise<ArenaRun | 'hung'> => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const r = await Promise.race([run, new Promise<'hung'>((res) => { t = setTimeout(() => { res('hung'); }, 10_000); })]);
+    clearTimeout(t);
+    return r;
+  };
+
+  it('between seat 1 starting and the match start: the run ends stopped, with no observer started', async () => {
+    const seatStarts = { n: 0 };
+    let releaseSeat1: () => void = () => {};
+    const gate = new Promise<void>((res) => { releaseSeat1 = res; });
+    let observers = 0;
+    const out = tmp('arena-stop-race-');
+    const run = runArena(['--a', 'cmd:x', '--b', 'cmd:y', '--seeds', '1', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '400', '--out', out], {
+      log: () => {}, print: () => {},
+      resolvePlayer: (spec) => stubPlayer(spec, seatStarts, gate),
+      startObserver: async () => { observers++; return { client: { ready: never } as unknown as AgentClient, done: never, stop: async () => {} }; },
+    });
+    try {
+      const end = Date.now() + 10_000;
+      while (seatStarts.n < 2 && Date.now() < end) await new Promise((res) => setTimeout(res, 5));
+      expect(seatStarts.n).toBe(2);
+      await stopRun({ servers: false });   // wakes nobody: no game has reached its wait yet
+      releaseSeat1();
+      const r = await endsSoon(run);
+      expect(r).not.toBe('hung');
+      expect((r as ArenaRun).code).toBe(1);
+      expect((r as ArenaRun).error).toContain('stopped');
+      expect(observers).toBe(0);
+    } finally {
+      releaseSeat1();
+      rearm();
+    }
+  }, 40_000);
+
+  it('during the observer\'s start (after the seats): the wait for the match start refuses at once', async () => {
+    const seatStarts = { n: 0 };
+    const out = tmp('arena-stop-race2-');
+    const run = runArena(['--a', 'cmd:x', '--b', 'cmd:y', '--seeds', '1', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '400', '--out', out], {
+      log: () => {}, print: () => {},
+      resolvePlayer: (spec) => stubPlayer(spec, seatStarts, Promise.resolve()),
+      startObserver: async () => {
+        await stopRun({ servers: false });   // lands after the seat check, before the game waits for its start
+        return { client: { ready: never } as unknown as AgentClient, done: never, stop: async () => {} };
+      },
+    });
+    try {
+      const r = await endsSoon(run);
+      expect(r).not.toBe('hung');
+      expect((r as ArenaRun).code).toBe(1);
+      expect((r as ArenaRun).error).toContain('stopped');
+    } finally {
+      rearm();
+    }
+  }, 40_000);
 });
 
 // Used so a falsification can name the fake child without running a game.

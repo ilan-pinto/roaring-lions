@@ -99,13 +99,13 @@ describe('the setup form', () => {
 });
 
 describe('the private token field', () => {
-  it('is a password input with autocomplete off, never inside a form, and carries no name', async () => {
+  it('is a password input that asks the browser to remember nothing, never inside a form, and carries no name', async () => {
     const r = rig();
     showArenaSetup(r.host, r.deps);
     await settle();
     const token = field(r.host, 'Private API token (optional)') as HTMLInputElement;
     expect(token.type).toBe('password');
-    expect(token.autocomplete).toBe('off');
+    expect(token.autocomplete).toBe('new-password');
     expect(token.spellcheck).toBe(false);
     expect(token.getAttribute('name')).toBeNull();
     expect(token.closest('form')).toBeNull();

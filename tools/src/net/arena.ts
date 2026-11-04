@@ -527,6 +527,9 @@ export async function startObserver(relay: Pick<LocalRelay, 'url' | 'origin'>, c
  *  a stopped run alive for 30 s after its players were killed. */
 const stopWaiters = new Set<(e: Error) => void>();
 function untilStopped(): Promise<never> {
+  // A Stop that has already run woke the waiters that existed THEN; one that arrives after would wait out the
+  // whole start timeout with its players already killed, so it is refused at once.
+  if (externalPlayersStopped()) return Promise.reject(new Error('the run was stopped'));
   return new Promise<never>((_, rej) => { stopWaiters.add(rej); });
 }
 
@@ -564,6 +567,8 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
       running.push(r);
       livePlayers.add(r);
     }
+    // A Stop that landed while a seat was starting: no observer, no wait for a match that will not start.
+    if (externalPlayersStopped()) throw new Error('the run was stopped');
     const clients: [AgentClient | null, AgentClient | null] = [running[0].client, running[1].client];
     // An external player has no client here: with neither seat in this
     // process, the arena reads the game through seat 0's own advisor.
@@ -684,7 +689,8 @@ function freshBase(dir: string, base: string): string {
 export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): Promise<ArenaRun> {
   // GH-954 W2: the values this run holds as secrets (a private token for its children). Every line it logs or
   // prints and every byte it writes to its results passes `redactText` with them.
-  const secrets = Object.values(deps.env ?? {});
+  // Each secret and its JSON-escaped form (a quote or a backslash in it): results are JSON, and a log line may quote one.
+  const secrets = Object.values(deps.env ?? {}).flatMap((s) => [s, JSON.stringify(s).slice(1, -1)]);
   const rawLog = deps.log ?? ((line: string) => { process.stderr.write(`${line}\n`); });
   const rawPrint = deps.print ?? ((line: string) => { process.stdout.write(`${line}\n`); });
   const log = (line: string): void => { rawLog(redactText(line, secrets)); };

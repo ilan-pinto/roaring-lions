@@ -4,7 +4,8 @@
  * reached only by a dynamic `import()` inside `import.meta.env.DEV` in `main.ts`, so a production build has no route,
  * API path, key header or setup module (`tools/src/net/arena-build.test.ts` builds the app and pins that).
  *
- * The optional private API token (the lead's amendment of D-W6): a `type=password`, `autocomplete=off` field. Its
+ * The optional private API token (the lead's amendment of D-W6): a `type=password` field that asks the browser to
+ * remember nothing (`autocomplete=new-password`: browsers ignore `off` on a password field). Its
  * value is read once, when Start is pressed, into the body of that one POST; the field is emptied as soon as the
  * server has taken the run. Nothing here keeps it in a variable, storage, a URL, a log or the DOM after that, and
  * leaving the screen empties it too (the disposer). The server holds it in memory for that run only.
@@ -164,7 +165,8 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
   // The private API token. Never a hidden field, never remembered: see the file header.
   const token = el('input', 'rl-arena-setup__control rl-arena-setup__token');
   token.type = 'password';
-  token.autocomplete = 'off';
+  // `off` is ignored on a password field by the browsers that offer to save it; `new-password` is the value they honour.
+  token.autocomplete = 'new-password';
   token.spellcheck = false;
   token.maxLength = 512;
   token.setAttribute('autocapitalize', 'off');

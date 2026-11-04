@@ -258,6 +258,26 @@ describe('an external player\'s process (stand-in children)', () => {
     // A clean exit with no usage line: no tokens, no error.
     expect(report).toEqual({ tokens: null, timeouts: 0, errors: [] });
   }, 30_000);
+
+  // GH-954 W2: a stream that ENDS on what could still have become the token (a prefix of it) holds those characters
+  // back; the end of the stream must release them, or the log loses its last words. Only `flush()` does.
+  it('case 6: a child that ends its output on a prefix of the injected value still has that prefix in its log (the final flush)', async () => {
+    const relay = await relayOf();
+    const { code, tickets } = await room(relay);
+    const logs = tempDir('ext-flush-');
+    const log = join(logs, 'flush.log');
+    const VALUE = 'abcdefghij-0123456789';
+    const p = externalPlayer('flush', `cmd:node -e "process.stdout.write('out-tail ' + process.env.PROBE_VALUE.slice(0, 6)); process.stderr.write('err-tail ' + process.env.PROBE_VALUE.slice(0, 6))"`, { env: { PROBE_VALUE: VALUE } });
+    const r = await started(p, relay, code, tickets[0], log);
+    await r.done;
+    await r.stop();
+    const text = readFileSync(log, 'utf8');
+    // Both streams end on `abcdef`: held back as a possible start of the value, released by the end of the stream.
+    expect(text).toContain('out-tail ');
+    expect(text).toContain('err-tail ');
+    expect(text.match(/abcdef/g) ?? []).toHaveLength(2);
+    expect(text).not.toContain(VALUE);
+  }, 30_000);
 });
 
 describe('a model over MCP, end to end (the stand-in client, no model, no key)', () => {

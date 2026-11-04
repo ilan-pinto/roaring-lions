@@ -33,12 +33,14 @@ import type { ApiRoute, ArenaServe } from './arena-serve';
 import { sumUsage, usageTotals, type GameRecord, type UsageSum, type UsageTotals } from './arena-score';
 import { catalogueOf, presetSpec, SCRIPTED, type Presets } from './arena-presets';
 import type { Usage } from './external-player';
+import { redactText } from './redact';
 
 /** The variable a run's private token reaches its children as. Fixed: the body names no variable. */
 export const TOKEN_ENV = 'ANTHROPIC_API_KEY';
 const MAP_ID = /^[a-z0-9_]{1,48}$/;
-/** A token is printable ASCII with no space, 8-512 long: nothing that could split an env entry or an argv. */
-const TOKEN_SHAPE = /^[\x21-\x7e]{8,512}$/;
+/** A token is 8-512 of `[A-Za-z0-9._~+/=-]`: every key shape in use, and no character that JSON escapes (`"`, `\`),
+ *  that a shell or an env entry could split on, or that a redactor could miss in a serialised copy. */
+const TOKEN_SHAPE = /^[A-Za-z0-9._~+/=-]{8,512}$/;
 const FIELDS = ['a', 'b', 'map', 'matchup', 'seeds', 'pace', 'roundWallMs', 'capTicks', 'judge', 'token'] as const;
 const NUMBERS = [['seeds', '--seeds'], ['pace', '--pace'], ['roundWallMs', '--round-wall-ms'], ['capTicks', '--cap-ticks']] as const;
 /** The bound on how long Stop waits for the run to end before it answers anyway. */
@@ -132,6 +134,8 @@ export interface ArenaControlOptions {
   stop(): Promise<void>;
   /** Lifts the stop latch once a stopped run has ended. */
   rearm(): void;
+  /** How long Stop waits for the run to end before it answers `stopping` anyway; default 20 s. */
+  stopWaitMs?: number;
   /** Appended to every run's argv (the CLI's `--out`, a spec's temp directory): never from a request. */
   argvExtra?: readonly string[];
   log?: (line: string) => void;
@@ -180,8 +184,8 @@ export function createArenaControl(o: ArenaControlOptions): ArenaControl {
     };
   };
 
-  const finish = (r: ArenaRun | null, thrown: unknown): void => {
-    // The token goes first, whatever else happens below.
+  const finish = (r: ArenaRun | null, thrown: unknown, secrets: readonly string[]): void => {
+    // The token goes first, whatever else happens below: resolved, rejected, code 1 or stopped.
     if (active !== null) { for (const k of Object.keys(active.env)) delete active.env[k]; active = null; }
     if (r !== null) {
       records = r.games;
@@ -189,9 +193,12 @@ export function createArenaControl(o: ArenaControlOptions): ArenaControl {
       error = r.error ?? null;
       state = stopRequested ? 'stopped' : r.code === 0 ? 'done' : 'failed';
     } else {
-      error = thrown instanceof Error ? thrown.message : String(thrown);
+      // A raw throw is not redacted by `runArena`: it is here, with the token this run was started with.
+      error = redactText(thrown instanceof Error ? thrown.message : String(thrown), secrets);
       state = stopRequested ? 'stopped' : 'failed';
     }
+    // The latch a Stop set is lifted only once the run it stopped has ended (never under a live run).
+    if (stopRequested) o.rearm();
   };
 
   const start = (body: unknown): { status: number; body: unknown } => {
@@ -212,7 +219,8 @@ export function createArenaControl(o: ArenaControlOptions): ArenaControl {
       ...(active === null ? {} : { env: active.env }),
       onGameEnd: (e) => { games = [...games, toStatusGame(e.record, e.n)]; records = [...records, e.record]; },
     };
-    running = o.run(v.argv, deps).then((r) => { finish(r, null); }, (e: unknown) => { finish(null, e); });
+    const secrets = v.token === null ? [] : [v.token];
+    running = o.run(v.argv, deps).then((r) => { finish(r, null, secrets); }, (e: unknown) => { finish(null, e, secrets); });
     return { status: 202, body: { state: 'running', run: summary } };
   };
 
@@ -222,11 +230,10 @@ export function createArenaControl(o: ArenaControlOptions): ArenaControl {
     state = 'stopping';
     try {
       await o.stop();
-      await Promise.race([running, new Promise<void>((res) => { setTimeout(res, STOP_WAIT_MS).unref(); })]);
+      await Promise.race([running, new Promise<void>((res) => { setTimeout(res, o.stopWaitMs ?? STOP_WAIT_MS).unref(); })]);
     } catch (e) {
       log(`arena: stopping the run: ${e instanceof Error ? e.message : String(e)}`);
     }
-    o.rearm();
     return { status: 200, body: { state } };
   };
 

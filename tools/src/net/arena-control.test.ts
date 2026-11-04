@@ -56,7 +56,7 @@ describe('parseStartBody (pure)', () => {
     expect(ok({ ...GOOD, matchup: 'both' })).toEqual({ ok: false, error: 'bad_matchup' });
   });
   it('accepts only a printable token of a sane length', () => {
-    for (const token of ['short', 'has space in it', 'tab\there-token', 'nul\u0000-token-xx', 'x'.repeat(513), 5, {}]) expect(ok({ ...GOOD, token }), String(token)).toEqual({ ok: false, error: 'bad_token' });
+    for (const token of ['short', 'has space in it', 'tab\there-token', 'nul\u0000-token-xx', 'x'.repeat(513), 5, {}, 'quote"-token-xxxxx', 'back\\slash-token-x']) expect(ok({ ...GOOD, token }), String(token)).toEqual({ ok: false, error: 'bad_token' });
     expect(ok({ ...GOOD, token: 'x'.repeat(512) }).ok).toBe(true);
     expect(ok({ ...GOOD, token: null }).ok).toBe(true);
     const none = ok(GOOD);
@@ -99,6 +99,10 @@ interface Rig {
   finish(): void;
   stops: number;
   rearms: number;
+  /** How the fake run ends once let go: `ok` (code 0), `code1` (a run that failed), `throw` (a run that rejects, naming the token). */
+  mode: 'ok' | 'code1' | 'throw';
+  /** Whether Stop lets the fake run go (a run that ignores it stays until `finish()`). */
+  stopReleases: boolean;
 }
 const record = (): GameRecord => ({
   seed: 1000, map: 'tel_marum', matchup: 'mirror', players: ['rush', 'opus-5.5'], factions: ['kdf', 'kdf'], outcome: 'seat0', by: 'cap', ticks: 400,
@@ -106,8 +110,8 @@ const record = (): GameRecord => ({
   reports: [{ tokens: null, timeouts: 0, errors: [] }, { tokens: 120, usage: { inputTokens: 100, outputTokens: 20, cacheCreationInputTokens: 30, cacheReadInputTokens: 40, costUsd: 0.5 }, timeouts: 0, errors: [] }],
 });
 
-async function rig(): Promise<Rig> {
-  const r = { runs: [], seen: [], stops: 0, rearms: 0 } as unknown as Rig;
+async function rig(o: { stopWaitMs?: number } = {}): Promise<Rig> {
+  const r = { runs: [], seen: [], stops: 0, rearms: 0, mode: 'ok', stopReleases: true } as unknown as Rig;
   let release: () => void = () => {};
   let gate = new Promise<void>((res) => { release = res; });
   const control = createArenaControl({
@@ -118,9 +122,11 @@ async function rig(): Promise<Rig> {
       r.runs.push({ argv, deps, env, hadKey: env !== undefined && env[TOKEN_ENV] !== undefined });
       deps.onGameEnd?.({ n: 1, of: 2, record: record(), referee: { tick: 400, hash: 1 } });
       await gate;
-      return { code: 0, games: [record()], tally: null, files: null, gate: null };
+      if (r.mode === 'throw') throw new Error(`the client crashed with ${env?.[TOKEN_ENV] ?? 'nothing'}`);
+      return { code: r.mode === 'code1' ? 1 : 0, games: [record()], tally: null, files: null, gate: null, ...(r.mode === 'code1' ? { error: 'a game could not be played' } : {}) };
     },
-    stop: async () => { r.stops++; release(); },
+    ...(o.stopWaitMs === undefined ? {} : { stopWaitMs: o.stopWaitMs }),
+    stop: async () => { r.stops++; if (r.stopReleases) release(); },
     rearm: () => { r.rearms++; },
   });
   const serve = await startArenaServe({ app: false, token: RUN_TOKEN, log: () => {}, finishedGraceMs: 0, routes: control.routes });
@@ -276,7 +282,7 @@ describe('the private token (D-W6 as amended)', () => {
     t.finish();
     await t.control.idle();
   });
-  it('is deleted when the run fails or is stopped, too', async () => {
+  it('is deleted when the run is stopped', async () => {
     const t = await rig();
     await t.post('/arena/api/start', { ...GOOD, token: API_TOKEN });
     await until(() => t.runs.length === 1);
@@ -284,6 +290,55 @@ describe('the private token (D-W6 as amended)', () => {
     await t.control.idle();
     expect(t.control.holdsToken()).toBe(false);
     expect(t.runs[0].env).toEqual({});
+  });
+  it('is deleted when the run REJECTS, and the error it carries is redacted with that run\'s token', async () => {
+    const t = await rig();
+    t.mode = 'throw';
+    await t.post('/arena/api/start', { ...GOOD, token: API_TOKEN });
+    await until(() => t.runs.length === 1);
+    expect(t.control.holdsToken()).toBe(true);
+    t.finish();
+    await t.control.idle();
+    expect(t.control.holdsToken()).toBe(false);
+    expect(t.runs[0].env).toEqual({});
+    const s = json(await t.get('/arena/api/status')) as { state: string; error: string };
+    expect(s.state).toBe('failed');
+    expect(s.error).toBe('the client crashed with [redacted]');
+    expect(t.seen.join('\n')).not.toContain(API_TOKEN);
+  });
+  it('is deleted when the run ends with a non-zero code (a failed run)', async () => {
+    const t = await rig();
+    t.mode = 'code1';
+    await t.post('/arena/api/start', { ...GOOD, token: API_TOKEN });
+    await until(() => t.runs.length === 1);
+    t.finish();
+    await t.control.idle();
+    expect(t.control.holdsToken()).toBe(false);
+    expect(t.runs[0].env).toEqual({});
+    expect(json(await t.get('/arena/api/status'))).toMatchObject({ state: 'failed', error: 'a game could not be played' });
+  });
+  it('a token with a quote, a backslash or any other character JSON would escape is refused', async () => {
+    const t = await rig();
+    for (const token of ['sk-fake-"quote-0123456789', 'sk-fake-back\\slash-0123456789', "sk-fake-'single-0123456789", 'sk-fake-<tag>-0123456789', 'sk-fake-$HOME-0123456789']) {
+      expect((await t.post('/arena/api/start', { ...GOOD, token })).status, token).toBe(400);
+    }
+    expect(t.runs).toHaveLength(0);
+  });
+  it('Stop does not lift the latch while the run it stopped is still alive; the run\'s own end does', async () => {
+    const t = await rig({ stopWaitMs: 50 });
+    t.stopReleases = false;
+    await t.post('/arena/api/start', { ...GOOD, token: API_TOKEN });
+    await until(() => t.runs.length === 1);
+    const r = await t.post('/arena/api/stop', {});
+    expect(json(r)).toEqual({ state: 'stopping' });
+    expect(t.stops).toBe(1);
+    expect(t.rearms).toBe(0);
+    expect((await t.post('/arena/api/start', GOOD)).status).toBe(409);
+    t.finish();
+    await t.control.idle();
+    expect(t.rearms).toBe(1);
+    expect(json(await t.get('/arena/api/status')).state).toBe('stopped');
+    expect(t.control.holdsToken()).toBe(false);
   });
   it('is in NO response body or header the API ever sent: not on start, status, players, stop, any 400 or 409, and no template either', async () => {
     const t = await rig();
