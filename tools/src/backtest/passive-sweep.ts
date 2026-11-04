@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import type { LedgerData } from '@lions/sim';
 import { run, lastIntelRun, setSweep, sweepOutcome, type IntelRun } from './playtest-run';
 import type { SweepJob, SweepReply } from './passive-sweep-worker';
+import { controlPlan, type ControlPlan } from './passive-plans';
 
 /** The seeds a swept control runs on: the pinned 424242 first, then 1..29 (PR #533's set). */
 export const SWEEP_SEEDS: readonly number[] = [424242, ...Array.from({ length: 29 }, (_, k) => k + 1)];
@@ -33,6 +34,8 @@ interface Control {
   label: string;
   expect: Expect;
   seeds: readonly number[];
+  /** What the passive player does: nothing, or (GH-277) order one medic station. */
+  plan: ControlPlan;
   /** Seed -> outcome, filled as runs come back. */
   got: Map<number, string>;
   /** Seed -> what the run earned (`intel-gate.ts`), filled with `got`. */
@@ -65,11 +68,11 @@ export function seedLabel(label: string, seed: number): string {
   return `${label.slice(0, -1)}, seed ${seed})`;
 }
 
-function runInline(id: string, label: string, expect: Expect, ledger: LedgerData, seed: number, quiet: boolean): { result: string; intel: IntelRun } {
+function runInline(id: string, label: string, expect: Expect, ledger: LedgerData, seed: number, quiet: boolean, plan: ControlPlan): { result: string; intel: IntelRun } {
   const m = { result: 'ongoing', stars: 0, roeScore: 0, credits: 0 } as NonNullable<Parameters<typeof run>[10]>;
   try {
     setSweep(seed, quiet);
-    run(id as Parameters<typeof run>[0], () => {}, ledger, expect === 'withdrawn' ? 'defeat' : expect, label, 0, undefined, new Set(), undefined, undefined, m);
+    run(id as Parameters<typeof run>[0], controlPlan(plan), ledger, expect === 'withdrawn' ? 'defeat' : expect, label, 0, undefined, new Set(), undefined, undefined, m);
   } finally {
     setSweep(undefined, false);
   }
@@ -110,25 +113,26 @@ export function passiveAcrossSeeds(
   label: string,
   expect: Expect,
   ledger: LedgerData = {},
-  seeds: readonly number[] = SWEEP_SEEDS
+  seeds: readonly number[] = SWEEP_SEEDS,
+  plan: ControlPlan = 'none'
 ): void {
   // A seed's child process in the plan sweep (`plan-sweep.ts`) runs the winning plans only.
   if (process.env.PT_PLAN_CHILD === '1') return;
-  const control: Control = { id, label, expect, seeds, got: new Map(), intel: new Map() };
+  const control: Control = { id, label, expect, seeds, plan, got: new Map(), intel: new Map() };
   const index = controls.push(control) - 1;
-  const first = runInline(id, label, expect, ledger, seeds[0], false);
+  const first = runInline(id, label, expect, ledger, seeds[0], false, plan);
   control.got.set(seeds[0], first.result);
   control.intel.set(seeds[0], first.intel);
   const n = workerCount();
   for (const seed of seeds.slice(1)) {
     if (n === 0) {
-      const r = runInline(id, seedLabel(label, seed), expect, ledger, seed, true);
+      const r = runInline(id, seedLabel(label, seed), expect, ledger, seed, true, plan);
       control.got.set(seed, r.result);
       control.intel.set(seed, r.intel);
       continue;
     }
     if (workers.length === 0) spawnWorkers(n);
-    const job: SweepJob = { control: index, id, label: seedLabel(label, seed), expect, ledger, seed };
+    const job: SweepJob = { control: index, id, label: seedLabel(label, seed), expect, ledger, seed, plan };
     const w = nextWorker++ % workers.length;
     const key = `${index}:${seed}`;
     owed[w].add(key);
@@ -140,7 +144,9 @@ export function passiveAcrossSeeds(
 
 /** Each control's mission id and what it earned on each seed it came back from (`intel-gate.ts`). */
 export function controlIntel(): { id: string; label: string; intel: ReadonlyMap<number, IntelRun> }[] {
-  return controls.map((c) => ({ id: c.id, label: c.label, intel: c.intel }));
+  // The no-orders controls only: the medic-only control (GH-277) is a second reading of the same mission, not a second
+  // control to pair, bank or count.
+  return controls.filter((c) => c.plan === 'none').map((c) => ({ id: c.id, label: c.label, intel: c.intel }));
 }
 
 /** A control runs to its own deadline (4-5 min), so one still ONGOING was at the 20-minute cap. */

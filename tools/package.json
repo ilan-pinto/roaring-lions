@@ -7,6 +7,7 @@
   "scripts": {
     "balance": "tsx src/balance/cli.ts",
     "playtest": "tsx src/backtest/playtest.ts",
+    "fw:probes": "tsx src/backtest/field-works-probes.ts",
     "versus:probe": "tsx src/backtest/versus-probe.ts",
     "s4:gate": "tsx src/backtest/s4-gate.ts",
     "formations:probe": "tsx src/backtest/formation-probes.ts",
