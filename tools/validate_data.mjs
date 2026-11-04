@@ -43,6 +43,7 @@ import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
+import { arenaResultsFailures } from './validate_arena_results.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
   buildableOwnerFailures,
@@ -208,13 +209,15 @@ const schemas = {
   formation: loadJson(join(ROOT, 'data/schemas/formation.schema.json')),
   grade: loadJson(join(ROOT, 'data/schemas/grade.schema.json')),
   coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
+  arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
+  arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
 };
 
 let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.arenaResults && schemas.arenaPlayers
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -235,6 +238,8 @@ if (
     formation: ajv.compile(schemas.formation),
     grade: ajv.compile(schemas.grade),
     coupons: ajv.compile(schemas.coupons),
+    arenaResults: ajv.compile(schemas.arenaResults),
+    arenaPlayers: ajv.compile(schemas.arenaPlayers),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -257,6 +262,15 @@ if (
   checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
   checked += validateFile(join(ROOT, 'data/structures.json'), validators.structure, 'structure.schema');
   checked += validateFile(join(ROOT, 'data/coupons.json'), validators.coupons, 'coupons.schema');
+  // GH-954 public-arena P2: the publisher's allow-list is always there; results.json exists only once the lead has
+  // published (P4), and when it does it must pass its closed schema, its deny scan and its digest (G2, G3, G14).
+  checked += validateFile(join(ROOT, 'data/arena/public-players.json'), validators.arenaPlayers, 'arena-public-players.schema');
+  const arenaResultsFile = join(ROOT, 'data/arena/results.json');
+  if (existsSync(arenaResultsFile)) {
+    checked += validateFile(arenaResultsFile, validators.arenaResults, 'arena-results.schema');
+    const arenaDoc = loadJson(arenaResultsFile);
+    if (arenaDoc !== null) failures.push(...arenaResultsFailures(arenaDoc));
+  }
   // The schema cannot see these: a duplicate id makes a coupon unreachable or
   // double-spendable. A hash MAY repeat (one code, several grants: each entry is redeemed
   // once on its own id), but two entries under one hash may not grant the same kind, or the

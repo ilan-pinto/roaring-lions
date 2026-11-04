@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "arena-public-players.schema.json",
+  "title": "Arena public players (GH-954 public-arena P2)",
+  "description": "The allow-list of seats whose games may be published. `players` maps a private preset id (from ~/.roaring-lions/arena-players.json) to the public words for it: a label, a vendor and the pinned model id the preset's template must carry. `scripted` holds the two built-in controls, which are not models. A seat not listed here withholds its whole game.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "players", "scripted"],
+  "properties": {
+    "version": { "const": 1 },
+    "players": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$", "not": { "enum": ["passive", "rush", "draw", "void"] } },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "vendor", "modelId"],
+        "properties": {
+          "label": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9 .+_-]{0,47}$" },
+          "vendor": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9 .+_-]{0,31}$" },
+          "modelId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$" }
+        }
+      }
+    },
+    "scripted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passive", "rush"],
+      "properties": {
+        "passive": { "$ref": "#/$defs/scripted" },
+        "rush": { "$ref": "#/$defs/scripted" }
+      }
+    }
+  },
+  "$defs": {
+    "scripted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label"],
+      "properties": { "label": { "type": "string", "pattern": "^Scripted: [a-z]{3,16}$" } }
+    }
+  }
+}
