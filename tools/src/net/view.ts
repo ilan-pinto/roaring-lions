@@ -36,8 +36,16 @@ export interface UnitLine {
   radius?: number;
   /** Patrol: how many points its beat has. */
   points?: number;
+  /** Why a unit that was ordered to move is not going anywhere. `pinned`: suppressed, so the sim slows it to 1/64 of its speed (`PIN_SPEED_SHIFT`, GDD 5.5) until the fire lifts; its order stands. */
+  held?: 'pinned';
 }
-export interface ContactLine { id: number; type: string; tile: [number, number]; hp: number }
+/**
+ * An enemy unit in sight. `observe` lists a contact only while it stands in sight, so `inSight` is always true here, and
+ * `tile` is where it stands now (read from the sim, not remembered). `seenTick` is the sim tick of the fog refresh that
+ * confirmed it in sight (the fog refreshes every fourth tick, so it is at most 3 ticks old). What the seat remembers of
+ * a unit that left sight is never a contact: it is `lastSeen` on an order or a refusal.
+ */
+export interface ContactLine { id: number; type: string; tile: [number, number]; hp: number; inSight: true; seenTick: number }
 /** A wounded man (GH-973): down on the field, in nobody's order of battle. Never an orderable combat unit. */
 export interface CasualtyLine { id: number; type: string; tile: [number, number]; state: 'down' | 'stabilised' | 'other'; bleeding?: number }
 export interface HeldLine { structure: number; tile: [number, number]; side: 0 | 1 }
@@ -141,6 +149,8 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
         carriedBy: st.carriedBy[i], garrisonedIn: st.garrisonedIn[i],
       }, side)) flags.push('idle');
       const unit: UnitLine = { id: i, type: type.id, tile, hp, flags, stance: 'free' };
+      // Suppression holds a unit by design (a routed one flees instead, `stepMovement` checks routed first).
+      if (st.pinned[i] !== 0 && st.routed[i] === 0) unit.held = 'pinned';
       if (sim.isPatrolling(i)) {
         unit.stance = 'patrol';
         unit.points = sim.patrolCountOf(i);
@@ -154,7 +164,7 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
     // The renderer's draw gate, with this seat's fog: hidden inside a
     // building, a carrier or a tunnel, and fog-gated in the open.
     if (!inSightOf(sim, i, side, visibleAt)) continue;
-    contacts.push({ id: i, type: type.id, tile, hp });
+    contacts.push({ id: i, type: type.id, tile, hp, inSight: true, seenTick: fog.refreshedTick });
   }
   const held: HeldLine[] = [];
   for (const b of heldBuildings(sim, sim.entityCount)) {

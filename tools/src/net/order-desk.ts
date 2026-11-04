@@ -90,6 +90,19 @@ export class OrderDesk {
     }
   }
 
+  /**
+   * An `applied` order whose goal the seat can no longer pursue settles to `dropped` with the harness's reason (the
+   * second 4 Nov bot fight, item 2). Sticky: once settled it stays, even if the target is seen again. Only `applied`
+   * moves, so a `queued`, `sent`, `lost` or already-`dropped` record is never rewritten. Returns whether it changed.
+   */
+  dropApplied(rec: OrderRecord, reason: string, tick: number): boolean {
+    if (rec.status !== 'applied') return false;
+    rec.status = 'dropped';
+    rec.reason = reason;
+    rec.settledTick = tick;
+    return true;
+  }
+
   /** Newest first. */
   records(limit: number): OrderRecord[] {
     return this.ring.slice(Math.max(0, this.ring.length - limit)).reverse();

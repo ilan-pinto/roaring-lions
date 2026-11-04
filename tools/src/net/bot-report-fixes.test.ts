@@ -124,18 +124,108 @@ describe('item 1: an attack on a target that left sight (the 4 Nov bot report)',
     expect(stale).not.toContain(`"tile":[${camp[0]},${camp[1]}]`);
   });
 
-  it('an attack accepted while the target is in sight stays `applied` when it leaves sight, and its record shows `out of sight` with the last sighting (not `dropped`)', async () => {
+  it('an attack accepted while the target is in sight settles to `dropped` when it leaves sight: reason, lastSeen and the fallback (the second 4 Nov fight, item 2)', async () => {
     const f = await metEnemy();
-    const ok = await call(f.ctx, 'order', { verb: 'attack', ids: [f.mine], target: f.enemy });
+    const ok = await call(f.ctx, 'order', { verb: 'attack', ids: [f.mine, f.spare], target: f.enemy });
     expect(ok.ok, ok.text).toBe(true);
     // The order is carried (applied) while the target is still a contact; ownership never checks sight.
     await drive(f.loop, [f.a.client, f.c.client], call(f.ctx, 'wait', { ticks: 45 }));
+    const still = body(await call(f.ctx, 'observe')).orders.find((o: { ref: number }) => o.ref === body(ok).ref);
+    expect(still.status, 'target still in sight: nothing to settle').toBe('applied');
+    expect(still).not.toHaveProperty('fallback');
     await loseSight(f);
     const rec = body(await call(f.ctx, 'observe')).orders.find((o: { ref: number }) => o.ref === body(ok).ref);
-    expect(rec.status).toBe('applied');
-    expect(rec.reason).toBeUndefined();
+    expect(rec.status).toBe('dropped');
+    expect(rec.reason).toBe('target no longer in sight');
     expect(rec.target).toBe('out of sight');
     expect(rec.lastSeen.tile).toEqual(f.metTile);
+    expect(rec.fallback).toEqual({ verb: 'attackMove', ids: [f.mine, f.spare], x: f.metTile[0], y: f.metTile[1] });
+    expect(rec.settledTick).toBe(f.a.client.tick());
+    // Sticky: seeing the target again does not un-drop it.
+    for (const sim of f.sims) sim.teleport(f.enemy, sim.state.posX[f.mine], sim.state.posY[f.mine]);
+    const back = f.a.client.tick();
+    await play(f.loop, 20, [f.a.client, f.c.client], () => f.a.client.tick() >= back + 5 && f.c.client.tick() >= back + 5);
+    expect(f.a.client.view().contacts.map((u) => u.id)).toContain(f.enemy);
+    expect(body(await call(f.ctx, 'observe')).orders.find((o: { ref: number }) => o.ref === body(ok).ref).status).toBe('dropped');
+  });
+});
+
+describe('item 1 (second fight): dead ids in an order', () => {
+  it('goes to the living ids and answers `lost` in the order log\'s shape', async () => {
+    const f = await metEnemy(false);
+    const killedAt = f.a.client.tick();
+    for (const sim of f.sims) sim.debugKill(f.spare);
+    await play(f.loop, 10, [f.a.client, f.c.client], () => f.a.client.tick() >= killedAt + 3 && f.c.client.tick() >= killedAt + 3);
+    const r = await call(f.ctx, 'order', { verb: 'move', ids: [f.mine, f.spare], x: 12, y: 14 });
+    expect(r.ok, r.text).toBe(true);
+    expect(body(r).lost).toEqual([{ id: f.spare, fate: 'died', tick: expect.any(Number) }]);
+    expect((f.a.client.desk.records(1)[0].cmd as { ids: number[] }).ids).toEqual([f.mine]);
+    // No dead id, no `lost` key.
+    const clean = body(await call(f.ctx, 'order', { verb: 'halt', ids: [f.mine] }));
+    expect(clean).not.toHaveProperty('lost');
+  });
+
+  it('refuses only when no listed id is alive, naming every id and its fate; a never-yours id still refuses', async () => {
+    const f = await metEnemy(false);
+    const killedAt = f.a.client.tick();
+    for (const sim of f.sims) sim.debugKill(f.spare);
+    await play(f.loop, 10, [f.a.client, f.c.client], () => f.a.client.tick() >= killedAt + 3 && f.c.client.tick() >= killedAt + 3);
+    const before = f.a.client.desk.records(50).length;
+    const none = await call(f.ctx, 'order', { verb: 'move', ids: [f.spare], x: 12, y: 14 });
+    expect(none.ok).toBe(false);
+    expect(body(none).error).toBe('not your unit');
+    expect(body(none).detail).toContain(`${f.spare}: died`);
+    expect(body(none).lost).toEqual([{ id: f.spare, fate: 'died', tick: expect.any(Number) }]);
+    const foreign = await call(f.ctx, 'order', { verb: 'move', ids: [f.mine, f.enemy], x: 12, y: 14 });
+    expect(foreign.ok).toBe(false);
+    expect(body(foreign).error).toBe('not your unit');
+    expect(body(foreign)).not.toHaveProperty('lost');
+    expect(f.a.client.desk.records(50).length).toBe(before);   // nothing was sent
+  });
+});
+
+describe('item 3 (second fight): contacts are never remembered positions', () => {
+  it('every contact is `inSight` with a `seenTick` the fog confirmed within the last 4 ticks, and its tile is where it stands now', async () => {
+    const f = await metEnemy();
+    const o = body(await call(f.ctx, 'observe'));
+    const c = o.contacts.find((u: { id: number }) => u.id === f.enemy);
+    expect(c.inSight).toBe(true);
+    expect(c.seenTick).toBeLessThanOrEqual(o.simTick);
+    expect(c.seenTick).toBeGreaterThanOrEqual(o.simTick - 4);
+    expect(c.tile).toEqual([f.w.sim.state.posX[f.enemy] >> 16, f.w.sim.state.posY[f.enemy] >> 16]);
+    // Gone from sight, it is not a contact at all (no remembered position wears the label).
+    await loseSight(f);
+    expect(body(await call(f.ctx, 'observe')).contacts.map((u: { id: number }) => u.id)).not.toContain(f.enemy);
+  });
+});
+
+describe('item 4 (second fight): a pinned unit says it is held', () => {
+  it('reads `held: pinned` in its row while suppressed, and not otherwise', async () => {
+    const f = await metEnemy(false);
+    const rows = (o: Record<string, any>) => o.units as { id: number; held?: string }[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(rows(body(await call(f.ctx, 'observe'))).some((u) => u.held !== undefined)).toBe(false);
+    const at = f.a.client.tick();
+    for (const sim of f.sims) sim.debugSuppress(f.mine, fx.from(8))  // capped at 2.0 after the unit's cover; PIN_AT is 0.7;
+    await play(f.loop, 10, [f.a.client, f.c.client], () => f.a.client.tick() >= at + 2 && f.c.client.tick() >= at + 2);
+    const o = body(await call(f.ctx, 'observe'));
+    const row = rows(o).find((u) => u.id === f.mine) as unknown as { held?: string; flags: string[] };
+    expect(row.flags).toContain('pinned');
+    expect(row.held).toBe('pinned');
+    expect(rows(o).find((u) => u.id === f.spare)).not.toHaveProperty('held');
+  });
+});
+
+describe('item 5 (second fight): the score is one reading', () => {
+  it('my `lost` is their `destroyed` and my `destroyed` their `lost`, for kills in and out of sight, at every observe', async () => {
+    const f = await metEnemy();
+    await loseSight(f);   // `enemy` is out of sight; `hidden` never was in it
+    const at = f.a.client.tick();
+    for (const sim of f.sims) { sim.debugKill(f.spare); sim.debugKill(f.hidden); sim.debugKill(f.enemy); }
+    await play(f.loop, 10, [f.a.client, f.c.client], () => f.a.client.tick() >= at + 3 && f.c.client.tick() >= at + 3);
+    const { mine, theirs } = body(await call(f.ctx, 'observe')).score;
+    expect(mine.lost).toBe(1);
+    expect(mine.destroyed).toBe(2);
+    expect([theirs.destroyed, theirs.lost]).toEqual([mine.lost, mine.destroyed]);
   });
 });
 

@@ -43,7 +43,7 @@ describe('sideView', () => {
     expect(v.units.find((u) => u.id !== mine)).toMatchObject({ stance: 'free' });
     const seen = v.contacts.find((c) => c.id === enemy);
     expect(seen, 'the enemy is in sight').toBeDefined();
-    expect(Object.keys(seen as object).sort()).toEqual(['hp', 'id', 'tile', 'type']);
+    expect(Object.keys(seen as object).sort()).toEqual(['hp', 'id', 'inSight', 'seenTick', 'tile', 'type']);
     expect(v.stances).toEqual(['hold', 'ambush', 'patrol']);
     // Its own side's view reads the ambush.
     const theirs = sideView(w, 1, new FogTracker(w.sim, 1), null).units.find((u) => u.id === enemy);
@@ -137,7 +137,7 @@ describe('sideView', () => {
     expect(mover?.flags).toContain('moving');
     expect(mover?.flags).not.toContain('idle');
     // Contacts carry no flags at all: the viewer is never told what an enemy is doing.
-    for (const c of sideView(w, 0, fog, null).contacts) expect(Object.keys(c).sort()).toEqual(['hp', 'id', 'tile', 'type']);
+    for (const c of sideView(w, 0, fog, null).contacts) expect(Object.keys(c).sort()).toEqual(['hp', 'id', 'inSight', 'seenTick', 'tile', 'type']);
   });
   it('steps fog on the renderer cadence: a reveal holds for three more calls, then decays on the fourth', () => {
     const w = buildMatchWorld(versusConfig('tel_marum'));

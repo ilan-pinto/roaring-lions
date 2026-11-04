@@ -441,7 +441,8 @@ describe('an order record hides what the seat can no longer see', () => {
     // The dead unit is OURS, so its id and its fate are the seat's own (the 4 Nov bot report, item 2): `fates`, not a bare `gone`.
     expect(after).toMatchObject({ ids: [mine], fates: [{ id: spare, fate: 'died' }], target: 'out of sight' });
     expect(after).not.toHaveProperty('gone');
-    expect(idsIn(after)).toEqual([mine, spare]);   // no id-naming key carries the fogged target
+    expect(idsIn(after)).toEqual([mine, spare, mine]);   // ids, fates, and the dropped attack's fallback ids: all ours; no id-naming key carries the fogged target
+    expect(after).toMatchObject({ status: 'dropped', reason: 'target no longer in sight' });
     expect(a.client.transport.stats().desyncTick).toBeNull();
   });
 });

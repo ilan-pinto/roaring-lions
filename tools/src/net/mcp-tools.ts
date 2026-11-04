@@ -239,6 +239,37 @@ function roundOf(ctx: ToolContext): { index: number; ticks: number; doneRound: n
  * its unit died is still `applied`, with its `settledTick`, and `fates` says what became of the unit since. `gone` counts only
  * ids with no known fate.
  */
+export const OUT_OF_SIGHT_REASON = 'target no longer in sight';
+
+/** What became of own unit `id`, as the order log and an `order` answer both say it: `{ id, fate, tick }` (no tick for `unknown` or `wounded`), or null if the seat has no record of it being lost. */
+function fateEntry(id: number, view: SideView, memory: SeatMemory | null): Record<string, unknown> | null {
+  const f = memory?.fateOf(id) ?? null;
+  if (f !== null) return f.tick >= 0 ? { id, fate: f.fate, tick: f.tick } : { id, fate: f.fate };
+  if (view.casualties.mine.some((m) => m.id === id)) return { id, fate: 'wounded' };
+  return null;
+}
+
+/** The hint a refusal and a dropped `attack` both carry: an `attackMove` to where the target was last seen, with the ids still alive. */
+function fallbackFor(ids: number[], seen: { tile: [number, number] }): { verb: 'attackMove'; ids: number[]; x: number; y: number } {
+  return { verb: 'attackMove', ids, x: seen.tile[0], y: seen.tile[1] };
+}
+
+/**
+ * Settle every `applied` attack whose target the seat no longer sees to `dropped` (the second 4 Nov bot fight, item 2).
+ * The room checked who the target is, not whether the seat still sees it, so the status never followed the record's
+ * own `target: "out of sight"`; it does now. Called by `observe` before the log is described.
+ */
+function settleLostTargets(ctx: ToolContext, view: SideView): void {
+  const desk = ctx.client.desk;
+  const tick = ctx.client.tick();
+  for (const r of desk.records(ORDER_RECORDS)) {
+    if (r.status !== 'applied' || r.cmd.kind !== 'attack') continue;
+    const target = r.cmd.target;
+    if (view.contacts.some((c) => c.id === target) || view.casualties.theirs.some((c) => c.id === target)) continue;
+    desk.dropApplied(r, OUT_OF_SIGHT_REASON, tick);
+  }
+}
+
 function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null): Record<string, unknown> {
   const listed = new Set([...view.units.map((u) => u.id), ...view.contacts.map((u) => u.id)]);
   const c = r.cmd as Record<string, unknown>;
@@ -252,9 +283,8 @@ function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null
     let gone = 0;
     for (const id of all) {
       if (listed.has(id)) continue;
-      const f = memory?.fateOf(id) ?? null;
-      if (f !== null) fates.push(f.tick >= 0 ? { id, fate: f.fate, tick: f.tick } : { id, fate: f.fate });
-      else if (view.casualties.mine.some((m) => m.id === id)) fates.push({ id, fate: 'wounded' });
+      const f = fateEntry(id, view, memory);
+      if (f !== null) fates.push(f);
       else gone++;
     }
     if (fates.length > 0) out.fates = fates;
@@ -266,6 +296,10 @@ function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null
     // What the seat saw of it: its own sighting, never a position it was not shown (`SeatMemory`).
     const seen = listed.has(c.target) ? null : memory?.lastSeen(c.target) ?? null;
     if (seen !== null) out.lastSeen = { tile: seen.tile, tick: seen.tick };
+    // A dropped attack carries the same hint the refusal does, for the units still alive.
+    if (seen !== null && r.reason === OUT_OF_SIGHT_REASON && Array.isArray(c.ids)) {
+      out.fallback = fallbackFor((c.ids as number[]).filter((id) => listed.has(id)), seen);
+    }
   }
   if (isInt(c.carrier) && listed.has(c.carrier)) out.carrier = c.carrier;
   if (isInt(c.structure)) out.structure = c.structure;
@@ -297,7 +331,7 @@ export function clockOfCtx(ctx: ToolContext): { simTick: number; relayTick: numb
 
 const observe: ToolDef = {
   name: 'observe',
-  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight, held buildings, the legal stances, the score, the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was), or proposals (assist). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units.',
+  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight (each with `inSight: true`, always, and `seenTick`: the sim tick the fog last confirmed it, at most 3 ticks old; its `tile` is where it stands NOW, so a contact that keeps one tile across observes is standing still; a unit that left sight is not a contact, and what you remember of it is `lastSeen` on an order), held buildings, the legal stances, the score (read from one tick: your `lost` is always the enemy\'s `destroyed`, and your `destroyed` its `lost`; a difference you see between two observes is the match having run on, and `lost`/`destroyed` count what died anywhere, in sight or not), the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was; an applied `attack` whose target left sight settles to `dropped`, `reason: target no longer in sight`, with `lastSeen` and a `fallback` attackMove). A unit that is pinned (suppressed) reads `held: pinned` in its row: the sim slows it to a crawl until the fire lifts, so a `move` stays `applied` and `moving` while it barely advances, or proposals (assist). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
@@ -306,6 +340,7 @@ const observe: ToolDef = {
     if (view === null) return notStarted(ctx);
     let orders: unknown[] = [];
     // Oldest first, the order the log happened in (the desk keeps newest first).
+    if (ctx.scope === 'command') settleLostTargets(ctx, view);
     if (ctx.scope === 'command') orders = ctx.client.desk.records(ORDER_RECORDS).reverse().map((r) => describeOrder(r, view, ctx.client.memory()));
     else if (ctx.scope === 'assist') orders = [...ctx.proposals].slice(-ORDER_RECORDS).map(([proposal, status]) => ({ proposal, status }));
     const clock = clockOfCtx(ctx);
@@ -512,6 +547,32 @@ function buildProduction(view: SideView, verb: ProductionVerb, a: Record<string,
   }
 }
 
+/**
+ * Take the units that are no longer yours out of an order's `ids` (the second 4 Nov bot fight, item 1). An id that was
+ * one of your units and has since died, been removed or lain down wounded is not a mistake the model should pay for with
+ * the whole order: the order goes to the living ids and the answer names the rest as `lost: [{ id, fate, tick }]`, the
+ * order log's own shape. Refused only when NO listed id is alive (naming every id and its fate), or when an id was never
+ * yours (a foreign or invented id refuses as before: it says nothing about the enemy). The production verbs have no ids.
+ */
+function splitDeadIds(view: SideView, a: Record<string, unknown>, memory: SeatMemory | null): { args: Record<string, unknown>; lost: Record<string, unknown>[] } | Refused {
+  if (typeof a.verb !== 'string' || isProductionVerb(a.verb as Verb) || !Array.isArray(a.ids) || a.ids.length === 0 || !a.ids.every(isInt)) return { args: a, lost: [] };
+  const ids = [...new Set(a.ids as number[])];
+  const own = new Set(view.units.map((u) => u.id));
+  const living: number[] = [];
+  const lost: Record<string, unknown>[] = [];
+  for (const id of ids) {
+    if (own.has(id)) { living.push(id); continue; }
+    const f = fateEntry(id, view, memory);
+    if (f === null) return { error: 'not your unit', detail: 'every id must be one of your units in observe' };
+    lost.push(f);
+  }
+  if (living.length === 0) {
+    const named = lost.map((l) => `${l.id as number}: ${String(l.fate)}${typeof l.tick === 'number' ? ` at tick ${l.tick}` : ''}`).join('; ');
+    return { error: 'not your unit', detail: `none of the ids is alive now (${named}). Nothing was sent: take living ids from observe.`, extra: { lost } };
+  }
+  return { args: lost.length === 0 ? a : { ...a, ids: living }, lost };
+}
+
 /** The command an `order` call describes, or why it cannot be one. */
 function buildOrder(view: SideView, a: Record<string, unknown>, memory: SeatMemory | null): Command | Refused {
   if (typeof a.verb !== 'string' || !(ORDER_VERBS as readonly string[]).includes(a.verb)) {
@@ -607,9 +668,9 @@ function buildOrder(view: SideView, a: Record<string, unknown>, memory: SeatMemo
         // tile and fights what it meets, and the unit may walk into whatever now stands there), so the model is told
         // the exact call and chooses. The same call works as written.
         return {
-          error: 'target no longer in sight',
+          error: OUT_OF_SIGHT_REASON,
           detail: `target ${a.target} was last seen at ${x},${y} on tick ${seen.tick} and is not in sight now (it moved out of sight, or died). Nothing was sent. To go and look, send the fallback: an attackMove to that tile.`,
-          extra: { target: a.target, lastSeen: { tile: [x, y], tick: seen.tick }, fallback: { verb: 'attackMove', ids, x, y } },
+          extra: { target: a.target, lastSeen: { tile: [x, y], tick: seen.tick }, fallback: fallbackFor(ids, seen) },
         };
       }
       return { error: 'not a contact', detail: 'target must be a contact in observe' };
@@ -638,7 +699,7 @@ function sweepRefusal(ctx: ToolContext): ToolResult | null {
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units, or your production. The arguments are ONE flat JSON object with the keys below (no nesting, no extra keys), for example ${orderExamplesForDescription()} (placeholder ids and tiles: take yours from observe; the standing prompt lists one for every verb). verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack), or one of your wounded men from casualties.mine (rescue: a medic goes to treat and carry him to your camp); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). An attack on a contact that has left your sight answers \`target no longer in sight\`, with its \`lastSeen\` tile and tick and a \`fallback\` attackMove you may send as written (nothing is converted for you). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units, or your production. The arguments are ONE flat JSON object with the keys below (no nesting, no extra keys), for example ${orderExamplesForDescription()} (placeholder ids and tiles: take yours from observe; the standing prompt lists one for every verb). verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack), or one of your wounded men from casualties.mine (rescue: a medic goes to treat and carry him to your camp); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). An id in \`ids\` that was your unit and has since died, been removed or lain down wounded does not refuse the order: it goes to the living ids and the answer carries \`lost: [{id, fate, tick}]\` (the order log's shape); only an order with no living id is refused (\`not your unit\`, naming each id and its fate), and an id that was never yours is refused as before. An attack on a contact that has left your sight answers \`target no longer in sight\`, with its \`lastSeen\` tile and tick and a \`fallback\` attackMove you may send as written (nothing is converted for you). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',
@@ -678,7 +739,11 @@ const order: ToolDef = {
       const no = sweepRefusal(ctx);
       if (no !== null) return no;
     }
-    const built = buildOrder(view, a, ctx.client.memory());
+    // The 4 Nov second bot fight, item 1: ids that died since the last `observe` do not refuse the order.
+    const split = splitDeadIds(view, a, ctx.client.memory());
+    if ('error' in split) return refuse(split.error, { ...(split.detail === undefined ? {} : { detail: split.detail }), ...split.extra });
+    const lost = split.lost;
+    const built = buildOrder(view, split.args, ctx.client.memory());
     if ('error' in built) return refuse(built.error, { ...(built.detail === undefined ? {} : { detail: built.detail }), ...built.extra });
     // The room's own rebuild, then ownership's verdict on this machine's world.
     const cmd = cleanCommand(built);
@@ -707,7 +772,7 @@ const order: ToolDef = {
     if (ctx.scope === 'command') {
       const r = ctx.client.desk.submit(cmd, ctx.client.tick());
       if ('error' in r) return refuse(r.error);
-      return ok({ ref: r.ref, status: r.status });
+      return ok({ ref: r.ref, status: r.status, ...(lost.length > 0 ? { lost } : {}) });
     }
     const id = ctx.nextProposal;
     const msg = cleanAdvisorMsg({ kind: 'proposal', id, cmd, note: typeof a.note === 'string' ? a.note : '' });
@@ -717,7 +782,7 @@ const order: ToolDef = {
     ctx.proposals.set(id, 'pending');
     // A Map iterates in insertion order: the first key is the oldest.
     for (const old of ctx.proposals.keys()) { if (ctx.proposals.size <= PROPOSALS_KEPT) break; ctx.proposals.delete(old); }
-    return ok({ proposal: id, status: 'pending' });
+    return ok({ proposal: id, status: 'pending', ...(lost.length > 0 ? { lost } : {}) });
   },
 };
 
