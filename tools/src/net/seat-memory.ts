@@ -26,6 +26,10 @@ export class SeatMemory {
   /** Own units no longer in play: the tick it was noticed, with how (`died`: destroyed; `removed`: taken off the board alive, `removeFromPlay` / `admitAboard`), or tick -1 and `unknown` for one already gone when memory began (a rejoin). */
   private readonly gone = new Map<number, { fate: 'died' | 'removed' | 'unknown'; tick: number }>();
   private fogGeneration = -1;
+  /** Enemy ids that were in sight at the most recent fog refresh (the contacts `observe` would have listed). */
+  private sightSet = new Set<number>();
+  /** Enemy units seen to die: the tick it was noticed. Only an id that was in sight at the last fog refresh before its death is here, so a death the seat could not see is never recorded. */
+  private readonly killed = new Map<number, number>();
 
   constructor(
     private readonly sim: Sim,
@@ -47,8 +51,16 @@ export class SeatMemory {
         if (st.alive[i] === 0 && !this.gone.has(i)) this.gone.set(i, { fate: st.removed[i] !== 0 ? 'removed' : 'died', tick });
       }
     }
+    // Before the sight set is refreshed: an enemy that was a contact at the last refresh and is dead now died in sight
+    // (as far as the seat could tell). Taken off the board alive (`removed`) is not a kill.
+    for (const id of this.sightSet) {
+      if (st.alive[id] !== 0) continue;
+      if (st.removed[id] === 0) this.killed.set(id, tick);
+      this.sightSet.delete(id);
+    }
     if (this.fog.generation === this.fogGeneration) return;
     this.fogGeneration = this.fog.generation;
+    this.sightSet = new Set();
     const visibleAt = (x: number, y: number): boolean => this.fog.visibleTile(x, y);
     for (let i = 0; i < sim.entityCount; i++) {
       const s = st.side[i];
@@ -56,6 +68,7 @@ export class SeatMemory {
       // A wounded man is a casualty in `observe`, never a contact: it is not an `attack` target either.
       if (st.woundState[i] !== WOUND_NONE || sim.unitTypes[st.typeIdx[i]].isWounded) continue;
       if (!inSightOf(sim, i, this.side, visibleAt)) continue;
+      this.sightSet.add(i);
       this.seen.delete(i); // re-insert: eviction below is by oldest sighting
       this.seen.set(i, { tile: [st.posX[i] >> 16, st.posY[i] >> 16], tick });
     }
@@ -70,6 +83,11 @@ export class SeatMemory {
   /** Where and when this seat last saw enemy unit `id` in sight, or null if it never has. */
   lastSeen(id: number): LastSeen | null {
     return this.seen.get(id) ?? null;
+  }
+
+  /** The tick enemy unit `id` was seen destroyed (it was in sight at the last fog refresh before it died), or null: alive, or it died where the seat could not see. */
+  killedInSight(id: number): number | null {
+    return this.killed.get(id) ?? null;
   }
 
   /** What became of own unit `id` and when it was noticed, or null while it is in play (or is not this side's). `unknown`: gone before memory began, tick -1. */
