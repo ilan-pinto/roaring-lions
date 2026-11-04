@@ -282,7 +282,7 @@ describe('judge', () => {
     expect(judge([client({ kind: 'draw', by: 'mutual' }), client({ kind: 'draw', by: 'mutual' })], SIDES, 6000)).toEqual({ outcome: 'draw', by: 'mutual' });
   });
   it('GH-976 P2: at the cap, a goal one side completed decides it (by objective), not the surviving value', () => {
-    const goals: OutcomeGoals = { mode: 'points', sideWon: (side) => side === 1, scoreUnitsOf: () => 0, completeTickOf: (side) => (side === 1 ? 4000 : -1) };
+    const goals: OutcomeGoals = { mode: 'points', sideWon: (side) => side === 1, scoreUnitsOf: () => 0, scoreOf: () => 0, completeTickOf: (side) => (side === 1 ? 4000 : -1) };
     const atCap = (g?: OutcomeGoals): SeatSnapshot => ({ ...client(null, { tick: 6000 }), ...(g !== undefined ? { goals: g } : {}) });
     // side 0 is ahead on forces (a Lavi against a squad) and the control is the old cap verdict
     expect(judge([atCap(), atCap()], SIDES, 6000)).toEqual({ outcome: 'seat0', by: 'cap' });

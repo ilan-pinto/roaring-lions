@@ -255,7 +255,9 @@ const board = (s: SideScore): string[] => [`${s.lost} (${s.lostValue})`, `${s.de
 /** What decided a game, in words a report reader wants (GH-976 P2): a win mode's goal by name, surviving force for a limit or a
  *  stalemate, anything else as the raw `by`. */
 export function decidedBy(g: Pick<GameRecord, 'by' | 'mode'>): string {
-  if (g.by === 'objective') return g.mode === 'points' ? 'points race' : g.mode === 'camp' ? 'camp razed' : 'objective';
+  if (g.by === 'objective') return g.mode === 'points' ? 'points race' : g.mode === 'camp' ? 'camp razed' : g.mode === 'flag' ? 'flag captured' : 'objective';
+  // GH-976 P3: the cap of a points race is decided on the points, not on the force left.
+  if ((g.by === 'cap' || g.by === 'time') && g.mode === 'points') return 'points at the cap';
   if (g.by === 'cap' || g.by === 'time' || g.by === 'stalemate') return 'surviving force';
   return g.by;
 }

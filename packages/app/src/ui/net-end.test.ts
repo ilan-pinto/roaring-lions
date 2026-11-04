@@ -61,6 +61,44 @@ describe('showNetEnd', () => {
     expect([title(), reason()]).toEqual(['Defeat', 'Lost on points: they reached the target first']);
   });
 
+  it('GH-976 P3: capture the flag names the flag, from the captor\'s side and from the loser\'s', () => {
+    showNetEnd(document.body, { kind: 'won', side: 0, by: 'objective', mode: 'flag' }, 0, deps());
+    expect([title(), reason()]).toEqual(['Victory', 'You captured their flag']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'won', side: 0, by: 'objective', mode: 'flag' }, 1, deps());
+    expect([title(), reason()]).toEqual(['Defeat', 'They captured your flag']);
+  });
+
+  it('GH-976 P3: a draw in a win-mode room does NOT read "Both forces destroyed": it names the goal both sides finished together', () => {
+    showNetEnd(document.body, { kind: 'draw', by: 'mutual', mode: 'flag' }, 0, deps());
+    expect([title(), reason()]).toEqual(['Draw', 'Both flags were captured together']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'draw', by: 'mutual', mode: 'points' }, 1, deps());
+    expect([title(), reason()]).toEqual(['Draw', 'Level on points: you both reached the target together']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'draw', by: 'mutual', mode: 'camp' }, 1, deps());
+    expect([title(), reason()]).toEqual(['Draw', 'Both camps fell together']);
+    document.body.innerHTML = '';
+    // Both sides wiped, in any room, is still what it was.
+    showNetEnd(document.body, { kind: 'draw', by: 'mutual' }, 1, deps());
+    expect(reason()).toBe('Both forces destroyed');
+  });
+
+  it('GH-976 P3: the time limit of a points room says it was decided on points, this seat\'s first', () => {
+    showNetEnd(document.body, { kind: 'won', side: 1, by: 'time', forces: [3100, 800], points: [212, 355] }, 1, deps());
+    expect([title(), reason()]).toEqual(['Victory', 'Time — won on points (355 vs 212)']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'won', side: 1, by: 'time', forces: [3100, 800], points: [212, 355] }, 0, deps());
+    expect([title(), reason()]).toEqual(['Defeat', 'Time — lost on points (212 vs 355)']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'draw', by: 'time', forces: [3100, 800], points: [300, 300] }, 0, deps());
+    expect([title(), reason()]).toEqual(['Draw', 'Time — level on points (300 vs 300)']);
+    document.body.innerHTML = '';
+    // With no points on the result it is the surviving-value line, as before.
+    showNetEnd(document.body, { kind: 'won', side: 1, by: 'time', forces: [800, 3100] }, 1, deps());
+    expect(reason()).toBe('Time — won on remaining forces (3,100 vs 800)');
+  });
+
   it('a draw reads Draw, mutual or on equal forces at the time limit, for either viewer', () => {
     showNetEnd(document.body, { kind: 'draw', by: 'mutual' }, 1, deps());
     expect([title(), reason()]).toEqual(['Draw', 'Both forces destroyed']);

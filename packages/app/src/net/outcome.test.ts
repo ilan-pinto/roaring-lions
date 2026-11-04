@@ -391,10 +391,11 @@ const CONFIG_FOR_WIRE: MatchConfig = {
 
 describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
   // `ticks` is the sim tick each side completed on; the default is one tick for a side that won (the old reading).
-  const goals = (won: readonly boolean[], units: readonly number[] = [0, 0], mode: 'camp' | 'points' = 'camp', ticks: readonly number[] = [won[0] ? 100 : -1, won[1] ? 100 : -1]): OutcomeGoals => ({
+  const goals = (won: readonly boolean[], units: readonly number[] = [0, 0], mode: 'camp' | 'points' | 'flag' = 'camp', ticks: readonly number[] = [won[0] ? 100 : -1, won[1] ? 100 : -1]): OutcomeGoals => ({
     mode,
     sideWon: (side) => won[side],
     scoreUnitsOf: (side) => units[side],
+    scoreOf: (side) => Math.floor(units[side] / 1200),
     completeTickOf: (side) => ticks[side],
   });
   const both = world([[0, 1, 0], [1, 1, 0]]);
@@ -423,9 +424,13 @@ describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
   it('both goals on one tick: the higher score wins a points race, level scores are a mutual end', () => {
     expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [720100, 720000], 'points'))).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'points' });
     expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [720000, 720400], 'points'))).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'points' });
-    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [720000, 720000], 'points'))).toEqual({ kind: 'draw', by: 'mutual' });
-    // Two camps razed on one tick: nothing separates them.
-    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true]))).toEqual({ kind: 'draw', by: 'mutual' });
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [720000, 720000], 'points'))).toEqual({ kind: 'draw', by: 'mutual', mode: 'points' });
+    // Two camps razed on one tick: nothing separates them. The draw names its mode (GH-976 P3), so the panel does not say
+    // "both forces destroyed" of two forces that are standing.
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true]))).toEqual({ kind: 'draw', by: 'mutual', mode: 'camp' });
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [0, 0], 'flag'))).toEqual({ kind: 'draw', by: 'mutual', mode: 'flag' });
+    // Both sides WIPED in a mode room is still the plain mutual end, with no mode to name.
+    expect(outcomeOf(world([[0, 0, 0], [1, 0, 0]]), 100, costOf, undefined, MATCH_CAP_TICKS, goals([false, false], [0, 0], 'flag'))).toEqual({ kind: 'draw', by: 'mutual' });
   });
 
   it('both goals inside one hash window: the side that finished FIRST wins, whatever it scored by then (GH-976 P2)', () => {
@@ -486,7 +491,7 @@ describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
   });
 
   it('goalsOf: none for an annihilation world, the runtime\'s sideWon and score for a mode world', () => {
-    const rt = { sideWon: (s: 0 | 1) => s === 1, scoreUnitsOf: (s: 0 | 1) => 5 + s, completeTickOf: (s: 0 | 1) => 40 + s, productionLines: () => [], logisticsOf: () => 0, popCapped: () => false };
+    const rt = { sideWon: (s: 0 | 1) => s === 1, scoreUnitsOf: (s: 0 | 1) => 5 + s, scoreOf: (s: 0 | 1) => 2 + s, completeTickOf: (s: 0 | 1) => 40 + s, productionLines: () => [], logisticsOf: () => 0, popCapped: () => false };
     expect(goalsOf({ runtime: null, winMode: null })).toBeUndefined();
     expect(goalsOf({ runtime: rt, winMode: null })).toBeUndefined(); // an economy room has a runtime and no mode
     const g = goalsOf({ runtime: rt, winMode: 'points' })!;
@@ -494,9 +499,55 @@ describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
   });
 
   it('a mode room has no production to ask about, whatever its runtime', () => {
-    const rt = { sideWon: () => false, scoreUnitsOf: () => 0, completeTickOf: () => -1, productionLines: () => [{ alive: true, current: 'inf_squad', items: [] as string[] }], logisticsOf: () => 9999, popCapped: () => false };
+    const rt = { sideWon: () => false, scoreUnitsOf: () => 0, scoreOf: () => 0, completeTickOf: () => -1, productionLines: () => [{ alive: true, current: 'inf_squad', items: [] as string[] }], logisticsOf: () => 9999, popCapped: () => false };
     const world2 = { runtime: rt, factions: ['kdf', 'kdf'] as ['kdf', 'kdf'] };
     expect(productionOf({ ...world2, winMode: null })).toBeDefined(); // the control: an economy room with a line that can field
     expect(productionOf({ ...world2, winMode: 'camp' })).toBeUndefined();
+  });
+});
+
+describe('the cap of a points room is decided on the points (GH-976 P3)', () => {
+  const goals = (units: readonly [number, number], mode: 'points' | 'camp' | 'flag' = 'points'): OutcomeGoals => ({
+    mode, sideWon: () => false, scoreUnitsOf: (side) => units[side], scoreOf: (side) => Math.floor(units[side] / 1200), completeTickOf: () => -1,
+  });
+  // Side 0 has three armed units (900), side 1 one (300): surviving value says side 0, by a long way.
+  const lopsided = world([[0, 1, 0], [0, 1, 0], [0, 1, 0], [1, 1, 0]]);
+
+  it('the higher score wins at the cap although the other side has the larger force, and the result carries both totals', () => {
+    expect(outcomeOf(lopsided, MATCH_CAP_TICKS, costOf, undefined, MATCH_CAP_TICKS, goals([1200 * 100, 1200 * 140]))).toEqual({ kind: 'won', side: 1, by: 'time', forces: [900, 300], points: [100, 140] });
+    expect(outcomeOf(lopsided, MATCH_CAP_TICKS, costOf, undefined, MATCH_CAP_TICKS, goals([1200 * 140, 1200 * 100]))).toEqual({ kind: 'won', side: 0, by: 'time', forces: [900, 300], points: [140, 100] });
+  });
+
+  it('a level score is a draw, whatever the forces; one score unit settles it (the race runs on 1/1200ths of a point)', () => {
+    expect(outcomeOf(lopsided, MATCH_CAP_TICKS, costOf, undefined, MATCH_CAP_TICKS, goals([1200 * 80, 1200 * 80]))).toEqual({ kind: 'draw', by: 'time', forces: [900, 300], points: [80, 80] });
+    // 80 points and one unit against 80 points: the same whole points, and side 0 leads.
+    expect(outcomeOf(lopsided, MATCH_CAP_TICKS, costOf, undefined, MATCH_CAP_TICKS, goals([1200 * 80 + 1, 1200 * 80]))).toEqual({ kind: 'won', side: 0, by: 'time', forces: [900, 300], points: [80, 80] });
+  });
+
+  it('only at the cap: before it the room goes on, and the other rules stand ahead of the points', () => {
+    expect(outcomeOf(lopsided, MATCH_CAP_TICKS - 1, costOf, undefined, MATCH_CAP_TICKS, goals([0, 1200 * 140]))).toEqual({ kind: 'ongoing' });
+    // A side with no armed unit left has lost (annihilation) whatever it has banked.
+    expect(outcomeOf(world([[0, 1, 0], [1, 0, 0]]), MATCH_CAP_TICKS, costOf, undefined, MATCH_CAP_TICKS, goals([0, 1200 * 140]))).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+    // Every unit immobile ends it at once on surviving value, as before: a stalemate is no cap.
+    expect(outcomeOf(world([[0, 1, 2], [0, 1, 2], [1, 1, 2]]), 100, costOf, undefined, MATCH_CAP_TICKS, goals([0, 1200 * 140]))).toEqual({ kind: 'won', side: 0, by: 'stalemate', forces: [400, 200] });
+  });
+
+  it('a camp room, a flag room and an annihilation room still read surviving value at the cap, byte for byte', () => {
+    const forces = { kind: 'won', side: 0, by: 'time', forces: [900, 300] };
+    expect(outcomeOf(lopsided, MATCH_CAP_TICKS, costOf, undefined, MATCH_CAP_TICKS, undefined)).toEqual(forces);
+    expect(outcomeOf(lopsided, MATCH_CAP_TICKS, costOf, undefined, MATCH_CAP_TICKS, goals([0, 1200 * 140], 'camp'))).toEqual(forces);
+    expect(outcomeOf(lopsided, MATCH_CAP_TICKS, costOf, undefined, MATCH_CAP_TICKS, goals([0, 1200 * 140], 'flag'))).toEqual(forces);
+    expect(Object.keys(outcomeOf(lopsided, MATCH_CAP_TICKS, costOf))).toEqual(['kind', 'side', 'by', 'forces']); // no `points` key where there is no race
+  });
+
+  it('a goal completed by the cap still beats it', () => {
+    const done: OutcomeGoals = { ...goals([1200 * 100, 1200 * 140]), sideWon: (s) => s === 0, completeTickOf: (s) => (s === 0 ? 500 : -1) };
+    expect(outcomeOf(lopsided, MATCH_CAP_TICKS, costOf, undefined, MATCH_CAP_TICKS, done)).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'points' });
+  });
+
+  it('goalsOf carries the whole-point score the panel shows', () => {
+    const rt = { sideWon: () => false, scoreUnitsOf: (s: 0 | 1) => 1200 * 7 + s, scoreOf: (s: 0 | 1) => 7 + s * 10, completeTickOf: () => -1 };
+    const g = goalsOf({ runtime: rt, winMode: 'points' })!;
+    expect([g.scoreOf(0), g.scoreOf(1)]).toEqual([7, 17]);
   });
 });
