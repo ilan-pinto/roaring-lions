@@ -1,5 +1,16 @@
 /**
- * `pnpm nature:capture -- --out=<dir> [--port=5182 | NATURE_CAPTURE_PORT] [--phase=sheets,signal,cost] [--only=arid,green]`
+ * `pnpm nature:capture -- --out=<dir> [--port=5182 | NATURE_CAPTURE_PORT] [--phase=wash-sheets,signal,cost] [--layer=wash|disturb] [--only=arid,green]`
+ *
+ * GH-984 N3 (rotor wash on the vegetation) rides the same instrument. PHASE `wash-sheets` (the default; `sheets` is N2's) shoots,
+ * for arid and green, a `heli_peten` HOVERING LOW over the densest grass, shrubs and trees (`hover`, close and mid) and a Yanshuf
+ * LANDING (`landing`: the sim's own `unload` order, so `airLiftFrac` brings it down over 40 ticks), 8 frames 0.25 s apart, in
+ * two arms that are TWO PAGE LOADS stepped to the same absolute tick (the sim is deterministic, so the worlds are identical; the
+ * dust is dated by emission slot, so it cannot be A/B'd inside one page):
+ *   N1 + N2    the merged build: the `wash` layer hidden (no flatten, no thrash) AND the dust ring as it was (magnitude 1, speed x1:
+ *              the old curve was flat at 1 below 0.6 wu, and both scenes are speed 0)
+ *   + N3       the shipped build
+ * Rows: N1 + N2, + N3, and the difference x8. `--layer=wash` (the default) makes `signal` and `cost` toggle the `wash` layer; the
+ * cost scene then adds six hovering helicopters to its 24 hulls. `--layer=disturb` reproduces N2's numbers.
  *
  * GH-984 N2 (vehicles bend the vegetation): the mock clip sheets the lead approves, the `disturb` layer's
  * signal on the gated `vehicle` scenario, and the frame-cost A/B -- ALL in ONE Metal browser, music off, its own
@@ -52,7 +63,7 @@ import {
 } from '../golden-diff/capture-protocol';
 import { computeDiff } from '../golden-diff/diff';
 import { specFor } from '../golden-diff/baseline';
-import { gpuLaunchArgs } from '../ui-review/gpu';
+import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPortOrAttach } from '../ui-review/port';
 import { NATURE_DEFAULT_PORT, naturePortRefusal } from './nature-port';
@@ -68,10 +79,12 @@ if (refusal !== null) {
 }
 const { port: PORT } = await claimPortOrAttach(TAG, 'NATURE_CAPTURE_PORT', NATURE_DEFAULT_PORT);
 const OUT = resolve(arg('out', 'nature-sheets-out'));
-const PHASES = arg('phase', 'sheets,signal,cost').split(',');
+const PHASES = arg('phase', 'wash-sheets,signal,cost').split(',');
+/** The layer `signal` and `cost` toggle: N3's `wash` by default, N2's `disturb` on request. */
+const LAYER = arg('layer', 'wash') as 'wash' | 'disturb';
 const ONLY = arg('only', 'arid,green').split(',');
 /** Which clips of the `sheets` phase to shoot (`--scenes=pivot` re-shoots the pivot alone). */
-const SCENES = arg('scenes', 'drive,parked,pivot').split(',');
+const SCENES = arg('scenes', PHASES.includes('wash-sheets') ? 'hover,landing' : 'drive,parked,pivot').split(',');
 const ROOT = resolve(import.meta.dirname, '../../..');
 mkdirSync(OUT, { recursive: true });
 const lines: string[] = [];
@@ -181,6 +194,96 @@ const HELPERS = `(() => {
   return true;
 })()`;
 
+/** GH-984 N3's in-page instruments, added to `window.__n2`: type lookup, spawning, the air state, the two arms, the wash slots. */
+const N3_HELPERS = `(() => {
+  const L = window.__lions;
+  const r = L.renderer;
+  const sim = L.sim;
+  const Q = 65536;
+  const q = (v) => Math.round(v * Q);
+  const N2 = window.__n2;
+  function typeIndex(id) {
+    for (let t = 0; t < sim.unitTypes.length; t++) if (sim.unitTypes[t].id === id) return t;
+    return -1;
+  }
+  function friendly(id) {
+    const t = typeIndex(id);
+    if (t < 0) throw new Error('no unit type ' + id + ' registered in this sandbox');
+    for (let i = 0; i < sim.entityCount; i++) if (sim.state.alive[i] && sim.state.typeIdx[i] === t && sim.state.side[i] === 0) return i;
+    throw new Error('no living friendly ' + id);
+  }
+  function spawnAt(id, x, z) {
+    const t = typeIndex(id);
+    if (t < 0) throw new Error('no unit type ' + id + ' registered in this sandbox');
+    const e = sim.spawn(t, 0, q(x), q(z));
+    sim.queueCommand({ kind: 'halt', ids: [e] });
+    return e;
+  }
+  /** Seats one friendly rifle squad aboard \`car\` (the sim's own embarkAtSpawn): an unload order needs a passenger. */
+  function board(car) {
+    const t = typeIndex('inf_squad');
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (sim.state.alive[i] && sim.state.typeIdx[i] === t && sim.state.side[i] === 0 && sim.embarkAtSpawn(car, i)) return i;
+    }
+    return -1;
+  }
+  function unload(car) { sim.queueCommand({ kind: 'unload', ids: [car] }); }
+  function air(id) { return { state: sim.state.airState[id], timer: sim.state.airTimer[id], passengers: sim.state.passengers ? sim.state.passengers[id] : -1 }; }
+  /** The two arms: N1 + N2 hides the wash layer AND throws the dust as it was (magnitude 1, speed x1 -- the old curve was flat at 1 below 0.6 wu, and both scenes are speed 0). */
+  const patch = { oldDust: false, installed: false };
+  function arm(n3) {
+    if (!patch.installed) {
+      const p = r.particleSystem;
+      if (!p) throw new Error('no particle system');
+      const orig = p.spawn;
+      p.spawn = function (...a) {
+        // updateRotorWash is the only caller that passes the eleventh argument (the puff speed).
+        if (patch.oldDust && a.length === 11) { a[4] = 1; a[10] = 1; }
+        return orig.apply(this, a);
+      };
+      patch.installed = true;
+    }
+    r.setDebugLayerVisible('wash', n3);
+    patch.oldDust = !n3;
+  }
+  function wash() {
+    const u = r.disturbU;
+    const out = [];
+    for (let k = 0; k < u.n.value; k++) {
+      if (u.b.value[3 * k + 2] === 1) out.push({ x: u.a.value[4 * k], z: u.a.value[4 * k + 1], strength: u.b.value[3 * k + 1], reach: u.b.value[3 * k] * 1.25 });
+    }
+    return out;
+  }
+  function stateN3() {
+    const u = r.disturbU;
+    return { tick: sim.tickCount, spring: u.spring.value, n: u.n.value, wash: wash() };
+  }
+  Object.assign(N2, { typeIndex, friendly, spawnAt, board, unload, air, arm3: arm, wash, stateN3 });
+  return true;
+})()`;
+
+/** The densest GRASS spot for a helicopter to hover over (the lead asked for grass): grass and reeds first, shrubs and up to six trees weighted in, within 2.4 tiles, open ground, no building within 3.5, at least 6 grass or reeds and one shrub or tree to thrash. */
+async function findWashSpot(page: Page, list: readonly Inst[], w: number, h: number): Promise<{ x: number; z: number; grass: number; reed: number; shrub: number; tree: number } | null> {
+  return (await page.evaluate(
+    ([inst, width, height]) => {
+      const n2 = (window as unknown as { __n2: { open(x: number, z: number): boolean; clear(x: number, z: number, r: number): boolean } }).__n2;
+      let top: { x: number; z: number; grass: number; reed: number; shrub: number; tree: number; score: number } | null = null;
+      for (let x = 9; x <= (width as number) - 9; x++) {
+        for (let z = 9; z <= (height as number) - 9; z++) {
+          if (!n2.open(x + 0.5, z + 0.5) || !n2.clear(x + 0.5, z + 0.5, 3.5)) continue;
+          const c = [0, 0, 0, 0];
+          for (const i of inst as { x: number; z: number; cls: number }[]) if (Math.hypot(i.x - (x + 0.5), i.z - (z + 0.5)) <= 2.4) c[i.cls]++;
+          if (c[2] + c[3] < 1 || c[0] + c[1] < 6) continue;
+          const score = c[0] + c[1] + 3 * c[2] + 2 * Math.min(c[3], 6);
+          if (top === null || score > top.score) top = { x: x + 0.5, z: z + 0.5, grass: c[0], reed: c[1], shrub: c[2], tree: c[3], score };
+        }
+      }
+      return top;
+    },
+    [list, w, h] as const
+  )) as { x: number; z: number; grass: number; reed: number; shrub: number; tree: number } | null;
+}
+
 async function boot(page: Page, query: string): Promise<void> {
   await page.goto(`http://localhost:${PORT}/${query}`, { waitUntil: 'load', timeout: 120_000 });
   await page.mouse.move(2, 2);
@@ -189,6 +292,7 @@ async function boot(page: Page, query: string): Promise<void> {
   await page.evaluate(`(async () => { ${FREEZE_FRAME_LOOP_STATEMENTS} ${HIDE_ALERT_FEED_STATEMENTS} })()`);
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(HELPERS);
+  await page.evaluate(N3_HELPERS);
 }
 
 async function glRenderer(page: Page): Promise<string> {
@@ -312,14 +416,15 @@ async function composeSheet(
   tilesA: string[],
   tilesB: string[],
   cw: number,
-  ch: number
+  ch: number,
+  rowLabels: readonly [string, string] = ['N1 only', 'N1 + N2']
 ): Promise<{ png: Buffer; changed: number[] }> {
   // music-off: exempt -- a blank canvas page that composes the PNG; it never loads the game
   const page = await browser.newPage({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 1 });
   try {
-    const args = JSON.stringify([title, colLabels, tilesA, tilesB, cw, ch]);
+    const args = JSON.stringify([title, colLabels, tilesA, tilesB, cw, ch, rowLabels]);
     const result = (await page.evaluate(`(async () => {
-      const [titleS, cols, a, b, w, h] = ${args};
+      const [titleS, cols, a, b, w, h, rowNames] = ${args};
       const loadImg = (b64) => new Promise((res, rej) => {
         const im = new Image();
         im.onload = () => res(im);
@@ -364,8 +469,8 @@ async function composeSheet(
         changed.push(n);
       }
       ctx.fillStyle = '#e8e8e8';
-      ctx.fillText('N1 only', 8, top + 20);
-      ctx.fillText('N1 + N2', 8, top + (h + gap) + 20);
+      ctx.fillText(rowNames[0], 8, top + 20);
+      ctx.fillText(rowNames[1], 8, top + (h + gap) + 20);
       ctx.fillText('difference x8', 8, top + 2 * (h + gap) + 20);
       return { data: canvas.toDataURL('image/png').split(',')[1], changed };
     })()`)) as { data: string; changed: number[] };
@@ -569,6 +674,145 @@ async function sheetsPhase(browser: Browser, errors: string[]): Promise<void> {
 }
 const themePark = new Map<string, { x: number; z: number; grass: number; shrub: number }>();
 
+// --- the N3 sheets: a helicopter's wash on the vegetation ----------------------------------------------------------
+
+const WASH_ARMS = ['N1 + N2', '+ N3'] as const;
+interface WashSpot {
+  readonly x: number;
+  readonly z: number;
+  readonly grass: number;
+  readonly reed: number;
+  readonly shrub: number;
+  readonly tree: number;
+}
+interface WashFrame {
+  readonly tick: number;
+  readonly wash: { x: number; z: number; strength: number; reach: number }[];
+}
+
+/**
+ * One (theme, scene) in its two arms. Each arm is its own page load stepped to the same absolute ticks: the dust ring is dated
+ * by emission slot, so it cannot be switched between frames of one page without the second arm inheriting the first's puffs.
+ */
+async function washScene(
+  browser: Browser,
+  errors: string[],
+  theme: Theme,
+  scene: 'hover' | 'landing',
+  views: readonly View[]
+): Promise<void> {
+  const tiles: Record<string, string[][]> = Object.fromEntries(views.map((v) => [v.id, [[], []]]));
+  const cols: string[] = [];
+  const frames: WashFrame[][] = [[], []];
+  const landTicks: number[] = [];
+  let gl = '';
+  let spot: WashSpot | null = null;
+  let t0 = 0;
+  let census = '';
+  for (let a = 0; a < WASH_ARMS.length; a++) {
+    const page = await newPage(browser, errors, `${theme.id}-${scene}-${a}`);
+    await boot(page, `?sandbox=${theme.map}`);
+    gl = await glRenderer(page);
+    await clean(page);
+    const st0 = await call<{ tick: number; w: number; h: number }>(page, 'state');
+    const list = await call<Inst[]>(page, 'instances');
+    census = [0, 1, 2, 3].map((c) => list.filter((i) => i.cls === c).length).join(', ');
+    const found = await findWashSpot(page, list, st0.w, st0.h);
+    if (found === null) {
+      say(`  (no open spot with a shrub or tree and grass on ${theme.id}: ${scene} skipped)`);
+      await page.close();
+      return;
+    }
+    if (spot !== null && (spot.x !== found.x || spot.z !== found.z)) throw new Error(`${theme.id}/${scene}: the two loads chose different spots`);
+    spot = found;
+    // The same absolute ticks in both loads.
+    await stepTo(page, 400);
+    let unit: number;
+    if (scene === 'hover') {
+      unit = await call<number>(page, 'friendly', 'heli_peten');
+      await call(page, 'isolate', unit);
+      await call(page, 'place', unit, spot.x, spot.z, 0.25);
+      await stepTo(page, 401);
+      // Hover 4 s before the clip: the ring all one place, the wash steady.
+      t0 = 480;
+      await stepTo(page, t0);
+    } else {
+      unit = await call<number>(page, 'spawnAt', 'heli_yanshuf', spot.x, spot.z);
+      await call(page, 'isolate', unit);
+      await stepTo(page, 401);
+      const boarded = await call<number>(page, 'board', unit);
+      if (boarded < 0) throw new Error(`${theme.id}/landing: no rifle squad could board the Yanshuf`);
+      await stepTo(page, 411);
+      await call(page, 'unload', unit);
+      // The sim's own order: it lands at the LZ nearest where it hovers. Find the first tick the descent begins.
+      let tLand = -1;
+      for (let t = 412; t <= 520; t++) {
+        await stepTo(page, t);
+        if ((await call<{ state: number }>(page, 'air', unit)).state === 1) {
+          tLand = t;
+          break;
+        }
+      }
+      if (tLand < 0) throw new Error(`${theme.id}/landing: the Yanshuf never began to land`);
+      landTicks.push(tLand);
+      t0 = tLand;
+    }
+    await call(page, 'arm3', a === 1);
+    for (let k = 0; k < FRAMES; k++) {
+      await stepTo(page, t0 + k * TICKS_BETWEEN);
+      if (a === 0) cols.push(`+${(k * 0.25).toFixed(2)}s`);
+      for (const v of views) tiles[v.id][a].push(await shootFrame(page, spot.x, spot.z, v));
+      const s = await call<{ tick: number; wash: WashFrame['wash'] }>(page, 'stateN3');
+      frames[a].push({ tick: s.tick, wash: s.wash });
+    }
+    const alive = await page.evaluate((u) => (window as unknown as { __lions: { sim: { state: { alive: ArrayLike<number> } } } }).__lions.sim.state.alive[u as number], unit);
+    if (alive !== 1) throw new Error(`${theme.id}/${scene}: the aircraft was shot down during the clip (arm ${a})`);
+    await page.close();
+  }
+  if (spot === null) return;
+  if (landTicks.length === 2 && landTicks[0] !== landTicks[1]) throw new Error(`${theme.id}/landing: the arms began to land on different ticks ${landTicks.join(' vs ')}`);
+  const strengths = frames[1].map((f) => (f.wash[0] ? f.wash[0].strength.toFixed(2) : 'none'));
+  const reaches = frames[1].map((f) => (f.wash[0] ? f.wash[0].reach.toFixed(2) : 'none'));
+  const slotsOff = frames[0].map((f) => f.wash.length).join(',');
+  say(`  [${theme.id}] ${scene}: spot (${spot.x}, ${spot.z}); within 2.4 tiles grass ${spot.grass}, reed ${spot.reed}, shrub ${spot.shrub}, tree ${spot.tree}; map foliage (grass, reed, shrub, tree) ${census}`);
+  say(`  [${theme.id}] ${scene}: wash slot per frame in the + N3 arm: strength ${strengths.join(' ')}; reach (tiles) ${reaches.join(' ')}; wash slots live in the N1 + N2 arm: ${slotsOff} (must be 0)`);
+  if (frames[0].some((f) => f.wash.length > 0)) throw new Error(`${theme.id}/${scene}: the N1 + N2 arm still had a wash slot`);
+  if (frames[1].some((f) => f.wash.length === 0)) throw new Error(`${theme.id}/${scene}: the + N3 arm lost its wash slot`);
+  const lastTick = t0 + (FRAMES - 1) * TICKS_BETWEEN;
+  for (const v of views) {
+    const label = scene === 'hover' ? 'heli_peten hovering low' : 'Yanshuf landing (unload order)';
+    const title = `${theme.id} / ${theme.map} / ${label} / ${v.label} / sim ticks ${t0}..${lastTick} / ${gl.replace(/ANGLE \(|\)$/g, '')}`;
+    const { png, changed } = await composeSheet(browser, title, cols, tiles[v.id][0], tiles[v.id][1], v.cw, v.ch, WASH_ARMS);
+    const file = `${theme.id}-${scene}-${v.id}.png`;
+    writeFileSync(join(OUT, file), png);
+    say(`  -> ${file}: pixels differing by 16/255 or more, + N3 vs N1 + N2, per frame (of ${v.cw * v.ch}): ${changed.join(' ')}`);
+    washIndex.push(
+      `### ${theme.id}: ${label}, ${v.label}`, '', `![${theme.id} ${scene} ${v.id}](${file})`, '',
+      scene === 'hover'
+        ? `The \`heli_peten\` hovers at (${spot.x}, ${spot.z}), drawn at its 0.357 wu lift: wash strength ${strengths[0]}, reach ${reaches[0]} tiles (R0 1.2 x (1.5 + hNorm)). Within 2.4 tiles of it: ${spot.grass} grass, ${spot.reed} reed, ${spot.shrub} shrub and ${spot.tree} tree instances. Sim ticks ${t0} to ${lastTick}, 0.25 s apart. Pixels that differ by 16/255 or more, per frame (of ${v.cw * v.ch}): ${changed.join(', ')}.`
+        : `The Yanshuf is ordered to unload at (${spot.x}, ${spot.z}) and the sim brings it down over 40 ticks (\`airLiftFrac\`); the clip starts on the first tick of the descent. Wash strength per frame: ${strengths.join(', ')}; reach (tiles): ${reaches.join(', ')}. Pixels that differ by 16/255 or more, per frame (of ${v.cw * v.ch}): ${changed.join(', ')}.`,
+      ''
+    );
+  }
+}
+const washIndex: string[] = [];
+
+async function washSheetsPhase(browser: Browser, errors: string[]): Promise<void> {
+  for (const theme of THEMES) {
+    if (!ONLY.includes(theme.id)) continue;
+    washIndex.push(`## ${theme.id} (${theme.map})`, '');
+    if (SCENES.includes('hover')) {
+      await washScene(browser, errors, theme, 'hover', [
+        { id: 'close', label: 'close, zoom 1.8', zoom: 1.8, cw: 560, ch: 350 },
+        { id: 'mid', label: 'mid, zoom 1.1', zoom: 1.1, cw: 720, ch: 440 },
+      ]);
+    }
+    if (SCENES.includes('landing')) {
+      await washScene(browser, errors, theme, 'landing', [{ id: 'close', label: 'close, zoom 1.8', zoom: 1.8, cw: 560, ch: 350 }]);
+    }
+  }
+}
+
 // --- the signal phase --------------------------------------------------------------------------------------
 
 async function signalPhase(browser: Browser, errors: string[]): Promise<void> {
@@ -579,7 +823,7 @@ async function signalPhase(browser: Browser, errors: string[]): Promise<void> {
   const readings: { px: number; mean: number }[] = [];
   const dir = join(OUT, 'signal');
   mkdirSync(dir, { recursive: true });
-  say(`[signal] scenario vehicle (${scenario.sandboxMap}, tick ${scenario.targetTick}), layer disturb, ${runs} fresh page loads`);
+  say(`[signal] scenario vehicle (${scenario.sandboxMap}, tick ${scenario.targetTick}), layer ${LAYER}, ${runs} fresh page loads`);
   for (let r = 0; r < runs; r++) {
     const page = await newPage(browser, errors, `signal-${r}`);
     const png = join(dir, `r${r + 1}-current.png`);
@@ -588,14 +832,17 @@ async function signalPhase(browser: Browser, errors: string[]): Promise<void> {
     await rephotograph(page, REPAINT_SCRIPT, shown, res.rect);
     const control = computeDiff(png, shown, { outDir: dir, diffFileName: `r${r + 1}-control.png`, threshold: 0.1, region: spec?.region ?? undefined });
     const hidden = join(dir, `r${r + 1}-hidden.png`);
-    await rephotograph(page, layerToggleScript('disturb', false), hidden, res.rect);
-    await page.evaluate(layerToggleScript('disturb', true));
+    await rephotograph(page, layerToggleScript(LAYER, false), hidden, res.rect);
+    await page.evaluate(layerToggleScript(LAYER, true));
     const d = computeDiff(shown, hidden, { outDir: dir, diffFileName: `r${r + 1}-diff.png`, threshold: 0.1, region: spec?.region ?? undefined });
     const n = await page.evaluate(() => {
-      const w = window as unknown as { __lions: { renderer: { disturbU: { n: { value: number } }; snapshottedCount: number } } };
-      return { n: w.__lions.renderer.disturbU.n.value, snap: w.__lions.renderer.snapshottedCount };
+      const w = window as unknown as { __lions: { renderer: { disturbU: { n: { value: number }; b: { value: Float32Array } }; snapshottedCount: number } } };
+      const u = w.__lions.renderer.disturbU;
+      let wash = 0;
+      for (let k = 0; k < u.n.value; k++) if (u.b.value[3 * k + 2] === 1) wash++;
+      return { n: u.n.value, wash, snap: w.__lions.renderer.snapshottedCount };
     });
-    say(`[signal] r${r + 1}: repaint control ${control.diffPixels} px / ${control.meanAbsChannelDelta.toFixed(4)}; hiding disturb moves ${d.diffPixels} px / ${d.meanAbsChannelDelta.toFixed(4)} (${n.n} disturber slots live at the shown frame, ${n.snap} entities)`);
+    say(`[signal] r${r + 1}: repaint control ${control.diffPixels} px / ${control.meanAbsChannelDelta.toFixed(4)}; hiding ${LAYER} moves ${d.diffPixels} px / ${d.meanAbsChannelDelta.toFixed(4)} (${n.n} disturber slots live at the shown frame, ${n.wash} of them a rotor wash, ${n.snap} entities)`);
     readings.push({ px: d.diffPixels, mean: d.meanAbsChannelDelta });
     await page.close();
   }
@@ -626,11 +873,18 @@ async function costPhase(browser: Browser, errors: string[]): Promise<void> {
     const info = await page.evaluate(`(() => {
       const L = window.__lions; const sim = L.sim; const r = L.renderer; const Q = 65536;
       const types = []; for (let t = 0; t < sim.unitTypes.length; t++) types.push(sim.unitTypes[t].id);
-      const hull = types.indexOf('mbt_lavi'); const foot = types.indexOf('inf_squad');
+      const hull = types.indexOf('mbt_lavi'); const foot = types.indexOf('inf_squad'); const heli = types.indexOf('heli_peten');
       // The camera's centre: the map's middle. 24 hulls on a 6 x 4 lattice 2 tiles apart round it, 130 riflemen scattered, then moving.
       const cx = sim.width / 2, cz = sim.height / 2;
       const ids = [];
       for (let k = 0; k < 24; k++) ids.push(sim.spawn(hull, 0, Math.round((cx - 5 + (k % 6) * 2) * Q), Math.round((cz - 3 + Math.floor(k / 6) * 2) * Q)));
+      // GH-984 N3 (--layer=wash): six (spawned BEFORE the riflemen, which fill the sim to its capacity) helicopters hovering in a row across the middle of the view, so the wash is live beside the 24 hulls.
+      const helis = [];
+      if (${LAYER === 'wash' ? 'true' : 'false'}) {
+        if (heli < 0) throw new Error('no heli_peten registered');
+        for (let k = 0; k < 6; k++) helis.push(sim.spawn(heli, 0, Math.round((cx - 5 + k * 2) * Q), Math.round((cz - 6) * Q)));
+        sim.queueCommand({ kind: 'halt', ids: helis });
+      }
       let men = 0;
       for (let k = 0; sim.entityCount < sim.capacity - 2 && k < 400; k++) {
         const x = cx - 14 + ((k * 37) % 29), z = cz - 9 + ((k * 53) % 19);
@@ -640,9 +894,9 @@ async function costPhase(browser: Browser, errors: string[]): Promise<void> {
       sim.queueCommand({ kind: 'move', ids, x: Math.round((cx + 10) * Q), y: Math.round((cz + 2) * Q) });
       L.step(80);
       let live = 0; for (let i = 0; i < sim.entityCount; i++) if (sim.state.alive[i]) live++;
-      return { w: sim.width, h: sim.height, cap: sim.capacity, live, hulls: ids.length, men, buf: r.canvas.width + 'x' + r.canvas.height, cx, cz };
-    })()`) as { w: number; h: number; cap: number; live: number; hulls: number; men: number; buf: string; cx: number; cz: number };
-    say(`[cost ${preset}] ${map} ${info.w}x${info.h}; ${info.live} living units (24 hulls driving, ${info.men} riflemen; the sandbox sim's capacity is ${info.cap}); gl=${gl}; drawing buffer ${info.buf} (css 1440x900, dpr 2); load ${load()}`);
+      return { w: sim.width, h: sim.height, cap: sim.capacity, live, hulls: ids.length, helis: helis.length, men, buf: r.canvas.width + 'x' + r.canvas.height, cx, cz };
+    })()`) as { w: number; h: number; cap: number; live: number; hulls: number; men: number; buf: string; cx: number; cz: number; helis: number };
+    say(`[cost ${preset}] ${map} ${info.w}x${info.h}; ${info.live} living units (24 hulls driving, ${info.helis} helicopters hovering, ${info.men} riflemen; the sandbox sim's capacity is ${info.cap}); gl=${gl}; drawing buffer ${info.buf} (css 1440x900, dpr 2); load ${load()}`);
     const rows: string[] = [];
     type Sample = { cpuMed: number; cpuP95: number; gpuMed: number; gpuP95: number; calls: number; programs: number; n: number };
     const sample = (zoom: number): Promise<Sample> =>
@@ -670,12 +924,12 @@ async function costPhase(browser: Browser, errors: string[]): Promise<void> {
         [info.cx, info.cz, zoom] as const
       );
     const set = async (on: boolean, slots: number): Promise<void> => {
-      await page.evaluate(([v, s]) => {
+      await page.evaluate(([v, s, layer]) => {
         const r = (window as unknown as { __lions: { renderer: { setDebugLayerVisible(n: string, v: boolean): number; opts: { quality?: Record<string, unknown> } } } }).__lions.renderer;
-        r.setDebugLayerVisible('disturb', v as boolean);
+        r.setDebugLayerVisible(layer as string, v as boolean);
         const q = r.opts.quality ?? {};
         r.opts.quality = { ...q, nature: { wakes: true, foot: true, ...((q.nature as Record<string, unknown>) ?? {}), slots: s } };
-      }, [on, slots] as const);
+      }, [on, slots, LAYER] as const);
     };
     const f = (xs: Sample[], k: 'cpuMed' | 'cpuP95' | 'gpuMed' | 'gpuP95'): number => median(xs.map((x) => x[k]));
     const budget = preset === 'high' ? 0.6 : preset === 'medium' ? 0.5 : 0.3;
@@ -722,10 +976,11 @@ async function main(): Promise<void> {
   say(`load average at start: ${load()}`);
   const server = await ensureDevServer(PORT, ROOT, TAG);
   const stop = devServerStopper(server, TAG);
-  const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs('metal') });
+  const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(resolveGpuBackend(process.argv.slice(2), 'darwin')) });
   const errors: string[] = [];
   try {
     if (PHASES.includes('sheets')) await sheetsPhase(browser, errors);
+    if (PHASES.includes('wash-sheets')) await washSheetsPhase(browser, errors);
     if (PHASES.includes('signal')) await signalPhase(browser, errors);
     if (PHASES.includes('cost')) await costPhase(browser, errors);
     if (errors.length > 0) {
@@ -752,11 +1007,29 @@ async function main(): Promise<void> {
     '',
   ];
   if (PHASES.includes('sheets')) writeFileSync(join(OUT, 'index.md'), [...head, ...index].join('\n'));
+  if (PHASES.includes('wash-sheets')) {
+    const washHead = [
+      '# N3 rotor wash on the vegetation: mock clip sheets (GH-984)',
+      '',
+      'Each sheet is one clip: 8 frames 0.25 s (5 sim ticks) apart at fixed ticks. Rows: **N1 + N2** (the merged build: the wind and the vehicles\' bend), **+ N3** (this branch), and the difference between them, `|+N3 - N1+N2|` x8 white on black, so a lean of a pixel or two is readable.',
+      '',
+      '- One aircraft alone on the map (every other unit moved to a far corner and halted by the instrument); fog, overlays and the HUD are hidden.',
+      '- The two rows are TWO PAGE LOADS stepped to the same absolute tick (the sim is deterministic, so the worlds are identical): the dust ring is dated by emission slot, so it cannot be switched between frames of one page.',
+      '- **N1 + N2** is the shipped build with the `wash` layer hidden (the helicopter takes no disturber slot: no flatten, no thrash) and the dust ring as it was before N3: puff magnitude 1 and speed x1 (the old curve was flat at 1 below 0.6 wu, and both scenes are at speed 0). The instrument wraps `ParticleSystem.spawn` for the rotor-wash call (the only one with an eleventh argument) in that arm.',
+      '- **+ N3**: a disc at the aircraft, radius R0 x (1.5 + hNorm) with R0 = 1.2 tiles, strength the rotor wash (hover 0.76, touchdown 1.0, from the drawn lift). Grass and reeds flatten outward (up to 0.8 and 0.7 of their height); shrubs and crowns also thrash about their lean with a 0.4 s period on the sim clock (a shrub swings up to 0.06 of its height each way, a crown 0.02; each instance at its own phase). The dust ring\'s puff speed is 0.5 + 0.5 x strength of the emitter\'s.',
+      '- **The curve moved, and this is a finding.** `rotorWashStrength` was flat at 1.0 from 0.6 wu down, and the renderer draws an air unit at 0.357 wu, so a hover and a touchdown threw the same dust and nothing could "peak" on a landing. Its full point is now the ground (0 wu) and its none-height 1.5 wu (was 3.0): a hover reads 0.76, a touchdown 1.0.',
+      '- Mock instruments, stated: the aircraft is placed by writing `posX`/`posY`/`facing`; the Yanshuf is spawned at the spot, boarded by a rifle squad through the sim\'s own `embarkAtSpawn` and sent an `unload` command, so the descent is the sim\'s own `AIR_LANDING` over `airLiftFrac`. Everything else is the shipped renderer.',
+      '',
+      ...lines.filter((l) => /^\s*(\[|->)/.test(l)).map((l) => `- ${l.trim()}`),
+      '',
+    ];
+    writeFileSync(join(OUT, 'index.md'), [...washHead, ...washIndex].join('\n'));
+  }
   if (PHASES.includes('cost') || PHASES.includes('signal')) {
     writeFileSync(
       join(OUT, 'measurements.md'),
       [
-        '# N2 measurements (GH-984)',
+        `# ${LAYER === 'wash' ? 'N3' : 'N2'} measurements (GH-984), layer \`${LAYER}\``,
         '',
         ...(costRows.length
           ? ['| preset | slots | zoom | gpu p95 off | gpu p95 on | paired delta ms | budget | cpu median off / on | draw calls off / on | paired + rounds | load 1 min per arm-run (start->end, measured order) |', '|---|---|---|---|---|---|---|---|---|---|---|', ...costRows, '']
