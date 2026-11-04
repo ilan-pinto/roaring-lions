@@ -10,8 +10,10 @@ import { describe, expect, it } from 'vitest';
 import { QUALITY_PRESETS } from '../../quality';
 import { buildDecorMesh, swayingFoliageMaterial } from './decor-mesh';
 import {
+  DISTURB_B_STRIDE,
   DISTURB_CLASSES,
   DISTURB_CORE,
+  DISTURB_KIND_AIR,
   DISTURB_KIND_FOOT,
   DISTURB_KIND_HULL,
   DISTURB_KIND_NONE,
@@ -22,7 +24,10 @@ import {
   DISTURB_RING_SPACING_TICKS,
   DISTURB_SPRING_FLOOR,
   DISTURB_SPRING_HZ,
+  DISTURB_SLOT_GROUND,
+  DISTURB_SLOT_WASH,
   DISTURB_SPRING_ZETA,
+  DISTURB_THRASH_PERIOD_S,
   DISTURB_WAKE_MIN_LEN,
   DISTURB_WAKE_S,
   DISTURB_WAKE_TICKS,
@@ -34,11 +39,15 @@ import {
   disturbDisplacement,
   disturbFloat,
   disturbMathGlsl,
+  disturbPhase,
   disturbProfile,
   disturbT,
   disturbThetaMax,
+  disturbThrash,
+  disturbThrashMax,
   disturbUp,
   disturbVertexChunk,
+  disturbWashRadius,
   natureQualityOf,
   type DisturbFrame,
   type DisturbSource,
@@ -54,6 +63,7 @@ interface GlslTwin {
   rlDisturbProfile(t: number, spring: number): number;
   rlDisturbAmount(d: number, t: number, len: number, radius: number, strength: number, spring: number): number;
   rlDisturbAngle(cls: number, hN: number, mag: number): number;
+  rlDisturbThrash(cls: number, hN: number, wash: number, tSec: number, phase: number): number;
   rlDisturbAlong(along: number, h: number, theta: number): number;
   rlDisturbUp(along: number, h: number, theta: number): number;
 }
@@ -67,7 +77,7 @@ function twin(): GlslTwin {
     .replace(/^(\s*)float (\w+) =/gm, '$1let $2 =');
   const make = new Function(
     'cos', 'sin', 'exp', 'clamp', 'smoothstep', 'max', 'min', 'pow',
-    `${body}\nreturn { rlDisturbT, rlDisturbProfile, rlDisturbAmount, rlDisturbAngle, rlDisturbAlong, rlDisturbUp };`
+    `${body}\nreturn { rlDisturbT, rlDisturbProfile, rlDisturbAmount, rlDisturbAngle, rlDisturbThrash, rlDisturbAlong, rlDisturbUp };`
   ) as (...a: unknown[]) => GlslTwin;
   return make(
     Math.cos, Math.sin, Math.exp,
@@ -110,6 +120,7 @@ describe('the GLSL, run, equals the TS mirror', () => {
   const g = twin();
   it('t, profile, amount, angle and the rotation, sample by sample', () => {
     let moved = 0;
+    let thrashed = 0;
     for (let k = 0; k < 200; k++) {
       const ox = ((k * 29) % 97) / 7 - 6;
       const oz = ((k * 41) % 89) / 7 - 6;
@@ -133,6 +144,11 @@ describe('the GLSL, run, equals the TS mirror', () => {
       const hN = (k % 10) / 9;
       for (const cls of [0, 1, 2, 3]) {
         expect(g.rlDisturbAngle(cls, hN, mag)).toBeCloseTo(disturbAngle(cls, hN, mag), 7);
+        const tSec = (k * 0.037) % 5;
+        const phase = (k % 13) / 13;
+        const th = disturbThrash(cls, hN, mag, tSec, phase);
+        expect(g.rlDisturbThrash(cls, hN, mag, tSec, phase), `thrash class ${cls}`).toBeCloseTo(th, 6);
+        if (cls >= 2 && Math.abs(th) > 0.002) thrashed++;
       }
       const along = ((k % 15) - 7) / 10;
       const h = (k % 12) / 10;
@@ -142,6 +158,7 @@ describe('the GLSL, run, equals the TS mirror', () => {
     }
     // Anti-vacuity: the comparison is not 0 == 0.
     expect(moved).toBeGreaterThan(60);
+    expect(thrashed).toBeGreaterThan(60);
   });
   it('carries every constant as its delimited eight-digit literal', () => {
     const src = disturbMathGlsl();
@@ -151,6 +168,16 @@ describe('the GLSL, run, equals the TS mirror', () => {
     // The class tables, in id order.
     expect(src).toContain(`float[4](${DISTURB_CLASSES.map((c) => disturbFloat(c.stiffness)).join(', ')})`);
     expect(src).toContain(`float[4](${DISTURB_CLASSES.map((_c, i) => disturbFloat(disturbThetaMax(i))).join(', ')})`);
+    // N3: the thrash's swing per class and its period.
+    expect(src).toContain(`float[4](${DISTURB_CLASSES.map((_c, i) => disturbFloat(disturbThrashMax(i))).join(', ')})`);
+    expect(src).toContain(disturbFloat(DISTURB_THRASH_PERIOD_S));
+  });
+  it('the shader\'s per-instance phase is the TS mirror\'s: the same two constants, fract of their sum', () => {
+    expect(disturbVertexChunk()).toContain('fract(rlDOrigin.x * 0.7361 + rlDOrigin.z * 0.4219)');
+    const p = (x: number, z: number): number => { const v = x * 0.7361 + z * 0.4219; return v - Math.floor(v); };
+    for (const [x, z] of [[3.5, 4.5], [-2.25, 9.75], [10, 10]]) expect(disturbPhase(x, z)).toBeCloseTo(p(x, z), 12);
+    expect(disturbPhase(-2.25, 9.75)).toBeGreaterThanOrEqual(0);
+    expect(disturbPhase(-2.25, 9.75)).toBeLessThan(1);
   });
 });
 
@@ -271,7 +298,7 @@ function world(): {
   src: DisturbSource;
   frame: DisturbFrame;
   px: Float64Array; pz: Float64Array; cx: Float64Array; cz: Float64Array;
-  typeIdx: Uint8Array; alive: Uint8Array;
+  typeIdx: Uint8Array; alive: Uint8Array; speed: Float64Array; height: Float64Array;
 } {
   const n = 40;
   const px = new Float64Array(n);
@@ -280,16 +307,20 @@ function world(): {
   const cz = new Float64Array(n);
   const typeIdx = new Uint8Array(n);
   const alive = new Uint8Array(n).fill(1);
+  const speed = new Float64Array(n);
+  const height = new Float64Array(n).fill(0.357);
   const src: DisturbSource = {
     alive,
     typeIdx,
     prevX: px, prevZ: pz, curX: cx, curZ: cz,
-    kindOfType: [DISTURB_KIND_NONE, DISTURB_KIND_HULL, DISTURB_KIND_FOOT],
-    radiusOfType: [0, 1.35, 0.6],
+    kindOfType: [DISTURB_KIND_NONE, DISTURB_KIND_HULL, DISTURB_KIND_FOOT, DISTURB_KIND_AIR],
+    radiusOfType: [0, 1.35, 0.6, 0],
+    speed,
+    airHeight: (i) => height[i],
     skip: () => false,
   };
-  const frame: DisturbFrame = { count: n, tick: 100, alpha: 0.5, focusX: 20, focusZ: 20, viewRadius: 30, slots: 24, wakes: true, foot: true };
-  return { src, frame, px, pz, cx, cz, typeIdx, alive };
+  const frame: DisturbFrame = { count: n, tick: 100, alpha: 0.5, focusX: 20, focusZ: 20, viewRadius: 30, slots: 24, wakes: true, foot: true, air: true };
+  return { src, frame, px, pz, cx, cz, typeIdx, alive, speed, height };
 }
 
 describe('choosing the slots', () => {
@@ -304,7 +335,7 @@ describe('choosing the slots', () => {
     for (const slots of [24, 16, 8, 0]) {
       field.build(w.src, { ...w.frame, slots });
       expect(field.count).toBe(slots);
-      const radii = Array.from({ length: field.count }, (_, k) => field.b[2 * k]);
+      const radii = Array.from({ length: field.count }, (_, k) => field.b[DISTURB_B_STRIDE * k]);
       expect(radii.every((r) => Math.abs(r - 1.35) < 1e-6), `${slots}: only hulls while there are 24 hulls to take`).toBe(true);
       const d = Array.from({ length: field.count }, (_, k) => Math.hypot(field.a[4 * k] - 20, field.a[4 * k + 1] - 20));
       expect(d).toEqual([...d].sort((a, b) => a - b));
@@ -313,7 +344,7 @@ describe('choosing the slots', () => {
     for (let i = 5; i < 30; i++) w.alive[i] = 0;
     field.build(w.src, w.frame);
     expect(field.count).toBe(15);
-    expect(Array.from({ length: 15 }, (_, k) => field.b[2 * k + 1])).toEqual([...Array(5).fill(1), ...Array(10).fill(0.25)]);
+    expect(Array.from({ length: 15 }, (_, k) => field.b[DISTURB_B_STRIDE * k + 1])).toEqual([...Array(5).fill(1), ...Array(10).fill(0.25)]);
     field.build(w.src, { ...w.frame, foot: false });
     expect(field.count).toBe(5);
   });
@@ -439,6 +470,14 @@ describe('the chunk', () => {
     expect(src).toContain(`rlDi < ${DISTURB_MAX}`);
     expect(src).toContain('uDisturbN * uDisturbAmp > 0.5');
   });
+  it('N3: sums the wash on its own, and evaluates the thrash only where a wash reaches (N2 pays for no sin and pow)', () => {
+    const src = disturbVertexChunk();
+    expect(src).toContain('rlDWash += rlDB.z * rlDAmt;');
+    expect(src.indexOf('rlDWash += ')).toBeLessThan(src.indexOf('if (rlDWash > 0.0001)'));
+    expect(src.indexOf('if (rlDWash > 0.0001)')).toBeLessThan(src.indexOf('rlDisturbThrash(int('));
+    // The reduced-motion switch multiplies the thrash and nothing else; the clock it reads is the wind's.
+    expect(src).toContain('rlDisturbThrash(int(rlNature.y + 0.5), rlNature.x, rlDWash, uSwayTime, rlDPhase) * uDisturbSpring');
+  });
   it('a built decor mesh still builds with a disturbance set (no batch attribute changed)', () => {
     const group = buildDecorMesh([], { parts: new Map() }, { time: { value: 0 }, amp: { value: 1 }, wind: makeWindUniforms(), disturb: makeDisturbUniforms() });
     expect(group).toBeInstanceOf(THREE.Group);
@@ -446,7 +485,7 @@ describe('the chunk', () => {
 });
 
 describe('the sim clock: no frame time anywhere in the disturbance', () => {
-  for (const file of ['terrain/disturb.ts', 'terrain/disturb-uniforms.ts', 'units/ground-churn.ts']) {
+  for (const file of ['terrain/disturb.ts', 'terrain/disturb-uniforms.ts', 'units/ground-churn.ts', 'units/rotor-wash.ts']) {
     it(`${file} reads no dtMs, performance.now, Date.now or Math.random`, () => {
       const src = readFileSync(join(__dirname, '..', file), 'utf8')
         .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -456,4 +495,179 @@ describe('the sim clock: no frame time anywhere in the disturbance', () => {
       }
     });
   }
+});
+
+// --- N3: the rotor wash -----------------------------------------------------------------------------
+
+describe('GH-984 N3: the rotor wash, as literals', () => {
+  it('pins the design: R0 1.2 tiles, radius R0 x (1.5 + hNorm), a 0.4 s thrash', () => {
+    expect(DISTURB_THRASH_PERIOD_S).toBe(0.4);
+    expect(disturbWashRadius(0)).toBeCloseTo(1.8, 12); // 1.2 x 1.5
+    expect(disturbWashRadius(1)).toBeCloseTo(3.0, 12); // 1.2 x 2.5
+    expect(disturbWashRadius(0.5)).toBeCloseTo(2.4, 12);
+    // Grass and reeds only flatten; a shrub and a crown also thrash.
+    expect(DISTURB_CLASSES.map((c) => c.thrash)).toEqual([0, 0, 0.06, 0.02]);
+    expect(disturbThrashMax(WIND_CLASS_GRASS)).toBe(0);
+    expect(disturbThrashMax(WIND_CLASS_REED)).toBe(0);
+    expect(Math.cos(disturbThrashMax(WIND_CLASS_SHRUB))).toBeCloseTo(0.94, 12);
+    expect(Math.cos(disturbThrashMax(WIND_CLASS_TREE))).toBeCloseTo(0.98, 12);
+    expect(DISTURB_SLOT_GROUND).toBe(0);
+    expect(DISTURB_SLOT_WASH).toBe(1);
+    expect(DISTURB_B_STRIDE).toBe(3);
+  });
+});
+
+describe('GH-984 N3: what a vertex does under a wash', () => {
+  // A wash disc: ring radius is the outer reach over DISTURB_REACH (the field writes it so), 2.4 tiles of reach here.
+  const WASH = { ax: 0, az: 0, bx: 0, bz: 0, radius: 2.4 / DISTURB_REACH, strength: 0.8, kind: DISTURB_SLOT_WASH };
+  const tip = { x: 0, h: 1, z: 0 };
+  it('is radial: grass flattens AWAY from the hub, the same amount in every direction', () => {
+    const lie: number[] = [];
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const ox = Math.cos(a) * 0.8;
+      const oz = Math.sin(a) * 0.8;
+      const d = disturbDisplacement([WASH], WIND_CLASS_GRASS, 1, ox, oz, tip, 1, 0);
+      expect(d.dx * ox + d.dz * oz, `direction ${k} leans away`).toBeGreaterThan(0.05);
+      // and exactly along the radius
+      expect(Math.abs(d.dx * oz - d.dz * ox)).toBeLessThan(1e-9);
+      lie.push(d.dy);
+    }
+    expect(Math.max(...lie) - Math.min(...lie)).toBeLessThan(1e-9);
+    expect(Math.min(...lie)).toBeLessThan(-0.4); // 0.8 of a full push: grass lies a long way down
+  });
+  it('grass and reeds do not thrash: the clock moves nothing', () => {
+    for (const cls of [WIND_CLASS_GRASS, WIND_CLASS_REED]) {
+      const a = disturbDisplacement([WASH], cls, 1, 0.8, 0, tip, 1, 0.0);
+      const b = disturbDisplacement([WASH], cls, 1, 0.8, 0, tip, 1, 0.1);
+      expect(b).toEqual(a);
+    }
+  });
+  it('shrubs and crowns thrash: they swing about their lean with the 0.4 s period, the sim clock the only input', () => {
+    for (const cls of [WIND_CLASS_SHRUB, WIND_CLASS_TREE]) {
+      const at = (t: number): number => disturbDisplacement([WASH], cls, 1, 0.8, 0, tip, 1, t).dx;
+      const phase = disturbPhase(0.8, 0);
+      // The swing is a sine of (t/0.4 + phase): a quarter period apart it is at its two extremes.
+      const tPeak = (0.25 - phase) * 0.4;
+      const hi = at(tPeak);
+      const lo = at(tPeak + 0.2);
+      expect(hi - lo, `${DISTURB_CLASSES[cls].name} swings`).toBeGreaterThan(0.02);
+      // One period later it is back where it was.
+      expect(at(0.13 + 0.4)).toBeCloseTo(at(0.13), 9);
+      expect(at(0.13 + 0.2)).not.toBeCloseTo(at(0.13), 3);
+    }
+  });
+  it('the thrash scales with the wash: a weak wash barely stirs a shrub', () => {
+    const swing = (strength: number): number => {
+      const w = { ...WASH, strength };
+      const phase = disturbPhase(0.8, 0);
+      const tPeak = (0.25 - phase) * 0.4;
+      return disturbDisplacement([w], WIND_CLASS_SHRUB, 1, 0.8, 0, tip, 1, tPeak).dx - disturbDisplacement([w], WIND_CLASS_SHRUB, 1, 0.8, 0, tip, 1, tPeak + 0.2).dx;
+    };
+    expect(swing(0.8)).toBeGreaterThan(swing(0.3) * 1.5);
+  });
+  it('a hull alone never thrashes (only a wash slot does)', () => {
+    const hull = { ...WASH, kind: DISTURB_SLOT_GROUND };
+    const a = disturbDisplacement([hull], WIND_CLASS_SHRUB, 1, 0.8, 0, tip, 1, 0.0);
+    const b = disturbDisplacement([hull], WIND_CLASS_SHRUB, 1, 0.8, 0, tip, 1, 0.1);
+    expect(b).toEqual(a);
+  });
+  it('reduced motion (spring 0): the flatten stays, static, and nothing thrashes', () => {
+    for (const cls of [WIND_CLASS_GRASS, WIND_CLASS_SHRUB, WIND_CLASS_TREE]) {
+      const a = disturbDisplacement([WASH], cls, 1, 0.8, 0, tip, 0, 0.0);
+      const b = disturbDisplacement([WASH], cls, 1, 0.8, 0, tip, 0, 0.1);
+      expect(b, `class ${cls}: the clock moves nothing`).toEqual(a);
+      expect(a.dx, `class ${cls}: still flattened`).toBeGreaterThan(0);
+    }
+  });
+  it('outside the reach, nothing moves', () => {
+    const d = disturbDisplacement([WASH], WIND_CLASS_SHRUB, 1, 2.41, 0, tip, 1, 0.07);
+    expect(d).toEqual({ dx: 0, dy: 0, dz: 0 });
+  });
+});
+
+describe('GH-984 N3: the wash slots', () => {
+  const HOVER_M = 0.357; // the drawn hover lift, world units
+  function airWorld(n = 1) {
+    const w = world();
+    w.typeIdx.fill(0);
+    for (let i = 0; i < n; i++) {
+      w.typeIdx[i] = 3;
+      w.px[i] = w.cx[i] = 20 + i;
+      w.pz[i] = w.cz[i] = 20;
+    }
+    return w;
+  }
+  it('a hovering rotorcraft takes a slot: a disc, strength the wash, radius R0 x (1.5 + hNorm), kind 1', () => {
+    const w = airWorld();
+    w.height[0] = 0; // on the ground: hNorm 0
+    const field = new DisturbField(40);
+    field.build(w.src, w.frame);
+    expect(field.count).toBe(1);
+    expect(field.b[2]).toBe(DISTURB_SLOT_WASH);
+    expect(field.b[1]).toBeCloseTo(1, 6); // touchdown: the peak
+    expect(field.b[0] * DISTURB_REACH).toBeCloseTo(1.8, 5); // 1.2 x 1.5 tiles of reach
+    expect([field.a[0], field.a[1]]).toEqual([field.a[2], field.a[3]]); // a disc, never a wake
+    const reach = field.b[0] * DISTURB_REACH;
+    expect(field.box[2] - field.box[0]).toBeCloseTo(2 * reach, 4);
+  });
+  it('higher means a wider, weaker wash (hNorm 0.5 at 0.75 wu: 2.4 tiles, strength 0.5)', () => {
+    const w = airWorld();
+    w.height[0] = 0.75;
+    const field = new DisturbField(40);
+    field.build(w.src, w.frame);
+    expect(field.b[0] * DISTURB_REACH).toBeCloseTo(2.4, 5);
+    expect(field.b[1]).toBeCloseTo(0.5, 5);
+  });
+  it('forward flight thins it (full speed keeps half), and too high or too fast takes no slot at all', () => {
+    const w = airWorld();
+    w.height[0] = 0;
+    w.speed[0] = 2;
+    const field = new DisturbField(40);
+    field.build(w.src, w.frame);
+    expect(field.b[1]).toBeCloseTo(0.5, 6);
+    w.height[0] = 1.5; // the none-height
+    w.speed[0] = 0;
+    field.build(w.src, w.frame);
+    expect(field.count).toBe(0);
+    w.height[0] = 1.4; // strength 0.0667, under the 0.08 floor
+    field.build(w.src, w.frame);
+    expect(field.count).toBe(0);
+    w.height[0] = 1.3; // strength 0.133
+    field.build(w.src, w.frame);
+    expect(field.count).toBe(1);
+  });
+  it('the wash layer hides it (air false), and a drone, being kind NONE, never had one', () => {
+    const w = airWorld();
+    w.height[0] = HOVER_M;
+    const field = new DisturbField(40);
+    field.build(w.src, { ...w.frame, air: false });
+    expect(field.count).toBe(0);
+    field.build(w.src, w.frame);
+    expect(field.count).toBe(1);
+    w.typeIdx[0] = 0; // a drone: the renderer files every soft air type under NONE
+    field.build(w.src, w.frame);
+    expect(field.count).toBe(0);
+  });
+  it('shares the array with hulls: they come before men, and the preset budget caps the lot', () => {
+    const w = airWorld(2);
+    w.typeIdx[2] = 1;
+    w.typeIdx[3] = 2;
+    w.px[2] = w.cx[2] = w.pz[2] = w.cz[2] = 22;
+    w.px[3] = w.cx[3] = w.pz[3] = w.cz[3] = 19;
+    const field = new DisturbField(40);
+    field.build(w.src, { ...w.frame, slots: 3 });
+    expect(field.count).toBe(3);
+    const kinds = Array.from({ length: 3 }, (_, k) => field.b[DISTURB_B_STRIDE * k + 2]);
+    expect(kinds.filter((x) => x === DISTURB_SLOT_WASH)).toHaveLength(2);
+    expect(Array.from({ length: 3 }, (_, k) => field.b[DISTURB_B_STRIDE * k + 1]).every((s) => s > 0.5)).toBe(true); // the man (0.25) was the one cut
+  });
+  it('is a function of (tick, alpha): the head is lerp(prev, cur, alpha) and nothing else moves it', () => {
+    const w = airWorld();
+    w.px[0] = 10;
+    w.cx[0] = 12;
+    const field = new DisturbField(40);
+    field.build(w.src, { ...w.frame, focusX: 11, alpha: 0.25 });
+    expect(field.a[0]).toBeCloseTo(10.5, 6);
+  });
 });

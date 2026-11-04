@@ -5,7 +5,7 @@
  * OPTION A of the design (the lead's pick, 3 Nov): a small array of capsules, +0 draw calls, +0
  * programs (the chunk rides the wind's). Not a render target: a wake lasts 1.5 s, not 10.
  *
- * WHAT A DISTURBER IS. `a = (ax, az, bx, bz)` and `b = (radius, strength)`. A moving hull is a
+ * WHAT A DISTURBER IS. `a = (ax, az, bx, bz)` and `b = (radius, strength, kind)`. A moving hull is a
  * CAPSULE from where it is now (`a.xy`, the sim's interpolated position `lerp(prev, cur, alpha)`,
  * never the drawn hull, whose weight lag is per-frame) back to where it was `DISTURB_WAKE_TICKS`
  * (1.5 s) ago (`a.zw`, from a per-entity ring of TICK positions). A parked hull is the same
@@ -30,10 +30,18 @@
  * The profile is a damped spring released at the head (springs back in the wake, with a small
  * overshoot), or, under reduced motion, a monotone fall: a static displacement with no spring.
  *
+ * THE WASH (GH-984 N3). A helicopter takes a slot of its own kind (`b.z` 1): a disc, never a wake, whose radius is
+ * `R0 x (1.5 + hNorm)` (R0 1.2 tiles, `hNorm` 0 on the ground to 1 at the wash's none-height) and whose strength IS the
+ * rotor wash (`units/rotor-wash.ts`, from the drawn lift and the tick-exact speed). The push is the same radial one, so
+ * grass and reeds flatten outward; and the strength a slot adds is also summed on its own, as the THRASH: shrubs and
+ * crowns oscillate about their lean at `DISTURB_THRASH_PERIOD_S` (0.4 s) on the SIM clock (`uSwayTime`), each
+ * instance at its own phase. Reduced motion (`uDisturbSpring` 0) keeps the flatten and drops the thrash.
+ *
  * A uniform bounding box of every disturber lets most vertices skip the loop. The shadow and AO
  * passes keep the rest pose, as for the wind. Nothing here reads or writes sim state.
  */
 import { QUALITY_PRESETS, type NatureQuality, type RenderQuality } from '../../quality';
+import { ROTOR_WASH_MIN_STRENGTH, rotorWashHeightNorm, rotorWashStrength } from '../units/rotor-wash';
 import { WIND_CLASS_GRASS, WIND_CLASS_REED, WIND_CLASS_SHRUB, WIND_CLASS_TREE } from './wind';
 
 // --- the budget -----------------------------------------------------------------------------------
@@ -65,6 +73,22 @@ export const DISTURB_REACH = 1.25;
 /** What an infantryman pushes with, against a hull's 1 (design decision 5: weakly). */
 export const DISTURB_FOOT_STRENGTH = 0.25;
 
+/** The rotor wash's radius is `R0 x (1.5 + hNorm)` tiles (the design's R0, 1.2); it is the OUTER reach, where the push is gone. */
+export const DISTURB_WASH_R0_TILES = 1.2;
+export const DISTURB_WASH_RADIUS_BASE = 1.5;
+/** The thrash of a shrub or a crown under the wash: this period, on the sim clock. */
+export const DISTURB_THRASH_PERIOD_S = 0.4;
+/** What a slot is, in `b.z`: the ground (a hull or a man) or a rotor wash (which also thrashes). */
+export const DISTURB_SLOT_GROUND = 0;
+export const DISTURB_SLOT_WASH = 1;
+/** Floats per slot in `b`: radius, strength, slot kind. */
+export const DISTURB_B_STRIDE = 3;
+
+/** The wash's outer radius in tiles at a height-norm `hNorm` (0 on the ground, 1 at the wash's none-height). */
+export function disturbWashRadius(hNorm: number): number {
+  return DISTURB_WASH_R0_TILES * (DISTURB_WASH_RADIUS_BASE + hNorm);
+}
+
 /**
  * The spring a blade is released on as the hull passes: natural frequency 1.1 Hz, damping ratio 0.45,
  * so it overshoots by 20% and has settled by the tail's 1.5 s (envelope 0.9%). `FLOOR` bounds the
@@ -82,14 +106,16 @@ export interface DisturbClass {
   readonly cap: number;
   /** `weight = (height in the family's box) ^ stiffness`: bigger bends later and harder at the tip. */
   readonly stiffness: number;
+  /** The share of its height the tip swings by, each way, under a full wash (the thrash): 0 for what only flattens. */
+  readonly thrash: number;
 }
 
 /** Indexed by the wind's class id (`rlNature.y`). Reed and tree values are mine, for the mock to judge. */
 export const DISTURB_CLASSES: readonly DisturbClass[] = [
-  { name: 'grass', cap: 0.8, stiffness: 1.2 },
-  { name: 'reed', cap: 0.7, stiffness: 1.2 },
-  { name: 'shrub', cap: 0.35, stiffness: 1.5 },
-  { name: 'tree', cap: 0.01, stiffness: 2 },
+  { name: 'grass', cap: 0.8, stiffness: 1.2, thrash: 0 },
+  { name: 'reed', cap: 0.7, stiffness: 1.2, thrash: 0 },
+  { name: 'shrub', cap: 0.35, stiffness: 1.5, thrash: 0.06 },
+  { name: 'tree', cap: 0.01, stiffness: 2, thrash: 0.02 },
 ];
 
 if (
@@ -104,6 +130,11 @@ if (
 /** The tip's rotation at full push, radians: it ends `cap` of its height lower. */
 export function disturbThetaMax(cls: number): number {
   return Math.acos(1 - DISTURB_CLASSES[cls].cap);
+}
+
+/** The thrash's swing each way at a full wash, radians (0 for a class that only flattens). */
+export function disturbThrashMax(cls: number): number {
+  return Math.acos(1 - DISTURB_CLASSES[cls].thrash);
 }
 
 // --- the maths (the shader's mirror) --------------------------------------------------------------
@@ -152,6 +183,23 @@ export function disturbAngle(cls: number, hN: number, mag: number): number {
   return Math.min(1, mag) * weight * disturbThetaMax(cls);
 }
 
+/** Where in its cycle an instance at world `(ox, oz)` is: neighbours differ, so a stand of crowns does not beat in unison. 0..1. */
+export function disturbPhase(ox: number, oz: number): number {
+  const p = ox * 0.7361 + oz * 0.4219;
+  return p - Math.floor(p);
+}
+
+/**
+ * The thrash: a swing about the lean, `sin` of the SIM clock at the period, scaled by the wash a vertex stands in
+ * (`wash`, the sum of the wash slots' pushes there, capped at 1) and the same height weight as the lean.
+ * Signed: it swings back toward the hull as well as away.
+ */
+export function disturbThrash(cls: number, hN: number, wash: number, tSec: number, phase: number): number {
+  const c = DISTURB_CLASSES[cls];
+  const weight = Math.pow(Math.min(1, Math.max(0, hN)), c.stiffness);
+  return Math.min(1, wash) * weight * disturbThrashMax(cls) * Math.sin(2 * Math.PI * (tSec / DISTURB_THRASH_PERIOD_S + phase));
+}
+
 /** A vertex at `along` the push direction and `h` above the foot, rotated by `theta` about the foot. */
 export function disturbAlong(along: number, h: number, theta: number): number {
   return along * Math.cos(theta) + h * Math.sin(theta);
@@ -167,6 +215,8 @@ export interface DisturberSlot {
   readonly bz: number;
   readonly radius: number;
   readonly strength: number;
+  /** `DISTURB_SLOT_WASH` for a rotor wash (default `DISTURB_SLOT_GROUND`). */
+  readonly kind?: number;
 }
 
 /**
@@ -180,10 +230,12 @@ export function disturbDisplacement(
   ox: number,
   oz: number,
   rel: { x: number; h: number; z: number },
-  spring: number
+  spring: number,
+  tSec = 0
 ): { dx: number; dy: number; dz: number } {
   let px = 0;
   let pz = 0;
+  let wash = 0;
   for (const s of slots) {
     const t = disturbT(ox, oz, s.ax, s.az, s.bx, s.bz);
     let awayX = ox - (s.ax + (s.bx - s.ax) * t);
@@ -199,12 +251,13 @@ export function disturbDisplacement(
     const amount = disturbAmount(d, t, Math.hypot(s.bx - s.ax, s.bz - s.az), s.radius, s.strength, spring);
     px += awayX * amount;
     pz += awayZ * amount;
+    if (s.kind === DISTURB_SLOT_WASH) wash += amount;
   }
   const mag = Math.hypot(px, pz);
   if (mag <= 1e-5) return { dx: 0, dy: 0, dz: 0 };
   const dirX = px / mag;
   const dirZ = pz / mag;
-  const theta = disturbAngle(cls, hN, mag);
+  const theta = disturbAngle(cls, hN, mag) + disturbThrash(cls, hN, wash, tSec, disturbPhase(ox, oz)) * spring;
   const along = rel.x * dirX + rel.z * dirZ;
   const dAlong = disturbAlong(along, rel.h, theta) - along;
   return { dx: dirX * dAlong, dy: disturbUp(along, rel.h, theta) - rel.h, dz: dirZ * dAlong };
@@ -285,11 +338,13 @@ export class WakeRing {
 
 // --- choosing and building the disturbers ---------------------------------------------------------
 
-/** What a unit TYPE does to vegetation: nothing (air is N3's), a hull (`mobility.wheeled`, tracked included), or anything else on foot, which
- *  bends grass weakly at `high` whether it walks or stands (a parked crew included: a man standing in grass presses it too). */
+/** What a unit TYPE does to vegetation: nothing (a drone, or anything soft in the air: it throws no wash), a hull (`mobility.wheeled`,
+ *  tracked included), anything else on foot, which bends grass weakly at `high` whether it walks or stands (a parked crew included:
+ *  a man standing in grass presses it too), or a rotorcraft, whose wash flattens and thrashes (GH-984 N3). */
 export const DISTURB_KIND_NONE = 0;
 export const DISTURB_KIND_HULL = 1;
 export const DISTURB_KIND_FOOT = 2;
+export const DISTURB_KIND_AIR = 3;
 
 export interface DisturbSource {
   readonly alive: ArrayLike<number>;
@@ -302,6 +357,10 @@ export interface DisturbSource {
   readonly kindOfType: ArrayLike<number>;
   /** By type index: the disc radius, tiles (`RADIUS_BY_TYPE`). */
   readonly radiusOfType: ArrayLike<number>;
+  /** Per entity: the last tick's speed, tiles/s (tick-exact, so the wash is a function of the tick). */
+  readonly speed: ArrayLike<number>;
+  /** An air entity's lift above the ground at `alpha`, world units (a function of the sim's air state and `alpha`, never of the drawn hull). */
+  airHeight(entity: number, alpha: number): number;
   /** An entity the viewer cannot see, or that is underground, garrisoned or otherwise not on the ground. */
   skip(entity: number): boolean;
 }
@@ -321,6 +380,8 @@ export interface DisturbFrame {
   slots: number;
   wakes: boolean;
   foot: boolean;
+  /** False while the `wash` debug layer is hidden: helicopters take no slot. */
+  air: boolean;
 }
 
 /**
@@ -331,8 +392,8 @@ export class DisturbField {
   readonly ring: WakeRing;
   /** `(ax, az, bx, bz)` per slot. */
   readonly a = new Float32Array(DISTURB_MAX * 4);
-  /** `(radius, strength)` per slot. */
-  readonly b = new Float32Array(DISTURB_MAX * 2);
+  /** `(radius, strength, kind)` per slot (`DISTURB_B_STRIDE`). */
+  readonly b = new Float32Array(DISTURB_MAX * DISTURB_B_STRIDE);
   /** `(minX, minZ, maxX, maxZ)` of every slot's reach, tiles; empty when `count` is 0. */
   readonly box = new Float32Array(4);
   count = 0;
@@ -345,7 +406,13 @@ export class DisturbField {
     this.ring = new WakeRing(capacity);
   }
 
-  /** Vehicles first (key 0 + d^2), then foot (key 1e9 + d^2): an insertion into a sorted list of at most `slots`. */
+  /** A rotorcraft's wash this frame: its strength, or 0 when it is too high or too fast to move anything (`ROTOR_WASH_MIN_STRENGTH`). */
+  private washOf(src: DisturbSource, i: number, alpha: number): number {
+    const s = rotorWashStrength(src.airHeight(i, alpha), src.speed[i]);
+    return s < ROTOR_WASH_MIN_STRENGTH ? 0 : s;
+  }
+
+  /** Vehicles and rotorcraft first (key 0 + d^2), then foot (key 1e9 + d^2): an insertion into a sorted list of at most `slots`. */
   private offer(entity: number, foot: boolean, d2: number, slots: number): void {
     const key = (foot ? 1e9 : 0) + d2;
     if (this.chosen >= slots && key >= this.keys[this.chosen - 1]) return;
@@ -368,11 +435,12 @@ export class DisturbField {
       for (let i = 0; i < f.count; i++) {
         if (src.alive[i] === 0) continue;
         const kind = src.kindOfType[src.typeIdx[i]];
-        if (kind === DISTURB_KIND_NONE || (kind === DISTURB_KIND_FOOT && !f.foot)) continue;
+        if (kind === DISTURB_KIND_NONE || (kind === DISTURB_KIND_FOOT && !f.foot) || (kind === DISTURB_KIND_AIR && !f.air)) continue;
         const x = src.prevX[i] + (src.curX[i] - src.prevX[i]) * f.alpha;
         const z = src.prevZ[i] + (src.curZ[i] - src.prevZ[i]) * f.alpha;
         const d2 = (x - f.focusX) * (x - f.focusX) + (z - f.focusZ) * (z - f.focusZ);
         if (d2 > r2 || src.skip(i)) continue;
+        if (kind === DISTURB_KIND_AIR && this.washOf(src, i, f.alpha) === 0) continue;
         this.offer(i, kind === DISTURB_KIND_FOOT, d2, slots);
       }
     }
@@ -384,23 +452,32 @@ export class DisturbField {
     for (let k = 0; k < this.chosen; k++) {
       const i = this.ids[k];
       const type = src.typeIdx[i];
-      const foot = src.kindOfType[type] === DISTURB_KIND_FOOT;
+      const kind = src.kindOfType[type];
+      const foot = kind === DISTURB_KIND_FOOT;
+      const air = kind === DISTURB_KIND_AIR;
       const hx = src.prevX[i] + (src.curX[i] - src.prevX[i]) * f.alpha;
       const hz = src.prevZ[i] + (src.curZ[i] - src.prevZ[i]) * f.alpha;
       let tx = hx;
       let tz = hz;
-      if (f.wakes && !foot && this.ring.seeded(i)) {
+      if (f.wakes && !foot && !air && this.ring.seeded(i)) {
         this.ring.at(i, time, this.tail);
         tx = this.tail.x;
         tz = this.tail.z;
       }
-      const radius = src.radiusOfType[type];
+      let radius = src.radiusOfType[type];
+      let strength = foot ? DISTURB_FOOT_STRENGTH : 1;
+      if (air) {
+        // The wash's radius is the OUTER reach (where the push is gone), so the ring radius the falloff is written in is that over `REACH`.
+        radius = disturbWashRadius(rotorWashHeightNorm(src.airHeight(i, f.alpha))) / DISTURB_REACH;
+        strength = this.washOf(src, i, f.alpha);
+      }
       this.a[4 * k] = hx;
       this.a[4 * k + 1] = hz;
       this.a[4 * k + 2] = tx;
       this.a[4 * k + 3] = tz;
-      this.b[2 * k] = radius;
-      this.b[2 * k + 1] = foot ? DISTURB_FOOT_STRENGTH : 1;
+      this.b[DISTURB_B_STRIDE * k] = radius;
+      this.b[DISTURB_B_STRIDE * k + 1] = strength;
+      this.b[DISTURB_B_STRIDE * k + 2] = air ? DISTURB_SLOT_WASH : DISTURB_SLOT_GROUND;
       const reach = radius * DISTURB_REACH;
       minX = Math.min(minX, hx - reach, tx - reach);
       minZ = Math.min(minZ, hz - reach, tz - reach);
@@ -442,6 +519,7 @@ export function disturbMathGlsl(): string {
   return `
 const float RL_DISTURB_THETA[4] = ${table((_c, i) => disturbThetaMax(i))};
 const float RL_DISTURB_STIFF[4] = ${table((c) => c.stiffness)};
+const float RL_DISTURB_THRASH[4] = ${table((_c, i) => disturbThrashMax(i))};
 float rlDisturbT(float ox, float oz, float ax, float az, float bx, float bz) {
   float dx = bx - ax;
   float dz = bz - az;
@@ -466,6 +544,10 @@ float rlDisturbAngle(int cls, float hN, float mag) {
   float weight = pow(clamp(hN, 0.0, 1.0), RL_DISTURB_STIFF[cls]);
   return min(mag, 1.0) * weight * RL_DISTURB_THETA[cls];
 }
+float rlDisturbThrash(int cls, float hN, float wash, float tSec, float phase) {
+  float weight = pow(clamp(hN, 0.0, 1.0), RL_DISTURB_STIFF[cls]);
+  return min(wash, 1.0) * weight * RL_DISTURB_THRASH[cls] * sin(6.28318531 * (tSec / ${disturbFloat(DISTURB_THRASH_PERIOD_S)} + phase));
+}
 float rlDisturbAlong(float along, float h, float theta) {
   return along * cos(theta) + h * sin(theta);
 }
@@ -477,7 +559,7 @@ float rlDisturbUp(float along, float h, float theta) {
 
 /** The uniforms the disturbance reads. `uDisturbN` is the count, `uDisturbAmp` the layer toggle (1 shipped), `uDisturbSpring` 1 or, in reduced motion, 0. */
 export const DISTURB_UNIFORM_DECLS = `uniform vec4 uDisturbA[${DISTURB_MAX}];
-uniform vec2 uDisturbB[${DISTURB_MAX}];
+uniform vec3 uDisturbB[${DISTURB_MAX}];
 uniform vec4 uDisturbBox;
 uniform float uDisturbN;
 uniform float uDisturbAmp;
@@ -501,20 +583,28 @@ export function disturbVertexChunk(): string {
       && rlDOrigin.x > uDisturbBox.x && rlDOrigin.x < uDisturbBox.z
       && rlDOrigin.z > uDisturbBox.y && rlDOrigin.z < uDisturbBox.w) {
     vec2 rlDPush = vec2(0.0);
+    float rlDWash = 0.0;
     for (int rlDi = 0; rlDi < ${DISTURB_MAX}; rlDi++) {
       if (float(rlDi) >= uDisturbN) break;
       vec4 rlDA = uDisturbA[rlDi];
-      vec2 rlDB = uDisturbB[rlDi];
+      vec3 rlDB = uDisturbB[rlDi];
       float rlDT = rlDisturbT(rlDOrigin.x, rlDOrigin.z, rlDA.x, rlDA.y, rlDA.z, rlDA.w);
       vec2 rlDAway = rlDOrigin.xz - (rlDA.xy + (rlDA.zw - rlDA.xy) * rlDT);
       float rlDDist = length(rlDAway);
       rlDAway = rlDDist > 0.0001 ? rlDAway / rlDDist : vec2(1.0, 0.0);
-      rlDPush += rlDAway * rlDisturbAmount(rlDDist, rlDT, length(rlDA.zw - rlDA.xy), rlDB.x, rlDB.y, uDisturbSpring);
+      float rlDAmt = rlDisturbAmount(rlDDist, rlDT, length(rlDA.zw - rlDA.xy), rlDB.x, rlDB.y, uDisturbSpring);
+      rlDPush += rlDAway * rlDAmt;
+      rlDWash += rlDB.z * rlDAmt;
     }
     float rlDMag = length(rlDPush);
     if (rlDMag > 0.00001) {
       vec2 rlDDir = rlDPush / rlDMag;
+      float rlDPhase = fract(rlDOrigin.x * 0.7361 + rlDOrigin.z * 0.4219);
       float rlDTheta = rlDisturbAngle(int(rlNature.y + 0.5), rlNature.x, rlDMag);
+      // The thrash is only evaluated where a wash reaches (no helicopter, no pow and sin: N2's cost is N2's).
+      if (rlDWash > 0.0001) {
+        rlDTheta += rlDisturbThrash(int(rlNature.y + 0.5), rlNature.x, rlDWash, uSwayTime, rlDPhase) * uDisturbSpring;
+      }
       vec3 rlDRel = (rlDModel * vec4(transformed, 1.0)).xyz - rlDOrigin;
       float rlDAlong = dot(rlDRel.xz, rlDDir);
       float rlDMove = rlDisturbAlong(rlDAlong, rlDRel.y, rlDTheta) - rlDAlong;

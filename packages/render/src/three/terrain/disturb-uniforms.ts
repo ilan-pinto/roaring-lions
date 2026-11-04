@@ -8,12 +8,12 @@
  * Nothing in this file reads time.
  */
 import * as THREE from 'three';
-import { DISTURB_MAX } from './disturb';
+import { DISTURB_B_STRIDE, DISTURB_MAX } from './disturb';
 
 export interface DisturbUniformSet {
   /** `(ax, az, bx, bz)` per slot, the `DisturbField`'s own array (a typed array three uploads as is). */
   readonly a: { value: Float32Array };
-  /** `(radius, strength)` per slot. */
+  /** `(radius, strength, kind)` per slot (`DISTURB_B_STRIDE` floats each). */
   readonly b: { value: Float32Array };
   readonly box: { value: THREE.Vector4 };
   /** The live slot count; 0 turns the loop off for every vertex. */
@@ -28,7 +28,7 @@ export interface DisturbUniformSet {
 export function makeDisturbUniforms(a?: Float32Array, b?: Float32Array): DisturbUniformSet {
   return {
     a: { value: a ?? new Float32Array(DISTURB_MAX * 4) },
-    b: { value: b ?? new Float32Array(DISTURB_MAX * 2) },
+    b: { value: b ?? new Float32Array(DISTURB_MAX * DISTURB_B_STRIDE) },
     box: { value: new THREE.Vector4(0, 0, 0, 0) },
     n: { value: 0 },
     amp: { value: 1 },
