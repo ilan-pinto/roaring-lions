@@ -85,6 +85,8 @@ export interface ArenaServe {
   token: string;
   /** `origin + path`, with `#k=<token>` appended: what the CLI prints. */
   url(path: string): string;
+  /** GH-954 W2: a new run starts on this server (the setup screen started it): forget the last one. */
+  beginRun(runLabel: string | null): void;
   gameStarted(info: GameStart): void;
   gameEnded(record: GameRecord): void;
   runFinished(): void;
@@ -171,6 +173,7 @@ export async function startArenaServe(o: ArenaServeOptions = {}): Promise<ArenaS
   const token = o.token ?? randomBytes(24).toString('base64url');
   const graceMs = o.finishedGraceMs ?? 4000;
   let current: GameStart | null = null;
+  let runLabel: string | null = o.runLabel ?? null;
   let last: LiveResponse['last'] = null;
   let finished = false;
   let started = false;
@@ -181,7 +184,7 @@ export async function startArenaServe(o: ArenaServeOptions = {}): Promise<ArenaS
   let vite: { middlewares: (req: IncomingMessage, res: ServerResponse, next: () => void) => void; close(): Promise<void> } | null = null;
 
   const live = async (): Promise<{ status: number; body: unknown }> => {
-    const base: LiveResponse = { state: finished ? 'finished' : started ? 'between' : 'waiting', game: null, wsUrl: null, code: null, ticket: null, build: null, labels: null, capTicks: null, roundTicks: null, run: o.runLabel ?? null, last };
+    const base: LiveResponse = { state: finished ? 'finished' : started ? 'between' : 'waiting', game: null, wsUrl: null, code: null, ticket: null, build: null, labels: null, capTicks: null, roundTicks: null, run: runLabel, last };
     const g = current;
     if (g === null) return { status: 200, body: base };
     // A fresh spectator ticket for this game, from the seat ticket held here. The relay refuses unless it was
@@ -293,6 +296,7 @@ export async function startArenaServe(o: ArenaServeOptions = {}): Promise<ArenaS
   return {
     origin, origins: ownOrigins(port), port, address: (server.address() as AddressInfo).address, token,
     url: (path) => `${origin}${path}#k=${token}`,
+    beginRun: (label) => { current = null; last = null; finished = false; started = false; runLabel = label; },
     gameStarted: (info) => { current = info; started = true; },
     gameEnded: (r) => {
       if (current !== null) last = { n: current.n, outcome: r.outcome, by: r.by, ticks: r.ticks, players: [r.players[0], r.players[1]] };

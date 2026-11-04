@@ -335,7 +335,7 @@ describe('GH-954 W1: --watch', () => {
       told, origins,
       start: async () => ({
         origin: origins[0], origins, port: 5001, address: '127.0.0.1', token: 't', url: (p: string) => `${origins[0]}${p}#k=t`,
-        gameStarted: (i) => { told.push(`start ${i.n}/${i.of}`); }, gameEnded: (r) => { told.push(`end ${r.outcome}`); }, runFinished: () => { told.push('finished'); }, close: async () => { told.push('closed'); },
+        beginRun: () => {}, gameStarted: (i) => { told.push(`start ${i.n}/${i.of}`); }, gameEnded: (r) => { told.push(`end ${r.outcome}`); }, runFinished: () => { told.push('finished'); }, close: async () => { told.push('closed'); },
       }),
     };
   }

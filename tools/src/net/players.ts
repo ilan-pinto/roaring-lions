@@ -16,6 +16,7 @@ import type { Command } from '@lions/sim';
 import { fx } from '@lions/sim';
 import type { Seat } from '@lions/net';
 import { AgentClient, type AgentSnapshotOptions } from './agent-client';
+import type { Usage } from './external-player';
 import type { SideView } from './view';
 
 /** May be async: an external or slow policy is a promise; the in-process
@@ -102,6 +103,9 @@ export interface SeatStart {
 export interface PlayerReport {
   /** Tokens the player spent, when it says; null for a scripted player. */
   tokens: number | null;
+  /** GH-954 W2: the whole of what the client's last line said it spent (input, output, cache, cost), when it said
+   *  any. Absent for a scripted player. Reported, never scored (D7). */
+  usage?: Usage;
   /** Policy calls abandoned for not answering in time: `roundWallMs` in a
    *  paced room, `REALTIME_POLICY_MS` in a realtime one. A realtime turn that
    *  comes round while a call is still pending is skipped, not counted again. */

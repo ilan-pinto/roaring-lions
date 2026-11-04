@@ -16,10 +16,18 @@
  *   the cwd), so a relative path in a template means what it says there;
  * - the child's stdout and stderr appended to the arena's `<game>-<seat>.log`;
  * - `tokens` from the child's LAST stdout line, when it is JSON with
- *   `usage.input_tokens` and `usage.output_tokens` (their sum), else null.
- *   Reported, never scored (decision D7);
+ *   `usage.input_tokens` and `usage.output_tokens` (their sum), else null; and
+ *   `usage` (GH-954 W2, `usageOf`) beside it: the two cache counts and
+ *   `total_cost_usd`, where that line has them. Reported, never scored
+ *   (decision D7);
  * - the directory removed when the child is gone, in a `finally`, so a throw
  *   anywhere in the game removes it too.
+ *
+ * GH-954 W2: the one thing the arena may add to a child's environment is `ExternalOptions.env`, and only the setup
+ * screen's run ever sets it (a private API token the user typed, in memory for that run, as e.g.
+ * `ANTHROPIC_API_KEY`). It reaches the child as an environment variable and nowhere else: never an argument, a
+ * file or a URL, and every byte the child prints on its way to its log file passes `createRedactor`, so a child
+ * that echoes its environment writes `[redacted]`. A run without it spawns with `process.env` itself, as before.
  *
  * The ticket is only ever in the 0600 file: never in an argument (every
  * process on the machine can read argv), the environment, a URL or a log.
@@ -53,6 +61,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ArenaPlayer, PlayerReport, RunningPlayer, SeatStart } from './players';
+import { createRedactor, describeCommand } from './redact';
 
 export type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
 
@@ -137,15 +146,45 @@ export function renderTemplate(template: string, values: Readonly<Record<string,
   return { argv: p.argv.map(fill), stdinFrom: p.stdinFrom === null ? null : fill(p.stdinFrom) };
 }
 
-/** A client's spend, from its last stdout line: `usage.input_tokens + usage.output_tokens`, or null. */
-export function tokensOf(lastLine: string): number | null {
+/** A client's spend, from its last stdout line (GH-954 W2). Reported, never scored (D7). */
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  /** `usage.cache_creation_input_tokens`; null when the line does not say. */
+  cacheCreationInputTokens: number | null;
+  /** `usage.cache_read_input_tokens`; null when the line does not say. */
+  cacheReadInputTokens: number | null;
+  /** The client's own `total_cost_usd`; null when the line does not say. */
+  costUsd: number | null;
+}
+
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+/** A client's spend, from its last stdout line: `usage.input_tokens` and `usage.output_tokens` (both required),
+ *  with `usage.cache_creation_input_tokens`, `usage.cache_read_input_tokens` and `total_cost_usd` where present
+ *  (a malformed optional one is null, never a guess), else null. */
+export function usageOf(lastLine: string): Usage | null {
   let v: unknown;
   try { v = JSON.parse(lastLine); } catch { return null; }
-  const usage = (typeof v === 'object' && v !== null ? (v as { usage?: unknown }).usage : undefined) as { input_tokens?: unknown; output_tokens?: unknown } | undefined;
+  if (typeof v !== 'object' || v === null) return null;
+  const root = v as { usage?: unknown; total_cost_usd?: unknown };
+  const usage = root.usage as Record<string, unknown> | undefined;
   if (typeof usage !== 'object' || usage === null) return null;
   const { input_tokens: i, output_tokens: o } = usage;
   if (typeof i !== 'number' || typeof o !== 'number' || !Number.isFinite(i) || !Number.isFinite(o)) return null;
-  return i + o;
+  return {
+    inputTokens: i,
+    outputTokens: o,
+    cacheCreationInputTokens: finite(usage.cache_creation_input_tokens) ? usage.cache_creation_input_tokens : null,
+    cacheReadInputTokens: finite(usage.cache_read_input_tokens) ? usage.cache_read_input_tokens : null,
+    costUsd: finite(root.total_cost_usd) ? root.total_cost_usd : null,
+  };
+}
+
+/** A client's spend, from its last stdout line: `usage.input_tokens + usage.output_tokens`, or null. */
+export function tokensOf(lastLine: string): number | null {
+  const u = usageOf(lastLine);
+  return u === null ? null : u.inputTokens + u.outputTokens;
 }
 
 /** The MCP config the child is handed: one server, `lions`, the harness on this seat's ticket FILE. */
@@ -176,6 +215,9 @@ export interface ExternalOptions {
   graceMs?: number;
   /** After SIGTERM, how long before SIGKILL; default 3 s. */
   killMs?: number;
+  /** GH-954 W2: variables added to the child's environment (the setup screen's private API token, for ONE run).
+   *  Empty or absent: the child gets `process.env` itself. The values are redacted from the child's log. */
+  env?: Readonly<Record<string, string>>;
 }
 
 let warnedTmpRoot = false;
@@ -211,6 +253,12 @@ export function trackLiveSeat(seat: LiveSeat): () => void {
 }
 /** Set, for good, by the first `abortExternalPlayers`: no seat starts after it. */
 let stopLatch = false;
+
+/** GH-954 W2: lifts the latch after a STOP the setup screen asked for (the process lives on and the next run
+ *  must be able to start). Never called by a signal's cleanup: a signal ends the process. */
+export function rearmExternalPlayers(): void {
+  stopLatch = false;
+}
 
 /** Whether a signal's cleanup has begun: no new seat, and no new game, may start. */
 export function externalPlayersStopped(): boolean {
@@ -262,14 +310,15 @@ export function externalPlayer(name: string, template: string, o: ExternalOption
   const spawn = o.spawn ?? ((command, args, options) => nodeSpawn(command, args, options));
   const graceMs = o.graceMs ?? 10_000;
   const killMs = o.killMs ?? 3000;
-  return { name, start: (s) => runExternal(template, s, spawn, graceMs, killMs) };
+  return { name, start: (s) => runExternal(template, s, spawn, graceMs, killMs, o.env ?? {}) };
 }
 
-function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: number, killMs: number): Promise<RunningPlayer> {
+function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: number, killMs: number, extraEnv: Readonly<Record<string, string>>): Promise<RunningPlayer> {
   return new Promise<RunningPlayer>((resolveStart, rejectStart) => {
     let resolveDone: (r: PlayerReport) => void = () => {};
     const done = new Promise<PlayerReport>((res) => { resolveDone = res; });
 
+    const secrets = Object.values(extraEnv);
     const life = async (): Promise<PlayerReport> => {
       // The latch, then the directory, then (no await between) the registry and the spawn.
       if (stopLatch) throw new Error('the arena is stopping: no new external seat');
@@ -294,6 +343,9 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
           log.on('error', (e) => { process.stderr.write(`arena: the log ${file} could not be written: ${messageOf(e)}\n`); });
         }
 
+        // What this spawn is, for the log: the argv and the NAMES of injected variables, never their values.
+        if (secrets.length > 0) log?.write(`# ${describeCommand(t.argv, extraEnv, secrets)}\n`);
+
         // A relative `< path` means what it says where the child starts (INIT_CWD, else the cwd).
         const childCwd = process.env.INIT_CWD ?? process.cwd();
         const stdin = t.stdinFrom === null ? null : openSync(resolve(childCwd, t.stdinFrom), 'r');
@@ -301,8 +353,9 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
         try {
           child = spawn(t.argv[0], t.argv.slice(1), {
             shell: false,
-            // The parent's environment, as it is: the arena adds nothing to it.
-            env: process.env,
+            // The parent's environment, as it is: the arena adds nothing to it, unless the setup screen's run
+            // handed it a private token (`extraEnv`), which goes here and nowhere else.
+            env: secrets.length === 0 ? process.env : { ...process.env, ...extraEnv },
             cwd: childCwd,
             stdio: [stdin ?? 'ignore', 'pipe', 'pipe'],
           });
@@ -311,12 +364,16 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
           if (stdin !== null) closeSync(stdin);
         }
         let tail = '';
+        // Per stream: a secret can be split across two reads, so each keeps its own held-back tail.
+        const outRedact = createRedactor(secrets);
+        const errRedact = createRedactor(secrets);
+        const errDecoder = new TextDecoder();
         child.stdout?.setEncoding('utf8');
         child.stdout?.on('data', (chunk: string) => {
-          log?.write(chunk);
+          log?.write(secrets.length === 0 ? chunk : outRedact.push(chunk));
           tail = (tail + chunk).slice(-TAIL_CHARS);
         });
-        child.stderr?.on('data', (chunk: Buffer) => { log?.write(chunk); });
+        child.stderr?.on('data', (chunk: Buffer) => { log?.write(secrets.length === 0 ? chunk : errRedact.push(errDecoder.decode(chunk, { stream: true }))); });
         let exited = false;
         let stoppedByUs = false;
         const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((res) => {
@@ -357,8 +414,11 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
         const errors: string[] = [];
         if (!stoppedByUs && signal !== null) errors.push(`killed by ${signal}`);
         else if (!stoppedByUs && code !== 0) errors.push(`exited with code ${String(code)}`);
+        // What the streams still held back (the last few characters), redacted, before the log closes.
+        if (secrets.length > 0) log?.write(outRedact.flush() + errRedact.flush());
         const lines = tail.trimEnd().split('\n');
-        return { tokens: tokensOf(lines[lines.length - 1] ?? ''), timeouts: 0, errors };
+        const usage = usageOf(lines[lines.length - 1] ?? '');
+        return { tokens: usage === null ? null : usage.inputTokens + usage.outputTokens, ...(usage === null ? {} : { usage }), timeouts: 0, errors };
       } finally {
         if (log !== null) {
           const l = log;

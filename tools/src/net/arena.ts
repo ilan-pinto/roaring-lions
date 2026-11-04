@@ -57,6 +57,15 @@
  * cannot change a record (arena.test pins that with 0 and 2 watchers). `--serve` alone starts the server
  * without the watch features (the setup screen, W2).
  *
+ * `--serve` ALONE (GH-954 W2) starts the SETUP screen's server and nothing else: `/arena` and the control API
+ * (`arena-control.ts`: players, start, stop, status). The page starts a run with a POST; it is this same `runArena`
+ * on this same server, always watched. `--a`/`--b`/`--judge` also take `preset:<id>` from
+ * `~/.roaring-lions/arena-players.json` (`--players-file` names another), templates only, mode 0600: a file that
+ * group or world can read refuses the server and the run. The setup screen may hand ONE run a private API token: it
+ * is held in memory, reaches that run's children as `ANTHROPIC_API_KEY` and nowhere else, is redacted from every line
+ * the run logs, prints or writes (`redact.ts`), and is deleted when the run ends (`arena-control.ts` has the whole
+ * list). Stop is `stopRun()`: a signal's cleanup without the exit.
+ *
  * Exit codes: 0 every game played (voids included: a void is a result of the
  * arena, not a failure of it); 1 a bad command line, a player that cannot be
  * built, or a game that could not be played (a relay, a room or a start
@@ -88,11 +97,14 @@ import { capOutcome } from './cap';
 import { JUDGE_PLACEHOLDERS, runJudge, type JudgeJob, type JudgeRecord } from './judge';
 import { startLocalRelay, type LocalRelay, type LocalRelayOptions } from './local-relay';
 import { startArenaServe, type ArenaServe, type ArenaServeOptions, type GameStart } from './arena-serve';
-import { abortExternalPlayers, externalPlayer, externalPlayersStopped, parseTemplate } from './external-player';
+import { createArenaControl, type ArenaControl } from './arena-control';
+import { loadPresets, presetIdOf, PresetsError, type Presets } from './arena-presets';
+import { abortExternalPlayers, externalPlayer, externalPlayersStopped, parseTemplate, rearmExternalPlayers } from './external-player';
+import { redactText } from './redact';
 import { inProcess, passive, rush, type ArenaPlayer, type PlayerReport, type RunningPlayer } from './players';
 
 export interface ArenaArgs {
-  /** Player specs: `passive`, `rush`, or `cmd:<template>` (Task 14). */
+  /** Player specs: `passive`, `rush`, `cmd:<template>` (Task 14), or `preset:<id>` (GH-954 W2, `arena-presets.ts`). */
   a: string;
   b: string;
   seeds: number;
@@ -111,7 +123,7 @@ export interface ArenaArgs {
   out: string | null;
   /** Judge the run: exit 3 unless A beats B with p < 0.05. */
   gate: boolean;
-  /** `cmd:<template>` of the third model that scores both players of each game (GH-973); null: not judged. */
+  /** `cmd:<template>` (or `preset:<id>`, resolved to its judge template before a game) of the third model that scores both players of each game (GH-973); null: not judged. */
   judge: string | null;
   /** How long one judge may take, per game. */
   judgeTimeoutMs: number;
@@ -121,6 +133,8 @@ export interface ArenaArgs {
   serve: boolean;
   /** The port `--serve` binds; 0: the OS picks. */
   servePort: number;
+  /** GH-954 W2: the presets file (`arena-presets.ts`); null: `~/.roaring-lions/arena-players.json`. */
+  playersFile: string | null;
 }
 
 /** The relay's linger after a game's result, so a spectator hears it (`--watch`). */
@@ -131,8 +145,8 @@ export const WATCH_TICK_MS = 50;
 /** `--gate` FAILED: every game was played and A was not told from B at p < 0.05. */
 export const EXIT_GATE_FAIL = 3;
 
-const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--first-seed 0] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate] [--judge "cmd:<template>"] [--judge-timeout-ms 180000] [--watch] [--serve] [--serve-port 0]\n  --watch: watch a run live in a browser (local only; implies --serve; --tick-ms defaults to 50); a player is passive, rush, or cmd:<template>; the judge scores both players of each game on the rubric (placeholders {prompt}, {stats})';
-const VALUED = new Set(['a', 'b', 'seeds', 'first-seed', 'map', 'matchup', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out', 'judge', 'judge-timeout-ms', 'serve-port']);
+const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--first-seed 0] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate] [--judge "cmd:<template>"] [--judge-timeout-ms 180000] [--watch] [--serve] [--serve-port 0] [--players-file <path>]\n  --watch: watch a run live in a browser (local only; implies --serve; --tick-ms defaults to 50); a player is passive, rush, cmd:<template> or preset:<id> (from ~/.roaring-lions/arena-players.json, mode 0600); `pnpm arena --serve` alone starts the setup screen at /arena; the judge scores both players of each game on the rubric (placeholders {prompt}, {stats})';
+const VALUED = new Set(['a', 'b', 'seeds', 'first-seed', 'map', 'matchup', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out', 'judge', 'judge-timeout-ms', 'serve-port', 'players-file']);
 /** Options that take no value. */
 const FLAGS = new Set(['gate', 'watch', 'serve']);
 const BUILT_IN: Record<string, (log: (line: string) => void) => ArenaPlayer> = {
@@ -180,7 +194,7 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
   const b = got.get('b');
   if (a === undefined || b === undefined) return { error: `--a and --b are required\n${USAGE}` };
   for (const p of [a, b]) {
-    if (!(p in BUILT_IN) && !EXTERNAL.test(p)) return { error: `unknown player "${p}": passive, rush, or cmd:<template>` };
+    if (!Object.hasOwn(BUILT_IN, p) && !EXTERNAL.test(p) && presetIdOf(p) === null) return { error: `unknown player "${p}": passive, rush, cmd:<template> or preset:<id>` };
   }
   const matchup = got.get('matchup') ?? 'mirror';
   if (!(MATCHUPS as readonly string[]).includes(matchup)) return { error: `--matchup is ${MATCHUPS.join(', ')}` };
@@ -196,8 +210,10 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
   for (const v of [seeds, firstSeed, pace, roundWallMs, capTicks, tickMs, judgeTimeoutMs, servePort]) if (typeof v !== 'number') return v;
   const judge = got.get('judge') ?? null;
   if (judge !== null) {
-    if (!EXTERNAL.test(judge)) return { error: '--judge is cmd:<template>, in the players\' own form (no key belongs in it)' };
-    try { parseTemplate(judge, JUDGE_PLACEHOLDERS); } catch (e) { return { error: `--judge: ${messageOf(e)}` }; }
+    if (presetIdOf(judge) === null) {
+      if (!EXTERNAL.test(judge)) return { error: '--judge is cmd:<template>, in the players\' own form (no key belongs in it), or preset:<id>' };
+      try { parseTemplate(judge, JUDGE_PLACEHOLDERS); } catch (e) { return { error: `--judge: ${messageOf(e)}` }; }
+    }
   }
   return {
     a, b,
@@ -216,7 +232,36 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
     watch,
     serve: watch || flags.has('serve'),
     servePort: servePort as number,
+    playersFile: got.get('players-file') ?? null,
   };
+}
+
+/** The name a player is tallied and filed under: a preset's id (never its template), anything else as given. */
+export const nameOf = (spec: string): string => presetIdOf(spec) ?? spec;
+
+/** What `--serve` alone means: the setup screen's server, no run until the page starts one. */
+export interface ServeOnlyArgs { port: number; playersFile: string | null; out: string | null }
+
+/** `--serve` with neither `--a` nor `--b`: the options of the server alone, or what is wrong; null when this is not that. */
+export function parseServeOnly(argv: readonly string[]): ServeOnlyArgs | { error: string } | null {
+  const rest = argv.filter((x) => x !== '--');
+  const named = (n: string): boolean => rest.some((x) => x === `--${n}` || x.startsWith(`--${n}=`));
+  if (!named('serve') || named('a') || named('b') || named('watch')) return null;
+  const got = new Map<string, string>();
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i];
+    if (arg === '--serve') continue;
+    if (!arg.startsWith('--')) return { error: `unexpected argument "${arg}"\n${USAGE}` };
+    const eq = arg.indexOf('=');
+    const name = eq < 0 ? arg.slice(2) : arg.slice(2, eq);
+    if (!['serve-port', 'players-file', 'out'].includes(name)) return { error: `--serve alone takes --serve-port, --players-file and --out, not --${name}\n${USAGE}` };
+    const value = eq >= 0 ? arg.slice(eq + 1) : rest[++i];
+    if (value === undefined || value === '') return { error: `--${name} needs a value` };
+    got.set(name, value);
+  }
+  const port = intIn('serve-port', got.get('serve-port'), 0, 0, 65_535);
+  if (typeof port !== 'number') return port;
+  return { port, playersFile: got.get('players-file') ?? null, out: got.get('out') ?? null };
 }
 
 /** Why no room would host this, or null: the route's own two questions. */
@@ -228,11 +273,25 @@ export function refusalOf(map: string, matchup: Matchup): string | null {
 
 /** The player a spec names. A `cmd:` template that cannot be run (an open
  *  quote, a placeholder that is not one) throws here, before any room. */
-export function resolvePlayer(spec: string, log: (line: string) => void): ArenaPlayer {
-  const make = BUILT_IN[spec] as ((log: (line: string) => void) => ArenaPlayer) | undefined;
+export function resolvePlayer(spec: string, log: (line: string) => void, ctx: ResolveContext = {}): ArenaPlayer {
+  const make = Object.hasOwn(BUILT_IN, spec) ? BUILT_IN[spec] : undefined;
   if (make !== undefined) return make(log);
-  if (EXTERNAL.test(spec)) return externalPlayer(spec, spec);
+  if (EXTERNAL.test(spec)) return externalPlayer(spec, spec, ctx.env === undefined ? {} : { env: ctx.env });
+  const id = presetIdOf(spec);
+  if (id !== null) {
+    const preset = ctx.presets?.byId.get(id);
+    if (preset === undefined) throw new Error(`no preset "${id}" in ${ctx.presets?.file ?? 'the presets file'}`);
+    if (preset.template === null) throw new Error(`preset "${id}" is a judge, not a player`);
+    // Named by the preset's id: the results never carry its template.
+    return externalPlayer(id, preset.template, ctx.env === undefined ? {} : { env: ctx.env });
+  }
   throw new Error(`unknown player "${spec}"`);
+}
+
+/** What a `preset:` player needs to be built (GH-954 W2): the presets, and the variables its child is handed. */
+export interface ResolveContext {
+  presets?: Presets;
+  env?: Readonly<Record<string, string>>;
 }
 
 export interface ArenaDeps {
@@ -243,7 +302,7 @@ export interface ArenaDeps {
   /** The local relay, per game. */
   startRelay?: (o: LocalRelayOptions) => Promise<LocalRelay>;
   /** The player a spec names; default `resolvePlayer`. */
-  resolvePlayer?: (spec: string, log: (line: string) => void) => ArenaPlayer;
+  resolvePlayer?: (spec: string, log: (line: string) => void, ctx?: ResolveContext) => ArenaPlayer;
   /** The reader for a game with no in-process seat; default `startObserver`. */
   startObserver?: typeof startObserver;
   /** The judge (GH-973); default `runJudge`. A spec injects a stub: no spec runs a model. */
@@ -251,6 +310,13 @@ export interface ArenaDeps {
   now?: () => Date;
   /** GH-954 W1: the server `--serve` starts; default `startArenaServe`. A spec injects a stub. */
   startServe?: (o: ArenaServeOptions) => Promise<ArenaServe>;
+  /** GH-954 W2: a server that is already up (the setup screen's): the run uses it and leaves it open. */
+  serve?: ArenaServe;
+  /** GH-954 W2: presets already read (the server read them at start); default: read when a `preset:` is named. */
+  presets?: Presets;
+  /** GH-954 W2: variables added to every external child of THIS run (a private API token the setup screen was
+   *  handed, in memory). Everything the run logs, prints or writes passes `redactText` with these values. */
+  env?: Readonly<Record<string, string>>;
   /** Called once a game's room is confirmed and its players are running (its relay, code and seat ticket are in
    *  `info`), BEFORE the game is played to its end. A throw is logged and never stops the game. */
   onGameStart?: (info: GameStart) => void;
@@ -265,6 +331,10 @@ export interface ArenaRun {
   files: { jsonl: string; md: string } | null;
   /** `--gate`'s verdict; null without `--gate`, or when the run was not judged. */
   gate: GateVerdict | null;
+  /** GH-954 W2: why the run ended non-zero, in one line (already redacted); absent on a run that finished. */
+  error?: string;
+  /** GH-954 W2: `--serve` alone returns once the server is up: the server, still running, for the caller to close. */
+  serving?: ArenaServe;
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -453,6 +523,16 @@ export async function startObserver(relay: Pick<LocalRelay, 'url' | 'origin'>, c
   };
 }
 
+/** GH-954 W2: what a Stop wakes. A game waiting on its room's start (up to `START_TIMEOUT_MS`) would otherwise keep
+ *  a stopped run alive for 30 s after its players were killed. */
+const stopWaiters = new Set<(e: Error) => void>();
+function untilStopped(): Promise<never> {
+  // A Stop that has already run woke the waiters that existed THEN; one that arrives after would wait out the
+  // whole start timeout with its players already killed, so it is refused at once.
+  if (externalPlayersStopped()) return Promise.reject(new Error('the run was stopped'));
+  return new Promise<never>((_, rej) => { stopWaiters.add(rej); });
+}
+
 /** What is running right now, for a signal: `playGame` adds each relay and
  *  player as it starts and removes it once its own `finally` has closed it. */
 const liveRelays = new Set<LocalRelay>();
@@ -487,6 +567,8 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
       running.push(r);
       livePlayers.add(r);
     }
+    // A Stop that landed while a seat was starting: no observer, no wait for a match that will not start.
+    if (externalPlayersStopped()) throw new Error('the run was stopped');
     const clients: [AgentClient | null, AgentClient | null] = [running[0].client, running[1].client];
     // An external player has no client here: with neither seat in this
     // process, the arena reads the game through seat 0's own advisor.
@@ -496,7 +578,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     }
     const referee = clients[0] ?? clients[1] ?? observer?.client ?? null;
     if (referee === null) throw new Error('the arena has no client to read the match through');
-    const config = await withTimeout(referee.ready, START_TIMEOUT_MS, 'the match start');
+    const config = await Promise.race([withTimeout(referee.ready, START_TIMEOUT_MS, 'the match start'), untilStopped()]);
     // Trust nothing the room did not confirm.
     const distrust = untrusted(config, a, g.seed);
     if (distrust !== null) throw new Error(distrust);
@@ -572,23 +654,24 @@ export function verdictText(names: readonly [string, string], v: { outcome: Game
  * local paths and a model id) as `Player A` / `Player B`. The results files keep the real names; the judge's prompt does not.
  */
 export function judgeLabel(spec: string, which: 'A' | 'B'): string {
-  return EXTERNAL.test(spec) ? `Player ${which}` : spec;
+  return EXTERNAL.test(spec) || presetIdOf(spec) !== null ? `Player ${which}` : spec;
 }
 
-async function judgeGame(record: GameRecord, a: ArenaArgs, logBase: string, judge: NonNullable<ArenaDeps['runJudge']>, log: (line: string) => void): Promise<JudgeRecord | undefined> {
+async function judgeGame(record: GameRecord, a: ArenaArgs, logBase: string, judge: NonNullable<ArenaDeps['runJudge']>, log: (line: string) => void, env?: Readonly<Record<string, string>>): Promise<JudgeRecord | undefined> {
   if (a.judge === null) return undefined;
   if (record.outcome === 'void') return { status: 'skipped', reason: `the game was void (${record.by})` };
   if (record.referee === undefined) return { status: 'skipped', reason: 'the arena has no referee stats for this game' };
   // A is `--a`, B is `--b`, whichever seat each sat on; a player against itself is `x#a` / `x#b`.
   const label = (seat: 0 | 1): string => {
-    const isA = record.players[seat] === (a.a === a.b ? `${a.a}#a` : a.a);
+    const isA = record.players[seat] === (a.a === a.b ? `${nameOf(a.a)}#a` : nameOf(a.a));
     const l = judgeLabel(isA ? a.a : a.b, isA ? 'A' : 'B');
-    return a.a === a.b && !EXTERNAL.test(a.a) ? `${l} (${isA ? 'A' : 'B'})` : l;
+    return a.a === a.b && !EXTERNAL.test(a.a) && presetIdOf(a.a) === null ? `${l} (${isA ? 'A' : 'B'})` : l;
   };
   const players: [string, string] = [label(0), label(1)];
   const j = await judge({
     template: a.judge, stats: record.referee, players, outcome: verdictText(players, record),
     logFile: `${logBase}-judge.log`, timeoutMs: a.judgeTimeoutMs,
+    ...(env === undefined || Object.keys(env).length === 0 ? {} : { env }),
   });
   log(`arena: seed ${record.seed}: judge: ${j.status}${j.status === 'failed' ? ` (${j.reason})` : j.status === 'invalid' ? ` (${j.problems[0] ?? ''})` : ''}`);
   return j;
@@ -604,24 +687,48 @@ function freshBase(dir: string, base: string): string {
 
 /** The arena, from a command line. Never calls `process.exit`. */
 export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): Promise<ArenaRun> {
-  const log = deps.log ?? ((line: string) => { process.stderr.write(`${line}\n`); });
-  const print = deps.print ?? ((line: string) => { process.stdout.write(`${line}\n`); });
+  // GH-954 W2: the values this run holds as secrets (a private token for its children). Every line it logs or
+  // prints and every byte it writes to its results passes `redactText` with them.
+  // Each secret and its JSON-escaped form (a quote or a backslash in it): results are JSON, and a log line may quote one.
+  const secrets = Object.values(deps.env ?? {}).flatMap((s) => [s, JSON.stringify(s).slice(1, -1)]);
+  const rawLog = deps.log ?? ((line: string) => { process.stderr.write(`${line}\n`); });
+  const rawPrint = deps.print ?? ((line: string) => { process.stdout.write(`${line}\n`); });
+  const log = (line: string): void => { rawLog(redactText(line, secrets)); };
+  const print = (line: string): void => { rawPrint(redactText(line, secrets)); };
   const startRelay = deps.startRelay ?? startLocalRelay;
   const observe = deps.startObserver ?? startObserver;
-  const fail = (code: number, why: string): ArenaRun => { log(`arena: ${why}`); return { code, games: [], tally: null, files: null, gate: null }; };
+  const fail = (code: number, why: string): ArenaRun => { log(`arena: ${why}`); return { code, games: [], tally: null, files: null, gate: null, error: redactText(why, secrets) }; };
 
-  const a = parseArgs(argv);
-  if ('error' in a) return fail(1, a.error);
-  const refused = refusalOf(a.map, a.matchup);
+  // GH-954 W2: `--serve` alone is the setup screen's server: no run until the page starts one.
+  const only = parseServeOnly(argv);
+  if (only !== null) return 'error' in only ? fail(1, only.error) : runServeOnly(only, deps, log, print, fail);
+
+  const parsed = parseArgs(argv);
+  if ('error' in parsed) return fail(1, parsed.error);
+  const refused = refusalOf(parsed.map, parsed.matchup);
   if (refused !== null) return fail(2, refused);
+  // GH-954 W2: presets, read once, when a `preset:` is named. A file anyone else can read refuses the run.
+  let presets: Presets | undefined = deps.presets;
+  if (presets === undefined && [parsed.a, parsed.b, parsed.judge ?? ''].some((x) => presetIdOf(x) !== null)) {
+    try { presets = loadPresets(parsed.playersFile ?? undefined); } catch (e) { return fail(1, e instanceof PresetsError ? e.message : messageOf(e)); }
+  }
+  let judgeTemplate = parsed.judge;
+  const judgeId = parsed.judge === null ? null : presetIdOf(parsed.judge);
+  if (judgeId !== null) {
+    judgeTemplate = presets?.byId.get(judgeId)?.judgeTemplate ?? null;
+    if (judgeTemplate === null) return fail(1, `preset "${judgeId}" is not a judge (no judgeTemplate), or is not in the presets file`);
+  }
+  const a: ArenaArgs = { ...parsed, judge: judgeTemplate };
   // The two names a tally keys on: a player against itself is still two players.
-  const names: [string, string] = a.a === a.b ? [`${a.a}#a`, `${a.b}#b`] : [a.a, a.b];
+  const [nameA, nameB] = [nameOf(a.a), nameOf(a.b)];
+  const names: [string, string] = a.a === a.b ? [`${nameA}#a`, `${nameB}#b`] : [nameA, nameB];
   let A: ArenaPlayer;
   let B: ArenaPlayer;
   try {
     const resolveOne = deps.resolvePlayer ?? resolvePlayer;
-    A = resolveOne(a.a, log);
-    B = resolveOne(a.b, log);
+    const ctx: ResolveContext = { ...(presets === undefined ? {} : { presets }), ...(deps.env === undefined ? {} : { env: deps.env }) };
+    A = resolveOne(a.a, log, ctx);
+    B = resolveOne(a.b, log, ctx);
   } catch (e) {
     return fail(1, messageOf(e));
   }
@@ -630,15 +737,19 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   const dir = resolve(process.env.INIT_CWD ?? process.cwd(), a.out ?? 'arena-results');
   mkdirSync(dir, { recursive: true });
   const date = (deps.now?.() ?? new Date()).toISOString().slice(0, 10);
-  const base = freshBase(dir, `${date}-${fileSafe(a.a)}-vs-${fileSafe(a.b)}`);
+  const base = freshBase(dir, `${date}-${fileSafe(nameA)}-vs-${fileSafe(nameB)}`);
   const files = { jsonl: join(dir, `${base}.jsonl`), md: join(dir, `${base}.md`) };
   writeFileSync(files.jsonl, '');
   const build = buildId();
   const games: GameRecord[] = [];
   let code = 0;
+  let runError: string | undefined;
   // GH-954 W1: the local server, started BEFORE the first relay so its origins can be allowed on every one.
-  let serve: ArenaServe | null = null;
-  if (a.serve) {
+  let serve: ArenaServe | null = deps.serve ?? null;
+  const ownServe = serve === null;
+  if (serve !== null) {
+    serve.beginRun(a.watch ? `${names[0]} vs ${names[1]}` : null);
+  } else if (a.serve) {
     try {
       serve = await (deps.startServe ?? startArenaServe)({ port: a.servePort, log, ...(a.watch ? { runLabel: `${names[0]} vs ${names[1]}` } : {}) });
     } catch (e) {
@@ -669,24 +780,28 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
           onEnd: (r, ref) => { hooks.onEnd?.(r, ref); deps.onGameEnd?.({ n: g.n, of: g.of, record: r, referee: ref }); },
         });
         // After the game, with its relay closed: a slow judge holds up the next game, never this one's result.
-        const judged = await judgeGame(record, a, g.logBase, deps.runJudge ?? runJudge, log);
+        const judged = await judgeGame(record, a, g.logBase, deps.runJudge ?? runJudge, log, deps.env);
         if (judged !== undefined) record.judge = judged;
         games.push(record);
-        appendFileSync(files.jsonl, `${JSON.stringify(record)}\n`);
+        appendFileSync(files.jsonl, redactText(`${JSON.stringify(record)}\n`, secrets));
         const winner = record.outcome === 'seat0' ? record.players[0] : record.outcome === 'seat1' ? record.players[1] : record.outcome;
         log(`arena: seed ${seed}, ${record.players[0]} (seat 0) vs ${record.players[1]} (seat 1): ${winner} (${record.by}) at tick ${record.ticks}`);
       }
     }
   } catch (e) {
     log(`arena: a game could not be played: ${messageOf(e)}`);
+    runError = redactText(messageOf(e), secrets);
     code = 1;
   }
-  writeFileSync(files.md, markdownReport(games));
-  // The run is over: the page is told, and the server goes (a signal's cleanup closes it too, idempotently).
+  writeFileSync(files.md, redactText(markdownReport(games), secrets));
+  // The run is over: the page is told, and the server goes (a signal's cleanup closes it too, idempotently),
+  // unless the setup screen owns it: it stays up for the next run.
   if (serve !== null) {
     serve.runFinished();
-    try { await serve.close(); } catch (e) { log(`arena: closing the server: ${messageOf(e)}`); }
-    liveServes.delete(serve);
+    if (ownServe) {
+      try { await serve.close(); } catch (e) { log(`arena: closing the server: ${messageOf(e)}`); }
+      liveServes.delete(serve);
+    }
   }
   const t = tally(games);
   print(`arena: ${games.length} game(s) -> ${files.jsonl}`);
@@ -710,8 +825,58 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
       if (!gate.pass) code = EXIT_GATE_FAIL;
     }
   }
-  return { code, games, tally: t, files, gate };
+  return { code, games, tally: t, files, gate, ...(runError === undefined ? {} : { error: runError }) };
 }
+
+/**
+ * `pnpm arena --serve`: the setup screen's server and nothing else (GH-954 W2). It reads the presets file FIRST and
+ * refuses to start when the file is readable by group or world; it then serves `/arena` and the control API, and
+ * returns with the server still running (the caller's signal handler closes it). A run starts only when the page
+ * POSTs one, and it is the same `runArena` that `--watch` uses, on this same server.
+ */
+async function runServeOnly(o: ServeOnlyArgs, deps: ArenaDeps, log: (line: string) => void, print: (line: string) => void, fail: (code: number, why: string) => ArenaRun): Promise<ArenaRun> {
+  let presets: Presets;
+  try { presets = deps.presets ?? loadPresets(o.playersFile ?? undefined); } catch (e) { return fail(1, e instanceof PresetsError ? e.message : messageOf(e)); }
+  const control: ArenaControl = createArenaControl({
+    presets,
+    run: (argv, d) => runArena(argv, { ...deps, ...d, onGameEnd: (e) => { deps.onGameEnd?.(e); d.onGameEnd?.(e); } }),
+    stop: () => stopRun({ servers: false }),
+    rearm,
+    argvExtra: [...(o.out === null ? [] : ['--out', o.out]), ...(o.playersFile === null ? [] : ['--players-file', o.playersFile])],
+    log,
+  });
+  let serve: ArenaServe;
+  try {
+    serve = await (deps.startServe ?? startArenaServe)({ port: o.port, log, routes: control.routes });
+  } catch (e) {
+    return fail(1, `could not start the arena server: ${messageOf(e)}`);
+  }
+  control.attach(serve);
+  liveServes.add(serve);
+  print(`arena: setup: ${serve.url('/arena')}`);
+  print(`arena: presets: ${[...presets.byId.keys()].join(', ') || 'none'} (${presets.file})`);
+  return { code: 0, games: [], tally: null, files: null, gate: null, serving: serve };
+}
+
+/**
+ * Everything a signal's cleanup does except exit (GH-954 W2): every external child stopped and every seat's temp
+ * directory removed (which also sets the stop latch: no game or seat starts after), every running player stopped,
+ * every relay closed, and -- unless `servers: false` -- every server this process started closed. The setup
+ * screen's Stop calls it with `servers: false` (the server must outlive the run) and then `rearm()`s the latch.
+ */
+export async function stopRun(o: { servers?: boolean } = {}): Promise<void> {
+  const waiting = [...stopWaiters];
+  stopWaiters.clear();
+  for (const wake of waiting) wake(new Error('the run was stopped'));
+  await bounded(abortExternalPlayers(), SIGNAL_STEP_MS);
+  await Promise.all([...livePlayers].map((r) => bounded(r.stop(), SIGNAL_STEP_MS)));
+  await Promise.all([...liveRelays].map((r) => bounded(r.close({ now: true }), SIGNAL_STEP_MS)));
+  if (o.servers !== false) await Promise.all([...liveServes].map((x) => bounded(x.close({ now: true }), SIGNAL_STEP_MS)));
+  // No second sweep: the latch the first one set refuses every later seat.
+}
+
+/** Lifts the stop latch after a Stop that left the process running. */
+export const rearm = (): void => { rearmExternalPlayers(); };
 
 /** The conventional exit for a process ended by a signal: 128 + its number. */
 export const SIGNAL_EXIT: Readonly<Record<'SIGINT' | 'SIGTERM', number>> = { SIGINT: 130, SIGTERM: 143 };
@@ -748,11 +913,7 @@ export function installSignalCleanup(o: { log?: (line: string) => void; exit?: (
     }
     log(`arena: ${signal}: stopping the players, removing the temp directories, closing the relay`);
     cleaning = (async () => {
-      await bounded(abortExternalPlayers(), SIGNAL_STEP_MS);
-      await Promise.all([...livePlayers].map((r) => bounded(r.stop(), SIGNAL_STEP_MS)));
-      await Promise.all([...liveRelays].map((r) => bounded(r.close({ now: true }), SIGNAL_STEP_MS)));
-      await Promise.all([...liveServes].map((x) => bounded(x.close({ now: true }), SIGNAL_STEP_MS)));
-      // No second sweep: the latch the first one set refuses every later seat.
+      await stopRun();
     })().finally(() => { exit(SIGNAL_EXIT[signal]); });
   };
   const onInt = (): void => { onSignal('SIGINT'); };
@@ -779,7 +940,8 @@ if (isEntry()) {
   const signals = installSignalCleanup();
   runArena(process.argv.slice(2)).then(
     // Once a signal has arrived its handler exits, with its own code.
-    (r) => { if (!signals.signalled()) process.exit(r.code); },
+    // A `--serve` alone has returned with its server still up: only a signal ends that process.
+    (r) => { if (!signals.signalled() && r.serving === undefined) process.exit(r.code); },
     (err: unknown) => { process.stderr.write(`arena: ${messageOf(err)}\n`); if (!signals.signalled()) process.exit(1); },
   );
 }
