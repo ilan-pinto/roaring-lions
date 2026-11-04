@@ -46,7 +46,7 @@
 //      none on the shipped map) and the two-level banks blind the Kornet cells that cross the bed. Two measured levers pull it back:
 //      OUTCROPS, four 3x3 blocks of rock that close the main road eleven tiles short of the ford to a pass three tiles wide, so both
 //      columns file through it and the Namers no longer park in the pockets; and FORD_SCRUB, 22 tiles of scrub in the lane short of
-//      the fords. Both are measured values, not trends: a block one tile over seals the road (94%) or reads 66-80%.
+//      the fords (salt 10). Tunnel cell 3, Sarim friendly, is a report cell on this map: it reads Sarim 56-62% over six ranges and the map does not open on it. Both are measured values, not trends: a block one tile over seals the road (94%) or reads 66-80%.
 //
 // The map is point-symmetric about (47.5, 47.5): every feature is written with its half-turn image (`both`), so symmetry is by
 // construction. tools/src/large_map_verify.ts checks it from the JSON.
@@ -157,7 +157,7 @@ export const LANE_HALF = 11;
  * diagonals (x + y) short of each bank's bed, where `density` percent of the open tiles in the lane (hashed on the tile and `salt`)
  * take `symbol` (scrub, cover 1): 11 tiles a bank, in the town's square. Only open ground takes it (the road, the walls and the
  * buildings are other symbols), never inside a yard or a fold. The salt is a measured value: six salts at density 25 read the
- * placed cells from 34 to 56% KDF, so the choice was made on seeds 0-191 and confirmed on 192-383 (salt 10: 53 / 52%).
+ * placed cells from 34 to 56% KDF, so the choice is a measured value, not a trend (salt 10: 53 / 52% on seeds 0-383; salt 11, tried after a fresh range read the tunnel cell at 62%, left placed KDF at 60.8% on 21000-21287 and was dropped).
  */
 export const FORD_SCRUB = { from: 84, to: 92, density: 25, symbol: '1', salt: 10 };
 const KNOLLS = [[[60, 29], [61, 29], [60, 30]], [[78, 40], [79, 40], [78, 41]]];
