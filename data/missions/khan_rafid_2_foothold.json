@@ -26,8 +26,15 @@
     { "unit": "jeep_shoded", "count": 1, "at": [22, 45] },
     { "unit": "ifv_namer", "count": 1, "at": [29, 45] },
     { "unit": "recon_drone", "count": 1, "at": [24, 44] },
-    { "unit": "inf_medic_squad", "count": 1, "at": [23, 44] }
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 44] },
+    { "unit": "demo_squad", "count": 1, "at": [25, 45] }
   ],
+  "field_works": {
+    "kdf_medic_station": 1,
+    "kdf_outpost": 1,
+    "kdf_workshop": 1,
+    "kdf_intel_centre": 1
+  },
   "resources": { "logistics_start": 400, "logistics_rate_per_min": 120 },
   "structures": [{ "type": "camp", "at": [20, 38], "size": [2, 2] }],
   "objectives": [
