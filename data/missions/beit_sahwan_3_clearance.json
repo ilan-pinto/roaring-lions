@@ -122,6 +122,9 @@
       ]
     }
   ],
+  "structures": [
+    { "type": "militia_field_clinic", "at": [38, 25], "size": [2, 2] }
+  ],
   "objectives": [
     {
       "id": "picture",

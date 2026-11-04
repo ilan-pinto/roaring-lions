@@ -55,6 +55,9 @@
     "logistics_start": 400,
     "logistics_rate_per_min": 80
   },
+  "structures": [
+    { "type": "militia_observation_post", "at": [42, 31], "size": [1, 1] }
+  ],
   "objectives": [
     {
       "id": "kill_the_west_horn",

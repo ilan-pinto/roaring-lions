@@ -474,7 +474,7 @@ export const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
   // mission's roster) picks up what is left instead of three buildings
   // simply never coming down.
   // GH-382: the depot is on the embankment now (walls x28-41, y4-17; the yard is zone
-  // [29,5,12,12]) and its seven structures stand where the map puts them.
+  // [29,5,12,12]) and its seven map structures stand where the map puts them (the mission adds an eighth, the workshop).
   const targets: [number, number][] = [
     [30, 6],
     [34, 6],
@@ -483,6 +483,8 @@ export const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
     [35, 10],
     [38, 11],
     [36, 14],
+    // The militia weapons workshop the mission places inside the wire (GH-277 Task 15): a `raze` target like the rest.
+    [36, 12],
   ];
   // Checked against the live structure table so a target already down is
   // skipped. Scanned from opposite ends of the shared list so that, when
