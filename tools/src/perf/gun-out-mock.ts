@@ -1,25 +1,26 @@
 /**
- * MOCK, nothing shipped (the 4 Nov lead report, part 2): what a tank with its main gun knocked out
- * could look like on the tank itself. `pnpm gun-out:mock`.
+ * The confirmation capture for the knocked-out main gun (the lead's ruling of 4 Nov after the mock
+ * sheet: the 14 degree droop, a puff at the moment, a small fire). `pnpm gun-out:mock`.
  *
- *   pnpm gun-out:mock                         the sheet -> _coord/retarget-gunout/gun-out-mock.png
- *   pnpm gun-out:mock -- --probe              print each live mesh's bounds (the barrel hunt)
+ *   pnpm gun-out:mock                         -> _coord/retarget-gunout/gun-out-final.png
+ *   pnpm gun-out:mock -- --probe              print each live mesh's bounds
  *   pnpm gun-out:mock -- --out=<file.png>     write the sheet elsewhere
  *   pnpm gun-out:mock -- --port=5196 --gpu=metal
  *
- * What it does, and what it does not. The look is applied IN THE PAGE, to the live vehicle's own
- * clone, by a string of plain JavaScript below (`BEND_SCRIPT`): the turret's metal mesh gets its OWN
- * geometry (the template stays untouched, so a healthy twin beside it is the shipped model), the
- * barrel is bent down about the mantlet by a few degrees, and its muzzle end is darkened through a
- * vertex colour. No renderer file is changed: this is the lead's look, approved or not, before any
- * code path exists. Sim state is written ONLY to put the unit's `firepowerKilled` flag up, so the
- * real unit card and chip (which already say "Gun out") are photographed too; that write is this
- * throwaway browser's own, never a sim or app code path.
+ * It photographs the SHIPPED renderer, and the knock-out is a REAL one: our Lavi (then our Namer) and an
+ * enemy Lavi are set face to face, both topped up to full hit points between ticks so neither dies first, and
+ * the page's own frame pipeline (`__lions.step`) runs until the sim's `component` event takes the gun out.
+ * Then the enemy is struck from play and the hull is photographed at the knock-out moment, three seconds
+ * later, and twenty seconds later (after the fire has faded into the damage wisp), at zoom 2.5 and game zoom.
+ * The tool checks that the renderer itself armed the fire (`gunOutFx` held the entity), so a sheet cannot be
+ * made from a build where the event never reached the effects.
  *
- * Boots its OWN dev server (default :5196) through `ui-review/port.ts`, refuses a held port, seeds
- * music off through `ui-review/music-off.ts`, opens ONE browser at a time, and stops the server by
- * process group on every exit path. Metal by default on macOS (`--gpu=`); the GPU it got is printed
- * on the sheet.
+ * The only writes to the sim are this throwaway browser's own: topping up `hp` so a component roll can
+ * happen, and `removeFromPlay` on the opponent. No sim or app code path does either.
+ *
+ * Boots its OWN dev server (default :5196) through `ui-review/port.ts`, refuses a held port, seeds music off
+ * through `ui-review/music-off.ts`, opens ONE browser at a time, and stops the server by process group on every
+ * exit path. Metal by default on macOS (`--gpu=`); the GPU it got is printed on the sheet.
  */
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import fs from 'node:fs';
@@ -38,24 +39,32 @@ const TAG = 'gun-out-mock';
 const PORT_ENV = 'GUN_OUT_MOCK_PORT';
 const DEFAULT_PORT = 5196;
 const MAP_ID = 'beit_sahwan_outskirts';
-const DEFAULT_OUT = path.resolve(REPO_ROOT, '..', '_coord/retarget-gunout/gun-out-mock.png');
+const DEFAULT_OUT = path.resolve(REPO_ROOT, '..', '_coord/retarget-gunout/gun-out-final.png');
 const FIXED = 65536;
 
 /** The two hulls the lead named. */
 const VEHICLES = ['mbt_lavi', 'ifv_namer'] as const;
 type VehicleId = (typeof VEHICLES)[number];
 
-/** Absolute ticks, so every vehicle is photographed at the same idle phase. */
+/** Absolute ticks, so every run starts from the same idle phase. */
 const SPAWN_TICK = 200;
-const CAPTURE_TICK = 240;
+/** How far the opponent stands from the hull, tiles. */
+const OPPONENT_TILES = 4.5;
+/** The ticks polled for a real knock-out before the pair is replaced (20 s), and the pairs tried. */
+const KNOCKOUT_TICKS = 400;
+const PAIRS_TRIED = 8;
 
-/** Where the nose points on screen, as a unit vector (x right, y down). PROFILE shows the barrel's
- *  side; FRONT turns the nose toward the camera, down and to the left. */
-const VIEWS = {
-  profile: { dir: { x: -1, y: -0.08 }, label: 'side' },
-  front: { dir: { x: -0.55, y: 0.83 }, label: 'front three-quarter' },
-} as const;
-type ViewId = keyof typeof VIEWS;
+/** Where the nose points on screen, as a unit vector (x right, y down): the side view shows the droop. */
+const NOSE_DIR = { x: -1, y: -0.08 };
+
+/** When each cell is photographed, in sim ticks after the knock-out: the moment, a few seconds on, and
+ *  after the fire (8-15 s) has faded into the damage wisp. */
+const MOMENTS = [
+  { key: 'moment', ticks: 4, head: 'the knock-out moment (+0.2 s)' },
+  { key: 'later', ticks: 60, head: '+3 s' },
+  { key: 'faded', ticks: 400, head: '+20 s, the fire has faded' },
+] as const;
+const ZOOMS = [2.5, 1.0] as const;
 
 /** The box each cell is clipped to, CSS px at DPR 1, centred on the hull's ground point raised by `lift`. */
 const BOX: Readonly<Record<string, { w: number; h: number; lift: number }>> = {
@@ -102,15 +111,21 @@ function parseArgs(argv: readonly string[]): Args {
 interface LionsWindow {
   __lions: {
     step(n: number): number;
-    sel(ids: number[]): void;
     sim: {
       width: number;
       height: number;
       tickCount: number;
       entityCount: number;
-      blocked: Uint8Array;
-      state: { alive: Uint8Array; firepowerKilled: Uint8Array };
-      unitTypes: { id: string }[];
+      state: {
+        alive: Uint8Array;
+        firepowerKilled: Uint8Array;
+        mobilityKilled: Uint8Array;
+        hp: Int32Array;
+        typeIdx: Int32Array;
+        posX: Int32Array;
+        posY: Int32Array;
+      };
+      unitTypes: { id: string; hp: number }[];
       spawn(typeIdx: number, side: number, x: number, y: number, facing?: number): number;
       removeFromPlay(id: number): void;
     };
@@ -120,13 +135,10 @@ interface LionsWindow {
       frame(alpha: number, dtMs: number): void;
       worldToScreen(wx: number, wy: number): { x: number; y: number };
       vehicleMeshEntities?: Map<number, unknown>;
-      vehicleMeshTemplates?: Map<string, unknown>;
+      // Private on `ThreeRenderer`; read as an instrument, never written.
+      gunOutFx?: Map<number, unknown>;
     };
   };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 function shortCommit(): string {
@@ -137,67 +149,7 @@ function shortCommit(): string {
   }
 }
 
-// --------------------------------------------------- the page-side look ----
-
-/**
- * The mock look, as an expression a `page.evaluate` runs. `id` is the entity, `P` the parameters.
- * Plain JavaScript on purpose (no inner TypeScript functions: tsx wraps those in a `__name` the page
- * lacks).
- *
- * For every LIVE turret mesh of the entity whose role is `metal` (the Lavi's `turret_metal` is the
- * barrel and little else; the Namer's holds the cannon with its mount), the geometry is cloned and
- * the vertices ahead of the MANTLET are rotated about the horizontal axis across the hull. The angle
- * eases in from 0 at the mantlet to `P.deg` at the muzzle (a smoothstep), so the barrel droops as one
- * bent tube rather than hinging at a seam. A `color` attribute darkens the last `P.scorch` of the
- * barrel's length, and the mesh gets its own material clone with `vertexColors` on.
- */
-const BEND_SCRIPT = `((id, P) => {
-  const THREE_ENT = window.__lions.renderer.vehicleMeshEntities.get(id);
-  if (!THREE_ENT) return { ok: false, why: 'no entity ' + id };
-  const report = [];
-  THREE_ENT.root.traverse((o) => {
-    if (!o.isMesh || o.userData.rl_wreck === true) return;
-    if (!/^turret_metal$/.test(o.name)) return;
-    const src = o.geometry;
-    const g = src.clone();
-    const pos = g.attributes.position;
-    let minX = Infinity, maxX = -Infinity;
-    for (let i = 0; i < pos.count; i++) { const x = pos.getX(i); if (x < minX) minX = x; if (x > maxX) maxX = x; }
-    const x0 = P.x0;
-    const len = maxX - x0;
-    // The bend axis: the mean height of the barrel's first stretch beyond the mantlet.
-    let sy = 0, n = 0;
-    for (let i = 0; i < pos.count; i++) { const x = pos.getX(i); if (x >= x0 && x <= x0 + len * 0.12) { sy += pos.getY(i); n++; } }
-    const cy = n > 0 ? sy / n : P.pivotY;
-    const rad = P.deg * Math.PI / 180;
-    const col = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i), y = pos.getY(i);
-      let t = (x - x0) / len;
-      t = t < 0 ? 0 : t > 1 ? 1 : t;
-      const e = t * t * (3 - 2 * t);
-      const a = -rad * e;
-      const dx = x - x0, dy = y - cy;
-      pos.setX(i, x0 + dx * Math.cos(a) - dy * Math.sin(a));
-      pos.setY(i, cy + dx * Math.sin(a) + dy * Math.cos(a));
-      const s = t <= 1 - P.scorch ? 0 : (t - (1 - P.scorch)) / P.scorch;
-      const k = 1 - (1 - P.scorchFloor) * s;
-      col[i * 3] = k; col[i * 3 + 1] = k; col[i * 3 + 2] = k;
-    }
-    pos.needsUpdate = true;
-    g.setAttribute('color', new pos.constructor(col, 3));
-    g.computeVertexNormals();
-    g.computeBoundingBox(); g.computeBoundingSphere();
-    const m = Array.isArray(o.material) ? o.material.map((q) => q.clone()) : o.material.clone();
-    for (const q of (Array.isArray(m) ? m : [m])) { q.vertexColors = true; q.needsUpdate = true; }
-    o.geometry = g;
-    o.material = m;
-    report.push({ name: o.name, verts: pos.count, minX, maxX, x0 });
-  });
-  return { ok: true, report };
-})`;
-
-/** Prints every live mesh of an entity with its geometry bounds, to find the barrel. */
+/** Prints every live mesh of an entity with its geometry bounds. */
 const PROBE_SCRIPT = `((id) => {
   const ent = window.__lions.renderer.vehicleMeshEntities.get(id);
   if (!ent) return [];
@@ -207,20 +159,19 @@ const PROBE_SCRIPT = `((id) => {
     const g = o.geometry; g.computeBoundingBox(); const b = g.boundingBox;
     out.push({ name: o.name, parent: o.parent && o.parent.name, verts: g.attributes.position.count,
       min: [b.min.x, b.min.y, b.min.z].map((v) => Math.round(v * 1000) / 1000),
-      max: [b.max.x, b.max.y, b.max.z].map((v) => Math.round(v * 1000) / 1000),
-      pos: o.position.toArray().map((v) => Math.round(v * 1000) / 1000), textured: !!(o.material && o.material.map) });
+      max: [b.max.x, b.max.y, b.max.z].map((v) => Math.round(v * 1000) / 1000) });
   });
   return out;
 })`;
 
 // ------------------------------------------------------- page choreography ----
 
-async function bootSandbox(page: Page, base: string, hideHud: boolean): Promise<void> {
+async function bootSandbox(page: Page, base: string): Promise<void> {
   await page.goto(`${base}/free-play/${MAP_ID}`, { waitUntil: 'load', timeout: 90_000 });
   await page.waitForFunction(() => !!(window as unknown as LionsWindow).__lions?.renderer, null, { timeout: 90_000 });
   await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
   await page.evaluate(() => document.fonts.ready);
-  if (hideHud) await page.evaluate(hideHudExceptCanvas);
+  await page.evaluate(hideHudExceptCanvas);
   await page.evaluate(() => {
     const L = (window as unknown as LionsWindow).__lions;
     for (const layer of ['fog', 'overlays', 'wind']) L.renderer.setDebugLayerVisible(layer, false);
@@ -232,7 +183,7 @@ async function bootSandbox(page: Page, base: string, hideHud: boolean): Promise<
   }, SPAWN_TICK);
 }
 
-/** The open tile nearest the map's middle with a clear 9x9 block around it, read from the map JSON. */
+/** The open tile nearest the map's middle with a clear 11x11 block around it, read from the map JSON. */
 function parkingTile(): [number, number] {
   const rows = (JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'data/maps', `${MAP_ID}.json`), 'utf8')) as { rows: string[] }).rows;
   const h = rows.length;
@@ -274,48 +225,73 @@ async function facingFor(page: Page, at: [number, number], dir: { x: number; y: 
   );
 }
 
-async function spawnAt(page: Page, id: VehicleId, at: [number, number], turns: number): Promise<number> {
-  const ent = await page.evaluate(
-    ([tid, x, y, f, fixed]) => {
-      const L = (window as unknown as LionsWindow).__lions;
-      const typeIdx = L.sim.unitTypes.findIndex((t) => t.id === tid);
-      if (typeIdx < 0) throw new Error('no unit type ' + tid);
-      return L.sim.spawn(typeIdx, 0, Math.round((x + 0.5) * fixed), Math.round((y + 0.5) * fixed), Math.round(f * fixed) & 0xffff);
-    },
-    [id, at[0], at[1], turns, FIXED] as [string, number, number, number, number]
-  );
-  // Two 1 Hz mesh sweeps load an unrostered type's template (main.ts); then a frame builds the entity.
-  await page.evaluate((t) => {
-    const L = (window as unknown as LionsWindow).__lions;
-    L.step(t - L.sim.tickCount);
-  }, CAPTURE_TICK);
-  const deadline = Date.now() + 90_000;
-  for (;;) {
-    const ready = await page.evaluate((e) => {
-      const r = (window as unknown as LionsWindow).__lions.renderer;
-      r.frame(1, 0);
-      return r.vehicleMeshEntities?.has(e) === true;
-    }, ent);
-    if (ready) break;
-    if (Date.now() > deadline) throw new Error(`${id}: the mesh entity never appeared`);
-    await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(20));
-    await sleep(400);
-  }
-  return ent;
+interface Knockout {
+  /** The hull whose gun came out. */
+  id: number;
+  /** The attempts it took. */
+  pairs: number;
+  /** Whether the renderer itself armed the effects off the sim's event. */
+  fxArmed: boolean;
 }
 
-async function shoot(page: Page, at: [number, number], zoom: number, file: string): Promise<void> {
+/**
+ * Sets `type` face to face with an enemy Lavi on the parking tile, steps the page's own frame pipeline,
+ * and returns the hull the moment the sim takes its gun out. The two are topped up to full hit points each
+ * poll so a component roll can come before a death; a pair that dies, or never rolls a gun, is replaced.
+ * On return the opponent is out of play and nothing else moves.
+ */
+async function knockOut(page: Page, type: VehicleId, at: [number, number], turns: number): Promise<Knockout> {
+  for (let pair = 1; pair <= PAIRS_TRIED; pair++) {
+    // Plain JavaScript in a string: tsx wraps inner TypeScript functions in a `__name` the page lacks.
+    const script = `(() => {
+      const L = window.__lions;
+      const idx = L.sim.unitTypes.findIndex((t) => t.id === ${JSON.stringify(type)});
+      const lavi = L.sim.unitTypes.findIndex((t) => t.id === 'mbt_lavi');
+      if (idx < 0 || lavi < 0) throw new Error('no unit type');
+      const F = ${FIXED};
+      const a = ${turns} * Math.PI * 2;
+      const mine = L.sim.spawn(idx, 0, Math.round((${at[0]} + 0.5) * F), Math.round((${at[1]} + 0.5) * F), Math.round(${turns} * F) & 0xffff);
+      const ox = ${at[0]} + 0.5 + Math.cos(a) * ${OPPONENT_TILES};
+      const oy = ${at[1]} + 0.5 + Math.sin(a) * ${OPPONENT_TILES};
+      const foe = L.sim.spawn(lavi, 1, Math.round(ox * F), Math.round(oy * F), Math.round(((${turns} + 0.5) % 1) * F) & 0xffff);
+      for (let k = 0; k < ${KNOCKOUT_TICKS}; k++) {
+        L.step(1);
+        if (L.sim.state.alive[mine] === 0) return { ok: false, why: 'died' };
+        if (L.sim.state.firepowerKilled[mine] === 1) {
+          L.sim.removeFromPlay(foe);
+          return { ok: true, id: mine, armed: L.renderer.gunOutFx ? L.renderer.gunOutFx.has(mine) : false };
+        }
+        for (const i of [mine, foe]) {
+          if (L.sim.state.alive[i] === 1) L.sim.state.hp[i] = L.sim.unitTypes[L.sim.state.typeIdx[i]].hp;
+        }
+      }
+      L.sim.removeFromPlay(foe);
+      L.sim.removeFromPlay(mine);
+      return { ok: false, why: 'no gun kill in the window' };
+    })()`;
+    const res = (await page.evaluate(script)) as { ok: boolean; why?: string; id?: number; armed?: boolean };
+    if (res.ok) return { id: res.id as number, pairs: pair, fxArmed: res.armed as boolean };
+    console.log(`[${TAG}] ${type}: pair ${pair}: ${res.why}; trying another`);
+  }
+  throw new Error(`${type}: no gun knock-out in ${PAIRS_TRIED} pairs`);
+}
+
+/** Steps `ticks`, repaints, and photographs the hull where it stands now. */
+async function photograph(page: Page, id: number, zoom: number, file: string): Promise<void> {
   const box = BOX[zoom.toFixed(1)];
   const sp = await page.evaluate(
-    ([x, y, z]) => {
-      const r = (window as unknown as LionsWindow).__lions.renderer;
+    ([e, z, fixed]) => {
+      const L = (window as unknown as LionsWindow).__lions;
+      const x = L.sim.state.posX[e as number] / (fixed as number);
+      const y = L.sim.state.posY[e as number] / (fixed as number);
+      const r = L.renderer;
       r.camera.x = x;
       r.camera.y = y;
-      r.camera.zoom = z;
+      r.camera.zoom = z as number;
       r.frame(1, 0);
       return r.worldToScreen(x, y);
     },
-    [at[0] + 0.5, at[1] + 0.5, zoom] as [number, number, number]
+    [id, zoom, FIXED] as [number, number, number]
   );
   const clip = { x: Math.round(sp.x - box.w / 2), y: Math.round(sp.y - box.lift - box.h / 2), width: box.w, height: box.h };
   await page.screenshot({ path: file, clip });
@@ -336,28 +312,6 @@ async function startServer(port: number): Promise<Awaited<ReturnType<typeof ensu
   }
 }
 
-/** The mantlet, per hull: the x where the turret body ends and the barrel begins (from `--probe`). */
-const MANTLET_X: Readonly<Record<VehicleId, number>> = { mbt_lavi: 0.95, ifv_namer: 1.15 };
-
-/** The three states photographed: the shipped model, then the bend at two strengths. */
-const STATES = [
-  { key: 'healthy', deg: 0, head: 'healthy' },
-  { key: 'a', deg: 8, head: 'gun out: 8 degrees' },
-  { key: 'b', deg: 14, head: 'gun out: 14 degrees' },
-] as const;
-
-const MOCK_LOOK = {
-  /** Tilt of the muzzle end, degrees downward ("a few degrees"). */
-  deg: 8, // overridden per state
-  /** Where the bend starts: the turret's front face in the mesh's own space, per hull (the probe). */
-  x0: 0,
-  /** A fallback bend-axis height if no vertex lies in the barrel's first stretch. */
-  pivotY: 0,
-  /** The muzzle fraction darkened, and how dark the very tip gets. */
-  scorch: 0.3,
-  scorchFloor: 0.18,
-};
-
 async function openContext(browser: Browser): Promise<BrowserContext> {
   const ctx = await browser.newContext({ viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: 1 });
   await ctx.addInitScript(musicOffInitScript(SILENT_AUDIO));
@@ -371,14 +325,15 @@ async function runProbe(args: Args, port: number): Promise<void> {
     const ctx = await openContext(browser);
     const page = await ctx.newPage();
     page.setDefaultTimeout(120_000);
-    await bootSandbox(page, `http://localhost:${port}`, true);
+    await bootSandbox(page, `http://localhost:${port}`);
     const at = parkingTile();
+    const turns = await facingFor(page, at, NOSE_DIR);
     for (const id of VEHICLES) {
-      const turns = await facingFor(page, at, VIEWS.profile.dir);
-      const ent = await spawnAt(page, id, at, turns);
-      console.log(`[${TAG}] ${id} entity ${ent}`);
-      console.log(JSON.stringify(await page.evaluate(`${PROBE_SCRIPT}(${ent})`), null, 1));
-      await page.evaluate((e) => (window as unknown as LionsWindow).__lions.sim.removeFromPlay(e), ent);
+      const k = await knockOut(page, id, at, turns);
+      await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(2));
+      console.log(`[${TAG}] ${id} entity ${k.id}`);
+      console.log(JSON.stringify(await page.evaluate(`${PROBE_SCRIPT}(${k.id})`), null, 1));
+      await page.evaluate((e) => (window as unknown as LionsWindow).__lions.sim.removeFromPlay(e), k.id);
     }
     await ctx.close();
   } finally {
@@ -391,13 +346,13 @@ interface Cell {
   file: string;
 }
 
-async function runSheet(args: Args, port: number): Promise<void> {
+async function runFinal(args: Args, port: number): Promise<void> {
   const t0 = Date.now();
-  const outDir = path.join(path.dirname(args.out), 'gun-out-cells');
+  const outDir = path.join(path.dirname(args.out), 'gun-out-final-cells');
   fs.mkdirSync(outDir, { recursive: true });
   const dev = await startServer(port);
   const cells = new Map<string, Cell>();
-  const meta = { gpu: 'unknown' };
+  const meta = { gpu: 'unknown', notes: [] as string[] };
   try {
     const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(args.gpu) });
     try {
@@ -410,130 +365,76 @@ async function runSheet(args: Args, port: number): Promise<void> {
       page.on('console', (msg) => {
         if (msg.type() === 'error') console.log(`  console.error: ${msg.text()}`);
       });
-      await bootSandbox(page, `http://localhost:${port}`, true);
+      await bootSandbox(page, `http://localhost:${port}`);
       const at = parkingTile();
+      const turns = await facingFor(page, at, NOSE_DIR);
       for (const id of VEHICLES) {
-        for (const view of Object.keys(VIEWS) as ViewId[]) {
-          const turns = await facingFor(page, at, VIEWS[view].dir);
-          for (const state of STATES) {
-            // A fresh hull per state: the bend works on the entity's own geometry and must not stack.
-            const ent = await spawnAt(page, id, at, turns);
-            if (state.deg > 0) {
-              const probe = (await page.evaluate(`${PROBE_SCRIPT}(${ent})`)) as { name: string; min: number[]; max: number[] }[];
-              const metal = probe.find((m) => m.name === 'turret_metal');
-              if (!metal) throw new Error(`${id}: no turret_metal mesh (saw ${probe.map((m) => m.name).join(', ')})`);
-              const look = { ...MOCK_LOOK, deg: state.deg, x0: MANTLET_X[id], pivotY: (metal.min[1] + metal.max[1]) / 2 };
-              const res = (await page.evaluate(`${BEND_SCRIPT}(${ent}, ${JSON.stringify(look)})`)) as { ok: boolean; why?: string };
-              if (!res.ok) throw new Error(`${id}: bend failed: ${res.why}`);
-              await page.evaluate((e) => {
-                (window as unknown as LionsWindow).__lions.sim.state.firepowerKilled[e] = 1;
-              }, ent);
-            }
-            for (const zoom of [2.5, 1.0]) {
-              const key = `${id}_${view}_${state.key}_z${zoom.toFixed(1)}`;
-              const file = path.join(outDir, `${key}.png`);
-              await shoot(page, at, zoom, file);
-              cells.set(key, { file });
-            }
-            await page.evaluate((e) => (window as unknown as LionsWindow).__lions.sim.removeFromPlay(e), ent);
+        const k = await knockOut(page, id, at, turns);
+        if (!k.fxArmed) throw new Error(`${id}: the sim took the gun out but the renderer never armed the fire (the event did not reach it)`);
+        meta.notes.push(`${id}: knock-out after ${k.pairs} pair(s), effects armed by the renderer`);
+        console.log(`[${TAG}] ${meta.notes[meta.notes.length - 1]}`);
+        // The fight's own muzzle flashes, tracers and blast lights age on the FRAME clock, which a frozen loop
+        // stops: left alone they sit over the hull for the whole sheet. Age them out with repaints at zero sim
+        // time (a repaint advances nothing the sim dates, so the knock-out's puff and fire are untouched).
+        await page.evaluate(() => {
+          const r = (window as unknown as LionsWindow).__lions.renderer;
+          for (let k = 0; k < 40; k++) r.frame(1, 100);
+        });
+        let ticks = 0;
+        for (const m of MOMENTS) {
+          const dt = m.ticks - ticks;
+          await page.evaluate((n) => (window as unknown as LionsWindow).__lions.step(n), dt);
+          await page.evaluate(() => {
+            const r = (window as unknown as LionsWindow).__lions.renderer;
+            for (let k = 0; k < 40; k++) r.frame(1, 100);
+          });
+          ticks = m.ticks;
+          for (const zoom of ZOOMS) {
+            const key = `${id}_${m.key}_z${zoom.toFixed(1)}`;
+            const file = path.join(outDir, `${key}.png`);
+            await photograph(page, k.id, zoom, file);
+            cells.set(key, { file });
           }
         }
+        await page.evaluate((e) => (window as unknown as LionsWindow).__lions.sim.removeFromPlay(e), k.id);
+        await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(2));
       }
       await ctx.close();
-      const hud = await shootHud(browser, `http://localhost:${port}`, outDir);
-      cells.set('hud_healthy', { file: hud.healthy });
-      cells.set('hud_gunout', { file: hud.gunout });
     } finally {
       await browser.close();
     }
-    await composeSheet(args.out, meta.gpu, cells);
+    await composeSheet(args.out, meta, cells);
   } finally {
     stopDevServer(dev, TAG);
   }
   console.log(`[${TAG}] wrote ${args.out} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
 
-
-/**
- * The real unit card and chip for a selected Lavi, healthy and then with `firepowerKilled` up. The
- * app already says "Gun out" there (`hud.ts`, `combat-state.ts`'s `vehicleDamage`); this photographs
- * it so the sheet shows what the lead has today beside the model change. A live (unfrozen) page: the
- * card refreshes at its own 4 Hz cadence.
- */
-async function shootHud(browser: Browser, base: string, outDir: string): Promise<{ healthy: string; gunout: string }> {
-  const ctx = await openContext(browser);
-  try {
-    const page = await ctx.newPage();
-    page.setDefaultTimeout(120_000);
-    await page.goto(`${base}/free-play/${MAP_ID}`, { waitUntil: 'load', timeout: 90_000 });
-    await page.waitForFunction(() => !!(window as unknown as LionsWindow).__lions?.renderer, null, { timeout: 90_000 });
-    const at = parkingTile();
-    const ent = await page.evaluate(
-      ([x, y, fixed]) => {
-        const L = (window as unknown as LionsWindow).__lions;
-        for (let i = 0; i < L.sim.entityCount; i++) if (L.sim.state.alive[i] === 1) L.sim.removeFromPlay(i);
-        const typeIdx = L.sim.unitTypes.findIndex((t) => t.id === 'mbt_lavi');
-        const id = L.sim.spawn(typeIdx, 0, Math.round((x + 0.5) * fixed), Math.round((y + 0.5) * fixed), 0);
-        L.renderer.camera.x = x + 0.5;
-        L.renderer.camera.y = y + 0.5;
-        L.renderer.camera.zoom = 1;
-        return id;
-      },
-      [at[0], at[1], FIXED] as [number, number, number]
-    );
-    const photograph = async (name: string): Promise<string> => {
-      await page.evaluate((e) => (window as unknown as LionsWindow).__lions.sel([e]), ent);
-      await sleep(2500);
-      const file = path.join(outDir, `hud_${name}.png`);
-      const cluster = page.locator('.rl-cluster');
-      await cluster.screenshot({ path: file });
-      return file;
-    };
-    const healthy = await photograph('healthy');
-    await page.evaluate((e) => {
-      (window as unknown as LionsWindow).__lions.sim.state.firepowerKilled[e] = 1;
-    }, ent);
-    const gunout = await photograph('gunout');
-    return { healthy, gunout };
-  } finally {
-    await ctx.close();
-  }
-}
-
-async function composeSheet(out: string, gpuName: string, cells: ReadonlyMap<string, Cell>): Promise<void> {
+async function composeSheet(out: string, meta: { gpu: string; notes: string[] }, cells: ReadonlyMap<string, Cell>): Promise<void> {
   const img = (key: string): string => {
     const c = cells.get(key);
     return c && fs.existsSync(c.file) ? `<img src="data:image/png;base64,${fs.readFileSync(c.file).toString('base64')}">` : '<div class="missing">not captured</div>';
   };
-  const rows: string[] = [];
-  for (const id of VEHICLES) {
-    for (const view of Object.keys(VIEWS) as ViewId[]) {
-      const z25 = STATES.map((st) => `<td>${img(`${id}_${view}_${st.key}_z2.5`)}</td>`).join('');
-      const z10 = STATES.map((st) => `<td>${img(`${id}_${view}_${st.key}_z1.0`)}</td>`).join('');
-      rows.push(
-        `<tr><th class="row">${id}<br><span>${VIEWS[view].label}, zoom 2.5</span></th>${z25}` +
-          `<th class="row">zoom 1.0<br><span>game scale</span></th>${z10}</tr>`
-      );
-    }
-  }
-  const heads = STATES.map((st) => `<th>${st.head}</th>`).join('');
+  const rows = VEHICLES.map((id) => {
+    const tds = (zoom: number): string => MOMENTS.map((m) => `<td>${img(`${id}_${m.key}_z${zoom.toFixed(1)}`)}</td>`).join('');
+    return `<tr><th class="row">${id}<br><span>zoom 2.5</span></th>${tds(2.5)}</tr><tr><th class="row">${id}<br><span>game zoom 1.0</span></th>${tds(1.0)}</tr>`;
+  });
+  const heads = MOMENTS.map((m) => `<th>${m.head}</th>`).join('');
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
     body { margin: 0; background: #c6b79c; color: #1f1a14; font: 14px/1.3 -apple-system, Helvetica, Arial, sans-serif; }
     #sheet { display: inline-block; padding: 14px 18px; }
     h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
     table { border-collapse: separate; border-spacing: 6px; }
-    th { font-weight: 600; text-align: center; }
-    th span { font-weight: 400; font-size: 12px; }
+    th { font-weight: 600; text-align: center; } th span { font-weight: 400; font-size: 12px; }
     th.row { text-align: left; padding-right: 8px; white-space: nowrap; }
     td { padding: 0; } img { display: block; }
-    p { margin: 8px 0 0; font-size: 12px; max-width: 1500px; }
-  </style></head><body><div id="sheet"><h1>Main gun knocked out: the model shows it (MOCK, nothing shipped)</h1>
-  <table><tr><th></th>${heads}<th></th>${heads}</tr>${rows.join('\n')}</table>
-  <h1 style="margin-top:14px">Unit card and chip, today (the app already says it; selected Lavi)</h1>
-  <table><tr><th class="row">healthy</th><td>${img('hud_healthy')}</td></tr><tr><th class="row">gun out</th><td>${img('hud_gunout')}</td></tr></table>
-  <p>Gun out: the barrel bent down about the mantlet by 8 degrees (a few degrees) or 14 (louder), its last ${Math.round(MOCK_LOOK.scorch * 100)}% scorched.
-  Applied in the page to the live unit's own turret mesh by tools/src/perf/gun-out-mock.ts at ${shortCommit()}; the healthy twin is the shipped model.
-  The existing dark damage wisp is on the gun-out tank in both cases. Metal, DPR 1, music off, frozen frame loop, GPU ${gpuName.replace(/[<>&]/g, '')}.</p></div></body></html>`;
+    p { margin: 8px 0 0; font-size: 12px; max-width: 1300px; }
+  </style></head><body><div id="sheet"><h1>Main gun knocked out: the shipped renderer, a real knock-out</h1>
+  <table><tr><th></th>${heads}</tr>${rows.join('\n')}</table>
+  <p>The sim's own component roll took each gun out (${meta.notes.join('; ')}). Barrel bent 14 degrees, the Namer's whole mount tilted, the muzzle charred;
+  a brief puff at the moment, then a small fire at the turret ring for 8-15 s of sim time that thins into the damage wisp.
+  tools/src/perf/gun-out-mock.ts at ${shortCommit()}; both hulls topped up to full hit points between ticks so a component roll could come first; the opponent
+  struck from play at the knock-out. Metal, DPR 1, music off, frozen frame loop stepped by the page, GPU ${meta.gpu.replace(/[<>&]/g, '')}.</p></div></body></html>`;
   const browser = await chromium.launch({ headless: true });
   try {
     // music-off: exempt -- a static HTML page with no game in it.
@@ -551,4 +452,4 @@ async function composeSheet(out: string, gpuName: string, cells: ReadonlyMap<str
 const args = parseArgs(process.argv.slice(2));
 const port = await claimPort(TAG, PORT_ENV, DEFAULT_PORT);
 if (args.probe) await runProbe(args, port);
-else await runSheet(args, port);
+else await runFinal(args, port);
