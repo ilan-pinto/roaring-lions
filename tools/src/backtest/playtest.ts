@@ -3597,7 +3597,15 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // in at 90 s), III 150 -> 195 (ROE 70 -> 85, 6.2 -> 6.0 min: Hallaq's man runs at 15 s and is stopped on the lip, so the
 // head is clear of his truck earlier), I unchanged at 250. Every other mission's run line is byte-identical to the tree
 // before the change. Every plan still wins 30 of 30; no star or gate moved; ROSTER_MAX stays 30.
-const LADDER_CREDITS = 6979;
+// 2026-11-04, GH-277 Task 15 (field works in the campaign): 6979 -> 6994, +15, read off the printed per-mission credits. Seven
+// missions list `field_works` (the five `*_2_foothold`, Umm Zeitoun II and Wadi Halam II); the three that fielded no
+// `demo_squad` (Beit Sahwan II, Deir Amun II, Khan Rafid II: plan L4, option (a)) are lent one, because a foothold with an
+// allow list and nobody to build is dead content. The plans do not use it. Beit Sahwan II 210 -> 220 (roster out 15 -> 16:
+// the squad comes home), Khan Rafid II 235 -> 240 (roster out 8, ROE 100 -> 95: one more body shifts every later entity id
+// and so the wave streams), Deir Amun II pays what it paid (its gate-open probe reads 247 -> 217, roster out 10 -> 8: report only). Every plan still wins 30 of 30, every passive control
+// still loses 30 of 30, and the new medic-only control (a station ordered at 1 s, nothing else) loses on 30 of 30 in each
+// of the six missions that have a no-orders control; no star or gate moved.
+const LADDER_CREDITS = 6994;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
