@@ -118,12 +118,7 @@ describe('/api/match', () => {
     }
     expect(createBodies.slice(SEVEN.length).map((b) => b.winMode)).toEqual(SEVEN.map(() => 'flag'));
     createBodies.splice(0, createBodies.length);
-    // GH-976 P4: KDF against Sarim is read fair for the points race on Wadi Tarfan (large), whoever hosts, and nowhere else.
-    for (const matchup of ['kdf', 'sarim']) {
-      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map: 'wadi_tarfan_l', matchup, winMode: 'points' })), env, NOW)).status, matchup).toBe(201);
-    }
-    expect(createBodies.map((b) => [b.winMode, b.matchup, b.map])).toEqual([['points', 'kdf', 'wadi_tarfan_l'], ['points', 'sarim', 'wadi_tarfan_l']]);
-    createBodies.splice(0, createBodies.length);
+    // GH-976 P4 review: no KDF-v-Sarim cell passed, so every faction pairing is a 400 below, whoever hosts.
     // Annihilation by any of its spellings is no mode: the room is told nothing, as every room before.
     for (const winMode of [undefined, null, 'annihilation']) {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ winMode })), env, NOW)).status).toBe(201);
@@ -148,8 +143,9 @@ describe('/api/match', () => {
       await refuse({ winMode: 'flag', matchup }, unfair);                                    // wadi_tarfan: Sarim wins every raid
       await refuse({ winMode: 'points', map: 'tel_marum', matchup }, unfair);                // fair on the lead, 26-29% decided by the goal
       await refuse({ winMode: 'flag', map: 'tel_marum', matchup }, unfair);
-      await refuse({ winMode: 'flag', map: 'wadi_tarfan_l', matchup }, unfair);              // the points race passes there, the flag does not
+      await refuse({ winMode: 'flag', map: 'wadi_tarfan_l', matchup }, unfair);              // the KDF wins every raid
       await refuse({ winMode: 'camp', map: 'wadi_tarfan_l', matchup }, unfair);
+      await refuse({ winMode: 'points', map: 'wadi_tarfan_l', matchup }, unfair);            // the one cell that passed at weight 10 was a kill race and is gone
     }
     // And a mirror-only map refuses the pairing itself before the mode is asked (the lead, 2026-10-14).
     for (const map of ['beit_sahwan_outskirts', 'milh_flats', 'milh_flats_l', 'rujm_sawda']) {

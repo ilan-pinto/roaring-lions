@@ -17,8 +17,8 @@
         { "zone": "farm_near_0", "per_min": 10 },
         { "zone": "farm_near_1", "per_min": 10 }
       ],
-      "per_value_destroyed": 10,
-      "target": 400
+      "per_value_destroyed": 1,
+      "target": 600
     }
   }
 }

@@ -1667,11 +1667,11 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
     for (const [over, status] of [
       [{ winMode: 'points' }, 200],
       [{ winMode: 'rally' }, 400], [{ winMode: 'camp' }, 400], [{ winMode: 'camp', map: 'tel_marum' }, 400],
-      // GH-976 P4: tel_marum plays the points race and the flag raid in the mirror now; KDF against Sarim plays the points race on
-      // Wadi Tarfan (large) in both seat orders and nothing else anywhere, and the room asks the same question the route does.
+      // GH-976 P4: tel_marum plays the points race and the flag raid in the mirror now; KDF against Sarim plays no mode anywhere
+      // (the review removed the one cell), and the room asks the same question the route does.
       [{ winMode: 'points', map: 'tel_marum' }, 200], [{ winMode: 'flag', map: 'milh_flats_l' }, 200],
       [{ winMode: 'points', matchup: 'sarim' }, 400], [{ winMode: 'points', matchup: 'kdf' }, 400], [{ winMode: 'flag', matchup: 'kdf' }, 400],
-      [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'kdf' }, 200], [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'sarim' }, 200],
+      [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
       [{ winMode: 'flag', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'flag', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
       [{ winMode: 'points', map: 'tel_marum', matchup: 'kdf' }, 400], [{ winMode: 'flag', map: 'tel_marum', matchup: 'sarim' }, 400],
       [{ winMode: 'points', mode: 'sandbox' }, 400],

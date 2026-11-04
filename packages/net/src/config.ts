@@ -55,16 +55,19 @@ export type WinMode = (typeof WIN_MODES)[number];
  *    | beit_sahwan_outskirts | flag | 148 / 140 / 0 | 51.4% / 51.4% | 100.0% |
  *    | rujm_sawda | points | 158 / 130 / 0 | 54.9% / 54.9% | 93.8% |
  *    | rujm_sawda | flag | 127 / 115 / 46 | 44.1% / 52.5% | 80.6% |
- *    | wadi_tarfan_l | points | 130 / 158 / 0 | 54.9% / 54.9% | 100.0% |
+ *    | wadi_tarfan_l | points | 135 / 153 / 0 (12000-12287, see below) | 53.1% / 53.1% | 96.2% |
  *    | wadi_tarfan_l | flag | 122 / 129 / 37 | 44.8% / 51.4% | 87.2% |
  *    | milh_flats_l | points | 139 / 149 / 0 | 51.7% / 51.7% | 99.7% |
  *    | milh_flats_l | flag | 144 / 144 / 0 | 50.0% / 50.0% | 97.9% |
  *
  *    The fits are brittle in position and in the rates (a one-tile move of a flag, or one point of the kill weight on tel_marum,
  *    swings a cell by 5-30 points), so read each as "this ground, at these numbers, is not unfair for this probe's play".
- *    wadi_tarfan_l's points race pays 10 points per 100 value destroyed to 400: its games last two minutes and kills decide
- *    them as much as the ground does (at 1 point per 100 it is fair KDF v KDF and not KDF v Sarim). KDF against Sarim is
- *    `WIN_MODE_FAIR_FACTION_CELLS`'s question. */
+ *    A second look on a range nobody had fitted or read (9000-9287, the PR 1020 review; same files except wadi_tarfan_l points,
+ *    which was then at another weight, see below) passed every mirror row it re-read: tel_marum points 158 / 130 / 0, 54.9%,
+ *    84.4% by the goal; wadi_tarfan_l flag 126 / 125 / 37, 43.8% / 50.2% decisive, 87.2%; beit_sahwan_outskirts points
+ *    133 / 155 / 0, 53.8%, 74.3%. wadi_tarfan_l points (1 point per 100, target 600) was read on a third range, 12000-12287:
+ *    135 / 153 / 0, 53.1% over all and decisive games, 96.2% by the goal, the passive end lost 288 of 288 from each end.
+ *    KDF against Sarim is `WIN_MODE_FAIR_FACTION_CELLS`'s question. */
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
   camp: [],
   points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
@@ -81,9 +84,10 @@ export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = 
  *  inside 60/40 over all the games and over the decisive games alone, the passive seat lost every game from either end,
  *  and at least 70% of the games decided by the goal.
  *
- *  - `points` on wadi_tarfan_l, both seat orders (host KDF: KDF 130 / Sarim 158, leader 54.9%; host Sarim: Sarim 125 / KDF 163,
- *    leader 56.6%; 100.0% decided by the goal in both, the passive end lost 288 of 288 from each end in both), at the mode file's
- *    10 points per 100 value and a target of 400.
+ *  - Nothing is listed (GH-976 P4 review). The one cell that passed, `points` on wadi_tarfan_l at 10 points per 100 value and a
+ *    target of 400 (4000-4287: 130 / 158 and 125 / 163, 54.9% and 56.6%), was a kill race, not a points race: about 80% of its
+ *    points came from kills (held ground 20%, against 87-91% on the other maps), and at the real race (1 per 100, target 600) the
+ *    faction cells read Sarim 63.2% and 64.2% on 9000-9287. It was removed, and the mirror file went back to 1 per 100.
  *  - Read on 4000-4287 and NOT fair, so not listed (leader / decided by the goal, host KDF then host Sarim): `flag` on
  *    wadi_tarfan 100% and 100% / 100.0% (Sarim wins every raid), on tel_marum 88.9% and 100% / 99.7% and 100.0% (Sarim), on
  *    wadi_tarfan_l 100% and 100% / 100.0% (the KDF wins every raid); `points` on wadi_tarfan 88.9% and 93.8% / 15.3% and 17.7%
@@ -93,7 +97,7 @@ export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = 
  *  Absent maps and absent hosts are not offered, and the Worker answers 400 for them (`winModeRequest`). */
 export const WIN_MODE_FAIR_FACTION_CELLS: Readonly<Record<WinMode, Readonly<Record<string, readonly ('kdf' | 'sarim')[]>>>> = {
   camp: {},
-  points: { wadi_tarfan_l: ['kdf', 'sarim'] },
+  points: {},
   flag: {},
 };
 

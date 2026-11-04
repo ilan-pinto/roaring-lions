@@ -345,9 +345,9 @@ describe('pnpm arena --mode', () => {
     expect(refusalOf('milh_flats', 'mirror', 'flag')).toBeNull();
     expect(refusalOf('tel_marum', 'mirror', 'flag')).toBeNull();
     expect(refusalOf('tel_marum', 'mirror', 'camp')).toMatch(/not offered on this map/);
-    // GH-976 P4: KDF against Sarim has one cell read fair, the points race on Wadi Tarfan (large), in both seat orders.
-    expect(refusalOf('wadi_tarfan_l', 'kdf', 'points')).toBeNull();
-    expect(refusalOf('wadi_tarfan_l', 'sarim', 'points')).toBeNull();
+    // GH-976 P4 review: no KDF-against-Sarim cell passed, so every faction pairing is refused for every mode.
+    expect(refusalOf('wadi_tarfan_l', 'kdf', 'points')).toMatch(/not offered on this map for this matchup/);
+    expect(refusalOf('wadi_tarfan_l', 'sarim', 'points')).toMatch(/not offered on this map for this matchup/);
     expect(refusalOf('wadi_tarfan_l', 'kdf', 'flag')).toMatch(/not offered on this map for this matchup/);
     expect(refusalOf('wadi_tarfan', 'kdf', 'flag')).toMatch(/not offered on this map for this matchup/);
     expect(refusalOf('wadi_tarfan', 'sarim', 'points')).toMatch(/not offered on this map for this matchup/);
@@ -420,20 +420,9 @@ describe('a points race played through the arena (GH-976 P2)', () => {
   }, 280_000);
 });
 
-// GH-976 P4: the one KDF-v-Sarim cell read fair, end to end. A KDF-v-Sarim mode room is a PLACED-force match (no production, no tunnels,
-// a goals-only runtime), so the harness shows no economy and the points race decides it, from either seat.
-describe('a KDF-against-Sarim points race played through the arena (GH-976 P4)', () => {
-  const tileCentre = (t: number): number => (t + 0.5) * 65536;
-  const zoneStub: Policy = (view) => {
-    const targets = (view.points?.zones ?? []).filter((z) => z.holder !== 'mine')
-      .map((z) => ({ x: z.at[0] + z.at[2] / 2, y: z.at[1] + z.at[3] / 2 }))
-      .sort((a, b) => Math.hypot(a.x - view.camp[0], a.y - view.camp[1]) - Math.hypot(b.x - view.camp[0], b.y - view.camp[1]))
-      .slice(0, 3);
-    const idle = view.units.filter((u) => u.flags.includes('idle')).map((u) => u.id);
-    if (targets.length === 0 || idle.length === 0) return [];
-    return targets.map((t, k) => ({ kind: 'attackMove' as const, ids: idle.filter((_, i) => i % targets.length === k), x: tileCentre(Math.floor(t.x)), y: tileCentre(Math.floor(t.y)) })).filter((c) => c.ids.length > 0);
-  };
-
+// GH-976 P4: a KDF-v-Sarim mode room (not offered today: the arena refuses it) is a PLACED-force match (no production, no tunnels,
+// a goals-only runtime), so the harness shows no economy.
+describe('a KDF-against-Sarim mode room, and the arena that refuses to start one (GH-976 P4)', () => {
   it('observe in a faction mode room: each seat reads its own faction, the board and no economy', () => {
     const w = buildMatchWorld(modeConfig('wadi_tarfan_l', 'points', 4000, ['sarim', 'kdf']));
     expect(w.factions).toEqual(['kdf', 'sarim']);
@@ -441,7 +430,7 @@ describe('a KDF-against-Sarim points race played through the arena (GH-976 P4)',
     const kdfSeat = sideView(w, 0, new FogTracker(w.sim, 0), null);
     expect([sarimSeat.faction, kdfSeat.faction]).toEqual(['sarim', 'kdf']);
     expect(sarimSeat.mode).toBe('points');
-    expect(sarimSeat.points?.target).toBe(400);
+    expect(sarimSeat.points?.target).toBe(600);
     expect(sarimSeat).not.toHaveProperty('economy');   // the room is NOT an economy room, though the factions differ
     expect(economyView(w, 1)).toBeNull();
     // A Sarim host stands at the friendly end (the west): its camp point is the friendly anchor, the KDF seat's the hostile one.
@@ -449,35 +438,12 @@ describe('a KDF-against-Sarim points race played through the arena (GH-976 P4)',
     expect(kdfSeat.camp).toEqual([w.anchors.hostile[0], w.anchors.hostile[1]]);
   });
 
-  it('decides on the goal from either seat in both pairings, against a passive control, and the record names the pairing', async () => {
-    const out = mkdtempSync(join(tmpdir(), 'win-mode-arena-faction-'));
-    try {
-      const lines: string[] = [];
-      const games: GameRecord[] = [];
-      const run = await runArena(
-        ['--a', 'cmd:stub', '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'wadi_tarfan_l', '--matchup', 'kdf', '--mode=points', '--pace', '600', '--tick-ms', '1', '--cap-ticks', '24000', '--out', out],
-        {
-          log: (l) => { lines.push(l); }, print: () => {},
-          resolvePlayer: (spec, log) => (spec === 'cmd:stub' ? inProcess('cmd:stub', zoneStub, { log }) : resolvePlayer(spec, log)),
-          onGameEnd: ({ record }) => { games.push(record); },
-        },
-      );
-      expect(run.code, lines.join('\n')).toBe(0);
-      expect(games).toHaveLength(2);
-      for (const g of games) {
-        expect(g.mode).toBe('points');
-        expect(g.outcome, `${g.players} ${g.by}`).toBe(g.players[0] === 'Player A' ? 'seat0' : 'seat1');
-        expect(g.by).toBe('objective');
-        const winnerSeat = g.outcome === 'seat0' ? 0 : 1;
-        expect(g.referee!.target).toBe(400);
-        expect(g.referee!.seats[winnerSeat].points!.total).toBeGreaterThanOrEqual(400);
-        expect(g.referee!.seats[1 - winnerSeat].points!.total).toBeLessThan(400);
-      }
-      expect(readFileSync(join(out, readdirSync(out).find((f) => f.endsWith('.md')) ?? ''), 'utf8')).toMatch(/^# Arena: wadi_tarfan_l, kdf, points$/m);
-    } finally {
-      rmSync(out, { recursive: true, force: true });
-    }
-  }, 280_000);
+  it('the arena refuses the pairing before any room: no faction cell is offered (exit 2)', async () => {
+    const lines: string[] = [];
+    const run = await runArena(['--a', 'passive', '--b', 'passive', '--seeds', '1', '--map', 'wadi_tarfan_l', '--matchup', 'kdf', '--mode=points', '--out', '/nonexistent-arena-out'], { log: (l) => { lines.push(l); }, print: () => {} });
+    expect(run.code).toBe(2);
+    expect(lines.join('\n')).toMatch(/not offered on this map for this matchup/);
+  });
 });
 
 // One real flag raid, end to end: the Worker's route and room, two in-process players (a stub that sends two infantry squads at

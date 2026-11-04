@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps, paletteTeamColors } from '@lions/data';
-import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODE_FAIR_FACTION_CELLS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
 import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
@@ -38,8 +38,16 @@ const MAPS = [
   { id: 'tel_marum', label: 'Tel Marum' },
   { id: 'wadi_tarfan', label: 'Wadi Tarfan — The Three Fords' },
 ];
-/** Wadi Tarfan (large), the one map KDF against Sarim was read fair on for a win mode (GH-976 P4): added to a lobby by the tests that need it. */
+/** Wadi Tarfan (large), a map KDF against Sarim plays: added to a lobby by the tests that need it. */
 const WADI_TARFAN_L = { id: 'wadi_tarfan_l', label: 'Wadi Tarfan (large) — The Three Fords' };
+/** Runs `fn` with a points cell for Wadi Tarfan (large) in the faction table and takes it out again, also on a throw. The table is
+ *  empty (GH-976 P4 review: the one cell that passed was a kill race), so the lobby's handling of a faction cell is exercised with
+ *  a cell the test adds. */
+async function withFactionPoints(hosts: ('kdf' | 'sarim')[], fn: () => Promise<void>): Promise<void> {
+  const cells = WIN_MODE_FAIR_FACTION_CELLS.points as Record<string, readonly ('kdf' | 'sarim')[]>;
+  cells.wadi_tarfan_l = hosts;
+  try { await fn(); } finally { delete cells.wadi_tarfan_l; }
+}
 
 function deps(overrides: Partial<VersusDeps> = {}): VersusDeps & { saved: string[]; navigated: [string, { replace?: boolean } | undefined][] } {
   const saved: string[] = [];
@@ -663,12 +671,12 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan', matchup: 'mirror', winMode: 'flag' });
   });
 
-  it('a pick that the next pairing does not offer is dropped, not carried to a cell it was never read fair on', async () => {
+  it('a pick that the next pairing does not offer is dropped, not carried to a cell it was never read fair on', async () => withFactionPoints(['kdf'], async () => {
     const { open, stage } = mount([WADI_TARFAN_L]);
     pick(mapRadio(stage, 'wadi_tarfan_l'));
     pick(winRadios(stage).find((r) => r.value === 'flag')!);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('flag');
-    // KDF against Sarim was read on this map for the points race alone: the flag pick is dropped, annihilation is the default again.
+    // KDF against Sarim is offered the points race alone on this map (a cell the test adds): the flag pick is dropped, annihilation is the default again.
     pick(sideRadio(stage, 'kdf'));
     expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
@@ -680,7 +688,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     const req = await created(stage, open);
     expect(req).toMatchObject({ matchup: 'kdf', map: 'tel_marum' });
     expect('winMode' in req).toBe(false);
-  });
+  }));
 
   it('a faction pick on a map KDF-against-Sarim was not read fair on offers no mode and drops the pick', async () => {
     const { open, stage } = mount();
@@ -697,7 +705,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
   });
 
-  it('GH-976 P4: on Wadi Tarfan (large) KDF against Sarim offers the points race in both orders, the create carries it, and the economy line gives way to the placed-forces one', async () => {
+  it('GH-976 P4: a faction cell in the table is offered, the create carries it, and the economy line gives way to the placed-forces one', async () => withFactionPoints(['kdf', 'sarim'], async () => {
     for (const side of ['kdf', 'sarim'] as const) {
       const { open, stage } = mount([WADI_TARFAN_L]);
       const economy = stage.querySelector<HTMLElement>('.rl-versus__matchup-note:not([id*="placed"])')!;
@@ -712,14 +720,14 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       expect(placed.hidden).toBe(true);
       expect(describedBy(sideRadio(stage, side))).toBe('Camps, income and production on');
       pick(winRadios(stage).find((r) => r.value === 'points')!);
-      expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('first to 400 wins');
+      expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('first to 600 wins');
       // A mode on a faction pairing is the placed forces with no economy, so the economy line would be untrue.
       expect(economy.hidden).toBe(true);
       expect(placed.hidden).toBe(false);
       expect(describedBy(sideRadio(stage, side))).toBe('Both forces start on the field; nothing is built or bought');
       expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan_l', matchup: side, winMode: 'points' });
     }
-  });
+  }));
 
   it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: never Destroy the camp', () => {
     const stage = mountPick(deps({ maps: [...MAPS, WADI_TARFAN_L] }));

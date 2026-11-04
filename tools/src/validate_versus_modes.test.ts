@@ -79,14 +79,25 @@ describe('the shipped win-mode files', () => {
     expect(WIN_MODE_FAIR_MAPS.camp).toEqual([]);      // 4.9% / 58.3% decided by the camp, passive ends win 8-47 of 288: see config.ts
     expect([...VERSUS_FAIR_MAPS].sort()).toEqual([...SEVEN].sort());
     for (const map of SEVEN) for (const mode of ['points', 'flag'] as const) expect(versusModes[map].modes[mode], `${map} ${mode}`).toBeDefined();
-    // ...and the one KDF-v-Sarim cell read fair, in both seat orders: the points race on Wadi Tarfan (large).
-    expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: {}, points: { wadi_tarfan_l: ['kdf', 'sarim'] }, flag: {} });
+    // ...and no KDF-v-Sarim cell: the one that passed (points on wadi_tarfan_l at 10 per 100) was a kill race and was removed.
+    expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: {}, points: {}, flag: {} });
     expect(winModeAllowed('camp', 'wadi_tarfan')).toBe(false);
-    expect(winModeAllowed('points', 'wadi_tarfan_l', 'kdf')).toBe(true);
-    expect(winModeAllowed('points', 'wadi_tarfan_l', 'sarim')).toBe(true);
+    expect(winModeAllowed('points', 'wadi_tarfan_l', 'kdf')).toBe(false);
+    expect(winModeAllowed('points', 'wadi_tarfan_l', 'sarim')).toBe(false);
     expect(winModeAllowed('flag', 'wadi_tarfan_l', 'kdf')).toBe(false);
     expect(winModeAllowed('points', 'wadi_tarfan', 'sarim')).toBe(false);
     expect(winModeAllowed('points', 'tel_marum', 'kdf')).toBe(false);
+  });
+
+  it('GH-976 P4 review: a points race is mostly held ground: no file pays more than 2 points per 100 value destroyed', () => {
+    // Measured on 9000-9287: at 1-2 per 100 about 90% of the points on milh_flats_l, tel_marum and wadi_tarfan come from held ground; at
+    // 10 per 100 (wadi_tarfan_l, removed) 80% came from kills, a two-minute kill race under a hint that promises the ground.
+    for (const s of shipped) {
+      const p = s.doc.modes.points!;
+      expect(p.per_value_destroyed, s.doc.map).toBeLessThanOrEqual(2);
+      expect(p.target, s.doc.map).toBeGreaterThanOrEqual(350);
+    }
+    expect(shipped.find((s) => s.doc.map === 'wadi_tarfan_l')!.doc.modes.points).toMatchObject({ per_value_destroyed: 1, target: 600 });
   });
 
   it('GH-976 P4: the symmetric maps are point-symmetric tile for tile (rows and elevation), the two others are not: so the symmetry the next tests ask is a fact about the map', () => {
@@ -116,43 +127,44 @@ describe('the shipped win-mode files', () => {
     }
   });
 
-  /** The tiles the two placed forces stand on at tick 0 in a room of this arrangement, `[friendly, hostile]` by END (a Sarim host is
-   *  side 1 at the friendly end, the KDF always side 0: `sidesOfFactions`). */
-  const spawnedTiles = (map: string, arr: readonly ['kdf' | 'sarim', 'kdf' | 'sarim'], winMode: 'flag' | 'points'): Set<string> => {
-    const sides: [0 | 1, 0 | 1] = arr[0] === 'sarim' && arr[1] === 'kdf' ? [1, 0] : [0, 1];
-    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: sides[s], faction: arr[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode } as never) as MatchConfig;
-    const w = buildMatchWorld(c);
-    const occupied = new Set<string>();
-    for (const ids of w.bySide) for (const i of ids) occupied.add(`${Math.floor(w.sim.state.posX[i] / 65536)},${Math.floor(w.sim.state.posY[i] / 65536)}`);
-    expect(occupied.size, `${map} ${arr.join('/')} spawned something`).toBeGreaterThan(20);
-    return occupied;
+  const ARRANGEMENTS: readonly (readonly ['kdf' | 'sarim', 'kdf' | 'sarim'])[] = [['kdf', 'kdf'], ['kdf', 'sarim'], ['sarim', 'kdf']];
+  /** The ground a mode file gives a mode, as `[name, x, y, w, h]`, flags by END and points zones from the map or the file. */
+  const groundsOf = (doc: Doc, mode: 'flag' | 'points'): [string, number[]][] => {
+    if (mode === 'flag') return (['friendly', 'hostile'] as const).map((end) => [`${end} flag`, [doc.flags![end].at[0], doc.flags![end].at[1], doc.flags![end].size[0], doc.flags![end].size[1]]]);
+    const rects = (maps as unknown as Record<string, { zones: Record<string, number[]> }>)[doc.map].zones;
+    return doc.modes.points!.zones.map((z) => [z.zone, z.at !== undefined ? [z.at[0], z.at[1], z.size![0], z.size![1]] : rects[z.zone]]);
   };
-  const tilesOf = (r: readonly number[]): string[] => { const out: string[] = []; for (let dy = 0; dy < r[3]; dy++) for (let dx = 0; dx < r[2]; dx++) out.push(`${r[0] + dx},${r[1] + dy}`); return out; };
-
-  it('GH-976 P3: no flag tile is a tile the placed force spawns on, so no raid begins with a seat on its own flag', () => {
-    for (const { doc } of shipped) {
-      const occupied = spawnedTiles(doc.map, ['kdf', 'kdf'], 'flag');
-      for (const end of ['friendly', 'hostile'] as const) {
-        const f = doc.flags![end];
-        for (const t of tilesOf([f.at[0], f.at[1], f.size[0], f.size[1]])) expect(occupied.has(t), `${doc.map} ${end} flag tile ${t} under a unit`).toBe(false);
+  /** Every ground (flag or scoring) that has a unit of the placed forces on it at tick 0, in a room of this arrangement, as
+   *  `map arrangement mode ground unit-type`. A seat that stands on a scoring ground holds it from the first tick and is paid for
+   *  standing still; a unit on a flag ground starts a raid's hold or spoils the other's. A Sarim host is side 1 at the friendly end,
+   *  the KDF always side 0 (`sidesOfFactions`). */
+  const underAUnit = (map: string, arr: readonly ['kdf' | 'sarim', 'kdf' | 'sarim'], mode: 'flag' | 'points'): string[] => {
+    const sides: [0 | 1, 0 | 1] = arr[0] === 'sarim' && arr[1] === 'kdf' ? [1, 0] : [0, 1];
+    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: sides[s], faction: arr[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: mode } as never) as MatchConfig;
+    const w = buildMatchWorld(c);
+    const typeAt = new Map<string, string>();
+    for (const ids of w.bySide) for (const i of ids) typeAt.set(`${Math.floor(w.sim.state.posX[i] / 65536)},${Math.floor(w.sim.state.posY[i] / 65536)}`, w.sim.unitTypes[w.sim.state.typeIdx[i]].id);
+    expect(typeAt.size, `${map} ${arr.join('/')} spawned something`).toBeGreaterThan(20);
+    const out: string[] = [];
+    for (const [name, r] of groundsOf(shipped.find((x) => x.doc.map === map)!.doc, mode)) {
+      for (let y = r[1]; y < r[1] + r[3]; y++) for (let x = r[0]; x < r[0] + r[2]; x++) {
+        const t = typeAt.get(`${x},${y}`);
+        if (t !== undefined) out.push(`${map} ${arr.join('/')} ${mode} ${name} ${t}`);
       }
     }
+    return out;
+  };
+
+  it('GH-976 P3, P4: no flag and no scoring ground has a unit on it at tick 0 in the mirror, where every mode is offered', () => {
+    for (const { doc } of shipped) for (const mode of ['flag', 'points'] as const) expect(underAUnit(doc.map, ['kdf', 'kdf'], mode), `${doc.map} ${mode}`).toEqual([]);
   });
 
-  it('GH-976 P4: no points ground is a tile the placed force spawns on, in the mirror and in the KDF-v-Sarim cell read fair (a seat paid from tick 0 for standing still)', () => {
-    const cells: [string, readonly ['kdf' | 'sarim', 'kdf' | 'sarim']][] = shipped.map((s) => [s.doc.map, ['kdf', 'kdf']] as [string, readonly ['kdf' | 'sarim', 'kdf' | 'sarim']]);
-    // The offered faction cells, in both seat orders (the literal: wadi_tarfan_l, both hosts).
-    cells.push(['wadi_tarfan_l', ['kdf', 'sarim']], ['wadi_tarfan_l', ['sarim', 'kdf']]);
-    expect(cells).toHaveLength(9);
-    for (const [map, arr] of cells) {
-      const doc = shipped.find((s) => s.doc.map === map)!.doc;
-      const occupied = spawnedTiles(map, arr, 'points');
-      const rects = (maps as unknown as Record<string, { zones: Record<string, number[]> }>)[map].zones;
-      for (const z of doc.modes.points!.zones) {
-        const r = z.at !== undefined ? [z.at[0], z.at[1], z.size![0], z.size![1]] : rects[z.zone];
-        for (const t of tilesOf(r)) expect(occupied.has(t), `${map} ${arr.join('/')} ${z.zone} tile ${t} under a unit`).toBe(false);
-      }
-    }
+  it('GH-976 P4: in every KDF-v-Sarim arrangement a mode file can be offered in, the grounds under a unit are exactly the known three, each a Sarim atgm_cell (an exemption that stops being true must be deleted)', () => {
+    const found: string[] = [];
+    for (const map of FACTION_MATCHUP_MAPS) for (const arr of ARRANGEMENTS.slice(1)) for (const mode of ['flag', 'points'] as const) found.push(...underAUnit(map, arr, mode));
+    // None of these cells is offered (`WIN_MODE_FAIR_FACTION_CELLS` is empty); the first explains tel_marum's flag row in the PR: a
+    // Sarim atgm_cell stands on the friendly flag ground in the KDF-host room, so a Sarim raid there begins with its hold running.
+    expect(found).toEqual(['tel_marum kdf/sarim flag friendly flag atgm_cell', 'wadi_tarfan kdf/sarim points bluff_near_1 atgm_cell', 'wadi_tarfan sarim/kdf points bluff_near_0 atgm_cell']);
   });
 
   it('wadi_tarfan\'s camps are its rules file\'s, and milh_flats\' two camps are point-symmetric about the map centre', () => {

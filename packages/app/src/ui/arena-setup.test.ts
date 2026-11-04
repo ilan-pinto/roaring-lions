@@ -163,37 +163,31 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     expect(bodyOfStart(r).matchup).toBe('kdf');
   });
 
-  it('GH-976 P4: KDF against Sarim on Wadi Tarfan (large) offers the points race alone, in both orders, and the run carries it', async () => {
+  it('GH-976 P4 review: KDF against Sarim is offered nothing on Wadi Tarfan (large) either, in both orders', async () => {
     for (const matchup of ['kdf', 'sarim']) {
       const r = rig();
       showArenaSetup(r.host, r.deps);
       await settle();
       pickMap(r, 'wadi_tarfan_l');
       pickMatchup(r, matchup);
-      expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden')).toBe(false);
-      expect(opts(modeField(r)), matchup).toEqual(['annihilation', 'points']);
-      pickMode(r, 'points');
-      q<HTMLButtonElement>(r.host, '.rl-arena-setup__start').click();
-      await settle();
-      expect(bodyOfStart(r)).toMatchObject({ map: 'wadi_tarfan_l', matchup, mode: 'points' });
+      expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden')).toBe(true);
+      expect(opts(modeField(r)), matchup).toEqual(['annihilation']);
     }
   });
 
-  it('a pick the next pairing does not offer is dropped, and one it does offer is kept', async () => {
+  it('a pick the next map does not offer is dropped, and one it does offer is kept', async () => {
     const r = rig();
     showArenaSetup(r.host, r.deps);
     await settle();
-    pickMatchup(r, 'kdf');
-    pickMap(r, 'wadi_tarfan_l');
+    pickMap(r, 'wadi_tarfan');
     pickMode(r, 'points');
-    expect(modeField(r).value).toBe('points');
-    pickMap(r, 'wadi_tarfan');   // KDF against Sarim was not read fair here
+    pickMatchup(r, 'kdf');   // KDF against Sarim is offered nothing: the pick is dropped...
     expect(modeField(r).value).toBe('annihilation');
+    pickMatchup(r, 'mirror');
+    expect(modeField(r).value).toBe('annihilation');   // ...for good, not remembered
+    pickMode(r, 'flag');
     pickMap(r, 'wadi_tarfan_l');
-    expect(modeField(r).value).toBe('annihilation'); // dropped for good, not remembered
-    pickMode(r, 'points');
-    pickMap(r, 'wadi_tarfan_l');
-    expect(modeField(r).value).toBe('points');
+    expect(modeField(r).value).toBe('flag');   // a pick a mirror map offers is kept across maps
   });
 
   it('the pick goes in the start body, the hint says the hold, and the cap follows the mode until the person types in it', async () => {
