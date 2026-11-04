@@ -48,6 +48,8 @@ import {
   buildableOwnerFailures,
   fieldWorksCarrierReport,
   fieldWorksKeyFailures,
+  productionPlacementFailures,
+  productionTypeFailures,
   tunnelSensorFailures,
   worksSymbolFailures,
 } from './validate_works.mjs';
@@ -1047,6 +1049,8 @@ const garrisonableSymbols = new Set(
       warnings.push(...report.warnings);
     }
     failures.push(...tunnelSensorFailures(mi, structureCatalogue, rel(file)));
+    // GH-277 follow-on: a production work is raised by the player, never placed.
+    failures.push(...productionPlacementFailures(mi, structureCatalogue, rel(file)));
   }
 }
 
@@ -1433,6 +1437,15 @@ for (const [sym, id] of structureSymbols) {
 // Field works (#277 Task 8): rule 1 (buildable needs owner 0) and rule 5 (a work's symbol is
 // neither terrain nor drawn into any shipped map).
 failures.push(...buildableOwnerFailures(structureCatalogue, 'data/structures.json'));
+// GH-277 follow-on: the production works (a `production` block). `kdfRoles`: the roles of the units the start lines can build.
+{
+  const kdfRoles = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.role && rel(file).startsWith('data/units/kdf/')) kdfRoles.add(u.role);
+  }
+  failures.push(...productionTypeFailures(structureCatalogue, kdfRoles, 'data/structures.json'));
+}
 failures.push(
   ...worksSymbolFailures(
     structureCatalogue,

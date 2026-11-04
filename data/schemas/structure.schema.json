@@ -177,6 +177,29 @@
               }
             }
           },
+          "production": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "GH-277 follow-on: a constructible production building. On completion it opens a second production line (F4) where the player placed it, tail-appended so no line index shifts. Distinct from produces_for: such a type is never the convoy rear and earns no income. Requires buildable and owner 0, and may not also carry produces_for (validate_works.mjs). An absent block opens no line.",
+            "properties": {
+              "roles": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": ["recon", "mbt", "ifv", "apc", "infantry", "at_team", "engineer", "eod", "artillery", "aa", "drone", "gunship", "technical", "sniper", "support", "wounded"]
+                },
+                "description": "Optional: the unit roles this line builds (absent = the whole menu, as the camp's). A subset only: a line never opens a unit the start lines cannot build."
+              },
+              "build_time_mult": {
+                "type": "number",
+                "minimum": 1.0,
+                "maximum": 2.0,
+                "default": 1.0,
+                "description": "Optional: scales the build time of every item on this line; the line takes ceil(base ticks x mult). Default 1.0."
+              }
+            }
+          },
           "aura": {
             "type": "object",
             "additionalProperties": false,

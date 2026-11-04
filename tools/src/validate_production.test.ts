@@ -75,6 +75,26 @@ describe('productionFailures on fixtures', () => {
     const six = Array.from({ length: 5 }, (_, i) => ({ type: 'camp', at: [i * 3, 0], side: 1 }));
     expect(run({ structures: six })[0]).toContain('side 1');
   });
+  it('counts the production works a mission lists toward the side-0 bound (GH-277 forward camp)', () => {
+    const cat2 = { types: { ...catalogue.types, fwd: { symbol: 'K', owner: 0, buildable: {}, production: {} } } };
+    const runW = (m: Record<string, unknown>, map = mapWith()) =>
+      productionRuleFailures({ id: 'fx_m', map: { file: 'm' }, ...m }, map, cat2, enemyUnits, 'fx.json');
+    const camps = (n: number) => Array.from({ length: n }, (_, i) => ({ type: 'camp', at: [i * 3, 0] }));
+    // 3 camps + 1 work = 4: at the bound
+    expect(runW({ structures: camps(3), field_works: { fwd: 1 } })).toEqual([]);
+    // RED FIXTURE production_works_over_the_cap: 4 camps + 1 listed work = 5
+    const over = runW({ structures: camps(4), field_works: { fwd: 1 } });
+    expect(over).toHaveLength(1);
+    expect(over[0]).toContain('5 production structures for side 0 (1 of them production works in field_works)');
+    // a work the mission lists twice counts twice
+    expect(runW({ structures: camps(3), field_works: { fwd: 2 } })).toHaveLength(1);
+    // a non-production work does not count
+    expect(runW({ structures: camps(4), field_works: { house: 2 } })).toEqual([]);
+    // a side with no camp has its player_start line: 1 + 4 works = 5
+    const noCamp = { ...mapWith(), player_start: [1, 1] };
+    expect(runW({ field_works: { fwd: 4 } }, noCamp)).toHaveLength(1);
+    expect(runW({ field_works: { fwd: 3 } }, noCamp)).toEqual([]);
+  });
   it('refuses any enemy.production while D7 stands, naming D7 and R-F4-5', () => {
     const m = { id: 'fx_m', map: { file: 'm' }, structures: [camp1], enemy: { production: { menu: ['sarim_rifles'], rally: 'rally_a' } } };
     expect(productionRuleFailures(m, mapWith(), catalogue, enemyUnits, 'fx.json')).toEqual([]);

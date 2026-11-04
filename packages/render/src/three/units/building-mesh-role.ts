@@ -193,6 +193,8 @@ const WALL_SURFACE: Record<string, WallSurface> = {
   kdf_intel_centre: 'flat',
   kdf_workshop: 'flat',
   kdf_aid_post: 'flat',
+  // GH-277 forward camp: draws the field camp's mesh until its own model lands, so the camp's 'flat' (see `camp`).
+  kdf_forward_camp: 'flat',
   militia_field_clinic: 'flat',
   militia_firing_position: 'flat',
   militia_observation_post: 'flat',

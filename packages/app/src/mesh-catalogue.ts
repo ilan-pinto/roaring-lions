@@ -417,6 +417,9 @@ export const BUILDING_MESHES: Readonly<
     wreck: 'buildings/kdf_aid_post_wreck.glb',
     construction: 'buildings/kdf_aid_post_construction.glb',
   },
+  // GH-277 forward camp (4 Nov 2026): until its own Meshy building is approved and made, the type draws the field camp's
+  // mesh and wreck (no construction state), so it draws. The lead approves the credits for the new model first.
+  kdf_forward_camp: { idle: 'buildings/camp.glb', wreck: 'buildings/camp_wreck.glb' },
   militia_field_clinic: { idle: 'buildings/militia_field_clinic.glb', wreck: 'buildings/militia_field_clinic_wreck.glb' },
   militia_firing_position: { idle: 'buildings/militia_firing_position.glb', wreck: 'buildings/militia_firing_position_wreck.glb' },
   militia_observation_post: { idle: 'buildings/militia_observation_post.glb', wreck: 'buildings/militia_observation_post_wreck.glb' },
