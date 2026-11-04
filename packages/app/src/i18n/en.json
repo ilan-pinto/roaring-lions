@@ -1249,6 +1249,7 @@
 
   "intent.garrisonHolds": "Garrisoned units keep their post",
   "intent.cantPenetrate": "Can't penetrate: nothing selected can hurt that armour",
+  "intent.attack.gunOut": "Gun out: it can't fire, so it holds where it stands. A move order still drives it.",
   "intent.protectedSite": "protected site — hold Alt to order fire on it",
   "intent.move.armed": "move — click open ground (Esc cancels)",
   "intent.move.noSelection": "select units to move first",

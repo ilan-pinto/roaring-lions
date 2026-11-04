@@ -269,6 +269,12 @@ export interface IntentWorld {
   /** GH-420: could `id`, standing where it is now, hurt `target` (the sim's
    *  `focusHurts`)? Facing-dependent, true for soft targets. */
   focusHurts(id: number, target: number): boolean;
+  /**
+   * Is this unit's main gun knocked out? The sim's own component state (`firepowerKilled`, the flag the card's
+   * "Gun out" reads), asked, never worked out: the order is still accepted (the sim stops the unit where it
+   * stands) and the click says why it will not fire. Optional so a fake world need not answer it.
+   */
+  gunOut?(id: number): boolean;
   /** GH-707: may `id` be sent to rescue the wounded `target`? The sim keeps its own `canRescue`
    *  private, so the adapter asks the one thing it can read -- the unit is a medic -- and the
    *  sim's command gate refuses the rest (a refused `rescue` changes nothing). */
@@ -615,7 +621,17 @@ function resolveFocus(
   );
   const intents: PlayerIntent[] = [{ kind: 'attack', ids: firing, target }];
   if (rest.length > 0) intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x: at.x, y: at.y, append: false });
-  return { intents, roe, marker: true, at };
+  // The lead's ruling of 4 Nov: a tank whose gun is out takes the order, cannot fire it, and the sim holds it where it
+  // stands (`stepFocus` stops a firepower-killed shooter). Say so, rather than leave the click looking ignored; a
+  // plain move order still drives it, which is the card's own "can still drive".
+  const gunOut = firing.some((i) => world.gunOut?.(i) === true);
+  return {
+    intents,
+    roe,
+    marker: true,
+    at,
+    ...(gunOut ? { note: { text: t('intent.attack.gunOut'), tone: 'info' as const } } : {}),
+  };
 }
 
 /**

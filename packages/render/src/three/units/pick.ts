@@ -36,9 +36,122 @@
 import { groundLevelAt, type ElevationSource } from '../ground-height';
 import { screenToWorldThree, worldToScreenThree } from '../camera';
 import { ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL, type Camera, type Viewport } from '../../project';
+import { ELLIPSE_BY_TYPE, ELLIPSE_PAD_TILES } from './readability';
 
 /** A left-click's generosity, in tiles: see `pickUnit`'s "default radius". */
 export const PICK_RADIUS_TILES = 1.2;
+
+/**
+ * A ground vehicle's drawn hull, for the pick (the 4 Nov lead report: a right-click on an enemy tank
+ * was an attack order only about half the time). `pickUnit` measures from a unit's FEET, which is
+ * right for a man and wrong for a hull 2.7 tiles long: the order radius (0.5) covered the middle
+ * third of a Lavi, so a click on its nose or its flank was an attack-move to the ground, and a unit
+ * already firing on something else simply went on firing on it.
+ *
+ * The hull's box, in tiles, from the same generated footprint table as the selection ring and the
+ * proxy box (`ELLIPSE_BY_TYPE` less `ELLIPSE_PAD_TILES`): its centre sits `offset` along its heading
+ * from the unit's origin, and it is `halfLength` either side of that along the heading and
+ * `halfWidth` across it.
+ */
+export interface HullShape {
+  readonly offset: number;
+  readonly halfLength: number;
+  readonly halfWidth: number;
+}
+
+/** Which units are hulls, and which way each faces. */
+export interface HullPick {
+  /** The unit's hull, or null for a unit that is picked from its feet alone. */
+  shapeOf(i: number): HullShape | null;
+  /** Its heading, in turns (the sim's `facing`, as `fx.toNumber` reads it). */
+  heading(i: number): number;
+}
+
+/**
+ * How far past the hull's edge a click may land and still be on the hull, tiles. Not the order
+ * radius: the hull is already a body, so this is only the slack a click on the rim wants. Well
+ * under 0.5, so ground a tile from a tank is still an attack-move to that ground (R-23).
+ */
+export const HULL_PICK_MARGIN_TILES = 0.2;
+
+/**
+ * How tall a hull is drawn, tiles, turret included: the Lavi stands about 3 m (a tile is 3 m). The
+ * ground a hull hides reaches this much past `PICK_BODY_HEIGHT_TILES`' rifleman, proportionally.
+ */
+export const PICK_HULL_HEIGHT_TILES = 1.0;
+const HULL_REACH_SCALE = PICK_HULL_HEIGHT_TILES / 0.6;
+
+/**
+ * The hull pick for a roster: a type's `HullShape` from the generated footprint table (a type with no
+ * row is a point, picked from its feet as before), cached per type id. `typeIdOf` and `headingOf`
+ * read the live sim, so one `HullPick` serves a whole mission.
+ */
+export function hullPickFor(typeIdOf: (i: number) => string, headingOf: (i: number) => number): HullPick {
+  const cache = new Map<string, HullShape | null>();
+  return {
+    shapeOf(i: number): HullShape | null {
+      const id = typeIdOf(i);
+      let shape = cache.get(id);
+      if (shape === undefined) {
+        const e = ELLIPSE_BY_TYPE[id];
+        shape =
+          e === undefined
+            ? null
+            : {
+                offset: e.offsetAlong,
+                halfLength: Math.max(0, e.along - ELLIPSE_PAD_TILES),
+                halfWidth: Math.max(0, e.across - ELLIPSE_PAD_TILES),
+              };
+        cache.set(id, shape);
+      }
+      return shape;
+    },
+    heading: headingOf,
+  };
+}
+
+/**
+ * Squared distance from the click's ground point to the ground the hull hides: 0 anywhere on the
+ * body. A body of height `H` hides the ground from its footprint out to `reach` beyond it (up the
+ * screen), so the region is the hull's box swept along `reach`. In the hull's own frame the box is
+ * axis-aligned and the distance to it is separable; the sweep is a single parameter `t` in [0, 1]
+ * and the squared distance is convex in it, so a ternary search finds the nearest shift.
+ */
+function hullScoreSq(
+  wx: number,
+  wy: number,
+  cx: number,
+  cy: number,
+  shape: HullShape,
+  headingTurns: number,
+  reachX: number,
+  reachY: number
+): number {
+  const a = headingTurns * Math.PI * 2;
+  const dirX = Math.cos(a);
+  const dirY = Math.sin(a);
+  // The click, the box centre and the reach in the hull's frame: l along the heading, w across it.
+  const rx = wx - (cx + shape.offset * dirX);
+  const ry = wy - (cy + shape.offset * dirY);
+  const l = rx * dirX + ry * dirY;
+  const w = -rx * dirY + ry * dirX;
+  const rl = reachX * dirX + reachY * dirY;
+  const rw = -reachX * dirY + reachY * dirX;
+  const at = (t: number): number => {
+    const dl = Math.max(0, Math.abs(l - t * rl) - shape.halfLength);
+    const dw = Math.max(0, Math.abs(w - t * rw) - shape.halfWidth);
+    return dl * dl + dw * dw;
+  };
+  let lo = 0;
+  let hi = 1;
+  for (let k = 0; k < 14; k++) {
+    const m1 = lo + (hi - lo) / 3;
+    const m2 = hi - (hi - lo) / 3;
+    if (at(m1) <= at(m2)) hi = m2;
+    else lo = m1;
+  }
+  return Math.min(at(lo), at(hi), at(0), at(1));
+}
 
 /**
  * Nearest living, surfaced unit within `radiusTiles` of a world point, or -1.
@@ -70,14 +183,18 @@ export function pickUnit(
   reachX = 0,
   reachY = 0,
   pickable: (i: number) => boolean = () => true,
-  radiusFloor?: (i: number) => number
+  radiusFloor?: (i: number) => number,
+  hull?: HullPick
 ): number {
   let best = -1;
-  // With a floor, each unit has its own limit, so the best is tracked from infinity and the
-  // limit is checked per unit. Without one this is exactly the loop it always was.
-  let bestD = radiusFloor ? Infinity : radiusTiles * radiusTiles;
+  let bestTier = 2;
+  let bestD = Infinity;
   let bestFeet = Infinity;
   const reach2 = reachX * reachX + reachY * reachY;
+  // A hull's body is taller than a rifleman's, so the ground it hides reaches further up the screen.
+  const hullReachX = reachX * HULL_REACH_SCALE;
+  const hullReachY = reachY * HULL_REACH_SCALE;
+  const marginSq = HULL_PICK_MARGIN_TILES * HULL_PICK_MARGIN_TILES;
   for (let i = 0; i < entityCount; i++) {
     if (alive[i] === 0) continue;
     // A buried unit has no body on the surface to click -- see this
@@ -95,14 +212,33 @@ export function pickUnit(
     const dx = fx - t * reachX;
     const dy = fy - t * reachY;
     const d = dx * dx + dy * dy;
-    if (radiusFloor) {
-      const r = Math.max(radiusTiles, radiusFloor(i));
-      if (d > r * r) continue;
+    // Two tiers. TIER 0 is the old test, untouched: the unit's feet-and-body segment within the radius. TIER 1 is
+    // a hull-only hit: a ground vehicle whose box covers the click though its feet do not reach it (a nose, a
+    // flank). A tier-0 unit always outranks a tier-1 one, so a hull only ADDS candidates and can never displace the
+    // old winner (the review of PR 1015: a hull scores 0 anywhere on its body, and ranked by score alone it beat a
+    // rifleman standing in front of it, on both clicks). Within a tier: the lower score, then the nearer feet.
+    const limit = radiusFloor ? Math.max(radiusTiles, radiusFloor(i)) : radiusTiles;
+    const tier = d <= limit * limit ? 0 : 1;
+    let score = d;
+    if (tier === 1) {
+      let ok = false;
+      if (hull !== undefined) {
+        const shape = hull.shapeOf(i);
+        if (shape !== null) {
+          const h = hullScoreSq(wx, wy, curX[i], curY[i], shape, hull.heading(i), hullReachX, hullReachY);
+          if (h <= marginSq) {
+            score = h;
+            ok = true;
+          }
+        }
+      }
+      if (!ok) continue;
     }
     // Two bodies under one pixel (one figure standing in front of another):
     // the nearer feet win, which is the rule this had before bodies.
-    if (d < bestD || (d === bestD && feet < bestFeet)) {
-      bestD = d;
+    if (tier < bestTier || (tier === bestTier && (score < bestD || (score === bestD && feet < bestFeet)))) {
+      bestTier = tier;
+      bestD = score;
       bestFeet = feet;
       best = i;
     }
@@ -160,12 +296,13 @@ export function pickUnitAtScreen(
   vp: Viewport,
   pickable: (i: number) => boolean = () => true,
   radiusTiles: number = PICK_RADIUS_TILES,
-  radiusFloor?: (i: number) => number
+  radiusFloor?: (i: number) => number,
+  hull?: HullPick
 ): number {
   const g = screenToWorldThree(px, py, cam, vp, elevation, mapWidth, mapHeight);
   const top = worldToScreenThree(cam.x, cam.y, cam, vp, PICK_BODY_HEIGHT_TILES / WORLD_Y_PER_LIFT_PIXEL);
   const behind = screenToWorldThree(top.x, top.y, cam, vp);
-  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, radiusTiles, behind.x - cam.x, behind.y - cam.y, pickable, radiusFloor);
+  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, radiusTiles, behind.x - cam.x, behind.y - cam.y, pickable, radiusFloor, hull);
 }
 
 /**

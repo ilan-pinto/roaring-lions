@@ -370,6 +370,7 @@ import { isGrindingHit } from '../grind';
 import { AIR_LIFT_PX } from './units/frame-state';
 import { airLiftFrac } from './units/air-lift';
 import {
+  hullPickFor,
   pickUnit as pickUnitPure,
   pickUnitAtScreen as pickUnitAtScreenPure,
   unitsInScreenRect as unitsInScreenRectPure,
@@ -606,6 +607,24 @@ import {
   WRECK_BURN_HEIGHT_FRACTION,
   WRECK_BURN_SECONDS,
 } from './units/building-damage';
+import { GunOutVariants, applyGunOut, vehicleGunOutDrawn } from './units/gun-out';
+import {
+  GUN_OUT_FIRE_EMITTER_ID,
+  GUN_OUT_FIRE_INTERVAL_MS,
+  GUN_OUT_FIRE_LIFT_TILES,
+  GUN_OUT_FIRE_REACH_TILES,
+  GUN_OUT_FX_SALT,
+  GUN_OUT_PUFF_EMITTER_ID,
+  GUN_OUT_PUFF_INTERVAL_MS,
+  GUN_OUT_PUFF_MAGNITUDE,
+  GUN_OUT_PUFF_LIFT_TILES,
+  GUN_OUT_PUFF_REACH_TILES,
+  gunOutFireMagnitude,
+  gunOutFireThrows,
+  gunOutWindow,
+  liftShiftTiles,
+  type GunOutFxWindow,
+} from './units/gun-out-fx';
 import {
   VEHICLE_BAND_CLEAN,
   VehicleScarMaterials,
@@ -2217,6 +2236,16 @@ export class ThreeRenderer implements Renderer {
    * An entry goes once its last puff can no longer be alive.
    */
   private readonly wreckSmoulder = new Map<number, { x: number; y: number; startMs: number; endMs: number; slot: number }>();
+  /**
+   * A hull whose main gun was just knocked out (the lead's ruling of 4 Nov): the opening puff and the small fire
+   * (`units/gun-out-fx.ts`), keyed by entity id and dated off the SIM clock like the smoulder above. `puffSlot` and
+   * `fireSlot` are the last slot emitted of each.
+   */
+  private readonly gunOutFx = new Map<number, { w: GunOutFxWindow; puffSlot: number; fireSlot: number }>();
+  /** Entities whose knock-out has been armed and whose gun has not been repaired since (`beginGunOutFx`). */
+  private readonly gunOutStarted = new Set<number>();
+  /** The bent barrels, one per source geometry (`units/gun-out.ts`): shared by every hull of a type with its gun out. */
+  private readonly gunOutVariants = new GunOutVariants();
   /**
    * GH-85: demolition charges in the air (`eod_breach`), thrown by a `fire`
    * of the `demolition` class and resolved by the sim event that says where
@@ -3969,6 +3998,9 @@ export class ThreeRenderer implements Renderer {
     this.buildingDamageBand.clear();
     this.buildingBurning.clear();
     this.wreckSmoulder.clear();
+    this.gunOutFx.clear();
+    this.gunOutStarted.clear();
+    this.gunOutVariants.dispose();
     this.pendingCharges.length = 0;
     for (const template of this.buildingMeshIdleTemplates.values()) disposeBuildingMeshTemplate(template);
     this.buildingMeshIdleTemplates.clear();
@@ -5783,6 +5815,10 @@ export class ThreeRenderer implements Renderer {
           finder = { x, y, liftY: groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y) + lift };
         }
         this.tunnelXray.discover(e.tunnel, presentationSimMs(e.tick, 1) / 1000, finder);
+      } else if (e.kind === 'component') {
+        // The lead's ruling of 4 Nov: a main gun knocked out puffs once and burns small. `firepower_kill`, and
+        // `combat_ineffective` (which takes the gun with the wheels). Reads the event; writes nothing back.
+        if (e.result === 'firepower_kill' || e.result === 'combat_ineffective') this.beginGunOutFx(e.target, e.tick);
       } else if (e.kind === 'destroyed') {
         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
@@ -7121,7 +7157,8 @@ export class ThreeRenderer implements Renderer {
       0,
       0,
       this.pickable,
-      this.pickRadiusFloor
+      this.pickRadiusFloor,
+      this.pickHull
     );
   }
   /**
@@ -7134,6 +7171,16 @@ export class ThreeRenderer implements Renderer {
     const swarm = this.sim.unitTypes[this.sim.state.typeIdx[i]].swarm;
     return swarm === null ? 0 : fx.toNumber(swarm.spread) / 2;
   };
+  /**
+   * A ground vehicle is picked by its HULL, not its feet (the 4 Nov lead report: a right-click on an
+   * enemy tank was an order on it about half the time, and the rest an attack-move to the ground,
+   * which leaves a unit already firing on something else firing on it). `units/pick.ts` has the rule;
+   * the footprints are the selection ring's own table. A type with no row is picked as before.
+   */
+  private readonly pickHull = hullPickFor(
+    (i) => this.sim.unitTypes[this.sim.state.typeIdx[i]].id,
+    (i) => this.curFacing[i]
+  );
   /** E6 chunk B: `Renderer.swarmDrawn` - the swarm batches' own drawn count for entity `id`. */
   swarmDrawn(id: number): number {
     let n = 0;
@@ -7200,7 +7247,8 @@ export class ThreeRenderer implements Renderer {
       { width: this.width, height: this.height },
       this.pickable,
       radiusTiles,
-      this.pickRadiusFloor
+      this.pickRadiusFloor,
+      this.pickHull
     );
   }
   /**
@@ -9995,6 +10043,12 @@ export class ThreeRenderer implements Renderer {
         const band = vehicleDamageBand(st.hp[i], type.hp);
         if (band !== vehicleDrawnBand(entity)) applyVehicleDamageBand(entity, band, this.vehicleScarsFor(entity.templateKey));
       }
+      // The lead's ruling of 4 Nov: a knocked-out main gun droops on the model (`units/gun-out.ts`). Read from the
+      // sim's own component state every frame and acted on only when it moves, like the band above; never written.
+      // Ground hulls only (an aircraft's gun has no `turret_pivot` to bend, and `applyGunOut` finds none).
+      const gunOut = st.firepowerKilled[i] === 1;
+      if (gunOut !== vehicleGunOutDrawn(entity)) applyGunOut(entity, gunOut, this.gunOutVariants);
+      if (!gunOut && this.gunOutStarted.size > 0) this.gunOutStarted.delete(i);
 
       // The hull's own height: the ground under its drawn centre, sampled
       // BEFORE the recoil shove, exactly like `entityFrame`'s own recoil block
@@ -11421,6 +11475,7 @@ export class ThreeRenderer implements Renderer {
       this.updateIdleExhaust(alpha);
       this.updateDamageSmoke(alpha);
       this.updateWreckSmoulder(alpha);
+      this.updateGunOutFx(alpha);
     }
     const elevation = this.retained.elevation;
     this.particleInstancerBelow.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
@@ -11888,6 +11943,145 @@ export class ThreeRenderer implements Renderer {
       endMs: startMs + WRECK_SMOULDER_SECONDS * 1000,
       slot: exhaustSlotDue(startMs, WRECK_SMOULDER_INTERVAL_MS, emitOverMs),
     });
+  }
+
+  /**
+   * The lead's ruling of 4 Nov: arm the opening puff and the small fire of a hull whose main gun was knocked out on
+   * `tick`. Dated like `beginWreckSmoulder`: the first slot is the one after the kill. Re-armed by a second
+   * knock-out (a workshop repair, then another hit); an entity that is gone is dropped by `updateGunOutFx`.
+   */
+  private beginGunOutFx(entity: number, tick: number): void {
+    if (entity < 0 || entity >= this.sim.entityCount) return;
+    // A gun already out stays out: a second `firepower_kill`, or the `combat_ineffective` that follows a mobility
+    // kill, is not a new knock-out and must not restart the puff and the fire. Cleared when the gun is repaired.
+    if (this.gunOutStarted.has(entity)) return;
+    this.gunOutStarted.add(entity);
+    const w = gunOutWindow(entity, presentationSimMs(tick + 1, 0));
+    this.gunOutFx.set(entity, {
+      w,
+      puffSlot: Math.floor(w.startMs / GUN_OUT_PUFF_INTERVAL_MS) - 1,
+      fireSlot: Math.floor(w.startMs / GUN_OUT_FIRE_INTERVAL_MS) - 1,
+    });
+  }
+
+  /**
+   * The turret ring and the muzzle end of a hull, in tiles: the turret pivot's own world matrix (the turret turns,
+   * the hull does not), else the hull centre and facing. `reachTiles` is how far along the gun it stands and
+   * `liftTiles` how high above the ground: a particle has no height, so the point is shifted to where that height
+   * projects (`liftShiftTiles`).
+   */
+  private gunOutAnchor(i: number, reachTiles: number, liftTiles: number, out: { x: number; y: number; dirTurns: number }): void {
+    const entity = this.vehicleMeshEntities.get(i);
+    const pivot = entity?.turretPivot ?? null;
+    if (pivot !== null) {
+      pivot.updateWorldMatrix(true, false);
+      const m = pivot.matrixWorld.elements;
+      const dx = m[0];
+      const dz = m[2];
+      const len = Math.hypot(dx, dz) || 1;
+      out.x = m[12] + (dx / len) * reachTiles;
+      out.y = m[14] + (dz / len) * reachTiles;
+      out.dirTurns = (((Math.atan2(dz, dx) / (Math.PI * 2)) % 1) + 1) % 1;
+      const lift = liftShiftTiles(liftTiles);
+      out.x += lift.x;
+      out.y += lift.y;
+      return;
+    }
+    const facing = fx.toNumber(this.sim.state.facing[i]);
+    const a = facing * Math.PI * 2;
+    out.x = this.curX[i] + Math.cos(a) * reachTiles;
+    out.y = this.curY[i] + Math.sin(a) * reachTiles;
+    out.dirTurns = facing;
+    const lift = liftShiftTiles(liftTiles);
+    out.x += lift.x;
+    out.y += lift.y;
+  }
+
+  private readonly gunOutScratch = { x: 0, y: 0, dirTurns: 0 };
+
+  /**
+   * The opening puff (`gun_out_puff`, 600 ms from the muzzle end) and the small fire (`gun_out_fire`, 8-15 s of
+   * sim time at the turret ring, thinning and shrinking into the damage wisp the hull already trails), dated off
+   * the SIM clock like `updateWreckSmoulder`: slots seeded by (entity, slot), puffs born with the age sim time
+   * says they have, so a frozen gate frame repaints the same puffs and a zero-time repaint emits nothing.
+   * Reduced motion keeps the droop and drops both (no flicker); slots are still spent so nothing is banked.
+   */
+  private updateGunOutFx(alpha: number): void {
+    if (!this.particleSystem || this.gunOutFx.size === 0) return;
+    // The lowest fx detail draws no particles at all (`updateVehicleClods` asks the same); slots are still spent below.
+    const detailOff = (this.opts.quality ?? QUALITY_PRESETS.high).fxDetail === 0;
+    const puff = this.emitterLibrary.byName(GUN_OUT_PUFF_EMITTER_ID);
+    const fire = this.emitterLibrary.byName(GUN_OUT_FIRE_EMITTER_ID);
+    const st = this.sim.state;
+    const nowMs = presentationSimMs(this.sim.tickCount, alpha);
+    const reduced = this.reducedPrefNow || detailOff;
+    const a = this.gunOutScratch;
+    const trickle = (em: NonNullable<typeof puff>): [number, number] => {
+      let maxLifeMs = 0;
+      let emitOverMs = 0;
+      for (const layer of em.particles) {
+        const l = layer.lifetime_ms;
+        maxLifeMs = Math.max(maxLifeMs, typeof l === 'number' ? l : l ? l[1] : 0);
+        emitOverMs = Math.max(emitOverMs, layer.emit_over_ms ?? 0);
+      }
+      return [maxLifeMs, emitOverMs];
+    };
+    const [puffLife, puffOver] = puff ? trickle(puff) : [0, 0];
+    const [fireLife, fireOver] = fire ? trickle(fire) : [0, 0];
+    for (const [id, g] of this.gunOutFx) {
+      const over = nowMs >= g.w.fireEndMs + fireLife + fireOver && nowMs >= g.w.puffEndMs + puffLife + puffOver;
+      // An aircraft has no ground point for a flame to stand on (the same reason the damage wisp skips it).
+      const airborne = id < this.snapshottedCount && this.sim.unitTypes[st.typeIdx[id]].isAir;
+      if (over || airborne || id >= this.snapshottedCount || st.alive[id] === 0 || st.firepowerKilled[id] === 0) {
+        // Gone, dead (the wreck's smoulder takes over), repaired, or never a ground hull: the fx end with the state they show.
+        this.gunOutFx.delete(id);
+        if (id >= this.snapshottedCount || st.alive[id] === 0 || st.firepowerKilled[id] === 0) this.gunOutStarted.delete(id);
+        continue;
+      }
+      const hidden = this.hiddenFromViewer(id);
+      if (puff) {
+        const [first, due] = exhaustSlotsDue(g.puffSlot, nowMs, GUN_OUT_PUFF_INTERVAL_MS, puffOver, puffLife);
+        const last = Math.min(due, Math.floor((g.w.puffEndMs - 1) / GUN_OUT_PUFF_INTERVAL_MS));
+        if (last >= first) {
+          if (!hidden && !reduced) {
+            this.gunOutAnchor(id, GUN_OUT_PUFF_REACH_TILES, GUN_OUT_PUFF_LIFT_TILES, a);
+            const prio = puff.budget_priority ?? 3;
+            for (let slot = Math.max(first, Math.floor(g.w.startMs / GUN_OUT_PUFF_INTERVAL_MS)); slot <= last; slot++) {
+              const rand = exhaustRand(id + GUN_OUT_FX_SALT, slot);
+              const ageSec = exhaustSlotAgeSec(slot, nowMs, GUN_OUT_PUFF_INTERVAL_MS);
+              for (const layer of puff.particles) {
+                const fxLayer = fxLayerIndex(puff.layer, layer.additive ?? false);
+                this.particleSystem.spawn(layer, a.x, a.y, a.dirTurns, GUN_OUT_PUFF_MAGNITUDE, prio, fxLayer, 0, 0, { rand, ageSec });
+              }
+            }
+          }
+        }
+        if (due > g.puffSlot) g.puffSlot = Math.max(g.puffSlot, last);
+      }
+      if (fire) {
+        const lifeMs = g.w.fireEndMs - g.w.startMs;
+        const [first, due] = exhaustSlotsDue(g.fireSlot, nowMs, GUN_OUT_FIRE_INTERVAL_MS, fireOver, fireLife);
+        const last = Math.min(due, Math.floor((g.w.fireEndMs - 1) / GUN_OUT_FIRE_INTERVAL_MS));
+        if (last >= first) {
+          if (!hidden && !reduced) {
+            this.gunOutAnchor(id, GUN_OUT_FIRE_REACH_TILES, GUN_OUT_FIRE_LIFT_TILES, a);
+            const prio = fire.budget_priority ?? 2;
+            for (let slot = Math.max(first, Math.floor(g.w.startMs / GUN_OUT_FIRE_INTERVAL_MS)); slot <= last; slot++) {
+              const ageMs = Math.max(0, slot * GUN_OUT_FIRE_INTERVAL_MS - g.w.startMs);
+              if (!gunOutFireThrows(id, slot, ageMs, lifeMs)) continue;
+              const magnitude = gunOutFireMagnitude(ageMs, lifeMs);
+              const rand = exhaustRand(id + GUN_OUT_FX_SALT + 0x1000, slot);
+              const ageSec = exhaustSlotAgeSec(slot, nowMs, GUN_OUT_FIRE_INTERVAL_MS);
+              for (const layer of fire.particles) {
+                const fxLayer = fxLayerIndex(fire.layer, layer.additive ?? false);
+                this.particleSystem.spawn(layer, a.x, a.y, a.dirTurns, magnitude, prio, fxLayer, 0, 0, { rand, ageSec });
+              }
+            }
+          }
+        }
+        if (due > g.fireSlot) g.fireSlot = Math.max(g.fireSlot, last);
+      }
+    }
   }
 
   /**
