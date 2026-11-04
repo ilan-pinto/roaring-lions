@@ -48,6 +48,12 @@
     { "unit": "recon_drone", "count": 1, "at": [24, 41] },
     { "unit": "inf_medic_squad", "count": 1, "at": [23, 41] }
   ],
+  "field_works": {
+    "kdf_medic_station": 1,
+    "kdf_outpost": 1,
+    "kdf_workshop": 1,
+    "kdf_intel_centre": 1
+  },
   "resources": { "logistics_start": 500, "logistics_rate_per_min": 130 },
   "structures": [
     { "type": "concrete", "at": [13, 13], "size": [4, 1] },
