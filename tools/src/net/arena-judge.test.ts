@@ -12,7 +12,7 @@ import type { GameRecord } from './arena-score';
 import { markdownReport, scoreSections } from './arena-score';
 import type { JudgeJob, JudgeRecord } from './judge';
 import type { ScoreSet } from './match-score';
-import { playerScore } from './score-fixture';
+import { playerScore, RUN_FIELDS } from './score-fixture';
 import { inProcess, rush, type ArenaPlayer } from './players';
 
 const dirs: string[] = [];
@@ -256,7 +256,7 @@ describe('the command line', () => {
 describe('the report', () => {
   it('a game with no judge says "Not judged" even when the other games were judged', () => {
     const g = (judge?: JudgeRecord): GameRecord => ({
-      seed: 1, map: 'm', matchup: 'mirror', players: ['a', 'b'], factions: ['kdf', 'kdf'], outcome: 'seat0', by: 'cap', ticks: 100,
+      ...RUN_FIELDS, seed: 1, map: 'm', matchup: 'mirror', players: ['a', 'b'], factions: ['kdf', 'kdf'], outcome: 'seat0', by: 'cap', ticks: 100,
       score: [{ lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remaining: 1 }, { lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remaining: 1 }],
       reports: [{ tokens: null, timeouts: 0, errors: [] }, { tokens: null, timeouts: 0, errors: [] }],
       ...(judge === undefined ? {} : { judge }),

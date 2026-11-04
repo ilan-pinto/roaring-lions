@@ -9695,7 +9695,8 @@ fieldset.rl-versus__maps {
   font: 600 var(--t-m) var(--font-body);
   color: var(--ink-label);
 }
-.rl-arena-results__runcost {
+.rl-arena-results__runcost,
+.rl-arena-results__terms {
   margin-block: 0 var(--s2);
   color: var(--ink-mute);
 }

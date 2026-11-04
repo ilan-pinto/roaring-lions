@@ -31,6 +31,17 @@ export interface GameRecord {
    *  fallback, not a room reason). */
   by: string;
   ticks: number;
+  /** GH-954 P1, the run's own terms, so two records can be told comparable or not. Absent on a record from before
+   *  (never guessed): read them through `runFieldsOf` (arena-record.ts). `build` is the room's `${version}+${commit}`. */
+  build: string;
+  /** Ticks a paced round. */
+  pace: number;
+  /** Wall time a paced round is held to, in ms. */
+  roundWallMs: number;
+  /** The tick the arena calls the game at. */
+  capTicks: number;
+  /** sha256 (hex) of the standing prompt and the tool list the players were offered (`currentPromptDigest`). */
+  promptDigest: string;
   /** By SEAT (`bySeat` in arena.ts re-indexes the by-side board through the config's sides; LD1 puts a
    *  Sarim host on side 1), from the reading seat's sim at the end (seat 0's in-process, else seat 1's, else the observer's). */
   score: MatchScore;

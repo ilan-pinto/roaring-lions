@@ -25,6 +25,8 @@ export interface DigestBody {
   /** The watcher and the referee ended in the same tick and state; null when there is no watcher digest. */
   agree: boolean | null;
 }
+/** The terms a game was played under (GH-954 P1). The server sends null for an older record that lacks them: never a guess. */
+export interface RunTermsBody { build: string; pace: number; roundWallMs: number; capTicks: number; promptDigest: string }
 export interface GameBody {
   n: number;
   /** The frames file's name, when this game has one: the only thing a replay is asked for. */
@@ -44,6 +46,8 @@ export interface GameBody {
   digest: DigestBody | null;
   /** The file was recorded on the build the server runs; null when there is no file or its header cannot be read. */
   buildMatches: boolean | null;
+  /** The record's own build, pace, round wall time, cap and prompt digest; null: an older record. */
+  terms: RunTermsBody | null;
 }
 export interface RunBody {
   id: string;
@@ -98,6 +102,17 @@ function judgeOf(v: unknown): JudgeBody | null {
   return { status, scores: { overall, criteria } };
 }
 
+/** The same shape as `BUILD` in tools/src/net/arena-record.ts. */
+const BUILD = /^\d+\.\d+\.\d+[0-9A-Za-z.-]{0,20}\+[0-9a-f]{0,40}$/;
+const DIGEST = /^[0-9a-f]{64}$/;
+const posInt = (v: unknown): v is number => isInt(v) && v > 0;
+/** All five or none: a half-named record is an older one. */
+function termsOf(v: unknown): RunTermsBody | null {
+  if (!isRec(v) || !isStr(v.build) || !BUILD.test(v.build) || !posInt(v.pace) || !posInt(v.roundWallMs) || !posInt(v.capTicks)) return null;
+  if (!isStr(v.promptDigest) || !DIGEST.test(v.promptDigest)) return null;
+  return { build: v.build, pace: v.pace, roundWallMs: v.roundWallMs, capTicks: v.capTicks, promptDigest: v.promptDigest };
+}
+
 function gameOf(g: unknown): GameBody | null {
   if (!isRec(g) || !isInt(g.n) || !isStr(g.map) || !isStr(g.matchup) || !isStr(g.outcome) || !isStr(g.by) || !isInt(g.ticks)) return null;
   if (!Array.isArray(g.players) || g.players.length !== 2 || !g.players.every((p) => p === null || isStr(p))) return null;
@@ -111,7 +126,7 @@ function gameOf(g: unknown): GameBody | null {
     n: g.n, file: strOrNull(g.file), players: [strOrNull(g.players[0]), strOrNull(g.players[1])],
     map: g.map, matchup: g.matchup, outcome: g.outcome, by: g.by, ticks: g.ticks,
     judge: judgeOf(g.judge), usage: [usageOf(u[0]), usageOf(u[1])], judgeUsage: usageOf(g.judgeUsage),
-    costUsd: numOrNull(g.costUsd), digest, buildMatches: typeof g.buildMatches === 'boolean' ? g.buildMatches : null,
+    costUsd: numOrNull(g.costUsd), digest, buildMatches: typeof g.buildMatches === 'boolean' ? g.buildMatches : null, terms: termsOf(g.terms),
   };
 }
 

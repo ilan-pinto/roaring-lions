@@ -39,6 +39,7 @@ const ALLOWED: Readonly<Record<string, string>> = {
   'arena.replay.progress': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
   'arena.replay.digest.same': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
   'arena.replay.digest.differs': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
+  'arena.results.terms': 'GH-954 P1: the arena results screen is an operator view, dev-only (the route does not exist in a production build); a run\'s pace and cap are tick counts (--pace, --cap-ticks), the terms two records are compared by',
 };
 
 /** Every reason a value would read as developer language, or [] if none. */

@@ -6,18 +6,19 @@ import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 import { missingKeys, setCatalogue } from '../i18n/t';
 import { parseResults, type ResultsBody } from '../net/arena-results-api';
-import { digestWords, judgeWords, playerNames, showArenaResults, type ArenaResultsDeps } from './arena-results';
+import { digestWords, judgeWords, playerNames, showArenaResults, termsLine, type ArenaResultsDeps } from './arena-results';
 
 afterEach(() => { setCatalogue('en', en); document.body.replaceChildren(); vi.useRealTimers(); });
 
 const KEY = 'a-long-random-run-token';
 const U = { inputTokens: 100, outputTokens: 20, cacheCreationInputTokens: 3000, cacheReadInputTokens: 45000, costUsd: 0.25 };
 const CRIT = ['fewer_deaths', 'wounded_care', 'force_preservation', 'tempo_initiative', 'adaptation'];
+const TERMS = { build: '0.129.30+4d1b71344', pace: 40, roundWallMs: 1500, capTicks: 6000, promptDigest: 'abcdef0123456789'.repeat(4) };
 const game = (n: number, over: Record<string, unknown> = {}): Record<string, unknown> => ({
   n, file: `2026-11-04-x-vs-y-game${n}.frames.jsonl`, players: ['Claude Opus X', 'passive'], map: 'tel_marum', matchup: 'mirror', outcome: 'seat0', by: 'annihilation', ticks: 900,
   judge: { status: 'scored', scores: { overall: [8, 3], criteria: Object.fromEntries(CRIT.map((c) => [c, [7, 4]])) } },
   usage: [U, null], judgeUsage: { ...U, costUsd: 0.1 }, costUsd: 0.35,
-  digest: { referee: { tick: 900, hash: -5 }, watcher: { tick: 900, hash: -5 }, agree: true }, buildMatches: true, ...over,
+  digest: { referee: { tick: 900, hash: -5 }, watcher: { tick: 900, hash: -5 }, agree: true }, buildMatches: true, terms: TERMS, ...over,
 });
 const BODY = {
   build: '0.1.0+abc', criteria: CRIT.map((id) => ({ id, label: `Criterion ${id}` })),
@@ -65,6 +66,55 @@ describe('parseResults', () => {
     expect(parseResults(null)).toBeNull();
     expect(parseResults({ build: 'b', criteria: [], runs: [{ id: 'r', games: [{ n: 'x' }], totals: {} }] })).toBeNull();
     expect(parseResults({ ...BODY, runs: [{ ...BODY.runs[0], games: [game(1, { players: ['a', 3] })] }] })).toBeNull();
+  });
+});
+
+describe('the run terms line (GH-954 P1)', () => {
+  const runOf = (...terms: unknown[]): Record<string, unknown> => ({ ...BODY.runs[0], games: terms.map((x, i) => game(i + 1, { terms: x })) });
+  const lineOf = (host: HTMLElement): string[] => [...host.querySelectorAll('.rl-arena-results__terms')].map((e) => e.textContent ?? '');
+
+  it('reads the five fields into a named shape, all or none, and drops anything that is not that shape', () => {
+    const p = parseResults(BODY) as ResultsBody;
+    expect(p.runs[0].games.map((g) => g.terms)).toEqual([TERMS, TERMS, TERMS]);
+    const older = parseResults({ ...BODY, runs: [{ ...BODY.runs[0], games: [game(1, { terms: undefined })] }] }) as ResultsBody;
+    expect(older.runs[0].games[0].terms).toBeNull();
+    for (const [f, v] of Object.entries({ build: 'sk-ant-abc123', pace: 0, roundWallMs: 'x', capTicks: 1.5, promptDigest: 'zz' })) {
+      const b = parseResults({ ...BODY, runs: [{ ...BODY.runs[0], games: [game(1, { terms: { ...TERMS, [f]: v } })] }] }) as ResultsBody;
+      expect(b.runs[0].games[0].terms, f).toBeNull();
+    }
+    expect(JSON.stringify(parseResults({ ...BODY, runs: [{ ...BODY.runs[0], games: [game(1, { terms: { ...TERMS, extra: 'x' } })] }] }))).not.toContain('extra');
+  });
+
+  it('shows one compact line a run: build, pace, round wall time, cap and the start of the prompt digest', async () => {
+    const r = rig();
+    showArenaResults(r.host, r.deps);
+    await settle();
+    expect(lineOf(r.host)).toEqual(['Build 0.129.30+4d1b71344. 40 ticks a round, 1500 ms a round, cap 6000 ticks. Prompt abcdef012345.']);
+  });
+
+  it('an older record is marked "older record" and none of its values is guessed; one old game among new ones marks the run', async () => {
+    const old = rig({ ...BODY, runs: [runOf(undefined, undefined)] });
+    showArenaResults(old.host, old.deps);
+    await settle();
+    expect(lineOf(old.host)).toEqual(['Older record: its build, pace, cap and prompt were not saved.']);
+    expect(old.host.textContent).not.toContain('Build ');
+    expect(old.host.querySelectorAll('table')[0].querySelectorAll('tr')).toHaveLength(3);   // the games still list
+    const mixed = rig({ ...BODY, runs: [runOf(TERMS, undefined)] });
+    showArenaResults(mixed.host, mixed.deps);
+    await settle();
+    expect(lineOf(mixed.host)).toEqual(['Older record: its build, pace, cap and prompt were not saved.']);
+    expect(termsLine({ games: [] })).toBe('Older record: its build, pace, cap and prompt were not saved.');
+    const none = rig({ ...BODY, runs: [{ ...BODY.runs[0], games: [] }] });
+    showArenaResults(none.host, none.deps);
+    await settle();
+    expect(lineOf(none.host)).toEqual(['Older record: its build, pace, cap and prompt were not saved.']);
+  });
+
+  it('says so when the games of a run were played under different terms', async () => {
+    const r = rig({ ...BODY, runs: [runOf(TERMS, { ...TERMS, capTicks: 7000 })] });
+    showArenaResults(r.host, r.deps);
+    await settle();
+    expect(lineOf(r.host)).toEqual(['The games of this run were played under different terms.']);
   });
 });
 

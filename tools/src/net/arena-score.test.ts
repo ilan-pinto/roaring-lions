@@ -4,6 +4,7 @@
 // own run is arena.test.ts.
 import { describe, expect, it } from 'vitest';
 import type { Faction, Matchup } from '@lions/net';
+import { RUN_FIELDS } from './score-fixture';
 import { binomialP, gateVerdict, headToHead, markdownReport, sumUsage, tally, usageTotals, type GameRecord } from './arena-score';
 
 const LINE = { lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remaining: 100 };
@@ -11,6 +12,7 @@ const REPORT = { tokens: null, timeouts: 0, errors: [] };
 
 function game(players: [string, string], outcome: GameRecord['outcome'], o: { matchup?: Matchup; factions?: [Faction, Faction]; seed?: number; by?: string } = {}): GameRecord {
   return {
+    ...RUN_FIELDS,
     seed: o.seed ?? 1000,
     map: 'tel_marum',
     matchup: o.matchup ?? 'mirror',
