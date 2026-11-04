@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MissionRuntime, Sim, fx, type MissionContext, type MissionJson, type UnitTypeJson } from '@lions/sim';
 import { WsTransport, type Frame, type MatchConfig, type MatchTransport, type SocketLike, type TransportStatus } from '@lions/net';
 import { versusAnchors } from './versus-seats';
 import { runFrames, seatWorldFor } from './frame-step';
@@ -389,10 +390,12 @@ const CONFIG_FOR_WIRE: MatchConfig = {
 };
 
 describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
-  const goals = (won: readonly boolean[], units: readonly number[] = [0, 0], mode: 'camp' | 'points' = 'camp'): OutcomeGoals => ({
+  // `ticks` is the sim tick each side completed on; the default is one tick for a side that won (the old reading).
+  const goals = (won: readonly boolean[], units: readonly number[] = [0, 0], mode: 'camp' | 'points' = 'camp', ticks: readonly number[] = [won[0] ? 100 : -1, won[1] ? 100 : -1]): OutcomeGoals => ({
     mode,
     sideWon: (side) => won[side],
     scoreUnitsOf: (side) => units[side],
+    completeTickOf: (side) => ticks[side],
   });
   const both = world([[0, 1, 0], [1, 1, 0]]);
 
@@ -425,6 +428,52 @@ describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
     expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true]))).toEqual({ kind: 'draw', by: 'mutual' });
   });
 
+  it('both goals inside one hash window: the side that finished FIRST wins, whatever it scored by then (GH-976 P2)', () => {
+    // Side 0 reached the target on tick 95, side 1 on tick 100; side 1 overshot by a lot (a kill bonus). The earlier wins.
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [720100, 725000], 'points', [95, 100]))).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'points' });
+    // And the other way round, five ticks apart: the earlier is side 1, the larger score is side 0's.
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [725000, 720100], 'points', [100, 95]))).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'points' });
+    // The earlier camp razed wins a camp race too, with level scores.
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [0, 0], 'camp', [99, 94]))).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'camp' });
+    // The same tick still falls to the score, then to a draw.
+    expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [725000, 720100], 'points', [97, 97]))).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'points' });
+  });
+
+  it('on a real runtime, a side that completes 5 ticks first wins although the other finished with a far larger score', () => {
+    const squad: UnitTypeJson = {
+      id: 'ft_squad', role: 'infantry', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+      mobility: { speed_tiles_s: 1 }, sensors: { optics: 1, sight_tiles: 8, signature: 0.6 }, weapons: [],
+    };
+    const sim = new Sim({ seed: 9, width: 40, height: 20, capacity: 16 });
+    const t = sim.addUnitType(squad);
+    const race = (side: 0 | 1, over: object): MissionJson['objectives'][number] => ({
+      id: `score_${side}`, type: 'score', primary: true, side, score: { zones: [], per_value_destroyed: 0, target: 60, ...over },
+    });
+    const mission: MissionJson = {
+      id: 'ft', map: { file: 'none' }, ledger: { requires: [], produces: [] },
+      objectives: [race(0, { zones: [{ zone: 'west', per_min: 60 }] }), race(1, { per_value_destroyed: 100 })],
+    };
+    const ctx: MissionContext = { typeIdOf: () => t, markers: {}, zones: { west: [4, 4, 6, 6] }, goalsOnly: true, unitValueOf: () => 1000 };
+    const rt = new MissionRuntime(sim, mission, ctx);
+    rt.start();
+    const put = (side: 0 | 1, x: number, y: number): number => sim.spawn(t, side, fx.from(x) + 32768, fx.from(y) + 32768);
+    const step = (n: number): void => { for (let i = 0; i < n; i++) rt.step(sim.tick()); };
+    put(0, 6, 6); // holds the west zone: 60 points at 60 a minute is exactly 1200 ticks
+    const victim = put(0, 30, 10);
+    step(1195);
+    expect(rt.sideWon(0)).toBe(false);
+    sim.debugKill(victim); // side 1 banks 1000 x 100 / 100 = 1000 points in one step, 5 ticks before side 0 finishes
+    step(1);
+    expect(rt.sideWon(1)).toBe(true);
+    step(10);
+    expect(rt.sideWon(0)).toBe(true);
+    expect(rt.completeTickOf(1)).toBeLessThan(rt.completeTickOf(0));
+    expect(rt.completeTickOf(0) - rt.completeTickOf(1)).toBeLessThan(20); // inside one hash window
+    expect(rt.scoreUnitsOf(1)).toBeGreaterThan(rt.scoreUnitsOf(0)); // the frozen scores say the other thing
+    const goals = goalsOf({ runtime: rt, winMode: 'points' })!;
+    expect(outcomeOf(sim, sim.tickCount, costOf, undefined, MATCH_CAP_TICKS, goals)).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'points' });
+  });
+
   it('asked only on a hash tick, like the rest of the rule', () => {
     const config = { hashEveryTicks: 20 } as MatchConfig;
     const sim = { ...both, tickCount: 40 };
@@ -433,15 +482,15 @@ describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
   });
 
   it('goalsOf: none for an annihilation world, the runtime\'s sideWon and score for a mode world', () => {
-    const rt = { sideWon: (s: 0 | 1) => s === 1, scoreUnitsOf: (s: 0 | 1) => 5 + s, productionLines: () => [], logisticsOf: () => 0, popCapped: () => false };
+    const rt = { sideWon: (s: 0 | 1) => s === 1, scoreUnitsOf: (s: 0 | 1) => 5 + s, completeTickOf: (s: 0 | 1) => 40 + s, productionLines: () => [], logisticsOf: () => 0, popCapped: () => false };
     expect(goalsOf({ runtime: null, winMode: null })).toBeUndefined();
     expect(goalsOf({ runtime: rt, winMode: null })).toBeUndefined(); // an economy room has a runtime and no mode
     const g = goalsOf({ runtime: rt, winMode: 'points' })!;
-    expect([g.mode, g.sideWon(0), g.sideWon(1), g.scoreUnitsOf(1)]).toEqual(['points', false, true, 6]);
+    expect([g.mode, g.sideWon(0), g.sideWon(1), g.scoreUnitsOf(1), g.completeTickOf(1)]).toEqual(['points', false, true, 6, 41]);
   });
 
   it('a mode room has no production to ask about, whatever its runtime', () => {
-    const rt = { sideWon: () => false, scoreUnitsOf: () => 0, productionLines: () => [{ alive: true, current: 'inf_squad', items: [] as string[] }], logisticsOf: () => 9999, popCapped: () => false };
+    const rt = { sideWon: () => false, scoreUnitsOf: () => 0, completeTickOf: () => -1, productionLines: () => [{ alive: true, current: 'inf_squad', items: [] as string[] }], logisticsOf: () => 9999, popCapped: () => false };
     const world2 = { runtime: rt, factions: ['kdf', 'kdf'] as ['kdf', 'kdf'] };
     expect(productionOf({ ...world2, winMode: null })).toBeDefined(); // the control: an economy room with a line that can field
     expect(productionOf({ ...world2, winMode: 'camp' })).toBeUndefined();

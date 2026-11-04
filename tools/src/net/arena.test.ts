@@ -34,7 +34,8 @@ import type { ArenaPlayer } from './players';
 import type { GameRecord } from './arena-score';
 import { startLocalRelay } from './local-relay';
 import type { TransportStatus } from '@lions/net';
-import { MATCH_CAP_TICKS, type MatchResult, type OutcomeSim } from '../../../packages/app/src/net/outcome';
+import { capOutcome } from './cap';
+import { MATCH_CAP_TICKS, type MatchResult, type OutcomeGoals, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -279,6 +280,15 @@ describe('judge', () => {
   it('takes the result both sims agree on, by seat', () => {
     expect(judge([client(won(1)), client(won(1))], SIDES, 6000)).toEqual({ outcome: 'seat1', by: 'annihilation' });
     expect(judge([client({ kind: 'draw', by: 'mutual' }), client({ kind: 'draw', by: 'mutual' })], SIDES, 6000)).toEqual({ outcome: 'draw', by: 'mutual' });
+  });
+  it('GH-976 P2: at the cap, a goal one side completed decides it (by objective), not the surviving value', () => {
+    const goals: OutcomeGoals = { mode: 'points', sideWon: (side) => side === 1, scoreUnitsOf: () => 0, completeTickOf: (side) => (side === 1 ? 4000 : -1) };
+    const atCap = (g?: OutcomeGoals): SeatSnapshot => ({ ...client(null, { tick: 6000 }), ...(g !== undefined ? { goals: g } : {}) });
+    // side 0 is ahead on forces (a Lavi against a squad) and the control is the old cap verdict
+    expect(judge([atCap(), atCap()], SIDES, 6000)).toEqual({ outcome: 'seat0', by: 'cap' });
+    // the goal side 1 completed wins the cap, and the record names the objective, not 'cap'
+    expect(judge([atCap(goals), atCap(goals)], SIDES, 6000)).toEqual({ outcome: 'seat1', by: 'objective' });
+    expect(capOutcome(capSim, undefined, undefined, goals)).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'points' });
   });
   it('voids a game whose two sims report different results', () => {
     // `disagree`, not `desync`: the arena caught it, not the room.

@@ -11,14 +11,16 @@
  * A pure read: nothing here writes to the sim.
  */
 import { matchCapTicks } from '@lions/net';
-import { outcomeOf, type MatchResult, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
+import { outcomeOf, type MatchResult, type OutcomeGoals, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 
 /** The result at the arena's cap. Never `ongoing`: at the MAP's cap (`matchCapTicks`: 25 minutes, 35 on Rujm
  *  Sawda, GH-913 L8) the rule always decides (annihilation, mutual, stalemate or time). `map` absent is the
- *  25-minute default. */
-export function capOutcome(sim: OutcomeSim, production?: OutcomeProduction, map?: string): MatchResult {
+ *  25-minute default. `goals` (GH-976 P2) is a win-mode room's goal: a side that completed it by the cap wins by
+ *  the objective, as it would have in the room (`outcomeOf` asks the goal first); with no goal done, or none, the
+ *  cap is decided on surviving value, exactly as before. */
+export function capOutcome(sim: OutcomeSim, production?: OutcomeProduction, map?: string, goals?: OutcomeGoals): MatchResult {
   const cap = matchCapTicks(map);
-  const o = outcomeOf(sim, cap, undefined, production, cap);
+  const o = outcomeOf(sim, cap, undefined, production, cap, goals);
   if (o.kind === 'ongoing') throw new Error('capOutcome: the outcome rule left a game ongoing at the cap');
   return o;
 }
