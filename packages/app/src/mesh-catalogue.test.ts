@@ -182,6 +182,12 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     expect(Object.keys(HELD_MESH_FILES).filter((f) => /buildings\/(kdf|militia)_/.test(f))).toEqual([]);
   });
 
+  it('draws the forward camp (GH-277) with the field camp\'s mesh and wreck, and no construction state, until its own model lands', () => {
+    // Literals: the lead (4 Nov 2026) maps the new type to the existing camp files and spends no Meshy credit yet.
+    expect(BUILDING_MESHES.kdf_forward_camp).toEqual({ idle: 'buildings/camp.glb', wreck: 'buildings/camp_wreck.glb' });
+    expect(BUILDING_MESHES.camp).toEqual({ idle: 'buildings/camp.glb', wreck: 'buildings/camp_wreck.glb' });
+  });
+
   it('does not draw one unit type through both mesh paths', () => {
     // `loadMeshUnit` and `loadVehicleMesh` file into separate maps and
     // `updateMeshUnits`/`updateVehicleMeshes` are separate loops -- a type in

@@ -8,7 +8,7 @@
 // fill, so neither type carries a fill field and a test holds it.
 
 import type { MissionEvent, StructureType, WorksRefusal } from '@lions/sim';
-import { DOMAIN_FOOT, DOMAIN_VEHICLE, REGEN_FRAC, fx, worksRefund } from '@lions/sim';
+import { CONTEST_RADIUS_SQ, DOMAIN_FOOT, DOMAIN_VEHICLE, REGEN_FRAC, fx, worksRefund } from '@lions/sim';
 import type { AuraRingView, PlacementPreview } from '@lions/render';
 import { t } from '../i18n/t';
 import { escapeHtml } from './escape-html';
@@ -20,6 +20,9 @@ export interface WorksShape {
   fh: number;
   area: readonly { radius: number }[];
   sensor: { sight: number; tunnelRadius: number } | null;
+  /** GH-277 forward camp: the radius, in tiles, inside which an enemy ground unit pauses this work's production line
+   *  (the sim's contest radius), or null for a type that opens no line. */
+  contest: number | null;
 }
 
 /**
@@ -36,6 +39,7 @@ export function worksShapeOf(type: StructureType): WorksShape {
     fh: type.buildable?.fh ?? 1,
     area: aura === null ? [] : aura.area.map((a) => ({ radius: root(a.radiusSq) })),
     sensor: aura?.sensor == null ? null : { sight: fx.toNumber(aura.sensor.sight), tunnelRadius: root(aura.sensor.tunnelRadiusSq) },
+    contest: type.production == null ? null : root(CONTEST_RADIUS_SQ),
   };
 }
 
@@ -80,16 +84,23 @@ export function worksRings(type: WorksShape, cx: number, cy: number): AuraRingVi
     if (type.sensor.sight > 0 && !seen.has(type.sensor.sight)) rings.push({ cx, cy, radius: type.sensor.sight, style: 'dashed' });
     if (type.sensor.tunnelRadius > 0) rings.push({ cx, cy, radius: type.sensor.tunnelRadius, style: 'dotted' });
   }
+  // A production work also shows how close an enemy must come to stop its line (treatment B: dashed, no fill). The line
+  // measures from the work's exit, a tile or two off the footprint centre; the ring is the footprint's, which is where
+  // the player is deciding.
+  if (type.contest !== null && type.contest > 0 && !seen.has(type.contest)) rings.push({ cx, cy, radius: type.contest, style: 'dashed' });
   return rings;
 }
 
 /** The sight and tunnel rings coincide at the approved 10/10; while an intel centre is being
  *  placed the cursor tooltip names both. Catalogue keys, in the order drawn. */
 export function worksLegendKeys(type: WorksShape): string[] {
-  if (type.sensor === null) return [];
   const keys: string[] = [];
-  if (type.sensor.sight > 0) keys.push('dock.works.legend.sight');
-  if (type.sensor.tunnelRadius > 0) keys.push('dock.works.legend.tunnel');
+  if (type.sensor !== null) {
+    if (type.sensor.sight > 0) keys.push('dock.works.legend.sight');
+    if (type.sensor.tunnelRadius > 0) keys.push('dock.works.legend.tunnel');
+  }
+  // A production work's ring is the one the legend must name: it is the only dashed ring that is not an aura.
+  if (type.contest !== null) keys.push('dock.works.legend.contest');
   return keys;
 }
 

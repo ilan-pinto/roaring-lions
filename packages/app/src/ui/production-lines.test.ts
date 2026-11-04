@@ -6,7 +6,7 @@
 // sends, every cancel and rally control dispatches the runtime's own command
 // and nothing else, and a pause is a glyph and a word, never colour alone.
 import { describe, expect, it } from 'vitest';
-import { MissionRuntime, Sim, fx, type Command, type MissionJson, type UnitTypeJson } from '@lions/sim';
+import { MissionRuntime, NOT_ON_LINE, Sim, fx, type Command, type MissionJson, type UnitTypeJson } from '@lions/sim';
 import { ReinforcementDock, type ProductionRuntime } from './production';
 import type { DockUnit, LineSnapshot } from './dock-model';
 import { closeTip } from './tooltip';
@@ -298,5 +298,130 @@ describe('with a real runtime', () => {
     // A rally the real runtime refuses (the camp's own tile) and one it takes.
     expect(dock.canRallyAt(1, fx.from(28.5), fx.from(9.5))).toBe(false);
     expect(dock.canRallyAt(1, fx.from(20.5), fx.from(6.5))).toBe(true);
+  });
+});
+
+// GH-277 forward camp: a line a production work opened is the tail of the list, named "Forward {n}", always has a row, and a
+// tile pinned to it is judged against ITS menu.
+describe('a forward camp\'s line', () => {
+  it('is named "Forward n" while the camps keep their numbers, and a lone one still has a row', () => {
+    const r = rig([line(), line({ anchor: 5, appended: true }), line({ anchor: 6, appended: true })]);
+    expect(r.rows().map((x) => x.querySelector('.rl-line__camp')?.textContent)).toEqual(['Camp 1', 'Forward 1', 'Forward 2']);
+    // The sandbox shape: no authored camp, one forward line, idle and with no rally: the row is there all the same.
+    const lone = rig([line({ anchor: 5, appended: true })]);
+    expect(lone.lineEl().hidden).toBe(false);
+    expect(lone.rows().map((x) => x.querySelector('.rl-line__camp')?.textContent)).toEqual(['Forward 1']);
+    lone.tile('inf_squad').click();
+    expect(lone.notes.at(-1)).toContain('deploys at Forward 1');
+    // ...and one authored camp, idle, still draws no row (the dock a mission without a forward camp has).
+    expect(rig([line()]).rows()).toHaveLength(0);
+  });
+
+  it('a pinned line the unit is not on locks its tile with "not here", names the line, and sends nothing', () => {
+    const lines = [line(), line({ anchor: 5, appended: true })];
+    const asked: string[] = [];
+    document.body.replaceChildren();
+    closeTip();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const sent: Command[] = [];
+    const notes: string[] = [];
+    const rt: ProductionRuntime = {
+      logistics: 1000,
+      intel: 0,
+      production: [],
+      supportCost: () => 10,
+      buildBlockedReason: () => null,
+      // the forward line (1) builds the squad and not the AT team; the camp (0) builds both
+      buildBlockedReasonOn: (id, l) => {
+        asked.push(`${id}@${l}`);
+        return l === 1 && id === 'at_team' ? NOT_ON_LINE : null;
+      },
+      canBuild: (id, l) => !(l === 1 && id === 'at_team'),
+      productionLines: () => lines,
+      canSetRally: () => true,
+    };
+    new ReinforcementDock(host, { units: [SQUAD, AT], runtime: rt, note: (h) => notes.push(h), onArm: () => undefined, dispatch: (c) => sent.push(c) });
+    const tile = (id: string) => host.querySelector<HTMLButtonElement>(`.rl-tile[data-unit='${id}']`) as HTMLButtonElement;
+    const pin = (host.querySelectorAll<HTMLButtonElement>('.rl-line__pin')[1]);
+    // unpinned: nothing is off any menu
+    expect(tile('at_team').dataset.locked).toBe('0');
+    pin.click();
+    expect(tile('at_team').dataset.locked).toBe('1');
+    expect(tile('at_team').querySelector('.rl-tile__lock')?.textContent).toBe('not here');
+    expect(tile('at_team').title).toBe('AT Team — Forward 1 does not build this unit');
+    expect(tile('inf_squad').dataset.locked).toBe('0');
+    expect(asked).toContain('at_team@1');
+    tile('at_team').click();
+    expect(sent).toEqual([]);
+    expect(notes.at(-1)).toContain('Forward 1 does not build this unit');
+    tile('inf_squad').click();
+    expect(sent).toEqual([{ kind: 'build', side: 0, unit: 'inf_squad', line: 1 }]);
+    // unpinned again: the tile is open
+    pin.click();
+    expect(tile('at_team').dataset.locked).toBe('0');
+  });
+});
+
+describe('with a real runtime: a forward camp raised, then a unit built on its line', () => {
+  const T: UnitTypeJson = {
+    id: 'inf_squad', role: 'infantry',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1 }, sensors: { optics: 1, sight_tiles: 8, signature: 0.6 },
+    weapons: [],
+  };
+  const ENG: UnitTypeJson = { ...T, id: 'eng', role: 'engineer', abilities: ['construct'] };
+  const TANK: UnitTypeJson = { ...T, id: 'at_team', role: 'mbt' };
+  it('the row appears when the work completes, a tile pinned to it builds there, and an off-menu unit is locked for it', () => {
+    const sim = new Sim({ seed: 3, width: 40, height: 20, capacity: 64 });
+    const types = new Map<string, number>();
+    for (const u of [T, ENG, TANK]) types.set(u.id, sim.addUnitType(u));
+    sim.addStructureType({ id: 'camp', name: 'Field Camp', hp_per_tile: 300, garrison_slots: 3, rubble_cover: 2, produces_for: 0 });
+    sim.addStructureType({
+      id: 'fwd', name: 'Forward Camp', hp_per_tile: 300, owner: 0,
+      buildable: { cost: { logistics: 200 }, build_time_s: 5, footprint: [2, 2] },
+      production: { roles: ['infantry'] },
+    });
+    const mission: MissionJson = {
+      id: 'fwd_dock', map: { file: 'none', player_start: [3, 5] },
+      ledger: { requires: [], produces: [] },
+      objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      starting_force: [{ unit: 'eng', count: 1, at: [12, 10] }],
+      structures: [{ type: 'camp', at: [2, 2], size: [2, 2] }],
+      resources: { logistics_start: 3000, intel_start: 0 },
+      field_works: { fwd: 1 },
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => types.get(u) ?? 0, markers: {}, zones: {},
+      unitInfo: (u) => (u === 'inf_squad' || u === 'at_team' ? { logistics: 100, buildTimeS: 2, population: 1, role: u === 'at_team' ? 'mbt' : 'infantry' } : null),
+    });
+    rt.start();
+    document.body.replaceChildren();
+    closeTip();
+    const sent: Command[] = [];
+    const dock = new ReinforcementDock(document.body, {
+      units: [SQUAD, AT], runtime: rt, note: () => undefined, onArm: () => undefined, dispatch: (c) => sent.push(c),
+    });
+    // before: one idle camp, no rows
+    expect([...document.querySelectorAll<HTMLElement>('.rl-line')].filter((r) => !r.hidden)).toHaveLength(0);
+    expect(rt.requestConstruct('fwd', 14, 10)).toBe(true);
+    for (let i = 0; i < 140; i++) rt.step(sim.tick());
+    dock.refresh();
+    const rows = [...document.querySelectorAll<HTMLElement>('.rl-line')].filter((r) => !r.hidden);
+    expect(rows.map((x) => x.querySelector('.rl-line__camp')?.textContent)).toEqual(['Camp 1', 'Forward 1']);
+    const tile = (id: string) => document.querySelector<HTMLButtonElement>(`.rl-tile[data-unit='${id}']`) as HTMLButtonElement;
+    expect(tile('at_team').dataset.locked).toBe('0'); // unpinned: the camp builds it
+    (rows[1].querySelector('.rl-line__pin') as HTMLButtonElement).click();
+    expect(tile('at_team').dataset.locked).toBe('1');
+    expect(tile('at_team').querySelector('.rl-tile__lock')?.textContent).toBe('not here');
+    expect(tile('inf_squad').dataset.locked).toBe('0');
+    tile('inf_squad').click();
+    expect(sent.at(-1)).toEqual({ kind: 'build', side: 0, unit: 'inf_squad', line: 1 });
+    for (const c of sent) sim.queueCommand(c);
+    rt.applyQueued();
+    rt.step(sim.tick());
+    dock.refresh();
+    expect(rt.productionLines(0)[1]).toMatchObject({ current: 'inf_squad', appended: true });
+    expect(rows[1].querySelector('.rl-line__item')?.getAttribute('aria-label')).toContain('Rifle Squad');
   });
 });
