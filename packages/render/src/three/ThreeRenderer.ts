@@ -370,6 +370,7 @@ import { isGrindingHit } from '../grind';
 import { AIR_LIFT_PX } from './units/frame-state';
 import { airLiftFrac } from './units/air-lift';
 import {
+  hullPickFor,
   pickUnit as pickUnitPure,
   pickUnitAtScreen as pickUnitAtScreenPure,
   unitsInScreenRect as unitsInScreenRectPure,
@@ -7121,7 +7122,8 @@ export class ThreeRenderer implements Renderer {
       0,
       0,
       this.pickable,
-      this.pickRadiusFloor
+      this.pickRadiusFloor,
+      this.pickHull
     );
   }
   /**
@@ -7134,6 +7136,16 @@ export class ThreeRenderer implements Renderer {
     const swarm = this.sim.unitTypes[this.sim.state.typeIdx[i]].swarm;
     return swarm === null ? 0 : fx.toNumber(swarm.spread) / 2;
   };
+  /**
+   * A ground vehicle is picked by its HULL, not its feet (the 4 Nov lead report: a right-click on an
+   * enemy tank was an order on it about half the time, and the rest an attack-move to the ground,
+   * which leaves a unit already firing on something else firing on it). `units/pick.ts` has the rule;
+   * the footprints are the selection ring's own table. A type with no row is picked as before.
+   */
+  private readonly pickHull = hullPickFor(
+    (i) => this.sim.unitTypes[this.sim.state.typeIdx[i]].id,
+    (i) => this.curFacing[i]
+  );
   /** E6 chunk B: `Renderer.swarmDrawn` - the swarm batches' own drawn count for entity `id`. */
   swarmDrawn(id: number): number {
     let n = 0;
@@ -7200,7 +7212,8 @@ export class ThreeRenderer implements Renderer {
       { width: this.width, height: this.height },
       this.pickable,
       radiusTiles,
-      this.pickRadiusFloor
+      this.pickRadiusFloor,
+      this.pickHull
     );
   }
   /**

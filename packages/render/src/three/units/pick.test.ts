@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { pickUnit, pickUnitAtScreen, unitsInScreenRect } from './pick';
+import { hullPickFor, pickUnit, pickUnitAtScreen, unitsInScreenRect, type HullPick } from './pick';
+import { ELLIPSE_BY_TYPE, ELLIPSE_PAD_TILES } from './readability';
 import { worldToScreenThree } from '../camera';
 import { worldToScreen, type Camera, type Viewport } from '../../project';
 
@@ -256,5 +257,54 @@ describe('pickUnitAtScreen (a click on a unit in a group picks THAT unit)', () =
     expect(pick(() => true)).toBe(0);
     expect(pick((i) => i !== 0)).toBe(1);
     expect(pick(() => false)).toBe(-1);
+  });
+});
+
+describe('pickUnit with a hull (the 4 Nov lead report: a click on a tank\'s nose or tail was not on the tank)', () => {
+  const e = ELLIPSE_BY_TYPE.mbt_lavi;
+  const halfLength = e.along - ELLIPSE_PAD_TILES;
+  const halfWidth = e.across - ELLIPSE_PAD_TILES;
+  const r = roster([[20, 20, 1, -1]]);
+  // A Lavi at (20, 20) facing +x, and a rifleman beside it that is not a hull.
+  const hull: HullPick = hullPickFor(() => 'mbt_lavi', () => 0);
+  const at = (wx: number, wy: number, radius = 0.5, withHull = true) =>
+    pickUnit(wx, wy, r.curX, r.curY, r.alive, r.tunnelIn, r.n, radius, 0, 0, undefined, undefined, withHull ? hull : undefined);
+
+  it('picks the nose and the tail, which are over a tile from its feet', () => {
+    const nose = 20 + e.offsetAlong + halfLength - 0.05;
+    const tail = 20 + e.offsetAlong - halfLength + 0.05;
+    expect(at(nose, 20, 0.5, false)).toBe(-1);
+    expect(at(tail, 20, 0.5, false)).toBe(-1);
+    expect(at(nose, 20)).toBe(0);
+    expect(at(tail, 20)).toBe(0);
+  });
+
+  it('picks the flank to its edge and not a tile beyond it', () => {
+    expect(at(20, 20 + halfWidth - 0.05)).toBe(0);
+    expect(at(20.9, 20 + halfWidth + 0.35)).toBe(-1);
+    expect(at(20, 20 + halfWidth + 1.0)).toBe(-1);
+  });
+
+  it('turns with the hull: facing +y, the long axis is y', () => {
+    // A technical is long and narrow (0.83 x 0.30), so its axis is unmistakable.
+    const t = ELLIPSE_BY_TYPE.technical;
+    const tNose = t.along - ELLIPSE_PAD_TILES + t.offsetAlong - 0.05;
+    const north: HullPick = hullPickFor(() => 'technical', () => 0.25);
+    const east: HullPick = hullPickFor(() => 'technical', () => 0);
+    const probe = (hp: HullPick, wx: number, wy: number) =>
+      pickUnit(wx, wy, r.curX, r.curY, r.alive, r.tunnelIn, r.n, 0.5, 0, 0, undefined, undefined, hp);
+    expect(probe(north, 20, 20 + tNose)).toBe(0);
+    expect(probe(north, 20 + tNose, 20)).toBe(-1);
+    expect(probe(east, 20 + tNose, 20)).toBe(0);
+    expect(probe(east, 20, 20 + tNose)).toBe(-1);
+  });
+
+  it('a unit with no footprint row is picked from its feet exactly as before', () => {
+    const point: HullPick = hullPickFor(() => 'inf_squad', () => 0);
+    for (const [wx, wy] of [[20.3, 20], [21.0, 20], [20, 20.9]]) {
+      expect(pickUnit(wx, wy, r.curX, r.curY, r.alive, r.tunnelIn, r.n, 0.5, 0, 0, undefined, undefined, point)).toBe(
+        pickUnit(wx, wy, r.curX, r.curY, r.alive, r.tunnelIn, r.n, 0.5)
+      );
+    }
   });
 });
