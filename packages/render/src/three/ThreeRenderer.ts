@@ -2242,6 +2242,8 @@ export class ThreeRenderer implements Renderer {
    * `fireSlot` are the last slot emitted of each.
    */
   private readonly gunOutFx = new Map<number, { w: GunOutFxWindow; puffSlot: number; fireSlot: number }>();
+  /** Entities whose knock-out has been armed and whose gun has not been repaired since (`beginGunOutFx`). */
+  private readonly gunOutStarted = new Set<number>();
   /** The bent barrels, one per source geometry (`units/gun-out.ts`): shared by every hull of a type with its gun out. */
   private readonly gunOutVariants = new GunOutVariants();
   /**
@@ -3997,6 +3999,7 @@ export class ThreeRenderer implements Renderer {
     this.buildingBurning.clear();
     this.wreckSmoulder.clear();
     this.gunOutFx.clear();
+    this.gunOutStarted.clear();
     this.gunOutVariants.dispose();
     this.pendingCharges.length = 0;
     for (const template of this.buildingMeshIdleTemplates.values()) disposeBuildingMeshTemplate(template);
@@ -10045,6 +10048,7 @@ export class ThreeRenderer implements Renderer {
       // Ground hulls only (an aircraft's gun has no `turret_pivot` to bend, and `applyGunOut` finds none).
       const gunOut = st.firepowerKilled[i] === 1;
       if (gunOut !== vehicleGunOutDrawn(entity)) applyGunOut(entity, gunOut, this.gunOutVariants);
+      if (!gunOut && this.gunOutStarted.size > 0) this.gunOutStarted.delete(i);
 
       // The hull's own height: the ground under its drawn centre, sampled
       // BEFORE the recoil shove, exactly like `entityFrame`'s own recoil block
@@ -11948,6 +11952,10 @@ export class ThreeRenderer implements Renderer {
    */
   private beginGunOutFx(entity: number, tick: number): void {
     if (entity < 0 || entity >= this.sim.entityCount) return;
+    // A gun already out stays out: a second `firepower_kill`, or the `combat_ineffective` that follows a mobility
+    // kill, is not a new knock-out and must not restart the puff and the fire. Cleared when the gun is repaired.
+    if (this.gunOutStarted.has(entity)) return;
+    this.gunOutStarted.add(entity);
     const w = gunOutWindow(entity, presentationSimMs(tick + 1, 0));
     this.gunOutFx.set(entity, {
       w,
@@ -12000,11 +12008,13 @@ export class ThreeRenderer implements Renderer {
    */
   private updateGunOutFx(alpha: number): void {
     if (!this.particleSystem || this.gunOutFx.size === 0) return;
+    // The lowest fx detail draws no particles at all (`updateVehicleClods` asks the same); slots are still spent below.
+    const detailOff = (this.opts.quality ?? QUALITY_PRESETS.high).fxDetail === 0;
     const puff = this.emitterLibrary.byName(GUN_OUT_PUFF_EMITTER_ID);
     const fire = this.emitterLibrary.byName(GUN_OUT_FIRE_EMITTER_ID);
     const st = this.sim.state;
     const nowMs = presentationSimMs(this.sim.tickCount, alpha);
-    const reduced = this.reducedPrefNow;
+    const reduced = this.reducedPrefNow || detailOff;
     const a = this.gunOutScratch;
     const trickle = (em: NonNullable<typeof puff>): [number, number] => {
       let maxLifeMs = 0;
@@ -12020,9 +12030,12 @@ export class ThreeRenderer implements Renderer {
     const [fireLife, fireOver] = fire ? trickle(fire) : [0, 0];
     for (const [id, g] of this.gunOutFx) {
       const over = nowMs >= g.w.fireEndMs + fireLife + fireOver && nowMs >= g.w.puffEndMs + puffLife + puffOver;
-      if (over || id >= this.snapshottedCount || st.alive[id] === 0 || st.firepowerKilled[id] === 0) {
-        // Gone, dead (the wreck's smoulder takes over), or repaired: the fx end with the state they show.
+      // An aircraft has no ground point for a flame to stand on (the same reason the damage wisp skips it).
+      const airborne = id < this.snapshottedCount && this.sim.unitTypes[st.typeIdx[id]].isAir;
+      if (over || airborne || id >= this.snapshottedCount || st.alive[id] === 0 || st.firepowerKilled[id] === 0) {
+        // Gone, dead (the wreck's smoulder takes over), repaired, or never a ground hull: the fx end with the state they show.
         this.gunOutFx.delete(id);
+        if (id >= this.snapshottedCount || st.alive[id] === 0 || st.firepowerKilled[id] === 0) this.gunOutStarted.delete(id);
         continue;
       }
       const hidden = this.hiddenFromViewer(id);

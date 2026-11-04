@@ -24,6 +24,10 @@
  * (`vehicle-damage.ts`) already owns every live material; a textured barrel also swallows a vertex
  * tint (the mock's first reading), where a black shell over it does not.
  *
+ * KNOWN LIMIT. The occlusion outline (`attachMeshSilhouette`, drawn when a hull is behind a wall or in smoke) is
+ * built from the merged geometry at instantiate time and is not swapped, so a gun-out tank seen through cover
+ * still outlines a STRAIGHT barrel. The model, its shadow and the char are the bent ones.
+ *
  * The bent geometry and the shell are built once per SOURCE geometry (`GunOutVariants`), shared by
  * every vehicle of a type with its gun out, and swapped onto the entity's own mesh. The template's
  * geometry is never touched, so a healthy twin is the shipped model, byte for byte.

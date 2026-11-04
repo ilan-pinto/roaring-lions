@@ -2,7 +2,7 @@
  * The confirmation capture for the knocked-out main gun (the lead's ruling of 4 Nov after the mock
  * sheet: the 14 degree droop, a puff at the moment, a small fire). `pnpm gun-out:mock`.
  *
- *   pnpm gun-out:mock                         -> _coord/retarget-gunout/gun-out-final.png
+ *   pnpm gun-out:mock                         -> .superpowers/gun-out/gun-out-final.png (git-ignored; --out= for elsewhere)
  *   pnpm gun-out:mock -- --probe              print each live mesh's bounds
  *   pnpm gun-out:mock -- --out=<file.png>     write the sheet elsewhere
  *   pnpm gun-out:mock -- --port=5196 --gpu=metal
@@ -39,7 +39,7 @@ const TAG = 'gun-out-mock';
 const PORT_ENV = 'GUN_OUT_MOCK_PORT';
 const DEFAULT_PORT = 5196;
 const MAP_ID = 'beit_sahwan_outskirts';
-const DEFAULT_OUT = path.resolve(REPO_ROOT, '..', '_coord/retarget-gunout/gun-out-final.png');
+const DEFAULT_OUT = path.join(REPO_ROOT, '.superpowers/gun-out/gun-out-final.png');
 const FIXED = 65536;
 
 /** The two hulls the lead named. */

@@ -1,7 +1,7 @@
 /**
  * The lead's ruling of 4 Nov, item 4: a right-click on an enemy with a gun-out tank selected is still
  * the `attack` order (the sim takes it and stops the tank), and the click now SAYS why it will not fire,
- * in the card's own words. The note reads the sim's `firepowerKilled`; `canFocus`/`focusHurts` stay the
+ * and that it holds where it stands (the sim stops a gun-out shooter on an attack order). The note reads the sim's `firepowerKilled`; `canFocus`/`focusHurts` stay the
  * only filter (the intent list is the one it always was).
  */
 import { describe, expect, it } from 'vitest';
@@ -32,6 +32,19 @@ function setup() {
 }
 
 describe('an attack order given to a tank whose gun is out', () => {
+  it('the wording matches the behaviour: the sim holds the tank where it stands, and a move order still drives it', () => {
+    const { sim, tank, foe } = setup();
+    (sim.state.firepowerKilled as Uint8Array)[tank] = 1;
+    sim.queueCommand({ kind: 'attack', ids: [tank], target: foe });
+    for (let i = 0; i < 40; i++) sim.tick();
+    const x0 = fx.toNumber(sim.state.posX[tank]);
+    expect(sim.state.focusTarget[tank]).toBe(foe); // taken
+    expect(Math.abs(fx.toNumber(sim.state.posX[tank]) - 11.5)).toBeLessThan(0.05); // and held where it stood
+    sim.queueCommand({ kind: 'move', ids: [tank], x: fx.from(14.5), y: fx.from(24.5) });
+    for (let i = 0; i < 60; i++) sim.tick();
+    expect(fx.toNumber(sim.state.posX[tank])).toBeGreaterThan(x0 + 1); // a move order still drives it
+  });
+
   it('is the same attack order, with a note saying why it will not fire, in the card\'s words', () => {
     const { sim, tank, foe, click } = setup();
     const healthy = click([tank]);
@@ -43,7 +56,7 @@ describe('an attack order given to a tank whose gun is out', () => {
     expect(out.intents).toEqual(healthy.intents);
     expect(out.intents).toEqual([{ kind: 'attack', ids: [tank], target: foe }]);
     // Break check: delete the `gunOut` read in `simIntentWorld` -> no note.
-    expect(out.note?.text).toBe("Gun out: can't fire, can still drive");
+    expect(out.note?.text).toBe("Gun out: it can't fire, so it holds where it stands. A move order still drives it.");
     expect(out.note?.tone).toBe('info');
   });
 

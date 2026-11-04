@@ -7,6 +7,8 @@ import { buildVehicleMeshTemplate, type VehicleMeshEntity, type VehicleMeshTempl
 import { parseRigidFixture } from './units/rigid-mesh-fixture';
 import { vehicleGunOutDrawn } from './units/gun-out';
 import { GUN_OUT_FIRE_LIFT_TILES, GUN_OUT_FIRE_REACH_TILES, liftShiftTiles } from './units/gun-out-fx';
+import { ELLIPSE_BY_TYPE, ELLIPSE_PAD_TILES } from './units/readability';
+import { QUALITY_PRESETS } from '../quality';
 import vehicleDamagedSmoke from '../../../../data/vfx/vehicle_damaged_smoke.json';
 import puffJson from '../../../../data/vfx/gun_out_puff.json';
 import fireJson from '../../../../data/vfx/gun_out_fire.json';
@@ -67,6 +69,8 @@ interface Privates {
   vehicleMeshEntities: Map<number, VehicleMeshEntity>;
   particleSystem: { spawn: (...a: unknown[]) => void } | null;
   fog: Uint8Array;
+  cssWidth: number;
+  cssHeight: number;
   reducedPrefNow: boolean;
   updateVehicleMeshes(alpha: number, dtMs: number): void;
   beginGunOutFx(entity: number, tick: number): void;
@@ -82,10 +86,22 @@ interface Spawn {
   y: number;
 }
 
-async function setUp(opts: { reduced?: boolean } = {}) {
+const AIR: UnitTypeJson = {
+  id: 'heli_peten',
+  role: 'gunship',
+  hull: { hp: 400, armor: { front: 45, side: 28, rear: 20 } },
+  mobility: { speed_tiles_s: 3, domain: 'air' },
+  sensors: { optics: 2, sight_tiles: 14, signature: 1 },
+};
+
+async function setUp(opts: { reduced?: boolean; fxDetail?: 0 | 1 | 2; type?: UnitTypeJson } = {}) {
+  const type = opts.type ?? LAVI;
   const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
-  const id = sim.spawn(sim.addUnitType(LAVI), 0, fx.from(9.5), fx.from(11.5));
-  const renderer = new ThreeRenderer(sim, makeOpts());
+  const id = sim.spawn(sim.addUnitType(type), 0, fx.from(9.5), fx.from(11.5));
+  const renderer = new ThreeRenderer(sim, {
+    ...makeOpts(),
+    ...(opts.fxDetail !== undefined ? { quality: { ...QUALITY_PRESETS.high, fxDetail: opts.fxDetail } } : {}),
+  });
   renderer.useEmitters([puffJson, fireJson, vehicleDamagedSmoke] as unknown as EmitterSpec[], () => '#8E9491');
   const priv = renderer as unknown as Privates;
   const gltf = await parseRigidFixture({
@@ -98,10 +114,13 @@ async function setUp(opts: { reduced?: boolean } = {}) {
     clipNames: ['idle', 'wreck'],
     deathRoot: { parts: ['hull_hull'] },
   });
-  priv.vehicleMeshTemplates.set(LAVI.id, buildVehicleMeshTemplate(gltf, LAVI.id));
+  priv.vehicleMeshTemplates.set(type.id, buildVehicleMeshTemplate(gltf, LAVI.id));
   renderer.snapshot();
   renderer.snapshot();
   priv.fog.fill(2);
+  // A VIEWPORT: `init()` fills these from a real host, which a headless suite has none of; at 0 the projection is NaN.
+  priv.cssWidth = 1400;
+  priv.cssHeight = 900;
   priv.reducedPrefNow = opts.reduced === true;
   const log: Spawn[] = [];
   const system = priv.particleSystem;
@@ -270,5 +289,67 @@ describe('the knock-out effects, on the sim clock', () => {
     h.run(3);
     expect(h.log.length).toBe(before);
     h.renderer.dispose();
+  });
+});
+
+describe('the hull pick reaches the real renderer', () => {
+  it('unitAtScreen and pickUnit name the Lavi at its nose, which its feet alone are too far from', async () => {
+    const h = await setUp();
+    const e = ELLIPSE_BY_TYPE.mbt_lavi;
+    // The Lavi stands at (9.5, 11.5) facing +x: its nose is the hull's front less the ring's pad.
+    const noseX = 9.5 + e.offsetAlong + (e.along - ELLIPSE_PAD_TILES) - 0.05;
+    const p = h.renderer.worldToScreen(noseX, 11.5);
+    // Break check: remove `this.pickHull` from the `pickUnitAtScreenPure` call in `unitAtScreen`, or from the
+    // `pickUnitPure` call in `pickUnit` -> -1 here (434 tests stayed green when it was removed before this existed).
+    expect(h.renderer.unitAtScreen(p.x, p.y, 0.5)).toBe(h.id);
+    expect(h.renderer.pickUnit(noseX, 11.5, 0.5)).toBe(h.id);
+    // And ground well past the nose is still ground (R-23).
+    const past = h.renderer.worldToScreen(noseX + 1.2, 11.5);
+    expect(h.renderer.unitAtScreen(past.x, past.y, 0.5)).toBe(-1);
+    h.renderer.dispose();
+  });
+});
+
+describe('the knock-out effects: restarts, detail, aircraft', () => {
+  it('a second knock-out on a gun already out does not restart the puff and the fire', async () => {
+    const h = await setUp();
+    h.setGunOut(true);
+    h.priv.beginGunOutFx(h.id, h.sim.tickCount);
+    h.run(3);
+    const before = h.log.length;
+    h.priv.beginGunOutFx(h.id, h.sim.tickCount); // the `component` event again (a second hit, or combat_ineffective)
+    const puffsBefore = h.log.filter((s) => s.sprite === 'smoke_puff').length;
+    h.run(2);
+    // Break check: delete the `gunOutStarted` guard in `beginGunOutFx` -> the puff throws again here.
+    expect(h.log.filter((s) => s.sprite === 'smoke_puff').length).toBe(puffsBefore);
+    expect(h.log.length).toBeGreaterThanOrEqual(before);
+    // After a repair and a fresh knock-out it does start again.
+    h.setGunOut(false);
+    h.priv.updateVehicleMeshes(1, 16);
+    h.run(1);
+    h.setGunOut(true);
+    h.priv.beginGunOutFx(h.id, h.sim.tickCount);
+    const n = h.log.filter((s) => s.sprite === 'smoke_puff').length;
+    h.run(3);
+    expect(h.log.filter((s) => s.sprite === 'smoke_puff').length).toBeGreaterThan(n);
+    h.renderer.dispose();
+  });
+
+  it('the lowest fx detail draws none of it, and an aircraft never burns on the ground', async () => {
+    const low = await setUp({ fxDetail: 0 });
+    low.setGunOut(true);
+    low.priv.beginGunOutFx(low.id, low.sim.tickCount);
+    low.run(5);
+    // Break check: drop `detailOff` from `reduced` in `updateGunOutFx` -> spawns here.
+    expect(low.log).toHaveLength(0);
+    low.renderer.dispose();
+
+    const air = await setUp({ type: AIR });
+    air.setGunOut(true);
+    air.priv.beginGunOutFx(air.id, air.sim.tickCount);
+    air.run(5);
+    // Break check: drop the `airborne` test -> spawns here.
+    expect(air.log).toHaveLength(0);
+    air.renderer.dispose();
   });
 });

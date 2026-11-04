@@ -621,15 +621,16 @@ function resolveFocus(
   );
   const intents: PlayerIntent[] = [{ kind: 'attack', ids: firing, target }];
   if (rest.length > 0) intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x: at.x, y: at.y, append: false });
-  // The lead's ruling of 4 Nov: a tank whose gun is out takes the order and cannot fire it; say why, in the card's
-  // own words (`hud.state.gunOut` + `.why`) rather than leave the click looking ignored.
+  // The lead's ruling of 4 Nov: a tank whose gun is out takes the order, cannot fire it, and the sim holds it where it
+  // stands (`stepFocus` stops a firepower-killed shooter). Say so, rather than leave the click looking ignored; a
+  // plain move order still drives it, which is the card's own "can still drive".
   const gunOut = firing.some((i) => world.gunOut?.(i) === true);
   return {
     intents,
     roe,
     marker: true,
     at,
-    ...(gunOut ? { note: { text: `${t('hud.state.gunOut')}: ${t('hud.state.gunOut.why')}`, tone: 'info' as const } } : {}),
+    ...(gunOut ? { note: { text: t('intent.attack.gunOut'), tone: 'info' as const } } : {}),
   };
 }
 
