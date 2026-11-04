@@ -84,10 +84,11 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 6201: GH-707 (2026-10-30), the loaned medic team in the last seven missions; +78, per-mission reasons beside `LADDER_CREDITS`.
 // Was 6279: GH-912 (2026-10-31), the three Ein Qasab missions, +650 (250 + 250 + 150); reasons beside `LADDER_CREDITS`.
 // Was 6929: GH-912 (2026-11-01), three Ein Qasab beats re-keyed, II 250 -> 255 and III 150 -> 195, +50; reasons beside `LADDER_CREDITS`.
-export const CAMPAIGN_CREDITS = 6979;
+// Was 6979: GH-277 (2026-11-04), the three footholds lent a demo squad, +15 (Beit Sahwan II 210 -> 220, Khan Rafid II 235 -> 240); reasons beside `LADDER_CREDITS`.
+export const CAMPAIGN_CREDITS = 6994;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
-// Was 26: GH-912 (2026-10-31), the ladder is over 29 missions now (`pnpm playtest` prints "credit ladder: 6979 over 29
+// Was 26: GH-912 (2026-10-31), the ladder is over 29 missions now (`pnpm playtest` prints "credit ladder: 6994 over 29
 // missions"); left at 26 the mean pay would read 267 where the ladder's own mean is 239.
 export const LADDER_MISSIONS = 29;
 
