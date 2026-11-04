@@ -187,9 +187,7 @@ function queryString(query: URLSearchParams): string {
  * `renderer` persists per origin in `localStorage` instead, and a sandbox flag
  * belongs to one map's URL rather than to the session.
  */
-// `testcoins` (GH-317, a TEST tool) rides along too, so the TEST wallet is
-// still in reach after a trip to the campaign map or a mission and back.
-const STICKY_QUERY_KEYS = ['lang', 'pseudo', 'testcoins'] as const;
+const STICKY_QUERY_KEYS = ['lang', 'pseudo'] as const;
 
 interface Mounted {
   req: RouteRequest;

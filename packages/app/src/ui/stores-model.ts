@@ -3,15 +3,17 @@
 // hand-keyed price: every coin figure is `coinPrice(credits)` of a credit
 // price the unit's own JSON authors, so a retuned unit re-prices itself.
 //
-// Without `?testcoins` this is a PREVIEW (spec 2026-10-01 decision 10, as
-// amended by the lead on 2 Oct): the balance reads 0 and no Buy and no pack
-// is ever enabled. With it (the lead's go-ahead, 2 Oct), a local TEST wallet
-// (`roar-test.ts`) buys what credits buy at 1 coin = 10 credits. Real-money
-// packs stay disabled either way: `PURCHASES_OPEN` is false. `buyEnabled` is
-// the one predicate every Buy control asks.
+// Every player has a free Roar-coin wallet (`roar-wallet.ts`, GH-317), earned in
+// the campaign (`roar-earn.ts`), and a Buy sells for coins at 1 coin = 10 credits
+// (rounded up): one price list, two ways to pay. Real-money packs stay disabled:
+// `PURCHASES_OPEN` is false. With no durable storage the Stores is the PREVIEW it
+// was (the balance reads 0 and nothing is enabled). `buyEnabled` is the one
+// predicate every Buy control asks.
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import type { UpgradeTracks } from '@lions/data';
-import { buyTierWithCoins, buyUnitWithCoins, type RoarTestAccount } from '../roar-test';
+import { PURCHASES_OPEN, buyTierWithCoins, buyUnitWithCoins, spendable, type RoarWallet } from '../roar-wallet';
+
+export { PURCHASES_OPEN };
 
 /** Spec §1.3, decision 1 (the lead's ruling): 1 Roar coin = 10 credits. */
 export const CREDITS_PER_COIN = 10;
@@ -101,7 +103,7 @@ export interface StoreInput {
   /** What the account has been paid so far, for the player's own mean pay.
    *  Absent: the ladder mean. */
   readonly paid?: Readonly<Record<string, number>>;
-  /** The coin half (`roar-test.ts`). Absent: nothing was bought with coins,
+  /** The coin half (`roar-wallet.ts`). Absent: nothing was bought with coins,
    *  and `owned` and every `unlock.bought` are the earned half alone. When
    *  present, `owned` and `unlock.bought` are the SINGLE-PLAYER view (earned
    *  OR coins), and these say which part of it came from coins. */
@@ -297,17 +299,23 @@ export function storeItems(input: StoreInput): { units: UnitItem[]; tiers: TierI
 /** The coin wallet as the preview holds it: always 0, never written. */
 export const PREVIEW_BALANCE = 0;
 
-/** The coin wallet a Buy is asked against. `test: false` is the preview. */
+/** The coin wallet a Buy is asked against. `live: false` is the preview (no
+ *  durable storage to hold a wallet in). */
 export interface CoinWallet {
-  readonly test: boolean;
+  readonly live: boolean;
+  /** Coins a Buy may spend: free plus paid (`spendable`). */
   readonly coins: number;
 }
-export const PREVIEW_WALLET: CoinWallet = { test: false, coins: PREVIEW_BALANCE };
+export const PREVIEW_WALLET: CoinWallet = { live: false, coins: PREVIEW_BALANCE };
 
-/** False until the server-held account (ST5-ST7): no REAL money moves, and no
- *  pack can be bought, TEST wallet or not. `stores.test.ts` fails if any pack
- *  enables. */
-export const PURCHASES_OPEN: boolean = false;
+/** The wallet a Buy is asked against, off the stored one. */
+export function walletOf(roar: RoarWallet): CoinWallet {
+  return { live: true, coins: spendable(roar) };
+}
+
+// `PURCHASES_OPEN` (re-exported above) lives with the wallet: it is false until the
+// server-held account (ST5-ST7), no REAL money moves, and no pack can be bought.
+// `stores.test.ts` fails if any pack enables.
 
 /** The coin price of what a Buy would buy, or `null` when nothing is for sale. */
 export function coinCost(item: UnitItem | TierItem): number | null {
@@ -323,44 +331,39 @@ export function coinCost(item: UnitItem | TierItem): number | null {
  * pack control on the screen asks this and nothing else, which makes the
  * guards in `stores.test.ts` tests of the screen.
  *
- * - A pack is real money: enabled only once `PURCHASES_OPEN`, never by a
- *   TEST wallet.
- * - An item needs a TEST wallet (`?testcoins`), an item for sale (G1 keeps
- *   `offSale` off; earned and coin-bought items have nothing left to buy),
- *   and coins enough to cover it. Without `?testcoins` this is `false` for
- *   every item: the preview.
+ * - A pack is real money: enabled only once `PURCHASES_OPEN`, never by the
+ *   free wallet.
+ * - An item needs a live wallet, an item for sale (G1 keeps `offSale` off;
+ *   earned and coin-bought items have nothing left to buy), and coins enough
+ *   to cover it. With no live wallet this is `false` for every item: the
+ *   preview.
  */
 export function buyEnabled(item: UnitItem | TierItem | CoinPack, wallet: CoinWallet = PREVIEW_WALLET): boolean {
   if ('usdCents' in item) return PURCHASES_OPEN;
-  if (!wallet.test) return false;
+  if (!wallet.live) return false;
   const cost = coinCost(item);
   return cost !== null && cost > 0 && wallet.coins >= cost;
 }
 
 
-/** What a TEST-coin Buy asks for. */
+/** What a coin Buy asks for. */
 export type CoinAsk =
   | { kind: 'unit'; unitId: string }
   | { kind: 'tier'; unitId: string; track: string; tier: number };
 
 /**
- * A TEST-coin purchase, decided by the SAME derivation the screen draws from:
- * the item is found in `storeItems(input)`, and `buyEnabled` against the TEST
- * wallet must say yes. So the screen and the purchase cannot disagree --
- * nothing earned, coin-bought, off sale (G1), unopened ("unlock the unit
- * first") or unaffordable is ever bought, and a stale ask (two tabs) is
- * refused. The coin price is the item's own `coinPrice` of its JSON price;
- * the ask carries no price at all. Writes only the TEST wallet: credits, and
- * the brigade account, are untouched.
+ * A coin purchase, decided by the SAME derivation the screen draws from: the
+ * item is found in `storeItems(input)`, and `buyEnabled` against the wallet must
+ * say yes. So the screen and the purchase cannot disagree -- nothing earned,
+ * coin-bought, off sale (G1), unopened ("unlock the unit first") or unaffordable
+ * is ever bought, and a stale ask (two tabs) is refused. The coin price is the
+ * item's own `coinPrice` of its JSON price; the ask carries no price at all.
+ * Writes only the wallet: credits, and the brigade account, are untouched.
+ * Free coins are spent before paid ones (`roar-wallet.ts`).
  */
-export function buyWithTestCoins(
-  input: StoreInput,
-  roar: RoarTestAccount,
-  ask: CoinAsk,
-  at: number
-): { account: RoarTestAccount; ok: boolean } {
+export function buyWithCoins(input: StoreInput, roar: RoarWallet, ask: CoinAsk, at: number): { account: RoarWallet; ok: boolean } {
   const refuse = { account: roar, ok: false };
-  const wallet: CoinWallet = { test: true, coins: roar.coins };
+  const wallet = walletOf(roar);
   const items = storeItems(input);
   if (ask.kind === 'unit') {
     const item = items.units.find((u) => u.id === ask.unitId);

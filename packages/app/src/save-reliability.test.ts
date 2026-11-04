@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import worldJson from '../../../data/campaign/world.json';
 import { ACCOUNT_KEY, emptyAccount, type BrigadeAccount } from './brigade-account';
 import { LEDGER_KEY, TUTORIAL_DONE_KEY } from './main-keys';
+import { emptyRoar, ROAR_KEY } from './roar-wallet';
 import { memoryLedgerStore, newCampaign, writeVictory, type CampaignLedger, type LedgerStore, type MemoryLedgerStore } from './ledger-store';
 import { SAVES_KEY, SAVE_ERROR_LOAD_MIXED, listDamaged, listSlots, loadSlot, readActive, saveSlot, writeActive } from './profile';
 import { continueTarget, nextOperation, parseWorld } from './campaign';
@@ -35,7 +36,7 @@ const bytes = (s: MemoryLedgerStore): [string | null, string | null, string | nu
 /** A store that accepts writes and refuses the named one, the way a browser
  *  at its quota does (`QuotaExceededError`). Everything else -- including the
  *  door's own snapshot and restore -- is the real implementation. */
-function refusing(base: MemoryLedgerStore, which: 'writeLedger' | 'writeAccount' | 'setTutorialDone'): LedgerStore {
+function refusing(base: MemoryLedgerStore, which: 'writeLedger' | 'writeAccount' | 'setTutorialDone' | 'writeRoar'): LedgerStore {
   return {
     ...base,
     [which]: () => {
@@ -210,4 +211,51 @@ describe('the victory write', () => {
   it('no storage at all is its own answer, not a refusal', () => {
     expect(writeVictory(memoryLedgerStore.blocked(), {}, null)).toBe('unavailable');
   });
+
+  it('writes the wallet with them when the win earned coins', () => {
+    const s = memoryLedgerStore();
+    const roar = { ...emptyRoar(), coins: { free: 110, paid: 0 } };
+    expect(writeVictory(s, { 'campaign.completed_missions': [first] }, { ...emptyAccount(), balance: 50 }, roar)).toBe('saved');
+    expect(s.raw(ROAR_KEY)).toBe(JSON.stringify(roar));
+  });
+
+  // G-S4: the wallet is the third key of the victory write. A refusal of ITS write
+  // must put the ledger and the account back, and the wallet's own bytes with them.
+  it('G-S4: a refused wallet write puts the ledger, the account and the wallet back', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const base = memoryLedgerStore();
+    winMission(base, first, 200, 1);
+    base.writeRoar({ ...emptyRoar(), coins: { free: 5, paid: 0 } });
+    const before = [...bytes(base), base.raw(ROAR_KEY)];
+    const result = writeVictory(
+      refusing(base, 'writeRoar'),
+      { 'campaign.completed_missions': [first, 'x'] },
+      { ...emptyAccount(), balance: 999 },
+      { ...emptyRoar(), coins: { free: 115, paid: 0 } }
+    );
+    expect(result).toBe('refused');
+    expect([...bytes(base), base.raw(ROAR_KEY)]).toEqual(before);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  for (const had of [false, true]) {
+    it(`G-S4: a refused account write takes back the wallet written before it (${had ? 'a wallet was there' : 'no wallet key existed'})`, () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const base = memoryLedgerStore();
+      if (had) base.writeRoar({ ...emptyRoar(), coins: { free: 5, paid: 0 } });
+      const roarBefore = base.raw(ROAR_KEY);
+      const before = bytes(base);
+      const result = writeVictory(
+        refusing(base, 'writeAccount'),
+        { 'campaign.completed_missions': [first] },
+        { ...emptyAccount(), balance: 1 },
+        { ...emptyRoar(), coins: { free: 115, paid: 0 } }
+      );
+      expect(result).toBe('refused');
+      expect(base.raw(ROAR_KEY)).toBe(roarBefore); // the key itself is removed when it was never there
+      expect(bytes(base)).toEqual(before);
+      error.mockRestore();
+    });
+  }
 });

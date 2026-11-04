@@ -6515,28 +6515,6 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-stores__card[data-state='coins'] {
   border-color: var(--roar);
 }
-/* The TEST wallet (GH-317): labelled TEST wherever its balance shows. */
-.rl-menu--garage .rl-stores__test {
-  padding: 0 var(--s2);
-  font-family: var(--font-display);
-  font-size: var(--t-band);
-  letter-spacing: var(--track-label);
-  color: var(--roar-ink);
-  background: var(--warn);
-}
-.rl-menu--garage .rl-stores__grant {
-  padding: var(--s1) var(--s3);
-  font-family: var(--font-body);
-  font-size: var(--t-band);
-  font-weight: 600;
-  color: var(--ink);
-  background: var(--tile-bg);
-  border: 1px dashed var(--warn);
-  cursor: pointer;
-}
-.rl-stores[data-test='1'] .rl-stores__notice {
-  border-left-color: var(--warn);
-}
 .rl-stores__receipts-wrap {
   overflow-x: auto;
 }

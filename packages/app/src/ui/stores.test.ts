@@ -78,16 +78,16 @@ describe('the Stores preview: no Buy is ever enabled', () => {
     });
   }
 
-  it('the balance reads 0 and the honest preview line is shown', () => {
+  it('the balance reads 0 and the preview line says why', () => {
     const { host, dispose } = mountStores({ credits: 5000 });
     expect(host.querySelector('.rl-stores__wallet-n')?.textContent).toBe('0');
-    expect(host.querySelector('.rl-stores__notice')?.textContent).toMatch(/online accounts/);
+    expect(host.querySelector('.rl-stores__notice')?.textContent).toMatch(/cannot keep a Roar-coin wallet/);
     dispose();
   });
 
   it('the Receipts shelf is empty and says why; so is Cosmetics', () => {
     const { host, dispose } = mountStores();
-    expect(host.querySelector('[data-shelf="receipts"].rl-stores__panel .rl-stores__empty')?.textContent).toMatch(/Nothing has been bought/);
+    expect(host.querySelector('[data-shelf="receipts"].rl-stores__panel .rl-stores__empty')?.textContent).toMatch(/cannot keep a wallet/);
     expect(host.querySelector('[data-shelf="cosmetics"].rl-stores__panel .rl-stores__empty')).not.toBeNull();
     expect(host.querySelector('[data-shelf="receipts"].rl-stores__panel table')).toBeNull();
     dispose();
@@ -185,12 +185,12 @@ describe('the Stores preview: no Buy is ever enabled', () => {
   });
 });
 
-describe('the Stores with a TEST wallet (?testcoins)', () => {
-  const test = { coins: 400, grant: 5000, receipts: [] };
+describe('the Stores with a live wallet', () => {
+  const wallet = { coins: 400, receipts: [] };
 
   it('enables a coin Buy exactly where the wallet covers an item for sale; packs stay disabled', () => {
     const asks: unknown[] = [];
-    const { host, dispose } = mountStores({ test, onBuy: (a) => asks.push(a), credits: 0 });
+    const { host, dispose } = mountStores({ wallet, onBuy: (a) => asks.push(a), credits: 0 });
     const buy = (k: string): HTMLButtonElement | null => host.querySelector<HTMLButtonElement>(`button[data-buy="${k}"]`);
     expect(buy('unit:apc_kipod')?.disabled).toBe(false); // 320 <= 400
     expect(buy('unit:recon_zikit')?.disabled).toBe(true); // 425 > 400
@@ -202,15 +202,15 @@ describe('the Stores with a TEST wallet (?testcoins)', () => {
     expect(packs.filter((b) => !b.disabled)).toEqual([]);
     buy('unit:apc_kipod')?.click();
     expect(asks).toEqual([{ kind: 'unit', unitId: 'apc_kipod' }]);
-    // The balance shows, labelled TEST.
+    // The balance shows, and no preview line is drawn over a live wallet.
     expect(host.querySelector('.rl-stores__wallet-n')?.textContent).toBe('400');
-    expect(host.querySelector('.rl-stores__test')?.textContent).toBe('TEST');
+    expect(host.querySelector('.rl-stores__notice')).toBeNull();
     dispose();
   });
 
   it('a coin-bought unit reads "Bought with coins" and offers no Buy', () => {
     const { host, dispose } = mountStores({
-      test,
+      wallet,
       units: roster(new Set(['apc_kipod'])),
       coin: { earnedUnits: new Set(), coinUnits: new Set(['apc_kipod']), earnedTiers: {}, coinTiers: {} },
     });
@@ -222,43 +222,31 @@ describe('the Stores with a TEST wallet (?testcoins)', () => {
     dispose();
   });
 
-  it('Receipts lists TEST grants and purchases, newest first', () => {
+  it('Receipts lists earned coins and purchases, newest first', () => {
     const { host, dispose } = mountStores({
-      test: {
+      wallet: {
         coins: 80,
-        grant: 400,
         receipts: [
-          { kind: 'grant', id: '1', at: 1, coins: 400 },
-          { kind: 'unit', id: '2', at: 2, unitId: 'apc_kipod', coins: 320, credits: 3200 },
+          { kind: 'earn', id: '1', at: 1, coins: { free: 400, paid: 0 }, source: 'welcome' },
+          { kind: 'unit', id: '2', at: 2, unitId: 'apc_kipod', coins: { free: 320, paid: 0 }, credits: 3200 },
         ],
       },
     });
     const rows = [...host.querySelectorAll('[data-shelf="receipts"] tbody tr')];
-    expect(rows.map((r) => r.getAttribute('data-receipt'))).toEqual(['unit', 'grant']);
+    expect(rows.map((r) => r.getAttribute('data-receipt'))).toEqual(['unit', 'earn']);
     expect(rows[0].textContent).toContain('Kipod');
     dispose();
   });
 
   it('Receipts names a redeemed code\'s coins as a plus row', () => {
     const { host, dispose } = mountStores({
-      test: { coins: 100000, grant: 0, receipts: [{ kind: 'coupon', id: '1', at: 1, coins: 100000, couponIds: ['lead_roar_coins_100k'] }] },
+      wallet: { coins: 100000, receipts: [{ kind: 'coupon', id: '1', at: 1, coins: { free: 100000, paid: 0 }, couponIds: ['lead_roar_coins_100k'] }] },
     });
     const row = host.querySelector('[data-shelf="receipts"] tbody tr');
     expect(row?.getAttribute('data-receipt')).toBe('coupon');
-    expect(row?.textContent).toContain('Code redeemed: TEST coins');
+    expect(row?.textContent).toContain('Code redeemed: Roar coins');
     expect(row?.textContent).toContain('+100000');
     dispose();
-  });
-
-  it('Grant shows only with the TEST wallet', () => {
-    let grants = 0;
-    const withTest = mountStores({ test, onGrant: () => grants++ });
-    withTest.host.querySelector<HTMLButtonElement>('button[data-buy="grant"]')?.click();
-    expect(grants).toBe(1);
-    withTest.dispose();
-    const preview = mountStores({ onGrant: () => grants++ });
-    expect(preview.host.querySelector('button[data-buy="grant"]')).toBeNull();
-    preview.dispose();
   });
 });
 
@@ -301,7 +289,7 @@ describe('the garage\'s Stores tab', () => {
     expect(host.childElementCount).toBe(0);
   });
 
-  it('a TEST-coin buy opens the unit on the garage rail, and the Stores redraws on the same shelf', () => {
+  it('a coin buy opens the unit on the garage rail, and the Stores redraws on the same shelf', () => {
     const coinUnits = new Set<string>();
     let coins = 1000;
     const host = document.createElement('div');
@@ -319,7 +307,7 @@ describe('the garage\'s Stores tab', () => {
         open: true,
         read: () => ({
           coin: { earnedUnits: new Set(), coinUnits, earnedTiers: {}, coinTiers: {} },
-          test: { coins, grant: 1000, receipts: [] },
+          wallet: { coins, receipts: [] },
         }),
         onBuy: (ask) => {
           if (ask.kind !== 'unit') return undefined;

@@ -1,5 +1,5 @@
-// The TEST-coin purchase end to end, through the real pieces main.ts wires:
-// the store model decides, the TEST wallet records, `accountView` (main.ts's
+// The coin purchase end to end, through the real pieces main.ts wires:
+// the store model decides, the wallet records, `accountView` (main.ts's
 // `accountState()`) joins it, and `kdfUnlockGate` hands every surface the
 // gate -- the garage, the reinforcement dock (`unitInfo`) and
 // `resolveUpgrades` alike.
@@ -11,14 +11,14 @@ import { ACCOUNT_KEY } from './brigade-account';
 import { gateSentence } from './gate-sentence';
 import { kdfUnlockGate } from './kdf-gate';
 import { memoryLedgerStore } from './ledger-store';
-import { ROAR_TEST_KEY, coinTiers, emptyRoarTest, type RoarTestAccount } from './roar-test';
-import { buyWithTestCoins, coinPrice, type CoinAsk, type StoreInput } from './ui/stores-model';
+import { ROAR_KEY, coinTiers, emptyRoar, type RoarWallet } from './roar-wallet';
+import { buyWithCoins, coinPrice, type CoinAsk, type StoreInput } from './ui/stores-model';
 
 const kdf = Object.values(units).filter((u) => u.faction === 'kdf');
 
 function seeded(coins: number, credits = 0) {
   const store = memoryLedgerStore({
-    [ROAR_TEST_KEY]: JSON.stringify({ ...emptyRoarTest(), coins, seeded: true }),
+    [ROAR_KEY]: JSON.stringify({ ...emptyRoar(), coins: { free: coins, paid: 0 } }),
     [ACCOUNT_KEY]: JSON.stringify({ version: 1, balance: credits, earned_total: credits, paid: {}, unlocks: [], upgrades: {}, grants: credits > 0 ? [{ source: 'granted', amount: credits, at: 1 }] : [] }),
   });
   return store;
@@ -28,7 +28,7 @@ function seeded(coins: number, credits = 0) {
 function inputOf(store: ReturnType<typeof memoryLedgerStore>): StoreInput {
   const view = accountView(store);
   const account = store.readAccount();
-  const roar = store.readRoarTest();
+  const roar = store.readRoar();
   return {
     units: kdf.map((u) => ({
       id: u.id,
@@ -48,22 +48,22 @@ function inputOf(store: ReturnType<typeof memoryLedgerStore>): StoreInput {
   };
 }
 
-function buy(store: ReturnType<typeof memoryLedgerStore>, ask: CoinAsk): { ok: boolean; after: RoarTestAccount } {
-  const { account, ok } = buyWithTestCoins(inputOf(store), store.readRoarTest(), ask, 1000);
-  if (ok) store.writeRoarTest(account);
-  return { ok, after: store.readRoarTest() };
+function buy(store: ReturnType<typeof memoryLedgerStore>, ask: CoinAsk): { ok: boolean; after: RoarWallet } {
+  const { account, ok } = buyWithCoins(inputOf(store), store.readRoar(), ask, 1000);
+  if (ok) store.writeRoar(account);
+  return { ok, after: store.readRoar() };
 }
 
-describe('buying with TEST coins', () => {
+describe('buying with coins', () => {
   it('spends the derived coin price, marks the unit coin-bought, and leaves credits alone', () => {
     const store = seeded(1000, 1240);
     const before = store.raw(ACCOUNT_KEY);
     const { ok, after } = buy(store, { kind: 'unit', unitId: 'apc_kipod' });
     expect(ok).toBe(true);
-    expect(after.coins).toBe(1000 - coinPrice(3200));
-    expect(after.coins).toBe(680);
-    expect(after.entitlements.units.apc_kipod).toEqual({ coins: true });
-    expect(after.receipts.at(-1)).toMatchObject({ kind: 'unit', unitId: 'apc_kipod', coins: 320, credits: 3200 });
+    expect(after.coins.free).toBe(1000 - coinPrice(3200));
+    expect(after.coins.free).toBe(680);
+    expect(after.entitlements.units.apc_kipod).toEqual({ free: true });
+    expect(after.receipts.at(-1)).toMatchObject({ kind: 'unit', unitId: 'apc_kipod', coins: { free: 320, paid: 0 }, credits: 3200 });
     // Coins replace credits: the brigade account -- balance, unlocks, all of
     // it -- is byte-for-byte what it was.
     expect(store.raw(ACCOUNT_KEY)).toBe(before);
@@ -91,7 +91,7 @@ describe('buying with TEST coins', () => {
     buy(store, { kind: 'unit', unitId: 'apc_kipod' });
     const { ok, after } = buy(store, { kind: 'tier', unitId: 'apc_kipod', track: 'armour', tier: 1 });
     expect(ok).toBe(true);
-    expect(after.coins).toBe(1000 - 320 - coinPrice(225));
+    expect(after.coins.free).toBe(1000 - 320 - coinPrice(225));
     expect(accountView(store).ownedTiers).toEqual({ apc_kipod: { armour: 1 } });
   });
 
@@ -105,7 +105,7 @@ describe('buying with TEST coins', () => {
     expect(buy(store, { kind: 'tier', unitId: 'inf_squad', track: 'armour', tier: 2 }).ok).toBe(false); // skips tier 1
     const short = seeded(10);
     expect(buy(short, { kind: 'unit', unitId: 'apc_kipod' }).ok).toBe(false);
-    expect(short.readRoarTest().coins).toBe(10);
+    expect(short.readRoar().coins.free).toBe(10);
     buy(store, { kind: 'unit', unitId: 'apc_kipod' });
     expect(buy(store, { kind: 'unit', unitId: 'apc_kipod' }).ok).toBe(false); // already coin-bought
   });

@@ -287,7 +287,7 @@ export function startCampaign(account: BrigadeAccount): BrigadeAccount {
 }
 
 /** One coupon as `data/coupons.json` holds it: the SHA-256 of the code, never the code.
- *  An entry grants brigade credits, Roar TEST coins, or both. Several entries may share
+ *  An entry grants brigade credits, Roar coins (into the free wallet), or both. Several entries may share
  *  one hash (one code, several grants); each is redeemed once per account on its own id,
  *  so a grant added later is still claimable by someone who used the code before. */
 export interface Coupon {
@@ -309,7 +309,7 @@ export type Redemption =
  *  the account by identity. The credits become one `source: 'granted'` entry per coupon
  *  (so `migrateAccount`'s balance bound can explain them) plus a balance change;
  *  `earned_total` is for credits EARNED and does not move. The COINS belong to the Roar
- *  TEST wallet (`roar-test.ts`, its own key), not to this account: the total comes back
+ *  wallet (`roar-wallet.ts`, its own key), not to this account: the total comes back
  *  for the caller to hand to `grantCouponCoins`, so credits never become coins or the
  *  reverse. */
 export function redeemCoupon(

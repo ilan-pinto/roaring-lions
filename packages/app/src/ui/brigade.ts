@@ -68,7 +68,7 @@ import { routes } from '../shell/links';
 import { footBack, footLink, screenFoot } from './foot';
 import type { Disposer } from '../shell/router';
 import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
-import { showStores, type CoinAsk, type StoresShelf, type StoresTestWallet } from './stores';
+import { showStores, type CoinAsk, type StoresShelf, type StoresWallet } from './stores';
 import type { CoinHalf } from './stores-model';
 
 export interface BrigadeUnit {
@@ -207,8 +207,8 @@ export interface BrigadeOptions {
    *  Absent reads `motion.ts`'s `prefersReducedMotion()` -- the setting, then
    *  the OS. A seam for tests, which have neither. */
   reducedMotion?: () => boolean;
-  /** The Stores tab (GH-317), a PREVIEW: visible to everyone, sells nothing
-   *  (`ui/stores.ts`). Absent: the garage draws no view tabs at all, exactly
+  /** The Stores tab (GH-317): visible to everyone, sells for the free Roar-coin
+   *  wallet (`ui/stores.ts`). Absent: the garage draws no view tabs at all, exactly
    *  as before -- a test or a caller that never asked for the Stores does not
    *  get one. */
   stores?: GarageStoresOptions;
@@ -222,15 +222,14 @@ export interface GarageStoresOptions {
   paid?: Readonly<Record<string, number>>;
   /** Open on the Stores tab rather than the brigade. */
   open?: boolean;
-  /** The coin half of the account and, with `?testcoins`, the TEST wallet --
-   *  read afresh on every draw of the Stores, so a purchase is seen at once. */
-  read?: () => { coin: CoinHalf; test?: StoresTestWallet };
-  /** A Buy pressed with TEST coins. The caller buys and saves, then answers
+  /** The coin half of the account and the wallet (absent with no durable
+   *  storage) -- read afresh on every draw of the Stores, so a purchase is seen
+   *  at once. */
+  read?: () => { coin: CoinHalf; wallet?: StoresWallet };
+  /** A Buy pressed with coins. The caller buys and saves, then answers
    *  with the garage's account as it now stands (a coin-bought unit opens, a
    *  coin tier lands); the Stores redraws in place either way. */
   onBuy?: (ask: CoinAsk) => GarageState | void;
-  /** The TEST Grant button. The caller adds coins and saves. */
-  onGrant?: () => void;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -647,10 +646,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     if (v !== 'stores' || so === undefined) return;
     const live = so.read?.();
     const onBuy = so.onBuy;
-    const onGrant = so.onGrant;
     storesDispose = showStores(storesHost, {
       coin: live?.coin,
-      test: live?.test,
+      wallet: live?.wallet,
       shelf: storesShelf,
       onShelf: (s) => {
         storesShelf = s;
@@ -666,13 +664,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
           : (ask) => {
               const key = ask.kind === 'unit' ? `unit:${ask.unitId}` : `tier:${ask.unitId}.${ask.track}.${ask.tier + 1}`;
               storesAnswered(onBuy(ask), key);
-            },
-      onGrant:
-        onGrant === undefined
-          ? undefined
-          : () => {
-              onGrant();
-              storesAnswered(undefined, 'grant');
             },
       units: state.units,
       ledger: opts.ledger,
