@@ -104,7 +104,18 @@ const URBAN_FRONTS: [number, number][] = [
  *  float test here on the right side of the sim's fixed-point one. */
 const SMOKE_REACH_SQ = 79.5;
 
-export function urbanAssault(attackers: number, seed: number, smoke = false, formation?: string): UrbanOutcome {
+/** GH-277 Task 14: the field-works probes (`field-works-probes.ts`) run the SAME town with something added. Absent, the
+ *  function below is byte-for-byte what `urbanRatio` always measured (`pnpm balance` stays identical). */
+export interface UrbanHooks {
+  /** Replaces the defenders' unit type (the `fw-urban-garrisoned` stand-in for a workshop's x1.06). */
+  militia?: UnitTypeJson;
+  /** After the spawns and the opening orders, before the first tick. */
+  setup?: (sim: Sim, groups: readonly number[][]) => void;
+  /** Before every tick `t`, after the consolidation re-task. */
+  tick?: (sim: Sim, t: number, groups: readonly number[][]) => void;
+}
+
+export function urbanAssault(attackers: number, seed: number, smoke = false, formation?: string, hooks?: UrbanHooks): UrbanOutcome {
   const W = 40;
   const H = 28;
   const sim = new Sim({ seed, width: W, height: H, capacity: 64 });
@@ -118,7 +129,7 @@ export function urbanAssault(attackers: number, seed: number, smoke = false, for
   const inf = sim.addUnitType(
     smoke ? { ...units.inf_squad, abilities: [...(units.inf_squad.abilities ?? []), 'smoke'] } : units.inf_squad
   );
-  const militia = sim.addUnitType(units.militia_cell);
+  const militia = sim.addUnitType(hooks?.militia ?? units.militia_cell);
   // GH-859 P1a: the formation arm registers the shipped formations AFTER the unit types, as a room does.
   // Registering is config and moves no hash; only the order that names one does.
   if (formation !== undefined) for (const f of formations) sim.addFormationType(f);
@@ -183,6 +194,7 @@ export function urbanAssault(attackers: number, seed: number, smoke = false, for
   // next objective in the cycle, so a cleared town cannot stalemate on one
   // hidden position. The 5-minute ceiling is the operational clock — success
   // means the assault carries, not that waves grind the town down all day.
+  hooks?.setup?.(sim, groups);
   const maxTicks = 300 * TICKS_PER_SECOND;
   let wave = 0;
   // The smoke plan (smoke-proposal.md §3.2, "blind, 1 smoker per group, 1
@@ -203,6 +215,7 @@ export function urbanAssault(attackers: number, seed: number, smoke = false, for
         sim.queueCommand({ kind: 'attackMove', ids: survivors, x: fx.fromInt(obj[0]), y: fx.fromInt(obj[1]), sweep: true, ...named });
       }
     }
+    hooks?.tick?.(sim, t, groups);
     if (smoke && t % 10 === 0) {
       for (let gi = 0; gi < 3; gi++) {
         const id = groups[gi][0];
