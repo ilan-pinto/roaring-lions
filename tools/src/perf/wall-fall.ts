@@ -3,7 +3,7 @@
 //
 //   pnpm exec tsx src/perf/wall-fall.ts [--map=rujm_sawda] [--live=128] [--rounds=3]
 //
-// The room's own world (`world`, `standMapStructures`: every wall tile is a structure of its own), its real
+// The room's own world (`world`: every wall tile is a structure of its own), its real
 // forces spawned, then the flow-field pool filled the honest way (as `recompute-fields.ts` does): `--live`
 // extra riflemen, each ordered `exact` to its own goal tile spread over the map, one tick, and the tool
 // asserts the pool holds that many fields. Then EVERY structure on the map is levelled through
@@ -18,7 +18,6 @@ import { fx } from '@lions/sim';
 import type { MapId } from '@lions/data';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { versusSpawns } from '../../../packages/app/src/net/versus-force';
-import { standMapStructures } from '../../../packages/app/src/map-sim';
 import { humanHeldOf, layoutOf, world, type Arrangement } from '../backtest/versus-probe';
 
 export interface WallFall {
