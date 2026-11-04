@@ -195,6 +195,109 @@ and fixed in the generator's data, with no sim or tuning change:
 - **The landscape is chaotic per tile** (a one-tile move of a pump house swings a cell 10 points). Every number in
   the PR is on seeds the choice did not see (2000-2191 and 4000+), the PR 947 method.
 
+## Wadi Tarfan (large), REDONE (GH-974, 4 Nov 2026): STAGED, not offered
+
+The third map built on `_coord/versus-maps-design/design.md` (Milh Flats (large) and Rujm Sawda first), and the one the design singles
+out: here the income makes a town pay, and it had the most fairness to lose. **It is STAGED, not shipped.** `data/maps/wadi_tarfan_l.json`
+and `data/versus/wadi_tarfan_l.json` are byte for byte main's. The redo is in `docs/campaign/staged_maps/wadi_tarfan_l_redo/{map,versus}.json`,
+written by `tools/maps/wadi_tarfan_l_redo/build.mjs` (`--check` exits 0; `--print` and `--print-elev` draw it). Its JSON carries the id
+`wadi_tarfan_l`, so opening it is a file copy plus the pins below. Map sha256 `048ace8e3ad0...`, rules `c1343ec653c2...` (what B4 read).
+
+Unlike the shipped map (a 2x upscale of the 48x48, `tools/maps/wadi_tarfan_l/build.mjs`) the redo is drawn on the 96x96 grid, in the
+Rujm redo's mould. It keeps the skeleton: the seats (20,20) and (75,75), the camps, the wadi along `x + y = 95` with a centre ford and two
+outer fords (`x - y` at 0 and +-42), the bluffs and farms of each bank, eleven income zones paying 300 a minute, and the shipped tunnel
+routes and vents to the tile (two an end, capacity 3).
+
+**It is drawn to a triangle budget** (`tools/src/map_triangles.ts`; `cd tools && ./node_modules/.bin/tsx src/map_triangles.ts
+staged:wadi_tarfan_l_redo wadi_tarfan_l milh_flats`). The shipped map's 104 ditch tiles are 3.98 M of its 4.29 M triangles a pass; the redo
+has no ditch, no concrete, two houses in the whole map, one-floor sheds in the farms:
+
+| Structure triangles a pass | Whole map | Centre 48x48 | Densest 48x48 | Predicted frame cost against the control (x3 passes x 0.65 ns) |
+|---|---|---|---|---|
+| 48x48 control (`milh_flats`) | 694,926 | 694,926 | 694,926 | 0 |
+| Wadi Tarfan (large), shipped | 4,289,938 | 2,515,458 | 2,783,138 (25,16) | +3.5 ms centre, +4.1 ms densest |
+| **Wadi Tarfan (large), redone** | **693,788** | **506,602** | **525,124 (35,18)** | **-0.37 ms centre, -0.33 ms densest** |
+
+`LargeMapSpec.triangles` holds "no 48-tile window over the control" and goes red with eight houses added in the centre. The structure
+count is 188 (176 walls, 12 buildings) against the sim's 256. The same four mesh types as the shipped map, so no GPU growth is expected.
+As on the Rujm redo, a large map shows more ground than the control (the first Milh build read +0.45 to +0.75 ms with an equal bill), so
+the structure term is -0.37 and the large-map term is the budget step's measurement. **No browser has run on it.**
+
+What the redo is (the plan, against the design's principles):
+
+- **A wadi that is a lane.** Five tiles of scree (`b`) at level 0 on a plain at level 2, so every bank is a 2-LEVEL cliff (330 bed-bank
+  pairs, each exactly two levels) and a rifleman in the bed is hidden from the plain; vehicles cannot enter it. An S-curve (amplitude
+  3.8, period 124 along `x - y`), from the top edge to the bottom edge, so there is no mesa and no pocket. Each ford is a gap of five
+  `x - y` values with a level-1 ramp tile on each bank. The shipped bed was a gentle dip with a ditch in it.
+- **Tarfan, a town at the centre ford.** The Rujm town moved to this ford: four six-tile walled yards (16 wall tiles each, two two-tile
+  gates facing the road), A north-east of the main road and B south-west of it on seat 0's bank, their half-turns on seat 1's. A holds
+  the two-floor house, on the lip over the ford, and a shed; B a shed and a pump house. 24 building tiles, 3.55% of the `town` zone
+  (35,35,26,26), the new zone the visibility gate holds to 85%. The main road runs between the yards, 5 or more tiles off every corner.
+  The shipped tunnel vents (45,43) and (42,45) stand in its streets.
+- **The town pays.** `centre_ford` (the 8x8 court of the town and the ford) pays 80 a minute, each outer ford 30 (shipped 60 / 40 / 40);
+  the bluffs and farms keep 20. Eleven zones, 300 a minute: `SPECS.wadi_tarfan_l_redo.income` and the twin check hold it.
+- **Bluffs with bare slopes** (the Rujm tell): a crown of 8 rock tiles at level 5, a ring of 12 knoll at level 4, then open ground at 3.
+  `bluff_far_0` looks over the NE ford, `bluff_near_0` over the west flank.
+- **Farms** are walled yards with one one-floor shed (the shipped farms had two houses and read 90% visible against the 92% scoring cap).
+  The two far farms and their zones moved three tiles off the wadi's lip (`farm_far_*`: (13,77) to (10,74), (82,18) to (85,21)); the near
+  farm's yard and zone moved up a row so it clears the town's corner.
+- **Four sheepfolds**, a boulder funnel either side of the main road (the armour lane, bare of cover) and scrub belts on a jittered
+  lattice on both flanks: 12.0% cover, never cover 3.
+- Seal: with the three fords plugged no vehicle crosses (`large_map_verify.ts`: centre alone 800, each outer ford 1,046, equal both ways).
+  A hole in the bed turns it red.
+
+The versus visibility gate reads it at **99.87% whole map, 100% corridor, 98.6% town, 0.35% built, houses 25%**; the four farms read 93.6% to
+100% (cap 92%). Its spec (`SPECS.wadi_tarfan_l_redo`) holds `towns: ['town']`, so the exempt set stays the three offered maps.
+
+### What B4 read on the redo (4 Nov 2026)
+
+`versus:probe --maps=wadi_tarfan_l --cap=2100`, placed forces, the staged data copied over the data paths in a SCRATCH worktree (sha256 as
+above), seeds 0-191 and the held-out 4000-4287, each read once, no lever pulled. Self-checks passed on every run. Raw files in
+`_coord/wadi-l-redo/`.
+
+| Cell | 0-191 | held-out 4000-4287 | pooled 480 |
+|---|---|---|---|
+| KDF v KDF (the mirror), east wins | 98 / 94: 51.0% | 153 / 135: 53.1% | 52.3% |
+| Sarim v Sarim (report only), east wins | 119 / 73: **62.0%** | 150 / 138: 52.1% | 56.0% |
+| Placed, KDF at the friendly seat, KDF wins | 175 / 192: **91.1%** | 247 / 288: **85.8%** | **87.9%** |
+| Placed, Sarim at the friendly seat, KDF wins | 171 / 192: **89.1%** | 257 / 288: **89.2%** | **89.2%** |
+| Economy, KDF friendly, KDF wins | 156 / 192: **81.3%** | 249 / 288: **86.5%** | **84.4%** |
+| Economy, Sarim friendly, KDF wins | 156 / 192: **81.3%** | 234 / 288: **81.3%** | **81.3%** |
+| Tunnels cell 3 (answer), KDF friendly, Sarim wins | 105 / 192: 54.7% | 145 / 288: 50.3% | 52.1% |
+| Tunnels cell 3 (answer), Sarim friendly, Sarim wins | 111 / 192: 57.8% | 162 / 288: 56.3% | 56.9% |
+
+**The mirror and the tunnel cell hold; the faction cells do not.** KDF v KDF is inside 60/40 on both reads (the offered mirror gate). KDF v
+Sarim at the placed forces and in the economy room reads KDF 82-92%, at both seat orders, so it is the faction and not the seat; the shipped
+map reads 55% / 55% (PR 953) and the 48x48 control about 48%. The map therefore cannot open as KDF v Sarim as it stands. Not diagnosed:
+the redo changes the cover, the ditch, the relief and the town together, and PR 953 found this map's faction lean was set by a few tiles
+(two pump houses; the centre hill's levels). Likely suspects, not tested: the ditch (a wall to wheels, foot-only) is gone from the armour's
+route and replaced by a seal the armour crosses at a 5-wide ford with a ramp; the cliff banks hide Sarim in the bed but an
+attack-move blob never uses them; the funnel strips and the town's yards cut Sarim's line of fire more than the armour's. A fix-and-reread
+loop (as PR 953 ran) is the next step and is not this PR's. Not re-read: one-tile seat shifts, S4 formations (they stay CLOSED on this map,
+`VERSUS_FORMATIONS_CLOSED_MAPS`), the lane probe of design section 4.
+
+### Opening it (what the swap changes)
+
+A file copy of the staged map and rules over `data/maps/wadi_tarfan_l.json` and `data/versus/wadi_tarfan_l.json`, the redo's generator in
+place of `tools/maps/wadi_tarfan_l/build.mjs`, `SPECS.wadi_tarfan_l_redo` under `wadi_tarfan_l` in `large_map_verify.ts`, and the pins the new
+data moves. A full `pnpm test` on the copied data (4 Nov, scratch worktree, nothing else changed) reads 30 tests in 12 files red, and nothing
+else:
+
+- `crown-summit.test.ts` (2): the 31 summits and the `wadi_tarfan_l` pick;
+- `terrain-defaults.test.ts`: the `wadi_tarfan_l` digest; `wet-control-map.test.ts`: the control-C census; `high_ground_maps.test.ts`: the rise pin;
+- `presentation_census.test.ts` (5): the Wadi Tarfan (large) slope and twin counts;
+- `wadi_tarfan_l.test.ts` (4) and `large_map_verify.test.ts` (6): the shipped map's own landmarks, generator drift, pump-house plinths, markers and
+  rules (and the shipped verifier's ditch and scallop cases), which become the redo's `wadi_tarfan_l_redo.test.ts` with its registration put back;
+  `wadi_tarfan_l_redo.test.ts` itself reads five of its "shipped untouched" assertions red, as it should;
+- `map_visibility.test.ts`: the report-only reading "the two far farms of seat 1 read 89.7% and 90.2%, houses 67%" is gone;
+- `net/snapshot-rejoin.test.ts` (2) and `net/rejoin-catchup.test.ts`: the digest and premise seed fold in every map; `backtest/versus-probe.test.ts`:
+  the economy self-check on each rules-file map (the last two are timing-sensitive under load: re-run them alone before blaming the data).
+
+**Before opening:** the faction cells above would have to come back inside 60/40 (a fix-and-reread loop on seeds that stay held out), the seat
+neighbourhood (PR 953 found this map's neighbours at 31-82%), S4 if formations are to open (they are CLOSED now), the budget step (`perf:fx` at
+the centre and a seat, `perf:memory`; no new mesh type), `pnpm net:budget` at 188 structures, the tick probe for `recomputeFields('opened')` on a
+wall, and the lane probe. The Free Play line for the map ("a dry wadi crossed at three fords") still fits.
+
 ## Milh Flats (large) (GH-920 B3-B4, 2 Nov 2026)
 
 `tools/maps/milh_flats_l/build.mjs` reads `data/maps/milh_flats.json` as its 48-cell sketch, on the same library,
