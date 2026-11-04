@@ -243,6 +243,14 @@ describe('pnpm arena --mode', () => {
     const bad = parseArenaArgs([...base, '--mode=flag']);
     expect('error' in bad && bad.error).toMatch(/--mode is annihilation\|camp\|points/);
   });
+  it('the cap defaults to the map\'s own with a mode (a points game outlasts 12,000 ticks), and to 12,000 without; an explicit one wins', () => {
+    const cap = (extra: string[], map = 'wadi_tarfan') => (parseArenaArgs(['--a', 'passive', '--b', 'passive', '--map', map, ...extra]) as { capTicks: number }).capTicks;
+    expect(cap([])).toBe(12_000);
+    expect(cap(['--mode=annihilation'])).toBe(12_000);
+    expect(cap(['--mode=points'])).toBe(25 * 60 * 20);
+    expect(cap(['--mode', 'points'], 'milh_flats')).toBe(25 * 60 * 20);
+    expect(cap(['--mode=points', '--cap-ticks=5000'])).toBe(5000);
+  });
   it('refuses, as the lobby would not offer it, a mode unfair on the map or off the mirror (exit 2, before any room)', () => {
     expect(refusalOf('wadi_tarfan', 'mirror', 'points')).toBeNull();
     expect(refusalOf('milh_flats', 'mirror', 'points')).toBeNull();

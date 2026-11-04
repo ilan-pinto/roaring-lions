@@ -11,7 +11,7 @@ import { WIN_MODES, type WinMode } from '@lions/net';
 /** Lines 6 and 7 of `arena-prompt.md`, verbatim. */
 export const ANNIHILATION_RULE = [
   '6. A side wins when the other has no combat unit left (annihilation).',
-  '7. If every unit on both sides can no longer move, or the 25-minute limit comes, the side with the larger surviving force value wins; equal values draw.',
+  '7. If every unit on both sides can no longer move, or the match\'s time limit comes (25 minutes in a room; in an arena match, the arena\'s own cap, which can be shorter), the side with the larger surviving force value wins; equal values draw.',
 ] as const;
 
 /** The start of lines 8-10 of the prompt, which a mode's three lines push down by one. */
@@ -21,12 +21,12 @@ const SHIFTED = ['The arena may', 'Losing units costs', 'Positions are TILES'] a
 const RULES: Readonly<Record<WinMode, { won: string; fallback: string; defend: string }>> = {
   points: {
     won: '6. This match is a POINTS RACE: the first side to bank the target of points wins at once, whatever force it has left. `observe` shows `points`: both sides\' points, the target, and every zone with what it pays a minute and who holds it. A zone pays its holder each second it holds it and pays nobody while an enemy unit contests it or while it stands empty. Destroying enemy units pays too: 1 point for every 100 of their value. A side with no combat unit left still loses (annihilation).',
-    fallback: '7. If nobody reaches the target by the 25-minute limit, or every unit on both sides can no longer move, the side with the larger surviving force value wins; equal values draw.',
+    fallback: '7. If nobody reaches the target when the match\'s time limit comes (25 minutes in a room; in an arena match, the arena\'s own cap, which can be shorter), or every unit on both sides can no longer move, the side with the larger surviving force value wins; equal values draw.',
     defend: '8. Defend the ground you hold and your lead: a zone you leave empty or let an enemy contest stops paying you and may start paying them, and units sent chasing kills away from the zones lose the race to the side that holds them. Both sides\' points and every zone\'s holder are public; your enemy\'s units are not, so a held zone with nobody in sight near it may be contested soon.',
   },
   camp: {
     won: '6. This match is won by DESTROYING THE ENEMY CAMP: the first side to raze the other\'s camp wins at once, whatever force it has left. `observe` gives `enemyCamp`, the tile to attack. A side with no combat unit left still loses (annihilation).',
-    fallback: '7. If neither camp falls by the 25-minute limit, or every unit on both sides can no longer move, the side with the larger surviving force value wins; equal values draw.',
+    fallback: '7. If neither camp falls when the match\'s time limit comes (25 minutes in a room; in an arena match, the arena\'s own cap, which can be shorter), or every unit on both sides can no longer move, the side with the larger surviving force value wins; equal values draw.',
     defend: '8. Defend your own camp (`camp` in `observe`): losing it loses the match, however many units you have left.',
   },
 };

@@ -8,7 +8,7 @@
 4. Units fight by themselves: they shoot what they see in range. You decide where they go and what they attack.
 5. Cover, buildings, ridges and smoke block sight; high ground sees over lower obstacles.
 6. A side wins when the other has no combat unit left (annihilation).
-7. If every unit on both sides can no longer move, or the 25-minute limit comes, the side with the larger surviving force value wins; equal values draw.
+7. If every unit on both sides can no longer move, or the match's time limit comes (25 minutes in a room; in an arena match, the arena's own cap, which can be shorter), the side with the larger surviving force value wins; equal values draw.
 8. The arena may also stop a match earlier at its own cap and decide it the same way: surviving force value.
 9. Losing units costs you; `observe` shows the score: units lost and destroyed, and the value of each.
 10. Positions are TILES `[x, y]`; the map's size is in `observe` as `size`.

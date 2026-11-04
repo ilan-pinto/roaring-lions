@@ -5,7 +5,7 @@
  * and nothing beyond loopback.
  *
  *   pnpm arena -- --a rush --b passive --seeds 10 --map tel_marum [--matchup mirror|kdf|sarim]
- *                 [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate]
+ *                 [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000 (the map's cap with --mode)] [--tick-ms 2] [--out arena-results/] [--gate]
  *
  * A player is `passive` or `rush` (decision D8's controls), or
  * `cmd:<template>` (Task 14, `external-player.ts`): a process per game -- a
@@ -216,7 +216,10 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
   const firstSeed = intIn('first-seed', got.get('first-seed'), 0, 0, 1_000_000);
   const pace = intIn('pace', got.get('pace'), 60, 20, 1200);
   const roundWallMs = intIn('round-wall-ms', got.get('round-wall-ms'), 120_000, 1000, 600_000);
-  const capTicks = intIn('cap-ticks', got.get('cap-ticks'), 12_000, 1, matchCapTicks(got.get('map') ?? 'tel_marum'));
+  // GH-976 P2: a points game runs about 13.6k-14.8k ticks on average, so the 12,000 default would end many on the cap rule
+  // (surviving force) with the HUD showing the other side ahead: with a mode named, the default is the map's own cap.
+  const mapCap = matchCapTicks(got.get('map') ?? 'tel_marum');
+  const capTicks = intIn('cap-ticks', got.get('cap-ticks'), modeValue !== undefined && winMode !== null ? mapCap : 12_000, 1, mapCap);
   const watch = flags.has('watch');
   const tickMs = intIn('tick-ms', got.get('tick-ms'), watch ? WATCH_TICK_MS : 2, 1, 1000);
   const servePort = intIn('serve-port', got.get('serve-port'), 0, 0, 65_535);

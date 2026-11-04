@@ -439,7 +439,7 @@ describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
     expect(outcomeOf(both, 100, costOf, undefined, MATCH_CAP_TICKS, goals([true, true], [725000, 720100], 'points', [97, 97]))).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'points' });
   });
 
-  it('on a real runtime, a side that completes 5 ticks first wins although the other finished with a far larger score', () => {
+  it('on a real runtime, the side that completes a few ticks first wins although the LATER finisher has the far larger score', () => {
     const squad: UnitTypeJson = {
       id: 'ft_squad', role: 'infantry', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
       mobility: { speed_tiles_s: 1 }, sensors: { optics: 1, sight_tiles: 8, signature: 0.6 }, weapons: [],
@@ -451,25 +451,29 @@ describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
     });
     const mission: MissionJson = {
       id: 'ft', map: { file: 'none' }, ledger: { requires: [], produces: [] },
-      objectives: [race(0, { zones: [{ zone: 'west', per_min: 60 }] }), race(1, { per_value_destroyed: 100 })],
+      objectives: [race(0, { zones: [{ zone: 'west', per_min: 60 }], per_value_destroyed: 100 }), race(1, { per_value_destroyed: 6 })],
     };
     const ctx: MissionContext = { typeIdOf: () => t, markers: {}, zones: { west: [4, 4, 6, 6] }, goalsOnly: true, unitValueOf: () => 1000 };
     const rt = new MissionRuntime(sim, mission, ctx);
     rt.start();
     const put = (side: 0 | 1, x: number, y: number): number => sim.spawn(t, side, fx.from(x) + 32768, fx.from(y) + 32768);
     const step = (n: number): void => { for (let i = 0; i < n; i++) rt.step(sim.tick()); };
-    put(0, 6, 6); // holds the west zone: 60 points at 60 a minute is exactly 1200 ticks
+    put(0, 6, 6); // side 0 holds the west zone: 60 points at 60 a minute is exactly 1200 ticks
     const victim = put(0, 30, 10);
+    const spare = put(1, 30, 12);
     step(1195);
     expect(rt.sideWon(0)).toBe(false);
-    sim.debugKill(victim); // side 1 banks 1000 x 100 / 100 = 1000 points in one step, 5 ticks before side 0 finishes
+    sim.debugKill(victim); // side 1 banks 1000 x 6 / 100 = exactly its 60-point target, on this step
     step(1);
     expect(rt.sideWon(1)).toBe(true);
-    step(10);
+    expect(rt.scoreOf(1)).toBe(60);
+    step(3);
+    sim.debugKill(spare); // 4 ticks later side 0 banks 1000 x 100 / 100 = 1000 points and finishes with the far larger score
+    step(2);
     expect(rt.sideWon(0)).toBe(true);
     expect(rt.completeTickOf(1)).toBeLessThan(rt.completeTickOf(0));
     expect(rt.completeTickOf(0) - rt.completeTickOf(1)).toBeLessThan(20); // inside one hash window
-    expect(rt.scoreUnitsOf(1)).toBeGreaterThan(rt.scoreUnitsOf(0)); // the frozen scores say the other thing
+    expect(rt.scoreUnitsOf(0)).toBeGreaterThan(rt.scoreUnitsOf(1)); // the LATER finisher is the larger scorer: only the first-to-finish rule picks side 1
     const goals = goalsOf({ runtime: rt, winMode: 'points' })!;
     expect(outcomeOf(sim, sim.tickCount, costOf, undefined, MATCH_CAP_TICKS, goals)).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'points' });
   });
