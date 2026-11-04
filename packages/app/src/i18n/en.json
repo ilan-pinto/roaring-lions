@@ -495,7 +495,7 @@
   "versus.flag.theirs": "Their flag",
   "versus.flag.mine": "Your flag",
   "versus.flag.held": "{held} / {hold} s",
-  "versus.flag.state": "{state, select, raiding {held} contested {contested} captured {captured} other {open}}",
+  "versus.flag.state": "{state, select, raiding {being raided} contested {contested} captured {captured} other {open}}",
   "versus.points.label": "Points race",
   "versus.points.title": "Points race: first to {target}",
   "versus.points.rate": "+{n} a minute",

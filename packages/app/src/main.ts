@@ -6582,6 +6582,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       : null;
   const netFlags = flagViewNow() !== null ? new NetFlags(document.body) : null;
   if (netFlags !== null) onDispose(() => netFlags.dispose());
+  let flagsPainted = false;
   /** Who has an advisor (decision D1): this seat's own to its panel, both
    *  seats' to the board, so an advisor admitted into the running room shows
    *  to the friend as well as in the lobby. Installed here, after both exist:
@@ -7142,9 +7143,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     if (netEnd === null) netScore?.update(scoreOf(sim));
     if (netEnd === null && netPoints !== null) { const pv = pointsViewNow(); if (pv !== null) netPoints.update(pv); }
-    if (netEnd === null && netFlags !== null && sim.tickCount % 5 === 0) {
+    // Every 5th tick, and at once on the first frame: a seat that joins or resumes mid-match must not show an empty panel.
+    if (netEnd === null && netFlags !== null && (!flagsPainted || sim.tickCount % 5 === 0)) {
       const fv = flagViewNow();
-      if (fv !== null) { netFlags.update(fv); renderer.objectiveZones = flagMarksOf(fv); }
+      if (fv !== null) { netFlags.update(fv); renderer.objectiveZones = flagMarksOf(fv); flagsPainted = true; }
     }
     // The advisor's 2 s deadline counts the frames that run here, so a room pause holds it.
     if (netEnd === null && room !== null && !ordersWait(room.status())) advisorPanel?.frame();

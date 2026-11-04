@@ -23,7 +23,7 @@ describe('NetFlags (GH-976 P3)', () => {
     expect(text(el, '.rl-net-points__title')).toBe('Capture the flag: hold their ground alone for 30 s');
     expect(text(el, '[data-row=theirs] .rl-net-points__who')).toBe('Their flag');
     expect(text(el, '[data-row=theirs] .rl-net-points__n')).toBe('12 / 30 s');
-    expect(text(el, '[data-row=theirs] .rl-net-points__rate')).toBe('held');
+    expect(text(el, '[data-row=theirs] .rl-net-points__rate')).toBe('being raided');
     expect(el.querySelector<HTMLElement>('[data-row=theirs] .rl-net-points__fill')!.style.width).toBe('40%');
     expect(text(el, '[data-row=mine] .rl-net-points__who')).toBe('Your flag');
     expect(text(el, '[data-row=mine] .rl-net-points__n')).toBe('0 / 30 s');
