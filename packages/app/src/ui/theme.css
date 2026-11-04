@@ -9688,3 +9688,43 @@ fieldset.rl-versus__maps {
   border-bottom: 1px solid var(--panel-rule);
   text-align: left;
 }
+
+/* GH-954 W3: the arena results list and the replay controls (dev-only routes). */
+.rl-arena-results__runtitle {
+  margin-block: var(--s4) var(--s1);
+  font: 600 var(--t-m) var(--font-body);
+  color: var(--ink-label);
+}
+.rl-arena-results__runcost {
+  margin-block: 0 var(--s2);
+  color: var(--ink-mute);
+}
+.rl-arena-results__replay {
+  color: var(--selected);
+}
+.rl-arena-results__norecord {
+  color: var(--ink-mute);
+}
+.rl-arena-results__criteria summary {
+  cursor: pointer;
+}
+.rl-arena-results__criteria ul {
+  margin: var(--s1) 0 0;
+  padding-left: var(--s4);
+}
+.rl-arena-replay {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s3);
+}
+.rl-arena-replay__pause[aria-pressed='true'] {
+  border-color: var(--selected);
+  color: var(--selected);
+}
+.rl-arena-replay__progress {
+  color: var(--ink-mute);
+}
+.rl-arena-replay__digest[hidden] {
+  display: none;
+}
