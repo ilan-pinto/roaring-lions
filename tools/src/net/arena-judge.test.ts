@@ -127,7 +127,7 @@ describe('--judge', () => {
     expect(b.gate).toEqual(a.gate);
   }, 300_000);
 
-  it('tells the judge neutral labels, never a cmd: template (local paths, model ids); the results files keep the real names', async () => {
+  it('tells the judge neutral labels, never a cmd: template (local paths, model ids); nor do the results files (GH-954 W3)', async () => {
     const out = outDir();
     const jobs: JudgeJob[] = [];
     const secret = 'cmd:/Users/someone/bin/claude-wrapper --model claude-secret-9 {mcp} < {prompt}';
@@ -141,8 +141,12 @@ describe('--judge', () => {
       expect(j.outcome).not.toContain('cmd:');
       expect(j.outcome).not.toContain('claude-secret');
     }
-    // The real name is in the results (it is the tally's key), not in what the judge is told.
-    expect(readMd(out)).toContain('claude-secret-9');
+    // Not in the results either (the tally's key is `Player A`), nor in any file name: the command line never lands on disk.
+    expect(readMd(out)).toContain('Player A');
+    for (const f of readdirSync(out)) {
+      expect(f.includes('claude'), f).toBe(false);
+      expect(readFileSync(join(out, f), 'utf8').includes('claude-secret'), f).toBe(false);
+    }
   }, 120_000);
 
   it('a judge that fails or answers badly is recorded as such; the games, the tally and the exit code stand', async () => {

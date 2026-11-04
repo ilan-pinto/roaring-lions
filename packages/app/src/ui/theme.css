@@ -9725,6 +9725,10 @@ fieldset.rl-versus__maps {
 .rl-arena-replay__progress {
   color: var(--ink-mute);
 }
+.rl-arena-replay__actual {
+  color: var(--bad);
+}
+.rl-arena-replay__actual[hidden],
 .rl-arena-replay__digest[hidden] {
   display: none;
 }

@@ -246,7 +246,7 @@ describe('the token, end to end on the local relay (a made-up token, a probe in 
     // 5. Nowhere else: not one file under the output directory (logs, .jsonl, .md), not one captured log or print
     //    line, not a response body, and nothing left in the temp root.
     const everything = filesUnder(t.out);
-    expect(everything.length).toBeGreaterThanOrEqual(6);   // four seat logs, the .jsonl and the .md
+    expect(everything.length).toBeGreaterThanOrEqual(8);   // four seat logs, two frames files (GH-954 W3), the .jsonl and the .md
     for (const [p, text] of everything) expect(text.includes(API_TOKEN), `the token is in ${p}`).toBe(false);
     expect(t.logs.join('\n')).not.toContain(API_TOKEN);
     expect(t.logs.length).toBeGreaterThan(3);

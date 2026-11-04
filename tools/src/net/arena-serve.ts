@@ -272,6 +272,12 @@ export async function startArenaServe(o: ArenaServeOptions = {}): Promise<ArenaS
     server.listen(o.port ?? 0, '127.0.0.1', () => { server.off('error', rej); res(); });
   });
   port = (server.address() as AddressInfo).port;
+  // The OS's pick (port 0) is checked too, once it is known.
+  const bound = servePortRefusal(port);
+  if (bound !== null) {
+    await new Promise<void>((res) => { server.close(() => { res(); }); });
+    throw new Error(bound);
+  }
   const origin = `http://127.0.0.1:${port}`;
 
   if (o.app !== false) {

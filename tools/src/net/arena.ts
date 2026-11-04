@@ -96,7 +96,7 @@ import { MATCHUPS, factionsOfMatchup, matchCapTicks, matchupAllowed, versusMapAl
 import { productionOf, type MatchResult, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 import { scoreOf, type MatchScore } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
-import { recordGame, writeFrames, type GameFrames } from './arena-frames';
+import { displayName, recordGame, writeFrames, type GameFrames } from './arena-frames';
 import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, type GateVerdict, type Tally } from './arena-score';
 import { buildId } from './build-id';
 import { capOutcome } from './cap';
@@ -669,13 +669,14 @@ export function judgeLabel(spec: string, which: 'A' | 'B'): string {
   return EXTERNAL.test(spec) || presetIdOf(spec) !== null ? `Player ${which}` : spec;
 }
 
-async function judgeGame(record: GameRecord, a: ArenaArgs, logBase: string, judge: NonNullable<ArenaDeps['runJudge']>, log: (line: string) => void, env?: Readonly<Record<string, string>>): Promise<JudgeRecord | undefined> {
+async function judgeGame(record: GameRecord, a: ArenaArgs, logBase: string, judge: NonNullable<ArenaDeps['runJudge']>, log: (line: string) => void, env: Readonly<Record<string, string>> | undefined, ab: readonly [string, string]): Promise<JudgeRecord | undefined> {
   if (a.judge === null) return undefined;
   if (record.outcome === 'void') return { status: 'skipped', reason: `the game was void (${record.by})` };
   if (record.referee === undefined) return { status: 'skipped', reason: 'the arena has no referee stats for this game' };
   // A is `--a`, B is `--b`, whichever seat each sat on; a player against itself is `x#a` / `x#b`.
   const label = (seat: 0 | 1): string => {
-    const isA = record.players[seat] === (a.a === a.b ? `${nameOf(a.a)}#a` : nameOf(a.a));
+    // `ab` is the names `--a` and `--b` were recorded under.
+    const isA = record.players[seat] === ab[0];
     const l = judgeLabel(isA ? a.a : a.b, isA ? 'A' : 'B');
     return a.a === a.b && !EXTERNAL.test(a.a) && presetIdOf(a.a) === null ? `${l} (${isA ? 'A' : 'B'})` : l;
   };
@@ -732,7 +733,9 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   }
   const a: ArenaArgs = { ...parsed, judge: judgeTemplate };
   // The two names a tally keys on: a player against itself is still two players.
-  const [nameA, nameB] = [nameOf(a.a), nameOf(a.b)];
+  // GH-954 W3: a player's name is what the results, the file names and the API show, so it is never a command line: a `cmd:`
+  // spec (or anything that is not id-shaped) is `Player A` / `Player B`. A scripted name and a preset's id stand as they are.
+  const [nameA, nameB] = [displayName(nameOf(a.a)) ?? 'Player A', displayName(nameOf(a.b)) ?? 'Player B'];
   const names: [string, string] = a.a === a.b ? [`${nameA}#a`, `${nameB}#b`] : [nameA, nameB];
   let A: ArenaPlayer;
   let B: ArenaPlayer;
@@ -799,18 +802,26 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
       for (const g of orders) {
         // A signal's cleanup has begun: no new relay, no new seat.
         if (externalPlayersStopped()) throw new Error('the arena is stopping (a signal): no further game');
+        let kept: { r: GameRecord; ref: RefereeDigest; fr: GameFrames } | null = null;
         const record = await playGame(g, a, build, startRelay, observe, log, {
           ...hooks,
           onEnd: (r, ref, fr) => {
-            // The frames file first (GH-954 W3), so a server that answers `gameEnded` can already list it. A failure costs the
-            // recording, never the game.
-            if (fr !== null) recordFile(g, r, ref, fr);
+            // Only kept here: the watcher's replay of the game takes seconds on a long map, and runs below, once the game's
+            // relay and players are closed (never with a live room, children and a watching page attached).
+            if (fr !== null) kept = { r, ref, fr };
             hooks.onEnd?.(r, ref, fr);
             deps.onGameEnd?.({ n: g.n, of: g.of, record: r, referee: ref });
           },
         });
+        if (kept !== null) {
+          const k: { r: GameRecord; ref: RefereeDigest; fr: GameFrames } = kept;
+          // A turn of the event loop first, so a page's poll and a signal are served before the replay holds it. A failure
+          // costs the recording, never the game.
+          await new Promise<void>((res) => { setImmediate(res); });
+          recordFile(g, k.r, k.ref, k.fr);
+        }
         // After the game, with its relay closed: a slow judge holds up the next game, never this one's result.
-        const judged = await judgeGame(record, a, g.logBase, deps.runJudge ?? runJudge, log, deps.env);
+        const judged = await judgeGame(record, a, g.logBase, deps.runJudge ?? runJudge, log, deps.env, names);
         if (judged !== undefined) record.judge = judged;
         games.push(record);
         appendFileSync(files.jsonl, redactText(`${JSON.stringify(record)}\n`, secrets));

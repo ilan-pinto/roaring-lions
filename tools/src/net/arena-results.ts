@@ -118,14 +118,22 @@ function judgeBody(j: GameRecord['judge']): JudgeBody | null {
   if (j === undefined) return null;
   if (j.status !== 'scored') return { status: j.status };
   const criteria: Record<string, [number, number]> = {};
-  for (const c of CRITERIA) criteria[c.id] = [j.scores.seat0.criteria[c.id].score, j.scores.seat1.criteria[c.id].score];
-  return { status: 'scored', scores: { overall: [j.scores.seat0.overall.score, j.scores.seat1.overall.score], criteria } };
+  // A record from before a criterion existed may lack it: it is left out, never a 500 for the whole list.
+  for (const c of CRITERIA) {
+    const [a, b] = [j.scores.seat0?.criteria?.[c.id]?.score, j.scores.seat1?.criteria?.[c.id]?.score];
+    if (typeof a === 'number' && typeof b === 'number') criteria[c.id] = [a, b];
+  }
+  const [oa, ob] = [j.scores.seat0?.overall?.score, j.scores.seat1?.overall?.score];
+  if (typeof oa !== 'number' || typeof ob !== 'number') return { status: 'scored' };
+  return { status: 'scored', scores: { overall: [oa, ob], criteria } };
 }
 
 function recordsOf(path: string): GameRecord[] {
   let text: string;
   try {
-    if (lstatSync(path).size > MAX_FILE_BYTES) return [];
+    const st = lstatSync(path);
+    // A link could lead anywhere: only a regular file that is itself in the directory.
+    if (!st.isFile() || st.size > MAX_FILE_BYTES) return [];
     text = readFileSync(path, 'utf8');
   } catch { return []; }
   const out: GameRecord[] = [];
@@ -146,9 +154,19 @@ export function listResults(o: ResultsOptions): ResultsBody {
   let names: string[];
   try { names = readdirSync(o.dir); } catch { names = []; }
   const have = new Set(names);
+  const ids = new Map<string, string>();
   const bases = names.filter((n) => n.endsWith('.jsonl') && !n.endsWith('.frames.jsonl')).map((n) => n.slice(0, -'.jsonl'.length)).sort().reverse().slice(0, MAX_RUNS);
   const show = (name: string): string | null => displayName(name, o.labelOf);
   const runs: RunBody[] = [];
+  const perDate = new Map<string, number>();
+  for (const base of [...bases].reverse()) {
+    // The run's id is its date and its place that day, never its file name: an older results directory may hold names
+    // that were made from a command line.
+    const date = /^\d{4}-\d{2}-\d{2}/.exec(base)?.[0] ?? 'run';
+    const nth = (perDate.get(date) ?? 0) + 1;
+    perDate.set(date, nth);
+    ids.set(base, `${date}-${nth}`);
+  }
   for (const base of bases) {
     const records = recordsOf(join(o.dir, `${base}.jsonl`));
     if (records.length === 0) continue;
@@ -174,7 +192,7 @@ export function listResults(o: ResultsOptions): ResultsBody {
     });
     const t = usageTotals(records);
     runs.push({
-      id: base, games,
+      id: ids.get(base) ?? base, games,
       totals: { players: t.byPlayer.map((p) => ({ player: show(p.player), usage: usageBody(p.usage) as UsageBody })), judge: usageBody(t.judge), all: usageBody(t.all) },
       costUsd: t.all?.costUsd ?? null,
     });

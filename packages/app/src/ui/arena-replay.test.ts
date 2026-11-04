@@ -199,6 +199,33 @@ describe('the replay it boots', () => {
     expect(strip()?.querySelector('.rl-arena-strip__stop')?.textContent).toBe('Back to the results');
   });
 
+  it('the speed buttons name the speed ASKED for; a machine that cannot keep up is told so, with the speed it really ran at', async () => {
+    const r = rig();
+    showArenaReplay(r.host, r.deps);
+    await settle();
+    const tick = (): void => r.timers.forEach((f) => f());
+    const actual = (): HTMLElement => strip()?.querySelector('.rl-arena-replay__actual') as HTMLElement;
+    const h = r.ready();
+    (strip()?.querySelectorAll<HTMLButtonElement>('.rl-arena-replay__speeds button') as NodeListOf<HTMLButtonElement>)[4].click();
+    h.ticks.value = 0;
+    tick();                                   // the sample starts here
+    expect(actual().hidden).toBe(true);
+    // One second later the page has run 40 ticks: that is 2x, not the 8x asked for.
+    r.clock.ms += 1000; h.ticks.value = 40;
+    tick();
+    expect(actual().hidden).toBe(false);
+    expect(actual().textContent).toBe('Running at 2x: this machine cannot step the game faster');
+    // Keeping up (160 ticks a second is 8x) says nothing.
+    r.clock.ms += 1000; h.ticks.value = 200;
+    tick();
+    expect(actual().hidden).toBe(true);
+    // A pause is not slowness.
+    r.clock.ms += 1000; h.ticks.value = 201;
+    (strip()?.querySelector('.rl-arena-replay__pause') as HTMLButtonElement).click();
+    tick();
+    expect(actual().hidden).toBe(true);
+  });
+
   it('at the end it compares its own state with the referee\'s: the same hash says so, a different one says how it differs', async () => {
     for (const [hash, tick, same] of [[-77, 120, true], [-78, 120, false], [-77, 119, false]] as const) {
       document.body.replaceChildren();

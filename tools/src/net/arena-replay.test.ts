@@ -93,6 +93,43 @@ describe('gate: replay equals referee', () => {
   }, 120_000);
 });
 
+describe('other kinds of game replay to the referee\'s state too', () => {
+  it('a game DECIDED by the sim\'s result, well before the cap: the file ends at the deciding frame and the replay ends in the referee\'s state', async () => {
+    const out = outDir();
+    const ends = new Map<number, RefereeDigest>();
+    // Beit Sahwan outskirts, seed 3: rush annihilates passive at tick 2980 (seat 0) and 2820 (seat 1), under a cap of 9,000.
+    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '3', '--map', 'beit_sahwan_outskirts', '--pace', '100', '--tick-ms', '1', '--cap-ticks', '9000', '--out', out], { ...quiet, onGameEnd: (e) => { ends.set(e.n, e.referee); } });
+    expect(r.code).toBe(0);
+    expect(r.games.map((g) => g.by)).toEqual(['annihilation', 'annihilation']);
+    for (const [i, f] of framesFiles(out).entries()) {
+      const file = read(out, f);
+      expect(file.end.by).toBe('annihilation');
+      expect(file.end.ticks).toBeLessThan(9000);
+      expect(file.end.ticks).toBe(r.games[i].ticks);
+      expect(file.end.referee).toEqual(ends.get(i + 1));
+      expect(replayToEnd(file)).toEqual(file.end.referee);
+      expect(file.end.watcher).toEqual(file.end.referee);
+    }
+  }, 240_000);
+
+  it('a KDF against Sarim game (the economy runtime, two factions): the replay ends in the referee\'s state', async () => {
+    const out = outDir();
+    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--matchup', 'kdf', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '700', '--out', out], quiet);
+    expect(r.code).toBe(0);
+    const files = framesFiles(out);
+    expect(files).toHaveLength(2);
+    for (const f of files) {
+      const file = read(out, f);
+      expect(file.header.game.matchup).toBe('kdf');
+      expect(new Set(file.header.config.seats.map((s) => s.faction))).toEqual(new Set(['kdf', 'sarim']));
+      expect(file.end.ticks).toBe(700);
+      expect(replayToEnd(file)).toEqual(file.end.referee);
+      expect(replayToEnd(file, { speed: 8, frameMs: 33, perFrame: 40 })).toEqual(file.end.referee);
+      expect(file.end.watcher).toEqual(file.end.referee);
+    }
+  }, 240_000);
+});
+
 describe('gate: speed does not change the outcome', () => {
   it('every speed from 0.5x to 8x, at several frame lengths, ends in one state: the referee\'s', async () => {
     const p = await play();
@@ -263,6 +300,63 @@ describe('gate: no token and no template in any results or frames file', () => {
     for (const needle of ['secret-flag-xyz', '/private/wrapper', 'cmd:']) expect(body.includes(needle), `the list has ${needle}`).toBe(false);
     expect(listResults({ dir: out, build: () => BUILD }).runs[0].games[0].players).toEqual([null, 'passive']);
   }, 120_000);
+
+  it('a cmd: spec whose FIRST 40 characters name a word and a key is in no file NAME, no file, the list or the replay body', async () => {
+    // fileSafe used to turn this into `cmd_zebraword_--key_sk-ant-abc123_` and cut it at 40: inside the cut.
+    const SPEC = 'cmd:zebraword --key sk-ant-abc123 {mcp} < {prompt}';
+    const out = outDir();
+    const r = await runArena(['--a', SPEC, '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '300', '--judge', 'cmd:judgebin --k sk-ant-judge9 < {prompt}', '--out', out], {
+      ...quiet, resolvePlayer: (spec) => inProcess(spec, spec === 'passive' ? passive : rush),
+      runJudge: () => Promise.resolve({ status: 'failed', reason: 'stub', tokens: null }),
+    });
+    expect(r.code).toBe(0);
+    const needles = ['zebraword', 'sk-ant-abc123', 'cmd', '--key'];
+    const names = readdirSync(out);
+    expect(names.filter((n) => n.endsWith('.frames.jsonl'))).toHaveLength(2);
+    expect(names.some((n) => n.endsWith('.md'))).toBe(true);
+    for (const n of names) {
+      for (const needle of needles) expect(n.includes(needle), `the file name ${n} has ${needle}`).toBe(false);
+      for (const needle of [...needles.filter((x) => x !== 'cmd'), 'sk-ant-judge9']) expect(readFileSync(join(out, n), 'utf8').includes(needle), `${n} has ${needle}`).toBe(false);
+    }
+    for (const g of r.games) expect(g.players.some((p) => p.includes('zebraword'))).toBe(false);
+    const list = listResults({ dir: out, build: () => BUILD });
+    expect(list.runs).toHaveLength(1);
+    expect(list.runs[0].id).toMatch(/^\d{4}-\d{2}-\d{2}-1$/);
+    const file = list.runs[0].games[0].file as string;
+    expect(JSON.stringify(list)).not.toMatch(/zebraword|sk-ant|--key|cmd:/);
+    const body = await resultsRoutes({ dir: out, build: () => BUILD }).replay.handle({ url: `/arena/api/replay?game=${file}` } as never, {});
+    expect(body.status).toBe(200);
+    expect(JSON.stringify(body.body)).not.toMatch(/zebraword|sk-ant|--key/);
+    // The same names, by player, in the list: Player A is the cmd player in both games, wherever it sat.
+    expect(list.runs[0].games.map((g) => g.players)).toEqual([[null, 'passive'], ['passive', null]]);
+  }, 120_000);
+
+  it('an older results directory whose run file names were made from a command line shows none of it: the run id is its date and place', () => {
+    const out = outDir();
+    const record = { seed: 1, map: 'tel_marum', matchup: 'mirror', players: ['rush', 'passive'], factions: ['kdf', 'kdf'], outcome: 'draw', by: 'cap', ticks: 10, score: [], reports: [{ tokens: null, timeouts: 0, errors: [] }, { tokens: null, timeouts: 0, errors: [] }] };
+    for (const base of ['2026-01-01-cmd_curl_-H_x-api-key_sk-ant-abc123_http-vs-passive', '2026-01-01-rush-vs-passive', '2026-01-02-rush-vs-passive']) writeFileSync(join(out, `${base}.jsonl`), `${JSON.stringify(record)}\n`);
+    const list = listResults({ dir: out, build: () => BUILD });
+    expect(list.runs.map((r) => r.id).sort()).toEqual(['2026-01-01-1', '2026-01-01-2', '2026-01-02-1']);
+    expect(JSON.stringify(list)).not.toMatch(/sk-ant|curl/);
+  });
+
+  it('a judged record that lacks a criterion (an older one) is listed, not a 500 for the whole list', () => {
+    const out = outDir();
+    const rec = (judge: unknown): string => JSON.stringify({ seed: 1, map: 'tel_marum', matchup: 'mirror', players: ['rush', 'passive'], factions: ['kdf', 'kdf'], outcome: 'draw', by: 'cap', ticks: 10, score: [], reports: [{ tokens: null, timeouts: 0, errors: [] }, { tokens: null, timeouts: 0, errors: [] }], judge });
+    const s = (n: number): unknown => ({ criteria: { fewer_deaths: { score: n, reason: 'x' } }, overall: { score: n, reason: 'x' } });
+    writeFileSync(join(out, '2026-01-01-rush-vs-passive.jsonl'), `${rec({ status: 'scored', scores: { seat0: s(7), seat1: s(3) }, tokens: null })}\n${rec({ status: 'scored', scores: {}, tokens: null })}\n`);
+    const g = listResults({ dir: out, build: () => BUILD }).runs[0].games;
+    expect(g[0].judge).toEqual({ status: 'scored', scores: { overall: [7, 3], criteria: { fewer_deaths: [7, 3] } } });
+    expect(g[1].judge).toEqual({ status: 'scored' });
+  });
+
+  it('a results .jsonl that is a link is not read', () => {
+    const out = outDir();
+    const elsewhere = join(outDir(), 'real.jsonl');
+    writeFileSync(elsewhere, `${JSON.stringify({ seed: 1, map: 'm', matchup: 'mirror', players: ['a', 'b'], outcome: 'draw', by: 'cap', ticks: 1, reports: [] })}\n`);
+    symlinkSync(elsewhere, join(out, '2026-01-01-a-vs-b.jsonl'));
+    expect(listResults({ dir: out, build: () => BUILD }).runs).toEqual([]);
+  });
 
   it('displayName: scripted names and ids pass, a preset id becomes its label, anything template-shaped is null', () => {
     expect(displayName('rush')).toBe('rush');

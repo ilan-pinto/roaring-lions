@@ -11,6 +11,8 @@
  * - The sim is stepped by the recorded frames, one tick a frame, in order. The speed buttons change only how many
  *   of them are released per animation frame (`replay-transport.ts`), never which, so the end state is the
  *   same at every speed.
+ * - The speed buttons name the speed ASKED for. A machine that cannot step the sim that fast is not hidden: once a second
+ *   the page measures the ticks it really ran and, when that is under 90% of the speed asked, says "Running at 2.3x".
  * - At the end it compares the page's own `sim.hash()` with the one the referee recorded and says whether the
  *   replay ended in the referee's state.
  * - The disposer contract: leaving aborts a fetch in flight, disposes the battlefield (a boot that lands after the
@@ -169,9 +171,12 @@ export function showArenaReplay(host: HTMLElement, deps: ArenaReplayDeps): Dispo
     }
     const progress = document.createElement('span');
     progress.className = 'rl-arena-replay__progress';
+    const actual = document.createElement('span');
+    actual.className = 'rl-arena-replay__actual';
+    actual.hidden = true;
     const digest = document.createElement('span');
     digest.className = 'rl-arena-replay__digest';
-    controls.append(pauseBtn, speeds, progress, digest);
+    controls.append(pauseBtn, speeds, progress, actual, digest);
     pauseBtn.addEventListener('click', () => { if (!disposed) { tr.setPaused(!tr.paused); paint(); } });
 
     strip = mountArenaStrip(document.body, {
@@ -185,6 +190,17 @@ export function showArenaReplay(host: HTMLElement, deps: ArenaReplayDeps): Dispo
       extra: controls,
     });
 
+    // The measured speed: ticks run per second of wall time, in units of 20 a second. Reset whenever what is asked changes.
+    let sample: { tick: number; ms: number; speed: number } | null = null;
+    let achieved: number | null = null;
+    const measure = (tick: number): void => {
+      const at = now();
+      if (tr.paused || ended) { sample = null; achieved = null; return; }
+      if (sample === null || sample.speed !== tr.speed) { sample = { tick, ms: at, speed: tr.speed }; achieved = null; return; }
+      if (at - sample.ms < 1000) return;
+      achieved = ((tick - sample.tick) / (at - sample.ms)) * 1000 / 20;
+      sample = { tick, ms: at, speed: tr.speed };
+    };
     const paint = (): void => {
       if (disposed) return;
       const tick = reading?.tick ?? 0;
@@ -201,6 +217,9 @@ export function showArenaReplay(host: HTMLElement, deps: ArenaReplayDeps): Dispo
       pauseBtn.setAttribute('aria-pressed', String(tr.paused));
       for (const [s, b] of speedBtns) b.setAttribute('aria-checked', String(s === tr.speed));
       progress.textContent = t('arena.replay.progress', { tick, total: replay.end.ticks });
+      const slow = achieved !== null && achieved < tr.speed * 0.9;
+      actual.hidden = !slow;
+      actual.textContent = slow && achieved !== null ? t('arena.replay.actual', { speed: Math.round(achieved * 10) / 10 }) : '';
       digest.textContent = result === null ? '' : result.text;
       digest.classList.toggle('rl-good', result?.same === true);
       digest.classList.toggle('rl-bad', result?.same === false);
@@ -208,6 +227,7 @@ export function showArenaReplay(host: HTMLElement, deps: ArenaReplayDeps): Dispo
     };
     const read = (): void => {
       reading = handle?.read() ?? null;
+      if (reading !== null) measure(reading.tick);
       paint();
     };
 
