@@ -78,6 +78,7 @@
     "test": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; exec vitest run --root .. \"$@\"' sh",
     "agent": "tsx src/net/agent.ts",
     "arena": "tsx src/net/arena.ts",
+    "arena:publish": "tsx src/net/arena-publish.ts",
     "bot": "tsx src/net/bot.ts",
     "net:rejoin-measure": "tsx src/net/rejoin-measure.ts",
     "net:budget": "tsx src/net/budget-measure.ts"

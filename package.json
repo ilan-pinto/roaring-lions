@@ -54,6 +54,7 @@
     "net:engines": "pnpm --filter @lions/tools net:engines",
     "agent": "pnpm --silent --filter @lions/tools agent",
     "arena": "pnpm --filter @lions/tools arena",
+    "arena:publish": "pnpm --filter @lions/tools arena:publish",
     "bot": "pnpm --silent --filter @lions/tools bot",
     "net:rejoin-measure": "pnpm --filter @lions/tools net:rejoin-measure",
     "net:budget": "pnpm --filter @lions/tools net:budget",
