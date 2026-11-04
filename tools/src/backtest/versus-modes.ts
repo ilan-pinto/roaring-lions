@@ -3,7 +3,7 @@
 // REPORT-ONLY, like the rest of the probe: it prints the tables and the verdict lines and exits 0, except for its
 // own self-check (exit 2). Whether a mode opens on a map is the lead's call; this is the instrument.
 //
-// A game is a room's own world: `buildMatchWorld` of a mirror (KDF v KDF) versus config with `winMode` set, so a
+// A game is a room's own world: `buildMatchWorld` of a versus config (a mirror, KDF v KDF, unless `--arr` says two factions) with `winMode` set, so a
 // GOALS-ONLY runtime stands (camps owned and targetable, or a score per side), stepped by the room's `matchTick`
 // and decided by the room's rule (`outcomeOf` with `goalsOf`, at the map's own cap: 25 minutes, not the
 // probe's 10). Each side re-plays its mode every 20 s (`ORDER_EVERY_TICKS`), reading nothing of the other:
@@ -19,10 +19,18 @@
 //           the same order, so the choice is the same in each seat's own frame.
 // A PASSIVE seat issues no order at all and stays where it spawned.
 //
+// THE CELLS (GH-976 P4). `--arr=<friendly>/<hostile>` picks the factions by END, as the base probe does: `kdf/kdf`, the mirror, is
+// the default and what every earlier reading played; `kdf/sarim` is the matchup `kdf` (the host fields the KDF and stands west),
+// `sarim/kdf` the matchup `sarim` (the host fields Sarim, side 1, at the friendly end). A KDF-v-Sarim mode room is the two PLACED
+// forces, no production and no tunnels (`economyRoom` is false for it), so the arm plays it with the same orders; a faction
+// cell reads by END, which within one arrangement is by faction, and the two seat orders are read together: a faction edge shows
+// in both, a spawn edge flips between them.
+//
 // What a cell reads (`--seeds` games each; seed n is `seedOf(n)`, the probe's 1000 + 7919 n):
-//   - the ACTIVE cell: both seats play the mode. Fairness is the leader's share of ALL the seeds against 60/40
-//     (`FAIR_MAX_PERCENT`), by END (west/east), and the share of games decided BY THE GOAL (`objective`), which
-//     must reach 70% (`GOAL_SHARE_MIN_PERCENT`);
+//   - the ACTIVE cell: both seats play the mode. Fairness is the leader's share against 60/40 (`FAIR_MAX_PERCENT`), by
+//     END (west/east), read twice: over ALL the seeds, and (GH-976 P4) over the DECISIVE games alone, so that draws (the
+//     flag raid's same-tick double capture) cannot hide a lopsided read; and the share of games decided BY THE GOAL
+//     (`objective`), which must reach 70% (`GOAL_SHARE_MIN_PERCENT`);
 //   - the PASSIVE cells, one per END: that END stays home and the other plays the mode. The passive seat must
 //     lose, every game, before the cap: a cap, a draw or a passive win is a mode a turtle can hold.
 // A mode that fails on a map stays unoffered. Nothing here tunes a unit.
@@ -39,14 +47,16 @@
 // Usage (run through the probe):
 //   pnpm versus:probe -- --mode=camp --maps=wadi_tarfan --seeds=96
 //   flags: --mode=<camp|points|flag|all>  --maps=<id,id>  --seeds=<n>  --seed-from=<n>  --passive=<on|off>  --wipe=<ends|off>  --no-self-check
+//          --arr=<kdf/kdf,kdf/sarim,sarim/kdf>   the factions by END, friendly first; default the mirror (GH-976 P4)
 //          --zones=<zone:rate,...>  --kill=<n>  --target=<n>   fit the points race in memory (never written to disk)
+//          --flags=<x,y,w,h/x,y,w,h>  --hold=<s>   fit the flag raid in memory (friendly then hostile ground; never written to disk)
 
 import { fileURLToPath } from 'node:url';
 import { versusModes, type MapId, type WinModeId } from '@lions/data';
 import { WIN_MODES, matchCapTicks, validateConfig, type MatchConfig } from '@lions/net';
 import { goalsOf, outcomeOf, unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
-import { FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, DECIDE_EVERY_TICKS, SEEDS_DEFAULT, livingOf, loneSurvivorOf, order, roomConfig, seedOf } from './versus-probe';
+import { FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, DECIDE_EVERY_TICKS, SEEDS_DEFAULT, livingOf, loneSurvivorOf, order, parseArrangements, roomConfig, seedOf, type Arrangement } from './versus-probe';
 import { fx, type Sim } from '@lions/sim';
 import { units } from '@lions/data';
 
@@ -66,6 +76,10 @@ export interface ModePlayed {
 }
 
 export interface ModePlayOptions {
+  /** The factions by END, `[friendly, hostile]` (the host's end first): `['kdf', 'kdf']`, the mirror, unless given. A KDF-v-Sarim
+   *  cell is a mode room too (`economyRoom` is false for it): the two PLACED forces, no production, no tunnels, a goals-only
+   *  runtime (GH-976 P4). The cell is read by END, which is by faction within one arrangement. */
+  arr?: Arrangement;
   /** The END that issues no order (0 friendly, 1 hostile). */
   passive?: 0 | 1;
   /** CONTROL ONLY: cut this END to one infantry squad before the first tick. In the flag mode the cut end also takes no
@@ -78,10 +92,13 @@ export interface ModePlayOptions {
   wipeEnds?: false;
 }
 
-/** A mode room's config: the mirror probe cell's, with the mode set. */
-export function modeConfig(mapId: MapId, mode: WinModeId, seed: number): MatchConfig {
-  const c = validateConfig({ ...roomConfig(mapId, ['kdf', 'kdf'], seed), winMode: mode });
-  if (c === null) throw new Error(`versus modes: no valid ${mode} room config for ${mapId}`);
+/** The mirror, the arrangement every cell played before GH-976 P4. */
+export const MIRROR: Arrangement = ['kdf', 'kdf'];
+
+/** A mode room's config: the probe cell's (the mirror unless `arr` says two factions), with the mode set. */
+export function modeConfig(mapId: MapId, mode: WinModeId, seed: number, arr: Arrangement = MIRROR): MatchConfig {
+  const c = validateConfig({ ...roomConfig(mapId, arr, seed), winMode: mode });
+  if (c === null) throw new Error(`versus modes: no valid ${mode} room config for ${mapId} ${arr.join('/')}`);
   return c;
 }
 
@@ -172,7 +189,12 @@ export function pointsOrder(w: MatchWorld, zoneNames: readonly string[], passive
   for (const side of [0, 1] as const) {
     if (side === passiveSide) continue;
     const [ax, ay] = w.anchors[w.endOfSide[side]];
-    const rects = zoneNames.map((n) => ({ name: n, r: w.map.zones[n] }));
+    // The runtime's own rects, so a ground the mode file declares (GH-976 P4) reads like a zone of the map.
+    const rects = zoneNames.map((n) => {
+      const live = runtime.incomeZones.find((z) => z.zone === n);
+      if (live === undefined) throw new Error(`versus modes: the points zone "${n}" is not in the room's runtime`);
+      return { name: n, r: live.rect };
+    });
     // Distances are from the seat's tile CENTRE, so a point-symmetric map gives the two seats mirrored numbers.
     const far = (r: readonly number[]): number => (r[0] + r[2] / 2 - (ax + 0.5)) ** 2 + (r[1] + r[3] / 2 - (ay + 0.5)) ** 2;
     // A tie in distance (the two tells of Milh Flats sit exactly as far from either seat) is broken by the side of the
@@ -205,7 +227,7 @@ export function pointsOrder(w: MatchWorld, zoneNames: readonly string[], passive
 
 /** One game on `mapId` under `mode`. */
 export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: ModePlayOptions = {}): ModePlayed {
-  const config = modeConfig(mapId, mode, seed);
+  const config = modeConfig(mapId, mode, seed, opts.arr);
   const w = buildMatchWorld(config);
   const runtime = w.runtime;
   if (runtime === null) throw new Error(`versus modes: ${mapId} ${mode} built no runtime`);
@@ -273,6 +295,13 @@ export function tallyModes(games: readonly ModePlayed[]): ModeTally {
 
 /** Integer arithmetic throughout: 58 of 96 is 60.4%, over; 57 of 96 is 59.4%, within. */
 export const fairWithin = (t: ModeTally): boolean => Math.max(t.wins[0], t.wins[1]) * 100 <= FAIR_MAX_PERCENT * t.seeds;
+/** The same bar over the DECISIVE games only (GH-976 P4): the leader's share of the games somebody won, so a cell with many
+ *  draws (the flag raid's same-tick double capture) cannot hide a lopsided read behind them. A cell nobody won is not fair,
+ *  it is empty: it fails here rather than passing on zero over zero. */
+export const fairWithinDecisive = (t: ModeTally): boolean => {
+  const decided = t.wins[0] + t.wins[1];
+  return decided > 0 && Math.max(t.wins[0], t.wins[1]) * 100 <= FAIR_MAX_PERCENT * decided;
+};
 export const goalShareOk = (t: ModeTally): boolean => t.goal * 100 >= GOAL_SHARE_MIN_PERCENT * t.seeds;
 /** The passive END lost every game, by the goal or a wipe, never the cap or a draw. */
 export const passiveLost = (t: ModeTally, passiveEnd: 0 | 1): boolean => t.wins[passiveEnd === 0 ? 1 : 0] === t.seeds;
@@ -280,8 +309,11 @@ export const passiveLost = (t: ModeTally, passiveEnd: 0 | 1): boolean => t.wins[
 const pct = (n: number, of: number): string => (of === 0 ? '0.0' : (Math.round((1000 * n) / of) / 10).toFixed(1));
 const mean = (t: ModeTally): number => (t.seeds === 0 ? 0 : Math.round(t.ticks / t.seeds / 20));
 
-export function describeTally(t: ModeTally): string {
-  return `west ${t.wins[0]} / east ${t.wins[1]} / draw ${t.draws}  by goal ${t.by.objective}, wipe ${t.by.annihilation}, mutual ${t.by.mutual}, stalemate ${t.by.stalemate}, cap ${t.by.cap}  mean ${mean(t)} s`;
+/** The tally as one line. A faction cell names the faction at each end, `west (kdf) 12 / east (sarim) 9`; the mirror is
+ *  `west 12 / east 9`, as before. */
+export function describeTally(t: ModeTally, arr: Arrangement = MIRROR): string {
+  const named = (end: string, f: string): string => (arr[0] === arr[1] ? end : `${end} (${f})`);
+  return `${named('west', arr[0])} ${t.wins[0]} / ${named('east', arr[1])} ${t.wins[1]} / draw ${t.draws}  by goal ${t.by.objective}, wipe ${t.by.annihilation}, mutual ${t.by.mutual}, stalemate ${t.by.stalemate}, cap ${t.by.cap}  mean ${mean(t)} s`;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,17 +323,18 @@ export function describeTally(t: ModeTally): string {
 export type ModePlayFn = typeof playMode;
 
 /** The controls on one map and mode; each failure is a sentence. Empty means the arm can tell its sides apart. */
-export function modeSelfCheck(mapId: MapId, mode: WinModeId, playFn: ModePlayFn = playMode): string[] {
+export function modeSelfCheck(mapId: MapId, mode: WinModeId, playFn: ModePlayFn = playMode, arr: Arrangement = MIRROR): string[] {
   const failures: string[] = [];
   const seed = seedOf(0);
+  const cell = arr[0] === arr[1] ? `${mapId} ${mode}` : `${mapId} ${mode} ${arr.join('/')}`;
   for (const strong of [0, 1] as const) {
-    const g = playFn(mapId, mode, seed, { cutEnd: strong === 0 ? 1 : 0 });
-    if (g.winner !== strong) failures.push(`${mapId} ${mode}: with end ${strong === 0 ? 1 : 0} cut to one unit, end ${strong} should win; read winner ${String(g.winner)} by ${g.by}`);
-    if (g.by === 'cap') failures.push(`${mapId} ${mode}: with end ${strong === 0 ? 1 : 0} cut to one unit the game ran to the cap`);
+    const g = playFn(mapId, mode, seed, { cutEnd: strong === 0 ? 1 : 0, arr });
+    if (g.winner !== strong) failures.push(`${cell}: with end ${strong === 0 ? 1 : 0} cut to one unit, end ${strong} should win; read winner ${String(g.winner)} by ${g.by}`);
+    if (g.by === 'cap') failures.push(`${cell}: with end ${strong === 0 ? 1 : 0} cut to one unit the game ran to the cap`);
   }
-  const a = playFn(mapId, mode, seed, {});
-  const b = playFn(mapId, mode, seed, {});
-  if (a.winner !== b.winner || a.by !== b.by || a.ticks !== b.ticks) failures.push(`${mapId} ${mode}: one seed played twice read two games`);
+  const a = playFn(mapId, mode, seed, { arr });
+  const b = playFn(mapId, mode, seed, { arr });
+  if (a.winner !== b.winner || a.by !== b.by || a.ticks !== b.ticks) failures.push(`${cell}: one seed played twice read two games`);
   return failures;
 }
 
@@ -311,7 +344,7 @@ export function modeSelfCheck(mapId: MapId, mode: WinModeId, playFn: ModePlayFn 
 
 /** A points race's numbers, as `--zones`, `--kill` and `--target` set them for one run. */
 export interface PointsOverride {
-  zones?: { zone: string; per_min: number }[];
+  zones?: { zone: string; per_min: number; at?: number[]; size?: number[] }[];
   perValueDestroyed?: number;
   target?: number;
 }
@@ -331,13 +364,56 @@ export function withPointsOverride<T>(mapId: string, o: PointsOverride, fn: () =
   try { return fn(); } finally { Object.assign(block, was); }
 }
 
+/** A flag raid's numbers, as `--flags` and `--hold` set them for one run (GH-976 P4). */
+export interface FlagOverride {
+  /** `[friendly, hostile]`, each `[x, y, w, h]`. */
+  flags?: readonly [readonly number[], readonly number[]];
+  holdS?: number;
+}
+
+/**
+ * Runs `fn` with `mapId`'s flag block replaced IN MEMORY (never written to disk), for fitting the flag grounds on the
+ * selection seeds. Restored afterwards, also on a throw.
+ */
+export function withFlagOverride<T>(mapId: string, o: FlagOverride, fn: () => T): T {
+  const file = versusModes[mapId] as { flags?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } }; modes: { flag?: { hold_s: number } } } | undefined;
+  if (file === undefined || file.modes.flag === undefined || file.flags === undefined) throw new Error(`versus modes: ${mapId} has no flag block to override`);
+  const was = { friendly: file.flags.friendly, hostile: file.flags.hostile, hold_s: file.modes.flag.hold_s };
+  if (o.flags !== undefined) {
+    file.flags.friendly = { at: [o.flags[0][0], o.flags[0][1]], size: [o.flags[0][2], o.flags[0][3]] };
+    file.flags.hostile = { at: [o.flags[1][0], o.flags[1][1]], size: [o.flags[1][2], o.flags[1][3]] };
+  }
+  if (o.holdS !== undefined) file.modes.flag.hold_s = o.holdS;
+  try { return fn(); } finally {
+    file.flags.friendly = was.friendly;
+    file.flags.hostile = was.hostile;
+    file.modes.flag.hold_s = was.hold_s;
+  }
+}
+
+/** `--flags=6,30,5,5/37,13,5,5` as the friendly and the hostile flag rect. */
+export function parseFlags(raw: string): [number[], number[]] {
+  const parts = raw.split('/');
+  const rects = parts.map((r) => r.split(',').map(Number));
+  if (parts.length !== 2 || !rects.every((r) => r.length === 4 && r.every((n) => Number.isInteger(n) && n >= 0) && r[2] >= 1 && r[3] >= 1)) {
+    throw new Error(`--flags: "${raw}" is not <x>,<y>,<w>,<h>/<x>,<y>,<w>,<h> (friendly then hostile)`);
+  }
+  return [rects[0], rects[1]];
+}
+
 /** `--zones=bir_milh:30,tell_nw:20` as a zone list. */
-export function parseZones(raw: string): { zone: string; per_min: number }[] {
+export function parseZones(raw: string): { zone: string; per_min: number; at?: number[]; size?: number[] }[] {
+  // The rect of a declared ground rides after its rate with `@`: `--zones=bir_milh:30,hold_a:20@10,12,6,6` (commas split zones, so the rect
+  // uses `x.y.w.h`: `hold_a:20@10.12.6.6`).
   return raw.split(',').map((part) => {
-    const [zone, rate, ...rest] = part.split(':');
+    const [head, rect, ...more] = part.split('@');
+    const [zone, rate, ...rest] = head.split(':');
     const per_min = Number(rate);
-    if (zone === undefined || zone === '' || rest.length > 0 || !Number.isInteger(per_min) || per_min < 1) throw new Error(`--zones: "${part}" is not <zone>:<points a minute>`);
-    return { zone, per_min };
+    if (zone === undefined || zone === '' || rest.length > 0 || more.length > 0 || !Number.isInteger(per_min) || per_min < 1) throw new Error(`--zones: "${part}" is not <zone>:<points a minute>[@x.y.w.h]`);
+    if (rect === undefined) return { zone, per_min };
+    const n = rect.split('.').map(Number);
+    if (n.length !== 4 || !n.every((v) => Number.isInteger(v) && v >= 0) || n[2] < 1 || n[3] < 1) throw new Error(`--zones: "${part}": the ground is not x.y.w.h`);
+    return { zone, per_min, at: [n[0], n[1]], size: [n[2], n[3]] };
   });
 }
 
@@ -353,6 +429,10 @@ export const modeMaps = (): MapId[] => Object.keys(versusModes) as MapId[];
 /** Prints the report and returns the exit code: 0 for any reading, 2 when the self-check fails. */
 export function modeMain(args: readonly string[] = process.argv.slice(2), playFn: ModePlayFn = playMode): number {
   const modeArg = flag(args, 'mode') ?? 'all';
+  // GH-976 P4: `--arr=kdf/kdf,kdf/sarim,sarim/kdf` as the base probe reads it: the factions by END, friendly first. The default
+  // is the mirror alone, the only cell every earlier reading played. `kdf/sarim` is the matchup `kdf` (the host fields the
+  // KDF and stands west), `sarim/kdf` the matchup `sarim`.
+  const arrangements = parseArrangements(flag(args, 'arr') ?? 'kdf/kdf');
   const modes: WinModeId[] = modeArg === 'all' ? [...WIN_MODES] : [modeArg as WinModeId];
   for (const m of modes) if (!(WIN_MODES as readonly string[]).includes(m)) throw new Error(`--mode: "${m}" is not ${WIN_MODES.join(', ')} or all`);
   const mapIds = (flag(args, 'maps')?.split(',') ?? modeMaps()) as MapId[];
@@ -377,14 +457,24 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
   };
   if (override.perValueDestroyed !== undefined && !(Number.isInteger(override.perValueDestroyed) && override.perValueDestroyed >= 0)) throw new Error('--kill must be a whole number of points per 100 value, 0 or more');
   if (override.target !== undefined && !(Number.isInteger(override.target) && override.target >= 1)) throw new Error('--target must be a whole number of points, 1 or more');
+  const flagsArg = flag(args, 'flags');
+  const holdArg = flag(args, 'hold');
+  const flagOverride: FlagOverride = {
+    ...(flagsArg !== undefined ? { flags: parseFlags(flagsArg) } : {}),
+    ...(holdArg !== undefined ? { holdS: Number(holdArg) } : {}),
+  };
+  if (flagOverride.holdS !== undefined && !(Number.isInteger(flagOverride.holdS) && flagOverride.holdS >= 5 && flagOverride.holdS <= 120)) throw new Error('--hold must be a whole number of seconds, 5 to 120');
+  const flagSweeping = Object.keys(flagOverride).length > 0;
+  if (flagSweeping && !modes.includes('flag')) throw new Error('--flags and --hold sweep the flag raid: they need --mode=flag (or all)');
+  if (flagSweeping) console.log(`flag override (in memory only): ${JSON.stringify(flagOverride)}`);
   const sweeping = Object.keys(override).length > 0;
   if (sweeping && !modes.includes('points')) throw new Error('--zones, --kill and --target sweep the points race: they need --mode=points (or all)');
   if (sweeping) console.log(`points override (in memory only): ${JSON.stringify(override)}`);
   console.log(`versus modes probe: ${seeds} seeds from ${seedFrom} (seed 1000 + 7919 n), bar ${FAIR_MAX_PERCENT}/${100 - FAIR_MAX_PERCENT}, goal share at least ${GOAL_SHARE_MIN_PERCENT}%, passive seat must lose`);
   let failed = 0;
   if (!skipCheck) {
-    for (const mapId of mapIds) for (const mode of modes) {
-      const problems = modeSelfCheck(mapId, mode, playFn);
+    for (const mapId of mapIds) for (const mode of modes) for (const arr of arrangements) {
+      const problems = modeSelfCheck(mapId, mode, playFn, arr);
       for (const p of problems) { console.log(`SELF-CHECK FAILED: ${p}`); failed++; }
     }
     if (failed > 0) return 2;
@@ -396,23 +486,30 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
     return out;
   };
   const run = (mapId: MapId): void => {
-    for (const mode of modes) {
-      const active = tallyModes(rows(mapId, mode, {}));
-      console.log(`${mapId} ${mode} active:   ${describeTally(active)}`);
-      const verdicts = [`fair ${fairWithin(active) ? 'within' : 'OUTSIDE'} (${pct(Math.max(...active.wins), active.seeds)}%)`, `goal share ${pct(active.goal, active.seeds)}% ${goalShareOk(active) ? 'ok' : 'LOW'}`];
+    for (const mode of modes) for (const arr of arrangements) {
+      // The mirror's lines read as they always did; a faction cell names its arrangement, and the faction at each end.
+      const cell = arr[0] === arr[1] ? `${mapId} ${mode}` : `${mapId} ${mode} ${arr.join('/')}`;
+      const active = tallyModes(rows(mapId, mode, { arr }));
+      console.log(`${cell} active:   ${describeTally(active, arr)}`);
+      const verdicts = [
+        `fair ${fairWithin(active) ? 'within' : 'OUTSIDE'} (${pct(Math.max(...active.wins), active.seeds)}%)`,
+        `decisive ${fairWithinDecisive(active) ? 'within' : 'OUTSIDE'} (${pct(Math.max(...active.wins), active.wins[0] + active.wins[1])}% of ${active.wins[0] + active.wins[1]})`,
+        `goal share ${pct(active.goal, active.seeds)}% ${goalShareOk(active) ? 'ok' : 'LOW'}`,
+      ];
       if (passiveOn) {
         for (const end of [0, 1] as const) {
-          const p = tallyModes(rows(mapId, mode, { passive: end }));
-          console.log(`${mapId} ${mode} passive ${end === 0 ? 'west' : 'east'}: ${describeTally(p)}`);
+          const p = tallyModes(rows(mapId, mode, { passive: end, arr }));
+          console.log(`${cell} passive ${end === 0 ? 'west' : 'east'}: ${describeTally(p, arr)}`);
           verdicts.push(`passive ${end === 0 ? 'west' : 'east'} ${passiveLost(p, end) ? 'loses' : 'DOES NOT ALWAYS LOSE'} (goal share ${pct(p.goal, p.seeds)}%)`);
         }
       }
-      console.log(`  => ${mapId} ${mode}: ${verdicts.join('; ')}`);
+      console.log(`  => ${cell}: ${verdicts.join('; ')}`);
     }
   };
   for (const mapId of mapIds) {
-    if (sweeping && modes.includes('points')) withPointsOverride(mapId, override, () => run(mapId));
-    else run(mapId);
+    const pointed = (): void => (sweeping && modes.includes('points') ? withPointsOverride(mapId, override, () => run(mapId)) : run(mapId));
+    if (flagSweeping && modes.includes('flag')) withFlagOverride(mapId, flagOverride, pointed);
+    else pointed();
   }
   return 0;
 }

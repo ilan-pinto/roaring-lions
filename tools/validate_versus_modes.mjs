@@ -11,8 +11,9 @@
 //     `flag_friendly` / `flag_hostile`, and the room refuses a name that is taken);
 //   - every camp tile is inside the map, on open ground (OPEN_SYMBOLS, the rules files' own set), the camp
 //     stands within CAMP_REACH tiles (Chebyshev) of its END's anchor, and the two camps do not overlap;
-//   - a points zone names a zone the map declares, once, and contains NEITHER end's anchor: a seat that held a
-//     scoring zone from its first tick would be paid for standing still;
+//   - a points zone names a zone the map declares, or (with `at` and `size`, GH-976 P4) declares its own ground, whose name
+//     the map does not have and which is at least half open; either way it is listed once and contains NEITHER end's anchor:
+//     a seat that held a scoring zone from its first tick would be paid for standing still;
 //   - no `seconds` anywhere: a mode objective has no deadline, the match cap is its clock. (The schema forbids
 //     extra keys already; this names the reason, because a primary `raze` in a MISSION must declare `seconds`
 //     and an author copying that rule here would shorten the mode below the cap.)
@@ -117,10 +118,26 @@ export function versusModeFailures(files, mapsById) {
     for (const f of flagRects) for (const c of camps) if (f.tiles.some((t) => c.tiles.includes(t))) out.push(`${file}: the ${f.end} flag overlaps the ${c.end} camp`);
     const zoneSeen = new Set();
     for (const z of modes.points?.zones ?? []) {
-      const r = mapZones[z.zone];
+      // A zone with `at` + `size` is a ground this file DECLARES (GH-976 P4); one without names a zone the map has.
+      const declared = Array.isArray(z.at) && Array.isArray(z.size);
+      if ((z.at === undefined) !== (z.size === undefined)) out.push(`${file}: points zone "${z.zone}" gives \`at\` or \`size\` without the other`);
+      if (declared && Object.hasOwn(mapZones, z.zone)) out.push(`${file}: points zone "${z.zone}" declares its own ground, and the map already has a zone of that name`);
+      if (declared && /^(flag|camp_yard)_/.test(z.zone)) out.push(`${file}: points zone "${z.zone}" takes a name the loader gives a flag or a camp`);
+      const r = declared ? [z.at[0], z.at[1], z.size[0], z.size[1]] : mapZones[z.zone];
       if (r === undefined) {
         out.push(`${file}: points zone "${z.zone}" is not a zone of map "${doc.map}"`);
         continue;
+      }
+      if (declared) {
+        let open = 0;
+        for (let y = r[1]; y < r[1] + r[3]; y++) {
+          for (let x = r[0]; x < r[0] + r[2]; x++) {
+            if (x < 0 || y < 0 || x >= map.width || y >= map.height) { out.push(`${file}: points zone "${z.zone}" tile (${x},${y}) is off the ${map.width}x${map.height} map`); continue; }
+            if (OPEN_SYMBOLS.has(map.rows[y][x])) open++;
+          }
+        }
+        // A holder has to be able to stand in it: at least half of a declared ground is open.
+        if (open * 2 < r[2] * r[3]) out.push(`${file}: points zone "${z.zone}" is ${open} open tiles of ${r[2] * r[3]}: a side could hardly stand in it`);
       }
       if (zoneSeen.has(z.zone)) out.push(`${file}: points zone "${z.zone}" is listed twice`);
       zoneSeen.add(z.zone);
