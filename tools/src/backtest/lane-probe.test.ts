@@ -107,6 +107,25 @@ describe('splitOrders on a real Rujm Sawda world', () => {
     const a = q.mock.calls.map((c) => c[0] as { ids: number[]; x: number; y: number }).find((c) => groupOf(sim, c.ids[0]) === 'armour');
     expect([a?.x, a?.y]).toEqual(target); // mutation: `s.passed[g] ?` -> `false ?` sends it back to the lane
   });
+  it('two half-turn mirrored groups at mirrored distances are marked passed on the same order, from either seat', () => {
+    // mutation: measure to `lane[0], lane[1]` (the tile corner) and only the west group passes
+    const { sim, force } = build();
+    const { sideOfEnd } = layoutOf(arr);
+    const ground = (side: number) => force.bySide[side].filter((id) => groupOf(sim, id) === 'armour');
+    const west = ground(sideOfEnd[0]);
+    const east = ground(sideOfEnd[1]);
+    // 5.4 tiles short of the marker's tile centre along the diagonal the group arrives on: 7.64 from the centre,
+    // 6.93 from the NW corner (west, coming from the NW) and 8.34 from it (east, coming from the SE)
+    const stand = (ids: number[], x: number, y: number) => { for (const id of ids) { sim.state.posX[id] = fx.from(x); sim.state.posY[id] = fx.from(y); } };
+    stand(west, FORD_NE[0] + 0.5 - 5.4, FORD_NE[1] + 0.5 - 5.4);
+    stand(east, FORD_SW[0] + 0.5 + 5.4, FORD_SW[1] + 0.5 + 5.4);
+    const w: Splitter = { lane: { armour: FORD_NE, foot: FORD_SW }, passed: { armour: false, foot: false } };
+    const e: Splitter = { lane: { armour: FORD_SW, foot: FORD_NE }, passed: { armour: false, foot: false } };
+    splitOrders(sim, force.bySide[sideOfEnd[0]], w, target);
+    splitOrders(sim, force.bySide[sideOfEnd[1]], e, target);
+    expect([w.passed.armour, e.passed.armour]).toEqual([true, true]);
+  });
+
 });
 
 describe('playLane', () => {
