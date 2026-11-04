@@ -3,7 +3,12 @@
 //
 //   - `id` is the map, each map has exactly one file, and the map is one a versus room is offered on
 //     (OFFERED_MAPS, @lions/net's VERSUS_FAIR_MAPS; the test pins the copy);
-//   - `modes` names only known modes (WIN_MODES), and `camps` is present exactly when the `camp` mode is;
+//   - `modes` names only known modes (WIN_MODES), and `camps` is present exactly when the `camp` mode is,
+//     `flags` exactly when the `flag` mode is (GH-976 P3);
+//   - a flag zone is inside the map, every tile of it open ground (a raider has to be able to stand there), holds
+//     NEITHER end's anchor (a seat that spawned on its flag would contest it from its first tick and a raid could
+//     never begin), does not overlap the other flag or a camp, and is no zone of the map already (the loader adds
+//     `flag_friendly` / `flag_hostile`, and the room refuses a name that is taken);
 //   - every camp tile is inside the map, on open ground (OPEN_SYMBOLS, the rules files' own set), the camp
 //     stands within CAMP_REACH tiles (Chebyshev) of its END's anchor, and the two camps do not overlap;
 //   - a points zone names a zone the map declares, once, and contains NEITHER end's anchor: a seat that held a
@@ -17,7 +22,7 @@
 import { CAMP_REACH, OPEN_SYMBOLS, anchorsOf } from './validate_versus_rules.mjs';
 
 /** @lions/net WIN_MODES. */
-export const WIN_MODES = ['camp', 'points'];
+export const WIN_MODES = ['camp', 'points', 'flag'];
 
 /** @lions/net VERSUS_FAIR_MAPS: the maps a versus room may be hosted on. */
 export const OFFERED_MAPS = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
@@ -49,6 +54,8 @@ export function versusModeFailures(files, mapsById) {
     }
     if (modes.camp !== undefined && doc.camps === undefined) out.push(`${file}: the camp mode needs \`camps\``);
     if (modes.camp === undefined && doc.camps !== undefined) out.push(`${file}: \`camps\` is declared and no camp mode uses it`);
+    if (modes.flag !== undefined && doc.flags === undefined) out.push(`${file}: the flag mode needs \`flags\``);
+    if (modes.flag === undefined && doc.flags !== undefined) out.push(`${file}: \`flags\` is declared and no flag mode uses it`);
     if (JSON.stringify(doc).includes('"seconds"')) out.push(`${file}: a mode objective has no \`seconds\`: the match cap is its clock`);
 
     const camps = [];
@@ -79,6 +86,35 @@ export function versusModeFailures(files, mapsById) {
     if (camps.length === 2 && camps[0].tiles.some((t) => camps[1].tiles.includes(t))) out.push(`${file}: the two camps overlap`);
 
     const mapZones = map.zones ?? {};
+    const flagRects = [];
+    for (const end of ['friendly', 'hostile']) {
+      const flag = doc.flags?.[end];
+      if (!flag || !Array.isArray(flag.at) || !Array.isArray(flag.size)) continue;
+      const [fx, fy] = flag.at;
+      const [fw, fh] = flag.size;
+      if (Object.hasOwn(mapZones, `flag_${end}`)) out.push(`${file}: the map already has a zone "flag_${end}"`);
+      const tiles = [];
+      for (let y = fy; y < fy + fh; y++) {
+        for (let x = fx; x < fx + fw; x++) {
+          tiles.push(`${x},${y}`);
+          if (x < 0 || y < 0 || x >= map.width || y >= map.height) {
+            out.push(`${file}: ${end} flag tile (${x},${y}) is off the ${map.width}x${map.height} map`);
+            continue;
+          }
+          const ch = map.rows[y][x];
+          if (!OPEN_SYMBOLS.has(ch)) out.push(`${file}: ${end} flag tile (${x},${y}) is "${ch}", not open ground (blocked, boulder, ditch or a building)`);
+        }
+      }
+      if (anchors) {
+        for (const e2 of ['friendly', 'hostile']) {
+          const [px, py] = anchors[e2];
+          if (px >= fx && px < fx + fw && py >= fy && py < fy + fh) out.push(`${file}: the ${end} flag holds the ${e2} anchor (${px},${py}): that seat would contest it from its first tick`);
+        }
+      }
+      flagRects.push({ end, tiles });
+    }
+    if (flagRects.length === 2 && flagRects[0].tiles.some((t) => flagRects[1].tiles.includes(t))) out.push(`${file}: the two flags overlap`);
+    for (const f of flagRects) for (const c of camps) if (f.tiles.some((t) => c.tiles.includes(t))) out.push(`${file}: the ${f.end} flag overlaps the ${c.end} camp`);
     const zoneSeen = new Set();
     for (const z of modes.points?.zones ?? []) {
       const r = mapZones[z.zone];

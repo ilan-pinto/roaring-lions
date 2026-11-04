@@ -10,7 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { versusModes } from '@lions/data';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
 import { pointsViewOf } from '../../../packages/app/src/net/points-view';
-import { modeConfig, pointsOrder } from '../backtest/versus-modes';
+import { flagViewOf } from '../../../packages/app/src/net/flag-view';
+import { flagOrder, modeConfig, pointsOrder, raidParty } from '../backtest/versus-modes';
 import { AgentClient } from './agent-client';
 import { parseArgs as parseAgentArgs } from './agent';
 import { parseArgs as parseArenaArgs, refusalOf, resolvePlayer, runArena, untrusted } from './arena';
@@ -97,6 +98,72 @@ describe('observe in a points room (GH-976 P2)', () => {
   });
 });
 
+describe('observe in a flag room (GH-976 P3)', () => {
+  const flagWorld = (map: 'wadi_tarfan' | 'milh_flats' = 'wadi_tarfan', seed = 4000) => buildMatchWorld(modeConfig(map, 'flag', seed));
+  const ends = (w: ReturnType<typeof flagWorld>): [0 | 1, 0 | 1] => [w.endOfSide[0] === 'friendly' ? 0 : 1, w.endOfSide[0] === 'friendly' ? 1 : 0];
+
+  it('names the mode and both flags: where, the hold, and how each raid stands, from the same function as the browser\'s marks', () => {
+    for (const map of ['wadi_tarfan', 'milh_flats'] as const) {
+      const w = flagWorld(map);
+      const fog = new FogTracker(w.sim, 0);
+      const v = sideView(w, 0, fog, null);
+      expect(v.mode).toBe('flag');
+      const f = versusModes[map].flags!;
+      expect(v.flags).toEqual(flagViewOf(w.runtime!, { flags: f, modes: versusModes[map].modes }, 0, w.endOfSide[0]));
+      expect(v.flags!.holdSeconds).toBe(30);
+      // Side 0 stands at the friendly end of a mirror room: it defends the friendly flag and raids the hostile one.
+      expect(v.flags!.mine.at).toEqual([f.friendly.at[0], f.friendly.at[1], f.friendly.size[0], f.friendly.size[1]]);
+      expect(v.flags!.theirs.at).toEqual([f.hostile.at[0], f.hostile.at[1], f.hostile.size[0], f.hostile.size[1]]);
+      expect([v.flags!.mine.state, v.flags!.theirs.state]).toEqual(['open', 'open']);
+      expect(v).not.toHaveProperty('points');
+      expect(v).not.toHaveProperty('economy');
+    }
+  });
+
+  it('a seat at the other end reads the same board from its own side: mine and theirs swap', () => {
+    const w = flagWorld();
+    const a = sideView(w, 0, new FogTracker(w.sim, 0), null).flags!;
+    const b = sideView(w, 1, new FogTracker(w.sim, 1), null).flags!;
+    expect(b.mine.at).toEqual(a.theirs.at);
+    expect(b.theirs.at).toEqual(a.mine.at);
+  });
+
+  it('follows a raid: open, then raiding with the seconds held, and captured at the end; the defender sees its own flag raided', () => {
+    const w = flagWorld();
+    const parties = new Map<number, readonly number[]>([[0, raidParty(w, 0)], [1, raidParty(w, 1)]]);
+    const seen: string[] = [];
+    let raiding: { held: number } | null = null;
+    // Side 1 stays home; side 0's raid walks to the hostile flag and holds it.
+    for (let t = 0; t < 2000; t++) {
+      if (t % 400 === 0) flagOrder(w, 'wadi_tarfan', parties, new Set([1]), ends(w));
+      matchTick(w);
+      if (t % 20 === 0) {
+        const mine = sideView(w, 0, new FogTracker(w.sim, 0), null).flags!;
+        const theirs = sideView(w, 1, new FogTracker(w.sim, 1), null).flags!;
+        // The two seats read ONE raid: side 0's `theirs` is side 1's `mine`.
+        expect(theirs.mine.state).toBe(mine.theirs.state);
+        expect(theirs.mine.held).toBe(mine.theirs.held);
+        seen.push(mine.theirs.state);
+        if (mine.theirs.state === 'raiding') raiding = { held: mine.theirs.held };
+      }
+    }
+    expect(seen[0]).toBe('open');
+    expect(raiding).not.toBeNull();
+    expect(seen).toContain('raiding');
+    expect(seen.at(-1)).toBe('captured');
+  });
+
+  it('fog: the flag board names no unit, and says nothing a points room or an annihilation room would not', () => {
+    const w = flagWorld();
+    const v = sideView(w, 0, new FogTracker(w.sim, 0), null);
+    expect(JSON.stringify(v.flags)).not.toMatch(/"(id|type|hp|tile|units|contacts)"/);
+    expect(Object.keys(v.flags!).sort()).toEqual(['holdSeconds', 'mine', 'theirs']);
+    for (const line of [v.flags!.mine, v.flags!.theirs]) expect(Object.keys(line).sort()).toEqual(['at', 'held', 'state']);
+    const annihilation = sideView(buildMatchWorld({ ...modeConfig('wadi_tarfan', 'flag', 4000), winMode: undefined }), 0, new FogTracker(w.sim, 0), null);
+    expect(annihilation).not.toHaveProperty('flags');
+  });
+});
+
 describe('a points room has no economy to show or to order (the runtime is there; its lines and purse are not)', () => {
   it('economyView is null, and a production order is refused in words, not run against a goals-only runtime', () => {
     const w = world();
@@ -139,7 +206,7 @@ describe('the standing prompt says how the mode is won (GH-976 P2)', () => {
     expect(() => applyWinRule(PROMPT.replace('9. Losing units', '9. Losses'), 'points')).toThrow(/renumber/);
   });
   it('--mode is a known win mode or annihilation, nothing else', () => {
-    expect([modeFlag('points'), modeFlag('camp'), modeFlag('annihilation'), modeFlag('flag'), modeFlag('')]).toEqual(['points', 'camp', null, undefined, undefined]);
+    expect([modeFlag('points'), modeFlag('camp'), modeFlag('annihilation'), modeFlag('flag'), modeFlag('rally'), modeFlag('')]).toEqual(['points', 'camp', null, 'flag', undefined, undefined]);
   });
 });
 
@@ -150,8 +217,9 @@ describe('pnpm bot --mode', () => {
     expect(parseBotArgs([...base, '--mode=points'])).toMatchObject({ winMode: 'points' });
     expect(parseBotArgs([...base, '--mode', 'points'])).toMatchObject({ winMode: 'points' });
     expect(parseBotArgs([...base, '--mode=annihilation'])).toMatchObject({ winMode: null });
-    const bad = parseBotArgs([...base, '--mode=flag']);
-    expect('error' in bad && bad.error).toMatch(/--mode is annihilation\|camp\|points/);
+    const bad = parseBotArgs([...base, '--mode=rally']);
+    expect('error' in bad && bad.error).toMatch(/--mode is annihilation\|camp\|points\|flag/);
+    expect(parseBotArgs([...base, '--mode=flag'])).toMatchObject({ winMode: 'flag' });
   });
   it('the prompt and the harness\'s arguments follow it; without it neither mentions a mode', () => {
     const withMode = botPrompt({ room: 'ABCDEF', seat: 1, winMode: 'points' });
@@ -179,7 +247,7 @@ describe('pnpm agent --mode, and a room that plays another mode than the player 
     expect(parseAgentArgs(argv([]))).not.toHaveProperty('mode');
     expect(parseAgentArgs(argv(['--mode', 'points']))).toMatchObject({ mode: 'points' });
     expect(parseAgentArgs(argv(['--mode', 'annihilation']))).toMatchObject({ mode: null });
-    expect('error' in parseAgentArgs(argv(['--mode', 'flag']))).toBe(true);
+    expect('error' in parseAgentArgs(argv(['--mode', 'rally']))).toBe(true);
   });
 
   beforeEach(() => { vi.useFakeTimers({ now: ROOM_NOW }); });
@@ -240,8 +308,9 @@ describe('pnpm arena --mode', () => {
     expect(parseArenaArgs([...base, '--mode=points'])).toMatchObject({ winMode: 'points' });
     expect(parseArenaArgs([...base, '--mode', 'points'])).toMatchObject({ winMode: 'points' });
     expect(parseArenaArgs([...base, '--mode=annihilation'])).not.toHaveProperty('winMode');
-    const bad = parseArenaArgs([...base, '--mode=flag']);
-    expect('error' in bad && bad.error).toMatch(/--mode is annihilation\|camp\|points/);
+    const bad = parseArenaArgs([...base, '--mode=rally']);
+    expect('error' in bad && bad.error).toMatch(/--mode is annihilation\|camp\|points\|flag/);
+    expect(parseArenaArgs([...base, '--mode=flag'])).toMatchObject({ winMode: 'flag' });
   });
   it('the cap defaults to the map\'s own with a mode (a points game outlasts 12,000 ticks), and to 12,000 without; an explicit one wins', () => {
     const cap = (extra: string[], map = 'wadi_tarfan') => (parseArenaArgs(['--a', 'passive', '--b', 'passive', '--map', map, ...extra]) as { capTicks: number }).capTicks;
@@ -251,11 +320,31 @@ describe('pnpm arena --mode', () => {
     expect(cap(['--mode', 'points'], 'milh_flats')).toBe(25 * 60 * 20);
     expect(cap(['--mode=points', '--cap-ticks=5000'])).toBe(5000);
   });
+  const numbered = (text: string): number[] => [...text.matchAll(/^(\d+)\. /gm)].map((m) => Number(m[1]));
+  it('a flag prompt replaces the annihilation rule with the raid, says what `flags` holds, and keeps the list numbered 1 to 11', () => {
+    const p = standingPrompt({ seat: 0, code: 'ABCDEF', winMode: 'flag' });
+    expect(p).not.toContain(ANNIHILATION_RULE[0]);
+    expect(p).toContain('CAPTURING THE ENEMY FLAG');
+    expect(p).toContain('`observe` shows `flags`');
+    expect(p).toMatch(/^8\. Defend your own flag ground/m);
+    expect(numbered(p.slice(p.indexOf('## The game'), p.indexOf('## You')))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(p).toContain('in eleven lines');
+  });
+  it('GH-976 P3: a points prompt says the cap is decided on the points, and a flag or camp prompt still says surviving force', () => {
+    const points = standingPrompt({ seat: 1, code: 'ABCDEF', winMode: 'points' });
+    expect(points).toMatch(/^7\. .*MORE POINTS wins and level points draw/m);
+    expect(points).not.toMatch(/^7\. .*nobody reaches the target.*larger surviving force value wins; equal values draw/m);
+    for (const mode of ['flag', 'camp'] as const) expect(standingPrompt({ seat: 1, code: 'ABCDEF', winMode: mode })).toMatch(/^7\. .*the side with the larger surviving force value wins; equal values draw/m);
+  });
   it('refuses, as the lobby would not offer it, a mode unfair on the map or off the mirror (exit 2, before any room)', () => {
     expect(refusalOf('wadi_tarfan', 'mirror', 'points')).toBeNull();
     expect(refusalOf('milh_flats', 'mirror', 'points')).toBeNull();
     expect(refusalOf('tel_marum', 'mirror', 'points')).toMatch(/not offered on this map/);
     expect(refusalOf('wadi_tarfan', 'mirror', 'camp')).toMatch(/not offered on this map/);
+    expect(refusalOf('wadi_tarfan', 'mirror', 'flag')).toBeNull();
+    expect(refusalOf('milh_flats', 'mirror', 'flag')).toBeNull();
+    expect(refusalOf('tel_marum', 'mirror', 'flag')).toMatch(/not offered on this map/);
+    expect(refusalOf('wadi_tarfan', 'kdf', 'flag')).toMatch(/mirror matchup/);
     expect(refusalOf('wadi_tarfan', 'sarim', 'points')).toMatch(/mirror matchup/);
     expect(refusalOf('wadi_tarfan', 'mirror')).toBeNull();   // annihilation: as ever
   });
@@ -318,6 +407,55 @@ describe('a points race played through the arena (GH-976 P2)', () => {
       expect(md).toContain('| objective | points race |');
       expect(md).toContain('Points by source');
       expect(lines.some((l) => /\(objective\) at tick/.test(l))).toBe(true);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  }, 280_000);
+});
+
+// One real flag raid, end to end: the Worker's route and room, two in-process players (a stub that sends two infantry squads at
+// the enemy flag and leaves the rest where they stand, and a passive control), the referee's tally and the report.
+describe('a flag raid played through the arena (GH-976 P3)', () => {
+  const tileCentre = (t: number): number => (t + 0.5) * 65536;
+  /** The stub reads `observe` only: its first two infantry squads, ordered once on the middle of the flag `observe` names as `theirs`. */
+  let sent = false;
+  let lastTick = -1;
+  const raidStub: Policy = (view) => {
+    if (view.tick < lastTick) sent = false; // a new game
+    lastTick = view.tick;
+    if (sent || view.flags === undefined) return [];
+    const squads = view.units.filter((u) => u.type === 'inf_squad').slice(0, 2).map((u) => u.id);
+    if (squads.length < 2) return [];
+    sent = true;
+    const [x, y, w, h] = view.flags.theirs.at;
+    return [{ kind: 'attackMove' as const, ids: squads, x: tileCentre(Math.floor(x + w / 2)), y: tileCentre(Math.floor(y + h / 2)) }];
+  };
+
+  it('decides on the flag: the raid captures against a passive seat from either seat, the record and the report say so', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'flag-arena-'));
+    try {
+      const lines: string[] = [];
+      const games: GameRecord[] = [];
+      const run = await runArena(
+        ['--a', 'cmd:raid', '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'wadi_tarfan', '--mode=flag', '--pace', '600', '--tick-ms', '1', '--cap-ticks', '24000', '--out', out],
+        {
+          log: (l) => { lines.push(l); }, print: () => {},
+          resolvePlayer: (spec, log) => (spec === 'cmd:raid' ? inProcess('cmd:raid', raidStub, { log }) : resolvePlayer(spec, log)),
+          onGameEnd: ({ record }) => { games.push(record); },
+        },
+      );
+      expect(run.code, lines.join('\n')).toBe(0);
+      expect(games).toHaveLength(2);
+      for (const g of games) {
+        expect(g.mode).toBe('flag');
+        expect(g.outcome, `${g.players} ${g.by}`).toBe(g.players[0] === 'Player A' ? 'seat0' : 'seat1');
+        expect(g.by).toBe('objective');
+        expect(g.ticks).toBeLessThan(120 * 20);
+        expect(g.referee!.mode).toBe('flag'); // the referee's stats name the mode (a camp or flag room read as annihilation before)
+      }
+      const md = readFileSync(join(out, readdirSync(out).find((f) => f.endsWith('.md')) ?? ''), 'utf8');
+      expect(md).toMatch(/^# Arena: wadi_tarfan, mirror, flag$/m);
+      expect(md).toContain('| objective | flag captured |');
     } finally {
       rmSync(out, { recursive: true, force: true });
     }

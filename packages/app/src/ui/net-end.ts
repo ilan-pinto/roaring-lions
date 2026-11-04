@@ -47,8 +47,12 @@ export function netEndReason(o: MatchResult, viewer: 0 | 1): string {
   const verdict = verdictOf(o, viewer);
   if (o.by === 'stalemate' || o.by === 'time') {
     const theirs = viewer === 0 ? 1 : 0;
+    // GH-976 P3: the time limit of a points room was decided on the points, so the panel says points, not forces.
+    if (o.by === 'time' && o.points !== undefined) return t(`versus.end.points.time.${verdict}`, { mine: amount(o.points[viewer]), theirs: amount(o.points[theirs]) });
     return t(`versus.end.forces.${verdict}`, { cause: o.by, mine: amount(o.forces[viewer]), theirs: amount(o.forces[theirs]) });
   }
+  // GH-976 P3: a draw in a win-mode room names the goal both sides finished together, not "both forces destroyed".
+  if (o.kind === 'draw' && o.by === 'mutual' && o.mode !== undefined) return t('versus.end.mutual.mode', { mode: o.mode });
   // GH-976: a win mode names its goal, and each seat reads its own side of it.
   if (o.by === 'objective') return t(verdict === 'lost' ? 'versus.end.objective.lost' : 'versus.end.objective.won', { mode: o.mode });
   // The loser reads its own side of the same reason: "Your force is destroyed".

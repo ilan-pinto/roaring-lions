@@ -110,7 +110,26 @@ describe('RefereeTally in a points race', () => {
     const bad = JSON.parse(JSON.stringify(good)) as { seats: { points: unknown }[] };
     bad.seats[0].points = { total: 'many' };
     expect(checkReferee(bad)).toBeNull();
-    expect(checkReferee({ ...good, mode: 'flag' })).toBeNull();
+    expect(checkReferee({ ...good, mode: 'rally' })).toBeNull();
+  });
+
+  it('GH-976 P3: a camp or flag room names its mode in the stats (it read as annihilation before), a points race stays points, and the checker takes all three', () => {
+    const { stats } = script();
+    const plain = new RefereeTally();
+    const read = (t: RefereeTally) => t.stats(SIM, { map: 'wadi_tarfan', sides: [0, 1], factions: ['kdf', 'kdf'], result: null });
+    expect(read(plain).mode).toBe('annihilation');
+    for (const mode of ['camp', 'flag'] as const) {
+      const t = new RefereeTally();
+      t.setMode(mode);
+      const s = read(t);
+      expect(s.mode, mode).toBe(mode);
+      expect(s).not.toHaveProperty('target');
+      expect(s.seats.every((x) => x.points === undefined)).toBe(true);
+      expect(checkReferee(JSON.parse(JSON.stringify(s))), mode).not.toBeNull();
+    }
+    const pts = script();
+    expect(pts.stats().mode).toBe('points');
+    expect(stats().mode).toBe('points');
   });
 
   it('the judge\'s glossary and the table say what points by source mean', () => {

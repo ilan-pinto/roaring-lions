@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
 import { VERSUS_FAIR_MAPS, WIN_MODES as NET_WIN_MODES, WIN_MODE_FAIR_MAPS, economyRoom, validateConfig, winModeAllowed, winModeField, type MatchConfig } from '@lions/net';
-import { campYardZone, maps, versusModeMissionOf, versusModes, versusRules, WIN_MODES, type VersusModeFileJson } from '@lions/data';
+import { campYardZone, flagZone, maps, versusModeMissionOf, versusModes, versusRules, WIN_MODES, type VersusModeFileJson } from '@lions/data';
 import { OFFERED_MAPS, WIN_MODES as MJS_WIN_MODES, versusModeFailures } from '../validate_versus_modes.mjs';
 import { buildMatchWorld } from '../../packages/app/src/net/match-world';
 
@@ -16,7 +16,8 @@ interface Doc {
   id: string;
   map: string;
   camps?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } };
-  modes: { camp?: Record<string, unknown>; points?: { zones: { zone: string; per_min: number }[]; per_value_destroyed: number; target: number } };
+  flags?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } };
+  modes: { camp?: Record<string, unknown>; flag?: { hold_s: number }; points?: { zones: { zone: string; per_min: number }[]; per_value_destroyed: number; target: number } };
 }
 const shipped: { file: string; doc: Doc }[] = readdirSync(DIR)
   .filter((f) => f.endsWith('.json'))
@@ -45,7 +46,8 @@ describe('the shipped win-mode files', () => {
     expect(OFFERED_MAPS).toEqual([...VERSUS_FAIR_MAPS]);
     expect(winModeField('camp')).toBe('camp');
     expect(winModeField('points')).toBe('points');
-    expect(winModeField('flag')).toBeUndefined();
+    expect(winModeField('flag')).toBe('flag');
+    expect(winModeField('rally')).toBeUndefined();
     expect(winModeField(undefined)).toBeUndefined();
   });
 
@@ -58,9 +60,37 @@ describe('the shipped win-mode files', () => {
       }
     }
     expect(WIN_MODE_FAIR_MAPS.points).toEqual(['wadi_tarfan', 'milh_flats']);
+    expect(WIN_MODE_FAIR_MAPS.flag).toEqual(['wadi_tarfan', 'milh_flats']); // GH-976 P3: 56.9% / 52.1%, 96.5% / 78.5% by the flag, passive ends lose 288 of 288: see config.ts
     expect(WIN_MODE_FAIR_MAPS.camp).toEqual([]); // 4.9% / 58.3% decided by the camp, passive ends win 8-47 of 288: see config.ts
     expect(winModeAllowed('camp', 'wadi_tarfan')).toBe(false);
     expect(winModeAllowed('points', 'tel_marum')).toBe(false);
+    expect(winModeAllowed('flag', 'tel_marum')).toBe(false);
+  });
+
+  it('GH-976 P3: the flag zones come in point-symmetric pairs, so both seats raid the same ground', () => {
+    for (const s of shipped) {
+      const map = (maps as unknown as Record<string, { width: number; height: number }>)[s.doc.map];
+      const f = s.doc.flags!;
+      expect(f.friendly.size, `${s.doc.map} size`).toEqual(f.hostile.size);
+      // A rectangle at (x, y) of size (w, h) is carried by the half turn to (W - x - w, H - y - h).
+      expect(f.hostile.at, `${s.doc.map} flags are a half turn apart`).toEqual([map.width - f.friendly.at[0] - f.friendly.size[0], map.height - f.friendly.at[1] - f.friendly.size[1]]);
+      expect(s.doc.modes.flag!.hold_s).toBe(30);
+    }
+  });
+
+  it('GH-976 P3: no flag tile is a tile the placed force spawns on, so no raid begins with a seat on its own flag', () => {
+    for (const { doc } of shipped) {
+      const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map: doc.map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'flag' } as never) as MatchConfig;
+      const w = buildMatchWorld(c);
+      const occupied = new Set<string>();
+      for (const ids of w.bySide) for (const i of ids) occupied.add(`${Math.floor(w.sim.state.posX[i] / 65536)},${Math.floor(w.sim.state.posY[i] / 65536)}`);
+      for (const end of ['friendly', 'hostile'] as const) {
+        const f = doc.flags![end];
+        for (let dy = 0; dy < f.size[1]; dy++) for (let dx = 0; dx < f.size[0]; dx++) {
+          expect(occupied.has(`${f.at[0] + dx},${f.at[1] + dy}`), `${doc.map} ${end} flag tile under a unit`).toBe(false);
+        }
+      }
+    }
   });
 
   it('wadi_tarfan\'s camps are its rules file\'s, and milh_flats\' two camps are point-symmetric about the map centre', () => {
@@ -153,10 +183,45 @@ describe('versusModeFailures, one mutation at a time', () => {
     expect(only(home)).toEqual(['data/versus/modes/wadi_tarfan.json: points zone "camp_0" holds the friendly anchor (10,10): that seat would score from its first tick']);
   });
 
+  const flags = (d: Doc): NonNullable<Doc['flags']> => d.flags!;
+
+  it('GH-976 P3: the flag mode needs flags, and flags need the flag mode', () => {
+    const noFlags = wt();
+    delete (noFlags as { flags?: unknown }).flags;
+    expect(only(noFlags)).toEqual(['data/versus/modes/wadi_tarfan.json: the flag mode needs `flags`']);
+    const noMode = wt();
+    delete (noMode.modes as { flag?: unknown }).flag;
+    expect(only(noMode)).toEqual(['data/versus/modes/wadi_tarfan.json: `flags` is declared and no flag mode uses it']);
+  });
+
+  it('GH-976 P3: a flag tile off the map or on a building, a flag on a seat, flags that overlap each other or a camp, and a zone the map already has', () => {
+    const off = wt();
+    flags(off).friendly.at = [-1, 26];
+    expect(only(off).some((f) => /friendly flag tile \(-1,26\) is off the 48x48 map/.test(f))).toBe(true);
+    const wall = wt();
+    flags(wall).hostile.at = [40, 10]; // row 10 col 40 is a house tile
+    expect(only(wall).some((f) => /hostile flag tile .* not open ground/.test(f))).toBe(true);
+    const seat = wt();
+    flags(seat).friendly.at = [8, 8]; // the friendly anchor is (10,10)
+    expect(only(seat).some((f) => /the friendly flag holds the friendly anchor \(10,10\)/.test(f))).toBe(true);
+    const clash = wt();
+    flags(clash).hostile.at = [...flags(clash).friendly.at];
+    expect(only(clash).some((f) => /the two flags overlap/.test(f))).toBe(true);
+    const onCamp = wt();
+    flags(onCamp).friendly.at = [6, 6]; // the camp is [7,7,2,2]
+    expect(only(onCamp).some((f) => /the friendly flag overlaps the friendly camp/.test(f))).toBe(true);
+    const named = clone(modeFor('wadi_tarfan')[0]);
+    const taken = { ...(maps.wadi_tarfan as unknown as { zones: Record<string, number[]> }) };
+    taken.zones = { ...taken.zones, flag_friendly: [0, 0, 1, 1] };
+    const byId = new Map<string, unknown>(mapsById);
+    byId.set('wadi_tarfan', { ...(maps.wadi_tarfan as object), zones: taken.zones });
+    expect(versusModeFailures([named], byId).some((f) => /the map already has a zone "flag_friendly"/.test(f))).toBe(true);
+  });
+
   it('a mode no code knows, and a deadline', () => {
     const odd = wt();
-    (odd.modes as Record<string, unknown>).flag = {};
-    expect(only(odd)).toEqual(['data/versus/modes/wadi_tarfan.json: mode "flag" is not one of camp, points']);
+    (odd.modes as Record<string, unknown>).rally = {};
+    expect(only(odd)).toEqual(['data/versus/modes/wadi_tarfan.json: mode "rally" is not one of camp, points, flag']);
     const dead = wt();
     (dead.modes as Record<string, unknown>).camp = { seconds: 300 };
     expect(only(dead).some((f) => /no `seconds`/.test(f))).toBe(true);
@@ -183,6 +248,23 @@ describe('versus_mode.schema.json', () => {
     const d = doc();
     (d.modes.points as { per_value_destroyed: number }).per_value_destroyed = 21;
     expect(validate(d)).toBe(false);
+  });
+
+  it('GH-976 P3: the flag hold is a whole number of seconds, 5 to 120, and the flag block takes nothing else', () => {
+    for (const hold_s of [4, 121, 30.5, '30']) {
+      const d = doc();
+      (d.modes as { flag?: unknown }).flag = { hold_s };
+      expect(validate(d), String(hold_s)).toBe(false);
+    }
+    const extra = doc();
+    (extra.modes as { flag?: unknown }).flag = { hold_s: 30, seconds: 30 };
+    expect(validate(extra)).toBe(false);
+    const none = doc();
+    (none.modes as { flag?: unknown }).flag = {};
+    expect(validate(none)).toBe(false);
+    const bad = doc();
+    (bad as { flags?: unknown }).flags = { friendly: { at: [1, 1], size: [5, 5] } };
+    expect(validate(bad)).toBe(false);
   });
 });
 
@@ -218,7 +300,25 @@ describe('versusModeMissionOf', () => {
     expect(mission.objectives[0].score).toEqual(file().modes.points);
   });
 
+  it('GH-976 P3 flag: each side captures the flag zone at the OTHER side\'s end, alone, for the same hold, and the zones are added', () => {
+    const { mission, zones } = versusModeMissionOf(file(), 'flag', { friendly: 0, hostile: 1 });
+    expect(mission.objectives).toEqual([
+      { id: 'raid_flag_0', type: 'capture', primary: true, side: 0, target: flagZone('hostile'), seconds: 30 },
+      { id: 'raid_flag_1', type: 'capture', primary: true, side: 1, target: flagZone('friendly'), seconds: 30 },
+    ]);
+    expect(zones).toEqual({ flag_friendly: [6, 30, 5, 5], flag_hostile: [37, 13, 5, 5] });
+    expect(mission.structures).toEqual([]);
+    // With the sides at the other ends, side 0 raids the flag now at the FRIENDLY end.
+    const swapped = versusModeMissionOf(file(), 'flag', { friendly: 1, hostile: 0 }).mission;
+    expect(swapped.objectives[0]).toMatchObject({ id: 'raid_flag_0', side: 0, target: flagZone('friendly') });
+    expect(swapped.objectives[1]).toMatchObject({ id: 'raid_flag_1', side: 1, target: flagZone('hostile') });
+  });
+
   it('refuses a mode the file does not carry', () => {
+    const noFlag = { ...file(), modes: { camp: {} } } as VersusModeFileJson;
+    expect(() => versusModeMissionOf(noFlag, 'flag', { friendly: 0, hostile: 1 })).toThrow(/no flag mode/);
+    const noFlags = { ...file(), flags: undefined } as VersusModeFileJson;
+    expect(() => versusModeMissionOf(noFlags, 'flag', { friendly: 0, hostile: 1 })).toThrow(/no flag mode/);
     const noPoints = { ...file(), modes: { camp: {} } } as VersusModeFileJson;
     expect(() => versusModeMissionOf(noPoints, 'points', { friendly: 0, hostile: 1 })).toThrow(/no points mode/);
     const noCamp = { ...file(), modes: { points: file().modes.points } } as VersusModeFileJson;
@@ -227,7 +327,7 @@ describe('versusModeMissionOf', () => {
 });
 
 describe('a win-mode room (buildMatchWorld)', () => {
-  const config = (map: string, mode: 'camp' | 'points' | undefined, factions: ['kdf' | 'sarim', 'kdf' | 'sarim'] = ['kdf', 'kdf']): MatchConfig => {
+  const config = (map: string, mode: 'camp' | 'points' | 'flag' | undefined, factions: ['kdf' | 'sarim', 'kdf' | 'sarim'] = ['kdf', 'kdf']): MatchConfig => {
     const sides = factions[0] !== factions[1] && factions[0] === 'sarim' ? [1, 0] : [0, 1];
     const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
     const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map, mode: 'versus', seats: [seat(0), seat(1)], pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, ...(mode !== undefined ? { winMode: mode } : {}) } as never);
@@ -251,6 +351,19 @@ describe('a win-mode room (buildMatchWorld)', () => {
       const p = buildMatchWorld(config(map, 'points'));
       expect(p.winMode).toBe('points');
       expect(p.structureTypes).toEqual([]);
+    }
+  });
+
+  it('GH-976 P3: a flag room stands no structure, adds the two flag zones to the runtime\'s ground, and runs one capture per side', () => {
+    for (const map of ['wadi_tarfan', 'milh_flats']) {
+      const w = buildMatchWorld(config(map, 'flag'));
+      expect(w.winMode).toBe('flag');
+      expect(w.structureTypes).toEqual([]);
+      expect(w.runtime!.objectiveList.map((o) => [o.id, o.type, o.zone, o.primary])).toEqual([
+        ['raid_flag_0', 'capture', 'flag_hostile', true],
+        ['raid_flag_1', 'capture', 'flag_friendly', true],
+      ]);
+      expect(w.map.zones.flag_friendly).toBeUndefined(); // the map itself is untouched: the room adds them to the runtime only
     }
   });
 
@@ -278,7 +391,8 @@ describe('a win-mode room (buildMatchWorld)', () => {
   it('refuses a mode the map has no file for, and a winMode on a sandbox config or one that is not a mode', () => {
     expect(() => buildMatchWorld(config('tel_marum', 'camp'))).toThrow(/has no "camp" win mode/);
     const base = config('wadi_tarfan', 'camp') as MatchConfig;
-    expect(validateConfig({ ...base, winMode: 'flag' })).toBeNull();
+    expect(validateConfig({ ...base, winMode: 'rally' })).toBeNull();
+    expect(validateConfig({ ...base, winMode: 'flag' })).not.toBeNull();
     expect(validateConfig({ ...base, mode: 'sandbox' })).toBeNull();
     expect(validateConfig({ ...base })).not.toBeNull();
   });
@@ -287,20 +401,24 @@ describe('a win-mode room (buildMatchWorld)', () => {
 describe('a win-mode room survives a snapshot (a rejoin)', () => {
   // The runtime's score, objective status and completion tick (GH-976 P2) are `ObjectiveState` rows, so the runtime
   // section carries them: this is the proof, on a real room, for each mode, cut mid-race and mid-raze.
-  it.each([['wadi_tarfan', 'points'], ['milh_flats', 'points'], ['wadi_tarfan', 'camp']] as const)('%s %s: a fresh world restored from bytes plays on to the same hash and the same score', async (map, mode) => {
+  it.each([['wadi_tarfan', 'points'], ['milh_flats', 'points'], ['wadi_tarfan', 'camp'], ['wadi_tarfan', 'flag'], ['milh_flats', 'flag']] as const)('%s %s: a fresh world restored from bytes plays on to the same hash and the same score', async (map, mode) => {
     const { encodeSim, restoreSim } = await import('@lions/sim');
     const { matchTick } = await import('../../packages/app/src/net/match-world');
-    const { pointsOrder, campOrder, modeConfig } = await import('./backtest/versus-modes');
+    const { pointsOrder, campOrder, flagOrder, raidParty, modeConfig } = await import('./backtest/versus-modes');
     const { matchDigest } = await import('@lions/net');
     const cfg = modeConfig(map, mode, 1000);
     const zones = versusModes[map].modes.points?.zones.map((z) => z.zone) ?? [];
+    const parties = new Map<number, readonly number[]>();
     const drive = (w: ReturnType<typeof buildMatchWorld>, t: number): void => {
-      if (t % 400 === 0) { if (mode === 'points') pointsOrder(w, zones, -1); else campOrder(w, map, -1); }
+      const ends: [0 | 1, 0 | 1] = [w.endOfSide[0] === 'friendly' ? 0 : 1, w.endOfSide[0] === 'friendly' ? 1 : 0];
+      if (t % 400 === 0) { if (mode === 'points') pointsOrder(w, zones, -1); else if (mode === 'flag') flagOrder(w, map, parties, new Set(), ends); else campOrder(w, map, -1); }
       matchTick(w);
     };
     const a = buildMatchWorld(cfg);
+    if (mode === 'flag') for (const side of [0, 1] as const) parties.set(side, raidParty(a, side)); // ids are the same in the restored world
     // A camp game is short (a camp stands about two minutes under attack), so its cut and its end come earlier.
-    const [cut, end] = mode === 'camp' ? [500, 1100] : [1500, 3500];
+    // A raid is mid-hold at tick 900 (arrival about 30 s in, the hold 30 s more) and over by 1500.
+    const [cut, end] = mode === 'camp' ? [500, 1100] : mode === 'flag' ? [900, 1500] : [1500, 3500];
     for (let t = 0; t < cut; t++) drive(a, t);
     const bytes = encodeSim(a.sim, {}, a.runtime!);
     const b = buildMatchWorld(cfg);
@@ -315,5 +433,6 @@ describe('a win-mode room survives a snapshot (a rejoin)', () => {
     expect(b.runtime!.scoreUnitsOf(0)).toBe(a.runtime!.scoreUnitsOf(0));
     expect(b.runtime!.scoreUnitsOf(1)).toBe(a.runtime!.scoreUnitsOf(1));
     if (mode === 'points') expect(a.runtime!.scoreUnitsOf(0) + a.runtime!.scoreUnitsOf(1)).toBeGreaterThan(0); // the race had moved
+    if (mode === 'flag') expect(a.runtime!.objectiveList.some((o) => o.status === 'complete' || o.ticksLeft !== 600)).toBe(true); // a hold had begun
   }, 90_000);
 });

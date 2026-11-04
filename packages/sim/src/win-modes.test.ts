@@ -93,6 +93,76 @@ describe('objective side (GH-976)', () => {
   });
 });
 
+describe('flag raid: a capture held alone for the hold, reset by contact (GH-976 P3)', () => {
+  const raid = (side: 0 | 1, target: string, seconds = 30): ObjectiveJson => ({ id: `raid_${side}`, type: 'capture', primary: true, side, target, seconds });
+  const HOLD = 30 * 20;
+
+  it('a side alone on the enemy flag for the whole hold completes on the last tick of it, and not one tick before', () => {
+    const w = world([raid(0, 'east'), raid(1, 'west')]);
+    w.put(0, 32, 6);
+    w.step(HOLD - 1);
+    expect(w.rt.objectiveStatus('raid_0')).toBe('active');
+    expect(w.rt.sideWon(0)).toBe(false);
+    w.step(1);
+    expect(w.rt.objectiveStatus('raid_0')).toBe('complete');
+    expect(w.rt.sideWon(0)).toBe(true);
+    expect(w.rt.sideWon(1)).toBe(false);
+    expect(w.rt.completeTickOf(0)).toBe(HOLD);
+  });
+
+  it('contact resets the hold to zero: an enemy unit inside the zone for one second costs the raid the 20 seconds it had banked', () => {
+    const w = world([raid(0, 'east'), raid(1, 'west')]);
+    w.put(0, 32, 6);
+    w.step(20 * 20);
+    const defender = w.put(1, 34, 8); // inside the flag zone, within the contest radius
+    w.step(20);
+    expect(w.rt.objectiveList.find((o) => o.id === 'raid_0')?.paused).toBe('contested');
+    w.sim.debugKill(defender);
+    w.step(HOLD - 1);
+    expect(w.rt.objectiveStatus('raid_0')).toBe('active'); // 29 s since the contact ended: the banked 20 s are gone
+    w.step(2);
+    expect(w.rt.objectiveStatus('raid_0')).toBe('complete');
+  });
+
+  it('a defender standing OUTSIDE the zone does not contest it (a flag is held by the ground, not by the fire on it)', () => {
+    const w = world([raid(0, 'east'), raid(1, 'west')]);
+    w.put(0, 32, 6);
+    w.put(1, 28, 6); // two tiles outside the east flag [30,4,6,6]
+    w.step(HOLD + 1);
+    expect(w.rt.objectiveStatus('raid_0')).toBe('complete');
+  });
+
+  it('leaving the zone resets the hold as well: the raid has to be served in one go', () => {
+    const w = world([raid(0, 'east'), raid(1, 'west')]);
+    const raider = w.put(0, 32, 6);
+    w.step(HOLD - 20);
+    w.sim.state.posX[raider] = fx.from(20) + 32768; // one second short, a step out of the zone
+    w.step(2);
+    expect(w.rt.objectiveList.find((o) => o.id === 'raid_0')?.paused).toBe('unheld');
+    w.sim.state.posX[raider] = fx.from(32) + 32768;
+    w.step(HOLD - 1);
+    expect(w.rt.objectiveStatus('raid_0')).toBe('active');
+    w.step(2);
+    expect(w.rt.objectiveStatus('raid_0')).toBe('complete');
+  });
+
+  it('two raids that finish on one tick finish on one tick: the completion tick is the same for both sides (the draw the probe shows)', () => {
+    const w = world([raid(0, 'east'), raid(1, 'west')]);
+    w.put(0, 32, 6);
+    w.put(1, 6, 6);
+    w.step(HOLD + 1);
+    expect(w.rt.completeTickOf(0)).toBe(HOLD);
+    expect(w.rt.completeTickOf(1)).toBe(HOLD);
+  });
+
+  it('a goals-only raid pays nothing and earns nothing: it completes and the score stays zero', () => {
+    const w = world([raid(0, 'east'), raid(1, 'west')]);
+    w.put(0, 32, 6);
+    w.step(HOLD + 1);
+    expect(w.rt.scoreUnitsOf(0)).toBe(0);
+  });
+});
+
 describe('score objective: the points race (GH-976)', () => {
   it('holding a zone for a minute pays exactly per_min points, in whole integers', () => {
     const w = world([score(0), score(1)]);

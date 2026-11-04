@@ -11,7 +11,12 @@
 //           so the order aims at the tile its production would deploy to);
 //   points  the force splits over the nearest unheld zones: units standing in a zone the side already holds keep
 //           half of themselves there (at least one) as its garrison, and the rest are divided evenly over the
-//           three zones nearest the side's own seat that it does not hold, nearest first.
+//           three zones nearest the side's own seat that it does not hold, nearest first;
+//   flag    (GH-976 P3, a raid) two squads go for the ENEMY end's flag zone and hold it; the rest stay in the blob, which
+//           is the base probe's own play (`order`, versus-probe.ts): attack-move on the other side's living centroid. The
+//           two squads are the first two infantry units in placement order, latched at the first order and never re-picked
+//           (a dead raider is not replaced from the blob: a raid is the two it sent). Both sides place the same force in
+//           the same order, so the choice is the same in each seat's own frame.
 // A PASSIVE seat issues no order at all and stays where it spawned.
 //
 // What a cell reads (`--seeds` games each; seed n is `seedOf(n)`, the probe's 1000 + 7919 n):
@@ -28,10 +33,12 @@
 //   - one seed twice is one game.
 //   M1  finish(): `winner: o.kind === 'won' ? ... sideOfEnd.indexOf(o.side)`  ->  the other index
 //   M2  campOrder(): the enemy end -> the own end  (each side marches home: nobody razes, the control runs to the cap)
+//   M3  flagOrder(): the enemy end's flag -> the own end's  (the raiders sit on their own flag: nobody captures, the control runs to the cap)
+//   M4  raidParty(): two squads -> none  (nobody leaves the blob: the flag is never held)
 //
 // Usage (run through the probe):
 //   pnpm versus:probe -- --mode=camp --maps=wadi_tarfan --seeds=96
-//   flags: --mode=<camp|points|all>  --maps=<id,id>  --seeds=<n>  --seed-from=<n>  --passive=<on|off>  --wipe=<ends|off>  --no-self-check
+//   flags: --mode=<camp|points|flag|all>  --maps=<id,id>  --seeds=<n>  --seed-from=<n>  --passive=<on|off>  --wipe=<ends|off>  --no-self-check
 //          --zones=<zone:rate,...>  --kill=<n>  --target=<n>   fit the points race in memory (never written to disk)
 
 import { fileURLToPath } from 'node:url';
@@ -39,7 +46,7 @@ import { versusModes, type MapId, type WinModeId } from '@lions/data';
 import { WIN_MODES, matchCapTicks, validateConfig, type MatchConfig } from '@lions/net';
 import { goalsOf, outcomeOf, unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
-import { FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, DECIDE_EVERY_TICKS, SEEDS_DEFAULT, livingOf, loneSurvivorOf, roomConfig, seedOf } from './versus-probe';
+import { FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, DECIDE_EVERY_TICKS, SEEDS_DEFAULT, livingOf, loneSurvivorOf, order, roomConfig, seedOf } from './versus-probe';
 import { fx, type Sim } from '@lions/sim';
 import { units } from '@lions/data';
 
@@ -61,7 +68,8 @@ export interface ModePlayed {
 export interface ModePlayOptions {
   /** The END that issues no order (0 friendly, 1 hostile). */
   passive?: 0 | 1;
-  /** CONTROL ONLY: cut this END to one infantry squad before the first tick. */
+  /** CONTROL ONLY: cut this END to one infantry squad before the first tick. In the flag mode the cut end also takes no
+   *  order: its lone survivor is the raid's first squad, and a one-man race against the strong end's raid would not be a control. */
   cutEnd?: 0 | 1;
   /** EXPERIMENT ONLY (`--wipe=off`), NOT the room's rule: a wiped side does not end the match. Both sides are told
    *  they can still field a unit (`OutcomeProduction.canField`), so the annihilation and stalemate rules never
@@ -100,6 +108,48 @@ export function campOrder(w: MatchWorld, mapId: string, passiveSide: number): vo
     if (side === passiveSide) continue;
     const target = campExit(w, mapId, w.endOfSide[side === 0 ? 1 : 0]);
     const ids = livingOf(w.sim, side);
+    if (ids.length > 0) w.sim.queueCommand({ kind: 'attackMove', ids, x: target[0], y: target[1] });
+  }
+}
+
+/** How many squads a flag raid sends. */
+export const RAID_SQUADS = 2;
+
+/** The raid party of one side: its first `RAID_SQUADS` living infantry units in placement order. */
+export function raidParty(w: MatchWorld, side: 0 | 1): number[] {
+  const out: number[] = [];
+  for (const id of livingOf(w.sim, side)) {
+    if (out.length >= RAID_SQUADS) break;
+    const type = w.sim.unitTypes[w.sim.state.typeIdx[id]].id;
+    if ((units as Record<string, { role?: string } | undefined>)[type]?.role === 'infantry') out.push(id);
+  }
+  return out;
+}
+
+/** The tile a raid aims at: the centre of the flag zone at `end` (the flag zones of the mode file, `flags`). */
+function flagTile(mapId: string, end: 'friendly' | 'hostile'): [number, number] {
+  const f = versusModes[mapId]?.flags?.[end];
+  if (f === undefined) throw new Error(`versus modes: ${mapId} has no flag at its ${end} end`);
+  return [fx.from(f.at[0] + f.size[0] / 2), fx.from(f.at[1] + f.size[1] / 2)];
+}
+
+/** The sides that issue no order in a flag game: the passive one, and (CONTROL ONLY) the cut one, whose lone survivor is the raid's
+ *  first squad. The other modes order every side that is not passive. */
+export function idleSidesFor(mode: WinModeId, passiveSide: number, cutSide: number): Set<number> {
+  const out = new Set<number>([passiveSide]);
+  if (mode === 'flag' && cutSide >= 0) out.add(cutSide);
+  return out;
+}
+
+/** Every side's `flag` order: its raid party attack-moves on the ENEMY end's flag; the rest of the force (the blob) plays the
+ *  base probe, attack-moving on the other side's living centroid. A side in `idleSides` takes no order at all. */
+export function flagOrder(w: MatchWorld, mapId: string, parties: ReadonlyMap<number, readonly number[]>, idleSides: ReadonlySet<number>, sideOfEnd: readonly [0 | 1, 0 | 1]): void {
+  const raiding = (id: number): boolean => [...parties.values()].some((p) => p.includes(id));
+  order(w.sim, (side) => (idleSides.has(side) ? [] : livingOf(w.sim, side).filter((id) => !raiding(id))), sideOfEnd);
+  for (const side of [0, 1] as const) {
+    if (idleSides.has(side)) continue;
+    const target = flagTile(mapId, w.endOfSide[side === 0 ? 1 : 0]);
+    const ids = (parties.get(side) ?? []).filter((id) => w.sim.state.alive[id] === 1);
     if (ids.length > 0) w.sim.queueCommand({ kind: 'attackMove', ids, x: target[0], y: target[1] });
   }
 }
@@ -169,6 +219,10 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
     const keep = loneSurvivorOf(w.bySide[side], (id) => (units as Record<string, { role?: string } | undefined>)[w.sim.unitTypes[w.sim.state.typeIdx[id]].id]?.role ?? '');
     for (const id of w.bySide[side]) if (id !== keep) w.sim.debugKill(id);
   }
+  // The flag mode's raid parties, latched before the first order; a side that issues no order sends none.
+  const idleSides = idleSidesFor(mode, passiveSide, opts.cutEnd === undefined ? -1 : sideOfEnd[opts.cutEnd]);
+  const parties = new Map<number, readonly number[]>();
+  if (mode === 'flag') for (const side of [0, 1] as const) parties.set(side, raidParty(w, side));
   const cap = matchCapTicks(mapId);
   const production = opts.wipeEnds === false ? { canField: () => true } : undefined;
   const read = (o: MatchResult): ModePlayed => ({
@@ -178,6 +232,7 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
   for (let t = 0; t < cap; t++) {
     if (t % ORDER_EVERY_TICKS === 0) {
       if (mode === 'camp') campOrder(w, mapId, passiveSide);
+      else if (mode === 'flag') flagOrder(w, mapId, parties, idleSides, sideOfEnd);
       else pointsOrder(w, zoneNames, passiveSide);
     }
     matchTick(w);

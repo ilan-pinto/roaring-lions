@@ -235,8 +235,12 @@ describe('the report names the mode and what decided each game (GH-976 P2)', () 
   it('decidedBy: a mode\'s goal by name, a limit or a stalemate as surviving force, anything else as it is', () => {
     expect(decidedBy({ by: 'objective', mode: 'points' })).toBe('points race');
     expect(decidedBy({ by: 'objective', mode: 'camp' })).toBe('camp razed');
+    expect(decidedBy({ by: 'objective', mode: 'flag' })).toBe('flag captured');
     expect(decidedBy({ by: 'objective' })).toBe('objective');
-    for (const by of ['cap', 'time', 'stalemate']) expect(decidedBy({ by, mode: 'points' }), by).toBe('surviving force');
+    // GH-976 P3: the cap of a points race is decided on the points; a stalemate and every other mode's cap stay surviving force.
+    for (const by of ['cap', 'time']) expect(decidedBy({ by, mode: 'points' }), by).toBe('points at the cap');
+    expect(decidedBy({ by: 'stalemate', mode: 'points' })).toBe('surviving force');
+    for (const by of ['cap', 'time', 'stalemate']) for (const mode of ['camp', 'flag', 'annihilation', undefined] as const) expect(decidedBy({ by, mode }), `${by} ${String(mode)}`).toBe('surviving force');
     for (const by of ['annihilation', 'forfeit', 'surrender', 'desync']) expect(decidedBy({ by }), by).toBe(by);
   });
 
@@ -244,7 +248,7 @@ describe('the report names the mode and what decided each game (GH-976 P2)', () 
     const md = markdownReport([pointsGame(), { ...pointsGame(), mode: 'points', by: 'cap', outcome: 'seat1' }]);
     expect(md).toMatch(/^# Arena: wadi_tarfan, mirror, points$/m);
     expect(md).toMatch(/\| wadi_tarfan \| mirror \| points \| A \| B \| A \| objective \| points race \| 1200 \|/);
-    expect(md).toMatch(/\| wadi_tarfan \| mirror \| points \| A \| B \| B \| cap \| surviving force \| 1200 \|/);
+    expect(md).toMatch(/\| wadi_tarfan \| mirror \| points \| A \| B \| B \| cap \| points at the cap \| 1200 \|/);
   });
 
   it('a record from before the field reads as annihilation, and its title says no mode', () => {

@@ -111,6 +111,14 @@ describe('/api/match', () => {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'points' })), env, NOW)).status, map).toBe(201);
     }
     expect(createBodies.map((b) => b.winMode)).toEqual(['points', 'points']);
+    // GH-976 P3: the flag raid, read fair on the same two maps, reaches the room the same way, and is refused where points is.
+    for (const map of ['wadi_tarfan', 'milh_flats']) {
+      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'flag' })), env, NOW)).status, map).toBe(201);
+    }
+    expect(createBodies.slice(2).map((b) => b.winMode)).toEqual(['flag', 'flag']);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map: 'tel_marum', winMode: 'flag' })), env, NOW)).status).toBe(400);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ matchup: 'kdf', winMode: 'flag' })), env, NOW)).status).toBe(400);
+    createBodies.splice(2, 2);
     // Annihilation by any of its spellings is no mode: the room is told nothing, as every room before.
     for (const winMode of [undefined, null, 'annihilation']) {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ winMode })), env, NOW)).status).toBe(201);
@@ -122,7 +130,7 @@ describe('/api/match', () => {
       expect(res.status, JSON.stringify(over)).toBe(400);
       expect(await res.text()).toBe(text);
     };
-    await refuse({ winMode: 'flag' }, 'unknown win mode');            // not a mode at all
+    await refuse({ winMode: 'rally' }, 'unknown win mode');            // not a mode at all
     await refuse({ winMode: 7 }, 'unknown win mode');
     await refuse({ winMode: 'camp' }, 'win mode not offered on this map');   // read, and NOT fair, on both maps
     await refuse({ winMode: 'points', map: 'tel_marum' }, 'win mode not offered on this map');   // a fair map for the mirror, no mode file

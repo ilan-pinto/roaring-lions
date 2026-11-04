@@ -49,6 +49,16 @@ describe('contentDigest (L4)', () => {
     expect(shippedContentDigest()).toBe(contentDigest({ units, structures, maps, doctrines, versusRules, versusModes, formations }));
   });
 
+  it('GH-976 P3: a flag zone and the flag hold count (the hold 30 -> 31, the friendly flag one tile over), and put back it is the same', () => {
+    const shipped = shippedContent();
+    const file = versusModes.wadi_tarfan;
+    const withFile = (over: Partial<typeof file>): Content => ({ ...shipped, versusModes: { ...versusModes, wadi_tarfan: { ...file, ...over } } });
+    expect(file.modes.flag!.hold_s).toBe(30); // literal: the shipped hold
+    expect(contentDigest(withFile({ modes: { ...file.modes, flag: { hold_s: 31 } } }))).not.toBe(shippedContentDigest());
+    expect(contentDigest(withFile({ flags: { ...file.flags!, friendly: { ...file.flags!.friendly, at: [file.flags!.friendly.at[0] + 1, file.flags!.friendly.at[1]] } } }))).not.toBe(shippedContentDigest());
+    expect(contentDigest(withFile({}))).toBe(shippedContentDigest());
+  });
+
   it('GH-976 P2: one win-mode value counts (the points target 600 -> 601), and put back it is the same', () => {
     const shipped = shippedContent();
     const file = versusModes.wadi_tarfan;

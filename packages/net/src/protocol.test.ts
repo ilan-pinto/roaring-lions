@@ -187,7 +187,7 @@ describe('N1b messages', () => {
     const lobby = { t: 'lobby', config: null, seats: [], you: 1, map: 'wadi_tarfan', factions: ['kdf', 'kdf'] };
     expect(parseServerMsg(JSON.stringify({ ...lobby, winMode: 'points' }))).toEqual({ ...lobby, winMode: 'points' });
     expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);   // absent stays absent
-    expect(parseServerMsg(JSON.stringify({ ...lobby, winMode: 'flag' }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ ...lobby, winMode: 'rally' }))).toBeNull();
     expect(parseServerMsg(JSON.stringify({ ...lobby, winMode: 3 }))).toBeNull();
   });
   it('a lobby carries the room\'s kit rule when it is brigade, and refuses a rule that is neither (per-seat kit)', () => {

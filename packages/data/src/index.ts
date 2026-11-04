@@ -309,6 +309,7 @@ export {
   versusZonesOf,
   versusModeMissionOf,
   campYardZone,
+  flagZone,
   WIN_MODES,
   type WinModeId,
   type VersusModeFileJson,

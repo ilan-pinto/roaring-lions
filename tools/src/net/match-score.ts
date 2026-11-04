@@ -391,9 +391,17 @@ export class RefereeTally {
   private readonly zoneUnits: [Record<string, number>, Record<string, number>] = [{}, {}];
   private readonly killUnits: [number, number] = [0, 0];
 
+  /** The win mode a room without a points race plays (`setMode`): its stats say so, instead of reading as annihilation. */
+  private mode: WinMode | null = null;
+
   /** Reads this room's points race from now on. Called once, when the world is built. */
   setPoints(tap: PointsTap): void {
     this.tap = tap;
+  }
+
+  /** Names the room's win mode in the stats (GH-976 P3: a camp or flag room read as annihilation before). Called once. */
+  setMode(mode: WinMode | null): void {
+    this.mode = mode;
   }
 
   /**
@@ -521,7 +529,7 @@ export class RefereeTally {
       clock: clockOf(sim.tickCount),
       result: o.result,
       observedFromTick: Math.max(0, this.first),
-      mode: this.tap === null ? 'annihilation' : 'points',
+      mode: this.tap !== null ? 'points' : this.mode ?? 'annihilation',
       ...(this.tap === null ? {} : { target: this.tap.rules.target }),
       seats: [seat(0), seat(1)],
       timeline: this.timeline.map((p) => ({ ...p })),
@@ -671,7 +679,7 @@ export function checkReferee(v: unknown): RefereeStats | null {
     if (!isRecord(s.ordersByKind) || !Object.values(s.ordersByKind).every(isNum)) return null;
     if (s.points !== undefined && (!isRecord(s.points) || !isNum(s.points.total) || !isNum(s.points.fromZones) || !isNum(s.points.fromKills) || !isRecord(s.points.byZone) || !Object.values(s.points.byZone).every(isNum))) return null;
   }
-  if (v.mode !== undefined && v.mode !== 'annihilation' && v.mode !== 'points' && v.mode !== 'camp') return null;
+  if (v.mode !== undefined && v.mode !== 'annihilation' && v.mode !== 'points' && v.mode !== 'camp' && v.mode !== 'flag') return null;
   if (v.target !== undefined && !isNum(v.target)) return null;
   for (const p of v.timeline as unknown[]) {
     if (!isRecord(p) || !isNum(p.tick) || !isPair(p.units) || !isPair(p.force) || !isPair(p.woundedOnField) || !isPair(p.orders) || (p.points !== undefined && !isPair(p.points))) return null;

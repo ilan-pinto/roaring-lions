@@ -698,7 +698,7 @@ model. The S4 re-run and the decision to open versus are written up separately.
 
 ## Versus win modes (GH-976 P1)
 
-A versus room may play a WIN MODE beside annihilation: `MatchConfig.winMode` (`'camp'` | `'points'`, absent is
+A versus room may play a WIN MODE beside annihilation: `MatchConfig.winMode` (`'camp'` | `'points'` | `'flag'`, absent is
 annihilation and every room that has ever been played). Phase 1 was the engine and the instrument; **phase 2 (below) opens
 `points` in the lobby, the bot harness and the scoring**. `camp` is offered nowhere (it failed the passive-seat bar on both
 maps) and stays reachable from a test and `pnpm versus:probe -- --mode=camp` only.
@@ -764,5 +764,47 @@ maps) and stays reachable from a test and `pnpm versus:probe -- --mode=camp` onl
 - **Scoring (GH-973).** The report's games table has `mode` and `decided by`; the referee's stats add `mode`, `target` and, per seat,
   `points` by source (`fromZones`, `fromKills`, `byZone`), and a timeline of points. Zones are read from the holders and the file's rates,
   kills are the exact residual of the runtime's own score, so the two always add to it.
-- **Not done in P2:** the arena setup screen has no mode control (the CLI has); `camp` stays unoffered; at the cap a mode room is still
-  decided on surviving value, not points (lead decision, P1 item 3).
+- **Not done in P2** (P3 below does the first and the third): the arena setup screen had no mode control (the CLI has); `camp` stays
+  unoffered; at the cap a mode room was decided on surviving value, not points (lead decision, P1 item 3).
+
+### Phase 3 (GH-976 P3): capture the flag (a raid), the arena's mode control, points decided at the cap
+
+- **`flag`: a raid, no carried flag.** `data/versus/modes/<map>.json` gains `flags` (a rectangle per END, `flag_friendly` and
+  `flag_hostile` once the loader adds them to the runtime's zones; the map's own zones are untouched) and `modes.flag.hold_s` (30).
+  `versusModeMissionOf` gives each side ONE primary `capture` (`raid_flag_<side>`) on the OTHER end's flag zone with `seconds: hold_s`.
+  **No sim code moved**: `capture` already held a zone alone and reset on contact (`holdTicks = 0` whenever the ground is not held),
+  `side` and the completion tick came with P1/P2. The rule, read from the engine: a unit of the raiding side inside the zone, **no
+  enemy unit inside it** within the 6-tile contest radius of one of them, for `hold_s` seconds in one go. Fire from OUTSIDE the zone
+  contests nothing, so a flag is held by the ground and a defender has to be on it. Two raids that finish on one tick are a draw
+  (exact mirror raids do, in the probe: 1-4% of games), and the draw now names its mode.
+- **Validator** (`tools/validate_versus_modes.mjs`): `flags` exactly when the `flag` mode is; every flag tile in the map and open
+  ground; neither anchor inside a flag (a seat spawned on its flag contests it from tick 0); the two flags and a flag and a camp
+  disjoint; no map zone already called `flag_<end>`. `tools/src/validate_versus_modes.test.ts` also pins the flags a half turn apart
+  and clear of every spawned unit.
+- **The probe** (`pnpm versus:probe -- --mode=flag`, `tools/src/backtest/versus-modes.ts`): the first two infantry units in placement
+  order (latched, never re-picked) `attackMove` onto the enemy end's flag; **the rest of the force is the base probe's blob**
+  (attack-move on the other side's living centroid). A `move` raid was tried and dropped: with no one stopping to fight, 95 of 96
+  mirror games finished on the same tick (a draw), which measures nothing. Passive seat: no orders at all. The self-check's cut end
+  also issues no raid (its lone survivor is the first squad, and a one-man race against a raid is no control).
+- **Fitting (seeds 0-191 only).** The flag zone is the one free number. A sweep of 5x5 open windows (24 seeds each, then 96, then 192
+  for the survivors) found the result **brittle in position**: on milh_flats the goal share was 70-79% for flags at y 11-13 on the west
+  edge and 29% one tile lower (y >= 14), because below that line the raiders cross the middle where the blobs meet; on wadi_tarfan
+  neighbouring windows swung the leader from 52% to 66%. Shipped: wadi_tarfan `[6,30,5,5]` / `[37,13,5,5]`, milh_flats `[4,11,5,5]` /
+  `[39,32,5,5]`. Read on 4000-4287 (288), see `WIN_MODE_FAIR_MAPS`'s comment in `@lions/net` for the numbers. The probe cannot say the
+  mode is good to play: it says the ground is fair for a raid and a passive seat cannot hold out.
+- **The cap of a points room** is decided on the points (`outcome.ts` `byPoints`): the higher score wins, a level score draws, compared
+  on the exact 1/1200ths. The result is `{ by: 'time', forces, points }` (`points` present exactly then, whole points by side), and the
+  end panel says "Time - won on points (355 vs 212)". A camp room, a flag room, a stalemate and every annihilation room read surviving
+  value exactly as before (`outcome.test.ts` pins the keys of the result). The probe's points games never reach the cap (mean 11-12
+  minutes against 25), so the 576 held-out games re-read identically. A forced read (`--target=5000 --passive=off`, 48 seeds from
+  4000, every game ending on the cap) decides on the points and reads wadi_tarfan west 21 / east 27, milh_flats west 28 / east 20, no draws.
+- **End wording.** A draw in a mode room carries `mode` (`{ kind: 'draw', by: 'mutual', mode }`): "Both flags were captured together" /
+  "Level on points: ..." / "Both camps fell together". `mode` absent (both sides wiped) is still "Both forces destroyed".
+- **The arena's setup screen** (`ui/arena-setup.ts`, DEV only) has a "How to win" control that lists `winModesOffered(map, matchup)`
+  and nothing else, hidden where nothing is offered, locked while a run goes; the cap follows the mode (the map's own) until typed in.
+  `arena-control.ts` accepts `mode` (`annihilation` adds no argv) and refuses, as `bad_mode`, whatever `refusalOf` would.
+- **The flag on screen and in `observe`.** `net/flag-view.ts` (import-free, one function for both) gives `{ holdSeconds, mine, theirs }`
+  with `state` open / raiding / contested / captured and the seconds held; the browser draws two zone outlines (`flagMarksOf`: yours
+  solid until they hold it, theirs dashed until you do) and the `NetFlags` panel in the points panel's corner. Both flags' state is
+  public by design, like the score of a race; no unit is named. The bot prompt (`win-rule.ts`) swaps in the raid rule and what to
+  defend, and its points fallback now says the cap goes to the higher score.

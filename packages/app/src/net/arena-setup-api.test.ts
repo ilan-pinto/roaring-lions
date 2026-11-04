@@ -17,8 +17,10 @@ describe('parseStatus', () => {
   it('reads a run, its games and totals; unknown fields are dropped', () => {
     const s = parseStatus({ state: 'running', extra: 1, run: { a: 'a', b: 'b', map: 'm', matchup: 'mirror', seeds: 2, judge: null, withToken: true, secret: 'x' }, game: { n: 1, of: 4 },
       games: [{ n: 1, outcome: 'seat0', by: 'cap', ticks: 9, players: ['a', 'b'], usage: [U, null] }], totals: { players: [{ player: 'a', usage: U }], judge: null, all: U }, error: null });
-    expect(s).toEqual({ state: 'running', run: { a: 'a', b: 'b', map: 'm', matchup: 'mirror', seeds: 2, judge: null, withToken: true }, game: { n: 1, of: 4 },
+    expect(s).toEqual({ state: 'running', run: { a: 'a', b: 'b', map: 'm', matchup: 'mirror', mode: 'annihilation', seeds: 2, judge: null, withToken: true }, game: { n: 1, of: 4 },
       games: [{ n: 1, outcome: 'seat0', by: 'cap', ticks: 9, players: ['a', 'b'], usage: [U, null] }], totals: { players: [{ player: 'a', usage: U }], judge: null, all: U }, error: null });
+    // GH-976 P3: a run that names its mode keeps it; a record from before names none and reads as annihilation.
+    expect(parseStatus({ state: 'running', run: { a: 'a', b: 'b', map: 'm', matchup: 'mirror', mode: 'flag', seeds: 2, judge: null, withToken: false } })!.run!.mode).toBe('flag');
     expect(parseStatus({ state: 'idle' })).toMatchObject({ state: 'idle', run: null, game: null, games: [], totals: null });
     for (const bad of [null, 'x', { state: 'weird' }, { state: 'idle', games: [{ n: 1 }] }, { state: 'idle', run: { a: 1 } }]) expect(parseStatus(bad), JSON.stringify(bad)).toBeNull();
   });

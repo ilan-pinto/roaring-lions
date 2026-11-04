@@ -307,6 +307,8 @@ import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
 import { NetPoints } from './ui/net-points';
+import { NetFlags } from './ui/net-flags';
+import { flagMarksOf, flagViewOf, type FlagView } from './net/flag-view';
 import { pointsViewOf, type PointsView } from './net/points-view';
 import { describeCommand, mountAdvisorPanel, type AdvisorPanel } from './ui/advisor';
 import { NetScoreboard, advisorPresenceHook } from './ui/net-score';
@@ -6570,6 +6572,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     pointsRules !== undefined && versusWorld?.runtime != null && !spectating ? pointsViewOf(versusWorld.runtime, pointsRules, me) : null;
   const netPoints = pointsViewNow() !== null ? new NetPoints(document.body, scoreNames) : null;
   if (netPoints !== null) onDispose(() => netPoints.dispose());
+  /** The flag raid (GH-976 P3): how long each flag has been held, from the goals-only runtime's objectives, and the two
+   *  flags outlined on the field. Both flags' state is public by design (`net/flag-view.ts`); no unit is shown. A flag room
+   *  only, never a spectator. */
+  const flagRules = netConfig?.winMode === 'flag' ? versusModes[netConfig.map] : undefined;
+  const flagViewNow = (): FlagView | null =>
+    flagRules?.flags !== undefined && versusWorld?.runtime != null && !spectating
+      ? flagViewOf(versusWorld.runtime, { flags: flagRules.flags, modes: flagRules.modes }, me, versusWorld.endOfSide[me])
+      : null;
+  const netFlags = flagViewNow() !== null ? new NetFlags(document.body) : null;
+  if (netFlags !== null) onDispose(() => netFlags.dispose());
+  let flagsPainted = false;
   /** Who has an advisor (decision D1): this seat's own to its panel, both
    *  seats' to the board, so an advisor admitted into the running room shows
    *  to the friend as well as in the lobby. Installed here, after both exist:
@@ -6604,6 +6617,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     netStatus?.hide();
     netScore?.hide();
     netPoints?.hide();
+    netFlags?.hide();
     advisorPanel?.onPresence(null);
     const endPoints = pointsViewNow();
     netEnd = showNetEnd(document.body, result, me, {
@@ -7129,6 +7143,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     if (netEnd === null) netScore?.update(scoreOf(sim));
     if (netEnd === null && netPoints !== null) { const pv = pointsViewNow(); if (pv !== null) netPoints.update(pv); }
+    // Every 5th tick, and at once on the first frame: a seat that joins or resumes mid-match must not show an empty panel.
+    if (netEnd === null && netFlags !== null && (!flagsPainted || sim.tickCount % 5 === 0)) {
+      const fv = flagViewNow();
+      if (fv !== null) { netFlags.update(fv); renderer.objectiveZones = flagMarksOf(fv); flagsPainted = true; }
+    }
     // The advisor's 2 s deadline counts the frames that run here, so a room pause holds it.
     if (netEnd === null && room !== null && !ordersWait(room.status())) advisorPanel?.frame();
     if (netEnd === null || lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status(), Date.now(), room?.forfeitClock() ?? null);

@@ -26,10 +26,14 @@ export type MatchOutcome =
   /** GH-976: the winner completed its win mode's goal (the enemy camp razed, the points target reached). */
   | { kind: 'won'; side: 0 | 1; by: 'objective'; mode: WinMode }
   /** Decided on surviving unit value (the lead's ruling, 2026-10-13): every
-   *  unit on both sides immobile (`stalemate`), or the 25-minute cap (`time`). */
-  | { kind: 'won'; side: 0 | 1; by: 'stalemate' | 'time'; forces: Forces }
-  | { kind: 'draw'; by: 'mutual' }
-  | { kind: 'draw'; by: 'stalemate' | 'time'; forces: Forces };
+   *  unit on both sides immobile (`stalemate`), or the 25-minute cap (`time`).
+   *  GH-976 P3: the cap of a POINTS room is decided on the points instead, the higher score winning; `points` (whole
+   *  points by SIDE, index 0 is side 0) is present exactly then, beside the `forces` the other rule would have read. */
+  | { kind: 'won'; side: 0 | 1; by: 'stalemate' | 'time'; forces: Forces; points?: Forces }
+  /** Both sides wiped (no `mode`), or, in a win-mode room (GH-976 P3), both sides completed the goal on one tick with
+   *  nothing to tell them apart: the draw names its `mode` so the panel can say which. */
+  | { kind: 'draw'; by: 'mutual'; mode?: WinMode }
+  | { kind: 'draw'; by: 'stalemate' | 'time'; forces: Forces; points?: Forces };
 
 /** A decided match: what the end panel shows. */
 export type MatchResult = Exclude<MatchOutcome, { kind: 'ongoing' }>;
@@ -121,6 +125,19 @@ function byForces(sim: OutcomeSim, by: 'stalemate' | 'time', costOf: (typeId: st
   return { kind: 'won', side: forces[0] > forces[1] ? 0 : 1, by, forces };
 }
 
+/** The cap of a POINTS room (GH-976 P3): nobody reached the target, so the higher score wins and a level score is a draw.
+ *  The design's intent is that the goal decides, and a side that sat on the ground it held for 25 minutes has played the
+ *  race; surviving value would let a side that never took a zone win it. Compared on the exact integer units (a score runs
+ *  in 1/1200ths of a point), shown in whole points. `forces` rides along as the other rule would have read it. */
+function byPoints(sim: OutcomeSim, goals: OutcomeGoals, costOf: (typeId: string) => number): MatchResult {
+  const forces = forcesOf(sim, costOf);
+  const points: Forces = [goals.scoreOf(0), goals.scoreOf(1)];
+  const a = goals.scoreUnitsOf(0);
+  const b = goals.scoreUnitsOf(1);
+  if (a === b) return { kind: 'draw', by: 'time', forces, points };
+  return { kind: 'won', side: a > b ? 0 : 1, by: 'time', forces, points };
+}
+
 /** The two playing sides. A third (civilians) neither keeps a side standing nor wins. */
 const SIDES: readonly (0 | 1)[] = [0, 1];
 
@@ -150,6 +167,8 @@ export interface OutcomeGoals {
   sideWon(side: 0 | 1): boolean;
   /** `side`'s score in exact integer units, the tie-break when both complete on one tick; 0 with no score. */
   scoreUnitsOf(side: 0 | 1): number;
+  /** `side`'s score in whole points (GH-976 P3), what a points room's panel shows; 0 with no score. */
+  scoreOf(side: 0 | 1): number;
   /** The sim tick `side` completed its goal on, or -1 while it has not (GH-976 P2): the first to finish wins. */
   completeTickOf(side: 0 | 1): number;
 }
@@ -159,6 +178,7 @@ export interface GoalsWorld {
   readonly runtime: {
     sideWon(side: 0 | 1): boolean;
     scoreUnitsOf(side: 0 | 1): number;
+    scoreOf(side: 0 | 1): number;
     completeTickOf(side: 0 | 1): number;
   } | null;
   readonly winMode: WinMode | null;
@@ -168,7 +188,7 @@ export interface GoalsWorld {
 export function goalsOf(w: GoalsWorld): OutcomeGoals | undefined {
   const runtime = w.runtime;
   if (runtime === null || w.winMode === null) return undefined;
-  return { mode: w.winMode, sideWon: (s) => runtime.sideWon(s), scoreUnitsOf: (s) => runtime.scoreUnitsOf(s), completeTickOf: (s) => runtime.completeTickOf(s) };
+  return { mode: w.winMode, sideWon: (s) => runtime.sideWon(s), scoreUnitsOf: (s) => runtime.scoreUnitsOf(s), scoreOf: (s) => runtime.scoreOf(s), completeTickOf: (s) => runtime.completeTickOf(s) };
 }
 
 /** The goal's verdict, or null while no side has completed one. `outcomeOf` asks only on a hash window (every 20
@@ -187,7 +207,7 @@ function goalOutcome(goals: OutcomeGoals): MatchResult | null {
     if (ta !== tb) return { kind: 'won', side: ta < tb ? 0 : 1, by: 'objective', mode: goals.mode };
     const sa = goals.scoreUnitsOf(0);
     const sb = goals.scoreUnitsOf(1);
-    if (sa === sb) return { kind: 'draw', by: 'mutual' };
+    if (sa === sb) return { kind: 'draw', by: 'mutual', mode: goals.mode };
     return { kind: 'won', side: sa > sb ? 0 : 1, by: 'objective', mode: goals.mode };
   }
   return { kind: 'won', side: a ? 0 : 1, by: 'objective', mode: goals.mode };
@@ -253,7 +273,8 @@ export function productionFor(runtime: NonNullable<ProductionWorld['runtime']>, 
  *  can ever close the distance -- a stalemate, ended at once), and the
  *  cap (25 minutes, or the map's `cap_minutes`; `capTicks`), which until then
  *  was always a draw. There is no production
- *  in a sandbox, so the counts are the whole test. */
+ *  in a sandbox, so the counts are the whole test. In a POINTS room the cap is decided on the points instead (GH-976 P3:
+ *  the higher score wins, a level score draws); every other room, and a stalemate, still reads surviving value. */
 export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string) => number = unitCost, production?: OutcomeProduction, capTicks: number = MATCH_CAP_TICKS, goals?: OutcomeGoals): MatchOutcome {
   // GH-976: a goal completed beats everything below it (a side that razed the camp as its last unit fell has won).
   if (goals !== undefined) {
@@ -264,7 +285,7 @@ export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string
   if (standing.length === 0) return { kind: 'draw', by: 'mutual' };
   if (standing.length === 1) return { kind: 'won', side: standing[0], by: 'annihilation' };
   if (allImmobile(sim, production)) return byForces(sim, 'stalemate', costOf);
-  if (tick >= capTicks) return byForces(sim, 'time', costOf);
+  if (tick >= capTicks) return goals !== undefined && goals.mode === 'points' ? byPoints(sim, goals, costOf) : byForces(sim, 'time', costOf);
   return { kind: 'ongoing' };
 }
 

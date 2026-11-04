@@ -314,6 +314,7 @@ export class AgentClient {
     // GH-976 P2: a points race is read by the referee's tally too (points by source), from the runtime's own score.
     const pointsRules = config.winMode === 'points' ? versusModes[config.map]?.modes.points : undefined;
     if (pointsRules !== undefined && w.runtime !== null) this.live.tally.setPoints({ runtime: w.runtime, rules: pointsRules });
+    else if (config.winMode !== undefined) this.live.tally.setMode(config.winMode);
     this.log(`match ${config.code} started: ${config.map}, seat ${this.o.seat} (side ${side}, ${w.factions[side]})`);
   }
 

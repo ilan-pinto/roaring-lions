@@ -9,6 +9,7 @@
 import { versusModes } from '@lions/data';
 import type { Faction, WinMode } from '@lions/net';
 import { campOf } from '../../../packages/app/src/net/versus-force';
+import { flagViewOf, type FlagView } from '../../../packages/app/src/net/flag-view';
 import { pointsViewOf, type PointsView } from '../../../packages/app/src/net/points-view';
 import type { MatchWorld } from '../../../packages/app/src/net/match-world';
 import { scoreFor, scoreOf, type SideScore } from '../../../packages/app/src/net/scoreboard';
@@ -65,6 +66,9 @@ export interface SideView {
    *  PUBLIC by design (see `net/points-view.ts`): the board of a race is read by both seats, as the HUD shows it to a human;
    *  the units on it stay behind the fog (`contacts`). */
   points?: PointsView;
+  /** A flag raid only (GH-976 P3): where each flag stands, how long the hold is, and how each raid is going. PUBLIC by design (see
+   *  `net/flag-view.ts`): both flags' state is read by both seats; the units in the zones stay behind the fog. */
+  flags?: FlagView;
   result: string | null;
   /** How the match was decided, once it has been (`annihilation`, `objective`, `stalemate`, `time`, `mutual`, `surrender`, `left`, `forfeit`); null while it runs. */
   by: string | null;
@@ -157,6 +161,8 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
   const economy = economyView(w, side);
   const pointsRules = w.winMode === 'points' ? versusModes[w.mapJson.id]?.modes.points : undefined;
   const points = pointsRules !== undefined && w.runtime !== null ? pointsViewOf(w.runtime, pointsRules, side) : undefined;
+  const flagRules = w.winMode === 'flag' ? versusModes[w.mapJson.id] : undefined;
+  const flags = flagRules?.flags !== undefined && w.runtime !== null ? flagViewOf(w.runtime, { flags: flagRules.flags, modes: flagRules.modes }, side, w.endOfSide[side]) : undefined;
   return {
     tick: sim.tickCount,
     clock: clockOf(sim.tickCount),
@@ -175,6 +181,7 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
     score: scoreFor(scoreOf(sim), side),
     mode: w.winMode ?? 'annihilation',
     ...(points === undefined ? {} : { points }),
+    ...(flags === undefined ? {} : { flags }),
     result,
     by,
   };
