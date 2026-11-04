@@ -563,11 +563,13 @@ import {
   type BuildingMeshTemplate,
 } from './units/mesh-building';
 import { wallSurfaceForBuilding } from './units/building-mesh-role';
+import { StructureInstances, instanceableTemplate } from './units/structure-instances';
 import {
   applyBuildingDamageBand,
   buildingDamageBand,
   BuildingScarMaterials,
   isBurningBand,
+  scarMixForBand,
   STRUCTURE_BURN_INTERVAL_MS,
   STRUCTURE_BURN_MAGNITUDE,
   STRUCTURE_BURN_PLUME_MS,
@@ -2466,6 +2468,18 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly buildingMeshSettling = new Map<number, { root: THREE.Object3D; t: number; baseScaleY: number }>();
   /**
+   * GH-974 (design decision 7): the `per_tile` structures (walls, fences,
+   * HESCO, T-walls, sandbags) draw INSTANCED -- one `InstancedMesh` per
+   * (type, template mesh, damage state) -- rather than as a clone per tile.
+   * `units/structure-instances.ts` is the whole argument. The clone maps above
+   * keep every other building; a per-tile tile is in exactly one of the two,
+   * decided by `perTileInstanced`.
+   */
+  private readonly structureInstances = new StructureInstances(this.scene);
+  /** A wreck mid grow-in on the instanced path: its placement and clock. The
+   *  clone path keeps these on `buildingMeshSettling`'s roots. */
+  private readonly instancedSettling = new Map<number, { t: number; spec: InstanceRootSpec }>();
+  /**
    * Damage states (GH-31, A3.2 remainder; `units/building-damage.ts` is the
    * whole table). `buildingScars` is the per-TYPE memo of scarred material
    * clones; `buildingDamageBand` is the band each standing clone currently
@@ -3833,6 +3847,10 @@ export class ThreeRenderer implements Renderer {
     // each template's shared geometry/material released exactly once.
     for (const root of this.buildingMeshIdleEntities.values()) this.scene.remove(root);
     this.buildingMeshIdleEntities.clear();
+    // The instanced sets share the templates' geometry, so they go before the
+    // templates do; the sets own only their instance attributes.
+    this.structureInstances.dispose();
+    this.instancedSettling.clear();
     for (const site of this.buildingConstruction.values()) {
       this.scene.remove(site.root);
       disposeConstructionClip(site.clip);
@@ -4313,11 +4331,13 @@ export class ThreeRenderer implements Renderer {
         return changed;
       }
       case 'buildings':
-        return setObjectsVisible(
-          visible,
-          ...this.structureBoxes.values(),
-          ...this.buildingMeshIdleEntities.values(),
-          ...this.buildingMeshWreckEntities.values()
+        return (
+          setObjectsVisible(
+            visible,
+            ...this.structureBoxes.values(),
+            ...this.buildingMeshIdleEntities.values(),
+            ...this.buildingMeshWreckEntities.values()
+          ) + this.structureInstances.setHidden(!visible)
         );
       case 'units':
         // The one layer that CANNOT be done with `setObjectsVisible`, because
@@ -6894,7 +6914,7 @@ export class ThreeRenderer implements Renderer {
       const type = this.sim.structureTypes[st.typeIdx[s]];
       const w = st.maxX[s] - st.minX[s] + 1;
       const d = st.maxY[s] - st.minY[s] + 1;
-      const bounds = this.buildingMeshIdleEntities.has(s) ? this.drawnBuildingSize(s) : undefined;
+      const bounds = this.hasIdleMesh(s) ? this.drawnBuildingSize(s) : undefined;
       if (!bounds) return { width: w, height: type.heightPx * WORLD_Y_PER_LIFT_PIXEL, depth: d };
       // A per-tile run turns a quarter to follow its neighbours, so its
       // measured x/z are not this tile's; it is one tile and low either way.
@@ -8254,12 +8274,25 @@ export class ThreeRenderer implements Renderer {
         this.buildingMeshIdleEntities.delete(s);
         this.buildingDamageBand.delete(s);
       }
+      // The instanced tiles of this type, and the band they were last drawn at.
+      this.structureInstances.dropIdle(structureId);
+      for (const s of [...this.buildingDamageBand.keys()]) {
+        if (this.sim.structureTypes[st.typeIdx[s]].id === structureId) this.buildingDamageBand.delete(s);
+      }
       // The scar memo is keyed by the OLD template's materials.
       this.buildingScars.get(structureId)?.dispose();
       this.buildingScars.delete(structureId);
       disposeBuildingMeshTemplate(previousIdle);
     }
     this.buildingMeshIdleTemplates.set(structureId, idleTemplate);
+    // GH-974: a per-tile type with no construction mesh draws instanced, if its
+    // template can (every mesh at the root's own frame). The tiles are stood up
+    // by the next `updateBuildingMeshes`.
+    if (structureType.perTile && !constructionUrl && instanceableTemplate(idleTemplate)) {
+      this.structureInstances.setIdleTemplate(structureId, idleTemplate);
+    } else {
+      this.structureInstances.dropIdle(structureId);
+    }
     // Measured off the STANDING template only -- a wreck is by definition
     // shorter, and the shroud has to cover the building that was there, not
     // the pile that replaces it. `Box3.setFromObject` walks the root's own
@@ -8314,6 +8347,8 @@ export class ThreeRenderer implements Renderer {
       disposeBuildingMeshTemplate(previous);
     }
     this.buildingMeshConstructionTemplates.set(structureId, template);
+    // A part-built work is cut by a per-clone clip plane: its type keeps the clone path.
+    this.structureInstances.dropIdle(structureId);
     this.buildingConstructionHeight.set(
       structureId,
       new THREE.Box3().setFromObject(template.root).getSize(new THREE.Vector3()).y
@@ -8380,9 +8415,16 @@ export class ThreeRenderer implements Renderer {
         this.scene.remove(root);
         this.buildingMeshWreckEntities.delete(s);
       }
+      this.structureInstances.dropWreck(structureId);
+      for (const s of [...this.instancedSettling.keys()]) {
+        if (this.sim.structureTypes[this.sim.structures.typeIdx[s]].id === structureId) this.instancedSettling.delete(s);
+      }
       disposeBuildingMeshTemplate(previousWreck);
     }
     this.buildingMeshWreckTemplates.set(structureId, wreckTemplate);
+    if (structureType.perTile && instanceableTemplate(wreckTemplate)) {
+      this.structureInstances.setWreckTemplate(structureId, wreckTemplate);
+    }
     if (hasColdTextures(wreckTemplate.root)) this.coldWreckTypes.add(structureId);
     else this.coldWreckTypes.delete(structureId);
     // `updateStructures` reads `buildingMeshWreckTemplates` to decide whether
@@ -10099,6 +10141,34 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * GH-974: the A/B switch for instanced per-tile structures. Off, a wall,
+   * fence or HESCO tile is a clone of its template again (the path every
+   * other building takes); on, it is one instance of a per-type set. Debug
+   * only, like `debugMemoryInventory`: not on `api.ts`, and nothing in
+   * `frame()` reads it but the answer `perTileInstanced` gives. `pnpm perf:fx
+   * -- --no-instancing` and the equal-pixels check use it.
+   */
+  debugPerTileInstancing(enabled: boolean): void {
+    this.structureInstances.setEnabled(enabled);
+    this.instancedSettling.clear();
+    if (!enabled) return;
+    // Back on: the clones the off arm stood up leave, or both would draw.
+    const st = this.sim.structures;
+    for (const [s, root] of [...this.buildingMeshIdleEntities]) {
+      if (!this.perTileInstanced(this.sim.structureTypes[st.typeIdx[s]])) continue;
+      this.scene.remove(root);
+      this.buildingMeshIdleEntities.delete(s);
+      this.buildingDamageBand.delete(s);
+    }
+    for (const [s, root] of [...this.buildingMeshWreckEntities]) {
+      if (!this.structureInstances.handlesWreck(this.sim.structureTypes[st.typeIdx[s]].id)) continue;
+      this.scene.remove(root);
+      this.buildingMeshWreckEntities.delete(s);
+      this.buildingMeshSettling.delete(s);
+    }
+  }
+
+  /**
    * GH-469: what this renderer holds, in bytes, grouped by owner -- the scene
    * (each top-level child labelled by the field that owns it), then the mesh
    * TEMPLATES units are cloned from (not in the scene, but their arrays stay
@@ -10125,6 +10195,7 @@ export class ThreeRenderer implements Renderer {
     for (const e of this.vehicleMeshEntities.values()) tag(e.root, 'units: vehicles');
     for (const r of this.buildingMeshIdleEntities.values()) tag(r, 'buildings');
     for (const r of this.buildingMeshWreckEntities.values()) tag(r, 'buildings');
+    for (const r of this.structureInstances.meshes()) tag(r, 'buildings');
     for (const w of this.meshWrecks) tag(w.root, 'wrecks');
     // E6 chunk B: the swarm batches' three instanced meshes.
     for (const b of this.swarmBatches.values()) {
@@ -10397,8 +10468,21 @@ export class ThreeRenderer implements Renderer {
       // and no wreck of one: a cancelled stake leaves nothing (the sim pushes
       // no event), a destroyed one leaves its rubble decal and dust.
       if (!alive && constructionTemplate !== undefined && st.progress[s] < ONE) continue;
+      const instanced = this.perTileInstanced(type);
       if (alive) {
-        if (!this.buildingMeshIdleEntities.has(s)) {
+        if (instanced) {
+          if (!this.structureInstances.hasIdle(s)) {
+            const spec = this.instanceRootSpec(s, idleTemplate, elevation);
+            this.structureInstances.addIdle(
+              s,
+              type.id,
+              instanceRootMatrix(spec, 1, INSTANCE_SCRATCH),
+              spec.yaw,
+              this.scarMaterialFor(type.id)
+            );
+            this.refreshBuildingDamage(s);
+          }
+        } else if (!this.buildingMeshIdleEntities.has(s)) {
           const root = instantiateBuildingMesh(idleTemplate);
           const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
           const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
@@ -10417,6 +10501,7 @@ export class ThreeRenderer implements Renderer {
         // A structure that somehow re-gains `alive` after being wrecked is
         // not a real case today (structures never heal), but tearing down a
         // stale wreck clone here keeps this method correct if that changes.
+        if (this.structureInstances.removeWreck(s)) this.instancedSettling.delete(s);
         const staleWreck = this.buildingMeshWreckEntities.get(s);
         if (staleWreck) {
           this.scene.remove(staleWreck);
@@ -10456,9 +10541,12 @@ export class ThreeRenderer implements Renderer {
       // Dead: drop the idle clone, and stand up the wreck one if this type
       // loaded a wreck template.
       const idleEntity = this.buildingMeshIdleEntities.get(s);
-      if (idleEntity) {
-        this.scene.remove(idleEntity);
-        this.buildingMeshIdleEntities.delete(s);
+      const idleInstanced = idleEntity === undefined && this.structureInstances.removeIdle(s);
+      if (idleEntity || idleInstanced) {
+        if (idleEntity) {
+          this.scene.remove(idleEntity);
+          this.buildingMeshIdleEntities.delete(s);
+        }
         this.buildingDamageBand.delete(s);
         // The hand-off: a building that died BURNING keeps its fire on the
         // wreck for `WRECK_BURN_SECONDS`; one killed clean never lit.
@@ -10466,7 +10554,20 @@ export class ThreeRenderer implements Renderer {
         if (burn && burn.remainingMs === Infinity) burn.remainingMs = WRECK_BURN_SECONDS * 1000;
       }
       const wreckTemplate = this.buildingMeshWreckTemplates.get(type.id);
-      if (wreckTemplate && !this.buildingMeshWreckEntities.has(s)) {
+      if (wreckTemplate && this.structureInstances.handlesWreck(type.id)) {
+        if (!this.structureInstances.hasWreck(s)) {
+          // The instanced wreck: the same placement, facing and fit as the
+          // clone's, starting squashed and grown in by `stepBuildingMeshSettle`.
+          const spec = this.instanceRootSpec(s, wreckTemplate, elevation);
+          this.structureInstances.addWreck(
+            s,
+            type.id,
+            instanceRootMatrix(spec, buildingSettleScale(0).scaleFactor, INSTANCE_SCRATCH),
+            spec.yaw
+          );
+          this.instancedSettling.set(s, { t: 0, spec });
+        }
+      } else if (wreckTemplate && !this.buildingMeshWreckEntities.has(s)) {
         const root = instantiateBuildingMesh(wreckTemplate);
         const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
         const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
@@ -10487,6 +10588,55 @@ export class ThreeRenderer implements Renderer {
         this.scene.add(root);
       }
     }
+    this.structureInstances.flush();
+  }
+
+  /**
+   * Is `type` drawn instanced? A `per_tile` type whose standing template could
+   * be (`StructureInstances.handles`) and that has no construction mesh: a
+   * part-built work is cut by a per-clone clip plane, which an instanced set
+   * cannot carry, so a buildable per-tile work keeps the clone path.
+   */
+  private perTileInstanced(type: { readonly id: string; readonly perTile: boolean }): boolean {
+    return type.perTile && !this.buildingMeshConstructionTemplates.has(type.id) && this.structureInstances.handles(type.id);
+  }
+
+  /** Does structure `s` stand as a mesh, cloned or instanced? */
+  private hasIdleMesh(s: number): boolean {
+    return this.buildingMeshIdleEntities.has(s) || this.structureInstances.hasIdle(s);
+  }
+
+  /** The material an instanced set takes for `typeId` at scar state `state`
+   *  (0 clean): the template's own, or the memoised scar clone. */
+  private scarMaterialFor(typeId: string): (mesh: THREE.Mesh, state: number) => THREE.Material {
+    let scars = this.buildingScars.get(typeId);
+    if (!scars) {
+      scars = new BuildingScarMaterials();
+      this.buildingScars.set(typeId, scars);
+    }
+    const memo = scars;
+    return (mesh, state) => memo.materialFor(mesh, state);
+  }
+
+  /** Where the clone path would stand structure `s`'s root (centre, ground,
+   *  run facing, fit), for `template`'s own scale. */
+  private instanceRootSpec(
+    s: number,
+    template: BuildingMeshTemplate,
+    elevation: ThreeRenderer['retained']['elevation']
+  ): InstanceRootSpec {
+    const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
+    const fit = this.buildingFitFor(s);
+    const base = template.root.scale;
+    return {
+      x: cx,
+      y: groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy),
+      z: cy,
+      yaw: this.perTileYaw(s),
+      sx: base.x * fit.sx,
+      sy: base.y * fit.sy,
+      sz: base.z * fit.sz,
+    };
   }
 
   /** Stands up (once) and re-cuts (every frame) one unfinished work's
@@ -10535,6 +10685,14 @@ export class ThreeRenderer implements Renderer {
         freezeStatic(entry.root);
       }
     }
+    if (this.instancedSettling.size === 0) return;
+    for (const [s, entry] of this.instancedSettling) {
+      entry.t += dtSeconds;
+      const result = buildingSettleScale(entry.t);
+      this.structureInstances.setWreckRoot(s, instanceRootMatrix(entry.spec, result.scaleFactor, INSTANCE_SCRATCH));
+      if (result.done) this.instancedSettling.delete(s);
+    }
+    this.structureInstances.flush();
   }
 
   /** GH-31: the scar memo for one vehicle TEMPLATE (`vehicleTemplateKey`:
@@ -10610,7 +10768,8 @@ export class ThreeRenderer implements Renderer {
    */
   private refreshBuildingDamage(s: number): void {
     const root = this.buildingMeshIdleEntities.get(s);
-    if (!root) return;
+    const instanced = root === undefined && this.structureInstances.hasIdle(s);
+    if (!root && !instanced) return;
     const st = this.sim.structures;
     if (st.alive[s] !== 1) return;
     // GH-469: the first hit on a type is the wreck's cue to decode -- the
@@ -10626,7 +10785,12 @@ export class ThreeRenderer implements Renderer {
       scars = new BuildingScarMaterials();
       this.buildingScars.set(typeId, scars);
     }
-    applyBuildingDamageBand(root, band, scars);
+    if (root) applyBuildingDamageBand(root, band, scars);
+    else {
+      // One set per scar band, none for the clean three: bands 8-6 share the
+      // template's own material, so they share one set too.
+      this.structureInstances.setIdleState(s, scarMixForBand(band) === 0 ? 0 : band, this.scarMaterialFor(typeId));
+    }
     if (isBurningBand(band)) {
       // Primed to fire on the next step rather than an interval later: the
       // band change is the moment the player is looking.
@@ -13530,7 +13694,7 @@ export class ThreeRenderer implements Renderer {
     // never sim state that could feed back -- the same presentation-hash rule
     // `collapseYawTurns` at the call site already follows.
     this.collapseShrouds.spawn(cx, worldY, cy, width, depth, height, structure);
-    if (bounds && this.buildingMeshIdleEntities.has(structure)) {
+    if (bounds && this.hasIdleMesh(structure)) {
       this.buildingMeshSwapHold.set(structure, COLLAPSE_SHROUD_SWAP_DELAY_MS);
     }
   }
@@ -13594,6 +13758,32 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
+}
+
+/** Where a per-tile structure's root sits: what the clone path writes to
+ *  `position`, `rotation.y` and `scale`. `sy` is the settled height scale. */
+interface InstanceRootSpec {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly yaw: number;
+  readonly sx: number;
+  readonly sy: number;
+  readonly sz: number;
+}
+
+const ROOT_POS = new THREE.Vector3();
+const ROOT_QUAT = new THREE.Quaternion();
+const ROOT_SCALE = new THREE.Vector3();
+const ROOT_AXIS_Y = new THREE.Vector3(0, 1, 0);
+const INSTANCE_SCRATCH = new THREE.Matrix4();
+
+/** The matrix a clone's root would have for `spec`, with `heightFactor` on Y. */
+function instanceRootMatrix(spec: InstanceRootSpec, heightFactor: number, out: THREE.Matrix4): THREE.Matrix4 {
+  ROOT_POS.set(spec.x, spec.y, spec.z);
+  ROOT_QUAT.setFromAxisAngle(ROOT_AXIS_Y, spec.yaw);
+  ROOT_SCALE.set(spec.sx, spec.sy * heightFactor, spec.sz);
+  return out.compose(ROOT_POS, ROOT_QUAT, ROOT_SCALE);
 }
 
 /** `StructureFootprint` plus the one fact `buildBuildings` itself does not
