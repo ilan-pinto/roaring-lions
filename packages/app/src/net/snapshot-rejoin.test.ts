@@ -44,13 +44,17 @@ const EVERY = 1200;
  * read negative as well, 3 reads positive; the economy room reads +1182050052), read by a scratch copy of this file's own `play` and `digestOf`.
  * GH-707 (3 Nov): `inf_medic_squad` on the KDF menu in `data/doctrines/kdf.json` is content too (the review showed seed 1 still passes with the
  * medic off, on main plus the Spike): seed 1 went positive; seeds 2, 7 and 8 read negative (3, 4, 5, 6 and 9 read positive), so seed 2 stands. Was seed 1.
+ * GH-976 (4 Nov): the win-mode files `data/versus/modes/<map>.json` (`versusModes`) are content too, so adding tel_marum's and four more re-rolled
+ * the sign. The sim hash (3655609792 for seed 2) and the runtime digest are byte-identical to main's: only `shippedContentDigest()` moved
+ * (846746415 -> 1070441926). Seed 2 went positive (+1598120593; the economy room too, +1337731563); seeds 1, 3 and 9 read negative
+ * (1: -1613319460), so seed 1 stands. Was seed 2.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;
   const sides = sidesOfFactions([...factions]);
   const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({
-    matchId: CODE, code: CODE, seed: 2, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
+    matchId: CODE, code: CODE, seed: 1, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
     pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b-1', dataDigest: 0, snapshotEveryTicks: EVERY,
   });
   if (c === null) throw new Error('bad fixture');
