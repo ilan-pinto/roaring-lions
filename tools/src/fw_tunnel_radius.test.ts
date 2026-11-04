@@ -101,11 +101,18 @@ export function walkAllowLists(lists: Record<string, string[]>): { checked: numb
 }
 
 describe('fw-tunnel-radius', () => {
-  it('the planned allow lists (spec 5): five missions list the intel centre and none has a pad that covers a needed route', () => {
-    const r = walkAllowLists(PLANNED_FIELD_WORKS);
+  it('the SHIPPED allow lists (data/missions field_works): five missions list the intel centre and none has a pad that covers a needed route', () => {
+    const r = walkAllowLists(shippedFieldWorks());
     expect(r.failures).toEqual([]);
     expect(r.checked).toBe(5);
   }, 240000);
+
+  it('the shipped lists are the planned lists of spec 5 for the seven missions, and no other mission lists a radius type', () => {
+    const shipped = shippedFieldWorks();
+    for (const [mission, types] of Object.entries(PLANNED_FIELD_WORKS)) expect([mission, [...(shipped[mission] ?? [])].sort()]).toEqual([mission, [...types].sort()]);
+    const radiusMissions = Object.entries(shipped).filter(([, types]) => types.some((t) => radiusOf(t) > 0)).map(([m]) => m).sort();
+    expect(radiusMissions).toEqual(['khan_rafid_2_foothold', 'qarn_hadid_2_foothold', 'tel_marum_2_foothold', 'umm_zeitoun_2_buildup', 'wadi_halam_2_laager']);
+  });
 
   it('control: the walk can fail. deir_amun_2_foothold with the intel centre has covering pads on its pump route', () => {
     const r = walkPads('deir_amun_2_foothold', 'kdf_intel_centre');

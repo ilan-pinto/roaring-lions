@@ -41,7 +41,8 @@ import { firstLightPlan } from './plans/beit_sahwan';
 import { EIN_QASAB_PLANS } from './plans/ein_qasab';
 import { playOrderOf } from './play-order';
 import { telMarum3Plan } from './plans/tel_marum';
-import { e6Remetz, countBeams, isRemetz, remetzReport } from './plans/e6-remetz';
+import { uz2Plan } from './plans/umm_zeitoun';
+import { countBeams, remetzReport } from './plans/e6-remetz';
 
 
 /**
@@ -393,6 +394,8 @@ const wh2 = run('wadi_halam_2_laager', wadiHalam2Plan, wh1);
 // starts (the force spawns at x2-4, `pasture` begins at x13) -- nothing else
 // on the map can end a passive run.
 passiveAcrossSeeds('wadi_halam_2_laager', 'wadi_halam_2_laager (no orders)', 'defeat', wh1);
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('wadi_halam_2_laager', 'wadi_halam_2_laager (medic only)', 'defeat', wh1, SWEEP_SEEDS, 'medic');
 
 const wh3 = run(
   'wadi_halam_3_counterraid',
@@ -827,6 +830,8 @@ run(
 );
 
 passiveAcrossSeeds('khan_rafid_2_foothold', 'khan_rafid_2_foothold (passive control)', 'defeat');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('khan_rafid_2_foothold', 'khan_rafid_2_foothold (medic only)', 'defeat', {}, SWEEP_SEEDS, 'medic');
 
 // KR II (GH-382: the ward stands on a mound in a market plain, ring road at its foot) -- clear
 // the ward with the hold force (rifles + one Eitan, both under the 0.3 structural-collateral
@@ -1182,6 +1187,8 @@ run(
 );
 
 passiveAcrossSeeds('deir_amun_2_foothold', 'deir_amun_2_foothold (passive control)', 'defeat');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('deir_amun_2_foothold', 'deir_amun_2_foothold (medic only)', 'defeat', {}, SWEEP_SEEDS, 'medic');
 
 // DA II -- both Yahalom teams charge `da_tn_pump` together the moment the
 // hold force clears the yard's one gate, then pull straight back out: their
@@ -1515,6 +1522,8 @@ run(
 // fails. `checkEnd` returns DEFEAT on that clock regardless of the
 // hold/HVT pair. Measured (this session): DEFEAT at 5.00 min.
 passiveAcrossSeeds('tel_marum_2_foothold', 'tel_marum_2_foothold (passive control)', 'defeat');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('tel_marum_2_foothold', 'tel_marum_2_foothold (medic only)', 'defeat', {}, SWEEP_SEEDS, 'medic');
 
 run(
   'tel_marum_2_foothold',
@@ -1725,6 +1734,8 @@ const ledQH1 = run(
 // `hold_the_gates` never starts on a passive run either (`livingIn` needs a
 // player unit physically present), but the raze deadline ends it first.
 passiveAcrossSeeds('qarn_hadid_2_foothold', 'qarn_hadid_2_foothold (passive control)', 'defeat');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('qarn_hadid_2_foothold', 'qarn_hadid_2_foothold (medic only)', 'defeat', {}, SWEEP_SEEDS, 'medic');
 
 const ledQH2 = run(
   'qarn_hadid_2_foothold',
@@ -2165,55 +2176,13 @@ const ledUZ1 = run(
 // and nothing in the light 90s/180s/210s/300s cadence closes on the empty
 // start line on its own.
 passiveAcrossSeeds('umm_zeitoun_2_buildup', 'umm_zeitoun_2_buildup (no orders)', 'defeat');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('umm_zeitoun_2_buildup', 'umm_zeitoun_2_buildup (medic only)', 'defeat', {}, SWEEP_SEEDS, 'medic');
 
-// The whole force clears the knoll TOGETHER before anything splits off to
-// hold. A first version sent the demo squad in with only two rifle squads as
-// escort while the rest dug in on the crest line immediately -- it survived,
-// but the two escorting `inf_squad` did not, and UZ III's own `from_ledger`
-// draw for `inf_squad` (a fresh mission's own precondition per the design
-// draft) came up empty against that roster, spawning one fresh body where
-// three were expected. `hold_for` has no deadline of its own and does not
-// reset on a contest (only pauses), so nothing is lost by holding off the
-// crest line until the ground that can see it is cleared first -- only the
-// 300s `raze` deadline is a hard clock, and it is reached with room to
-// spare either way.
+// The whole force clears the knoll together first: the plan is `uz2Plan` (plans/umm_zeitoun.ts), moved there verbatim.
 const ledUZ2 = run(
   'umm_zeitoun_2_buildup',
-  (sim, _rt, ids, at) => {
-    e6Remetz(sim, _rt, ids, at, 'umm_zeitoun_2_buildup', [24, 31]);
-    const demo = ids('demo_squad');
-    const strike = [...ids('apc_eitan'), ...ids('mbt_lavi'), ...ids('mortar_team'), ...ids('at_team'), ...ids('inf_squad')];
-    at(1, () => {
-      // Everyone but the demo squad clears the ground around the shed first.
-      sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 24) });
-      // GH-382: the knoll is 22 tiles up the slope now, and a demo squad that walks it unescorted
-      // arrives under the picket's rifle ahead of everyone (three seeds of twelve lost the post
-      // that way). It waits on the crest line and is sent when the ground is being cleared.
-      sim.queueCommand({ kind: 'move', ids: demo, ...M(24, 33) });
-    });
-    // Starts charges the moment it is within 2 tiles and the ground around it is unshaken; re-sent
-    // every 25 s until the shed is down, because a squad that halts to fight drops the order.
-    for (let when = 30; when <= 290; when += 25)
-      at(when, () => {
-        const shed = sim.structureAt(22, 23);
-        if (shed >= 0) sim.queueCommand({ kind: 'demolish', ids: demo, structure: shed });
-      });
-    // Once the knoll is down, the whole strike force pulls back onto the
-    // crest line and digs in for the hold. Re-anchored periodically after
-    // that: attackMove does not mean "stand here", and the 180s/300s waves
-    // both march straight into the zone (`rim_crest` sits inside
-    // `crest_line`).
-    at(100, () => sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 31) }));
-    for (let when = 140; when <= 420; when += 40) {
-      at(when, () => {
-        const cur: number[] = [];
-        for (let i = 0; i < sim.entityCount; i++) {
-          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !demo.includes(i) && !isRemetz(sim, i)) cur.push(i);
-        }
-        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(24, 31) });
-      });
-    }
-  },
+  uz2Plan,
   ledUZ1,
   'victory',
   'umm_zeitoun_2_buildup',
