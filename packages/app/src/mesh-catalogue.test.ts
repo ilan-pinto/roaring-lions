@@ -162,7 +162,7 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     expect(Object.keys(BUILDING_MESHES).filter((k) => !known.has(k))).toEqual([]);
   });
 
-  it('wires the eight GH-277 field works, and a construction state on the four KDF ones only', () => {
+  it('wires the nine GH-277 field works, and a construction state on the four KDF ones only', () => {
     // Literals, not derived from the table under test.
     const kdf = ['kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop', 'kdf_aid_post'];
     const militia = ['militia_field_clinic', 'militia_firing_position', 'militia_observation_post', 'militia_weapons_workshop'];
@@ -178,8 +178,10 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     for (const id of militia) {
       expect(BUILDING_MESHES[id]).toEqual({ idle: `buildings/${id}.glb`, wreck: `buildings/${id}_wreck.glb` });
     }
-    // None of the twenty is still held.
-    expect(Object.keys(HELD_MESH_FILES).filter((f) => /buildings\/(kdf|militia)_/.test(f))).toEqual([]);
+    // None of the nine is still held. By id, not by a `kdf_` prefix: the forward camp is a KDF
+    // building too, and is held on purpose until its structure type lands (GH-277).
+    const wired = [...kdf, ...militia];
+    expect(Object.keys(HELD_MESH_FILES).filter((f) => wired.some((id) => f.startsWith(`buildings/${id}.glb`) || f.startsWith(`buildings/${id}_`)))).toEqual([]);
   });
 
   it('draws the forward camp (GH-277) with the field camp\'s mesh and wreck, and no construction state, until its own model lands', () => {
