@@ -193,6 +193,8 @@ import {
   AIR_LIFTING,
   AIR_LAND_TICKS,
   AIR_LIFT_TICKS,
+  AIR_GROUND_MIN_TICKS,
+  LZ_SEARCH_TILES,
   AIR_WANT_NONE,
   AIR_WANT_LOAD,
   AIR_WANT_UNLOAD,
@@ -1480,6 +1482,9 @@ export type SimEvent =
   /** GH-707 Task 6: aid structure `structure` fell while admitted wounded `entity` was under
    *  treatment there: he is lost (woundState GONE). */
   | { kind: 'woundLost'; tick: number; entity: number; structure: number }
+  /** GH-1007: an air carrier's `load` or `unload` was refused because no footprint within
+   *  LZ_SEARCH_TILES is clear. Nothing else changed. The app words it; the sim shows no text. */
+  | { kind: 'landRefused'; tick: number; carrier: number; reason: 'no_clear_ground' }
   /** Field works (#277): a `construct` was accepted. `builder` is the lowest qualifying id the
    *  command named. `joined`: it named a live site's type and origin and joined that site rather
    *  than opening one (nothing new to pay for). */
@@ -1520,7 +1525,7 @@ export const SIM_EVENT_KINDS = [
   'fieldFixed', 'beam',
   'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated', 'woundStabilised',
   'woundAdmitted', 'woundRejoined', 'woundLost',
-  'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
+  'landRefused', 'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union.
@@ -10428,12 +10433,14 @@ export class Sim {
         st = AIR_LANDED; // and the LANDED rules, this same tick
       }
       if (st === AIR_LANDED) {
+        if (this.airTimer[i] > 0) this.airTimer[i]--; // R3: ground time after an unload
         if (this.airWant[i] === AIR_WANT_UNLOAD) {
           this.unloadAir(i);
+          this.airTimer[i] = AIR_GROUND_MIN_TICKS;
           this.airWant[i] = AIR_WANT_NONE; // it stays landed
         }
         if (this.moving[i] === 1) {
-          if (this.airWant[i] === AIR_WANT_LOAD || this.mobilityKilled[i] === 1) {
+          if (this.airWant[i] === AIR_WANT_LOAD || this.mobilityKilled[i] === 1 || this.airTimer[i] > 0) {
             // A mobility-killed hull stays down until the kill is repaired.
             // Landed to load: only an order (which clears the want) lifts it,
             // never an autonomous chase.
@@ -10504,21 +10511,89 @@ export class Sim {
   }
 
   /**
-   * R2: into `snapX`/`snapY`, the open tile nearest (x, y) on the VEHICLE mask --
-   * a rotor does not set down on a building, a ridge, a boulder field or a
-   * ditch, though a rifleman can stand on a boulder. False when the map has no
-   * such tile at all; snapX/snapY are then meaningless.
+   * R2 (GH-1007): into `snapX`/`snapY`, the centre of the nearest landing footprint to (x, y):
+   * a ring search by Chebyshev distance 0..LZ_SEARCH_TILES, then tile index (row-major). A tile
+   * passes when it and its 8 neighbours are in the map and open on the VEHICLE mask (a rotor does
+   * not set down on a building, a ridge, a boulder field or a ditch), and no OTHER living air
+   * carrier holds a footprint within Chebyshev 2 of it (`lzTaken`). False, with no state touched
+   * but `snapX`/`snapY`, when nothing within reach is clear. `self` is the asking carrier (-1: none).
+   * Per order, never per tick; no allocation.
    */
-  private lzFor(x: Fx, y: Fx): boolean {
+  private lzFor(x: Fx, y: Fx, self: number): boolean {
     const w = this.width;
     const h = this.height;
     let tx = fx.toInt(x);
     let ty = fx.toInt(y);
     tx = tx < 0 ? 0 : tx >= w ? w - 1 : tx;
     ty = ty < 0 ? 0 : ty >= h ? h - 1 : ty;
+    for (let d = 0; d <= LZ_SEARCH_TILES; d++) {
+      for (let cy = ty - d; cy <= ty + d; cy++) {
+        const edge = cy === ty - d || cy === ty + d;
+        const step = edge || d === 0 ? 1 : 2 * d;
+        for (let cx = tx - d; cx <= tx + d; cx += step) {
+          if (!this.footprintClear(cx, cy, self)) continue;
+          this.snapX = cx;
+          this.snapY = cy;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** R2: the 3x3 around (cx, cy) is in the map and vehicle-open, and no other carrier holds it. */
+  private footprintClear(cx: number, cy: number, self: number): boolean {
+    const w = this.width;
+    if (cx < 1 || cy < 1 || cx >= w - 1 || cy >= this.height - 1) return false;
     const mask = this.maskFor(DOMAIN_VEHICLE);
-    this.snapOpenTile(tx, ty, mask);
-    return mask[this.snapY * w + this.snapX] === 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (mask[(cy + dy) * w + cx + dx] !== 0) return false;
+      }
+    }
+    return !this.lzTaken(cx, cy, self);
+  }
+
+  /** R2: another living air carrier (id order) holds a footprint within Chebyshev 2 of (cx, cy):
+   *  LANDING or LANDED there, or flying to land for a load or an unload. */
+  private lzTaken(cx: number, cy: number, self: number): boolean {
+    for (let j = 0; j < this.count; j++) {
+      if (j === self || this.alive[j] === 0 || !this.unitTypes[this.typeIdx[j]].isAirCarrier) continue;
+      const st = this.airState[j];
+      const want = this.airWant[j];
+      if (st !== AIR_LANDING && st !== AIR_LANDED && want !== AIR_WANT_LOAD && want !== AIR_WANT_UNLOAD) continue;
+      const gx = fx.toInt(this.goalX[j]) - cx;
+      const gy = fx.toInt(this.goalY[j]) - cy;
+      if (gx >= -2 && gx <= 2 && gy >= -2 && gy <= 2) return true;
+    }
+    return false;
+  }
+
+  /**
+   * R1 (GH-1007): a production-built air carrier is delivered on the ground. If a footprint
+   * within reach of its spawn tile is clear (R2, nearest first) it is LANDED there, want NONE, goal its own position; else
+   * it stays AIRBORNE as everything else spawns. The rally attack-move that follows then lifts it
+   * for AIR_LIFT_TICKS. Called by the production delivery only: mission placements, embarkAtSpawn,
+   * probes and tests spawn AIRBORNE. True when it settled. No rng, no allocation.
+   */
+  settleOnGround(id: number): boolean {
+    if (id < 0 || id >= this.count || this.alive[id] === 0) return false;
+    if (!this.unitTypes[this.typeIdx[id]].isAirCarrier || this.airState[id] !== AIR_AIRBORNE) return false;
+    // The camp's exit tile is the corner beside the building, so its own 3x3 always holds a
+    // building tile and can never pass: the pad is the nearest clear footprint to the spawn
+    // (ring 0 is the spawn tile itself), and the carrier is set down on its centre.
+    if (!this.lzFor(this.posX[id], this.posY[id], id)) return false;
+    this.posX[id] = fx.add(fx.fromInt(this.snapX), HALF);
+    this.posY[id] = fx.add(fx.fromInt(this.snapY), HALF);
+    this.airState[id] = AIR_LANDED;
+    this.airTimer[id] = 0;
+    this.airWant[id] = AIR_WANT_NONE;
+    this.goalX[id] = this.posX[id];
+    this.goalY[id] = this.posY[id];
+    this.moving[id] = 0;
+    this.wpCount[id] = 0;
+    this.fieldRef[id] = -1;
+    return true;
   }
 
   /**
@@ -10527,7 +10602,10 @@ export class Sim {
    * False, with no state touched, when there is no LZ.
    */
   private orderLand(car: number, want: number, x: Fx, y: Fx): boolean {
-    if (!this.lzFor(x, y)) return false;
+    if (!this.lzFor(x, y, car)) {
+      this.pendingEvents.push({ kind: 'landRefused', tick: this.tickCount, carrier: car, reason: 'no_clear_ground' });
+      return false;
+    }
     const lx = this.snapX;
     const ly = this.snapY;
     this.goalX[car] = fx.add(fx.fromInt(lx), HALF);

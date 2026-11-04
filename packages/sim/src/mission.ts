@@ -2949,6 +2949,9 @@ export class MissionRuntime {
           this.refund(line.side, done);
           continue;
         }
+        // GH-1007 R1: an air carrier built at a camp stands on the pad (LANDED) when the footprint
+        // is clear, and the rally below lifts it; otherwise it spawns airborne as before.
+        this.sim.settleOnGround(ids[0]);
         // D5: a rally point is a no-sweep attack-move, queued on the deploy tick. `sweep` is left
         // off on purpose: an arrived attack-mover holds (sweepOrder 0, #537).
         if (line.rally !== null && ids.length > 0) {

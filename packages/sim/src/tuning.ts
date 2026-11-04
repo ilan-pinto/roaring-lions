@@ -548,6 +548,11 @@ export const BUILD_HP_FRAC = 58982; // 0.9
 export const AIR_LAND_TICKS = 40; // 2 s
 /** Air carriers: ticks from LANDED back to AIRBORNE through AIR_LIFTING. */
 export const AIR_LIFT_TICKS = 20; // 1 s
+/** GH-1007 R3: ticks a carrier stays on the ground after unloading before a move may lift it. 0 is
+ *  byte-identical to before; revisit at 20/40 after the air-assault probe. */
+export const AIR_GROUND_MIN_TICKS = 0;
+/** GH-1007 R2: the landing search reaches this many tiles (Chebyshev) from the asked-for point. */
+export const LZ_SEARCH_TILES = 6;
 /** Air carrier flight state (`airState`). AIRBORNE is the spawn default; only LANDING and LANDED
  *  are ground targets (Q-C, 21 Oct). */
 export const AIR_AIRBORNE = 0;

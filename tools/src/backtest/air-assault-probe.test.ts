@@ -26,7 +26,11 @@ describe('air-assault probe: arm C, the cold landing zone', () => {
       expect(r.maxAboard, `${m}: riders aboard at once`).toBe(6);
       // Two landings, each the full AIR_LAND_TICKS: one to load, one to unload.
       expect(r.stateTicks[1], `${m}: ticks LANDING`).toBe(2 * AIR_LAND_TICKS);
-      expect(r.unloadTile, `${m}: the tile it unloaded on`).toEqual([...LAYOUTS[m].objective]);
+      // GH-1007 R2: a landing zone is a 3x3 footprint, so the carrier sets down on the nearest
+      // CLEAR footprint (ring search). Qarn Hadid's objective (24,12) has a blocked neighbour, so
+      // it lands on (23,13) instead; Tel Marum's objective is clear and unchanged.
+      const lz = m === 'qarn_hadid' ? [23, 13] : [...LAYOUTS[m].objective];
+      expect(r.unloadTile, `${m}: the tile it unloaded on`).toEqual(lz);
       expect(r.arrivedS, `${m}: arrival`).not.toBeNull();
       expect(r.squadsLost).toBe(0);
       expect(r.yanshufLost).toBe(false);
