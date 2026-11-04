@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "dd1ae1133f82b898a58fb56a81161adf8cc5ebe4",
-  "blessedAt": "2026-11-03T14:49:10.952Z",
-  "reason": "PR 988 (GH-984 N1): the wind moves grass, reeds, shrubs and trunks with a travelling gust; lead approved the proposed strength and sheets 3 Nov. Every gated scenario moved only by vegetation (meanAbs 0.03-0.15, all layer checks and repaint controls pass).",
+  "commit": "b7a92adc175b9e0d42e90ad7794ef128c9ef5907",
+  "blessedAt": "2026-11-04T00:15:29.939Z",
+  "reason": "PR 993 (GH-984 N2): vehicles bend nearby grass and bushes, and a pivot stamps churn (decal showcase). quiet/fogged move only on vegetation near the sandbox force, aftermath by the churn decal; lead approved sheets 3 Nov.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "915b93c36c345dce73420e57800d1858b17579257b908c355b6f1d0b7bc540b1"
+      "sha256": "1643805679abdce9c73ea53dd21b2c77423f1827d33dbf9aeca8145777e5e251"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "c8d5b620894c12bfa7a81e616c76e6df1d8551d8da0c7e076db24b16a6526b7b"
+      "sha256": "a34e1d2b5058768c8f1999fc70b84354583ed259ce832a3b203dbb202f266478"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "82d10e8e0cbe60bf832d12033049b842f407ec88706b2b79928a67da4230cd0d"
+      "sha256": "52c6b12e769daab59baca7fc1a20754efcc2c24c2b9adcca7d0198cebf7e29ed"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "d424bec85d4e9f518e8b367d592bfd3b21ce272b36559a9efd827945f2508042"
+      "sha256": "df58d930012ec3ca9b815fee0c68a18cf9c8f9e1176e7f4f16eb66129fcc0537"
     },
     "fogged": {
       "tick": 140,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "cfeb697f98fa8db2d6e5da147e455fffcfb3eef46fac1781b2582fbfd9b9f158"
+      "sha256": "fbabaa5333c898099bfd2f966bf0f008a490054117bf492ae69942b47ef8d236"
     },
     "graded": {
       "tick": 140,
@@ -95,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "ceb2205a8b2802eca7df2633b8bc62f36f949ea7f7a575c8e77a3e74e2528875"
+      "sha256": "1d9a0076ccfed9569d060b0a0bee5f27c01b4db68726dde6528f9e2638092cba"
     },
     "relief": {
       "tick": 500,
@@ -109,7 +109,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "fc7e0b30622698bdb41b9066d9c44b79d494ad5c8b06d8b213ce08f3964fc504"
+      "sha256": "f795dc1f22bfa74000067fe9240a1cba7d0e49e1cf0440a2e0e4044842e216f3"
     },
     "aftermath": {
       "tick": 300,
@@ -123,7 +123,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "773cdacf5275249c9b4d0eb46e575ec883bdb569fc12158815220725b76e8a81"
+      "sha256": "2b9e79c1f914018e0512d5d5d86939d48d83472c4c4f381366196a21134709e8"
     }
   }
 }
