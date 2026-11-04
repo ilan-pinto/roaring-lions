@@ -383,6 +383,7 @@ describe('the built-share cap is per map', () => {
     expect(SPECS.milh_flats_l().maxBuiltShare).toBe(0.01);
     expect(SPECS.milh_flats_l_redo().maxBuiltShare).toBe(0.03);
     expect(SPECS.rujm_sawda_redo().maxBuiltShare).toBe(0.01); // 0.75% built: it fits the upscale era's cap too
+    expect(SPECS.wadi_tarfan_l_redo().maxBuiltShare).toBe(0.01); // under 1% built: it fits the upscale era's cap too
   });
 
   it('RED: a cap just under a map\'s own share fails that map (the redo: 70 building tiles of 9,216 = 0.76%)', () => {
@@ -414,7 +415,7 @@ describe('the visibility gate is required of every spec', () => {
     const exempt = Object.keys(SPECS).filter((id) => 'exempt' in SPECS[id]().visibility).sort();
     expect(exempt).toEqual(['milh_flats_l', 'rujm_sawda', 'wadi_tarfan_l']);
     const bound = Object.keys(SPECS).filter((id) => 'towns' in SPECS[id]().visibility);
-    expect(bound).toEqual(['milh_flats_l_redo', 'rujm_sawda_redo']);
+    expect(bound).toEqual(['milh_flats_l_redo', 'rujm_sawda_redo', 'wadi_tarfan_l_redo']);
     expect(Object.keys(SPECS).length).toBe(exempt.length + bound.length);
   });
 
