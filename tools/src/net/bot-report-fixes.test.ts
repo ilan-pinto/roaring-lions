@@ -52,7 +52,7 @@ async function twoSeats(): Promise<{ loop: Loop; a: Joined; c: Joined }> {
  * The shared fixture: seat 0's `mine` and `spare` idle in the open, an enemy teleported onto `mine`'s ground so it is a
  * contact, nobody able to shoot (so only `debugKill` kills). Identical on both machines between the same two frames.
  */
-async function metEnemy(meet = true): Promise<{ loop: Loop; a: Joined; c: Joined; ctx: ToolContext; w: MatchWorld; sims: MatchWorld['sim'][]; mine: number; spare: number; enemy: number; metTile: [number, number]; metTick: number; hidden: number }> {
+async function metEnemy(meet = true, onlyThree = false): Promise<{ loop: Loop; a: Joined; c: Joined; ctx: ToolContext; w: MatchWorld; sims: MatchWorld['sim'][]; mine: number; spare: number; enemy: number; metTile: [number, number]; metTick: number; hidden: number }> {
   const { loop, a, c } = await twoSeats();
   const ctx = createContext(a.client, 'command');
   await play(loop, 10, [a.client, c.client], () => a.client.tick() >= 5 && c.client.tick() >= 5);
@@ -62,9 +62,14 @@ async function metEnemy(meet = true): Promise<{ loop: Loop; a: Joined; c: Joined
   const inOpen = (id: number): boolean => st.garrisonedIn[id] < 0 && st.carriedBy[id] < 0 && st.tunnelIn[id] < 0;
   const [mine, spare] = a.client.view().units.filter((u) => u.flags.every((f) => f === 'idle')).map((u) => u.id);
   const [enemy, hidden] = sideIds(w, 1).filter(inOpen);
+  // `onlyThree` only: the one seat-0 unit left armed, the farthest from `mine`, so seat 0 is not annihilated for want of a gun
+  // and nothing near the fight can shoot `enemy`.
+  const armed = sideIds(w, 0).filter((id) => id !== mine && id !== spare)
+    .sort((p, q) => Math.hypot(st.posX[q] - st.posX[mine], st.posY[q] - st.posY[mine]) - Math.hypot(st.posX[p] - st.posX[mine], st.posY[p] - st.posY[mine]))[0];
   if (!meet) return { loop, a, c, ctx, w, sims, mine, spare, enemy, metTile: [0, 0], metTick: a.client.tick(), hidden };
   for (const sim of sims) {
-    for (let id = 0; id < sim.entityCount; id++) sim.debugDisableFirepower(id);
+    // `onlyThree`: all of seat 0 but its farthest unit, and the one enemy, are unarmed (so nothing but `debugKill` kills `enemy`); the rest of seat 1 keeps its guns, so a room with every weapon dead does not end in a mutual draw at tick ~20.
+    for (let id = 0; id < sim.entityCount; id++) if (!onlyThree || id === enemy || (sim.state.side[id] === 0 && id !== armed)) sim.debugDisableFirepower(id);
     sim.teleport(enemy, sim.state.posX[mine], sim.state.posY[mine]);
   }
   const met = a.client.tick();
@@ -150,6 +155,65 @@ describe('item 1: an attack on a target that left sight (the 4 Nov bot report)',
   });
 });
 
+describe('item 2 (second fight): an attack whose target was destroyed', () => {
+  const recOf = async (f: Awaited<ReturnType<typeof metEnemy>>, ref: number): Promise<Record<string, any>> => // eslint-disable-line @typescript-eslint/no-explicit-any
+    body(await call(f.ctx, 'observe')).orders.find((o: { ref: number }) => o.ref === ref);
+
+  it('killed in the seat\'s sight reads `done`, `target destroyed`, settled at the kill tick, with no fallback', async () => {
+    const f = await metEnemy(true, true);
+    const ok = body(await call(f.ctx, 'order', { verb: 'attack', ids: [f.mine], target: f.enemy })) as { ref: number };
+    await drive(f.loop, [f.a.client, f.c.client], call(f.ctx, 'wait', { ticks: 45 }));
+    const killedAt = f.a.client.tick();
+    for (const sim of f.sims) sim.debugKill(f.enemy);
+    await play(f.loop, 10, [f.a.client, f.c.client], () => f.a.client.tick() >= killedAt + 3 && f.c.client.tick() >= killedAt + 3);
+    const rec = await recOf(f, ok.ref);
+    expect(rec.status).toBe('done');
+    expect(rec.reason).toBe('target destroyed');
+    expect(rec.settledTick).toBeGreaterThanOrEqual(killedAt);
+    expect(rec.settledTick).toBeLessThanOrEqual(killedAt + 4);
+    expect(rec.target).toBe(f.enemy);
+    expect(rec).not.toHaveProperty('fallback');
+    expect(rec).not.toHaveProperty('lastSeen');
+  });
+
+  it('killed AFTER leaving sight stays `dropped`: a death the seat could not see is never revealed', async () => {
+    const f = await metEnemy(true, true);
+    const ok = body(await call(f.ctx, 'order', { verb: 'attack', ids: [f.mine], target: f.enemy })) as { ref: number };
+    await drive(f.loop, [f.a.client, f.c.client], call(f.ctx, 'wait', { ticks: 45 }));
+    await loseSight(f);
+    const at = f.a.client.tick();
+    for (const sim of f.sims) sim.debugKill(f.enemy);
+    await play(f.loop, 10, [f.a.client, f.c.client], () => f.a.client.tick() >= at + 5 && f.c.client.tick() >= at + 5);
+    const rec = await recOf(f, ok.ref);
+    expect(rec.status).toBe('dropped');
+    expect(rec.reason).toBe('target no longer in sight');
+    expect(rec.target).toBe('out of sight');
+    expect(JSON.stringify(rec)).not.toMatch(/destroyed|died/);
+  });
+
+  it('taken off the board alive in sight (not destroyed) is not a kill: it stays `dropped`', async () => {
+    const f = await metEnemy(true, true);
+    const ok = body(await call(f.ctx, 'order', { verb: 'attack', ids: [f.mine], target: f.enemy })) as { ref: number };
+    await drive(f.loop, [f.a.client, f.c.client], call(f.ctx, 'wait', { ticks: 45 }));
+    const at = f.a.client.tick();
+    for (const sim of f.sims) sim.removeFromPlay(f.enemy);
+    await play(f.loop, 10, [f.a.client, f.c.client], () => f.a.client.tick() >= at + 3 && f.c.client.tick() >= at + 3);
+    expect((await recOf(f, ok.ref)).status).toBe('dropped');
+  });
+
+  it('a dropped attack with no living id left carries no fallback (never `ids: []`)', async () => {
+    const f = await metEnemy(true, true);
+    const ok = body(await call(f.ctx, 'order', { verb: 'attack', ids: [f.spare], target: f.enemy })) as { ref: number };
+    await drive(f.loop, [f.a.client, f.c.client], call(f.ctx, 'wait', { ticks: 45 }));
+    for (const sim of f.sims) sim.debugKill(f.spare);
+    await loseSight(f);
+    const rec = await recOf(f, ok.ref);
+    expect(rec.status).toBe('dropped');
+    expect(rec.lastSeen.tile).toEqual(f.metTile);
+    expect(rec).not.toHaveProperty('fallback');
+  });
+});
+
 describe('item 1 (second fight): dead ids in an order', () => {
   it('goes to the living ids and answers `lost` in the order log\'s shape', async () => {
     const f = await metEnemy(false);
@@ -205,7 +269,7 @@ describe('item 4 (second fight): a pinned unit says it is held', () => {
     const rows = (o: Record<string, any>) => o.units as { id: number; held?: string }[]; // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(rows(body(await call(f.ctx, 'observe'))).some((u) => u.held !== undefined)).toBe(false);
     const at = f.a.client.tick();
-    for (const sim of f.sims) sim.debugSuppress(f.mine, fx.from(8))  // capped at 2.0 after the unit's cover; PIN_AT is 0.7;
+    for (const sim of f.sims) sim.debugSuppress(f.mine, fx.from(8)); // capped at 2.0 after the unit's cover; PIN_AT is 0.7
     await play(f.loop, 10, [f.a.client, f.c.client], () => f.a.client.tick() >= at + 2 && f.c.client.tick() >= at + 2);
     const o = body(await call(f.ctx, 'observe'));
     const row = rows(o).find((u) => u.id === f.mine) as unknown as { held?: string; flags: string[] };

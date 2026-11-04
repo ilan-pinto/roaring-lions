@@ -240,6 +240,7 @@ function roundOf(ctx: ToolContext): { index: number; ticks: number; doneRound: n
  * ids with no known fate.
  */
 export const OUT_OF_SIGHT_REASON = 'target no longer in sight';
+export const TARGET_DESTROYED_REASON = 'target destroyed';
 
 /** What became of own unit `id`, as the order log and an `order` answer both say it: `{ id, fate, tick }` (no tick for `unknown` or `wounded`), or null if the seat has no record of it being lost. */
 function fateEntry(id: number, view: SideView, memory: SeatMemory | null): Record<string, unknown> | null {
@@ -260,13 +261,18 @@ function fallbackFor(ids: number[], seen: { tile: [number, number] }): { verb: '
  * own `target: "out of sight"`; it does now. Called by `observe` before the log is described.
  */
 function settleLostTargets(ctx: ToolContext, view: SideView): void {
+  const memory = ctx.client.memory();
   const desk = ctx.client.desk;
   const tick = ctx.client.tick();
   for (const r of desk.records(ORDER_RECORDS)) {
     if (r.status !== 'applied' || r.cmd.kind !== 'attack') continue;
     const target = r.cmd.target;
     if (view.contacts.some((c) => c.id === target) || view.casualties.theirs.some((c) => c.id === target)) continue;
-    desk.dropApplied(r, OUT_OF_SIGHT_REASON, tick);
+    // Destroyed while the seat could see it is a success, told with the tick of the death; a death out of sight is
+    // never revealed: that stays a lost target.
+    const killedAt = memory?.killedInSight(target) ?? null;
+    if (killedAt !== null) desk.finishApplied(r, TARGET_DESTROYED_REASON, killedAt);
+    else desk.dropApplied(r, OUT_OF_SIGHT_REASON, tick);
   }
 }
 
@@ -291,14 +297,17 @@ function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null
     if (gone > 0) out.gone = gone;
   }
   if (isInt(c.x) && isInt(c.y)) out.tile = [c.x >> 16, c.y >> 16];
-  if (isInt(c.target)) {
+  if (isInt(c.target) && r.reason === TARGET_DESTROYED_REASON) {
+    out.target = c.target;   // seen to die in sight: the id is one the seat knew, and nothing is left to look for
+  } else if (isInt(c.target)) {
     out.target = listed.has(c.target) ? c.target : 'out of sight';
     // What the seat saw of it: its own sighting, never a position it was not shown (`SeatMemory`).
     const seen = listed.has(c.target) ? null : memory?.lastSeen(c.target) ?? null;
     if (seen !== null) out.lastSeen = { tile: seen.tile, tick: seen.tick };
     // A dropped attack carries the same hint the refusal does, for the units still alive.
     if (seen !== null && r.reason === OUT_OF_SIGHT_REASON && Array.isArray(c.ids)) {
-      out.fallback = fallbackFor((c.ids as number[]).filter((id) => listed.has(id)), seen);
+      const alive = (c.ids as number[]).filter((id) => listed.has(id));
+      if (alive.length > 0) out.fallback = fallbackFor(alive, seen);
     }
   }
   if (isInt(c.carrier) && listed.has(c.carrier)) out.carrier = c.carrier;
@@ -331,7 +340,7 @@ export function clockOfCtx(ctx: ToolContext): { simTick: number; relayTick: numb
 
 const observe: ToolDef = {
   name: 'observe',
-  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight (each with `inSight: true`, always, and `seenTick`: the sim tick the fog last confirmed it, at most 3 ticks old; its `tile` is where it stands NOW, so a contact that keeps one tile across observes is standing still; a unit that left sight is not a contact, and what you remember of it is `lastSeen` on an order), held buildings, the legal stances, the score (read from one tick: your `lost` is always the enemy\'s `destroyed`, and your `destroyed` its `lost`; a difference you see between two observes is the match having run on, and `lost`/`destroyed` count what died anywhere, in sight or not), the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was; an applied `attack` whose target left sight settles to `dropped`, `reason: target no longer in sight`, with `lastSeen` and a `fallback` attackMove). A unit that is pinned (suppressed) reads `held: pinned` in its row: the sim slows it to a crawl until the fire lifts, so a `move` stays `applied` and `moving` while it barely advances, or proposals (assist). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units.',
+  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight (each with `inSight: true`, always, and `seenTick`: the sim tick the fog last confirmed it, at most 3 ticks old; its `tile` is where it stands NOW, so a contact that keeps one tile across observes is standing still; a unit that left sight is not a contact, and what you remember of it is `lastSeen` on an order), held buildings, the legal stances, the score (read from one tick: your `lost` is always the enemy\'s `destroyed`, and your `destroyed` its `lost`; a difference you see between two observes is the match having run on, and `lost`/`destroyed` count what died anywhere, in sight or not), the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was), or proposals (assist). An applied `attack` settles in the log: `done` with `reason: target destroyed` and `settledTick` the tick of the kill when the target died in your sight; `dropped` with `reason: target no longer in sight`, `lastSeen` and a `fallback` attackMove when it left your sight (`settledTick` is the observe that noticed it; `lastSeen.tick` is when sight was lost). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units. A unit that is pinned (suppressed) reads `held: pinned` in its row: the sim slows it to a crawl until the fire lifts, so a `move` stays `applied` and `moving` while it barely advances.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
@@ -699,7 +708,7 @@ function sweepRefusal(ctx: ToolContext): ToolResult | null {
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units, or your production. The arguments are ONE flat JSON object with the keys below (no nesting, no extra keys), for example ${orderExamplesForDescription()} (placeholder ids and tiles: take yours from observe; the standing prompt lists one for every verb). verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack), or one of your wounded men from casualties.mine (rescue: a medic goes to treat and carry him to your camp); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). An id in \`ids\` that was your unit and has since died, been removed or lain down wounded does not refuse the order: it goes to the living ids and the answer carries \`lost: [{id, fate, tick}]\` (the order log's shape); only an order with no living id is refused (\`not your unit\`, naming each id and its fate), and an id that was never yours is refused as before. An attack on a contact that has left your sight answers \`target no longer in sight\`, with its \`lastSeen\` tile and tick and a \`fallback\` attackMove you may send as written (nothing is converted for you). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units, or your production. The arguments are ONE flat JSON object with the keys below (no nesting, no extra keys), for example ${orderExamplesForDescription()} (placeholder ids and tiles: take yours from observe; the standing prompt lists one for every verb). verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack), or one of your wounded men from casualties.mine (rescue: a medic goes to treat and carry him to your camp); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). An id in \`ids\` that was your unit and has since died, been removed or lain down wounded does not refuse the order: it goes to the living ids and the answer carries \`lost: [{id, fate, tick}]\` (the order log's shape); only an order with no living id is refused (\`not your unit\`, naming each id and its fate), and an id that was never yours is refused as before. An attack on a contact that has left your sight answers \`target no longer in sight\`, with its \`lastSeen\` tile and tick and a \`fallback\` attackMove you may send as written (nothing is converted for you). An attack you sent that settles later reads in \`observe\` as \`done\` (\`reason: target destroyed\`, \`settledTick\` the kill) when the target died in your sight, or \`dropped\` (\`reason: target no longer in sight\`, \`lastSeen\`, \`fallback\`) when it left your sight; a death you could not see is never told. command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',
