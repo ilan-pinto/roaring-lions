@@ -709,6 +709,25 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     expect((await p).lobby.factions).toEqual(['sarim', 'kdf']);
   });
 
+  it('GH-976 P2: a create with a win mode carries it in the body, one without says nothing of it, and the lobby\'s mode comes back', async () => {
+    const withMode = answering(201);
+    const sock = fakeSocket();
+    const p = openRoom({ kind: 'create', map: 'wadi_tarfan', callsign: 'Ari', winMode: 'points' }, 'b', deps({ fetch: withMode.f, openSocket: () => sock, session: memory() }));
+    await tick();
+    expect(withMode.calls[0].body.winMode).toBe('points');
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ ...LOBBY_TWO, map: 'wadi_tarfan', winMode: 'points' }) });
+    expect((await p).lobby.winMode).toBe('points');
+    const without = answering(201);
+    const sock2 = fakeSocket();
+    const q = openRoom({ kind: 'create', map: 'wadi_tarfan', callsign: 'Ari' }, 'b', deps({ fetch: without.f, openSocket: () => sock2, session: memory() }));
+    await tick();
+    expect('winMode' in without.calls[0].body).toBe(false);
+    sock2.onopen?.({});
+    sock2.onmessage?.({ data: JSON.stringify({ ...LOBBY_TWO, map: 'wadi_tarfan' }) });
+    expect('winMode' in (await q).lobby).toBe(false);
+  });
+
   describe('per-seat kit: the claim on the wire', () => {
     const OWNED = { mbt_lavi: { armour: 2, sensors: 1 }, inf_squad: { firepower: 3 } };
 

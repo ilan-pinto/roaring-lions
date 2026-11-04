@@ -103,6 +103,35 @@ describe('/api/match', () => {
     // A sandbox room ignores the matchup altogether.
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', map: 'beit_sahwan_outskirts', matchup: 'sarim' }), env, NOW)).status).toBe(201);
   });
+  it('GH-976 P2: a win mode reaches the room only when it was read fair on the map, in the mirror; anything else is a 400 before a room is made', async () => {
+    const { env, createBodies } = fakeRooms();
+    const body = (over: Record<string, unknown>) => ({ player: 'id-1', build: 'b1', mode: 'versus', map: 'wadi_tarfan', ...over });
+    // The two maps points was read fair on: 201, and the mode is in the body the room gets.
+    for (const map of ['wadi_tarfan', 'milh_flats']) {
+      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'points' })), env, NOW)).status, map).toBe(201);
+    }
+    expect(createBodies.map((b) => b.winMode)).toEqual(['points', 'points']);
+    // Annihilation by any of its spellings is no mode: the room is told nothing, as every room before.
+    for (const winMode of [undefined, null, 'annihilation']) {
+      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ winMode })), env, NOW)).status).toBe(201);
+    }
+    expect(createBodies.slice(2).every((b) => !('winMode' in b))).toBe(true);
+    const made = createBodies.length;
+    const refuse = async (over: Record<string, unknown>, text: string): Promise<void> => {
+      const res = await handleMatch(post(`${ORIGIN}/api/match`, body(over)), env, NOW);
+      expect(res.status, JSON.stringify(over)).toBe(400);
+      expect(await res.text()).toBe(text);
+    };
+    await refuse({ winMode: 'flag' }, 'unknown win mode');            // not a mode at all
+    await refuse({ winMode: 7 }, 'unknown win mode');
+    await refuse({ winMode: 'camp' }, 'win mode not offered on this map');   // read, and NOT fair, on both maps
+    await refuse({ winMode: 'points', map: 'tel_marum' }, 'win mode not offered on this map');   // a fair map for the mirror, no mode file
+    await refuse({ winMode: 'points', map: 'beit_sahwan_outskirts' }, 'win mode not offered on this map');
+    await refuse({ winMode: 'points', matchup: 'sarim' }, 'win mode is for the mirror matchup');   // the probe read the mirror only
+    await refuse({ winMode: 'points', matchup: 'kdf' }, 'win mode is for the mirror matchup');
+    await refuse({ winMode: 'points', mode: 'sandbox' }, 'win mode is for versus rooms');
+    expect(createBodies).toHaveLength(made);   // not one of them reached a room
+  });
   it('a versus room is offered only on the maps measured fair: any other map is a 400 before a room is made; a sandbox room is not limited (#561, the lead, 2026-10-14)', async () => {
     const { env, createBodies, created } = fakeRooms();
     for (const map of ['qarn_hadid', 'wadi_halam_basin', 'deir_amun', 'umm_zeitoun', 'khan_rafid', 'tel_marum_3']) {

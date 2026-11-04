@@ -52,6 +52,28 @@ export function winModeField(v: unknown): WinMode | undefined {
   return WIN_MODES.find((m) => m === v);
 }
 
+/** The modes a lobby offers for `map` in a `matchup`, in `WIN_MODES` order: those read fair on that map, in the mirror
+ *  (GH-976 P2). The probe read every mode KDF against KDF, so a KDF-vs-Sarim room is offered none: it plays its economy.
+ *  Annihilation, the default, is not listed: every room can play it. */
+export function winModesOffered(map: string, matchup: Matchup = 'mirror'): readonly WinMode[] {
+  return matchup === 'mirror' ? WIN_MODES.filter((m) => winModeAllowed(m, map)) : [];
+}
+
+/** What a create request asked for, judged: `mode` is the win mode to play (undefined: annihilation), or `refused`
+ *  names why the room must not be made. The Worker's route and its room both ask this one question, so they cannot
+ *  disagree. Absent, null and the string `annihilation` are annihilation; anything else must be a mode that
+ *  `winModesOffered` lists for this map and matchup. A sandbox room takes no mode. */
+export type WinModeRequest = { mode: WinMode | undefined; refused?: undefined } | { mode?: undefined; refused: string };
+export function winModeRequest(v: unknown, room: { mode: 'sandbox' | 'versus'; map: string; matchup: Matchup }): WinModeRequest {
+  if (v === undefined || v === null || v === 'annihilation') return { mode: undefined };
+  const mode = winModeField(v);
+  if (mode === undefined) return { refused: 'unknown win mode' };
+  if (room.mode !== 'versus') return { refused: 'win mode is for versus rooms' };
+  if (room.matchup !== 'mirror') return { refused: 'win mode is for the mirror matchup' };
+  if (!winModeAllowed(mode, room.map)) return { refused: 'win mode not offered on this map' };
+  return { mode };
+}
+
 export type Pace = { kind: 'realtime' } | { kind: 'paced'; roundTicks: number; roundWallMs: number };
 
 export interface MatchConfig {

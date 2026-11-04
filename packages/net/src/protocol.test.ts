@@ -183,6 +183,13 @@ describe('N1b messages', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'surrender', seat: 1 }))).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'boredom' }))).toBeNull();
   });
+  it('a lobby carries the room\'s win mode when there is one, and refuses a mode that is not one (GH-976 P2)', () => {
+    const lobby = { t: 'lobby', config: null, seats: [], you: 1, map: 'wadi_tarfan', factions: ['kdf', 'kdf'] };
+    expect(parseServerMsg(JSON.stringify({ ...lobby, winMode: 'points' }))).toEqual({ ...lobby, winMode: 'points' });
+    expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);   // absent stays absent
+    expect(parseServerMsg(JSON.stringify({ ...lobby, winMode: 'flag' }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ ...lobby, winMode: 3 }))).toBeNull();
+  });
   it('a lobby carries the room\'s kit rule when it is brigade, and refuses a rule that is neither (per-seat kit)', () => {
     const lobby = { t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', factions: ['kdf', 'kdf'], kit: 'brigade' };
     expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);

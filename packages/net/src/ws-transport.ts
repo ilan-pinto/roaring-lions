@@ -6,7 +6,7 @@
  * the browser passes `() => new WebSocket(url)`.
  */
 import type { Command } from '@lions/sim';
-import type { Faction, MatchConfig, Seat } from './config';
+import type { Faction, MatchConfig, Seat, WinMode } from './config';
 import type { AdvisorMsg, AdvisorScope } from './advisor';
 import type { Frame } from './frames';
 import { LockstepClock } from './lockstep';
@@ -41,7 +41,7 @@ export interface SocketLike {
 export interface WsTransportHooks {
   /** `factions`, by seat: the room's matchup (absent from an older room: the mirror).
    *  `kit`: the room's kit rule, named only for `brigade` (absent is matched). */
-  onLobby?(seats: SeatState[], you: Seat, map: string, factions?: [Faction, Faction], kit?: LobbyKit): void;
+  onLobby?(seats: SeatState[], you: Seat, map: string, factions?: [Faction, Faction], kit?: LobbyKit, winMode?: WinMode): void;
   /** `fromLog`: the room answered the hello with its log (this seat joined a match already under way), not a live `start`. */
   onStart(config: MatchConfig, fromLog?: boolean): void;
   onDesync?(tick: number, hashes: [number, number]): void;
@@ -281,7 +281,7 @@ export class WsTransport implements MatchTransport {
           if (this.droppedAt !== null) this.setAdvisors([null, null]);
           this.relinked(); this.setStalled(null); this.st = { kind: 'waiting' };
         }
-        this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions, msg.kit);
+        this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions, msg.kit, msg.winMode);
         return;
       case 'start':
         this.begin(msg.config, false);

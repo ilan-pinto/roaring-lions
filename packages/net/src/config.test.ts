@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, endOfSeat, matchCapMinutes, matchCapTicks, maxLogCmdChars, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, type MatchConfig } from './config';
+import { MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, endOfSeat, matchCapMinutes, matchCapTicks, maxLogCmdChars, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, winModeRequest, winModesOffered, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -199,5 +199,34 @@ describe('snapshotEveryTicks (snapshot S3)', () => {
     expect(isSnapshotTick(0, 1200)).toBe(false);
     expect(isSnapshotTick(1199, 0)).toBe(false);
     expect(isSnapshotTick(-1, 1200)).toBe(false);
+  });
+});
+
+describe('the win mode a lobby offers and the Worker accepts (GH-976 P2)', () => {
+  const versus = (map: string, matchup: 'mirror' | 'kdf' | 'sarim' = 'mirror') => ({ mode: 'versus' as const, map, matchup });
+  it('offers points on the two maps it was read fair on, in the mirror, and nothing else anywhere', () => {
+    expect(winModesOffered('wadi_tarfan')).toEqual(['points']);
+    expect(winModesOffered('milh_flats')).toEqual(['points']);
+    // camp failed the passive-seat bar on both; the other versus maps have no mode file
+    for (const map of ['tel_marum', 'beit_sahwan_outskirts', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l', 'nowhere']) expect(winModesOffered(map), map).toEqual([]);
+    // the probe read the mirror only: a KDF-vs-Sarim room plays its economy
+    expect(winModesOffered('wadi_tarfan', 'kdf')).toEqual([]);
+    expect(winModesOffered('wadi_tarfan', 'sarim')).toEqual([]);
+  });
+  it('a request is annihilation (no mode), a mode on a fair map, or a reason', () => {
+    for (const none of [undefined, null, 'annihilation']) expect(winModeRequest(none, versus('tel_marum', 'kdf'))).toEqual({ mode: undefined });
+    expect(winModeRequest('points', versus('milh_flats'))).toEqual({ mode: 'points' });
+    expect(winModeRequest('flag', versus('milh_flats')).refused).toBe('unknown win mode');
+    expect(winModeRequest('', versus('milh_flats')).refused).toBe('unknown win mode');
+    expect(winModeRequest('camp', versus('milh_flats')).refused).toBe('win mode not offered on this map');
+    expect(winModeRequest('points', versus('tel_marum')).refused).toBe('win mode not offered on this map');
+    expect(winModeRequest('points', versus('wadi_tarfan', 'sarim')).refused).toBe('win mode is for the mirror matchup');
+    expect(winModeRequest('points', { ...versus('wadi_tarfan'), mode: 'sandbox' }).refused).toBe('win mode is for versus rooms');
+  });
+  it('a config carries a mode in a versus room only, and one of the known modes', () => {
+    const versusConfig = { ...CONFIG, mode: 'versus' as const };
+    expect(validateConfig({ ...versusConfig, winMode: 'points' })?.winMode).toBe('points');
+    expect(validateConfig({ ...versusConfig, winMode: 'flag' })).toBeNull();
+    expect(validateConfig({ ...CONFIG, winMode: 'points' })).toBeNull();
   });
 });
