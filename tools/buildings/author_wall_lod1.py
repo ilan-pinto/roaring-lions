@@ -27,6 +27,19 @@ How. Nothing here is a decimate. The twin is built from numbers MEASURED off
 What it drops: the stone-by-stone modelling, the protruding quoins at the tile
 ends, every bevel below 20 mm.
 
+Colour (GH-974, lead ruling, option (a)). The twin has ZERO materials but ships a
+UV0 that samples the FULL wall's Meshy bake, so at runtime its geometry takes the
+full template's own material: +0 materials, +0 textures. The full wall's atlas is
+~600 small islands with black gaps between them, so a continuous mapping would smear
+across islands; each face instead takes ONE texel, chosen by projection:
+
+  - sample a 5 x 5 grid over the face, ray-cast each point along the face normal onto
+    the full wall's surface (BVH), read the hit triangle's UV and the bake's texel;
+  - pick the sample whose texel is closest to the mean of the face's samples (a medoid,
+    so a crack or a dark pit never becomes the face's colour);
+  - set all the face's loops to that UV (a constant UV: the shader's normal-map frame
+    degenerates to the geometric normal, which is right for a flat twin).
+
 Roles are the full wall's: `roof` and `wall`, zero materials, real metres, forward
 +X (the run direction, as `wall.glb`). Hand-rolled determinism: no noise at all.
 """
@@ -63,6 +76,85 @@ CREDIT = ("Compound wall LOD1 (GH-974) -- built in Blender from code "
           "project original")
 
 
+def bake_pixels():
+    """The full wall's base-colour bake as a (h, w, 3) float list-of-rows array."""
+    import numpy as np
+    img = bpy.data.images.get("base_color")
+    if img is None:
+        img = next((i for i in bpy.data.images if i.size[0] > 0 and "base" in i.name.lower()), None)
+    if img is None:
+        raise SystemExit("wall_lod1: the full wall's base_color image did not import")
+    w, h = img.size
+    a = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(a)
+    return a.reshape(h, w, 4)[:, :, :3].copy()
+
+
+class BakeSampler:
+    """Reads the full wall's bake by projection. Built before the scene is wiped,
+    so it holds its own copies: a BVH of the surface, per-triangle UVs, the texels."""
+
+    GRID = 5
+    DARK = 0.05          # a texel darker than this is an island gap, never a face's colour
+
+    def __init__(self, tree, tri_uv, pixels):
+        self.tree, self.tri_uv, self.px = tree, tri_uv, pixels
+
+    def texel(self, uv):
+        h, w, _ = self.px.shape
+        x = min(w - 1, max(0, int(uv[0] * w)))
+        y = min(h - 1, max(0, int(uv[1] * h)))   # Blender's image origin is bottom-left, as UV space
+        return self.px[y, x]
+
+    def hit_uv(self, origin, direction):
+        hit = self.tree.ray_cast(origin, direction, 0.3)
+        if hit[0] is None:
+            return None
+        return self.uv_at(hit[0], hit[2])
+
+    def nearest_uv(self, point):
+        hit = self.tree.find_nearest(point)
+        return None if hit[0] is None else self.uv_at(hit[0], hit[2])
+
+    def uv_at(self, p, index):
+        pos, uvs = self.tri_uv[index]
+        v0, v1, v2 = pos[1] - pos[0], pos[2] - pos[0], p - pos[0]
+        d00, d01, d11 = v0.dot(v0), v0.dot(v1), v1.dot(v1)
+        d20, d21 = v2.dot(v0), v2.dot(v1)
+        den = d00 * d11 - d01 * d01
+        if abs(den) < 1e-18:
+            return Vector(uvs[0])
+        b1 = (d11 * d20 - d01 * d21) / den
+        b2 = (d00 * d21 - d01 * d20) / den
+        return uvs[0] * (1.0 - b1 - b2) + uvs[1] * b1 + uvs[2] * b2
+
+    def face_uv(self, corners, normal):
+        """(uv, colour) for one planar quad/tri, or None if nothing of it lies over the full wall."""
+        import numpy as np
+        a, b, c = corners[0], corners[1], corners[2]
+        d = corners[3] if len(corners) > 3 else corners[2] + (corners[0] - corners[1])
+        g = self.GRID
+        samples = []
+        for i in range(g):
+            for j in range(g):
+                u, v = 0.15 + 0.7 * i / (g - 1), 0.15 + 0.7 * j / (g - 1)
+                p = (a * (1 - u) + b * u) * (1 - v) + (d * (1 - u) + c * u) * v
+                uv = self.hit_uv(p + normal * 0.1, -normal)
+                if uv is None:
+                    uv = self.nearest_uv(p)      # an end cap or a joint flank: no surface straight under it
+                if uv is None:
+                    continue
+                col = self.texel(uv)
+                if float(col.max()) < self.DARK:
+                    continue
+                samples.append((uv, col))
+        if not samples:
+            return None
+        mean = np.mean([s[1] for s in samples], axis=0)
+        best = min(samples, key=lambda s: float(((s[1] - mean) ** 2).sum()))
+        return best[0], best[1]
+
+
 def measure_full():
     """Top line, half thickness and bounds of the full wall, from its GLB."""
     kit.new_scene()
@@ -75,15 +167,21 @@ def measure_full():
     # under most of its length, so a vertex census reads it as a notch.
     from mathutils.bvhtree import BVHTree
     deps = bpy.context.evaluated_depsgraph_get()
-    tris, verts = [], []
+    tris, verts, tri_uv = [], [], []
     for o in bpy.data.objects:
         if o.type == "MESH":
             base = len(verts)
             verts += [o.matrix_world @ v.co for v in o.data.vertices]
+            uv = o.data.uv_layers.active.data
             for poly in o.data.polygons:
                 vs = [base + i for i in poly.vertices]
-                tris += [(vs[0], vs[i], vs[i + 1]) for i in range(1, len(vs) - 1)]
+                ls = list(poly.loop_indices)
+                for i in range(1, len(vs) - 1):
+                    tris.append((vs[0], vs[i], vs[i + 1]))
+                    tri_uv.append(tuple(Vector(uv[ls[k]].uv) for k in (0, i, i + 1)))
     tree = BVHTree.FromPolygons(verts, tris)
+    tri_pos = [tuple(verts[i].copy() for i in t) for t in tris]
+    tri_uv = [(tp, tu) for tp, tu in zip(tri_pos, tri_uv)]
     n = int(round(2 * HALF / SLAB))
     top = [0.0] * n
     ys = [-0.27 + 0.54 * k / (RAYS_Y - 1) for k in range(RAYS_Y)]
@@ -95,7 +193,7 @@ def measure_full():
                 if hit[0] is not None:
                     top[i] = max(top[i], hit[0].z)
     half_t = max(max(p.y for p in pts), -min(p.y for p in pts))
-    return top, half_t, pts
+    return top, half_t, pts, BakeSampler(tree, tri_uv, bake_pixels())
 
 
 def solid_spans(slots, lo=-HALF, hi=HALF):
@@ -170,12 +268,38 @@ def build(top_h, t):
     return wall, roof
 
 
+def project_uvs(parts, sampler):
+    """UV0 on every loop of every part: one projected texel per face (see the module docstring)."""
+    import numpy as np
+    area_sum, col_sum, missing, faces = 0.0, np.zeros(3), 0, 0
+    for ob in parts:
+        me = ob.data
+        layer = me.uv_layers.new(name="UVMap")
+        for poly in me.polygons:
+            corners = [me.vertices[i].co.copy() for i in poly.vertices]
+            res = sampler.face_uv(corners, poly.normal.copy())
+            faces += 1
+            if res is None:
+                missing += 1
+                continue
+            uv, col = res
+            for li in poly.loop_indices:
+                layer.data[li].uv = (uv[0], uv[1])
+            area_sum += poly.area
+            col_sum += np.asarray(col, dtype=float) * poly.area
+    if missing:
+        raise SystemExit(f"wall_lod1: {missing} of {faces} faces found no full-wall surface to project from")
+    # for the log: the area-weighted mean texel the twin will draw
+    mean = col_sum / area_sum
+    print(f"[wall_lod1] uv: {faces} faces, mean projected texel (linear) {mean.round(4).tolist()}")
+
+
 def tri_count(quads):
     return sum(len(q) - 2 for q in quads)
 
 
 def main():
-    top, t, full_pts = measure_full()
+    top, t, full_pts, sampler = measure_full()
     if max(top) - min(top) > 0.03 or abs(max(top) - 1.40) > 0.02:
         raise SystemExit(f"wall_lod1: the full wall's top line is not flat any more "
                          f"({min(top):.3f}..{max(top):.3f}); this twin is a box with courses, give it a profile")
@@ -207,6 +331,7 @@ def main():
         bpy.ops.mesh.select_all(action="SELECT")
         bpy.ops.mesh.remove_doubles(threshold=1e-5)
         bpy.ops.object.mode_set(mode="OBJECT")
+    project_uvs(parts, sampler)
     pts = [o.matrix_world @ v.co for o in parts for v in o.data.vertices]
     lo = Vector([min(p[i] for p in pts) for i in range(3)])
     hi = Vector([max(p[i] for p in pts) for i in range(3)])

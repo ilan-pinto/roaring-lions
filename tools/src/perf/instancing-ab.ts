@@ -21,6 +21,11 @@
  * instance, which reads 152,290 changed pixels, mean 0.72 (1296000 px at 1x).
  * `--rounds=<n> --frames=<n>` also TIMES the two arms ABBA in this page.
  *
+ * GH-974 `--toggle=lod1`: the arms are the compound wall's LOD1 twin ("on": `wall_lod1` below zoom 2.0)
+ * against full art at every zoom ("off": `debugStructureLod1(false)`), same build, same tick. The pixel
+ * diff is then EXPECTED to be non-zero (the twin is a different mesh) and is reported, never failed; the
+ * timing is the measurement.
+ *
  * Camera: `goto(marker)` (or `@x:y`, tile coordinates) then the zoom. The shot is the canvas rect, a
  * `page.screenshot` (the drawing buffer reads black by design). Music is off
  * (`musicOffInitScript`). Refuses SwiftShader.
@@ -56,6 +61,8 @@ const rounds = Number(arg('rounds', '0'));
 const frames = Number(arg('frames', '30'));
 const dpr = Number(arg('dpr', '1'));
 const maxMean = Number(arg('max-mean', '0.01'));
+const toggle = arg('toggle', 'instancing') as 'instancing' | 'lod1';
+if (toggle !== 'instancing' && toggle !== 'lod1') throw new Error(`--toggle=${toggle}: instancing or lod1`);
 const quality = arg('quality', 'high') as 'high' | 'medium' | 'low';
 mkdirSync(out, { recursive: true });
 
@@ -102,11 +109,12 @@ try {
     for (const v of views) {
       const shoot = async (arm: 'on' | 'off'): Promise<string> => {
         await page.evaluate(
-          async ([marker, zoom, enabled]) => {
+          async ([marker, zoom, enabled, which]) => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const L = (window as any).__lions;
             const r = L.renderer;
-            r.debugPerTileInstancing(enabled);
+            if (which === 'lod1') r.debugStructureLod1(enabled);
+            else r.debugPerTileInstancing(enabled);
             const at = /^@(-?[\d.]+):(-?[\d.]+)$/.exec(marker);
             if (at) {
               r.camera.x = Number(at[1]);
@@ -119,7 +127,7 @@ try {
             r.frame(1, 0);
             await new Promise((res) => setTimeout(res, 150));
           },
-          [v.marker, v.zoom, arm === 'on'] as const
+          [v.marker, v.zoom, arm === 'on', toggle] as const
         );
         const file = path.join(out, `${map}-${v.marker}-z${v.zoom}-${arm}.png`);
         await page.screenshot({ path: file });
@@ -134,12 +142,12 @@ try {
         `[instancing-ab] ${v.marker} z${v.zoom}: instanced vs clones  changed ${d.changedPixels}/${d.totalPixels} px  meanAbsChannelDelta ${d.meanAbsChannelDelta.toFixed(5)}  max ${d.maxAbsChannelDelta}  pixelmatch ${d.diffPixels}` +
           `   | control (instanced twice) changed ${control.changedPixels}  mean ${control.meanAbsChannelDelta.toFixed(5)}`
       );
-      if (d.meanAbsChannelDelta > maxMean) failed = true;
+      if (toggle === 'instancing' && d.meanAbsChannelDelta > maxMean) failed = true;
     }
     if (rounds > 0) {
       for (const v of views) {
         const t = await page.evaluate(
-          async ([marker, zoom, nRounds, nFrames]) => {
+          async ([marker, zoom, nRounds, nFrames, which]) => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const L = (window as any).__lions;
             const r = L.renderer;
@@ -155,7 +163,8 @@ try {
             r.camera.zoom = zoom;
             const info = r.renderer.info;
             const arm = (enabled: boolean): { med: number; calls: number; tris: number } => {
-              r.debugPerTileInstancing(enabled);
+              if (which === 'lod1') r.debugStructureLod1(enabled);
+              else r.debugPerTileInstancing(enabled);
               for (let i = 0; i < 20; i++) r.frame(1, 16);
               info.autoReset = false;
               info.reset();
@@ -186,15 +195,16 @@ try {
               }
               await new Promise((res) => setTimeout(res, 0));
             }
-            r.debugPerTileInstancing(true);
+            if (which === 'lod1') r.debugStructureLod1(true);
+            else r.debugPerTileInstancing(true);
             return { on, off, callsOn, callsOff, trisOn, trisOff };
           },
-          [v.marker, v.zoom, rounds, frames] as const
+          [v.marker, v.zoom, rounds, frames, toggle] as const
         );
         const med = (a: number[]): number => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
         const diffs = t.off.map((o, i) => o - t.on[i]);
         console.log(
-          `[instancing-ab] TIME ${v.marker} z${v.zoom}: clones ${med(t.off).toFixed(2)} ms  instanced ${med(t.on).toFixed(2)} ms  ` +
+          `[instancing-ab] TIME(${toggle}) ${v.marker} z${v.zoom}: ${toggle === 'lod1' ? 'full art' : 'clones'} ${med(t.off).toFixed(2)} ms  ${toggle === 'lod1' ? 'lod1 twin' : 'instanced'} ${med(t.on).toFixed(2)} ms  ` +
             `saved paired-median ${med(diffs).toFixed(2)} ms (mean ${(diffs.reduce((x, y) => x + y, 0) / diffs.length).toFixed(2)}, instanced faster in ${diffs.filter((x) => x > 0).length}/${diffs.length} rounds)  ` +
             `calls ${t.callsOff} -> ${t.callsOn}  tris ${(t.trisOff / 1000).toFixed(0)}k -> ${(t.trisOn / 1000).toFixed(0)}k  loadavg ${os.loadavg().map((x) => x.toFixed(1)).join('/')}  rounds ${rounds}x${frames}`
         );

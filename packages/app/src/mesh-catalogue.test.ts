@@ -157,6 +157,22 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     expect(keys.filter((k) => !UNIT_IDS.has(k))).toEqual([]);
   });
 
+  it('wires the compound wall\'s LOD1 twin as a file of the wall\'s own entry, never an entry of its own (GH-974)', () => {
+    // Literals, not derived from the table under test.
+    expect(BUILDING_MESHES.wall).toEqual({
+      idle: 'buildings/wall.glb',
+      wreck: 'buildings/wall_wreck.glb',
+      lod1: 'buildings/wall_lod1.glb',
+    });
+    expect('wall_lod1' in BUILDING_MESHES).toBe(false);
+    expect(claimedMeshFiles().has('buildings/wall_lod1.glb')).toBe(true);
+    // The only twin today: a second one is a deliberate act with its own source and its own gate exemption.
+    expect(Object.entries(BUILDING_MESHES).filter(([, b]) => b.lod1 !== undefined).map(([id]) => id)).toEqual(['wall']);
+    // It reaches the loader, under the SHIPPED root.
+    const manifest = meshManifestFor(meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set(), ['wall']));
+    expect(manifest.buildings.find((b) => b.id === 'wall')?.lod1).toBe(meshUrl('buildings/wall_lod1.glb'));
+  });
+
   it('keys every building-mesh entry by a real structure type id', () => {
     const known = new Set(Object.keys(structureCatalogue));
     expect(Object.keys(BUILDING_MESHES).filter((k) => !known.has(k))).toEqual([]);

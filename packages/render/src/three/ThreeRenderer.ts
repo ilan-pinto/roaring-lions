@@ -8439,7 +8439,11 @@ export class ThreeRenderer implements Renderer {
     /** Field works (#277 Task 13): the `_construction` GLB of a buildable
      *  work; absent for every other type (which draws its standing mesh
      *  from the first frame). */
-    constructionUrl?: string
+    constructionUrl?: string,
+    /** GH-974: the lower-detail twin of the standing mesh, drawn by the instanced per-tile path below
+     *  `STRUCTURE_LOD1_BELOW_ZOOM`. Zero materials; drawn with the standing mesh's own. A failure to
+     *  load it (or to pair it) is a `console.error` and the type keeps its full art at every zoom. */
+    lod1Url?: string
   ): Promise<void> {
     const structureType = this.sim.structureTypes.find((t) => t.id === structureId);
     if (!structureType) {
@@ -8469,6 +8473,16 @@ export class ThreeRenderer implements Renderer {
     );
     this.adoptEnvironment(idleTemplate.materials, 'building');
     if (this.opts.maxTextureSize !== undefined) await capTextureSize(idleTemplate.root, this.opts.maxTextureSize);
+    // The twin is fetched BEFORE the standing template goes live, so a tile stood up by the next
+    // `updateBuildingMeshes` is in the twin's sets from its first frame.
+    let lod1Template: BuildingMeshTemplate | null = null;
+    if (lod1Url && structureType.perTile && !constructionUrl) {
+      try {
+        lod1Template = await loadBuildingMeshTemplate(lod1Url, wallColorKey, wallSurface, false, false, wallTreatmentOf(structureType));
+      } catch (e) {
+        console.error(`loadBuildingMesh: ${structureId} LOD1 twin ${lod1Url} failed to load; drawing full art at every zoom`, e);
+      }
+    }
     const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
     if (previousIdle) {
       // `buildingMeshIdleEntities` is keyed by STRUCTURE INDEX, not type --
@@ -8502,8 +8516,13 @@ export class ThreeRenderer implements Renderer {
     // by the next `updateBuildingMeshes`.
     if (structureType.perTile && !constructionUrl && instanceableTemplate(idleTemplate)) {
       this.structureInstances.setIdleTemplate(structureId, idleTemplate);
+      if (lod1Template && !this.structureInstances.setIdleLod1(structureId, lod1Template)) {
+        console.error(`loadBuildingMesh: ${structureId} LOD1 twin ${lod1Url} does not pair with its standing mesh by rl_role; drawing full art at every zoom`);
+        disposeBuildingMeshTemplate(lod1Template);
+      }
     } else {
       this.structureInstances.dropIdle(structureId);
+      if (lod1Template) disposeBuildingMeshTemplate(lod1Template);
     }
     // Measured off the STANDING template only -- a wreck is by definition
     // shorter, and the shroud has to cover the building that was there, not
@@ -10361,6 +10380,15 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * GH-974: the A/B switch for the LOD1 twin of per-tile structures (the compound wall's `wall_lod1`).
+   * Off, full art is drawn at every zoom: the pre-twin path. Debug only; a flag `updateBuildingMeshes`
+   * consults every frame, so it holds. `instancing-ab.ts --toggle=lod1` times it.
+   */
+  debugStructureLod1(enabled: boolean): void {
+    this.structureInstances.setLod1Enabled(enabled);
+  }
+
+  /**
    * GH-974: the A/B switch for instanced per-tile structures. Off, a wall,
    * fence or HESCO tile is a clone of its template again (the path every
    * other building takes); on, it is one instance of a per-type set. Debug
@@ -10810,6 +10838,8 @@ export class ThreeRenderer implements Renderer {
         this.scene.add(root);
       }
     }
+    // GH-974: the frame's zoom decides full art or LOD1 twin for every instanced per-tile set.
+    this.structureInstances.setZoom(this.camera.zoom);
     this.structureInstances.flush();
   }
 
