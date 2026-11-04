@@ -13,13 +13,14 @@
 //      shipped Wadi Tarfan (large) is untouched: nothing here reads the redo through `@lions/data`.
 // The counts below are INDEPENDENT of the code under test: each was read by a Python script over the staged rows, levels and the GLB
 // files (not parseMap, not the generator, not map_triangles.ts), the way PR 959's pins were swept.
-// B4 (fairness) is in the PR, not here: the geometry was read once on seeds 0-191 and 4000-4287 and no lever was pulled.
+// B4 (fairness) is in the PR, not here: the geometry was read once on seeds 0-191 and 4000-4287 and no lever was pulled; the fix round then
+// pulled two (the road gates and the ford scrub, `describe('the road gates ...')` and the cover test) and read the cells again.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MAP_CAP_MINUTES, matchCapMinutes } from '@lions/net';
 import { maps, parseMap, versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
-import { BELTS, BLUFF, FARMS, FOLDS, FUNNEL, LANE_HALF, PLAIN, RATES, SHELF, SHELF_REACH, TOWN_ZONE, WADI, YARDS, bedCentre, build, serialise, tileMap } from '../maps/wadi_tarfan_l_redo/build.mjs';
+import { BELTS, BLUFF, FARMS, FOLDS, FORD_SCRUB, FUNNEL, LANE_HALF, OUTCROPS, PLAIN, RATES, SHELF, SHELF_REACH, TOWN_ZONE, WADI, YARDS, bedCentre, build, serialise, tileMap } from '../maps/wadi_tarfan_l_redo/build.mjs';
 import { SPECS, staged, verifyLargeMap, verifyVersusVisibility } from './large_map_verify';
 import { billOf, centreBill, densestWindow, meshesOf } from './map_triangles';
 
@@ -65,10 +66,10 @@ describe('the generator', () => {
     }
   });
 
-  it('the symbols, by a Python count of the staged rows: 7,256 open, 920 scrub, 518 scree, 176 wall, 94 road, 90 acacia, 56 knoll, 42 cover-2, 32 rock, 16 shed, 8 pump, 8 house', () => {
+  it('the symbols, by a Python count of the staged rows: 7,198 open, 942 scrub, 518 scree, 176 wall, 94 road, 90 acacia, 56 knoll, 42 cover-2, 68 rock, 16 shed, 8 pump, 8 house', () => {
     const n: Record<string, number> = {};
     for (const r of rowsOf) for (const c of r) n[c] = (n[c] ?? 0) + 1;
-    expect(n).toEqual({ '.': 7256, '1': 920, b: 518, '=': 176, r: 94, o: 90, n: 56, '2': 42, '^': 32, s: 16, p: 8, h: 8 });
+    expect(n).toEqual({ '.': 7198, '1': 942, b: 518, '=': 176, r: 94, o: 90, n: 56, '2': 42, '^': 68, s: 16, p: 8, h: 8 }); // the 68 rock: four crowns of 8 and four road-gate outcrops of 9
     expect(n.d).toBeUndefined(); // no ditch: a ditch segment is 38,240 triangles a tile (the shipped map has 104)
     expect(n['#']).toBeUndefined(); // no concrete block
     expect(n['3']).toBeUndefined(); // never cover 3: it cannot be told from cover 2 in a duel
@@ -227,9 +228,11 @@ describe('the bluffs', () => {
       }
       expect(ring).toHaveLength(12);
     }
+    // the rock that is not a road-gate outcrop (literal rects, the four 3x3 blocks of 'the road gates' below) is the four crowns of 8 and no other
+    const gate = (x: number, y: number) => [[41, 37], [37, 41], [52, 56], [56, 52]].some(([gx, gy]) => x >= gx && x < gx + 3 && y >= gy && y < gy + 3);
     let rock = 0;
-    for (let y = 0; y < 96; y++) for (let x = 0; x < 96; x++) if (rowsOf[y][x] === '^') rock++;
-    expect(rock).toBe(32); // four crowns of 8 and no other rock
+    for (let y = 0; y < 96; y++) for (let x = 0; x < 96; x++) if (rowsOf[y][x] === '^' && !gate(x, y)) rock++;
+    expect(rock).toBe(32);
   });
 
   it('a bluff\'s marker is on the ring of knoll that faces the enemy, one row below the crown, and so is open ground', () => {
@@ -238,8 +241,67 @@ describe('the bluffs', () => {
   });
 });
 
+describe('the road gates: four outcrops of rock close the main road to a pass (GH-974 fix round)', () => {
+  // The four blocks, as literal top-left corners (a Python flood fill of the staged rows reads exactly four 8-connected clusters of 9 rock tiles
+  // outside the four crowns of 8: (41..43, 37..39), (37..39, 41..43) and their half-turns (52..54, 56..58), (56..58, 52..54)).
+  const BLOCKS = [[41, 37], [37, 41], [52, 56], [56, 52]];
+  const withBlocks = (blocks: number[][]): MapJson => {
+    const j = clone();
+    const rows = j.rows as string[];
+    for (const [gx, gy] of BLOCKS) for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) setRow(rows, gx + dx, gy + dy, '.');
+    for (const [gx, gy] of blocks) for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) setRow(rows, gx + dx, gy + dy, '^');
+    return j;
+  };
+
+  it('stands four 3x3 blocks of rock on the plain, level 2, with no rock touching them: (41,37) and its transpose and half-turns', () => {
+    expect(OUTCROPS).toEqual([[41, 37, 3, 3]]);
+    for (const [gx, gy] of BLOCKS) {
+      for (let dy = -1; dy <= 3; dy++) {
+        for (let dx = -1; dx <= 3; dx++) {
+          const inside = dx >= 0 && dx < 3 && dy >= 0 && dy < 3;
+          expect(rowsOf[gy + dy][gx + dx] === '^', `${gx + dx},${gy + dy}`).toBe(inside);
+          if (inside) expect(levelOf(gx + dx, gy + dy), `level ${gx + dx},${gy + dy}`).toBe(PLAIN);
+        }
+      }
+    }
+  });
+
+  it('leaves a pass three tiles wide: no rock within one tile of the road line (|x - y| <= 1), and the nearest rock stands two off it', () => {
+    let nearest = 99;
+    for (const [gx, gy] of BLOCKS) for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) nearest = Math.min(nearest, Math.abs(gx + dx - (gy + dy)));
+    expect(nearest).toBe(2);
+    for (const [from, to] of [[76, 86], [104, 114]]) {
+      for (let s = from; s <= to; s++) {
+        for (let y = 0; y < 96; y++) {
+          const x = s - y;
+          if (x >= 0 && x < 96 && Math.abs(x - y) <= 1) expect('.r1', `pass ${x},${y}`).toContain(rowsOf[y][x]); // open ground, road or scrub: all passable
+        }
+      }
+    }
+  });
+
+  it('is what the verifier reads: the seat-to-seat route costs the straight diagonal over wheels and on foot (800 and 800), as it did before the outcrops', () => {
+    const rep = verifyLargeMap(large, rules, spec());
+    expect(rep.failures).toEqual([]);
+    expect([rep.facts.wheels_seat_to_seat, rep.facts.foot_seat_to_seat]).toEqual([800, 800]);
+  });
+
+  it('RED: one tile west (40,37) the two blocks touch at a corner and seal the road; the same read costs 878 over wheels and 860 on foot (placed KDF 94% there)', () => {
+    const j = withBlocks([[40, 37], [37, 40], [53, 56], [56, 53]]);
+    const rep = verifyLargeMap(j, rules, spec());
+    expect([rep.facts.wheels_seat_to_seat, rep.facts.foot_seat_to_seat]).toEqual([878, 860]);
+  });
+
+  it('RED: with the outcrops taken away the same read still costs 800 (the pass costs the road nothing), and a single rock on the road costs it', () => {
+    expect(verifyLargeMap(withBlocks([]), rules, spec()).facts.wheels_seat_to_seat).toBe(800);
+    const j = withBlocks([]);
+    setBoth(j.rows as string[], 40, 40, '^');
+    expect(Number(verifyLargeMap(j, rules, spec()).facts.wheels_seat_to_seat)).toBeGreaterThan(800);
+  });
+});
+
 describe('Tarfan: four walled yards at the centre ford, and the farms and folds', () => {
-  const walls = (x0: number, y0: number, w: number, h: number) => {
+  const walls =(x0: number, y0: number, w: number, h: number) => {
     let n = 0;
     for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) if (rowsOf[y][x] === '=') n++;
     return n;
@@ -330,20 +392,42 @@ describe('Tarfan: four walled yards at the centre ford, and the farms and folds'
     expect([core, fringe]).toEqual([72, 30]);
   });
 
-  it('the cover: belts on a jittered lattice, none in the armour lane (|x - y| under 11 between the two shelves), 12.0% of the map and never cover 3', () => {
+  it('the cover: belts on a jittered lattice, none in the armour lane (|x - y| under 11 between the two shelves) but the ford scrub, 12.3% of the map and never cover 3', () => {
     expect([BELTS.stepX, BELTS.stepY, LANE_HALF]).toEqual([8, 8, 11]);
+    let scrubInLane = 0;
     for (let y = 0; y < 96; y++) {
       for (let x = 0; x < 96; x++) {
         if ('12on'.includes(rowsOf[y][x]) && Math.abs(x - y) < LANE_HALF && x + y > SHELF_REACH && x + y < 190 - SHELF_REACH) {
-          // the only cover the lane holds is a bluff's ring: none of the four stands in it, so nothing does
-          throw new Error(`cover ${rowsOf[y][x]} in the armour lane at ${x},${y}`);
+          // the only cover the lane holds is the ford scrub (the next test); a bluff's ring is outside it
+          const band = (x + y >= 84 && x + y <= 92) || (x + y >= 98 && x + y <= 106);
+          if (!band || rowsOf[y][x] !== '1') throw new Error(`cover ${rowsOf[y][x]} in the armour lane at ${x},${y}`);
+          scrubInLane++;
         }
       }
     }
+    expect(scrubInLane).toBe(22);
     let cover = 0;
     for (const r of rowsOf) for (const c of r) if ('123on'.includes(c)) cover++;
-    expect(cover).toBe(1108); // Python count: 920 + 42 + 90 + 56
-    expect(cover / 9216).toBeCloseTo(0.1202, 4);
+    expect(cover).toBe(1130); // Python count: 942 + 42 + 90 + 56 (the belts' 920 and the ford scrub's 22)
+    expect(cover / 9216).toBeCloseTo(0.1226, 4);
+  });
+
+  it('the ford scrub: 22 tiles of cover 1 in the lane, nine diagonals short of each bank\'s bed (x + y 84-92 and 98-106), 11 a bank, on open ground', () => {
+    expect(FORD_SCRUB).toEqual({ from: 84, to: 92, density: 25, symbol: '1', salt: 10 });
+    // Python read of the staged rows: the 11 tiles of seat 0's bank, and their half-turns (95 - x, 95 - y) on seat 1's
+    const bank0 = [[44, 40], [44, 42], [47, 42], [48, 42], [49, 42], [42, 43], [45, 43], [48, 43], [46, 44], [41, 45], [43, 47]];
+    const tiles = [...bank0, ...bank0.map(([x, y]) => [95 - x, 95 - y])];
+    for (const [x, y] of tiles) expect([rowsOf[y][x], levelOf(x, y)], `scrub ${x},${y}`).toEqual(['1', levelOf(x, y)]);
+    expect(tiles).toHaveLength(22);
+    // no other tile of the lane band is scrub, and every tile of the band that is not is not cover
+    let inBand = 0;
+    for (let y = 0; y < 96; y++) {
+      for (let x = 0; x < 96; x++) {
+        const band = (x + y >= 84 && x + y <= 92) || (x + y >= 98 && x + y <= 106);
+        if (band && Math.abs(x - y) < LANE_HALF && '12on'.includes(rowsOf[y][x])) inBand++;
+      }
+    }
+    expect(inBand).toBe(22);
   });
 });
 
@@ -431,7 +515,7 @@ describe('the verifier on it: every B2 check and the versus visibility gate, run
     expect(rep.facts.thick_wall_blocks).toBe(0);
     expect(rep.facts.buildings).toBe(12); // 2 houses, 8 sheds (4 farm sheds and 4 yard sheds), 2 pump houses
     expect(Number(rep.facts.built_share)).toBeCloseTo(32 / 9216, 4); // 32 building tiles
-    expect(Number(rep.facts.cover_share)).toBeCloseTo(1108 / 9216, 4);
+    expect(Number(rep.facts.cover_share)).toBeCloseTo(1130 / 9216, 4);
     expect(Number(rep.facts.cover_share)).toBeGreaterThanOrEqual(0.1);
     expect(Number(rep.facts.cover_share)).toBeLessThanOrEqual(0.14);
   });

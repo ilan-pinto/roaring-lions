@@ -12,6 +12,8 @@ export declare const WADI: { amp: number; period: number; fords: number[]; fordH
 export declare const BLUFF: { hill: number; crowns: Record<string, number[]> };
 export declare const FUNNEL: { core: number[]; from: number; to: number };
 export declare const FOLDS: [number, number, number, number, number[][]][];
+export declare const OUTCROPS: number[][];
+export declare const FORD_SCRUB: { from: number; to: number; density: number; symbol: string; salt: number };
 export declare const BELTS: { stepX: number; stepY: number; x0: number; y0: number; jitter: number; minOpen: number };
 export declare const LANE_HALF: number;
 export declare const YARDS: Record<

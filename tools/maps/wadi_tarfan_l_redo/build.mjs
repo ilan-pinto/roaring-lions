@@ -33,12 +33,20 @@
 //   5. THE FARMS are walled yards with one one-floor shed (the shipped farms had two houses and read 90% visible against the
 //      92% scoring cap); the far farms stand three tiles further from the wadi, off its lip, and the near one two tiles off the scree.
 //   6. COVER BELTS on the foot routes (scrub and acacia along the cliff lip and the flanks), never cover 3; the armour lane (the
-//      main road and the ford tracks, with a boulder funnel either side) is bare.
+//      main road and the ford tracks, with a boulder funnel either side) is bare but for the ford scrub (8).
 //   7. EVERYTHING IS COUNTED IN TRIANGLES (tools/src/map_triangles.ts). PR 1001 showed the cost of a town is triangles, not draw
 //      calls: a wall tile is 3,087, a house 39,016, each drawn in three passes, a ditch tile 38,240. The plan is drawn to fit
 //      the budget from the start: no ditch, no concrete, two houses in the whole map, one-floor sheds in the farms.
 //      large_map_verify.ts holds the bill (`LargeMapSpec.triangles`): no 48x48 window draws more structure triangles in a pass
 //      than the whole of the 48x48 control map.
+//   8. THE ROAD GATE AND THE FORD SCRUB (the fix round, GH-974; the diagnosis and every lever tried are in
+//      docs/agent-notes/maps-and-terrain-design.md). B4 read KDF 82-92% in every KDF v Sarim cell. An empty 96x96 plain already reads
+//      KDF 75 / 71% placed (the Lavis and Namers see and outrange the thirteen walking Kornet cells), and the redo added to it: the yard
+//      walls gave the first Namers a wall-corner pocket six tiles from the ford (44% of the shots on a Namer met cover, x0.1375, against
+//      none on the shipped map) and the two-level banks blind the Kornet cells that cross the bed. Two measured levers pull it back:
+//      OUTCROPS, four 3x3 blocks of rock that close the main road eleven tiles short of the ford to a pass three tiles wide, so both
+//      columns file through it and the Namers no longer park in the pockets; and FORD_SCRUB, 22 tiles of scrub in the lane short of
+//      the fords. Both are measured values, not trends: a block one tile over seals the road (94%) or reads 66-80%.
 //
 // The map is point-symmetric about (47.5, 47.5): every feature is written with its half-turn image (`both`), so symmetry is by
 // construction. tools/src/large_map_verify.ts checks it from the JSON.
@@ -94,6 +102,16 @@ export const bedCentre = (v) => Math.round(WADI.amp * Math.sin((2 * Math.PI * v)
 export const BLUFF = { hill: 3, crowns: { bluff_far_0: [62, 12, 4, 2], bluff_near_0: [26, 42, 4, 2] } };
 const dist = ([x0, y0, w, h], x, y) => Math.max(x0 - x, 0, x - (x0 + w - 1)) + Math.max(y0 - y, 0, y - (y0 + h - 1));
 
+// --- the road gates -----------------------------------------------------------------------------------------------------
+/**
+ * Rock outcrops, [x0, y0, w, h] on seat 0's bank. Each is a block of rock (`^`: impassable, blocks sight, no hit points, no cover) on
+ * the plain; its transpose stands on the other side of the main road and both have half-turn twins on seat 1's bank, so four outcrops
+ * of 9 tiles close the road eleven tiles short of the centre ford to a pass three tiles wide (|x - y| <= 1). The size and the place
+ * were measured, not drawn (placed forces, KDF share, 96 seeds a cell on 0-95): a 3x3 at (41,37) 55 / 53%; at (40,37) the two blocks
+ * touch at a corner and seal the road, 94%; (41,36) 80%, (42,38) 66%, (40,36) 65%; 2x2 blocks 62%, 2x4 ones 96%.
+ */
+export const OUTCROPS = [[41, 37, 3, 3]];
+
 // --- the town and the farms ----------------------------------------------------------------------------------------------
 /**
  * Tarfan: four walled yards round the centre ford. A and B are seat 0's (A north-east of the road, B south-west, the transpose
@@ -134,6 +152,14 @@ export const FUNNEL = { core: [7, 8], from: 59, to: 76 };
 export const BELTS = { stepX: 8, stepY: 8, x0: 4, y0: 4, jitter: 5, minOpen: 12 };
 /** The armour lane: no cover where |x - y| is under this and the ground is past the shelf. */
 export const LANE_HALF = 11;
+/**
+ * The ford mouths' scrub: the lane is bare from the shelf's lip to the lip of its twin (LANE_HALF), except in this band, the nine
+ * diagonals (x + y) short of each bank's bed, where `density` percent of the open tiles in the lane (hashed on the tile and `salt`)
+ * take `symbol` (scrub, cover 1): 11 tiles a bank, in the town's square. Only open ground takes it (the road, the walls and the
+ * buildings are other symbols), never inside a yard or a fold. The salt is a measured value: six salts at density 25 read the
+ * placed cells from 34 to 56% KDF, so the choice was made on seeds 0-191 and confirmed on 192-383 (salt 10: 53 / 52%).
+ */
+export const FORD_SCRUB = { from: 84, to: 92, density: 25, symbol: '1', salt: 10 };
 const KNOLLS = [[[60, 29], [61, 29], [60, 30]], [[78, 40], [79, 40], [78, 41]]];
 const ACACIA = [[22, 42], [66, 6], [84, 36], [31, 52]];
 
@@ -188,6 +214,12 @@ export function tileMap() {
         both(x, y, d === 0 ? '^' : d === 1 ? 'n' : '.', d === 0 ? 5 : Math.max(PLAIN + 1, 5 - d));
       }
     }
+  }
+
+  // 3b. the road gates: a rock outcrop either side of the main road, a pass three tiles wide between them
+  for (const [x0, y0, w, h] of OUTCROPS) {
+    block(x0, y0, w, h, '^', PLAIN);
+    block(y0, x0, h, w, '^', PLAIN);
   }
 
   // 4. the wadi: a scree bed at level 0 from edge to edge, a gap and a one-level ramp tile each side at the three fords
@@ -306,6 +338,14 @@ export function tileMap() {
     patches,
     { radius: 2.6, salt: 5, rows: T / 2, symbol: '1', centreSymbol: '2' },
   );
+  // the ford mouths' scrub, in the lane (see FORD_SCRUB): open ground only, outside the yards and the folds
+  for (let y = 0; y < T / 2; y++) {
+    for (let x = 0; x < T; x++) {
+      if (x + y < FORD_SCRUB.from || x + y > FORD_SCRUB.to || Math.abs(x - y) >= LANE_HALF || t[y][x] !== '.') continue;
+      if (yards.some(([yx, yy]) => x >= yx && x < yx + 6 && y >= yy && y < yy + 6) || folds.some(([fx, fy, fw, fh]) => x >= fx && x < fx + fw && y >= fy && y < fy + fh)) continue;
+      if (hash(x, y, FORD_SCRUB.salt) % 100 < FORD_SCRUB.density) both(x, y, FORD_SCRUB.symbol);
+    }
+  }
   for (const k of KNOLLS) for (const [x, y] of k) put(x, y, 'n', PLAIN + 1, '.12');
   for (const [x, y] of ACACIA) put(x, y, 'o', undefined, '.12');
   return { t, el, road, patches };
