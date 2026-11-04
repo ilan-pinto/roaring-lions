@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { arenaResultsFailures, denyHits, digestOf } from '../../validate_arena_results.mjs';
 import { runArena } from './arena';
-import { MIN_AHEAD, MIN_SCORED, keep, modelPinOf, parsePublicPlayers, parsePublishArgs, publish, runPublish, wilson, type ArenaResults, type PublishArgs } from './arena-publish';
+import { MIN_AHEAD, MIN_SCORED, keep, runHash, modelPinOf, parsePublicPlayers, parsePublishArgs, publish, runPublish, wilson, type ArenaResults, type PublishArgs } from './arena-publish';
 import { renderPreview } from './arena-results-render';
 import { binomialP } from './arena-score';
 
@@ -101,6 +101,33 @@ describe('G1 constructed: nothing private reaches the output, and a game with an
       for (const c of Object.values(scores[seat].criteria)) Object.defineProperty(c, 'reason', trap('reason'));
     }
     expect(keep(line, 'r1').ok).toBe(true);
+  });
+});
+
+describe('run names stay local', () => {
+  it('the file carries an 8-hex hash of the run id, never the id; the preview maps it back; an id like risk-1 is no false positive', () => {
+    const r = rig();
+    writeRun(r, 'risk-1', games(10, 5));
+    const res = go(r, { runs: ['risk-1'] });
+    expect(res.code).toBe(0);
+    const h = runHash('risk-1');
+    expect(h).toMatch(/^[0-9a-f]{8}$/);
+    expect(outText(r)).not.toContain('risk-1');
+    expect(res.results?.sections[0].gameList.every((g) => g.run === h)).toBe(true);
+    const html = readFileSync(join(r.dir, 'preview.html'), 'utf8');
+    expect(html).toContain('risk-1');
+    expect(html).toContain(h);
+  });
+
+  it('an old-format line aborts with a remove-or-exclude instruction, and the usage says one judge per publish', () => {
+    const r = rig();
+    const old = rec();
+    delete old.build;
+    writeRun(r, 'r1', [old]);
+    expect(go(r).message).toContain('remove or exclude');
+    const e = parsePublishArgs([]) as { error: string };
+    expect(e.error).toContain('one judge per publish');
+    expect(e.error).toContain('as it stands today');
   });
 });
 

@@ -46,7 +46,7 @@ function sectionHtml(s: Section, i: number): string {
 }
 
 /** The whole page. No script, no external file, no link. */
-export function renderPreview(doc: ArenaResults): string {
+export function renderPreview(doc: ArenaResults, runNames?: ReadonlyMap<string, string>): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Arena results</title>
@@ -55,6 +55,7 @@ export function renderPreview(doc: ArenaResults): string {
 <h1>Arena results</h1>
 <p>${esc(doc.note)}</p>
 <p>Generated ${esc(doc.generated)}. Digest ${esc(doc.digest)}. ${esc(doc.withheld)} game(s) withheld.</p>
+${runNames === undefined || runNames.size === 0 ? '' : `<h2>Runs (local only: the published file carries the short code)</h2>${table(['code', 'run'], [...runNames.entries()].sort().map(([h, n]) => [h, n]))}`}
 ${doc.sections.length === 0 ? '<p>No games to show.</p>' : doc.sections.map(sectionHtml).join('\n')}
 <p class="foot">${esc(doc.disclaimer)}</p>
 </body></html>

@@ -23,6 +23,7 @@
  * `--model` with the allow-list's `modelId`, and a mismatch refuses the run. The template is read here only to compare
  * and is never emitted. The caller passes the file; only `main` names the default, so a spec never reads the real one.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -168,11 +169,14 @@ function rubricOf(judge: unknown): [Rubric, Rubric] | null {
   return [seats[0], seats[1]];
 }
 
+/** A run's public name: the first 8 hex of the sha256 of its file name. The name is free text and stays on this machine (the preview maps it back). */
+export const runHash = (run: string): string => createHash('sha256').update(run).digest('hex').slice(0, 8);
+
 /** One stored line, or why it cannot be kept. A record without the five run fields is REFUSED (an older record), never guessed. */
 export function keep(line: unknown, run: string): { ok: true; kept: Kept } | { ok: false; why: string } {
   if (!isRecord(line)) return { ok: false, why: 'not an object' };
   const fields = runFieldsOf(line);
-  if (fields === null) return { ok: false, why: 'lacks the run fields (build, pace, roundWallMs, capTicks, promptDigest): an older record' };
+  if (fields === null) return { ok: false, why: 'lacks the run fields (build, pace, roundWallMs, capTicks, promptDigest): an older record: remove or exclude this run from --runs and publish again' };
   const { seed, map, matchup, players, factions, outcome, by, ticks } = line;
   const mode = line.mode === undefined ? 'annihilation' : line.mode;
   if (typeof seed !== 'number' || !Number.isInteger(seed) || seed < 0) return { ok: false, why: 'bad seed' };
@@ -357,7 +361,7 @@ function section(games: readonly Kept[], who: PublicPlayers, judge: PublicPlayer
     endings: [...endings.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([by, count]) => ({ by, words: decidedBy({ by, mode: first.mode }), count })),
     rubric: rubricRows(games, ids, who, judge),
     gameList: [...games].sort((a, b) => a.run.localeCompare(b.run) || a.seed - b.seed || a.players[0].localeCompare(b.players[0])).map((g): GameRow => ({
-      run: g.run, seed: g.seed, map: g.map, matchup: g.matchup, mode: g.mode, seat0: g.players[0], seat1: g.players[1],
+      run: runHash(g.run), seed: g.seed, map: g.map, matchup: g.matchup, mode: g.mode, seat0: g.players[0], seat1: g.players[1],
       winner: g.outcome === 'draw' ? 'draw' : g.outcome === 'void' ? 'void' : g.players[g.outcome === 'seat0' ? 0 : 1], by: g.by, ticks: g.ticks, build: g.fields.build,
     })),
   };
@@ -390,7 +394,7 @@ export function buildResults(kept: readonly Kept[], withheld: number, who: Publi
 export interface PublishArgs { runs: string[]; mergeBuilds: boolean; judge: string | null; resultsDir: string | null; privateFile: string | null }
 
 const RUN_ID = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,119}$/;
-const USAGE = 'usage: pnpm arena:publish -- --runs <id,...> [--merge-builds] [--judge <preset id>] [--results-dir <dir>] [--private-file <path>]\n  <id> is a results file name without .jsonl; writes data/arena/results.json and arena-results/preview.html in the working tree, and nothing else';
+const USAGE = 'usage: pnpm arena:publish -- --runs <id,...> [--merge-builds] [--judge <preset id>] [--results-dir <dir>] [--private-file <path>]\n  <id> is a results file name without .jsonl; writes data/arena/results.json and arena-results/preview.html in the working tree, and nothing else\n  one judge per publish: every named run is read as judged by the --judge given (none: not named). The --model pin check compares against the preset in the presets file as it stands today, not the template that played the games.\n  a run with an old-format line (no build, pace, round time, cap or prompt digest) aborts the publish: remove or exclude that run';
 
 export function parsePublishArgs(argv: readonly string[]): PublishArgs | { error: string } {
   const got = new Map<string, string>();
@@ -476,7 +480,8 @@ export function publish(args: PublishArgs, deps: PublishDeps): PublishOutcome {
     mkdirSync(join(deps.root, 'data/arena'), { recursive: true });
     mkdirSync(deps.resultsDir, { recursive: true });
     writeFileSync(join(deps.root, 'data/arena/results.json'), text);
-    writeFileSync(join(deps.resultsDir, 'preview.html'), html);
+    // The run names stay local: the committed file carries their hashes, the preview alone maps them back (added after the scan).
+    writeFileSync(join(deps.resultsDir, 'preview.html'), renderPreview(results, new Map(args.runs.map((r) => [runHash(r), r]))));
     print(`arena:publish: ${results.sections.reduce((n, s) => n + s.games, 0)} game(s) in ${results.sections.length} section(s), ${withheld} withheld -> data/arena/results.json and ${join(deps.resultsDir, 'preview.html')}`);
     print('arena:publish: read the preview, then open the PR; the lead merges it (D-P2). Nothing was committed or sent.');
     return { code: 0, results };

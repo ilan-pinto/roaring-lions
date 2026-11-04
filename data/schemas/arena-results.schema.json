@@ -144,7 +144,7 @@
       "additionalProperties": false,
       "required": ["run", "seed", "map", "matchup", "mode", "seat0", "seat1", "winner", "by", "ticks", "build"],
       "properties": {
-        "run": { "type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,119}$" },
+        "run": { "type": "string", "pattern": "^[0-9a-f]{8}$" },
         "seed": { "type": "integer", "minimum": 0 },
         "map": { "$ref": "#/$defs/mapId" },
         "matchup": { "$ref": "#/$defs/matchup" },
