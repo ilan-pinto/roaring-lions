@@ -87,6 +87,8 @@ import telMarumVersus from '../../../data/versus/tel_marum.json';
 import wadiTarfanVersus from '../../../data/versus/wadi_tarfan.json';
 import wadiTarfanLVersus from '../../../data/versus/wadi_tarfan_l.json';
 import milhFlatsLVersus from '../../../data/versus/milh_flats_l.json';
+import milhFlatsModes from '../../../data/versus/modes/milh_flats.json';
+import wadiTarfanModes from '../../../data/versus/modes/wadi_tarfan.json';
 // GH-859 P1a: the combat formations, registered in sorted directory order.
 import formationAmbush from '../../../data/formations/ambush.json';
 import formationAttack from '../../../data/formations/attack.json';
@@ -94,7 +96,7 @@ import formationColumn from '../../../data/formations/column.json';
 // Look uplift L2 (GH-943): the colour grades, one file per shipped time of day. Day is the identity and has no file.
 import gradeDawn from '../../../data/grades/dawn.json';
 import gradeDusk from '../../../data/grades/dusk.json';
-import type { DoctrineJson, VersusRulesJson } from './versus';
+import type { DoctrineJson, VersusModeFileJson, VersusRulesJson } from './versus';
 import structureCatalogue from '../../../data/structures.json';
 import couponsJson from '../../../data/coupons.json';
 import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
@@ -222,6 +224,7 @@ import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 import rotorWash from '../../../data/vfx/rotor_wash.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
 import vehicleMud from '../../../data/vfx/vehicle_mud.json';
+import vehicleClods from '../../../data/vfx/vehicle_clods.json';
 import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
 import vehicleDamagedSmoke from '../../../data/vfx/vehicle_damaged_smoke.json';
 import armorRicochet from '../../../data/vfx/armor_ricochet.json';
@@ -304,6 +307,14 @@ export {
   VERSUS_CAPACITY_MAX,
   versusTunnelsOf,
   versusZonesOf,
+  versusModeMissionOf,
+  campYardZone,
+  WIN_MODES,
+  type WinModeId,
+  type VersusModeFileJson,
+  type VersusModeMissionJson,
+  type VersusModeObjectiveJson,
+  type PointsZoneJson,
   type DoctrineJson,
   type VersusEndJson,
   type VersusMissionJson,
@@ -327,6 +338,14 @@ export const versusRules: Readonly<Record<string, VersusRulesJson>> = {
   tel_marum: telMarumVersus as unknown as VersusRulesJson,
   wadi_tarfan: wadiTarfanVersus as unknown as VersusRulesJson,
   wadi_tarfan_l: wadiTarfanLVersus as unknown as VersusRulesJson,
+};
+
+/** Versus WIN-MODE files (GH-976), keyed by map id: the camps and the points race a room that picks a mode
+ *  plays. data/versus/modes/*.json against versus_mode.schema.json. Hand-kept, so `index.test.ts` pins it to
+ *  the directory: an unregistered file would be a mode no room can reach. */
+export const versusModes: Readonly<Record<string, VersusModeFileJson>> = {
+  milh_flats: milhFlatsModes as unknown as VersusModeFileJson,
+  wadi_tarfan: wadiTarfanModes as unknown as VersusModeFileJson,
 };
 
 /** Combat formations (GH-859 P1a): data/formations/*.json against formation.schema.json, in
@@ -625,6 +644,9 @@ export const vfxEmitters = [
   // GH-871 P4: what a vehicle throws on a map that rains, in place of `vehicle_dust`;
   // swapped BY NAME in the renderer (nothing dispatches by the `vehicle_move` trigger).
   vehicleMud,
+  // GH-984 N2: the clods a tracked hull throws on a pivot and a launch, spawned BY NAME by the renderer
+  // from the tick that detected them (`vehicle_clods`); unregistered, it is silently inert.
+  vehicleClods,
   vehicleExhaust,
   // Pass C2/C4 (P3): a living vehicle with a mobility or firepower kill.
   vehicleDamagedSmoke,

@@ -15,7 +15,7 @@ describe('versusAnchors: the measured versus seats', () => {
   it('stands each measured map on its table entry (literals)', () => {
     // Beit seat 0 moved (4,23) -> (4,22) under vehicle health (GH-560, 28 Oct). Was [[4, 23], [40, 23]].
     expect(seats('beit_sahwan_outskirts')).toEqual([[4, 22], [40, 23]]);
-    expect(seats('tel_marum')).toEqual([[27, 45], [29, 17]]);
+    expect(seats('tel_marum')).toEqual([[26, 45], [29, 17]]); // Was [[27, 45], [29, 17]] until GH-990 (3 Nov): the Sarim-friendly economy cell read 62.5-64.9% Sarim.
     // Wadi moved (11,11)/(36,36) -> (10,10)/(37,37), its own named markers, for GH-945. Was [[11, 11], [36, 36]].
     expect(seats('wadi_tarfan')).toEqual([[10, 10], [37, 37]]);
   });

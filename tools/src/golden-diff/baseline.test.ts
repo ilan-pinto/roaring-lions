@@ -899,6 +899,9 @@ describe('BASELINES layerChecks', () => {
         'unit-surface': { px: 43, mean: 0.0202 },
         // L3 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=team-mask, 3 fresh-page runs, bit-identical.
         'team-mask': { px: 283, mean: 0.0132 },
+        // GH-984 N2, 2026-11-03: `nature:capture --phase=signal`, 3 fresh loads, bit-identical, ANGLE Metal (CI re-measures at the bless).
+        // 25 px is sub-threshold: the pixel floor is 0 and the magnitude carries it.
+        disturb: { px: 25, mean: 0.0015 },
       },
       // Plan 3 Task 8 (GH-238 K8), 2026-10-07: `kit:capture -- --toggle`, the
       // gate's own capture code, 3 fresh loads per layer, bit-identical

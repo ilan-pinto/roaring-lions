@@ -96,6 +96,7 @@
 //          --rules=<room|default>  --economy  --tunnels  --start=<k>/<s>  --pop-cap=<k>/<s>  --rate-scale=<percent>
 //          --formation=<id>  --formation-end=<friendly|hostile>  --rescue-buy=<reserve|after|before|save|opening|off>
 //          --seed-from=<n>  --tunnel-cell=<off|noAnswer|answer|turtle>  --per-seed=<file>
+//          --mode=<camp|points|all>  the win-mode arm (GH-976, versus-modes.ts): its own flags, --maps  --seeds  --seed-from  --passive=<on|off>
 //
 // Seed sets, one tunnel cell, per-seed files (GH-859 P1b Task 7; the instruments of the S4 gate, `s4-gate.ts`).
 // `--seed-from=<n>` plays seeds n .. n+seeds-1 (`seedOf` is unchanged: `seedOf(n)` is the n-th game), so set A
@@ -183,6 +184,7 @@ import { versusForceOf, versusSpawns } from '../../../packages/app/src/net/versu
 import { outcomeOf, productionOf, unitCost, type MatchResult, type OutcomeProduction } from '../../../packages/app/src/net/outcome';
 import { versusRoster } from '../../../packages/app/src/net/versus-roster';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
+import { modeMain } from './versus-modes';
 import { PER_SEED_SCHEMA, type PerSeedCell, type PerSeedFile } from './per-seed';
 
 /** 20 Hz, like the sim. */
@@ -1393,6 +1395,8 @@ export function parsePair(name: string, raw: string): [number, number] {
 
 /** Prints the report and returns the exit code: 0 for any reading, 2 when the self-check fails. */
 export function main(args: readonly string[] = process.argv.slice(2), playFn: PlayFn = play): number {
+  // GH-976: `--mode=<camp|points|all>` is the win-mode arm (`versus-modes.ts`), a room's own world and not this file's.
+  if (flag(args, 'mode') !== undefined) return modeMain(args);
   const tunnels = args.includes('--tunnels');
   const economy = tunnels || args.includes('--economy');
   const rulesArg = flag(args, 'rules') ?? 'room';

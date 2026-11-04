@@ -13,11 +13,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Sim } from '@lions/sim';
+import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { RainBatch } from './units/rain-batch';
 import type { WindUniformSet } from './terrain/wind-uniforms';
+import type { DisturbUniformSet } from './terrain/disturb-uniforms';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -91,6 +92,7 @@ function makeOpts(extra: Partial<RendererOptions> = {}): RendererOptions {
 
 interface Private {
   windU: WindUniformSet;
+  disturbU: DisturbUniformSet;
   sway: { time: { value: number }; amp: { value: number }; wind?: WindUniformSet };
   garrisonBanners: { wind: WindUniformSet; time: { value: number } };
   rain: RainBatch | null;
@@ -98,15 +100,34 @@ interface Private {
 const priv = (r: ThreeRenderer): Private => r as unknown as Private;
 
 const MAP = 24;
+/** GH-984 N2: a tank driving across the map, so the census compares live disturber uniforms and not an empty array. */
+const TANK: UnitTypeJson = {
+  id: 'mbt_lavi',
+  role: 'armor',
+  hull: { hp: 1200, armor: { front: 60, side: 40, rear: 25 } },
+  mobility: { speed_tiles_s: 1.1 },
+  sensors: { optics: 2, sight_tiles: 14, signature: 1 },
+};
+/** The renderer each sim feeds, so `tickTo` snapshots after every tick the way `main.ts`'s `runTick` does. */
+const rendererOf = new WeakMap<Sim, ThreeRenderer>();
 function setUp(extra: Partial<RendererOptions> = {}): { r: ThreeRenderer; sim: Sim } {
   const sim = new Sim({ seed: 1, width: MAP, height: MAP, capacity: 4 });
+  const tank = sim.spawn(sim.addUnitType(TANK), 0, fx.from(3.5), fx.from(11.5));
   const r = new ThreeRenderer(sim, makeOpts(extra));
   r.setDecor(new Uint8Array(MAP * MAP));
+  r.camera.x = 12;
+  r.camera.y = 12;
+  r.snapshot();
   r.frame(1, 0);
+  rendererOf.set(sim, r);
+  sim.queueCommand({ kind: 'move', ids: [tank], x: fx.from(21.5), y: fx.from(11.5) });
   return { r, sim };
 }
 const tickTo = (sim: Sim, t: number): void => {
-  while (sim.tickCount < t) sim.tick();
+  while (sim.tickCount < t) {
+    sim.tick();
+    rendererOf.get(sim)?.snapshot();
+  }
 };
 
 /** Every wind number a shader reads, as exact bits (a text of the float64s, so -0 and NaN differ too). */
@@ -122,6 +143,11 @@ function windBits(r: ThreeRenderer): string {
     w.dir.value.x,
     w.dir.value.y,
     rain ? [rain.uWind.value, rain.uWindDir.value.x, rain.uWindDir.value.y, rain.uFall.value] : null,
+    // GH-984 N2: the disturbers' uniforms, on the same clock.
+    [
+      Array.from(p.disturbU.a.value), Array.from(p.disturbU.b.value), p.disturbU.box.value.toArray(),
+      p.disturbU.n.value, p.disturbU.amp.value, p.disturbU.spring.value,
+    ],
   ]);
 }
 
@@ -142,6 +168,7 @@ describe('the clock census (GH-984 N1)', () => {
       expect(windBits(r)).toBe(base);
       r.frame(0.4, 0);
       expect(windBits(r)).toBe(base);
+      expect(priv(r).disturbU.n.value, 'a hull is moving, so the disturber uniforms compared are live').toBeGreaterThan(0);
       if (weather === 'rain') expect(priv(r).rain, 'the rain batch exists, so its uniforms were compared').not.toBeNull();
       r.dispose();
     });
@@ -213,7 +240,7 @@ describe('no wall clock in the wind modules', () => {
     readFileSync(join(root, file), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
-  for (const file of ['terrain/wind.ts', 'terrain/wind-uniforms.ts', 'terrain/sway.ts', 'terrain/decor-mesh.ts', 'units/garrison-banner.ts']) {
+  for (const file of ['terrain/wind.ts', 'terrain/wind-uniforms.ts', 'terrain/sway.ts', 'terrain/decor-mesh.ts', 'units/garrison-banner.ts', 'terrain/disturb.ts', 'terrain/disturb-uniforms.ts', 'units/ground-churn.ts']) {
     it(`${file} reads none of dtMs, performance.now, Date.now, Math.random`, () => {
       const src = code(file);
       for (const banned of ['dtMs', 'performance.now', 'Date.now', 'Math.random', 'requestAnimationFrame']) {
@@ -229,6 +256,9 @@ describe('no wall clock in the wind modules', () => {
     const src = readFileSync(join(root, 'ThreeRenderer.ts'), 'utf8');
     expect(src).toMatch(/this\.sway\.time\.value = presentationSimMs\(this\.sim\.tickCount, alpha\) \/ 1000;/);
     expect(src).toMatch(/this\.windU\.mode\.value = reducedPref \? 0 : 1;/);
+    // GH-984 N2: the disturbers are filled from the tick and alpha, never from a frame delta.
+    expect(src).toMatch(/f\.tick = this\.sim\.tickCount;/);
+    expect(src).toMatch(/this\.updateDisturbers\(alpha, reducedPref\);/);
   });
 });
 
@@ -268,10 +298,16 @@ describe('reduced motion keeps today`s sway and adds nothing new (decision 6)', 
     tickTo(off.sim, 90);
     on.r.frame(0.3, 0);
     off.r.frame(0.3, 0);
-    const bits = (r: ThreeRenderer): unknown[] => JSON.parse(windBits(r)).filter((_: unknown, i: number) => i !== 2);
+    // The mode (index 2) and the disturbers' spring flag (the last number of the last entry) are what reduced motion changes.
+    const bits = (r: ThreeRenderer): unknown[] =>
+      JSON.parse(windBits(r))
+        .filter((_: unknown, i: number) => i !== 2)
+        .map((v: unknown, i: number, all: unknown[]) => (i === all.length - 1 ? (v as unknown[]).slice(0, -1) : v));
     expect(bits(off.r)).toEqual(bits(on.r));
     expect(priv(off.r).windU.mode.value).toBe(0);
     expect(priv(on.r).windU.mode.value).toBe(1);
+    expect(priv(off.r).disturbU.spring.value).toBe(0);
+    expect(priv(on.r).disturbU.spring.value).toBe(1);
     on.r.dispose();
     off.r.dispose();
   });

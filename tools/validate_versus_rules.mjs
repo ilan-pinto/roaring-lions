@@ -44,7 +44,7 @@ export const RULES_ONLY_MAPS = [];
 /** packages/app/src/net/versus-seats.ts VERSUS_SEATS. */
 export const VERSUS_SEATS = {
   beit_sahwan_outskirts: { friendly: [4, 22], hostile: [40, 23] },
-  tel_marum: { friendly: [27, 45], hostile: [29, 17] },
+  tel_marum: { friendly: [26, 45], hostile: [29, 17] },
   wadi_tarfan: { friendly: [10, 10], hostile: [37, 37] },
 };
 

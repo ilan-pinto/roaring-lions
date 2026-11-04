@@ -966,7 +966,7 @@ describe('the ground remembers (spec §3.3)', () => {
     const first = spy.mock.calls.length;
     expect(first).toBeGreaterThanOrEqual(24);
     expect(new Set(spy.mock.calls.map(([s]) => s.kind))).toEqual(
-      new Set(['crater', 'scorch', 'oil', 'rubble', 'tread', 'tyre'])
+      new Set(['crater', 'scorch', 'oil', 'rubble', 'tread', 'tyre', 'churn'])
     );
     expect(new Set(spy.mock.calls.map(([s]) => s.simMs))).toEqual(new Set([0]));
     // Once only.

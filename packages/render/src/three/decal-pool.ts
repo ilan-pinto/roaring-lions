@@ -115,6 +115,14 @@ import {
   CRATER_LIP_OUT0,
   CRATER_LIP_OUT1,
   CRATER_LOBES,
+  CHURN_ALPHA,
+  CHURN_EDGE_INNER,
+  CHURN_FADE_SEC,
+  CHURN_LOBES,
+  CHURN_SPOKE_BASE,
+  CHURN_SPOKE_CORE,
+  CHURN_SPOKES,
+  CHURN_WOBBLE,
   CRATER_WATER_ALPHA,
   CRATER_WATER_EDGE,
   CRATER_WATER_LEVEL,
@@ -560,6 +568,18 @@ const DECAL_FRAGMENT_SHADER_DRY = /* glsl */ `
       }
       a = ${f(TRACK_ALPHA)} * feather * side * fade * pattern;
       ci = kind == ${DECAL_KIND_INDEX.tread} ? ${COLOUR_TREAD} : ${COLOUR_TYRE};
+    } else if (kind == ${DECAL_KIND_INDEX.churn}) {
+      // GH-984 N2: turned earth. A wobbled-rim ellipse raked by radial spokes (decalAlpha's 'churn').
+      float rw = wobbledRadius(vOffset, seed, ${f(CHURN_WOBBLE)}, ${f(CHURN_LOBES)});
+      float body = 1.0 - smoothstep(${f(CHURN_EDGE_INNER)}, 1.0, rw);
+      float r = length(vOffset);
+      float theta = r > 0.0 ? atan(vOffset.y, vOffset.x) : 0.0;
+      float raked = step(0.5, fract(theta / ${f(2 * Math.PI)} * ${f(CHURN_SPOKES)} + seed));
+      float spoke = ${f(CHURN_SPOKE_BASE)} + ${f(1 - CHURN_SPOKE_BASE)} * raked;
+      float core = smoothstep(0.0, ${f(CHURN_SPOKE_CORE)}, r);
+      float fade = clamp(1.0 - max(ageSec, 0.0) / ${f(CHURN_FADE_SEC)}, 0.0, 1.0);
+      a = ${f(CHURN_ALPHA)} * body * (1.0 + (spoke - 1.0) * core) * fade;
+      ci = ${COLOUR_TREAD};
     }
 
     if (a <= 0.0) discard;

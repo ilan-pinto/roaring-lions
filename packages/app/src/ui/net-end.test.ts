@@ -47,6 +47,20 @@ describe('showNetEnd', () => {
     expect([title(), reason()]).toEqual(['Defeat', 'You disconnected']);
   });
 
+  it('GH-976: a win mode names its goal, from the winner\'s side and from the loser\'s', () => {
+    showNetEnd(document.body, { kind: 'won', side: 0, by: 'objective', mode: 'camp' }, 0, deps());
+    expect([title(), reason()]).toEqual(['Victory', 'The enemy camp is destroyed']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'won', side: 0, by: 'objective', mode: 'camp' }, 1, deps());
+    expect([title(), reason()]).toEqual(['Defeat', 'Your camp is destroyed']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'won', side: 1, by: 'objective', mode: 'points' }, 1, deps());
+    expect([title(), reason()]).toEqual(['Victory', 'You reached the points target']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'won', side: 1, by: 'objective', mode: 'points' }, 0, deps());
+    expect([title(), reason()]).toEqual(['Defeat', 'They reached the points target']);
+  });
+
   it('a draw reads Draw, mutual or on equal forces at the time limit, for either viewer', () => {
     showNetEnd(document.body, { kind: 'draw', by: 'mutual' }, 1, deps());
     expect([title(), reason()]).toEqual(['Draw', 'Both forces destroyed']);
