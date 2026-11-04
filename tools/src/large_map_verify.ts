@@ -557,6 +557,26 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
       { name: 'mesa_sw', zone: 'mesa_sw' },
     ],
   }),
+  // GH-974. The REDO of Wadi Tarfan (large), STAGED (docs/campaign/staged_maps/wadi_tarfan_l_redo): four walled yards at the
+  // centre ford are its town, so the versus visibility gate runs on them and the built-share cap is the map's own; the wadi
+  // runs edge to edge, so the cut has three crossings (the three fords) and no mesa; the structure triangles are counted
+  // (`triangles`); the economy is eleven zones and 300 a minute, the shipped total, with the town's court paying the most.
+  wadi_tarfan_l_redo: () => ({
+    label: 'Wadi Tarfan (large), redone',
+    size: 96,
+    maxBuiltShare: 0.01,
+    visibility: { towns: ['town'] },
+    routesPerEnd: 2,
+    income: { zones: 11, perMin: 300 },
+    triangles: { window: 48, control: 'milh_flats' },
+    // scrub belts on the foot lanes, never cover 3: the band is the Milh redo's
+    coverShare: [0.1, 0.14],
+    crossings: [
+      { name: 'ne_ford', marker: 'ne_ford', radius: 4 },
+      { name: 'sw_ford', marker: 'sw_ford', radius: 4 },
+      { name: 'centre', zone: 'centre_ford' },
+    ],
+  }),
 };
 
 /**
@@ -573,7 +593,7 @@ export async function verifyVersusVisibility(json: MapJson, rules: VersusRulesJs
 }
 
 /** The maps a large-map spec reads from docs/campaign/staged_maps instead of the data registry: authored, measured, NOT offered. */
-const STAGED_IDS: ReadonlySet<string> = new Set(['milh_flats_l_redo', 'rujm_sawda_redo']);
+const STAGED_IDS: ReadonlySet<string> = new Set(['milh_flats_l_redo', 'rujm_sawda_redo', 'wadi_tarfan_l_redo']);
 
 /** A STAGED large map (see STAGED_IDS): its map and rules as the generator wrote them, read from disk, never from `@lions/data`. */
 export function staged(id: string): { json: MapJson; rules: VersusRulesJson; spec: LargeMapSpec } {

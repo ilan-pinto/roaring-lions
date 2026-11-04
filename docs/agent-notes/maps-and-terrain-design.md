@@ -195,6 +195,212 @@ and fixed in the generator's data, with no sim or tuning change:
 - **The landscape is chaotic per tile** (a one-tile move of a pump house swings a cell 10 points). Every number in
   the PR is on seeds the choice did not see (2000-2191 and 4000+), the PR 947 method.
 
+## Wadi Tarfan (large), REDONE (GH-974, 4 Nov 2026): STAGED, not offered
+
+The third map built on `_coord/versus-maps-design/design.md` (Milh Flats (large) and Rujm Sawda first), and the one the design singles
+out: here the income makes a town pay, and it had the most fairness to lose. **It is STAGED, not shipped.** `data/maps/wadi_tarfan_l.json`
+and `data/versus/wadi_tarfan_l.json` are byte for byte main's. The redo is in `docs/campaign/staged_maps/wadi_tarfan_l_redo/{map,versus}.json`,
+written by `tools/maps/wadi_tarfan_l_redo/build.mjs` (`--check` exits 0; `--print` and `--print-elev` draw it). Its JSON carries the id
+`wadi_tarfan_l`, so opening it is a file copy plus the pins below. Map sha256 `7767c720e7a9...` (after the fix round; B4 read `048ace8e3ad0...`),
+rules `c1343ec653c2...` (unchanged).
+
+Unlike the shipped map (a 2x upscale of the 48x48, `tools/maps/wadi_tarfan_l/build.mjs`) the redo is drawn on the 96x96 grid, in the
+Rujm redo's mould. It keeps the skeleton: the seats (20,20) and (75,75), the camps, the wadi along `x + y = 95` with a centre ford and two
+outer fords (`x - y` at 0 and +-42), the bluffs and farms of each bank, eleven income zones paying 300 a minute, and the shipped tunnel
+routes and vents to the tile (two an end, capacity 3).
+
+**It is drawn to a triangle budget** (`tools/src/map_triangles.ts`; `cd tools && ./node_modules/.bin/tsx src/map_triangles.ts
+staged:wadi_tarfan_l_redo wadi_tarfan_l milh_flats`). The shipped map's 104 ditch tiles are 3.98 M of its 4.29 M triangles a pass; the redo
+has no ditch, no concrete, two houses in the whole map, one-floor sheds in the farms:
+
+| Structure triangles a pass | Whole map | Centre 48x48 | Densest 48x48 | Predicted frame cost against the control (x3 passes x 0.65 ns) |
+|---|---|---|---|---|
+| 48x48 control (`milh_flats`) | 694,926 | 694,926 | 694,926 | 0 |
+| Wadi Tarfan (large), shipped | 4,289,938 | 2,515,458 | 2,783,138 (25,16) | +3.5 ms centre, +4.1 ms densest |
+| **Wadi Tarfan (large), redone** | **693,788** | **506,602** | **525,124 (35,18)** | **-0.37 ms centre, -0.33 ms densest** |
+
+`LargeMapSpec.triangles` holds "no 48-tile window over the control" and goes red with eight houses added in the centre. The structure
+count is 188 (176 walls, 12 buildings) against the sim's 256. The same four mesh types as the shipped map, so no GPU growth is expected.
+As on the Rujm redo, a large map shows more ground than the control (the first Milh build read +0.45 to +0.75 ms with an equal bill), so
+the structure term is -0.37 and the large-map term is the budget step's measurement. **No browser has run on it.**
+
+What the redo is (the plan, against the design's principles):
+
+- **A wadi that is a lane.** Five tiles of scree (`b`) at level 0 on a plain at level 2, so every bank is a 2-LEVEL cliff (330 bed-bank
+  pairs, each exactly two levels) and a rifleman in the bed is hidden from the plain; vehicles cannot enter it. An S-curve (amplitude
+  3.8, period 124 along `x - y`), from the top edge to the bottom edge, so there is no mesa and no pocket. Each ford is a gap of five
+  `x - y` values with a level-1 ramp tile on each bank. The shipped bed was a gentle dip with a ditch in it.
+- **Tarfan, a town at the centre ford.** The Rujm town moved to this ford: four six-tile walled yards (16 wall tiles each, two two-tile
+  gates facing the road), A north-east of the main road and B south-west of it on seat 0's bank, their half-turns on seat 1's. A holds
+  the two-floor house, on the lip over the ford, and a shed; B a shed and a pump house. 24 building tiles, 3.55% of the `town` zone
+  (35,35,26,26), the new zone the visibility gate holds to 85%. The main road runs between the yards, 5 or more tiles off every corner.
+  The shipped tunnel vents (45,43) and (42,45) stand in its streets.
+- **The town pays.** `centre_ford` (the 8x8 court of the town and the ford) pays 80 a minute, each outer ford 30 (shipped 60 / 40 / 40);
+  the bluffs and farms keep 20. Eleven zones, 300 a minute: `SPECS.wadi_tarfan_l_redo.income` and the twin check hold it.
+- **Bluffs with bare slopes** (the Rujm tell): a crown of 8 rock tiles at level 5, a ring of 12 knoll at level 4, then open ground at 3.
+  `bluff_far_0` looks over the NE ford, `bluff_near_0` over the west flank.
+- **Farms** are walled yards with one one-floor shed (the shipped farms had two houses and read 90% visible against the 92% scoring cap).
+  The two far farms and their zones moved three tiles off the wadi's lip (`farm_far_*`: (13,77) to (10,74), (82,18) to (85,21)); the near
+  farm's yard and zone moved up a row so it clears the town's corner.
+- **Four sheepfolds**, a boulder funnel either side of the main road (the armour lane, bare of cover) and scrub belts on a jittered
+  lattice on both flanks: 12.0% cover, never cover 3.
+- **Four road gates** (the fix round, below): a 3x3 block of rock either side of the main road eleven tiles short of the centre ford, and their
+  half-turns, which close the road to a pass three tiles wide (`OUTCROPS`); and **22 tiles of ford scrub** in the lane (`FORD_SCRUB`), cover 1,
+  nine diagonals short of each bank's bed. The armour lane is bare but for that scrub.
+- Seal: with the three fords plugged no vehicle crosses (`large_map_verify.ts`: centre alone 800, each outer ford 1,046, equal both ways).
+  A hole in the bed turns it red.
+
+The versus visibility gate reads it at **99.87% whole map, 100% corridor, 98.6% town, 0.35% built, houses 25%**; the four farms read 93.6% to
+100% (cap 92%). Its spec (`SPECS.wadi_tarfan_l_redo`) holds `towns: ['town']`, so the exempt set stays the three offered maps.
+
+### What B4 read on the redo (4 Nov 2026)
+
+`versus:probe --maps=wadi_tarfan_l --cap=2100`, placed forces, the staged data copied over the data paths in a SCRATCH worktree (sha256 as
+above), seeds 0-191 and the held-out 4000-4287, each read once, no lever pulled. Self-checks passed on every run. Raw files in
+`_coord/wadi-l-redo/`.
+
+| Cell | 0-191 | held-out 4000-4287 | pooled 480 |
+|---|---|---|---|
+| KDF v KDF (the mirror), east wins | 98 / 94: 51.0% | 153 / 135: 53.1% | 52.3% |
+| Sarim v Sarim (report only), east wins | 119 / 73: **62.0%** | 150 / 138: 52.1% | 56.0% |
+| Placed, KDF at the friendly seat, KDF wins | 175 / 192: **91.1%** | 247 / 288: **85.8%** | **87.9%** |
+| Placed, Sarim at the friendly seat, KDF wins | 171 / 192: **89.1%** | 257 / 288: **89.2%** | **89.2%** |
+| Economy, KDF friendly, KDF wins | 156 / 192: **81.3%** | 249 / 288: **86.5%** | **84.4%** |
+| Economy, Sarim friendly, KDF wins | 156 / 192: **81.3%** | 234 / 288: **81.3%** | **81.3%** |
+| Tunnels cell 3 (answer), KDF friendly, Sarim wins | 105 / 192: 54.7% | 145 / 288: 50.3% | 52.1% |
+| Tunnels cell 3 (answer), Sarim friendly, Sarim wins | 111 / 192: 57.8% | 162 / 288: 56.3% | 56.9% |
+
+**The mirror and the tunnel cell hold; the faction cells do not.** KDF v KDF is inside 60/40 on both reads (the offered mirror gate). KDF v
+Sarim at the placed forces and in the economy room reads KDF 82-92%, at both seat orders, so it is the faction and not the seat; the shipped
+map reads 55% / 55% (PR 953) and the 48x48 control about 48%. The map therefore could not open as KDF v Sarim as B4 read it. The fix round below
+diagnosed it and pulled two levers. Not re-read: one-tile seat shifts, S4 formations (they stay CLOSED on this map,
+`VERSUS_FORMATIONS_CLOSED_MAPS`), the lane probe of design section 4.
+
+### The fix round (GH-974, 4 Nov 2026): the diagnosis and two levers
+
+B4 left the KDF v Sarim cells at 82-92% KDF in both seat orders. This round diagnosed why, pulled levers in the STAGED map only (terrain, cover; no
+unit stat, price or `tuning.ts`; `data/maps/wadi_tarfan_l.json` and `data/versus/wadi_tarfan_l.json` stay main's to the byte), and read every cell
+again. The instruments are not committed: the in-memory variant runner, the observers and the raw outputs are in `_coord/wadi-l-redo/fix-lab/`
+and `_coord/wadi-l-redo/fix-report.md` (placed forces are 0.4 s a game, so the screens were 96-384 seeds a cell; the official `versus:probe`
+read only the candidates).
+
+**Diagnosis.** The lean is the faction, not the seat, and it has two parts. (1) A bare 96x96 plain already reads KDF **75 / 71%** placed
+(seeds 0-95, KDF friendly / Sarim friendly): the Lavis and Namers see and outrange Sarim's thirteen walking Kornet cells (360 hp, sight 10
+against the Lavi's 12 and the KDF's drone and helicopter). (2) The redo's two signature features add to it and give Sarim nothing back: the
+**yard walls** hand the first Namers a wall-corner pocket six tiles from the ford (41-43, 44-47, against yard B's east wall), where the parapet
+rule gives the target cover 2 (x0.1375): 44% of the shots on a Namer met cover on the redo and none on the shipped map; and the **two-level
+banks** leave the Kornet cells that cross the bed blind (a unit at level 0 sees a plain tile only as far past the lip as it stands short of it).
+
+Redo against shipped, placed forces, seeds 0-47 (48 games a cell; the fight is at the centre ford on both maps, **100%** of ground deaths in x, y 32-63):
+
+| | Shipped, KDF friendly / Sarim friendly | Redo (the B4 map), same |
+|---|---|---|
+| KDF wins | 47.9% / 64.6% | **91.7% / 91.7%** |
+| First ground unit dead (time to first contact) | 14.8 s / 14.8 s (a KDF jeep) | 15.0 s / 15.0 s (the same jeep) |
+| First Sarim ground unit dead | 37.8 s / 36.1 s | **29.7 s / 29.0 s** |
+| Kornet cells dead, of 13 | 8.96 / 10.85 | **13.46 / 13.21** |
+| Lavis dead, of 2 | 1.02 / 0.79 | **0.23 / 0.25** |
+| Namers dead, of 2 | 1.75 / 1.73 | 1.25 / 1.48 |
+| Rocket batteries dead, of 2 / mortar teams dead, of 1 | 0.96 / 0.52 (KDF friendly) | 1.83 / 0.08 |
+| Kornet shots a game / shots on a Namer a game, share meeting cover (24 games) | 53 / 2,380, 0% | 35 / 778, **44%** |
+
+Each feature added alone to the empty plain (placed, KDF wins, seeds 0-95, KDF friendly / Sarim friendly):
+
+| Added to the empty 96x96 plain | KDF wins |
+|---|---|
+| nothing (flat, level 2) | 75.0 / 70.8 |
+| the four yards' walls only | **89.6 / 91.7** |
+| the two-level banks only (relief, no scree) | **83.3 / 85.4** |
+| the scree bed only (the vehicle wall, no relief) | 76.0 / 67.7 |
+| bed and banks | 90.6 / 91.7 |
+| the town's buildings / the boulder funnel / the bluffs | 72.9 / 79.2, 72.9 / 61.5, 66.7 / 63.5 |
+| cover belts, farm walls, farm sheds, roads, the home shelf | 75.0 / 70.8 each (far from the fight: not one game changes) |
+| the redo itself / without its yard walls / without its banks / without both (KDF friendly) | 93.8 / 89.6, 87.5 / 79.2, 87.5 / 85.4, 70.8 |
+| the shipped map (KDF friendly): + its elevation alone, + its ditch, boulders and rock | 56.3; 66.7, 64.6 (on the empty plain) |
+
+So removing the redo's walls and banks only gets it to the empty plain's lean, and that is outside 60/40 too: the fix has to give Sarim something.
+
+**The levers, six rounds** (placed forces, KDF friendly unless said, KDF wins; 96 seeds on 0-95 unless said):
+
+1. *Relief*: a gentle bowl in place of the banks (1 level in 12 or 8 tiles), 92.7 with the walls and 76.0 without; banks of one level, 72.9 without
+   walls. No.
+2. *Cover and boulders*: 25% cover-2 tiles over the whole lane, 84.4 (78.1 with no walls and flat banks); boulder bands 3 and 6 tiles wide
+   along the banks, 90.6 and 94.8. No.
+3. *Rock outcrops*: 2x2 rock beside the road near the ford, (43,41) 81.3 and (46,42) 91.7 (the shipped map's plinth place, (44,40), is the yard
+   wall); at **(41,37)** and its transpose and half-turns (eleven tiles short of the ford, either side of the road): **62.5 / 61.5**, 61.7 / 62.8 on
+   seeds 0-383. The first lever that moves it.
+4. *Neighbours and combinations of 3*: (40,36) 66.7, (41,36) 75.0, (40,37) 62.5, (42,38) 81.3, (38,34) 76.0; with 1-level banks 60.4; without
+   walls 68.8; a second pair of 2x2 85.4 and 79.2. Chaotic, as PR 953 found.
+5. *Size*: 3x3 at (41,37) **55.2 / 53.1** (56.3 / 57.3 on 0-383); at (40,37) the two blocks touch at a corner and seal the road, 93.8; (41,36) 80.2;
+   (40,36) 64.6; (42,38) 65.6; 2x4 95.8. The official matrix on it (C1 below): every cell inside on the pooled seeds, but the placed Sarim-friendly
+   cell reads 63.2% on one 288-seed set and 60.9% on the 4000 + 9000 pool.
+6. *The ford scrub* on top: 22 tiles of scrub (cover 1) in the lane, nine diagonals short of each bank's bed, 25% of its open tiles. Six salts
+   read the placed cells 34-56% KDF on 0-191 (a few tiles decide); salt 10 reads 54.7 / 47.9 there and 51.6 / 56.3 on 192-383, the centre of the
+   six. (An early scrub screen was ASYMMETRIC, scrub on seat 0's bank only, and read 35-57: discarded, the map is a half-turn.)
+
+**Why the gate works.** It narrows both columns to a three-tile pass, so the KDF armour files down the road instead of fanning into the yard
+pockets: shots on a Namer rise from 778 to 1,800 a game and none meets cover, the Lavis are shot at (0.88 dead a game against 0.18) and the
+Kornet cells that reach the ford get to fire (9.9 of 13 dead against 13.5).
+
+**What it reads now** (the official `versus:probe`, `--cap=2100`, self-checks passed on every run; the staged data in memory or copied over the data
+paths and restored, the shipped data untouched). The levers were chosen on placed forces on seeds 0-383. Every cell below is the **KDF share** (the
+mirror by west end; a draw is under 0.4% of games, so a share and its complement differ by less than that; the tunnel rows of the first four ranges
+are 100 minus Sarim's share). Six 288-seed ranges, none of them a pool to be called held-out: 4000-4287 and 9000-9287 were read for the gate-alone
+matrix before the scrub was chosen, 12000-12287 and 15000-15287 (the reviewer's fresh range) informed the salt-11 trial, and **18000-18287 and
+21000-21287 were read for both salts and no choice had seen them**:
+
+| Cell (KDF share) | B4 before (480) | 4000 | 9000 | 12000 | 15000 | 18000 | 21000 |
+|---|---|---|---|---|---|---|---|
+| KDF v KDF (the mirror), west wins | 47.7 | 45.5 | 49.7 | 54.5 | 51.4 | 50.3 | 51.0 |
+| Placed, KDF friendly | **87.9** | 48.6 | 49.7 | 51.0 | 50.7 | 42.0 | 51.4 |
+| Placed, Sarim friendly | **89.2** | 51.7 | 53.1 | 43.4 | 47.9 | 48.3 | 49.3 |
+| Economy, KDF friendly | **84.4** | 51.4 | 49.0 | 52.4 | 45.1 | 48.6 | 49.7 |
+| Economy, Sarim friendly | **81.3** | 46.5 | 47.6 | 48.3 | 45.5 | 41.7 | 45.1 |
+| Tunnels cell 3, KDF friendly | 47.9 | 45.5 | 43.1 | 40.6 | 41.0 | 41.3 | 42.4 |
+| Tunnels cell 3, Sarim friendly | 43.1 | 42.4 | **38.9** | 41.3 | **37.8** | 43.8 | 43.8 |
+
+Sarim v Sarim (report only), west wins, on the last two ranges: 51.7 and 52.8. The faction cells are inside 60/40 (40 to 60 either way) in 40 of
+the 42 range-cells after the fix, against none before. **The two outside are the tunnel cell, Sarim friendly, on 9000-9287 (Sarim 61.1%) and 15000-15287
+(62.2%)**, and that cell sits on the bar: over the six ranges Sarim wins it 57.6 / 61.1 / 58.7 / 62.2 / 56.2 / 56.2, mean 58.7%, two ranges outside. **Tunnel cell
+3, Sarim friendly, is a report cell and this map does not open on it**; the probe prints the tunnel arm as report-only, and the claim that every
+cell is inside is withdrawn. A lever that is a measured value moved it: the gate alone read the tunnels Sarim 52.5 / 53.4 (0-191 + 4000 + 9000) but
+the placed cells 58.2 / 59.1 KDF, and the scrub trades the one for the other.
+
+**Salt 11, tried and dropped.** The weaker scrub (20 tiles, placed 52.9 / 57.3 on 0-383) levelled the tunnel cell on 18000 and 21000 (KDF 44.4 /
+46.9 Sarim friendly, 51.0 / 53.1 KDF friendly) but read **placed KDF friendly 60.8%** on 21000-21287 (49.0 on 18000), outside, with economy 53.1 /
+56.6 and 48.3 / 48.3. Salt 10 on the same two ranges has every cell inside (worst: tunnels KDF friendly 41.3, Sarim 58.7; placed KDF friendly 42.0;
+economy Sarim friendly 41.7), so by the rule "keep the salt with the better worst cell across the two ranges" salt 10 stays (worst 58.7 against
+60.8). Raw per-seed files for both: `_coord/wadi-l-redo/fresh/`.
+
+**What does not pass or was not read.** The seat neighbourhood (a report, per the 2 Nov ruling; PR 953 found this map's neighbours at 31-82% and
+nothing here makes it less chaotic: a block of rock one tile over reads 66-94%). S4 (formations stay CLOSED on this map). The lane probe and the
+tick probe for `recomputeFields('opened')`. Tunnel cells 2 and 4. The render budget run: four 3x3 rock blocks and 22 scrub tiles are terrain, not
+structures, so the structure bill is unchanged (693,788 / 506,602 / 525,124 triangles a pass; `map_triangles.ts` reads the same), but no browser
+has run on the map. Both levers are *measured values*: the same family of change gives 34-56% (six scrub salts) and 62-96% (the outcrop's
+shape and place); a change to the seats, the road, the yards or the vents needs a new read.
+
+### Opening it (what the swap changes)
+
+A file copy of the staged map and rules over `data/maps/wadi_tarfan_l.json` and `data/versus/wadi_tarfan_l.json`, the redo's generator in
+place of `tools/maps/wadi_tarfan_l/build.mjs`, `SPECS.wadi_tarfan_l_redo` under `wadi_tarfan_l` in `large_map_verify.ts`, and the pins the new
+data moves. A full `pnpm test` on the copied data (4 Nov, scratch worktree, nothing else changed) reads 30 tests in 12 files red, and nothing
+else:
+
+- `crown-summit.test.ts` (2): the 31 summits and the `wadi_tarfan_l` pick (the four road-gate outcrops are rock clusters too: re-count them);
+- `terrain-defaults.test.ts`: the `wadi_tarfan_l` digest; `wet-control-map.test.ts`: the control-C census; `high_ground_maps.test.ts`: the rise pin;
+- `presentation_census.test.ts` (5): the Wadi Tarfan (large) slope and twin counts;
+- `wadi_tarfan_l.test.ts` (4) and `large_map_verify.test.ts` (6): the shipped map's own landmarks, generator drift, pump-house plinths, markers and
+  rules (and the shipped verifier's ditch and scallop cases), which become the redo's `wadi_tarfan_l_redo.test.ts` with its registration put back;
+  `wadi_tarfan_l_redo.test.ts` itself reads five of its "shipped untouched" assertions red, as it should;
+- `map_visibility.test.ts`: the report-only reading "the two far farms of seat 1 read 89.7% and 90.2%, houses 67%" is gone;
+- `net/snapshot-rejoin.test.ts` (2) and `net/rejoin-catchup.test.ts`: the digest and premise seed fold in every map; `backtest/versus-probe.test.ts`:
+  the economy self-check on each rules-file map (the last two are timing-sensitive under load: re-run them alone before blaming the data).
+
+**Before opening:** the placed and economy cells and tunnel cell 3 KDF friendly read inside 60/40 on all six ranges, tunnel cell 3 Sarim friendly does not (mean Sarim 58.7%, two ranges over 60: a report cell, the map does not open on it), tunnel cells 2 and 4 are unread, the seat
+neighbourhood (PR 953 found this map's neighbours at 31-82%), S4 if formations are to open (they are CLOSED now), the budget step (`perf:fx` at
+the centre and a seat, `perf:memory`; no new mesh type), `pnpm net:budget` at 188 structures, the tick probe for `recomputeFields('opened')` on a
+wall, and the lane probe. The Free Play line for the map ("a dry wadi crossed at three fords") still fits.
+
 ## Milh Flats (large) (GH-920 B3-B4, 2 Nov 2026)
 
 `tools/maps/milh_flats_l/build.mjs` reads `data/maps/milh_flats.json` as its 48-cell sketch, on the same library,
