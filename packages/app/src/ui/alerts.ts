@@ -90,7 +90,7 @@ export interface AlertLine {
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'kill' | 'wounded' | 'conductGain' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'ambushSprung' | 'formationContact' | 'formationCall' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply' | 'production';
+  kind: 'unitLost' | 'kill' | 'wounded' | 'conductGain' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'ambushSprung' | 'formationContact' | 'formationCall' | 'landRefused' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply' | 'production';
   tier: AlertTier;
   /** Good or bad, as the minimap ring wears it (VR-36): the line's own tone
    *  where there is a line, and for a lineless alert the tone its line would
@@ -568,6 +568,8 @@ export function alertsForTick(
   /** GH-859 P1b: our own entities that made a `halt` group's contact, and answered a call with a sortie, one per event. */
   const contactOwn: number[] = [];
   const answeredOwn: number[] = [];
+  /** GH-1007: our carriers whose landing order was refused this tick (no clear ground). */
+  const landRefusedOwn: number[] = [];
   const tunnelsFound: number[] = [];
   let tunnelsAnnounced = state.tunnelsAnnounced;
   /** VR-37: the first of ours a round was aimed at this tick -- where an
@@ -679,6 +681,12 @@ export function alertsForTick(
     // home, are the group's business and the card's, not news; the enemy's calls are never ours to hear.
     if (e.kind === 'formationCall') {
       if (isOwnSide(e.side, viewer) && (e.call === 'strike' || e.call === 'spot')) answeredOwn.push(e.entity);
+      continue;
+    }
+    // GH-1007 D3: a landing refused for want of ground, a feed line and never a world mark. Ours only: the
+    // enemy's refusal is not the viewer's news. One line per event.
+    if (e.kind === 'landRefused') {
+      if (isOwnSide(world.sideOf(e.carrier), viewer)) landRefusedOwn.push(e.carrier);
       continue;
     }
     if (e.kind !== 'fire' && e.kind !== 'impact') continue;
@@ -920,6 +928,19 @@ export function alertsForTick(
       cue: ALERT_CUE.minor,
       at,
       marks: at === null ? [] : [at],
+      count: 1,
+    });
+  }
+  for (const entity of landRefusedOwn) {
+    const at = world.posOf(entity);
+    alerts.push({
+      kind: 'landRefused',
+      tier: 'minor',
+      tone: 'warn',
+      line: { key: 'alert.landRefused', params: {}, tone: 'warn', place: at === null ? [] : [world.placeOf(at.x, at.y)] },
+      cue: ALERT_CUE.minor,
+      at,
+      marks: [],
       count: 1,
     });
   }

@@ -1590,6 +1590,7 @@
   "alert.ambushSprung": "<b>ambush sprung</b> — units fire on what they can reach{where, select, yes { · {place}} other {}}",
   "alert.formationContact": "<b>column in contact</b>{where, select, yes { · {place}} other {}}",
   "alert.formationCall": "<b>{unit} answering the call</b>{where, select, yes { · {place}} other {}}",
+  "alert.landRefused": "<b>No clear ground to land</b>{where, select, yes { · {place}} other {}}",
   "alert.manDown": "<b>man down</b> — {n, plural, one {{name}} other {{name} (#)}}{where, select, yes { · {place}} other {}}",
   "alert.conductGain.enemy": "<b>Enemy wounded rescued +{gain}</b> · Conduct {score}",
   "alert.conductGain.civilian": "<b>Civilian wounded rescued +{gain}</b> · Conduct {score}",
