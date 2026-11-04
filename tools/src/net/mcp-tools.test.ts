@@ -130,6 +130,13 @@ describe('order in command scope (case 2)', () => {
     // `casualties.mine` and not under `units`, and that is the id a medic is sent to.
     const squad = sideIds(w, 0).find((i) => w.sim.unitTypes[w.sim.state.typeIdx[i]].id === 'inf_squad');
     if (squad === undefined) throw new Error('no KDF rifle squad on seat 0');
+    // Flake fix: the squad's fall roll is a 0.6 chance on its own rng stream, and the squad (3 figures) is destroyed after at most
+    // three rolls, so ~6% of stream positions left no body at all (the stream position moves with how many ticks the harness ran).
+    // Pin the roll to a certainty: a chance of ONE draws nothing (`fallMan`), so the first man to fall always lives as a wounded body.
+    // Still red if wounds stop spawning: the roll is bypassed, not the spawn, the cap or the type lookup.
+    const squadWounds = w.sim.unitTypes[w.sim.state.typeIdx[squad]].wounds;
+    if (squadWounds === null) throw new Error('inf_squad carries no hull.wounds');
+    squadWounds.chance = fx.fromInt(1);
     const before = w.sim.entityCount;
     for (let k = 0; k < 40 && w.sim.entityCount === before; k++) {
       (w.sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(squad, fx.fromInt(100), enemy);
