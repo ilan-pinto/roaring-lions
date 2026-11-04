@@ -207,6 +207,8 @@ export function versusUnitInfo(menus: readonly [readonly string[], readonly stri
       logistics: u.cost.logistics,
       buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
       population: 'population' in u.cost ? u.cost.population : 1,
+      // GH-277: read only by a production work whose `production.roles` limits its line (none is open in a room today).
+      role: u.role,
     };
   };
 }

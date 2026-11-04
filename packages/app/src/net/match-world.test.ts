@@ -361,7 +361,10 @@ describe('the economy runtime (N3 Task 3)', () => {
 
   it('versusUnitInfo: the asking side\'s menu only, its cost from the unit JSON, no unlock and no intel', () => {
     const info = versusUnitInfo([doctrines.kdf.menu, doctrines.sarim.menu]);
-    expect(info('mbt_lavi', 0)).toEqual({ logistics: units.mbt_lavi.cost.logistics, buildTimeS: expect.any(Number), population: expect.any(Number) });
+    expect(info('mbt_lavi', 0)).toEqual({ logistics: units.mbt_lavi.cost.logistics, buildTimeS: expect.any(Number), population: expect.any(Number), role: 'mbt' });
+    // GH-277: the role rides along, so a production work with `production.roles` can judge a room's menu too (a literal, not read back)
+    expect(info('inf_squad', 0)?.role).toBe('infantry');
+    expect(info('atgm_cell', 1)?.role).toBe('at_team');
     expect(info('mbt_lavi', 1)).toBeNull();
     expect(info('atgm_cell', 1)).not.toBeNull();
     expect(info('atgm_cell', 0)).toBeNull();

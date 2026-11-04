@@ -415,6 +415,9 @@ export interface MissionContext {
     /** What one unit takes of its side's population cap: `cost.population`,
      *  absent in the unit JSON = 1. A queued build reserves this (D2). */
     population: number;
+    /** The unit's `role` (GH-277 follow-on). Read ONLY by a production building whose `production.roles`
+     *  limits its line to a subset of roles; absent, such a line does not build the unit. */
+    role?: string;
   } | null;
   /** Doctrine or co-op caps, by side; when given it OVERRIDES `resources.pop_cap`
    *  (null = uncapped on that side). Absent: side 0 reads the mission's own field,
@@ -661,7 +664,14 @@ export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingM
 export type DefeatCause = 'force_destroyed' | 'roe_collapse' | 'withdrawn' | { objective: string };
 
 /** Why a field work is refused (`MissionRuntime.constructReason`), in the order it is checked. */
-export type WorksRefusal = 'not_listed' | 'none_left' | 'locked' | 'unaffordable' | 'needs_engineers' | PlacementRefusal;
+export type WorksRefusal = 'not_listed' | 'none_left' | 'no_line_slot' | 'locked' | 'unaffordable' | 'needs_engineers' | PlacementRefusal;
+
+/** The reason `buildBlockedReason` returns when the unit is not on the menu of the line asked about
+ *  (a production building with `production.roles`). A CODE, not a sentence: the dock words it. */
+export const NOT_ON_LINE = 'not_on_line';
+
+/** Folded into `economyHash` ahead of the appended-lines block (GH-277 follow-on): 'FWL1'. */
+const APPENDED_LINES_MARK = 0x46574c31;
 
 /** One row of the dock's "Field works" group (`MissionRuntime.worksOffers`). */
 export interface WorksOffer {
@@ -993,6 +1003,13 @@ export class MissionRuntime {
   private readonly worksSites = new Map<number, WorksCharge>();
   /** Structure index -> its works type and site, from the stake; `done` once complete. */
   private readonly worksStructures = new Map<number, { typeId: string; site: number; done: boolean }>();
+  /** GH-277 follow-on: the structure index of each line `appendLine` added to side 0 when a production
+   *  work completed, in the order added. Those lines are the TAIL of `lines[0]`, so no index a command
+   *  carries ever shifts. State: the snapshot carries it and `economyHash` folds it, only when non-empty. */
+  private readonly appendedAnchors: number[] = [];
+  /** How many side-0 lines `start()` built (`buildLines`): where the appended tail begins. Config: set once,
+   *  never written after. The snapshot restore reads it, not `appendedAnchors.length`, to find the tail. */
+  private authoredLines0 = 0;
   /** The production lines, one per camp per side, in structure index order (D6, LD6 ask 6).
    *  A dead camp's line keeps its index for the mission: indices commands carry never shift.
    *  Built in `start()`; side 0 with no camp gets one `player_start` line (D2). */
@@ -1367,6 +1384,15 @@ export class MissionRuntime {
     // F4 Task 9 fix (review): the side-1 buyer's round-robin index per line. Only with a menu, so
     // every mission without `enemy.production` (and every pinned fixture) adds nothing.
     if (this.enemyMenu.length > 0) for (let k = 0; k < this.enemyLast.length; k++) h = hashWord(h, this.enemyLast[k]);
+    // GH-277 follow-on: the lines a completed production work opened. Appended after EVERY earlier word and
+    // folded only when there is one, so a world that never completed such a work hashes as it always did.
+    // Marker, count, then each appended line's structure type index (the line's anchor, queue and rally are
+    // already folded by `foldLines`).
+    if (this.appendedAnchors.length > 0) {
+      h = hashWord(h, APPENDED_LINES_MARK);
+      h = hashWord(h, this.appendedAnchors.length);
+      for (let k = 0; k < this.appendedAnchors.length; k++) h = hashWord(h, this.sim.structures.typeIdx[this.appendedAnchors[k]]);
+    }
     return h >>> 0;
   }
 
@@ -1456,9 +1482,51 @@ export class MissionRuntime {
     return -1;
   }
 
-  /** True while a line's camp stands (a `player_start` line, anchor -1, never falls). */
+  /** True while a line's camp stands (a `player_start` line, anchor -1, never falls). A line is also
+   *  never alive over a structure still under construction (progress below ONE): `appendLine` opens a
+   *  line only on completion, and this holds the same rule at the read. */
   private lineAlive(line: ProductionLine): boolean {
-    return line.anchor < 0 || this.sim.structures.alive[line.anchor] === 1;
+    return line.anchor < 0 || (this.sim.structures.alive[line.anchor] === 1 && this.sim.structures.progress[line.anchor] === ONE);
+  }
+
+  /** GH-277 follow-on: does `line` build a unit of `role`? Only a production work's line can say no
+   *  (its type's `production.roles`); a camp's and `player_start`'s lines build the whole menu. */
+  private lineTakes(line: ProductionLine, role: string | undefined): boolean {
+    if (line.anchor < 0) return true;
+    const roles = this.sim.structureTypes[this.sim.structures.typeIdx[line.anchor]].production?.roles ?? null;
+    return roles === null || (role !== undefined && roles.includes(role));
+  }
+
+  /** The build ticks of an item of `base` ticks on `line`: unchanged unless the line's work scales its
+   *  build time (`production.build_time_mult`), then `ceil(base x mult)`, whole ticks. */
+  private lineBuildTicks(line: ProductionLine, base: number): number {
+    if (line.anchor < 0) return base;
+    const mult = this.sim.structureTypes[this.sim.structures.typeIdx[line.anchor]].production?.buildMult ?? ONE;
+    return mult === ONE ? base : (base * mult + (ONE - 1)) >> 16;
+  }
+
+  /** GH-277 follow-on: open a production line at the tail of side 0's lines, anchored to the completed
+   *  structure `s`. Idempotent per structure. Returns whether a line was added. Throws at the cap: `worksReason` counts the
+   *  slot of every work in flight (`no_line_slot`), so a completing work always has one, and silence here would hide a wiring fault. */
+  private appendLine(s: number): boolean {
+    if (this.appendedAnchors.includes(s)) return false;
+    if (this.lines[0].length >= MAX_PRODUCTION_LINES) {
+      throw new Error(`mission ${this.mission.id}: a production work completed with side 0 already at ${MAX_PRODUCTION_LINES} lines`);
+    }
+    this.lines[0].push({ side: 0, anchor: s, queue: [], current: null, ticksLeft: 0, rally: null });
+    this.appendedAnchors.push(s);
+    return true;
+  }
+
+  /** Snapshot restore (`runtime-snapshot.ts`): make side 0's tail lines exactly those of `anchors`, empty.
+   *  Called by the restore's apply step, before the line records are merged in place. */
+  restoreAppendedLines(anchors: readonly number[]): void {
+    this.lines[0].length = this.authoredLines0;
+    this.appendedAnchors.length = 0;
+    for (const a of anchors) {
+      this.lines[0].push({ side: 0, anchor: a, queue: [], current: null, ticksLeft: 0, rally: null });
+      this.appendedAnchors.push(a);
+    }
   }
 
   /** D1: a side `1 - line.side` ground unit on the surface within the contest radius of the exit. */
@@ -1485,12 +1553,14 @@ export class MissionRuntime {
     return l !== undefined && this.lineAlive(l) ? l : null;
   }
 
-  /** The living line of `side` holding the fewest items (current counts), ties to the lowest index (D6). */
-  private shortestLine(side: 0 | 1): ProductionLine | null {
+  /** The living line of `side` holding the fewest items (current counts), ties to the lowest index (D6).
+   *  With `byRole`, only lines that build a unit of `role` (GH-277 follow-on); without, every living line. */
+  private shortestLine(side: 0 | 1, byRole = false, role?: string): ProductionLine | null {
     let best: ProductionLine | null = null;
     let bestN = 0;
     for (const l of this.lines[side]) {
       if (!this.lineAlive(l)) continue;
+      if (byRole && !this.lineTakes(l, role)) continue;
       const n = l.queue.length + (l.current === null ? 0 : 1);
       if (best === null || n < bestN) {
         best = l;
@@ -1529,6 +1599,15 @@ export class MissionRuntime {
       }
       return 'no field camp — production needs one standing';
     }
+    // GH-277 follow-on: the menu of a production work's line. After the camp (a side with no line at all is
+    // refused above) and BEFORE the cap, so a tile pinned to a line that cannot build the unit reads "not on
+    // this line" and not "population full". Named: that line; unnamed: some living line must take it.
+    if (line !== undefined) {
+      const named = this.livingLine(side, line);
+      if (named !== null && !this.lineTakes(named, info.role)) return NOT_ON_LINE;
+    } else if (this.shortestLine(side, true, info.role) === null) {
+      return NOT_ON_LINE;
+    }
     // So the gate and the camp speak first. A unit that takes no population (a drone) is never
     // refused here, even by a side already over its cap (D3).
     const cap = this.popCap(side);
@@ -1551,7 +1630,7 @@ export class MissionRuntime {
       let any = false;
       let room = false;
       for (const l of this.lines[side]) {
-        if (!this.lineAlive(l)) continue;
+        if (!this.lineAlive(l) || !this.lineTakes(l, info.role)) continue;
         any = true;
         if (l.queue.length < MAX_LINE_QUEUE) room = true;
       }
@@ -1562,6 +1641,13 @@ export class MissionRuntime {
 
   buildBlockedReason(unitId: string, side: 0 | 1 = 0): string | null {
     return this.firstRefusal(unitId, side);
+  }
+
+  /** GH-277 follow-on: the same walk with a line NAMED, for a dock tile pinned to that line. A unit the line
+   *  does not build reads `NOT_ON_LINE`. A separate method, not a third parameter of `buildBlockedReason`:
+   *  that one's second parameter is the side, and a line index passed there would read as one. */
+  buildBlockedReasonOn(unitId: string, line: number, side: 0 | 1 = 0): string | null {
+    return this.firstRefusal(unitId, side, line);
   }
 
   /**
@@ -1773,14 +1859,14 @@ export class MissionRuntime {
     if (!this.canBuild(unitId, line, side)) return false;
     const info = this.ctx.unitInfo?.(unitId, side);
     if (!info) return false; // canBuild refused this already; narrows the type without an assertion
-    const target = line === undefined ? this.shortestLine(side) : this.livingLine(side, line);
+    const target = line === undefined ? this.shortestLine(side, true, info.role) : this.livingLine(side, line);
     if (target === null) return false; // likewise: canBuild saw a living line
     const item: LineItem = {
       unit: unitId,
       logistics: info.logistics,
       intel: info.intel ?? 0,
       population: info.population,
-      buildTicks: info.buildTimeS * TICKS_PER_SECOND,
+      buildTicks: this.lineBuildTicks(target, info.buildTimeS * TICKS_PER_SECOND),
     };
     if (!enqueue(target, item)) return false; // the queue bound was checked by firstRefusal
     this.spend(side, item);
@@ -1959,6 +2045,7 @@ export class MissionRuntime {
     const join = placed && this.liveSiteAt(entry.structType, tx, ty) >= 0;
     if (!join) {
       if (entry.offer.left < 1) return 'none_left';
+      if (this.sim.structureTypes[entry.structType].production !== null && this.lineSlotsLeft() < 1) return 'no_line_slot';
       const b = this.sim.structureTypes[entry.structType].buildable;
       const gate = b === null ? undefined : worksUnlock(b.unlock);
       const locked = unlockReason(gate, this.ctx.ledger);
@@ -1968,6 +2055,20 @@ export class MissionRuntime {
     if (this.chooseBuilders(entry, tx, ty, passed).length === 0) return 'needs_engineers';
     if (placed && !join) return this.sim.placementReason(entry.structType, tx, ty, 0);
     return null;
+  }
+
+  /** GH-277 follow-on: production lines side 0 could still open: the cap, minus the lines it has (a destroyed
+   *  work's line keeps its index, so it still counts) and minus the production works charged or under
+   *  construction, each of which will take one on completion. */
+  private lineSlotsLeft(): number {
+    let taken = this.lines[0].length;
+    for (let i = 0; i < this.worksPending.length; i++) {
+      if (this.sim.structureTypes[this.worksPending[i].structType].production !== null) taken++;
+    }
+    for (const c of this.worksSites.values()) {
+      if (this.sim.structureTypes[c.structType].production !== null) taken++;
+    }
+    return MAX_PRODUCTION_LINES - taken;
   }
 
   /**
@@ -2101,6 +2202,9 @@ export class MissionRuntime {
         this.worksSites.delete(e.site);
         const known = this.worksStructures.get(e.structure);
         if (known !== undefined) known.done = true;
+        // GH-277 follow-on: a production work opens its line the tick it completes, at the tail of side 0's
+        // lines; the first item can advance from the next tick.
+        if (this.sim.structureTypes[c.structType].production !== null) this.appendLine(e.structure);
         out.push({ kind: 'works', tick, phase: 'complete', typeId: c.typeId, site: e.site, builder: -1, refund: 0 });
       } else if (e.kind === 'constructCancelled') {
         const c = this.worksSites.get(e.site);
@@ -2307,6 +2411,8 @@ export class MissionRuntime {
     alive: boolean;
     items: string[];
     ticksLeft: number;
+    /** GH-277 follow-on: this line was opened by a completed production work (a forward camp), not authored. */
+    appended: boolean;
   }[] {
     return this.lines[side].map((l) => {
       const alive = this.lineAlive(l);
@@ -2330,6 +2436,7 @@ export class MissionRuntime {
         alive,
         items: alive ? l.queue.map((q) => q.unit) : [],
         ticksLeft: cur === null ? 0 : l.ticksLeft,
+        appended: side === 0 && l.anchor >= 0 && this.appendedAnchors.includes(l.anchor),
       };
     });
   }
@@ -3331,6 +3438,7 @@ export class MissionRuntime {
     if (this.lines[0].length === 0 && this.mission.map.player_start !== undefined) {
       this.lines[0].push({ side: 0, anchor: -1, queue: [], current: null, ticksLeft: 0, rally: null });
     }
+    this.authoredLines0 = this.lines[0].length;
   }
 
   /**

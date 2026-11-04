@@ -13,7 +13,8 @@ import {
 } from './runtime-snapshot-schema';
 import type { Sim } from './sim';
 import { SnapshotRefused, canonicalJson, internals, isTyped, type Typed } from './snapshot';
-import { MAX_LINE_QUEUE, MAX_PATROL_WAYPOINTS } from './tuning';
+import { ONE } from './fixed';
+import { MAX_LINE_QUEUE, MAX_PATROL_WAYPOINTS, MAX_PRODUCTION_LINES } from './tuning';
 
 // The runtime section of a snapshot (net sim snapshot, stage 2, Task 3): `encodeRuntimeSection`
 // writes a `MissionRuntime` and everything it owns, and `planRuntime` + `apply` write it back onto
@@ -424,6 +425,7 @@ function scalarRange(path: string, d: Decoder): readonly [number, number] {
   if (ENTITY_PATHS.has(path)) return [0, d.f.capacity - 1];
   if (path === 'MissionRuntime.routeFoundBy.key()') return [0, (internals(d.f.sim).tnAlive as Uint8Array).length - 1];
   if (path === 'MissionRuntime.enemyLast[]') return [-1, (d.f.rt.enemyMenu as unknown[]).length - 1];
+  if (path === 'MissionRuntime.appendedAnchors[]') return [0, d.f.sim.structureCount - 1];
   if (path === 'WorksCharge.structType') return [0, d.f.sim.structureTypes.length - 1];
   if (NONNEG_PATHS.has(path)) return [0, I32_MAX];
   return FIXED_RANGE[path] ?? [I32_MIN, I32_MAX];
@@ -432,6 +434,7 @@ function scalarRange(path: string, d: Decoder): readonly [number, number] {
 function capFor(path: string, d: Decoder): number {
   if (path === 'MissionRuntime.rosterPool') return d.f.ledger.length;
   if (path === 'ProductionLine.queue') return MAX_LINE_QUEUE;
+  if (path === 'MissionRuntime.appendedAnchors') return MAX_PRODUCTION_LINES;
   if (path === 'MissionRuntime.corridorFields') return d.f.cells;
   if (path === 'MissionRuntime.pendingIntelEvents') return MAX_PENDING_INTEL;
   if (path === 'PatrolState.waypoints') return MAX_PATROL_WAYPOINTS;
@@ -585,6 +588,41 @@ function checkRecord(rows: RowSetName, rec: Props, path: string): void {
   }
 }
 
+// ---- appended production lines (GH-277 follow-on) ---------------------------------------------------
+
+/** Side 0's lines as the section describes them: the target's own, and for each appended line the target does
+ *  not yet hold, a placeholder carrying the section's anchor. The plan decodes against these and writes nothing;
+ *  `apply` makes the real ones (`restoreAppendedLines`) before it merges the records in place. */
+function plannedLines(f: RuntimeFacts, anchors: readonly number[]): Props[][] {
+  const mine = f.rt.lines as Props[][];
+  const base = f.rt.authoredLines0 as number;
+  const side0 = mine[0].slice(0, base);
+  anchors.forEach((anchor, j) => {
+    const existing = mine[0][base + j];
+    side0.push(existing ?? { side: 0, anchor, queue: [], current: null, ticksLeft: 0, rally: null });
+  });
+  return [side0, mine[1]];
+}
+
+/** Every appended anchor is a COMPLETE production work of the restored sim, no two the same, and the lines they
+ *  make fit the cap. The sim section is already written when the runtime is planned, so this reads the target's
+ *  own structure columns. */
+function checkAppended(f: RuntimeFacts, anchors: readonly number[]): void {
+  const base = f.rt.authoredLines0 as number;
+  if (base + anchors.length > MAX_PRODUCTION_LINES) {
+    refuse('MissionRuntime.appendedAnchors', `${anchors.length} appended lines on ${base}, the limit is ${MAX_PRODUCTION_LINES} lines`);
+  }
+  const seen = new Set<number>();
+  for (const a of anchors) {
+    if (seen.has(a)) refuse('MissionRuntime.appendedAnchors', `structure ${a} twice`);
+    seen.add(a);
+    if (f.sim.structures.progress[a] !== ONE) refuse('MissionRuntime.appendedAnchors', `structure ${a} is not complete`);
+    if (f.sim.structureTypes[f.sim.structures.typeIdx[a]].production === null) {
+      refuse('MissionRuntime.appendedAnchors', `structure ${a} is a ${f.sim.structureTypes[f.sim.structures.typeIdx[a]].id}, which opens no production line`);
+    }
+  }
+}
+
 // ---- the plan ---------------------------------------------------------------------------------------
 
 /** A decoded, validated section. `apply()` writes it onto the runtime it was planned against. */
@@ -639,8 +677,18 @@ export function planRuntime(rt: MissionRuntime, sim: Sim, section: unknown): Run
   }
   const built = builtWorks(f);
   for (const row of top) {
-    const live = row.name === 'worksList' ? built.list : row.name === 'worksOfferList' ? built.offers : f.rt[row.name];
+    // `lines` is planned against the target's lines plus placeholders for the appended tail (see `plannedLines`):
+    // `appendedAnchors` precedes it in the table, so it is decoded and checked by now.
+    const live =
+      row.name === 'worksList'
+        ? built.list
+        : row.name === 'worksOfferList'
+          ? built.offers
+          : row.name === 'lines'
+            ? plannedLines(f, d.rows.appendedAnchors as number[])
+            : f.rt[row.name];
     d.rows[row.name] = decode(section[row.name], row.kind, `MissionRuntime.${row.name}`, live, d);
+    if (row.name === 'appendedAnchors') checkAppended(f, d.rows.appendedAnchors as number[]);
   }
   // The cross-row checks, once everything is decoded.
   for (const c of d.checks) c();
@@ -742,6 +790,8 @@ function applyPlan(f: RuntimeFacts, d: Decoder): void {
   const rt = f.rt;
   // The dock builds these lazily; the snapshot carries the built form, so build them first (the runtime's own call).
   (rt as unknown as { works(): unknown }).works();
+  // The appended lines first: they are the tail of `lines[0]`, which the loop below merges in place.
+  (rt as unknown as { restoreAppendedLines(a: readonly number[]): void }).restoreAppendedLines(d.rows.appendedAnchors as number[]);
   for (const row of stateRows('MissionRuntime')) {
     if (row.name === CORRIDOR_ROW) continue;
     rt[row.name] = merge(rt[row.name], row.kind, d.rows[row.name]);

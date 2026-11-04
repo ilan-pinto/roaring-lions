@@ -2877,6 +2877,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // What the unit takes of the side's population cap (GH-183); the schema default is 1.
             population: 'population' in u.cost ? u.cost.population : 1,
             unlock: kdfUnlockGate(u, boughtUnits),
+            // GH-277 forward camp: read only by a production work whose `production.roles` limits its line.
+            role: u.role,
           };
         },
       }, renderer);
@@ -4229,6 +4231,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // `&works` has no mission to raise a work through, so it gets a runtime over a synthetic one
   // (`sandbox-works.ts`), held apart from `runtime` so no mission-only path wakes for it.
   let sandboxWorksRt: MissionRuntime | null = null;
+  /** The unit types the `&works` sandbox loads a model for: its dock's menu (GH-277 forward camp). */
+  const sandboxDockIds = sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks });
   if (wantWorks && !mission && versusWorld === null && !inRoom) {
     sandboxWorksRt = startMission(
       sim,
@@ -4236,7 +4240,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         sim.structureTypes,
         SANDBOX_WORKS_KDF.map(([unit, dx, dy]) => ({ unit, at: [anchors.friendly[0] + dx, anchors.friendly[1] + dy] }))
       ),
-      { typeIdOf: (id) => typeOf.get(id) ?? 0, markers: map.markers, zones: map.zones },
+      {
+        typeIdOf: (id) => typeOf.get(id) ?? 0,
+        markers: map.markers,
+        zones: map.zones,
+        // GH-277 forward camp: a `&works` sandbox builds a unit from the line a forward camp opens. Every KDF unit the
+        // sandbox loads a model for is on the menu at its JSON cost, ungated (a sandbox has no campaign).
+        unitInfo: (id) => {
+          const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
+          if (!u || u.faction !== 'kdf' || !sandboxDockIds.has(id)) return null;
+          return {
+            logistics: u.cost.logistics,
+            buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
+            population: 'population' in u.cost ? u.cost.population : 1,
+            role: u.role,
+          };
+        },
+      },
       renderer
     );
   }
@@ -4313,7 +4333,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // proxy box and has its own HUD note.
       meshPending: (id) => hasUnitMesh(id) && !meshReady.has(id) && !failedMesh.includes(id),
       units: (dockRt === sandboxWorksRt
-        ? []
+        ? Object.values(units).filter((u) => u.faction === 'kdf' && u.role !== 'wounded' && sandboxDockIds.has(u.id))
         : roomMenu !== null
           ? roomMenu.map((id) => (units as Record<string, (typeof units)[keyof typeof units]>)[id])
           // GH-707 P2: not the wounded -- the dock draws a tile for every unit it is handed, and a

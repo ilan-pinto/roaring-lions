@@ -462,6 +462,45 @@
           }
         ]
       }
+    },
+    "kdf_forward_camp": {
+      "id": "kdf_forward_camp",
+      "name": "Forward Camp",
+      "symbol": "K",
+      "hp_per_tile": 300,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 16,
+      "color": "olive.1",
+      "roe_penalty": 0,
+      "owner": 0,
+      "buildable": {
+        "cost": {
+          "logistics": 350
+        },
+        "build_time_s": 40,
+        "footprint": [
+          2,
+          2
+        ]
+      },
+      "production": {},
+      "aura": {
+        "area": [
+          {
+            "radius": 4,
+            "affects": "foot",
+            "heal_per_s": 0.01,
+            "heal_cap": 1.0
+          },
+          {
+            "radius": 4,
+            "affects": "vehicle",
+            "repair_per_s": 0.01,
+            "repair_components_s": 30
+          }
+        ]
+      }
     }
   }
 }

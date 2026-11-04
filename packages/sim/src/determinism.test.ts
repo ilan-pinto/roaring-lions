@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
+import { hashWord } from './hash';
 import { MissionRuntime } from './mission';
 import { enqueue } from './production';
 import {
@@ -44,6 +45,7 @@ import {
 } from './golden-worlds.test-helper';
 import { BRACE_DROPPING, BRACE_KNEELING, BRACE_RISING, Sim, type SimEvent, type UnitTypeJson } from './sim';
 import { internals } from './snapshot';
+import { FWD_TICKS, forwardDrive, forwardWorld } from './runtime-forward-world.test-helper';
 
 // The canary for invariants 2 and 3 (CLAUDE.md): replay 1000 ticks from a
 // fixed seed and assert the state hash is stable. Must pass before any
@@ -1600,5 +1602,51 @@ describe('determinism of a formation world (1000-tick replay, GH-859 P1a, extend
     // at 1200: every row has nobody away, and no entity holds a duty
     expect([0, 1, 2, 3].map((g) => `${away[g]}`).join(',')).toBe('0,0,0,0');
     expect(dutyCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// FORWARD_LINE_PIN (GH-277 forward camp): a NEW pin, not a moved one. No other replay in this file raises a
+// production work, so the appended-lines tail of `economyHash` (folded only once a work has opened a line) is outside
+// all of them; this is the replay that sees it. A 500-tick mission: an engineer raises a test production work (roles
+// ['infantry'], build_time_mult 1.5) beside the authored camp, which completes at 136 and opens the second line; a squad
+// is built on the camp's line at 3, then at 250 a squad (named, forward), a tank (named: refused, off that line's menu)
+// and a tank (unnamed, the camp's line); a rally, two more squads and a cancel on the forward line.
+// The test asserts each happened, so a change that quietly stops one of them fails here and not only on the number.
+
+function forwardLineWorld(): { pin: number; seen: Record<string, number>; lines: number } {
+  const { sim, rt } = forwardWorld();
+  const seen: Record<string, number> = {};
+  for (let i = 0; i < FWD_TICKS; i++) {
+    forwardDrive(rt, i);
+    for (const e of rt.step(sim.tick())) {
+      const key = e.kind === 'works' ? `works.${e.phase}` : e.kind;
+      seen[key] = (seen[key] ?? 0) + 1;
+    }
+  }
+  // The sim hash, folded with the runtime's economy hash (the tail block's) and its digest.
+  const pin = hashWord(hashWord(sim.hash(), rt.economyHash()), rt.digest()) >>> 0;
+  return { pin, seen, lines: rt.productionLines(0).length };
+}
+
+// FORWARD_LINE_PIN: born 2026-11-04 (GH-277 forward camp), read from the first run. It moves when the appended line's rules,
+// its hash tail or the multiplier's rounding change; say why in the commit that moves it.
+const FORWARD_LINE_PIN = 3630797665;
+
+describe('determinism of a forward camp (500-tick replay, GH-277)', () => {
+  it('two runs from the seed agree, and the run raises a work, opens its line, builds on both lines and refuses the off-menu tank', () => {
+    const a = forwardLineWorld();
+    const b = forwardLineWorld();
+    expect(b.pin).toBe(a.pin);
+    expect(b.seen).toEqual(a.seen);
+    expect(a.lines).toBe(2);
+    // started 1, complete 1; built: the camp's squad (tick 43), the forward squad (310), the camp's tank (330), the third squad (370)
+    expect(a.seen['works.started']).toBe(1);
+    expect(a.seen['works.complete']).toBe(1);
+    expect(a.seen.built).toBe(4);
+  });
+
+  it('the pinned hash', () => {
+    expect(forwardLineWorld().pin).toBe(FORWARD_LINE_PIN);
   });
 });

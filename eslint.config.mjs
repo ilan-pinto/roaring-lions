@@ -227,6 +227,7 @@ export default defineConfig(
       'packages/sim/src/**/*.test.ts',
       'packages/sim/src/golden-worlds.test-helper.ts',
       'packages/sim/src/runtime-sink-world.test-helper.ts',
+      'packages/sim/src/runtime-forward-world.test-helper.ts',
       'packages/sim/src/snapshot-witness-worlds.test-helper.ts',
     ],
     rules: {

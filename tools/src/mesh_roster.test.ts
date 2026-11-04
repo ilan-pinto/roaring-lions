@@ -136,14 +136,29 @@ describe('mesh roster precondition (every unit and structure has its mesh on dis
     expect(bad, 'rigged GLBs with neither down nor wreck').toEqual([]);
   });
 
-  it('every structure type has a building GLB and a _wreck GLB', () => {
-    const missing = structures.flatMap((t) =>
-      [`${t}.glb`, `${t}_wreck.glb`]
-        .map((f) => path.join(MESHES, 'buildings', f))
-        .filter((f) => !existsSync(f))
-        .map(rel)
-    );
+  // A structure type that draws ANOTHER type's mesh and wreck until its own model is approved and made (the lead, GH-277,
+  // 4 Nov 2026: the forward camp draws the field camp's). Literals: the type, and the type whose files it uses.
+  const SHARES_MESH: Readonly<Record<string, string>> = { kdf_forward_camp: 'camp' };
+
+  it('every structure type has a building GLB and a _wreck GLB, or names the type whose mesh it draws', () => {
+    const missing = structures
+      .filter((t) => !(t in SHARES_MESH))
+      .flatMap((t) =>
+        [`${t}.glb`, `${t}_wreck.glb`]
+          .map((f) => path.join(MESHES, 'buildings', f))
+          .filter((f) => !existsSync(f))
+          .map(rel)
+      );
     expect(missing, 'structure meshes missing').toEqual([]);
+  });
+
+  it('a type that shares a mesh shares a mesh that exists, and the exemption goes the day its own GLB lands', () => {
+    for (const [t, from] of Object.entries(SHARES_MESH)) {
+      expect(structures, `${t} is a structure type`).toContain(t);
+      for (const f of [`${from}.glb`, `${from}_wreck.glb`]) expect(existsSync(path.join(MESHES, 'buildings', f)), `${f} exists`).toBe(true);
+      // Demotion: its own idle or wreck file now exists, so the exemption is stale -- delete it, and the line above checks the files.
+      for (const f of [`${t}.glb`, `${t}_wreck.glb`]) expect(existsSync(path.join(MESHES, 'buildings', f)), `${f} exists: delete the SHARES_MESH entry`).toBe(false);
+    }
   });
 });
 

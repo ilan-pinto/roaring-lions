@@ -10,7 +10,7 @@
 // one frame of a live mission is invisible; the same wrongness in a pure
 // function is one assertion.
 
-import { TICKS_PER_SECOND, fx, conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate, type WorksOffer, type WorksRefusal } from '@lions/sim';
+import { NOT_ON_LINE, TICKS_PER_SECOND, fx, conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate, type WorksOffer, type WorksRefusal } from '@lions/sim';
 import type { KitLevel } from '@lions/data';
 import { gateSentence } from '../gate-sentence';
 import { t } from '../i18n/t';
@@ -74,6 +74,10 @@ export interface DockView {
     totalTicks: number;
   }[];
   buildBlockedReason(unitId: string): string | null;
+  /** GH-277 forward camp: the same walk with a line NAMED -- what a tile pinned to that line is judged by.
+   *  A unit the line does not build reads `NOT_ON_LINE`. Optional so a view that predates production
+   *  works judges every pinned tile as it always did. */
+  buildBlockedReasonOn?(unitId: string, line: number): string | null;
   /** MissionRuntime's own question: is the population cap the FIRST thing
    *  refusing this build (after the unlock gate and the camp)? Optional so a
    *  view that predates the cap reads as never capped. */
@@ -260,12 +264,24 @@ export function tileState(
   unit: DockUnit,
   view: DockView,
   ledger?: LedgerData,
-  missionName: (id: string) => string | undefined = () => undefined
+  missionName: (id: string) => string | undefined = () => undefined,
+  /** The pinned row, when one is pinned: the tile is judged against THAT line (a forward camp's menu may
+   *  leave the unit out), and its name goes in the lock sentence. */
+  onLine?: { readonly index: number; readonly label: string }
 ): TileState {
-  const reason = view.buildBlockedReason(unit.id);
+  const reason = onLine !== undefined && view.buildBlockedReasonOn !== undefined ? view.buildBlockedReasonOn(unit.id, onLine.index) : view.buildBlockedReason(unit.id);
   const affordable = view.logistics >= unit.logistics;
   if (reason === null) {
     return { affordable, lock: null, capped: null, queue: queueFor(view, unit.id) };
+  }
+  // GH-277 forward camp: the line does not build this unit. A code from the runtime, worded here (never shown as is).
+  if (reason === NOT_ON_LINE) {
+    return {
+      affordable,
+      lock: { short: t('dock.lock.notOnLine'), full: t('dock.lock.notOnLineFull', { camp: onLine?.label ?? '' }) },
+      capped: null,
+      queue: queueFor(view, unit.id),
+    };
   }
   const sentence = unit.unlock ? gateSentence(unit.unlock, ledger, missionName) : null;
   // The cap is the runtime's call (`popCapped` already puts the gate and the
@@ -329,6 +345,8 @@ export interface LineSnapshot {
   readonly rally: readonly [number, number] | null;
   /** False once the line's camp has fallen; the row stays, refused. */
   readonly alive: boolean;
+  /** GH-277 forward camp: the line was opened by a completed production work, not authored. Absent reads false. */
+  readonly appended?: boolean;
 }
 
 /** How many queued chips a row draws before folding the rest into `+n`. Three
@@ -362,7 +380,21 @@ export interface LineView {
 export function linesShown(lines: readonly LineSnapshot[]): boolean {
   if (lines.length > 1) return true;
   const l = lines[0];
+  // A forward camp's line is always worth a row: the player raised it, and the row is where it is pinned and rallied.
+  if (l !== undefined && l.appended === true) return true;
   return l !== undefined && (l.current !== null || l.items.length > 0 || l.rally !== null);
+}
+
+/**
+ * A row's name as a catalogue key and its number: an authored camp is "Camp {index + 1}" (as it always was), a line a
+ * production work opened is "Forward {n}", n counting the forward lines up to and including this one. The appended
+ * lines are the tail of the list, so the camps' numbers never move when a forward camp stands.
+ */
+export function lineName(lines: readonly LineSnapshot[], index: number): { readonly key: 'dock.camp' | 'dock.line.forward'; readonly n: number } {
+  if (lines[index]?.appended !== true) return { key: 'dock.camp', n: index + 1 };
+  let n = 0;
+  for (let i = 0; i <= index; i++) if (lines[i]?.appended === true) n++;
+  return { key: 'dock.line.forward', n };
 }
 
 export function lineView(l: LineSnapshot, index: number): LineView {
@@ -439,7 +471,7 @@ export function rallyMarks(lines: readonly LineSnapshot[], focus: RallyFocus, no
 /** What one "Field works" tile shows. `ready` is the only state a click arms. */
 export interface WorksTileState {
   typeId: string;
-  state: 'ready' | 'locked' | 'unaffordable' | 'none_left' | 'needs_engineers';
+  state: 'ready' | 'locked' | 'unaffordable' | 'none_left' | 'needs_engineers' | 'no_line_slot';
   left: number;
   max: number;
   logistics: number;
@@ -465,6 +497,9 @@ export function worksTileState(offer: WorksOffer, reason: WorksRefusal | null): 
       break;
     case 'needs_engineers':
       state = 'needs_engineers';
+      break;
+    case 'no_line_slot':
+      state = 'no_line_slot';
       break;
     case 'locked':
     case 'not_listed':

@@ -39,6 +39,7 @@ import {
   type Env,
   type Props,
 } from './runtime-snapshot-schema.test-helper';
+import { walkForward } from './runtime-forward-world.test-helper';
 import { sinkWorld, walkSink, type Checkpoint } from './runtime-sink-world.test-helper';
 import type { Sim } from './sim';
 
@@ -104,6 +105,7 @@ const EXPECT: Readonly<Record<'MissionRuntime' | RowSetName, { config: string[];
     config: [
       'sim', 'mission', 'ctx', 'startingIds', 'enemyAtStart', 'civIds', 'razeTargets', 'razeExempt', 'onLoan', 'collapseTargets',
       'convoyEntry', 'zoneTiles', 'zoneRects', 'holdView', 'routeSource', 'enemyMenu', 'enemyMinCost', 'marked', 'riseOf', 'riseCount',
+      'authoredLines0',
     ],
     scratch: ['ventOut', 'zoneStateOut', 'cutSpan', 'fromTile', 'rearTile', 'incomeRead', 'refusedByPopulation', 'riseHolder'],
     derived: [],
@@ -199,12 +201,26 @@ describe('runtime snapshot schema: completeness over the sink world', () => {
   }, 60_000);
 });
 
+describe('runtime snapshot schema: completeness over the forward-camp world', () => {
+  it('every property has a row and every row a property, with a production work staked, completed and its appended line in use', () => {
+    const seen = new Set<string>();
+    const labels: string[] = [];
+    walkForward((c) => {
+      labels.push(c.label);
+      expect(checkRuntime(c.label, c.rt, c.sim, seen), c.label).toEqual([]);
+    });
+    expect(labels).toContain('forward@136 (the work complete, its line opened this tick)');
+    // The appended tail is populated in this world and in no other: the row is checked against a real value.
+    expect(seen.has('MissionRuntime.appendedAnchors')).toBe(true);
+  }, 60_000);
+});
+
 describe('runtime snapshot schema: the table itself', () => {
-  it('the 98 rows are in creation order, each name once', () => {
+  it('the 100 rows are in creation order, each name once', () => {
     const { rt } = economySetup(ECONOMY_SEED);
     expect(RUNTIME_SNAPSHOT_SCHEMA.map((r) => r.name)).toEqual(Object.keys(rt));
-    expect(RUNTIME_SNAPSHOT_SCHEMA).toHaveLength(98);
-    expect(new Set(RUNTIME_SNAPSHOT_SCHEMA.map((r) => r.name)).size).toBe(98);
+    expect(RUNTIME_SNAPSHOT_SCHEMA).toHaveLength(100);
+    expect(new Set(RUNTIME_SNAPSHOT_SCHEMA.map((r) => r.name)).size).toBe(100);
   });
 
   it('the classes are exactly the ones the design names; everything else is state', () => {
@@ -398,6 +414,7 @@ describe('runtime snapshot schema: the census', () => {
     walkEconomy(ECONOMY_TICKS_CHECKED, (c) => void checkRuntime(c.label, c.rt, c.sim, seen));
     walkRelief(RELIEF_TICKS_CHECKED, (c) => void checkRuntime(c.label, c.rt, c.sim, seen));
     walkSink((c) => void checkRuntime(c.label, c.rt, c.sim, seen));
+    walkForward((c) => void checkRuntime(c.label, c.rt, c.sim, seen));
     const unexercised = ALL_KEYS.filter((k) => !seen.has(k)).sort();
     // A row that appears here has only ever been checked against an empty container or a null: its
     // kind is the schema's claim from reading `mission.ts`, not something a live value confirmed.
@@ -426,6 +443,7 @@ function censusOfSimWorlds(): ReturnType<typeof newCensus> {
   walkEconomy(ECONOMY_TICKS_CHECKED, at);
   walkRelief(RELIEF_TICKS_CHECKED, at);
   walkSink(at);
+  walkForward(at);
   return acc;
 }
 
@@ -565,6 +583,7 @@ describe('runtime snapshot schema: the aliasing census can fail', () => {
     walkEconomy([1, 800, 1600], at);
     walkRelief([1, 1705], at);
     walkSink(at);
+    walkForward(at);
     return out;
   })();
 
@@ -785,7 +804,7 @@ describe('runtime snapshot schema: the kind checks added in Task 2 can fail', ()
 // checked against a real value, but no real match has ever produced one. Pinned, so a replay that starts
 // filling one turns the spec red and the list shrinks, rather than going stale.
 const ROWS_ONLY_THE_SINK_WORLD_FILLS: readonly string[] = [
-  'CivilianFlight.evacuatedSet', 'CivilianFlight.fledSet', 'MissionRuntime.aimedAtWounded', 'MissionRuntime.civIds',
+  'CivilianFlight.evacuatedSet', 'CivilianFlight.fledSet', 'MissionRuntime.aimedAtWounded', 'MissionRuntime.appendedAnchors', 'MissionRuntime.civIds',
   'MissionRuntime.collapseTargets', 'MissionRuntime.enemyLast', 'MissionRuntime.enemyMenu', 'MissionRuntime.entityRoster',
   'MissionRuntime.externallyCompleted', 'MissionRuntime.firedTriggers', 'MissionRuntime.marked', 'MissionRuntime.markedThisMission',
   'MissionRuntime.onLoan', 'MissionRuntime.patrols', 'MissionRuntime.pendingIntelEvents', 'MissionRuntime.razeExempt',

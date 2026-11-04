@@ -7,13 +7,14 @@ describe('sandboxWorksMission', () => {
       [
         { id: 'kdf_medic_station', buildable: {} },
         { id: 'kdf_workshop', buildable: {} },
+        { id: 'kdf_forward_camp', buildable: {} },
         { id: 'militia_field_clinic', buildable: {} },
         { id: 'house', buildable: null },
         { id: 'kdf_unbuildable', buildable: null },
       ],
       []
     );
-    expect(m.field_works).toEqual({ kdf_medic_station: 2, kdf_workshop: 2 });
+    expect(m.field_works).toEqual({ kdf_medic_station: 2, kdf_workshop: 2, kdf_forward_camp: 2 });
   });
 
   it('carries a purse, and a primary no session reaches', () => {

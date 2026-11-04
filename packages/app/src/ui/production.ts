@@ -27,6 +27,7 @@ import { symbolSvg } from './symbol';
 import { bindTip } from './tooltip';
 import {
   buildLine,
+  lineName,
   LINE_QUEUE_CHIPS,
   lineView,
   linesShown,
@@ -476,7 +477,7 @@ export class ReinforcementDock {
         el.blur(); // keep the keyboard on the battlefield
         return;
       }
-      const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName);
+      const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName, this.pinnedLine());
       const name = escapeHtml(unit.name);
       if (state.lock !== null) {
         this.opts.note(t('dock.note.locked', { name, reason: escapeHtml(state.lock.full) }), 'warn');
@@ -622,6 +623,7 @@ export class ReinforcementDock {
         unaffordable: t('works.refuse.unaffordable'),
         none_left: t('works.refuse.none_left'),
         needs_engineers: t('works.refuse.needs_engineers'),
+        no_line_slot: t('works.refuse.no_line_slot'),
       };
       this.opts.note(t('dock.note.locked', { name, reason: escapeHtml(reason[state.state]) }), 'warn');
       this.opts.onDeny?.();
@@ -655,7 +657,7 @@ export class ReinforcementDock {
     // why a capped tile is refused: the full line goes here too, as one warn line.
     // A locked tile gets the same line with its gate sentence; the two are
     // exclusive (`tileState`: a lock outranks the cap), so at most one shows.
-    const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName);
+    const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName, this.pinnedLine());
     const refusal = state.lock ?? state.capped;
     const capLine = refusal === null ? '' : `<div class="rl-warn">${escapeHtml(refusal.full)}</div>`;
     return (
@@ -734,7 +736,7 @@ export class ReinforcementDock {
   refresh(): void {
     const rt = this.opts.runtime;
     for (const tile of this.unitTiles) {
-      const state = tileState(tile.unit, rt, this.opts.ledger, this.opts.missionName);
+      const state = tileState(tile.unit, rt, this.opts.ledger, this.opts.missionName, this.pinnedLine());
       tile.el.dataset.locked = state.lock === null ? '0' : '1';
       tile.el.dataset.capped = state.capped === null ? '0' : '1';
       // A lock outranks the price: a type the campaign has not opened is not
@@ -805,7 +807,9 @@ export class ReinforcementDock {
             ? t('dock.lock.engineers')
             : st.state === 'none_left'
               ? t('dock.lock.noneLeft')
-              : '';
+              : st.state === 'no_line_slot'
+                ? t('dock.lock.noLine')
+                : '';
       tile.lock.textContent = word;
       tile.el.setAttribute('aria-label', word === '' ? tile.offer.name : `${tile.offer.name} — ${word}`);
     }
@@ -815,9 +819,16 @@ export class ReinforcementDock {
   // F4: the camps' rows (direction B).
   // ------------------------------------------------------------------
 
-  /** "Camp 1", by line index. No authored name (the lead's ruling). */
+  /** "Camp 1", by line index; "Forward 1" for a line a production work opened (GH-277). No authored name (the lead's ruling). */
   private campName(index: number): string {
-    return t('dock.camp', { n: index + 1 });
+    const name = lineName(this.lines, index);
+    return t(name.key, { n: name.n });
+  }
+
+  /** The pinned row as a tile is judged against it: the line's index and its name, or undefined with none pinned. */
+  private pinnedLine(): { index: number; label: string } | undefined {
+    const index = buildLine(this.pinned, this.lines);
+    return index === undefined ? undefined : { index, label: this.campName(index) };
   }
 
   /** Where a build just sent will deploy, as `dock.note.building`'s params. */
@@ -869,7 +880,8 @@ export class ReinforcementDock {
         return;
       }
       this.pinned = this.pinned === index ? null : index;
-      this.paintLines();
+      // The tiles are judged against the pinned line (a forward camp's menu may leave a unit out): repaint them too.
+      this.refresh();
     });
 
     const camp = document.createElement('span');
