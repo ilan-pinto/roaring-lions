@@ -47,6 +47,7 @@
     "ui:routes": "tsx src/ui-review/routes-check.ts",
     "net:engines": "tsx src/net/two-engine.ts",
     "end-panel:check": "tsx src/ui-review/end-panel-check.ts",
+    "coin-wallet:check": "tsx src/ui-review/coin-wallet-check.ts",
     "blast:capture": "tsx src/perf/blast-captures.ts",
     "smoke-outline:capture": "tsx src/perf/smoke-outline-captures.ts",
     "support:capture": "tsx src/perf/support-captures.ts",

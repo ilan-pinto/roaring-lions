@@ -6233,8 +6233,8 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-body);
   color: var(--ink);
 }
-/* The head: the balance, Grant (TEST) and the compact "Get Roar coins" row
-   beside them -- never above the items (the lead's declutter, 2 Oct). */
+/* The head: the balance and the compact "Get Roar coins" row
+   beside it -- never above the items (the lead's declutter, 2 Oct). */
 .rl-stores__head {
   display: flex;
   flex-wrap: wrap;
@@ -6305,6 +6305,36 @@ button.rl-menu__item[data-kind='aside'] {
   border-left: 3px solid var(--roar);
   font-size: var(--t-band);
   color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__earn {
+  margin: 0;
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__earn-h {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 600;
+}
+.rl-menu--garage .rl-stores__earn-list {
+  margin: var(--s2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.rl-menu--garage .rl-stores__earn-row {
+  display: flex;
+  gap: var(--s3);
+  padding: var(--s1) 0;
+}
+.rl-menu--garage .rl-stores__earn-n {
+  min-width: 4ch;
+  font-family: var(--font-display);
+  color: var(--roar);
+}
+.rl-menu--garage .rl-stores__earn-none {
+  margin: var(--s2) 0 0;
+  max-width: 80ch;
 }
 .rl-stores__bar {
   display: flex;
@@ -6514,28 +6544,6 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-stores__card[data-state='coins'] {
   border-color: var(--roar);
-}
-/* The TEST wallet (GH-317): labelled TEST wherever its balance shows. */
-.rl-menu--garage .rl-stores__test {
-  padding: 0 var(--s2);
-  font-family: var(--font-display);
-  font-size: var(--t-band);
-  letter-spacing: var(--track-label);
-  color: var(--roar-ink);
-  background: var(--warn);
-}
-.rl-menu--garage .rl-stores__grant {
-  padding: var(--s1) var(--s3);
-  font-family: var(--font-body);
-  font-size: var(--t-band);
-  font-weight: 600;
-  color: var(--ink);
-  background: var(--tile-bg);
-  border: 1px dashed var(--warn);
-  cursor: pointer;
-}
-.rl-stores[data-test='1'] .rl-stores__notice {
-  border-left-color: var(--warn);
 }
 .rl-stores__receipts-wrap {
   overflow-x: auto;

@@ -1,14 +1,14 @@
 // The Stores: the garage's second tab (GH-317, spec 2026-10-01 §2).
 //
-// Without `?testcoins` it is a PREVIEW: the balance reads 0, every coin Buy
-// and every pack is disabled (`buyEnabled`, the one predicate they all ask),
-// and one line says purchases open when online accounts arrive.
+// Every player has a free Roar-coin wallet (`roar-wallet.ts`, GH-317), earned in
+// the campaign. A Buy sells for coins what credits also buy, at 1 coin = 10
+// credits. This screen only ASKS (`onBuy`); the caller writes `lions.roar` and
+// redraws it. Real-money packs stay disabled (`buyEnabled`, the one predicate
+// every Buy and pack control asks).
 //
-// With `?testcoins` (the lead's go-ahead, 2 Oct) a local TEST wallet buys
-// what credits buy, at 1 coin = 10 credits. This screen only ASKS (`onBuy`,
-// `onGrant`); the caller writes `lions.roar.test` and redraws it. Real-money
-// packs stay disabled either way. A TEST TOOL: anyone with the link can
-// unlock things free on the live site, so it goes before release.
+// With no durable storage there is no wallet to hold coins in: the screen is the
+// PREVIEW it was (a zero balance, every Buy and pack disabled, and one line
+// saying so).
 //
 // The lead's declutter (2 Oct, "the store is too dense"):
 //   * the default view lists only what can be bought; owned items sit behind
@@ -25,7 +25,8 @@
 // returned disposer removes the lot. Nothing goes on `document.body` or
 // `window`.
 import { t } from '../i18n/t';
-import type { RoarReceipt } from '../roar-test';
+import { EARN } from '../roar-earn';
+import type { RoarReceipt } from '../roar-wallet';
 import type { Disposer } from '../shell/router';
 import {
   COIN_PACKS,
@@ -61,22 +62,19 @@ export interface StoresOptions extends StoreInput {
   showOwned?: boolean;
   /** Told when the "Show owned" toggle flips, so a redraw keeps it. */
   onShowOwned?: (on: boolean) => void;
-  /** The TEST wallet (`?testcoins`, `roar-test.ts`). Absent: the preview,
-   *  with a zero balance and every Buy disabled. */
-  test?: StoresTestWallet;
-  /** A Buy pressed with TEST coins. The caller buys, saves, and redraws the
+  /** The wallet (`roar-wallet.ts`). Absent: the preview, with a zero balance
+   *  and every Buy disabled (no durable storage). */
+  wallet?: StoresWallet;
+  /** A Buy pressed with coins. The caller buys, saves, and redraws the
    *  Stores; this screen only asks. */
   onBuy?: (ask: CoinAsk) => void;
-  /** The TEST "Grant" control. The caller adds coins and redraws. */
-  onGrant?: () => void;
   /** The `data-buy`/`data-focus` key of the control to focus after a redraw. */
   focusKey?: string;
 }
 
-export interface StoresTestWallet {
+export interface StoresWallet {
+  /** Coins a Buy may spend (`spendable`). */
   readonly coins: number;
-  /** What one press of the Grant button adds (the `?testcoins` amount). */
-  readonly grant: number;
   readonly receipts: readonly RoarReceipt[];
 }
 
@@ -158,30 +156,19 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
   const root = el('section', 'rl-stores');
   root.setAttribute('aria-label', t('stores.tab'));
 
-  // The wallet every Buy is asked against: the TEST one, or the preview's 0.
-  const coinWallet: CoinWallet = opts.test !== undefined ? { test: true, coins: opts.test.coins } : PREVIEW_WALLET;
+  // The wallet every Buy is asked against: the stored one, or the preview's 0.
+  const coinWallet: CoinWallet = opts.wallet !== undefined ? { live: true, coins: opts.wallet.coins } : PREVIEW_WALLET;
   const ctx: Ctx = { opts, wallet: coinWallet };
-  if (opts.test !== undefined) root.dataset.test = '1';
+  if (opts.wallet !== undefined) root.dataset.live = '1';
 
-  // --- head: the balance, Grant (TEST), and "Get Roar coins" beside them ----
+  // --- head: the balance, and "Get Roar coins" beside it --------------------
   const head = el('div', 'rl-stores__head');
   const wallet = el('div', 'rl-stores__wallet');
   wallet.appendChild(coinImg(opts.coinSrc(48), 48, 'rl-stores__wallet-coin'));
   const walletN = el('span', 'rl-stores__wallet-n', String(coinWallet.coins));
   walletN.dataset.value = String(coinWallet.coins);
   wallet.append(walletN, el('span', 'rl-stores__wallet-word', t('stores.wallet.word', { n: coinWallet.coins })));
-  if (opts.test !== undefined) wallet.appendChild(el('span', 'rl-stores__test', t('stores.test.badge')));
   head.appendChild(wallet);
-  if (opts.test !== undefined && opts.onGrant !== undefined) {
-    const grant = document.createElement('button');
-    grant.type = 'button';
-    grant.className = 'rl-stores__grant';
-    grant.dataset.buy = 'grant';
-    grant.textContent = t('stores.test.grant', { n: opts.test.grant });
-    const onGrant = opts.onGrant;
-    grant.addEventListener('click', () => onGrant());
-    head.appendChild(grant);
-  }
 
   // Packs: compact chips, all real money, all disabled.
   const packs = el('div', 'rl-stores__packs');
@@ -207,9 +194,17 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
   head.appendChild(packs);
   root.appendChild(head);
 
-  const notice = el('p', 'rl-stores__notice', opts.test !== undefined ? t('stores.test.notice') : t('stores.offline'));
-  notice.setAttribute('role', 'note');
-  root.appendChild(notice);
+  if (opts.wallet === undefined) {
+    const notice = el('p', 'rl-stores__notice', t('stores.offline'));
+    notice.setAttribute('role', 'note');
+    root.appendChild(notice);
+  } else {
+    // The honest line (GH-317): what the coins are, said once, with the numbers read
+    // from the table `roar-earn.ts` pays by. Then "How to earn", from the same table.
+    const about = el('p', 'rl-stores__notice rl-stores__about', t('stores.about', EARN));
+    about.setAttribute('role', 'note');
+    root.append(about, earnPanel());
+  }
 
   // --- shelves: a tablist, Left/Right/Home/End, the garage's F8 pattern ----
   const bar = el('div', 'rl-stores__bar');
@@ -355,10 +350,10 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
   panelEls.get('cosmetics')?.appendChild(el('p', 'rl-stores__empty', t('stores.empty.cosmetics')));
   const receiptsPanel = panelEls.get('receipts');
   if (receiptsPanel !== undefined) {
-    const receipts = opts.test?.receipts ?? [];
+    const receipts = opts.wallet?.receipts ?? [];
     if (receipts.length === 0) {
       receiptsPanel.appendChild(
-        el('p', 'rl-stores__empty', opts.test !== undefined ? t('stores.empty.receipts.test') : t('stores.empty.receipts'))
+        el('p', 'rl-stores__empty', opts.wallet !== undefined ? t('stores.empty.receipts.live') : t('stores.empty.receipts'))
       );
     } else {
       receiptsPanel.appendChild(receiptsTable(receipts, opts));
@@ -386,6 +381,31 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
   return () => {
     root.remove();
   };
+}
+
+/** "How to earn": every payout, from `EARN`, and the things that pay nothing. A
+ *  function, so every string resolves when the screen is drawn, not at module load. */
+function earnPanel(): HTMLElement {
+  const panel = document.createElement('details');
+  panel.className = 'rl-stores__earn';
+  panel.appendChild(el('summary', 'rl-stores__earn-h', t('stores.earn.title')));
+  const list = el('ul', 'rl-stores__earn-list');
+  const rows: [string, number][] = [
+    ['welcome', EARN.welcome],
+    ['firstWin', EARN.firstWin],
+    ['star', EARN.star],
+    ['campaign', EARN.campaign],
+  ];
+  for (const [key, n] of rows) {
+    const li = el('li', 'rl-stores__earn-row');
+    li.dataset.earn = key;
+    li.appendChild(el('span', 'rl-stores__earn-n', t('stores.earn.plus', { n })));
+    li.appendChild(el('span', 'rl-stores__earn-what', t(`stores.earn.${key}`)));
+    list.appendChild(li);
+  }
+  panel.appendChild(list);
+  panel.appendChild(el('p', 'rl-stores__earn-none', t('stores.earn.nothing')));
+  return panel;
 }
 
 interface Ctx {
@@ -421,7 +441,7 @@ function coinBuy(coins: number, label: string, enabled: boolean, ctx: Ctx, key: 
 
 /** The aria label's last clause: why a Buy cannot be pressed, or nothing. */
 function buyNote(cost: number | null, ctx: Ctx): string {
-  if (!ctx.wallet.test) return t('stores.buy.note.preview');
+  if (!ctx.wallet.live) return t('stores.buy.note.preview');
   if (cost !== null && ctx.wallet.coins < cost) return t('stores.buy.note.short');
   return '';
 }
@@ -440,7 +460,7 @@ function portraitEl(unitId: string, opts: StoresOptions): HTMLElement {
   return img;
 }
 
-/** Receipts, newest first. Every row is a TEST purchase or grant. */
+/** Receipts, newest first: coins earned or redeemed, and coins spent. */
 function receiptsTable(receipts: readonly RoarReceipt[], opts: StoresOptions): HTMLElement {
   const wrap = el('div', 'rl-stores__receipts-wrap');
   const table = document.createElement('table');
@@ -461,17 +481,18 @@ function receiptsTable(receipts: readonly RoarReceipt[], opts: StoresOptions): H
     const tr = document.createElement('tr');
     tr.dataset.receipt = r.kind;
     const when = new Date(r.at);
+    const incoming = r.kind === 'earn' || r.kind === 'coupon';
     const cells: string[] = [
       `${when.toLocaleDateString()} ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      r.kind === 'grant'
-        ? t('stores.receipt.grant')
+      r.kind === 'earn'
+        ? t(`stores.receipt.earn.${r.source}`)
         : r.kind === 'coupon'
           ? t('stores.receipt.coupon')
           : r.kind === 'unit'
             ? name(r.unitId)
             : t('stores.receipt.tier', { name: name(r.unitId), track: t(`garage.track.${r.track}`), tier: r.tier }),
-      r.kind === 'grant' || r.kind === 'coupon' ? t('stores.receipt.plus', { n: r.coins }) : String(r.coins),
-      r.kind === 'grant' || r.kind === 'coupon' ? t('stores.receipt.none') : t('stores.price.credits', { n: r.credits }),
+      incoming ? t('stores.receipt.plus', { n: r.coins.free + r.coins.paid }) : String(r.coins.free + r.coins.paid),
+      incoming ? t('stores.receipt.none') : t('stores.price.credits', { n: r.credits }),
     ];
     for (const c of cells) tr.appendChild(el('td', '', c));
     body.appendChild(tr);

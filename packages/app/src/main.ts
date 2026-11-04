@@ -121,8 +121,9 @@ import { showMenu, showCampaign, showSandbox } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
-import { couponReceived, coinTiers, grantTestCoins, seedTestCoins, testCoinsParam } from './roar-test';
-import { buyWithTestCoins, type CoinHalf } from './ui/stores-model';
+import { coinTiers, spendable } from './roar-wallet';
+import { settleVictory, type VictorySettle } from './roar-earn';
+import { buyWithCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
 import { clock as missionClock, showDebrief, type DebriefOptions, type ReportSpeaker } from './ui/debrief';
@@ -360,7 +361,7 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, newCampaign, writeVictory, type CampaignLedger, type LostRecord } from './ledger-store';
+import { browserLedgerStore, newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
@@ -740,7 +741,7 @@ function accountState(): {
   // null` this used to carry produced. The handle itself is no longer returned:
   // callers that need to know whether there is anywhere to WRITE ask
   // `ledgerStore.available`, and the rest just read.
-  // Earned (the brigade account) joined with coin-bought (the Roar coin TEST
+  // Earned (the brigade account) joined with coin-bought (the Roar coin
   // wallet, GH-317): single-player plays `earned OR coins`. One read, so every
   // surface below sees a coin-bought unit as open by construction.
   return accountView(ledgerStore);
@@ -1108,7 +1109,7 @@ async function main(): Promise<void> {
    *  ledger contract can carry a star at all -- a town added to `world.json`
    *  counts itself in without an edit here (the tutorial is deliberately off
    *  the map, so it is never in this sum at all). */
-  async function mountBrigade(host: HTMLElement, req: RouteRequest): Promise<Disposer> {
+  async function mountBrigade(host: HTMLElement): Promise<Disposer> {
     const worldData = parseWorld(world);
     const { boughtUnits, ownedTiers, balance } = accountState();
     /** The KDF roster as the garage draws it, off one account's bought set.
@@ -1147,20 +1148,10 @@ async function main(): Promise<void> {
       const a = accountState();
       return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers };
     };
-    // `?testcoins=<n>` (GH-317, a TEST tool): the first visit seeds the TEST
-    // wallet with n coins, once; the Stores' Grant button adds n more.
-    const testGrant = testCoinsParam(req.query);
-    if (testGrant !== null && ledgerStore.available) {
-      ledgerStore.writeRoarTest(seedTestCoins(ledgerStore.readRoarTest(), testGrant, Date.now()));
-    }
-    /** Whether the TEST wallet is live: `?testcoins`, or a coupon that granted
-     *  coins into it. Read afresh each time, so redeeming a code opens it with no
-     *  reload. A wallet nobody filled stays the preview. */
-    const walletLive = (): boolean => testGrant !== null || couponReceived(ledgerStore.readRoarTest());
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => {
       const account = ledgerStore.readAccount();
-      const roar = ledgerStore.readRoarTest();
+      const roar = ledgerStore.readRoar();
       return {
         earnedUnits: new Set(account.unlocks),
         coinUnits: new Set(Object.keys(roar.entitlements.units)),
@@ -1211,26 +1202,24 @@ async function main(): Promise<void> {
       // its own first gesture. Mute and the volume sliders are honoured
       // inside `playUi`; a set with no decoded clip plays its synth arm.
       onCue: (cue) => battleAudio().playUi(CUE_SET[cue]),
-      // The Stores tab (GH-317). For everyone it is a preview: a zero coin
-      // balance and every Buy disabled. With `?testcoins=<n>` (a TEST tool,
-      // the lead's go-ahead on 2 Oct; remove or gate it before release) a
-      // local TEST wallet buys what credits buy. Packs stay disabled.
+      // The Stores tab (GH-317). Every player has a free Roar-coin wallet,
+      // earned in the campaign; a Buy sells what credits buy. With no durable
+      // storage there is no wallet and the tab is the preview. Packs stay
+      // disabled (`PURCHASES_OPEN`).
       stores: {
         coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png`,
         paid: ledgerStore.readAccount().paid,
-        open: testGrant !== null,
         read: () => {
-          const r = ledgerStore.readRoarTest();
+          const r = ledgerStore.readRoar();
           return {
             coin: coinHalf(),
-            test: walletLive() ? { coins: r.coins, grant: testGrant ?? 0, receipts: r.receipts } : undefined,
+            wallet: ledgerStore.available ? { coins: spendable(r), receipts: r.receipts } : undefined,
           };
         },
         onBuy: ledgerStore.available
             ? (ask) => {
-                if (!walletLive()) return now();
                 const a = accountState();
-                const { account, ok } = buyWithTestCoins(
+                const { account, ok } = buyWithCoins(
                   {
                     units: garageUnits(a.boughtUnits),
                     ledger: ledgerStore.readLedger(),
@@ -1238,17 +1227,20 @@ async function main(): Promise<void> {
                     owned: a.ownedTiers,
                     coin: coinHalf(),
                   },
-                  ledgerStore.readRoarTest(),
+                  ledgerStore.readRoar(),
                   ask,
                   Date.now()
                 );
-                if (ok) ledgerStore.writeRoarTest(account);
+                if (ok) {
+                  try {
+                    ledgerStore.writeRoar(account);
+                  } catch (err) {
+                    // A refused write buys nothing (G-S2): the wallet is read back as it was.
+                    console.error('the Roar-coin wallet write was refused:', err);
+                  }
+                }
                 return now();
               }
-            : undefined,
-        onGrant:
-          testGrant !== null && ledgerStore.available
-            ? () => ledgerStore.writeRoarTest(grantTestCoins(ledgerStore.readRoarTest(), testGrant, Date.now()))
             : undefined,
       },
       onReset: ledgerStore.available
@@ -1452,7 +1444,7 @@ async function main(): Promise<void> {
       ...arenaRoutes,
       { name: 'menu', pattern: '/', mount: (host) => mountMenu(host) },
       { name: 'campaign', pattern: '/campaign', mount: (host, req) => mountCampaign(host, req) },
-      { name: 'brigade', pattern: '/brigade', mount: (host, req) => mountBrigade(host, req) },
+      { name: 'brigade', pattern: '/brigade', mount: (host) => mountBrigade(host) },
       // The picker. Nothing is passed in: the screen reads the map enumeration
       // and SANDBOX_FLAGS itself, so a new map cannot be missing from it.
       { name: 'free-play', pattern: '/free-play', mount: (host) => showSandbox(host) },
@@ -5905,6 +5897,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // report claim nothing that was not kept.
           let victoryUnsaved = false;
           let balanceBefore = 0;
+          // GH-317: what this win paid in Roar coins (lifetime payouts, `roar-earn.ts`),
+          // known only once the write is kept.
+          let coinsSettle: VictorySettle | null = null;
           // Who took a fallen place (WP-G-E4). Empty on a defeat, like `payout`.
           // The fallen themselves are named from the mission log (GH-417).
           const replacements = carryover ? carryover.replacements : [];
@@ -5937,7 +5932,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // are now ONE write -- `writeVictory` puts both back on a refusal --
             // because the account write was outside that guard, and a refused one
             // still threw after the ledger had recorded the win.
-            const victoryWrite = writeVictory(ledgerStore, updatedLedger, payout ? payout.account : null);
+            // GH-317: and the Roar-coin wallet is the same write's third key. A campaign
+            // mission (the same contract test the credit pay uses: the tutorial pays no
+            // coins either) earns by THIS run's stars, never by the ledger's best.
+            coinsSettle = settleVictory(ledgerStore, {
+              ledger: updatedLedger,
+              account: payout ? payout.account : null,
+              win:
+                missionId && mission.ledger.produces.length > 0 && ledgerStore.available
+                  ? { missionId, stars: runtime.stars, ledger: updatedLedger }
+                  : null,
+              world: parseWorld(world),
+              at: Date.now(),
+            });
+            const victoryWrite = coinsSettle.write;
             const ledgerSaved = victoryWrite === 'saved';
             victoryUnsaved = victoryWrite === 'refused';
             balanceBefore = accountBefore.balance;
@@ -6050,6 +6058,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               failure: missionFailure,
               withdrew,
               credits: creditsInfo,
+              coins: coinsSettle !== null && coinsSettle.awards.length > 0 ? { awards: coinsSettle.awards, balance: coinsSettle.balance } : undefined,
               unsaved: victoryUnsaved,
               promotions:
                 mev.result === 'victory'

@@ -58,7 +58,7 @@
  * catch it, put the three keys back from `snapshotCampaign`, and the screen
  * says the write was refused (save reliability, keyboard-and-saves).
  */
-import { emptyRoarTest, loadRoarTest, saveRoarTest, type RoarTestAccount } from './roar-test';
+import { emptyRoar, loadRoar, resetFree, restoreRoarText, saveRoar, snapshotRoarText, type RoarWallet } from './roar-wallet';
 import type { LedgerData, LedgerRosterEntry } from '@lions/sim';
 import {
   ACCOUNT_KEY,
@@ -155,10 +155,17 @@ export interface LedgerStore {
    *  this module knowing what a slot is. */
   readSlotsRaw(): string | null;
   writeSlotsRaw(json: string): void;
-  /** The Roar coin TEST wallet (`roar-test.ts`, key `lions.roar.test`): a
-   *  test tool, never a money field of the brigade account. */
-  readRoarTest(): RoarTestAccount;
-  writeRoarTest(a: RoarTestAccount): void;
+  /** The Roar coin wallet (`roar-wallet.ts`, key `lions.roar`): never a money
+   *  field of the brigade account, and NOT one of the three campaign keys, so a
+   *  slot load, "New campaign" and `?fresh` leave it alone (G-S3). Reading it
+   *  migrates the retired `lions.roar.test` once. */
+  readRoar(): RoarWallet;
+  writeRoar(w: RoarWallet): void;
+  /** The wallet's key AS STORED, for `writeVictory` to put back: its own pair,
+   *  because `snapshotCampaign` is the three keys a slot carries and a slot
+   *  never carries coins. */
+  snapshotRoar(): string | null;
+  restoreRoar(text: string | null): void;
   /** The three campaign keys AS STORED -- ledger, account, tutorial flag --
    *  for `restoreCampaign` to put back. Bytes, not parsed values: a restore
    *  that re-serialised a migrated account or a cleaned ledger would be a
@@ -242,7 +249,29 @@ function overStorage(store: StorageLike | null): LedgerStore {
     writeAccount: (a: BrigadeAccount): void => {
       if (store) saveAccount(store, a);
     },
-    resetAccount: (): BrigadeAccount => (store ? removeStoredAccount(store) : emptyAccount()),
+    resetAccount: (): BrigadeAccount => {
+      if (!store) return emptyAccount();
+      // The brigade screen's reset also clears the wallet's FREE half (balance,
+      // free entitlements, the earn record), never the paid. With no wallet
+      // stored there is nothing to clear and nothing is written.
+      // Both or neither: the wallet's free half is cleared first, and put back
+      // if removing the account then fails, so a refusal never leaves the
+      // account gone with the free coins it paid still in the wallet.
+      const wallet = loadRoar(store);
+      const roarBefore = snapshotRoarText(store);
+      if (roarBefore === null) return removeStoredAccount(store);
+      try {
+        saveRoar(store, resetFree(wallet));
+        return removeStoredAccount(store);
+      } catch (err) {
+        try {
+          restoreRoarText(store, roarBefore);
+        } catch {
+          /* storage is refusing writes; nothing more can be undone */
+        }
+        throw err;
+      }
+    },
     tutorialDone: (): boolean => storedTutorialDone(store),
     setTutorialDone: (done: boolean): void => {
       if (!store) return;
@@ -253,9 +282,13 @@ function overStorage(store: StorageLike | null): LedgerStore {
     writeSlotsRaw: (json: string): void => {
       if (store) store.setItem(SAVES_KEY, json);
     },
-    readRoarTest: (): RoarTestAccount => (store ? loadRoarTest(store) : emptyRoarTest()),
-    writeRoarTest: (a: RoarTestAccount): void => {
-      if (store) saveRoarTest(store, a);
+    readRoar: (): RoarWallet => (store ? loadRoar(store) : emptyRoar()),
+    writeRoar: (w: RoarWallet): void => {
+      if (store) saveRoar(store, w);
+    },
+    snapshotRoar: (): string | null => (store ? snapshotRoarText(store) : null),
+    restoreRoar: (text: string | null): void => {
+      if (store) restoreRoarText(store, text);
     },
     snapshotCampaign: (): CampaignSnapshot => ({
       ledger: store?.getItem(LEDGER_KEY) ?? null,
@@ -352,34 +385,49 @@ export function newCampaign(store: LedgerStore): void {
   store.startCampaign();
 }
 
-/** What `writeVictory` managed: both keys written; refused and put back; or
+/** What `writeVictory` managed: every key written; refused and put back; or
  *  no durable storage to write to at all (a blocked store, never a refusal). */
 export type VictoryWrite = 'saved' | 'refused' | 'unavailable';
 
 /**
  * The victory handler's write (`main.ts`): the ledger that records the win,
- * then -- when the win paid -- the brigade account. Both or neither. The
- * handler used to wrap only the ledger write, so a refused ACCOUNT write (a
- * quota, a private-window refusal) threw out of it after the ledger had
- * already recorded the win: a won mission with no pay, and the end screen
- * taken down with the throw (save reliability walk, keyboard-and-saves). Now
- * the door's byte snapshot is put back on any refusal and the answer is
- * `'refused'`, which the HUD reports as "not saved". Nothing throws: a
- * restore refused too is logged, and the answer is still `'refused'`.
+ * then -- when the win paid -- the brigade account, then -- when it earned coins
+ * -- the Roar wallet (GH-317). All or none. The handler used to wrap only the
+ * ledger write, so a refused ACCOUNT write (a quota, a private-window refusal)
+ * threw out of it after the ledger had already recorded the win: a won mission
+ * with no pay, and the end screen taken down with the throw (save reliability
+ * walk, keyboard-and-saves). Now the door's byte snapshot is put back on any
+ * refusal and the answer is `'refused'`, which the HUD reports as "not saved".
+ * The wallet has its own byte snapshot (`snapshotRoar`) because it is not one
+ * of the three keys a slot carries. Nothing throws: a restore refused too is
+ * logged, and the answer is still `'refused'`.
  */
-export function writeVictory(store: LedgerStore, ledger: CampaignLedger, account: BrigadeAccount | null): VictoryWrite {
+export function writeVictory(
+  store: LedgerStore,
+  ledger: CampaignLedger,
+  account: BrigadeAccount | null,
+  roar: RoarWallet | null = null
+): VictoryWrite {
   if (!store.available) return 'unavailable';
   const before = store.snapshotCampaign();
+  const roarBefore = store.snapshotRoar();
   try {
     store.writeLedger(ledger);
+    if (roar) store.writeRoar(roar);
     if (account) store.writeAccount(account);
     return 'saved';
   } catch (err) {
     console.error('campaign victory write refused:', err);
+    // Separate tries: a refused campaign restore must not stop the wallet's.
     try {
       store.restoreCampaign(before);
     } catch (restoreErr) {
       console.error('campaign victory write: the restore was refused too:', restoreErr);
+    }
+    try {
+      store.restoreRoar(roarBefore);
+    } catch (restoreErr) {
+      console.error('campaign victory write: the wallet restore was refused too:', restoreErr);
     }
     return 'refused';
   }

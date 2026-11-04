@@ -197,10 +197,10 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   },
   {
     name: 'testcoins',
-    // GH-317, the lead's go-ahead on 2 Oct. A TEST TOOL, live on every build:
-    // anyone with the link can unlock things free. Remove or gate it before
-    // release. Not a SANDBOX_FLAGS entry: it belongs to the garage.
-    blurb: '<n> — TEST Roar coins in the garage Stores (seeds n once, Grant adds n); buys unlock locally, packs stay disabled',
+    // GH-317: the TEST wallet this seeded is gone (every player has a free,
+    // earned wallet now). Still listed so an old link does not trip
+    // `unknownParams` as a typo. Not a SANDBOX_FLAGS entry.
+    blurb: 'accepted, no effect — Roar coins are earned in the campaign now; the test wallet was removed',
   },
   ...SANDBOX_FLAGS,
 ];
