@@ -98,6 +98,128 @@ describe('the setup form', () => {
   });
 });
 
+describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen map and matchup', () => {
+  const pickMap = (r: Rig, id: string): void => {
+    const map = field(r.host, 'Map') as HTMLSelectElement;
+    map.value = id;
+    map.dispatchEvent(new Event('change'));
+  };
+  const modeField = (r: Rig): HTMLSelectElement => field(r.host, 'How to win') as HTMLSelectElement;
+  const bodyOfStart = (r: Rig): Record<string, unknown> => JSON.parse(r.calls.filter((c) => c.url === '/arena/api/start')[0].body as string) as Record<string, unknown>;
+
+  it('is not drawn where nothing is offered (Tel Marum), and the run is annihilation: no mode in the body', async () => {
+    const r = rig();
+    showArenaSetup(r.host, r.deps);
+    await settle();
+    expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden')).toBe(true);
+    expect(opts(modeField(r))).toEqual(['annihilation']);
+    q<HTMLButtonElement>(r.host, '.rl-arena-setup__start').click();
+    await settle();
+    expect('mode' in bodyOfStart(r)).toBe(false);
+  });
+
+  it('lists exactly what winModesOffered lists for the map, in the mirror: Annihilation, Points race, Capture the flag on Wadi Tarfan', async () => {
+    const r = rig();
+    showArenaSetup(r.host, r.deps);
+    await settle();
+    pickMap(r, 'wadi_tarfan');
+    expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden')).toBe(false);
+    expect(opts(modeField(r))).toEqual(['annihilation', 'points', 'flag']);
+    expect([...modeField(r).options].map((o) => o.textContent)).toEqual(['Annihilation', 'Points race', 'Capture the flag']);
+    // Camp is read fair nowhere: never on the list.
+    expect(opts(modeField(r))).not.toContain('camp');
+    pickMap(r, 'rujm_sawda');
+    expect(opts(modeField(r))).toEqual(['annihilation']);
+  });
+
+  it('a faction matchup plays its economy and is offered none; the pick is dropped, not sent', async () => {
+    const r = rig();
+    showArenaSetup(r.host, r.deps);
+    await settle();
+    pickMap(r, 'wadi_tarfan');
+    modeField(r).value = 'flag';
+    modeField(r).dispatchEvent(new Event('change'));
+    const matchup = field(r.host, 'Matchup') as HTMLSelectElement;
+    matchup.value = 'kdf';
+    matchup.dispatchEvent(new Event('change'));
+    expect(opts(modeField(r))).toEqual(['annihilation']);
+    expect(modeField(r).value).toBe('annihilation');
+    q<HTMLButtonElement>(r.host, '.rl-arena-setup__start').click();
+    await settle();
+    expect('mode' in bodyOfStart(r)).toBe(false);
+    expect(bodyOfStart(r).matchup).toBe('kdf');
+  });
+
+  it('a pick the next map does not offer is dropped, and one it does offer is kept', async () => {
+    const r = rig();
+    showArenaSetup(r.host, r.deps);
+    await settle();
+    pickMap(r, 'wadi_tarfan');
+    modeField(r).value = 'points';
+    modeField(r).dispatchEvent(new Event('change'));
+    pickMap(r, 'tel_marum');
+    expect(modeField(r).value).toBe('annihilation');
+    pickMap(r, 'wadi_tarfan');
+    expect(modeField(r).value).toBe('annihilation'); // dropped for good, not remembered
+    modeField(r).value = 'flag';
+    modeField(r).dispatchEvent(new Event('change'));
+    pickMap(r, 'wadi_tarfan');
+    expect(modeField(r).value).toBe('flag');
+  });
+
+  it('the pick goes in the start body, the hint says the hold, and the cap follows the mode until the person types in it', async () => {
+    const r = rig();
+    showArenaSetup(r.host, r.deps);
+    await settle();
+    const cap = field(r.host, 'Cap (ticks)') as HTMLInputElement;
+    pickMap(r, 'wadi_tarfan');
+    expect(cap.value).toBe('12000');
+    modeField(r).value = 'flag';
+    modeField(r).dispatchEvent(new Event('change'));
+    expect(r.host.textContent).toContain('for 30 seconds');
+    expect(cap.value).toBe('30000'); // a mode's game outlasts the 12,000 default; the map's own cap
+    modeField(r).value = 'annihilation';
+    modeField(r).dispatchEvent(new Event('change'));
+    expect(cap.value).toBe('12000');
+    modeField(r).value = 'points';
+    modeField(r).dispatchEvent(new Event('change'));
+    expect(r.host.textContent).toContain('first to 600');
+    cap.value = '9000';
+    cap.dispatchEvent(new Event('input'));
+    modeField(r).value = 'flag';
+    modeField(r).dispatchEvent(new Event('change'));
+    expect(cap.value).toBe('9000'); // typed by hand: left alone
+    q<HTMLButtonElement>(r.host, '.rl-arena-setup__start').click();
+    await settle();
+    expect(bodyOfStart(r)).toMatchObject({ map: 'wadi_tarfan', mode: 'flag', capTicks: 9000 });
+  });
+
+  it('is locked while a run is going, like the rest of the form', async () => {
+    const r = rig();
+    r.status.value = { ...RUNNING, run: { ...RUNNING.run, mode: 'points' } };
+    showArenaSetup(r.host, r.deps);
+    await settle();
+    expect(modeField(r).disabled).toBe(true);
+  });
+
+  it('under ?pseudo=1 the label, the options and the hint all went through t()', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    const r = rig();
+    showArenaSetup(r.host, r.deps);
+    await settle();
+    const [mapSel, , modeSel] = [...r.host.querySelectorAll<HTMLSelectElement>('select')]; // map, matchup, how to win
+    mapSel.value = 'wadi_tarfan';
+    mapSel.dispatchEvent(new Event('change'));
+    modeSel.value = 'flag';
+    modeSel.dispatchEvent(new Event('change'));
+    const wrap = modeSel.closest('.rl-arena-setup__field')!;
+    const shown = [...wrap.querySelectorAll('label, option, .rl-arena-setup__hint')].map((e) => e.textContent!);
+    expect(shown).toHaveLength(5); // the label, three options, the hint
+    for (const text of shown) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
+    expect(missingKeys().filter((k) => k.startsWith('arena.') || k.startsWith('versus.win'))).toEqual([]);
+  });
+});
+
 describe('the private token field', () => {
   it('is a password input that asks the browser to remember nothing, never inside a form, and carries no name', async () => {
     const r = rig();
@@ -181,7 +303,7 @@ describe('errors', () => {
     expect(errorKey(0, null)).toBe('arena.setup.err.noServer');
     expect(errorKey(403, null)).toBe('arena.setup.err.refused');
     expect(errorKey(421, null)).toBe('arena.setup.err.refused');
-    for (const [code, key] of [['bad_player', 'player'], ['bad_judge', 'judge'], ['map_refused', 'map'], ['bad_map', 'map'], ['bad_matchup', 'matchup'], ['bad_number', 'number'], ['bad_args', 'number'], ['bad_token', 'token'], ['unknown_field', 'bad'], [null, 'bad']] as const) {
+    for (const [code, key] of [['bad_player', 'player'], ['bad_judge', 'judge'], ['map_refused', 'map'], ['bad_map', 'map'], ['bad_matchup', 'matchup'], ['bad_mode', 'mode'], ['bad_number', 'number'], ['bad_args', 'number'], ['bad_token', 'token'], ['unknown_field', 'bad'], [null, 'bad']] as const) {
       expect(errorKey(400, code)).toBe(`arena.setup.err.${key}`);
     }
   });

@@ -40,6 +40,17 @@ const ALLOWED: Readonly<Record<string, string>> = {
   'arena.replay.digest.same': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
   'arena.replay.digest.differs': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
   'arena.results.terms': 'GH-954 P1: the arena results screen is an operator view, dev-only (the route does not exist in a production build); a run\'s pace and cap are tick counts (--pace, --cap-ticks), the terms two records are compared by',
+  'versus.win.flag': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.win.flag.hint': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.room.win.value': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.end.objective.won': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.end.objective.lost': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.end.mutual.mode': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.flag.label': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.flag.title': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.flag.theirs': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.flag.mine': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'hud.strip.versus': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
 };
 
 /** Every reason a value would read as developer language, or [] if none. */

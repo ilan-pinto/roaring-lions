@@ -13,7 +13,8 @@
  * Every string the screen shows goes through `t()`. Map and player names are data (the catalogue's and the presets
  * file's own words). The disposer removes the poll, aborts what is in flight and empties the host.
  */
-import { matchCapTicks, matchupAllowed, MATCHUPS, type Matchup } from '@lions/net';
+import { matchCapTicks, matchupAllowed, MATCHUPS, winModesOffered, type Matchup } from '@lions/net';
+import { versusModes } from '@lions/data';
 import { t } from '../i18n/t';
 import { fetchPlayers, fetchStatus, SetupRefused, startRun, stopRun, type PlayerRow, type StartRequest, type StatusView, type UsageView } from '../net/arena-setup-api';
 import type { Disposer } from '../shell/router';
@@ -52,6 +53,7 @@ export function errorKey(status: number, code: string | null): string {
     case 'bad_judge': return 'arena.setup.err.judge';
     case 'bad_map': case 'map_refused': return 'arena.setup.err.map';
     case 'bad_matchup': return 'arena.setup.err.matchup';
+    case 'bad_mode': return 'arena.setup.err.mode';
     case 'bad_number': case 'bad_args': return 'arena.setup.err.number';
     case 'bad_token': return 'arena.setup.err.token';
     default: return 'arena.setup.err.bad';
@@ -157,6 +159,9 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
   for (const m of deps.maps) mapSel.appendChild(option(m.id, m.label));
   if (deps.maps.some((m) => m.id === 'tel_marum')) mapSel.value = 'tel_marum';
   const matchupSel = select();
+  // GH-976 P3: how the match is won. Only the modes the lobby offers on this map and matchup (`winModesOffered`) are in the
+  // list at all, and the server asks the Worker's own question again (`refusalOf`), so a stale pick is dropped, not sent.
+  const modeSel = select();
   const aSel = select();
   const bSel = select();
   const judgeSel = select();
@@ -164,6 +169,9 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
   const pace = number(20, 1200, SETUP_DEFAULTS.pace);
   const wall = number(1000, 600_000, SETUP_DEFAULTS.roundWallMs, 1000);
   const cap = number(1, matchCapTicks(mapSel.value), SETUP_DEFAULTS.capTicks);
+  /** The cap follows the mode until the person types in it: a win mode's game runs longer than the 12,000-tick default. */
+  let capEdited = false;
+  cap.addEventListener('input', () => { capEdited = true; });
   // The private API token. Never a hidden field, never remembered: see the file header.
   const token = el('input', 'rl-arena-setup__control rl-arena-setup__token');
   token.type = 'password';
@@ -181,7 +189,21 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
     cap.max = String(matchCapTicks(mapSel.value));
     if (Number(cap.value) > matchCapTicks(mapSel.value)) cap.value = String(matchCapTicks(mapSel.value));
   };
-  mapSel.addEventListener('change', fillMatchups);
+  const modeHint = el('span', 'rl-arena-setup__hint');
+  const fillModes = (): void => {
+    const keep = modeSel.value;
+    const offered = winModesOffered(mapSel.value, (matchupSel.value || 'mirror') as Matchup);
+    modeSel.replaceChildren(option('annihilation', t('versus.win.annihilation')), ...offered.map((m) => option(m, t(`versus.win.${m}`))));
+    modeSel.value = [...modeSel.options].some((o) => o.value === keep) ? keep : 'annihilation';
+    // Nothing offered here: the control is not drawn (the lobby's rule), the run is annihilation.
+    modeField.hidden = offered.length === 0;
+    const file = versusModes[mapSel.value];
+    modeHint.textContent = t(`versus.win.${modeSel.value}.hint`, { target: file?.modes.points?.target ?? 0, hold: file?.modes.flag?.hold_s ?? 0 });
+    if (!capEdited) cap.value = String(modeSel.value === 'annihilation' ? Math.min(SETUP_DEFAULTS.capTicks, matchCapTicks(mapSel.value)) : matchCapTicks(mapSel.value));
+  };
+  mapSel.addEventListener('change', () => { fillMatchups(); fillModes(); });
+  matchupSel.addEventListener('change', fillModes);
+  modeSel.addEventListener('change', fillModes);
   fillMatchups();
 
   const fillPlayers = (): void => {
@@ -200,9 +222,13 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
     judgeSel.value = has(judgeSel, keepJ) ? keepJ : '';
   };
 
+  const modeField = field(t('arena.setup.mode'), modeSel);
+  modeField.appendChild(modeHint);
+  fillModes();
   grid.append(
     field(t('arena.setup.map'), mapSel),
     field(t('arena.setup.matchup'), matchupSel),
+    modeField,
     field(t('arena.setup.playerA'), aSel),
     field(t('arena.setup.playerB'), bSel),
     field(t('arena.setup.seeds'), seeds, t('arena.setup.seeds.hint')),
@@ -255,7 +281,7 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
     startBtn.disabled = !loaded || busy || running;
     stopBtn.disabled = busy || !running || s?.state === 'stopping';
     watchBtn.hidden = !running;
-    for (const c of [mapSel, matchupSel, aSel, bSel, judgeSel, seeds, pace, wall, cap, token]) c.disabled = running;
+    for (const c of [mapSel, matchupSel, modeSel, aSel, bSel, judgeSel, seeds, pace, wall, cap, token]) c.disabled = running;
     panel.hidden = s === null || s.state === 'idle';
     if (s === null || s.state === 'idle') return;
     stateLine.textContent = t('arena.setup.state', { state: s.state });
@@ -305,6 +331,7 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
     const n = (i: HTMLInputElement): number => (/^\d+$/.test(i.value.trim()) ? Number(i.value.trim()) : Number.NaN);
     const body: StartRequest = {
       a: aSel.value, b: bSel.value, map: mapSel.value, matchup: matchupSel.value as Matchup,
+      ...(modeSel.value === 'annihilation' ? {} : { mode: modeSel.value }),
       seeds: n(seeds), pace: n(pace), roundWallMs: n(wall), capTicks: n(cap),
       ...(judgeSel.value === '' ? {} : { judge: judgeSel.value }),
       // Read here, once, for this one request. An empty field sends no token at all.

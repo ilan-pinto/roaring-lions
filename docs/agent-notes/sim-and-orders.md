@@ -698,7 +698,7 @@ model. The S4 re-run and the decision to open versus are written up separately.
 
 ## Versus win modes (GH-976 P1)
 
-A versus room may play a WIN MODE beside annihilation: `MatchConfig.winMode` (`'camp'` | `'points'`, absent is
+A versus room may play a WIN MODE beside annihilation: `MatchConfig.winMode` (`'camp'` | `'points'` | `'flag'`, absent is
 annihilation and every room that has ever been played). Phase 1 was the engine and the instrument; **phase 2 (below) opens
 `points` in the lobby, the bot harness and the scoring**. `camp` is offered nowhere (it failed the passive-seat bar on both
 maps) and stays reachable from a test and `pnpm versus:probe -- --mode=camp` only.

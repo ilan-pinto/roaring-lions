@@ -56,6 +56,28 @@ describe('parseStartBody (pure)', () => {
     expect(ok({ ...GOOD, map: '../etc' })).toEqual({ ok: false, error: 'bad_map' });
     expect(ok({ ...GOOD, matchup: 'both' })).toEqual({ ok: false, error: 'bad_matchup' });
   });
+  it('GH-976 P3: mode is annihilation (an argv with no --mode) or a mode the lobby offers on this map and matchup; anything else is bad_mode', () => {
+    const base = { ...GOOD, map: 'wadi_tarfan' };
+    // the default names nothing: argv-identical to a body with no mode at all
+    const plain = ok(base);
+    const named = ok({ ...base, mode: 'annihilation' });
+    expect(plain.ok && named.ok && named.argv).toEqual(plain.ok && plain.argv);
+    expect(plain.ok && plain.run.mode).toBe('annihilation');
+    expect(ok({ ...base, mode: null }).ok).toBe(true);
+    // an offered mode goes to the arena's own --mode, after the matchup, and the summary names it
+    for (const mode of ['points', 'flag']) {
+      const r = ok({ ...base, mode });
+      expect(r.ok, mode).toBe(true);
+      if (!r.ok) continue;
+      expect(r.argv.slice(r.argv.indexOf('--matchup'), r.argv.indexOf('--matchup') + 4), mode).toEqual(['--matchup', 'mirror', '--mode', mode]);
+      expect(r.run.mode).toBe(mode);
+    }
+    // camp is read fair nowhere, a map with no mode file offers none, a faction pairing plays its economy, and a stranger is not a mode
+    for (const [over, why] of [[{ mode: 'camp' }, 'camp unoffered'], [{ mode: 'flag', map: 'tel_marum' }, 'tel_marum'], [{ mode: 'points', matchup: 'kdf' }, 'kdf v sarim'], [{ mode: 'rally' }, 'unknown'], [{ mode: 5 }, 'number'], [{ mode: '' }, 'empty']] as const) {
+      expect(ok({ ...base, ...over }), why).toEqual({ ok: false, error: 'bad_mode' });
+    }
+  });
+
   it('accepts only a printable token of a sane length', () => {
     for (const token of ['short', 'has space in it', 'tab\there-token', 'nul\u0000-token-xx', 'x'.repeat(513), 5, {}, 'quote"-token-xxxxx', 'back\\slash-token-x']) expect(ok({ ...GOOD, token }), String(token)).toEqual({ ok: false, error: 'bad_token' });
     expect(ok({ ...GOOD, token: 'x'.repeat(512) }).ok).toBe(true);
@@ -204,6 +226,8 @@ describe('POST /arena/api/start', () => {
     expect(t.runs).toHaveLength(1);
     // Busy outranks nothing else: a malformed body is still a 400, not a 409.
     expect((await t.post('/arena/api/start', { ...GOOD, template: 'x' })).status).toBe(400);
+    // GH-976 P3: the status names the mode the run plays.
+    expect((json(await t.get('/arena/api/status')) as { run: { mode: string } }).run.mode).toBe('annihilation');
     const s = json(await t.get('/arena/api/status')) as { state: string; game: { n: number; of: number }; games: { n: number; outcome: string; usage: unknown[] }[] };
     expect(s.state).toBe('running');
     expect(s.game).toEqual({ n: 2, of: 2 });

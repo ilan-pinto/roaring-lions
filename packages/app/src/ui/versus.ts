@@ -696,7 +696,8 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       return label;
     }));
     const target = winMode === 'points' ? versusModes[map]?.modes.points?.target ?? 0 : 0;
-    winHint.textContent = t(`versus.win.${winMode ?? 'annihilation'}.hint`, { target });
+    const hold = winMode === 'flag' ? versusModes[map]?.modes.flag?.hold_s ?? 0 : 0;
+    winHint.textContent = t(`versus.win.${winMode ?? 'annihilation'}.hint`, { target, hold });
   }
 
   // --- bring your brigade: a switch, and its one-line hint ------------------

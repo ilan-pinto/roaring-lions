@@ -5,10 +5,12 @@
  *
  * What a start body may say, and nothing else (`parseStartBody`, pure):
  *
- *     {a, b, map, matchup, seeds, pace, roundWallMs, capTicks, judge?, token?}
+ *     {a, b, map, matchup, mode?, seeds, pace, roundWallMs, capTicks, judge?, token?}
  *
  * `a` and `b` are `passive`, `rush` or a preset id with a player template; `judge` a preset id with a judge
- * template. Any other field (a `template` above all) is a 400, and so is anything that `parseArgs` or `refusalOf`
+ * template; `mode` (GH-976 P3) is `annihilation` or a win mode, and the Worker's own question (`refusalOf`) decides whether
+ * that mode is offered on the map and matchup, so the screen can list only what the lobby lists and the server still refuses
+ * anything else. Any other field (a `template` above all) is a 400, and so is anything that `parseArgs` or `refusalOf`
  * would refuse. The body becomes an argv for the SAME `runArena` the command line uses (always `--watch`, so the
  * page can watch it); this module runs no game itself. A start while a run is going is a 409. Stop runs the
  * caller's `stop()` (`stopRun`, a signal's cleanup without the exit), waits for the run to end, and re-arms.
@@ -29,6 +31,7 @@
 import { MATCHUPS } from '@lions/net';
 import type { ArenaDeps, ArenaRun } from './arena';
 import { parseArgs, refusalOf } from './arena';
+import { modeFlag } from './win-rule';
 import type { ApiRoute, ArenaServe } from './arena-serve';
 import { sumUsage, usageTotals, type GameRecord, type UsageSum, type UsageTotals } from './arena-score';
 import { catalogueOf, presetSpec, SCRIPTED, type Presets } from './arena-presets';
@@ -41,13 +44,13 @@ const MAP_ID = /^[a-z0-9_]{1,48}$/;
 /** A token is 8-512 of `[A-Za-z0-9._~+/=-]`: every key shape in use, and no character that JSON escapes (`"`, `\`),
  *  that a shell or an env entry could split on, or that a redactor could miss in a serialised copy. */
 const TOKEN_SHAPE = /^[A-Za-z0-9._~+/=-]{8,512}$/;
-const FIELDS = ['a', 'b', 'map', 'matchup', 'seeds', 'pace', 'roundWallMs', 'capTicks', 'judge', 'token'] as const;
+const FIELDS = ['a', 'b', 'map', 'matchup', 'mode', 'seeds', 'pace', 'roundWallMs', 'capTicks', 'judge', 'token'] as const;
 const NUMBERS = [['seeds', '--seeds'], ['pace', '--pace'], ['roundWallMs', '--round-wall-ms'], ['capTicks', '--cap-ticks']] as const;
 /** The bound on how long Stop waits for the run to end before it answers anyway. */
 const STOP_WAIT_MS = 20_000;
 
 export type StartRefusal =
-  | 'body' | 'unknown_field' | 'bad_player' | 'bad_judge' | 'bad_map' | 'map_refused' | 'bad_matchup' | 'bad_number' | 'bad_token' | 'bad_args';
+  | 'body' | 'unknown_field' | 'bad_player' | 'bad_judge' | 'bad_map' | 'map_refused' | 'bad_matchup' | 'bad_mode' | 'bad_number' | 'bad_token' | 'bad_args';
 
 export type StartParse =
   | { ok: true; argv: string[]; token: string | null; run: RunSummary }
@@ -59,6 +62,8 @@ export interface RunSummary {
   b: string;
   map: string;
   matchup: string;
+  /** `annihilation`, or the win mode the run plays (GH-976 P3). */
+  mode: string;
   seeds: number;
   pace: number;
   roundWallMs: number;
@@ -75,14 +80,17 @@ export function parseStartBody(body: unknown, presets: Presets, argvExtra: reado
   if (!isObj(body)) return { ok: false, error: 'body' };
   for (const k of Object.keys(body)) if (!(FIELDS as readonly string[]).includes(k)) return { ok: false, error: 'unknown_field' };
   const playerOk = (v: unknown): v is string => typeof v === 'string' && ((SCRIPTED as readonly string[]).includes(v) || presets.byId.get(v)?.template != null);
-  const { a, b, map, matchup, judge, token } = body;
+  const { a, b, map, matchup, mode, judge, token } = body;
   if (!playerOk(a) || !playerOk(b)) return { ok: false, error: 'bad_player' };
   if (judge !== undefined && judge !== null && (typeof judge !== 'string' || presets.byId.get(judge)?.judgeTemplate == null)) return { ok: false, error: 'bad_judge' };
   if (typeof map !== 'string' || !MAP_ID.test(map)) return { ok: false, error: 'bad_map' };
   if (typeof matchup !== 'string' || !(MATCHUPS as readonly string[]).includes(matchup)) return { ok: false, error: 'bad_matchup' };
+  if (mode !== undefined && mode !== null && (typeof mode !== 'string' || modeFlag(mode) === undefined)) return { ok: false, error: 'bad_mode' };
   if (token !== undefined && token !== null && (typeof token !== 'string' || !TOKEN_SHAPE.test(token))) return { ok: false, error: 'bad_token' };
   const spec = (id: string): string => ((SCRIPTED as readonly string[]).includes(id) ? id : presetSpec(id));
   const argv = ['--a', spec(a), '--b', spec(b), '--map', map, '--matchup', matchup];
+  // `annihilation` is the default and names nothing: the run is argv-identical to one started before modes existed.
+  if (typeof mode === 'string' && mode !== 'annihilation') argv.push('--mode', mode);
   for (const [field, flag] of NUMBERS) {
     const v = body[field];
     if (v === undefined) continue;
@@ -95,9 +103,11 @@ export function parseStartBody(body: unknown, presets: Presets, argvExtra: reado
   const parsed = parseArgs(argv);
   if ('error' in parsed) return { ok: false, error: 'bad_args', detail: parsed.error.split('\n')[0] };
   if (refusalOf(parsed.map, parsed.matchup) !== null) return { ok: false, error: 'map_refused' };
+  // GH-976 P3: a mode the lobby would not offer on this map and matchup is refused here too, whatever the screen listed.
+  if (parsed.winMode !== undefined && refusalOf(parsed.map, parsed.matchup, parsed.winMode) !== null) return { ok: false, error: 'bad_mode' };
   return {
     ok: true, argv, token: typeof token === 'string' ? token : null,
-    run: { a, b, map: parsed.map, matchup: parsed.matchup, seeds: parsed.seeds, pace: parsed.pace, roundWallMs: parsed.roundWallMs, capTicks: parsed.capTicks, judge: typeof judge === 'string' ? judge : null, withToken: typeof token === 'string' },
+    run: { a, b, map: parsed.map, matchup: parsed.matchup, mode: parsed.winMode ?? 'annihilation', seeds: parsed.seeds, pace: parsed.pace, roundWallMs: parsed.roundWallMs, capTicks: parsed.capTicks, judge: typeof judge === 'string' ? judge : null, withToken: typeof token === 'string' },
   };
 }
 

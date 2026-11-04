@@ -352,7 +352,7 @@ export interface HudDeps {
   versusFaction?: 'kdf' | 'sarim';
   /** The win mode a versus room plays (GH-976 P2): the strip's line says how THIS match is won ("win the points race")
    *  rather than "destroy their force". Absent is annihilation, which keeps the line exactly as it was. */
-  versusMode?: 'camp' | 'points';
+  versusMode?: 'camp' | 'points' | 'flag';
   /** An economy room's purse (N3 Task 6, KDF against Sarim): the VIEWER's side's logistics
    *  and what its held zones pay a minute, and Conduct only for the KDF seat (LD7). Read
    *  only with no mission. A room shows no intel figure (LD5). Absent, or null: no purse --

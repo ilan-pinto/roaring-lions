@@ -627,13 +627,13 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     expect('winMode' in (await created(stage, open))).toBe(false);
   });
 
-  it('on a fair map it is Annihilation (the default) and Points race, in one labelled group with a hint', async () => {
+  it('on a fair map it is Annihilation (the default), Points race and Capture the flag, in one labelled group with a hint', async () => {
     const { open, stage } = mount();
     pick(mapRadio(stage, 'wadi_tarfan'));
     expect(winGroup(stage).hidden).toBe(false);
     expect(winGroup(stage).querySelector('legend')?.textContent).toBe('How to win');
-    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
-    expect(winRadios(stage).map((r) => r.closest('label')?.textContent)).toEqual(['Annihilation', 'Points race']);
+    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points', 'flag']);
+    expect(winRadios(stage).map((r) => r.closest('label')?.textContent)).toEqual(['Annihilation', 'Points race', 'Capture the flag']);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
     expect(describedBy(winRadios(stage)[0]!)).toBe('Destroy every enemy combat unit');
     expect('winMode' in (await created(stage, open))).toBe(false);   // the default asks for no mode at all
@@ -646,6 +646,15 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('points');
     expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('first to 600 wins');
     expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'milh_flats', matchup: 'mirror', winMode: 'points' });
+  });
+
+  it('GH-976 P3: picking Capture the flag says its hold and the create carries it', async () => {
+    const { open, stage } = mount();
+    pick(mapRadio(stage, 'wadi_tarfan'));
+    pick(winRadios(stage).find((r) => r.value === 'flag')!);
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('flag');
+    expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('for 30 seconds');
+    expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan', matchup: 'mirror', winMode: 'flag' });
   });
 
   it('a pick that the next ground does not offer is dropped, not carried to a map it was never read fair on', async () => {
@@ -681,12 +690,12 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       offered[m.id] = winRadios(stage).map((r) => r.value);
     }
     expect(offered).toEqual({
-      beit_sahwan_outskirts: [], milh_flats: ['annihilation', 'points'], tel_marum: [], wadi_tarfan: ['annihilation', 'points'],
+      beit_sahwan_outskirts: [], milh_flats: ['annihilation', 'points', 'flag'], tel_marum: [], wadi_tarfan: ['annihilation', 'points', 'flag'],
     });
   });
 
   it('the room screen names the win mode to the host and the guest alike, and a lobby repaint moves it', async () => {
-    for (const mode of ['points', undefined] as const) {
+    for (const mode of ['points', 'flag', undefined] as const) {
       const { transport } = fakeTransport();
       const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'wadi_tarfan', factions: ['kdf', 'kdf'], kit: 'matched', ...(mode === undefined ? {} : { winMode: mode }) } }));
       const stage = document.createElement('div');
@@ -695,7 +704,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       await flush();
       const line = stage.querySelector('.rl-versus__room-win');
       expect(line?.querySelector('.rl-versus__label')?.textContent).toBe('How to win');
-      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, String(mode)).toBe(mode === 'points' ? 'Points race' : 'Annihilation');
+      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, String(mode)).toBe(mode === 'points' ? 'Points race' : mode === 'flag' ? 'Capture the flag' : 'Annihilation');
     }
     const { fake, stage } = await hostedRoom();
     expect(stage.querySelector('.rl-versus__room-win .rl-versus__kit-name')?.textContent).toBe('Annihilation');
@@ -715,7 +724,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
         winGroup(stage).querySelector('legend')!.textContent!,
         ...[...winGroup(stage).querySelectorAll('.rl-versus__side-name, .rl-versus__win-hint')].map((e) => e.textContent!),
       ];
-      expect(shown.length).toBe(4);   // the legend, two options, the hint
+      expect(shown.length).toBe(5);   // the legend, three options, the hint
       for (const text of shown) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
       // the room line, for both modes
       const { transport } = fakeTransport();

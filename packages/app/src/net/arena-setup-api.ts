@@ -22,6 +22,8 @@ export interface StartRequest {
   b: string;
   map: string;
   matchup: Matchup;
+  /** `annihilation`, or a win mode the lobby offers on this map and matchup (GH-976 P3). Absent is annihilation. */
+  mode?: string;
   seeds: number;
   pace: number;
   roundWallMs: number;
@@ -43,7 +45,7 @@ export type RunState = 'idle' | 'running' | 'stopping' | 'done' | 'stopped' | 'f
 export interface StatusGameView { n: number; outcome: string; by: string; ticks: number; players: [string, string]; usage: [UsageView | null, UsageView | null] }
 export interface StatusView {
   state: RunState;
-  run: { a: string; b: string; map: string; matchup: string; seeds: number; judge: string | null; withToken: boolean } | null;
+  run: { a: string; b: string; map: string; matchup: string; mode: string; seeds: number; judge: string | null; withToken: boolean } | null;
   game: { n: number; of: number } | null;
   games: StatusGameView[];
   totals: { players: { player: string; usage: UsageView }[]; judge: UsageView | null; all: UsageView | null } | null;
@@ -86,7 +88,7 @@ export function parseStatus(raw: unknown): StatusView | null {
   if (isRec(raw.run)) {
     const r = raw.run;
     if (!isStr(r.a) || !isStr(r.b) || !isStr(r.map) || !isStr(r.matchup) || !isNum(r.seeds)) return null;
-    run = { a: r.a, b: r.b, map: r.map, matchup: r.matchup, seeds: r.seeds, judge: isStr(r.judge) ? r.judge : null, withToken: r.withToken === true };
+    run = { a: r.a, b: r.b, map: r.map, matchup: r.matchup, mode: isStr(r.mode) ? r.mode : 'annihilation', seeds: r.seeds, judge: isStr(r.judge) ? r.judge : null, withToken: r.withToken === true };
   }
   const games: StatusGameView[] = [];
   if (Array.isArray(raw.games)) {
