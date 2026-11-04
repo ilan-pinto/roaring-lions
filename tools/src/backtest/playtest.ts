@@ -3635,6 +3635,20 @@ if (ladderCredits !== LADDER_CREDITS) {
   process.exitCode = 1;
 }
 
+// GH-317: the Roar-coin earn table pays 5 coins a new star, and `roar_earn.test.ts` walks the
+// ladder's stars to prove one campaign's coins buy the dearest unit in the Stores (gate G-E2).
+// The sum of the winning plans' stars over `missionOrder`, pinned here and read as TEXT by that
+// test (this harness is a CLI that cannot be imported). Re-pin in the same commit as the change
+// that moved a star, and re-run `roar_earn.test.ts`.
+let ladderStars = 0;
+for (const missionId of missionOrder) ladderStars += missionStars.get(missionId) ?? 0;
+const LADDER_STARS = 68;
+console.log(`star ladder: ${ladderStars} over ${missionOrder.length} missions`);
+if (ladderStars !== LADDER_STARS) {
+  console.error(`star ladder: FAILED — expected ${LADDER_STARS}, got ${ladderStars}`);
+  process.exitCode = 1;
+}
+
 // --- GH-330: a new campaign pays again -----------------------------------------
 //
 // The ladder above sums each winning plan's VALUE; what the brigade is PAID is

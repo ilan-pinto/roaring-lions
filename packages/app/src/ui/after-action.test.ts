@@ -120,6 +120,36 @@ describe('afterAction (GH-417, H4/H5)', () => {
     expect(a.ladder.map((r) => r.met)).toEqual([true, true, false]);
   });
 
+  // GH-317: the Roar coins a win paid are rows beside the credits, one per payout, then the balance.
+  it('a win that paid coins lists each payout and the balance; a replay that paid none lists nothing', () => {
+    const a = afterAction(
+      wh5({
+        coins: {
+          awards: [
+            { source: 'welcome', coins: 100 },
+            { source: 'first_win', coins: 10, missionId: 'm' },
+            { source: 'star', coins: 10, missionId: 'm', stars: 2 },
+          ],
+          balance: 120,
+        },
+      })
+    );
+    const coin = a.changed.filter((c) => c.text.startsWith('Roar coins') || c.text.startsWith('You now hold'));
+    expect(coin.map((c) => [c.mark, c.text])).toEqual([
+      ['+100', 'Roar coins: your welcome issue'],
+      ['+10', 'Roar coins: the first win of this mission'],
+      ['+10', 'Roar coins: 2 new stars on this mission'],
+      ['', 'You now hold 120 Roar coins'],
+    ]);
+    expect(a.changed.findIndex((c) => c.mark === '+220')).toBeLessThan(a.changed.findIndex((c) => c.mark === '+100'));
+    expect(afterAction(wh5()).changed.some((c) => c.text.includes('Roar coin'))).toBe(false);
+  });
+
+  it('a refused save claims no coins either', () => {
+    const a = afterAction(wh5({ unsaved: true, coins: { awards: [{ source: 'welcome', coins: 100 }], balance: 100 } }));
+    expect(a.changed.some((c) => c.text.includes('Roar coin'))).toBe(false);
+  });
+
   it('a defeat: the reason, what went wrong, and nothing written', () => {
     const lost = wh5({
       result: 'defeat',

@@ -121,6 +121,7 @@ import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
 import { coinTiers, spendable } from './roar-wallet';
+import { settleVictory, type VictorySettle } from './roar-earn';
 import { buyWithCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
@@ -355,7 +356,7 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, newCampaign, writeVictory, type CampaignLedger, type LostRecord } from './ledger-store';
+import { browserLedgerStore, newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
@@ -5887,6 +5888,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // report claim nothing that was not kept.
           let victoryUnsaved = false;
           let balanceBefore = 0;
+          // GH-317: what this win paid in Roar coins (lifetime payouts, `roar-earn.ts`),
+          // known only once the write is kept.
+          let coinsSettle: VictorySettle | null = null;
           // Who took a fallen place (WP-G-E4). Empty on a defeat, like `payout`.
           // The fallen themselves are named from the mission log (GH-417).
           const replacements = carryover ? carryover.replacements : [];
@@ -5919,7 +5923,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // are now ONE write -- `writeVictory` puts both back on a refusal --
             // because the account write was outside that guard, and a refused one
             // still threw after the ledger had recorded the win.
-            const victoryWrite = writeVictory(ledgerStore, updatedLedger, payout ? payout.account : null);
+            // GH-317: and the Roar-coin wallet is the same write's third key. A campaign
+            // mission (the same contract test the credit pay uses: the tutorial pays no
+            // coins either) earns by THIS run's stars, never by the ledger's best.
+            coinsSettle = settleVictory(ledgerStore, {
+              ledger: updatedLedger,
+              account: payout ? payout.account : null,
+              win:
+                missionId && mission.ledger.produces.length > 0 && ledgerStore.available
+                  ? { missionId, stars: runtime.stars, ledger: updatedLedger }
+                  : null,
+              world: parseWorld(world),
+              at: Date.now(),
+            });
+            const victoryWrite = coinsSettle.write;
             const ledgerSaved = victoryWrite === 'saved';
             victoryUnsaved = victoryWrite === 'refused';
             balanceBefore = accountBefore.balance;
@@ -6032,6 +6049,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               failure: missionFailure,
               withdrew,
               credits: creditsInfo,
+              coins: coinsSettle !== null && coinsSettle.awards.length > 0 ? { awards: coinsSettle.awards, balance: coinsSettle.balance } : undefined,
               unsaved: victoryUnsaved,
               promotions:
                 mev.result === 'victory'
