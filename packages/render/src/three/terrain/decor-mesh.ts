@@ -14,6 +14,8 @@ import { rampForDecorRole, type DecorMeshRole } from './decor-role';
 import type { DecorPlacement } from './decor-place';
 import { WIND_UNIFORM_DECLS, windClassOfKey, windLeanGlsl, windVertexChunk } from './wind';
 import { legacyWindUniforms, type WindUniformSet } from './wind-uniforms';
+import { DISTURB_UNIFORM_DECLS, disturbMathGlsl, disturbVertexChunk } from './disturb';
+import { inertDisturbUniforms, type DisturbUniformSet } from './disturb-uniforms';
 
 /**
  * The two uniforms every swaying foliage material shares BY REFERENCE:
@@ -28,6 +30,8 @@ export interface SwayUniforms {
   /** The wind's mode, strength and heading (`wind-uniforms.ts`), shared the same way. Absent
    *  plays today's sway (mode 0): a caller that never heard of the wind is unchanged. */
   readonly wind?: WindUniformSet;
+  /** The vehicles' disturbers (`disturb-uniforms.ts`), shared the same way. Absent bends nothing. */
+  readonly disturb?: DisturbUniformSet;
 }
 
 const SWAY_ANCHOR = '#include <project_vertex>';
@@ -56,6 +60,7 @@ export function swayingFoliageMaterial(
 ): THREE.MeshStandardMaterial {
   const material = rampMaterial(ramp);
   const wind = sway.wind ?? legacyWindUniforms();
+  const disturb = sway.disturb ?? inertDisturbUniforms();
   material.onBeforeCompile = (shader) => {
     if (!shader.vertexShader.includes(SWAY_ANCHOR)) {
       throw new Error(
@@ -67,9 +72,18 @@ export function swayingFoliageMaterial(
     shader.uniforms.uWindMode = wind.mode;
     shader.uniforms.uWindStrength = wind.strength;
     shader.uniforms.uWindDir = wind.dir;
+    shader.uniforms.uDisturbA = disturb.a;
+    shader.uniforms.uDisturbB = disturb.b;
+    shader.uniforms.uDisturbBox = disturb.box;
+    shader.uniforms.uDisturbN = disturb.n;
+    shader.uniforms.uDisturbAmp = disturb.amp;
+    shader.uniforms.uDisturbSpring = disturb.spring;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${WIND_UNIFORM_DECLS}\n${windLeanGlsl(wet)}`)
-      .replace(SWAY_ANCHOR, `${SWAY_ANCHOR}\n${windVertexChunk(wet, trunk)}`);
+      .replace(
+        '#include <common>',
+        `#include <common>\n${WIND_UNIFORM_DECLS}\n${windLeanGlsl(wet)}\n${DISTURB_UNIFORM_DECLS}\n${disturbMathGlsl()}`
+      )
+      .replace(SWAY_ANCHOR, `${SWAY_ANCHOR}\n${windVertexChunk(wet, trunk)}\n${disturbVertexChunk()}`);
   };
   material.customProgramCacheKey = () =>
     trunk ? (wet ? TRUNK_SWAY_WET_KEY : TRUNK_SWAY_KEY) : wet ? FOLIAGE_SWAY_WET_KEY : FOLIAGE_SWAY_KEY;

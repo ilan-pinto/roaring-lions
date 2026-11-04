@@ -56,6 +56,7 @@
     "tunnel:capture": "tsx src/perf/tunnel-xray-captures.ts",
     "banner:capture": "tsx src/perf/garrison-banner-captures.ts",
     "wind:capture": "tsx src/perf/wind-captures.ts",
+    "nature:capture": "tsx src/perf/nature-captures.ts",
     "radio:clips": "tsx src/audio/radio-clips.ts",
     "audio:mix": "tsx src/audio/mix-check.ts",
     "weight:capture": "tsx src/perf/weight-captures.ts",

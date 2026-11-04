@@ -164,3 +164,106 @@ export function versusTunnelsOf(rules: VersusRulesJson, end: 'friendly' | 'hosti
     capacity: t.capacity,
   }));
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Win modes (GH-976): data/versus/modes/<map>.json against versus_mode.schema.json
+// ---------------------------------------------------------------------------------------------------
+
+/** The win modes a room may play beside annihilation, in the order the lobby will list them. A twin of
+ *  `@lions/net`'s `WIN_MODES` (the Worker imports net and not data); `tools/src/validate_versus_modes.test.ts`
+ *  holds the two together. */
+export const WIN_MODES = ['camp', 'points'] as const;
+export type WinModeId = (typeof WIN_MODES)[number];
+
+/** One zone a points race pays for. */
+export interface PointsZoneJson {
+  readonly zone: string;
+  readonly per_min: number;
+}
+
+/** data/versus/modes/<map>.json. */
+export interface VersusModeFileJson {
+  readonly id: string;
+  readonly map: string;
+  /** Camps by END, required by the `camp` mode. */
+  readonly camps?: { readonly friendly: VersusEndJson['camp']; readonly hostile: VersusEndJson['camp'] };
+  readonly modes: {
+    readonly camp?: Readonly<Record<string, never>>;
+    readonly points?: { readonly zones: readonly PointsZoneJson[]; readonly per_value_destroyed: number; readonly target: number };
+  };
+}
+
+/** An objective row as a mode file turns it into: the runtime's `ObjectiveJson` shape, restated (this package
+ *  imports nothing). */
+export interface VersusModeObjectiveJson {
+  id: string;
+  type: 'raze' | 'score';
+  primary: true;
+  side: 0 | 1;
+  target?: string;
+  score?: { zones: { zone: string; per_min: number }[]; per_value_destroyed: number; target: number };
+}
+
+/** The runtime mission a win mode becomes, with the zones it adds to the map's. */
+export interface VersusModeMissionJson {
+  id: string;
+  map: { file: string };
+  ledger: { requires: never[]; produces: never[] };
+  objectives: VersusModeObjectiveJson[];
+  structures: { type: 'camp'; at: [number, number]; size: [number, number]; side: 0 | 1; owner: 0 | 1 }[];
+}
+
+/** The zone a camp's footprint is, by END: what the `camp` mode's `raze` names. */
+export function campYardZone(end: 'friendly' | 'hostile'): string {
+  return `camp_yard_${end}`;
+}
+
+/**
+ * The mission a win mode plays (GH-976). `sideAt` says which SIDE stands at each END, the room's call as in
+ * `versusMissionOf`. Every side gets ONE primary objective, in side order, so a mode is symmetric by
+ * construction: the same numbers for both, and the only difference is which end is whose.
+ *   camp:   side s razes the camp at the OTHER side's end; both camps stand, owned by the side that holds
+ *           the end (an owned structure is a target in its own right, which a plain camp is not).
+ *   points: side s runs the file's score block.
+ * Throws on a mode the file does not carry, or `camp` with no `camps`, which `validate:data` refused.
+ */
+export function versusModeMissionOf(
+  file: VersusModeFileJson,
+  mode: WinModeId,
+  sideAt: { friendly: 0 | 1; hostile: 0 | 1 },
+): { mission: VersusModeMissionJson; zones: Record<string, number[]> } {
+  const mission: VersusModeMissionJson = {
+    id: `versus:${file.map}:${mode}`,
+    map: { file: file.map },
+    ledger: { requires: [], produces: [] },
+    objectives: [],
+    structures: [],
+  };
+  const zones: Record<string, number[]> = {};
+  const sides = [0, 1] as const;
+  if (mode === 'camp') {
+    const camps = file.camps;
+    if (file.modes.camp === undefined || camps === undefined) throw new Error(`versus mode file "${file.id}": no camp mode`);
+    const ends = ['friendly', 'hostile'] as const;
+    const endOf = (side: 0 | 1): 'friendly' | 'hostile' => (sideAt.friendly === side ? 'friendly' : 'hostile');
+    for (const side of sides) {
+      const end = endOf(side);
+      const c = camps[end];
+      mission.structures.push({ type: 'camp', at: [c.at[0], c.at[1]], size: [c.size[0], c.size[1]], side, owner: side });
+    }
+    for (const end of ends) zones[campYardZone(end)] = [camps[end].at[0], camps[end].at[1], camps[end].size[0], camps[end].size[1]];
+    for (const side of sides) {
+      mission.objectives.push({ id: `raze_camp_${side}`, type: 'raze', primary: true, side, target: campYardZone(endOf(side === 0 ? 1 : 0)) });
+    }
+  } else {
+    const p = file.modes.points;
+    if (p === undefined) throw new Error(`versus mode file "${file.id}": no points mode`);
+    for (const side of sides) {
+      mission.objectives.push({
+        id: `score_${side}`, type: 'score', primary: true, side,
+        score: { zones: p.zones.map((z) => ({ zone: z.zone, per_min: z.per_min })), per_value_destroyed: p.per_value_destroyed, target: p.target },
+      });
+    }
+  }
+  return { mission, zones };
+}

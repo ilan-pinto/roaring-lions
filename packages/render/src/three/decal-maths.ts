@@ -160,7 +160,7 @@ import { tileHash } from '../tile-hash';
 
 /** Every mark this pool draws. Order fixes `DECAL_KIND_INDEX` -- see that
  *  constant's own doc comment for why the order itself is load-bearing. */
-export type DecalKind = 'crater' | 'scorch' | 'oil' | 'rubble' | 'tread' | 'tyre';
+export type DecalKind = 'crater' | 'scorch' | 'oil' | 'rubble' | 'tread' | 'tyre' | 'churn';
 
 /**
  * `DecalKind` as a small integer, written into the `aDecal` vertex
@@ -180,13 +180,15 @@ export const DECAL_KIND_INDEX: Readonly<Record<DecalKind, number>> = {
   rubble: 3,
   tread: 4,
   tyre: 5,
+  // GH-984 N2: the earth a tracked hull churns on a pivot and a hard launch. Appended, so no index moved.
+  churn: 6,
 };
 
-/** `tread`/`tyre` are the only kinds that age out (R-15's 180 s fade);
+/** `tread`/`tyre` (R-15's 180 s fade) and `churn` (GH-984 N2, `CHURN_FADE_SEC`) are the kinds that age out;
  *  crater/scorch/oil/rubble are permanent for the mission, matching
  *  `scorch-decals.ts`'s own "No TTL" for the mark it already ships. */
 export function isFadingKind(k: DecalKind): boolean {
-  return k === 'tread' || k === 'tyre';
+  return k === 'tread' || k === 'tyre' || k === 'churn';
 }
 
 /** See this file's top comment, "One pool class, two instances (R-10)". */
@@ -654,6 +656,24 @@ export const TREAD_PERIOD_TILES = 0.06;
 export const TREAD_PATTERN_BASE = 0.65;
 export const TREAD_PATTERN_CLEAT = 0.35;
 
+/**
+ * Churn (GH-984 N2): a scuff of turned earth where a tracked hull pivots on the spot or a vehicle
+ * digs in on a hard launch. An ellipse with a wobbled rim (a third of the oil's), raked by radial
+ * spokes so it reads as torn ground and not as a stain; it takes `tread`'s colour (dust on a dry map,
+ * mud under rain). Fades LINEARLY over `CHURN_FADE_SEC` sim seconds, a shorter life than a track's.
+ */
+export const CHURN_ALPHA = 0.5;
+export const CHURN_FADE_SEC = 120;
+export const CHURN_WOBBLE = 0.12;
+export const CHURN_LOBES = 3;
+export const CHURN_EDGE_INNER = 0.45;
+/** Radial rakes per turn, the share of the body they leave (the rest is the scraped furrow), and the radius they fade in over. */
+export const CHURN_SPOKES = 9;
+export const CHURN_SPOKE_BASE = 0.6;
+export const CHURN_SPOKE_CORE = 0.18;
+/** The three sizes the showcase stamps (half extents, tiles): a pivot's scuff, a launch's, and a heavy dozer's dig-in. */
+export const CHURN_SHOWCASE_RADII: readonly [number, number, number] = [0.3, 0.45, 0.6];
+
 /** `tileHash`'s multipliers and shifts, owned by `../tile-hash.ts` and
  *  re-exported here for the shader -- see this file's top comment. */
 export { TILE_HASH_MIX, TILE_HASH_MX, TILE_HASH_MY, TILE_HASH_SHIFT_A, TILE_HASH_SHIFT_B } from '../tile-hash';
@@ -887,6 +907,17 @@ export function decalAlpha(
         alpha: TRACK_ALPHA * feather * side * fade * pattern,
         colour: kind === 'tread' ? COLOUR_TREAD : COLOUR_TYRE,
       };
+    }
+    case 'churn': {
+      const rw = wobbledRadius(s, t, seed, CHURN_WOBBLE, CHURN_LOBES);
+      const body = 1 - smoothstep(CHURN_EDGE_INNER, 1, rw);
+      const r = Math.hypot(s, t);
+      const theta = r > 0 ? Math.atan2(t, s) : 0;
+      const raked = fract((theta / (2 * Math.PI)) * CHURN_SPOKES + seed) >= 0.5 ? 1 : 0;
+      const spoke = CHURN_SPOKE_BASE + (1 - CHURN_SPOKE_BASE) * raked;
+      const core = smoothstep(0, CHURN_SPOKE_CORE, r);
+      const fade = clamp01(1 - Math.max(ageSec, 0) / CHURN_FADE_SEC);
+      return { alpha: CHURN_ALPHA * body * (1 + (spoke - 1) * core) * fade, colour: COLOUR_TREAD };
     }
   }
 }

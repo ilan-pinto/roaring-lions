@@ -54,6 +54,31 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   seats and the south pair at 4 stay. The 2x2 on the map's south rows reads
  *   inside for x = 20, 21 and 22; row 45 is mixed ((21,45) Sarim friendly
  *   61%).
+ *   GH-990 (3 Nov, after the faster Spike, PR 987): the economy cell with Sarim friendly read Sarim
+ *   62.5-64.9% on 4000-4287 (medic off / on) and 63.2% on 6000-6287 at the seat (27,45), outside 60/40.
+ *   Income rates and camp moves were screened and failed (lever-report.md of the GH-707 search; four more
+ *   hostile camps here, (25,18) (25,20) (22,20) (28,20): 58.6-59.6%, and Sarim 91.4% at (28,20)). A Sarim
+ *   opening purse of 1800 / 1500 (instead of 2400) moves the cell 4 / 6 points but sends tunnel cell 3 to
+ *   KDF 60.9% / 64.1%. The friendly seat one tile west, (26,45), reads, seeds 0-383: economy Sarim
+ *   friendly KDF 54.9% and KDF friendly Sarim 55.5%, tunnel cell 3 Sarim 53.1% (KDF friendly) / KDF 54.2%
+ *   (Sarim friendly), mirror east 54.9%, placed Sarim 50.3% (KDF friendly) / KDF 59.1% (Sarim friendly).
+ *   At the new seat the Sarim force's row 47 stands on the camp's tile (22,47) (the placed-force camp test
+ *   refuses it), so the friendly camp moved with it, (21,46) -> (20,46): the same offset from the seat. At
+ *   (20,46) the same 0-383 reads economy KDF 50.8% (Sarim friendly) / KDF 51.3% (KDF friendly), tunnel cell 3
+ *   Sarim 54.2% (KDF friendly) / KDF 51.6% (Sarim friendly). The seat's neighbours swing: (27,44) mirror west 59.4%, (27,46) tunnel cell 3
+ *   KDF 64.1% and the Sarim mirror 87.2%, (26,44) the Sarim mirror 71.4%, (28,46) economy Sarim 60.1%,
+ *   (26,46) mirror east 62%.
+ *   With the medic on the menu (PR 985) the seat and camp send tunnel cell 3 with Sarim friendly Sarim-ward
+ *   (Sarim 58.6% pooled over five ranges, 60.8% on 6000-6287, 64.1% on 8000-8191; the old seat 50.5%), so the
+ *   south tunnel pair went 4 / 4 -> 3 / 3 (`data/versus/tel_marum.json`; it is the Sarim seat's routes only
+ *   when Sarim stands south, so it touches that one cell): Sarim 55.5% -> 52.9% (0-383), 60.8% -> 53.5%
+ *   (6000-6287). 4 / 3 read 54.2% / 52.8% medic on and is worse medic off; 3 / 4 read 63.3% / 61.5%.
+ *   Held out, 7000-7287, 4000-4287 and a fresh 9000-9287 (288 a cell, medic on / off): economy Sarim
+ *   friendly, main Sarim 56.9 / 56.6, 68.1 / 62.5 and 67.7 / 60.8%, now Sarim 52.1 / KDF 55.2, Sarim 50.3 /
+ *   KDF 54.2 and Sarim 56.3 / KDF 51.7%. On 7000 and 4000 every other economy, tunnel cell 3, placed and
+ *   mirror cell is inside 60/40 but one: cell 3 with Sarim friendly, medic off, KDF 62.5% on 7000 (KDF 57.3%
+ *   on 4000, 55.6% on 9000, 58.4% pooled). 9000 ran the two Sarim-friendly cells only. The Sarim-v-Sarim
+ *   mirror (a report cell) read east 62.8 / 70.8% and now reads 55.6 / 55.9%.
  * - `wadi_tarfan` (mirror and KDF-vs-Sarim; the lead's ruling, 23 Oct,
  *   GH-769): its own `versus_0`/`versus_1` markers (10,10)/(37,37) read
  *   KDF-vs-Sarim outside 60/40 at 96 seeds with wounds on (placed force, KDF
@@ -110,7 +135,7 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  */
 export const VERSUS_SEATS: Readonly<Record<string, SandboxAnchors>> = {
   beit_sahwan_outskirts: { friendly: [4, 22], hostile: [40, 23] },
-  tel_marum: { friendly: [27, 45], hostile: [29, 17] },
+  tel_marum: { friendly: [26, 45], hostile: [29, 17] },
   wadi_tarfan: { friendly: [10, 10], hostile: [37, 37] },
 };
 

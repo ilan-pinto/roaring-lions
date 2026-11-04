@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.129.28",
+  "version": "0.129.29",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -64,6 +64,7 @@
     "tunnel:capture": "pnpm --filter @lions/tools tunnel:capture",
     "banner:capture": "pnpm --filter @lions/tools banner:capture",
     "wind:capture": "pnpm --filter @lions/tools wind:capture",
+    "nature:capture": "pnpm --filter @lions/tools nature:capture",
     "radio:clips": "pnpm --filter @lions/tools radio:clips",
     "audio:mix": "pnpm --filter @lions/tools audio:mix",
     "weight:capture": "pnpm --filter @lions/tools weight:capture",

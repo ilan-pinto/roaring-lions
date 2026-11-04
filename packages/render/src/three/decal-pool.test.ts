@@ -17,6 +17,14 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import {
+  CHURN_ALPHA,
+  CHURN_EDGE_INNER,
+  CHURN_FADE_SEC,
+  CHURN_SPOKE_BASE,
+  CHURN_SPOKES,
+  COLOUR_TREAD,
+  DECAL_KIND_INDEX,
+  isFadingKind,
   CRATER_BOWL_ALPHA,
   CRATER_LIP_ALPHA,
   craterHeight,
@@ -416,6 +424,41 @@ describe('decalAlpha -- spec §5, kind by kind', () => {
       expect(over, `u=${u.toFixed(3)}`).toBeLessThanOrEqual(TRACK_ALPHA + 1e-9);
       expect(over, `u=${u.toFixed(3)}`).toBeGreaterThanOrEqual(TRACK_ALPHA - (TRACK_ALPHA * TRACK_ALPHA) / 4 - 1e-9);
     }
+  });
+});
+
+describe('churn (GH-984 N2): turned earth where a hull pivots or digs in', () => {
+  it('is the last kind, in the fading pool, in the tread colour, with its approved opacity and a 120 s linear fade', () => {
+    expect(DECAL_KIND_INDEX.churn).toBe(6);
+    expect(Object.values(DECAL_KIND_INDEX).sort()).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(isFadingKind('churn')).toBe(true);
+    expect(isFadingKind('crater')).toBe(false);
+    expect(CHURN_ALPHA).toBe(0.5);
+    expect(CHURN_FADE_SEC).toBe(120);
+    // Dead centre, on a rake gap or a rake, fresh: the body's full alpha times the spoke level (the core blends it to 1).
+    expect(decalAlpha('churn', 0, 0, 0.25, 0, 0.3).alpha).toBeCloseTo(CHURN_ALPHA, 9);
+    expect(decalAlpha('churn', 0, 0, 0.25, 0, 0.3).colour).toBe(COLOUR_TREAD);
+    expect(decalAlpha('churn', 0, 0, 0.25, CHURN_FADE_SEC / 2, 0.3).alpha).toBeCloseTo(CHURN_ALPHA / 2, 9);
+    expect(decalAlpha('churn', 0, 0, 0.25, CHURN_FADE_SEC, 0.3).alpha).toBe(0);
+    expect(decalAlpha('churn', 0, 0, 0.25, -1, 0.3).alpha).toBeCloseTo(CHURN_ALPHA, 9);
+  });
+  it('is gone at the rim and raked by spokes inside it (it is torn ground, not a stain)', () => {
+    expect(decalAlpha('churn', 1, 0, 0, 0, 0.3).alpha).toBe(0);
+    const ring = Array.from({ length: 90 }, (_, i) => {
+      const th = (i / 90) * 2 * Math.PI;
+      return decalAlpha('churn', 0.3 * Math.cos(th), 0.3 * Math.sin(th), 0.1, 0, 0.3).alpha;
+    });
+    const hi = Math.max(...ring);
+    const lo = Math.min(...ring);
+    expect(lo / hi).toBeCloseTo(CHURN_SPOKE_BASE, 1);
+    expect(CHURN_SPOKES).toBe(9);
+    expect(CHURN_EDGE_INNER).toBeLessThan(1);
+  });
+  it('is in the fragment shader as the same arithmetic, built from the same names', () => {
+    expect(DECAL_FRAGMENT_SHADER).toContain(`kind == ${DECAL_KIND_INDEX.churn}`);
+    expect(DECAL_FRAGMENT_SHADER).toContain(`${CHURN_ALPHA.toFixed(6)} * body`);
+    expect(DECAL_FRAGMENT_SHADER).toContain(`${CHURN_FADE_SEC.toFixed(6)}`);
+    expect(DECAL_FRAGMENT_SHADER).toContain(`${CHURN_SPOKES.toFixed(6)}`);
   });
 });
 

@@ -19,6 +19,39 @@ export interface SeatConfig {
   kind: 'human' | 'bot';
 }
 
+/** How a versus room is WON beside annihilation (GH-976): `camp` razes the enemy camp, `points` is a points race.
+ *  A twin of @lions/data's `WIN_MODES` (the Worker imports net and not data), held to it by
+ *  `tools/src/validate_versus_modes.test.ts`. Absent on a config is annihilation, the default, and every room
+ *  that has ever been played. */
+export const WIN_MODES = ['camp', 'points'] as const;
+export type WinMode = (typeof WIN_MODES)[number];
+
+/** The maps each win mode has been READ fair on (GH-976 P1; `pnpm versus:probe -- --mode=...`, 288 held-out seeds, 4000-4287,
+ *  both ends active and each end passive in turn): the lobby of a later phase offers a mode on these maps and no others
+ *  (`winModeAllowed`). Nothing consults it in phase 1 -- no room offers a mode yet -- and `validateConfig` does not (the probe
+ *  and the tests play modes anywhere a mode file stands).
+ *
+ *  - `points` reads fair on both: wadi_tarfan east 56.3% (within the 60/40 bar), 93.8% of games decided by the goal, the passive
+ *    end lost 288 of 288 from each end; milh_flats west 57.3%, 98.3% by the goal, the passive end lost 288 of 288 from each end.
+ *  - `camp` reads fair (53.5% and 58.0%) and FAILS the other two bars on both maps, so it is listed on none: 4.9% (wadi_tarfan)
+ *    and 58.3% (milh_flats) of games were decided by the camp, against 70% required, because two blobs that attack-move on the
+ *    other's camp meet and one wipes the other first; and a passive end won 29 and 8 of 288 games (wadi_tarfan), 47 and 38
+ *    (milh_flats), where it must lose them all. Reported to the lead; the open question is in `_coord/win-modes/report.md`. */
+export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
+  camp: [],
+  points: ['wadi_tarfan', 'milh_flats'],
+};
+
+/** Whether `map` is one `mode` has been read fair on (the lobby's question, later). */
+export function winModeAllowed(mode: WinMode, map: string): boolean {
+  return WIN_MODE_FAIR_MAPS[mode].includes(map);
+}
+
+/** A win mode from anything a client sent: unknown reads as none (annihilation). */
+export function winModeField(v: unknown): WinMode | undefined {
+  return WIN_MODES.find((m) => m === v);
+}
+
 export type Pace = { kind: 'realtime' } | { kind: 'paced'; roundTicks: number; roundWallMs: number };
 
 export interface MatchConfig {
@@ -41,6 +74,10 @@ export interface MatchConfig {
    *  0 is off. The room mints it (snapshot spec §4.2); a config persisted
    *  before the field existed reads as off. */
   snapshotEveryTicks?: number;
+  /** GH-976: the win mode a versus room plays, when it plays one. Absent is annihilation and changes nothing
+   *  about the room. A mode room runs a goals-only runtime, mirror included, with production off
+   *  (`economyRoom` is false for it); the match ends on the goal, annihilation or the cap (`outcome.ts`). */
+  winMode?: WinMode;
 }
 
 /** The cadence the room mints, in frame ticks: one a minute at 20 Hz (D2). */
@@ -96,8 +133,9 @@ export function sidesOfMatchup(m: Matchup): [0 | 1, 0 | 1] {
  *  whose two seats field different factions. Such a room builds a
  *  `MissionRuntime` (camps, purses, doctrine menus, income zones); a mirror
  *  room -- KDF against KDF -- keeps today's placed-force match and builds none. */
-export function economyRoom(config: Pick<MatchConfig, 'mode' | 'seats'>): boolean {
-  return config.mode === 'versus' && config.seats[0].faction !== config.seats[1].faction;
+export function economyRoom(config: Pick<MatchConfig, 'mode' | 'seats' | 'winMode'>): boolean {
+  // GH-976: a win-mode room plays goals, not an economy, whoever the two factions are.
+  return config.mode === 'versus' && config.seats[0].faction !== config.seats[1].faction && config.winMode === undefined;
 }
 
 /** Where a seat's force spawns: the host (seat 0) on the map's `friendly`
@@ -254,6 +292,7 @@ export function validateConfig(v: unknown): MatchConfig | null {
   if (!Array.isArray(c.seats) || c.seats.length !== 2 || !isSeatConfig(c.seats[0], 0) || !isSeatConfig(c.seats[1], 1)) return null;
   if (!isPace(c.pace) || !isInt(c.hashEveryTicks) || c.hashEveryTicks < 1 || !isInt(c.bufferTicks) || c.bufferTicks < 0) return null;
   if (!isStr(c.build) || !isInt(c.dataDigest)) return null;
+  if (c.winMode !== undefined && (c.mode !== 'versus' || winModeField(c.winMode) === undefined)) return null;
   if (c.snapshotEveryTicks !== undefined) {
     const e = c.snapshotEveryTicks;
     if (!isInt(e) || e < 0 || e > SNAPSHOT_EVERY_TICKS_MAX || (e !== 0 && e % c.hashEveryTicks !== 0)) return null;

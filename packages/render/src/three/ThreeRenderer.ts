@@ -321,6 +321,17 @@ import { ROAD_GRAIN_GAIN, buildRoadGraph } from './terrain/road-graph';
 import { hexToLinear } from './terrain/shared';
 import { DEFAULT_WIND, windGust, windHeading } from './terrain/wind';
 import { makeWindUniforms, type WindUniformSet } from './terrain/wind-uniforms';
+import {
+  DISTURB_KIND_FOOT,
+  DISTURB_KIND_HULL,
+  DISTURB_KIND_NONE,
+  DISTURB_REACH,
+  DisturbField,
+  natureQualityOf,
+  type DisturbFrame,
+  type DisturbSource,
+} from './terrain/disturb';
+import { makeDisturbUniforms, type DisturbUniformSet } from './terrain/disturb-uniforms';
 import type { TerrainInput, MeshData } from './terrain/types';
 import {
   buildDecorMesh,
@@ -449,6 +460,25 @@ import {
   washSlotsDue,
 } from './units/rotor-wash';
 import { nextVehicleMoving, vehicleDustIntervalMs, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
+import {
+  CHURN_EVENT_LAUNCH,
+  CHURN_EVENT_NONE,
+  CHURN_EVENT_PIVOT,
+  CLOD_HISTORY,
+  CLOD_LAUNCH_DIR,
+  CLOD_LAUNCH_MAGNITUDE,
+  CLOD_MAX_LIFE_MS,
+  CLOD_PIVOT_DIRS,
+  CLOD_PIVOT_MAGNITUDE,
+  CLOD_SPAWN_OFFSET_TILES,
+  churnStamps,
+  makeChurnState,
+  resetChurn,
+  stepChurn,
+  turnDelta,
+  type ChurnEvent,
+  type ChurnState,
+} from './units/ground-churn';
 import {
   makeVehicleWeightArrays,
   stepVehicleWeight,
@@ -638,6 +668,7 @@ import {
   trackKindFor,
   stepTrackAccum,
   trackStampCenters,
+  MAX_PLAUSIBLE_TRACK_STEP_TILES,
   STAMP_SPACING_TILES,
   TRACK_FOOTPRINT,
 } from './vehicle-tracks';
@@ -1683,6 +1714,39 @@ export class ThreeRenderer implements Renderer {
    * never reads any of it.
    */
   private readonly windU: WindUniformSet = makeWindUniforms();
+  /**
+   * The vehicles' disturbance of the grass and bushes (GH-984 N2; `terrain/disturb.ts`): the capsule array, its
+   * bounding box, the slot count and the spring flag, shared BY REFERENCE with every foliage and trunk batch like
+   * `windU`. `disturbField` fills them once a frame from the sim's interpolated positions and the per-tick wake
+   * ring that `snapshot()` writes; the `disturb` debug layer is the only writer of `amp`. Declared BEFORE `sway`,
+   * which holds the set.
+   */
+  private readonly disturbU: DisturbUniformSet = makeDisturbUniforms();
+  /** `disturbU`'s arrays, the per-entity tick ring and the slot chooser; built in the constructor, once the capacity is known. */
+  private readonly disturbField: DisturbField;
+  /** By unit type index: what the type does to vegetation (`DISTURB_KIND_*`) and the disc radius, tiles. */
+  private readonly disturbKindOfType: Uint8Array;
+  private readonly disturbRadiusOfType: Float64Array;
+  /** The frame's inputs to `disturbField.build`: a persistent object, its fields rewritten every frame (no allocation). */
+  private readonly disturbFrame: DisturbFrame = {
+    count: 0, tick: 0, alpha: 0, focusX: 0, focusZ: 0, viewRadius: 0, slots: 0, wakes: false, foot: false,
+  };
+  private readonly disturbSource: DisturbSource;
+  /** `opts.reducedMotion?.()` as `frame()` last asked it (every frame, every map): the clods read it. */
+  private reducedPrefNow = false;
+  /** Pivot and launch detection per vehicle (`units/ground-churn.ts`), stepped by `snapshot()`, once a TICK. */
+  private readonly churn: ChurnState;
+  /**
+   * Clod events, `CLOD_HISTORY` deep per entity (`units/ground-churn.ts` says why two): the tick, the kind, where,
+   * which way the hull faced, and whether a frame has spawned it. Written by `snapshot()`, drained by `updateVehicleClods`.
+   */
+  private readonly clodTick: Int32Array;
+  private readonly clodKind: Uint8Array;
+  private readonly clodDone: Uint8Array;
+  private readonly clodX: Float64Array;
+  private readonly clodY: Float64Array;
+  private readonly clodFacing: Float64Array;
+  private readonly clodNext: Uint8Array;
   /** The heading the rain slants along and the gust is sampled against (unit, world x/z). */
   private windDirX = DEFAULT_WIND.dirX;
   private windDirZ = DEFAULT_WIND.dirZ;
@@ -1695,7 +1759,7 @@ export class ThreeRenderer implements Renderer {
    * so the crowns move at 60 fps while the sim ticks at 20. `amp` is 1 and
    * only the `wind` debug layer writes it; nothing in `frame()` does.
    */
-  private readonly sway: SwayUniforms = { time: { value: 0 }, amp: { value: 1 }, wind: this.windU };
+  private readonly sway: SwayUniforms = { time: { value: 0 }, amp: { value: 1 }, wind: this.windU, disturb: this.disturbU };
   /**
    * Owns the muzzle-flash/blast light pool (`./flash-light.ts`'s own top
    * comment) -- one instance for the whole renderer, `FLASH_CAPACITY` real
@@ -2976,6 +3040,37 @@ export class ThreeRenderer implements Renderer {
     this.damageSmokeSlot = new Int32Array(n).fill(-1);
     this.vehicleTrackAccumTiles = new Float64Array(n);
     this.vehicleTrackSeeded = new Uint8Array(n);
+    // GH-984 N2: the disturbers' ring and arrays, what each unit type does to vegetation, and the churn/clod state.
+    this.disturbField = new DisturbField(n);
+    this.disturbU.a.value = this.disturbField.a;
+    this.disturbU.b.value = this.disturbField.b;
+    this.disturbKindOfType = new Uint8Array(sim.unitTypes.length);
+    this.disturbRadiusOfType = new Float64Array(sim.unitTypes.length);
+    for (let t = 0; t < sim.unitTypes.length; t++) {
+      const type = sim.unitTypes[t];
+      // Air is N3's (rotor wash); a hull is "wheeled" in the sim's own sense (tracked included); the rest walk.
+      this.disturbKindOfType[t] = type.isAir ? DISTURB_KIND_NONE : type.wheeled ? DISTURB_KIND_HULL : DISTURB_KIND_FOOT;
+      this.disturbRadiusOfType[t] = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type));
+    }
+    this.disturbSource = {
+      alive: sim.state.alive,
+      typeIdx: sim.state.typeIdx,
+      prevX: this.prevX,
+      prevZ: this.prevY,
+      curX: this.curX,
+      curZ: this.curY,
+      kindOfType: this.disturbKindOfType,
+      radiusOfType: this.disturbRadiusOfType,
+      skip: (i) => this.hiddenFromViewer(i) || this.buriedLast[i] === 1 || this.sim.state.garrisonedIn[i] >= 0,
+    };
+    this.churn = makeChurnState(n);
+    this.clodTick = new Int32Array(n * CLOD_HISTORY).fill(-1);
+    this.clodKind = new Uint8Array(n * CLOD_HISTORY);
+    this.clodDone = new Uint8Array(n * CLOD_HISTORY).fill(1);
+    this.clodX = new Float64Array(n * CLOD_HISTORY);
+    this.clodY = new Float64Array(n * CLOD_HISTORY);
+    this.clodFacing = new Float64Array(n * CLOD_HISTORY);
+    this.clodNext = new Uint8Array(n);
     this.fog = new Uint8Array(sim.width * sim.height);
     this.sightByType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) this.sightByType[t] = fx.toNumber(sim.unitTypes[t].sight);
@@ -4214,6 +4309,10 @@ export class ThreeRenderer implements Renderer {
     // adds nothing new (GH-984 decision 6), so mode 0 is the legacy branch of the shader.
     const reducedPref = this.opts.reducedMotion?.() === true;
     this.windU.mode.value = reducedPref ? 0 : 1;
+    // GH-984 N2: the vehicles' disturbers, from the sim's interpolated positions and the tick ring. Reduced motion
+    // keeps the bend but as a static displacement (no spring) and drops the clods (`updateVehicleClods`).
+    this.reducedPrefNow = reducedPref;
+    this.updateDisturbers(alpha, reducedPref);
     // Reduced motion is asked ONCE a frame (`reducedPref`, just above, which the wind shares), live (a settings change mid-mission takes effect at
     // the next frame), and the answer is shared by the rain-visibility write and the ripple
     // amplitude write below (GH-871 P4 T9, R-9). Both are per-frame writes; the debug toggles
@@ -4328,6 +4427,14 @@ export class ThreeRenderer implements Renderer {
         const next = visible ? 1 : 0;
         const changed = this.sway.amp.value === next ? 0 : 1;
         this.sway.amp.value = next;
+        return changed;
+      }
+      case 'disturb': {
+        // `uDisturbAmp` to 0 and back, `wind`'s shape: 1 when it changed. `frame()` writes the slot count and
+        // the arrays (and none of it while the amplitude is 0), never the amplitude, so this holds across a repaint.
+        const next = visible ? 1 : 0;
+        const changed = this.disturbU.amp.value === next ? 0 : 1;
+        this.disturbU.amp.value = next;
         return changed;
       }
       case 'buildings':
@@ -5303,6 +5410,10 @@ export class ThreeRenderer implements Renderer {
       const dy = this.curY[i] - this.prevY[i];
       this.entitySpeed[i] = Math.hypot(dx, dy) * SIM_HZ;
 
+      // GH-984 N2: a hull's tick ring (the wake's tail) and its churn/clod events -- written HERE, once per sim
+      // TICK, and nowhere a frame can reach, so two frame cadences that arrive at one tick hold one ring.
+      if (st.alive[i] !== 0) this.stepVehicleNature(i, i >= seen, dx, dy);
+
       // Vehicle track marks: tick-driven (not frame-driven), matching this
       // tick's own exact dx/dy rather than a re-derived speed*dt -- see
       // ./vehicle-tracks.ts's own top comment for the full design account.
@@ -5367,6 +5478,59 @@ export class ThreeRenderer implements Renderer {
       }
     }
     this.snapshottedCount = n;
+  }
+
+  /**
+   * GH-984 N2, once per sim tick for a living entity: the hull's wake ring and its churn/clod events.
+   * `newcomer` is an entity spawned since the last snapshot; `dx`/`dy` is this tick's displacement.
+   * A hull that jumped (`MAX_PLAUSIBLE_TRACK_STEP_TILES`, the tracks' own teleport rule) or that has no
+   * ring yet is re-seeded, so a reinforcement never drags a wake across the map.
+   */
+  private stepVehicleNature(i: number, newcomer: boolean, dx: number, dy: number): void {
+    const st = this.sim.state;
+    const typeIdx = st.typeIdx[i];
+    const tick = this.sim.tickCount;
+    if (this.disturbKindOfType[typeIdx] === DISTURB_KIND_HULL) {
+      const ring = this.disturbField.ring;
+      if (newcomer || !ring.seeded(i) || Math.hypot(dx, dy) > MAX_PLAUSIBLE_TRACK_STEP_TILES) {
+        ring.seed(i, tick, this.curX[i], this.curY[i]);
+      } else {
+        ring.record(i, tick, this.curX[i], this.curY[i]);
+      }
+    }
+    const type = this.sim.unitTypes[typeIdx];
+    const kind = type.isAir ? null : trackKindFor(type.id);
+    if (kind === null) return;
+    if (newcomer || Math.hypot(dx, dy) > MAX_PLAUSIBLE_TRACK_STEP_TILES) {
+      resetChurn(this.churn, i);
+      return;
+    }
+    const facingNorm = fx.toNumber(st.facing[i]);
+    const yawTurnsS = turnDelta(this.prevFacing[i], this.curFacing[i]) * SIM_HZ;
+    const event = stepChurn(this.churn, i, tick, this.entitySpeed[i], yawTurnsS, fx.toNumber(type.stepPerTick) * SIM_HZ, kind);
+    if (event === CHURN_EVENT_NONE || this.hiddenFromViewer(i)) return;
+    const simMs = stampSimMs(tick);
+    for (const c of churnStamps(event, this.curX[i], this.curY[i], facingNorm, kind)) {
+      this.stampGroundDecal({
+        kind: 'churn',
+        x: c.x,
+        z: c.y,
+        halfLength: c.halfLength,
+        halfWidth: c.halfWidth,
+        facingRad: c.facingNorm * Math.PI * 2,
+        seed: decalSeed('churn', c.x, c.y),
+        simMs,
+      });
+    }
+    // The clod burst is an EVENT the frame that presents this tick spawns (`updateVehicleClods`).
+    const slot = i * CLOD_HISTORY + this.clodNext[i];
+    this.clodNext[i] = (this.clodNext[i] + 1) % CLOD_HISTORY;
+    this.clodTick[slot] = tick;
+    this.clodKind[slot] = event;
+    this.clodDone[slot] = 0;
+    this.clodX[slot] = this.curX[i];
+    this.clodY[slot] = this.curY[i];
+    this.clodFacing[slot] = facingNorm;
   }
 
   /**
@@ -11115,6 +11279,95 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * GH-984 N2: fills the disturber array the foliage and trunk shader reads, from the sim's interpolated
+   * positions (`lerp(prev, cur, alpha)`, never the drawn hull) and the per-tick wake ring `snapshot()` keeps.
+   * A pure function of (tick, alpha), the camera focus and the preset. While the `disturb` layer is hidden
+   * (`amp` 0) it does nothing and the shader skips its loop, which is also what the cost run's "off" arm measures.
+   */
+  private updateDisturbers(alpha: number, reduced: boolean): void {
+    const u = this.disturbU;
+    u.spring.value = reduced ? 0 : 1;
+    const quality = natureQualityOf(this.opts.quality);
+    const field = this.disturbField;
+    if (u.amp.value === 0 || quality.slots === 0) {
+      field.count = 0;
+      u.n.value = 0;
+      return;
+    }
+    const f = this.disturbFrame;
+    // `footprintHalfExtents`' arithmetic written out (it returns a fresh object): half the ground footprint along the screen's two axes.
+    const halfA = this.width / (TILE_W * this.camera.zoom * Math.SQRT2);
+    const halfB = this.height / (TILE_H * this.camera.zoom * Math.SQRT2);
+    f.count = this.snapshottedCount;
+    f.tick = this.sim.tickCount;
+    f.alpha = alpha;
+    f.focusX = this.camera.x;
+    f.focusZ = this.camera.y;
+    // The ground footprint's corner is the farthest point on screen; the widest hull's reach beyond it can still touch it.
+    f.viewRadius = Math.hypot(halfA, halfB) + 2.5 * DISTURB_REACH + 2;
+    f.slots = quality.slots;
+    f.wakes = quality.wakes;
+    f.foot = quality.foot;
+    field.build(this.disturbSource, f);
+    u.n.value = field.count;
+    u.box.value.set(field.box[0], field.box[1], field.box[2], field.box[3]);
+  }
+
+  /**
+   * GH-984 N2: the clod bursts `snapshot()` recorded for pivots and launches. An event is spawned by the first
+   * frame that PRESENTS its tick (`nowMs >= tick x 50`), already as old as sim time says, with its randomness
+   * seeded by (entity, tick): the puffs in a frozen frame are a pure function of sim time, as the rotor wash's
+   * are, and a zero-time repaint spawns nothing. An event older than `CLOD_MAX_LIFE_MS` when a frame finally
+   * sees it (a jump of ticks with no frame) spawns nothing and is closed. Reduced motion and `fxDetail` 0 spawn
+   * none either, but still close the event, so changing the setting back does not replay a stale burst.
+   */
+  private updateVehicleClods(alpha: number): void {
+    const clods = this.emitterLibrary.byName('vehicle_clods');
+    if (!this.particleSystem || clods === null) return;
+    const n = this.snapshottedCount;
+    const nowMs = presentationSimMs(this.sim.tickCount, alpha);
+    const allowed = !this.reducedPrefNow && (this.opts.quality ?? QUALITY_PRESETS.high).fxDetail !== 0;
+    for (let i = 0; i < n; i++) {
+      for (let h = 0; h < CLOD_HISTORY; h++) {
+        const slot = i * CLOD_HISTORY + h;
+        if (this.clodDone[slot] === 1) continue;
+        const tick = this.clodTick[slot];
+        const eventMs = presentationSimMs(tick, 1);
+        if (nowMs < eventMs) continue;
+        this.clodDone[slot] = 1;
+        const ageMs = nowMs - eventMs;
+        if (!allowed || ageMs > CLOD_MAX_LIFE_MS || this.sim.state.alive[i] === 0 || this.hiddenFromViewer(i)) continue;
+        const kind = this.clodKind[slot] as ChurnEvent;
+        const facing = this.clodFacing[slot];
+        const magnitude = kind === CHURN_EVENT_LAUNCH ? CLOD_LAUNCH_MAGNITUDE : CLOD_PIVOT_MAGNITUDE;
+        const dirs = kind === CHURN_EVENT_PIVOT ? CLOD_PIVOT_DIRS : [CLOD_LAUNCH_DIR];
+        const prio = clods.budget_priority ?? 2;
+        const rand = washRand(i, tick);
+        // A burst is born at the hull's EDGE along its own direction of throw (clods draw below the units, so one born
+        // under the hull is hidden by it): behind the hull for a launch, out of each flank for a pivot.
+        for (const dir of dirs) {
+          const rad = (facing + dir) * Math.PI * 2;
+          for (const layer of clods.particles) {
+            const fxLayer = fxLayerIndex(clods.layer, layer.additive ?? false);
+            this.particleSystem.spawn(
+              layer,
+              this.clodX[slot] + Math.cos(rad) * CLOD_SPAWN_OFFSET_TILES,
+              this.clodY[slot] + Math.sin(rad) * CLOD_SPAWN_OFFSET_TILES,
+              (((facing + dir) % 1) + 1) % 1,
+              magnitude,
+              prio,
+              fxLayer,
+              0,
+              0,
+              { rand, ageSec: ageMs / 1000 }
+            );
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Task B3.13/B3.14: ages and draws every live particle and tracer, every
    * frame, unconditionally -- mirrors `PixiRenderer.frame()`'s own `if
    * (this.particles) this.particles.step(dtSeconds)` (`renderer.ts:1902`)
@@ -11164,6 +11417,7 @@ export class ThreeRenderer implements Renderer {
     this.particleSystem?.step(dtSeconds, simDtSeconds);
     if (alpha !== undefined) {
       this.updateRotorWash(alpha);
+      this.updateVehicleClods(alpha);
       this.updateIdleExhaust(alpha);
       this.updateDamageSmoke(alpha);
       this.updateWreckSmoulder(alpha);

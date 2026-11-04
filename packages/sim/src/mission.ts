@@ -229,6 +229,25 @@ export interface ObjectiveJson {
   say?: SayJson;
   /** Same, on the tick this objective fails. */
   say_on_fail?: SayJson;
+  /** GH-976: the side this objective belongs to, 0 or 1 (a plain number in the JSON type, like
+   *  `structures[].side`: the schema enum is the authority and the constructor narrows it). Absent is
+   *  side 0, the player, as every mission has always read it. `capture` and `hold_for` count THIS side's
+   *  units and contest against the other's; `score` credits it; `raze` names who the razing wins for
+   *  (the structures fall to anyone's guns). Any other type refuses it at construction. */
+  side?: number;
+  /** GH-976: a `score` objective's block (a versus win mode, `goalsOnly` rooms only). */
+  score?: ScoreJson;
+}
+
+/** A points race (GH-976): the objective completes when its side's score reaches `target`. */
+export interface ScoreJson {
+  /** Zones this side's units hold, each paying `per_min` points a minute while the side holds it
+   *  alone (the `zoneState` rule income uses). Names in the map's zones. */
+  zones: readonly { zone: string; per_min: number }[];
+  /** Points per 100 of unit value destroyed (the enemy units that die, priced by `ctx.unitValueOf`). 0 is none. */
+  per_value_destroyed: number;
+  /** Points that win it. */
+  target: number;
 }
 
 export interface MissionJson {
@@ -422,6 +441,14 @@ export interface MissionContext {
     logisticsStart: readonly [number, number];
     logisticsRatePerMin: readonly [number, number];
   };
+  /** GH-976: a versus WIN-MODE room. The runtime runs goals only: the objectives (with their `side`) and the
+   *  zone states a `score` reads, and nothing else -- no production, no income, no ROE, no triggers, no
+   *  waves, and `checkEnd` never ends it (`outcome.ts` decides the match). Absent is every mission and every
+   *  economy room, byte for byte. A construction constant, not hashed. */
+  goalsOnly?: boolean;
+  /** GH-976: the value of a unit type id, whole numbers, for a `score`'s `per_value_destroyed`. Required by
+   *  a `score` objective. A construction constant, not hashed. */
+  unitValueOf?: (unitId: string) => number;
 }
 
 /**
@@ -670,8 +697,15 @@ interface WorksCharge {
 
 const SUPPORTED = new Set([
   'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
-  'evacuate_before', 'raze', 'collapse',
+  'evacuate_before', 'raze', 'collapse', 'score',
 ]);
+
+/** The types that may name a `side` (GH-976): the ones whose evaluation reads it. */
+const SIDED = new Set(['capture', 'hold_for', 'raze', 'score']);
+/** A score is held in 1/1200ths of a point (a minute of ticks), so `per_min` is units a tick, exactly. */
+const SCORE_UNITS = 60 * TICKS_PER_SECOND;
+/** Score units a unit of destroyed value is worth per point-per-100: `SCORE_UNITS / 100`. */
+const SCORE_PER_VALUE = (SCORE_UNITS / 100) | 0;
 
 /** A works type's authored `buildable.unlock` (the unit schema's snake_case gate), as the
  *  `UnlockGate` `unlockReason` reads. Anything that is not an object is no gate. */
@@ -748,6 +782,7 @@ const SUPPORT_PROFILE: Readonly<Record<'smoke_screen' | 'mortar_barrage', number
 interface ObjectiveState {
   def: ObjectiveJson;
   status: ObjectiveStatus;
+  /** Ticks held, for a timed hold; for a `score` (GH-976) the points banked, in 1/1200ths of a point. */
   holdTicks: number;
   /** Why a timed hold is not counting down, if it is not. */
   paused: 'contested' | 'unheld' | null;
@@ -1046,6 +1081,27 @@ export class MissionRuntime {
           `mission ${mission.id}: objective type "${def.type}" is not supported by the runtime yet`
         );
       }
+      if (def.side !== undefined) {
+        if (!SIDED.has(def.type)) {
+          throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no side`);
+        }
+        if (def.side !== 0 && def.side !== 1) {
+          throw new Error(`mission ${mission.id}: objective "${def.id}" has side ${def.side}, expected 0 or 1`);
+        }
+      }
+      if (def.type === 'score') {
+        // A score has nowhere to be read but a goals-only room: elsewhere the income pass would pay purses for
+        // its zones and `checkEnd` would end the mission on it. Refuse it rather than half-run it.
+        if (ctx.goalsOnly !== true) throw new Error(`mission ${mission.id}: score "${def.id}" needs a goalsOnly context`);
+        const sc = def.score;
+        if (sc === undefined || def.side === undefined || ctx.unitValueOf === undefined) {
+          throw new Error(`mission ${mission.id}: score "${def.id}" needs a side, a score block and ctx.unitValueOf`);
+        }
+        const whole = (n: number): boolean => Number.isInteger(n) && n >= 0;
+        if (!whole(sc.per_value_destroyed) || !Number.isInteger(sc.target) || sc.target < 1 || sc.zones.some((z) => !whole(z.per_min))) {
+          throw new Error(`mission ${mission.id}: score "${def.id}" wants whole numbers: per_min and per_value_destroyed at least 0, target at least 1`);
+        }
+      }
       this.objectives.push({ def, status: 'active', holdTicks: 0, paused: null });
     }
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
@@ -1084,6 +1140,18 @@ export class MissionRuntime {
         throw new Error(`mission ${mission.id}: unknown income zone "${z.zone}"`);
       }
       this.incomeZoneList.push(new ZoneIncomeState(z.zone, [r[0], r[1], r[2], r[3]], z.rate_per_min));
+    }
+    // GH-976: a score's zones are read through the same zone states income uses, so they join the list
+    // (a zone already there is shared). Rate 0: they pay no purse, which `goalsOnly` never accrues anyway.
+    for (const def of mission.objectives) {
+      for (const z of def.score?.zones ?? []) {
+        if (this.incomeZoneList.some((e) => e.zone === z.zone)) continue;
+        const r = ctx.zones[z.zone];
+        if (r === undefined || r.length !== 4) {
+          throw new Error(`mission ${mission.id}: score "${def.id}" names unknown zone "${z.zone}"`);
+        }
+        this.incomeZoneList.push(new ZoneIncomeState(z.zone, [r[0], r[1], r[2], r[3]], 0));
+      }
     }
     const zoneCount = this.incomeZoneList.length;
     if (zoneCount > MAX_INCOME_ZONES) {
@@ -1303,7 +1371,7 @@ export class MissionRuntime {
    *  points, the side-1 buyer's index, the
    *  settled identifications, high ground, population and caps, F2's zones and
    *  corridors -- then, in this order: each objective in authored order (status
-   *  code, holdTicks, paused code); each trigger's fired latch; each wave's
+   *  code, holdTicks -- a `score`'s points in 1/1200ths, GH-976 -- paused code); each trigger's fired latch; each wave's
    *  spawned latch; the ROE score (floored) and its failed latch; the civilian
    *  latches (fled, evacuated: size then ids ascending). Integer-only, composed
    *  with the sim's own `hashWord`. Read-only.
@@ -2373,8 +2441,11 @@ export class MissionRuntime {
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
-    this.buildLines();
-    this.buildEnemyMenu();
+    // GH-976: a goals-only room has no production at all: no line to queue on, no menu to buy from.
+    if (this.ctx.goalsOnly !== true) {
+      this.buildLines();
+      this.buildEnemyMenu();
+    }
     // High ground (D4): read once, from the map with the mission's own buildings
     // standing. A flat map has no rise and the per-tick pass never runs. The
     // table is built ONCE, here: a structure that collapses later is deliberately
@@ -2520,6 +2591,11 @@ export class MissionRuntime {
     if (this.ended) return [];
     const out: MissionEvent[] = [];
     const tick = this.sim.tickCount;
+    // GH-976: a win-mode room runs the goals and nothing else (see `stepGoals`).
+    if (this.ctx.goalsOnly === true) {
+      this.stepGoals(simEvents, tick, out);
+      return out;
+    }
 
     // Digest sim events: contacts feed locate + first_contact; kills feed
     // veterancy progression.
@@ -2622,6 +2698,89 @@ export class MissionRuntime {
     this.stepObjectives(tick, out);
     this.checkEnd(tick, out);
     return out;
+  }
+
+  // ------------------------------------------------------------- win modes (GH-976)
+
+  /**
+   * One tick of a goals-only room (`ctx.goalsOnly`, a versus WIN MODE): the objectives and nothing else.
+   * No income, production, ROE, triggers, waves, patrols or high ground, and no `checkEnd`: `outcome.ts`
+   * reads `sideWon` and decides the match, as it does for an economy room. What runs is
+   *   1. the zone states, in the one pass income uses (`zoneStates`), with their `zoneHolder` events on
+   *      change -- the holder rule a `score` is built on, and no recheck of corridors (a score zone has no
+   *      line to cut);
+   *   2. the value of every unit that died, credited to the OTHER side's `score` (integer: value x
+   *      per_value_destroyed x SCORE_PER_VALUE);
+   *   3. the held-zone points, `per_min` score units a tick to the holder, never to a contested zone;
+   *   4. `stepObjectives`, which completes a `raze`, `capture`, `hold_for` or `score`.
+   * Every word it writes is an existing `ObjectiveState` field, so the snapshot schema, `digest()` and the
+   * restore carry it without a new row.
+   */
+  private stepGoals(simEvents: SimEvent[], tick: number, out: MissionEvent[]): void {
+    const zones = this.incomeZoneList;
+    if (zones.length > 0) {
+      zoneStates(this.holdView, this.sim.width, this.sim.height, this.zoneTiles, this.zoneRects, this.zoneStateOut);
+      for (let k = 0; k < zones.length; k++) {
+        const z = zones[k];
+        const s = asZoneState(this.zoneStateOut[k]);
+        if (s === z.state) continue;
+        z.state = s;
+        const holder: Holder = s === ZONE_CONTESTED ? -1 : s;
+        z.holder = holder;
+        out.push({ kind: 'zoneHolder', tick, zone: z.zone, holder, contested: s === ZONE_CONTESTED });
+      }
+    }
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      const sc = o.def.score;
+      if (sc === undefined || o.status !== 'active') continue;
+      const side = o.def.side === 1 ? 1 : 0;
+      for (let j = 0; j < sc.zones.length; j++) {
+        for (let k = 0; k < zones.length; k++) {
+          if (zones[k].zone === sc.zones[j].zone) {
+            if (zones[k].holder === side) o.holdTicks += sc.zones[j].per_min;
+            break;
+          }
+        }
+      }
+      if (sc.per_value_destroyed === 0) continue;
+      for (let e = 0; e < simEvents.length; e++) {
+        const ev = simEvents[e];
+        if (ev.kind !== 'destroyed') continue;
+        // The OTHER side's loss is this side's gain; a civilian (side 2) or a stray is nobody's.
+        const victim = this.sim.state.side[ev.entity];
+        if ((victim !== 0 && victim !== 1) || victim === side) continue;
+        const unitValueOf = this.ctx.unitValueOf;
+        if (unitValueOf === undefined) continue;
+        const value = unitValueOf(this.sim.unitTypes[this.sim.state.typeIdx[ev.entity]].id);
+        o.holdTicks += value * sc.per_value_destroyed * SCORE_PER_VALUE;
+      }
+    }
+    this.stepObjectives(tick, out);
+  }
+
+  /** Whether `side` has completed a PRIMARY objective of its own (GH-976): the room's win test. */
+  sideWon(side: 0 | 1): boolean {
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      if (o.def.primary && (o.def.side ?? 0) === side && o.status === 'complete') return true;
+    }
+    return false;
+  }
+
+  /** `side`'s points in a points race, whole (the integer part of the 1/1200ths), or 0 with no `score`. */
+  scoreOf(side: 0 | 1): number {
+    return (this.scoreUnitsOf(side) / SCORE_UNITS) | 0;
+  }
+
+  /** `side`'s points in 1/1200ths, summed over its `score` objectives: the exact integer the race runs on. */
+  scoreUnitsOf(side: 0 | 1): number {
+    let n = 0;
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      if (o.def.score !== undefined && (o.def.side ?? 0) === side) n += o.holdTicks;
+    }
+    return n;
   }
 
   // ------------------------------------------------------------- held ground
@@ -4091,7 +4250,13 @@ export class MissionRuntime {
         complete = tick >= (d.seconds ?? 60) * TICKS_PER_SECOND;
       } else if (d.type === 'capture') {
         const z = this.zone(d.target);
-        const present = z !== undefined && this.livingIn(z, 0) > 0;
+        // GH-976: `contestedIn` is NOT told the side. Whether a living unit of one side and a living unit of
+        // the other both stand in the zone, within the contest radius, is the same fact from either seat
+        // (the filters on each -- alive, on the surface, not down -- are the same), so the side-0 form answers
+        // for a side-1 objective too. (Passing the side was written and deleted: a mutation of it was green,
+        // because it cannot change an answer.)
+        const side = d.side === 1 ? 1 : 0;
+        const present = z !== undefined && this.livingIn(z, side) > 0;
         const held = present && z !== undefined && !this.contestedIn(z);
         o.paused = held ? null : present ? 'contested' : 'unheld';
         if (held) o.holdTicks++;
@@ -4099,11 +4264,15 @@ export class MissionRuntime {
         complete = o.holdTicks >= (d.seconds ?? 10) * TICKS_PER_SECOND;
       } else if (d.type === 'hold_for') {
         const z = this.zone(d.target);
-        const present = z !== undefined && this.livingIn(z, 0) > 0;
+        const side = d.side === 1 ? 1 : 0;
+        const present = z !== undefined && this.livingIn(z, side) > 0;
         const held = present && z !== undefined && !this.contestedIn(z);
         o.paused = held ? null : present ? 'contested' : 'unheld';
         if (held) o.holdTicks++;
         complete = o.holdTicks >= (d.seconds ?? 60) * TICKS_PER_SECOND;
+      } else if (d.type === 'score') {
+        // GH-976: `stepGoals` has already added this tick's points to `holdTicks`.
+        complete = o.holdTicks >= (d.score?.target ?? 0) * SCORE_UNITS;
       } else if (d.type === 'evacuate_before') {
         const z = this.zone(d.target);
         // Say so on the way out. `collect` clears `alive`, which is the ONLY
@@ -4124,8 +4293,11 @@ export class MissionRuntime {
         failed = !complete && tick >= (d.seconds ?? 300) * TICKS_PER_SECOND;
       }
       if (complete) {
-        this.creditContribution(o.def);
-        this.payObjective(d, tick, out);
+        // A goals-only room has no stripes to earn and no intel to pay (GH-976).
+        if (this.ctx.goalsOnly !== true) {
+          this.creditContribution(o.def);
+          this.payObjective(d, tick, out);
+        }
         o.status = 'complete';
         out.push({ kind: 'objective', tick, id: d.id, status: 'complete' });
         if (d.say) out.push({ kind: 'say', tick, speaker: d.say.speaker, text: d.say.text });

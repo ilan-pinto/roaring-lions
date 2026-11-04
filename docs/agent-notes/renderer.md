@@ -552,3 +552,36 @@ the periodic 11 s gust on the fixed axis; a trunk holds still). Facts that cost 
 - **`reducedMotion` is now asked every frame on every map** (the wind plays on dry maps), shared with the wet writes: a dry renderer asks twice
   a frame (wound ring + wind), a wet one still twice.
 - Shadow and AO passes keep the rest pose (unchanged from the old sway). Instrument: `pnpm wind:capture` (the mock clip sheets).
+
+## Vehicles bend the vegetation (GH-984 N2)
+
+`terrain/disturb.ts` (three-free) is a uniform array of DISTURBERS the foliage and trunk vertex shader loops over: option A of the design, the
+lead's pick, +0 draw calls and +0 programs (the chunk rides the wind's, after it). `terrain/disturb-uniforms.ts` is the three-side uniform set, shared
+by reference like the wind's. Facts that cost thinking:
+
+- **A disturber is `a = (ax, az, bx, bz)` and `b = (radius, strength)`.** A moving hull is a capsule from where it is now (`lerp(prev, cur, alpha)` of
+  the sim, never the drawn hull: its weight lag is per frame) back to where it was 30 ticks (1.5 s) ago; a parked one is the same capsule with no length,
+  a disc of its `RADIUS_BY_TYPE` ring radius (full push inside 0.55 of it, gone at 1.25). A wake shorter than 0.3 tile blends to the disc, so a hull that has
+  just stopped is not a streak. Infantry are discs at 0.25 strength, `high` only. Air is N3's (the kind table already skips it).
+- **The wake is built from the TICK ring and nothing a frame can reach.** `WakeRing` holds 8 samples per entity at ticks that are multiples of 5;
+  `ThreeRenderer.snapshot()` (via `stepVehicleNature`) writes it once per sim tick, re-seeding a newcomer or a hull that jumped more than a tile (the tracks'
+  own teleport rule). `ThreeRenderer.disturb-clock.test.ts` proves two frame cadences reaching one tick leave every disturber uniform bit-identical, and that a
+  renderer whose `snapshot()` never runs has no ring. Recording the ring from `frame()` instead turns it red.
+- **The bend** rotates a vertex about its instance's foot, away from the summed pushes (vectors, so two hulls either side cancel), by `amount x
+  (family-box height)^stiffness x thetaMax(class)`; `thetaMax = acos(1 - cap)`, grass 0.8, reed 0.7, shrub 0.35, tree 0.01 (the lead's 0.8 and 0.35; reed and
+  tree are mine). The profile along the wake is a damped spring (1.1 Hz, zeta 0.45, about 20% overshoot toward the track); under reduced motion it is a
+  monotone fall, a static displacement with no spring (`uDisturbSpring` 0). The GLSL is a scalar subset the test transpiles and RUNS against the TS mirror.
+- **Slots by preset** (`RenderQuality.nature`): high 24 with foot, medium 16 with wakes and no foot, low 8 discs. Vehicles first, ranked by distance to the camera
+  focus, culled beyond the view's ground footprint. A uniform bounding box of every slot's reach lets most vertices skip the loop. Absent reads `high`.
+  The cost run steps a preset down 24/16/8/0 if it is over budget (`DISTURB_LADDER`).
+- **The `disturb` debug layer** drives `uDisturbAmp` to 0 and back (the `wind` shape); the frame skips its own work while it is 0. Its gate check is on the
+  `vehicle` scenario (`baseline.ts`): 25 px / 0.0015, measured on Metal, so the floor must be re-measured from CI at the bless.
+- **Churn and clods.** `stepChurn` (`units/ground-churn.ts`) reads each tick's ground speed and heading change: a PIVOT is one tracked hull's side reversing
+  (`|yaw| x halfGauge >= speed`, at 0.05 turn/s or more, held 4 ticks, one scuff per 10), a LAUNCH the first tick out of a halt of 6 ticks or more. Each lays a
+  `churn` decal (DecalKind 6, the FADING pool, tread's colour, 120 s fade, dated at the tick) under each track or behind each driven wheel, and records a clod
+  EVENT (two deep per entity). `updateVehicleClods` spawns it once, from the first frame that presents its tick, seeded by (entity, tick) and aged by sim
+  time (the rotor wash's way): none on a zero-time repaint, none under reduced motion or `fxDetail` 0, none for an event seen more than 0.6 s late.
+  `data/vfx/vehicle_clods.json` must stay registered in `@lions/data`'s `vfxEmitters`. `churn` is in the decal showcase (a column west of the lattice), so
+  `aftermath`'s `decals` layer witnesses it.
+- Shadow and AO keep the rest pose (as for the wind). Instrument: `pnpm nature:capture` (the mock sheets, the layer signal and the frame-cost A/B in one Metal
+  browser, port 5182 by default, 5177 refused).
