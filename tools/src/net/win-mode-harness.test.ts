@@ -448,7 +448,7 @@ describe('a flag raid played through the arena (GH-976 P3)', () => {
       expect(games).toHaveLength(2);
       for (const g of games) {
         expect(g.mode).toBe('flag');
-        expect(g.outcome, `${g.players} ${g.by}`).toBe(g.players[0] === 'cmd:raid' ? 'seat0' : 'seat1');
+        expect(g.outcome, `${g.players} ${g.by}`).toBe(g.players[0] === 'Player A' ? 'seat0' : 'seat1');
         expect(g.by).toBe('objective');
         expect(g.ticks).toBeLessThan(120 * 20);
         expect(g.referee!.mode).toBe('flag'); // the referee's stats name the mode (a camp or flag room read as annihilation before)
