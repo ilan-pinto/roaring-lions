@@ -62,11 +62,12 @@ import { homedir } from 'node:os';
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MAX_CALLSIGN_CHARS } from '@lions/net';
+import { MAX_CALLSIGN_CHARS, type WinMode } from '@lions/net';
 import { joinRoom, JoinRefused } from './agent';
 import { buildId } from './build-id';
 import { readScoreFile, refereeMarkdown, rubricText, scoresMarkdown, type ScoreOutcome } from './match-score';
 import { HARNESS_AGENT, HARNESS_TSX, parseTemplate, standingPrompt, tempRoot, tokensOf, type SpawnFn } from './external-player';
+import { MODE_FLAG_VALUES, modeFlag } from './win-rule';
 
 /** The live game: the default `--server`. */
 export const LIVE_SERVER = 'https://roaring-lions.pint12.workers.dev';
@@ -78,8 +79,8 @@ export const MODEL_ALIASES: Readonly<Record<string, string>> = {
   haiku: 'claude-haiku-5-5',
 };
 
-export const USAGE = 'usage: pnpm bot -- --room <code> [--model sonnet|opus|haiku|<model id>] [--server <url>] [--callsign <name>] [--client <cmd>]';
-const VALUED = new Set(['room', 'model', 'server', 'callsign', 'client']);
+export const USAGE = 'usage: pnpm bot -- --room <code> [--model sonnet|opus|haiku|<model id>] [--server <url>] [--callsign <name>] [--client <cmd>] [--mode points]';
+const VALUED = new Set(['room', 'model', 'server', 'callsign', 'client', 'mode']);
 /** What the client may be asked to call: the harness's tools, and nothing else. */
 const ALLOWED_TOOLS = 'mcp__lions__*';
 
@@ -91,6 +92,9 @@ export interface BotArgs {
   callsign: string;
   /** The client command, already split: `['claude']` by default. */
   client: string[];
+  /** GH-976 P2 (`--mode`): the win mode the room was opened with, named by the player who opened it. The prompt says how
+   *  it is won, and the harness refuses a room that plays another. `null` is annihilation; the default is no claim at all. */
+  winMode?: WinMode | null;
 }
 
 const httpUrl = (v: string): boolean => {
@@ -142,12 +146,16 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
   } catch (e) {
     return { error: `--client: ${e instanceof Error ? e.message : String(e)}\n${USAGE}` };
   }
+  const modeValue = got.get('mode');
+  const winMode = modeValue === undefined ? undefined : modeFlag(modeValue);
+  if (modeValue !== undefined && winMode === undefined) return { error: `--mode is ${MODE_FLAG_VALUES}, the mode the room was opened with\n${USAGE}` };
   return {
     room: room.toUpperCase(),
     model: id,
     server,
     callsign: callsign ?? `${alias === null ? 'Claude' : capitalised(alias)} Bot`,
     client,
+    ...(winMode === undefined ? {} : { winMode }),
   };
 }
 
@@ -160,12 +168,12 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
  * left to the harness: this checkout's build (`build`, when given, so the join
  * and the hello name the same string), the server's own origin.
  */
-export function botMcpConfig(a: Pick<BotArgs, 'server' | 'room'>, ticketFile: string, logFile: string, build?: string, scoreFile?: string): { mcpServers: { lions: { command: string; args: string[] } } } {
+export function botMcpConfig(a: Pick<BotArgs, 'server' | 'room' | 'winMode'>, ticketFile: string, logFile: string, build?: string, scoreFile?: string): { mcpServers: { lions: { command: string; args: string[] } } } {
   return {
     mcpServers: {
       lions: {
         command: HARNESS_TSX,
-        args: [HARNESS_AGENT, '--server', a.server, '--code', a.room, '--scope', 'command', '--ticket-file', ticketFile, '--log-file', logFile, ...(build === undefined ? [] : ['--build', build]), ...(scoreFile === undefined ? [] : ['--score-file', scoreFile])],
+        args: [HARNESS_AGENT, '--server', a.server, '--code', a.room, '--scope', 'command', '--ticket-file', ticketFile, '--log-file', logFile, ...(build === undefined ? [] : ['--build', build]), ...(scoreFile === undefined ? [] : ['--score-file', scoreFile]), ...(a.winMode === undefined ? [] : ['--mode', a.winMode ?? 'annihilation'])],
       },
     },
   };
@@ -299,6 +307,8 @@ If \`observe\` shows an \`economy\`, you can build: send a \`build\` order for a
 
 Your D9 dozer (\`dozer_d9\`) is unarmed and slow: it cannot fight. Its job is to bring down buildings with the \`demolish\` order (and to repair and clear), so send it where there is a structure to take down and keep it behind your troops.
 
+\`observe\` names the \`mode\` the match is won by. \`annihilation\` is the rule in the list above. In \`points\` it is a race instead: the first side to reach \`points.target\` wins, from the zones it holds (\`points.zones\`: each pays its holder a minute, and nobody while it is contested or empty) and from the enemy units it destroys. Hold the zones, defend the lead, and ignore line 6 of the list above when \`mode\` says \`points\`.
+
 \`observe\` lists wounded men under \`casualties\` (\`mine\`, \`theirs\`), apart from \`units\` and \`contacts\`. They are not orderable units; a medic's \`rescue\` is how they are saved.
 
 An order that the game could not carry out shows as \`dropped\` with a \`reason\` (an \`attack\` on an enemy that left your sight, for instance). Look at \`orders\` and re-issue.
@@ -326,8 +336,8 @@ Your final message is saved as the match report: write nothing but the report in
 `;
 
 /** The standing prompt for the bot's seat (seat 1): the arena's, then the report addendum. */
-export function botPrompt(a: Pick<BotArgs, 'room'> & { seat?: 0 | 1 }): string {
-  return `${standingPrompt({ seat: a.seat ?? 1, code: a.room })}\n${BOT_ADDENDUM}`;
+export function botPrompt(a: Pick<BotArgs, 'room' | 'winMode'> & { seat?: 0 | 1 }): string {
+  return `${standingPrompt({ seat: a.seat ?? 1, code: a.room, ...(a.winMode === undefined ? {} : { winMode: a.winMode }) })}\n${BOT_ADDENDUM}`;
 }
 
 /** `YYYYMMDD-HHMMSS-<room>-<model>`: the stem of both files. The model is a flag value, so it is cut to filename-safe characters and can never leave the folder. */
@@ -391,6 +401,9 @@ export function reportMarkdown(r: ReportInput): string {
     `- Server: ${r.server}`,
     `- Build: ${r.build}`,
     `- Result: ${r.outcome}`,
+    // GH-976 P2: how the room is won, and how this match was decided, from the referee's stats.
+    ...(r.scores?.referee?.mode === undefined ? [] : [`- Mode: ${r.scores.referee.mode}${r.scores.referee.target === undefined ? '' : ` (first to ${r.scores.referee.target})`}`]),
+    ...(r.scores?.referee?.result == null ? [] : [`- Decided: ${r.scores.referee.result}`]),
     `- Tokens: ${r.tokens === null ? 'unknown' : String(r.tokens)}`,
     `- Log: ${r.logName}`,
     '',
@@ -625,7 +638,7 @@ export async function runBot(argv: readonly string[], o: BotOptions = {}): Promi
     // `wx`: a file that is somehow already there is an error, never reused. The ticket lives in this 0600 file only.
     writeFileSync(ticketFile, ticket, { mode: 0o600, flag: 'wx' });
     writeFileSync(mcpFile, `${JSON.stringify(botMcpConfig(a, ticketFile, logFile, build, scoreFile), null, 2)}\n`, { mode: 0o600, flag: 'wx' });
-    writeFileSync(promptFile, botPrompt({ room: a.room, seat }), { mode: 0o600, flag: 'wx' });
+    writeFileSync(promptFile, botPrompt({ room: a.room, seat, ...(a.winMode === undefined ? {} : { winMode: a.winMode }) }), { mode: 0o600, flag: 'wx' });
 
     const command = a.client[0];
     const stdin = openSync(promptFile, 'r');

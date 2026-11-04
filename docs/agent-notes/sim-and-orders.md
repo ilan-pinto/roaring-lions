@@ -699,9 +699,9 @@ model. The S4 re-run and the decision to open versus are written up separately.
 ## Versus win modes (GH-976 P1)
 
 A versus room may play a WIN MODE beside annihilation: `MatchConfig.winMode` (`'camp'` | `'points'`, absent is
-annihilation and every room that has ever been played). Phase 1 is the engine and the instrument; **no room offers a mode
-yet** (the lobby, the bot harness and the scoring are later phases), and the only ways in are a test and
-`pnpm versus:probe -- --mode=...`.
+annihilation and every room that has ever been played). Phase 1 was the engine and the instrument; **phase 2 (below) opens
+`points` in the lobby, the bot harness and the scoring**. `camp` is offered nowhere (it failed the passive-seat bar on both
+maps) and stays reachable from a test and `pnpm versus:probe -- --mode=camp` only.
 
 - **Data.** `data/versus/modes/<map>.json` against `versus_mode.schema.json`, registered in `@lions/data`'s
   `versusModes` (`index.test.ts`-style pin: `tools/src/validate_versus_modes.test.ts`). It carries the map's camps by END
@@ -722,15 +722,47 @@ yet** (the lobby, the bot harness and the scoring are later phases), and the onl
   `per_min` is that many units a tick, exactly, and a kill is `value x per_value_destroyed x 12` (`per_value_destroyed` is
   points per 100 value). Integers all the way; `scoreOf(side)` floors. Its zones are registered as rate-0 income zones, so
   the holder is the `zoneStates` rule income uses (alone in the zone holds it, both is contested and pays nobody).
-  **Nothing was added to `MissionRuntime`'s own properties**, so the runtime snapshot schema, its digest, `digest()` and
-  `hash()` did not move, and a mode room snapshots and rejoins through the existing `ObjectiveState` rows
-  (`validate_versus_modes.test.ts` restores a real room mid-race and plays it on to the same hash).
+  At P1 **nothing was added to `MissionRuntime`'s own properties**; P2 adds one `ObjectiveState` field, `completeTick`
+  (below). A mode room snapshots and rejoins through the `ObjectiveState` rows (`validate_versus_modes.test.ts` restores a
+  real room mid-race and plays it on to the same hash).
 - **The camp.** `raze` on the camp's footprint (a zone the loader derives, `camp_yard_<end>`), the camp raised owned by the
   side at that end (`owner`, which sets `fwLive` and makes it a target once seen; a plain camp is not one). There is **no
   `seconds`**: a primary `raze` in a MISSION must declare one (an unwinnable-and-unlosable trap), but a room has the
   match cap and annihilation, and `validate_versus_modes.mjs` refuses a `seconds` in a mode file.
 - **`outcome.ts`.** `won by: 'objective'` with `mode`; `goalsOf(world)` is undefined for every annihilation and economy
-  room, and the goal is asked FIRST (a side that razed the camp as its last unit fell has won). Both goals complete inside one 20-tick
-  hash window: the frozen scores are compared, the larger overshoot wins, else a mutual draw (P2 TODO: store the completion
-  tick before a lobby offers `points`). Annihilation, the stalemate and the cap still apply behind it.
+  room, and the goal is asked FIRST (a side that razed the camp as its last unit fell has won). Both goals complete inside one
+  20-tick hash window: **the first to finish wins** (P2, `completeTickOf`), the same tick falls to the score and then to a mutual
+  draw. Annihilation, the stalemate and the cap still apply behind it.
 - **Measured at P1**, and the open question it leaves: `_coord/win-modes/report.md`.
+
+### Phase 2 (GH-976 P2): the lobby, the harness and the scoring
+
+- **`ObjectiveState.completeTick`** is the sim tick an objective became `complete` on (-1 before), written beside `status` in
+  `stepObjectives` and `completeObjective`. It is a **snapshot row** (runtime state rows 95 -> 96, the one pin that moved) and is
+  folded into `MissionRuntime.digest()` **only when `ctx.goalsOnly`**, so no mission and no annihilation room moves a byte
+  (`win-modes.test.ts` pokes the field and watches a mission digest not move; set the flag always-on and `test:determinism` goes red).
+  P1 compared frozen scores, so the larger overshoot could beat the side that reached the target FIRST.
+- **`versusModes` is in the content digest** (`content-digest.ts`): a mode file that differs between two clients is a desync on the
+  first hash tick, not later through a camp or a score.
+- **The lobby offers what was read fair.** `winModesOffered(map, matchup)` (`@lions/net`) lists the modes `WIN_MODE_FAIR_MAPS`
+  names for the map, **in the mirror only** (the probe read every mode KDF v KDF; a faction pairing plays its economy and is offered
+  none). The host's form has a "How to win" group, Annihilation by default, drawn only when something is offered; a pick the next
+  map does not offer is dropped. `POST /api/match` and the room's `/create` both ask `winModeRequest` and answer 400 (`unknown win
+  mode`, `win mode not offered on this map`, `win mode is for the mirror matchup`, `win mode is for versus rooms`); the room stores
+  `meta.winMode`, mints it into the config and names it in the lobby message to both seats (`lobby.winMode`).
+- **Nothing that treats a runtime as an economy may see a mode room's.** `main.ts` uses `economyRt` (null in a mode room) for the
+  dock, the strip's purse, rally and the arrivals voice; the harness uses `hasEconomy(world)` (`economy-view.ts`).
+- **The points HUD** (`ui/net-points.ts`, from `net/points-view.ts`) shows both sides' points, the target, what each side's zones pay a
+  minute and the ground count; the end panel says "Won on points" / "Lost on points" and both totals. **Scores and zone holders are
+  public by design** (read from the runtime, not from the seat's fog): a seat sees an enemy's bank and a zone go contested while the unit
+  that contests it is still hidden. `observe` carries the same board, `mode`, and `by` (status too); contacts stay fog-limited.
+- **Bot harness.** `pnpm bot --mode=points` and `pnpm arena --mode=points` swap lines 6-7 of `arena-prompt.md` for the mode's rule and
+  add what to defend (`win-rule.ts`: exact-text swap, throws if the prompt no longer holds the lines); the harness is started with
+  `--mode` and **refuses a room that plays another mode** than the prompt told the model. The arena asks the Worker for the mode
+  (so it refuses what the lobby would not offer, exit 2), trusts a game only if the room's config confirms it, and the cap is goal-aware
+  (`capOutcome`: a goal completed by the cap is `objective`, not `cap`).
+- **Scoring (GH-973).** The report's games table has `mode` and `decided by`; the referee's stats add `mode`, `target` and, per seat,
+  `points` by source (`fromZones`, `fromKills`, `byZone`), and a timeline of points. Zones are read from the holders and the file's rates,
+  kills are the exact residual of the runtime's own score, so the two always add to it.
+- **Not done in P2:** the arena setup screen has no mode control (the CLI has); `camp` stays unoffered; at the cap a mode room is still
+  decided on surviving value, not points (lead decision, P1 item 3).

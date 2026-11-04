@@ -92,7 +92,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MATCHUPS, factionsOfMatchup, matchCapTicks, matchupAllowed, versusMapAllowed, type MatchConfig, type Matchup, type TransportStatus } from '@lions/net';
+import { MATCHUPS, factionsOfMatchup, matchCapTicks, matchupAllowed, versusMapAllowed, winModeRequest, type MatchConfig, type Matchup, type TransportStatus, type WinMode } from '@lions/net';
 import { goalsOf, productionOf, type MatchResult, type OutcomeGoals, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 import { scoreOf, type MatchScore } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
@@ -108,6 +108,7 @@ import { createArenaControl, type ArenaControl } from './arena-control';
 import { loadPresets, presetIdOf, PresetsError, type Presets } from './arena-presets';
 import { abortExternalPlayers, externalPlayer, externalPlayersStopped, parseTemplate, rearmExternalPlayers } from './external-player';
 import { redactText } from './redact';
+import { MODE_FLAG_VALUES, modeFlag } from './win-rule';
 import { inProcess, passive, rush, type ArenaPlayer, type PlayerReport, type RunningPlayer } from './players';
 
 export interface ArenaArgs {
@@ -120,6 +121,9 @@ export interface ArenaArgs {
   firstSeed: number;
   map: string;
   matchup: Matchup;
+  /** GH-976 P2 (`--mode=points`): the win mode to play, or absent for annihilation. Only a mode the lobby would offer on this map
+   *  (`refusalOf`: exit 2 otherwise); the room is asked for it and the arena trusts a game only if the room confirms it. */
+  winMode?: WinMode;
   /** Ticks a paced round (the room clamps to 20-1,200, D5: refused outside that here). */
   pace: number;
   roundWallMs: number;
@@ -152,8 +156,8 @@ export const WATCH_TICK_MS = 50;
 /** `--gate` FAILED: every game was played and A was not told from B at p < 0.05. */
 export const EXIT_GATE_FAIL = 3;
 
-const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--first-seed 0] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate] [--judge "cmd:<template>"] [--judge-timeout-ms 180000] [--watch] [--serve] [--serve-port 0] [--players-file <path>]\n  --watch: watch a run live in a browser (local only; implies --serve; --tick-ms defaults to 50); a player is passive, rush, cmd:<template> or preset:<id> (from ~/.roaring-lions/arena-players.json, mode 0600); `pnpm arena --serve` alone starts the setup screen at /arena; the judge scores both players of each game on the rubric (placeholders {prompt}, {stats})';
-const VALUED = new Set(['a', 'b', 'seeds', 'first-seed', 'map', 'matchup', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out', 'judge', 'judge-timeout-ms', 'serve-port', 'players-file']);
+const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--first-seed 0] [--map tel_marum] [--matchup mirror|kdf|sarim] [--mode annihilation|points] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate] [--judge "cmd:<template>"] [--judge-timeout-ms 180000] [--watch] [--serve] [--serve-port 0] [--players-file <path>]\n  --watch: watch a run live in a browser (local only; implies --serve; --tick-ms defaults to 50); a player is passive, rush, cmd:<template> or preset:<id> (from ~/.roaring-lions/arena-players.json, mode 0600); `pnpm arena --serve` alone starts the setup screen at /arena; the judge scores both players of each game on the rubric (placeholders {prompt}, {stats})';
+const VALUED = new Set(['a', 'b', 'seeds', 'first-seed', 'map', 'matchup', 'mode', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out', 'judge', 'judge-timeout-ms', 'serve-port', 'players-file']);
 /** Options that take no value. */
 const FLAGS = new Set(['gate', 'watch', 'serve']);
 const BUILT_IN: Record<string, (log: (line: string) => void) => ArenaPlayer> = {
@@ -205,6 +209,9 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
   }
   const matchup = got.get('matchup') ?? 'mirror';
   if (!(MATCHUPS as readonly string[]).includes(matchup)) return { error: `--matchup is ${MATCHUPS.join(', ')}` };
+  const modeValue = got.get('mode');
+  const winMode = modeValue === undefined ? null : modeFlag(modeValue);
+  if (winMode === undefined) return { error: `--mode is ${MODE_FLAG_VALUES}` };
   const seeds = intIn('seeds', got.get('seeds'), 10, 1, 10_000);
   const firstSeed = intIn('first-seed', got.get('first-seed'), 0, 0, 1_000_000);
   const pace = intIn('pace', got.get('pace'), 60, 20, 1200);
@@ -228,6 +235,7 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
     firstSeed: firstSeed as number,
     map: got.get('map') ?? 'tel_marum',
     matchup: matchup as Matchup,
+    ...(winMode === null ? {} : { winMode }),
     pace: pace as number,
     roundWallMs: roundWallMs as number,
     capTicks: capTicks as number,
@@ -272,9 +280,12 @@ export function parseServeOnly(argv: readonly string[]): ServeOnlyArgs | { error
 }
 
 /** Why no room would host this, or null: the route's own two questions. */
-export function refusalOf(map: string, matchup: Matchup): string | null {
+export function refusalOf(map: string, matchup: Matchup, winMode?: WinMode): string | null {
   if (!versusMapAllowed(map)) return `no versus room is offered on ${map}`;
   if (!matchupAllowed(matchup, map)) return `the ${matchup} matchup is not offered on ${map} (mirror only)`;
+  // GH-976 P2: the Worker's own question (`winModeRequest`), asked before a relay starts.
+  const mode = winModeRequest(winMode ?? null, { mode: 'versus', map, matchup });
+  if (mode.refused !== undefined) return `no ${winMode ?? 'annihilation'} room: ${mode.refused} (${map}, ${matchup})`;
   return null;
 }
 
@@ -366,7 +377,7 @@ async function post(relay: LocalRelay, path: string, body: unknown): Promise<Res
 /** A paced versus room with two bot seats, through the relay's own routes. */
 async function openRoom(relay: LocalRelay, a: ArenaArgs, build: string, names: [string, string]): Promise<{ code: string; tickets: [string, string] }> {
   const pace = { kind: 'paced', roundTicks: a.pace, roundWallMs: a.roundWallMs };
-  const created = await post(relay, '/api/match', { player: randomUUID(), callsign: names[0].slice(0, 16), build, map: a.map, mode: 'versus', matchup: a.matchup, kind: 'bot', pace });
+  const created = await post(relay, '/api/match', { player: randomUUID(), callsign: names[0].slice(0, 16), build, map: a.map, mode: 'versus', matchup: a.matchup, kind: 'bot', pace, ...(a.winMode === undefined ? {} : { winMode: a.winMode }) });
   if (created.status !== 201) throw new Error(`the room refused to open: HTTP ${created.status} ${await created.text()}`);
   const { code, ticket } = (await created.json()) as { code: string; ticket: string };
   const joined = await post(relay, `/api/match/${code}/join`, { player: randomUUID(), callsign: names[1].slice(0, 16), kind: 'bot' });
@@ -445,7 +456,7 @@ export function judge(
 
 /** Why the room's start config cannot be trusted for this game, or null.
  *  A malformed pace is silently realtime, and a realtime run proves nothing here. */
-export function untrusted(config: Pick<MatchConfig, 'pace' | 'seed' | 'map' | 'seats'>, a: Pick<ArenaArgs, 'pace' | 'roundWallMs' | 'map' | 'matchup'>, seed: number): string | null {
+export function untrusted(config: Pick<MatchConfig, 'pace' | 'seed' | 'map' | 'seats'> & { winMode?: WinMode }, a: Pick<ArenaArgs, 'pace' | 'roundWallMs' | 'map' | 'matchup'> & { winMode?: WinMode }, seed: number): string | null {
   const want = { kind: 'paced', roundTicks: a.pace, roundWallMs: a.roundWallMs };
   const pace = config.pace;
   if (pace.kind !== 'paced' || pace.roundTicks !== want.roundTicks || pace.roundWallMs !== want.roundWallMs) {
@@ -453,6 +464,7 @@ export function untrusted(config: Pick<MatchConfig, 'pace' | 'seed' | 'map' | 's
   }
   if (config.seed !== seed) return `the room started on seed ${config.seed}, not ${seed}`;
   if (config.map !== a.map) return `the room started on ${config.map}, not ${a.map}`;
+  if ((config.winMode ?? null) !== (a.winMode ?? null)) return `the room started on ${config.winMode ?? 'annihilation'}, not ${a.winMode ?? 'annihilation'}`;
   const wantFactions = factionsOfMatchup(a.matchup);
   const factions = [config.seats[0].faction, config.seats[1].faction];
   if (factions[0] !== wantFactions[0] || factions[1] !== wantFactions[1]) return `the room seated ${factions.join('/')}, not ${wantFactions.join('/')} (${a.matchup})`;
@@ -578,7 +590,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, promptDigest: 
   try {
     const { code, tickets } = await openRoom(relay, a, build, g.names);
     for (const seat of [0, 1] as const) {
-      const r = await g.players[seat].start({ server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build, capTicks: a.capTicks, logFile: `${g.logBase}-seat${seat}.log`, keepFrames: true });
+      const r = await g.players[seat].start({ server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build, capTicks: a.capTicks, winMode: a.winMode ?? null, logFile: `${g.logBase}-seat${seat}.log`, keepFrames: true });
       running.push(r);
       livePlayers.add(r);
     }
@@ -631,7 +643,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, promptDigest: 
     // The referee's numbers for both seats (GH-973): a read of the reading seat's sim, after the verdict, written to nothing.
     const stats = referee.refereeStats(verdictText(g.names, verdict));
     const record: GameRecord = {
-      seed: g.seed, map: a.map, matchup: a.matchup, players: g.names, factions,
+      seed: g.seed, map: a.map, matchup: a.matchup, mode: a.winMode ?? 'annihilation', players: g.names, factions,
       build, pace: a.pace, roundWallMs: a.roundWallMs, capTicks: a.capTicks, promptDigest,
       outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: bySeat(scoreOf(sim), sides), reports,
       ...(stats === null ? {} : { referee: stats }),
@@ -727,7 +739,7 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
 
   const parsed = parseArgs(argv);
   if ('error' in parsed) return fail(1, parsed.error);
-  const refused = refusalOf(parsed.map, parsed.matchup);
+  const refused = refusalOf(parsed.map, parsed.matchup, parsed.winMode);
   if (refused !== null) return fail(2, refused);
   // GH-954 W2: presets, read once, when a `preset:` is named. A file anyone else can read refuses the run.
   let presets: Presets | undefined = deps.presets;
@@ -759,7 +771,7 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
 
   // GH-954 P1: read before any file is made, so a prompt that cannot be read leaves no empty results file behind.
   let promptDigest: string;
-  try { promptDigest = currentPromptDigest(); } catch (e) { return fail(1, `could not read the standing prompt: ${messageOf(e)}`); }
+  try { promptDigest = currentPromptDigest(parsed.winMode ?? null); } catch (e) { return fail(1, `could not read the standing prompt: ${messageOf(e)}`); }
 
   // `pnpm --filter` runs this from tools/: a relative path means what it says where the user ran pnpm.
   const dir = resolve(process.env.INIT_CWD ?? process.cwd(), a.out ?? 'arena-results');

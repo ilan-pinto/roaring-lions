@@ -62,6 +62,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ArenaPlayer, PlayerReport, RunningPlayer, SeatStart } from './players';
 import { createRedactor, describeCommand } from './redact';
+import { applyWinRule } from './win-rule';
 
 export type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
 
@@ -188,12 +189,13 @@ export function tokensOf(lastLine: string): number | null {
 }
 
 /** The MCP config the child is handed: one server, `lions`, the harness on this seat's ticket FILE. */
-export function mcpConfig(s: Pick<SeatStart, 'server' | 'origin' | 'code' | 'build'>, ticketFile: string): { mcpServers: { lions: { command: string; args: string[] } } } {
+export function mcpConfig(s: Pick<SeatStart, 'server' | 'origin' | 'code' | 'build' | 'winMode'>, ticketFile: string): { mcpServers: { lions: { command: string; args: string[] } } } {
   return {
     mcpServers: {
       lions: {
         command: HARNESS_TSX,
-        args: [HARNESS_AGENT, '--server', s.server, '--code', s.code, '--scope', 'command', '--ticket-file', ticketFile, '--build', s.build, '--origin', s.origin],
+        // GH-976 P2: a mode room's harness checks the room plays the mode the prompt told the model (`--mode`).
+        args: [HARNESS_AGENT, '--server', s.server, '--code', s.code, '--scope', 'command', '--ticket-file', ticketFile, '--build', s.build, '--origin', s.origin, ...(s.winMode === undefined ? [] : ['--mode', s.winMode ?? 'annihilation'])],
       },
     },
   };
@@ -207,8 +209,9 @@ export function readStandingPrompt(): string {
 /** The standing prompt for a seat. It names the SEAT only: since LD1 (N3) a
  *  seat's side follows its faction -- a Sarim host is side 1 -- and the prompt
  *  is written before the room's config exists; `observe` reports the side. */
-export function standingPrompt(s: Pick<SeatStart, 'seat' | 'code'>): string {
-  return readStandingPrompt()
+export function standingPrompt(s: Pick<SeatStart, 'seat' | 'code' | 'winMode'>): string {
+  // GH-976 P2: a room that plays a win mode swaps the annihilation rule for the mode's (`win-rule.ts`).
+  return applyWinRule(readStandingPrompt(), s.winMode ?? null)
     .replaceAll('{seat}', String(s.seat))
     .replaceAll('{code}', s.code);
 }

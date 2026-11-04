@@ -106,6 +106,10 @@ Open a versus room in the browser (menu → **Play with a friend**, pick a map,
 pnpm bot -- --room ABC123 --model sonnet
 ```
 
+If the host opened the room with a win mode (the "How to win" group, Points race), name it: `pnpm bot -- --room ABC123 --mode=points`.
+The standing prompt then says how that mode is won and what to defend, and the harness refuses a room that plays another mode.
+Without `--mode` the prompt describes annihilation and the model reads the real `mode` from its first `observe`.
+
 That is the whole of the steps below in one command. It first **joins the room
 itself** (the same `POST /api/match/<code>/join` as `--join`), so a wrong or
 expired code (404), a taken seat (409) or an ended room (410) is reported before

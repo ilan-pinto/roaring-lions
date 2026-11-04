@@ -44,6 +44,8 @@ import { buildId } from './build-id';
 import { leaveStatsIfAbsent } from './match-score';
 import { createContext, SCOPES, toolsFor, type Scope } from './mcp-tools';
 import { nodeSocket } from './node-socket';
+import { MODE_FLAG_VALUES, modeFlag } from './win-rule';
+import type { WinMode } from '@lions/net';
 
 export interface AgentArgs {
   server: string;
@@ -59,10 +61,12 @@ export interface AgentArgs {
   logFile?: string;
   /** `pnpm bot` (GH-973): the file the referee's stats and the bot's accepted scores are written to. Command scope only; it also turns on the `match_stats` and `submit_score` tools. */
   scoreFile?: string;
+  /** GH-976 P2 (`--mode`): the win mode the prompt told the model (`null`: annihilation); the room is refused if it plays another. Absent: no check. */
+  mode?: WinMode | null;
 }
 
-const USAGE = 'usage: pnpm agent -- --server <url> --code <code> --scope advise|assist|command (--ticket-file <path|-> | --join) [--callsign <name>] [--build <id>] [--origin <url>] [--log-file <path>] [--score-file <path>]';
-const VALUED = new Set(['server', 'code', 'scope', 'ticket-file', 'callsign', 'build', 'origin', 'log-file', 'score-file']);
+const USAGE = 'usage: pnpm agent -- --server <url> --code <code> --scope advise|assist|command (--ticket-file <path|-> | --join) [--callsign <name>] [--build <id>] [--origin <url>] [--log-file <path>] [--score-file <path>] [--mode annihilation|points|camp]';
+const VALUED = new Set(['server', 'code', 'scope', 'ticket-file', 'callsign', 'build', 'origin', 'log-file', 'score-file', 'mode']);
 const FLAGS = new Set(['join']);
 
 const httpUrl = (v: string): boolean => {
@@ -110,6 +114,8 @@ export function parseArgs(argv: readonly string[]): AgentArgs | { error: string 
   if (join && scope !== 'command') return { error: '--join is for --scope command: it seats a bot. An advisor joins with the ticket its seat minted (--ticket-file)' };
   const origin = got.get('origin') ?? null;
   if (origin !== null && !httpUrl(origin)) return { error: '--origin is an http(s) URL' };
+  const mode = got.has('mode') ? modeFlag(got.get('mode') as string) : undefined;
+  if (got.has('mode') && mode === undefined) return { error: `--mode is ${MODE_FLAG_VALUES}\n${USAGE}` };
   if (got.has('score-file') && scope !== 'command') return { error: '--score-file is for --scope command: only a seat that plays is asked to score the match' };
   return {
     server,
@@ -121,6 +127,7 @@ export function parseArgs(argv: readonly string[]): AgentArgs | { error: string 
     origin,
     ...(got.has('log-file') ? { logFile: got.get('log-file') } : {}),
     ...(got.has('score-file') ? { scoreFile: got.get('score-file') } : {}),
+    ...(mode === undefined ? {} : { mode }),
   };
 }
 
@@ -291,6 +298,7 @@ async function main(argv: readonly string[]): Promise<number> {
     server: a.server, code: a.code, ticket, build, seat, log,
     role: a.scope === 'command' ? 'seat' : 'advisor',
     open: () => nodeSocket(target.url, origin),
+    ...(a.mode === undefined ? {} : { expectWinMode: a.mode }),
   });
   client.ready.then(
     (c) => { log(`agent: ${a.scope} on seat ${seat} of ${c.code} (${c.map}, ${c.pace.kind})`); },
