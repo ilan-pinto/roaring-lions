@@ -71,7 +71,7 @@ describe('contentDigest (L4)', () => {
     expect(contentDigest(withTarget(600))).toBe(shippedContentDigest());
     // and a whole file dropped counts too
     const rest = Object.fromEntries(Object.entries(versusModes).filter(([id]) => id !== 'wadi_tarfan'));
-    expect(Object.keys(rest)).toEqual(['milh_flats']);
+    expect(Object.keys(rest)).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'milh_flats_l', 'rujm_sawda', 'tel_marum', 'wadi_tarfan_l']);   // GH-976 P4: the six others
     expect(contentDigest({ ...shipped, versusModes: rest })).not.toBe(shippedContentDigest());
   });
 

@@ -259,6 +259,7 @@
   "versus.room.win.value": "{mode, select, points {Points race} camp {Destroy the camp} flag {Capture the flag} other {Annihilation}}",
   "versus.faction": "{f, select, sarim {Sarim} other {KDF}}",
   "versus.matchup.economy": "Camps, income and production on",
+  "versus.matchup.placed": "Both forces start on the field; nothing is built or bought",
   "versus.join.code": "Room code",
   "versus.join.go": "Join",
   "versus.room.title": "Room {code}",

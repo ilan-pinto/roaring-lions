@@ -1,0 +1,24 @@
+{
+  "id": "wadi_tarfan_l",
+  "map": "wadi_tarfan_l",
+  "flags": {
+    "friendly": { "at": [54, 54], "size": [5, 5] },
+    "hostile": { "at": [37, 37], "size": [5, 5] }
+  },
+  "modes": {
+    "flag": { "hold_s": 30 },
+    "points": {
+      "zones": [
+        { "zone": "centre_ford", "per_min": 40 },
+        { "zone": "ne_ford", "per_min": 20 },
+        { "zone": "sw_ford", "per_min": 20 },
+        { "zone": "bluff_near_0", "per_min": 10 },
+        { "zone": "bluff_near_1", "per_min": 10 },
+        { "zone": "farm_near_0", "per_min": 10 },
+        { "zone": "farm_near_1", "per_min": 10 }
+      ],
+      "per_value_destroyed": 10,
+      "target": 400
+    }
+  }
+}

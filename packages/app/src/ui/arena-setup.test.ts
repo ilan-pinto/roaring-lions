@@ -11,7 +11,7 @@ afterEach(() => { setCatalogue('en', en); document.body.replaceChildren(); vi.us
 
 const KEY = 'a-long-random-run-token';
 const API_TOKEN = 'sk-test-0123456789abcdefXYZ';
-const MAPS = [{ id: 'tel_marum', label: 'Tel Marum' }, { id: 'rujm_sawda', label: 'Rujm Sawda' }, { id: 'wadi_tarfan', label: 'Wadi Tarfan' }];
+const MAPS = [{ id: 'tel_marum', label: 'Tel Marum' }, { id: 'rujm_sawda', label: 'Rujm Sawda' }, { id: 'wadi_tarfan', label: 'Wadi Tarfan' }, { id: 'wadi_tarfan_l', label: 'Wadi Tarfan (large)' }];
 const PLAYERS = [
   { id: 'passive', label: 'passive', kind: 'scripted' }, { id: 'rush', label: 'rush', kind: 'scripted' },
   { id: 'opus-5.5', label: 'Claude Opus 5.5', kind: 'model_judge' }, { id: 'sonnet', label: 'Claude Sonnet', kind: 'model' }, { id: 'judge-x', label: 'Judge X', kind: 'judge' },
@@ -72,7 +72,7 @@ describe('the setup form', () => {
     await settle();
     const map = field(r.host, 'Map') as HTMLSelectElement;
     const matchup = field(r.host, 'Matchup') as HTMLSelectElement;
-    expect(opts(map)).toEqual(['tel_marum', 'rujm_sawda', 'wadi_tarfan']);
+    expect(opts(map)).toEqual(['tel_marum', 'rujm_sawda', 'wadi_tarfan', 'wadi_tarfan_l']);
     expect(map.value).toBe('tel_marum');
     expect(opts(matchup)).toEqual(['mirror', 'kdf', 'sarim']);
     expect([...matchup.options].map((o) => o.textContent)).toEqual(['KDF against KDF', 'KDF against Sarim', 'Sarim against KDF']);
@@ -107,18 +107,32 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
   const modeField = (r: Rig): HTMLSelectElement => field(r.host, 'How to win') as HTMLSelectElement;
   const bodyOfStart = (r: Rig): Record<string, unknown> => JSON.parse(r.calls.filter((c) => c.url === '/arena/api/start')[0].body as string) as Record<string, unknown>;
 
-  it('is not drawn where nothing is offered (Tel Marum), and the run is annihilation: no mode in the body', async () => {
+  const pickMatchup = (r: Rig, id: string): void => {
+    const matchup = field(r.host, 'Matchup') as HTMLSelectElement;
+    matchup.value = id;
+    matchup.dispatchEvent(new Event('change'));
+  };
+  const pickMode = (r: Rig, id: string): void => {
+    modeField(r).value = id;
+    modeField(r).dispatchEvent(new Event('change'));
+  };
+
+  it('is not drawn where nothing is offered (KDF hosting against Sarim on Tel Marum), and the run is annihilation: no mode in the body', async () => {
     const r = rig();
     showArenaSetup(r.host, r.deps);
     await settle();
+    // GH-976 P4: the mirror on Tel Marum offers both modes now; the pairing with Sarim was read and offers none.
+    expect(opts(modeField(r))).toEqual(['annihilation', 'points', 'flag']);
+    pickMatchup(r, 'kdf');
     expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden')).toBe(true);
     expect(opts(modeField(r))).toEqual(['annihilation']);
     q<HTMLButtonElement>(r.host, '.rl-arena-setup__start').click();
     await settle();
     expect('mode' in bodyOfStart(r)).toBe(false);
+    expect(bodyOfStart(r).matchup).toBe('kdf');
   });
 
-  it('lists exactly what winModesOffered lists for the map, in the mirror: Annihilation, Points race, Capture the flag on Wadi Tarfan', async () => {
+  it('lists exactly what winModesOffered lists for the map, in the mirror: Annihilation, Points race, Capture the flag, on all four maps', async () => {
     const r = rig();
     showArenaSetup(r.host, r.deps);
     await settle();
@@ -128,20 +142,19 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     expect([...modeField(r).options].map((o) => o.textContent)).toEqual(['Annihilation', 'Points race', 'Capture the flag']);
     // Camp is read fair nowhere: never on the list.
     expect(opts(modeField(r))).not.toContain('camp');
-    pickMap(r, 'rujm_sawda');
-    expect(opts(modeField(r))).toEqual(['annihilation']);
+    for (const id of ['rujm_sawda', 'tel_marum', 'wadi_tarfan_l']) {
+      pickMap(r, id);
+      expect(opts(modeField(r)), id).toEqual(['annihilation', 'points', 'flag']);
+    }
   });
 
-  it('a faction matchup plays its economy and is offered none; the pick is dropped, not sent', async () => {
+  it('a faction matchup nobody read fair on the map is offered none; the pick is dropped, not sent', async () => {
     const r = rig();
     showArenaSetup(r.host, r.deps);
     await settle();
     pickMap(r, 'wadi_tarfan');
-    modeField(r).value = 'flag';
-    modeField(r).dispatchEvent(new Event('change'));
-    const matchup = field(r.host, 'Matchup') as HTMLSelectElement;
-    matchup.value = 'kdf';
-    matchup.dispatchEvent(new Event('change'));
+    pickMode(r, 'flag');
+    pickMatchup(r, 'kdf');
     expect(opts(modeField(r))).toEqual(['annihilation']);
     expect(modeField(r).value).toBe('annihilation');
     q<HTMLButtonElement>(r.host, '.rl-arena-setup__start').click();
@@ -150,21 +163,37 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     expect(bodyOfStart(r).matchup).toBe('kdf');
   });
 
-  it('a pick the next map does not offer is dropped, and one it does offer is kept', async () => {
+  it('GH-976 P4: KDF against Sarim on Wadi Tarfan (large) offers the points race alone, in both orders, and the run carries it', async () => {
+    for (const matchup of ['kdf', 'sarim']) {
+      const r = rig();
+      showArenaSetup(r.host, r.deps);
+      await settle();
+      pickMap(r, 'wadi_tarfan_l');
+      pickMatchup(r, matchup);
+      expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden')).toBe(false);
+      expect(opts(modeField(r)), matchup).toEqual(['annihilation', 'points']);
+      pickMode(r, 'points');
+      q<HTMLButtonElement>(r.host, '.rl-arena-setup__start').click();
+      await settle();
+      expect(bodyOfStart(r)).toMatchObject({ map: 'wadi_tarfan_l', matchup, mode: 'points' });
+    }
+  });
+
+  it('a pick the next pairing does not offer is dropped, and one it does offer is kept', async () => {
     const r = rig();
     showArenaSetup(r.host, r.deps);
     await settle();
-    pickMap(r, 'wadi_tarfan');
-    modeField(r).value = 'points';
-    modeField(r).dispatchEvent(new Event('change'));
-    pickMap(r, 'tel_marum');
+    pickMatchup(r, 'kdf');
+    pickMap(r, 'wadi_tarfan_l');
+    pickMode(r, 'points');
+    expect(modeField(r).value).toBe('points');
+    pickMap(r, 'wadi_tarfan');   // KDF against Sarim was not read fair here
     expect(modeField(r).value).toBe('annihilation');
-    pickMap(r, 'wadi_tarfan');
+    pickMap(r, 'wadi_tarfan_l');
     expect(modeField(r).value).toBe('annihilation'); // dropped for good, not remembered
-    modeField(r).value = 'flag';
-    modeField(r).dispatchEvent(new Event('change'));
-    pickMap(r, 'wadi_tarfan');
-    expect(modeField(r).value).toBe('flag');
+    pickMode(r, 'points');
+    pickMap(r, 'wadi_tarfan_l');
+    expect(modeField(r).value).toBe('points');
   });
 
   it('the pick goes in the start body, the hint says the hold, and the cap follows the mode until the person types in it', async () => {

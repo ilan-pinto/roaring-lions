@@ -552,6 +552,18 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   matchupNote.id = nextId('matchup-note');
   matchupNote.textContent = t('versus.matchup.economy');
   sides.appendChild(matchupNote);
+  // GH-976 P4: a win mode on a faction pairing plays the two PLACED forces with no economy (`economyRoom` is false for a mode
+  // room), so the line above would be untrue; `syncWin` swaps it for this one while a mode is picked.
+  const placedNote = document.createElement('p');
+  placedNote.className = 'rl-versus__matchup-note';
+  placedNote.id = nextId('placed-note');
+  placedNote.textContent = t('versus.matchup.placed');
+  placedNote.hidden = true;
+  sides.appendChild(placedNote);
+  const describeFaction = (): void => {
+    const id = placedNote.hidden ? matchupNote.id : placedNote.id;
+    for (const [m, radio] of sideRadios) if (m !== 'mirror' && !radio.disabled) radio.setAttribute('aria-describedby', id);
+  };
   for (const [m, radio] of sideRadios) if (m !== 'mirror') radio.setAttribute('aria-describedby', matchupNote.id);
   for (const [m, radio] of sideRadios) {
     if (m === 'mirror' || offered.length > 0) continue;
@@ -695,6 +707,11 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       label.append(radio, name);
       return label;
     }));
+    // The economy line is for annihilation on a faction pairing; a mode there is the placed forces (see `placedNote`).
+    const narrowed = side !== 'mirror';
+    matchupNote.hidden = !narrowed || winMode !== null;
+    placedNote.hidden = !narrowed || winMode === null;
+    describeFaction();
     const target = winMode === 'points' ? versusModes[map]?.modes.points?.target ?? 0 : 0;
     const hold = winMode === 'flag' ? versusModes[map]?.modes.flag?.hold_s ?? 0 : 0;
     winHint.textContent = t(`versus.win.${winMode ?? 'annihilation'}.hint`, { target, hold });

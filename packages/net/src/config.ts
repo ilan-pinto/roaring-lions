@@ -42,16 +42,67 @@ export type WinMode = (typeof WIN_MODES)[number];
  *    fair on both, flag zones fitted on seeds 0-191 and read on 4000-4287 (288 each): wadi_tarfan east 164 / west 114 / draw 10,
  *    leader 56.9%, 96.5% decided by the goal, the passive end lost 288 of 288 from each end; milh_flats east 150 / west 134 /
  *    draw 4, leader 52.1%, 78.5% by the goal, the passive end lost 288 of 288 from each end. A same-tick double capture is a draw
- *    (the two raids are exact mirrors), not a goal win, in that share. */
+ *    (the two raids are exact mirrors), not a goal win, in that share.
+ *  - GH-976 P4 added the five other open maps, each fitted on seeds 0-191 and read once on 4000-4287 (288 each). The leader's
+ *    share is over ALL the games, then over the DECISIVE games alone (a draw is nobody's), both inside 60/40 on every row below,
+ *    and the passive end lost 288 of 288 from each end on every row:
+ *
+ *    | map | mode | west / east / draw | leader (all / decisive) | decided by the goal |
+ *    |---|---|---|---|---|
+ *    | tel_marum | points | 155 / 133 / 0 | 53.8% / 53.8% | 79.2% |
+ *    | tel_marum | flag | 158 / 130 / 0 | 54.9% / 54.9% | 99.7% |
+ *    | beit_sahwan_outskirts | points | 140 / 148 / 0 | 51.4% / 51.4% | 73.6% |
+ *    | beit_sahwan_outskirts | flag | 148 / 140 / 0 | 51.4% / 51.4% | 100.0% |
+ *    | rujm_sawda | points | 158 / 130 / 0 | 54.9% / 54.9% | 93.8% |
+ *    | rujm_sawda | flag | 127 / 115 / 46 | 44.1% / 52.5% | 80.6% |
+ *    | wadi_tarfan_l | points | 130 / 158 / 0 | 54.9% / 54.9% | 100.0% |
+ *    | wadi_tarfan_l | flag | 122 / 129 / 37 | 44.8% / 51.4% | 87.2% |
+ *    | milh_flats_l | points | 139 / 149 / 0 | 51.7% / 51.7% | 99.7% |
+ *    | milh_flats_l | flag | 144 / 144 / 0 | 50.0% / 50.0% | 97.9% |
+ *
+ *    The fits are brittle in position and in the rates (a one-tile move of a flag, or one point of the kill weight on tel_marum,
+ *    swings a cell by 5-30 points), so read each as "this ground, at these numbers, is not unfair for this probe's play".
+ *    wadi_tarfan_l's points race pays 10 points per 100 value destroyed to 400: its games last two minutes and kills decide
+ *    them as much as the ground does (at 1 point per 100 it is fair KDF v KDF and not KDF v Sarim). KDF against Sarim is
+ *    `WIN_MODE_FAIR_FACTION_CELLS`'s question. */
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
   camp: [],
-  points: ['wadi_tarfan', 'milh_flats'],
-  flag: ['wadi_tarfan', 'milh_flats'],
+  points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
+  flag: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
 };
 
-/** Whether `map` is one `mode` has been read fair on (the lobby's question, later). */
-export function winModeAllowed(mode: WinMode, map: string): boolean {
-  return WIN_MODE_FAIR_MAPS[mode].includes(map);
+/** The KDF-v-Sarim cells each win mode has been read fair on (GH-976 P4): per mode, per map, the HOSTS (the matchup is the
+ *  host's faction, `kdf` or `sarim`, so the two entries are the two seat orders) whose cell passed every bar. The mirror's
+ *  table is `WIN_MODE_FAIR_MAPS`; a faction cell is its own read, because a faction pairing in a mode room plays the two
+ *  PLACED forces with no economy (`economyRoom` is false for it), and a mode that is fair between two KDF forces says
+ *  nothing about KDF against Sarim.
+ *
+ *  A cell is in this table only if it passed the bars of the mirror's table on its own held-out seeds (4000-4287): the leader
+ *  inside 60/40 over all the games and over the decisive games alone, the passive seat lost every game from either end,
+ *  and at least 70% of the games decided by the goal.
+ *
+ *  - `points` on wadi_tarfan_l, both seat orders (host KDF: KDF 130 / Sarim 158, leader 54.9%; host Sarim: Sarim 125 / KDF 163,
+ *    leader 56.6%; 100.0% decided by the goal in both, the passive end lost 288 of 288 from each end in both), at the mode file's
+ *    10 points per 100 value and a target of 400.
+ *  - Read on 4000-4287 and NOT fair, so not listed (leader / decided by the goal, host KDF then host Sarim): `flag` on
+ *    wadi_tarfan 100% and 100% / 100.0% (Sarim wins every raid), on tel_marum 88.9% and 100% / 99.7% and 100.0% (Sarim), on
+ *    wadi_tarfan_l 100% and 100% / 100.0% (the KDF wins every raid); `points` on wadi_tarfan 88.9% and 93.8% / 15.3% and 17.7%
+ *    (Sarim; the two forces annihilate each other first), on tel_marum 72.9% and 94.8% / 24.3% and 4.9% (Sarim). The full table,
+ *    with the fitting reads and the levers screened, is in the PR that added this list.
+ *
+ *  Absent maps and absent hosts are not offered, and the Worker answers 400 for them (`winModeRequest`). */
+export const WIN_MODE_FAIR_FACTION_CELLS: Readonly<Record<WinMode, Readonly<Record<string, readonly ('kdf' | 'sarim')[]>>>> = {
+  camp: {},
+  points: { wadi_tarfan_l: ['kdf', 'sarim'] },
+  flag: {},
+};
+
+/** Whether `map` is one `mode` has been read fair on in `matchup` (the lobby's question): the mirror reads
+ *  `WIN_MODE_FAIR_MAPS`, a faction pairing `WIN_MODE_FAIR_FACTION_CELLS` by the host's faction. */
+export function winModeAllowed(mode: WinMode, map: string, matchup: Matchup = 'mirror'): boolean {
+  if (matchup === 'mirror') return WIN_MODE_FAIR_MAPS[mode].includes(map);
+  const cells = WIN_MODE_FAIR_FACTION_CELLS[mode];
+  return Object.hasOwn(cells, map) && cells[map].includes(matchup);
 }
 
 /** A win mode from anything a client sent: unknown reads as none (annihilation). */
@@ -59,25 +110,25 @@ export function winModeField(v: unknown): WinMode | undefined {
   return WIN_MODES.find((m) => m === v);
 }
 
-/** The modes a lobby offers for `map` in a `matchup`, in `WIN_MODES` order: those read fair on that map, in the mirror
- *  (GH-976 P2). The probe read every mode KDF against KDF, so a KDF-vs-Sarim room is offered none: it plays its economy.
- *  Annihilation, the default, is not listed: every room can play it. */
+/** The modes a lobby offers for `map` in a `matchup`, in `WIN_MODES` order: those read fair on that map in that pairing
+ *  (GH-976 P2, P4): the mirror's table, or the faction cell of the host's side. Annihilation, the default, is not
+ *  listed: every room can play it. */
 export function winModesOffered(map: string, matchup: Matchup = 'mirror'): readonly WinMode[] {
-  return matchup === 'mirror' ? WIN_MODES.filter((m) => winModeAllowed(m, map)) : [];
+  return WIN_MODES.filter((m) => winModeAllowed(m, map, matchup));
 }
 
 /** What a create request asked for, judged: `mode` is the win mode to play (undefined: annihilation), or `refused`
  *  names why the room must not be made. The Worker's route and its room both ask this one question, so they cannot
  *  disagree. Absent, null and the string `annihilation` are annihilation; anything else must be a mode that
- *  `winModesOffered` lists for this map and matchup. A sandbox room takes no mode. */
+ *  `winModesOffered` lists for this map and matchup (GH-976 P4: a KDF-v-Sarim room asks the faction table of its host's
+ *  side). A sandbox room takes no mode. */
 export type WinModeRequest = { mode: WinMode | undefined; refused?: undefined } | { mode?: undefined; refused: string };
 export function winModeRequest(v: unknown, room: { mode: 'sandbox' | 'versus'; map: string; matchup: Matchup }): WinModeRequest {
   if (v === undefined || v === null || v === 'annihilation') return { mode: undefined };
   const mode = winModeField(v);
   if (mode === undefined) return { refused: 'unknown win mode' };
   if (room.mode !== 'versus') return { refused: 'win mode is for versus rooms' };
-  if (room.matchup !== 'mirror') return { refused: 'win mode is for the mirror matchup' };
-  if (!winModeAllowed(mode, room.map)) return { refused: 'win mode not offered on this map' };
+  if (!winModeAllowed(mode, room.map, room.matchup)) return { refused: room.matchup === 'mirror' ? 'win mode not offered on this map' : 'win mode not offered on this map for this matchup' };
   return { mode };
 }
 

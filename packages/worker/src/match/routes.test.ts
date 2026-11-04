@@ -103,27 +103,32 @@ describe('/api/match', () => {
     // A sandbox room ignores the matchup altogether.
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', map: 'beit_sahwan_outskirts', matchup: 'sarim' }), env, NOW)).status).toBe(201);
   });
-  it('GH-976 P2: a win mode reaches the room only when it was read fair on the map, in the mirror; anything else is a 400 before a room is made', async () => {
+  it('GH-976 P2, P4: a win mode reaches the room only when it was read fair on the map in that pairing; anything else is a 400 before a room is made', async () => {
     const { env, createBodies } = fakeRooms();
     const body = (over: Record<string, unknown>) => ({ player: 'id-1', build: 'b1', mode: 'versus', map: 'wadi_tarfan', ...over });
-    // The two maps points was read fair on: 201, and the mode is in the body the room gets.
-    for (const map of ['wadi_tarfan', 'milh_flats']) {
+    // The oracle is a literal (GH-976 P4): the seven open maps, each read fair for the points race and for the flag raid in the mirror.
+    const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+    for (const map of SEVEN) {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'points' })), env, NOW)).status, map).toBe(201);
     }
-    expect(createBodies.map((b) => b.winMode)).toEqual(['points', 'points']);
-    // GH-976 P3: the flag raid, read fair on the same two maps, reaches the room the same way, and is refused where points is.
-    for (const map of ['wadi_tarfan', 'milh_flats']) {
+    expect(createBodies.map((b) => b.winMode)).toEqual(SEVEN.map(() => 'points'));
+    // GH-976 P3: the flag raid reaches the room the same way.
+    for (const map of SEVEN) {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map, winMode: 'flag' })), env, NOW)).status, map).toBe(201);
     }
-    expect(createBodies.slice(2).map((b) => b.winMode)).toEqual(['flag', 'flag']);
-    expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map: 'tel_marum', winMode: 'flag' })), env, NOW)).status).toBe(400);
-    expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ matchup: 'kdf', winMode: 'flag' })), env, NOW)).status).toBe(400);
-    createBodies.splice(2, 2);
+    expect(createBodies.slice(SEVEN.length).map((b) => b.winMode)).toEqual(SEVEN.map(() => 'flag'));
+    createBodies.splice(0, createBodies.length);
+    // GH-976 P4: KDF against Sarim is read fair for the points race on Wadi Tarfan (large), whoever hosts, and nowhere else.
+    for (const matchup of ['kdf', 'sarim']) {
+      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ map: 'wadi_tarfan_l', matchup, winMode: 'points' })), env, NOW)).status, matchup).toBe(201);
+    }
+    expect(createBodies.map((b) => [b.winMode, b.matchup, b.map])).toEqual([['points', 'kdf', 'wadi_tarfan_l'], ['points', 'sarim', 'wadi_tarfan_l']]);
+    createBodies.splice(0, createBodies.length);
     // Annihilation by any of its spellings is no mode: the room is told nothing, as every room before.
     for (const winMode of [undefined, null, 'annihilation']) {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ winMode })), env, NOW)).status).toBe(201);
     }
-    expect(createBodies.slice(2).every((b) => !('winMode' in b))).toBe(true);
+    expect(createBodies.every((b) => !('winMode' in b))).toBe(true);
     const made = createBodies.length;
     const refuse = async (over: Record<string, unknown>, text: string): Promise<void> => {
       const res = await handleMatch(post(`${ORIGIN}/api/match`, body(over)), env, NOW);
@@ -132,12 +137,27 @@ describe('/api/match', () => {
     };
     await refuse({ winMode: 'rally' }, 'unknown win mode');            // not a mode at all
     await refuse({ winMode: 7 }, 'unknown win mode');
-    await refuse({ winMode: 'camp' }, 'win mode not offered on this map');   // read, and NOT fair, on both maps
-    await refuse({ winMode: 'points', map: 'tel_marum' }, 'win mode not offered on this map');   // a fair map for the mirror, no mode file
-    await refuse({ winMode: 'points', map: 'beit_sahwan_outskirts' }, 'win mode not offered on this map');
-    await refuse({ winMode: 'points', matchup: 'sarim' }, 'win mode is for the mirror matchup');   // the probe read the mirror only
-    await refuse({ winMode: 'points', matchup: 'kdf' }, 'win mode is for the mirror matchup');
+    await refuse({ winMode: 'camp' }, 'win mode not offered on this map');   // read, and NOT fair, on both maps it was read on
+    await refuse({ winMode: 'camp', map: 'tel_marum' }, 'win mode not offered on this map');
+    await refuse({ winMode: 'points', map: 'qarn_hadid' }, 'map not offered for versus');   // not an open map at all: refused before the mode is asked
     await refuse({ winMode: 'points', mode: 'sandbox' }, 'win mode is for versus rooms');
+    // GH-976 P4: every KDF-v-Sarim cell the probe read and found unfair is a 400 in both seat orders, before a room is made.
+    const unfair = 'win mode not offered on this map for this matchup';
+    for (const matchup of ['kdf', 'sarim']) {
+      await refuse({ winMode: 'points', matchup }, unfair);                                  // wadi_tarfan: the forces annihilate each other first
+      await refuse({ winMode: 'flag', matchup }, unfair);                                    // wadi_tarfan: Sarim wins every raid
+      await refuse({ winMode: 'points', map: 'tel_marum', matchup }, unfair);                // fair on the lead, 26-29% decided by the goal
+      await refuse({ winMode: 'flag', map: 'tel_marum', matchup }, unfair);
+      await refuse({ winMode: 'flag', map: 'wadi_tarfan_l', matchup }, unfair);              // the points race passes there, the flag does not
+      await refuse({ winMode: 'camp', map: 'wadi_tarfan_l', matchup }, unfair);
+    }
+    // And a mirror-only map refuses the pairing itself before the mode is asked (the lead, 2026-10-14).
+    for (const map of ['beit_sahwan_outskirts', 'milh_flats', 'milh_flats_l', 'rujm_sawda']) {
+      for (const matchup of ['kdf', 'sarim']) {
+        const res = await handleMatch(post(`${ORIGIN}/api/match`, body({ map, matchup, winMode: 'points' })), env, NOW);
+        expect(res.status, `${map} ${matchup}`).toBe(400);
+      }
+    }
     expect(createBodies).toHaveLength(made);   // not one of them reached a room
   });
   it('a versus room is offered only on the maps measured fair: any other map is a 400 before a room is made; a sandbox room is not limited (#561, the lead, 2026-10-14)', async () => {

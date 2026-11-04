@@ -38,6 +38,8 @@ const MAPS = [
   { id: 'tel_marum', label: 'Tel Marum' },
   { id: 'wadi_tarfan', label: 'Wadi Tarfan — The Three Fords' },
 ];
+/** Wadi Tarfan (large), the one map KDF against Sarim was read fair on for a win mode (GH-976 P4): added to a lobby by the tests that need it. */
+const WADI_TARFAN_L = { id: 'wadi_tarfan_l', label: 'Wadi Tarfan (large) — The Three Fords' };
 
 function deps(overrides: Partial<VersusDeps> = {}): VersusDeps & { saved: string[]; navigated: [string, { replace?: boolean } | undefined][] } {
   const saved: string[] = [];
@@ -244,7 +246,7 @@ describe('showVersus (/versus)', () => {
     const { transport } = fakeTransport();
     const open = vi.fn().mockResolvedValue(opened(transport));
     const stage = mountPick(deps({ open }));
-    const radios = [...stage.querySelectorAll<HTMLInputElement>('input.rl-versus__side-radio')];
+    const radios = [...stage.querySelectorAll<HTMLInputElement>('.rl-versus__sides:not(.rl-versus__win) input.rl-versus__side-radio')];
     expect(radios.map((r) => r.value)).toEqual(['kdf', 'sarim', 'mirror']);
     expect(radios.map((r) => r.type)).toEqual(['radio', 'radio', 'radio']);
     expect(radios.map((r) => r.closest('label')?.textContent)).toEqual(['KDF', 'Sarim', 'Mirror']);
@@ -368,7 +370,7 @@ describe('showVersus (/versus)', () => {
 
   it('a build that ships neither faction map offers the mirror alone, and says why on the greyed sides', () => {
     const stage = mountPick(deps({ maps: [MAPS[0]!] }));
-    const radios = [...stage.querySelectorAll<HTMLInputElement>('input.rl-versus__side-radio')];
+    const radios = [...stage.querySelectorAll<HTMLInputElement>('.rl-versus__sides:not(.rl-versus__win) input.rl-versus__side-radio')];
     expect(radios.filter((r) => !r.disabled).map((r) => r.value)).toEqual(['mirror']);
     expect(describedBy(sideRadio(stage, 'kdf'))).toBe('No ground for KDF against Sarim in this build');
   });
@@ -613,14 +615,18 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     room(document.createElement('div'), 'ABCDEF', deps());
     return (open.mock.calls[0] as [RoomRequest])[0];
   };
-  const mount = () => {
+  const mount = (extra: { id: string; label: string }[] = []) => {
     const { transport } = fakeTransport();
     const open = vi.fn().mockResolvedValue(opened(transport));
-    return { open, stage: mountPick(deps({ open })) };
+    return { open, stage: mountPick(deps({ open, maps: [...MAPS, ...extra] })) };
   };
 
-  it('is hidden on ground no mode was read fair on, and a create from there says nothing of a mode', async () => {
+  it('is hidden where no mode was read fair (KDF against Sarim on Tel Marum), and a create from there says nothing of a mode', async () => {
     const { open, stage } = mount();
+    expect(checkedMap(stage)).toBe('tel_marum');
+    // GH-976 P4: the mirror on Tel Marum offers both modes now; the pairing with Sarim was read and offers none.
+    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points', 'flag']);
+    pick(sideRadio(stage, 'kdf'));
     expect(checkedMap(stage)).toBe('tel_marum');
     expect(winGroup(stage).hidden).toBe(true);
     expect(winRadios(stage)).toEqual([]);
@@ -657,17 +663,26 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan', matchup: 'mirror', winMode: 'flag' });
   });
 
-  it('a pick that the next ground does not offer is dropped, not carried to a map it was never read fair on', async () => {
-    const { open, stage } = mount();
-    pick(mapRadio(stage, 'wadi_tarfan'));
+  it('a pick that the next pairing does not offer is dropped, not carried to a cell it was never read fair on', async () => {
+    const { open, stage } = mount([WADI_TARFAN_L]);
+    pick(mapRadio(stage, 'wadi_tarfan_l'));
+    pick(winRadios(stage).find((r) => r.value === 'flag')!);
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('flag');
+    // KDF against Sarim was read on this map for the points race alone: the flag pick is dropped, annihilation is the default again.
+    pick(sideRadio(stage, 'kdf'));
+    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
     pick(winRadios(stage).find((r) => r.value === 'points')!);
+    // ...and a map the pairing was not read fair on drops the points pick too: absent from the DOM, not merely hidden.
     pick(mapRadio(stage, 'tel_marum'));
     expect(winGroup(stage).hidden).toBe(true);
-    expect(winRadios(stage)).toEqual([]);   // absent from the DOM, not merely hidden
-    expect('winMode' in (await created(stage, open))).toBe(false);
+    expect(winRadios(stage)).toEqual([]);
+    const req = await created(stage, open);
+    expect(req).toMatchObject({ matchup: 'kdf', map: 'tel_marum' });
+    expect('winMode' in req).toBe(false);
   });
 
-  it('a faction pick (KDF against Sarim plays its economy) offers no mode and drops the pick', async () => {
+  it('a faction pick on a map KDF-against-Sarim was not read fair on offers no mode and drops the pick', async () => {
     const { open, stage } = mount();
     pick(mapRadio(stage, 'wadi_tarfan'));
     pick(winRadios(stage).find((r) => r.value === 'points')!);
@@ -682,15 +697,40 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
   });
 
+  it('GH-976 P4: on Wadi Tarfan (large) KDF against Sarim offers the points race in both orders, the create carries it, and the economy line gives way to the placed-forces one', async () => {
+    for (const side of ['kdf', 'sarim'] as const) {
+      const { open, stage } = mount([WADI_TARFAN_L]);
+      const economy = stage.querySelector<HTMLElement>('.rl-versus__matchup-note:not([id*="placed"])')!;
+      const placed = [...stage.querySelectorAll<HTMLElement>('.rl-versus__matchup-note')].find((n) => n.textContent === 'Both forces start on the field; nothing is built or bought')!;
+      pick(mapRadio(stage, 'wadi_tarfan_l'));
+      pick(sideRadio(stage, side));
+      expect(checkedMap(stage)).toBe('wadi_tarfan_l');
+      expect(winGroup(stage).hidden).toBe(false);
+      expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+      // Annihilation on a faction pairing is the economy room: the economy line shows and the placed-forces line does not.
+      expect(economy.hidden).toBe(false);
+      expect(placed.hidden).toBe(true);
+      expect(describedBy(sideRadio(stage, side))).toBe('Camps, income and production on');
+      pick(winRadios(stage).find((r) => r.value === 'points')!);
+      expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('first to 400 wins');
+      // A mode on a faction pairing is the placed forces with no economy, so the economy line would be untrue.
+      expect(economy.hidden).toBe(true);
+      expect(placed.hidden).toBe(false);
+      expect(describedBy(sideRadio(stage, side))).toBe('Both forces start on the field; nothing is built or bought');
+      expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan_l', matchup: side, winMode: 'points' });
+    }
+  });
+
   it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: never Destroy the camp', () => {
-    const stage = mountPick(deps());
+    const stage = mountPick(deps({ maps: [...MAPS, WADI_TARFAN_L] }));
     const offered: Record<string, string[]> = {};
-    for (const m of MAPS) {
+    for (const m of [...MAPS, WADI_TARFAN_L]) {
       pick(mapRadio(stage, m.id));
       offered[m.id] = winRadios(stage).map((r) => r.value);
     }
     expect(offered).toEqual({
-      beit_sahwan_outskirts: [], milh_flats: ['annihilation', 'points', 'flag'], tel_marum: [], wadi_tarfan: ['annihilation', 'points', 'flag'],
+      beit_sahwan_outskirts: ['annihilation', 'points', 'flag'], milh_flats: ['annihilation', 'points', 'flag'], tel_marum: ['annihilation', 'points', 'flag'],
+      wadi_tarfan: ['annihilation', 'points', 'flag'], wadi_tarfan_l: ['annihilation', 'points', 'flag'],
     });
   });
 
