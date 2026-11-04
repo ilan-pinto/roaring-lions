@@ -166,6 +166,20 @@ describe('score objective: the points race (GH-976)', () => {
     expect(w.events.filter((e) => e.kind === 'objective' && e.status === 'complete').map((e) => (e as { id: string }).id)).toEqual(['score_0']);
   });
 
+  it('stores the tick an objective completed on, per side, and -1 while it has not (GH-976 P2)', () => {
+    const w = world([score(0, { zones: [{ zone: 'west', per_min: 60 }], target: 10, per_value_destroyed: 0 }), score(1, { zones: [{ zone: 'east', per_min: 30 }], target: 10, per_value_destroyed: 0 })]);
+    w.put(0, 6, 6);
+    w.put(1, 32, 6);
+    expect([w.rt.completeTickOf(0), w.rt.completeTickOf(1)]).toEqual([-1, -1]);
+    w.step(10 * 20 + 5);
+    // Side 0: 10 points at 60 a minute is 200 ticks, completing on the 200th step (tick 200). Side 1 at 30 a minute needs 400.
+    expect(w.rt.completeTickOf(0)).toBe(200);
+    expect(w.rt.completeTickOf(1)).toBe(-1);
+    w.step(10 * 20);
+    expect(w.rt.completeTickOf(1)).toBe(400);
+    expect(w.rt.completeTickOf(0)).toBe(200); // frozen: a later step never moves it
+  });
+
   it('is a goals-only objective: outside such a room the runtime refuses it', () => {
     expect(() => world([score(0)], { goalsOnly: false })).toThrow(/goalsOnly/);
   });
@@ -189,6 +203,29 @@ describe('score objective: the points race (GH-976)', () => {
     a.step(1);
     b.step(1);
     expect(a.rt.digest()).not.toBe(b.rt.digest());
+  });
+});
+
+describe('the completion tick is a mode room\'s alone (GH-976 P2: annihilation rooms and missions stay byte-identical)', () => {
+  const poke = (rt: unknown, tick: number): void => {
+    for (const o of (rt as { objectives: { completeTick: number }[] }).objectives) o.completeTick = tick;
+  };
+  it('moves digest() in a goals-only room, and moves it not at all in a mission runtime', () => {
+    const mk = (goalsOnly: boolean) => world([{ id: 'hold', type: 'hold_for', primary: false, target: 'west', seconds: 3 }], { goalsOnly });
+    const mode = mk(true);
+    const mission = mk(false);
+    const before = [mode.rt.digest(), mission.rt.digest()];
+    poke(mode.rt, 777);
+    poke(mission.rt, 777);
+    expect(mode.rt.digest()).not.toBe(before[0]); // a mode room folds it
+    expect(mission.rt.digest()).toBe(before[1]); // a mission does not: the live flag is what keeps it out
+  });
+
+  it('is written when an objective is completed from outside the runtime too', () => {
+    const w = world([{ id: 'hold', type: 'hold_for', primary: false, target: 'west', seconds: 5 }], { goalsOnly: false });
+    w.step(7);
+    expect(w.rt.completeObjective('hold')).toBe(true);
+    expect((w.rt as unknown as { objectives: { completeTick: number }[] }).objectives[0].completeTick).toBe(7);
   });
 });
 

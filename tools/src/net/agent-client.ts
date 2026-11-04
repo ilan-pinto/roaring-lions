@@ -19,8 +19,10 @@ import {
   type Seat,
   type SeatWorld,
   type SocketLike,
+  type WinMode,
 } from '@lions/net';
 import type { Command, SimEvent } from '@lions/sim';
+import { versusModes } from '@lions/data';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { prepareRejoin, snapshotLink, type Prepared, type SnapshotLink } from '../../../packages/app/src/net/snapshot-link';
 import { SnapshotProducer, type ProducerStats } from '../../../packages/app/src/net/snapshot-producer';
@@ -88,6 +90,9 @@ export interface AgentClientOptions {
   /** GH-954 W3: keep every frame this client runs, in order (`framesRan()`), so the arena can record the referee's
    *  game for replay. Off by default: a long-lived `pnpm agent` must not grow an array of its whole match. */
   keepFrames?: boolean;
+  /** GH-976 P2: the win mode the prompt told this player the room plays (`null`: annihilation). When set, a room that
+   *  starts on another is refused before the player moves (`failed()` says why); absent, nothing is checked. */
+  expectWinMode?: WinMode | null;
 }
 
 /** The match's state, built at `start` (or the first `log`). */
@@ -110,6 +115,11 @@ interface Live {
 export function matchSocketTarget(server: string, code: string): { url: string; origin: string } {
   const origin = new URL(server).origin;
   return { url: `${origin.replace(/^http/, 'ws')}/api/match/${encodeURIComponent(code)}/ws`, origin };
+}
+
+/** How a result was reached, as `observe` and `status` name it (GH-976 P2): the outcome's own `by`. */
+export function byOf(r: MatchResult): string {
+  return r.by;
 }
 
 function resultLine(r: MatchResult, side: 0 | 1): string {
@@ -269,6 +279,12 @@ export class AgentClient {
 
   private begin(config: MatchConfig): void {
     if (this.live !== null) return;
+    // The prompt this player was given describes ONE way to win; a room that plays another would leave it
+    // optimising the wrong thing for a whole match.
+    const expected = this.o.expectWinMode;
+    if (expected !== undefined && (config.winMode ?? null) !== expected) {
+      throw new Error(`the room plays ${config.winMode ?? 'annihilation'}, but this player was told ${expected ?? 'annihilation'}: start it with --mode ${config.winMode ?? 'annihilation'}`);
+    }
     // A rejoin by snapshot boots on the restored world; any refusal is a fresh one and a restart from zero.
     // `restartFromZero` is deferred one microtask: onStart runs inside the transport's `log` handler, which resumes
     // after this returns and would push the old, trimmed log into the new clock (WsTransport.restartFromZero).
@@ -295,6 +311,9 @@ export class AgentClient {
         })
       : null;
     this.live = { config, w, side, fog: new FogTracker(w.sim, side), seatWorld: seatWorldFor(config, w.sim), dataDigest: shippedContentDigest(), producer, tally: new RefereeTally() };
+    // GH-976 P2: a points race is read by the referee's tally too (points by source), from the runtime's own score.
+    const pointsRules = config.winMode === 'points' ? versusModes[config.map]?.modes.points : undefined;
+    if (pointsRules !== undefined && w.runtime !== null) this.live.tally.setPoints({ runtime: w.runtime, rules: pointsRules });
     this.log(`match ${config.code} started: ${config.map}, seat ${this.o.seat} (side ${side}, ${w.factions[side]})`);
   }
 
@@ -406,7 +425,7 @@ export class AgentClient {
     const live = this.live;
     if (live === null) throw new Error('AgentClient.view: the match has not started');
     const r = this.result();
-    return sideView(live.w, live.side, live.fog, r === null ? null : resultLine(r, live.side));
+    return sideView(live.w, live.side, live.fog, r === null ? null : resultLine(r, live.side), r === null ? null : byOf(r));
   }
 
   /**

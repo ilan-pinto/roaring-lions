@@ -10,6 +10,7 @@
 import { t } from '../i18n/t';
 import type { Faction } from '@lions/net';
 import type { MatchResult } from '../net/outcome';
+import type { PointsView } from '../net/points-view';
 import type { MatchScore } from '../net/scoreboard';
 import type { Disposer } from '../shell/router';
 import { mountEndPanel } from './end-panel';
@@ -29,6 +30,8 @@ export interface NetEndDeps {
    *  panel names the force this seat commanded and the one it fought. Absent
    *  or the mirror, nothing is added. */
   factions?: readonly [Faction, Faction];
+  /** The points race as it stood when the result was decided (GH-976 P2): a points room's panel names both totals. */
+  points?: Pick<PointsView, 'mine' | 'theirs' | 'target'>;
 }
 
 /** Won, lost or drawn, as `viewer` sees `o`. */
@@ -69,6 +72,12 @@ export function showNetEnd(host: HTMLElement, o: MatchResult, viewer: 0 | 1, dep
     played.className = 'rl-net-end__played';
     played.textContent = t('versus.end.played', { f: factions[viewer], them: factions[viewer === 0 ? 1 : 0] });
     p.body.appendChild(played);
+  }
+  if (deps.points !== undefined) {
+    const points = document.createElement('p');
+    points.className = 'rl-net-end__points';
+    points.textContent = t('versus.end.points', { mine: amount(deps.points.mine), theirs: amount(deps.points.theirs), target: amount(deps.points.target) });
+    p.body.appendChild(points);
   }
   if (deps.score !== undefined) p.body.appendChild(scoreTable(deps.score.score, viewer, deps.score.names, { remaining: true }));
 

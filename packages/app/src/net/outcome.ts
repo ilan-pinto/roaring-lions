@@ -150,6 +150,8 @@ export interface OutcomeGoals {
   sideWon(side: 0 | 1): boolean;
   /** `side`'s score in exact integer units, the tie-break when both complete on one tick; 0 with no score. */
   scoreUnitsOf(side: 0 | 1): number;
+  /** The sim tick `side` completed its goal on, or -1 while it has not (GH-976 P2): the first to finish wins. */
+  completeTickOf(side: 0 | 1): number;
 }
 
 /** The slice of `MatchWorld` that `goalsOf` reads. */
@@ -157,6 +159,7 @@ export interface GoalsWorld {
   readonly runtime: {
     sideWon(side: 0 | 1): boolean;
     scoreUnitsOf(side: 0 | 1): number;
+    completeTickOf(side: 0 | 1): number;
   } | null;
   readonly winMode: WinMode | null;
 }
@@ -165,20 +168,23 @@ export interface GoalsWorld {
 export function goalsOf(w: GoalsWorld): OutcomeGoals | undefined {
   const runtime = w.runtime;
   if (runtime === null || w.winMode === null) return undefined;
-  return { mode: w.winMode, sideWon: (s) => runtime.sideWon(s), scoreUnitsOf: (s) => runtime.scoreUnitsOf(s) };
+  return { mode: w.winMode, sideWon: (s) => runtime.sideWon(s), scoreUnitsOf: (s) => runtime.scoreUnitsOf(s), completeTickOf: (s) => runtime.completeTickOf(s) };
 }
 
 /** The goal's verdict, or null while no side has completed one. `outcomeOf` asks only on a hash window (every 20
- *  ticks), and a completed score is frozen at its own completion, so two sides that finished inside one window are
- *  compared on their frozen scores: the larger overshoot wins a points race (the side that reached the target FIRST
- *  can lose to it), and anything level is a mutual end. P2 TODO: store the completion tick before a lobby offers
- *  `points`, so first-to-target decides. Read from state both machines share (the runtime's
- *  objectives and score, hashed through its digest). */
+ *  ticks), so two sides can both have finished by the time it asks. The FIRST to finish wins (GH-976 P2): each
+ *  objective stores the sim tick it completed on (`completeTickOf`, a snapshot row), so a side that reached the
+ *  target 1-19 ticks before the other wins even if the other overshot by more. Only the SAME tick falls to the
+ *  score, the larger winning, and level scores are a mutual end. Read from state both machines share (the
+ *  runtime's objectives, hashed through its digest). */
 function goalOutcome(goals: OutcomeGoals): MatchResult | null {
   const a = goals.sideWon(0);
   const b = goals.sideWon(1);
   if (!a && !b) return null;
   if (a && b) {
+    const ta = goals.completeTickOf(0);
+    const tb = goals.completeTickOf(1);
+    if (ta !== tb) return { kind: 'won', side: ta < tb ? 0 : 1, by: 'objective', mode: goals.mode };
     const sa = goals.scoreUnitsOf(0);
     const sb = goals.scoreUnitsOf(1);
     if (sa === sb) return { kind: 'draw', by: 'mutual' };

@@ -6,8 +6,10 @@
  * renderer's own predicate -- `unitIsObserved`, `heldShown` -- called with this
  * seat's fog, not a copy. A pure read: it never writes to the sim.
  */
-import type { Faction } from '@lions/net';
+import { versusModes } from '@lions/data';
+import type { Faction, WinMode } from '@lions/net';
 import { campOf } from '../../../packages/app/src/net/versus-force';
+import { pointsViewOf, type PointsView } from '../../../packages/app/src/net/points-view';
 import type { MatchWorld } from '../../../packages/app/src/net/match-world';
 import { scoreFor, scoreOf, type SideScore } from '../../../packages/app/src/net/scoreboard';
 import { heldBuildings, heldShown } from '../../../packages/render/src/three/units/held-building';
@@ -54,10 +56,18 @@ export interface SideView {
   held: HeldLine[];
   /** The stances `order` accepts with verb `setStance` (GH-954): every room allows all three. */
   stances: StanceName[];
-  /** Your production, purse and menu (GH-954); absent in a room with no economy (a mirror room). Yours alone. */
+  /** Your production, purse and menu (GH-954); absent in a room with no economy (a mirror room, a win-mode room). Yours alone. */
   economy?: EconomyView;
   score: { mine: SideScore; theirs: SideScore };
+  /** How this room is won (GH-976 P2): `annihilation`, or the win mode the host picked. */
+  mode: 'annihilation' | WinMode;
+  /** A points race only: both sides' points, the target, what each side's zones pay a minute and who holds each zone.
+   *  PUBLIC by design (see `net/points-view.ts`): the board of a race is read by both seats, as the HUD shows it to a human;
+   *  the units on it stay behind the fog (`contacts`). */
+  points?: PointsView;
   result: string | null;
+  /** How the match was decided, once it has been (`annihilation`, `objective`, `stalemate`, `time`, `mutual`, `surrender`, `left`, `forfeit`); null while it runs. */
+  by: string | null;
 }
 
 const TICKS_PER_SECOND = 20;
@@ -69,7 +79,7 @@ function clockOf(tick: number): string {
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 
-export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: string | null): SideView {
+export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: string | null, by: string | null = null): SideView {
   const sim = w.sim;
   const st = sim.state;
   const visibleAt = (x: number, y: number): boolean => fog.visibleTile(x, y);
@@ -145,6 +155,8 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
   const camp = campOf(w.anchors, w.endOfSide[side]);
   const enemyCamp = campOf(w.anchors, w.endOfSide[side === 0 ? 1 : 0]);
   const economy = economyView(w, side);
+  const pointsRules = w.winMode === 'points' ? versusModes[w.mapJson.id]?.modes.points : undefined;
+  const points = pointsRules !== undefined && w.runtime !== null ? pointsViewOf(w.runtime, pointsRules, side) : undefined;
   return {
     tick: sim.tickCount,
     clock: clockOf(sim.tickCount),
@@ -161,6 +173,9 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
     stances: [...STANCES],
     ...(economy === null ? {} : { economy }),
     score: scoreFor(scoreOf(sim), side),
+    mode: w.winMode ?? 'annihilation',
+    ...(points === undefined ? {} : { points }),
     result,
+    by,
   };
 }

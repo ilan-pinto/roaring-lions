@@ -266,7 +266,7 @@ describe('poison: the runtime\'s state rows, before the restore', () => {
         'WorksStructure.typeId',
       ].sort()
     );
-    expect(seen.size, 'state rows poisoned').toBe(95);
+    expect(seen.size, 'state rows poisoned').toBe(96); // 95 + ObjectiveState.completeTick (GH-976 P2)
   }, 60_000);
 
   it('a mid-run runtime changes at every top-level state row that has a value, in some cut of some world', () => {

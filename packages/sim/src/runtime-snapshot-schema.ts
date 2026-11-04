@@ -405,6 +405,9 @@ export const OBJECTIVE_STATE_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'status', cls: 'state', kind: str(OBJECTIVE_STATUSES) },
   { name: 'holdTicks', cls: 'state', kind: SCALAR },
   { name: 'paused', cls: 'state', kind: str(PAUSES, true) },
+  // GH-976 P2: the tick the objective completed on (-1 before), written beside `status` in `stepObjectives` and
+  // `completeObjective`. A win-mode room's first-to-finish rule reads it.
+  { name: 'completeTick', cls: 'state', kind: SCALAR },
 ];
 
 /** `PatrolState`: a patrolling placement's beat. Created by `spawnPlacement`, spliced by a trigger. */

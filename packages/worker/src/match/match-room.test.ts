@@ -36,13 +36,13 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown }
+interface CreateOpts { map?: string; winMode?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
   const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env, opts.snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks: opts.snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}) }),
+    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: opts.map ?? 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.winMode !== undefined ? { winMode: opts.winMode } : {}), ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}) }),
   }));
   expect(res.status).toBe(200);
   if (opts.join !== false) {
@@ -1642,6 +1642,55 @@ describe('bot seats and the paced config (N4a task 7, D5)', () => {
     await deliverAlarm(revived, state.storage);
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     expect(ofType(ws0, 'frame').at(-1)?.tick).toBeGreaterThanOrEqual(20);
+  });
+});
+
+describe('win modes (GH-976 P2): the room records the host\'s pick and mints it into the config', () => {
+  const POINTS = { mode: 'versus', map: 'wadi_tarfan', winMode: 'points' };
+  it('a points room mints winMode into the start config of both seats, and the lobby names it to both', async () => {
+    const { ws0, ws1 } = await running(POINTS);
+    const [start] = ofType(ws0, 'start');
+    expect(start.config.winMode).toBe('points');
+    expect(ofType(ws1, 'start')[0].config.winMode).toBe('points');
+    expect(validateConfig(JSON.parse(JSON.stringify(start.config)))?.winMode).toBe('points');
+    const { room } = await created(new FakeState(), POINTS);
+    const l0 = await hello(room, 0);
+    const l1 = await hello(room, 1);
+    expect([ofType(l0, 'lobby').at(-1)?.winMode, ofType(l1, 'lobby').at(-1)?.winMode]).toEqual(['points', 'points']);
+  });
+  it('an annihilation room names no mode anywhere: no config field, no lobby field', async () => {
+    const { ws0 } = await running({ mode: 'versus', map: 'wadi_tarfan' });
+    expect('winMode' in ofType(ws0, 'start')[0].config).toBe(false);
+    expect(ofType(ws0, 'lobby').every((l) => !('winMode' in l))).toBe(true);
+  });
+  it('the room itself refuses an unknown mode and an unfair one (map, matchup), and makes no room', async () => {
+    for (const [over, status] of [
+      [{ winMode: 'points' }, 200],
+      [{ winMode: 'flag' }, 400], [{ winMode: 'camp' }, 400], [{ winMode: 'points', map: 'tel_marum' }, 400],
+      [{ winMode: 'points', matchup: 'sarim' }, 400], [{ winMode: 'points', mode: 'sandbox' }, 400],
+    ] as const) {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env, YIELD);
+      const res = await room.fetch(new Request('https://room/create', {
+        method: 'POST',
+        body: JSON.stringify({ code: CODE, matchId: CODE, map: 'wadi_tarfan', build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus', ...over }),
+      }));
+      expect(res.status, JSON.stringify(over)).toBe(status);
+      expect((await state.storage.get('state')) === undefined, JSON.stringify(over)).toBe(status === 400);
+    }
+  });
+  it('a room persisted before win modes revives as annihilation, and a persisted points room revives as points', async () => {
+    const { state } = await created(new FakeState(), POINTS);
+    const meta = await state.storage.get<Record<string, unknown>>('meta');
+    expect(meta?.winMode).toBe('points');
+    evict();
+    const ws = await hello(new MatchRoom(state, env, YIELD), 1);
+    expect(ofType(ws, 'lobby').at(-1)?.winMode).toBe('points');
+    delete meta?.winMode;
+    await state.storage.put('meta', meta);
+    evict();
+    const old = await hello(new MatchRoom(state, env, YIELD), 1);
+    expect(ofType(old, 'lobby').at(-1)?.winMode).toBeUndefined();
   });
 });
 

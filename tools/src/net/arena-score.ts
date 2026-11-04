@@ -8,7 +8,7 @@
  *
  * Pure: records in, numbers and markdown out. Nothing here plays a game.
  */
-import type { Faction, Matchup } from '@lions/net';
+import type { Faction, Matchup, WinMode } from '@lions/net';
 import type { MatchScore, SideScore } from '../../../packages/app/src/net/scoreboard';
 import type { Usage } from './external-player';
 import type { JudgeRecord } from './judge';
@@ -19,6 +19,8 @@ export interface GameRecord {
   seed: number;
   map: string;
   matchup: Matchup;
+  /** How the room was won beside annihilation (GH-976 P2): `annihilation` or the win mode. Absent on a record from before. */
+  mode?: 'annihilation' | WinMode;
   /** By SEAT. */
   players: [string, string];
   /** By seat. */
@@ -250,6 +252,16 @@ const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' 
 const line = (cells: readonly (string | number)[]): string => `| ${cells.map((c) => cell(String(c))).join(' | ')} |`;
 const board = (s: SideScore): string[] => [`${s.lost} (${s.lostValue})`, `${s.destroyed} (${s.destroyedValue})`, String(s.remaining)];
 
+/** What decided a game, in words a report reader wants (GH-976 P2): a win mode's goal by name, surviving force for a limit or a
+ *  stalemate, anything else as the raw `by`. */
+export function decidedBy(g: Pick<GameRecord, 'by' | 'mode'>): string {
+  if (g.by === 'objective') return g.mode === 'points' ? 'points race' : g.mode === 'camp' ? 'camp razed' : 'objective';
+  if (g.by === 'cap' || g.by === 'time' || g.by === 'stalemate') return 'surviving force';
+  return g.by;
+}
+
+const modeOf = (g: Pick<GameRecord, 'mode'>): string => g.mode ?? 'annihilation';
+
 function winnerOf(g: GameRecord): string {
   if (g.outcome === 'seat0') return g.players[0];
   if (g.outcome === 'seat1') return g.players[1];
@@ -328,6 +340,18 @@ function refereeTable(games: readonly GameRecord[]): string[] {
       out.push(line([i + 1, g.seed, s.seat, g.players[s.seat], s.deaths, s.menKilled, `${s.unitsLost} (${s.lostValue})`, `${s.destroyed} (${s.destroyedValue})`, s.woundedFell, s.woundedRescued, s.woundedDied, s.idlePct ?? '—', s.ordersSent, s.firstOrderTick ?? '—']));
     }
   });
+  // GH-976 P2: a points race adds its points by source, per seat.
+  if (games.some((g) => g.referee?.seats.some((s) => s.points !== undefined) === true)) {
+    out.push('', 'Points by source (a points race): held zones and enemy units destroyed.', '');
+    out.push(line(['game', 'seed', 'seat', 'player', 'points', 'from zones', 'from kills', 'by zone']), line(Array.from({ length: 8 }, () => '---')));
+    games.forEach((g, i) => {
+      for (const s of g.referee?.seats ?? []) {
+        if (s.points === undefined) continue;
+        const zones = Object.entries(s.points.byZone).map(([z, v]) => `${z} ${v}`).join(', ');
+        out.push(line([i + 1, g.seed, s.seat, g.players[s.seat], s.points.total, s.points.fromZones, s.points.fromKills, zones === '' ? '—' : zones]));
+      }
+    });
+  }
   return out;
 }
 
@@ -338,7 +362,7 @@ function refereeTable(games: readonly GameRecord[]): string[] {
 export function markdownReport(games: readonly GameRecord[], pair: readonly [string, string] | undefined = games[0]?.players): string {
   const out: string[] = [];
   const first = games[0];
-  out.push(`# Arena: ${first === undefined ? 'no games' : `${first.map}, ${first.matchup}`}`);
+  out.push(`# Arena: ${first === undefined ? 'no games' : `${first.map}, ${first.matchup}${modeOf(first) === 'annihilation' ? '' : `, ${modeOf(first)}`}`}`);
   out.push('');
   out.push(`${games.length} game(s). Score = (wins + draws / 2) / (games - voids), decision D7; — is a cut with no non-void game.`);
   out.push('');
@@ -365,10 +389,10 @@ export function markdownReport(games: readonly GameRecord[], pair: readonly [str
   out.push('');
   out.push('Scoreboard columns are each seat\'s units lost and destroyed (with their value) and the force value it has left, read from seat 0\'s sim at the end.');
   out.push('');
-  out.push(line(['seed', 'map', 'matchup', 'seat 0', 'seat 1', 'winner', 'by', 'ticks', 'factions', 'seat 0 lost', 'seat 0 destroyed', 'seat 0 left', 'seat 1 lost', 'seat 1 destroyed', 'seat 1 left']));
-  out.push(line(Array.from({ length: 15 }, () => '---')));
+  out.push(line(['seed', 'map', 'matchup', 'mode', 'seat 0', 'seat 1', 'winner', 'by', 'decided by', 'ticks', 'factions', 'seat 0 lost', 'seat 0 destroyed', 'seat 0 left', 'seat 1 lost', 'seat 1 destroyed', 'seat 1 left']));
+  out.push(line(Array.from({ length: 17 }, () => '---')));
   for (const g of games) {
-    out.push(line([g.seed, g.map, g.matchup, g.players[0], g.players[1], winnerOf(g), g.by, g.ticks, `${g.factions[0]} / ${g.factions[1]}`, ...board(g.score[0]), ...board(g.score[1])]));
+    out.push(line([g.seed, g.map, g.matchup, modeOf(g), g.players[0], g.players[1], winnerOf(g), g.by, decidedBy(g), g.ticks, `${g.factions[0]} / ${g.factions[1]}`, ...board(g.score[0]), ...board(g.score[1])]));
   }
   const spoke = games.some((g) => g.reports.some((r) => r.tokens !== null));
   if (spoke) {

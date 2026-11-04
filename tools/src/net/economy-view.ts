@@ -50,10 +50,16 @@ export interface EconomyView {
 
 const TICKS_PER_SECOND = 20;
 
-/** The seat's economy, or null when the room has none (a mirror room). */
+/** Whether the room plays the skirmish economy: it has a runtime AND is not a win-mode room, whose runtime (GH-976)
+ *  runs goals only -- no purse, no camp line, nothing to build. */
+export function hasEconomy(w: Pick<MatchWorld, 'runtime' | 'winMode'>): boolean {
+  return w.runtime !== null && w.winMode === null;
+}
+
+/** The seat's economy, or null when the room has none (a mirror room, a win-mode room). */
 export function economyView(w: MatchWorld, side: 0 | 1): EconomyView | null {
   const rt = w.runtime;
-  if (rt === null) return null;
+  if (rt === null || !hasEconomy(w)) return null;
   const faction = w.factions[side];
   const info = versusUnitInfo([doctrines[w.factions[0]].menu, doctrines[w.factions[1]].menu]);
   const purse = rt.logisticsOf(side);
@@ -85,7 +91,7 @@ export function economyView(w: MatchWorld, side: 0 | 1): EconomyView | null {
 /** Why `build` would refuse `unit` now (on `line`, or the shortest queue), in the runtime's own words, or null. */
 export function buildRefusal(w: MatchWorld, side: 0 | 1, unit: string, line?: number): string | null {
   const rt = w.runtime;
-  if (rt === null) return 'this room has no production';
+  if (rt === null || !hasEconomy(w)) return 'this room has no production';
   if (rt.canBuild(unit, line, side)) return null;
   if (line !== undefined && rt.productionLines(side)[line]?.alive !== true) return lineRefusal(w, side, line);
   const why = rt.buildBlockedReason(unit, side);
@@ -107,7 +113,7 @@ function lineRefusal(w: MatchWorld, side: 0 | 1, line: number): string {
  */
 export function productionRefusal(w: MatchWorld, side: 0 | 1, cmd: Command): string | null {
   const rt = w.runtime;
-  if (rt === null) return null; // ownership already said no to a room without production
+  if (rt === null || !hasEconomy(w)) return null; // ownership already said no to a room without production
   switch (cmd.kind) {
     case 'build':
       return buildRefusal(w, side, cmd.unit, cmd.line);

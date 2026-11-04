@@ -5,7 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Faction, Matchup } from '@lions/net';
 import { RUN_FIELDS } from './score-fixture';
-import { binomialP, gateVerdict, headToHead, markdownReport, sumUsage, tally, usageTotals, type GameRecord } from './arena-score';
+import { binomialP, decidedBy, gateVerdict, headToHead, markdownReport, sumUsage, tally, usageTotals, type GameRecord } from './arena-score';
+import type { RefereeStats, SeatStats } from './match-score';
 
 const LINE = { lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remaining: 100 };
 const REPORT = { tokens: null, timeouts: 0, errors: [] };
@@ -77,7 +78,8 @@ describe('markdownReport', () => {
   it('names each player\'s tally, each game with its scoreboard, and tokens only when a player said', () => {
     const quiet = markdownReport([game(['A', 'B'], 'seat0'), game(['B', 'A'], 'draw')]);
     expect(quiet).toMatch(/\| A \| 2 \| 1 \| 1 \| 0 \| 0 \| 0\.750 \|/);
-    expect(quiet).toMatch(/\| 1000 \| tel_marum \| mirror \| A \| B \| A \| annihilation \| 1200 \|/);
+    expect(quiet).toMatch(/\| 1000 \| tel_marum \| mirror \| annihilation \| A \| B \| A \| annihilation \| annihilation \| 1200 \|/);
+    expect(quiet).toContain('| mode | seat 0 | seat 1 | winner | by | decided by |');
     expect(quiet).not.toMatch(/tokens/i);
     const spoken = game(['A', 'B'], 'seat1');
     spoken.reports = [{ tokens: 4321, timeouts: 0, errors: [] }, REPORT];
@@ -214,5 +216,52 @@ describe('headToHead and the gate (p < 0.05, A over B)', () => {
     const md = markdownReport(season(15, 0, 5));
     expect(md).toContain('| A over B | 20 | 15 | 0 | 5 | 0.750 | 0.02069 |');
     expect(markdownReport(season(15, 0, 5), ['B', 'A'])).toContain('| B over A | 20 | 5 | 0 | 15 | 0.250 | 0.9941 |');
+  });
+});
+
+describe('the report names the mode and what decided each game (GH-976 P2)', () => {
+  const seatStats = (seat: 0 | 1, points: SeatStats['points']): SeatStats => ({
+    seat, side: seat, faction: 'kdf', unitsLost: 0, menKilled: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remainingUnits: 0, remainingValue: 0,
+    woundedFell: 0, woundedOnField: 0, woundedStabilised: 0, woundedRescued: 0, woundedDied: 0, deaths: 0, idleUnitSeconds: 0, unitSeconds: 0, idlePct: null,
+    ordersSent: 0, ordersByKind: {}, firstOrderTick: null, firstLossTick: null, ...(points === undefined ? {} : { points }),
+  });
+  const referee = (): RefereeStats => ({
+    version: 1, map: 'wadi_tarfan', tick: 8000, clock: '06:40', result: 'seat 0 (A) won (objective)', observedFromTick: 0, mode: 'points', target: 600,
+    seats: [seatStats(0, { total: 612, fromZones: 540.5, fromKills: 71.5, byZone: { centre_ford: 400, ne_ford: 140.5 } }), seatStats(1, { total: 480, fromZones: 480, fromKills: 0, byZone: {} })],
+    timeline: [],
+  });
+  const pointsGame = (): GameRecord => ({ ...game(['A', 'B'], 'seat0', { by: 'objective' }), map: 'wadi_tarfan', mode: 'points', referee: referee() });
+
+  it('decidedBy: a mode\'s goal by name, a limit or a stalemate as surviving force, anything else as it is', () => {
+    expect(decidedBy({ by: 'objective', mode: 'points' })).toBe('points race');
+    expect(decidedBy({ by: 'objective', mode: 'camp' })).toBe('camp razed');
+    expect(decidedBy({ by: 'objective' })).toBe('objective');
+    for (const by of ['cap', 'time', 'stalemate']) expect(decidedBy({ by, mode: 'points' }), by).toBe('surviving force');
+    for (const by of ['annihilation', 'forfeit', 'surrender', 'desync']) expect(decidedBy({ by }), by).toBe(by);
+  });
+
+  it('a points game\'s row carries its mode and what decided it, and the title names the mode', () => {
+    const md = markdownReport([pointsGame(), { ...pointsGame(), mode: 'points', by: 'cap', outcome: 'seat1' }]);
+    expect(md).toMatch(/^# Arena: wadi_tarfan, mirror, points$/m);
+    expect(md).toMatch(/\| wadi_tarfan \| mirror \| points \| A \| B \| A \| objective \| points race \| 1200 \|/);
+    expect(md).toMatch(/\| wadi_tarfan \| mirror \| points \| A \| B \| B \| cap \| surviving force \| 1200 \|/);
+  });
+
+  it('a record from before the field reads as annihilation, and its title says no mode', () => {
+    const md = markdownReport([game(['A', 'B'], 'seat0')]);
+    expect(md).toMatch(/^# Arena: tel_marum, mirror$/m);
+  });
+
+  it('the referee\'s points by source are in the report: total, zones, kills and the zone split, per seat', () => {
+    const md = markdownReport([pointsGame()]);
+    expect(md).toContain('Points by source (a points race)');
+    expect(md).toMatch(/\| 1 \| 1000 \| 0 \| A \| 612 \| 540\.5 \| 71\.5 \| centre_ford 400, ne_ford 140\.5 \|/);
+    expect(md).toMatch(/\| 1 \| 1000 \| 1 \| B \| 480 \| 480 \| 0 \| — \|/);
+  });
+
+  it('an annihilation game has no points table', () => {
+    const g = game(['A', 'B'], 'seat0');
+    g.referee = { ...referee(), mode: 'annihilation', seats: [seatStats(0, undefined), seatStats(1, undefined)] };
+    expect(markdownReport([g])).not.toContain('Points by source');
   });
 });

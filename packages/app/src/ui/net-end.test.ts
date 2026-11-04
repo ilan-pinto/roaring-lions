@@ -55,10 +55,10 @@ describe('showNetEnd', () => {
     expect([title(), reason()]).toEqual(['Defeat', 'Your camp is destroyed']);
     document.body.innerHTML = '';
     showNetEnd(document.body, { kind: 'won', side: 1, by: 'objective', mode: 'points' }, 1, deps());
-    expect([title(), reason()]).toEqual(['Victory', 'You reached the points target']);
+    expect([title(), reason()]).toEqual(['Victory', 'Won on points: you reached the target first']);
     document.body.innerHTML = '';
     showNetEnd(document.body, { kind: 'won', side: 1, by: 'objective', mode: 'points' }, 0, deps());
-    expect([title(), reason()]).toEqual(['Defeat', 'They reached the points target']);
+    expect([title(), reason()]).toEqual(['Defeat', 'Lost on points: they reached the target first']);
   });
 
   it('a draw reads Draw, mutual or on equal forces at the time limit, for either viewer', () => {

@@ -285,8 +285,8 @@ describe('a win-mode room (buildMatchWorld)', () => {
 });
 
 describe('a win-mode room survives a snapshot (a rejoin)', () => {
-  // The runtime's score and objective status are existing `ObjectiveState` fields, so the runtime section carries
-  // them without a new row: this is the proof, on a real room, for each mode, cut mid-race and mid-raze.
+  // The runtime's score, objective status and completion tick (GH-976 P2) are `ObjectiveState` rows, so the runtime
+  // section carries them: this is the proof, on a real room, for each mode, cut mid-race and mid-raze.
   it.each([['wadi_tarfan', 'points'], ['milh_flats', 'points'], ['wadi_tarfan', 'camp']] as const)('%s %s: a fresh world restored from bytes plays on to the same hash and the same score', async (map, mode) => {
     const { encodeSim, restoreSim } = await import('@lions/sim');
     const { matchTick } = await import('../../packages/app/src/net/match-world');

@@ -254,7 +254,7 @@ function describeOrder(r: OrderRecord, listed: Set<number>): Record<string, unkn
 
 const observe: ToolDef = {
   name: 'observe',
-  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight, held buildings, the legal stances, the score, the clock, and your recent orders (command) or proposals (assist). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units.',
+  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight, held buildings, the legal stances, the score, the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders (command) or proposals (assist). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
@@ -271,7 +271,7 @@ const observe: ToolDef = {
 
 const status: ToolDef = {
   name: 'status',
-  description: 'The tick, the clock, the room link, the result if any, the pace and, in a paced room, the round.',
+  description: 'The tick, the clock, the room link, the result if any and `by` how it was reached (annihilation, objective, stalemate, time, ...), the `mode` the room is won by, the pace and, in a paced room, the round.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
@@ -283,6 +283,9 @@ const status: ToolDef = {
       clock: view?.clock ?? null,
       transport: ctx.client.transport.status(),
       result: view?.result ?? null,
+      // GH-976 P2: how the result was reached (`objective` for a win mode's goal), and the mode the room plays.
+      by: view?.by ?? null,
+      mode: view?.mode ?? null,
       pace: config?.pace ?? null,
       round: roundOf(ctx),
       seat: ctx.client.seat,

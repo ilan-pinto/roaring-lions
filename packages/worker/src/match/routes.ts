@@ -13,7 +13,7 @@ import { originAllowed } from '../origin';
 import { readCapped } from '../read-capped';
 import { signTicket, verifyTicket } from './ticket';
 import { mintCode, isCode } from './code';
-import { ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupField, versusMapAllowed, type AdvisorScope } from '@lions/net';
+import { ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupField, versusMapAllowed, winModeRequest, type AdvisorScope } from '@lions/net';
 import { callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField } from './room-fields';
 
 /** A size bound on the request bodies of create, join and the advisor ticket (hardening). */
@@ -22,7 +22,7 @@ export const MATCH_BODY_MAX_BYTES = 3584;
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
 
-interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; ticket?: unknown; scope?: unknown }
+interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; winMode?: unknown; ticket?: unknown; scope?: unknown }
 
 /** The JSON body, `{}` when it is unreadable, or null when it is over `MATCH_BODY_MAX_BYTES`
  *  (the caller answers 413). An oversize body is refused before it is read or parsed: a
@@ -98,6 +98,9 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     // KDF vs Sarim plays only on FACTION_MATCHUP_MAPS (the lead, 2026-10-14); a sandbox room ignores the matchup.
     const matchup = matchupField(body.matchup);
     if (mode === 'versus' && !matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });
+    // GH-976 P2: a win mode other than annihilation, only one read fair on this map, in the mirror (the room asks again).
+    const winMode = winModeRequest(body.winMode, { mode, map, matchup });
+    if (winMode.refused !== undefined) return new Response(winMode.refused, { status: 400 });
     const callsign = callsignField(body.callsign);
     // N4a: the host's seat kind and the pace, cleaned and clamped (D5) here and again by the room.
     const kind = seatKindField(body.kind);
@@ -109,7 +112,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const c = mintCode();
       const res = await rooms.get(rooms.idFromName(c)).fetch(new Request('https://room/create', {
-        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers }),
+        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers, ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) }),
       }));
       if (res.status === 409) continue;   // that code is taken
       if (!res.ok) return new Response('room', { status: 502 });

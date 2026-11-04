@@ -786,6 +786,10 @@ interface ObjectiveState {
   holdTicks: number;
   /** Why a timed hold is not counting down, if it is not. */
   paused: 'contested' | 'unheld' | null;
+  /** GH-976 P2: the sim tick this objective became `complete` on, or -1 while it has not. `outcome.ts` reads it to
+   *  decide which side finished a goal FIRST when both finish inside one 20-tick hash window. A snapshot row;
+   *  folded into `digest()` only in a goals-only room, so no mission and no annihilation room moves a byte. */
+  completeTick: number;
 }
 
 interface PatrolState {
@@ -1102,7 +1106,7 @@ export class MissionRuntime {
           throw new Error(`mission ${mission.id}: score "${def.id}" wants whole numbers: per_min and per_value_destroyed at least 0, target at least 1`);
         }
       }
-      this.objectives.push({ def, status: 'active', holdTicks: 0, paused: null });
+      this.objectives.push({ def, status: 'active', holdTicks: 0, paused: null, completeTick: -1 });
     }
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
     this.spawnedWaves = new Array(mission.enemy?.waves?.length ?? 0).fill(false);
@@ -1412,6 +1416,9 @@ export class MissionRuntime {
       h = hashWord(h, o.status === 'active' ? 0 : o.status === 'complete' ? 1 : 2);
       h = hashWord(h, o.holdTicks | 0);
       h = hashWord(h, o.paused === null ? 0 : o.paused === 'unheld' ? 1 : 2);
+      // GH-976 P2: the completion tick decides a points race, so it is folded -- in a mode room ONLY, which keeps
+      // every mission and every annihilation room's digest, and so its hash, byte-identical.
+      if (this.ctx.goalsOnly === true) h = hashWord(h, o.completeTick | 0);
     }
     for (let i = 0; i < this.firedTriggers.length; i++) h = hashWord(h, this.firedTriggers[i] ? 1 : 0);
     for (let i = 0; i < this.spawnedWaves.length; i++) h = hashWord(h, this.spawnedWaves[i] ? 1 : 0);
@@ -2135,6 +2142,7 @@ export class MissionRuntime {
     this.creditContribution(o.def);
     this.payObjective(o.def, this.sim.tickCount, this.pendingIntelEvents);
     o.status = 'complete';
+    o.completeTick = this.sim.tickCount;
     this.externallyCompleted.push(id);
     return true;
   }
@@ -2713,8 +2721,8 @@ export class MissionRuntime {
    *      per_value_destroyed x SCORE_PER_VALUE);
    *   3. the held-zone points, `per_min` score units a tick to the holder, never to a contested zone;
    *   4. `stepObjectives`, which completes a `raze`, `capture`, `hold_for` or `score`.
-   * Every word it writes is an existing `ObjectiveState` field, so the snapshot schema, `digest()` and the
-   * restore carry it without a new row.
+   * Every word it writes is an `ObjectiveState` field the snapshot schema and `digest()` already carry; the one added
+   * for modes is `completeTick` (the tick an objective completed on), a snapshot row folded into `digest()` here only.
    */
   private stepGoals(simEvents: SimEvent[], tick: number, out: MissionEvent[]): void {
     const zones = this.incomeZoneList;
@@ -2766,6 +2774,18 @@ export class MissionRuntime {
       if (o.def.primary && (o.def.side ?? 0) === side && o.status === 'complete') return true;
     }
     return false;
+  }
+
+  /** The tick at which `side` completed its first primary objective, or -1 while it has completed none (GH-976 P2).
+   *  The first side to finish wins a mode room, so two sides that finish inside one hash window are told apart here. */
+  completeTickOf(side: 0 | 1): number {
+    let best = -1;
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      if (!o.def.primary || (o.def.side ?? 0) !== side || o.status !== 'complete') continue;
+      if (best < 0 || o.completeTick < best) best = o.completeTick;
+    }
+    return best;
   }
 
   /** `side`'s points in a points race, whole (the integer part of the 1/1200ths), or 0 with no `score`. */
@@ -4299,6 +4319,7 @@ export class MissionRuntime {
           this.payObjective(d, tick, out);
         }
         o.status = 'complete';
+        o.completeTick = tick;
         out.push({ kind: 'objective', tick, id: d.id, status: 'complete' });
         if (d.say) out.push({ kind: 'say', tick, speaker: d.say.speaker, text: d.say.text });
       } else if (failed) {

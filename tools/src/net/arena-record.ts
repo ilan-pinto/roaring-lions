@@ -11,6 +11,8 @@
 import { createHash } from 'node:crypto';
 import { readStandingPrompt } from './external-player';
 import { toolsFor } from './mcp-tools';
+import { applyWinRule } from './win-rule';
+import type { WinMode } from '@lions/net';
 
 /** The part of a tool a model sees. */
 export interface OfferedTool { name: string; description: string; schema: Record<string, unknown> }
@@ -32,8 +34,10 @@ export function promptDigestOf(prompt: string, tools: readonly OfferedTool[]): s
 }
 
 /** The digest for this checkout: the prompt file and the tools a `--scope command` player is given. */
-export function currentPromptDigest(): string {
-  return promptDigestOf(readStandingPrompt(), toolsFor('command'));
+export function currentPromptDigest(winMode: WinMode | null = null): string {
+  // GH-976 P2: a run in a win mode tells its players the mode's rule (`win-rule.ts`), so its digest is of THAT prompt;
+  // annihilation (null) is the file as it is, the digest every earlier record carries.
+  return promptDigestOf(applyWinRule(readStandingPrompt(), winMode), toolsFor('command'));
 }
 
 /** The five fields a new record carries. */

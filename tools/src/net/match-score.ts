@@ -27,9 +27,9 @@
  * never a way to see through the fog.
  */
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import type { Faction, Seat } from '@lions/net';
+import type { Faction, Seat, WinMode } from '@lions/net';
 import type { Sim, SimEvent } from '@lions/sim';
-import { WOUND_NONE, WOUND_STABILISED } from '@lions/sim';
+import { WOUND_NONE, WOUND_STABILISED, ZONE_CONTESTED } from '@lions/sim';
 import { unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
 import { isIdle } from '../../../packages/app/src/ui/idle';
 
@@ -255,6 +255,11 @@ export interface SeatStats {
   /** The tick of this seat's first command, and of the first moment (to a second) one of its units had been lost. null: never. */
   firstOrderTick: number | null;
   firstLossTick: number | null;
+  /** A points race only (GH-976 P2, GH-973's goal timeline): the points this seat banked, by SOURCE. `total` is the race's own
+   *  number (whole points, the runtime's score); `fromZones` is what its held zones paid and `fromKills` what the enemy units it
+   *  destroyed paid, over the span this client observed (to one decimal point; they sum to `total` when it observed the whole race);
+   *  `byZone` splits `fromZones` by zone id. */
+  points?: { total: number; fromZones: number; fromKills: number; byZone: Record<string, number> };
 }
 
 /** The match every 30 game seconds: a compact event log. BY SEAT. */
@@ -268,6 +273,8 @@ export interface TimelinePoint {
   woundedOnField: [number, number];
   /** Commands sent since the previous point. */
   orders: [number, number];
+  /** A points race only: whole points banked so far, by seat. */
+  points?: [number, number];
 }
 
 export interface RefereeStats {
@@ -279,9 +286,27 @@ export interface RefereeStats {
   result: string | null;
   /** The first tick the tally observed. Above 0 only when this client joined late (a snapshot rejoin): the idle, order and timeline figures then cover the rest of the match. */
   observedFromTick: number;
+  /** How the room is won (GH-976 P2): `annihilation`, or the win mode. Absent on stats from before. */
+  mode?: 'annihilation' | WinMode;
+  /** A points race only: the points target. */
+  target?: number;
   seats: [SeatStats, SeatStats];
   timeline: TimelinePoint[];
 }
+
+/** What the tally reads of a points race (GH-976 P2): the runtime's exact score and its zone holders, and the mode file's
+ *  rates and target. Structural, so a test can hand it a plain object. A pure read. */
+export interface PointsTap {
+  readonly runtime: {
+    scoreUnitsOf(side: 0 | 1): number;
+    readonly incomeZones: readonly { readonly zone: string; readonly state: number; readonly holder: number }[];
+  };
+  readonly rules: { readonly target: number; readonly zones: readonly { readonly zone: string; readonly per_min: number }[] };
+}
+
+/** A score is held in 1/1200ths of a point (`mission.ts`'s `SCORE_UNITS`: a minute of ticks). A test pins the copy. */
+export const POINTS_UNITS = 1200;
+const onePlace = (units: number): number => Math.round((units * 10) / POINTS_UNITS) / 10;
 
 interface SideScan {
   unitsLost: number;
@@ -359,6 +384,45 @@ export class RefereeTally {
   private readonly firstLoss: [number | null, number | null] = [null, null];
   private readonly timeline: TimelinePoint[] = [];
   private sentAtPoint: [number, number] = [0, 0];
+  /** The points race this tally reads, when the room plays one (`setPoints`). */
+  private tap: PointsTap | null = null;
+  /** Per SIDE: the score units seen at the last tick, what the zones paid (by zone), and what that makes of the rest (kills). */
+  private lastUnits: [number, number] | null = null;
+  private readonly zoneUnits: [Record<string, number>, Record<string, number>] = [{}, {}];
+  private readonly killUnits: [number, number] = [0, 0];
+
+  /** Reads this room's points race from now on. Called once, when the world is built. */
+  setPoints(tap: PointsTap): void {
+    this.tap = tap;
+  }
+
+  /**
+   * One tick of a points race. The runtime pays each zone's holder `per_min` score units a tick (never a contested or empty
+   * zone) and the value of every enemy unit that died, so the tick's rise in a side's units is the zones' share plus the
+   * kills'. The zones' share is read from the holders and the file's rates; the kills' is what is left of the rise, so the two
+   * always add to the runtime's own number. A tick on which a side completes its goal stops its score short of the rates
+   * (a completed objective stops accumulating), so the zones' share is capped at the rise: zones are credited first.
+   */
+  private stepPoints(tap: PointsTap): void {
+    const now: [number, number] = [tap.runtime.scoreUnitsOf(0), tap.runtime.scoreUnitsOf(1)];
+    const last = this.lastUnits;
+    this.lastUnits = now;
+    if (last === null) return;   // the first tick seen: what came before is not ours to split
+    for (const side of [0, 1] as const) {
+      const rise = now[side] - last[side];
+      if (rise <= 0) continue;
+      let zones = 0;
+      for (const z of tap.rules.zones) {
+        const live = tap.runtime.incomeZones.find((x) => x.zone === z.zone);
+        if (live === undefined || live.state === ZONE_CONTESTED || live.holder !== side) continue;
+        const paid = Math.min(z.per_min, rise - zones);
+        if (paid <= 0) continue;
+        zones += paid;
+        this.zoneUnits[side][z.zone] = (this.zoneUnits[side][z.zone] ?? 0) + paid;
+      }
+      this.killUnits[side] += rise - zones;
+    }
+  }
 
   /** Commands in a frame, by seat (`Stamped.seat`; the room stamps it). */
   onFrame(tick: number, cmds: readonly { seat: Seat; cmd: { kind: string } }[]): void {
@@ -383,6 +447,7 @@ export class RefereeTally {
   onTick(sim: Sim, sides: readonly [0 | 1, 0 | 1]): void {
     const t = sim.tickCount;
     if (this.first < 0) this.first = t;
+    if (this.tap !== null) this.stepPoints(this.tap);
     if (t % SAMPLE_EVERY_TICKS !== 0) return;
     const sc = scan(sim);
     for (const seat of [0, 1] as const) {
@@ -399,9 +464,19 @@ export class RefereeTally {
         force: [a.value, b.value],
         woundedOnField: [a.woundedOnField, b.woundedOnField],
         orders: [this.sent[0] - this.sentAtPoint[0], this.sent[1] - this.sentAtPoint[1]],
+        ...(this.tap === null ? {} : { points: [Math.floor(this.tap.runtime.scoreUnitsOf(sides[0]) / POINTS_UNITS), Math.floor(this.tap.runtime.scoreUnitsOf(sides[1]) / POINTS_UNITS)] as [number, number] }),
       });
       this.sentAtPoint = [this.sent[0], this.sent[1]];
     }
+  }
+
+  /** A side's points by source. */
+  private pointsOf(side: 0 | 1): NonNullable<SeatStats['points']> {
+    const tap = this.tap as PointsTap;
+    const byZone: Record<string, number> = {};
+    let zones = 0;
+    for (const [zone, units] of Object.entries(this.zoneUnits[side])) { byZone[zone] = onePlace(units); zones += units; }
+    return { total: Math.floor(tap.runtime.scoreUnitsOf(side) / POINTS_UNITS), fromZones: onePlace(zones), fromKills: onePlace(this.killUnits[side]), byZone };
   }
 
   /** The numbers so far, from the sim as it stands. `result`: how the match ended in words, if it has. */
@@ -436,6 +511,7 @@ export class RefereeTally {
         ordersByKind: { ...this.byKind[n] },
         firstOrderTick: this.firstOrder[n],
         firstLossTick: this.firstLoss[n],
+        ...(this.tap === null ? {} : { points: this.pointsOf(o.sides[n]) }),
       };
     };
     return {
@@ -445,6 +521,8 @@ export class RefereeTally {
       clock: clockOf(sim.tickCount),
       result: o.result,
       observedFromTick: Math.max(0, this.first),
+      mode: this.tap === null ? 'annihilation' : 'points',
+      ...(this.tap === null ? {} : { target: this.tap.rules.target }),
       seats: [seat(0), seat(1)],
       timeline: this.timeline.map((p) => ({ ...p })),
     };
@@ -496,6 +574,7 @@ export function statsGlossary(): string {
     '- `idlePct`: the share of unit-seconds a seat\'s units stood idle (no order, no target). `ordersSent` and `ordersByKind`: commands sent; `firstOrderTick`, `firstLossTick`: when. 20 ticks are one game second.',
     '- `timeline`: every 30 game seconds, units alive, force value, wounded on the field and orders sent in the interval, by seat.',
     '- `observedFromTick` above 0 means the idle, order and timeline figures cover only the rest of the match.',
+    '- `mode` is how the match is won (`annihilation`, or `points`). In a points race `target` is the points to reach, each seat has `points` (`total` banked, `fromZones` what its held zones paid, `fromKills` what the enemy units it destroyed paid, `byZone` the zone split), and each timeline point has the `points` banked so far by seat. Judge tempo and adaptation against that goal (how early and how long it held ground and banked points), not against the kill count.',
   ].join('\n');
 }
 
@@ -590,9 +669,12 @@ export function checkReferee(v: unknown): RefereeStats | null {
     if (!SEAT_NUMBERS.every((k) => isNum(s[k]))) return null;
     for (const k of ['idlePct', 'firstOrderTick', 'firstLossTick']) if (s[k] !== null && !isNum(s[k])) return null;
     if (!isRecord(s.ordersByKind) || !Object.values(s.ordersByKind).every(isNum)) return null;
+    if (s.points !== undefined && (!isRecord(s.points) || !isNum(s.points.total) || !isNum(s.points.fromZones) || !isNum(s.points.fromKills) || !isRecord(s.points.byZone) || !Object.values(s.points.byZone).every(isNum))) return null;
   }
+  if (v.mode !== undefined && v.mode !== 'annihilation' && v.mode !== 'points' && v.mode !== 'camp') return null;
+  if (v.target !== undefined && !isNum(v.target)) return null;
   for (const p of v.timeline as unknown[]) {
-    if (!isRecord(p) || !isNum(p.tick) || !isPair(p.units) || !isPair(p.force) || !isPair(p.woundedOnField) || !isPair(p.orders)) return null;
+    if (!isRecord(p) || !isNum(p.tick) || !isPair(p.units) || !isPair(p.force) || !isPair(p.woundedOnField) || !isPair(p.orders) || (p.points !== undefined && !isPair(p.points))) return null;
   }
   return v as unknown as RefereeStats;
 }
@@ -641,6 +723,18 @@ export function refereeMarkdown(stats: RefereeStats, names: readonly [string, st
   out.push(sep(15));
   for (const s of stats.seats) {
     out.push(row([s.seat, names[s.seat], s.deaths, s.menKilled, `${s.unitsLost} (${s.lostValue})`, `${s.destroyed} (${s.destroyedValue})`, `${s.remainingUnits} (${s.remainingValue})`, s.woundedFell, s.woundedRescued, s.woundedDied, s.woundedOnField, dash(s.idlePct), s.ordersSent, dash(s.firstOrderTick), dash(s.firstLossTick)]));
+  }
+  if (stats.seats.some((s) => s.points !== undefined)) {
+    out.push('');
+    out.push(`Points race, first to ${stats.target ?? '?'}. Points by source: held zones and enemy units destroyed (zone split in brackets).`);
+    out.push('');
+    out.push(row(['seat', 'player', 'points', 'from zones', 'from kills', 'by zone']));
+    out.push(sep(6));
+    for (const s of stats.seats) {
+      if (s.points === undefined) continue;
+      const zones = Object.entries(s.points.byZone).map(([z, v]) => `${z} ${v}`).join(', ');
+      out.push(row([s.seat, names[s.seat], s.points.total, s.points.fromZones, s.points.fromKills, zones === '' ? '—' : zones]));
+    }
   }
   return out;
 }
