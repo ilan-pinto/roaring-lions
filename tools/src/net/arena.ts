@@ -57,6 +57,11 @@
  * cannot change a record (arena.test pins that with 0 and 2 watchers). `--serve` alone starts the server
  * without the watch features (the setup screen, W2).
  *
+ * Each game's referee frames, the match config and the build are also written to `<out>/<game>.frames.jsonl`
+ * (GH-954 W3, D-W9; `arena-frames.ts`, format in `packages/app/src/net/replay-file.ts`), with an independent sim's
+ * final digest beside the referee's. The file holds no template and no token (players are display names; the run's
+ * secrets are redacted). `/arena/results` lists the runs and `/arena/replay` runs a game again at 0.5x to 8x.
+ *
  * `--serve` ALONE (GH-954 W2) starts the SETUP screen's server and nothing else: `/arena` and the control API
  * (`arena-control.ts`: players, start, stop, status). The page starts a run with a POST; it is this same `runArena`
  * on this same server, always watched. `--a`/`--b`/`--judge` also take `preset:<id>` from
@@ -91,6 +96,7 @@ import { MATCHUPS, factionsOfMatchup, matchCapTicks, matchupAllowed, versusMapAl
 import { productionOf, type MatchResult, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 import { scoreOf, type MatchScore } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
+import { recordGame, writeFrames, type GameFrames } from './arena-frames';
 import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, type GateVerdict, type Tally } from './arena-score';
 import { buildId } from './build-id';
 import { capOutcome } from './cap';
@@ -480,7 +486,7 @@ export async function startObserver(relay: Pick<LocalRelay, 'url' | 'origin'>, c
   if (res.status !== 200) throw new Error(`the room refused the observer an advisor ticket: HTTP ${res.status}`);
   const { ticket } = (await res.json()) as { ticket?: unknown };
   if (typeof ticket !== 'string') throw new Error('the advisor route answered no ticket');
-  const client = new AgentClient({ server: relay.url, code, ticket, build, role: 'advisor', seat: 0, log });
+  const client = new AgentClient({ server: relay.url, code, ticket, build, role: 'advisor', seat: 0, log, keepFrames: true });
   const report: PlayerReport = { tokens: null, timeouts: 0, errors: [] };
   let finished = false;
   let loop: ReturnType<typeof setInterval> | null = null;
@@ -543,7 +549,8 @@ const livePlayers = new Set<RunningPlayer>();
 interface GameHooks {
   allowOrigins?: readonly string[];
   onStart?: (info: GameStart) => void;
-  onEnd?: (record: GameRecord, referee: RefereeDigest) => void;
+  /** `frames`: every frame the referee ran with the room's config (GH-954 W3), null when the reading client kept none. */
+  onEnd?: (record: GameRecord, referee: RefereeDigest, frames: GameFrames | null) => void;
 }
 
 /** The referee's sim at the game's end: its tick and `sim.hash()`. A headless watcher compares its own against it. */
@@ -563,7 +570,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
   try {
     const { code, tickets } = await openRoom(relay, a, build, g.names);
     for (const seat of [0, 1] as const) {
-      const r = await g.players[seat].start({ server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build, capTicks: a.capTicks, logFile: `${g.logBase}-seat${seat}.log` });
+      const r = await g.players[seat].start({ server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build, capTicks: a.capTicks, logFile: `${g.logBase}-seat${seat}.log`, keepFrames: true });
       running.push(r);
       livePlayers.add(r);
     }
@@ -620,7 +627,12 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
       outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: bySeat(scoreOf(sim), sides), reports,
       ...(stats === null ? {} : { referee: stats }),
     };
-    try { hooks.onEnd?.(record, { tick: referee.tick(), hash: sim.hash() }); } catch (e) { log(`arena: onGameEnd hook failed: ${messageOf(e)}`); }
+    // The frames the referee ran and the config it ran them under (GH-954 W3). A client that kept none (a player a spec
+    // built with its own client) records nothing: no file is better than one that cannot replay.
+    const kept = referee.framesRan();
+    const ranUnder = referee.config();
+    const frames: GameFrames | null = kept.length > 0 && ranUnder !== null ? { config: ranUnder, frames: kept } : null;
+    try { hooks.onEnd?.(record, { tick: referee.tick(), hash: sim.hash() }, frames); } catch (e) { log(`arena: onGameEnd hook failed: ${messageOf(e)}`); }
     return record;
   } finally {
     // Every close is guarded: one that fails is logged and the next still runs.
@@ -751,7 +763,7 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
     serve.beginRun(a.watch ? `${names[0]} vs ${names[1]}` : null);
   } else if (a.serve) {
     try {
-      serve = await (deps.startServe ?? startArenaServe)({ port: a.servePort, log, ...(a.watch ? { runLabel: `${names[0]} vs ${names[1]}` } : {}) });
+      serve = await (deps.startServe ?? startArenaServe)({ port: a.servePort, log, resultsDir: dir, labelOf: (id) => presets?.byId.get(id)?.label ?? null, ...(a.watch ? { runLabel: `${names[0]} vs ${names[1]}` } : {}) });
     } catch (e) {
       return fail(1, `could not start the arena server: ${messageOf(e)}`);
     }
@@ -762,6 +774,18 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
     ...(serve === null ? {} : { allowOrigins: serve.origins }),
     onStart: (info) => { serve?.gameStarted(info); deps.onGameStart?.(info); },
     onEnd: (record) => { serve?.gameEnded(record); },
+  };
+  const labelOf = (id: string): string | null => presets?.byId.get(id)?.label ?? null;
+  /** D-W9: this game's frames, the config and the build, with the watcher digest taken from the file's own text. */
+  const recordFile = (g: GameSpec, r: GameRecord, ref: RefereeDigest, fr: GameFrames): void => {
+    try {
+      const rec = recordGame({
+        build, game: { n: g.n, of: g.of, seed: g.seed, map: a.map, matchup: a.matchup, capTicks: a.capTicks, pace: a.pace, roundWallMs: a.roundWallMs },
+        names: g.names, unnamed: g.players[0] === A ? ['Player A', 'Player B'] : ['Player B', 'Player A'], frames: fr, referee: ref, outcome: r.outcome, by: r.by, labelOf, secrets,
+      });
+      writeFrames(`${g.logBase}.frames.jsonl`, rec.text);
+      if (!rec.agrees) log(`arena: game ${g.n}: the watcher digest (tick ${rec.watcher.tick}, ${rec.watcher.hash}) is not the referee's (tick ${ref.tick}, ${ref.hash})`);
+    } catch (e) { log(`arena: game ${g.n}: could not record its frames: ${messageOf(e)}`); }
   };
   log(`arena: ${names[0]} vs ${names[1]}, ${a.seeds} seed(s) x 2 on ${a.map} (${a.matchup}), pace ${a.pace}, cap ${a.capTicks}`);
   try {
@@ -777,7 +801,13 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
         if (externalPlayersStopped()) throw new Error('the arena is stopping (a signal): no further game');
         const record = await playGame(g, a, build, startRelay, observe, log, {
           ...hooks,
-          onEnd: (r, ref) => { hooks.onEnd?.(r, ref); deps.onGameEnd?.({ n: g.n, of: g.of, record: r, referee: ref }); },
+          onEnd: (r, ref, fr) => {
+            // The frames file first (GH-954 W3), so a server that answers `gameEnded` can already list it. A failure costs the
+            // recording, never the game.
+            if (fr !== null) recordFile(g, r, ref, fr);
+            hooks.onEnd?.(r, ref, fr);
+            deps.onGameEnd?.({ n: g.n, of: g.of, record: r, referee: ref });
+          },
         });
         // After the game, with its relay closed: a slow judge holds up the next game, never this one's result.
         const judged = await judgeGame(record, a, g.logBase, deps.runJudge ?? runJudge, log, deps.env);
@@ -847,13 +877,14 @@ async function runServeOnly(o: ServeOnlyArgs, deps: ArenaDeps, log: (line: strin
   });
   let serve: ArenaServe;
   try {
-    serve = await (deps.startServe ?? startArenaServe)({ port: o.port, log, routes: control.routes });
+    serve = await (deps.startServe ?? startArenaServe)({ port: o.port, log, routes: control.routes, resultsDir: resolve(process.env.INIT_CWD ?? process.cwd(), o.out ?? 'arena-results'), labelOf: (id) => presets.byId.get(id)?.label ?? null });
   } catch (e) {
     return fail(1, `could not start the arena server: ${messageOf(e)}`);
   }
   control.attach(serve);
   liveServes.add(serve);
   print(`arena: setup: ${serve.url('/arena')}`);
+  print(`arena: results: ${serve.url('/arena/results')}`);
   print(`arena: presets: ${[...presets.byId.keys()].join(', ') || 'none'} (${presets.file})`);
   return { code: 0, games: [], tally: null, files: null, gate: null, serving: serve };
 }

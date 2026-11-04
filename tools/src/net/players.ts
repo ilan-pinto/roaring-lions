@@ -98,6 +98,8 @@ export interface SeatStart {
    *  stderr (the arena's `<out>/<game>-<seat>.log`). An in-process player
    *  logs through its own `log` and ignores it. */
   logFile?: string;
+  /** GH-954 W3: the seat's client keeps the frames it runs, so the arena can record the game (`AgentClient.framesRan`). */
+  keepFrames?: boolean;
 }
 
 export interface PlayerReport {
@@ -154,7 +156,7 @@ export function inProcess(name: string, policy: Policy, o: { log?: (line: string
 }
 
 function runInProcess(policy: Policy, s: SeatStart, log: (line: string) => void, snapshots?: AgentSnapshotOptions): RunningPlayer {
-  const client = new AgentClient({ server: s.server, code: s.code, ticket: s.ticket, build: s.build, role: 'seat', seat: s.seat, log, ...(snapshots === undefined ? {} : { snapshots }) });
+  const client = new AgentClient({ server: s.server, code: s.code, ticket: s.ticket, build: s.build, role: 'seat', seat: s.seat, log, ...(snapshots === undefined ? {} : { snapshots }), ...(s.keepFrames === true ? { keepFrames: true } : {}) });
   const report: PlayerReport = { tokens: null, timeouts: 0, errors: [] };
   const error = (line: string): void => { if (report.errors.length < MAX_ERRORS) report.errors.push(line); };
   let finished = false;

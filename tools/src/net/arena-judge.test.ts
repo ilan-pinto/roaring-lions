@@ -28,7 +28,7 @@ const ARGV = ['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '
 
 const scores = (a: number, b: number): ScoreSet => ({ seat0: playerScore(a, 'seat 0'), seat1: playerScore(b, 'seat 1') });
 const readRecords = (out: string): GameRecord[] => {
-  const f = readdirSync(out).find((n) => n.endsWith('.jsonl')) ?? '';
+  const f = readdirSync(out).find((n) => n.endsWith('.jsonl') && !n.endsWith('.frames.jsonl')) ?? '';
   return readFileSync(join(out, f), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as GameRecord);
 };
 const readMd = (out: string): string => readFileSync(join(out, readdirSync(out).find((n) => n.endsWith('.md')) ?? ''), 'utf8');

@@ -254,7 +254,7 @@ describe('the token, end to end on the local relay (a made-up token, a probe in 
     expect(filesUnder(t.tmpRoot)).toEqual([]);
 
     // 6. The results carry the usage the probe printed: input, output, cache, cost -- reported, in the .md and the .jsonl.
-    const jsonl = everything.find(([p]) => p.endsWith('.jsonl'))?.[1] ?? '';
+    const jsonl = everything.find(([p]) => p.endsWith('.jsonl') && !p.endsWith('.frames.jsonl'))?.[1] ?? '';
     expect(jsonl).toContain('"cacheReadInputTokens":45000');
     expect(jsonl).toContain('"costUsd":0.25');
     const md = everything.find(([p]) => p.endsWith('.md'))?.[1] ?? '';
@@ -325,10 +325,12 @@ describe('the results files are redacted too', () => {
     // Not vacuous: the record the run holds in memory DID carry it; the files must not.
     expect(JSON.stringify(r.games)).toContain(API_TOKEN);
     const files = filesUnder(out);
-    expect(files.map(([p]) => p.split('.').pop()).sort()).toEqual(['jsonl', 'md']);
+    // The results (.jsonl, .md) and, since GH-954 W3, one frames file a game: two games here.
+    expect(files.map(([p]) => p.replace(/^.*?(\.frames)?\.(\w+)$/, '$1.$2')).sort()).toEqual(['.frames.jsonl', '.frames.jsonl', '.jsonl', '.md']);
     for (const [p, text] of files) {
       expect(text.includes(API_TOKEN), p).toBe(false);
-      expect(text, p).toContain('[redacted]');
+      // The frames files carry no error text, so there is nothing in them to redact.
+      if (!p.endsWith('.frames.jsonl')) expect(text, p).toContain('[redacted]');
     }
   }, 60_000);
 });
@@ -350,7 +352,7 @@ describe('the results files are redacted in their JSON-escaped form too', () => 
     for (const [p, text] of filesUnder(out)) {
       expect(text.includes(TRICKY), `${p} has the token`).toBe(false);
       expect(text.includes(escaped), `${p} has the escaped token`).toBe(false);
-      expect(text, p).toContain('[redacted]');
+      if (!p.endsWith('.frames.jsonl')) expect(text, p).toContain('[redacted]');
     }
   }, 60_000);
 });

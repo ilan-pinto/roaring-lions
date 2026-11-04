@@ -124,7 +124,7 @@ describe('pnpm arena', () => {
     expect(r.code).toBe(1);
     expect(lines.some((l) => l.includes('a game could not be played') && l.includes('seed 1, not 1000'))).toBe(true);
     expect(r.games).toEqual([]);
-    const jsonl = readdirSync(out).find((f) => f.endsWith('.jsonl'));
+    const jsonl = readdirSync(out).find((f) => f.endsWith('.jsonl') && !f.endsWith('.frames.jsonl'));
     expect(readFileSync(join(out, jsonl ?? ''), 'utf8')).toBe('');
   }, 30_000);
 
