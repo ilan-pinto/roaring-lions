@@ -26,7 +26,10 @@ import { versusSpawns } from '../../../packages/app/src/net/versus-force';
 import { outcomeOf, unitCost } from '../../../packages/app/src/net/outcome';
 import { CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, ORDER_EVERY_TICKS, centroid, humanHeldOf, layoutOf, seedOf, world, type Arrangement } from './versus-probe';
 
-/** A group has reached its lane when its centroid is this close to the marker. */
+/** A group has reached its lane when its centroid is this close to the marker's TILE CENTRE (the marker is a tile
+ *  index; a position is continuous, so the centre is index + 0.5. Measuring to the index, the tile's NW corner, gave a
+ *  seat coming from the north-west a radius 1.4 tiles larger than one from the south-east, and the 20 s order step
+ *  turned that into a 20 s lag for the east splitter: the +19.8-point gap on the Rujm redo, GH-974). */
 export const PASS_RADIUS_TILES = 8;
 /** The unbiased gap bar, in percentage points of the splitter's share. */
 export const SEAT_GAP_MAX_POINTS = 10;
@@ -83,7 +86,7 @@ export function splitOrders(sim: Sim, ids: readonly number[], s: Splitter, targe
     if (!s.passed[g]) {
       const at = meanOf(sim, by[g]);
       const lane = s.lane[g];
-      if (at !== null && Math.hypot(at[0] - lane[0], at[1] - lane[1]) <= PASS_RADIUS_TILES) s.passed[g] = true;
+      if (at !== null && Math.hypot(at[0] - (lane[0] + 0.5), at[1] - (lane[1] + 0.5)) <= PASS_RADIUS_TILES) s.passed[g] = true;
     }
     const to = s.passed[g] ? target : raw(s.lane[g]);
     sim.queueCommand({ kind: 'attackMove', ids: by[g], x: to[0], y: to[1] });

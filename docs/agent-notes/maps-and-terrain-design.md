@@ -697,13 +697,13 @@ tunnel cells on the new ground.
 ### What the opening checks read (GH-974, 4 Nov 2026): the redo is NOT opened
 
 Every check "Opening it" lists was run on the staged bytes (map sha256 `917460716f3f...`, rules `6dd0c6826c9b...`), copied over the data paths in a
-scratch tree and sha-checked back to main's (`74b35cbce41f...`, `6dd0c6826c9b...`) after each run. **Two fail, so the map stays staged**: the render
-budget (frame cost at the centre) and the lane probe (a 20-point seat gap on one lane). 
+scratch tree and sha-checked back to main's (`74b35cbce41f...`, `6dd0c6826c9b...`) after each run. **One fails, so the map stays staged**: the render
+budget (frame cost at the centre). The lane probe first read a 20-point seat gap, which was the probe's own bug (below). 
 
 | Check | Reading | Verdict |
 |---|---|---|
 | S4 formations (mirror, KDF v KDF, seeds 30000-30191 = set A, shipped Attack, the arms and seeds of PR 978) | (b) both ends 51.0% [base 47.9]; (c) friendly end formed 50.5% [47.9]; (c) hostile end formed 53.1% [52.1]. Bars 55 / 60 / 60. Paired sign test p 0.55 / 0.60 / 0.90 | PASS, 3 of 3, no RERUN, 0 TRIP. `VERSUS_FORMATIONS_CLOSED_MAPS` need not name it |
-| Lane probe (`tools/src/backtest/lane-probe.ts`, seeds 6000-6191 and 6192-6383, 35-minute cap) | armour left / infantry right, splitter west **90.6% and 89.6%**, east **72.9% and 67.7%**; pooled 384: west 90.1%, east 70.3%, gap **+19.8 points, z 4.5 and 5.2 per 192-seed set**. Armour right / infantry left: west 78.1% / 82.3%, east 77.6% / 74.5% (pooled 80.2 / 76.0, gap +4.2). The shipped map, same seeds and probe: gaps +8.9 and +3.6 | **FAIL** (bar 10 points, two of four reads over it and the pooled one at twice the bar) |
+| Lane probe (`tools/src/backtest/lane-probe.ts`, 35-minute cap, 192 seeds a cell; the first read, with the probe's corner bug, was +17.7 / +21.9 and pooled +19.8 points) | **Fixed probe** (PR of 4 Nov, distance to the tile centre), splitter west / east: armour left 79.2 / 87.5 (6000), 82.3 / 85.4 (24000), 82.3 / 86.5 (24192), pooled 576 81.3 / 86.5 = -5.2; armour right 73.4 / 81.3, 77.6 / 81.3, 79.7 / 80.7, pooled 76.9 / 81.1 = -4.2. Shipped map, same fixed probe (cap 600 s): 6000 +5.7 / +8.3, 24000 +4.2 / +0.5 | **PASS** (bar 10 points, six of six reads inside; the east lean of 4-5 points is unchased, see below) |
 | `net:budget` at 222 structures, 42,000 ticks (35.0 min) | idle 2,562 rows at real-time pacing (measured 2,165); heavy 2,671 (measured 2,280), log 291,624 characters of 2,800,000 (10.4%), snapshot 9,851 B gzip held, 9,945 B largest, end world 378,363 B raw / 9,738 B gzip; rush (a real battle) 133 rows, ends at 1.7 minutes. Bounds 2,555-4,655 rows, 64 KiB, 1 MiB | PASS |
 | Wall-fall tick probe (`tools/src/perf/wall-fall.ts`, `--live=128 --rounds=5`, the 16-followed row `--live=16 --rounds=5`, the shipped row the default `--rounds=3`): every one of the 222 structures levelled, 128 flow fields followed (the pool's worst case) | CPU time per wall: median 0.75 ms, p95 2.2, p99 3.6, max 7.5 (n=1,110, five worlds). 16 followed: median 0.07, max 2.2. The shipped map (156 structures): median 0.54, p95 1.95, max 6.1 | PASS (plan threshold: median 10 ms; a tick is 50 ms) |
 | Render, `perf:fx --breakdown`, 12 cells paired with the 48x48 `milh_flats`, 12 rounds of 30 frames, dpr 2, 1440x900, ANGLE Metal on an Apple M3 Pro, one browser on :5198, music off, load average 9-13 | high centre **z1 +1.30 ms** (12 of 12 rounds slower), **z1.6 +1.20**, z2.5 -0.60; high seat z1 +0.30, z1.6 +0.05, z2.5 0.00; medium centre **z1 +1.45, z1.6 +1.00**, z2.5 -0.90; medium seat z1 +0.50 (12 of 12), z1.6 +0.20, z2.5 +0.05. Bar +0.5 | **FAIL**: 4 of 12 cells over the bar, all at the centre |
@@ -716,13 +716,17 @@ paired with the control): no walls -1.00 ms, no walls and no buildings -1.50, wh
 cost and the 14 buildings about 0.5; with every wall and building removed the redo reads 1.5 ms UNDER the control. A wall LOD (or a cheaper wall mesh, 3,087 triangles
 a tile) is the lever; the walls are instanced already (`renderer.md`).
 
-**The lane probe is the new finding.** The map is exactly half-turn symmetric and the shipped map reads +8.9 and +3.6 under the same probe (a west edge of
-unknown cause, z 2.0 and 0.8 on one read), but the redo's armour-left cell reads +17.7 and +21.9 on two independent 192-seed sets: the west
-splitter wins 90% and the east one 70%. The cause is not isolated. What is known: the other assignment (armour right, infantry left) is level, so the gap
-is a property of the armour going through `ford_ne` (west) or `ford_sw` (east) while the infantry take the other ford, and the ground at the two fords is
-twin by construction. A flow-field tie-break that is not half-turn equivariant on the redo's cliff-banked bed is the first thing to check (the sim side of
-this is out of scope here). The bar (a seat gap of at most 10 points, about 2 standard errors at 192 seeds) is this PR's reading of the design's "it must win
-equally from both seats"; the lead may rule a different one. `lane-probe.ts` is report-only and exits 0.
+**The lane probe read a probe bug, not a map defect (fixed 4 Nov).** The first read (armour left, infantry right: west 90.6 / 89.6, east 72.9 / 67.7, pooled gap +19.8 points; the shipped map +8.9 and +3.6) was `lane-probe.ts` measuring "reached the lane" to the marker's integer tile index, the tile's NW corner, while positions are continuous and the centre is index + 0.5. A group coming from the north-west (the west seat) needed to be within about 8.7 tiles of the centre, one from the south-east (the east seat) within about 7.3, and the 20 s order step turned 1.4 tiles into a whole step: mean tick at which the armour was marked passed, 40.9 s / 42.5 s west against 60.1 s east (48 seeds a cell); after the fix 48.0 / 49.6 against 47.1 / 52.1. The map is exactly half-turn symmetric (grid and elevation, 0 of 6,400 tiles differ), and the flow-field routes from every versus spawn tile to either ford are the exact half-turn of the other seat's (foot and vehicle masks, equal costs 490 and 452); the first hypothesis checked, a non-equivariant tie-break, was ruled out before the probe was fixed.
 
-What the redo needs before it opens: a wall LOD or fewer wall tiles in the centre window (+1.3 ms to under +0.5), the lane gap explained or
-removed, and then a swap commit with the 14 pins listed above. S4, `net:budget`, the tick probe, `perf:memory` and the seat shifts need no further work.
+Fixed probe, redo, splitter west / east (gap = west minus east), seeds 6000, 24000 and 24192 (the last two fresh):
+
+| Arm | 6000 | 24000 | 24192 | Pooled 576 |
+|---|---|---|---|---|
+| Armour left, infantry right | 79.2 / 87.5 (-8.3) | 82.3 / 85.4 (-3.1) | 82.3 / 86.5 (-4.2) | 81.3 / 86.5 (-5.2) |
+| Armour right, infantry left | 73.4 / 81.3 (-7.8) | 77.6 / 81.3 (-3.6) | 79.7 / 80.7 (-1.0) | 76.9 / 81.1 (-4.2) |
+
+The unfixed probe on the fresh ranges read +26.0 and +27.1 (armour left) and +1.6 and +5.7 (armour right), so the artefact repeats on new seeds. Shipped map, fixed probe: 6000 +5.7 (armour left) / +8.3 (armour right), 24000 +4.2 / +0.5; so its earlier +8.9 / +3.6 was the same bug and a west lean of about 5 points remains.
+
+**Unchased residual.** With the fix the redo leans EAST by 4-5 points in both arms (pooled z about -2.4 in the armour-left arm) and the shipped map leans WEST by about 5. Both are inside the 10-point bar and neither was chased. Two suspects, unchecked: unit-id order (side 0 spawns first, so ties in targeting and movement go to the west) and `centroid`'s `Math.round` of raw coordinates, which is not half-turn equivariant. `lane-probe.ts` is report-only and exits 0.
+
+What the redo needs before it opens: a wall LOD or fewer wall tiles in the centre window (+1.3 ms to under +0.5), and then a swap commit with the 14 pins listed above. S4, `net:budget`, the tick probe, `perf:memory` and the seat shifts need no further work.
