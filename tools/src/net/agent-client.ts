@@ -40,6 +40,7 @@ import {
   type MatchResult,
 } from '../../../packages/app/src/net/outcome';
 import { FogTracker } from './fog-tracker';
+import { SeatMemory } from './seat-memory';
 import { RefereeTally, resultText, type RefereeStats } from './match-score';
 import { OrderDesk } from './order-desk';
 import { sideView, type SideView } from './view';
@@ -108,6 +109,8 @@ interface Live {
   producer: SnapshotProducer | null;
   /** The referee's running tally (GH-973): idle time, orders, a timeline. Reads the sim; writes nothing. */
   tally: RefereeTally;
+  /** What this seat has seen and lost (the 4 Nov bot report): last-seen enemy tiles, own units' deaths. Reads the sim; writes nothing. */
+  memory: SeatMemory;
 }
 
 /** Where a room's socket lives, and the Origin to send it: the browser's own
@@ -310,7 +313,8 @@ export class AgentClient {
           log: this.log,
         })
       : null;
-    this.live = { config, w, side, fog: new FogTracker(w.sim, side), seatWorld: seatWorldFor(config, w.sim), dataDigest: shippedContentDigest(), producer, tally: new RefereeTally() };
+    const fog = new FogTracker(w.sim, side);
+    this.live = { config, w, side, fog, seatWorld: seatWorldFor(config, w.sim), dataDigest: shippedContentDigest(), producer, tally: new RefereeTally(), memory: new SeatMemory(w.sim, side, fog) };
     // GH-976 P2: a points race is read by the referee's tally too (points by source), from the runtime's own score.
     const pointsRules = config.winMode === 'points' ? versusModes[config.map]?.modes.points : undefined;
     if (pointsRules !== undefined && w.runtime !== null) this.live.tally.setPoints({ runtime: w.runtime, rules: pointsRules });
@@ -376,7 +380,7 @@ export class AgentClient {
   pump(maxTicks: number): number {
     const live = this.live;
     if (live === null || this.decided !== null) return 0;
-    const { config, w, fog, seatWorld, dataDigest, producer, tally } = live;
+    const { config, w, fog, seatWorld, dataDigest, producer, tally, memory } = live;
     const sim = w.sim;
     const seat = this.o.seat;
     const sides: [0 | 1, 0 | 1] = [config.seats[0].side, config.seats[1].side];
@@ -387,7 +391,7 @@ export class AgentClient {
       seatWorld,
       ...tick,
       // The referee's tally samples after the tick has run (GH-973): a read of the sim, nothing written.
-      runTick: () => { tick.runTick(); tally.onTick(sim, sides); },
+      runTick: () => { tick.runTick(); tally.onTick(sim, sides); memory.onTick(); },
       config,
       dataDigest,
       ...(producer === null ? {} : { afterFrame: (tick: number, digest: number | null) => { producer.onFrame(tick, digest); } }),
@@ -419,6 +423,11 @@ export class AgentClient {
     this.ran += ran;
     if (ran === 0 && this.ending !== null) this.drained = true;
     return ran;
+  }
+
+  /** What this seat has seen and lost: last-seen enemy tiles and own units' deaths, or null before the match has started. */
+  memory(): SeatMemory | null {
+    return this.live?.memory ?? null;
   }
 
   /** What this seat may know: its own force, contacts in its fog, the score. */

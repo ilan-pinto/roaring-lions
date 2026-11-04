@@ -23,6 +23,8 @@ import type { AgentClient } from './agent-client';
 import { CRITERIA, CRITERION_IDS, MAX_REASON_CHARS, SCORE_MAX, SCORE_MIN, replyFormat, rubricText, statsGlossary, validateScores, writeScoreFile } from './match-score';
 import { productionRefusal } from './economy-view';
 import type { OrderRecord } from './order-desk';
+import { orderExamplesForDescription } from './order-examples';
+import type { SeatMemory } from './seat-memory';
 import { STANCES, type SideView } from './view';
 
 export type Scope = 'advise' | 'assist' | 'command';
@@ -228,18 +230,43 @@ function roundOf(ctx: ToolContext): { index: number; ticks: number; doneRound: n
   return { index: Math.floor(tick / pace.roundTicks), ticks: pace.roundTicks, doneRound: ctx.doneRound, finished, awaitingEndRound };
 }
 
-/** An order record as the model sees it: tiles, and only the ids the view lists now. */
-function describeOrder(r: OrderRecord, listed: Set<number>): Record<string, unknown> {
+/**
+ * An order record as the model sees it: tiles, and only the ids the view lists now. An own unit that is no longer
+ * listed says what became of it (the 4 Nov bot report, item 2): `fates` carries `{ id, fate: 'died', tick }` for a unit
+ * found dead, `fate: 'removed'` (taken off the board alive: carried away, admitted aboard), `fate: 'unknown'` (gone before
+ * the harness began to watch, no tick), or `fate: 'wounded'`
+ * for one lying down (`casualties.mine`). The record's own `status` is untouched: an order that was `applied` before
+ * its unit died is still `applied`, with its `settledTick`, and `fates` says what became of the unit since. `gone` counts only
+ * ids with no known fate.
+ */
+function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null): Record<string, unknown> {
+  const listed = new Set([...view.units.map((u) => u.id), ...view.contacts.map((u) => u.id)]);
   const c = r.cmd as Record<string, unknown>;
   const out: Record<string, unknown> = { ref: r.ref, status: r.status, verb: r.cmd.kind, queuedTick: r.queuedTick, settledTick: r.settledTick };
   if (r.reason !== undefined) out.reason = r.reason;
   if (Array.isArray(c.ids)) {
-    const ids = (c.ids as number[]).filter((id) => listed.has(id));
+    const all = c.ids as number[];
+    const ids = all.filter((id) => listed.has(id));
     out.ids = ids;
-    if (ids.length < c.ids.length) out.gone = c.ids.length - ids.length;
+    const fates: Record<string, unknown>[] = [];
+    let gone = 0;
+    for (const id of all) {
+      if (listed.has(id)) continue;
+      const f = memory?.fateOf(id) ?? null;
+      if (f !== null) fates.push(f.tick >= 0 ? { id, fate: f.fate, tick: f.tick } : { id, fate: f.fate });
+      else if (view.casualties.mine.some((m) => m.id === id)) fates.push({ id, fate: 'wounded' });
+      else gone++;
+    }
+    if (fates.length > 0) out.fates = fates;
+    if (gone > 0) out.gone = gone;
   }
   if (isInt(c.x) && isInt(c.y)) out.tile = [c.x >> 16, c.y >> 16];
-  if (isInt(c.target)) out.target = listed.has(c.target) ? c.target : 'out of sight';
+  if (isInt(c.target)) {
+    out.target = listed.has(c.target) ? c.target : 'out of sight';
+    // What the seat saw of it: its own sighting, never a position it was not shown (`SeatMemory`).
+    const seen = listed.has(c.target) ? null : memory?.lastSeen(c.target) ?? null;
+    if (seen !== null) out.lastSeen = { tile: seen.tile, tick: seen.tick };
+  }
   if (isInt(c.carrier) && listed.has(c.carrier)) out.carrier = c.carrier;
   if (isInt(c.structure)) out.structure = c.structure;
   if (isInt(c.tunnel)) out.tunnel = c.tunnel;
@@ -252,36 +279,57 @@ function describeOrder(r: OrderRecord, listed: Set<number>): Record<string, unkn
   return out;
 }
 
+/**
+ * The clock, the same in `observe`, `status` and `wait` (the 4 Nov bot report, item 5). Three numbers, always together:
+ *  - `simTick`: how many ticks THIS harness's copy of the match has run: the world `observe` shows and every order's
+ *    tick refer to it. `tick` is the same number, kept for old readers.
+ *  - `relayTick`: the newest tick the room has sent this harness (`simTick + behind`).
+ *  - `behind`: frames the room has sent that have not run here yet; 0 when the harness has caught up. A few (2-3) is
+ *    ordinary transport lag, not a fault; a large one is a replay.
+ * Every call reads the clock at the moment it answers and the match goes on between calls, so a later call can read a
+ * larger `simTick`: compare the fields within one answer, and `ran` in a `wait` answer is the ticks that call watched.
+ */
+export function clockOfCtx(ctx: ToolContext): { simTick: number; relayTick: number; behind: number } {
+  const simTick = ctx.client.tick();
+  const behind = ctx.client.transport.behind();
+  return { simTick, relayTick: simTick + behind, behind };
+}
+
 const observe: ToolDef = {
   name: 'observe',
-  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight, held buildings, the legal stances, the score, the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders (command) or proposals (assist). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units.',
+  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight, held buildings, the legal stances, the score, the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was), or proposals (assist). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
     await settleReplay(ctx);
     const view = started(ctx);
     if (view === null) return notStarted(ctx);
-    const listed = new Set([...view.units.map((u) => u.id), ...view.contacts.map((u) => u.id)]);
     let orders: unknown[] = [];
-    if (ctx.scope === 'command') orders = ctx.client.desk.records(ORDER_RECORDS).map((r) => describeOrder(r, listed));
+    // Oldest first, the order the log happened in (the desk keeps newest first).
+    if (ctx.scope === 'command') orders = ctx.client.desk.records(ORDER_RECORDS).reverse().map((r) => describeOrder(r, view, ctx.client.memory()));
     else if (ctx.scope === 'assist') orders = [...ctx.proposals].slice(-ORDER_RECORDS).map(([proposal, status]) => ({ proposal, status }));
-    return ok({ ...view, orders });
+    const clock = clockOfCtx(ctx);
+    return ok({ ...view, ...clock, tick: clock.simTick, orders });
   },
 };
 
 const status: ToolDef = {
   name: 'status',
-  description: 'The tick, the clock, the room link, the result if any and `by` how it was reached (annihilation, objective, stalemate, time, ...), the `mode` the room is won by, the pace and, in a paced room, the round.',
+  description: 'The clock as `simTick` (ticks this harness has run: the world you see; `tick` is the same number), `relayTick` (the newest tick the room has sent) and `behind` (`relayTick - simTick`: frames sent and not yet run here; 2-3 is ordinary lag, a large number is a replay). All three are read when you call, and the match runs on between calls. Also the clock text, the room link, the result if any and `by` how it was reached (annihilation, objective, stalemate, time, ...), the `mode` the room is won by, the pace and, in a paced room, the round.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
     await settleReplay(ctx);
     const config = ctx.client.config();
     const view = started(ctx);
+    const clock = clockOfCtx(ctx);
+    const link = ctx.client.transport.status();
     return ok({
-      tick: ctx.client.tick(),
+      ...clock,
+      tick: clock.simTick,
       clock: view?.clock ?? null,
-      transport: ctx.client.transport.status(),
+      // The link's own `behind` is the one number the clock reports (it is refreshed on events, this is read now).
+      transport: link.kind === 'live' ? { ...link, behind: clock.behind } : link,
       result: view?.result ?? null,
       // GH-976 P2: how the result was reached (`objective` for a win mode's goal), and the mode the room plays.
       by: view?.by ?? null,
@@ -299,7 +347,7 @@ const sleep = (ms: number): Promise<void> => new Promise((res) => { setTimeout(r
 
 const wait: ToolDef = {
   name: 'wait',
-  description: `Let the match run: resolves after \`ticks\` (1-${WAIT_MAX_TICKS}) more frames (20 a second), or at once on a result, the room ending, or (command, paced) when the room waits on your end_round. Never longer than ${WAIT_MAX_MS / 1000} s. Before the match has started it blocks (up to ${LOBBY_WAIT_MAX_MS / 60_000} minutes) until it does, because the other player may take a while to press Ready; then it answers \`match not started\`, and you call it again.`,
+  description: `Let the match run: resolves after \`ticks\` (1-${WAIT_MAX_TICKS}) more frames (20 a second), or at once on a result, the room ending, or (command, paced) when the room waits on your end_round. Never longer than ${WAIT_MAX_MS / 1000} s. Before the match has started it blocks (up to ${LOBBY_WAIT_MAX_MS / 60_000} minutes) until it does, because the other player may take a while to press Ready; then it answers \`match not started\`, and you call it again. It answers \`simTick\`, \`relayTick\` and \`behind\` as \`status\` does (\`tick\` is \`simTick\`), read as it returns, and \`ran\`, the ticks it watched.`,
   scopes: SCOPES,
   schema: { type: 'object', properties: { ticks: { type: 'integer', minimum: 1, maximum: WAIT_MAX_TICKS } }, required: ['ticks'], additionalProperties: false },
   async run(ctx, raw) {
@@ -340,7 +388,7 @@ const wait: ToolDef = {
     }
     const r = client.result();
     const view = started(ctx);
-    return ok({ reason, ran: client.tick() - from, tick: client.tick(), result: r === null ? null : view?.result ?? null });
+    return ok({ reason, ran: client.tick() - from, ...clockOfCtx(ctx), tick: client.tick(), result: r === null ? null : view?.result ?? null });
   },
 };
 
@@ -391,7 +439,7 @@ const ping: ToolDef = {
   },
 };
 
-type Refused = { error: string; detail?: string };
+type Refused = { error: string; detail?: string; extra?: Record<string, unknown> };
 
 /**
  * `setStance` (GH-954): `hold` halts and stands, `ambush` halts and holds fire until a target closes to `radius`
@@ -465,7 +513,7 @@ function buildProduction(view: SideView, verb: ProductionVerb, a: Record<string,
 }
 
 /** The command an `order` call describes, or why it cannot be one. */
-function buildOrder(view: SideView, a: Record<string, unknown>): Command | { error: string; detail?: string } {
+function buildOrder(view: SideView, a: Record<string, unknown>, memory: SeatMemory | null): Command | Refused {
   if (typeof a.verb !== 'string' || !(ORDER_VERBS as readonly string[]).includes(a.verb)) {
     return { error: 'unknown verb', detail: `one of ${ORDER_VERBS.join(', ')}` };
   }
@@ -475,7 +523,7 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
   const ids = [...new Set(a.ids as number[])];
   const own = new Set(view.units.map((u) => u.id));
   if (!ids.every((id) => own.has(id))) return { error: 'not your unit', detail: 'every id must be one of your units in observe' };
-  const point = (): { x: number; y: number } | { error: string; detail?: string } => {
+  const point = (): { x: number; y: number } | Refused => {
     if (!isInt(a.x) || !isInt(a.y)) return { error: 'invalid', detail: `${verb} needs integer tiles x and y` };
     if (a.x < 0 || a.y < 0 || a.x >= view.size[0] || a.y >= view.size[1]) return { error: 'off the map' };
     return { x: tileFx(a.x), y: tileFx(a.y) };
@@ -546,11 +594,26 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
         return { error: 'not a casualty', detail: 'target must be one of your wounded men in observe (casualties.mine)' };
       }
       return { kind: verb, ids, target: a.target };
-    case 'attack':
-      // Only a target the seat can see: every other id answers alike, so the
-      // answer says nothing about what stands in the fog.
-      if (!isInt(a.target) || !view.contacts.some((c) => c.id === a.target)) return { error: 'not a contact', detail: 'target must be a contact in observe' };
-      return { kind: verb, ids, target: a.target };
+    case 'attack': {
+      // Only a target the seat can see. A target the seat HAS seen and no longer can is told apart (the 4 Nov bot
+      // report, item 1): the model sees the id in its own last `observe`, so naming it leaks nothing, and the last-seen
+      // tile and tick are the seat's own sighting (`SeatMemory`). Every other id answers alike, so the answer says
+      // nothing about what stands in the fog.
+      if (isInt(a.target) && view.contacts.some((c) => c.id === a.target)) return { kind: verb, ids, target: a.target };
+      const seen = isInt(a.target) ? memory?.lastSeen(a.target) ?? null : null;
+      if (isInt(a.target) && seen !== null) {
+        const [x, y] = seen.tile;
+        // The fallback is a HINT, never an automatic conversion: an `attackMove` is a different order (it stops at the
+        // tile and fights what it meets, and the unit may walk into whatever now stands there), so the model is told
+        // the exact call and chooses. The same call works as written.
+        return {
+          error: 'target no longer in sight',
+          detail: `target ${a.target} was last seen at ${x},${y} on tick ${seen.tick} and is not in sight now (it moved out of sight, or died). Nothing was sent. To go and look, send the fallback: an attackMove to that tile.`,
+          extra: { target: a.target, lastSeen: { tile: [x, y], tick: seen.tick }, fallback: { verb: 'attackMove', ids, x, y } },
+        };
+      }
+      return { error: 'not a contact', detail: 'target must be a contact in observe' };
+    }
   }
 }
 
@@ -575,7 +638,7 @@ function sweepRefusal(ctx: ToolContext): ToolResult | null {
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units, or your production. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack), or one of your wounded men from casualties.mine (rescue: a medic goes to treat and carry him to your camp); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units, or your production. The arguments are ONE flat JSON object with the keys below (no nesting, no extra keys), for example ${orderExamplesForDescription()} (placeholder ids and tiles: take yours from observe; the standing prompt lists one for every verb). verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack), or one of your wounded men from casualties.mine (rescue: a medic goes to treat and carry him to your camp); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). An attack on a contact that has left your sight answers \`target no longer in sight\`, with its \`lastSeen\` tile and tick and a \`fallback\` attackMove you may send as written (nothing is converted for you). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',
@@ -615,8 +678,8 @@ const order: ToolDef = {
       const no = sweepRefusal(ctx);
       if (no !== null) return no;
     }
-    const built = buildOrder(view, a);
-    if ('error' in built) return refuse(built.error, built.detail === undefined ? {} : { detail: built.detail });
+    const built = buildOrder(view, a, ctx.client.memory());
+    if ('error' in built) return refuse(built.error, { ...(built.detail === undefined ? {} : { detail: built.detail }), ...built.extra });
     // The room's own rebuild, then ownership's verdict on this machine's world.
     const cmd = cleanCommand(built);
     if (cmd === null) return refuse('invalid');
@@ -725,7 +788,7 @@ const playerSchema = {
 
 const submitScore: ToolDef = {
   name: 'submit_score',
-  description: `After the match is over and you have read \`match_stats\`: score BOTH players (seat0 and seat1, yourself included). ${CRITERIA.length} criteria (${CRITERION_IDS.join(', ')}) and an overall, each \`{score, reason}\`: a whole number ${SCORE_MIN}-${SCORE_MAX} and a ONE-line reason (at most ${MAX_REASON_CHARS} characters) that cites a number from the stats. A score that does not validate is refused with every problem listed: fix them and submit again; a later valid submission replaces an earlier one.`,
+  description: `After the match is over and you have read \`match_stats\`: score BOTH players (seat0 and seat1, yourself included). ${CRITERIA.length} criteria (${CRITERION_IDS.join(', ')}) and an overall, each \`{score, reason}\`: a whole number ${SCORE_MIN}-${SCORE_MAX} and a ONE-line reason (at most ${MAX_REASON_CHARS} characters) that cites a number from the stats. A score that does not validate is refused with every problem listed: fix them and submit again; a later valid submission replaces an earlier one. The arguments are exactly this object, with the keys \`seat0\` and \`seat1\` at the top level (not wrapped in another key, no extra keys), \`score\` a number and \`reason\` a string: ${replyFormat()}`,
   scopes: ['command'],
   schema: { type: 'object', properties: { seat0: playerSchema, seat1: playerSchema }, required: ['seat0', 'seat1'], additionalProperties: false },
   async run(ctx, raw) {

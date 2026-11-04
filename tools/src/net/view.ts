@@ -83,6 +83,18 @@ function clockOf(tick: number): string {
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 
+/**
+ * Whether the enemy-side entity `i` is in sight of `side` right now: the renderer's draw gate, with this seat's fog.
+ * Hidden inside a building, a carrier or a tunnel, and fog-gated in the open. The one copy: `sideView` lists contacts
+ * and enemy wounded by it, and the harness's last-seen memory (`seat-memory.ts`) records a position by it, so a
+ * remembered tile is always one `observe` would have listed.
+ */
+export function inSightOf(sim: MatchWorld['sim'], i: number, side: 0 | 1, visibleAt: (x: number, y: number) => boolean): boolean {
+  const st = sim.state;
+  if (st.garrisonedIn[i] >= 0 || st.carriedBy[i] >= 0 || st.tunnelIn[i] >= 0) return false;
+  return unitIsObserved(st.side[i], side, st.posX[i] / 65536, st.posY[i] / 65536, visibleAt);
+}
+
 export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: string | null, by: string | null = null): SideView {
   const sim = w.sim;
   const st = sim.state;
@@ -103,7 +115,7 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
       const state = st.woundState[i] === WOUND_DOWN ? 'down' : st.woundState[i] === WOUND_STABILISED ? 'stabilised' : 'other';
       if (s === side) {
         casualties.mine.push({ id: i, type: type.id, tile, state, bleeding: sim.woundBleedRate(i) });
-      } else if (st.garrisonedIn[i] < 0 && st.carriedBy[i] < 0 && st.tunnelIn[i] < 0 && unitIsObserved(s, side, st.posX[i] / 65536, st.posY[i] / 65536, visibleAt)) {
+      } else if (inSightOf(sim, i, side, visibleAt)) {
         casualties.theirs.push({ id: i, type: type.id, tile, state });
       }
       continue;
@@ -141,8 +153,7 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
     }
     // The renderer's draw gate, with this seat's fog: hidden inside a
     // building, a carrier or a tunnel, and fog-gated in the open.
-    if (st.garrisonedIn[i] >= 0 || st.carriedBy[i] >= 0 || st.tunnelIn[i] >= 0) continue;
-    if (!unitIsObserved(s, side, st.posX[i] / 65536, st.posY[i] / 65536, visibleAt)) continue;
+    if (!inSightOf(sim, i, side, visibleAt)) continue;
     contacts.push({ id: i, type: type.id, tile, hp });
   }
   const held: HeldLine[] = [];
