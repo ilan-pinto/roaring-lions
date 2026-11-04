@@ -39,7 +39,7 @@
  * from a kind that has hundreds. Every ordering tie is broken by
  * `(distance, y, x)`, so the answer is a pure function of the map.
  *
- * ## Stamps (per site, 24)
+ * ## Stamps (per site, 27)
  *
  * - A 3 x 4 lattice at a 1-tile pitch centred on the site's tile centre.
  *   Columns west to east are `SHOWCASE_POWERS`; rows north to south are
@@ -51,6 +51,9 @@
  *   stamps each at `STAMP_SPACING_TILES`, centred on the site -- one mark
  *   per stamp, not a vehicle's pair, so the run reads as one clean print.
  *
+ * - Then three churn marks (GH-984 N2), `CHURN_SHOWCASE_RADII`, in a column one tile west of the
+ *   lattice's west edge.
+ *
  * Every stamp is dated `simMs: 0` (R-14): its fade then depends only on the
  * tick a capture pins, never on how many ticks a boot loop happened to run
  * first. Its seed is `tileHash(site.x * 31 + k, site.y * 17 + k)` for the
@@ -58,6 +61,7 @@
  */
 import { tileHash } from '../tile-hash';
 import {
+  CHURN_SHOWCASE_RADII,
   craterRadiusTiles,
   OIL_RADIUS_TILES,
   rubbleRadiusTiles,
@@ -102,7 +106,7 @@ export const SHOWCASE_FLAT_NORMAL_Y = 0.999;
 export const SHOWCASE_RUN = 6;
 
 /** The lattice's rows, north to south. */
-const LATTICE_ROWS: readonly Exclude<DecalKind, 'tread' | 'tyre'>[] = ['crater', 'scorch', 'oil', 'rubble'];
+const LATTICE_ROWS: readonly Exclude<DecalKind, 'tread' | 'tyre' | 'churn'>[] = ['crater', 'scorch', 'oil', 'rubble'];
 
 interface Candidate {
   readonly x: number;
@@ -235,7 +239,7 @@ export function showcaseAnchor(
 }
 
 /** The half extents of a lattice cell's mark, by row kind and column. */
-function latticeRadius(kind: Exclude<DecalKind, 'tread' | 'tyre'>, col: number): number {
+function latticeRadius(kind: Exclude<DecalKind, 'tread' | 'tyre' | 'churn'>, col: number): number {
   const power = SHOWCASE_POWERS[col];
   switch (kind) {
     case 'crater':
@@ -251,8 +255,8 @@ function latticeRadius(kind: Exclude<DecalKind, 'tread' | 'tyre'>, col: number):
 }
 
 /**
- * Every stamp the showcase lays over `sites`, 24 per site, in a fixed order:
- * the lattice row by row, then the tread run, then the tyre run. See this
+ * Every stamp the showcase lays over `sites`, 27 per site, in a fixed order:
+ * the lattice row by row, then the tread run, then the tyre run, then the churn column. See this
  * file's top comment.
  */
 export function decalShowcase(sites: readonly ShowcaseSite[]): readonly DecalStamp[] {
@@ -305,6 +309,20 @@ export function decalShowcase(sites: readonly ShowcaseSite[]): readonly DecalSta
           simMs: 0,
         });
       }
+    }
+    // GH-984 N2: the churn, three sizes down the column just west of the lattice. Appended AFTER the runs, so
+    // every seed above is the one it always was, and OUTSIDE the lattice's 3 x 4 tiles, so no earlier mark moved.
+    for (let i = 0; i < CHURN_SHOWCASE_RADII.length; i++) {
+      out.push({
+        kind: 'churn',
+        x: cx - (SHOWCASE_POWERS.length + 1) / 2,
+        z: cz + (i - (CHURN_SHOWCASE_RADII.length - 1) / 2),
+        halfLength: CHURN_SHOWCASE_RADII[i],
+        halfWidth: CHURN_SHOWCASE_RADII[i],
+        facingRad: 0,
+        seed: seed(),
+        simMs: 0,
+      });
     }
   }
   return out;

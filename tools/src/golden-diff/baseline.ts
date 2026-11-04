@@ -1162,6 +1162,21 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'WATCHED GOING RED: `setTeamMaskPass` made a no-op reads 0 px / 0.0000 here, under both floors; the mark\'s boxes moved off the ' +
           'turret (x 50 m) read 0 px / 0.0000 too.',
       },
+      {
+        layer: 'disturb',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.0005,
+        rationale:
+          'GH-984 N2, 2026-11-03: hiding the vehicles\' disturbance of the vegetation (`uDisturbAmp` to 0; the frame skips its own work meanwhile) moves ' +
+          '25 px / 0.0015, bit-identical across three fresh page loads, repaint control 0 px / 0.0000 on all three; measured with ' +
+          '`pnpm nature:capture --phase=signal` (the gate\'s own URL, freeze, repaint, toggle script and pixelmatch threshold), ANGLE Metal, Apple M3 Pro, ' +
+          'frame loop frozen, tick 140, 21 disturber slots live at the shown frame. A small signal by nature: the sandbox force\'s hulls are parked, ' +
+          'so each is a disc, and the grass and bushes in reach of one are a few dozen blades at zoom 1. 25 px is under SUB_THRESHOLD_PX (100), so the pixel ' +
+          'floor is 0 and the magnitude floor carries it (a third of 0.0015, rounded down). THE FLOOR WAS MEASURED ON METAL, NOT ON CI\'S SWIFTSHADER: ' +
+          're-measure it from the CI logs at the bless (a third of the smallest reading), and do not bless it from the branch. ' +
+          'WATCHED GOING RED: `setDebugLayerVisible(\'disturb\')` made a no-op reads 0 px / 0.0000 here, under both floors ' +
+          '(`ThreeRenderer.disturb-clock.test.ts` goes red on the same mutation).',
+      },
     ],
     rationale:
       'whole frame, mesh vehicles plus continuous dust/exhaust FX. 40 px / 0.004 since GH-803 ' +

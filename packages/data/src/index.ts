@@ -224,6 +224,7 @@ import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 import rotorWash from '../../../data/vfx/rotor_wash.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
 import vehicleMud from '../../../data/vfx/vehicle_mud.json';
+import vehicleClods from '../../../data/vfx/vehicle_clods.json';
 import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
 import vehicleDamagedSmoke from '../../../data/vfx/vehicle_damaged_smoke.json';
 import armorRicochet from '../../../data/vfx/armor_ricochet.json';
@@ -643,6 +644,9 @@ export const vfxEmitters = [
   // GH-871 P4: what a vehicle throws on a map that rains, in place of `vehicle_dust`;
   // swapped BY NAME in the renderer (nothing dispatches by the `vehicle_move` trigger).
   vehicleMud,
+  // GH-984 N2: the clods a tracked hull throws on a pivot and a launch, spawned BY NAME by the renderer
+  // from the tick that detected them (`vehicle_clods`); unregistered, it is silently inert.
+  vehicleClods,
   vehicleExhaust,
   // Pass C2/C4 (P3): a living vehicle with a mobility or firepower kill.
   vehicleDamagedSmoke,

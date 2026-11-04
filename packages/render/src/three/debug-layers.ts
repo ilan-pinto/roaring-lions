@@ -528,6 +528,10 @@ export const DEBUG_LAYERS = [
   // material shares to 0 and back (`units/team-mask.ts`): a uniform write nothing per-frame re-asserts. Witnessed
   // by the gated `vehicle` scenario's layer check.
   'team-mask',
+  // GH-984 N2: the vehicles' disturbance of the grass and bushes (`terrain/disturb.ts`). `uDisturbAmp` to 0 and back,
+  // the `wind` shape: the frame writes the slot count and the arrays, never the amplitude, and skips its own work
+  // while the amplitude is 0, so a repaint cannot undo it. Witnessed by the gated `vehicle` scenario's layer check.
+  'disturb',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];
