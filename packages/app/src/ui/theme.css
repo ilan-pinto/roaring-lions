@@ -9507,13 +9507,12 @@ fieldset.rl-versus__maps {
 .rl-net-score__advisor[data-row='mine'] .rl-net-score__who {
   color: var(--good);
 }
-/* The points race (ui/net-points.ts, GH-976 P2): both sides' points against the target, top centre of the field,
-   click-through like the status line and the scoreboard. */
+/* The points race (ui/net-points.ts, GH-976 P2): both sides' points against the target, top LEFT of the field (the
+   status line takes the top centre while the room waits or stalls, and the scoreboard the top right), click-through. */
 .rl-net-points {
   position: fixed;
   top: calc(var(--hud-strip-h) + var(--s3));
-  left: 50%;
-  transform: translateX(-50%);
+  left: var(--s3);
   display: flex;
   flex-direction: column;
   gap: var(--s1);

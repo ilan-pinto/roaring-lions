@@ -3484,6 +3484,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // the mission; the same name the Free Play picker lists it by.
     placeName: mission ? undefined : mapJson.name,
     ...(versusRoom ? { versusFaction: versusFactions[me] } : {}),
+    ...(versusRoom && netConfig?.winMode !== undefined ? { versusMode: netConfig.winMode } : {}),
     // N3 Task 6: an economy room's purse and (the KDF seat's only, LD7) Conduct.
     ...(economyRt !== null ? { roomEconomy: () => roomEconomyView(economyRt, me, versusFactions[me]) } : {}),
     commander: hudCommander,

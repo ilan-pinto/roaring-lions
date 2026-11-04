@@ -350,6 +350,9 @@ export interface HudDeps {
    *  objective slot names the force this seat commands instead of the Free
    *  Play line. Absent everywhere else, which keeps the strip as it was. */
   versusFaction?: 'kdf' | 'sarim';
+  /** The win mode a versus room plays (GH-976 P2): the strip's line says how THIS match is won ("win the points race")
+   *  rather than "destroy their force". Absent is annihilation, which keeps the line exactly as it was. */
+  versusMode?: 'camp' | 'points';
   /** An economy room's purse (N3 Task 6, KDF against Sarim): the VIEWER's side's logistics
    *  and what its held zones pay a minute, and Conduct only for the KDF seat (LD7). Read
    *  only with no mission. A room shows no intel figure (LD5). Absent, or null: no purse --
@@ -1867,7 +1870,7 @@ export class Hud {
       if (place && this.shown('objective')) {
         rows.push(
           versus !== undefined
-            ? `<span class="rl-strip__obj rl-dim" data-versus="${versus}">${escapeHtml(t('hud.strip.versus', { f: versus }))}</span>`
+            ? `<span class="rl-strip__obj rl-dim" data-versus="${versus}">${escapeHtml(t('hud.strip.versus', { f: versus, mode: this.deps.versusMode ?? 'annihilation' }))}</span>`
             : `<span class="rl-strip__obj rl-dim" data-free-play>${escapeHtml(t('hud.strip.freePlay'))}</span>`
         );
       }
