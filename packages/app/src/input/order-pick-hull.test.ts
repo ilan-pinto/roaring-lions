@@ -242,6 +242,39 @@ describe('the lead\'s case: a tank mid-fight on A, a click on the nose of B', ()
   });
 });
 
+describe('hulls only add candidates (the review of PR 1015)', () => {
+  it('a man standing in front of a friendly hull is still the man, on a right-click and a left-click', () => {
+    const { sim, spawn } = world();
+    const tank = spawn('mbt_lavi', 0, 30.5, 30.5, 0); // ours, facing +x
+    const cam: Camera = { x: 30.5, y: 30.5, zoom: 1 };
+    let lost = 0;
+    let tried = 0;
+    const foes: number[] = [];
+    // An enemy rifle squad at half-tile offsets all round the tank, on the camera's side and off it.
+    for (const [dx, dy] of [[0.5, 0.5], [1, 0], [0, 1], [0.5, 1], [-0.5, 0.5], [1, 1], [0, 0.5]]) {
+      const foe = spawn('inf_squad', 1, 30.5 + dx, 30.5 + dy);
+      sim.identifyTo(0, foe);
+      foes.push(foe);
+    }
+    for (const foe of foes) {
+      const fx0 = fx.toNumber(sim.state.posX[foe]);
+      const fy0 = fx.toNumber(sim.state.posY[foe]);
+      for (const h of [0.3, 0.45]) {
+        const px = worldToScreenThree(fx0, fy0, cam, VP, h / WORLD_Y_PER_LIFT_PIXEL);
+        const view = viewOf(sim, cam);
+        tried++;
+        const right = pointerPoint(view, sim, px.x, px.y).hostile;
+        const left = view.unitAtScreen(px.x, px.y, 1.2);
+        // The pick may land on a neighbouring man in the ring; what it must never be is the tank.
+        if (right === tank || left === tank) lost++;
+        expect(foes).toContain(right);
+      }
+    }
+    expect(tried).toBeGreaterThan(10);
+    expect(lost).toBe(0);
+  });
+});
+
 describe('a, b, d: the other candidates, ruled out', () => {
   it('(b) an engaged unit does not keep its target: the order replaces it, tank and rifle squad alike', () => {
     for (const shooter of ['mbt_lavi', 'inf_squad']) {

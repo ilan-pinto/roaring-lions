@@ -307,4 +307,45 @@ describe('pickUnit with a hull (the 4 Nov lead report: a click on a tank\'s nose
       );
     }
   });
+
+  it('hulls only ADD candidates: a unit that passes the feet test outranks a hull-only hit, however close the hull scores', () => {
+    // A Lavi at (20, 20) and a rifleman standing on ground its swept box covers (the review of PR 1015: 147 of 3936
+    // such samples stopped naming the man). The click is 0.05 tile from the man's feet: the hull scores 0 there, the
+    // man's own score is 0.0025, and before the tiers the hull won.
+    const two = roster([
+      [20, 20, 1, -1],
+      [20.3, 20.2, 1, -1],
+    ]);
+    const hulls: HullPick = hullPickFor((i) => (i === 0 ? 'mbt_lavi' : 'inf_squad'), () => 0);
+    const click = (wx: number, wy: number, radius = 0.5, hp: HullPick | undefined = hulls) =>
+      pickUnit(wx, wy, two.curX, two.curY, two.alive, two.tunnelIn, two.n, radius, 0, 0, undefined, undefined, hp);
+    expect(click(20.35, 20.2)).toBe(1);
+    expect(click(20.35, 20.2, 1.2)).toBe(1); // the left-click's radius, too
+    // The hull-only tier: the man stands out at the hull's nose, 0.85 tile from the Lavi's feet (beyond the order
+    // radius, so the Lavi can only be a hull hit), and still outranks it.
+    const nose = roster([
+      [20, 20, 1, -1],
+      [20.8, 20.2, 1, -1],
+    ]);
+    const atNose = (wx: number, wy: number, hp: HullPick | undefined): number =>
+      pickUnit(wx, wy, nose.curX, nose.curY, nose.alive, nose.tunnelIn, nose.n, 0.5, 0, 0, undefined, undefined, hp);
+    expect(atNose(20.84, 20.2, hulls)).toBe(1);
+    // Without the hulls it was always the man: nothing that picked before stops picking.
+    expect(click(20.35, 20.2, 0.5, undefined)).toBe(1);
+    // And the tank is still the answer where the man is not (the nose, a tile and a half out of his reach).
+    expect(click(20 + e.offsetAlong + halfLength - 0.05, 20)).toBe(0);
+  });
+
+  it('two hull-only hits keep the old order: the lower score, then the nearer feet', () => {
+    const pair = roster([
+      [20, 20, 1, -1],
+      [21.2, 20, 1, -1],
+    ]);
+    const hp: HullPick = hullPickFor(() => 'mbt_lavi', () => 0);
+    const at = (wx: number): number =>
+      pickUnit(wx, 20, pair.curX, pair.curY, pair.alive, pair.tunnelIn, pair.n, 0.05, 0, 0, undefined, undefined, hp);
+    // Both hulls cover x = 20.6 (score 0 each); the nearer feet win: 20.6 is 0.6 from the first, 0.6 from the second -> index order.
+    expect(at(20.55)).toBe(0);
+    expect(at(20.65)).toBe(1);
+  });
 });

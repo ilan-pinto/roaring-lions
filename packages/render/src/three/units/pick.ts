@@ -187,9 +187,8 @@ export function pickUnit(
   hull?: HullPick
 ): number {
   let best = -1;
-  // With a floor, each unit has its own limit, so the best is tracked from infinity and the
-  // limit is checked per unit. Without one this is exactly the loop it always was.
-  let bestD = radiusFloor ? Infinity : radiusTiles * radiusTiles;
+  let bestTier = 2;
+  let bestD = Infinity;
   let bestFeet = Infinity;
   const reach2 = reachX * reachX + reachY * reachY;
   // A hull's body is taller than a rifleman's, so the ground it hides reaches further up the screen.
@@ -213,28 +212,32 @@ export function pickUnit(
     const dx = fx - t * reachX;
     const dy = fy - t * reachY;
     const d = dx * dx + dy * dy;
+    // Two tiers. TIER 0 is the old test, untouched: the unit's feet-and-body segment within the radius. TIER 1 is
+    // a hull-only hit: a ground vehicle whose box covers the click though its feet do not reach it (a nose, a
+    // flank). A tier-0 unit always outranks a tier-1 one, so a hull only ADDS candidates and can never displace the
+    // old winner (the review of PR 1015: a hull scores 0 anywhere on its body, and ranked by score alone it beat a
+    // rifleman standing in front of it, on both clicks). Within a tier: the lower score, then the nearer feet.
+    const limit = radiusFloor ? Math.max(radiusTiles, radiusFloor(i)) : radiusTiles;
+    const tier = d <= limit * limit ? 0 : 1;
     let score = d;
-    let inReach = true;
-    if (radiusFloor) {
-      const r = Math.max(radiusTiles, radiusFloor(i));
-      inReach = d <= r * r;
-    }
-    // A ground vehicle is a hull, not a point: its ends and flanks are over a tile from its feet.
-    // The old test stays (a click that picked a hull before still does); the hull is an OR on top.
-    if (hull !== undefined) {
-      const shape = hull.shapeOf(i);
-      if (shape !== null) {
-        const h = hullScoreSq(wx, wy, curX[i], curY[i], shape, hull.heading(i), hullReachX, hullReachY);
-        if (h <= marginSq && (!inReach || h < score)) {
-          score = h;
-          inReach = true;
+    if (tier === 1) {
+      let ok = false;
+      if (hull !== undefined) {
+        const shape = hull.shapeOf(i);
+        if (shape !== null) {
+          const h = hullScoreSq(wx, wy, curX[i], curY[i], shape, hull.heading(i), hullReachX, hullReachY);
+          if (h <= marginSq) {
+            score = h;
+            ok = true;
+          }
         }
       }
+      if (!ok) continue;
     }
-    if (!inReach) continue;
     // Two bodies under one pixel (one figure standing in front of another):
     // the nearer feet win, which is the rule this had before bodies.
-    if (score < bestD || (score === bestD && feet < bestFeet)) {
+    if (tier < bestTier || (tier === bestTier && (score < bestD || (score === bestD && feet < bestFeet)))) {
+      bestTier = tier;
       bestD = score;
       bestFeet = feet;
       best = i;
