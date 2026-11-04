@@ -6233,8 +6233,8 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-body);
   color: var(--ink);
 }
-/* The head: the balance, Grant (TEST) and the compact "Get Roar coins" row
-   beside them -- never above the items (the lead's declutter, 2 Oct). */
+/* The head: the balance and the compact "Get Roar coins" row
+   beside it -- never above the items (the lead's declutter, 2 Oct). */
 .rl-stores__head {
   display: flex;
   flex-wrap: wrap;

@@ -239,6 +239,42 @@ describe('the victory write', () => {
     error.mockRestore();
   });
 
+  it('a refused campaign restore does not stop the wallet being put back', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const base = memoryLedgerStore();
+    base.writeRoar({ ...emptyRoar(), coins: { free: 5, paid: 0 } });
+    const roarBefore = base.raw(ROAR_KEY);
+    const store: LedgerStore = {
+      ...refusing(base, 'writeAccount'),
+      restoreCampaign: () => {
+        throw new Error('QuotaExceededError');
+      },
+    };
+    expect(writeVictory(store, { 'campaign.completed_missions': [first] }, { ...emptyAccount(), balance: 1 }, { ...emptyRoar(), coins: { free: 115, paid: 0 } })).toBe('refused');
+    expect(base.raw(ROAR_KEY)).toBe(roarBefore);
+    error.mockRestore();
+  });
+
+  it('the brigade reset is both or neither: a refused account removal puts the wallet back', () => {
+    const base = memoryLedgerStore();
+    base.writeAccount({ ...emptyAccount(), balance: 0 });
+    base.writeRoar({ ...emptyRoar(), coins: { free: 5, paid: 0 } });
+    const roarBefore = base.raw(ROAR_KEY);
+    const accountBefore = base.raw(ACCOUNT_KEY);
+    const map = base.map;
+    // The same door over a store whose removal of the account key is refused.
+    const refusing: ReturnType<typeof memoryLedgerStore> = memoryLedgerStore();
+    for (const [k, v] of map) refusing.map.set(k, v);
+    const realDelete = refusing.map.delete.bind(refusing.map);
+    refusing.map.delete = (k: string) => {
+      if (k === ACCOUNT_KEY) throw new Error('SecurityError');
+      return realDelete(k);
+    };
+    expect(() => refusing.resetAccount()).toThrow(/SecurityError/);
+    expect(refusing.raw(ROAR_KEY)).toBe(roarBefore);
+    expect(refusing.raw(ACCOUNT_KEY)).toBe(accountBefore);
+  });
+
   for (const had of [false, true]) {
     it(`G-S4: a refused account write takes back the wallet written before it (${had ? 'a wallet was there' : 'no wallet key existed'})`, () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {});

@@ -890,7 +890,7 @@ describe('showBrigade — the wallet and the footer', () => {
     expect(btn?.textContent).toBe('Reset brigade account');
     btn?.click();
     expect(resets).toBe(0);
-    expect(btn?.textContent).toBe('Click again to reset — this cannot be undone');
+    expect(btn?.textContent).toBe('Click again to reset — this also clears your free Roar coins, free purchases and the record of what you earned, so you can earn them again. It cannot be undone');
     btn?.click();
     expect(resets).toBe(1);
     // The second click is the last one this control can fire: disabled before
@@ -2193,7 +2193,7 @@ describe('showBrigade — redeem a code', () => {
 
   // Falsified by hand: dropping the `coins` branch of `redeemedLine` turns both red.
   it.each([
-    [{ coins: 100000 }, 'Code accepted: 100000 Roar coins added to the test wallet'],
+    [{ coins: 100000 }, 'Code accepted: 100000 Roar coins added to your wallet'],
     [{ credits: 10000, coins: 100000 }, 'Code accepted: 10000 credits and 100000 Roar coins added'],
     [{ credits: 1 }, 'Code accepted: 1 credit added'],
   ])('names every grant the code made: %o', (grant, words) => {

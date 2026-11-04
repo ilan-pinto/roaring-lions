@@ -254,9 +254,23 @@ function overStorage(store: StorageLike | null): LedgerStore {
       // The brigade screen's reset also clears the wallet's FREE half (balance,
       // free entitlements, the earn record), never the paid. With no wallet
       // stored there is nothing to clear and nothing is written.
+      // Both or neither: the wallet's free half is cleared first, and put back
+      // if removing the account then fails, so a refusal never leaves the
+      // account gone with the free coins it paid still in the wallet.
       const wallet = loadRoar(store);
-      if (snapshotRoarText(store) !== null) saveRoar(store, resetFree(wallet));
-      return removeStoredAccount(store);
+      const roarBefore = snapshotRoarText(store);
+      if (roarBefore === null) return removeStoredAccount(store);
+      try {
+        saveRoar(store, resetFree(wallet));
+        return removeStoredAccount(store);
+      } catch (err) {
+        try {
+          restoreRoarText(store, roarBefore);
+        } catch {
+          /* storage is refusing writes; nothing more can be undone */
+        }
+        throw err;
+      }
     },
     tutorialDone: (): boolean => storedTutorialDone(store),
     setTutorialDone: (done: boolean): void => {
@@ -404,11 +418,16 @@ export function writeVictory(
     return 'saved';
   } catch (err) {
     console.error('campaign victory write refused:', err);
+    // Separate tries: a refused campaign restore must not stop the wallet's.
     try {
       store.restoreCampaign(before);
-      store.restoreRoar(roarBefore);
     } catch (restoreErr) {
       console.error('campaign victory write: the restore was refused too:', restoreErr);
+    }
+    try {
+      store.restoreRoar(roarBefore);
+    } catch (restoreErr) {
+      console.error('campaign victory write: the wallet restore was refused too:', restoreErr);
     }
     return 'refused';
   }
