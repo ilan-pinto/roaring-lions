@@ -284,8 +284,10 @@ the PR must not change what is offered:
 Where the frame goes (high, centre z1, 8 rounds, same tool): no walls and no buildings reads -0.7 ms against the 48 (the wadis,
 ditches and scrub are cheaper than the first build's), no walls 1.1, the whole redo 3.95. So the 172 wall tiles cost about 2.9 ms
 (744 draw calls: a wall clone is two primitives, drawn in the colour, shadow and AO passes) and the houses, sheds and the rest 1.8.
-Design decision 7 says to instance the per-tile structures above +1 ms; that is renderer work, and with walls instanced the
-centre reads about +1.1, the first build's own figure. The extra JS (+2.3 MiB) and building textures (+64 MiB of GPU: a house, a
+Design decision 7 says to instance the per-tile structures above +1 ms. **Done (GH-974, `units/structure-instances.ts`) and it did
+NOT deliver the predicted -2.9 ms**: draw calls fell 1,106 -> 386 but the centre z1 gap on `high` only 3.70 -> 3.40 ms (4 Nov, load
+about 8, this tree's own before arm), because the walls' cost is triangles, not calls (see "Per-tile structures draw instanced" in
+`renderer.md`). The centre reads about +3.4, not +1.1. The extra JS (+2.3 MiB) and building textures (+64 MiB of GPU: a house, a
 shanty, a concrete block and a pump house, which the first build mostly lacked) are the town's new mesh types.
 
 What the redo is:
@@ -372,4 +374,8 @@ report. The court (`bir_milh`) reads exactly 0.92 against its 92% scoring cap: o
 
 `crown-summit.test.ts` (2), `ambience.test.ts` ('open', 0.76% built), `terrain-chunks.test.ts` and `versus_maps.test.ts` pass
 on the new data unchanged. B4 and the budget (above) are read on the same bytes. Before opening, fit the walls (instance
-per-tile structures, design decision 7) and the JS ceiling, then re-read perf and memory.
+per-tile structures, design decision 7) and the JS ceiling, then re-read perf and memory. **4 Nov update:** the walls ARE instanced now
+(`renderer.md`, "Per-tile structures draw instanced"), and the budget is still failed: centre z1 `high` +3.40 ms (bar +0.5), z1.6
++2.90, medium z1 +3.15; the seats +0.60 and +0.85; JS 153.9 MiB against 153. What is left is TRIANGLES: the redo draws 5.2 M more
+than the 48x48 (walls 1.59 M of them: 3,010 a tile, three passes), at about 0.65 ns each. The levers are a wall LOD, fewer or
+cheaper houses and sheds, and the 0.9 MiB of JS, in that order of size; none is done.
