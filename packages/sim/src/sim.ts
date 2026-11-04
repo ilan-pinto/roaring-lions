@@ -1482,8 +1482,9 @@ export type SimEvent =
   /** GH-707 Task 6: aid structure `structure` fell while admitted wounded `entity` was under
    *  treatment there: he is lost (woundState GONE). */
   | { kind: 'woundLost'; tick: number; entity: number; structure: number }
-  /** GH-1007: an air carrier's `load` or `unload` was refused because no footprint within
-   *  LZ_SEARCH_TILES is clear. Nothing else changed. The app words it; the sim shows no text. */
+  /** GH-1007: an air carrier's landing was refused because no footprint within LZ_SEARCH_TILES is
+   *  clear. Raised from command handling AND mid-tick, from the end of a LIFTING phase with a
+   *  queued unload (there the riders stay aboard, AIRBORNE, with no retry). Nothing else changed. The app words it; the sim shows no text. */
   | { kind: 'landRefused'; tick: number; carrier: number; reason: 'no_clear_ground' }
   /** Field works (#277): a `construct` was accepted. `builder` is the lowest qualifying id the
    *  command named. `joined`: it named a live site's type and origin and joined that site rather
@@ -10517,7 +10518,8 @@ export class Sim {
    * not set down on a building, a ridge, a boulder field or a ditch), and no OTHER living air
    * carrier holds a footprint within Chebyshev 2 of it (`lzTaken`). False, with no state touched
    * but `snapX`/`snapY`, when nothing within reach is clear. `self` is the asking carrier (-1: none).
-   * Per order, never per tick; no allocation.
+   * Per order, never per tick; no allocation. `lzTaken` scans the units per candidate tile; it is
+   * left unhoisted (orders are rare, and the scan order is the contract).
    */
   private lzFor(x: Fx, y: Fx, self: number): boolean {
     const w = this.width;

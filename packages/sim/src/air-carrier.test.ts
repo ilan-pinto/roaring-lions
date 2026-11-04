@@ -552,7 +552,8 @@ describe('air carriers land to load and unload (GH-698 Task 3)', () => {
       const [tx, ty] = tileOf(sim, car);
       expect(sim.blockedVehicle[ty * 40 + tx]).toBe(0);
     }
-    // GH-1007 R2: two carriers never share a footprint (it was a tolerated stack before).
+    // GH-1007 R2: two carriers never share a footprint (it was a tolerated stack before). It holds
+    // because the first carrier already has its `want` and goal set when the second asks.
     const [ax, ay] = tileOf(sim, a.heli);
     const [bx, by] = tileOf(sim, b);
     expect(Math.max(Math.abs(ax - bx), Math.abs(ay - by))).toBeGreaterThanOrEqual(3);

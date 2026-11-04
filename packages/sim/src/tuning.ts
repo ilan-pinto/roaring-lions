@@ -550,6 +550,8 @@ export const AIR_LAND_TICKS = 40; // 2 s
 export const AIR_LIFT_TICKS = 20; // 1 s
 /** GH-1007 R3: ticks a carrier stays on the ground after unloading before a move may lift it. 0 is
  *  byte-identical to before; revisit at 20/40 after the air-assault probe. */
+// R3 caveat: a move ordered while LANDED with airTimer > 0 is DROPPED (moving cleared), not queued.
+// Decide that before raising this above 0.
 export const AIR_GROUND_MIN_TICKS = 0;
 /** GH-1007 R2: the landing search reaches this many tiles (Chebyshev) from the asked-for point. */
 export const LZ_SEARCH_TILES = 6;
