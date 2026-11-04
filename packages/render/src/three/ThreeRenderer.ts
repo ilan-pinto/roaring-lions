@@ -8349,6 +8349,8 @@ export class ThreeRenderer implements Renderer {
     this.buildingMeshConstructionTemplates.set(structureId, template);
     // A part-built work is cut by a per-clone clip plane: its type keeps the clone path.
     this.structureInstances.dropIdle(structureId);
+    // The tiles stand up again as clones: forget the band they were drawn at so `refreshBuildingDamage` scars them.
+    this.forgetDamageBands(structureId);
     this.buildingConstructionHeight.set(
       structureId,
       new THREE.Box3().setFromObject(template.root).getSize(new THREE.Vector3()).y
@@ -10151,6 +10153,8 @@ export class ThreeRenderer implements Renderer {
   debugPerTileInstancing(enabled: boolean): void {
     this.structureInstances.setEnabled(enabled);
     this.instancedSettling.clear();
+    // Either way the tiles change how they are drawn: the band each was drawn at no longer holds.
+    for (const type of this.sim.structureTypes) if (type.perTile) this.forgetDamageBands(type.id);
     if (!enabled) return;
     // Back on: the clones the off arm stood up leave, or both would draw.
     const st = this.sim.structures;
@@ -10599,6 +10603,14 @@ export class ThreeRenderer implements Renderer {
    */
   private perTileInstanced(type: { readonly id: string; readonly perTile: boolean }): boolean {
     return type.perTile && !this.buildingMeshConstructionTemplates.has(type.id) && this.structureInstances.handles(type.id);
+  }
+
+  /** Forgets the damage band of every structure of `typeId`, so the next `refreshBuildingDamage` redraws it. */
+  private forgetDamageBands(typeId: string): void {
+    const st = this.sim.structures;
+    for (const s of [...this.buildingDamageBand.keys()]) {
+      if (this.sim.structureTypes[st.typeIdx[s]].id === typeId) this.buildingDamageBand.delete(s);
+    }
   }
 
   /** Does structure `s` stand as a mesh, cloned or instanced? */

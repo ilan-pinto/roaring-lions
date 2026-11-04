@@ -1,7 +1,7 @@
 /**
  * GH-974: the equal-pixels check for instanced per-tile structures.
  *
- *   pnpm perf:instancing -- --port=5186 --map=milh_flats_l \
+ *   pnpm perf:instancing -- --port=5266 --map=milh_flats_l \
  *     --views="centre,1;centre,1.6;versus_0,1" --out=<dir>
  *
  * Boots `?sandbox=<map>` on hardware Metal in ONE page, freezes the app's loop,
@@ -33,11 +33,18 @@ import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { computeDiff } from '../golden-diff/diff';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPort } from '../ui-review/port';
+import { INSTANCING_DEFAULT_PORT, instancingPortRefusal } from './instancing-port';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
 const root = path.resolve(arg('root', process.cwd()));
-const port = await claimPort('instancing-ab', 'INSTANCING_AB_PORT', 5186);
+// The RESOLVED port (flag, then INSTANCING_AB_PORT, then the default), not just `--port=`: 5177 is the lead's.
+const refusal = instancingPortRefusal(args, process.env);
+if (refusal !== null) {
+  console.error(refusal);
+  process.exit(2);
+}
+const port = await claimPort('instancing-ab', 'INSTANCING_AB_PORT', INSTANCING_DEFAULT_PORT);
 const map = arg('map', 'milh_flats_l');
 const out = path.resolve(arg('out', 'instancing-ab'));
 const views = arg('views', 'centre,1')

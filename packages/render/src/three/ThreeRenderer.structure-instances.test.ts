@@ -19,6 +19,7 @@ import { ThreeRenderer } from './ThreeRenderer';
 import { MESH_SCALE } from './units/mesh-anim';
 import type { BuildingMeshTemplate } from './units/mesh-building';
 import { instanceableTemplate } from './units/structure-instances';
+import { isAoOccluder } from './post-chain';
 import { buildingSettleScale } from './units/mesh-building';
 
 vi.mock('three', async (importOriginal) => {
@@ -267,11 +268,14 @@ describe('ThreeRenderer instanced per-tile structures (GH-974)', () => {
     const set = priv.structureInstances.meshes().find((m) => m.count === 1 && m.material === wreckWall.material)!;
     const height = (): number => new THREE.Vector3().setFromMatrixColumn(matrixOf(set, 0), 1).length();
     const width = (): number => new THREE.Vector3().setFromMatrixColumn(matrixOf(set, 0), 0).length();
+    const versionBefore = set.instanceMatrix.version;
     const first = buildingSettleScale(0).scaleFactor;
     expect(height()).toBeCloseTo(MESH_SCALE * first, 5);
     expect(first).toBeLessThan(1);
     const w0 = width();
     for (let i = 0; i < 7; i++) priv.stepBuildingMeshSettle(0.06);
+    // The step's own flush uploads the new matrix: without it the pile would stay squashed on the GPU.
+    expect(set.instanceMatrix.version).toBeGreaterThan(versionBefore);
     expect(height()).toBeCloseTo(MESH_SCALE, 5);
     expect(width()).toBeCloseTo(w0, 5);
   });
@@ -301,6 +305,31 @@ describe('ThreeRenderer instanced per-tile structures (GH-974)', () => {
     sim.structures.hp[ns[0]] = hpMax;
     priv.refreshBuildingDamage(ns[0]);
     expect(priv.structureInstances.stateOf(ns[0])).toBe(0);
+  });
+
+  it('stays in the AO pre-pass, as the clones were (an opaque mesh with normals and no exemption)', () => {
+    const { priv } = build();
+    priv.updateBuildingMeshes();
+    const sets = priv.structureInstances.meshes();
+    expect(sets.length).toBeGreaterThan(0);
+    for (const m of sets) expect(isAoOccluder(m)).toBe(true);
+  });
+
+  it('draws a tile damaged before it was re-stood as a clone at its scar band (the band is not stale)', () => {
+    const { r, sim, priv, ns } = build();
+    priv.updateBuildingMeshes();
+    sim.structures.hp[ns[0]] = Math.floor((sim.structures.maxHp[ns[0]] * 3) / 8);
+    priv.refreshBuildingDamage(ns[0]);
+    expect(priv.buildingDamageBand.get(ns[0])).toBe(3);
+    r.debugPerTileInstancing(false);
+    priv.updateBuildingMeshes();
+    const base = priv.buildingMeshIdleTemplates.get('fence')!.materials[0];
+    const mats: THREE.Material[] = [];
+    priv.buildingMeshIdleEntities.get(ns[0])!.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) mats.push((o as THREE.Mesh).material as THREE.Material);
+    });
+    expect(mats.length).toBeGreaterThan(0);
+    for (const m of mats) expect(m, 'the clone stood up clean').not.toBe(base);
   });
 
   it('the buildings debug layer hides the instanced sets, and holds across updates', () => {
