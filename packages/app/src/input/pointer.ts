@@ -63,6 +63,8 @@ export function simIntentWorld(sim: Sim, inFlaggedZone: (x: number, y: number) =
     // sim's refusal cannot drift (R-8). Read-only queries.
     canFocus: (i, target) => sim.canFocus(i, target),
     focusHurts: (i, target) => sim.focusHurts(i, target),
+    // The lead's ruling of 4 Nov: the sim's own component flag, the one the card's "Gun out" reads.
+    gunOut: (i) => sim.state.firepowerKilled[i] === 1,
     // In a versus room only your own side's wounded are a target (the lead, 30 Oct 2026): the receiver drops the
     // rest on both machines (`validateCommand`), so the click must not offer it.
     canRescue: (i, target) => sim.canRescue(i, target) && (!versusRoom || sim.state.side[target] === sim.state.side[i]),
