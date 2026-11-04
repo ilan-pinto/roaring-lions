@@ -835,16 +835,19 @@ maps) and stays reachable from a test and `pnpm versus:probe -- --mode=camp` onl
   blob) the outcome is decided by who reaches the other's flag first, so a flag position is either a 100/0 or a draw (the two raids finish on
   one tick) unless the raiders and the blobs meet on the way. Fair positions are isolated: on tel_marum the leader went 53% to 97% moving a
   flag one tile. They are fair for this probe's play. Read the table as "not shown unfair", not "balanced".
-- **KDF against Sarim.** One cell of 12 passes: the points race on `wadi_tarfan_l`, in both seat orders, at **10 points per 100 value and a
-  target of 400**. At the weight every other file uses (1 per 100) a faction points race ends in a wipe before the target (goal share
-  15-30%) or is Sarim's by 63-94%; at 10 it ends on the points in two minutes and is level. The cost is stated in the PR: the race is a kill
-  race with a ground bonus there. The flag never passes in a faction cell: the two raids are equal infantry on equal legs, and what decides
-  them is the blob fight near the flag, which is not level between a Kornet wall and an armoured column (KDF 100% on `wadi_tarfan_l` at the
-  mirror-fair flag, Sarim 100% on `wadi_tarfan`, 89-100% on `tel_marum`; the one flag where `wadi_tarfan_l` read level for both orders on
-  0-95, (48,56), read Sarim 60.8% on 4000-4287 and its mirror is 90% east).
+- **KDF against Sarim: no cell is offered.** One cell of 12 passed on 4000-4287, the points race on `wadi_tarfan_l` in both seat orders, but only
+  at **10 points per 100 value and a target of 400**, and the PR 1020 review measured why: about 80% of its points came from kills (held ground
+  20%, against 87-91% on `milh_flats_l`, `tel_marum` and `wadi_tarfan`), a two-minute kill race, and at the real race (1 per 100, target 600)
+  the faction cells read Sarim 63.2% and 64.2% on 9000-9287. A cell tuned to pass is not a cell read fair, so it was removed and the
+  `wadi_tarfan_l` mirror file went back to 1 per 100 and 600 (read on a third range, 12000-12287: 135 / 153 / 0, 96.2% by the goal, passive
+  288 / 288). The flag never passes in a faction cell: the two raids are equal infantry on equal legs, and what decides them is the blob fight
+  near the flag, which is not level between a Kornet wall and an armoured column (KDF 100% on `wadi_tarfan_l` at the mirror-fair flag, Sarim
+  100% on `wadi_tarfan`, 89-100% on `tel_marum`; the one `wadi_tarfan_l` flag level for both orders on 0-95, (48,56), read Sarim 60.8% on
+  4000-4287 and its mirror is 90% east). `tools/src/validate_versus_modes.test.ts` pins the three grounds a Sarim `atgm_cell` stands on at tick 0
+  in a faction room (the `tel_marum` friendly flag, a `wadi_tarfan` bluff in each order). The raw reads: `docs/agent-notes/win-modes-p4-reads.txt`.
 - **The allow-list.** `WIN_MODE_FAIR_FACTION_CELLS` (`@lions/net`) is per mode, per map, the HOSTS that passed: `winModeAllowed(mode, map,
   matchup)`, `winModesOffered(map, matchup)` and `winModeRequest` read it, so the route and the room still ask one question. A cell not in it
-  is a 400 `win mode not offered on this map for this matchup`; `routes.test.ts` and `match-room.test.ts` pin every cell with a literal.
+  is a 400 `win mode not offered on this map for this matchup` (all 42 today); `config.test.ts` walks every cell, `routes.test.ts` and `match-room.test.ts` pin the cells that were read, and the tests that need an offered cell add one to the table for the length of the test.
   The lobby says "Both forces start on the field; nothing is built or bought" instead of the economy line while a mode is picked on a
   faction pairing.
 
