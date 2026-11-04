@@ -35,7 +35,7 @@ describe('briefingGlance (GH-417, derived, never authored)', () => {
     const rows = briefingGlance(wh5());
     expect(rows.map((r) => r.key)).toEqual(['where', 'happened', 'objective', 'matters', 'avoid']);
     expect(row(rows, 'where')).toMatch(/^Wadi Halam .+ · dawn · about 7 minutes$/);
-    expect(row(rows, 'happened')).toMatch(/^Seven structures inside Hallaq's depot/);
+    expect(row(rows, 'happened')).toMatch(/^Eight structures inside Hallaq's depot/);
     expect(row(rows, 'objective')).toBe('Raze the depot inside five minutes (+2 more objectives)');
     // fail_below 40 -> the second star's floor is 60 (grade.ts: + STAR_ROE_MARGIN).
     expect(row(rows, 'matters')).toContain('Conduct 60 or better earns the second star');

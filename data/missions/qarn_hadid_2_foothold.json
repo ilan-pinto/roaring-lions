@@ -57,7 +57,9 @@
   "resources": { "logistics_start": 500, "logistics_rate_per_min": 130 },
   "structures": [
     { "type": "concrete", "at": [13, 13], "size": [4, 1] },
-    { "type": "camp", "at": [25, 34], "size": [2, 2] }
+    { "type": "camp", "at": [25, 34], "size": [2, 2] },
+    { "type": "militia_firing_position", "at": [16, 10], "size": [2, 2] },
+    { "type": "militia_observation_post", "at": [36, 10], "size": [1, 1] }
   ],
   "objectives": [
     { "id": "open_the_shoulder", "type": "raze", "primary": true, "target": "the_gates", "seconds": 300,
@@ -81,7 +83,8 @@
     "garrison": [
       { "unit": "sarim_rifles", "count": 1, "at": [14, 13], "group": "gate",
         "stance": { "kind": "garrison", "building": [14, 13] } },
-      { "unit": "sarim_rifles", "count": 1, "at": [15, 10], "group": "gate" },
+      { "unit": "sarim_rifles", "count": 1, "at": [16, 10], "group": "gate",
+        "stance": { "kind": "garrison", "building": [16, 10] } },
       { "unit": "atgm_cell", "count": 1, "at": [13, 9], "group": "gate" },
       { "unit": "sarim_rifles", "count": 1, "at": [34, 10], "tag": "qh_watch_notch" },
       { "unit": "atgm_cell", "count": 1, "at": [35, 10], "tag": "qh_atgm_saddle", "stance": { "kind": "ambush", "tiles": 6 } },

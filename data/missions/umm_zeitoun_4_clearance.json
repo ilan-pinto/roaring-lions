@@ -61,6 +61,9 @@
       { "zone": "hamlet", "rate_per_min": 8 }
     ]
   },
+  "structures": [
+    { "type": "militia_observation_post", "at": [36, 21], "size": [1, 1] }
+  ],
   "objectives": [
     {
       "id": "raze_the_stockpile",
