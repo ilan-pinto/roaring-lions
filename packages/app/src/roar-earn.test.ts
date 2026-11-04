@@ -62,6 +62,15 @@ describe('the earn table', () => {
     expect(ids).not.toContain('beit_sahwan_0_tutorial');
   });
 
+  it('versus pays 0: a room is not a campaign mission', () => {
+    // A room's ids (its map, its match code) are never in world.json; the victory handler
+    // also hands no win to settleVictory when there is no mission id.
+    for (const id of ['tel_marum', 'ABCDEF', '']) {
+      const w = emptyRoar();
+      expect(roarEarn(w, { missionId: id, stars: 3, ledger: ledgerOf(ids) }, world, 1).wallet).toBe(w);
+    }
+  });
+
   it('a victory with no stars still pays the welcome and the first win', () => {
     expect(roarEarn(emptyRoar(), win(0, 0), world, 1).total).toBe(110);
   });
