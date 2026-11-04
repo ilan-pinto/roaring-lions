@@ -186,8 +186,13 @@ export interface RunRecord extends IntelRun {
   /** F4 Task 10 (R-F4-4): the most items side 0's production lines held at once over the run, the one
    *  in progress plus those waiting, summed across lines. Sampled every tick; report only. */
   maxQueue: number;
+  /** GH-277: numbers a plan recorded for this run through `runNotes` (the forward camp's completion second), carried to the
+   *  parent of a sweep with the rest of the record. Absent when the plan wrote none. */
+  notes?: Record<string, number>;
 }
 export const runLog: RunRecord[] = [];
+/** Written by a plan or its `onEvents` DURING a run; cleared when the next `run()` starts and copied into its record. */
+export const runNotes: Record<string, number> = {};
 
 /** What the run `run()` just logged earned in intel: the last entry of this process's own `runLog`. */
 export function lastIntelRun(): IntelRun {
@@ -279,6 +284,7 @@ export function run(
    *  actually DID (rounds fired, kills, contacts) and not merely that it was on the map. */
   onEvents?: (evs: readonly SimEvent[]) => void
 ): LedgerData {
+  for (const k of Object.keys(runNotes)) delete runNotes[k];
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
@@ -475,7 +481,7 @@ export function run(
     mission.resources === undefined
       ? undefined
       : { start: mission.resources.logistics_start ?? 0, earned: rt.logisticsEarned(0), zoneEarned: rt.zoneLogisticsEarned(0), held: rt.logistics };
-  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue });
+  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue, ...(Object.keys(runNotes).length > 0 ? { notes: { ...runNotes } } : {}) });
   if (rt.stars < expectStar) {
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;

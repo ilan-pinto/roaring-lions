@@ -98,3 +98,26 @@ without the lead's call.**
    its map, so the radius covers nothing there. The test keeps it from passing on nothing: it pins `checked === 5`, walks
    every legal pad of each (a mission whose walk saw no pad fails), and runs `deir_amun_2_foothold` with the centre as a
    control that MUST find covering pads.
+
+## `fw-forward-camp` (gates 10 and 11 of `_coord/producing-buildings/design.md`; the lead's rulings of 4 Nov)
+
+It runs inside `pnpm playtest`, not `pnpm fw:probes`, because it needs a mission's whole ladder and the 30-seed plan sweep
+(`playtest.ts`, end of file). Each plan is the shipped winning plan plus a `kdf_forward_camp` ordered at 0:00 by the
+mission's own `demo_squad` (`tools/src/backtest/plans/forward_camp.ts`; the squad is lent back to the shipped plan once the
+camp stands, and a body that comes out of the camp's door is mustered at the front instead of being sent to the rear).
+Bands, fixed: both plans win 30/30, the passive control still loses (the no-orders controls above), the build plan's median
+win is within +-15% of the shipped plan's on the same seeds, and the camp stands before 120 s.
+
+| mission | wins with / without the camp | median win with / without | camp stood by | verdict |
+|---|---|---|---|---|
+| `ein_qasab_3_buildup` (camp at (21,34), the south landing) | 30/30 / 30/30 | 6.24 / 6.21 min (+0.6%) | 57 s | **in band: ships** |
+| `umm_zeitoun_2_buildup` (camp at (21,34), the plan buys on its line and the Remetz when the purse allows) | 30/30 / 30/30 | 5.38 / 4.20 min (**+28.1%**) | 56 s | **outside the band: ships WITHOUT the camp** |
+
+Umm Zeitoun II: the 350 for the camp displaces the Remetz the plan buys at 0:00 (500 start), and the mission's win is
+quick (4.2 min) and does not need a second door, so the camp is a pure cost there, slower by 28%: a trap, not a dominant buy.
+Nothing was tuned; `kdf_forward_camp` is not listed in that mission, and its plan and numbers are not in `playtest.ts`.
+
+Seen red, then the data put back by hand (Ein Qasab III):
+- `build_time_s` 40 -> 120: the camp stood by **138 s**: gate 11 red.
+- `cost` 350 -> 0: median **+0.3%**: gate 10 does **not** move. Ein Qasab III is not short of money (the plan's squads follow the
+  clock), so the median gate cannot catch a free camp there. The +28.1% above is the reading on which it went red.

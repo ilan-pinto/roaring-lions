@@ -42,6 +42,7 @@ import { EIN_QASAB_PLANS } from './plans/ein_qasab';
 import { playOrderOf } from './play-order';
 import { telMarum3Plan } from './plans/tel_marum';
 import { uz2Plan } from './plans/umm_zeitoun';
+import { forwardCampPlan, EQ3_CAMP } from './plans/forward_camp';
 import { countBeams, remetzReport } from './plans/e6-remetz';
 
 
@@ -485,6 +486,12 @@ passiveAcrossSeeds('ein_qasab_2_foothold', 'ein_qasab_2_foothold (no orders)', '
 const eq3 = run('ein_qasab_3_buildup', EIN_QASAB_PLANS.ein_qasab_3_buildup, eq2, 'victory', 'ein_qasab_3_buildup', 2);
 passiveAcrossSeeds('ein_qasab_3_buildup', 'ein_qasab_3_buildup (no orders)', 'defeat', eq2);
 run('ein_qasab_3_buildup', EIN_QASAB_PLANS.ein_qasab_3_buildup, { ...eq2, 'intel.marked_positions': [] }, 'victory', 'ein_qasab_3_buildup (no marks)', 2);
+// GH-277 (4 Nov 2026): the same plan with a forward camp at the south landing, ordered at 0:00. Gates at the end of this file.
+{
+  const camp = forwardCampPlan(EIN_QASAB_PLANS.ein_qasab_3_buildup, EQ3_CAMP);
+  run('ein_qasab_3_buildup', camp.plan, eq2, 'victory', 'ein_qasab_3_buildup (forward camp)', 2,
+    undefined, undefined, undefined, undefined, undefined, undefined, camp.onEvents);
+}
 void eq3;
 
 // Report only: the same three plans entered from Wadi Halam V's ledger, the "after the whole of Wadi Halam" order
@@ -3870,7 +3877,8 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // (Ein Qasab I 160, II 278, III 288 intel at seed 424242) and the Ein Qasab III run with no marks (312). The one short
 // plan is still `beit_sahwan_2_foothold` (112), so "40 of 41". The report-only chain from `wadi_halam_5_depot` is taken
 // out of `runLog` and is not counted.
-const INTEL_WINNERS_ONE_SWEEP = 40;
+// 2026-11-04, GH-277: 40 -> 41. Was 40. The Ein Qasab III run with a forward camp is a winning plan and earns its sweep (302 intel).
+const INTEL_WINNERS_ONE_SWEEP = 41;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
@@ -3983,5 +3991,58 @@ const BUILDING_PLANS = ['beit_sahwan_2_foothold', 'deir_amun_2_foothold', 'wadi_
   }
   for (const [id, q] of largest) {
     if (q > 0 || BUILDING_PLANS.includes(id)) console.log(`largest queue ${id}: ${q} (max over ${SWEEP_SEEDS.length} seeds, report only)`);
+  }
+}
+
+// --- GH-277 gates 10 and 11 of the producing-buildings design: the forward camp is interesting, not dominant -------------
+//
+// Gate 10. In each of the two Build-up missions the plan with the camp wins on all 30 seeds (the plan sweep above holds
+// that: its label is a victory label), the passive control still loses (the no-orders control above), and its MEDIAN win
+// falls within +-15% of the same plan without the camp, seed for seed. A median that fell further would say the camp is
+// dominant (cost 0 or a build time of half would show here); one that rose further, that it is a trap.
+// Gate 11. Ordered at 0:00, the camp has stood by 2:00 on every seed.
+// The bands are the design's and are fixed here, not tuned against a reading.
+// Umm Zeitoun II is NOT here: measured with the camp its median win moved +28.1% (5.38 min against 4.20), outside the band,
+// so it ships without the camp (docs/campaign/field_works/probes.md).
+const FORWARD_CAMP_MISSIONS = ['ein_qasab_3_buildup'] as const;
+const FORWARD_CAMP_MEDIAN_BAND = 0.15;
+const FORWARD_CAMP_BY_S = 120;
+{
+  const median = (xs: number[]): number => {
+    const s = [...xs].sort((a, b) => a - b);
+    return s.length === 0 ? NaN : s.length % 2 === 1 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+  };
+  for (const id of FORWARD_CAMP_MISSIONS) {
+    const base: number[] = [];
+    const built: number[] = [];
+    const stood: number[] = [];
+    let seedsSeen = 0;
+    for (const runs of planRunsBySeed.values()) {
+      const b = runs.find((r) => r.label === id && r.expect === 'victory');
+      const f = runs.find((r) => r.label === `${id} (forward camp)`);
+      if (b === undefined || f === undefined) continue;
+      seedsSeen++;
+      if (b.result === 'victory') base.push(b.minutes);
+      if (f.result === 'victory') built.push(f.minutes);
+      stood.push(f.notes?.forwardCampDoneS ?? -1);
+    }
+    const slowest = Math.max(...stood);
+    const delta = (median(built) - median(base)) / median(base);
+    console.log(
+      `forward camp ${id}: ${built.length}/${seedsSeen} wins with the camp against ${base.length}/${seedsSeen} without, median ${median(built).toFixed(2)} min ` +
+        `against ${median(base).toFixed(2)} (${(delta * 100).toFixed(1)}%), camp stood by ${slowest.toFixed(0)} s at the latest, ordered at 0:00`
+    );
+    if (seedsSeen !== SWEEP_SEEDS.length || built.length !== seedsSeen || base.length !== seedsSeen) {
+      console.error(`forward camp ${id}: FAILED — ${seedsSeen} of ${SWEEP_SEEDS.length} seeds ran both plans, ${built.length} won with the camp, ${base.length} without`);
+      process.exitCode = 1;
+    }
+    if (!(Math.abs(delta) <= FORWARD_CAMP_MEDIAN_BAND)) {
+      console.error(`forward camp ${id}: FAILED — the median win moved ${(delta * 100).toFixed(1)}%, outside +-${FORWARD_CAMP_MEDIAN_BAND * 100}% (gate 10)`);
+      process.exitCode = 1;
+    }
+    if (stood.some((s) => s < 0) || !(slowest < FORWARD_CAMP_BY_S)) {
+      console.error(`forward camp ${id}: FAILED — ordered at 0:00 the camp stood by ${slowest} s (a -1 is a seed where it never stood), gate 11 is ${FORWARD_CAMP_BY_S} s`);
+      process.exitCode = 1;
+    }
   }
 }
