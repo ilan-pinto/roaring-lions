@@ -643,7 +643,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
 
   it('on a fair map it is Annihilation (the default), Points race and Capture the flag, in one labelled group with a hint', async () => {
     const { open, stage } = mount();
-    pick(mapRadio(stage, 'wadi_tarfan'));
+    pick(mapRadio(stage, 'tel_marum'));
     expect(winGroup(stage).hidden).toBe(false);
     expect(winGroup(stage).querySelector('legend')?.textContent).toBe('How to win');
     expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points', 'flag']);
@@ -729,7 +729,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     }
   }));
 
-  it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: Destroy the camp on milh_flats alone', () => {
+  it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: Destroy the camp on wadi_tarfan, milh_flats and wadi_tarfan_l', () => {
     const stage = mountPick(deps({ maps: [...MAPS, WADI_TARFAN_L] }));
     const offered: Record<string, string[]> = {};
     for (const m of [...MAPS, WADI_TARFAN_L]) {
@@ -738,7 +738,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     }
     expect(offered).toEqual({
       beit_sahwan_outskirts: ['annihilation', 'points', 'flag'], milh_flats: ['annihilation', 'camp', 'points', 'flag'], tel_marum: ['annihilation', 'points', 'flag'],
-      wadi_tarfan: ['annihilation', 'points', 'flag'], wadi_tarfan_l: ['annihilation', 'points', 'flag'],
+      wadi_tarfan: ['annihilation', 'camp', 'points', 'flag'], wadi_tarfan_l: ['annihilation', 'camp', 'points', 'flag'],
     });
   });
 
@@ -766,7 +766,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     setCatalogue('pseudo', en, pseudo);
     try {
       const stage = mountPick(deps());
-      pick(mapRadio(stage, 'wadi_tarfan'));
+      pick(mapRadio(stage, 'tel_marum'));
       pick(winRadios(stage).find((r) => r.value === 'points')!);
       const shown = [
         winGroup(stage).querySelector('legend')!.textContent!,

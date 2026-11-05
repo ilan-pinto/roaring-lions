@@ -132,7 +132,7 @@ describe('/api/match', () => {
     };
     await refuse({ winMode: 'rally' }, 'unknown win mode');            // not a mode at all
     await refuse({ winMode: 7 }, 'unknown win mode');
-    await refuse({ winMode: 'camp' }, 'win mode not offered on this map');   // read, and NOT fair, on both maps it was read on
+    await refuse({ winMode: 'camp', map: 'rujm_sawda' }, 'win mode not offered on this map');   // screened and not fair (GH-976); camp is offered on wadi_tarfan, milh_flats, wadi_tarfan_l only
     await refuse({ winMode: 'camp', map: 'tel_marum' }, 'win mode not offered on this map');
     await refuse({ winMode: 'points', map: 'qarn_hadid' }, 'map not offered for versus');   // not an open map at all: refused before the mode is asked
     await refuse({ winMode: 'points', mode: 'sandbox' }, 'win mode is for versus rooms');

@@ -47,6 +47,11 @@ export type WinMode = (typeof WIN_MODES)[number];
  *    east. wadi_tarfan, rujm_sawda, wadi_tarfan_l, milh_flats_l, tel_marum and beit_sahwan_outskirts were screened over the camp
  *    ground the reach allows and none gets past 33% decided by the goal (best 22%, wadi_tarfan): their blobs meet, and the wipe
  *    ends the game before a camp falls. That needs an engine rule (annihilation off, or a goal-aware wipe), not data.
+ *  - **GH-976, 5 Nov: `camp` on `wadi_tarfan` and `wadi_tarfan_l` too**, with forward camps and `modes.camp.wipe: after_camp` (a wiped side keeps
+ *    playing while its camp stands; the screen over the ground the reach allows is above, and it now reads differently once the camp may stand 8-10
+ *    tiles out, past `MODE_CAMP_REACH` 10 in `tools/validate_versus_modes.mjs`): wadi_tarfan (12,18) / (34,28), wadi_tarfan_l (26,30) / (68,64),
+ *    exits point-mirrored. The fresh-seed read (28000-28191, 192 per arm) is in the PR that added them; milh_flats_l, rujm_sawda and tel_marum stay out
+ *    (no placement passed every gate there: GH-976).
  *  - `flag` (GH-976 P3; the raid probe: two infantry squads go for the flag, the rest of the force plays the base probe) reads
  *    fair on both, flag zones fitted on seeds 0-191 and read on 4000-4287 (288 each): wadi_tarfan east 164 / west 114 / draw 10,
  *    leader 56.9%, 96.5% decided by the goal, the passive end lost 288 of 288 from each end; milh_flats east 150 / west 134 /
@@ -78,7 +83,7 @@ export type WinMode = (typeof WIN_MODES)[number];
  *    135 / 153 / 0, 53.1% over all and decisive games, 96.2% by the goal, the passive end lost 288 of 288 from each end.
  *    KDF against Sarim is `WIN_MODE_FAIR_FACTION_CELLS`'s question. */
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
-  camp: ['milh_flats'],
+  camp: ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'],
   points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
   flag: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
 };
