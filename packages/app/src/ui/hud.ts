@@ -2701,7 +2701,7 @@ export class Hud {
         // GH-859 P1a: only our own formation membership is ours to read.
         ...(isOwnSide(st.side[i], this.viewer) ? formationFact(formationOfUnit(sim, i), formationCheckpointOf(sim, i)) : {}),
         ...(type.hasAps
-          ? { aps: { ammo: st.apsAmmo[i], magazine: type.apsMagazine } }
+          ? { aps: { ammo: st.apsAmmo[i], magazine: type.apsMagazine, ...(type.apsReserve >= 0 ? { reserve: st.apsReserveLeft[i] } : {}) } }
           : {}),
       };
     });
@@ -2970,7 +2970,14 @@ export class Hud {
         })
       : null;
     if (auraChip !== null) flags.push(`<span class="rl-good">${t(auraChip)}</span>`);
-    if (type.hasAps) flags.push(`<span class="rl-info">${t('selection.chip.aps', { ammo: st.apsAmmo[id], magazine: type.apsMagazine })}</span>`);
+    if (type.hasAps) {
+      // GH-884: a type with a reserve names it (card text only, never a world mark).
+      const apsText =
+        type.apsReserve >= 0
+          ? t('selection.chip.apsReserve', { ammo: st.apsAmmo[id], magazine: type.apsMagazine, reserve: st.apsReserveLeft[id] })
+          : t('selection.chip.aps', { ammo: st.apsAmmo[id], magazine: type.apsMagazine });
+      flags.push(`<span class="rl-info">${apsText}</span>`);
+    }
     const wp = sim.waypointCount(id);
     if (wp > 0) flags.push(t('hud.card.waypoints', { n: wp }));
     // The meter (D2): shown from the first band up, never on a steady unit.

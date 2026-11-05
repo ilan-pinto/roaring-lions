@@ -358,6 +358,10 @@ export interface UnitTypeJson {
       base_pk?: number;
       magazine?: number;
       reload_s?: number;
+      /** GH-884: rounds held beyond the ready magazine. Absent = the unlimited stock (today's behaviour, byte for byte). */
+      reserve?: number;
+      /** GH-884: one round comes back per this many seconds of quiet. Absent = none comes back. */
+      rearm_s?: number;
       ineffective_vs?: string[];
     };
   };
@@ -827,6 +831,10 @@ export interface UnitType {
   apsPk: Fx;
   apsMagazine: number;
   apsReloadTicks: number;
+  /** GH-884: rounds held beyond the magazine, -1 when the type has no `reserve` (the unlimited stock). */
+  apsReserve: number;
+  /** GH-884: quiet ticks per returned round, 0 when the type never rearms. */
+  apsRearmTicks: number;
   apsIneffectiveMask: number;
   speed: Fx;
   stepPerTick: Fx;
@@ -1129,6 +1137,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     apsPk: fx.from(aps?.base_pk ?? 0),
     apsMagazine: aps?.magazine ?? 0,
     apsReloadTicks: fx.toInt(fx.mul(fx.from(aps?.reload_s ?? 0), fx.fromInt(TICKS_PER_SECOND))),
+    apsReserve: aps !== undefined && aps.reserve !== undefined ? aps.reserve : -1,
+    apsRearmTicks: fx.toInt(fx.mul(fx.from(aps?.rearm_s ?? 0), fx.fromInt(TICKS_PER_SECOND))),
     apsIneffectiveMask: apsMask,
     speed,
     stepPerTick: fx.mul(speed, DT),
@@ -2218,6 +2228,14 @@ export class Sim {
   private readonly apsReloadLeft: Int32Array;
   private readonly apsRecent: Int32Array;
   private readonly apsLastTick: Int32Array;
+  /** GH-884: rounds left in the reserve behind the magazine. Written only for a type with `hull.aps.reserve`;
+   *  hashed behind `apsStockLive`. */
+  private readonly apsReserveLeft: Int32Array;
+  /** GH-884: quiet ticks counted toward the next returned round. Hashed behind `apsStockLive`. */
+  private readonly apsRearmClock: Int32Array;
+  /** GH-884: true once a type carrying `hull.aps.reserve` is registered (the deferred fold, `airLive`'s shape).
+   *  It must never key on `hasAps`: the golden d_tank has APS and no reserve, and its pin stays flat. */
+  private apsStockLive = false;
   /** contact confidence and state per (side, target): index side*capacity+target */
   private readonly contact: Int32Array;
   private readonly contactState: Uint8Array;
@@ -2329,6 +2347,8 @@ export class Sim {
     readonly fieldFixTicks: Int32Array;
     readonly firepowerKilled: Uint8Array;
     readonly apsAmmo: Int32Array;
+    /** GH-884: reserve rounds behind the magazine (0 for a type with no `reserve`). */
+    readonly apsReserveLeft: Int32Array;
     readonly veterancy: Uint8Array;
     /** Current primary engagement target per unit, -1 when none. */
     readonly curTarget: Int32Array;
@@ -2643,6 +2663,8 @@ export class Sim {
     this.apsReloadLeft = new Int32Array(n);
     this.apsRecent = new Int32Array(n);
     this.apsLastTick = new Int32Array(n).fill(-100000);
+    this.apsReserveLeft = new Int32Array(n);
+    this.apsRearmClock = new Int32Array(n);
     this.contact = new Int32Array(2 * n);
     this.contactState = new Uint8Array(2 * n);
     this.seenThisTick = new Uint8Array(2 * n);
@@ -2692,6 +2714,7 @@ export class Sim {
       fieldFixTicks: this.fieldFixTicks,
       firepowerKilled: this.firepowerKilled,
       apsAmmo: this.apsAmmo,
+      apsReserveLeft: this.apsReserveLeft,
       veterancy: this.veterancy,
       curTarget: this.curTarget,
       routed: this.routed,
@@ -2763,6 +2786,8 @@ export class Sim {
     const type = unitTypeFromJson(json);
     // GH-698, Q-A: the first air carrier type turns the air block's hash fold on.
     if (type.isAirCarrier) this.airLive = true;
+    // GH-884: the first type with an APS reserve turns the stock fold on. Never `hasAps`.
+    if (type.apsReserve >= 0) this.apsStockLive = true;
     // GH-707: the first wound-related type turns the wound block's hash fold on.
     if (type.wounds !== null || type.rescue !== null || type.canCarry !== null || type.isWounded) {
       this.woundLive = true;
@@ -4028,6 +4053,7 @@ export class Sim {
       this.woundedAlive[side]++;
     }
     this.apsAmmo[id] = type.apsMagazine;
+    if (type.apsReserve >= 0) this.apsReserveLeft[id] = type.apsReserve;
     // E1 (GH-709): the first aura-carrying unit turns the field-works fold on, so the aura
     // columns its heal writes are hashed (spec §2 E1). At SPAWN, not at type registration:
     // only a mission that fields one pays for it, and no shipped unit carries an aura.
@@ -8611,7 +8637,10 @@ export class Sim {
         this.apsAmmo[target]--;
         this.apsRecent[target]++;
         this.apsLastTick[target] = this.tickCount;
-        if (this.apsAmmo[target] === 0) this.apsReloadLeft[target] = tType.apsReloadTicks;
+        if (this.apsAmmo[target] === 0) {
+          // GH-884: a stock type always runs the clock (a zero reload would never fire the refill below).
+          this.apsReloadLeft[target] = tType.apsReserve >= 0 ? fx.max(tType.apsReloadTicks, 1) : tType.apsReloadTicks;
+        }
         this.pendingEvents.push({
           kind: 'aps',
           tick: this.tickCount,
@@ -12926,6 +12955,14 @@ export class Sim {
           // #706: a workshop puts the running gear right too, slowed included.
           this.mobilityDamaged[i] = 0;
           this.fieldFixTicks[i] = 0;
+          // GH-884: the same moment the components are mended, the interceptor stock refills fully.
+          const rt = this.unitTypes[this.typeIdx[i]];
+          if (rt.apsReserve >= 0) {
+            this.apsAmmo[i] = rt.apsMagazine;
+            this.apsReserveLeft[i] = rt.apsReserve;
+            this.apsReloadLeft[i] = 0;
+            this.apsRearmClock[i] = 0;
+          }
         }
       } else if (this.auraRepairTicks[i] !== 0) {
         this.auraRepairTicks[i] = 0;
@@ -12941,9 +12978,46 @@ export class Sim {
       // APS magazine reload.
       if (this.apsAmmo[i] === 0 && this.apsReloadLeft[i] > 0) {
         if (--this.apsReloadLeft[i] === 0) {
-          this.apsAmmo[i] = this.unitTypes[this.typeIdx[i]].apsMagazine;
+          const at = this.unitTypes[this.typeIdx[i]];
+          if (at.apsReserve < 0) {
+            this.apsAmmo[i] = at.apsMagazine;
+          } else {
+            // GH-884: the reload draws from the reserve; an empty reserve leaves the magazine empty.
+            const take = fx.min(at.apsMagazine, this.apsReserveLeft[i]);
+            this.apsAmmo[i] = take;
+            this.apsReserveLeft[i] -= take;
+          }
         }
       }
+      if (this.apsStockLive) this.stepApsRearm(i);
+    }
+  }
+
+  /**
+   * GH-884: one round comes back per `rearm_s` of quiet. Quiet is the existing regen delay since the last
+   * threatening hit (`lastDamagedTick`) AND since the last APS engagement (`apsLastTick`: an intercepted
+   * round never writes `lastDamagedTick`). Either one zeroes the clock. The round goes to the reserve,
+   * else tops up a part-spent magazine; a unit sitting empty with nothing in flight starts a reload.
+   */
+  private stepApsRearm(i: number): void {
+    const t = this.unitTypes[this.typeIdx[i]];
+    if (t.apsReserve < 0 || t.apsRearmTicks <= 0) return;
+    const full = this.apsAmmo[i] + this.apsReserveLeft[i] >= t.apsMagazine + t.apsReserve;
+    const quiet =
+      this.tickCount - this.lastDamagedTick[i] >= REGEN_DELAY_TICKS &&
+      this.tickCount - this.apsLastTick[i] >= REGEN_DELAY_TICKS;
+    if (full || !quiet) {
+      this.apsRearmClock[i] = 0;
+      return;
+    }
+    if (++this.apsRearmClock[i] < t.apsRearmTicks) return;
+    this.apsRearmClock[i] = 0;
+    if (this.apsReserveLeft[i] < t.apsReserve) {
+      this.apsReserveLeft[i]++;
+      if (this.apsAmmo[i] === 0 && this.apsReloadLeft[i] === 0) this.apsReloadLeft[i] = fx.max(t.apsReloadTicks, 1);
+    } else if (this.apsAmmo[i] > 0) {
+      // The reserve is full, so the magazine is the part-spent one (an empty magazine reloads to full from it).
+      this.apsAmmo[i]++;
     }
   }
 
@@ -13105,6 +13179,14 @@ export class Sim {
       h = hashWord(h, 0x43480274); // 'CH' GH-274
       h = hashArray(h, this.stChargeTicks);
       h = hashArray(h, this.stChargeBy);
+    }
+    // APS stock (GH-884): the deferred fold, `airLive`'s shape. Nothing (no marker, no length word) is folded
+    // until a type carrying `hull.aps.reserve` is registered, so no golden, versus, net, economy or runtime-
+    // digest pin moves before the Lavi's JSON does. Both columns leave their defaults only through such a type.
+    if (this.apsStockLive) {
+      h = hashWord(h, 0x41500884); // 'AP' GH-884
+      h = hashArray(h, this.apsReserveLeft);
+      h = hashArray(h, this.apsRearmClock);
     }
     // Mobility kills (#706): the deferred fold, field works' D1 shape. The two
     // columns are folded only once a mobility result (stuck or slowed) has been

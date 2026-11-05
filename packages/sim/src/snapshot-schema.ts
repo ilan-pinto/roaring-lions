@@ -378,6 +378,13 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'fmHomeX', cls: 'state', kind: typed('Int32Array', 'capacity') },
   { name: 'fmHomeY', cls: 'state', kind: typed('Int32Array', 'capacity') },
   { name: 'fmLive', cls: 'state', kind: SCALAR },
+  // GH-884 APS stock, APPENDED: the reserve and the quiet clock (per-unit state) and the `apsStockLive` hash latch.
+  // Encoded even when empty, so the format pin moves by exactly these three rows.
+  { name: 'apsReserveLeft', cls: 'state', kind: typed('Int32Array', 'capacity') },
+  { name: 'apsRearmClock', cls: 'state', kind: typed('Int32Array', 'capacity') },
+  { name: 'apsStockLive', cls: 'state', kind: SCALAR },
+  // GH-884 APS stock, APPENDED: the reserve and the quiet clock (per-unit state) and the `apsStockLive` hash latch.
+  // Encoded even when empty, so the format pin moves by exactly these three rows.
   // Compiled formation files, registered by the match config (like `unitTypes`).
   { name: 'formationTypes', cls: 'config', kind: obj('array') },
 ];

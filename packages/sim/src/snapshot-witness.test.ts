@@ -414,7 +414,11 @@ describe('snapshot format pin', () => {
     // structure exit override, -1 = none; unhashed static setup data), encoded even when no exit is set. With those two
     // rows cut from snapshot-schema.ts the same run reads 3423221345 again, so the move is exactly the new rows.
     // 166735965 is read off a fresh run.
-    expect(h >>> 0).toBe(166735965);
+    // Was 166735965. GH-884 (APS stock) appended three `state` rows (apsReserveLeft, apsRearmClock, Int32Array x capacity,
+    // and the `apsStockLive` scalar), encoded even when no type carries a reserve. With those three rows cut from
+    // snapshot-schema.ts the same run reads 166735965 again (watched), so the move is exactly the new rows. 355222469 is
+    // read off a fresh run. The golden hash did not move: nothing folds the columns until a type declares `reserve`.
+    expect(h >>> 0).toBe(355222469);
   });
 });
 

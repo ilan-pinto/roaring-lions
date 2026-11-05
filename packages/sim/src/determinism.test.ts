@@ -1650,3 +1650,69 @@ describe('determinism of a forward camp (500-tick replay, GH-277)', () => {
     expect(forwardLineWorld().pin).toBe(FORWARD_LINE_PIN);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// APS_STOCK_WORLD_PIN (GH-884): a NEW pin, not a moved one. No other replay here registers a type with
+// `hull.aps.reserve`, so the deferred `apsStockLive` block (apsReserveLeft, apsRearmClock) is outside all
+// of them -- the golden d_tank has an APS and no reserve, which is exactly what the flag-keying test in
+// aps-stock.test.ts guards. This is the replay that sees the block: 14 ATGM teams against one armoured hull with
+// magazine 3, reserve 5 and a 10 s rearm, 1,600 ticks (80 s). The test asserts the stock was drawn on (the reserve
+// emptied by reloads) and that quiet gave a round back, so a change that quietly stops either fails here and not
+// only on the number.
+const APS_STOCK_AT: UnitTypeJson = {
+  id: 'ws_at',
+  hull: { hp: 380, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.7 },
+  sensors: { optics: 1.0, sight_tiles: 9, signature: 0.5 },
+  weapons: [
+    {
+      id: 'atgm', type: 'atgm', range_tiles: 9, effective_range_tiles: 7.2, accuracy: 0.78,
+      penetration: 900, damage: 400, suppression: 10, rof_per_min: 3,
+    },
+  ],
+};
+const APS_STOCK_HULL: UnitTypeJson = {
+  id: 'ws_hull',
+  hull: {
+    hp: 30000,
+    armor: { front: 5000, side: 5000, rear: 5000 },
+    aps: { base_pk: 0.75, magazine: 3, reload_s: 8, reserve: 5, rearm_s: 10, ineffective_vs: ['apfsds', 'kinetic'] },
+  },
+  mobility: { speed_tiles_s: 1.1 },
+  sensors: { optics: 1.0, sight_tiles: 12, signature: 1.0 },
+  weapons: [],
+};
+
+function apsStockWorld(seed: number): { hash: number; engagements: number; reserveLow: number; reserveEnd: number } {
+  const sim = new Sim({ seed, width: 32, height: 32, capacity: 32 });
+  const at = sim.addUnitType(APS_STOCK_AT);
+  const hull = sim.addUnitType(APS_STOCK_HULL);
+  for (let i = 0; i < 14; i++) sim.spawn(at, 0, fx.from(3.5), fx.from(9.5 + i));
+  const tank = sim.spawn(hull, 1, fx.from(9.5), fx.from(16.5));
+  let engagements = 0;
+  let reserveLow = 99;
+  for (let i = 0; i < 1600; i++) {
+    for (const e of sim.tick()) if (e.kind === 'aps' && e.target === tank) engagements++;
+    reserveLow = Math.min(reserveLow, sim.state.apsReserveLeft[tank]);
+  }
+  return { hash: sim.hash(), engagements, reserveLow, reserveEnd: sim.state.apsReserveLeft[tank] };
+}
+
+// APS_STOCK_WORLD_PIN: born 2026-11-05 (GH-884), read from the first run. It moves when an APS stock rule
+// (draw, rearm, quiet, aura refill) or the fold of its two columns changes; say why in the commit that moves it.
+const APS_STOCK_WORLD_PIN = 2293006654;
+
+describe('determinism of an APS stock world (1600-tick replay, GH-884)', () => {
+  it('two runs from the seed agree, and the run draws the reserve down and gets a round back on quiet', () => {
+    const a = apsStockWorld(884);
+    const b = apsStockWorld(884);
+    expect(b).toEqual(a);
+    expect(a.engagements).toBe(8); // 3 in the magazine + 5 in the reserve, and no ninth: read off the first run
+    expect(a.reserveLow).toBe(0); // the reloads emptied it
+    expect(a.reserveEnd).toBeGreaterThan(0); // and quiet gave rounds back
+  });
+
+  it('the pinned hash', () => {
+    expect(apsStockWorld(884).hash).toBe(APS_STOCK_WORLD_PIN);
+  });
+});
