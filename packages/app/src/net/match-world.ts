@@ -46,6 +46,9 @@ export interface MatchWorld {
    *  `runtime` is a GOALS-ONLY one (objectives with a side, no economy), mirror included, and
    *  `outcome.ts` reads it through `goalsOf`. */
   winMode: WinMode | null;
+  /** GH-976: the camp mode's `wipe` rule (`modes.camp.wipe`), `'ends'` for every room that is not a camp room. Read by
+   *  `goalsOf`; static setup data, out of `hash()`. */
+  campWipe: 'ends' | 'after_camp';
   /** The structure types the economy runtime stands (its rules file's camps, through
    *  `versusMissionOf`), so the browser loads their meshes (N3 Task 6): a room has no
    *  mission whose `structures` the mesh plan could read. `[]` in a mirror room. */
@@ -137,7 +140,7 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
     : config.winMode !== undefined ? modeRuntime(sim, config.map, config.winMode, map, typeOf, endOfSide) : null;
   const runtime = built?.runtime ?? null;
   const structureTypes = built?.structureTypes ?? [];
-  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, runtime, winMode: config.winMode ?? null, structureTypes };
+  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, runtime, winMode: config.winMode ?? null, campWipe: config.winMode === 'camp' && versusModes[config.map]?.modes.camp?.wipe === 'after_camp' ? 'after_camp' : 'ends', structureTypes };
 }
 
 /** The entity capacity of the room on `mapId`: its rules file's `capacity`, else 256. Mirror rooms

@@ -35,6 +35,14 @@
 //     lose, every game, before the cap: a cap, a draw or a passive win is a mode a turtle can hold.
 // A mode that fails on a map stays unoffered. Nothing here tunes a unit.
 //
+// THE CAMP ROOM'S GATES (GH-976, `modes.camp.wipe: "after_camp"`): G1 goal share, G2 the passive seat loses (by the goal or a
+// wipe, never the cap: `cleanWins`), G3 the leader inside 60/40, G4 the DEFENDER arm (one end stands on its own camp exit
+// until the enemy has no armed unit, then goes to raze; west and east holds, the defender's wins, within 14 of 96 of each
+// other), G5 the finish gate (after a wipe no game ends on the cap, a stalemate or the wipe itself, and the mean raze, wipe
+// to goal, is at most 120 s on a 48x48 map and 240 s above), and the REPORT-ONLY G1b, the contested share: the games where the
+// camp fell while its owner still had an armed unit. `--camps=rules --camp-wipe=after_camp` screens a map that has no camp
+// block of its own with its economy-rules camps, in memory; it opens nothing.
+//
 // THE SELF-CHECK, and the mutations that turn it red (each seen red in `versus-modes.test.ts`):
 //   - the east end cut to one squad, both seats playing: the west must win; then the west cut: the east must win
 //     (sees a swapped winner, and orders that never reach a side);
@@ -49,16 +57,17 @@
 //   flags: --mode=<camp|points|flag|all>  --maps=<id,id>  --seeds=<n>  --seed-from=<n>  --passive=<on|off>  --wipe=<ends|off>  --no-self-check
 //          --arr=<kdf/kdf,kdf/sarim,sarim/kdf>   the factions by END, friendly first; default the mirror (GH-976 P4)
 //          --zones=<zone:rate,...>  --kill=<n>  --target=<n>   fit the points race in memory (never written to disk)
+//          --camp-wipe=<ends|after_camp>  --camps=rules   the camp room's wipe rule, and (a screen) the economy-rules camps, in memory only; --defend=<on|off> (G4 arm, camp mode)
 //          --flags=<x,y,w,h/x,y,w,h>  --hold=<s>   fit the flag raid in memory (friendly then hostile ground; never written to disk)
 
 import { fileURLToPath } from 'node:url';
 import { versusModes, type MapId, type WinModeId } from '@lions/data';
 import { WIN_MODES, matchCapTicks, validateConfig, type MatchConfig } from '@lions/net';
-import { goalsOf, outcomeOf, unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
+import { armedStanding, goalsOf, outcomeOf, unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, DECIDE_EVERY_TICKS, SEEDS_DEFAULT, livingOf, loneSurvivorOf, order, parseArrangements, roomConfig, seedOf, type Arrangement } from './versus-probe';
 import { fx, type Sim } from '@lions/sim';
-import { units } from '@lions/data';
+import { maps, units, versusRules } from '@lions/data';
 
 /** The lead's bar for the goal: at least this share of a cell's games are decided by it, not by a wipe or the cap. */
 export const GOAL_SHARE_MIN_PERCENT = 70;
@@ -73,6 +82,12 @@ export interface ModePlayed {
   ticks: number;
   /** Final points by END (a points race), else absent. */
   points?: [number, number];
+  /** The sim tick of the first decision tick on which a side had no armed unit (a WIPE), else absent. Under `wipe: ends` the
+   *  game ends on that tick; under `after_camp` it runs on, and `ticks - wipeTick` is the raze (G5). */
+  wipeTick?: number;
+  /** The camp fell (the game was decided by the goal) while the side that lost it still had an armed unit: a CONTESTED finish
+   *  (G1b). False for a razed-after-a-wipe game, a wipe, a cap. */
+  contested?: boolean;
 }
 
 export interface ModePlayOptions {
@@ -82,6 +97,9 @@ export interface ModePlayOptions {
   arr?: Arrangement;
   /** The END that issues no order (0 friendly, 1 hostile). */
   passive?: 0 | 1;
+  /** CAMP MODE, the G4 arm: this END's whole force stands on its own camp exit (attack-moves there) while the other attacks. The
+   *  defender keeps firing and holds the ground it was ordered to; a "hold" is a defender win. */
+  defend?: 0 | 1;
   /** CONTROL ONLY: cut this END to one infantry squad before the first tick. In the flag mode the cut end also takes no
    *  order: its lone survivor is the raid's first squad, and a one-man race against the strong end's raid would not be a control. */
   cutEnd?: 0 | 1;
@@ -120,10 +138,15 @@ function campExit(w: MatchWorld, mapId: string, end: 'friendly' | 'hostile'): [n
 }
 
 /** Every side's `camp` order: its whole living force attack-moves on the ENEMY end's camp exit. */
-export function campOrder(w: MatchWorld, mapId: string, passiveSide: number): void {
+export function campOrder(w: MatchWorld, mapId: string, passiveSide: number, defendSide = -1): void {
   for (const side of [0, 1] as const) {
     if (side === passiveSide) continue;
-    const target = campExit(w, mapId, w.endOfSide[side === 0 ? 1 : 0]);
+    // The G4 defender stands on its OWN exit while the enemy has an armed unit, and goes to raze once it has none (under
+    // `after_camp` a wiped attacker leaves a camp to raze; a defender that never left home would run every such game to the cap).
+    // Everyone else marches on the enemy's camp.
+    const other = side === 0 ? 1 : 0;
+    const home = side === defendSide && armedStanding(w.sim, other);
+    const target = campExit(w, mapId, w.endOfSide[home ? side : other]);
     const ids = livingOf(w.sim, side);
     if (ids.length > 0) w.sim.queueCommand({ kind: 'attackMove', ids, x: target[0], y: target[1] });
   }
@@ -247,18 +270,34 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
   if (mode === 'flag') for (const side of [0, 1] as const) parties.set(side, raidParty(w, side));
   const cap = matchCapTicks(mapId);
   const production = opts.wipeEnds === false ? { canField: () => true } : undefined;
-  const read = (o: MatchResult): ModePlayed => ({
-    ...finish(o, w.sim.tickCount, sideOfEnd),
-    ...(mode === 'points' ? { points: [runtime.scoreOf(sideOfEnd[0]), runtime.scoreOf(sideOfEnd[1])] as [number, number] } : {}),
-  });
+  const defendSide = opts.defend === undefined ? -1 : sideOfEnd[opts.defend];
+  // A WIPE is read on the decision ticks, the room's own cadence: the first one on which a side has no armed unit.
+  let wipeTick: number | undefined;
+  const noteWipe = (): void => {
+    if (wipeTick === undefined && (!armedStanding(w.sim, 0) || !armedStanding(w.sim, 1))) wipeTick = w.sim.tickCount;
+  };
+  const read = (o: MatchResult): ModePlayed => {
+    const base = finish(o, w.sim.tickCount, sideOfEnd);
+    noteWipe();
+    // Contested (G1b): the goal decided it, and the side that lost its camp still had an armed unit.
+    const loserSide = o.kind === 'won' ? (o.side === 0 ? 1 : 0) : -1;
+    const contested = o.kind === 'won' && o.by === 'objective' && armedStanding(w.sim, loserSide as 0 | 1);
+    return {
+      ...base,
+      ...(mode === 'points' ? { points: [runtime.scoreOf(sideOfEnd[0]), runtime.scoreOf(sideOfEnd[1])] as [number, number] } : {}),
+      ...(wipeTick === undefined ? {} : { wipeTick }),
+      contested,
+    };
+  };
   for (let t = 0; t < cap; t++) {
     if (t % ORDER_EVERY_TICKS === 0) {
-      if (mode === 'camp') campOrder(w, mapId, passiveSide);
+      if (mode === 'camp') campOrder(w, mapId, passiveSide, defendSide);
       else if (mode === 'flag') flagOrder(w, mapId, parties, idleSides, sideOfEnd);
       else pointsOrder(w, zoneNames, passiveSide);
     }
     matchTick(w);
     if (w.sim.tickCount % DECIDE_EVERY_TICKS === 0) {
+      noteWipe();
       const o = outcomeOf(w.sim, w.sim.tickCount, unitCost, production, cap, goals);
       if (o.kind !== 'ongoing') return read(o);
     }
@@ -280,15 +319,31 @@ export interface ModeTally {
   ticks: number;
   /** Games decided by the goal. */
   goal: number;
+  /** Wins by END that the goal or a wipe decided (`objective`, `annihilation`): the only wins a passive seat's loss may be made of. */
+  cleanWins: [number, number];
+  /** G1b: games decided by the goal while the side that lost its camp still had an armed unit. */
+  contested: number;
+  /** G5: games with a wipe that did not end in a mutual wipe, how many of them the goal then decided (`razed`), the ticks from the wipe to the
+   *  goal summed over those, and how many never got there (the cap, a stalemate, or a wipe that ended the match, `unrazed`). */
+  wipes: number;
+  razed: number;
+  razeTicks: number;
+  unrazed: number;
 }
 
 export function tallyModes(games: readonly ModePlayed[]): ModeTally {
-  const t: ModeTally = { seeds: games.length, wins: [0, 0], draws: 0, by: { objective: 0, annihilation: 0, mutual: 0, stalemate: 0, cap: 0 }, ticks: 0, goal: 0 };
+  const t: ModeTally = { seeds: games.length, wins: [0, 0], draws: 0, by: { objective: 0, annihilation: 0, mutual: 0, stalemate: 0, cap: 0 }, ticks: 0, goal: 0, cleanWins: [0, 0], contested: 0, wipes: 0, razed: 0, razeTicks: 0, unrazed: 0 };
   for (const g of games) {
     if (g.winner === null) t.draws++; else t.wins[g.winner]++;
     t.by[g.by]++;
     t.ticks += g.ticks;
     if (g.by === 'objective') t.goal++;
+    if (g.winner !== null && (g.by === 'objective' || g.by === 'annihilation')) t.cleanWins[g.winner]++;
+    if (g.contested === true) t.contested++;
+    if (g.wipeTick !== undefined && g.by !== 'mutual') {
+      t.wipes++;
+      if (g.by === 'objective') { t.razed++; t.razeTicks += Math.max(0, g.ticks - g.wipeTick); } else t.unrazed++;
+    }
   }
   return t;
 }
@@ -303,8 +358,36 @@ export const fairWithinDecisive = (t: ModeTally): boolean => {
   return decided > 0 && Math.max(t.wins[0], t.wins[1]) * 100 <= FAIR_MAX_PERCENT * decided;
 };
 export const goalShareOk = (t: ModeTally): boolean => t.goal * 100 >= GOAL_SHARE_MIN_PERCENT * t.seeds;
-/** The passive END lost every game, by the goal or a wipe, never the cap or a draw. */
-export const passiveLost = (t: ModeTally, passiveEnd: 0 | 1): boolean => t.wins[passiveEnd === 0 ? 1 : 0] === t.seeds;
+/** The passive END lost every game, by the goal or a wipe, never the cap or a draw. (Until GH-976's after_camp this read `wins`,
+ *  which counts a win on the cap's surviving value and a stalemate, though this docstring always said it never did.) */
+export const passiveLost = (t: ModeTally, passiveEnd: 0 | 1): boolean => t.cleanWins[passiveEnd === 0 ? 1 : 0] === t.seeds;
+
+/** G1b (REPORT ONLY): the share of games where the camp fell while its owner still had armed units. */
+export const contestedShare = (t: ModeTally): string => pct(t.contested, t.seeds);
+
+/** G5's bar: the mean seconds from a wipe to the razed camp. The 96x96 maps get twice the 48x48 maps' time, the lead's ruling. */
+export const RAZE_MEAN_MAX_S_48 = 120;
+export const RAZE_MEAN_MAX_S_96 = 240;
+export const razeLimitS = (width: number): number => (width > 48 ? RAZE_MEAN_MAX_S_96 : RAZE_MEAN_MAX_S_48);
+/** G5 (a camp room with `wipe: after_camp`): after a wipe no game ends on the cap, a stalemate or the wipe itself, and the mean raze
+ *  time is at most `limitS`. With no wipe there is nothing to read: `null`, so a cell that never wiped cannot pass the gate by default. */
+export const razeOk = (t: ModeTally, limitS: number): boolean | null => {
+  if (t.wipes === 0) return null;
+  return t.unrazed === 0 && t.razeTicks <= limitS * 20 * t.razed;
+};
+/** G4: the defender arm's holds (defender wins) by END, west and east within 14 of 96, scaled to the games played. */
+export const DEFENDER_HOLDS_SPREAD_PER_96 = 14;
+export const holdsBalanced = (westHolds: number, eastHolds: number, seeds: number): boolean =>
+  Math.abs(westHolds - eastHolds) * 96 <= DEFENDER_HOLDS_SPREAD_PER_96 * seeds;
+
+/** One G5 line: `G5 <arm> ok|FAIL (n wipes, m razed, mean s of limit, k never razed)` or `n/a (no wipe)`. */
+export function razeVerdict(arm: string, t: ModeTally, limitS: number, afterCamp = true): string {
+  // Under `wipe: ends` a wipe ENDS the match and nothing is razed: the gate has no question to ask.
+  if (!afterCamp) return `G5 ${arm} n/a (wipe ends)`;
+  const ok = razeOk(t, limitS);
+  const meanS = t.razed === 0 ? 0 : Math.round(t.razeTicks / t.razed / 20);
+  return `G5 ${arm} ${ok === null ? 'n/a (no wipe)' : ok ? 'ok' : 'FAIL'} (${t.wipes} wipes, ${t.razed} razed, mean ${meanS} s of ${limitS}, ${t.unrazed} never razed)`;
+}
 
 const pct = (n: number, of: number): string => (of === 0 ? '0.0' : (Math.round((1000 * n) / of) / 10).toFixed(1));
 const mean = (t: ModeTally): number => (t.seeds === 0 ? 0 : Math.round(t.ticks / t.seeds / 20));
@@ -391,6 +474,43 @@ export function withFlagOverride<T>(mapId: string, o: FlagOverride, fn: () => T)
   }
 }
 
+/** A camp room's rule and ground, as `--camp-wipe` and `--camps=rules` set them for one run (GH-976 after_camp screen). */
+export interface CampOverride {
+  /** Replace `modes.camp.wipe`. */
+  wipe?: 'ends' | 'after_camp';
+  /** SCREEN ONLY: stand the camps where the map's economy rules file (`data/versus/<map>.json`) has them, exits included, when the mode file has
+   *  no camps of its own. The mode file is not touched on disk; no map is offered for the camp mode by this. */
+  fromRules?: boolean;
+}
+
+/** Runs `fn` with `mapId`'s camp block replaced IN MEMORY (never written to disk), restored afterwards, also on a throw. */
+export function withCampOverride<T>(mapId: string, o: CampOverride, fn: () => T): T {
+  const file = versusModes[mapId] as { camps?: unknown; modes: { camp?: { wipe?: string } } } | undefined;
+  if (file === undefined) throw new Error(`versus modes: ${mapId} has no mode file`);
+  const wasCamps = file.camps;
+  const wasCamp = file.modes.camp;
+  if (o.fromRules === true && (wasCamps === undefined || wasCamp === undefined)) {
+    const ends = versusRules[mapId]?.ends;
+    if (ends === undefined) throw new Error(`versus modes: ${mapId} has no rules-file camps to screen`);
+    const camp = (e: 'friendly' | 'hostile'): { at: number[]; size: number[]; exit?: number[] } => {
+      const c = ends[e].camp;
+      return { at: [...c.at], size: [...c.size], ...(c.exit === undefined ? {} : { exit: [...c.exit] }) };
+    };
+    file.camps = { friendly: camp('friendly'), hostile: camp('hostile') };
+    file.modes.camp = {};
+  }
+  if (o.wipe !== undefined) {
+    if (file.modes.camp === undefined) throw new Error(`versus modes: ${mapId} has no camp block to override`);
+    file.modes.camp = { ...file.modes.camp, wipe: o.wipe };
+  }
+  try { return fn(); } finally {
+    file.camps = wasCamps;
+    file.modes.camp = wasCamp;
+    if (wasCamps === undefined) delete file.camps;
+    if (wasCamp === undefined) delete file.modes.camp;
+  }
+}
+
 /** `--flags=6,30,5,5/37,13,5,5` as the friendly and the hostile flag rect. */
 export function parseFlags(raw: string): [number[], number[]] {
   const parts = raw.split('/');
@@ -457,6 +577,19 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
   };
   if (override.perValueDestroyed !== undefined && !(Number.isInteger(override.perValueDestroyed) && override.perValueDestroyed >= 0)) throw new Error('--kill must be a whole number of points per 100 value, 0 or more');
   if (override.target !== undefined && !(Number.isInteger(override.target) && override.target >= 1)) throw new Error('--target must be a whole number of points, 1 or more');
+  // GH-976 after_camp: the camp rule and (for a screen) the rules-file camps, in memory only.
+  const campWipeArg = flag(args, 'camp-wipe');
+  if (campWipeArg !== undefined && campWipeArg !== 'ends' && campWipeArg !== 'after_camp') throw new Error('--camp-wipe must be ends or after_camp');
+  const campsArg = flag(args, 'camps');
+  if (campsArg !== undefined && campsArg !== 'rules') throw new Error('--camps must be rules (the map economy-rules camps; a screen)');
+  const campOverride: CampOverride = {
+    ...(campWipeArg !== undefined ? { wipe: campWipeArg } : {}),
+    ...(campsArg === 'rules' ? { fromRules: true } : {}),
+  };
+  const campSweeping = Object.keys(campOverride).length > 0;
+  if (campSweeping && !modes.includes('camp')) throw new Error('--camp-wipe and --camps set the camp room: they need --mode=camp (or all)');
+  if (campSweeping) console.log(`camp override (in memory only): ${JSON.stringify(campOverride)}`);
+  const defendOn = (flag(args, 'defend') ?? 'on') !== 'off';
   const flagsArg = flag(args, 'flags');
   const holdArg = flag(args, 'hold');
   const flagOverride: FlagOverride = {
@@ -474,7 +607,8 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
   let failed = 0;
   if (!skipCheck) {
     for (const mapId of mapIds) for (const mode of modes) for (const arr of arrangements) {
-      const problems = modeSelfCheck(mapId, mode, playFn, arr);
+      // The self-check plays the same camp room the sweep will (a screen's injected camps and rule), not the shipped file's.
+      const problems = mode === 'camp' && campSweeping ? withCampOverride(mapId, campOverride, () => modeSelfCheck(mapId, mode, playFn, arr)) : modeSelfCheck(mapId, mode, playFn, arr);
       for (const p of problems) { console.log(`SELF-CHECK FAILED: ${p}`); failed++; }
     }
     if (failed > 0) return 2;
@@ -486,6 +620,8 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
     return out;
   };
   const run = (mapId: MapId): void => {
+    const razeLimit = razeLimitS((maps as Record<string, { width: number }>)[mapId].width);
+    const afterCamp = (campOverride.wipe ?? (versusModes[mapId]?.modes.camp?.wipe ?? 'ends')) === 'after_camp';
     for (const mode of modes) for (const arr of arrangements) {
       // The mirror's lines read as they always did; a faction cell names its arrangement, and the faction at each end.
       const cell = arr[0] === arr[1] ? `${mapId} ${mode}` : `${mapId} ${mode} ${arr.join('/')}`;
@@ -496,20 +632,39 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
         `decisive ${fairWithinDecisive(active) ? 'within' : 'OUTSIDE'} (${pct(Math.max(...active.wins), active.wins[0] + active.wins[1])}% of ${active.wins[0] + active.wins[1]})`,
         `goal share ${pct(active.goal, active.seeds)}% ${goalShareOk(active) ? 'ok' : 'LOW'}`,
       ];
+      if (mode === 'camp') {
+        verdicts.push(`G1b contested ${contestedShare(active)}% (report only)`);
+        verdicts.push(razeVerdict('active', active, razeLimit, afterCamp));
+      }
       if (passiveOn) {
         for (const end of [0, 1] as const) {
           const p = tallyModes(rows(mapId, mode, { passive: end, arr }));
           console.log(`${cell} passive ${end === 0 ? 'west' : 'east'}: ${describeTally(p, arr)}`);
           verdicts.push(`passive ${end === 0 ? 'west' : 'east'} ${passiveLost(p, end) ? 'loses' : 'DOES NOT ALWAYS LOSE'} (goal share ${pct(p.goal, p.seeds)}%)`);
+          if (mode === 'camp') verdicts.push(razeVerdict(`passive ${end === 0 ? 'west' : 'east'}`, p, razeLimit, afterCamp));
         }
+      }
+      if (mode === 'camp' && defendOn) {
+        // G4: a defender standing on its own exit; its holds (defender wins) by END must be within 14 of 96 of each other.
+        const holds: number[] = [];
+        for (const end of [0, 1] as const) {
+          const d = tallyModes(rows(mapId, mode, { defend: end, arr }));
+          console.log(`${cell} defend ${end === 0 ? 'west' : 'east'}: ${describeTally(d, arr)}`);
+          holds.push(d.wins[end]);
+          verdicts.push(razeVerdict(`defend ${end === 0 ? 'west' : 'east'}`, d, razeLimit, afterCamp));
+        }
+        verdicts.push(`G4 holds west ${holds[0]} / east ${holds[1]} of ${seeds} ${holdsBalanced(holds[0], holds[1], seeds) ? 'balanced' : 'UNBALANCED'}`);
       }
       console.log(`  => ${cell}: ${verdicts.join('; ')}`);
     }
   };
   for (const mapId of mapIds) {
+    const campWrapped = (fn: () => void): void => (campSweeping && modes.includes('camp') ? withCampOverride(mapId, campOverride, fn) : fn());
     const pointed = (): void => (sweeping && modes.includes('points') ? withPointsOverride(mapId, override, () => run(mapId)) : run(mapId));
-    if (flagSweeping && modes.includes('flag')) withFlagOverride(mapId, flagOverride, pointed);
-    else pointed();
+    campWrapped(() => {
+      if (flagSweeping && modes.includes('flag')) withFlagOverride(mapId, flagOverride, pointed);
+      else pointed();
+    });
   }
   return 0;
 }

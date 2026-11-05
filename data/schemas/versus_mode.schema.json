@@ -46,7 +46,10 @@
         "camp": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Destroy the camp: each side razes the other end's camp. No parameters."
+          "description": "Destroy the camp: each side razes the other end's camp. `wipe` (GH-976) says what a wiped side means: `ends` (the default) is today's rule, a side with no armed unit loses at once; `after_camp` keeps the match going while the wiped side's camp stands, so the survivor must still raze it, and at the cap or a stalemate a side with no armed unit loses (a mutual wipe stays a draw).",
+          "properties": {
+            "wipe": { "type": "string", "enum": ["ends", "after_camp"] }
+          }
         },
         "points": {
           "type": "object",

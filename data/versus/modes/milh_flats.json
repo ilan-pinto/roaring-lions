@@ -10,7 +10,7 @@
     "hostile": { "at": [39, 32], "size": [5, 5] }
   },
   "modes": {
-    "camp": {},
+    "camp": { "wipe": "after_camp" },
     "flag": { "hold_s": 30 },
     "points": {
       "zones": [

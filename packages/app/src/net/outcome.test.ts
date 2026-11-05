@@ -506,6 +506,72 @@ describe('outcomeOf with goals (GH-976, a win-mode room)', () => {
   });
 });
 
+describe('camp mode, wipe: after_camp (GH-976, the lead 5 Nov: wipe, then raze)', () => {
+  const g = (won: readonly boolean[], campWipe: 'ends' | 'after_camp' | undefined, mode: 'camp' | 'points' | 'flag' = 'camp'): OutcomeGoals => ({
+    mode, sideWon: (side) => won[side], scoreUnitsOf: () => 0, scoreOf: () => 0, completeTickOf: (side) => (won[side] ? 100 : -1),
+    ...(campWipe === undefined ? {} : { campWipe }),
+  });
+  // Side 0 keeps one armed unit; side 1 is wiped of armed units but holds 500 of unarmed value (five trucks): the
+  // surviving-value rule would hand the cap to the WIPED side.
+  const wiped = world([[0, 1, 0], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1]]);
+  const none = world([[0, 1, 0], [1, 0, 0]]);
+  const run = (sim: OutcomeSim, tick: number, goals: OutcomeGoals | undefined) => outcomeOf(sim, tick, costOf, undefined, MATCH_CAP_TICKS, goals);
+
+  it('ends (and absent) is the existing rule: a wiped side loses at once, byte for byte', () => {
+    for (const goals of [g([false, false], 'ends'), g([false, false], undefined), undefined]) {
+      expect(run(none, 100, goals)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+      expect(run(wiped, 100, goals)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+    }
+  });
+
+  it('after_camp: a lone survivor has not won while the wiped side camp stands, and the match runs on', () => {
+    expect(run(none, 100, g([false, false], 'after_camp'))).toEqual({ kind: 'ongoing' });
+    expect(run(wiped, MATCH_CAP_TICKS - 1, g([false, false], 'after_camp'))).toEqual({ kind: 'ongoing' });
+  });
+
+  it('after_camp: the survivor razing the camp wins by objective; the wiped side goal done as it fell wins for IT', () => {
+    expect(run(none, 100, g([true, false], 'after_camp'))).toEqual({ kind: 'won', side: 0, by: 'objective', mode: 'camp' });
+    expect(run(none, 100, g([false, true], 'after_camp'))).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'camp' });
+  });
+
+  it('after_camp, the cap: the side with an armed unit wins although the wiped side holds more unarmed value', () => {
+    expect(run(wiped, MATCH_CAP_TICKS, g([false, false], 'after_camp'))).toEqual({ kind: 'won', side: 0, by: 'time', forces: [300, 500] });
+    // The control: with both sides armed the cap still reads surviving value, whichever rule the room has.
+    const both = world([[0, 1, 0], [1, 1, 0], [1, 1, 0]]);
+    expect(run(both, MATCH_CAP_TICKS, g([false, false], 'after_camp'))).toEqual({ kind: 'won', side: 1, by: 'time', forces: [300, 600] });
+  });
+
+  it('after_camp, a stalemate: the armed side wins by the stalemate, not the larger unarmed value', () => {
+    // Side 0: one fixed gun (immobile, armed). Side 1: two forced-landed helicopters with their firepower killed: unarmed, immobile.
+    const sim = world([[0, 1, 2], [1, 1, 3, 1, 1], [1, 1, 3, 1, 1]]);
+    expect(run(sim, 100, g([false, false], 'after_camp'))).toEqual({ kind: 'won', side: 0, by: 'stalemate', forces: [200, 600] });
+    expect(run(sim, 100, g([false, false], 'ends'))).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+  });
+
+  it('a mutual wipe stays a draw, and both sides standing is unchanged', () => {
+    expect(run(world([[0, 0, 0], [1, 0, 0]]), 100, g([false, false], 'after_camp'))).toEqual({ kind: 'draw', by: 'mutual' });
+    expect(run(world([[0, 1, 0], [1, 1, 0]]), 100, g([false, false], 'after_camp'))).toEqual({ kind: 'ongoing' });
+    expect(run(world([[0, 1, 0], [1, 1, 0]]), 100, g([true, true], 'after_camp'))).toEqual({ kind: 'draw', by: 'mutual', mode: 'camp' });
+  });
+
+  it('only the camp mode reads the rule: a points or flag goals object with the field set still ends on a wipe', () => {
+    expect(run(none, 100, g([false, false], 'after_camp', 'points'))).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+    expect(run(none, 100, g([false, false], 'after_camp', 'flag'))).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+  });
+
+  it('surrender and forfeit are the room endings and the rule does not touch them', () => {
+    expect(roomEndingOutcome('surrender', 1, 0, (s) => s)).toEqual({ kind: 'won', side: 0, by: 'surrender' });
+    expect(roomEndingOutcome('forfeit', 0, 0, (s) => s)).toEqual({ kind: 'won', side: 1, by: 'forfeit' });
+  });
+
+  it('goalsOf carries the rule from the world: after_camp only when the world says so, ends otherwise', () => {
+    const rt = { sideWon: () => false, scoreUnitsOf: () => 0, scoreOf: () => 0, completeTickOf: () => -1 };
+    expect(goalsOf({ runtime: rt, winMode: 'camp', campWipe: 'after_camp' })!.campWipe).toBe('after_camp');
+    expect(goalsOf({ runtime: rt, winMode: 'camp', campWipe: 'ends' })!.campWipe).toBe('ends');
+    expect(goalsOf({ runtime: rt, winMode: 'camp' })!.campWipe).toBe('ends');
+  });
+});
+
 describe('the cap of a points room is decided on the points (GH-976 P3)', () => {
   const goals = (units: readonly [number, number], mode: 'points' | 'camp' | 'flag' = 'points'): OutcomeGoals => ({
     mode, sideWon: () => false, scoreUnitsOf: (side) => units[side], scoreOf: (side) => Math.floor(units[side] / 1200), completeTickOf: () => -1,

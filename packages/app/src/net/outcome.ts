@@ -125,6 +125,13 @@ function byForces(sim: OutcomeSim, by: 'stalemate' | 'time', costOf: (typeId: st
   return { kind: 'won', side: forces[0] > forces[1] ? 0 : 1, by, forces };
 }
 
+/** The cap or a stalemate of a camp room that kept playing past a wipe (GH-976 `after_camp`): the side with an armed unit
+ *  wins whatever the surviving value says, because `byForces` counts unarmed value and could hand the win to the wiped side.
+ *  `by` stays the real ending (`stalemate`, `time`), so a tally sees a wipe that was never razed; `forces` rides along. */
+function armedWins(sim: OutcomeSim, side: 0 | 1, by: 'stalemate' | 'time', costOf: (typeId: string) => number): MatchResult {
+  return { kind: 'won', side, by, forces: forcesOf(sim, costOf) };
+}
+
 /** The cap of a POINTS room (GH-976 P3): nobody reached the target, so the higher score wins and a level score is a draw.
  *  The design's intent is that the goal decides, and a side that sat on the ground it held for 25 minutes has played the
  *  race; surviving value would let a side that never took a zone win it. Compared on the exact integer units (a score runs
@@ -148,7 +155,7 @@ const SIDES: readonly (0 | 1)[] = [0, 1];
  *  otherwise a beaten side holds the match to the 25-minute draw. Nor does a
  *  rescue unit (the Nemala medic team carries carbines to defend itself): a
  *  side with only medics left has lost (GH-707, 30 Oct 2026). */
-function armedStanding(sim: OutcomeSim, side: 0 | 1): boolean {
+export function armedStanding(sim: OutcomeSim, side: 0 | 1): boolean {
   const { side: sides, alive, typeIdx, firepowerKilled } = sim.state;
   for (let i = 0; i < sim.entityCount; i++) {
     if (alive[i] === 0 || sides[i] !== side) continue;
@@ -169,6 +176,9 @@ export interface OutcomeGoals {
   scoreUnitsOf(side: 0 | 1): number;
   /** `side`'s score in whole points (GH-976 P3), what a points room's panel shows; 0 with no score. */
   scoreOf(side: 0 | 1): number;
+  /** GH-976: the camp mode's `wipe` rule. `after_camp`: a side with no armed unit does not lose while its camp stands
+   *  (the other side has not razed it); at the cap or a stalemate it loses. Absent or `ends`: a wipe ends the match. */
+  readonly campWipe?: 'ends' | 'after_camp';
   /** The sim tick `side` completed its goal on, or -1 while it has not (GH-976 P2): the first to finish wins. */
   completeTickOf(side: 0 | 1): number;
 }
@@ -182,13 +192,14 @@ export interface GoalsWorld {
     completeTickOf(side: 0 | 1): number;
   } | null;
   readonly winMode: WinMode | null;
+  readonly campWipe?: 'ends' | 'after_camp';
 }
 
 /** The goals of a win-mode room, or undefined for annihilation (and for any world with no mode). */
 export function goalsOf(w: GoalsWorld): OutcomeGoals | undefined {
   const runtime = w.runtime;
   if (runtime === null || w.winMode === null) return undefined;
-  return { mode: w.winMode, sideWon: (s) => runtime.sideWon(s), scoreUnitsOf: (s) => runtime.scoreUnitsOf(s), scoreOf: (s) => runtime.scoreOf(s), completeTickOf: (s) => runtime.completeTickOf(s) };
+  return { mode: w.winMode, sideWon: (s) => runtime.sideWon(s), scoreUnitsOf: (s) => runtime.scoreUnitsOf(s), scoreOf: (s) => runtime.scoreOf(s), completeTickOf: (s) => runtime.completeTickOf(s), campWipe: w.campWipe ?? 'ends' };
 }
 
 /** The goal's verdict, or null while no side has completed one. `outcomeOf` asks only on a hash window (every 20
@@ -283,9 +294,15 @@ export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string
   }
   const standing = SIDES.filter((side) => armedStanding(sim, side) || production?.canField(side) === true);
   if (standing.length === 0) return { kind: 'draw', by: 'mutual' };
-  if (standing.length === 1) return { kind: 'won', side: standing[0], by: 'annihilation' };
-  if (allImmobile(sim, production)) return byForces(sim, 'stalemate', costOf);
-  if (tick >= capTicks) return goals !== undefined && goals.mode === 'points' ? byPoints(sim, goals, costOf) : byForces(sim, 'time', costOf);
+  // GH-976 `wipe: after_camp`: a lone survivor has not won yet -- the wiped side's camp stands until it is razed
+  // (`goalOutcome` above is the win). The match runs on to the goal, a stalemate or the cap, where the armed side wins.
+  const razeOn = standing.length === 1 && goals !== undefined && goals.mode === 'camp' && goals.campWipe === 'after_camp';
+  if (standing.length === 1 && !razeOn) return { kind: 'won', side: standing[0], by: 'annihilation' };
+  if (allImmobile(sim, production)) return razeOn ? armedWins(sim, standing[0], 'stalemate', costOf) : byForces(sim, 'stalemate', costOf);
+  if (tick >= capTicks) {
+    if (razeOn) return armedWins(sim, standing[0], 'time', costOf);
+    return goals !== undefined && goals.mode === 'points' ? byPoints(sim, goals, costOf) : byForces(sim, 'time', costOf);
+  }
   return { kind: 'ongoing' };
 }
 

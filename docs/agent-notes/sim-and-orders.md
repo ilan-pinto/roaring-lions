@@ -933,3 +933,13 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   at the forward cells, the goal share does not: the blobs meet. That is an engine rule (annihilation off in a camp room, or a wipe that does not end a
   game while the other camp stands), not data. `--wipe=off` on the shipped milh_flats camps was not needed (96.5% already).
 
+- **Camp mode `wipe: after_camp` (GH-976, 5 Nov, the lead's rule A: "wipe, then raze").** `modes.camp.wipe` is `"ends"` (default) or `"after_camp"`
+  (`versus_mode.schema.json`; typed `string` in `VersusModeFileJson`, so JSON-module call sites typecheck). `MatchWorld.campWipe` carries it,
+  `goalsOf` hands it to `outcomeOf` (app only; no sim change, no hash change). With `after_camp` and exactly one side armed, `outcomeOf` returns
+  ongoing: the wiped side's camp stands until razed, and the razer's `goalOutcome` is the win. At a stalemate or the cap that lone armed side wins
+  (`armedWins`, `by` stays `stalemate` / `time`), because `byForces` counts unarmed value and could hand the cap to the wiped side. A mutual wipe is
+  still a draw; surrender and forfeit are room endings and untouched; `ends` is byte-identical. milh_flats ships `after_camp`; wadi_tarfan stays `{}`.
+  Probe gates (`tools/src/backtest/versus-modes.ts`): G5 (after a wipe no capped game, mean wipe-to-goal at most 120 s on 48x48, 240 s above), G4 (the
+  `--defend` arm), the report-only G1b contested share, and `passiveLost` now reads `cleanWins` (goal or wipe only; it counted cap wins before).
+  `--camps=rules --camp-wipe=after_camp` screens a map with no camp block with its economy-rules camps, in memory. A survivor that cannot hurt a
+  camp (one mortar team left, seed 18175 of milh_flats, defend east) runs to the cap: G5's "never razed" count is what sees it.
