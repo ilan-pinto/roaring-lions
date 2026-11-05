@@ -366,7 +366,7 @@ import {
   type TexturedDecorPart,
   type TexturedDecorSet,
 } from './terrain/decor-textured-mesh';
-import { lod1Shown, pairLod1Materials } from './units/building-lod';
+import { lod1Shown } from './units/building-lod';
 import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
@@ -1435,7 +1435,7 @@ export class ThreeRenderer implements Renderer {
   /** GH-974: the A/B switch of every LOD1 twin (`debugStructureLod1`): off, full art at every zoom. */
   private lod1Enabled = true;
   /** GH-974: a clone-drawn building's twin (the house): per type the template, per structure the clone. */
-  private readonly buildingMeshLod1Templates = new Map<string, { root: THREE.Object3D; geometries: THREE.BufferGeometry[] }>();
+  private readonly buildingMeshLod1Templates = new Map<string, BuildingMeshTemplate>();
   private readonly buildingMeshLod1Entities = new Map<number, THREE.Object3D>();
   private buildingLodOn = false;
   /** The `buildings` debug layer is hidden: the per-frame twin swap must not turn anything back on. */
@@ -3987,7 +3987,7 @@ export class ThreeRenderer implements Renderer {
     this.buildingMeshIdleEntities.clear();
     for (const root of this.buildingMeshLod1Entities.values()) this.scene.remove(root);
     this.buildingMeshLod1Entities.clear();
-    for (const t of this.buildingMeshLod1Templates.values()) for (const g of t.geometries) g.dispose();
+    for (const t of this.buildingMeshLod1Templates.values()) disposeBuildingMeshTemplate(t);
     this.buildingMeshLod1Templates.clear();
     // The instanced sets share the templates' geometry, so they go before the
     // templates do; the sets own only their instance attributes.
@@ -8503,20 +8503,16 @@ export class ThreeRenderer implements Renderer {
         console.error(`loadBuildingMesh: ${structureId} LOD1 twin ${lod1Url} failed to load; drawing full art at every zoom`, e);
       }
     }
-    // The clone-drawn types (the house) keep their twin as a template of their own; paired with the standing
-    // template's materials by `rl_role`, so nothing here owns a material or a texture.
-    let cloneLod1: { root: THREE.Object3D; geometries: THREE.BufferGeometry[] } | null = null;
+    // The clone-drawn types (the house) keep their twin as a template of their own. It ships its OWN bake (a
+    // textured building: `TEXTURED_BUILDING_TYPES` names `<id>_lod1`), so it owns its material and texture.
+    let cloneLod1: BuildingMeshTemplate | null = null;
     if (lod1Url && !structureType.perTile && !constructionUrl) {
       try {
-        const twin = await loadBuildingMeshTemplate(lod1Url, wallColorKey, wallSurface, false, false, wallTreatmentOf(structureType));
-        if (pairLod1Materials(twin.root, idleTemplate.root)) {
-          for (const m of twin.materials) m.dispose();
-          cloneLod1 = { root: twin.root, geometries: [...twin.geometries] };
-        } else {
-          console.error(`loadBuildingMesh: ${structureId} LOD1 twin ${lod1Url} does not pair with its standing mesh by rl_role; drawing full art at every zoom`);
-          disposeBuildingMeshTemplate(twin);
-        }
+        cloneLod1 = await loadBuildingMeshTemplate(lod1Url, wallColorKey, wallSurface, TEXTURED_BUILDING_TYPES.has(`${structureId}_lod1`), false, wallTreatmentOf(structureType));
+        this.adoptEnvironment(cloneLod1.materials, 'building');
+        if (this.opts.maxTextureSize !== undefined) await capTextureSize(cloneLod1.root, this.opts.maxTextureSize);
       } catch (e) {
+        cloneLod1 = null;
         console.error(`loadBuildingMesh: ${structureId} LOD1 twin ${lod1Url} failed to load; drawing full art at every zoom`, e);
       }
     }
@@ -8540,7 +8536,7 @@ export class ThreeRenderer implements Renderer {
       }
       const staleLod = this.buildingMeshLod1Templates.get(structureId);
       if (staleLod) {
-        for (const g of staleLod.geometries) g.dispose();
+        disposeBuildingMeshTemplate(staleLod);
         this.buildingMeshLod1Templates.delete(structureId);
       }
       // The instanced tiles of this type, and the band they were last drawn at.

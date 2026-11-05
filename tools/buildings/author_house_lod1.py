@@ -1,18 +1,16 @@
 """Author `house_lod1`: the lower-detail twin of the two-storey house (GH-974).
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
-        --python tools/buildings/author_house_lod1.py
+        --python tools/buildings/author_house_lod1.py [-- <texture px>]
 
 Writes art/src/buildings/house_lod1.blend and art/meshes/buildings/house_lod1.glb.
 
 Why. `house.glb` is a Meshy remesh of 39,016 triangles (glass 4,084, metal 11,714, roof 353, trim 746, wall 22,119) and a
 town like Milh Flats draws six of them. Measured (GH-974 step 0, hiding every house): -0.6 ms at centre zoom 1 and
 -0.7 at 1.6. At zoom 1 a metre is 15 px: the stone coursing (0.3 m) is 4 px and the rebar and the cables are under one.
-This twin keeps what IS visible below zoom 2.0 -- the massing, the parapets, the window and door reveals, the two roof
-tanks -- and is made of planar quads and short prisms.
 
-How. Not a decimate. Every number below was MEASURED off `house.glb` by ray-casting its surface (not its vertices), in
-Blender's frame (the GLB's -z is Blender +y; the house is a box with its door on the +x face):
+Geometry. Not a decimate. Every number below was MEASURED off `house.glb` by ray-casting its surface (not its vertices),
+in Blender's frame (the GLB's -z is Blender +y; the house is a box with its door on the +x face):
 
   main block   x -3.95..5.60, y -5.52..4.20, roof deck 9.20, parapet 0.35-0.38 thick to 9.70
   annex        x -6.38..-3.95, y -5.52..5.55: a 5.10 deck (5.60 for the landing at y > 3.72), walled 2.3 m high on the
@@ -22,30 +20,38 @@ Blender's frame (the GLB's -z is Blender +y; the house is a box with its door on
   tanks        T1 r 0.70 at (-2.80, 2.75) to z 10.46; T2 r 0.64 at (3.22, 3.27), drum z 10.55..11.50 on four legs
   mast         a pole at (-1.62, 3.00) to z 12.71
 
-Roles: the full mesh's five (`glass`, `metal`, `roof`, `trim`, `wall`), same node names and `rl_role`.
+Coplanar cells are dissolved (a flat wall is a few polygons, not a grid), so the triangles go to the shape, not to the
+colour. Roles: the full mesh's five (`glass`, `metal`, `roof`, `trim`, `wall`), same node names and `rl_role`.
 
-What it drops: stone coursing, the band-course relief (2 cm), the cables, the loose rebar of the annex, the stair TREADS
-(a ramp), and every bevel under 5 cm.
-
-Colour (the wall's rule): ZERO materials, UV0 sampled off the full house's bake. Faces are cut into CELL m cells so the
-twin keeps the bake's low-frequency mottling (the dark floor band, the lighter quoins) rather than one flat colour.
+Colour (lead ruling, 5 Nov: patches of one texel a cell read as plaster at zoom 1.6). The twin carries its OWN baked
+texture: one 1-material, 1-image atlas shared by the five roles. The UV layout is a clean unwrap (smart project, then
+the faces that never face the camera -- west, north, the stair -- scaled to 40% so the texels go where the picture is,
+then packed). The bake is Cycles selected-to-active, DIFFUSE colour only (no light), from `house.glb` onto the twin: the
+stone coursing, the dark floor band, the window shutters and the roof mottling carry over from the Meshy bake. Metallic
+is zeroed on the source for the bake (glTF's default metallic 1 would read as black albedo). No Meshy call, no noise.
 """
 import math
 import os
 import sys
 
+import bmesh
+import bpy
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import lod_twin_common as C  # noqa: E402
+import kit  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(HERE))
 SRC_FULL = os.path.join(REPO, "art", "meshes", "buildings", "house.glb")
 OUT_GLB = os.path.join(REPO, "art", "meshes", "buildings", "house_lod1.glb")
 OUT_BLEND = os.path.join(REPO, "art", "src", "buildings", "house_lod1.blend")
 
-CELL = 0.6          # the stone is ~0.3 m: a 0.9 m cell lost the coursing and read as plaster from zoom 1.6
-HIDDEN_CELL = 1.0   # the north and west faces never face the camera; coarse ALONG the run, the same CELL up the edge
-TRI_CEILING = 4000
+CELL = 1.5          # only a construction grid now: coplanar cells are dissolved, the bake carries the colour
+HIDDEN_CELL = 1.5
+TRI_CEILING = 2600
+TEX_PX = int(sys.argv[sys.argv.index('--') + 1]) if '--' in sys.argv else 512
+HIDDEN_UV_SCALE = 0.4
 CREDIT = ("House LOD1 (GH-974) -- built in Blender from code (tools/buildings/author_house_lod1.py), "
           "derived from art/meshes/buildings/house.glb, project original")
 
@@ -222,18 +228,166 @@ def build():
     return Q
 
 
+ROLES = ("glass", "metal", "roof", "trim", "wall")
+OUT_TEX = os.path.join(REPO, "art", "src", "buildings", "house_lod1_base_color.jpg")
+
+
+def visible_to_camera(n):
+    """The game camera sees +x, -y and up. A face is hidden when it faces none of them."""
+    return not (n.x < 0.1 and n.y > -0.1 and n.z < 0.5)
+
+
+def make_twin_object(Q):
+    """One object, five material slots (one per role), shared corners merged, coplanar cells dissolved."""
+    verts, faces, mats = [], [], []
+    for ri, role in enumerate(ROLES):
+        for q in Q.by_role.get(role, []):
+            base = len(verts)
+            verts += q
+            faces.append(tuple(range(base, base + len(q))))
+            mats.append(ri)
+    me = bpy.data.meshes.new("house_lod1")
+    me.from_pydata(verts, [], faces)
+    me.validate()
+    ob = bpy.data.objects.new("house_lod1", me)
+    bpy.context.collection.objects.link(ob)
+    for ri, role in enumerate(ROLES):
+        m = bpy.data.materials.new(role)
+        me.materials.append(m)
+    for poly, mi in zip(me.polygons, mats):
+        poly.material_index = mi
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(0.5), verts=bm.verts, edges=bm.edges, delimit={"MATERIAL"})
+    bm.to_mesh(me)
+    bm.free()
+    return ob
+
+
+def unwrap(ob):
+    bpy.ops.object.select_all(action="DESELECT")
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    bpy.context.scene.tool_settings.use_uv_select_sync = True
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(66.0), island_margin=0.002, scale_to_bounds=False)
+    bm = bmesh.from_edit_mesh(ob.data)
+    uv = bm.loops.layers.uv.active
+    hidden = 0
+    for f in bm.faces:
+        if not visible_to_camera(f.normal):
+            hidden += 1
+            for l in f.loops:
+                l[uv].uv *= HIDDEN_UV_SCALE
+    bmesh.update_edit_mesh(ob.data)
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(rotate=True, margin=max(0.0015, 6.0 / TEX_PX), shape_method="CONCAVE")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    print(f"[house_lod1] unwrapped: {len(ob.data.polygons)} polygons, {hidden} hidden-facing (UV x{HIDDEN_UV_SCALE})")
+
+
+def bake(twin, full_objs):
+    """Cycles selected-to-active DIFFUSE colour: the full house's base colour onto the twin's own atlas."""
+    for o in full_objs:
+        for m in o.data.materials:
+            if m and m.use_nodes:
+                for n in m.node_tree.nodes:
+                    if n.type == "BSDF_PRINCIPLED":
+                        n.inputs["Metallic"].default_value = 0.0
+    img = bpy.data.images.new("house_lod1_base_color", TEX_PX, TEX_PX, alpha=False)
+    img.generated_color = (0.32, 0.29, 0.26, 1.0)
+    for m in twin.data.materials:
+        m.use_nodes = True
+        nt = m.node_tree
+        node = nt.nodes.new("ShaderNodeTexImage")
+        node.image = img
+        nt.nodes.active = node
+        node.select = True
+    sc = bpy.context.scene
+    sc.render.engine = "CYCLES"
+    sc.cycles.device = "CPU"
+    sc.cycles.samples = 1
+    sc.cycles.use_denoising = False
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in full_objs:
+        o.select_set(True)
+    twin.select_set(True)
+    bpy.context.view_layer.objects.active = twin
+    bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"}, margin=6, margin_type="EXTEND",
+                        use_selected_to_active=True, cage_extrusion=0.35, max_ray_distance=0.0, use_clear=True)
+    img.filepath_raw = OUT_TEX
+    img.file_format = "JPEG"
+    scn = bpy.context.scene
+    scn.render.image_settings.quality = 90
+    img.save()
+    return img
+
+
+def finish(twin, img):
+    """One material with the baked atlas as its base colour; five objects, one per role, named and tagged."""
+    mat = bpy.data.materials.new("material")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    img.pack()
+    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    bsdf.inputs["Metallic"].default_value = 0.0
+    bsdf.inputs["Roughness"].default_value = 1.0
+    bpy.ops.object.select_all(action="DESELECT")
+    twin.select_set(True)
+    bpy.context.view_layer.objects.active = twin
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.separate(type="MATERIAL")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    out = []
+    for ob in [o for o in bpy.data.objects if o.type == "MESH" and o.name.startswith("house_lod1")]:
+        role = ob.data.materials[0].name.split(".")[0] if ob.data.materials else ""
+        if role not in ROLES:
+            raise SystemExit(f"house_lod1: a separated part has no role: {ob.name} {role!r}")
+        ob.name = role
+        ob.data.name = role
+        ob["rl_role"] = role
+        ob.data.materials.clear()
+        ob.data.materials.append(mat)
+        out.append(ob)
+    if sorted(o.name for o in out) != sorted(ROLES):
+        raise SystemExit(f"house_lod1: roles after separate: {sorted(o.name for o in out)}")
+    return out
+
+
 def main():
-    sampler, tree, full_pts, full_tris, full_roles = C.import_full(SRC_FULL)
+    kit.new_scene()
+    bpy.ops.import_scene.gltf(filepath=SRC_FULL)
+    full_objs = [o for o in bpy.data.objects if o.type == "MESH"]
+    full_pts = [o.matrix_world @ v.co for o in full_objs for v in o.data.vertices]
+    full_tris = sum(len(p.vertices) - 2 for o in full_objs for p in o.data.polygons)
     Q = build()
-    total = Q.tri_count()
-    if total > TRI_CEILING:
-        raise SystemExit(f"house_lod1: {total} triangles over the ceiling {TRI_CEILING}")
-    objs = C.build_and_export(Q, sampler, OUT_BLEND, OUT_GLB, CREDIT)
-    pts = [o.matrix_world @ v.co for o in objs for v in o.data.vertices]
+    twin = make_twin_object(Q)
+    tris = sum(len(p.vertices) - 2 for p in twin.data.polygons)
+    if tris > TRI_CEILING:
+        raise SystemExit(f"house_lod1: {tris} triangles over the ceiling {TRI_CEILING}")
+    unwrap(twin)
+    img = bake(twin, full_objs)
+    for o in full_objs:
+        bpy.data.meshes.remove(o.data)    # frees the names `glass`..`wall` for the twin's own parts
+    parts = finish(twin, img)
+    kit.save(OUT_BLEND)
+    os.makedirs(os.path.dirname(OUT_GLB), exist_ok=True)
+    bpy.ops.export_scene.gltf(
+        filepath=OUT_GLB, export_format="GLB", use_selection=False, export_apply=True,
+        export_yup=True, export_skins=False, export_animations=False, export_extras=True,
+        export_materials="EXPORT", export_image_format="JPEG", export_jpeg_quality=90, export_copyright=CREDIT,
+    )
+    pts = [o.matrix_world @ v.co for o in parts for v in o.data.vertices]
     lo, hi = C.bounds(pts)
     flo, fhi = C.bounds(full_pts)
-    per = {o.name: len(o.data.polygons) for o in objs}
-    print(f"[house_lod1] {total} tris of {full_tris} ({100 * total / full_tris:.1f}%); roles {per}")
+    per = {o.name: len(o.data.polygons) for o in parts}
+    print(f"[house_lod1] {tris} tris of {full_tris} ({100 * tris / full_tris:.1f}%); polygons {per}; texture {TEX_PX}px")
     print(f"[house_lod1] bounds lo {[round(v, 3) for v in lo]} hi {[round(v, 3) for v in hi]}; "
           f"full lo {[round(v, 3) for v in flo]} hi {[round(v, 3) for v in fhi]}; {os.path.getsize(OUT_GLB)} bytes")
 

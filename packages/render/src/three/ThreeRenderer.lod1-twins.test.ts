@@ -9,7 +9,6 @@ import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import { MESH_SCALE } from './units/mesh-anim';
 import type { BuildingMeshTemplate } from './units/mesh-building';
-import { pairLod1Materials } from './units/building-lod';
 import { buildTexturedDecorMesh, type TexturedDecorSet } from './terrain/decor-textured-mesh';
 
 vi.mock('three', async (importOriginal) => {
@@ -74,7 +73,7 @@ function template(size: number): BuildingMeshTemplate {
 
 interface Private {
   buildingMeshIdleTemplates: Map<string, BuildingMeshTemplate>;
-  buildingMeshLod1Templates: Map<string, { root: THREE.Object3D; geometries: THREE.BufferGeometry[] }>;
+  buildingMeshLod1Templates: Map<string, BuildingMeshTemplate>;
   buildingMeshLod1Entities: Map<number, THREE.Object3D>;
   buildingMeshIdleEntities: Map<number, THREE.Object3D>;
   buildingDamageBand: Map<number, number>;
@@ -92,9 +91,7 @@ function world(withTwin = true) {
   const idle = template(1);
   priv.buildingMeshIdleTemplates.set('house', idle);
   if (withTwin) {
-    const twin = template(0.5);
-    expect(pairLod1Materials(twin.root, idle.root)).toBe(true);
-    priv.buildingMeshLod1Templates.set('house', { root: twin.root, geometries: [...twin.geometries] });
+    priv.buildingMeshLod1Templates.set('house', template(0.5));
   }
   const at = (zoom: number): { full: THREE.Object3D; twin: THREE.Object3D | undefined } => {
     priv.camera.zoom = zoom;
@@ -129,7 +126,7 @@ describe('the house twin (clone path)', () => {
     expect([r.twin!.visible, r.full.visible]).toEqual([false, true]);
   });
 
-  it('draws the twin at the placement of the full house, with the full house\'s own materials', () => {
+  it('draws the twin at the placement of the full house, with its OWN material (its own bake)', () => {
     const w = world();
     const { full, twin } = w.at(1);
     expect(twin!.position.toArray()).toEqual(full.position.toArray());
@@ -141,8 +138,8 @@ describe('the house twin (clone path)', () => {
       });
       return out;
     };
-    expect(mats(twin!)).toEqual(mats(full));
     expect(Object.keys(mats(twin!)).sort()).toEqual(['roof', 'wall']);
+    for (const role of ['roof', 'wall']) expect(mats(twin!)[role]).not.toBe(mats(full)[role]);
   });
 
   it('keeps the full house while it is scarred', () => {

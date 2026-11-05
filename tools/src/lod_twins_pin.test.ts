@@ -1,4 +1,4 @@
-// GH-974: `house_lod1` and `ditch_lod1` pinned against their sources, from the BYTES of both GLBs (the wall's twin: wall_lod1.test.ts).
+// GH-974: `house_lod1` (its own bake) and `ditch_lod1` (borrows the full ditch's) pinned against their sources, from the BYTES of both GLBs (the wall's twin: wall_lod1.test.ts).
 //
 // The twin is drawn INSTEAD of the compound wall below zoom 2.0, with the wall's own
 // material, so five things must stay true of it or the swap shows. None of this imports
@@ -22,7 +22,7 @@ interface Glb {
   meshes: { name: string; primitives: { attributes: Record<string, number>; indices: number }[] }[];
   accessors: Accessor[];
   materials?: unknown[];
-  images?: unknown[];
+  images?: { bufferView?: number }[];
   textures?: unknown[];
   bufferViews: { byteOffset?: number; byteLength: number }[];
 }
@@ -63,6 +63,8 @@ interface Pin {
   maxTris: number;
   maxShare: number;
   minTris: number;
+  /** The house's twin ships its own bake (a textured building); the ditch's borrows the full mesh's. */
+  ownBake: boolean;
 }
 // HOUSE_LOD1_TWIN / DITCH_LOD1_TWIN are the falsification hooks: point one at a mutated scratch COPY (absolute path).
 const PINS: Pin[] = [
@@ -70,13 +72,13 @@ const PINS: Pin[] = [
     label: 'house_lod1 / house', full: 'art/meshes/buildings/house.glb',
     twin: process.env.HOUSE_LOD1_TWIN ?? 'art/meshes/buildings/house_lod1.glb', env: 'HOUSE_LOD1_TWIN',
     roles: [['glass', 'glass'], ['metal', 'metal'], ['roof', 'roof'], ['trim', 'trim'], ['wall', 'wall']],
-    tol: 0.06, maxTris: 4000, maxShare: 0.12, minTris: 1000,
+    tol: 0.06, maxTris: 2600, maxShare: 0.12, minTris: 300, ownBake: true,
   },
   {
     label: 'ditch_lod1 / ditch_0', full: 'art/meshes/decor/ditch_0.glb',
     twin: process.env.DITCH_LOD1_TWIN ?? 'art/meshes/decor/ditch_lod1.glb', env: 'DITCH_LOD1_TWIN',
     roles: [['ditch', undefined]],
-    tol: 0.01, maxTris: 2500, maxShare: 0.08, minTris: 500,
+    tol: 0.01, maxTris: 2500, maxShare: 0.08, minTris: 500, ownBake: false,
   },
 ];
 
@@ -115,11 +117,28 @@ for (const pin of PINS) {
       expect(triangles(twin.json) / triangles(full.json)).toBeLessThan(pin.maxShare);
     });
 
-    it('ships no material, image or texture, and a UV0 inside the unit square on every primitive', () => {
-      expect(twin.json.materials ?? []).toEqual([]);
-      expect(twin.json.images ?? []).toEqual([]);
-      expect(twin.json.textures ?? []).toEqual([]);
-      expect(full.json.materials?.length).toBe(1); // the bake it borrows
+    it(pin.ownBake ? 'ships exactly ONE material, image and texture, a bake of 1024 px at most, and a UV0 inside the unit square' : 'ships no material, image or texture, and a UV0 inside the unit square on every primitive', () => {
+      if (pin.ownBake) {
+        expect(twin.json.materials?.length).toBe(1);
+        expect(twin.json.images?.length).toBe(1);
+        expect(twin.json.textures?.length).toBe(1);
+        const bv = twin.json.bufferViews[twin.json.images![0].bufferView as number];
+        const img = twin.bin.subarray(bv.byteOffset ?? 0, (bv.byteOffset ?? 0) + bv.byteLength);
+        let w = 0;
+        for (let i = 2; i < img.length - 9; ) {
+          if (img[i] !== 0xff) { i++; continue; }
+          const marker = img[i + 1];
+          if (marker === 0xc0 || marker === 0xc2) { w = img.readUInt16BE(i + 7); break; }
+          i += 2 + img.readUInt16BE(i + 2);
+        }
+        expect(w, 'the bake is a JPEG with a readable frame header').toBeGreaterThan(0);
+        expect(w, 'GPU memory: about 1 MiB, 1024 px at most').toBeLessThanOrEqual(1024);
+      } else {
+        expect(twin.json.materials ?? []).toEqual([]);
+        expect(twin.json.images ?? []).toEqual([]);
+        expect(twin.json.textures ?? []).toEqual([]);
+      }
+      expect(full.json.materials?.length).toBe(1); // the bake the ditch borrows / the house's source
       for (const m of twin.json.meshes) {
         for (const p of m.primitives) {
           const id = p.attributes.TEXCOORD_0;

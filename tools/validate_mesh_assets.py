@@ -228,6 +228,10 @@ TEXTURED_BUILDING_EXEMPT = {
     # GH-66 field works (2026-10-15): the HESCO bastion run, the same
     # exporter and the same kind of bake (8k refine shipped at 2048).
     "hesco",
+    # GH-974: the house's LOD1 twin ships its OWN 512 px bake (baked from house.glb by Cycles selected-to-active,
+    # tools/buildings/author_house_lod1.py), so it is a textured building. A FILE id, not a structure type: it is
+    # let off the palette check exactly like the full house, and the silhouette IoU (LOD_TWINS) still runs on it.
+    "house_lod1",
 }
 
 # 2026-09-07: the identical override, extended by the project lead to six

@@ -68,6 +68,7 @@ def setup_scene():
 
 def import_models():
     models, tex = {}, None
+    owns = {}
     for name in ("full", "lod1"):
         before = set(bpy.data.objects)
         bpy.ops.import_scene.gltf(filepath=os.path.join(REPO, GLBS[name]))
@@ -76,9 +77,14 @@ def import_models():
             o.parent = None
         if name == "full":
             tex = new[0].data.materials[0]
+        # A twin that ships its OWN bake (the house) is drawn with it; one that samples the full mesh's (the ditch)
+        # is drawn with the full mesh's, exactly as the runtime does.
+        own = new[0].data.materials[0] if name == "lod1" and new[0].data.materials else None
         models[name] = [(o.name, o.data) for o in new]
+        owns[name] = own
         for o in new:
             bpy.data.objects.remove(o)
+    models["_own"] = owns
     return models, tex
 
 
@@ -125,7 +131,8 @@ def render(sc, cam, models, model, layout, zoom, mag, path, sil, tex, ext, frame
         mat = tex
         sc.display.shading.light = "STUDIO"
         sc.display.shading.color_type = "TEXTURE"
-    made = place(models, model, tiles, mat)
+    own = models["_own"].get(model)
+    made = place(models, model, tiles, own if (own is not None and not sil) else mat)
     d, right, up = view_basis()
     ppu = PPU1 * zoom * mag
     pts = frame_corners(tiles, ext)
@@ -155,7 +162,7 @@ def render(sc, cam, models, model, layout, zoom, mag, path, sil, tex, ext, frame
 def main():
     sc, cam = setup_scene()
     models, tex = import_models()
-    tri = {m: sum(len(p.vertices) - 2 for _, me in models[m] for p in me.polygons) for m in models}
+    tri = {m: sum(len(p.vertices) - 2 for _, me in models[m] for p in me.polygons) for m in ('full', 'lod1')}
     xs = [v.co.x for _, me in models["full"] for v in me.vertices]
     ys = [v.co.y for _, me in models["full"] for v in me.vertices]
     ext = (max(abs(min(xs)), abs(max(xs))), max(abs(min(ys)), abs(max(ys))))

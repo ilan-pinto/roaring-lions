@@ -49,8 +49,8 @@ def paste(img, x, yy):
 
 T(14, y, f"{name} vs {kind}_lod1 - GH-974 close-up approval sheet | authored in Blender by code, 0 Meshy credits", FB)
 y += 28
-T(14, y, f"triangles: full {tris['full']:,}  |  lod1 {tris['lod1']:,} ({tris['lod1'] / tris['full'] * 100:.1f}%).  Both drawn with the FULL mesh's own bake "
-  "(the twin's UV0 samples it), Workbench studio light, not the in-game toon ramp.", FS)
+T(14, y, f"triangles: full {tris['full']:,}  |  lod1 {tris['lod1']:,} ({tris['lod1'] / tris['full'] * 100:.1f}%).  "
+  + ("Both drawn with the FULL mesh's own bake (the twin's UV0 samples it)" if kind == "ditch" else "The full house with its Meshy bake; the twin with its OWN 512 px bake of it (Cycles selected-to-active, colour only)") + ", Workbench studio light, not the in-game toon ramp.", FS)
 y += 16
 T(14, y, "Camera: the game's, 30 deg dimetric, 64 px tile diamond at zoom 1 (15.085 px/m x zoom). Left/top = full, right/bottom = twin.", FS)
 y += 28
