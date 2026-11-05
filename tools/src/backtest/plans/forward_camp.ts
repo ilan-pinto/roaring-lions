@@ -117,3 +117,6 @@ export function forwardCampPlan(
 
 /** Ein Qasab III: the camp at the south landing, at the foot of the causeway; the shipped plan buys, the camp's line takes a share. */
 export const EQ3_CAMP: ForwardCampSpec = { x: 21, y: 34, muster: [24, 19] };
+
+/** Umm Zeitoun IV (GH-277, second wave): the camp on the open road south of the escarpment, the line buys rifle squads and AT teams for the push north. */
+export const UZ4_CAMP: ForwardCampSpec = { x: 26, y: 38, muster: [30, 20], buys: ['inf_squad', 'at_team'], buyUntil: 240 };

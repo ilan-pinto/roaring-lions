@@ -198,17 +198,18 @@ describe('the shipped data', () => {
     const buildable = Object.values(catalogue.types).filter((t) => t.buildable !== undefined).map((t) => t.id);
     expect(buildable.sort()).toEqual(['kdf_aid_post', 'kdf_forward_camp', 'kdf_intel_centre', 'kdf_medic_station', 'kdf_outpost', 'kdf_workshop']);
   });
-  it('exactly these nine shipped missions list field_works: Ein Qasab II (GH-912), the seven allow lists of spec 5 and Ein Qasab III\'s forward camp (GH-277 Task 15)', () => {
+  it('exactly these ten shipped missions list field_works: Ein Qasab II (GH-912), the seven allow lists of spec 5, Ein Qasab III\'s forward camp (GH-277 Task 15) and Umm Zeitoun IV\'s (GH-277 second wave)', () => {
     const withWorks = readdirSync(join(ROOT, 'data/missions'))
       .filter((f) => f.endsWith('.json'))
       .filter((f) => readJson(`data/missions/${f}`).field_works !== undefined);
     expect(withWorks).toEqual([
       'beit_sahwan_2_foothold.json', 'deir_amun_2_foothold.json', 'ein_qasab_2_foothold.json', 'ein_qasab_3_buildup.json',
       'khan_rafid_2_foothold.json', 'qarn_hadid_2_foothold.json', 'tel_marum_2_foothold.json', 'umm_zeitoun_2_buildup.json',
-      'wadi_halam_2_laager.json',
+      'umm_zeitoun_4_clearance.json', 'wadi_halam_2_laager.json',
     ]);
     expect(readJson('data/missions/ein_qasab_2_foothold.json').field_works).toEqual({ kdf_outpost: 1 });
     expect(readJson('data/missions/ein_qasab_3_buildup.json').field_works).toEqual({ kdf_forward_camp: 1 });
+    expect(readJson('data/missions/umm_zeitoun_4_clearance.json').field_works).toEqual({ kdf_forward_camp: 1 });
     // Umm Zeitoun II was measured with the camp and left without it (+28.1% median, probes.md).
     expect(readJson('data/missions/umm_zeitoun_2_buildup.json').field_works.kdf_forward_camp).toBeUndefined();
   });
