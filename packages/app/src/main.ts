@@ -137,6 +137,7 @@ import { holdDraft, readDraft } from './feedback/draft';
 import { isClosed as feedbackClosed } from './feedback/gate';
 import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
+import { withGroundPhoto } from './ui/ground-photo';
 import { answered as promptAnswered, asked as promptAsked, ignored as promptIgnored, readPromptState, shouldAsk, writePromptState } from './feedback/prompt-policy';
 import { ReplayRecorder } from './feedback/replay';
 import { afterAction, promotionsBetween } from './ui/after-action';
@@ -6239,15 +6240,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               // The ground after the fight, photographed now rather than at
               // the missionEnd event: by the time the moment ends, the renderer
               // has drawn the last tick, so a building that fell on it is rubble.
-              let photo: ImageData | null = null;
-              if (debriefOpts.ground) {
-                try {
-                  const shot = renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX) ?? null;
-                  if (shot) photo = new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height);
-                } catch (err) {
-                  console.warn('debrief: the ground photograph failed; the painted ground stays', err);
-                }
-              }
+              const reportWith = (photo: ImageData | null): void => {
               // GH-464: "How was that mission?", at most once per mission
               // (`prompt-policy.ts`). Asked is recorded now, so a reload on
               // this screen does not ask twice.
@@ -6273,6 +6266,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 })
               );
               if (prompt) screenDisposers.push(prompt.dispose);
+              };
+              // GH-943 P1 (T8): legacy runs `reportWith` before this returns; a node backend awaits its async photograph, and a
+              // disposed screen writes nothing (`ui/ground-photo.ts`).
+              if (debriefOpts.ground) withGroundPhoto(renderer, BRIEFING_GROUND_PX, () => disposed, reportWith);
+              else reportWith(null);
             });
           }
         }
