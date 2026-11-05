@@ -158,3 +158,12 @@ export function roarBackfill(w: RoarWallet, ledger: LedgerData, world: ParsedWor
   };
   return grantFree(base, coins, (id, c) => ({ kind: 'earn', id, at, coins: c, source: 'backfill' }), at);
 }
+
+/**
+ * Settles an unsettled wallet's back-payment at boot (G-E3), before any slot or
+ * import UI can swap the ledger: the first `readRoar` is what settles it, so it is
+ * made here, against the ledger the player actually earned.
+ */
+export function settleRoarAtBoot(store: Pick<LedgerStore, 'readRoar'>): void {
+  store.readRoar();
+}

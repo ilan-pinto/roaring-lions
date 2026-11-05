@@ -122,7 +122,7 @@ import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
 import { coinTiers, spendable } from './roar-wallet';
-import { roarBackfill, settleVictory, type VictorySettle } from './roar-earn';
+import { roarBackfill, settleRoarAtBoot, settleVictory, type VictorySettle } from './roar-earn';
 import { buyWithCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
@@ -423,6 +423,8 @@ function safeStorage(): Storage | null {
  *  browser's own store rather than a snapshot of anything -- every read below
  *  still goes to storage at the moment it is made. */
 const ledgerStore = browserLedgerStore((w, l) => roarBackfill(w, l, parseWorld(world), Date.now()));
+// Settle the one-time Store back-pay before any slot or import can swap the ledger (G-E3).
+settleRoarAtBoot(ledgerStore);
 
 /** `{ id, role }` for `nameKind` (spec §4.7), from the same `units` catalogue every
  *  other lookup in this file reads. An unknown id (a future or removed unit type

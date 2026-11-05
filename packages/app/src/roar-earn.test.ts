@@ -13,7 +13,7 @@ import { parseWorld } from './campaign';
 import { LEDGER_KEY } from './main-keys';
 import { memoryLedgerStore, type CampaignLedger, type LedgerStore } from './ledger-store';
 import { saveSlot, writeActive, readActive, loadSlot } from './profile';
-import { EARN, MAX_STARS, roarBackfill, roarEarn, settleVictory, worldMissionIds, type VictoryWin } from './roar-earn';
+import { EARN, MAX_STARS, roarBackfill, roarEarn, settleRoarAtBoot, settleVictory, worldMissionIds, type VictoryWin } from './roar-earn';
 import { ROAR_KEY, emptyRoar, spendable, type RoarWallet } from './roar-wallet';
 import { LADDER_MISSIONS, coinPrice } from './ui/stores-model';
 
@@ -295,6 +295,19 @@ describe('GH-317: the back-payment for a wallet that already exists', () => {
     expect(spendable(s.readRoar())).toBe(115 + 45);
     expect(spendable(s.readRoar())).toBe(115 + 45);
     expect(s.readRoar().receipts.filter((x) => x.kind === 'earn' && x.source === 'backfill')).toHaveLength(1);
+  });
+
+  it('G-E3: an import after the boot settle pays nothing; the boot settle used the original ledger', () => {
+    const s = keyed(post());
+    settleRoarAtBoot(s); // main.ts does this right after building the store
+    const full = ledgerOf(ids, Object.fromEntries(ids.map((id) => [id, 3]))) as CampaignLedger;
+    s.writeLedger(full); // a 3-star slot imported
+    expect(spendable(s.readRoar())).toBe(115 + 45); // the Garage opens: original ledger's back-pay only
+  });
+
+  it('main.ts settles at boot, right after building the store', () => {
+    const src = readFileSync(resolve(__dirname, 'main.ts'), 'utf8');
+    expect(src).toMatch(/const ledgerStore = browserLedgerStore\([^;]*;\s*(\/\/[^\n]*\n\s*)*settleRoarAtBoot\(ledgerStore\);/);
   });
 
   it('a wallet with the marker set pays 0', () => {
