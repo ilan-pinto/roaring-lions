@@ -242,6 +242,11 @@ function setKey(state: StateKey, root: THREE.Matrix4): string {
   return `${state}|${cx}|${cz}`;
 }
 
+/** The scar state a `setKey` names (the key format lives here and in `setKey`, nowhere else). */
+export function stateOfKey(key: string): StateKey {
+  return Number(key.slice(0, key.indexOf('|')));
+}
+
 interface TypeSets {
   idleParts: InstancePart[] | null;
   wreckParts: InstancePart[] | null;
@@ -552,7 +557,7 @@ export class StructureInstances {
       // A type with a twin draws it INSTEAD of its clean (state 0) full sets while the twin is on.
       const swapped = this.lodOn && sets.lod !== null;
       for (const [key, list] of sets.idle) {
-        const full = swapped && key.startsWith('0|');
+        const full = swapped && stateOfKey(key) === 0;
         for (const set of list) set.flush(this.hidden || full);
       }
       for (const list of sets.idleLod.values()) for (const set of list) set.flush(this.hidden || !swapped);

@@ -15,6 +15,7 @@ import {
   instanceableTemplate,
   lod1Active,
   partsOf,
+  stateOfKey,
 } from './structure-instances';
 import type { BuildingMeshTemplate } from './mesh-building';
 
@@ -436,5 +437,13 @@ describe('StructureInstances LOD1 twin', () => {
     si.addIdle(1, 'wall', at(1, 0, 0), 0, clean);
     si.dispose();
     expect(scene.children.length).toBe(0);
+  });
+});
+
+describe('stateOfKey', () => {
+  it('reads the scar state out of a set key, for every state and chunk', () => {
+    expect(stateOfKey('0|3|4')).toBe(0);
+    expect(stateOfKey('5|0|12')).toBe(5);
+    expect(stateOfKey('10|1|1')).toBe(10);
   });
 });
