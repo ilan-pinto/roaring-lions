@@ -23,7 +23,12 @@
 //   pnpm golden-baseline:bless -- --reason="mesh trees replace the canopy sprite"
 //
 // Flags: --port=5175 (or GOLDEN_BASELINE_PORT; a held port is refused, exit 2) --out-dir=path --keep-server --scenario=<id>[,<id>...]
-//        --baseline-dir=path --bless --reason="..." --gpu=legacy|webgl2|webgpu
+//        --baseline-dir=path --bless --reason="..." --gpu=legacy|webgl2|webgpu --match-node
+//
+// --match-node (GH-943 P1) is the parity job's LEGACY arm: the shipping renderer with the node backend's census applied to its scene (every
+// ShaderMaterial object and the occlusion outline hidden, AO off) so a parity ratio compares like with like. It is legacy-only, never
+// blesses, and reads NO baseline (it would otherwise be judged against the shipped legacy pictures): it writes `summary.json` per
+// scenario with every layer reading, for `ci/parity-run.ts`.
 //
 // --gpu (GH-943 P0) picks the ARM: `legacy` (the default; today's WebGLRenderer, every URL and key unchanged), `webgl2` (the node
 // backend on three's own WebGL2, key `...-wgl2`) or `webgpu` (the node backend on WebGPU, key `...-wgpu`). The backend is read from
@@ -116,6 +121,7 @@ import {
   captureScript,
   layerToggleScript,
   repaintScriptFor,
+  type CaptureScriptOptions,
   SCENARIOS,
   type Scenario,
 } from '../golden-diff/capture-protocol';
@@ -159,6 +165,9 @@ const DEFAULT_BASELINE_DIR = path.join(REPO_ROOT, 'tools', 'golden-baselines');
 const TAG = 'three-baseline';
 const PIXELMATCH_THRESHOLD = 0.1; // pixelmatch's own default, unchanged from diff.ts
 
+/** Set once by `main` from `--match-node`; empty (every script byte-identical to before) otherwise. */
+let scriptOpts: CaptureScriptOptions = {};
+
 // No `port` here: `main` takes it from `claimPort`, which reads `--port=` and
 // GOLDEN_BASELINE_PORT itself and refuses a held one.
 interface Args {
@@ -169,6 +178,8 @@ interface Args {
   bless: boolean;
   reason: string | null;
   arm: GpuArm;
+  /** GH-943 P1: `--match-node`, the legacy arm drawn as the node chain draws it (capture-protocol.ts `matchNodeStatements`). */
+  matchNode: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -198,6 +209,7 @@ function parseArgs(argv: readonly string[]): Args {
     scenarioIds: scenarioArg ? scenarioArg.split(',').map((s) => s.trim()) : null,
     bless: flags.has('bless'),
     reason: flags.get('reason') ?? null,
+    matchNode: flags.has('match-node'),
     // An unknown value is a usage error, handled in `main` (parseGpuArm returns null): never silently legacy.
     arm: parseGpuArm(flags.get('gpu')) ?? ('bad' as GpuArm),
   };
@@ -249,7 +261,7 @@ async function captureScenario(
   const result = await capture(
     page,
     threeUrl(port, scenario, arm),
-    captureScript(scenario, arm),
+    captureScript(scenario, arm, scriptOpts),
     png,
     `${TAG}/${scenario.id}`,
     scenario.mission !== undefined,
@@ -265,7 +277,25 @@ interface SelfCheckResult {
   checks: number;
   lines: string[];
   failures: string[];
+  /** Every number the checks measured, for `summary.json` and `ci/parity-run.ts`. Absent when the scenario declares no check. */
+  readings?: ScenarioReadings;
 }
+
+/** One toggle (or the repaint control) as the parity job reads it: the shown-minus-hidden delta, primary and secondary. */
+export interface Reading {
+  readonly meanAbsChannelDelta: number;
+  readonly changedPixels: number;
+  readonly diffPixels: number;
+}
+export interface ScenarioReadings {
+  readonly repaintControl: Reading;
+  readonly layers: readonly (Reading & { readonly layer: string })[];
+}
+const readingOf = (d: { meanAbsChannelDelta: number; changedPixels: number; diffPixels: number }): Reading => ({
+  meanAbsChannelDelta: d.meanAbsChannelDelta,
+  changedPixels: d.changedPixels,
+  diffPixels: d.diffPixels,
+});
 
 /**
  * The reference-free half of the verdict: the visible-toggle A/B, run against
@@ -308,6 +338,7 @@ async function runSelfChecks(
   const dir = path.join(outDir, scenario.id);
   const lines: string[] = [];
   const failures: string[] = [];
+  const layerReadings: (Reading & { layer: string })[] = [];
 
   // The control. `REPAINT_SCRIPT` advances no tick and hands `frame()` zero
   // milliseconds, so this is the same picture drawn twice.
@@ -343,8 +374,8 @@ async function runSelfChecks(
   for (const check of checks) {
     const region = check.region !== undefined ? check.region : spec.region;
     const hiddenPng = path.join(dir, `layer-${check.layer}-hidden.png`);
-    await rephotograph(page, layerToggleScript(check.layer, false, arm), hiddenPng, captured.rect);
-    const shownAgain = await page.evaluate(layerToggleScript(check.layer, true, arm));
+    await rephotograph(page, layerToggleScript(check.layer, false, arm, scriptOpts), hiddenPng, captured.rect);
+    const shownAgain = await page.evaluate(layerToggleScript(check.layer, true, arm, scriptOpts));
     const objects = (JSON.parse(shownAgain as string) as { objects: number }).objects;
     const summary = computeDiff(shownPng, hiddenPng, {
       outDir: dir,
@@ -353,6 +384,7 @@ async function runSelfChecks(
       region: region ?? undefined,
     });
     const verdict = evaluateLayerCheck(summary, check);
+    layerReadings.push({ layer: check.layer, ...readingOf(summary) });
     lines.push(
       `layer "${check.layer}": hiding it moved ${summary.diffPixels} px / ` +
         `${summary.meanAbsChannelDelta.toFixed(4)} (floor >=${check.minDiffPixels} px / ` +
@@ -372,11 +404,11 @@ async function runSelfChecks(
       const flatHidden = path.join(dir, `layer-${check.layer}-over-flat-hidden.png`);
       // Every `over` layer hidden together (ground-albedo AND macro: the flat
       // palette tone), and put back in reverse order.
-      for (const layer of over) await page.evaluate(layerToggleScript(layer, false, arm));
+      for (const layer of over) await page.evaluate(layerToggleScript(layer, false, arm, scriptOpts));
       await rephotograph(page, repaintScriptFor(arm), flatShown, captured.rect);
-      await rephotograph(page, layerToggleScript(check.layer, false, arm), flatHidden, captured.rect);
-      await page.evaluate(layerToggleScript(check.layer, true, arm));
-      for (const layer of [...over].reverse()) await page.evaluate(layerToggleScript(layer, true, arm));
+      await rephotograph(page, layerToggleScript(check.layer, false, arm, scriptOpts), flatHidden, captured.rect);
+      await page.evaluate(layerToggleScript(check.layer, true, arm, scriptOpts));
+      for (const layer of [...over].reverse()) await page.evaluate(layerToggleScript(layer, true, arm, scriptOpts));
       const flat = computeDiff(flatShown, flatHidden, {
         outDir: dir,
         diffFileName: `diff-layer-${check.layer}-over-flat.png`,
@@ -400,7 +432,9 @@ async function runSelfChecks(
   // scatter no-op while the floor passes), so leaving it out would understate
   // exactly the check that is hardest to explain from the summary line.
   const toneChecks = checks.filter((c) => c.toneCheck).length;
-  return { ok: failures.length === 0, checks: checks.length + toneChecks + 1, lines, failures };
+  const readings: ScenarioReadings = { repaintControl: readingOf(control), layers: layerReadings };
+  writeFileSync(path.join(dir, 'summary.json'), JSON.stringify({ arm, scenario: scenario.id, readings }, null, 2));
+  return { ok: failures.length === 0, checks: checks.length + toneChecks + 1, lines, failures, readings };
 }
 
 async function main(): Promise<void> {
@@ -422,6 +456,17 @@ async function main(): Promise<void> {
     return;
   }
   const arm = args.arm;
+  if (args.matchNode) {
+    if (arm !== 'legacy' || args.bless) {
+      console.error(`[${TAG}] --match-node is a legacy-arm, never-blessing option (the node arms already draw the node chain)`);
+      process.exitCode = EXIT_USAGE;
+      return;
+    }
+    scriptOpts = { matchNodeRoot: REPO_ROOT };
+    // No baseline is read: the shipped legacy pictures are not this arm's reference. An empty directory under the out-dir makes the
+    // environment read as "no baseline", which is exactly the report-only mode every node arm runs in.
+    args.baselineDir = path.join(args.outDir, 'no-baseline-for-match-node');
+  }
   if (args.bless && arm !== 'legacy') {
     console.error(
       `[${TAG}] refusing to bless the ${arm} arm: the node backends have NO baselines in P0 (GH-943). Their first blesses go through the ` +
@@ -760,7 +805,7 @@ async function main(): Promise<void> {
         threshold: PIXELMATCH_THRESHOLD,
         region: spec.region ?? undefined,
       });
-      writeFileSync(path.join(args.outDir, scenario.id, 'summary.json'), JSON.stringify(summary, null, 2));
+      writeFileSync(path.join(args.outDir, scenario.id, 'summary.json'), JSON.stringify({ ...summary, readings: self.readings }, null, 2));
       console.log(formatSummary(summary));
       const verdict = evaluateBaseline(summary, spec);
       console.log(

@@ -1,0 +1,65 @@
+# GH-943 WebGPU-primary, P1 T1: the zero-noise check on each node key, MANUAL.
+#
+# 24 `quiet` captures per key, each in a FRESH PROCESS (a new dev server, browser and GPU device), must be byte-identical
+# (`tools/src/ci/noise-check.ts`). It is the claim the parity job stands on: the node arms are deterministic, so a band's width belongs
+# to its class and a ratio moves only when the code moves. Not on every PR: 24 boots per key is ~20 min of SwiftShader. Dispatch it from
+# the Actions tab (or `gh workflow run webgpu-noise.yml --ref <branch>`) when a node-path PR changes what a capture draws. GitHub only
+# offers a dispatch for a workflow file that is on the default branch, so it first becomes available when this file reaches main.
+name: webgpu-noise
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Fresh-process captures per key
+        default: '24'
+
+permissions:
+  contents: read
+
+jobs:
+  noise:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [webgl2, webgpu]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      - name: Fresh-process captures
+        run: |
+          set +e
+          pnpm --filter @lions/tools exec tsx src/ci/noise-check.ts --gpu=${{ matrix.arm }} --scenario=quiet --runs=${{ inputs.runs }} --port=5186 2>&1 | tee noise-check.log
+          code=${PIPESTATUS[0]}
+          {
+            echo "### webgpu-noise / ${{ matrix.arm }}: exit \`$code\` (0 identical, 1 differ, 2 a process failed)"
+            echo '```'
+            grep -E "PASS|FAIL|process" noise-check.log | tail -40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $code
+      - name: Upload
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webgpu-noise-${{ matrix.arm }}
+          path: |
+            noise-check-output
+            noise-check.log
+          if-no-files-found: ignore
+          retention-days: 3

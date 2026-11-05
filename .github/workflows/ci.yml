@@ -141,6 +141,13 @@ jobs:
       - run: pnpm build
       # GH-943 P0: three.core shared, three/webgpu lazy, main chunk clean and under its ceiling.
       - run: pnpm --filter @lions/tools webgpu:bundle
+      # GH-943 P1: the same-PR rule. A PR that changes a legacy GLSL file whose node twin exists (TWINS, tools/webgpu_ratchet.mjs) must
+      # change the twin too. HEAD is the PR's merge commit, so a two-dot diff against the fetched base is exactly the PR's change.
+      - name: Twin check (same-PR rule)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          pnpm --filter @lions/tools exec tsx src/ci/twin-check.ts --base=FETCH_HEAD
 
   # The visual regression gate: three.js against a committed three.js baseline
   # (tools/src/ci/three-baseline-gate.ts). Its own job rather than a step in
@@ -416,6 +423,68 @@ jobs:
             visual-backend-output-${{ matrix.arm }}
             backend-gates-output
             backend-gates.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # GH-943 WebGPU-primary, P1: the PARITY report, REPORT-ONLY (`continue-on-error` at job level, like `visual-backends`).
+  #
+  # Runs the shipping renderer once more with `--match-node` (the node backend's census applied to the legacy scene, AO off: "legacy
+  # as the node chain draws it") and sets its layer-toggle readings beside each node arm's, from the `summary.json` files
+  # `visual-backends` uploaded (`ci/parity-run.ts`, bands in `golden-diff/parity-bands.ts`). The numbers are the product; the lead
+  # votes the bands in at the P1 sheet. Nothing here can turn the PR red.
+  visual-parity:
+    needs: visual-backends
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      - name: Download the node arms' captures
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          pattern: visual-backend-output-*
+          path: parity-in
+      - name: Legacy-matched arm (--match-node)
+        run: |
+          set +e
+          pnpm golden-baseline -- --match-node --port=5187 --out-dir=visual-parity-legacy
+          echo "match-node arm exit: $? (3 is expected: it reads no baseline)"
+          exit 0
+      - name: Parity report
+        run: |
+          set +e
+          {
+            echo "### visual-parity (REPORT-ONLY)"
+            for key in webgl2 webgpu; do
+              echo ""
+              echo "#### $key"
+              echo '```'
+              pnpm --filter @lions/tools exec tsx src/ci/parity-run.ts --legacy="$GITHUB_WORKSPACE/visual-parity-legacy" --node="$GITHUB_WORKSPACE/parity-in/visual-backend-output-$key/visual-backend-output-$key" --key=$key 2>&1
+              echo '```'
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - name: Upload captures
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: visual-parity-legacy-matched
+          path: visual-parity-legacy
           if-no-files-found: ignore
           retention-days: 3
 

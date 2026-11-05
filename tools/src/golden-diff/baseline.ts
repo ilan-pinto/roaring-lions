@@ -103,6 +103,11 @@ import type { DiffSummary, Region } from './diff';
  * entry's own `rationale` rather than left to be inferred.
  */
 export interface LayerCheckSpec {
+  /** GH-943 P1: `'floor'` (the default) requires the toggle to MOVE the frame by at least the floors below. `'zero'` is the opposite
+   *  question: hiding the layer must move NOTHING, exactly (0 px changed, 0.0000 mean delta). It is for a layer whose effect is
+   *  defined to be absent in the framing (bloom on a scene with no HDR, the repaint control), and for the parity job's zero band.
+   *  A `zero` check ignores `minMeanAbsChannelDelta` / `minDiffPixels` (set them to 0, so a reader sees there is no floor). */
+  kind?: 'floor' | 'zero';
   /** A `DEBUG_LAYERS` name (`packages/render/src/three/debug-layers.ts`). An
    *  unknown one THROWS in the page rather than reading as a dead layer. */
   layer: string;
@@ -2018,6 +2023,16 @@ export interface BaselineVerdict {
  *  gone. `baseline.test.ts` pins both directions. */
 export function evaluateLayerCheck(summary: DiffSummary, check: LayerCheckSpec): BaselineVerdict {
   const failures: string[] = [];
+  if (check.kind === 'zero') {
+    // Exact, on BOTH counts: the mean can round to 0.0000 while pixels moved, and pixelmatch's threshold hides sub-step changes.
+    if (summary.meanAbsChannelDelta !== 0 || summary.changedPixels !== 0 || summary.diffPixels !== 0) {
+      failures.push(
+        `hiding "${check.layer}" must move NOTHING (zero check) but moved ${summary.changedPixels} px exactly / ` +
+          `${summary.diffPixels} px perceptually / meanAbsChannelDelta ${summary.meanAbsChannelDelta.toFixed(4)}`
+      );
+    }
+    return { ok: failures.length === 0, gated: true, failures };
+  }
   if (summary.meanAbsChannelDelta < check.minMeanAbsChannelDelta) {
     failures.push(
       `hiding "${check.layer}" moved meanAbsChannelDelta ${summary.meanAbsChannelDelta.toFixed(4)} < ` +
