@@ -921,6 +921,13 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   are point mirrors (wadi_tarfan's mode file carries (6,6) / (41,41) for it; its camp mode is not offered). The same bias sits in the ECONOMY rooms
   of milh_flats_l, rujm_sawda, wadi_tarfan and wadi_tarfan_l (the hostile exit and production delivery are on the NW corner); that is the economy
   rules files' to fix, a separate change that moves their replays. Re-read after the fix: see the PR for the 9000-9191 numbers.
+- **The economy rules files carry the exit too (GH-976, 5 Nov).** `ends.<end>.camp.exit` in `data/versus/<map>.json` (`versus_rules.schema.json`),
+  an open ring tile, written by `economyRuntime` through `Sim.setStructureExit` after `runtime.start()`. milh_flats_l (13,74) / (82,21), rujm_sawda
+  (7,7) / (72,72), wadi_tarfan (6,6) / (41,41), wadi_tarfan_l (16,16) / (79,79): the friendly exit is what the scan answered, the hostile one its point
+  mirror (it was 3 tiles per axis nearer the centre). `validate_versus_rules.mjs` holds the same mirror rule as the modes validator (`scanExit` and
+  `pointSymmetric` live there now). The generators (`tools/maps/*/build.mjs` and the three `_redo` twins) emit the exits. Only wadi_tarfan and
+  wadi_tarfan_l are economy rooms in play (`FACTION_MATCHUP_MAPS`); milh_flats_l and rujm_sawda are mirror-only, so their exit changes no shipped room.
+  The 200-tick `VERSUS_ECONOMY_PINS` did NOT move: no unit is produced or delivered in 200 ticks of an idle room, and the override is out of `hash()`.
 - **Not offered, and why.** Screened over the camp ground the reach allows (24-48 seeds a cell, 0-47): wadi_tarfan best goal share 22%
   (16,15), rujm_sawda 33%, wadi_tarfan_l 25%, milh_flats_l 25%, tel_marum 33%, beit_sahwan_outskirts 0% (and 75-83% for one end). The passive bar passes
   at the forward cells, the goal share does not: the blobs meet. That is an engine rule (annihilation off in a camp room, or a wipe that does not end a

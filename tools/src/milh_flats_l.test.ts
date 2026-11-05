@@ -96,8 +96,8 @@ describe('the map is Milh Flats at twice the tile', () => {
     expect(rules.cap_minutes).toBe(35);
     expect(matchCapMinutes('milh_flats_l')).toBe(35);
     expect(MAP_CAP_MINUTES.milh_flats_l).toBe(35);
-    expect(rules.ends.friendly.camp).toEqual({ at: [14, 75], size: [2, 2] });
-    expect(rules.ends.hostile.camp).toEqual({ at: [80, 19], size: [2, 2] });
+    expect(rules.ends.friendly.camp).toEqual({ at: [14, 75], size: [2, 2], exit: [13, 74] }); // GH-976: authored exits, point mirrors
+    expect(rules.ends.hostile.camp).toEqual({ at: [80, 19], size: [2, 2], exit: [82, 21] });
     expect(rules.income_zones.reduce((a, z) => a + z.rate_per_min, 0)).toBe(220);
   });
 

@@ -28,7 +28,7 @@ const ROOT = join(__dirname, '..', '..');
 interface Rules {
   id: string;
   map: string;
-  ends: Record<'friendly' | 'hostile', { camp: { at: number[]; size: number[] } }>;
+  ends: Record<'friendly' | 'hostile', { camp: { at: number[]; size: number[]; exit?: number[] } }>;
   tunnels?: Record<'friendly' | 'hostile', { id: string; points: number[][]; capacity: number }[]>;
   zones?: Record<string, number[]>;
   income_zones: { zone: string; rate_per_min: number }[];
@@ -172,6 +172,29 @@ describe('versusRulesFailures, one mutation at a time', () => {
     expect(failures(rulesFor('wadi_tarfan'))).toEqual([]);
     expect(failures(rulesFor('tel_marum'))).toEqual([]);
     expect(failures(rulesFor('wadi_tarfan_l'))).toEqual([]); // GH-920 B7: a faction-matchup map now, held to the same rules
+  });
+  it('GH-976: a camp exit is an open ring tile; on a point-symmetric map the two exits are point mirrors', () => {
+    // Every shipped point-symmetric map authors both exits; each (friendly + hostile) sums to (W-1, H-1).
+    const SUMS = { milh_flats_l: [95, 95], rujm_sawda: [79, 79], wadi_tarfan: [47, 47], wadi_tarfan_l: [95, 95] } as const;
+    for (const [map, sum] of Object.entries(SUMS)) {
+      const doc = shipped.find((x) => x.doc.map === map)!.doc;
+      const f = doc.ends.friendly.camp.exit!;
+      const h = doc.ends.hostile.camp.exit!;
+      expect([f[0] + h[0], f[1] + h[1]], map).toEqual([...sum]);
+      expect(failures(rulesFor(map)), map).toEqual([]);
+      const nudged = rulesFor(map); // one tile off the mirror, still a ring tile of the camp
+      nudged[0].doc.ends.hostile.camp.exit = [h[0] - 1, h[1]];
+      expect(failures(nudged).some((m) => /not point mirrors/.test(m)), `${map} nudged`).toBe(true);
+      const derived = rulesFor(map); // no exit at all: the NW scan gives (f) and (h - 3), which are not mirrors
+      delete derived[0].doc.ends.hostile.camp.exit;
+      expect(failures(derived).some((m) => /not point mirrors/.test(m)), `${map} derived`).toBe(true);
+    }
+    const inside = rulesFor('wadi_tarfan');
+    inside[0].doc.ends.friendly.camp.exit = [7, 7];
+    expect(failures(inside).some((m) => /not a ring tile/.test(m))).toBe(true);
+    const far = rulesFor('wadi_tarfan');
+    far[0].doc.ends.friendly.camp.exit = [4, 4];
+    expect(failures(far).some((m) => /not a ring tile/.test(m))).toBe(true);
   });
   it('refuses a camp tile off the map', () => {
     const r = rulesFor('wadi_tarfan');

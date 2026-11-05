@@ -134,8 +134,8 @@ describe('the map is a plan: Milh Flats (large), redone', () => {
     expect(rules.cap_minutes).toBe(35);
     expect(matchCapMinutes('milh_flats_l')).toBe(35);
     expect(MAP_CAP_MINUTES.milh_flats_l).toBe(35);
-    expect(rules.ends.friendly.camp).toEqual({ at: [14, 75], size: [2, 2] });
-    expect(rules.ends.hostile.camp).toEqual({ at: [80, 19], size: [2, 2] });
+    expect(rules.ends.friendly.camp).toEqual({ at: [14, 75], size: [2, 2], exit: [13, 74] }); // GH-976: authored exits, point mirrors
+    expect(rules.ends.hostile.camp).toEqual({ at: [80, 19], size: [2, 2], exit: [82, 21] });
     expect(rules.income_zones.map((z) => z.zone).sort()).toEqual(['bir_milh', 'farm_0', 'farm_1', 'ford_nw', 'ford_se', 'tell_nw', 'tell_se']);
     expect(rules.income_zones.reduce((a, z) => a + z.rate_per_min, 0)).toBe(220);
   });

@@ -2,8 +2,8 @@
   "id": "wadi_tarfan",
   "map": "wadi_tarfan",
   "ends": {
-    "friendly": { "camp": { "at": [7, 7], "size": [2, 2] } },
-    "hostile": { "camp": { "at": [39, 39], "size": [2, 2] } }
+    "friendly": { "camp": { "at": [7, 7], "size": [2, 2], "exit": [6, 6] } },
+    "hostile": { "camp": { "at": [39, 39], "size": [2, 2], "exit": [41, 41] } }
   },
   "tunnels": {
     "friendly": [

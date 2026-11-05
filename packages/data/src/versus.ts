@@ -6,7 +6,7 @@
 
 /** One end of the map: where its camp stands. */
 export interface VersusEndJson {
-  readonly camp: { readonly at: readonly [number, number]; readonly size: readonly [number, number] };
+  readonly camp: { readonly at: readonly [number, number]; readonly size: readonly [number, number]; readonly exit?: readonly [number, number] };
 }
 
 /** A camp of a mode file: the rules file's camp plus an optional exit tile (GH-976). */

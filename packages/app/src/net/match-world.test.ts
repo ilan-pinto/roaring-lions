@@ -449,6 +449,25 @@ describe('the economy runtime (N3 Task 3)', () => {
   });
 });
 
+describe('the authored camp exits of an economy room (GH-976)', () => {
+  // LITERALS: [map, host factions, friendly camp at, its exit, hostile camp at, its exit] in tile indices. The
+  // exits are point mirrors; the NW scan the sim falls back to puts the hostile one 3 tiles per axis closer to the centre.
+  const EXITS = [
+    ['milh_flats_l', ['kdf', 'sarim'], [14, 75], [13.5, 74.5], [80, 19], [82.5, 21.5]],
+    ['rujm_sawda', ['kdf', 'sarim'], [8, 8], [7.5, 7.5], [70, 70], [72.5, 72.5]],
+    ['wadi_tarfan', ['kdf', 'sarim'], [7, 7], [6.5, 6.5], [39, 39], [41.5, 41.5]],
+    ['wadi_tarfan_l', ['kdf', 'sarim'], [17, 17], [16.5, 16.5], [77, 77], [79.5, 79.5]],
+  ] as const;
+  it.each(EXITS)('%s: structureExit answers the authored exit of each camp, the mirror of the other', (map, factions, fAt, fExit, hAt, hExit) => {
+    // milh_flats_l and rujm_sawda are mirror-only maps (no shipped room is an economy room there), so the config is
+    // built on wadi_tarfan and re-pointed: this holds the wiring and the file, not an offered room.
+    const w = buildMatchWorld({ ...config('wadi_tarfan', [factions[0], factions[1]], 7), map });
+    const answer = (at: readonly number[]): number[] => w.sim.structureExit(w.sim.structureAt(at[0], at[1])).map((v) => v / 65536);
+    expect(answer(fAt)).toEqual([...fExit]);
+    expect(answer(hAt)).toEqual([...hExit]);
+  });
+});
+
 describe('the Sarim seat\'s routes (GH-681, T3)', () => {
   // [map, host factions, the END the Sarim side stands at, that end's route ids, each route's capacity (LITERALS)]
   // wadi_tarfan re-priced 28 Oct 2026 (GH-560 Task 7B): wt_h_south 2 -> 1, wt_f_west 1 -> 2. Was [2, 3] and [1, 1].

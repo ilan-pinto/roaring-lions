@@ -20,39 +20,13 @@
 //
 // The anchors come from `anchorsOf` of the rules validator (the measured seats first, else the map's own
 // versus_0/versus_1 markers), which tools/src/validate_versus_rules.test.ts holds to the shipped function.
-import { CAMP_REACH, OPEN_SYMBOLS, anchorsOf } from './validate_versus_rules.mjs';
+import { CAMP_REACH, OPEN_SYMBOLS, anchorsOf, pointSymmetric, scanExit } from './validate_versus_rules.mjs';
 
 /** @lions/net WIN_MODES. */
 export const WIN_MODES = ['camp', 'points', 'flag'];
 
 /** @lions/net VERSUS_FAIR_MAPS: the maps a versus room may be hosted on. */
 export const OFFERED_MAPS = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
-
-/** The sim's exitTile as tile indices: the first open tile of the footprint box plus one, row-major. */
-function scanExit(map, camp) {
-  const [ax, ay] = camp.at;
-  const [w, h] = camp.size;
-  for (let y = ay - 1; y <= ay + h; y++) {
-    for (let x = ax - 1; x <= ax + w; x++) {
-      if (x < 0 || y < 0 || x >= map.width || y >= map.height) continue;
-      if (x >= ax && x < ax + w && y >= ay && y < ay + h) continue;
-      if (OPEN_SYMBOLS.has(map.rows[y][x])) return [x, y];
-    }
-  }
-  return null;
-}
-
-/** 0 differing tiles under (x,y) -> (W-1-x,H-1-y), in rows and in elevation. */
-function pointSymmetric(map) {
-  const H = map.rows.length;
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < map.width; x++) {
-      if (map.rows[y][x] !== map.rows[H - 1 - y][map.width - 1 - x]) return false;
-      if (map.elevation && map.elevation[y][x] !== map.elevation[H - 1 - y][map.width - 1 - x]) return false;
-    }
-  }
-  return true;
-}
 
 /**
  * @param {{ file: string, doc: any }[]} files every parsed data/versus/modes file
