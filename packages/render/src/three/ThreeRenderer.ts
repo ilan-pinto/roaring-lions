@@ -113,6 +113,7 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
+import { setImageReleaseEnabled } from './units/gltf-loader';
 import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
 import { rainReadNow, rainRimNow, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
@@ -168,6 +169,7 @@ import {
 import { structureAtScreenThree, structureBoxes } from './structure-pick';
 import { createSceneLights, DAY_LIGHTS, shadowBoxRadius, shadowIntensityOf, withLightOverride, withEnvironmentFill, type ResolvedLights, type SceneLights } from './lighting';
 import { EnvironmentRegistry } from './environment';
+import type { WebGpuTrial } from './spike/webgpu-trial';
 import { envClassOfDecorMesh, type EnvClass } from './environment-classes';
 import { fitShadowBox, type ShadowFitMode, type ShadowFitResult } from './shadow-fit';
 import { WORLD_PER_LEVEL as SHADOW_WORLD_PER_LEVEL } from './terrain/shared';
@@ -1281,6 +1283,16 @@ export class ThreeRenderer implements Renderer {
    *  keeps a composer-less path: the raw renderer, whose own `antialias:
    *  true` covers what SMAA covers in the game. */
   private post: PostChain | null = null;
+  /**
+   * GH-943 L5, option (b): the WebGPU trial (`spike/webgpu-trial.ts`). `null` everywhere unless
+   * `RendererOptions.gpuTrial` asked for it AND a real WebGPU adapter answered; `gpuTrialState` says which
+   * of those happened. Presentation only, sandbox only, never the default.
+   */
+  private gpuTrial: WebGpuTrial | null = null;
+  /** `off`: not asked. `pending`: asked, adapter being probed. `active`: the WebGPU canvas draws.
+   *  `fallback`: asked, refused (`gpuTrialReason`), the unchanged WebGL2 path draws. */
+  gpuTrialState: 'off' | 'pending' | 'active' | 'fallback' = 'off';
+  gpuTrialReason = '';
   /** CSS pixels, which is what `width`/`height` report -- see their own doc
    *  comment for why that is not the drawing buffer's size any more. */
   private cssWidth = 0;
@@ -3498,6 +3510,9 @@ export class ThreeRenderer implements Renderer {
 
   async init(host: HTMLElement): Promise<void> {
     this.host = host;
+    // L5 trial: WebGPU uploads a texture more than once, so the loader must not close bitmaps. Before ANY load starts,
+    // not when the trial comes up: a GLB that landed first would already be armed and draw black.
+    if (this.opts.gpuTrial === 'webgpu') setImageReleaseEnabled(false);
     this.loadGroundTexture();
     // Defilade T4: the flipbook atlases. Fail-soft and unawaited -- until
     // both land the flipbook draws nothing (no fallback billow).
@@ -3609,7 +3624,50 @@ export class ThreeRenderer implements Renderer {
     // (0, 0) (the Float64Array zero-fill) for however many animation frames
     // elapse before that first tick lands.
     this.seedFromSim();
+    if (this.opts.gpuTrial === 'webgpu') await this.startGpuTrial(host);
     await Promise.resolve();
+  }
+
+  /**
+   * L5 trial: probes WebGPU and, if it answers, lays a second canvas over the WebGL one. The WebGL canvas
+   * stays in the DOM under it, so the app's input listeners (which are on `canvas`) still hear the pointer;
+   * the trial canvas is `pointer-events: none`. On ANY refusal the state goes to `fallback`, a
+   * `console.warn` says why, and nothing about the WebGL path has changed.
+   */
+  private async startGpuTrial(host: HTMLElement): Promise<void> {
+    this.gpuTrialState = 'pending';
+    try {
+      const { createWebGpuTrial } = await import('./spike/webgpu-trial');
+      const made = await createWebGpuTrial({ background: this.opts.background });
+      if (this.disposed) {
+        if ('trial' in made) made.trial.dispose();
+        return;
+      }
+      if (!('trial' in made)) {
+        this.gpuTrialState = 'fallback';
+        this.gpuTrialReason = made.reason;
+        console.warn(`[webgpu-trial] FALLBACK to WebGL2: ${made.reason}`);
+        return;
+      }
+      const c = made.trial.canvas;
+      c.style.position = 'absolute';
+      c.style.left = '0';
+      c.style.top = '0';
+      c.style.pointerEvents = 'none';
+      host.appendChild(c);
+      this.gpuTrial = made.trial;
+      this.gpuTrialState = 'active';
+      console.info(`[webgpu-trial] ACTIVE on ${made.trial.adapter}: the WebGPU canvas draws, the WebGL2 path is idle`);
+    } catch (e) {
+      this.gpuTrialState = 'fallback';
+      this.gpuTrialReason = e instanceof Error ? e.message : String(e);
+      console.warn(`[webgpu-trial] FALLBACK to WebGL2: ${this.gpuTrialReason}`);
+    }
+  }
+
+  /** The live trial, for the measurement harness (`tools/src/perf/webgpu-trial.ts`). Null unless active. */
+  gpuTrialHandle(): WebGpuTrial | null {
+    return this.gpuTrial;
   }
 
   /** `Renderer.setQuiet` (`api.ts`): see `quiet.ts` for what `onEvents` drops. */
@@ -3827,6 +3885,8 @@ export class ThreeRenderer implements Renderer {
     // L1 (GH-943): strip the environment from every material it gave one to (a clone memoised on a
     // shared GLB material outlives this renderer), then free the texture while the context lives.
     this.environment?.dispose();
+    this.gpuTrial?.dispose();
+    this.gpuTrial = null;
     try {
       this.releaseResources();
     } finally {
@@ -4385,7 +4445,10 @@ export class ThreeRenderer implements Renderer {
     // whose own `antialias: true` stands in for the SMAA pass. Tone mapping
     // and the sRGB encode happen either way -- on this path the renderer
     // does them itself, on the composer's path `OutputPass` does.
-    if (this.post) {
+    if (this.gpuTrial) {
+      this.applyZoomFade();
+      this.gpuTrial.render(this.scene, camera, this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
+    } else if (this.post) {
       this.applyZoomFade();
       this.post.render();
     } else this.renderer.render(this.scene, camera);
@@ -5169,7 +5232,18 @@ export class ThreeRenderer implements Renderer {
         // Explicit rather than trusting `autoClear`, which the post chain's
         // own `RenderPass` turns off and on around itself.
         this.renderer.clear();
-        this.renderer.render(this.scene, camera);
+        // L5 trial: WebGPURenderer's ShadowNode stores its render target in `light.shadow.map`, the very slot
+        // WebGLShadowMap reads. A WebGL shadow pass here re-set-up that target, bumped its depth texture's
+        // version, and WebGPU then destroyed the GPUTexture its bind groups still named ("Destroyed texture
+        // ShadowDepthTexture used in a submit", every frame after). With the trial on, this one WebGL draw
+        // goes without the shadow pass; the minimap loses its shadows, which only the trial ever sees.
+        const shadowsWere = this.renderer.shadowMap.enabled;
+        if (this.gpuTrial) this.renderer.shadowMap.enabled = false;
+        try {
+          this.renderer.render(this.scene, camera);
+        } finally {
+          this.renderer.shadowMap.enabled = shadowsWere;
+        }
         // `renderToScreen` is false by default, so this draws its full-screen
         // quad into `encoded` -- tone-mapped and sRGB-encoded by its own
         // defines, which it reads off this renderer's `toneMapping` and
