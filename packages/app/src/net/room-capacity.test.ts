@@ -50,10 +50,11 @@ describe('a 256 room builds the world it always built', () => {
   it('capacity 256, and the same tick-0 digest for each shipped matchup', () => {
     // wadi_tarfan re-pinned for GH-945 (seats (11,11)/(36,36) -> (10,10)/(37,37), every tunnel route at capacity 3; the seats and the
     // route state are hashed, the runtime digest is not). Was 886210996 (kdf/kdf) and 2315748974 (kdf/sarim); the digests did not move.
+    // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so a room that registers the KDF roster turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old values read back (watched). Was 181436852 (wadi kdf/kdf), 1484097134 (wadi kdf/sarim) and 3335901607 (tel kdf/sarim); the digests did not move.
     const pins: [string, ['kdf' | 'sarim', 'kdf' | 'sarim'], number, number][] = [
-      ['wadi_tarfan', ['kdf', 'kdf'], 181436852, 0],
-      ['wadi_tarfan', ['kdf', 'sarim'], 1484097134, 3577900654],
-      ['tel_marum', ['kdf', 'sarim'], 3335901607, 733838646],
+      ['wadi_tarfan', ['kdf', 'kdf'], 2929583402, 0],
+      ['wadi_tarfan', ['kdf', 'sarim'], 2779631274, 3577900654],
+      ['tel_marum', ['kdf', 'sarim'], 4290301113, 733838646],
     ];
     for (const [map, f, hash, digest] of pins) {
       const w = buildMatchWorld(config(map, f));

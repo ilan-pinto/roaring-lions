@@ -1345,6 +1345,7 @@
   "selection.chip.shaken": "{n} shaken",
   "selection.chip.aboard": "{n} aboard",
   "selection.chip.aps": "APS {ammo}/{magazine}",
+  "selection.chip.apsReserve": "APS {ammo}/{magazine} +{reserve}",
   "selection.chip.formation.column": "{n} in column",
   "selection.chip.formation.attack": "{n} in attack formation",
   "selection.chip.formation.ambush": "{n} in ambush",
