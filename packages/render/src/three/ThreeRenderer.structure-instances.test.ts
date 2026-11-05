@@ -172,6 +172,24 @@ function close(a: THREE.Matrix4, b: THREE.Matrix4): void {
 }
 
 describe('ThreeRenderer instanced per-tile structures (GH-974)', () => {
+  it('chunks walls 16 tiles on a 48x48 map and 32 above it, through the renderer\'s own constructor', () => {
+    const meshesOn = (size: number): number => {
+      const sim = new Sim({ seed: 1, width: size, height: size, capacity: 1 });
+      const fence = sim.addStructureType({ id: 'fence', hp_per_tile: 80, height_px: 6, color: 'dust.3', per_tile: true });
+      for (const x of [1, 20, 33]) sim.addStructure(fence, [x + 2 * size]);
+      const r = new ThreeRenderer(sim, makeOpts());
+      const priv = r as unknown as Private;
+      priv.buildingMeshIdleTemplates.set('fence', realTemplate());
+      priv.buildingMeshWreckTemplates.set('fence', realTemplate());
+      priv.structureInstances.setIdleTemplate('fence', priv.buildingMeshIdleTemplates.get('fence')!);
+      priv.structureInstances.setWreckTemplate('fence', priv.buildingMeshWreckTemplates.get('fence')!);
+      priv.updateBuildingMeshes();
+      return priv.structureInstances.meshes().length;
+    };
+    expect(meshesOn(48), 'x = 1, 20, 33 are three 16-tile chunks x 2 template meshes').toBe(6);
+    expect(meshesOn(80), 'x = 1 and 20 share a 32-tile chunk, 33 is the next: two chunks x 2').toBe(4);
+  });
+
   it('draws a per-tile run as ONE instanced mesh per template mesh, and every other building as a clone', () => {
     const { priv, ns, ew, posts, shanty } = build();
     priv.updateBuildingMeshes();

@@ -56,6 +56,7 @@
 import * as THREE from 'three';
 import type { BuildingMeshTemplate } from './mesh-building';
 import { WORLD_RENDER_ORDER } from './render-order';
+import { CHUNKED_ABOVE_TILES } from '../terrain/chunks';
 
 /** One mesh of a template: what an instanced set draws. */
 export interface InstancePart {
@@ -235,10 +236,22 @@ type StateKey = number;
  *  (`terrain/chunks.ts`); a 48x48 map is nine chunks at most. */
 export const STRUCTURE_CHUNK_TILES = 16;
 
-/** The set a tile belongs to: its scar state and its chunk of the map. */
-function setKey(state: StateKey, root: THREE.Matrix4): string {
-  const cx = Math.floor(root.elements[12] / STRUCTURE_CHUNK_TILES);
-  const cz = Math.floor(root.elements[14] / STRUCTURE_CHUNK_TILES);
+/** The chunk edge on a map above `CHUNKED_ABOVE_TILES` (80x80 Rujm Sawda): the GROUND chunk's edge, so a
+ *  wall set is one per ground chunk. Each chunk's sets are one draw per template mesh per pass (colour,
+ *  shadow, AO), so at 16 a wall-heavy 80x80 centre view drew ~13 chunks = 56 calls for 0.75 ms, of which
+ *  triangles were ~0.1 ms (GH-974, `_coord/rujm-open-redo/attribution.md`). */
+export const STRUCTURE_CHUNK_TILES_LARGE = 32;
+
+/** The chunk edge for a `width` x `height` map. A map at or under `CHUNKED_ABOVE_TILES` (every map before
+ *  Rujm Sawda, 48x48) keeps 16, so its set keys, and with them the golden baselines, are byte-identical. */
+export function structureChunkTilesFor(width: number, height: number): number {
+  return width * height <= CHUNKED_ABOVE_TILES ? STRUCTURE_CHUNK_TILES : STRUCTURE_CHUNK_TILES_LARGE;
+}
+
+/** The set a tile belongs to: its scar state and its chunk of the map (`edge` tiles a side). */
+function setKey(state: StateKey, root: THREE.Matrix4, edge: number): string {
+  const cx = Math.floor(root.elements[12] / edge);
+  const cz = Math.floor(root.elements[14] / edge);
   return `${state}|${cx}|${cz}`;
 }
 
@@ -283,7 +296,11 @@ export class StructureInstances {
    *  consults every frame, so it holds. */
   private lodEnabled = true;
 
-  constructor(private readonly scene: THREE.Object3D) {}
+  constructor(
+    private readonly scene: THREE.Object3D,
+    /** Tiles to a chunk (a side): `structureChunkTilesFor(map)`. Fixed for the renderer's life, as a map is. */
+    private readonly chunkTiles: number = STRUCTURE_CHUNK_TILES
+  ) {}
 
   /** Does this type draw instanced (an idle template is registered for it)? */
   handles(typeId: string): boolean {
@@ -341,6 +358,11 @@ export class StructureInstances {
     sets.lod = null;
   }
 
+  /** The standing set keys of `typeId` (`state|cx|cz`), sorted. A test instrument: it pins the chunking. */
+  idleSetKeys(typeId: string): string[] {
+    return [...(this.types.get(typeId)?.idle.keys() ?? [])].sort();
+  }
+
   /** Does `typeId` have a LOD1 twin registered? */
   hasLod1(typeId: string): boolean {
     return this.types.get(typeId)?.lod != null;
@@ -369,7 +391,7 @@ export class StructureInstances {
   ): InstanceSet[] {
     const lod = sets.lod;
     if (!lod) return [];
-    const key = setKey(0, root);
+    const key = setKey(0, root, this.chunkTiles);
     let list = sets.idleLod.get(key);
     if (!list) {
       list = lod.map((p) => new InstanceSet(p.part, materialFor(p.full.mesh, 0), this.scene, CHUNK_FIRST_CAPACITY));
@@ -412,7 +434,7 @@ export class StructureInstances {
     materialFor: (mesh: THREE.Mesh, state: StateKey) => THREE.Material
   ): InstanceSet[] {
     const sets = this.setsFor(typeId);
-    const key = setKey(state, root);
+    const key = setKey(state, root, this.chunkTiles);
     let list = sets.idle.get(key);
     if (!list) {
       const parts = sets.idleParts;
@@ -442,9 +464,9 @@ export class StructureInstances {
     if (!placed || placed.state === state) return;
     const sets = this.types.get(placed.typeId);
     if (!sets) return;
-    for (const set of sets.idle.get(setKey(placed.state, placed.root)) ?? []) set.remove(s);
+    for (const set of sets.idle.get(setKey(placed.state, placed.root, this.chunkTiles)) ?? []) set.remove(s);
     // The twin holds clean tiles only: a scarred tile draws full art in its scar material.
-    if (placed.state === 0) for (const set of sets.idleLod.get(setKey(0, placed.root)) ?? []) set.remove(s);
+    if (placed.state === 0) for (const set of sets.idleLod.get(setKey(0, placed.root, this.chunkTiles)) ?? []) set.remove(s);
     for (const set of this.idleSets(placed.typeId, state, placed.root, materialFor)) set.set(s, placed.root);
     if (state === 0) for (const set of this.lodSets(sets, placed.root, materialFor)) set.set(s, placed.root);
     placed.state = state;
@@ -454,8 +476,8 @@ export class StructureInstances {
     const placed = this.idleOf.get(s);
     if (!placed) return false;
     const sets = this.types.get(placed.typeId);
-    for (const set of sets?.idle.get(setKey(placed.state, placed.root)) ?? []) set.remove(s);
-    if (placed.state === 0) for (const set of sets?.idleLod.get(setKey(0, placed.root)) ?? []) set.remove(s);
+    for (const set of sets?.idle.get(setKey(placed.state, placed.root, this.chunkTiles)) ?? []) set.remove(s);
+    if (placed.state === 0) for (const set of sets?.idleLod.get(setKey(0, placed.root, this.chunkTiles)) ?? []) set.remove(s);
     this.idleOf.delete(s);
     return true;
   }
@@ -463,7 +485,7 @@ export class StructureInstances {
   addWreck(s: number, typeId: string, root: THREE.Matrix4, yaw: number): void {
     const sets = this.setsFor(typeId);
     if (!sets.wreckParts) throw new Error(`StructureInstances: no wreck template for ${typeId}`);
-    const key = setKey(0, root);
+    const key = setKey(0, root, this.chunkTiles);
     let list = sets.wreck.get(key);
     if (!list) {
       list = sets.wreckParts.map((p) => new InstanceSet(p, p.mesh.material as THREE.Material, this.scene, CHUNK_FIRST_CAPACITY));
@@ -479,13 +501,13 @@ export class StructureInstances {
     if (!placed) return;
     placed.root.copy(root);
     // A settle only scales the pile's height: x and z, and so its chunk, do not move.
-    for (const set of this.types.get(placed.typeId)?.wreck.get(setKey(0, root)) ?? []) set.set(s, root);
+    for (const set of this.types.get(placed.typeId)?.wreck.get(setKey(0, root, this.chunkTiles)) ?? []) set.set(s, root);
   }
 
   removeWreck(s: number): boolean {
     const placed = this.wreckOf.get(s);
     if (!placed) return false;
-    for (const set of this.types.get(placed.typeId)?.wreck.get(setKey(0, placed.root)) ?? []) set.remove(s);
+    for (const set of this.types.get(placed.typeId)?.wreck.get(setKey(0, placed.root, this.chunkTiles)) ?? []) set.remove(s);
     this.wreckOf.delete(s);
     return true;
   }

@@ -16,6 +16,9 @@ import {
   lod1Active,
   partsOf,
   stateOfKey,
+  structureChunkTilesFor,
+  STRUCTURE_CHUNK_TILES,
+  STRUCTURE_CHUNK_TILES_LARGE,
 } from './structure-instances';
 import type { BuildingMeshTemplate } from './mesh-building';
 
@@ -128,6 +131,30 @@ describe('InstanceSet', () => {
     expect(set.mesh.renderOrder).toBe(-1);
     expect(set.mesh.castShadow).toBe(true);
     expect(set.mesh.receiveShadow).toBe(true);
+  });
+});
+
+describe('structure chunk size by map (GH-974)', () => {
+  const clean = (m: THREE.Mesh): THREE.Material => m.material as THREE.Material;
+  /** Stands tiles at `xz` on a `size` x `size` map the way the renderer builds it; returns the sorted set keys. */
+  function keysFor(size: number, xz: [number, number][]): string[] {
+    const si = new StructureInstances(new THREE.Group(), structureChunkTilesFor(size, size));
+    si.setIdleTemplate('wall', template());
+    xz.forEach(([x, z], i) => si.addIdle(i + 1, 'wall', at(x + 0.5, 0, z + 0.5), 0, clean));
+    return si.idleSetKeys('wall');
+  }
+  const SPREAD: [number, number][] = [[1, 1], [17, 1], [1, 17], [33, 33], [47, 47]];
+
+  it('a 48x48 map keeps the 16-tile chunks: its set keys are pinned to what shipped', () => {
+    expect(structureChunkTilesFor(48, 48)).toBe(STRUCTURE_CHUNK_TILES);
+    expect(STRUCTURE_CHUNK_TILES).toBe(16);
+    expect(keysFor(48, SPREAD)).toEqual(['0|0|0', '0|0|1', '0|1|0', '0|2|2'].sort());
+  });
+
+  it('a map above 48x48 takes the ground chunk edge, so a wall set is one per ground chunk', () => {
+    expect(structureChunkTilesFor(80, 80)).toBe(STRUCTURE_CHUNK_TILES_LARGE);
+    expect(structureChunkTilesFor(49, 48)).toBe(STRUCTURE_CHUNK_TILES_LARGE);
+    expect(keysFor(80, [...SPREAD, [70, 70]])).toEqual(['0|0|0', '0|1|1', '0|2|2'].sort());
   });
 });
 

@@ -598,7 +598,7 @@ import {
   type BuildingMeshTemplate,
 } from './units/mesh-building';
 import { wallSurfaceForBuilding } from './units/building-mesh-role';
-import { StructureInstances, instanceableTemplate, lod1Active } from './units/structure-instances';
+import { StructureInstances, instanceableTemplate, lod1Active, structureChunkTilesFor } from './units/structure-instances';
 import {
   applyBuildingDamageBand,
   buildingDamageBand,
@@ -2582,7 +2582,7 @@ export class ThreeRenderer implements Renderer {
    * keep every other building; a per-tile tile is in exactly one of the two,
    * decided by `perTileInstanced`.
    */
-  private readonly structureInstances = new StructureInstances(this.scene);
+  private readonly structureInstances: StructureInstances;
   /** A wreck mid grow-in on the instanced path: its placement and clock. The
    *  clone path keeps these on `buildingMeshSettling`'s roots. */
   private readonly instancedSettling = new Map<number, { t: number; spec: InstanceRootSpec }>();
@@ -3114,6 +3114,9 @@ export class ThreeRenderer implements Renderer {
     this.clodY = new Float64Array(n * CLOD_HISTORY);
     this.clodFacing = new Float64Array(n * CLOD_HISTORY);
     this.clodNext = new Uint8Array(n);
+    // Assigned here, not at the field: a field initialiser runs before the `sim` parameter property exists.
+    // 16-tile wall chunks on a 48x48 map, 32 above it (`structureChunkTilesFor`).
+    this.structureInstances = new StructureInstances(this.scene, structureChunkTilesFor(sim.width, sim.height));
     this.fog = new Uint8Array(sim.width * sim.height);
     this.sightByType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) this.sightByType[t] = fx.toNumber(sim.unitTypes[t].sight);
