@@ -12,6 +12,6 @@ describe('settledFrameRefusal', () => {
     expect(settledFrameRefusal(a, b)).toMatch(/differ in 1 byte.*first at 500/);
   });
   it('refuses a size difference', () => {
-    expect(settledFrameRefusal(new Uint8Array(3), new Uint8Array(4))).toMatch(/different sizes/);
+    expect(settledFrameRefusal(new Uint8Array(3), new Uint8Array(4))).toMatch(/different encoded sizes/);
   });
 });

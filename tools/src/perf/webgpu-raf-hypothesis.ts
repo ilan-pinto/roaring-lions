@@ -13,6 +13,7 @@
  * ONE Metal browser, on the port given, music off.
  */
 import { chromium } from 'playwright';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
@@ -37,17 +38,18 @@ interface Reading {
   mode: string;
   backend: string;
   rafNative: boolean;
-  frames: number;
-  renderCalls: number;
+  /** Per zoom: the pumped frame's synced time (ms), the renderer's draw-call and triangle counters, and a hash of the photographed canvas. */
+  z: Record<string, { syncedMs: number; calls: number; triangles: number; picture: string }>;
   cpuRenderMedMs: number;
-  cpuFrameMedMs: number;
-  drawCalls: number;
   errors: string[];
 }
 
+/** The hypothesis' observable: a frame the harness PUMPS must show the view it was pumped at. The `cpuRender` timer alone is not
+ *  enough (it reads ~0.1 ms on every mode: WebGPURenderer encodes cheaply), so the verdict is on the PICTURE and the counters. */
 async function read(mode: 'native' | 'stub' | 'flag'): Promise<Reading> {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 2 });
   await page.addInitScript(musicOffInitScript({}, { quality: 'high' }));
+  await page.addInitScript('window.__name = (f) => f;');
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
@@ -56,50 +58,54 @@ async function read(mode: 'native' | 'stub' | 'flag'): Promise<Reading> {
   await page.goto(`http://localhost:${port}/?sandbox=${MAP}&envlight=0&grade=0&tod=day&gpu=${GPU}`, { waitUntil: 'load' });
   await page.waitForFunction(() => !!(window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer, null, { timeout: 120000 });
   await page.waitForTimeout(3000);
-  const out = await page.evaluate(
-    async ({ mode, frames }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const L = (window as any).__lions;
-      const r = L.renderer;
-      if (mode === 'stub') window.requestAnimationFrame = () => 0;
-      if (mode === 'flag') L.freezeLoop(true);
-      // Let a stubbed/frozen loop die out: two real-time ticks.
-      await new Promise((res) => setTimeout(res, 300));
-      const nb = r.nodeBackend;
-      let calls = 0;
-      let renderMs = 0;
-      const orig = nb.render;
-      nb.render = (...a: unknown[]) => {
-        const t = performance.now();
-        orig.apply(nb, a);
-        renderMs += performance.now() - t;
-        calls++;
-      };
-      const cpuRender: number[] = [];
-      const cpuFrame: number[] = [];
-      for (let i = 0; i < frames; i++) {
-        const before = renderMs;
-        const t0 = performance.now();
-        r.frame(1, 0);
-        cpuFrame.push(performance.now() - t0);
-        cpuRender.push(renderMs - before);
-        await r.whenGpuIdle();
-      }
-      nb.render = orig;
-      const med = (v: number[]): number => [...v].sort((a, b) => a - b)[Math.floor(v.length / 2)] as number;
-      return {
-        backend: r.backendInfo().kind as string,
-        rafNative: /\[native code\]/.test(String(window.requestAnimationFrame)),
-        renderCalls: calls,
-        cpuRenderMedMs: med(cpuRender),
-        cpuFrameMedMs: med(cpuFrame),
-        drawCalls: nb.stats().calls as number,
-      };
-    },
-    { mode, frames: FRAMES }
-  );
+  // The stub / the flag go up here, then the loop is given 500 ms to die out.
+  await page.evaluate((mode) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const L = (window as any).__lions;
+    if (mode === 'stub') window.requestAnimationFrame = () => 0;
+    if (mode === 'flag') L.freezeLoop(true);
+  }, mode);
+  await page.waitForTimeout(500);
+  const z: Reading['z'] = {};
+  let cpuRender = 0;
+  for (const zoom of [1, 2.5]) {
+    const r = await page.evaluate(
+      async ({ zoom, frames }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const R = (window as any).__lions.renderer;
+        R.camera.zoom = zoom;
+        const nb = R.nodeBackend;
+        let renderMs = 0;
+        const orig = nb.render;
+        nb.render = (...a: unknown[]) => {
+          const t = performance.now();
+          orig.apply(nb, a);
+          renderMs += performance.now() - t;
+        };
+        const synced: number[] = [];
+        for (let i = 0; i < frames; i++) {
+          const t0 = performance.now();
+          R.frame(1, 0);
+          await R.whenGpuIdle();
+          synced.push(performance.now() - t0);
+        }
+        nb.render = orig;
+        const med = [...synced].sort((a, b) => a - b)[Math.floor(synced.length / 2)] as number;
+        const st = nb.stats();
+        return { syncedMs: med, calls: st.calls as number, triangles: st.triangles as number, renderMs: renderMs / frames, native: /\[native code\]/.test(String(window.requestAnimationFrame)), backend: R.backendInfo().kind as string };
+      },
+      { zoom, frames: FRAMES }
+    );
+    const shot = await page.screenshot();
+    z[`z${zoom}`] = { syncedMs: r.syncedMs, calls: r.calls, triangles: r.triangles, picture: createHash('sha256').update(shot).digest('hex').slice(0, 12) };
+    cpuRender = r.renderMs;
+    if (zoom === 2.5) {
+      await page.close();
+      return { mode, backend: r.backend, rafNative: r.native, z, cpuRenderMedMs: cpuRender, errors: errors.slice(0, 3) };
+    }
+  }
   await page.close();
-  return { mode, frames: FRAMES, errors: errors.slice(0, 5), ...out };
+  throw new Error('unreachable');
 }
 
 const load = os.loadavg()[0] as number;
@@ -107,16 +113,17 @@ const rows: Reading[] = [];
 for (const m of ['native', 'stub', 'flag'] as const) rows.push(await read(m));
 await browser.close();
 stop();
-console.log(`conditions: map=${MAP} gpu=${GPU} 1280x720 DPR 2, ${FRAMES} pumped frames, ANGLE/Metal, loadavg at start ${load.toFixed(2)}`);
+console.log(`conditions: map=${MAP} gpu=${GPU} 1280x720 DPR 2, ${FRAMES} pumped frames per zoom, ANGLE/Metal, loadavg at start ${load.toFixed(2)}`);
 for (const r of rows) {
   console.log(
-    `  ${r.mode.padEnd(6)} backend=${r.backend} rafNative=${r.rafNative} render() calls=${r.renderCalls}/${r.frames} cpuRender med=${r.cpuRenderMedMs.toFixed(3)} ms cpuFrame med=${r.cpuFrameMedMs.toFixed(2)} ms drawCalls=${r.drawCalls}${r.errors.length ? ` errors=${JSON.stringify(r.errors)}` : ''}`
+    `  ${r.mode.padEnd(6)} backend=${r.backend} rafNative=${r.rafNative} z1: ${r.z.z1?.syncedMs.toFixed(2)} ms calls ${r.z.z1?.calls} tris ${r.z.z1?.triangles} pic ${r.z.z1?.picture} | z2.5: ${r.z['z2.5']?.syncedMs.toFixed(2)} ms calls ${r.z['z2.5']?.calls} tris ${r.z['z2.5']?.triangles} pic ${r.z['z2.5']?.picture} | render() ${r.cpuRenderMedMs.toFixed(3)} ms${r.errors.length ? ` errors=${JSON.stringify(r.errors)}` : ''}`
   );
 }
 const [native, stub, flag] = rows as [Reading, Reading, Reading];
-const stubZero = stub.cpuRenderMedMs < 0.001 || stub.renderCalls === 0;
-const flagLive = flag.cpuRenderMedMs > 0.001 && flag.renderCalls > 0 && native.cpuRenderMedMs > 0.001;
+// A pumped frame "draws" when the picture and the counters follow the zoom it was pumped at.
+const follows = (r: Reading): boolean => r.z.z1?.picture !== r.z['z2.5']?.picture && r.z.z1?.triangles !== r.z['z2.5']?.triangles;
 console.log(
-  `hypothesis: stub reproduces CPU render 0: ${stubZero ? 'YES' : 'NO'}; the flag does not (reads like native): ${flagLive ? 'YES' : 'NO'} -> ${stubZero && flagLive ? 'CONFIRMED' : 'NOT CONFIRMED as stated'}`
+  `hypothesis: under the stubbed rAF a pumped frame does NOT follow the zoom (CPU-render-0 class): ${follows(stub) ? 'NO (it follows)' : 'YES'}; ` +
+    `under the app flag it does: ${follows(flag) ? 'YES' : 'NO'}; native control follows: ${follows(native) ? 'YES' : 'NO'} -> ${!follows(stub) && follows(flag) ? 'CONFIRMED' : 'NOT CONFIRMED as stated'}`
 );
 process.exit(0);

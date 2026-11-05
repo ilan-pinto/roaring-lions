@@ -4,7 +4,7 @@
 /** Why these two photographs are not one settled frame, or null when they are byte-identical. */
 export function settledFrameRefusal(first: Uint8Array, second: Uint8Array): string | null {
   if (first.length !== second.length) {
-    return `settled-frame: two zero-time repaints photographed at different sizes (${first.length} vs ${second.length} bytes)`;
+    return `settled-frame: two zero-time repaints photographed at different encoded sizes (${first.length} vs ${second.length} bytes: two different pictures, so the frame had not settled)`;
   }
   let differing = 0;
   let firstAt = -1;
