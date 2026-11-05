@@ -12,7 +12,14 @@ export const ARM_KIND: Readonly<Record<ArmId, string>> = { L: 'legacy-gl', F: 'n
 export interface ViewReading {
   readonly zoom: number;
   readonly cpuRenderMs: number;
+  /** Triangles of the passes EVERY arm draws (shadow + scene). Legacy's GTAO normal pre-pass is excluded: the P0 node chain has
+   *  no AO, so a whole-frame count differs by that pass for every scene and says nothing about whether the scenes match. */
   readonly triangles: number;
+  /** The whole frame's triangles, report-only (legacy includes the GTAO pre-pass). */
+  readonly frameTriangles?: number;
+  /** Median frame-start-to-GPU-idle and frame-call times. A synced time no longer than the CPU frame waited for no GPU at all. */
+  readonly syncedMs: number;
+  readonly cpuFrameMs: number;
   /** Sum of the BatchedMesh `_multiDrawCount` with the per-object frustum cull ON and OFF. */
   readonly entriesCullOn: number;
   readonly entriesCullOff: number;
@@ -24,6 +31,8 @@ export interface ArmReading {
   readonly backendKind: string;
   /** `String(window.requestAnimationFrame)` read from the page, after the harness has done everything it will do. */
   readonly rafSource: string;
+  /** What the page draws on: `WEBGL_debug_renderer_info`'s unmasked renderer on L and F, the WebGPU adapter on G. */
+  readonly gpu: string;
   /** Console lines (error and warning) the page produced during the run. */
   readonly consoleLines: readonly string[];
   readonly views: readonly ViewReading[];
@@ -43,11 +52,15 @@ export function harnessRefusals(arms: readonly ArmReading[], lowZoom = 1, highZo
   for (const a of arms) {
     // backendInfo().kind equals the arm.
     if (a.backendKind !== ARM_KIND[a.arm]) out.push(`arm ${a.arm}: backendInfo().kind is "${a.backendKind}", expected "${ARM_KIND[a.arm]}" (a fallback is evidence about the fallback)`);
+    // Hardware Metal on every arm (this measures SPEED; a player never runs on SwiftShader).
+    if (!/metal/i.test(a.gpu) || /swiftshader/i.test(a.gpu)) out.push(`arm ${a.arm}: draws on "${a.gpu}", not hardware Metal`);
     // Native rAF on every arm.
     if (!NATIVE_RAF.test(a.rafSource)) out.push(`arm ${a.arm}: window.requestAnimationFrame is not native code (a stub or wrapper is installed); native rAF is required on every arm`);
     // CPU render > 0.
     for (const v of a.views) {
       if (!(v.cpuRenderMs > 0)) out.push(`arm ${a.arm} z${v.zoom}: CPU render reads ${v.cpuRenderMs} ms; a render call that took no time did not run`);
+      // The GPU sync waited for something (F's `whenSubmitted` resolves at once on its WebGL2 backend: synced read cpuFrame).
+      if (!(v.syncedMs > v.cpuFrameMs)) out.push(`arm ${a.arm} z${v.zoom}: synced ${v.syncedMs} ms is not above the CPU frame ${v.cpuFrameMs} ms; the sync waited for no GPU`);
     }
     // Zero GPUValidationError, Destroyed texture, uploaded again.
     for (const re of BAD_CONSOLE) {

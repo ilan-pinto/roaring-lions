@@ -5,7 +5,7 @@
  *
  * Arms L (legacy), F (node on WebGL2), G (node on WebGPU) run L-vs-F and L-vs-G in ABBA order, each on a FRESH page, hardware Metal
  * (ANGLE/Metal; WebGPU through Dawn/Metal), 1280x720 DPR 2, z0.5, music off. REFUSES (exit 2) when:
- *  - the 1-minute load average is above 4 (checked before every run),
+ *  - the 1-minute load average is above 4, or `--max-load=<n>` (checked before every run; the bar used is in the conditions),
  *  - fewer than 3 rounds are asked for,
  *  - any `harnessRefusals` entry holds (CPU render 0, a stubbed rAF, a validation error in the console, wrong backend, ...),
  *  - the browser is on SwiftShader (this measures SPEED; a player never runs on it).
@@ -20,9 +20,9 @@ import path from 'node:path';
 import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPort } from '../ui-review/port';
-import { abbaOrder, barMet, compare, loadRefusal, roundsRefusal, summarise } from './webgpu-abba';
+import { MAX_LOADAVG_1M, abbaOrder, barMet, compare, loadRefusal, roundsRefusal, summarise } from './webgpu-abba';
 import { ARM_KIND, harnessRefusals, type ArmId, type ArmReading } from './webgpu-refusals';
-import type { ArmRun } from './webgpu-page';
+import type { ArmRun, LegacyScene } from './webgpu-page';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
@@ -34,6 +34,14 @@ const ROUNDS = Number(arg('rounds', '3'));
 const FRAMES = Number(arg('frames', '80'));
 const OUT = arg('out', '');
 const ARMS = arg('arms', 'F,G').split(',') as ('F' | 'G')[];
+// `--max-load=<n>`: the 1-minute load-average bar (default MAX_LOADAVG_1M, 4, the design's figure). Raising it is a stated
+// condition, never a silent one: the value used is printed in the conditions line and written to the JSON.
+const MAX_LOAD = Number(arg('max-load', String(MAX_LOADAVG_1M)));
+// `--legacy=matched|shipped`: what L is timed as (`LegacyScene` in webgpu-page.ts). `matched`, the default, is legacy drawing the
+// P0 node chain's scene, so the triangle refusal can pass; `shipped` is the player's frame, which P0's node arms cannot match.
+const LEGACY = arg('legacy', 'matched') as LegacyScene;
+if (LEGACY !== 'matched' && LEGACY !== 'shipped') refuse(`--legacy=${LEGACY}: expected matched or shipped`);
+if (!(MAX_LOAD > 0)) refuse(`--max-load=${arg('max-load', '')} is not a positive number`);
 const MODULE = `/@fs${root}/tools/src/perf/webgpu-page.ts`;
 
 function refuse(msg: string): never {
@@ -48,7 +56,7 @@ const WAIT_QUIET_MIN = Number(arg('wait-quiet', '0'));
 async function untilQuiet(): Promise<string | null> {
   const deadline = Date.now() + WAIT_QUIET_MIN * 60_000;
   for (;;) {
-    const lr = loadRefusal(os.loadavg()[0] as number);
+    const lr = loadRefusal(os.loadavg()[0] as number, MAX_LOAD);
     if (lr === null) return null;
     if (Date.now() >= deadline) return lr;
     await new Promise((res) => setTimeout(res, 5000));
@@ -67,7 +75,7 @@ const browser = await chromium.launch({
 });
 const consoleLines: string[] = [];
 
-async function runOne(arm: ArmId): Promise<{ run: ArmRun; lines: string[] }> {
+async function runOne(arm: ArmId): Promise<{ run: ArmRun; lines: string[]; gpu: string }> {
   const lines: string[] = [];
   const page: Page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 2 });
   await page.addInitScript(musicOffInitScript({}, { quality: 'high' }));
@@ -78,19 +86,26 @@ async function runOne(arm: ArmId): Promise<{ run: ArmRun; lines: string[] }> {
   });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(`http://localhost:${port}/`, { waitUntil: 'load', timeout: 60000 });
+  const glRenderer = await page.evaluate(() => {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    const ext = gl?.getExtension('WEBGL_debug_renderer_info');
+    return ext ? String(gl?.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : 'unknown';
+  });
   const run = (await page.evaluate(
-    async ({ mod, arm, mapId, counts, frames }) => {
+    async ({ mod, arm, mapId, counts, frames, legacyScene }) => {
       const m = (await import(/* @vite-ignore */ mod)) as typeof import('./webgpu-page');
-      return m.runArm({ mapId: mapId as never, arm, counts, frames, viewFrames: 40 });
+      return m.runArm({ mapId: mapId as never, arm, counts, frames, viewFrames: 40, legacyScene });
     },
-    { mod: MODULE, arm, mapId: MAP, counts: COUNTS, frames: FRAMES }
+    { mod: MODULE, arm, mapId: MAP, counts: COUNTS, frames: FRAMES, legacyScene: LEGACY }
   )) as ArmRun;
   await page.close();
-  return { run, lines };
+  return { run, lines, gpu: arm === 'G' ? run.adapter : glRenderer };
 }
 
 const results = new Map<ArmId, { target: number; synced: number[][]; cpuRender: number[][] }[]>();
 const readings: ArmReading[] = [];
+/** The 1-minute load average at the start of every fresh page, a stated condition of the result. */
+const loads: { test: string; round: number; arm: ArmId; load1m: number }[] = [];
 const sample: Record<string, ArmRun> = {};
 
 for (const test of ARMS) {
@@ -106,15 +121,18 @@ for (const test of ARMS) {
         stop();
         refuse(lr);
       }
-      const { run, lines } = await runOne(arm);
+      const load1 = os.loadavg()[0] as number;
+      const { run, lines, gpu } = await runOne(arm);
+      loads.push({ test, round: round + 1, arm, load1m: Number(load1.toFixed(2)) });
       consoleLines.push(...lines);
       sample[`${arm}`] = run;
       readings.push({
         arm,
         backendKind: run.backendKind,
         rafSource: run.rafSource,
+        gpu,
         consoleLines: lines,
-        views: run.views.map((v) => ({ zoom: v.zoom, cpuRenderMs: v.cpuRenderMs, triangles: v.triangles, entriesCullOn: v.entriesCullOn, entriesCullOff: v.entriesCullOff })),
+        views: run.views.map((v) => ({ zoom: v.zoom, cpuRenderMs: v.cpuRenderMs, syncedMs: v.syncedMs, cpuFrameMs: v.cpuFrameMs, triangles: v.triangles, frameTriangles: v.frameTriangles, entriesCullOn: v.entriesCullOn, entriesCullOff: v.entriesCullOff })),
         timestampQueryAvailable: false,
       });
       const acc = perArmRound.get(arm) ?? run.points.map((p) => ({ target: p.target, synced: [] as number[], cpuRender: [] as number[] }));
@@ -148,8 +166,13 @@ const refusals = harnessRefusals(
 if (refusals.length > 0) refuse(`\n  ${refusals.join('\n  ')}`);
 
 const out: string[] = [];
-out.push(`conditions: map=${MAP} 1280x720 DPR 2, z0.5, quality high, ${FRAMES} frames/point, ${ROUNDS} ABBA rounds, ANGLE/Metal, music off, loadavg at end ${os.loadavg()[0]?.toFixed(2)}`);
-for (const arm of ['L', ...ARMS] as ArmId[]) out.push(`  ${arm}: ${ARM_KIND[arm]} (${sample[arm]?.adapter}), unported hooks ${sample[arm]?.unportedCount}`);
+out.push(`conditions: map=${MAP} 1280x720 DPR 2, z0.5, quality high, ${FRAMES} frames/point, ${ROUNDS} ABBA rounds, L ${LEGACY === 'matched' ? 'MATCHED to the P0 node scene (GTAO off, the node census hidden set hidden; fog/bloom/SMAA/grade still on L)' : 'shipped'}, music off, max-load ${MAX_LOAD}, loadavg per page ${Math.min(...loads.map((l) => l.load1m)).toFixed(2)}-${Math.max(...loads.map((l) => l.load1m)).toFixed(2)}, at end ${os.loadavg()[0]?.toFixed(2)}`);
+out.push(`  gpu: ${[...new Set(readings.map((r) => `${r.arm}=${r.gpu}`))].join('; ')}`);
+for (const arm of ['L', ...ARMS] as ArmId[])
+  out.push(
+    `  ${arm}: ${ARM_KIND[arm]} (${sample[arm]?.adapter}), unported hooks ${sample[arm]?.unportedCount}; ` +
+      (sample[arm]?.views ?? []).map((v) => `z${v.zoom}: tris ${v.triangles} (frame ${v.frameTriangles}), entries ${v.entriesCullOn}/${v.entriesCullOff}, render ${v.cpuRenderMs.toFixed(2)} ms`).join('; ')
+  );
 const verdict: Record<string, unknown>[] = [];
 for (const test of ARMS) {
   for (const [i, target] of COUNTS.entries()) {
@@ -169,7 +192,7 @@ for (const test of ARMS) {
 console.log(out.join('\n'));
 if (OUT) {
   mkdirSync(path.dirname(OUT), { recursive: true });
-  writeFileSync(OUT, JSON.stringify({ conditions: out[0], verdict, sample }, null, 2));
+  writeFileSync(OUT, JSON.stringify({ conditions: out[0], maxLoad: MAX_LOAD, legacyScene: LEGACY, loads, gpu: [...new Set(readings.map((r) => `${r.arm}=${r.gpu}`))], verdict, sample }, null, 2));
   writeFileSync(OUT.replace(/\.json$/, '.txt'), out.join('\n'));
 }
 process.exit(0);
