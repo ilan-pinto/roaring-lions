@@ -794,6 +794,11 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'vehicle separation (GH-421): set once, by addUnitType, when a registered type declares a footprint, so it holds its build value at every cut. ' +
       'Its RESTORE is proved by the poisoned fork like every state row. Covered by a world that registers its first footprinted type mid-match'
   ),
+  ...rows(
+    'apsStockLive',
+    'APS stock (GH-884): set once, by addUnitType, when a registered type declares `aps.reserve`, so it holds its build value at every cut. ' +
+      'Its RESTORE is proved by the poisoned fork like every state row. Covered by a world that registers its first reserve-carrying type mid-match'
+  ),
   // GH-859 P1b: the fourteen formation march/call rows. Each task that makes the formation world move them
   // deletes its own line (the census fails an exemption whose row moved: "delete this exemption").
   // (fgQuiet fgCallX fgCallY left this list in Task 4: a group in contact counts the quiet clock and records its call point.)
