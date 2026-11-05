@@ -65,6 +65,7 @@ export function forwardCampPlan(
     // The camp first, so its 350 comes off the purse before the shipped plan's t=0 purchase asks for the rest.
     at(0, () => {
       record.ordered = rt.requestConstruct('kdf_forward_camp', spec.x, spec.y, real);
+      runNotes.forwardCampFromCamp = 0;
     });
     const gated = (t: string): number[] => (t === 'demo_squad' ? lent : ids(t).filter((i) => !ours.has(i)));
     base(sim, rt, gated, at);
@@ -108,6 +109,7 @@ export function forwardCampPlan(
         if (fresh.length > 0) {
           for (const i of fresh) ours.add(i);
           record.fromCamp += fresh.length;
+          runNotes.forwardCampFromCamp = record.fromCamp;
           sim.queueCommand({ kind: 'attackMove', ids: fresh, ...M(spec.muster[0], spec.muster[1]) });
         }
       });

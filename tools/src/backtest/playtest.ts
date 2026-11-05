@@ -4030,6 +4030,8 @@ const BUILDING_PLANS = ['beit_sahwan_2_foothold', 'deir_amun_2_foothold', 'wadi_
 const FORWARD_CAMP_MISSIONS = ['ein_qasab_3_buildup', 'umm_zeitoun_4_clearance'] as const;
 const FORWARD_CAMP_MEDIAN_BAND = 0.15;
 const FORWARD_CAMP_BY_S = 120;
+// The missions whose build plan buys on the camp's line (UZ4_CAMP.buys); Ein Qasab III buys at the rear door, so its line is not asked to produce.
+const FORWARD_CAMP_BUYS: ReadonlySet<string> = new Set(['umm_zeitoun_4_clearance']);
 {
   const median = (xs: number[]): number => {
     const s = [...xs].sort((a, b) => a - b);
@@ -4039,6 +4041,7 @@ const FORWARD_CAMP_BY_S = 120;
     const base: number[] = [];
     const built: number[] = [];
     const stood: number[] = [];
+    const fromCamp: number[] = [];
     let seedsSeen = 0;
     for (const runs of planRunsBySeed.values()) {
       const b = runs.find((r) => r.label === id && r.expect === 'victory');
@@ -4048,6 +4051,7 @@ const FORWARD_CAMP_BY_S = 120;
       if (b.result === 'victory') base.push(b.minutes);
       if (f.result === 'victory') built.push(f.minutes);
       stood.push(f.notes?.forwardCampDoneS ?? -1);
+      fromCamp.push(f.notes?.forwardCampFromCamp ?? -1);
     }
     const slowest = Math.max(...stood);
     const delta = (median(built) - median(base)) / median(base);
@@ -4061,6 +4065,11 @@ const FORWARD_CAMP_BY_S = 120;
     }
     if (!(Math.abs(delta) <= FORWARD_CAMP_MEDIAN_BAND)) {
       console.error(`forward camp ${id}: FAILED — the median win moved ${(delta * 100).toFixed(1)}%, outside +-${FORWARD_CAMP_MEDIAN_BAND * 100}% (gate 10)`);
+      process.exitCode = 1;
+    }
+    console.log(`forward camp ${id}: bodies out of the camp's line per seed: ${fromCamp.join(', ')}`);
+    if (FORWARD_CAMP_BUYS.has(id) && fromCamp.some((n) => !(n > 0))) {
+      console.error(`forward camp ${id}: FAILED — the camp's line produced nothing on a seed (${fromCamp.join(', ')}), gate 11 needs bodies out of its door on every seed`);
       process.exitCode = 1;
     }
     if (stood.some((s) => s < 0) || !(slowest < FORWARD_CAMP_BY_S)) {
