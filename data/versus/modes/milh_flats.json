@@ -2,8 +2,8 @@
   "id": "milh_flats",
   "map": "milh_flats",
   "camps": {
-    "friendly": { "at": [15, 39], "size": [2, 2] },
-    "hostile": { "at": [31, 7], "size": [2, 2] }
+    "friendly": { "at": [15, 39], "size": [2, 2], "exit": [14, 38] },
+    "hostile": { "at": [31, 7], "size": [2, 2], "exit": [33, 9] }
   },
   "flags": {
     "friendly": { "at": [4, 11], "size": [5, 5] },

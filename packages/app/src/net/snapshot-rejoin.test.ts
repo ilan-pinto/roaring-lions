@@ -50,13 +50,15 @@ const EVERY = 1200;
  * (1: -1613319460), so seed 1 stands. Was seed 2.
  * GH-976 camp-mode (5 Nov): `data/versus/modes/milh_flats.json` moved its camps (content again). Seed 1 went positive; seeds 6, 8 and 9 read
  * negative (1, 2, 3, 4, 5 and 7 read positive or fail the premise), so seed 6 stands. Was seed 1. Sim hash and runtime digest are untouched.
+ * GH-976 (5 Nov, camp exits): `exit` on the camps of `data/versus/modes/milh_flats.json` and `wadi_tarfan.json` is content too. Seed 6 went positive;
+ * seeds 3, 5 and 7 pass the premise (1, 2, 4, 8 and 9 fail it), so seed 3 stands. Was seed 6.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;
   const sides = sidesOfFactions([...factions]);
   const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({
-    matchId: CODE, code: CODE, seed: 6, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
+    matchId: CODE, code: CODE, seed: 3, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
     pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b-1', dataDigest: 0, snapshotEveryTicks: EVERY,
   });
   if (c === null) throw new Error('bad fixture');

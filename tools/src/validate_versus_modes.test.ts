@@ -15,7 +15,7 @@ const DIR = join(ROOT, 'data', 'versus', 'modes');
 interface Doc {
   id: string;
   map: string;
-  camps?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } };
+  camps?: { friendly: { at: number[]; size: number[]; exit?: number[] }; hostile: { at: number[]; size: number[]; exit?: number[] } };
   flags?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } };
   modes: { camp?: Record<string, unknown>; flag?: { hold_s: number }; points?: { zones: { zone: string; per_min: number; at?: number[]; size?: number[] }[]; per_value_destroyed: number; target: number } };
 }
@@ -171,12 +171,16 @@ describe('the shipped win-mode files', () => {
 
   it('wadi_tarfan\'s camps are its rules file\'s, and milh_flats\' two camps are point-symmetric about the map centre', () => {
     const w = shipped.find((s) => s.doc.map === 'wadi_tarfan')!.doc;
-    expect(w.camps).toEqual(versusRules.wadi_tarfan.ends && { friendly: versusRules.wadi_tarfan.ends.friendly.camp, hostile: versusRules.wadi_tarfan.ends.hostile.camp });
+    // The footprints are the rules file's; the mode file adds an authored `exit` (the NW scan is not point-symmetric, GH-976).
+    const noExit = (c: { at: readonly number[]; size: readonly number[] }): unknown => ({ at: c.at, size: c.size });
+    expect({ friendly: noExit(w.camps!.friendly), hostile: noExit(w.camps!.hostile) }).toEqual({ friendly: noExit(versusRules.wadi_tarfan.ends.friendly.camp), hostile: noExit(versusRules.wadi_tarfan.ends.hostile.camp) });
+    expect([w.camps!.friendly.exit, w.camps!.hostile.exit]).toEqual([[6, 6], [41, 41]]);
     const m = shipped.find((s) => s.doc.map === 'milh_flats')!.doc.camps!;
     // 48x48: tile (x, y) maps to (47 - x, 47 - y), so a 2x2 at (x, y) maps to (46 - x, 46 - y).
     expect(m.hostile.at).toEqual([46 - m.friendly.at[0], 46 - m.friendly.at[1]]);
     // The ground the camp mode was READ fair on (GH-976 camp-mode, 4000-4287). A one-tile move is a different cell: the surface is a race, re-read it.
-    expect(m).toEqual({ friendly: { at: [15, 39], size: [2, 2] }, hostile: { at: [31, 7], size: [2, 2] } });
+    expect(m).toEqual({ friendly: { at: [15, 39], size: [2, 2], exit: [14, 38] }, hostile: { at: [31, 7], size: [2, 2], exit: [33, 9] } });
+    expect([m.friendly.exit![0] + m.hostile.exit![0], m.friendly.exit![1] + m.hostile.exit![1]]).toEqual([47, 47]);
   });
 
   it('on a point-symmetric map the points zones come in the map\'s point-symmetric pairs, so both seats are offered the same ground', () => {
@@ -250,6 +254,26 @@ describe('versusModeFailures, one mutation at a time', () => {
     const clash = wt();
     camps(clash).hostile = { at: [7, 7], size: [2, 2] };
     expect(only(clash).some((f) => /the two camps overlap/.test(f))).toBe(true);
+  });
+
+  it('GH-976: a camp exit is an open ring tile; on a point-symmetric map the two exits are point mirrors', () => {
+    const base = wt();
+    expect(only(base)).toEqual([]);
+    const nudgedHostile = wt(); // one tile off the mirror, still a ring tile
+    camps(nudgedHostile).hostile.exit = [40, 41];
+    expect(only(nudgedHostile).some((f) => /not point mirrors/.test(f))).toBe(true);
+    const nudgedFriendly = wt();
+    camps(nudgedFriendly).friendly.exit = [7, 6];
+    expect(only(nudgedFriendly).some((f) => /not point mirrors/.test(f))).toBe(true);
+    const inside = wt();
+    camps(inside).friendly.exit = [7, 7];
+    expect(only(inside).some((f) => /not a ring tile/.test(f))).toBe(true);
+    const far = wt();
+    camps(far).friendly.exit = [4, 4];
+    expect(only(far).some((f) => /not a ring tile/.test(f))).toBe(true);
+    const derived = wt(); // derived: with no exit, the NW scan gives (6,6) and (38,38), which are not mirrors
+    delete (camps(derived).hostile as { exit?: unknown }).exit;
+    expect(only(derived).some((f) => /not point mirrors/.test(f))).toBe(true);
   });
 
   it('a points zone the map does not have, listed twice, or holding a seat\'s anchor', () => {

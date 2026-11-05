@@ -164,6 +164,26 @@ describe('per-unit demolition time', () => {
     expect(() => sim.setStructureProducesFor(a, 0)).toThrow(/setup-only/);
   });
 
+  it('GH-976: structureExit is the authored override, else the NW scan; the override is setup-only and open-only, and out of hash()', () => {
+    const mk = (): { sim: Sim; s: number } => {
+      const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+      const camp = sim.addStructureType(CAMP);
+      return { sim, s: sim.addStructure(camp, [10 * 32 + 10, 10 * 32 + 11, 11 * 32 + 10, 11 * 32 + 11]) };
+    };
+    const { sim, s } = mk();
+    const scan = sim.structureExit(s);
+    expect(scan).toEqual([fx.from(9.5), fx.from(9.5)]); // the NW corner of the ring
+    const h = sim.hash();
+    sim.setStructureExit(s, 12, 12);
+    expect(sim.structureExit(s)).toEqual([fx.from(12.5), fx.from(12.5)]);
+    expect(sim.hash()).toBe(h); // static setup data, like stProducesFor
+    expect(mk().sim.structureExit(0)).toEqual(scan); // another sim, no override
+    const blocked = mk();
+    expect(() => blocked.sim.setStructureExit(blocked.s, 10, 10)).toThrow(/not open/); // inside the footprint
+    sim.tick();
+    expect(() => sim.setStructureExit(s, 9, 9)).toThrow(/setup-only/);
+  });
+
   // Levelling your own camp is an order, like cutting your own wire.
   it('demolishes its own camp when the player designates it', () => {
     const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });

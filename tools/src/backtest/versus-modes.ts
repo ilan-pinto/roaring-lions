@@ -109,7 +109,7 @@ function finish(o: MatchResult, ticks: number, sideOfEnd: readonly [0 | 1, 0 | 1
 }
 
 
-/** The point the camp mode aims a side at: the exit of the camp standing at `end`. */
+/** The point the camp mode aims a side at: the exit of the camp standing at `end`. Read through `structureExit`, which answers the file's authored `exit` (GH-976) -- the same tile the defender and production use. */
 function campExit(w: MatchWorld, mapId: string, end: 'friendly' | 'hostile'): [number, number] {
   const camp = versusModes[mapId]?.camps?.[end];
   if (camp === undefined) throw new Error(`versus modes: ${mapId} has no camp at its ${end} end`);

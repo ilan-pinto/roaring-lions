@@ -906,9 +906,21 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   forward cell of wadi_tarfan and milh_flats. The goal share is the second lever, and only milh_flats moves it: (15,39) / (31,7) reads 96% by the goal.
 - **Shipped: `camp` on `milh_flats` only, camps (15,39) and (31,7).** Fitted on 0-191 (92 / 100, 52.1%, 96.4% by the goal, passive 192 / 192 from each
   end), read once on 4000-4287: west 137 / east 151 / draw 0, 52.4% over all and decisive games, 96.5% by the goal, passive lost 288 / 288 from
-  each end. It is a RACE (mean 95 s; the raid takes 32 s on the east camp and 82 s on the west camp), read as "not unfair for this probe's play" like
-  the flag. A defender that STANDS ON its camp (a scratch arm, `attackMove` onto its own exit, 96 seeds 0-95) holds it 55 / 96 in the west and 8 / 96
-  in the east, against 3 and 10 at the old camps: the end asymmetry is real and the probe's mirror (both ends attack) does not show it.
+  each end. It is a RACE (mean 95 s), read as "not unfair for this probe's play" like the flag. (The raid took 32 s on the east camp and 82 s on
+  the west one, and a defender that stood on its camp held it 55 / 96 in the west and 8 / 96 in the east. That gap was the EXIT CORNER, not the
+  terrain: see "The exit corner" below. The numbers in this bullet are the pre-fix reading.)
+- **The exit corner (GH-976, 5 Nov).** `structureExit` answered `exitTile`, the first open tile of a ROW-MAJOR scan from the NW corner of the ring. That
+  is not point-symmetric: the west camp's exit was (14.5,38.5) on its back side, the east camp's (30.5,6.5) facing the attack, where the mirror of the
+  west exit is (33.5,9.5). The raiders aim at the enemy camp's exit and the defender stands on its own, so one end raided in 32 s and the other in 84 s
+  and a standing defender held 55 / 96 west against 8 / 96 east. Mirroring the exit alone moved the east end from 88 / 8 to 51 / 45. The fix is data
+  and a setup-only override: a camp in a mode file may carry `exit: [x, y]` (a tile index, an open ring tile of the footprint), milh_flats
+  west (14,38) and east (33,9); `Sim.setStructureExit` (setup-only, refused after tick 0 and on a blocked tile) is written by `modeRuntime`, and
+  `structureExit` returns it, else the scan. `exitTile` and garrison spill are unchanged, so no shipped mission moves. The override is two
+  `state` snapshot columns (`stExitX`, `stExitY`) and OUT of `hash()`, like `stProducesFor`. `validate:data` holds it: the exit is an open ring tile,
+  and on a point-symmetric map (0 differing tiles under (x,y) -> (W-1-x,H-1-y) in rows and elevation) the two exits, authored or derived by the scan,
+  are point mirrors (wadi_tarfan's mode file carries (6,6) / (41,41) for it; its camp mode is not offered). The same bias sits in the ECONOMY rooms
+  of milh_flats_l, rujm_sawda, wadi_tarfan and wadi_tarfan_l (the hostile exit and production delivery are on the NW corner); that is the economy
+  rules files' to fix, a separate change that moves their replays. Re-read after the fix: see the PR for the 9000-9191 numbers.
 - **Not offered, and why.** Screened over the camp ground the reach allows (24-48 seeds a cell, 0-47): wadi_tarfan best goal share 22%
   (16,15), rujm_sawda 33%, wadi_tarfan_l 25%, milh_flats_l 25%, tel_marum 33%, beit_sahwan_outskirts 0% (and 75-83% for one end). The passive bar passes
   at the forward cells, the goal share does not: the blobs meet. That is an engine rule (annihilation off in a camp room, or a wipe that does not end a

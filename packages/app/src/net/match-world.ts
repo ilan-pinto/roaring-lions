@@ -295,6 +295,16 @@ function modeRuntime(
   };
   const runtime = new MissionRuntime(sim, mission as unknown as MissionJson, ctx);
   runtime.start();
+  // GH-976: an authored camp exit (the NW scan is not point-symmetric). Static setup data, out of hash().
+  if (mode === 'camp') {
+    for (const end of ['friendly', 'hostile'] as const) {
+      const camp = file.camps?.[end];
+      if (camp?.exit === undefined) continue;
+      const st = sim.structureAt(camp.at[0], camp.at[1]);
+      if (st < 0) throw new Error(`versus mode "${mapId}": no structure stands at the ${end} camp`);
+      sim.setStructureExit(st, camp.exit[0], camp.exit[1]);
+    }
+  }
   return { runtime, structureTypes: [...new Set(mission.structures.map((st) => st.type))] };
 }
 
