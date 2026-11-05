@@ -367,7 +367,7 @@ export const BUILDING_MESHES: Readonly<
   >
 > = {
   shanty: { idle: 'buildings/shanty.glb', wreck: 'buildings/shanty_wreck.glb' },
-  house: { idle: 'buildings/house.glb', wreck: 'buildings/house_wreck.glb' },
+  house: { idle: 'buildings/house.glb', wreck: 'buildings/house_wreck.glb', lod1: 'buildings/house_lod1.glb' },
   warehouse: { idle: 'buildings/warehouse.glb', wreck: 'buildings/warehouse_wreck.glb' },
   apartment: { idle: 'buildings/apartment.glb', wreck: 'buildings/apartment_wreck.glb' },
   clinic: { idle: 'buildings/clinic.glb', wreck: 'buildings/clinic_wreck.glb' },
@@ -475,6 +475,15 @@ export const DECOR_MESHES: Readonly<Record<DecorFamilyName, readonly string[]>> 
   // `decor-place.ts` pins every placement to variant 0 for it; listing
   // `ditch_1`/`ditch_2` here would 404 on every boot of a map with a ditch.
   ditch: ['decor/ditch_0.glb'],
+};
+
+/**
+ * GH-974: a decor family's lower-detail TWIN, drawn instead of `<family>_0` below `STRUCTURE_LOD1_BELOW_ZOOM`
+ * (`terrain/decor-textured-mesh.ts`, `stepTexturedDecorLod`). Keyed `<family>_lod1`, never a variant: it ships zero
+ * materials and a UV0 into `<family>_0`'s bake, and the loader gives it that map. Only a TEXTURED family may have one.
+ */
+export const DECOR_LOD1: Readonly<Partial<Record<DecorFamilyName, string>>> = {
+  ditch: 'decor/ditch_lod1.glb',
 };
 
 /** The three shared VFX meshes (mesh-unit-contract's VFX asset class). Not
@@ -657,6 +666,7 @@ export function claimedMeshFiles(): Set<string> {
     if (b.lod1 !== undefined) out.add(b.lod1);
   }
   for (const files of Object.values(DECOR_MESHES)) for (const f of files) out.add(f);
+  for (const f of Object.values(DECOR_LOD1)) out.add(f);
   for (const f of Object.values(VFX_MESHES)) out.add(f);
   for (const f of Object.values(CAMPAIGN_MESHES)) out.add(f);
   for (const f of Object.values(BACKDROP_MESHES)) out.add(f);
@@ -751,7 +761,10 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
     }),
     decor: new Map(
       [...plan.decor].flatMap((fam) =>
-        DECOR_MESHES[fam].map((file, v): [string, string] => [`${fam}_${v}`, meshUrl(file)])
+        [
+          ...DECOR_MESHES[fam].map((file, v): [string, string] => [`${fam}_${v}`, meshUrl(file)]),
+          ...(DECOR_LOD1[fam] === undefined ? [] : [[`${fam}_lod1`, meshUrl(DECOR_LOD1[fam] as string)] as [string, string]]),
+        ]
       )
     ),
     props: new Map([...plan.props].map((kind): [PropKindName, string] => [kind, meshUrl(PROP_MESHES[kind])])),

@@ -29,6 +29,20 @@ import { texturedMapMaterial } from '../world-materials';
 import type { DecorPlacement } from './decor-place';
 import { isTexturedDecorKey } from './textured-decor';
 import { chunkOfPoint, type ChunkGrid } from './chunks';
+import { lod1Active } from '../units/structure-instances';
+
+/**
+ * GH-974: a textured family's LOD1 twin is the part keyed `<family>_lod1` (`ditch_lod1`: 1,770 triangles against the
+ * ditch's 38,240). It ships no material of its own, and the loader hands it the map of `<family>_0`, so it is drawn
+ * with the full ditch's own bake. `userData.lod1` on a chunk mesh says which art it is (`false`: the full one,
+ * `true`: the twin), and `stepTexturedDecorLod` shows exactly one of each pair.
+ */
+export const LOD1_VARIANT = 'lod1';
+
+/** The key of the twin of `key` (`ditch_0` -> `ditch_lod1`), or null for a key that is not a variant-0 one. */
+export function lod1KeyOf(key: string): string | null {
+  return key.endsWith('_0') ? `${key.slice(0, -2)}_${LOD1_VARIANT}` : null;
+}
 
 /** One textured decor GLB's geometry and its own baked map. */
 export interface TexturedDecorPart {
@@ -119,7 +133,23 @@ export function buildTexturedDecorMesh(
         mesh.setMatrixAt(i, m);
       }
       mesh.instanceMatrix.needsUpdate = true;
+      mesh.userData.lod1 = false;
       group.add(mesh);
+      // The twin: one more InstancedMesh per chunk, the same placements and the same material, hidden until
+      // `stepTexturedDecorLod` turns it on below the zoom band. One draw per chunk either way.
+      const twinKey = lod1KeyOf(key);
+      const twinPart = twinKey === null ? undefined : set.parts.get(twinKey);
+      if (twinPart !== undefined) {
+        const twin = new THREE.InstancedMesh(twinPart.geometry, material, bucket.length);
+        twin.userData.chunk = chunk;
+        twin.userData.lod1 = true;
+        twin.castShadow = true;
+        twin.receiveShadow = true;
+        twin.visible = false;
+        twin.instanceMatrix.copy(mesh.instanceMatrix);
+        twin.instanceMatrix.needsUpdate = true;
+        group.add(twin);
+      }
     }
   }
   return group;
@@ -143,4 +173,21 @@ export function disposeTexturedDecorMesh(group: THREE.Group): void {
     mesh.dispose();
     group.remove(child);
   }
+}
+
+/**
+ * Shows the twin or the full art of every chunk, for this frame's zoom. `was` is the state last frame (the band's
+ * hysteresis: on below `STRUCTURE_LOD1_BELOW_ZOOM`, held until 0.05 above it); returns the new one. `enabled` false
+ * is the A/B switch: full art at every zoom. A group with no twin meshes is left exactly as it was.
+ */
+export function stepTexturedDecorLod(group: THREE.Group, zoom: number, was: boolean, enabled: boolean): boolean {
+  // No twin in the group (it failed to load, or the family has none): the full art stays, at every zoom.
+  if (!group.children.some((c) => c.userData.lod1 === true)) return false;
+  const on = enabled && lod1Active(zoom, was);
+  for (const child of group.children) {
+    const lod = (child as THREE.Object3D).userData.lod1;
+    if (lod === undefined) continue;
+    child.visible = lod === on;
+  }
+  return on;
 }
