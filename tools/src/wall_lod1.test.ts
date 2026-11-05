@@ -3,7 +3,8 @@
 // The twin is drawn INSTEAD of the compound wall below zoom 2.0, with the wall's own
 // material, so five things must stay true of it or the swap shows. None of this imports
 // the exporter or the renderer: the oracle is the two files and literals.
-//   - the same node names and `rl_role` extras as the wall (the renderer pairs by role);
+//   - ONE node, one primitive, `rl_role` wall (the roof and body joined: the renderer pairs a one-mesh
+//     twin to the full wall's shared material);
 //   - the same bounds, within 5 mm (a taller or fatter twin pops at the swap);
 //   - at most 350 triangles, and under 12% of the wall's (the point of the asset);
 //   - zero materials, images and textures (it borrows the wall's), but a UV0 on every
@@ -65,10 +66,13 @@ describe('wall_lod1 is a twin of wall (GH-974)', () => {
     expect(triangles(twin.json)).toBeGreaterThan(100);
   });
 
-  it('carries the same node names and rl_role extras', () => {
+  it('is ONE mesh of one primitive, roled wall, whose role the full wall also carries', () => {
     const roles = (g: Glb): [string, string | undefined][] => g.nodes.map((n): [string, string | undefined] => [n.name, n.extras?.rl_role]).sort();
-    expect(roles(twin.json)).toEqual(roles(full.json));
-    expect(roles(twin.json)).toEqual([['roof', 'roof'], ['wall', 'wall']]);
+    // The full wall keeps roof + wall (one shared bake); the twin is the two joined, so a chunk-set costs one draw.
+    expect(roles(full.json)).toEqual([['roof', 'roof'], ['wall', 'wall']]);
+    expect(roles(twin.json)).toEqual([['wall', 'wall']]);
+    expect(twin.json.meshes.length).toBe(1);
+    expect(twin.json.meshes[0].primitives.length).toBe(1);
   });
 
   it('has the wall\'s bounds within 5 mm', () => {

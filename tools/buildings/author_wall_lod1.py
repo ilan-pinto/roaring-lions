@@ -40,7 +40,9 @@ across islands; each face instead takes ONE texel, chosen by projection:
   - set all the face's loops to that UV (a constant UV: the shader's normal-map frame
     degenerates to the geometric normal, which is right for a flat twin).
 
-Roles are the full wall's: `roof` and `wall`, zero materials, real metres, forward
+ONE mesh, role `wall` (the roof coping and the body joined; GH-974): the full wall's
+two prims share one bake, so a one-mesh twin pairs to the full wall's material
+(`StructureInstances.setIdleLod1`). Zero materials, real metres, forward
 +X (the run direction, as `wall.glb`). Hand-rolled determinism: no noise at all.
 """
 import os
@@ -294,6 +296,19 @@ def project_uvs(parts, sampler):
     print(f"[wall_lod1] uv: {faces} faces, mean projected texel (linear) {mean.round(4).tolist()}")
 
 
+def join_parts(parts):
+    """Join the parts into the `wall` object; UV0 and positions carry over untouched."""
+    keep = next(o for o in parts if o.name.split(".")[0] == "wall")
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in parts:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = keep
+    bpy.ops.object.join()
+    keep["rl_role"] = "wall"
+    keep.name = "wall"
+    keep.data.name = "wall"
+
+
 def tri_count(quads):
     return sum(len(q) - 2 for q in quads)
 
@@ -332,6 +347,11 @@ def main():
         bpy.ops.mesh.remove_doubles(threshold=1e-5)
         bpy.ops.object.mode_set(mode="OBJECT")
     project_uvs(parts, sampler)
+    # ONE mesh (GH-974): both full-wall prims share one bake, so the twin's roof and wall are
+    # joined into a single object. A per-tile run then costs one draw per chunk-set, not two.
+    # The joined mesh is named and roled `wall` (the active object keeps its name and extras).
+    join_parts(parts)
+    parts = [o for o in bpy.data.objects if o.type == "MESH"]
     pts = [o.matrix_world @ v.co for o in parts for v in o.data.vertices]
     lo = Vector([min(p[i] for p in pts) for i in range(3)])
     hi = Vector([max(p[i] for p in pts) for i in range(3)])
