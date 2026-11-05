@@ -326,7 +326,7 @@ function buildRefineRequest(opts: TextOptions, previewTaskId: string): TextRefin
   };
 }
 
-function ledgerEntry(kind: TaskKind, mode: LedgerEntry['mode'], id: string, opts: { name?: string; prompt?: string }, creditsEstimated: number, usdPerCredit: number): LedgerEntry {
+function ledgerEntry(kind: TaskKind, mode: LedgerEntry['mode'], id: string, opts: { name?: string; prompt?: string }, creditsEstimated: number, usdPerCredit: number, plan?: string): LedgerEntry {
   return {
     at: new Date().toISOString(),
     kind,
@@ -336,6 +336,8 @@ function ledgerEntry(kind: TaskKind, mode: LedgerEntry['mode'], id: string, opts
     prompt: opts.prompt,
     credits_estimated: creditsEstimated,
     usd_estimated: estimateUsd(creditsEstimated, usdPerCredit),
+    // GH-933: the plan tier each spend ran under, from MESHY_PLAN; 'unknown' when it is not named. Old rows have no field.
+    plan: plan?.trim().toLowerCase() || 'unknown',
   };
 }
 
@@ -374,7 +376,7 @@ export async function runText(
 
   const submitted = await client.submitTextTask(previewBody);
   const previewId = submitted.result;
-  appendLedgerEntry(paths.ledgerPath, ledgerEntry('text', 'preview', previewId, opts, previewCredits, config.usdPerCredit));
+  appendLedgerEntry(paths.ledgerPath, ledgerEntry('text', 'preview', previewId, opts, previewCredits, config.usdPerCredit, config.plan));
   console.log(`submitted preview task ${previewId}`);
 
   const finalPreview = await pollTask(() => client.getTextTask(previewId), `preview ${previewId}`);
@@ -408,7 +410,7 @@ export async function runText(
     const refineBody = buildRefineRequest(opts, previewId);
     const submittedRefine = await client.submitTextTask(refineBody);
     const refineId = submittedRefine.result;
-    appendLedgerEntry(paths.ledgerPath, ledgerEntry('text', 'refine', refineId, opts, refineCredits, config.usdPerCredit));
+    appendLedgerEntry(paths.ledgerPath, ledgerEntry('text', 'refine', refineId, opts, refineCredits, config.usdPerCredit, config.plan));
     console.log(`submitted refine task ${refineId}`);
 
     const finalRefine = await pollTask(() => client.getTextTask(refineId), `refine ${refineId}`);
@@ -517,7 +519,7 @@ export async function runImage(
 
   const submitted = await client.submitImageTask(body);
   const id = submitted.result;
-  appendLedgerEntry(paths.ledgerPath, ledgerEntry('image', 'image', id, { name: opts.name }, credits, config.usdPerCredit));
+  appendLedgerEntry(paths.ledgerPath, ledgerEntry('image', 'image', id, { name: opts.name }, credits, config.usdPerCredit, config.plan));
   console.log(`submitted image-to-3d task ${id}`);
 
   const finalTask = await pollTask(() => client.getImageTask(id), `image ${id}`);
@@ -610,7 +612,7 @@ export async function runRemesh(
 
   const submitted = await client.submitRemeshTask(body);
   const id = submitted.result;
-  appendLedgerEntry(paths.ledgerPath, ledgerEntry('remesh', 'remesh', id, { name: opts.name }, credits, config.usdPerCredit));
+  appendLedgerEntry(paths.ledgerPath, ledgerEntry('remesh', 'remesh', id, { name: opts.name }, credits, config.usdPerCredit, config.plan));
   console.log(`submitted remesh task ${id}`);
 
   const finalTask = await pollTask(() => client.getRemeshTask(id), `remesh ${id}`);
@@ -688,7 +690,7 @@ export async function runRefine(
 
   const submitted = await client.submitTextTask(body);
   const id = submitted.result;
-  appendLedgerEntry(paths.ledgerPath, ledgerEntry('text', 'refine', id, { name: opts.name }, credits, config.usdPerCredit));
+  appendLedgerEntry(paths.ledgerPath, ledgerEntry('text', 'refine', id, { name: opts.name }, credits, config.usdPerCredit, config.plan));
   console.log(`submitted refine task ${id}`);
 
   const finalTask = await pollTask(() => client.getTextTask(id), `refine ${id}`);

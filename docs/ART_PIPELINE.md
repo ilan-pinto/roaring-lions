@@ -249,7 +249,18 @@ submitted preview/refine/image/remesh task — `pnpm meshy -- spent` sums it, so
 "how much have we spent" never depends on anyone's memory or the Meshy
 dashboard.
 
-**Disclosure is still required.** A model built via this CLI is AI-generated
+**The `plan` field (GH-933, from 1 Nov 2026).** Every new ledger row records the
+Meshy plan tier the spend ran under, as `"plan": "<tier>"` (lower-case, Meshy's
+tier name). The CLI reads it from `MESHY_PLAN` (env, else the key file's
+non-secret `MESHY_PLAN` line) and writes `"unknown"` when none is named; the
+image commands also take `--plan <tier>` (below). Rows written before 1 Nov 2026
+have no `plan` key and are never rewritten: read a missing field as "not
+recorded". The Meshy credit that applies to these assets is in
+[art/ATTRIBUTION.md](../art/ATTRIBUTION.md).
+
+**Disclosure is still required, and so is the credit.** Meshy output is credited
+in [art/ATTRIBUTION.md](../art/ATTRIBUTION.md); add a new Meshy-origin asset to
+its groups. A model built via this CLI is AI-generated
 art exactly like the ten Meshy assets already shipped, and CONTRIBUTING.md's
 AI policy — disclosure in the PR description, the same four CI gates as
 anything else — applies unchanged. Each generate command prints a line

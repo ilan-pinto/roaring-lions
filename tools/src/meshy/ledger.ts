@@ -18,7 +18,8 @@ export interface LedgerEntry {
   readonly credits_estimated: number;
   readonly credits_consumed?: number;
   readonly usd_estimated: number;
-  /** Image generation only (GH-746 SC2; G-C5 provenance). The paid plan tier the spend ran under, recorded per task. */
+  /** The plan tier the spend ran under, recorded per task (GH-746 G-C5 for images; every spend from 1 Nov 2026, GH-933,
+   *  'unknown' when MESHY_PLAN is not set). Rows written before then carry no field and are not rewritten. */
   readonly plan?: string;
   readonly model?: string;
   readonly aspect_ratio?: string;

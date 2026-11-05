@@ -145,6 +145,18 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
       expect(summary.creditsConsumed).toBe(18);
     });
 
+    it('GH-933: a 3D spend records the plan from MESHY_PLAN, and "unknown" when none is named', async () => {
+      const mk = (): TextTaskClient => ({
+        submitTextTask: vi.fn(async (): Promise<SubmitTaskResponse> => ({ result: 'plan-task' })),
+        getTextTask: vi.fn(async (id: string): Promise<TextToThreeDTask> => textTask(id, { consumed_credits: 18 })),
+      });
+      await runText(mk(), { ...CONFIG, plan: 'Pro' }, baseTextOptions(), paths);
+      expect(readLedger(paths.ledgerPath)[0]?.plan).toBe('pro');
+      rmSync(paths.ledgerPath);
+      await runText(mk(), { ...CONFIG, plan: undefined }, baseTextOptions(), paths);
+      expect(readLedger(paths.ledgerPath)[0]?.plan).toBe('unknown');
+    });
+
     it('(a) a successful text+refine run patches both the preview and the refine line (cli.ts:279/:310 sites)', async () => {
       const client: TextTaskClient = {
         submitTextTask: vi.fn(async (body: TextToThreeDRequest): Promise<SubmitTaskResponse> => ({
@@ -170,12 +182,12 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
         getImageTask: vi.fn(async (id: string): Promise<ImageToThreeDTask> => imageTask(id, { consumed_credits: 33 })),
       };
 
-      const code = await runImage(client, CONFIG, baseImageOptions(), paths);
+      const code = await runImage(client, { ...CONFIG, plan: 'pro' }, baseImageOptions(), paths);
 
       expect(code).toBe(0);
       const entries = readLedger(paths.ledgerPath);
       expect(entries).toHaveLength(1);
-      expect(entries[0]).toMatchObject({ id: 'image-task-1', credits_estimated: 30, credits_consumed: 33 });
+      expect(entries[0]).toMatchObject({ id: 'image-task-1', credits_estimated: 30, credits_consumed: 33, plan: 'pro' });
     });
 
     it('(a) a successful remesh run patches its ledger line', async () => {
@@ -184,12 +196,12 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
         getRemeshTask: vi.fn(async (id: string): Promise<RemeshTask> => remeshTask(id, { consumed_credits: 5 })),
       };
 
-      const code = await runRemesh(client, CONFIG, baseRemeshOptions(), paths);
+      const code = await runRemesh(client, { ...CONFIG, plan: 'pro' }, baseRemeshOptions(), paths);
 
       expect(code).toBe(0);
       const entries = readLedger(paths.ledgerPath);
       expect(entries).toHaveLength(1);
-      expect(entries[0]).toMatchObject({ id: 'remesh-task-1', kind: 'remesh', mode: 'remesh', credits_estimated: 5, credits_consumed: 5 });
+      expect(entries[0]).toMatchObject({ id: 'remesh-task-1', kind: 'remesh', mode: 'remesh', credits_estimated: 5, credits_consumed: 5, plan: 'pro' });
     });
 
     it('(a) a standalone refine run writes one `text`/`refine` line against the preview it was given (B7)', async () => {
@@ -204,7 +216,7 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
 
       const code = await runRefine(
         client,
-        CONFIG,
+        { ...CONFIG, plan: 'pro' },
         { previewTaskId: 'preview-from-b2', pbr: false, textureResolution: '2k', texturePrompt: undefined, formats: ['glb'], name: 'manpad_team', yes: true, json: false },
         paths
       );
@@ -213,7 +225,7 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
       expect(submit).toHaveBeenCalledTimes(1);
       const entries = readLedger(paths.ledgerPath);
       expect(entries).toHaveLength(1);
-      expect(entries[0]).toMatchObject({ id: 'refine-task-b7', kind: 'text', mode: 'refine', name: 'manpad_team', credits_estimated: 10, credits_consumed: 10 });
+      expect(entries[0]).toMatchObject({ id: 'refine-task-b7', kind: 'text', mode: 'refine', name: 'manpad_team', credits_estimated: 10, credits_consumed: 10, plan: 'pro' });
     });
 
     it('(b) a run that fails before success leaves the estimate-only line intact', async () => {

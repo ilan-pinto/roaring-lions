@@ -41,7 +41,7 @@ Safe sources: Kenney.nl (CC0), Quaternius, Poly Pizza, OpenGameArt filtered to C
 
 **Permitted**, including for assets that ship in the game.
 
-**Disclosure is required** in the PR description wherever generative tools were used.
+**Disclosure is required** in the PR description wherever generative tools were used. Meshy-generated art is also credited in [`art/ATTRIBUTION.md`](art/ATTRIBUTION.md) (CC BY 4.0, GH-933); a new Meshy-origin asset is added to its asset groups.
 
 **The gates do not care where art came from.** Every unit mesh faces the same CI
 checks (`pnpm validate:meshes`) — palette match on its render, binary alpha, minimum
