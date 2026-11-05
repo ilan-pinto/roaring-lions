@@ -526,7 +526,7 @@ from crew_shaken; the rest of the table shares them") and the tests below.
   `e6-swarm-probe.ts`, `wh_pacing.ts`. A probe that moves a number its own doc calls a target is a finding for the
   lead (report, do not tune).
 - [ ] **Step 3: draft** the Standoff follow-up issue text (Task 9 opens it). Its contents, from design §6:
-  - the cell sees 10 tiles against the Lavi's 12 with thermal;
+  - the cell sees 10 tiles against the Lavi's 12 (`sight_tiles`; thermal is display-only);
   - the Kornet's 14-tile range is unusable unspotted;
   - the first launch multiplies its signature ×5;
   - the Trophy takes 1.05 of the 1.32 missiles a cell gets off;

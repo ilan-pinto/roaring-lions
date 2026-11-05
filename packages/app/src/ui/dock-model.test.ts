@@ -103,7 +103,6 @@ describe('doctrineTags', () => {
       'demolish',
       'breach',
       'garrison',
-      'hidden_setup',
       'mark_target',
     ]);
     expect(tags).toHaveLength(MAX_TAGS);

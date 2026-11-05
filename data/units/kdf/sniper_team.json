@@ -36,7 +36,6 @@
     "firing_signature_mult": 6.0
   },
   "abilities": [
-    "hidden_setup",
     "mark_target",
     "garrison"
   ],
