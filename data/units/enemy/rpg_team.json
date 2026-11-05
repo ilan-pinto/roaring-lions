@@ -14,7 +14,7 @@
   },
   "mobility": { "speed_tiles_s": 0.9 },
   "sensors": { "optics": 0.85, "sight_tiles": 7, "signature": 0.45, "firing_signature_mult": 4.5 },
-  "abilities": ["garrison", "tunnel_travel", "hidden_setup"],
+  "abilities": ["garrison", "tunnel_travel"],
   "weapons": [
     {
       "id": "rpg7",

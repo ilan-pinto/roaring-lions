@@ -175,7 +175,6 @@ const ABILITY_TAGS: readonly (readonly [string, string])[] = [
   ['tunnel_charge', 'dock.tag.demolition'],
   ['breach', 'dock.tag.breach'],
   ['garrison', 'dock.tag.garrisons'],
-  ['hidden_setup', 'dock.tag.hiddenSetup'],
   ['mark_tunnel', 'dock.tag.findsTunnels'],
   ['mark_target', 'dock.tag.spots'],
   ['smoke', 'dock.tag.smoke'],

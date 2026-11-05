@@ -56,7 +56,6 @@
     }
   ],
   "abilities": [
-    "garrison",
-    "hidden_setup"
+    "garrison"
   ]
 }

@@ -403,7 +403,8 @@
         },
         "thermal": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Display-only. No game effect today: the sim parses it and nothing reads it (pinned by packages/sim/src/thermal-unread.test.ts). It only feeds the balance cost-curve factor x1.15 in tools/validate_balance.py. Sight range is sight_tiles, not this flag."
         },
         "signature": {
           "type": "number",
@@ -584,7 +585,6 @@
           "repair",
           "resupply",
           "tunnel_travel",
-          "hidden_setup",
           "demolish",
           "kamikaze",
           "dig_tunnel",
