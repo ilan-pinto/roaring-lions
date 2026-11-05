@@ -31,7 +31,7 @@
  * overshoot), or, under reduced motion, a monotone fall: a static displacement with no spring.
  *
  * THE WASH (GH-984 N3). A helicopter takes a slot of its own kind (`b.z` 1): a disc, never a wake, whose radius is
- * `R0 x (1.5 + hNorm)` (R0 1.2 tiles, `hNorm` 0 on the ground to 1 at the wash's none-height) and whose strength IS the
+ * `R0 x (1.5 + hNorm)` (R0 2 tiles, `hNorm` 0 on the ground to 1 at the wash's none-height) and whose strength IS the
  * rotor wash (`units/rotor-wash.ts`, from the drawn lift and the tick-exact speed). The push is the same radial one, so
  * grass and reeds flatten outward; and the strength a slot adds is also summed on its own, as the THRASH: shrubs and
  * crowns oscillate about their lean at `DISTURB_THRASH_PERIOD_S` (0.4 s) on the SIM clock (`uSwayTime`), each
@@ -73,11 +73,17 @@ export const DISTURB_REACH = 1.25;
 /** What an infantryman pushes with, against a hull's 1 (design decision 5: weakly). */
 export const DISTURB_FOOT_STRENGTH = 0.25;
 
-/** The rotor wash's radius is `R0 x (1.5 + hNorm)` tiles (the design's R0, 1.2); it is the OUTER reach, where the push is gone. */
-export const DISTURB_WASH_R0_TILES = 1.2;
+/** The rotor wash's radius is `R0 x (1.5 + hNorm)` tiles (R0 2, was the design's 1.2: "make it stronger", 5 Nov); it is the OUTER reach, where the push is gone. */
+export const DISTURB_WASH_R0_TILES = 2;
 export const DISTURB_WASH_RADIUS_BASE = 1.5;
 /** The thrash of a shrub or a crown under the wash: this period, on the sim clock. */
 export const DISTURB_THRASH_PERIOD_S = 0.4;
+/**
+ * A wash slot's push counts this many times over a hull's (the lean AND the thrash sum). The lean clamps at 1, so the gain widens the
+ * disc that lies fully down (a strength 0.76 hover reaches the cap out to where the falloff has dropped to 1/1.7) and drives
+ * the shrubs and crowns harder; a hull's push is untouched. (5 Nov, "make it stronger".)
+ */
+export const DISTURB_WASH_PUSH_GAIN = 1.7;
 /** What a slot is, in `b.z`: the ground (a hull or a man) or a rotor wash (which also thrashes). */
 export const DISTURB_SLOT_GROUND = 0;
 export const DISTURB_SLOT_WASH = 1;
@@ -114,8 +120,8 @@ export interface DisturbClass {
 export const DISTURB_CLASSES: readonly DisturbClass[] = [
   { name: 'grass', cap: 0.8, stiffness: 1.2, thrash: 0 },
   { name: 'reed', cap: 0.7, stiffness: 1.2, thrash: 0 },
-  { name: 'shrub', cap: 0.35, stiffness: 1.5, thrash: 0.06 },
-  { name: 'tree', cap: 0.01, stiffness: 2, thrash: 0.02 },
+  { name: 'shrub', cap: 0.35, stiffness: 1.5, thrash: 0.16 },
+  { name: 'tree', cap: 0.01, stiffness: 2, thrash: 0.07 },
 ];
 
 if (
@@ -249,9 +255,11 @@ export function disturbDisplacement(
       awayZ = 0;
     }
     const amount = disturbAmount(d, t, Math.hypot(s.bx - s.ax, s.bz - s.az), s.radius, s.strength, spring);
-    px += awayX * amount;
-    pz += awayZ * amount;
-    if (s.kind === DISTURB_SLOT_WASH) wash += amount;
+    const isWash = s.kind === DISTURB_SLOT_WASH;
+    const pushed = isWash ? amount * DISTURB_WASH_PUSH_GAIN : amount;
+    px += awayX * pushed;
+    pz += awayZ * pushed;
+    if (isWash) wash += pushed;
   }
   const mag = Math.hypot(px, pz);
   if (mag <= 1e-5) return { dx: 0, dy: 0, dz: 0 };
@@ -593,8 +601,9 @@ export function disturbVertexChunk(): string {
       float rlDDist = length(rlDAway);
       rlDAway = rlDDist > 0.0001 ? rlDAway / rlDDist : vec2(1.0, 0.0);
       float rlDAmt = rlDisturbAmount(rlDDist, rlDT, length(rlDA.zw - rlDA.xy), rlDB.x, rlDB.y, uDisturbSpring);
-      rlDPush += rlDAway * rlDAmt;
-      rlDWash += rlDB.z * rlDAmt;
+      float rlDPushed = rlDAmt * (1.0 + rlDB.z * ${disturbFloat(DISTURB_WASH_PUSH_GAIN - 1)});
+      rlDPush += rlDAway * rlDPushed;
+      rlDWash += rlDB.z * rlDPushed;
     }
     float rlDMag = length(rlDPush);
     if (rlDMag > 0.00001) {

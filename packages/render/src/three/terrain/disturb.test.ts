@@ -20,6 +20,7 @@ import {
   DISTURB_LADDER,
   DISTURB_MAX,
   DISTURB_REACH,
+  DISTURB_WASH_PUSH_GAIN,
   DISTURB_RING_SAMPLES,
   DISTURB_RING_SPACING_TICKS,
   DISTURB_SPRING_FLOOR,
@@ -472,7 +473,9 @@ describe('the chunk', () => {
   });
   it('N3: sums the wash on its own, and evaluates the thrash only where a wash reaches (N2 pays for no sin and pow)', () => {
     const src = disturbVertexChunk();
-    expect(src).toContain('rlDWash += rlDB.z * rlDAmt;');
+    expect(src).toContain('rlDWash += rlDB.z * rlDPushed;');
+    expect(src).toContain('rlDPush += rlDAway * rlDPushed;');
+    expect(src).toContain('(1.0 + rlDB.z * 0.70000000)'); // DISTURB_WASH_PUSH_GAIN 1.7, as a literal
     expect(src.indexOf('rlDWash += ')).toBeLessThan(src.indexOf('if (rlDWash > 0.0001)'));
     expect(src.indexOf('if (rlDWash > 0.0001)')).toBeLessThan(src.indexOf('rlDisturbThrash(int('));
     // The reduced-motion switch multiplies the thrash and nothing else; the clock it reads is the wind's.
@@ -500,17 +503,25 @@ describe('the sim clock: no frame time anywhere in the disturbance', () => {
 // --- N3: the rotor wash -----------------------------------------------------------------------------
 
 describe('GH-984 N3: the rotor wash, as literals', () => {
-  it('pins the design: R0 1.2 tiles, radius R0 x (1.5 + hNorm), a 0.4 s thrash', () => {
+  it('the wash push counts 1.7 times over (make it stronger), a hull alone does not', () => {
+    expect(DISTURB_WASH_PUSH_GAIN).toBe(1.7);
+    const base = { ax: 0, az: 0, bx: 0, bz: 0, radius: 2, strength: 0.3 };
+    const tip = { x: 0, h: 1, z: 0 };
+    const hull = disturbDisplacement([base], WIND_CLASS_GRASS, 1, 0.5, 0, tip, 1);
+    const wash = disturbDisplacement([{ ...base, kind: DISTURB_SLOT_WASH }], WIND_CLASS_GRASS, 1, 0.5, 0, tip, 1);
+    expect(Math.abs(wash.dy)).toBeGreaterThan(Math.abs(hull.dy) * 1.5);
+  });
+  it('pins the design: R0 2 tiles, radius R0 x (1.5 + hNorm), a 0.4 s thrash', () => {
     expect(DISTURB_THRASH_PERIOD_S).toBe(0.4);
-    expect(disturbWashRadius(0)).toBeCloseTo(1.8, 12); // 1.2 x 1.5
-    expect(disturbWashRadius(1)).toBeCloseTo(3.0, 12); // 1.2 x 2.5
-    expect(disturbWashRadius(0.5)).toBeCloseTo(2.4, 12);
+    expect(disturbWashRadius(0)).toBeCloseTo(3.0, 12); // 2 x 1.5
+    expect(disturbWashRadius(1)).toBeCloseTo(5.0, 12); // 2 x 2.5
+    expect(disturbWashRadius(0.5)).toBeCloseTo(4.0, 12);
     // Grass and reeds only flatten; a shrub and a crown also thrash.
-    expect(DISTURB_CLASSES.map((c) => c.thrash)).toEqual([0, 0, 0.06, 0.02]);
+    expect(DISTURB_CLASSES.map((c) => c.thrash)).toEqual([0, 0, 0.16, 0.07]);
     expect(disturbThrashMax(WIND_CLASS_GRASS)).toBe(0);
     expect(disturbThrashMax(WIND_CLASS_REED)).toBe(0);
-    expect(Math.cos(disturbThrashMax(WIND_CLASS_SHRUB))).toBeCloseTo(0.94, 12);
-    expect(Math.cos(disturbThrashMax(WIND_CLASS_TREE))).toBeCloseTo(0.98, 12);
+    expect(Math.cos(disturbThrashMax(WIND_CLASS_SHRUB))).toBeCloseTo(0.84, 12);
+    expect(Math.cos(disturbThrashMax(WIND_CLASS_TREE))).toBeCloseTo(0.93, 12);
     expect(DISTURB_SLOT_GROUND).toBe(0);
     expect(DISTURB_SLOT_WASH).toBe(1);
     expect(DISTURB_B_STRIDE).toBe(3);
@@ -564,7 +575,7 @@ describe('GH-984 N3: what a vertex does under a wash', () => {
       const tPeak = (0.25 - phase) * 0.4;
       return disturbDisplacement([w], WIND_CLASS_SHRUB, 1, 0.8, 0, tip, 1, tPeak).dx - disturbDisplacement([w], WIND_CLASS_SHRUB, 1, 0.8, 0, tip, 1, tPeak + 0.2).dx;
     };
-    expect(swing(0.8)).toBeGreaterThan(swing(0.3) * 1.5);
+    expect(swing(0.4)).toBeGreaterThan(swing(0.1) * 1.5);
   });
   it('a hull alone never thrashes (only a wash slot does)', () => {
     const hull = { ...WASH, kind: DISTURB_SLOT_GROUND };
@@ -606,17 +617,17 @@ describe('GH-984 N3: the wash slots', () => {
     expect(field.count).toBe(1);
     expect(field.b[2]).toBe(DISTURB_SLOT_WASH);
     expect(field.b[1]).toBeCloseTo(1, 6); // touchdown: the peak
-    expect(field.b[0] * DISTURB_REACH).toBeCloseTo(1.8, 5); // 1.2 x 1.5 tiles of reach
+    expect(field.b[0] * DISTURB_REACH).toBeCloseTo(3.0, 5); // 2 x 1.5 tiles of reach
     expect([field.a[0], field.a[1]]).toEqual([field.a[2], field.a[3]]); // a disc, never a wake
     const reach = field.b[0] * DISTURB_REACH;
     expect(field.box[2] - field.box[0]).toBeCloseTo(2 * reach, 4);
   });
-  it('higher means a wider, weaker wash (hNorm 0.5 at 0.75 wu: 2.4 tiles, strength 0.5)', () => {
+  it('higher means a wider, weaker wash (hNorm 0.5 at 0.75 wu: 4 tiles, strength 0.5)', () => {
     const w = airWorld();
     w.height[0] = 0.75;
     const field = new DisturbField(40);
     field.build(w.src, w.frame);
-    expect(field.b[0] * DISTURB_REACH).toBeCloseTo(2.4, 5);
+    expect(field.b[0] * DISTURB_REACH).toBeCloseTo(4.0, 5);
     expect(field.b[1]).toBeCloseTo(0.5, 5);
   });
   it('forward flight thins it (full speed keeps half), and too high or too fast takes no slot at all', () => {

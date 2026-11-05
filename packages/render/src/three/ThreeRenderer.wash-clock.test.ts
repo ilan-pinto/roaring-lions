@@ -155,7 +155,7 @@ const slotStrength = (r: ThreeRenderer, k: number): number => priv(r).disturbU.b
 const slotReach = (r: ThreeRenderer, k: number): number => priv(r).disturbU.b.value[DISTURB_B_STRIDE * k] * DISTURB_REACH;
 
 describe('a hovering helicopter takes a wash slot (GH-984 N3)', () => {
-  it('a disc at the hull, strength the hover wash (0.76), reach R0 x (1.5 + hNorm) = 1.2 x 1.738 tiles, kind 1', () => {
+  it('a disc at the hull, strength the hover wash (0.76), reach R0 x (1.5 + hNorm) = 2 x 1.738 tiles, kind 1', () => {
     const w = setUp();
     w.tick(20);
     w.r.frame(0.5, 16);
@@ -164,7 +164,7 @@ describe('a hovering helicopter takes a wash slot (GH-984 N3)', () => {
     expect(slotKind(w.r, 0)).toBe(DISTURB_SLOT_WASH);
     // Literals: the drawn hover lift is 0.357 wu, the none-height 1.5: strength 1 - 0.357/1.5, hNorm 0.238.
     expect(slotStrength(w.r, 0)).toBeCloseTo(0.762, 2);
-    expect(slotReach(w.r, 0)).toBeCloseTo(1.2 * (1.5 + 0.238), 2);
+    expect(slotReach(w.r, 0)).toBeCloseTo(2 * (1.5 + 0.238), 2);
     const a = Array.from(u.a.value).slice(0, 4);
     expect(a[0]).toBeCloseTo(12.5, 3);
     expect(a[0]).toBe(a[2]);
