@@ -39,6 +39,8 @@ export interface PostStageContext {
   readonly TSL: typeof import('three/tsl');
   readonly scene: THREE.Scene;
   readonly camera: THREE.Camera;
+  /** The preset the chain was built for (T7: the AO reads `aoScale`). */
+  readonly quality: PostQuality;
 }
 export interface PostStage {
   readonly node: TslNode;
@@ -49,6 +51,18 @@ export interface PostKit {
   fog: PostStageFactory | null;
   ao: PostStageFactory | null;
   bloom: PostStageFactory | null;
+}
+/**
+ * GH-943 P1 (T7): the handle the renderer drives the node AO through. The legacy path writes `aoPass.blendIntensity` and
+ * `aoPass.enabled` (zoom fade, the `ao` debug layer); the node path writes the same two facts here. Presentation only.
+ */
+export interface AoControl {
+  /** The zoom-fade weight, 0..1 (`zoom-fade.ts`). */
+  setBlend(weight: number): void;
+  /** The `ao` debug layer's switch. Off draws nothing and skips the pre-pass. */
+  setEnabled(on: boolean): void;
+  readonly blend: number;
+  readonly enabled: boolean;
 }
 export interface PostConfig {
   readonly scene: THREE.Scene;
@@ -78,6 +92,8 @@ export interface RenderBackend {
   readonly bloom: BloomControl;
   /** GH-943 P1 (T6): what `EnvironmentRegistry.attach` takes on this backend (the node PMREM bake). */
   readonly pmrem: NodePmremHost;
+  /** The node AO's control (T7); null when the addon-backed stage is not built. */
+  readonly ao: AoControl | null;
   /** Builds the node post chain for this scene, camera and quality preset; `render` rebuilds it if it is called with another pair. */
   configure(config: PostConfig): void;
   /** The node post chain (null before `configure`). Same `PostChainLike` the legacy `PostChain` extends. */

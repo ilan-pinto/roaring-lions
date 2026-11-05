@@ -22,6 +22,8 @@ export interface PostQuality {
   readonly ao: boolean;
   readonly smaa: boolean;
   readonly bloom: 'off' | 'quarter';
+  /** The fraction of the frame the AO's own targets run at (`QualityPreset.aoScale`); absent means `AO_RESOLUTION_SCALE`. */
+  readonly aoScale?: number;
 }
 
 /** What both chains offer the renderer: the pass list (for the order pin), a frame, and a release. */
