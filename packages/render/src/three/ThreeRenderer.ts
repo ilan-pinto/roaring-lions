@@ -3583,6 +3583,7 @@ export class ThreeRenderer implements Renderer {
         this.gradePass = nodePost.grade;
         if (this.opts.grade !== undefined) this.setGrade(this.opts.grade.json, this.opts.grade.strength ?? 1);
       }
+      this.environment?.attach(this.nodeBackend.pmrem);
       this.mountAndObserve(host);
       this.seedFromSim();
       await this.nodeBackend.prepare(this.scene, this.viewCamera);
