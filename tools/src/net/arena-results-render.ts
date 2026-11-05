@@ -45,19 +45,27 @@ function sectionHtml(s: Section, i: number): string {
   return out.join('\n');
 }
 
-/** The whole page. No script, no external file, no link. */
-export function renderPreview(doc: ArenaResults, runNames?: ReadonlyMap<string, string>): string {
-  return `<!doctype html>
+const STYLE = 'body{font:14px/1.5 system-ui,sans-serif;margin:1rem auto;max-width:72rem;padding:0 1rem;color:#222;background:#fff}table{border-collapse:collapse;margin:.5rem 0 1rem;display:block;overflow-x:auto}th,td{border:1px solid #bbb;padding:.2rem .5rem;text-align:left}.foot{font-size:12px;color:#555}';
+const shell = (inner: string): string => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Arena results</title>
-<style>body{font:14px/1.5 system-ui,sans-serif;margin:1rem auto;max-width:72rem;padding:0 1rem;color:#222;background:#fff}table{border-collapse:collapse;margin:.5rem 0 1rem;display:block;overflow-x:auto}th,td{border:1px solid #bbb;padding:.2rem .5rem;text-align:left}.foot{font-size:12px;color:#555}</style>
+<style>${STYLE}</style>
 </head><body>
 <h1>Arena results</h1>
-<p>${esc(doc.note)}</p>
+${inner}
+</body></html>
+`;
+
+/** The page before anything is published (the Worker serves it while data/arena/results.json does not exist). */
+export function renderEmpty(): string {
+  return shell('<p>No results published yet.</p>');
+}
+
+/** The whole page. No script, no external file, no link. */
+export function renderPreview(doc: ArenaResults, runNames?: ReadonlyMap<string, string>): string {
+  return shell(`<p>${esc(doc.note)}</p>
 <p>Generated ${esc(doc.generated)}. Digest ${esc(doc.digest)}. ${esc(doc.withheld)} game(s) withheld.</p>
 ${runNames === undefined || runNames.size === 0 ? '' : `<h2>Runs (local only: the published file carries the short code)</h2>${table(['code', 'run'], [...runNames.entries()].sort().map(([h, n]) => [h, n]))}`}
 ${doc.sections.length === 0 ? '<p>No games to show.</p>' : doc.sections.map(sectionHtml).join('\n')}
-<p class="foot">${esc(doc.disclaimer)}</p>
-</body></html>
-`;
+<p class="foot">${esc(doc.disclaimer)}</p>`);
 }

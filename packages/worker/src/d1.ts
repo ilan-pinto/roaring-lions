@@ -20,6 +20,8 @@ export interface DurableObjectNamespaceLike {
   get(id: unknown): DurableObjectStubLike;
 }
 export interface Env {
+  /** GH-954 P3: any value but empty, `0` or `false` makes /arena-results and /arena-results.json answer 404, no deploy. */
+  ARENA_RESULTS_HIDDEN?: string;
   DB: D1Like;
   ASSETS: { fetch(request: Request): Promise<Response> };
   INGEST_LIMIT?: RateLimiter;
