@@ -48,13 +48,15 @@ const EVERY = 1200;
  * the sign. The sim hash (3655609792 for seed 2) and the runtime digest are byte-identical to main's: only `shippedContentDigest()` moved
  * (846746415 -> 1070441926). Seed 2 went positive (+1598120593; the economy room too, +1337731563); seeds 1, 3 and 9 read negative
  * (1: -1613319460), so seed 1 stands. Was seed 2.
+ * GH-976 camp-mode (5 Nov): `data/versus/modes/milh_flats.json` moved its camps (content again). Seed 1 went positive; seeds 6, 8 and 9 read
+ * negative (1, 2, 3, 4, 5 and 7 read positive or fail the premise), so seed 6 stands. Was seed 1. Sim hash and runtime digest are untouched.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;
   const sides = sidesOfFactions([...factions]);
   const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({
-    matchId: CODE, code: CODE, seed: 1, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
+    matchId: CODE, code: CODE, seed: 6, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
     pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b-1', dataDigest: 0, snapshotEveryTicks: EVERY,
   });
   if (c === null) throw new Error('bad fixture');

@@ -58,7 +58,7 @@ describe('the shipped win-mode files', () => {
     expect(winModeField(undefined)).toBeUndefined();
   });
 
-  it('the maps a mode is read fair on all carry that mode and are maps a room is offered on; camp is read fair on none', () => {
+  it('the maps a mode is read fair on all carry that mode and are maps a room is offered on; camp is read fair on milh_flats alone', () => {
     for (const mode of NET_WIN_MODES) {
       for (const map of WIN_MODE_FAIR_MAPS[mode]) {
         expect(VERSUS_FAIR_MAPS, `${mode} on ${map}`).toContain(map);
@@ -76,12 +76,14 @@ describe('the shipped win-mode files', () => {
     const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
     expect(WIN_MODE_FAIR_MAPS.points).toEqual(SEVEN); // wadi_tarfan 56.3%, milh_flats 57.3% (P1); the other five 51-55% on 4000-4287: see config.ts
     expect(WIN_MODE_FAIR_MAPS.flag).toEqual(SEVEN);   // wadi_tarfan 56.9%, milh_flats 52.1% (P3); the other five 44-55% (45-55% of the decisive games)
-    expect(WIN_MODE_FAIR_MAPS.camp).toEqual([]);      // 4.9% / 58.3% decided by the camp, passive ends win 8-47 of 288: see config.ts
+    expect(WIN_MODE_FAIR_MAPS.camp).toEqual(['milh_flats']); // forward camps (15,39)/(31,7): 52.4%, 96.5% by the goal, passive lost 576 of 576 on 4000-4287; the others cannot: see config.ts
     expect([...VERSUS_FAIR_MAPS].sort()).toEqual([...SEVEN].sort());
     for (const map of SEVEN) for (const mode of ['points', 'flag'] as const) expect(versusModes[map].modes[mode], `${map} ${mode}`).toBeDefined();
     // ...and no KDF-v-Sarim cell: the one that passed (points on wadi_tarfan_l at 10 per 100) was a kill race and was removed.
     expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: {}, points: {}, flag: {} });
     expect(winModeAllowed('camp', 'wadi_tarfan')).toBe(false);
+    expect(winModeAllowed('camp', 'milh_flats')).toBe(true);
+    expect(winModeAllowed('camp', 'milh_flats', 'kdf')).toBe(false);   // the mirror only
     expect(winModeAllowed('points', 'wadi_tarfan_l', 'kdf')).toBe(false);
     expect(winModeAllowed('points', 'wadi_tarfan_l', 'sarim')).toBe(false);
     expect(winModeAllowed('flag', 'wadi_tarfan_l', 'kdf')).toBe(false);
@@ -173,6 +175,8 @@ describe('the shipped win-mode files', () => {
     const m = shipped.find((s) => s.doc.map === 'milh_flats')!.doc.camps!;
     // 48x48: tile (x, y) maps to (47 - x, 47 - y), so a 2x2 at (x, y) maps to (46 - x, 46 - y).
     expect(m.hostile.at).toEqual([46 - m.friendly.at[0], 46 - m.friendly.at[1]]);
+    // The ground the camp mode was READ fair on (GH-976 camp-mode, 4000-4287). A one-tile move is a different cell: the surface is a race, re-read it.
+    expect(m).toEqual({ friendly: { at: [15, 39], size: [2, 2] }, hostile: { at: [31, 7], size: [2, 2] } });
   });
 
   it('on a point-symmetric map the points zones come in the map\'s point-symmetric pairs, so both seats are offered the same ground', () => {

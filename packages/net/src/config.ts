@@ -34,10 +34,19 @@ export type WinMode = (typeof WIN_MODES)[number];
  *
  *  - `points` reads fair on both: wadi_tarfan east 56.3% (within the 60/40 bar), 93.8% of games decided by the goal, the passive
  *    end lost 288 of 288 from each end; milh_flats west 57.3%, 98.3% by the goal, the passive end lost 288 of 288 from each end.
- *  - `camp` reads fair (53.5% and 58.0%) and FAILS the other two bars on both maps, so it is listed on none: 4.9% (wadi_tarfan)
- *    and 58.3% (milh_flats) of games were decided by the camp, against 70% required, because two blobs that attack-move on the
- *    other's camp meet and one wipes the other first; and a passive end won 29 and 8 of 288 games (wadi_tarfan), 47 and 38
- *    (milh_flats), where it must lose them all. Reported to the lead; the open question is in `_coord/win-modes/report.md`.
+ *  - `camp` (GH-976 P1) read fair (53.5% and 58.0%) and FAILED the other two bars on both maps at the camps' first positions, so it was
+ *    listed on none: 4.9% (wadi_tarfan) and 58.3% (milh_flats) of games were decided by the camp, against 70% required, because two
+ *    blobs that attack-move on the other's camp meet and one wipes the other first; and a passive end won 29 and 8 of 288 games
+ *    (wadi_tarfan), 47 and 38 (milh_flats), where it must lose them all. GH-976 camp-mode: the camp stands INSIDE the defender's
+ *    reach, so a passive force beat an all-in attacker on the way to it. The camp is data (`camps` in the mode file, any open
+ *    2x2 within `CAMP_REACH` of the seat's anchor), so it was moved forward, toward the enemy. **`milh_flats` only**, at (15,39) and
+ *    (31,7) (it was (4,40) and (42,6)); fitted on seeds 0-191 (192 games a cell: 92 / 100, 96.4% by the goal, the passive end
+ *    lost 384 of 384), read once on 4000-4287: west 137 / east 151 / draw 0 (52.4%), 96.5% by the goal, the passive end lost 288
+ *    of 288 from each end. Not unfair for this probe's play, which is a race: the raid runs 32 s (east camp) to 82 s (west camp)
+ *    and a defender that stands ON its camp (not the probe's passive seat) holds it 55 times of 96 in the west and 8 in the
+ *    east. wadi_tarfan, rujm_sawda, wadi_tarfan_l, milh_flats_l, tel_marum and beit_sahwan_outskirts were screened over the camp
+ *    ground the reach allows and none gets past 33% decided by the goal (best 22%, wadi_tarfan): their blobs meet, and the wipe
+ *    ends the game before a camp falls. That needs an engine rule (annihilation off, or a goal-aware wipe), not data.
  *  - `flag` (GH-976 P3; the raid probe: two infantry squads go for the flag, the rest of the force plays the base probe) reads
  *    fair on both, flag zones fitted on seeds 0-191 and read on 4000-4287 (288 each): wadi_tarfan east 164 / west 114 / draw 10,
  *    leader 56.9%, 96.5% decided by the goal, the passive end lost 288 of 288 from each end; milh_flats east 150 / west 134 /
@@ -69,7 +78,7 @@ export type WinMode = (typeof WIN_MODES)[number];
  *    135 / 153 / 0, 53.1% over all and decisive games, 96.2% by the goal, the passive end lost 288 of 288 from each end.
  *    KDF against Sarim is `WIN_MODE_FAIR_FACTION_CELLS`'s question. */
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
-  camp: [],
+  camp: ['milh_flats'],
   points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
   flag: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
 };

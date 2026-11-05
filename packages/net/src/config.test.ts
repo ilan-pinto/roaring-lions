@@ -206,11 +206,11 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
   const versus = (map: string, matchup: 'mirror' | 'kdf' | 'sarim' = 'mirror') => ({ mode: 'versus' as const, map, matchup });
   // The oracle is a literal, not a read of the tables under test (GH-976 P4): the seven open maps, and what each plays in each pairing.
   const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
-  it('offers points and the flag raid on all seven open maps in the mirror (GH-976 P3, P4), and nothing else anywhere', () => {
-    for (const map of SEVEN) expect(winModesOffered(map), map).toEqual(['points', 'flag']);
-    // camp failed the passive-seat bar on both maps it was read on and is offered nowhere; a map that is not open has no mode file
+  it('offers points and the flag raid on all seven open maps in the mirror (GH-976 P3, P4), the camp on milh_flats alone, and nothing else anywhere', () => {
+    for (const map of SEVEN) expect(winModesOffered(map), map).toEqual(map === 'milh_flats' ? ['camp', 'points', 'flag'] : ['points', 'flag']);
+    // camp failed the passive-seat bar at its first camps; moved forward it passes on milh_flats only (config.ts); a map that is not open has no mode file
     for (const map of ['qarn_hadid', 'tel_marum_1', 'tutorial_ground', 'nowhere', '']) expect(winModesOffered(map), map).toEqual([]);
-    for (const map of SEVEN) expect(winModeAllowed('camp', map), map).toBe(false);
+    for (const map of SEVEN) expect(winModeAllowed('camp', map), map).toBe(map === 'milh_flats');
   });
   /** Runs `fn` with one faction cell added to the table, and takes it out again, also on a throw. The table is empty today
    *  (GH-976 P4 review), so the mechanism is exercised with a cell the test adds. */
@@ -247,7 +247,8 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
     expect(winModeRequest('flag', versus('milh_flats_l'))).toEqual({ mode: 'flag' });
     expect(winModeRequest('rally', versus('milh_flats')).refused).toBe('unknown win mode');
     expect(winModeRequest('', versus('milh_flats')).refused).toBe('unknown win mode');
-    expect(winModeRequest('camp', versus('milh_flats')).refused).toBe('win mode not offered on this map');
+    expect(winModeRequest('camp', versus('milh_flats'))).toEqual({ mode: 'camp' });
+    expect(winModeRequest('camp', versus('wadi_tarfan')).refused).toBe('win mode not offered on this map');
     expect(winModeRequest('points', versus('qarn_hadid')).refused).toBe('win mode not offered on this map');
     expect(winModeRequest('points', { ...versus('wadi_tarfan'), mode: 'sandbox' }).refused).toBe('win mode is for versus rooms');
   });

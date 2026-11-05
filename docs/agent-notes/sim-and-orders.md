@@ -700,8 +700,8 @@ model. The S4 re-run and the decision to open versus are written up separately.
 
 A versus room may play a WIN MODE beside annihilation: `MatchConfig.winMode` (`'camp'` | `'points'` | `'flag'`, absent is
 annihilation and every room that has ever been played). Phase 1 was the engine and the instrument; **phase 2 (below) opens
-`points` in the lobby, the bot harness and the scoring**. `camp` is offered nowhere (it failed the passive-seat bar on both
-maps) and stays reachable from a test and `pnpm versus:probe -- --mode=camp` only.
+`points` in the lobby, the bot harness and the scoring**. `camp` was offered nowhere (it failed the passive-seat bar on both
+maps); since GH-976 camp-mode it is offered on `milh_flats` alone (below) and reachable elsewhere from a test and `pnpm versus:probe -- --mode=camp`.
 
 - **Data.** `data/versus/modes/<map>.json` against `versus_mode.schema.json`, registered in `@lions/data`'s
   `versusModes` (`index.test.ts`-style pin: `tools/src/validate_versus_modes.test.ts`). It carries the map's camps by END
@@ -813,7 +813,7 @@ maps) and stays reachable from a test and `pnpm versus:probe -- --mode=camp` onl
 
 - **What moved.** No sim source, no snapshot row, no pin: `data/versus/modes/<map>.json` for `tel_marum`, `beit_sahwan_outskirts`,
   `rujm_sawda`, `wadi_tarfan_l` and `milh_flats_l`, the probe, and the Worker's allow-list. Both `points` and `flag` are now offered in the
-  mirror on all seven open maps (`WIN_MODE_FAIR_MAPS`); `camp` still nowhere.
+  mirror on all seven open maps (`WIN_MODE_FAIR_MAPS`); `camp` was still nowhere (see "GH-976 camp-mode" below).
 - **The probe reads a KDF-v-Sarim cell.** `pnpm versus:probe -- --mode=flag --maps=<id> --arr=kdf/sarim,sarim/kdf` (the factions by END,
   friendly first; the default is the mirror). A faction mode room is the two PLACED forces with no production and no tunnels, because
   `economyRoom` is false for any mode room, so the arm plays it with the orders it plays a mirror. The verdict line reads the leader twice:
@@ -891,3 +891,26 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   built from the line. Check: `tools/src/perf/forward-camp-check.ts` (port 5195, music off, one Metal browser).
 - **Cost.** A busy forward line adds one contest scan a tick, the same as any second authored camp: about 0.004 ms/tick at 303 units; an
   idle one about 0.00001 ms.
+
+### GH-976 camp-mode: why "destroy the camp" failed the passive-seat bar, and the one map it passes on
+
+- **Diagnosis (96 seeds, 0-95, both maps, the camps of P1).** Two causes, neither is the camp's hp. (1) *The passive bar*: the camp sat inside the
+  defender's reach, so the all-in attacker met a force standing in cover on the way to it. wadi_tarfan passive west lost 17 / 96 (attacker wiped 5,
+  or left with 2-4 units that never razed the camp and the game went to the cap and the surviving value: 12), milh_flats 10 and 8. Camp size was
+  screened (1x1 = 300 hp, 2x1, 1x2, 2x2): smaller camps made it WORSE (milh_flats passive wins 17 and 32 of 96 at 1x1). (2) *The goal share*: two
+  blobs that attack-move on each other's camp meet, and the wipe ends the game before a camp falls: 3% (wadi_tarfan) and 56% (milh_flats) decided by
+  the camp. `--wipe=off` takes the goal share to 100% (annihilation is the cause) and leaves the passive wins (8-44 of 288), so (1) is defender advantage
+  and not an annihilation artefact.
+- **The data lever.** The `camps` of a mode file (any open 2x2, within `CAMP_REACH` 6 of the seat's anchor, point-symmetric where the map is). Moving the
+  camps forward, toward the enemy, takes the passive seat out of its own cover: the attacker razes before it fights. Passive lost 48 of 48 in every
+  forward cell of wadi_tarfan and milh_flats. The goal share is the second lever, and only milh_flats moves it: (15,39) / (31,7) reads 96% by the goal.
+- **Shipped: `camp` on `milh_flats` only, camps (15,39) and (31,7).** Fitted on 0-191 (92 / 100, 52.1%, 96.4% by the goal, passive 192 / 192 from each
+  end), read once on 4000-4287: west 137 / east 151 / draw 0, 52.4% over all and decisive games, 96.5% by the goal, passive lost 288 / 288 from
+  each end. It is a RACE (mean 95 s; the raid takes 32 s on the east camp and 82 s on the west camp), read as "not unfair for this probe's play" like
+  the flag. A defender that STANDS ON its camp (a scratch arm, `attackMove` onto its own exit, 96 seeds 0-95) holds it 55 / 96 in the west and 8 / 96
+  in the east, against 3 and 10 at the old camps: the end asymmetry is real and the probe's mirror (both ends attack) does not show it.
+- **Not offered, and why.** Screened over the camp ground the reach allows (24-48 seeds a cell, 0-47): wadi_tarfan best goal share 22%
+  (16,15), rujm_sawda 33%, wadi_tarfan_l 25%, milh_flats_l 25%, tel_marum 33%, beit_sahwan_outskirts 0% (and 75-83% for one end). The passive bar passes
+  at the forward cells, the goal share does not: the blobs meet. That is an engine rule (annihilation off in a camp room, or a wipe that does not end a
+  game while the other camp stands), not data. `--wipe=off` on the shipped milh_flats camps was not needed (96.5% already).
+
