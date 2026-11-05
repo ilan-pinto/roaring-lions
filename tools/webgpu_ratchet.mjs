@@ -7,7 +7,11 @@
 //
 // PORTED_FILES STARTS EMPTY and only ever GAINS entries, one per ported file, in the PR that ports it (the same-PR rule, design
 // section 8). A flat-config `files: []` is invalid, so with an empty list no block is emitted at all.
-export const PORTED_FILES = [];
+export const PORTED_FILES = [
+  // GH-943 P1 (T2): the node post chain. The ratchet lists the NODE twin: it is the file that must stay GLSL-free. Its legacy
+  // twin (post-chain.ts, the EffectComposer) keeps its passes until P8, so it is not listed here.
+  'packages/render/src/three/post-chain.node.ts',
+];
 
 /**
  * GH-943 P1 T1: the TWINS table, legacy GLSL file -> its node twin. The same-PR rule (design section 8): once a twin EXISTS on

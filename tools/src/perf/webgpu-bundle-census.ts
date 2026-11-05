@@ -56,8 +56,9 @@ const lazy = pick(f.webgpuChunks).concat(chunks.filter((x) => /^three\.tsl-/.tes
 const lazyBytes = lazy.reduce((n, c) => n + c.code.length, 0);
 const lazyGzip = lazy.reduce((n, c) => n + (c.gzipBytes ?? 0), 0);
 lines.push(`node-boot extra download (webgpu + tsl + node backend): raw ${(lazyBytes / 1024).toFixed(1)} KiB, gzip ${(lazyGzip / 1024).toFixed(1)} KiB; a legacy boot downloads none of it`);
+lines.push(`node post chain (post-chain.node.ts) in: ${f.nodePostChunks.join(', ') || '(NOWHERE)'}; legacy composer (three/addons/postprocessing) in: ${f.legacyPostChunks.join(', ') || '(NOWHERE)'}`);
 lines.push(`entry static closure: ${f.entryStaticClosure.join(', ') || '(none)'}`);
-lines.push(f.failures.length === 0 ? 'FINDINGS: none (core shared, webgpu lazy, main chunk clean)' : `FINDINGS:\n  ${f.failures.join('\n  ')}`);
+lines.push(f.failures.length === 0 ? 'FINDINGS: none (core shared, webgpu lazy, main chunk clean, node post chain only in the node backend chunk, no postprocessing addons in it)' : `FINDINGS:\n  ${f.failures.join('\n  ')}`);
 console.log(lines.join('\n'));
 const outArg = args.find((a) => a.startsWith('--out='))?.slice(6);
 if (outArg) writeFileSync(outArg, lines.join('\n') + '\n');

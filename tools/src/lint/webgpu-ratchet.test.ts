@@ -23,7 +23,7 @@ async function lint(code: string, ported: readonly string[]): Promise<string[]> 
 }
 
 /** Append the file you port, in the PR that ports it. */
-const PORTED_FLOOR: readonly string[] = [];
+const PORTED_FLOOR: readonly string[] = ['packages/render/src/three/post-chain.node.ts'];
 const FIXTURE = 'packages/render/src/three/fixture-ported.ts';
 
 describe('webgpu ratchet', () => {

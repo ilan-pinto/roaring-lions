@@ -185,7 +185,7 @@ import type { RenderBackend } from './backend/backend';
 import type { UnportedHook } from './backend/unported';
 import { setImageReleaseEnabled } from './units/gltf-loader';
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
-import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
+import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain, type PostChainLike } from './post-chain';
 import type { OutputVignette } from './vignette-pass';
 import type { OutputGrade, ApplyOptions as GradeApplyOptions } from './output-grade';
 import { resolveGrade, type GradeJson } from './grade-maths';
@@ -3557,13 +3557,12 @@ export class ThreeRenderer implements Renderer {
     if (this.nodeBackend) {
       this.nodeBackend.setPixelRatio(this.pixelRatio);
       this.fitToHost();
-      // P1 ports the post chain, the sky environment (PMREM), fog, AO, bloom, vignette and grade to the node pipeline. Until
-      // then a node boot draws the scene pass and the output transform only, and the census names what is missing.
-      host.appendChild(this.nodeBackend.domElement);
-      this.resizeObserver = new ResizeObserver(() => {
-        this.fitToHost();
-      });
-      this.resizeObserver.observe(host);
+      // GH-943 P1 (T2): the node chain is built here, from the same quality preset the legacy chain reads. Its stage factories
+      // (`nodeBackend.kit`: fog T4, bloom T5, AO T7) are null until those tasks land, so until then the chain is the scene pass,
+      // the output transform and SMAA, and the legacy `fogPass`/`aoPass`/`bloomPass` fields stay null (every toggle that reads
+      // them is null-safe and returns 0). Sky environment (T6), grade and vignette (T3) are not on this path yet.
+      this.nodeBackend.configure({ scene: this.scene, camera: this.viewCamera, quality: this.opts.quality ?? QUALITY_PRESETS.high });
+      this.mountAndObserve(host);
       this.seedFromSim();
       await this.nodeBackend.prepare(this.scene, this.viewCamera);
       return;
@@ -3642,22 +3641,7 @@ export class ThreeRenderer implements Renderer {
     // builds nothing, so every frame without `&grade` is today's, to the bit.
     this.gradePass = this.post.grade;
     if (this.opts.grade !== undefined) this.setGrade(this.opts.grade.json, this.opts.grade.strength ?? 1);
-    host.appendChild(this.renderer.domElement);
-    // PixiRenderer gets this from `resizeTo: host` (renderer.ts). Without an
-    // equivalent the three canvas would stay at boot size while `width`/
-    // `height` -- which `worldToScreen`/`screenToWorld` both read off the
-    // canvas -- kept reporting it, so the two backends would disagree by
-    // exactly the resize delta and every pointer read would land on the
-    // wrong tile.
-    //
-    // A ResizeObserver on the host rather than a window `resize` listener:
-    // it covers the window case and also the ones a window listener misses
-    // (a sidebar opening, the host's own layout changing, devtools docking),
-    // and it is scoped to the element this renderer actually fills.
-    this.resizeObserver = new ResizeObserver(() => {
-      this.fitToHost();
-    });
-    this.resizeObserver.observe(host);
+    this.mountAndObserve(host);
     // Everything this backend derives from the sim before the first
     // `frame()`: interpolation, speed, fog, trail, track seeds, structure
     // instancer room. The SAME call `reseed()` makes, so what `init` seeds
@@ -3669,6 +3653,29 @@ export class ThreeRenderer implements Renderer {
     // elapse before that first tick lands.
     this.seedFromSim();
     await Promise.resolve();
+  }
+
+  /**
+   * The tail of `init` both backends share: the canvas into the host, and the ResizeObserver that keeps it fitted.
+   * PixiRenderer gets this from `resizeTo: host` (renderer.ts). Without an equivalent the three canvas would stay at boot size
+   * while `width`/`height` -- which `worldToScreen`/`screenToWorld` both read off the canvas -- kept reporting it, so the two
+   * backends would disagree by exactly the resize delta and every pointer read would land on the wrong tile.
+   *
+   * A ResizeObserver on the host rather than a window `resize` listener: it covers the window case and also the ones a window
+   * listener misses (a sidebar opening, the host's own layout changing, devtools docking), and it is scoped to the element this
+   * renderer actually fills.
+   */
+  private mountAndObserve(host: HTMLElement): void {
+    host.appendChild(this.nodeBackend?.domElement ?? this.renderer.domElement);
+    this.resizeObserver = new ResizeObserver(() => {
+      this.fitToHost();
+    });
+    this.resizeObserver.observe(host);
+  }
+
+  /** The post chain that is drawing: the node pipeline's, or the legacy composer's. Null before `init` (the tests, the spikes). */
+  postChain(): PostChainLike | null {
+    return this.nodeBackend?.post ?? this.post;
   }
 
   /** The legacy renderer, built exactly as the constructor always built it (comment above `nodeWanted` in the constructor). */
