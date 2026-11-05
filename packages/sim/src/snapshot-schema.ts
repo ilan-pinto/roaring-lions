@@ -215,6 +215,9 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'stMaxHp', cls: 'state', kind: typed('Int32Array', { fixed: 256 }) },
   { name: 'stTypeIdx', cls: 'state', kind: typed('Uint16Array', { fixed: 256 }) },
   { name: 'stProducesFor', cls: 'state', kind: typed('Int8Array', { fixed: 256 }) },
+  // GH-976: the authored exit override (-1 = none). Unhashed static setup data like stProducesFor, but state: a restore into a world built without it would answer the NW scan.
+  { name: 'stExitX', cls: 'state', kind: typed('Int16Array', { fixed: 256 }) },
+  { name: 'stExitY', cls: 'state', kind: typed('Int16Array', { fixed: 256 }) },
   { name: 'stOccupants', cls: 'state', kind: typed('Uint8Array', { fixed: 256 }) },
   { name: 'stChargeTicks', cls: 'state', kind: typed('Int32Array', { fixed: 256 }) },
   { name: 'stChargeBy', cls: 'state', kind: typed('Int32Array', { fixed: 256 }) },

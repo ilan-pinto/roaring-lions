@@ -9,6 +9,14 @@ export interface VersusEndJson {
   readonly camp: { readonly at: readonly [number, number]; readonly size: readonly [number, number] };
 }
 
+/** A camp of a mode file: the rules file's camp plus an optional exit tile (GH-976). */
+export interface VersusModeCampJson {
+  readonly at: readonly [number, number];
+  readonly size: readonly [number, number];
+  /** Tile index [x, y] of an open ring tile of the footprint where units leave; absent = the sim's NW scan. */
+  readonly exit?: readonly [number, number];
+}
+
 /** One authored route of a rules file (`tunnels.friendly` / `tunnels.hostile`). */
 export interface VersusTunnelJson {
   readonly id: string;
@@ -190,7 +198,7 @@ export interface VersusModeFileJson {
   readonly id: string;
   readonly map: string;
   /** Camps by END, required by the `camp` mode. */
-  readonly camps?: { readonly friendly: VersusEndJson['camp']; readonly hostile: VersusEndJson['camp'] };
+  readonly camps?: { readonly friendly: VersusModeCampJson; readonly hostile: VersusModeCampJson };
   /** Flag zones by END, required by the `flag` mode (GH-976 P3). */
   readonly flags?: { readonly friendly: VersusEndJson['camp']; readonly hostile: VersusEndJson['camp'] };
   readonly modes: {

@@ -759,7 +759,7 @@ const rows = (names: string, reason: string): { readonly name: string; readonly 
 export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonly reason: string }[] = [
   ...rows(
     'elevation stRouteMask ' +
-      'stProducesFor tnLength tnOwner tnCapacity tnTravelTicks tnDigRate tnDigger tnVentX tnVentY tunnelCount_ ' +
+      'stProducesFor stExitX stExitY tnLength tnOwner tnCapacity tnTravelTicks tnDigRate tnDigger tnVentX tnVentY tunnelCount_ ' +
       'evacX evacY evacSide evacCount aidPosts woundLive veterancy',
     'never moves after build in any witness world (written only by applyTerrain, addStructure, addTunnel, addEvacPoint, addUnitType and spawn at veterancy 0). ' +
       'Their RESTORE is proved in every fork regardless, because B\'s state rows are poisoned before `restoreSim` and a restore that skipped one fails; ' +

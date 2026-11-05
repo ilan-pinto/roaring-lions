@@ -2,8 +2,8 @@
   "id": "wadi_tarfan",
   "map": "wadi_tarfan",
   "camps": {
-    "friendly": { "at": [7, 7], "size": [2, 2] },
-    "hostile": { "at": [39, 39], "size": [2, 2] }
+    "friendly": { "at": [7, 7], "size": [2, 2], "exit": [6, 6] },
+    "hostile": { "at": [39, 39], "size": [2, 2], "exit": [41, 41] }
   },
   "flags": {
     "friendly": { "at": [6, 30], "size": [5, 5] },

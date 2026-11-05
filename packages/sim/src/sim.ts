@@ -2126,6 +2126,9 @@ export class Sim {
    *  route and rear caches read it, and poisoning it kept every hash equal for
    *  1,200 ticks while those caches diverged. */
   private readonly stProducesFor: Int8Array;
+  /** Authored exit tile override per structure (x, y), -1 = none. Static setup data like stProducesFor: NOT in hash(). */
+  private readonly stExitX: Int16Array;
+  private readonly stExitY: Int16Array;
   private readonly stOccupants: Uint8Array;
   /** E6 (GH-274, G1): ticks left on a placed charge against this structure, 0 when none.
    *  Hashed behind `placedLive`. */
@@ -2601,6 +2604,8 @@ export class Sim {
     this.stMaxHp = new Int32Array(sc);
     this.stTypeIdx = new Uint16Array(sc);
     this.stProducesFor = new Int8Array(sc).fill(-1);
+    this.stExitX = new Int16Array(sc).fill(-1);
+    this.stExitY = new Int16Array(sc).fill(-1);
     this.stOccupants = new Uint8Array(sc);
     this.stChargeTicks = new Int32Array(sc);
     this.stChargeBy = new Int32Array(sc).fill(-1);
@@ -10034,7 +10039,25 @@ export class Sim {
    * gets — one spill rule, not a second one that drifts from it.
    */
   structureExit(s: number): [Fx, Fx] {
+    const ox = this.stExitX[s];
+    if (ox >= 0) return [fx.add(fx.fromInt(ox), HALF), fx.add(fx.fromInt(this.stExitY[s]), HALF)];
     return this.exitTile(s);
+  }
+
+  /**
+   * Override the tile `structureExit(s)` answers (GH-976: a versus camp mode authors a point-symmetric
+   * exit, because the row-major NW scan of `exitTile` is not). Setup-only, written once before the first
+   * tick, and left out of hash() like stProducesFor: it is static authored data, never changed by play.
+   * `exitTile` and garrison spill are unchanged. The tile must be open on the foot mask.
+   */
+  setStructureExit(s: number, tx: number, ty: number): void {
+    if (s < 0 || s >= this.structureCount_) throw new Error(`no structure ${s}`);
+    if (this.tickCount > 0) throw new Error('setStructureExit is setup-only (before the first tick)');
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height || this.blocked[ty * this.width + tx] !== 0) {
+      throw new Error(`setStructureExit: tile (${tx},${ty}) is not open ground`);
+    }
+    this.stExitX[s] = tx;
+    this.stExitY[s] = ty;
   }
 
   /** First open tile beside a structure — where a garrison spills out. */

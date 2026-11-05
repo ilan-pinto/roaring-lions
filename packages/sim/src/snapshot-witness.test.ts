@@ -410,7 +410,11 @@ describe('snapshot format pin', () => {
     // Was 3624532085. GH-972 review: the group-order ledger became two reusable scratch buffers (ledReserved,
     // ledHeld, `scratch` rows after spreadLive), and the format digest covers scratch rows too. With those two
     // rows cut the same run reads 3624532085 again. 3423221345 is read off a fresh run.
-    expect(h >>> 0).toBe(3423221345);
+    // Was 3423221345. GH-976 camp exits appended two `state` columns (stExitX, stExitY, Int16Array x 256, the authored
+    // structure exit override, -1 = none; unhashed static setup data), encoded even when no exit is set. With those two
+    // rows cut from snapshot-schema.ts the same run reads 3423221345 again, so the move is exactly the new rows.
+    // 166735965 is read off a fresh run.
+    expect(h >>> 0).toBe(166735965);
   });
 });
 

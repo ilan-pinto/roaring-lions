@@ -86,7 +86,8 @@
       "additionalProperties": false,
       "properties": {
         "at": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 } },
-        "size": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 1 } }
+        "size": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 1 } },
+        "exit": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 }, "description": "GH-976: the tile (index, like `at`) where units leave this camp, an open ring tile of its footprint. Absent: the sim's row-major NW scan, which is NOT point-symmetric. On a point-symmetric map the two camps' exits must be point mirrors (validate:data). Camps only; a flag ignores it." }
       }
     }
   }
