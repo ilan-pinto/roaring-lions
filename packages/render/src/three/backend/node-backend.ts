@@ -97,8 +97,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     get post() {
       return chain;
     },
-    setFog: (table, hazeLow) => {
-      kit.fog = createFogStageFactory(table, hazeLow);
+    setFog: (table, hazeLow, maths) => {
+      kit.fog = createFogStageFactory(table, hazeLow, maths);
     },
     configure: (config) => build(config),
     setPixelRatio: (r) => renderer.setPixelRatio(r),

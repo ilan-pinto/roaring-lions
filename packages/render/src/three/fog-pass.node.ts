@@ -22,12 +22,12 @@
  * Presentation only. Nothing here is read by the sim.
  */
 import type { Ops } from './fog-ops';
-import { fogDim } from './fog-ops';
+import type { fogDim } from './fog-ops';
 import type { PostStageContext, PostStage, PostStageFactory } from './backend/backend';
-import { FOG_OFFMAP_FADE_TILES, type FogUniformTable } from './fog-spec';
-import { HAZE_FORWARD, hazeAmountOps } from './haze';
-import { SHIMMER_MAX_SITES, shimmerOffsetOps } from './shimmer';
-import { WORLD_PER_LEVEL } from './terrain/shared';
+import type { FOG_OFFMAP_FADE_TILES, FogUniformTable } from './fog-spec';
+import type { HAZE_FORWARD, hazeAmountOps } from './haze';
+import type { SHIMMER_MAX_SITES, shimmerOffsetOps } from './shimmer';
+import type { WORLD_PER_LEVEL } from './terrain/shared';
 
 /**
  * The slice of a TSL node this file uses, as a structural handle. The stock typings make every swizzle and operator overload-specific
@@ -95,9 +95,26 @@ export function tslOps(TSL: Tsl): Ops<N> {
   };
 }
 
+/**
+ * The Ops-parameterised maths this stage shares with the legacy pass (`haze.ts`, `shimmer.ts`), INJECTED rather than imported.
+ * Those modules (and the constants and `fogDim` beside them) are also imported by `fog-pass.ts` and `ThreeRenderer.ts`, so the bundler hoists them into the ThreeRenderer chunk,
+ * and a static import here would make the node-backend chunk load that chunk (and the legacy composer in it): the bundle census
+ * (`pnpm --filter @lions/tools webgpu:bundle`) fails on exactly that. `ThreeRenderer` hands them over through `RenderBackend.setFog`,
+ * the way `NodePostDeps` hands over `three/webgpu` and `three/tsl`. Types only here, so nothing is imported at runtime.
+ */
+export interface FogMaths {
+  readonly hazeForward: typeof HAZE_FORWARD;
+  readonly hazeAmountOps: typeof hazeAmountOps;
+  readonly shimmerOffsetOps: typeof shimmerOffsetOps;
+  readonly fogDim: typeof fogDim;
+  readonly offMapFadeTiles: typeof FOG_OFFMAP_FADE_TILES;
+  readonly shimmerMaxSites: typeof SHIMMER_MAX_SITES;
+  readonly worldPerLevel: typeof WORLD_PER_LEVEL;
+}
+
 /** The fog stage for `table`. `hazeLow` is the compile-time low-lying strength (a raining map's 0.10). */
-export function createFogStageFactory(table: FogUniformTable, hazeLow: number): PostStageFactory {
-  return (ctx: PostStageContext): PostStage => buildFogStage(ctx, table, hazeLow);
+export function createFogStageFactory(table: FogUniformTable, hazeLow: number, maths: FogMaths): PostStageFactory {
+  return (ctx: PostStageContext): PostStage => buildFogStage(ctx, table, hazeLow, maths);
 }
 
 /** The stage plus the bound number uniforms, by table key, so a test can run their per-render sync and see which the graph uses. */
@@ -105,7 +122,7 @@ export interface FogStage extends PostStage {
   readonly bound: Readonly<Record<string, N>>;
 }
 
-export function buildFogStage(ctx: PostStageContext, table: FogUniformTable, hazeLow: number): FogStage {
+export function buildFogStage(ctx: PostStageContext, table: FogUniformTable, hazeLow: number, maths: FogMaths): FogStage {
   const TSL = ctx.TSL as unknown as Tsl;
   const { scenePass, camera } = ctx;
   const o = tslOps(TSL);
@@ -154,11 +171,11 @@ export function buildFogStage(ctx: PostStageContext, table: FogUniformTable, haz
   const stage = TSL.Fn(() => {
     // 1. Shimmer. Each site is guarded by the live count, so with `uShimmerCount == 0` no offset is ever added and `rlUv` is `vUv`.
     const rlUv = vUv.toVar();
-    for (let i = 0; i < SHIMMER_MAX_SITES; i++) {
+    for (let i = 0; i < maths.shimmerMaxSites; i++) {
       TSL.If(uShimmerCount.greaterThan(i), () => {
         const s = uShimmer.element(i);
         const d = TSL.vec2(vUv.x.sub(s.x).mul(uShimmerAspect), vUv.y.sub(s.y)).div(s.z);
-        const [ox, oy] = shimmerOffsetOps(o, d.x, d.y, uShimmerAmp.mul(s.w), uShimmerTime);
+        const [ox, oy] = maths.shimmerOffsetOps(o, d.x, d.y, uShimmerAmp.mul(s.w), uShimmerTime);
         rlUv.addAssign(TSL.vec2(ox, oy).mul(uShimmerPx));
       });
     }
@@ -171,19 +188,19 @@ export function buildFogStage(ctx: PostStageContext, table: FogUniformTable, haz
       const view = TSL.getViewPosition(TSL.screenUV, depth, projInv).toVar();
       const world = camWorld.mul(TSL.vec4(view, 1)).xyz.toVar();
       // 3. Haze, before the shroud.
-      const ahead = TSL.dot(TSL.vec2(world.x, world.z).sub(uFocus), TSL.vec2(HAZE_FORWARD[0], HAZE_FORWARD[1]));
-      const below = uHazeRef.sub(world.y.div(WORLD_PER_LEVEL));
-      const haze = uHazeAmp.mul(hazeAmountOps(o, ahead, below, uHazeFar, lit(hazeLow)));
+      const ahead = TSL.dot(TSL.vec2(world.x, world.z).sub(uFocus), TSL.vec2(maths.hazeForward[0], maths.hazeForward[1]));
+      const below = uHazeRef.sub(world.y.div(maths.worldPerLevel));
+      const haze = uHazeAmp.mul(maths.hazeAmountOps(o, ahead, below, uHazeFar, lit(hazeLow)));
       const hazed = TSL.mix(color.rgb, uHazeTint, haze);
       // 4-7. Shroud, reveal, off-map fade, backdrop-seen.
       const tex = TSL.vec2(world.x.div(uMapSize.x), world.z.div(uMapSize.y));
       let v: N = shroud.sample(tex).r;
       v = TSL.mix(v, lit(1), uRevealAll);
       const outUv = TSL.max(TSL.vec2(0), TSL.max(tex.negate(), tex.sub(TSL.vec2(1))));
-      const fade = TSL.clamp(TSL.length(outUv.mul(uMapSize)).div(FOG_OFFMAP_FADE_TILES), 0, 1);
+      const fade = TSL.clamp(TSL.length(outUv.mul(uMapSize)).div(maths.offMapFadeTiles), 0, 1);
       v = v.mul(lit(1).sub(fade));
       v = v.add(uOffMapSeen.mul(fade));
-      const dim = fogDim(o, v, uNeverSeen, uExplored);
+      const dim = maths.fogDim(o, v, uNeverSeen, uExplored);
       const lum = TSL.dot(hazed, TSL.vec3(0.2126, 0.7152, 0.0722));
       const shrouded = uTint.mul(lum).mul(uTintGain);
       out.assign(TSL.vec4(TSL.mix(hazed, shrouded, dim), color.a));

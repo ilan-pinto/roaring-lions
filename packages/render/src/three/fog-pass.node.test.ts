@@ -6,11 +6,22 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { FogUniforms, FOG_NEVER_SEEN, FOG_EXPLORED } from './fog-spec';
+import { FogUniforms, FOG_NEVER_SEEN, FOG_EXPLORED, FOG_OFFMAP_FADE_TILES } from './fog-spec';
+import { WORLD_PER_LEVEL } from './terrain/shared';
 import { NUMBER_OPS, fogDim } from './fog-ops';
-import { HAZE_LOW, HAZE_RAMP_TILES, HAZE_LOW_LEVELS, hazeAmount, hazeAmountOps } from './haze';
+import { HAZE_FORWARD, HAZE_LOW, HAZE_RAMP_TILES, HAZE_LOW_LEVELS, hazeAmount, hazeAmountOps } from './haze';
 import { shimmerOffsetPx, shimmerOffsetOps, shimmerWeight, SHIMMER_MAX_SITES, SHIMMER_MAX_OFFSET_PX } from './shimmer';
-import { buildFogStage, type FogStage, type N } from './fog-pass.node';
+import { buildFogStage, type FogMaths, type FogStage, type N } from './fog-pass.node';
+
+const MATHS: FogMaths = {
+  hazeForward: HAZE_FORWARD,
+  hazeAmountOps,
+  shimmerOffsetOps,
+  fogDim,
+  offMapFadeTiles: FOG_OFFMAP_FADE_TILES,
+  shimmerMaxSites: SHIMMER_MAX_SITES,
+  worldPerLevel: WORLD_PER_LEVEL,
+};
 
 interface Built {
   readonly glsl: string;
@@ -31,7 +42,7 @@ async function build(opts: { hazeLow?: number; webgpuDepth?: boolean } = {}): Pr
   const depth = T.texture(new THREE.DepthTexture(4, 4));
   const scenePass = { getTextureNode: (n: string) => (n === 'depth' ? depth : input) };
   const camera = new THREE.OrthographicCamera();
-  const stage = buildFogStage({ input, scenePass, TSL: T, scene: new THREE.Scene(), camera } as never, fog.uniforms, opts.hazeLow ?? HAZE_LOW);
+  const stage = buildFogStage({ input, scenePass, TSL: T, scene: new THREE.Scene(), camera } as never, fog.uniforms, opts.hazeLow ?? HAZE_LOW, MATHS);
   const mat = new W.NodeMaterial();
   mat.fragmentNode = stage.node as never;
   // The typings hide the builder's working members; this is the slice the test reads.

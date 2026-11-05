@@ -19,6 +19,7 @@ import type { Node as TslNode, PassNode } from 'three/webgpu';
 import type { PostChainLike, PostQuality } from '../post-chain-shared';
 import type { UnportedHook } from './unported';
 import type { FogUniformTable } from '../fog-spec';
+import type { FogMaths } from '../fog-pass.node';
 
 /**
  * GH-943 P1 (T2): what a post-chain stage factory is handed, and what it gives back. A stage reads `input` (the previous
@@ -64,9 +65,9 @@ export interface RenderBackend {
   readonly kit: PostKit;
   /**
    * GH-943 P1 (T4): hands the backend the fog uniform table (`FogUniforms.uniforms`, the same record the legacy pass exposes) and
-   * the compile-time `hazeLow`; the fog stage reads it. Call BEFORE `configure`, which builds the chain from the kit.
+   * the compile-time `hazeLow` and the shared haze/shimmer maths (injected, see `FogMaths`); the fog stage reads them. Call BEFORE `configure`, which builds the chain from the kit.
    */
-  setFog(table: FogUniformTable, hazeLow: number): void;
+  setFog(table: FogUniformTable, hazeLow: number, maths: FogMaths): void;
   /** Builds the node post chain for this scene, camera and quality preset; `render` rebuilds it if it is called with another pair. */
   configure(config: PostConfig): void;
   /** The node post chain (null before `configure`). Same `PostChainLike` the legacy `PostChain` extends. */
