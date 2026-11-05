@@ -19,6 +19,15 @@ describe('probeWebGpu', () => {
   });
 });
 
+describe('probeWebGpu: a software adapter that does not say so', () => {
+  it('recognises SwiftShader by name when isFallbackAdapter is undefined', async () => {
+    const p = await probeWebGpu({ gpu: { requestAdapter: async () => ({ info: { vendor: 'google', architecture: 'swiftshader' } }) } });
+    expect(p).toMatchObject({ ok: true, fallbackAdapter: true });
+    const real = await probeWebGpu({ gpu: { requestAdapter: async () => ({ info: { vendor: 'apple', architecture: 'metal-3' } }) } });
+    expect(real).toMatchObject({ ok: true, fallbackAdapter: false });
+  });
+});
+
 describe('planBackend', () => {
   it('legacy and webgl2 ignore the probe', () => {
     expect(planBackend('legacy', OK)).toEqual({ kind: 'legacy-gl' });

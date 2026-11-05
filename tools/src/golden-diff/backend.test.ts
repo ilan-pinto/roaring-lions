@@ -40,6 +40,7 @@ describe('arms', () => {
     expect(chromiumArgsFor('legacy')).toEqual([]);
     expect(chromiumArgsFor('webgl2')).toEqual([]);
     expect(chromiumArgsFor('webgpu')).toContain('--enable-unsafe-webgpu');
+    expect(chromiumArgsFor('webgpu')).toContain('--use-angle=swiftshader');
   });
   it('the key terms agree with the renderer package (tools may not import it, so the source text is read)', () => {
     const src = readFileSync(RENDER_GPU, 'utf8');

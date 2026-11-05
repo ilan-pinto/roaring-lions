@@ -47,6 +47,10 @@ export function chromiumArgsFor(arm: GpuArm): string[] {
     '--enable-features=Vulkan',
     '--use-vulkan=swiftshader',
     '--use-webgpu-adapter=swiftshader',
+    // MEASURED on the ubuntu-latest runner (`ci/webgpu-smoke.ts`, 5 launch-argument variants, PR 1041): only the variant WITH
+    // `--use-angle=swiftshader` kept a WebGPU device alive for 60 frames; the other four lost the Dawn instance ("A valid external
+    // Instance reference no longer exists") before the first frame.
+    '--use-angle=swiftshader',
     '--ignore-gpu-blocklist',
   ];
 }

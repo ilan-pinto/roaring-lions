@@ -59,7 +59,10 @@ export async function probeWebGpu(nav: GpuNavigatorLike | undefined): Promise<We
   if (!adapter) return { ok: false, reason: 'requestAdapter() returned no adapter' };
   const i = adapter.info;
   const name = i ? [i.vendor, i.architecture, i.device, i.description].filter((s) => s !== undefined && s !== '').join(' / ') : 'unknown';
-  return { ok: true, adapter: name || 'unknown', fallbackAdapter: adapter.isFallbackAdapter === true };
+  // `isFallbackAdapter` is absent on some Chromium builds (the CI runner's reads `undefined` on SwiftShader), so a software
+  // rasteriser is also recognised by name.
+  const software = /swiftshader|llvmpipe|softpipe|software/i.test(name);
+  return { ok: true, adapter: name || 'unknown', fallbackAdapter: adapter.isFallbackAdapter === true || software };
 }
 
 /** What `ThreeRenderer` builds. A `node-webgl2` plan carries the reason it is not WebGPU (`''` when it was asked for). */
