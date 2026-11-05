@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { censusUnported, probeWebGpu, unportedWarnings } from './webgpu-trial-gate';
+import { censusUnported, probeWebGpu, stripGlslHooks, unportedWarnings } from './webgpu-trial-gate';
 import { createWebGpuTrial } from './webgpu-trial';
 
 describe('probeWebGpu: the fallback decision', () => {
@@ -78,5 +78,36 @@ describe('censusUnported: no hook is dropped silently', () => {
     const spy = vi.fn();
     for (const l of unportedWarnings(censusUnported(root), new Set())) spy(l);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('the silhouette hook is hidden, and stripGlslHooks gives the like-for-like WebGL scene', () => {
+  const build = () => {
+    const root = new THREE.Group();
+    const geo = new THREE.BufferGeometry();
+    const sil = new THREE.MeshBasicMaterial({ name: 'rl-silhouette-outline' });
+    sil.onBeforeCompile = () => {};
+    const outline = new THREE.Mesh(geo, sil);
+    const hooked = new THREE.MeshStandardMaterial({ name: 'rl-ground' });
+    hooked.onBeforeCompile = () => {};
+    const ground = new THREE.Mesh(geo, hooked);
+    const shader = new THREE.Mesh(geo, new THREE.ShaderMaterial());
+    root.add(outline, ground, shader);
+    return { root, outline, ground, shader, hooked };
+  };
+  it('census hides the outline (it would draw flat), leaves the ground drawing', () => {
+    const { root, outline, ground } = build();
+    censusUnported(root);
+    expect(outline.visible).toBe(false);
+    expect(ground.visible).toBe(true);
+  });
+  it('strip restores the stock program on hooked materials and hides the unconvertible', () => {
+    const { root, outline, ground, shader, hooked } = build();
+    expect(stripGlslHooks(root)).toBe(3);
+    expect(hooked.onBeforeCompile).toBe(THREE.Material.prototype.onBeforeCompile);
+    expect(ground.visible).toBe(true);
+    expect(outline.visible).toBe(false);
+    expect(shader.visible).toBe(false);
+    expect(stripGlslHooks(root)).toBe(1); // only the (still hidden) ShaderMaterial counts again
   });
 });

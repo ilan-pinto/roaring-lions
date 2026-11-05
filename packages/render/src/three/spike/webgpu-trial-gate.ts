@@ -55,6 +55,9 @@ export interface UnportedHook {
   objects: number;
 }
 
+/** Hooked materials that draw WRONG (not just plainer) without their hook, so the trial hides them. */
+export const HIDE_WITHOUT_HOOK: ReadonlySet<string> = new Set(['rl-silhouette-outline']);
+
 const STOCK_ON_BEFORE_COMPILE = THREE.Material.prototype.onBeforeCompile;
 
 interface DrawLike extends THREE.Object3D {
@@ -68,7 +71,8 @@ function materialKey(m: THREE.Material, o: THREE.Object3D): string {
   } catch {
     cache = '';
   }
-  return m.name || cache || o.name || m.type;
+  // `ShaderMaterial.customProgramCacheKey()` is the hook's own source text: never a usable name.
+  return m.name || (cache.length <= 60 ? cache : '') || o.name || o.parent?.name || m.type;
 }
 
 /**
@@ -96,7 +100,11 @@ export function censusUnported(root: THREE.Object3D): UnportedHook[] {
         o.visible = false;
         continue;
       }
-      if (m.onBeforeCompile !== STOCK_ON_BEFORE_COMPILE) note('on-before-compile', materialKey(m, o));
+      if (m.onBeforeCompile !== STOCK_ON_BEFORE_COMPILE) {
+        note('on-before-compile', materialKey(m, o));
+        // The occlusion outline is a depth-fail trick in GLSL; as a stock material it would paint every unit a flat colour.
+        if (HIDE_WITHOUT_HOOK.has(materialKey(m, o))) o.visible = false;
+      }
       const env = (m as THREE.MeshStandardMaterial).envMap;
       if (env && (env as THREE.Texture & { isRenderTargetTexture?: boolean }).isRenderTargetTexture === true) {
         note('env-map', materialKey(m, o));
@@ -123,4 +131,35 @@ export function unportedWarnings(hooks: readonly UnportedHook[], seen: Set<strin
     out.push(`[webgpu-trial] UNPORTED ${h.kind} "${h.key}" (${h.objects} object${h.objects === 1 ? '' : 's'}): ${what}`);
   }
   return out;
+}
+
+/**
+ * The like-for-like comparator: strips the SAME things the WebGPU arm cannot draw from the WebGL scene, so a
+ * WebGL2 frame of stock materials can be timed against the WebGPU frame. A hooked material goes back to the stock
+ * program, a `ShaderMaterial` object and a `HIDE_WITHOUT_HOOK` object are hidden, a render-target envMap is dropped.
+ * Returns how many materials it changed. Test/harness use only (`webgpu-trial-page.ts`).
+ */
+export function stripGlslHooks(root: THREE.Object3D): number {
+  let n = 0;
+  root.traverse((o) => {
+    const mat = (o as DrawLike).material;
+    if (!mat) return;
+    for (const m of Array.isArray(mat) ? mat : [mat]) {
+      if ((m as THREE.ShaderMaterial).isShaderMaterial === true) {
+        o.visible = false;
+        n++;
+        continue;
+      }
+      if (m.onBeforeCompile !== STOCK_ON_BEFORE_COMPILE) {
+        if (HIDE_WITHOUT_HOOK.has(materialKey(m, o))) o.visible = false;
+        m.onBeforeCompile = STOCK_ON_BEFORE_COMPILE;
+        m.customProgramCacheKey = THREE.Material.prototype.customProgramCacheKey;
+        m.needsUpdate = true;
+        n++;
+      }
+      const std = m as THREE.MeshStandardMaterial;
+      if (std.envMap && (std.envMap as THREE.Texture & { isRenderTargetTexture?: boolean }).isRenderTargetTexture === true) std.envMap = null;
+    }
+  });
+  return n;
 }

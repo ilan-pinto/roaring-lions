@@ -14,6 +14,9 @@
 import type { Sim } from '@lions/sim';
 import { buildWorld, buildRendererOptions, createHost, loadAllMeshes, computeAnchors, createSpawner, spawnUpTo, livingCount } from './three-units';
 import type { maps } from '@lions/data';
+import { stripGlslHooks } from '../../../packages/render/src/three/spike/webgpu-trial-gate';
+
+export type Mode = 'gl' | 'gls' | 'gpu';
 
 /** Layers hidden in BOTH arms: the sheet skips fog, decals, VFX, rain, the L1 sky and the L2 grade. */
 export const HIDDEN_LAYERS = [
@@ -47,6 +50,7 @@ interface RendererLike {
   gpuTrialState?: string;
   gpuTrialReason?: string;
   gpuTrialHandle?(): {
+    recensus(scene: unknown): void;
     render: (...a: unknown[]) => void;
     syncGpu(): Promise<void>;
     info(): { calls: number; triangles: number };
@@ -95,13 +99,15 @@ export interface Arm {
 }
 
 /** Hides the layers both arms skip, and (WebGL arm) disables the fog pass; checks the arm is what it says. */
-export function prepareArm(r: RendererLike, gpu: boolean): Arm {
+export function prepareArm(r: RendererLike, mode: Mode): Arm {
+  const gpu = mode === 'gpu';
   for (const l of HIDDEN_LAYERS) r.setDebugLayerVisible(l, false);
   const handle = r.gpuTrialHandle?.() ?? null;
   if (gpu) {
     if (r.gpuTrialState !== 'active' || !handle) throw new Error(`webgpu arm is not active (state ${r.gpuTrialState}, ${r.gpuTrialReason ?? ''})`);
     return { gpu, backend: handle.adapter, unported: handle.unported() };
   }
+  if (mode === 'gls') stripGlslHooks(r.scene as never);
   if (r.gpuTrialState !== 'off' || handle) throw new Error(`webgl2 arm carries a trial (state ${r.gpuTrialState})`);
   for (const p of r.post?.composer.passes ?? []) if (p.constructor.name === 'FogOfWarPass') p.enabled = false;
   const gl = r.canvas.getContext('webgl2') as WebGL2RenderingContext;
@@ -118,8 +124,10 @@ function batches(r: RendererLike): BatchedLike[] {
 }
 
 /** Times `frames` frames of the current view/config. Warm-up frames first (pipelines, uploads, cull memo). */
-export async function timeFrames(r: RendererLike, gpu: boolean, frames: number): Promise<Row> {
+export async function timeFrames(r: RendererLike, gpu: boolean, frames: number, strip = false): Promise<Row> {
   const handle = r.gpuTrialHandle?.() ?? null;
+  if (gpu) handle?.recensus(r.scene);
+  else if (strip) stripGlslHooks(r.scene as never);
   const gl = gpu ? null : (r.canvas.getContext('webgl2') as WebGL2RenderingContext);
   const px = new Uint8Array(4);
   const sync = async (): Promise<void> => {
@@ -205,16 +213,16 @@ export async function timeFrames(r: RendererLike, gpu: boolean, frames: number):
 }
 
 /** Decor cost: the same view with the decor and prop batches hidden, culled (shipped), and with the cull off. */
-export async function timeDecor(r: RendererLike, gpu: boolean, frames: number): Promise<{ hidden: Row; cullOn: Row; cullOff: Row }> {
+export async function timeDecor(r: RendererLike, gpu: boolean, frames: number, strip = false): Promise<{ hidden: Row; cullOn: Row; cullOff: Row }> {
   r.setDebugLayerVisible('decor', false);
   r.setDebugLayerVisible('props', false);
-  const hidden = await timeFrames(r, gpu, frames);
+  const hidden = await timeFrames(r, gpu, frames, strip);
   r.setDebugLayerVisible('decor', true);
   r.setDebugLayerVisible('props', true);
-  const cullOn = await timeFrames(r, gpu, frames);
+  const cullOn = await timeFrames(r, gpu, frames, strip);
   const bs = batches(r);
   for (const b of bs) b.perObjectFrustumCulled = false;
-  const cullOff = await timeFrames(r, gpu, frames);
+  const cullOff = await timeFrames(r, gpu, frames, strip);
   for (const b of bs) b.perObjectFrustumCulled = true;
   return { hidden, cullOn, cullOff };
 }
@@ -225,14 +233,34 @@ export interface ViewResult {
   decor: { hidden: Row; cullOn: Row; cullOff: Row };
 }
 
-export async function measureViews(r: RendererLike, gpu: boolean, zooms: number[], frames: number): Promise<ViewResult[]> {
+export async function measureViews(r: RendererLike, gpu: boolean, zooms: number[], frames: number, strip = false): Promise<ViewResult[]> {
   const out: ViewResult[] = [];
   for (const z of zooms) {
     r.camera.zoom = z;
-    const decor = await timeDecor(r, gpu, frames);
+    const decor = await timeDecor(r, gpu, frames, strip);
     out.push({ zoom: z, base: decor.cullOn, decor });
   }
   return out;
+}
+
+/** Throughput without a sync: `burn` frames per rAF, so the rAF interval / burn is the per-frame cost when it exceeds 16.7 ms. */
+export async function burnCadence(r: RendererLike, zoom: number, burn: number, frames: number): Promise<{ intervalMed: number; perFrame: number }> {
+  r.camera.zoom = zoom;
+  await new Promise<void>((res) => requestAnimationFrame(() => res()));
+  const d: number[] = [];
+  let last = performance.now();
+  for (let i = 0; i < frames; i++) {
+    const now = await new Promise<number>((res) =>
+      requestAnimationFrame((t) => {
+        for (let b = 0; b < burn; b++) r.frame(1, 0);
+        res(t);
+      })
+    );
+    d.push(now - last);
+    last = now;
+  }
+  const m = stats(d.slice(2)).med;
+  return { intervalMed: m, perFrame: m / (burn + 1) };
 }
 
 /** rAF-to-rAF cadence with the app's own loop live (so BEFORE the loop is frozen). */
@@ -261,10 +289,10 @@ export interface CurvePoint {
 }
 
 /** The figure curve: one private Sim + ThreeRenderer on `mapId`, the all-mesh roster of `three-units.ts`, sim held still. */
-export async function runCurve(o: { mapId: keyof typeof maps; counts: number[]; gpu: boolean; frames: number }): Promise<{ arm: Arm; points: CurvePoint[] }> {
+export async function runCurve(o: { mapId: keyof typeof maps; counts: number[]; mode: Mode; frames: number }): Promise<{ arm: Arm; points: CurvePoint[] }> {
   const capacity = Math.max(...o.counts) + 50;
   const { sim, map, typeOf } = buildWorld(capacity, o.mapId);
-  const opts = { ...buildRendererOptions(), environmentLight: false, ...(o.gpu ? { gpuTrial: 'webgpu' as const } : {}) };
+  const opts = { ...buildRendererOptions(), environmentLight: false, ...(o.mode === 'gpu' ? { gpuTrial: 'webgpu' as const } : {}) };
   const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
   const renderer = new ThreeRenderer(sim, opts);
   renderer.setDecor(map.decor);
@@ -273,7 +301,9 @@ export async function runCurve(o: { mapId: keyof typeof maps; counts: number[]; 
   await renderer.init(host);
   await loadAllMeshes(renderer, map);
   const r = renderer as unknown as RendererLike;
-  const arm = prepareArm(r, o.gpu);
+  const arm = prepareArm(r, o.mode);
+  const gpu = o.mode === 'gpu';
+  const strip = o.mode === 'gls';
   const anchors = computeAnchors(map);
   const spawner = createSpawner(sim as Sim, typeOf, anchors.friendly, anchors.hostile);
   r.camera.x = (anchors.friendly[0] + anchors.hostile[0]) / 2;
@@ -283,7 +313,7 @@ export async function runCurve(o: { mapId: keyof typeof maps; counts: number[]; 
   for (const target of o.counts) {
     spawnUpTo(sim, spawner, target);
     renderer.snapshot();
-    const row = await timeFrames(r, o.gpu, o.frames);
+    const row = await timeFrames(r, gpu, o.frames, strip);
     points.push({ target, living: livingCount(sim), row });
   }
   // Re-read after the run: units spawned mid-run bring new materials.

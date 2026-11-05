@@ -26,6 +26,7 @@ import * as THREE from 'three';
 import type { WebGPURenderer, RenderPipeline } from 'three/webgpu';
 import { AO_RADIUS_TILES, AO_RESOLUTION_SCALE, AO_SCALE } from '../post-chain';
 import { BLOOM_RADIUS, BLOOM_STRENGTH, BLOOM_THRESHOLD } from '../bloom';
+import { setImageReleaseEnabled } from '../units/gltf-loader';
 import { censusUnported, probeWebGpu, unportedWarnings, type GpuNavigatorLike, type UnportedHook } from './webgpu-trial-gate';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -46,6 +47,8 @@ export interface WebGpuTrial {
   readonly adapter: string;
   /** Every hook the trial could not port, cumulative. */
   unported(): readonly UnportedHook[];
+  /** Re-walks the scene now (units spawned since the last census). */
+  recensus(scene: THREE.Scene): void;
   /** Turns the node post chain on or off (off: scene pass + tone map + sRGB only). */
   setPost(on: boolean): void;
   isPost(): boolean;
@@ -71,6 +74,9 @@ export async function createWebGpuTrial(opts: WebGpuTrialOptions): Promise<{ tri
   const probe = await probeWebGpu(opts.navigator ?? (globalThis.navigator as unknown as GpuNavigatorLike | undefined));
   if (!probe.ok) return { reason: probe.reason };
 
+  // The loader's bitmap release is WebGL-only (WebGPU uploads twice): off for the trial, said loudly.
+  setImageReleaseEnabled(false);
+  warn('[webgpu-trial] UNPORTED image-release "gltf-loader releaseImageAfterUpload": the load-time bitmap release is WebGL-only (WebGPU uploads a texture twice): DISABLED for the trial');
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
   const { ao } = await import('three/addons/tsl/display/GTAONode.js');
@@ -150,6 +156,7 @@ export async function createWebGpuTrial(opts: WebGpuTrialOptions): Promise<{ tri
       post = on;
     },
     isPost: () => post,
+    recensus: runCensus,
     render(scene, camera, cssWidth, cssHeight, pixelRatio) {
       if (size.w !== cssWidth || size.h !== cssHeight || size.pr !== pixelRatio) {
         renderer.setPixelRatio(pixelRatio);
