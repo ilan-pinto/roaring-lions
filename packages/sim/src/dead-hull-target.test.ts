@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { Sim, type UnitTypeJson } from './sim';
 
-// GH-976: a shooter skips an enemy hull that is firepower-killed, or one its
-// weapon cannot hurt, when a known hostile structure is in its reach. Without
-// such a structure nothing changes. Stats are inlined (the sim imports nothing).
+// GH-976: a shooter skips an enemy hull that is firepower-killed and not soft
+// only when a known hostile-owned structure is in this weapon's reach. A live
+// hull, hurtable or not, is never skipped. Without such a structure nothing
+// changes. Stats are inlined (the sim imports nothing).
 
 const W = 40;
 const CAMP = { id: 't_camp', name: 'Camp', hp_per_tile: 400, garrison_slots: 0 };
