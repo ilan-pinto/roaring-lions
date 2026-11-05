@@ -63,8 +63,8 @@ export interface TrackEntitlement {
   paidTiers: number;
 }
 
-export type EarnSource = 'welcome' | 'first_win' | 'star' | 'campaign';
-const EARN_SOURCES: readonly string[] = ['welcome', 'first_win', 'star', 'campaign'];
+export type EarnSource = 'welcome' | 'first_win' | 'star' | 'campaign' | 'backfill';
+const EARN_SOURCES: readonly string[] = ['welcome', 'first_win', 'star', 'campaign', 'backfill'];
 
 export type RoarReceipt =
   | { kind: 'earn'; id: string; at: number; coins: CoinSplit; source: EarnSource; missionId?: string }
@@ -228,22 +228,32 @@ export function migrateTestWallet(raw: unknown): RoarWallet {
   return out;
 }
 
-export function loadRoar(store: StorageLike): RoarWallet {
+/**
+ * Runs once, on a wallet being CREATED (the key absent), and never on a wallet
+ * that already exists: the caller reads the campaign ledger and returns the
+ * wallet with the back-payment in it (`roarBackfill`, roar-earn.ts). The result
+ * is written at once, so the key then exists and this cannot run again; a slot
+ * load or import finds the key and earns nothing (G-E3).
+ */
+export type RoarSeed = (w: RoarWallet) => RoarWallet;
+
+export function loadRoar(store: StorageLike, seed?: RoarSeed): RoarWallet {
   try {
     const text = store.getItem(ROAR_KEY);
     if (text !== null) return migrateRoar(JSON.parse(text));
     const legacy = store.getItem(LEGACY_TEST_KEY);
-    if (legacy === null) return emptyRoar();
-    const migrated = migrateTestWallet(JSON.parse(legacy));
+    const base = legacy === null ? emptyRoar() : migrateTestWallet(JSON.parse(legacy));
+    if (legacy === null && seed === undefined) return base;
+    const made = seed !== undefined ? seed(base) : base;
     // Once: write the new key, then delete the old. A refusal leaves the old key
     // in place and the next read migrates again, to the same result.
     try {
-      store.setItem(ROAR_KEY, JSON.stringify(migrated));
-      store.removeItem(LEGACY_TEST_KEY);
+      store.setItem(ROAR_KEY, JSON.stringify(made));
+      if (legacy !== null) store.removeItem(LEGACY_TEST_KEY);
     } catch {
       /* the wallet still reads correctly from memory */
     }
-    return migrated;
+    return made;
   } catch {
     return emptyRoar();
   }

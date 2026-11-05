@@ -100,6 +100,8 @@ export function coinAwardText(a: EarnAward): string {
       return t('debrief.coins.star', { stars: a.stars ?? 0 });
     case 'campaign':
       return t('debrief.coins.campaign');
+    case 'backfill':
+      return t('debrief.coins.backfill');
   }
 }
 
