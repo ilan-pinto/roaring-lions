@@ -30,16 +30,26 @@ for (const [name, args] of Object.entries(VARIANTS)) {
   try {
     await page.goto(`http://localhost:${port}/`);
     const out = await page.evaluate(async () => {
-      const nav = navigator as unknown as { gpu?: { requestAdapter(): Promise<any> ; getPreferredCanvasFormat(): string } };
+      // The page-side WebGPU surface this probe touches, structurally (`@webgpu/types` is not a dependency).
+      interface Gpu {
+        requestAdapter(): Promise<{ info?: Record<string, string>; isFallbackAdapter?: boolean; features: Iterable<string>; requestDevice(): Promise<Dev> } | null>;
+        getPreferredCanvasFormat(): string;
+      }
+      interface Dev {
+        lost: Promise<{ reason: string; message: string }>;
+        queue: { submit(b: unknown[]): void; onSubmittedWorkDone(): Promise<void> };
+        createCommandEncoder(): { beginRenderPass(d: unknown): { end(): void }; finish(): unknown };
+      }
+      const nav = navigator as unknown as { gpu?: Gpu };
       if (!nav.gpu) return 'no navigator.gpu';
       const adapter = await nav.gpu.requestAdapter();
       if (!adapter) return 'no adapter';
       const info = adapter.info ?? {};
       const device = await adapter.requestDevice();
       let lost = '';
-      device.lost.then((l: any) => (lost = `LOST(${l.reason}): ${String(l.message).slice(0, 80)}`));
+      device.lost.then((l) => (lost = `LOST(${l.reason}): ${String(l.message).slice(0, 80)}`));
       const canvas = document.getElementById('c') as HTMLCanvasElement;
-      const ctx = canvas.getContext('webgpu') as any;
+      const ctx = canvas.getContext('webgpu') as unknown as { configure(c: unknown): void; getCurrentTexture(): { createView(): unknown } };
       ctx.configure({ device, format: nav.gpu.getPreferredCanvasFormat() });
       let ok = 0;
       for (let i = 0; i < 60; i++) {

@@ -67,7 +67,6 @@ async function read(mode: 'native' | 'stub' | 'flag'): Promise<Reading> {
   }, mode);
   await page.waitForTimeout(500);
   const z: Reading['z'] = {};
-  let cpuRender = 0;
   for (const zoom of [1, 2.5]) {
     const r = await page.evaluate(
       async ({ zoom, frames }) => {
@@ -98,10 +97,9 @@ async function read(mode: 'native' | 'stub' | 'flag'): Promise<Reading> {
     );
     const shot = await page.screenshot();
     z[`z${zoom}`] = { syncedMs: r.syncedMs, calls: r.calls, triangles: r.triangles, picture: createHash('sha256').update(shot).digest('hex').slice(0, 12) };
-    cpuRender = r.renderMs;
     if (zoom === 2.5) {
       await page.close();
-      return { mode, backend: r.backend, rafNative: r.native, z, cpuRenderMedMs: cpuRender, errors: errors.slice(0, 3) };
+      return { mode, backend: r.backend, rafNative: r.native, z, cpuRenderMedMs: r.renderMs, errors: errors.slice(0, 3) };
     }
   }
   await page.close();
