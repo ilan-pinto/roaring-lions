@@ -145,6 +145,18 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
       expect(summary.creditsConsumed).toBe(18);
     });
 
+    it('GH-933: a 3D spend records the plan from MESHY_PLAN, and "unknown" when none is named', async () => {
+      const mk = (): TextTaskClient => ({
+        submitTextTask: vi.fn(async (): Promise<SubmitTaskResponse> => ({ result: 'plan-task' })),
+        getTextTask: vi.fn(async (id: string): Promise<TextToThreeDTask> => textTask(id, { consumed_credits: 18 })),
+      });
+      await runText(mk(), { ...CONFIG, plan: 'Pro' }, baseTextOptions(), paths);
+      expect(readLedger(paths.ledgerPath)[0]?.plan).toBe('pro');
+      rmSync(paths.ledgerPath);
+      await runText(mk(), { ...CONFIG, plan: undefined }, baseTextOptions(), paths);
+      expect(readLedger(paths.ledgerPath)[0]?.plan).toBe('unknown');
+    });
+
     it('(a) a successful text+refine run patches both the preview and the refine line (cli.ts:279/:310 sites)', async () => {
       const client: TextTaskClient = {
         submitTextTask: vi.fn(async (body: TextToThreeDRequest): Promise<SubmitTaskResponse> => ({

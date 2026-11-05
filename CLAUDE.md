@@ -162,7 +162,8 @@ translucency. Fonts are self-hosted in `assets/fonts/`; never a CDN.
 - Do not commit assets from paid packs (Synty included, even if you own a licence),
   or anything you cannot point to explicit redistribution rights for. This applies to
   audio exactly as it does to art.
-- Do not ship AI-generated art without disclosing it in the PR description. Generative
+- Do not ship AI-generated art without disclosing it in the PR description, and
+  add Meshy-origin assets to `art/ATTRIBUTION.md` (the CC BY 4.0 credit, GH-933). Generative
   tools *are* permitted, including for assets that ship; the `validate:meshes`
   checks apply identically regardless of origin. See `CONTRIBUTING.md`.
 

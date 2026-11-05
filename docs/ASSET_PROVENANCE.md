@@ -7,6 +7,11 @@ game and release it on Steam**. That changes what matters: redistribution of
 *source* stops being the question, and **commercial use** plus **attribution
 obligations that survive into a credits screen** become the question.
 
+The credit to Meshy (CC BY 4.0, given under its published free-plan terms,
+ownership of free-plan output asked of Meshy and pending) is in
+[`art/ATTRIBUTION.md`](../art/ATTRIBUTION.md) (GH-933); this file stays the
+per-file register.
+
 This file is a snapshot with a date on it. It is not a gate. See
 "The gap" below for why that is the most important line in it.
 
@@ -303,6 +308,7 @@ one directory, `**` crosses directories).
 
 | Files | What it is | Made from | Tool | AI-generated | Rights | Record |
 |---|---|---|---|---|---|---|
+| `art/ATTRIBUTION.md` | The credit to Meshy (CC BY 4.0) and the list of Meshy-origin asset groups (GH-933, 5 Nov 2026) | Written by hand | None | No (a credit, not an asset) | ARR, project original | GH-933, the lead's ruling of 5 Nov 2026 |
 | `art/meshy/ledger.jsonl` | Spend ledger: one line per submitted task (176 lines, 2026-09-30 to 2026-10-05) | Written by the CLI; holds the prompt of every text task | `pnpm meshy` (`tools/src/meshy/ledger.ts`) | Record of AI generation | ARR, project original | this is the prompt record; it starts on 2026-09-30 (item 9) |
 | `art/meshy/**/task.json` | Meshy API task record: request, response, credits (176, one per ledger line) | Meshy's API response | Meshy CLI | Yes: Meshy | ARR; Meshy terms pending (item 1) | `art/meshy/ledger.jsonl` |
 | `art/meshy/**/thumbnail.png` | Meshy preview thumbnail (176) | Downloaded with each task | Meshy CLI | Yes: Meshy | ARR; Meshy terms pending (item 1) | `art/meshy/ledger.jsonl` |
