@@ -7195,6 +7195,16 @@ export class ThreeRenderer implements Renderer {
     return swarm === null ? 0 : fx.toNumber(swarm.spread) / 2;
   };
   /**
+   * GH-1007 P2: how many lift pixels unit `i` is drawn above its tile, for the pick and for box-select
+   * (`units/pick.ts`'s `liftPx`): `AIR_LIFT_PX * airLiftFrac`, the pixel form of `airLiftY` and the same
+   * two inputs, so a carrier settling onto its LZ is picked where it is drawn. 0 for every unit that is not
+   * `isAir`, which is what keeps a ground unit's pick and box-select exactly as they were.
+   */
+  private readonly pickLiftPx = (i: number): number => {
+    const st = this.sim.state;
+    return this.sim.unitTypes[st.typeIdx[i]].isAir ? AIR_LIFT_PX * airLiftFrac(st.airState[i], st.airTimer[i], 1) : 0;
+  };
+  /**
    * A ground vehicle is picked by its HULL, not its feet (the 4 Nov lead report: a right-click on an
    * enemy tank was an order on it about half the time, and the rest an attack-move to the ground,
    * which leaves a unit already firing on something else firing on it). `units/pick.ts` has the rule;
@@ -7271,7 +7281,8 @@ export class ThreeRenderer implements Renderer {
       this.pickable,
       radiusTiles,
       this.pickRadiusFloor,
-      this.pickHull
+      this.pickHull,
+      this.pickLiftPx
     );
   }
   /**
@@ -7437,7 +7448,8 @@ export class ThreeRenderer implements Renderer {
       this.sim.height,
       this.camera,
       { width: this.width, height: this.height },
-      this.pickable
+      this.pickable,
+      this.pickLiftPx
     );
   }
 
