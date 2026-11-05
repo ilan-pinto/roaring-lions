@@ -500,6 +500,16 @@ describe('a win-mode room (buildMatchWorld)', () => {
     return c;
   };
 
+  it('GH-976: a camp room answers each camp\'s AUTHORED exit through structureExit (the wiring in modeRuntime)', () => {
+    const w = buildMatchWorld(config('milh_flats', 'camp'));
+    const camps = shipped.find((s) => s.doc.map === 'milh_flats')!.doc.camps!;
+    const answer = (end: 'friendly' | 'hostile'): number[] => w.sim.structureExit(w.sim.structureAt(camps[end].at[0], camps[end].at[1])).map((v) => v / 65536);
+    expect(answer('friendly')).toEqual([14.5, 38.5]);
+    expect(answer('hostile')).toEqual([33.5, 9.5]);
+    // and the NW scan would have said otherwise for the east camp, so the check can fail
+    expect(w.sim.structureExit(w.sim.structureAt(31, 7)).map((v) => v / 65536)).not.toEqual([30.5, 6.5]);
+  });
+
   it('a camp room stands two OWNED camps, the owner being the side at that end, and a points room stands none', () => {
     for (const map of ['wadi_tarfan', 'milh_flats']) {
       const w = buildMatchWorld(config(map, 'camp'));

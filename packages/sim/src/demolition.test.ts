@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
+import { encodeSim, restoreSim } from './snapshot';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
 import type { StructureTypeJson } from './structures';
 
@@ -182,6 +183,21 @@ describe('per-unit demolition time', () => {
     expect(() => blocked.sim.setStructureExit(blocked.s, 10, 10)).toThrow(/not open/); // inside the footprint
     sim.tick();
     expect(() => sim.setStructureExit(s, 9, 9)).toThrow(/setup-only/);
+  });
+
+  it('GH-976: the exit override survives a snapshot, restored into a fresh sim built without it', () => {
+    const mk = (): { sim: Sim; s: number } => {
+      const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+      const camp = sim.addStructureType(CAMP);
+      return { sim, s: sim.addStructure(camp, [10 * 32 + 10, 10 * 32 + 11, 11 * 32 + 10, 11 * 32 + 11]) };
+    };
+    const a = mk();
+    a.sim.setStructureExit(a.s, 12, 12);
+    const bytes = encodeSim(a.sim, { build: 'b', matchId: 'm', contentDigest: 1, frameTick: 0, matchDigest: 0 });
+    const b = mk();
+    expect(b.sim.structureExit(b.s)).toEqual([fx.from(9.5), fx.from(9.5)]); // the fresh twin answers the scan
+    restoreSim(b.sim, bytes);
+    expect(b.sim.structureExit(b.s)).toEqual([fx.from(12.5), fx.from(12.5)]);
   });
 
   // Levelling your own camp is an order, like cutting your own wire.
