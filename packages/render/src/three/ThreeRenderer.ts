@@ -186,8 +186,7 @@ import type { UnportedHook } from './backend/unported';
 import { setImageReleaseEnabled } from './units/gltf-loader';
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain, type PostChainLike } from './post-chain';
-import type { OutputVignette } from './vignette-pass';
-import type { OutputGrade, ApplyOptions as GradeApplyOptions } from './output-grade';
+import type { OutputVignetteLike, OutputGradeLike, GradeApplyOptionsLike } from './post-chain-shared';
 import { resolveGrade, type GradeJson } from './grade-maths';
 import { zoomFadeWeight } from './zoom-fade';
 import { BLOOM_STRENGTH, bloomPassFor, luminanceCensus, type LuminanceCensus, type QuarterBloomPass } from './bloom';
@@ -674,6 +673,7 @@ import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
+import { OUTPUT_MATHS } from './output-maths';
 import {
   RAIN_SPLASH_KEY,
   RAIN_STREAK_KEY,
@@ -2906,9 +2906,9 @@ export class ThreeRenderer implements Renderer {
    * visual gate's toggle check is the only thing that proves it still
    * contributes pixels.
    */
-  private vignettePass: OutputVignette | null = null;
+  private vignettePass: OutputVignetteLike | null = null;
   /** L2 (GH-943): the grade folded into `OutputPass` (`output-grade.ts`). Held for the `grade` debug layer and `setGrade`. */
-  private gradePass: OutputGrade | null = null;
+  private gradePass: OutputGradeLike | null = null;
   /** `RenderQuality.grade` of this renderer's preset: false on `low`, whose `setGrade` then builds nothing. */
   private gradeAllowed = true;
   /**
@@ -3562,7 +3562,7 @@ export class ThreeRenderer implements Renderer {
       // GH-943 P1 (T2): the node chain is built here, from the same quality preset the legacy chain reads. Its stage factories
       // (`nodeBackend.kit`: fog T4, bloom T5, AO T7) are null until those tasks land, so until then the chain is the scene pass,
       // the output transform and SMAA, and the legacy `fogPass`/`aoPass`/`bloomPass` fields stay null (every toggle that reads
-      // them is null-safe and returns 0). Sky environment (T6), grade and vignette (T3) are not on this path yet.
+      // them is null-safe and returns 0). Sky environment (T6) is not on this path yet; the grade and the vignette (T3) are, as uniforms of the output stage.
       // GH-943 P1 (T4): the fog's uniform table is the legacy pass's own record (`FogUniforms`), so every `fogPass` site below
       // (reveal, haze, shimmer, focus, the debug layers) is the same code on both backends; the node fog stage reads the table.
       const rain = this.rainSettings;
@@ -3570,9 +3570,19 @@ export class ThreeRenderer implements Renderer {
       this.fogPass = fog;
       if (this.viewAll) fog.uniforms.uRevealAll.value = 1;
       this.nodeBackend.setFog(fog.uniforms, fog.hazeLow, { hazeForward: HAZE_FORWARD, hazeAmountOps, shimmerOffsetOps, fogDim, offMapFadeTiles: FOG_OFFMAP_FADE_TILES, shimmerMaxSites: SHIMMER_MAX_SITES, worldPerLevel: SHADOW_WORLD_PER_LEVEL });
+      this.nodeBackend.setOutputMaths(OUTPUT_MATHS);
       this.applyBackdropFog();
       this.applyHaze();
       this.nodeBackend.configure({ scene: this.scene, camera: this.viewCamera, quality: this.opts.quality ?? QUALITY_PRESETS.high });
+      // T3: the grade and the vignette are uniforms of the node chain's output stage, held exactly as on the legacy path so
+      // `setGrade` and the `grade` / `vignette` debug layers read one shape on both.
+      const nodePost = this.nodeBackend.post;
+      if (nodePost) {
+        this.vignettePass = nodePost.vignette;
+        this.vignettePass.enabled = true;
+        this.gradePass = nodePost.grade;
+        if (this.opts.grade !== undefined) this.setGrade(this.opts.grade.json, this.opts.grade.strength ?? 1);
+      }
       this.mountAndObserve(host);
       this.seedFromSim();
       await this.nodeBackend.prepare(this.scene, this.viewCamera);
@@ -5118,7 +5128,7 @@ export class ThreeRenderer implements Renderer {
    * compiled into the output pass. Public for the mock instrument (`tools/src/perf/look-l2-captures.ts`)
    * and `grade-identity.test.ts`; the app sets a grade through `RendererOptions.grade`. Presentation only.
    */
-  setGrade(json: GradeJson | null, strength = 1, options?: GradeApplyOptions): boolean {
+  setGrade(json: GradeJson | null, strength = 1, options?: GradeApplyOptionsLike): boolean {
     if (this.gradePass === null) return false;
     if (!this.gradeAllowed) return this.gradePass.apply(null);
     return this.gradePass.apply(json === null ? null : resolveGrade(json, strength, (key) => this.overlayColor(key)), options);

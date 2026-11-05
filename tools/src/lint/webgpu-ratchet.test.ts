@@ -23,7 +23,12 @@ async function lint(code: string, ported: readonly string[]): Promise<string[]> 
 }
 
 /** Append the file you port, in the PR that ports it. */
-const PORTED_FLOOR: readonly string[] = ['packages/render/src/three/post-chain.node.ts', 'packages/render/src/three/fog-pass.node.ts'];
+const PORTED_FLOOR: readonly string[] = [
+  'packages/render/src/three/post-chain.node.ts',
+  'packages/render/src/three/fog-pass.node.ts',
+  'packages/render/src/three/output-grade.node.ts',
+  'packages/render/src/three/vignette-pass.node.ts',
+];
 const FIXTURE = 'packages/render/src/three/fixture-ported.ts';
 
 describe('webgpu ratchet', () => {

@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import type { BackendKind } from '../../gpu';
 import type { PostConfig, PostKit, RenderBackend } from './backend';
-import { createNodePostChain, type NodePostChain } from '../post-chain.node';
+import { createNodePostChain, type NodePostChain, type OutputMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
 
@@ -70,6 +70,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
 
   let chain: NodePostChain | null = null;
   let builtFor: PostConfig | null = null;
+  let outputMaths: OutputMaths | null = null;
   /** Null factories until each task lands (T4 fog, T5 bloom, T7 AO). The chain reads them when it is built. */
   const kit: PostKit = { fog: null, ao: null, bloom: null };
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
@@ -85,7 +86,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
 
   const build = (config: PostConfig): void => {
     chain?.dispose();
-    chain = createNodePostChain({ W, TSL, smaa: smaa as never }, renderer, config.scene, config.camera, config.quality, kit);
+    if (outputMaths === null) throw new Error('node backend: setOutputMaths must be called before the post chain is built');
+    chain = createNodePostChain({ W, TSL, smaa: smaa as never, outputMaths }, renderer, config.scene, config.camera, config.quality, kit);
     builtFor = config;
   };
 
@@ -96,6 +98,9 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     kit,
     get post() {
       return chain;
+    },
+    setOutputMaths: (maths) => {
+      outputMaths = maths;
     },
     setFog: (table, hazeLow, maths) => {
       kit.fog = createFogStageFactory(table, hazeLow, maths);

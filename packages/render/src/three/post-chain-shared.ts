@@ -29,4 +29,30 @@ export interface PostChainLike {
   readonly passNames: readonly string[];
   render(): void;
   dispose(): void;
+  /** The grade and the vignette, on both chains (T3). */
+  readonly grade: OutputGradeLike;
+  readonly vignette: OutputVignetteLike;
+}
+
+/**
+ * GH-943 P1 (T3): the two display-referred handles both chains expose, so `ThreeRenderer`'s `grade` / `vignette` debug layers and
+ * `setGrade` read one shape. The legacy `OutputGrade` / `OutputVignette` (folded into `OutputPass`'s GLSL) and the node twins
+ * (`output-grade.node.ts`, `vignette-pass.node.ts`, TSL uniforms) both satisfy them.
+ */
+export interface GradeApplyOptionsLike {
+  /** One LSB of noise before the 8-bit write. Default true. */
+  readonly dither?: boolean;
+  /** The legacy mock arm's LUT precision; the node twin always keeps a half-float LUT and ignores it. */
+  readonly lut?: 'half' | 'byte';
+}
+export interface OutputGradeLike {
+  /** True when a (non-identity) lookup is installed. */
+  readonly active: boolean;
+  /** The debug layer's switch: off is the lookup and the dither skipped. */
+  enabled: boolean;
+  apply(grade: import('./grade-maths').ResolvedGrade | null, options?: GradeApplyOptionsLike): boolean;
+  dispose(): void;
+}
+export interface OutputVignetteLike {
+  enabled: boolean;
 }

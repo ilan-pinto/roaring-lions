@@ -64,6 +64,8 @@ export interface Tsl {
   vec3(...a: Array<N | number>): N;
   vec4(...a: Array<N | number>): N;
   sin(a: N): N;
+  fract(a: N): N;
+  smoothstep(e0: N, e1: N, x: N): N;
   clamp(a: N, lo: number, hi: number): N;
   length(a: N): N;
   dot(a: N, b: N): N;
@@ -92,6 +94,9 @@ export function tslOps(TSL: Tsl): Ops<N> {
     length2: (x, y) => TSL.length(TSL.vec2(x, y)),
     mix: (a, b, t) => TSL.mix(a, b, t),
     selectLt: (a, b, x, y) => TSL.select(a.lessThan(b), x, y),
+    fract: (a) => TSL.fract(a),
+    clamp: (a, lo, hi) => TSL.clamp(a, lo, hi),
+    smoothstep: (e0, e1, x) => TSL.smoothstep(e0, e1, x),
   };
 }
 

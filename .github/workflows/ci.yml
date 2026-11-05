@@ -413,6 +413,22 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit 0
+      # GH-943 P1 (T3): the RAMP CARD, the one cross-renderer pixel check. Legacy and this arm's node chain draw the same flat
+      # linear-light patches (0..16) through ACES, sRGB, the dusk grade, the half-float round trip and the vignette; every patch
+      # must agree within 1/255. GATES on the webgl2 arm (F); the webgpu arm (G) prints its reading and never fails (report-only).
+      - name: Ramp card (legacy vs node output stage, report-only)
+        run: |
+          set +e
+          pnpm --filter @lions/tools exec tsx src/golden-diff/ramp-card.ts --gpu=${{ matrix.arm }} --port=5188 2>&1 | tee ramp-card.log
+          code=${PIPESTATUS[0]}
+          {
+            echo "- ramp card exit code: \`$code\` (0 within 1/255 or report-only, 1 differs on the gating arm, 2 refused)"
+            echo ""
+            echo '```'
+            grep -E "\[ramp-card\]" ramp-card.log | head -40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
       - name: Upload captures
         if: always()
         continue-on-error: true
@@ -423,6 +439,7 @@ jobs:
             visual-backend-output-${{ matrix.arm }}
             backend-gates-output
             backend-gates.log
+            ramp-card.log
           if-no-files-found: ignore
           retention-days: 3
 
