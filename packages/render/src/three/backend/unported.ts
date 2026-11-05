@@ -11,7 +11,7 @@
  * WebGLRenderer's context) is dropped. Copied from the L5 spike (`spike/webgpu-trial-gate.ts`).
  */
 import * as THREE from 'three';
-import { NODE_PMREM_TAG } from '../environment';
+import { NODE_PMREM_TAG } from '../environment.node';
 
 export type UnportedKind = 'shader-material' | 'on-before-compile' | 'env-map' | 'image-release';
 

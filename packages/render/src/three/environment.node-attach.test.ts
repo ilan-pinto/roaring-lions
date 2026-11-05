@@ -13,6 +13,11 @@ describe('node init attaches the environment', () => {
     expect(start).toBeGreaterThan(0);
     const end = src.indexOf('return;', start);
     expect(end).toBeGreaterThan(start);
-    expect(src.slice(start, end)).toContain('this.environment?.attach(this.nodeBackend.pmrem);');
+    // Comments stripped first: a commented-out line must not satisfy the pin.
+    const code = src
+      .slice(start, end)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(code).toMatch(/^\s*this\.environment\?\.attach\(this\.nodeBackend\.pmrem\);\s*$/m);
   });
 });

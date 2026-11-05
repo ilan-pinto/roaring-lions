@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { EnvironmentRegistry, NODE_PMREM_TAG, SKY_HEIGHT, SKY_WIDTH, skyColorsFor, skyEquirectFloats } from './environment';
-import { createNodePmremHost, type NodePmremGeneratorCtor } from './environment.node';
+import { EnvironmentRegistry, SKY_HEIGHT, SKY_WIDTH, skyColorsFor, skyEquirectFloats } from './environment';
+import { NODE_PMREM_TAG, createNodePmremHost, type NodePmremGeneratorCtor } from './environment.node';
 import { ENV_CLASSES, ENV_USERDATA_KEY, type EnvClass } from './environment-classes';
 import { censusUnported } from './backend/unported';
 

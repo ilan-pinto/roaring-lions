@@ -13,15 +13,10 @@
  * `three/webgpu` in its own lazy chunk. Presentation only.
  */
 import * as THREE from 'three';
-import {
-  NODE_PMREM_TAG,
-  SKY_HEIGHT,
-  SKY_WIDTH,
-  skyEquirectFloats,
-  type EnvironmentBake,
-  type NodePmremHost,
-  type SkyColors,
-} from './environment';
+import type { EnvironmentBake, NodePmremHost, SkyImage } from './environment';
+
+/** `texture.userData` key a node-baked PMREM carries, so `censusUnported` leaves it alone (it IS valid on the node renderer). */
+export const NODE_PMREM_TAG = 'rlNodePmrem';
 
 /** The slice of `three/webgpu`'s `PMREMGenerator` this file uses. */
 export interface NodePmremGenerator {
@@ -30,12 +25,9 @@ export interface NodePmremGenerator {
 }
 export type NodePmremGeneratorCtor = new (renderer: never) => NodePmremGenerator;
 
-/** CPU sky -> half-float equirect DataTexture, exactly as the legacy bake builds it. */
-function skySource(colors: SkyColors): THREE.DataTexture {
-  const floats = skyEquirectFloats(colors, SKY_WIDTH, SKY_HEIGHT);
-  const half = new Uint16Array(floats.length);
-  for (let i = 0; i < floats.length; i++) half[i] = THREE.DataUtils.toHalfFloat(floats[i]);
-  const source = new THREE.DataTexture(half, SKY_WIDTH, SKY_HEIGHT, THREE.RGBAFormat, THREE.HalfFloatType);
+/** The registry's half-float equirect image -> a DataTexture, set up exactly as the legacy bake sets it up. */
+function skySource(sky: SkyImage): THREE.DataTexture {
+  const source = new THREE.DataTexture(sky.half, sky.width, sky.height, THREE.RGBAFormat, THREE.HalfFloatType);
   source.mapping = THREE.EquirectangularReflectionMapping;
   source.colorSpace = THREE.NoColorSpace;
   source.magFilter = THREE.LinearFilter;
@@ -54,10 +46,10 @@ interface NodeBake extends EnvironmentBake {
 export function nodePmremBake(
   Generator: NodePmremGeneratorCtor,
   renderer: unknown,
-  colors: SkyColors,
+  sky: SkyImage,
   previous: EnvironmentBake | null
 ): EnvironmentBake {
-  const source = skySource(colors);
+  const source = skySource(sky);
   const reuse = previous as NodeBake | null;
   const pmrem = reuse?.pmrem ?? new Generator(renderer as never);
   const target = pmrem.fromEquirectangular(source, reuse?.target ?? null);
@@ -77,5 +69,5 @@ export function nodePmremBake(
 
 /** The host the node backend gives `EnvironmentRegistry.attach`. */
 export function createNodePmremHost(Generator: NodePmremGeneratorCtor, renderer: unknown): NodePmremHost {
-  return { isNodePmremHost: true, bake: (colors, previous) => nodePmremBake(Generator, renderer, colors, previous) };
+  return { isNodePmremHost: true, bake: (sky, previous) => nodePmremBake(Generator, renderer, sky, previous) };
 }

@@ -133,20 +133,35 @@ export type BakeSky = (gl: THREE.WebGLRenderer, colors: SkyColors, previous: Env
  */
 export interface NodePmremHost {
   readonly isNodePmremHost: true;
-  readonly bake: (colors: SkyColors, previous: EnvironmentBake | null) => EnvironmentBake;
+  readonly bake: (sky: SkyImage, previous: EnvironmentBake | null) => EnvironmentBake;
+}
+/**
+ * The sky as the registry hands it to a node bake: the SAME `skyEquirectFloats` image the legacy bake uses, already converted to
+ * half floats. The registry supplies it so the node twin imports NOTHING at runtime from this module: a module both the legacy
+ * ThreeRenderer chunk and the lazy node chunk import is placed in the ThreeRenderer chunk, which a node boot must not load
+ * (the bundle census refuses it).
+ */
+export interface SkyImage {
+  readonly half: Uint16Array;
+  readonly width: number;
+  readonly height: number;
 }
 export type PmremHost = THREE.WebGLRenderer | NodePmremHost;
 export function isNodePmremHost(h: PmremHost | null): h is NodePmremHost {
   return h !== null && (h as NodePmremHost).isNodePmremHost === true;
 }
-/** `texture.userData` key a node-baked PMREM carries, so `censusUnported` leaves it alone (it IS valid on the node renderer). */
-export const NODE_PMREM_TAG = 'rlNodePmrem';
 
-/** The real bake: CPU gradient -> `fromEquirectangular`, repainting `previous`'s target when there is one. */
-export const pmremBake: BakeSky = (gl, colors, previous) => {
+/** The sky image as half floats (what both the legacy and the node bake upload). */
+export function skyHalfImage(colors: SkyColors): SkyImage {
   const floats = skyEquirectFloats(colors, SKY_WIDTH, SKY_HEIGHT);
   const half = new Uint16Array(floats.length);
   for (let i = 0; i < floats.length; i++) half[i] = THREE.DataUtils.toHalfFloat(floats[i]);
+  return { half, width: SKY_WIDTH, height: SKY_HEIGHT };
+}
+
+/** The real bake: CPU gradient -> `fromEquirectangular`, repainting `previous`'s target when there is one. */
+export const pmremBake: BakeSky = (gl, colors, previous) => {
+  const { half } = skyHalfImage(colors);
   const source = new THREE.DataTexture(half, SKY_WIDTH, SKY_HEIGHT, THREE.RGBAFormat, THREE.HalfFloatType);
   source.mapping = THREE.EquirectangularReflectionMapping;
   source.colorSpace = THREE.NoColorSpace;
@@ -238,7 +253,7 @@ export class EnvironmentRegistry {
   private paint(): void {
     if (this.gl === null) return;
     const colors = skyColorsFor(this.preset, this.resolveHex);
-    this.bake = isNodePmremHost(this.gl) ? this.gl.bake(colors, this.bake) : this.bakeSky(this.gl, colors, this.bake);
+    this.bake = isNodePmremHost(this.gl) ? this.gl.bake(skyHalfImage(colors), this.bake) : this.bakeSky(this.gl, colors, this.bake);
     this.builds++;
   }
 
