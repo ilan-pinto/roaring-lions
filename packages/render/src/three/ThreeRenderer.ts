@@ -8516,14 +8516,16 @@ export class ThreeRenderer implements Renderer {
     // by the next `updateBuildingMeshes`.
     if (structureType.perTile && !constructionUrl && instanceableTemplate(idleTemplate)) {
       this.structureInstances.setIdleTemplate(structureId, idleTemplate);
-      if (lod1Template && !this.structureInstances.setIdleLod1(structureId, lod1Template)) {
-        console.error(`loadBuildingMesh: ${structureId} LOD1 twin ${lod1Url} does not pair with its standing mesh by rl_role; drawing full art at every zoom`);
-        disposeBuildingMeshTemplate(lod1Template);
-      } else {
-        // Only the twin's geometries are kept (`StructureInstances` owns them now). The loader painted each
-        // mesh a fresh ramp `MeshStandardMaterial` (no texture: the twin ships none); nothing draws with
-        // them, so release them rather than leave one set per load.
-        for (const m of lod1Template.materials) m.dispose();
+      if (lod1Template) {
+        if (!this.structureInstances.setIdleLod1(structureId, lod1Template)) {
+          console.error(`loadBuildingMesh: ${structureId} LOD1 twin ${lod1Url} does not pair with its standing mesh by rl_role; drawing full art at every zoom`);
+          disposeBuildingMeshTemplate(lod1Template);
+        } else {
+          // Only the twin's geometries are kept (`StructureInstances` owns them now). The loader painted each
+          // mesh a fresh ramp `MeshStandardMaterial` (no texture: the twin ships none); nothing draws with
+          // them, so release them rather than leave one set per load.
+          for (const m of lod1Template.materials) m.dispose();
+        }
       }
     } else {
       this.structureInstances.dropIdle(structureId);
