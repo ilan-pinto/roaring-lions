@@ -41,9 +41,23 @@ function refuse(msg: string): never {
   process.exit(2);
 }
 
+// `--wait-quiet=<minutes>`: before EACH run, wait up to that long for the 1-minute load average to reach the bar instead of refusing
+// at once. The refusal itself is unchanged (a run never starts on a loaded machine); this only keeps a 24-run job from dying on the
+// first neighbour's spike. 0 (the default) refuses immediately.
+const WAIT_QUIET_MIN = Number(arg('wait-quiet', '0'));
+async function untilQuiet(): Promise<string | null> {
+  const deadline = Date.now() + WAIT_QUIET_MIN * 60_000;
+  for (;;) {
+    const lr = loadRefusal(os.loadavg()[0] as number);
+    if (lr === null) return null;
+    if (Date.now() >= deadline) return lr;
+    await new Promise((res) => setTimeout(res, 5000));
+  }
+}
+
 const rr = roundsRefusal(ROUNDS);
 if (rr !== null) refuse(rr);
-const lr0 = loadRefusal(os.loadavg()[0] as number);
+const lr0 = await untilQuiet();
 if (lr0 !== null) refuse(lr0);
 
 const stop = devServerStopper(await ensureDevServer(port, root, 'webgpu-abba'), 'webgpu-abba');
@@ -81,16 +95,17 @@ const sample: Record<string, ArmRun> = {};
 
 for (const test of ARMS) {
   for (let round = 0; round < ROUNDS; round++) {
-    const lr = loadRefusal(os.loadavg()[0] as number);
-    if (lr !== null) {
-      await browser.close();
-      stop();
-      refuse(lr);
-    }
     const order = abbaOrder<ArmId>('L', test, round);
     console.log(`[webgpu-abba] ${test} round ${round + 1}/${ROUNDS} order ${order.join('')} loadavg ${os.loadavg().map((v) => v.toFixed(2)).join('/')}`);
     const perArmRound = new Map<ArmId, { target: number; synced: number[]; cpuRender: number[] }[]>();
     for (const arm of order) {
+      // Checked before EVERY fresh page: load drifts, and a run that starts loaded measures the load.
+      const lr = await untilQuiet();
+      if (lr !== null) {
+        await browser.close();
+        stop();
+        refuse(lr);
+      }
       const { run, lines } = await runOne(arm);
       consoleLines.push(...lines);
       sample[`${arm}`] = run;
