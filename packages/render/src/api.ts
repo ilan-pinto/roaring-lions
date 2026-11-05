@@ -766,6 +766,14 @@ export interface Renderer {
    * different buffer, is always readable, and is unaffected by it.
    */
   captureGroundAlbedo?(sizePx: number): ImageData | null;
+  /**
+   * GH-943 P1 (T8): `captureGroundAlbedo`, awaited -- the briefing's call. The node backends' photograph is ASYNC (a WebGPU
+   * readback is), so the synchronous method answers null there until the memo has filled; this resolves with the photograph.
+   * Same pixel layout (rows BOTTOM-UP), same null on anything it cannot do. Resolves null if the ground changed while it flew.
+   */
+  captureGroundAlbedoAsync?(sizePx: number): Promise<ImageData | null>;
+  /** GH-943 P1 (T8): resolves when no ground photograph is in flight (the visual gate awaits it before redrawing the minimap). */
+  groundPhotoSettled?(): Promise<void>;
 
   /**
    * The world as the player sees it, for a feedback note's picture (GH-464):
@@ -782,6 +790,8 @@ export interface Renderer {
    * with no post chain has nothing to offer here.
    */
   captureView?(maxWidth: number): ImageData | null;
+  /** GH-943 P1 (T8): `captureView`, awaited -- the feedback picture's call; the node backends cannot read synchronously. */
+  captureViewAsync?(maxWidth: number): Promise<ImageData | null>;
   /**
    * GH-943 P0: which backend ACTUALLY draws (`legacy-gl`, `node-webgpu`, `node-webgl2`), the adapter, and the reason when it is
    * not what `RendererOptions.gpu` asked for. Read by the harness (never from the URL), the log line, feedback and settings.

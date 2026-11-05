@@ -21,6 +21,7 @@ import { createNodePostChain, createNodeAoStage, type NodePostChain, type Output
 import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
+import { captureNodeView, photographNodeGround, type NodeCaptureDeps } from '../capture-view.node';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -110,6 +111,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     builtFor = config;
   };
 
+  const capture: NodeCaptureDeps = { W, TSL, renderer, kind };
+
   const backend: RenderBackend = {
     kind,
     adapter: isGpu ? opts.adapter : 'webgl2',
@@ -141,6 +144,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
       if (!chain || !builtFor || builtFor.scene !== scene || builtFor.camera !== camera) build({ scene, camera, quality: builtFor?.quality ?? DEFAULT_QUALITY });
       chain?.render();
     },
+    photographGround: (scene, camera, size) => photographNodeGround(capture, scene, camera, size),
+    captureView: async (maxWidth) => (chain ? captureNodeView(capture, chain.pipeline, maxWidth) : null),
     whenSubmitted: () => (be.device ? be.device.queue.onSubmittedWorkDone() : Promise.resolve()),
     unported: () => [...hooks.values()],
     stats: () => ({ calls: renderer.info.render.drawCalls, triangles: renderer.info.render.triangles }),

@@ -20,6 +20,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/bloom.node.ts',
   // GH-943 P1 (T6): the node sky environment.
   'packages/render/src/three/environment.node.ts',
+  // GH-943 P1 (T8): the async ground photograph and view capture.
+  'packages/render/src/three/capture-view.node.ts',
 ];
 
 /**
@@ -36,6 +38,7 @@ export const TWINS = Object.freeze({
   [`${THREE}fog-pass.ts`]: `${THREE}fog-pass.node.ts`,
   [`${THREE}bloom.ts`]: `${THREE}bloom.node.ts`,
   [`${THREE}environment.ts`]: `${THREE}environment.node.ts`,
+  [`${THREE}capture-view.ts`]: `${THREE}capture-view.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */

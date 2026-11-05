@@ -23,6 +23,7 @@ import type { FogMaths } from '../fog-pass.node';
 import type { OutputMaths } from '../post-chain.node';
 import type { BloomControl } from '../bloom-spec';
 import type { NodePmremHost } from '../environment';
+import type { RawPixels } from '../capture-view.node';
 
 /**
  * GH-943 P1 (T2): what a post-chain stage factory is handed, and what it gives back. A stage reads `input` (the previous
@@ -102,6 +103,14 @@ export interface RenderBackend {
   prepare(scene: THREE.Scene, camera: THREE.Camera): Promise<void>;
   /** Draws one frame. Synchronous, like `WebGLRenderer.render`; never installs an animation loop of its own. */
   render(scene: THREE.Scene, camera: THREE.Camera): void;
+  /**
+   * GH-943 P1 (T8): ONE direct render of `scene` from `camera` into a `size` x `size` target of its own (never through the
+   * pipeline), tone mapped and sRGB-encoded, read back ASYNC as tight RGBA8 with rows BOTTOM-UP. The caller has hidden what must
+   * not be seen. Null before the renderer can draw.
+   */
+  photographGround(scene: THREE.Scene, camera: THREE.Camera, size: number): Promise<RawPixels | null>;
+  /** GH-943 P1 (T8): the player's view through the whole pipeline, at most `maxWidth` wide, same pixel layout. Null with no chain built. */
+  captureView(maxWidth: number): Promise<RawPixels | null>;
   /** Resolves when the GPU has finished every submitted command (the `onSubmittedWorkDone` of the capture protocol). */
   whenSubmitted(): Promise<void>;
   /** Every GLSL-only hook the last census found, cumulative. */
