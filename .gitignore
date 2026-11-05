@@ -262,3 +262,6 @@ art/meshy/aa-gachelet-20261024-01a16f82/refine/model.*
 art/meshy/aa-gachelet-20261024-01a16f82/refine/texture_*
 art/meshy/aa-gachelet-20261024-01a16f86/model.glb
 art/meshy/aa-gachelet-20261024-01a16f86/texture_*
+
+# GH-943 P0: the bundle census build (tools/src/perf/webgpu-bundle-census.ts)
+packages/app/dist-bundle-census/

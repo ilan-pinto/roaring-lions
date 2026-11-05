@@ -82,6 +82,7 @@
 //    before the freeze and again after it. A range without a sample size
 //    beside it is an anecdote.
 
+import { backendTerm, type BackendKind } from './backend';
 import type { DiffSummary, Region } from './diff';
 
 /**
@@ -1990,8 +1991,11 @@ export function glFamily(unmaskedRenderer: string): string {
  *  measured -- there is no Linux runner in reach of the session that built
  *  this -- so it is not assumed either: an unrecognised key is a loud,
  *  actionable stop (`EXIT_NO_BASELINE`), never a silent pass. */
-export function envKey(platform: string, arch: string, unmaskedRenderer: string): string {
-  return `${platform}-${arch}-${glFamily(unmaskedRenderer)}`;
+export function envKey(platform: string, arch: string, unmaskedRenderer: string, backend: BackendKind = 'legacy-gl'): string {
+  // GH-943 P0: a backend term for the node renderers. LEGACY adds nothing, so the committed baseline directories keep their
+  // names byte for byte (`baseline.test.ts` pins `linux-x64-swiftshader` and the rest).
+  const term = backendTerm(backend);
+  return `${platform}-${arch}-${glFamily(unmaskedRenderer)}${term === '' ? '' : `-${term}`}`;
 }
 
 // ============================================================================

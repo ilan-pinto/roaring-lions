@@ -17,6 +17,7 @@ import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { Camera } from './project';
 import type { EmitterSpec } from './vfx';
 import type { RenderQuality } from './quality';
+import type { BackendInfo, GpuRequest } from './gpu';
 // A type from a three-FREE module beside `lighting.ts` (it imports nothing),
 // so this file still reaches neither backend's library.
 import type { LightOverride, TimeOfDay } from './three/time-of-day';
@@ -476,6 +477,14 @@ export interface RendererOptions {
    */
   environmentLight?: boolean;
   /**
+   * GH-943 WebGPU-primary migration, P0: which renderer draws. `legacy` (and absent) is today's WebGLRenderer plus
+   * EffectComposer, to the bit. `webgpu` / `webgl2` / `auto` draw through three's WebGPURenderer on its WebGPU or its own WebGL2
+   * backend (`three/backend/node-backend.ts`, a second dynamic import); P0 draws the bare scene pass there, and the rest of the
+   * look arrives P1-P5. The app reads it from `&gpu=` (sandbox only until P7). `backendInfo()` says what actually draws.
+   * Three-only. Presentation only: nothing here is read by the sim.
+   */
+  gpu?: GpuRequest;
+  /**
    * Look uplift L2 (GH-943): a colour grade, folded into the output pass between the tone map and the
    * vignette (`three/output-grade.ts`, maths in `three/grade-maths.ts`). `json` is a `data/grades/<id>.json`
    * file; `strength` scales every deviation from identity (1 = as authored, 0 = identity, default 1).
@@ -773,6 +782,18 @@ export interface Renderer {
    * with no post chain has nothing to offer here.
    */
   captureView?(maxWidth: number): ImageData | null;
+  /**
+   * GH-943 P0: which backend ACTUALLY draws (`legacy-gl`, `node-webgpu`, `node-webgl2`), the adapter, and the reason when it is
+   * not what `RendererOptions.gpu` asked for. Read by the harness (never from the URL), the log line, feedback and settings.
+   */
+  backendInfo(): BackendInfo;
+  /**
+   * GH-943 P0: the node backend's census of GLSL-only hooks it could not draw (`kind`, a greppable `key`, an object count).
+   * Always empty on `legacy-gl`. The zero-unported gate reads it; each of P1-P5 shrinks it.
+   */
+  unportedHooks(): readonly { readonly kind: string; readonly key: string; readonly objects: number }[];
+  /** GH-943 P0: resolves when the GPU has finished every submitted command (node), or at once (legacy). */
+  whenGpuIdle(): Promise<void>;
 
   /**
    * Re-resolve every team colour mid-mission (VR-01, lead 8 Oct): the

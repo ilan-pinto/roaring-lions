@@ -2,6 +2,7 @@ import { defineConfig } from 'eslint/config';
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
+import { PORTED_FILES, portedFilesBlocks } from './tools/webgpu_ratchet.mjs';
 
 const SIM_MSG =
   'Banned in @lions/sim (invariant 2, CLAUDE.md): the sim is Q16.16 fixed-point. ' +
@@ -382,5 +383,7 @@ export default defineConfig(
     files: ['packages/app/src/net/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: { 'no-restricted-imports': ['error', { ...APP_RESTRICTED, patterns: [...APP_RESTRICTED.patterns, ROAR_FENCE] }] },
-  }
+  },
+  // GH-943 P0: the GLSL ratchet. Empty until P1 ports a file; see tools/webgpu_ratchet.mjs.
+  ...portedFilesBlocks(PORTED_FILES)
 );

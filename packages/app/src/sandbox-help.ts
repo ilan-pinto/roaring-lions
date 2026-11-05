@@ -145,6 +145,12 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: '<locale id> — override the saved language for this load, without changing the setting',
   },
   {
+    name: 'gpu',
+    // GH-943 P0. A value flag like `tod`, sandbox-only like it, and not a SANDBOX_FLAGS boolean, so the Free play picker
+    // does not offer it. `gpu-flag.ts` reads it; absent is legacy, to the bit.
+    blurb: 'auto | webgpu | webgl2 | legacy — which renderer draws (GH-943; default legacy; node backends draw a bare scene pass until P1; a fallback is logged)',
+  },
+  {
     name: 'tod',
     // A value flag like `lang`, not a SANDBOX_FLAGS boolean --
     // `dawn | day | dusk | night` are values, not an on/off switch, so
