@@ -7,7 +7,16 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { InstanceSet, StructureInstances, instanceableTemplate, partsOf } from './structure-instances';
+import {
+  InstanceSet,
+  StructureInstances,
+  STRUCTURE_LOD1_BELOW_ZOOM,
+  STRUCTURE_LOD1_HYSTERESIS,
+  instanceableTemplate,
+  lod1Active,
+  partsOf,
+  stateOfKey,
+} from './structure-instances';
 import type { BuildingMeshTemplate } from './mesh-building';
 
 function box(): THREE.BufferGeometry {
@@ -229,5 +238,212 @@ describe('StructureInstances', () => {
     expect(scene.children.length).toBe(4);
     si.dispose();
     expect(scene.children.length).toBe(0);
+  });
+});
+
+// GH-974 LOD1: the zoom band, and the swap at frame level.
+describe('lod1Active (the zoom band)', () => {
+  // Literals, not the constants under test: the band is 2.0 with 0.05 of headroom.
+  it('is the twin below 2.0 and the full art at 2.0 and above, from either state', () => {
+    expect(lod1Active(1.0, false)).toBe(true);
+    expect(lod1Active(1.999, false)).toBe(true);
+    expect(lod1Active(2.0, false)).toBe(false); // the exact boundary: full at zoom >= 2.0
+    expect(lod1Active(3.0, false)).toBe(false);
+    expect(lod1Active(1.0, true)).toBe(true);
+    expect(lod1Active(3.0, true)).toBe(false);
+  });
+
+  it('holds the twin through the hysteresis band and releases it at 2.05', () => {
+    expect(STRUCTURE_LOD1_BELOW_ZOOM).toBe(2.0);
+    expect(STRUCTURE_LOD1_HYSTERESIS).toBe(0.05);
+    expect(lod1Active(2.0, true)).toBe(true);
+    expect(lod1Active(2.049, true)).toBe(true);
+    expect(lod1Active(2.05, true)).toBe(false);
+    // And entering is not eased: a zoom held at 2.04 coming from full art stays full.
+    expect(lod1Active(2.04, false)).toBe(false);
+  });
+
+  it('a zoom oscillating across 2.0 flips at most once per crossing of the band, not per frame', () => {
+    let on = false;
+    const flips: boolean[] = [];
+    for (const z of [2.2, 2.04, 2.01, 2.0, 1.99, 2.0, 2.01, 2.04, 1.99, 2.04, 2.049, 2.05]) {
+      const next = lod1Active(z, on);
+      if (next !== on) flips.push(next);
+      on = next;
+    }
+    expect(flips).toEqual([true, false]);
+  });
+});
+
+describe('StructureInstances LOD1 twin', () => {
+  const clean = (m: THREE.Mesh): THREE.Material => m.material as THREE.Material;
+
+  /** A twin of `template()`: the same roles, its own (smaller) geometry, and NO material of its own. */
+  function twin(): BuildingMeshTemplate {
+    const root = new THREE.Group();
+    root.scale.setScalar(2);
+    const geos: THREE.BufferGeometry[] = [];
+    for (const name of ['wall', 'roof']) {
+      const g = new THREE.PlaneGeometry(1, 1);
+      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial());
+      mesh.name = name;
+      root.add(mesh);
+      geos.push(g);
+    }
+    return { root, materials: [], geometries: geos };
+  }
+
+  function arm(): {
+    scene: THREE.Group;
+    si: StructureInstances;
+    full: BuildingMeshTemplate;
+    lod: BuildingMeshTemplate;
+    wreck: BuildingMeshTemplate;
+  } {
+    const scene = new THREE.Group();
+    const si = new StructureInstances(scene);
+    const full = template();
+    const lod = twin();
+    const wreck = template();
+    si.setIdleTemplate('wall', full);
+    si.setWreckTemplate('wall', wreck);
+    expect(si.setIdleLod1('wall', lod)).toBe(true);
+    return { scene, si, full, lod, wreck };
+  }
+
+  /** The geometries of the instanced meshes that are drawn this frame, with their counts. */
+  const drawn = (si: StructureInstances): { geo: THREE.BufferGeometry; count: number }[] =>
+    si.meshes().filter((m) => m.visible).map((m) => ({ geo: m.geometry, count: m.count }));
+
+  it('draws the twin below 2.0 and the full art from 2.0, the same number of sets either way', () => {
+    const { si, full, lod } = arm();
+    for (const s of [1, 2, 3]) si.addIdle(s, 'wall', at(s, 0, 0), 0, clean);
+    si.setZoom(1.5);
+    si.flush();
+    const lodGeos = new Set(lod.geometries);
+    const fullGeos = new Set(full.geometries);
+    expect(drawn(si).length).toBe(2);
+    expect(drawn(si).every((d) => lodGeos.has(d.geo) && d.count === 3)).toBe(true);
+    si.setZoom(2.05); // past the hysteresis band (2.0 itself holds the twin once it is on)
+    si.flush();
+    expect(drawn(si).length).toBe(2); // still one draw per template mesh
+    expect(drawn(si).every((d) => fullGeos.has(d.geo) && d.count === 3)).toBe(true);
+  });
+
+  it('holds the twin at 2.0 once it is on, and lets go at 2.05', () => {
+    const { si, lod } = arm();
+    si.addIdle(1, 'wall', at(1, 0, 0), 0, clean);
+    const lodGeos = new Set(lod.geometries);
+    const isTwin = (): boolean => drawn(si).every((d) => lodGeos.has(d.geo));
+    si.setZoom(1.9);
+    si.flush();
+    expect(isTwin()).toBe(true);
+    si.setZoom(2.0);
+    si.flush();
+    expect(isTwin()).toBe(true);
+    si.setZoom(2.05);
+    si.flush();
+    expect(isTwin()).toBe(false);
+  });
+
+  it('draws the twin with the FULL art\'s own material, role for role', () => {
+    const { si, full } = arm();
+    si.addIdle(1, 'wall', at(1, 0, 0), 0, clean);
+    const matOf = new Map(full.root.children.map((c) => [c.name, (c as THREE.Mesh).material]));
+    const twinSets = si.meshes().filter((m) => !full.geometries.includes(m.geometry) && m.count === 1);
+    expect(twinSets.length).toBe(2);
+    for (const m of twinSets) expect(full.materials).toContain(m.material);
+    // wall -> the wall material, roof -> the roof material: not swapped.
+    expect(twinSets.map((m) => m.material).sort()).toEqual([matOf.get('wall'), matOf.get('roof')].sort());
+  });
+
+  it('a scarred tile and a wreck keep the full geometry, and a tile healed back rejoins the twin', () => {
+    const { si, full, lod, wreck } = arm();
+    si.addIdle(1, 'wall', at(1, 0, 0), 0, clean);
+    si.addIdle(2, 'wall', at(2, 0, 0), 0, clean);
+    si.setIdleState(2, 3, clean);
+    si.addIdle(3, 'wall', at(3, 0, 0), 0, clean);
+    si.removeIdle(3);
+    si.addWreck(3, 'wall', at(3, 0, 0), 0);
+    si.setZoom(1.0);
+    si.flush();
+    const count = (geos: readonly THREE.BufferGeometry[]): number =>
+      drawn(si).filter((d) => geos.includes(d.geo)).reduce((n, d) => n + d.count, 0);
+    // The twin carries the one clean tile (per mesh: x2 meshes); the scarred tile and the wreck are drawn full.
+    expect(count(lod.geometries)).toBe(2);
+    expect(count(full.geometries)).toBe(2); // the scarred tile, one per mesh
+    expect(count(wreck.geometries)).toBe(2); // the wreck, one per mesh
+    si.setIdleState(2, 0, clean);
+    si.flush();
+    expect(count(lod.geometries)).toBe(4);
+    expect(count(full.geometries)).toBe(0);
+  });
+
+  it('a destroyed or removed tile leaves the twin too', () => {
+    const { si, lod } = arm();
+    si.addIdle(1, 'wall', at(1, 0, 0), 0, clean);
+    si.addIdle(2, 'wall', at(2, 0, 0), 0, clean);
+    si.removeIdle(1);
+    si.setZoom(1.0);
+    si.flush();
+    const lodCounts = si.meshes().filter((m) => lod.geometries.includes(m.geometry)).map((m) => m.count);
+    expect(lodCounts).toEqual([1, 1]);
+  });
+
+  it('refuses a twin with a role the full art lacks, and draws full art at every zoom', () => {
+    const { si } = arm();
+    const odd = twin();
+    odd.root.children[0].name = 'cupola';
+    expect(si.setIdleLod1('wall', odd)).toBe(false);
+    const none = new StructureInstances(new THREE.Group());
+    expect(none.setIdleLod1('wall', twin())).toBe(false); // no standing template at all
+  });
+
+  it('the A/B switch holds: with the twin disabled, full art is drawn at every zoom, every frame', () => {
+    const { si, full } = arm();
+    si.addIdle(1, 'wall', at(1, 0, 0), 0, clean);
+    si.setLod1Enabled(false);
+    for (const z of [0.5, 1.0, 1.9]) {
+      si.setZoom(z);
+      si.flush();
+      expect(drawn(si).every((d) => full.geometries.includes(d.geo)), `zoom ${z}`).toBe(true);
+    }
+    si.setLod1Enabled(true);
+    si.setZoom(1.0);
+    si.flush();
+    expect(drawn(si).every((d) => full.geometries.includes(d.geo))).toBe(false);
+  });
+
+  it('a type with no twin is untouched by the zoom', () => {
+    const scene = new THREE.Group();
+    const si = new StructureInstances(scene);
+    const full = template();
+    si.setIdleTemplate('fence', full);
+    si.addIdle(1, 'fence', at(1, 0, 0), 0, clean);
+    si.setZoom(0.5);
+    si.flush();
+    expect(drawn(si).length).toBe(2);
+    expect(si.hasLod1('fence')).toBe(false);
+  });
+
+  it('dispose and a template reload tear the twin down with the rest', () => {
+    const { scene, si, full } = arm();
+    si.addIdle(1, 'wall', at(1, 0, 0), 0, clean);
+    expect(scene.children.length).toBe(4);
+    si.setIdleTemplate('wall', full); // a reload drops the old twin with the old sets
+    expect(si.hasLod1('wall')).toBe(false);
+    expect(scene.children.length).toBe(0);
+    expect(si.setIdleLod1('wall', twin())).toBe(true);
+    si.addIdle(1, 'wall', at(1, 0, 0), 0, clean);
+    si.dispose();
+    expect(scene.children.length).toBe(0);
+  });
+});
+
+describe('stateOfKey', () => {
+  it('reads the scar state out of a set key, for every state and chunk', () => {
+    expect(stateOfKey('0|3|4')).toBe(0);
+    expect(stateOfKey('5|0|12')).toBe(5);
+    expect(stateOfKey('10|1|1')).toBe(10);
   });
 });

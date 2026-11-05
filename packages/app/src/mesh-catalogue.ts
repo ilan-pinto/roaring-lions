@@ -353,7 +353,18 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
 
 /** Structure types drawing a building mesh: standing plus its wreck sibling. */
 export const BUILDING_MESHES: Readonly<
-  Record<string, { readonly idle: string; readonly wreck: string; readonly construction?: string }>
+  Record<
+    string,
+    {
+      readonly idle: string;
+      readonly wreck: string;
+      readonly construction?: string;
+      /** GH-974: a lower-detail twin of `idle`, drawn below `STRUCTURE_LOD1_BELOW_ZOOM` by the instanced
+       *  per-tile path. NOT a structure or a unit id: it is a file of its own type's entry. It ships zero
+       *  materials and a UV0 into `idle`'s bake, and the renderer draws it with `idle`'s own material. */
+      readonly lod1?: string;
+    }
+  >
 > = {
   shanty: { idle: 'buildings/shanty.glb', wreck: 'buildings/shanty_wreck.glb' },
   house: { idle: 'buildings/house.glb', wreck: 'buildings/house_wreck.glb' },
@@ -363,7 +374,7 @@ export const BUILDING_MESHES: Readonly<
   fence: { idle: 'buildings/fence.glb', wreck: 'buildings/fence_wreck.glb' },
   concrete: { idle: 'buildings/concrete.glb', wreck: 'buildings/concrete_wreck.glb' },
   hall: { idle: 'buildings/hall.glb', wreck: 'buildings/hall_wreck.glb' },
-  wall: { idle: 'buildings/wall.glb', wreck: 'buildings/wall_wreck.glb' },
+  wall: { idle: 'buildings/wall.glb', wreck: 'buildings/wall_wreck.glb', lod1: 'buildings/wall_lod1.glb' },
   // The KDF field camp a mission places (`structures[]` in
   // mission.schema.json) and produces from -- the one building type that
   // reaches the map from mission JSON rather than from a map symbol.
@@ -643,6 +654,7 @@ export function claimedMeshFiles(): Set<string> {
     out.add(b.idle);
     out.add(b.wreck);
     if (b.construction !== undefined) out.add(b.construction);
+    if (b.lod1 !== undefined) out.add(b.lod1);
   }
   for (const files of Object.values(DECOR_MESHES)) for (const f of files) out.add(f);
   for (const f of Object.values(VFX_MESHES)) out.add(f);
@@ -712,7 +724,7 @@ export function meshPlanFor(
 export interface MeshManifest {
   readonly rigged: readonly { id: string; urls: readonly string[]; faction: MeshFactionName }[];
   readonly vehicles: readonly { id: string; url: string }[];
-  readonly buildings: readonly { id: string; url: string; construction?: string }[];
+  readonly buildings: readonly { id: string; url: string; construction?: string; lod1?: string }[];
   readonly decor: ReadonlyMap<string, string>;
   readonly props: ReadonlyMap<PropKindName, string>;
   /** The backdrop kit's served URL, or null. A kit id with no entry in `BACKDROP_MESHES` is null too: the
@@ -729,10 +741,13 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
     })),
     vehicles: [...plan.vehicles].map((id) => ({ id, url: meshUrl(VEHICLE_UNIT_MESHES[id]) })),
     buildings: [...plan.buildings].map((id) => {
-      const construction = BUILDING_MESHES[id].construction;
-      return construction === undefined
-        ? { id, url: meshUrl(BUILDING_MESHES[id].idle) }
-        : { id, url: meshUrl(BUILDING_MESHES[id].idle), construction: meshUrl(construction) };
+      const { idle, construction, lod1 } = BUILDING_MESHES[id];
+      return {
+        id,
+        url: meshUrl(idle),
+        ...(construction === undefined ? {} : { construction: meshUrl(construction) }),
+        ...(lod1 === undefined ? {} : { lod1: meshUrl(lod1) }),
+      };
     }),
     decor: new Map(
       [...plan.decor].flatMap((fam) =>

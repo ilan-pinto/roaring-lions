@@ -98,6 +98,7 @@ interface Private {
     stateOf(s: number): number | undefined;
     setIdleTemplate(id: string, t: BuildingMeshTemplate): void;
     setWreckTemplate(id: string, t: BuildingMeshTemplate): void;
+    setIdleLod1(id: string, t: BuildingMeshTemplate): boolean;
   };
   scene: THREE.Scene;
   updateBuildingMeshes(): void;
@@ -387,6 +388,38 @@ describe('ThreeRenderer instanced per-tile structures (GH-974)', () => {
     for (const s of added) expect(priv.structureInstances.hasIdle(s), `tile ${s}`).toBe(true);
     const wall = (priv.buildingMeshIdleTemplates.get('fence')!.root.getObjectByName('wall') as THREE.Mesh);
     expect(instancesOf(priv, wall.geometry, wall.material as THREE.Material).length).toBe(5 + 12);
+  });
+
+  it('swaps a run to its LOD1 twin by the camera zoom, one draw per set, through updateBuildingMeshes (GH-974)', () => {
+    const { r, priv, ns, ew } = build();
+    // The twin: the fence's roles with their own, smaller geometry and no material of their own.
+    const base = realTemplate();
+    const geos: THREE.BufferGeometry[] = base.root.children.map((c) => {
+      const g = new THREE.PlaneGeometry(1, 1);
+      (c as THREE.Mesh).geometry = g;
+      return g;
+    });
+    const lod: BuildingMeshTemplate = { root: base.root, materials: base.materials, geometries: geos };
+    expect(priv.structureInstances.setIdleLod1('fence', lod)).toBe(true);
+    const fenceGeos = new Set(priv.buildingMeshIdleTemplates.get('fence')!.geometries);
+    const twinGeos = new Set(geos);
+    const fenceDrawn = (): THREE.InstancedMesh[] =>
+      priv.structureInstances.meshes().filter((m) => m.visible && (fenceGeos.has(m.geometry) || twinGeos.has(m.geometry)));
+    const tiles = ns.length + ew.length;
+
+    r.camera.zoom = 1.0;
+    priv.updateBuildingMeshes();
+    expect(fenceDrawn().length).toBe(2); // wall + roof: one draw each, not one per tile
+    expect(fenceDrawn().every((m) => twinGeos.has(m.geometry) && m.count === tiles)).toBe(true);
+
+    r.camera.zoom = 2.0; // the boundary, from below: the twin holds (hysteresis)
+    priv.updateBuildingMeshes();
+    expect(fenceDrawn().every((m) => twinGeos.has(m.geometry))).toBe(true);
+
+    r.camera.zoom = 2.05;
+    priv.updateBuildingMeshes();
+    expect(fenceDrawn().length).toBe(2);
+    expect(fenceDrawn().every((m) => fenceGeos.has(m.geometry) && m.count === tiles)).toBe(true);
   });
 
   it('dispose takes every instanced mesh out of the scene', () => {

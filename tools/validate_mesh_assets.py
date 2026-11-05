@@ -177,6 +177,7 @@ import glob
 import itertools
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -503,9 +504,55 @@ def load_mesh_masks(out_dir, palette_path):
     return failures, masks, exempt, wreck_masks
 
 
-def check_collisions(mesh_masks):
+# GH-974: LOD twins. A twin is a lower-detail copy of a standing building mesh that the renderer
+# draws INSTEAD of it below a zoom (`STRUCTURE_LOD1_BELOW_ZOOM`, units/structure-instances.ts),
+# so by construction it has the same silhouette as the mesh it stands in for: wall vs wall_lod1 is
+# IoU 0.946 against the 0.88 limit, and that collision is the point of the asset. Each twin names
+# the one mesh it may collide with. The exemption is NOT a threshold change: the twin is still held
+# to IOU_LIMIT against every other mesh, and the exemption exists only while BOTH of these hold,
+# each checked here (and with a constructed failing input in tools/test_lod_twin_gate.py):
+#   1. it is wired: `mesh-catalogue.ts` names it as the `lod1` of the full mesh's own entry, so it
+#      is really swapped in and not a stray file hiding behind an exemption;
+#   2. it is a twin: its silhouette still matches the full mesh's at or above LOD_TWIN_MIN_IOU, so
+#      an asset that drifted into a different shape cannot ride on the exemption.
+LOD_TWINS = {"wall_lod1": "wall"}
+LOD_TWIN_MIN_IOU = 0.90
+MESH_CATALOGUE_TS = os.path.join(REPO, "packages", "app", "src", "mesh-catalogue.ts")
+
+
+def lod_twin_wired(full_id, twin_id, catalogue_text):
+    """True when the catalogue's `full_id` entry carries `lod1: 'buildings/<twin_id>.glb'`."""
+    pat = r"\b%s:\s*\{[^}]*?\blod1:\s*'buildings/%s\.glb'" % (re.escape(full_id), re.escape(twin_id))
+    return re.search(pat, catalogue_text) is not None
+
+
+def check_lod_twins(mesh_masks, catalogue_text, twins=None):
+    """Failures for every named twin that is not wired, not rendered, or no longer a twin."""
     failures = []
+    for twin_id, full_id in sorted((LOD_TWINS if twins is None else twins).items()):
+        if twin_id not in mesh_masks or full_id not in mesh_masks:
+            failures.append(f"lod twin: {twin_id} (twin of {full_id}) has no render -- a named twin must be on disk")
+            continue
+        if not lod_twin_wired(full_id, twin_id, catalogue_text):
+            failures.append(
+                f"lod twin: {twin_id} is exempt from the silhouette collision with {full_id} but "
+                f"mesh-catalogue.ts does not name it as {full_id}'s `lod1` -- an unwired twin has no excuse to collide"
+            )
+        score = va.iou(mesh_masks[twin_id], mesh_masks[full_id])
+        if score < LOD_TWIN_MIN_IOU:
+            failures.append(
+                f"lod twin: {twin_id} vs {full_id} IoU={score:.3f} (floor {LOD_TWIN_MIN_IOU:.2f}) -- "
+                f"it no longer reads as the same mesh, so it is not a twin and has no exemption"
+            )
+    return failures
+
+
+def check_collisions(mesh_masks, twins=None):
+    failures = []
+    exempt = {frozenset((t, f)) for t, f in (LOD_TWINS if twins is None else twins).items()}
     for (ua, ma), (ub, mb) in itertools.combinations(mesh_masks.items(), 2):
+        if frozenset((ua, ub)) in exempt:
+            continue  # a LOD twin and its full mesh: see LOD_TWINS, held by check_lod_twins
         score = va.iou(ma, mb)
         if score > va.IOU_LIMIT:
             failures.append(
@@ -3051,6 +3098,8 @@ def main():
         failures.extend(image_failures)
 
         failures.extend(check_collisions(mesh_masks))
+        with open(MESH_CATALOGUE_TS, encoding="utf-8") as fh:
+            failures.extend(check_lod_twins(mesh_masks, fh.read()))
 
         # The wreck's own two checks, on the SECOND render every vehicle now
         # produces. Both use the masks above, so they cost no extra Blender

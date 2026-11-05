@@ -39,6 +39,18 @@
  * would shear its lighting. A template that fails the check keeps the clone
  * path; the caller asks `instanceableTemplate`.
  *
+ * LOD1 (GH-974). A type may also register a lower-detail TWIN of its standing
+ * template (`setIdleLod1`: the compound wall's 310-triangle `wall_lod1`, against
+ * 3,087). Below `STRUCTURE_LOD1_BELOW_ZOOM` the twin is what is drawn, because
+ * none of the full art's relief is visible at that distance. The swap is made at
+ * FRAME level, never per tile: a clean standing tile is a member of both its
+ * full set and its twin set, and `setZoom` decides which of the two sets is
+ * visible, so the draw count stays one per set. Only clean (state 0) standing
+ * tiles have a twin set: a scarred tile and a wreck keep the full geometry (they
+ * are few, and their materials are clones the twin has no part of). The twin
+ * ships no material: it is drawn with the FULL template's own material for the
+ * same role, and its UV0 samples that bake (`tools/buildings/author_wall_lod1.py`).
+ *
  * Presentation only: nothing here reads or writes sim state.
  */
 import * as THREE from 'three';
@@ -56,6 +68,29 @@ export interface InstancePart {
 }
 
 const IDENTITY_EPSILON = 1e-6;
+
+/** Below this camera zoom a type's LOD1 twin is drawn instead of its full art
+ *  (same pattern as `terrain/backdrop-kit.ts`'s `LOD1_BELOW_ZOOM`: by zoom band,
+ *  never by distance). */
+export const STRUCTURE_LOD1_BELOW_ZOOM = 2.0;
+
+/** Zoom headroom above the band before a twin hands back to the full art, so a
+ *  zoom held at the boundary does not flicker between them. */
+export const STRUCTURE_LOD1_HYSTERESIS = 0.05;
+
+/**
+ * Is the twin drawn at `zoom`, given whether it was drawn last frame? Entering
+ * is strict (`zoom < 2.0`: at exactly 2.0 the full art is drawn); leaving waits
+ * for `zoom >= 2.0 + hysteresis`, so the band between is held by `wasActive`.
+ */
+export function lod1Active(zoom: number, wasActive: boolean): boolean {
+  return zoom < (wasActive ? STRUCTURE_LOD1_BELOW_ZOOM + STRUCTURE_LOD1_HYSTERESIS : STRUCTURE_LOD1_BELOW_ZOOM);
+}
+
+const roleOf = (mesh: THREE.Mesh): string => {
+  const r = (mesh.userData as { rl_role?: unknown }).rl_role;
+  return typeof r === 'string' && r.length > 0 ? r : mesh.name;
+};
 /** A chunk's sets start small: a chunk holds a handful of one run's tiles. */
 const CHUNK_FIRST_CAPACITY = 8;
 
@@ -207,6 +242,11 @@ function setKey(state: StateKey, root: THREE.Matrix4): string {
   return `${state}|${cx}|${cz}`;
 }
 
+/** The scar state a `setKey` names (the key format lives here and in `setKey`, nowhere else). */
+export function stateOfKey(key: string): StateKey {
+  return Number(key.slice(0, key.indexOf('|')));
+}
+
 interface TypeSets {
   idleParts: InstancePart[] | null;
   wreckParts: InstancePart[] | null;
@@ -214,6 +254,12 @@ interface TypeSets {
   idle: Map<string, InstanceSet[]>;
   /** Wreck sets by chunk. */
   wreck: Map<string, InstanceSet[]>;
+  /** The LOD1 twin's parts, each with the full part whose material it is drawn with. */
+  lod: { readonly part: InstancePart; readonly full: InstancePart }[] | null;
+  /** The twin's geometries, owned here (the template that carried them is not kept). */
+  lodGeometries: THREE.BufferGeometry[];
+  /** The twin's sets by chunk, clean (state 0) standing tiles only: each an array parallel to `lod`. */
+  idleLod: Map<string, InstanceSet[]>;
 }
 
 interface Placed {
@@ -231,6 +277,11 @@ export class StructureInstances {
   private readonly wreckOf = new Map<number, Placed>();
   private hidden = false;
   private enabled = true;
+  /** Is the LOD1 twin drawn this frame (`setZoom`)? */
+  private lodOn = false;
+  /** The A/B switch (`ThreeRenderer.debugStructureLod1`): off, the twin is never drawn. A flag `setZoom`
+   *  consults every frame, so it holds. */
+  private lodEnabled = true;
 
   constructor(private readonly scene: THREE.Object3D) {}
 
@@ -257,10 +308,80 @@ export class StructureInstances {
     sets.wreckParts = partsOf(template);
   }
 
+  /**
+   * Registers `typeId`'s LOD1 twin. Each of its meshes is paired, by `rl_role`,
+   * with the standing template's mesh whose material it is drawn with. Returns
+   * false (and registers nothing) if a twin mesh has no such partner or the twin
+   * is not instanceable, so the caller can say so; the type then draws full art
+   * at every zoom. Call after `setIdleTemplate`, which clears any earlier twin.
+   */
+  setIdleLod1(typeId: string, template: BuildingMeshTemplate): boolean {
+    const sets = this.types.get(typeId);
+    if (!sets?.idleParts || !instanceableTemplate(template)) return false;
+    const full = sets.idleParts;
+    const pairs: { part: InstancePart; full: InstancePart }[] = [];
+    for (const part of partsOf(template)) {
+      const partner = full.find((f) => roleOf(f.mesh) === roleOf(part.mesh));
+      if (!partner) return false;
+      pairs.push({ part, full: partner });
+    }
+    if (pairs.length === 0) return false;
+    this.dropLod(sets);
+    sets.lod = pairs;
+    sets.lodGeometries = pairs.map((p) => p.part.geometry);
+    return true;
+  }
+
+  /** The twin's sets and geometries of one type, torn down. */
+  private dropLod(sets: TypeSets): void {
+    for (const list of sets.idleLod.values()) for (const set of list) set.dispose();
+    sets.idleLod.clear();
+    for (const g of sets.lodGeometries) g.dispose();
+    sets.lodGeometries = [];
+    sets.lod = null;
+  }
+
+  /** Does `typeId` have a LOD1 twin registered? */
+  hasLod1(typeId: string): boolean {
+    return this.types.get(typeId)?.lod != null;
+  }
+
+  /** Is the LOD1 twin the one drawn this frame? */
+  get lod1Drawn(): boolean {
+    return this.lodOn;
+  }
+
+  /** Sets this frame's zoom: decides, with hysteresis, whether the twin is the
+   *  drawn art. Takes effect at the next `flush`. */
+  setZoom(zoom: number): void {
+    this.lodOn = this.lodEnabled && lod1Active(zoom, this.lodOn);
+  }
+
+  /** The A/B switch: false draws full art at every zoom (the pre-twin path). */
+  setLod1Enabled(on: boolean): void {
+    this.lodEnabled = on;
+  }
+
+  private lodSets(
+    sets: TypeSets,
+    root: THREE.Matrix4,
+    materialFor: (mesh: THREE.Mesh, state: StateKey) => THREE.Material
+  ): InstanceSet[] {
+    const lod = sets.lod;
+    if (!lod) return [];
+    const key = setKey(0, root);
+    let list = sets.idleLod.get(key);
+    if (!list) {
+      list = lod.map((p) => new InstanceSet(p.part, materialFor(p.full.mesh, 0), this.scene, CHUNK_FIRST_CAPACITY));
+      sets.idleLod.set(key, list);
+    }
+    return list;
+  }
+
   private setsFor(typeId: string): TypeSets {
     let sets = this.types.get(typeId);
     if (!sets) {
-      sets = { idleParts: null, wreckParts: null, idle: new Map(), wreck: new Map() };
+      sets = { idleParts: null, wreckParts: null, idle: new Map(), wreck: new Map(), lod: null, lodGeometries: [], idleLod: new Map() };
       this.types.set(typeId, sets);
     }
     return sets;
@@ -311,6 +432,7 @@ export class StructureInstances {
     materialFor: (mesh: THREE.Mesh, state: StateKey) => THREE.Material
   ): void {
     for (const set of this.idleSets(typeId, 0, root, materialFor)) set.set(s, root);
+    for (const set of this.lodSets(this.setsFor(typeId), root, materialFor)) set.set(s, root);
     this.idleOf.set(s, { typeId, root: root.clone(), yaw, state: 0 });
   }
 
@@ -321,7 +443,10 @@ export class StructureInstances {
     const sets = this.types.get(placed.typeId);
     if (!sets) return;
     for (const set of sets.idle.get(setKey(placed.state, placed.root)) ?? []) set.remove(s);
+    // The twin holds clean tiles only: a scarred tile draws full art in its scar material.
+    if (placed.state === 0) for (const set of sets.idleLod.get(setKey(0, placed.root)) ?? []) set.remove(s);
     for (const set of this.idleSets(placed.typeId, state, placed.root, materialFor)) set.set(s, placed.root);
+    if (state === 0) for (const set of this.lodSets(sets, placed.root, materialFor)) set.set(s, placed.root);
     placed.state = state;
   }
 
@@ -330,6 +455,7 @@ export class StructureInstances {
     if (!placed) return false;
     const sets = this.types.get(placed.typeId);
     for (const set of sets?.idle.get(setKey(placed.state, placed.root)) ?? []) set.remove(s);
+    if (placed.state === 0) for (const set of sets?.idleLod.get(setKey(0, placed.root)) ?? []) set.remove(s);
     this.idleOf.delete(s);
     return true;
   }
@@ -377,6 +503,8 @@ export class StructureInstances {
     for (const sets of this.types.values()) {
       for (const list of sets.idle.values()) for (const set of list) set.dispose();
       sets.idle.clear();
+      for (const list of sets.idleLod.values()) for (const set of list) set.dispose();
+      sets.idleLod.clear();
       for (const list of sets.wreck.values()) for (const set of list) set.dispose();
       sets.wreck.clear();
     }
@@ -390,6 +518,7 @@ export class StructureInstances {
     if (!sets) return;
     for (const list of sets.idle.values()) for (const set of list) set.dispose();
     sets.idle.clear();
+    this.dropLod(sets);
     for (const [s, p] of this.idleOf) if (p.typeId === typeId) this.idleOf.delete(s);
     sets.idleParts = null;
   }
@@ -408,6 +537,7 @@ export class StructureInstances {
     const out: THREE.InstancedMesh[] = [];
     for (const sets of this.types.values()) {
       for (const list of sets.idle.values()) for (const set of list) out.push(set.mesh);
+      for (const list of sets.idleLod.values()) for (const set of list) out.push(set.mesh);
       for (const list of sets.wreck.values()) for (const set of list) out.push(set.mesh);
     }
     return out;
@@ -424,7 +554,13 @@ export class StructureInstances {
   /** Uploads every changed matrix. Call once per frame, after the updates. */
   flush(): void {
     for (const sets of this.types.values()) {
-      for (const list of sets.idle.values()) for (const set of list) set.flush(this.hidden);
+      // A type with a twin draws it INSTEAD of its clean (state 0) full sets while the twin is on.
+      const swapped = this.lodOn && sets.lod !== null;
+      for (const [key, list] of sets.idle) {
+        const full = swapped && stateOfKey(key) === 0;
+        for (const set of list) set.flush(this.hidden || full);
+      }
+      for (const list of sets.idleLod.values()) for (const set of list) set.flush(this.hidden || !swapped);
       for (const list of sets.wreck.values()) for (const set of list) set.flush(this.hidden);
     }
   }
@@ -433,6 +569,7 @@ export class StructureInstances {
     for (const sets of this.types.values()) {
       for (const list of sets.idle.values()) for (const set of list) set.dispose();
       for (const list of sets.wreck.values()) for (const set of list) set.dispose();
+      this.dropLod(sets);
     }
     this.types.clear();
     this.idleOf.clear();

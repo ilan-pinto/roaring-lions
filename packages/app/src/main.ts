@@ -2492,7 +2492,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // step 3 -- on `beit_sahwan_outskirts` the five wreck GLBs are 9.62
     // MiB of a 47.0 MiB level and `hall_wreck` alone is 3.77, while the
     // earliest a building can fall is minutes of play away.
-    ...meshManifest.buildings.map((m) => three.loadBuildingMesh(m.id, m.url, null, m.construction)),
+    ...meshManifest.buildings.map((m) => three.loadBuildingMesh(m.id, m.url, null, m.construction, m.lod1)),
     // The three shared VFX meshes (`units/muzzle-flash.ts`,
     // `units/explosion-burst.ts`, `units/smoke-plume.ts`). Not keyed by
     // anything and wanted by every mission -- 0.46 MiB for the set, so
