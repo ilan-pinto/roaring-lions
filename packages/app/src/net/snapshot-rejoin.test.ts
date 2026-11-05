@@ -54,13 +54,15 @@ const EVERY = 1200;
  * seeds 3, 5 and 7 pass the premise (1, 2, 4, 8 and 9 fail it), so seed 3 stands. Was seed 6.
  * GH-883 (5 Nov): deleting `hidden_setup` from five unit JSONs and the schema is content too. Seed 3 went positive; seeds 1, 4, 5, 7 and 9 pass
  * the premise (2, 6 and 8 fail it), so seed 1 stands. Was seed 3. Sim hash and runtime digest are untouched; only `shippedContentDigest()` moved.
+ * GH-976 (5 Nov, camp wipe): `modes.camp.wipe: "after_camp"` in `data/versus/modes/milh_flats.json` is content too, and moves `shippedContentDigest()`.
+ * Seed 1 went positive; seeds 2, 5, 6, 7 and 9 pass the premise (3, 4 and 8 fail it), so seed 2 stands. Was seed 1.
  */
 function mirrorConfig(): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;
   const sides = sidesOfFactions([...factions]);
   const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({
-    matchId: CODE, code: CODE, seed: 1, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
+    matchId: CODE, code: CODE, seed: 2, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
     pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b-1', dataDigest: 0, snapshotEveryTicks: EVERY,
   });
   if (c === null) throw new Error('bad fixture');

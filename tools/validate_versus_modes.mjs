@@ -107,6 +107,17 @@ export function versusModeFailures(files, mapsById) {
         out.push(`${file}: the camp exits (${a}) and (${b}) are not point mirrors on the point-symmetric map "${doc.map}": the end that faces the attack gets the shorter raid`);
       }
     }
+    // GH-976: the footprints are point mirrors too (same size, and top-left + bottom-right = the far corner of the map). The
+    // exits alone could mirror while one camp sits a tile nearer its end.
+    if (camps.length === 2 && pointSymmetric(map)) {
+      const f = doc.camps.friendly;
+      const h = doc.camps.hostile;
+      if (f.size[0] !== h.size[0] || f.size[1] !== h.size[1]
+        || f.at[0] + h.at[0] + h.size[0] !== map.width || f.at[1] + h.at[1] + h.size[1] !== map.height) {
+        out.push(`${file}: the camp footprints (${f.at} ${f.size}) and (${h.at} ${h.size}) are not point mirrors on the point-symmetric map "${doc.map}"`);
+      }
+    }
+    if (doc.modes?.camp?.wipe !== undefined && !['ends', 'after_camp'].includes(doc.modes.camp.wipe)) out.push(`${file}: camp \`wipe\` "${doc.modes.camp.wipe}" is not ends or after_camp`);
     if (camps.length === 2 && camps[0].tiles.some((t) => camps[1].tiles.includes(t))) out.push(`${file}: the two camps overlap`);
 
     const mapZones = map.zones ?? {};

@@ -202,7 +202,11 @@ export interface VersusModeFileJson {
   /** Flag zones by END, required by the `flag` mode (GH-976 P3). */
   readonly flags?: { readonly friendly: VersusEndJson['camp']; readonly hostile: VersusEndJson['camp'] };
   readonly modes: {
-    readonly camp?: Readonly<Record<string, never>>;
+    /** Destroy the camp. `wipe` is `"ends"` (the default: a side with no armed unit loses at once) or `"after_camp"` (GH-976:
+     *  a wiped side keeps playing while its camp stands, and the survivor must still raze it). Typed `string`, not the literal
+     *  union: a JSON module's inferred type widens a literal to `string`, and a union here breaks every JSON-module call site
+     *  (`validate:data` and the schema hold the two values). */
+    readonly camp?: { readonly wipe?: string };
     /** Capture the flag, v1 a raid: seconds a side must hold the enemy flag zone alone. */
     readonly flag?: { readonly hold_s: number };
     readonly points?: { readonly zones: readonly PointsZoneJson[]; readonly per_value_destroyed: number; readonly target: number };

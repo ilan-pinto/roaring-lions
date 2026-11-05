@@ -6,11 +6,11 @@ import type { MapId } from '@lions/data';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
 import { economyRoom } from '@lions/net';
 import {
-  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
+  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96, contestedShare, holdsBalanced, razeLimitS, razeOk, razeVerdict, withCampOverride, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
   type ModePlayFn, type ModePlayed,
 } from './versus-modes';
 import { main as probeMain, seedOf } from './versus-probe';
-import { versusModes } from '@lions/data';
+import { versusModes, versusRules } from '@lions/data';
 
 const FULL_GAMES_TIMEOUT_MS = 90_000;
 const game = (winner: 0 | 1 | null, by: ModePlayed['by'] = 'objective', ticks = 1200): ModePlayed => ({ winner, by, ticks });
@@ -63,8 +63,51 @@ describe('the readings', () => {
     expect(passiveLost(tallyModes(games(96, 0)), 1)).toBe(true);
     expect(passiveLost(tallyModes(games(1, 95)), 0)).toBe(false);
     expect(passiveLost(tallyModes([...games(0, 95), game(null, 'cap')]), 0)).toBe(false);
-    expect(passiveLost(tallyModes([...games(0, 95), game(1, 'cap')]), 0)).toBe(true); // lost ON the cap's forces is still lost; the cap is in the by-counts
+    // GH-976 after_camp: a win on the cap's surviving value, or on a stalemate, is not a LOSS by the goal or a wipe (the docstring always said so)
+    expect(passiveLost(tallyModes([...games(0, 95), game(1, 'cap')]), 0)).toBe(false);
+    expect(passiveLost(tallyModes([...games(0, 95), game(1, 'stalemate')]), 0)).toBe(false);
+    expect(passiveLost(tallyModes([...games(0, 95), game(1, 'annihilation')]), 0)).toBe(true); // a wipe is a loss
     expect(passiveLost(tallyModes(games(0, 96)), 1)).toBe(false); // the wrong end: east passive, west won none
+  });
+
+  it('G1b: the contested share counts the games where the goal fell while the loser still had an armed unit, and only those', () => {
+    const c = (contested: boolean, by: ModePlayed['by'] = 'objective'): ModePlayed => ({ ...game(0, by), contested });
+    expect(contestedShare(tallyModes([c(true), c(true), c(false), c(false)]))).toBe('50.0');
+    expect(contestedShare(tallyModes([c(false), c(false)]))).toBe('0.0');
+    expect(contestedShare(tallyModes([game(0), game(1)]))).toBe('0.0'); // a game with no flag is not contested
+    expect(tallyModes([c(true), c(false)]).contested).toBe(1);
+  });
+
+  it('G5: no wipe was left unrazed (a cap, a stalemate or a match the wipe ended) and the mean raze is within the limit; no wipe at all reads null, not ok', () => {
+    const wiped = (wipeTick: number, ticks: number, by: ModePlayed['by'] = 'objective'): ModePlayed => ({ ...game(0, by, ticks), wipeTick });
+    const secs = (n: number): number => n * 20;
+    expect(razeOk(tallyModes([wiped(0, secs(120))]), 120)).toBe(true);        // exactly the limit
+    expect(razeOk(tallyModes([wiped(0, secs(121))]), 120)).toBe(false);       // a second over
+    expect(razeOk(tallyModes([wiped(0, secs(100)), wiped(0, secs(140))]), 120)).toBe(true); // a MEAN
+    expect(razeOk(tallyModes([wiped(0, secs(120)), wiped(secs(10), secs(10), 'cap')]), 120)).toBe(false);      // one capped game fails it
+    expect(razeOk(tallyModes([wiped(0, secs(10)), wiped(0, secs(10), 'stalemate')]), 120)).toBe(false);
+    expect(razeOk(tallyModes([wiped(0, secs(10)), wiped(0, secs(10), 'annihilation')]), 120)).toBe(false); // the wipe ended the match: not after_camp
+    expect(razeOk(tallyModes([wiped(0, secs(10)), wiped(0, secs(10), 'mutual')]), 120)).toBe(true);        // a mutual wipe is a draw, not a raze
+    expect(razeOk(tallyModes(games(3, 3)), 120)).toBeNull();                  // nothing wiped: nothing read
+    expect(razeOk(tallyModes([]), 120)).toBeNull();
+    // the raze runs from the WIPE, not the start of the game
+    expect(razeOk(tallyModes([wiped(secs(500), secs(600))]), 120)).toBe(true);
+    expect(razeOk(tallyModes([wiped(secs(500), secs(700))]), 120)).toBe(false);
+    expect(razeLimitS(48)).toBe(RAZE_MEAN_MAX_S_48);
+    expect(razeLimitS(96)).toBe(RAZE_MEAN_MAX_S_96);
+    expect([RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96]).toEqual([120, 240]);
+    expect(razeVerdict('active', tallyModes([wiped(0, secs(10))]), 120)).toContain('ok');
+    expect(razeVerdict('active', tallyModes([wiped(0, secs(10), 'cap')]), 120)).toContain('FAIL');
+    expect(razeVerdict('active', tallyModes([wiped(0, secs(10), 'annihilation')]), 120, false)).toBe('G5 active n/a (wipe ends)');
+  });
+
+  it('G4: the defender holds of the two ends are within 14 of 96, scaled to the games played', () => {
+    expect(holdsBalanced(60, 46, 96)).toBe(true);
+    expect(holdsBalanced(60, 45, 96)).toBe(false);
+    expect(holdsBalanced(46, 60, 96)).toBe(true);
+    expect(holdsBalanced(45, 60, 96)).toBe(false);
+    expect(holdsBalanced(120, 90, 192)).toBe(false); // 30 of 192 is 15 of 96
+    expect(holdsBalanced(120, 92, 192)).toBe(true);
   });
 
   it('GH-976 P4: a faction cell names the faction at each end, the mirror reads as it always did', () => {
@@ -123,6 +166,56 @@ describe('playMode: a room\'s own world', () => {
   it('one seed is one game, run to run', () => {
     const a = playMode('wadi_tarfan', 'points', seedOf(3));
     expect(playMode('wadi_tarfan', 'points', seedOf(3))).toEqual(a);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('GH-976 after_camp: a wiped side does not end the match (milh_flats ships it); under wipe=ends the same game ends on the wipe', () => {
+    const after = playMode('milh_flats', 'camp', seedOf(0), { cutEnd: 1 });
+    expect(after).toMatchObject({ winner: 0, by: 'objective', contested: false });
+    expect(after.wipeTick).toBeDefined();
+    expect(after.ticks).toBeGreaterThan(after.wipeTick!); // a raze followed the wipe
+    // the other end wiped: the wipe is read for EITHER side
+    const west = playMode('milh_flats', 'camp', seedOf(0), { cutEnd: 0 });
+    expect(west).toMatchObject({ winner: 1, by: 'objective', contested: false });
+    expect(west.wipeTick).toBeDefined();
+    const ends = withCampOverride('milh_flats', { wipe: 'ends' }, () => playMode('milh_flats', 'camp', seedOf(0), { cutEnd: 1 }));
+    expect(ends).toMatchObject({ winner: 0, by: 'annihilation' });
+    expect(ends.wipeTick).toBe(ends.ticks);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('withCampOverride sets the rule and the rules-file camps in memory and puts both back, also on a throw', () => {
+    const wasMilh = JSON.stringify(versusModes.milh_flats);
+    withCampOverride('milh_flats', { wipe: 'ends' }, () => expect(versusModes.milh_flats.modes.camp).toEqual({ wipe: 'ends' }));
+    expect(JSON.stringify(versusModes.milh_flats)).toBe(wasMilh);
+    expect(versusModes.milh_flats_l.camps).toBeUndefined();
+    withCampOverride('milh_flats_l', { fromRules: true, wipe: 'after_camp' }, () => {
+      const f = versusModes.milh_flats_l;
+      expect(f.modes.camp).toEqual({ wipe: 'after_camp' });
+      expect(f.camps!.friendly).toEqual({ at: versusRules.milh_flats_l.ends.friendly.camp.at, size: versusRules.milh_flats_l.ends.friendly.camp.size, exit: versusRules.milh_flats_l.ends.friendly.camp.exit });
+    });
+    expect(versusModes.milh_flats_l.camps).toBeUndefined();
+    expect(versusModes.milh_flats_l.modes.camp).toBeUndefined();
+    expect(() => withCampOverride('milh_flats_l', { wipe: 'ends' }, () => 0)).toThrow(/no camp block/);
+    expect(() => withCampOverride('milh_flats', { wipe: 'ends' }, () => { throw new Error('boom'); })).toThrow('boom');
+    expect(JSON.stringify(versusModes.milh_flats)).toBe(wasMilh);
+  });
+
+  it('the G4 defender stands on its own exit while the enemy has an armed unit, and goes to raze when it has none', () => {
+    const w = buildMatchWorld(modeConfig('milh_flats' as MapId, 'camp', seedOf(0)));
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    campOrder(w, 'milh_flats', -1, 0); // side 0 (west) defends
+    const target = (side: number): [number, number] => {
+      const call = spy.mock.calls.map(([c]) => c).find((c) => c.kind === 'attackMove' && w.sim.state.side[c.ids[0]] === side);
+      if (call === undefined || call.kind !== 'attackMove') throw new Error('no order');
+      return [call.x / 65536, call.y / 65536];
+    };
+    // West defends its own exit (14,38); east attacks it too -- the same point, and not east's own (33,9).
+    expect(target(0)).toEqual([14.5, 38.5]); // the exit tile's centre
+    expect(target(1)).toEqual([14.5, 38.5]);
+    // Once the enemy has no armed unit the defender marches on the enemy camp instead.
+    for (const id of w.bySide[1]) w.sim.debugKill(id);
+    spy.mockClear();
+    campOrder(w, 'milh_flats', -1, 0);
+    expect(target(0)).toEqual([33.5, 9.5]);
   }, FULL_GAMES_TIMEOUT_MS);
 
   it('the room config carries the mode and nothing else changes', () => {
@@ -338,7 +431,30 @@ describe('the command line', () => {
 
   it('a fake that always lets the active end win reads fair OUTSIDE, goal ok, and both passive ends LOSE', () => {
     const r = quiet(() => modeMain(['--mode=camp', '--maps=milh_flats', '--seeds=10', '--no-self-check'], fake));
-    expect(r.out).toContain('=> milh_flats camp: fair OUTSIDE (100.0%); decisive OUTSIDE (100.0% of 10); goal share 100.0% ok; passive west loses (goal share 100.0%); passive east loses (goal share 100.0%)');
+    expect(r.out).toContain('=> milh_flats camp: fair OUTSIDE (100.0%); decisive OUTSIDE (100.0% of 10); goal share 100.0% ok; G1b contested 0.0% (report only); G5 active n/a (no wipe)');
+    expect(r.out).toContain('passive west loses (goal share 100.0%)');
+    expect(r.out).toContain('passive east loses (goal share 100.0%)');
+  });
+
+  it('GH-976: the camp cell prints G1b, G5 per arm and the G4 defender holds; a wipe that is never razed FAILS G5, and wipe=ends reads n/a', () => {
+    // A fake whose games are all wiped at tick 100: razed 60 s later when the active ends play, never razed (the cap) when a defender plays.
+    const wiper: ModePlayFn = (_m, _mode, _s, o) => (o?.defend !== undefined
+      ? { winner: 0, by: 'cap', ticks: 30000, wipeTick: 100 } // west wins both defender arms: holds 96 west, 0 east
+      : { winner: 0, by: 'objective', ticks: 100 + 60 * 20, wipeTick: 100, contested: false });
+    const r = quiet(() => modeMain(['--mode=camp', '--maps=milh_flats', '--seeds=96', '--no-self-check', '--passive=off'], wiper));
+    expect(r.out).toContain('G1b contested 0.0% (report only)');
+    expect(r.out).toContain('G5 active ok (96 wipes, 96 razed, mean 60 s of 120, 0 never razed)');
+    expect(r.out).toContain('G5 defend west FAIL (96 wipes, 0 razed, mean 0 s of 120, 96 never razed)');
+    expect(r.out).toContain('G4 holds west 96 / east 0 of 96 UNBALANCED');
+    // The 96x96 limit: 150 s is over 120 on milh_flats (48) and under 240 on milh_flats_l (96).
+    const slow: ModePlayFn = () => ({ winner: 0, by: 'objective', ticks: 100 + 150 * 20, wipeTick: 100, contested: false });
+    expect(quiet(() => modeMain(['--mode=camp', '--maps=milh_flats', '--seeds=2', '--no-self-check', '--passive=off', '--defend=off'], slow)).out).toContain('G5 active FAIL');
+    expect(quiet(() => modeMain(['--mode=camp', '--maps=milh_flats_l', '--camps=rules', '--camp-wipe=after_camp', '--seeds=2', '--no-self-check', '--passive=off', '--defend=off'], slow)).out).toContain('G5 active ok (2 wipes, 2 razed, mean 150 s of 240');
+    const ends = quiet(() => modeMain(['--mode=camp', '--maps=milh_flats', '--camp-wipe=ends', '--seeds=2', '--no-self-check', '--passive=off', '--defend=off'], wiper));
+    expect(ends.out).toContain('G5 active n/a (wipe ends)');
+    expect(() => modeMain(['--mode=camp', '--camp-wipe=maybe'], fake)).toThrow(/--camp-wipe/);
+    expect(() => modeMain(['--mode=camp', '--camps=elsewhere'], fake)).toThrow(/--camps/);
+    expect(() => modeMain(['--mode=points', '--camp-wipe=ends'], fake)).toThrow(/need --mode=camp/);
   });
 
   it('flags a passive end that did not lose', () => {

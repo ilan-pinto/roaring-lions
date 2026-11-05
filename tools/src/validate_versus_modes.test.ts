@@ -276,6 +276,39 @@ describe('versusModeFailures, one mutation at a time', () => {
     expect(only(derived).some((f) => /not point mirrors/.test(f))).toBe(true);
   });
 
+  it('GH-976: the two camp footprints are point mirrors on a point-symmetric map, beside the exits', () => {
+    const wide = wt(); // a 3x2 hostile camp whose exit (41,41) is still a ring tile and still the mirror of (6,6): only the footprint is off
+    camps(wide).hostile.size = [3, 2];
+    const fails = only(wide).filter((f) => /footprints/.test(f));
+    expect(fails.length).toBe(1);
+    expect(only(wide).some((f) => /camp exits .* not point mirrors/.test(f))).toBe(false);
+    const lopsided = wt(); // a 3x2 FRIENDLY camp: its corner sums with the hostile's still reach the far edge, only the sizes differ
+    camps(lopsided).friendly = { at: [7, 7], size: [3, 2], exit: [6, 6] };
+    expect(only(lopsided).filter((f) => /footprints/.test(f)).length).toBe(1);
+    const shifted = wt(); // a camp one tile nearer its end, with an exit that still mirrors the other: the exits alone pass this
+    camps(shifted).friendly = { at: [6, 7], size: [2, 2], exit: [6, 6] };
+    expect(only(shifted).some((f) => /footprints/.test(f))).toBe(true);
+    expect(only(shifted).some((f) => /camp exits .* not point mirrors/.test(f))).toBe(false);
+    for (const s of shipped.filter((x) => x.doc.camps !== undefined && SYMMETRIC_MAPS.includes(x.doc.map))) {
+      expect(versusModeFailures([clone(s)], mapsById).filter((f) => /footprints/.test(f)), s.file).toEqual([]);
+    }
+  });
+
+  it('GH-976: camp `wipe` is ends or after_camp in the schema and the validator; milh_flats ships after_camp, wadi_tarfan the default', () => {
+    for (const wipe of ['ends', 'after_camp']) {
+      const d = wt();
+      d.modes.camp = { wipe };
+      expect(validate(d), wipe).toBe(true);
+      expect(only(d), wipe).toEqual([]);
+    }
+    const bad = wt();
+    bad.modes.camp = { wipe: 'never' };
+    expect(validate(bad)).toBe(false);
+    expect(only(bad).some((f) => /is not ends or after_camp/.test(f))).toBe(true);
+    expect(shipped.find((s) => s.doc.map === 'milh_flats')!.doc.modes.camp).toEqual({ wipe: 'after_camp' });
+    expect(shipped.find((s) => s.doc.map === 'wadi_tarfan')!.doc.modes.camp).toEqual({});
+  });
+
   it('a points zone the map does not have, listed twice, or holding a seat\'s anchor', () => {
     const ghost = wt();
     ghost.modes.points!.zones.push({ zone: 'nowhere', per_min: 10 });
