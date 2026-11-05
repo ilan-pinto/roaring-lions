@@ -273,13 +273,20 @@ export function externalPlayersStopped(): boolean {
   return stopLatch;
 }
 
+/** How long a signal's cleanup waits for a deaf child before SIGKILL: 2 s, or `LIONS_ARENA_KILL_MS` (a spec that must hold
+ * the cleanup open until its second signal sets it high, so the escape hatch is not a race against the wall clock). */
+function abortKillMs(): number {
+  const n = Number(process.env.LIONS_ARENA_KILL_MS);
+  return Number.isFinite(n) && n > 0 ? n : 2000;
+}
+
 /**
  * Every live external seat ended NOW, for a signal (the arena's handler):
  * each child SIGTERM, then SIGKILL after `killMs`, each temp directory and its
  * ticket removed. Idempotent: a second call, or the seat's own `finally`
  * afterwards, finds nothing left to do. Never throws.
  */
-export async function abortExternalPlayers(killMs = 2000): Promise<void> {
+export async function abortExternalPlayers(killMs = abortKillMs()): Promise<void> {
   stopLatch = true;
   const seats = [...liveSeats];
   liveSeats.clear();

@@ -39,7 +39,7 @@ async function until(what: string, ok: () => boolean, ms: number): Promise<void>
 }
 
 /** The arena on one sleeping external player, its temp root, and the sleeper's pid file. */
-function startArena(o: { stubborn?: boolean } = {}): { arena: ChildProcess; tmpRoot: string; pidFile: string; stderr: string[]; exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }> } {
+function startArena(o: { stubborn?: boolean; killMs?: number } = {}): { arena: ChildProcess; tmpRoot: string; pidFile: string; stderr: string[]; exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }> } {
   const base = mkdtempSync(join(tmpdir(), 'arena-signal-test-'));
   cleanups.push(() => { rmSync(base, { recursive: true, force: true }); });
   const tmpRoot = join(base, 'tmp');
@@ -59,7 +59,7 @@ function startArena(o: { stubborn?: boolean } = {}): { arena: ChildProcess; tmpR
   });
   const arena = spawn(TSX, [ARENA, '--a', `cmd:${process.execPath} ${sleeper} ${pidFile}`, '--b', 'passive', '--seeds', '1', '--map', 'tel_marum', '--tick-ms', '2', '--out', out], {
     cwd: join(root, 'tools'),
-    env: { ...process.env, LIONS_ARENA_TMPDIR: tmpRoot, INIT_CWD: base },
+    env: { ...process.env, LIONS_ARENA_TMPDIR: tmpRoot, INIT_CWD: base, ...(o.killMs === undefined ? {} : { LIONS_ARENA_KILL_MS: String(o.killMs) }) },
     stdio: ['ignore', 'pipe', 'pipe'],
     // Its own process group: the failure path below kills exactly that group.
     detached: true,
@@ -89,7 +89,7 @@ describe('pnpm arena under a signal', () => {
     it(`${signal}: the players stop, every temp directory and its ticket go, and the arena exits ${code}`, async () => {
       const { arena, tmpRoot, pidFile, stderr, exit } = startArena();
       // The seat's temp directory stands, with its ticket, and the sleeper runs.
-      await until('the external player\'s temp directory', () => readdirSync(tmpRoot).some((d) => d.startsWith('lions-arena-')), 60_000);
+      await until('the external player\'s temp directory', () => readdirSync(tmpRoot).some((d) => d.startsWith('lions-arena-')), 120_000);
       const dir = join(tmpRoot, readdirSync(tmpRoot).find((d) => d.startsWith('lions-arena-')) ?? '');
       await until('the ticket', () => existsSync(join(dir, 'ticket')), 10_000);
       expect(statSync(dir).mode & 0o777).toBe(0o700);
@@ -103,12 +103,12 @@ describe('pnpm arena under a signal', () => {
       expect(ended?.code, stderr.join('')).toBe(code);
       expect(readdirSync(tmpRoot)).toEqual([]);
       await until('the sleeper to go', () => !alive(sleeperPid), 5000);
-    }, 90_000);
+    }, 180_000);
   }
 
   it('a child deaf to SIGTERM is SIGKILLed: exit 130, nothing left', async () => {
     const { arena, tmpRoot, pidFile, stderr, exit } = startArena({ stubborn: true });
-    await until('the external player\'s temp directory', () => readdirSync(tmpRoot).some((d) => d.startsWith('lions-arena-')), 60_000);
+    await until('the external player\'s temp directory', () => readdirSync(tmpRoot).some((d) => d.startsWith('lions-arena-')), 120_000);
     await until('the sleeper\'s pid', () => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', 10_000);
     const sleeperPid = Number(readFileSync(pidFile, 'utf8'));
     arena.kill('SIGINT');
@@ -116,24 +116,26 @@ describe('pnpm arena under a signal', () => {
     expect(ended?.code, stderr.join('')).toBe(130);
     expect(readdirSync(tmpRoot)).toEqual([]);
     await until('the sleeper to go', () => !alive(sleeperPid), 5000);
-  }, 90_000);
+  }, 180_000);
 
   it('a second SIGINT during the cleanup exits at once, 130, the cleanup unfinished (the escape hatch)', async () => {
-    const { arena, tmpRoot, pidFile, stderr, exit } = startArena({ stubborn: true });
-    await until('the external player\'s temp directory', () => readdirSync(tmpRoot).some((d) => d.startsWith('lions-arena-')), 60_000);
-    await until('the sleeper\'s pid', () => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', 10_000);
+    // The cleanup is held open for a minute (the deaf child's SIGKILL escalation, stretched): nothing but the second
+    // signal can end it, so no assertion here races the wall clock, however long this process or the arena is
+    // descheduled. "At once" is read from the state the exit leaves: the deaf child is still alive, so the cleanup
+    // did not run to its end.
+    const { arena, tmpRoot, pidFile, stderr, exit } = startArena({ stubborn: true, killMs: 60_000 });
+    await until('the external player\'s temp directory', () => readdirSync(tmpRoot).some((d) => d.startsWith('lions-arena-')), 120_000);
+    await until('the sleeper\'s pid', () => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', 30_000);
+    const sleeperPid = Number(readFileSync(pidFile, 'utf8'));
     arena.kill('SIGINT');
-    await until('the cleanup to start', () => stderr.join('').includes('arena: SIGINT: stopping'), 10_000);
-    // The cleanup is waiting out the stubborn child's SIGKILL escalation (2 s) now.
-    await sleep(300);
+    await until('the cleanup to start', () => stderr.join('').includes('arena: SIGINT: stopping'), 30_000);
+    // The first cleanup is waiting on a child that ignores SIGTERM; it cannot have ended itself.
     expect(arena.exitCode).toBeNull();
-    const second = Date.now();
     arena.kill('SIGINT');
     const ended = await Promise.race([exit, sleep(30_000).then(() => null)]);
-    // Well inside the 1.7 s of escalation the first cleanup still had to wait.
-    expect(Date.now() - second, stderr.join('')).toBeLessThan(800);
     expect(ended?.code, stderr.join('')).toBe(130);
+    expect(alive(sleeperPid), 'the cleanup was cut short: the deaf child is still running').toBe(true);
     expect(stderr.join('').split('arena: SIGINT: stopping').length - 1).toBe(1);
     expect(stderr.join('')).toContain('arena: second SIGINT: exiting now, cleanup unfinished');
-  }, 90_000);
+  }, 180_000);
 });
