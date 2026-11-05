@@ -72,6 +72,32 @@ export function anchorsOf(map) {
   return f && h ? { friendly: f, hostile: h } : null;
 }
 
+/** The sim's exitTile as tile indices: the first open tile of the footprint box plus one, row-major. */
+export function scanExit(map, camp) {
+  const [ax, ay] = camp.at;
+  const [w, h] = camp.size;
+  for (let y = ay - 1; y <= ay + h; y++) {
+    for (let x = ax - 1; x <= ax + w; x++) {
+      if (x < 0 || y < 0 || x >= map.width || y >= map.height) continue;
+      if (x >= ax && x < ax + w && y >= ay && y < ay + h) continue;
+      if (OPEN_SYMBOLS.has(map.rows[y][x])) return [x, y];
+    }
+  }
+  return null;
+}
+
+/** 0 differing tiles under (x,y) -> (W-1-x,H-1-y), in rows and in elevation. */
+export function pointSymmetric(map) {
+  const H = map.rows.length;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < map.width; x++) {
+      if (map.rows[y][x] !== map.rows[H - 1 - y][map.width - 1 - x]) return false;
+      if (map.elevation && map.elevation[y][x] !== map.elevation[H - 1 - y][map.width - 1 - x]) return false;
+    }
+  }
+  return true;
+}
+
 /**
  * @param {{ file: string, doc: any }[]} rulesFiles every parsed data/versus file
  * @param {Map<string, any>} mapsById every parsed map JSON
@@ -124,6 +150,26 @@ export function versusRulesFailures(rulesFiles, mapsById) {
         );
       }
       camps.push({ end, tiles });
+      // GH-976: an authored exit (tile index) is an open ring tile of the footprint -- the set the sim's exitTile scans.
+      if (camp.exit !== undefined) {
+        const e = camp.exit;
+        const onRing = Array.isArray(e) && e.length === 2 && Number.isInteger(e[0]) && Number.isInteger(e[1])
+          && e[0] >= ax - 1 && e[0] <= ax + w && e[1] >= ay - 1 && e[1] <= ay + h
+          && !(e[0] >= ax && e[0] < ax + w && e[1] >= ay && e[1] < ay + h);
+        if (!onRing) out.push(`${file}: ${end} camp exit (${e}) is not a ring tile of its footprint`);
+        else if (e[0] < 0 || e[1] < 0 || e[0] >= map.width || e[1] >= map.height || !OPEN_SYMBOLS.has(map.rows[e[1]][e[0]])) {
+          out.push(`${file}: ${end} camp exit (${e}) is not open ground`);
+        }
+      }
+    }
+    // GH-976: on a point-symmetric map the two camps' exits (authored, else the sim's NW scan) are point mirrors.
+    if (camps.length === 2 && pointSymmetric(map)) {
+      const ex = (end) => doc.ends[end].camp.exit ?? scanExit(map, doc.ends[end].camp);
+      const a = ex('friendly');
+      const b = ex('hostile');
+      if (a && b && (a[0] + b[0] !== map.width - 1 || a[1] + b[1] !== map.height - 1)) {
+        out.push(`${file}: the camp exits (${a}) and (${b}) are not point mirrors on the point-symmetric map "${doc.map}": the end that faces the attack gets the shorter raid`);
+      }
     }
     if (camps.length === 2 && camps[0].tiles.some((t) => camps[1].tiles.includes(t))) {
       out.push(`${file}: the two camps overlap`);

@@ -52,7 +52,7 @@ const SOURCE_PATH = join(ROOT, 'data', 'maps', `${SOURCE_ID}.json`);
 export const MAP_PATH = join(ROOT, 'data', 'maps', `${ID}.json`);
 export const VERSUS_PATH = join(ROOT, 'data', 'versus', `${ID}.json`);
 
-const { mirrorRect } = halfTurnOf(SIZE);
+const { mirror, mirrorRect } = halfTurnOf(SIZE);
 
 /** The source map, as the generator reads it: symbols and levels by cell. */
 export function loadSketch() {
@@ -248,8 +248,9 @@ export function build() {
     capacity: 512,
     cap_minutes: 35,
     ends: {
-      friendly: { camp: { at: camp.slice(0, 2), size: [2, 2] } },
-      hostile: { camp: { at: mirrorRect(camp).slice(0, 2), size: [2, 2] } },
+      // GH-976: authored exits; the friendly one is the sim's NW scan, the hostile one its point mirror.
+      friendly: { camp: { at: camp.slice(0, 2), size: [2, 2], exit: [13, 74] } },
+      hostile: { camp: { at: mirrorRect(camp).slice(0, 2), size: [2, 2], exit: mirror([13, 74]) } },
     },
     income_zones: INCOME.map(([zone, rate]) => ({ zone, rate_per_min: rate })),
   };

@@ -13,6 +13,8 @@ export declare function anchorsOf(map: {
   id: string;
   markers?: Record<string, number[]>;
 }): { friendly: number[]; hostile: number[] } | null;
+export declare function scanExit(map: { width: number; height: number; rows: string[] }, camp: { at: number[]; size: number[] }): number[] | null;
+export declare function pointSymmetric(map: { width: number; rows: string[]; elevation?: string[] }): boolean;
 export declare function versusRulesFailures(
   rulesFiles: { file: string; doc: unknown }[],
   mapsById: Map<string, unknown>,

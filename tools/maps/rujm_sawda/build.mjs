@@ -450,8 +450,9 @@ export function build() {
     // GH-913 L8: a 35-minute match cap (design section 4); the Worker's command-log cap scales with it.
     cap_minutes: 35,
     ends: {
-      friendly: { camp: { at: [8, 8], size: [2, 2] } },
-      hostile: { camp: { at: mirrorRect([8, 8, 2, 2]).slice(0, 2), size: [2, 2] } },
+      // GH-976: authored exits; the friendly one is the sim's NW scan, the hostile one its point mirror.
+      friendly: { camp: { at: [8, 8], size: [2, 2], exit: [7, 7] } },
+      hostile: { camp: { at: mirrorRect([8, 8, 2, 2]).slice(0, 2), size: [2, 2], exit: mirror([7, 7]) } },
     },
     tunnels: {
       friendly: ROUTES_FRIENDLY.map((r) => ({ ...r })),

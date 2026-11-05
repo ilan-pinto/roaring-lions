@@ -257,6 +257,14 @@ function economyRuntime(
   };
   const runtime = new MissionRuntime(sim, mission as MissionJson, ctx);
   runtime.start();
+  // GH-976: an authored camp exit per END (the NW scan is not point-symmetric). Static setup data, out of hash().
+  for (const end of ['friendly', 'hostile'] as const) {
+    const camp = rules.ends[end].camp;
+    if (camp.exit === undefined) continue;
+    const st = sim.structureAt(camp.at[0], camp.at[1]);
+    if (st < 0) throw new Error(`versus rules "${mapId}": no structure stands at the ${end} camp`);
+    sim.setStructureExit(st, camp.exit[0], camp.exit[1]);
+  }
   return { runtime, structureTypes: [...new Set(mission.structures.map((st) => st.type))] };
 }
 
