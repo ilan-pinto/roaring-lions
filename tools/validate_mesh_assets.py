@@ -515,7 +515,7 @@ def load_mesh_masks(out_dir, palette_path):
 #      is really swapped in and not a stray file hiding behind an exemption;
 #   2. it is a twin: its silhouette still matches the full mesh's at or above LOD_TWIN_MIN_IOU, so
 #      an asset that drifted into a different shape cannot ride on the exemption.
-LOD_TWINS = {"wall_lod1": "wall"}
+LOD_TWINS = {"wall_lod1": "wall", "house_lod1": "house"}
 LOD_TWIN_MIN_IOU = 0.90
 MESH_CATALOGUE_TS = os.path.join(REPO, "packages", "app", "src", "mesh-catalogue.ts")
 
@@ -817,6 +817,20 @@ DECOR_ROLES = {"foliage", "trunk", "rock", "sand"}
 # or texture. The gate is not weakened for all of decor to admit one family.
 TEXTURED_DECOR_EXEMPT = {"ditch"}
 
+# GH-974: a textured decor family's LOD1 twin. It is the ONE kind of file in an exempt family that ships NO texture:
+# zero materials, zero images, zero textures, and a UV0 into its full mesh's bake (the renderer pairs it with
+# `<family>_0`'s map, `loadDecorMeshes`). The exemption is a table of named files, not a rule about "_lod1": a file
+# is let off the one-texture contract only while (1) the table names it, (2) its full mesh is on disk beside it,
+# (3) `mesh-catalogue.ts`'s DECOR_LOD1 wires it (a stray file does not hide behind the table), and (4) it still
+# declares `rl_textured`, the flag the runtime reads. Every other family's decor still fails on any texture.
+DECOR_LOD1_TWINS = {"ditch_lod1.glb": "ditch_0.glb"}
+
+
+def decor_lod1_wired(twin_name, catalogue_text):
+    """True when the catalogue's DECOR_LOD1 table names `decor/<twin_name>`."""
+    block = re.search(r"DECOR_LOD1[^=]*=\s*\{([^}]*)\}", catalogue_text)
+    return block is not None and ("'decor/%s'" % twin_name) in block.group(1)
+
 
 # The closed campaign-map node vocabulary. `region` is ground a campaign
 # region is played over and the runtime may tint; `scenery` is everything the
@@ -870,7 +884,7 @@ def _read_glb_json(path):
     raise ValueError(f"{path}: no JSON chunk found -- not a valid glb")
 
 
-def check_decor_meshes(decor_root):
+def check_decor_meshes(decor_root, twins=None, catalogue_text=None):
     """Every `art/meshes/decor/*.glb` carries zero materials/images/textures
     and every mesh-bearing node's `extras.rl_role` is inside the closed decor
     set -- checked directly against the raw GLB bytes, never rendered (see
@@ -891,6 +905,10 @@ def check_decor_meshes(decor_root):
     """
     failures = []
     textured_names = []
+    twins = DECOR_LOD1_TWINS if twins is None else twins
+    if catalogue_text is None:
+        with open(MESH_CATALOGUE_TS, encoding="utf-8") as fh:
+            catalogue_text = fh.read()
     for path in sorted(glob.glob(os.path.join(decor_root, "*.glb"))):
         name = os.path.basename(path)
         family = decor_family_of(name)
@@ -899,7 +917,16 @@ def check_decor_meshes(decor_root):
         n_mat = len(glb_json.get("materials", []))
         n_img = len(glb_json.get("images", []))
         n_tex = len(glb_json.get("textures", []))
-        if exempt:
+        if exempt and name in twins:
+            if (n_mat, n_img, n_tex) != (0, 0, 0):
+                failures.append(f"{name}: a LOD1 twin ships zero materials/images/textures (it is drawn with {twins[name]}'s bake), "
+                                f"but carries {n_mat}/{n_img}/{n_tex}")
+            if not os.path.exists(os.path.join(decor_root, twins[name])):
+                failures.append(f"{name}: its full mesh {twins[name]} is not beside it -- a twin of nothing")
+            if not decor_lod1_wired(name, catalogue_text):
+                failures.append(f"{name}: named in DECOR_LOD1_TWINS but mesh-catalogue.ts's DECOR_LOD1 does not wire it -- "
+                                f"an unwired twin has no excuse to ship without a texture")
+        elif exempt:
             if (n_mat, n_img, n_tex) != (1, 1, 1):
                 failures.append(
                     f"{name}: family {family!r} is in TEXTURED_DECOR_EXEMPT and must ship "

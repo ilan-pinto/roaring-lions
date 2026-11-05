@@ -42,6 +42,7 @@ OUT_BLEND = os.path.join(REPO, "art", "src", "decor", "ditch_lod1.blend")
 HALF_X = 1.5
 HALF_Y = 0.635
 STEP_X = 0.1
+END_INSET = 0.05
 PROFILE_TOL = 0.004
 MAX_DY = 0.07
 TRI_CEILING = 2500
@@ -96,6 +97,29 @@ def first(vals):
     return out
 
 
+def cap_colours(parts):
+    """Tile-end caps take the colour of the top face beside them (same y cell, first strip in), not their own ray hits:
+    a cap's own projection lands on the cut's dark soil and drew a dark line at every joint of a chained run."""
+    me = parts[0].data
+    uvl = me.uv_layers.active.data
+    tops = []
+    for poly in me.polygons:
+        c = poly.center
+        if poly.normal.z > 0.5:
+            tops.append((c, poly))
+    fixed = 0
+    for poly in me.polygons:
+        c = poly.center
+        if abs(abs(c.x) - HALF_X) < 1e-4 and abs(poly.normal.x) > 0.99:
+            best = min((t for t in tops if abs(abs(t[0].x) - (HALF_X - STEP_X / 2)) < 1e-3 and t[0].x * c.x > 0),
+                       key=lambda t: abs(t[0].y - c.y))
+            uv = uvl[best[1].loop_indices[0]].uv
+            for li in poly.loop_indices:
+                uvl[li].uv = (uv[0], uv[1])
+            fixed += 1
+    print(f"[ditch_lod1] {fixed} end-cap faces recoloured from their neighbouring top faces")
+
+
 def main():
     sampler, tree, pts, full_tris, _ = C.import_full(SRC_FULL)
     # the x-averaged cross-section, every 5 mm
@@ -118,7 +142,7 @@ def main():
 
     def zt(x, y):
         # clamp into the mesh by a hair so the rays at the very border still hit it
-        xc = max(-HALF_X + 5e-4, min(HALF_X - 5e-4, x))
+        xc = max(-HALF_X + END_INSET, min(HALF_X - END_INSET, x))   # the very end of the mesh is ragged: read 5 cm in (the -x end rolls off inside the last 2 cm)
         yc = max(-HALF_Y + 5e-4, min(HALF_Y - 5e-4, y))
         return top(tree, xc, yc)
 
@@ -146,7 +170,7 @@ def main():
     if total > TRI_CEILING:
         raise SystemExit(f"ditch_lod1: {total} triangles over the ceiling {TRI_CEILING}")
     objs = C.build_and_export(Q, sampler, OUT_BLEND, OUT_GLB, CREDIT, smooth_roles=(R,),
-                              node_props={R: {"rl_textured": True}})
+                              node_props={R: {"rl_textured": True}}, post_uv=cap_colours)
     pts2 = [o.matrix_world @ v.co for o in objs for v in o.data.vertices]
     lo, hi = C.bounds(pts2)
     flo, fhi = C.bounds(pts)

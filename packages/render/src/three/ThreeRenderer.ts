@@ -361,8 +361,12 @@ import {
 import {
   buildTexturedDecorMesh,
   disposeTexturedDecorMesh,
+  LOD1_VARIANT,
+  stepTexturedDecorLod,
+  type TexturedDecorPart,
   type TexturedDecorSet,
 } from './terrain/decor-textured-mesh';
+import { lod1Shown, pairLod1Materials } from './units/building-lod';
 import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
@@ -594,7 +598,7 @@ import {
   type BuildingMeshTemplate,
 } from './units/mesh-building';
 import { wallSurfaceForBuilding } from './units/building-mesh-role';
-import { StructureInstances, instanceableTemplate } from './units/structure-instances';
+import { StructureInstances, instanceableTemplate, lod1Active } from './units/structure-instances';
 import {
   applyBuildingDamageBand,
   buildingDamageBand,
@@ -1426,6 +1430,16 @@ export class ThreeRenderer implements Renderer {
   /** The current textured-decor batch, rebuilt wholesale by `rebuildTerrain`
    *  alongside `decorGroup`. */
   private texturedDecorGroup: THREE.Group | null = null;
+  /** GH-974: is the ditch's LOD1 twin the art drawn (`stepTexturedDecorLod`, with the wall's band and hysteresis)? */
+  private ditchLodOn = false;
+  /** GH-974: the A/B switch of every LOD1 twin (`debugStructureLod1`): off, full art at every zoom. */
+  private lod1Enabled = true;
+  /** GH-974: a clone-drawn building's twin (the house): per type the template, per structure the clone. */
+  private readonly buildingMeshLod1Templates = new Map<string, { root: THREE.Object3D; geometries: THREE.BufferGeometry[] }>();
+  private readonly buildingMeshLod1Entities = new Map<number, THREE.Object3D>();
+  private buildingLodOn = false;
+  /** The `buildings` debug layer is hidden: the per-frame twin swap must not turn anything back on. */
+  private buildingLayerHidden = false;
   /** Ground plan 2, Task 5: every prop GLB's role-tagged geometry, keyed by
    *  kind, colour already baked per vertex (`loadPropMeshes`). Empty until
    *  that load lands, which `buildPropMesh` treats as "no props", so Pixi,
@@ -3971,6 +3985,10 @@ export class ThreeRenderer implements Renderer {
     // each template's shared geometry/material released exactly once.
     for (const root of this.buildingMeshIdleEntities.values()) this.scene.remove(root);
     this.buildingMeshIdleEntities.clear();
+    for (const root of this.buildingMeshLod1Entities.values()) this.scene.remove(root);
+    this.buildingMeshLod1Entities.clear();
+    for (const t of this.buildingMeshLod1Templates.values()) for (const g of t.geometries) g.dispose();
+    this.buildingMeshLod1Templates.clear();
     // The instanced sets share the templates' geometry, so they go before the
     // templates do; the sets own only their instance attributes.
     this.structureInstances.dispose();
@@ -4470,11 +4488,13 @@ export class ThreeRenderer implements Renderer {
         return changed;
       }
       case 'buildings':
+        this.buildingLayerHidden = !visible;
         return (
           setObjectsVisible(
             visible,
             ...this.structureBoxes.values(),
             ...this.buildingMeshIdleEntities.values(),
+            ...this.buildingMeshLod1Entities.values(),
             ...this.buildingMeshWreckEntities.values()
           ) + this.structureInstances.setHidden(!visible)
         );
@@ -8483,6 +8503,23 @@ export class ThreeRenderer implements Renderer {
         console.error(`loadBuildingMesh: ${structureId} LOD1 twin ${lod1Url} failed to load; drawing full art at every zoom`, e);
       }
     }
+    // The clone-drawn types (the house) keep their twin as a template of their own; paired with the standing
+    // template's materials by `rl_role`, so nothing here owns a material or a texture.
+    let cloneLod1: { root: THREE.Object3D; geometries: THREE.BufferGeometry[] } | null = null;
+    if (lod1Url && !structureType.perTile && !constructionUrl) {
+      try {
+        const twin = await loadBuildingMeshTemplate(lod1Url, wallColorKey, wallSurface, false, false, wallTreatmentOf(structureType));
+        if (pairLod1Materials(twin.root, idleTemplate.root)) {
+          for (const m of twin.materials) m.dispose();
+          cloneLod1 = { root: twin.root, geometries: [...twin.geometries] };
+        } else {
+          console.error(`loadBuildingMesh: ${structureId} LOD1 twin ${lod1Url} does not pair with its standing mesh by rl_role; drawing full art at every zoom`);
+          disposeBuildingMeshTemplate(twin);
+        }
+      } catch (e) {
+        console.error(`loadBuildingMesh: ${structureId} LOD1 twin ${lod1Url} failed to load; drawing full art at every zoom`, e);
+      }
+    }
     const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
     if (previousIdle) {
       // `buildingMeshIdleEntities` is keyed by STRUCTURE INDEX, not type --
@@ -8498,7 +8535,13 @@ export class ThreeRenderer implements Renderer {
         if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
         this.scene.remove(root);
         this.buildingMeshIdleEntities.delete(s);
+        this.removeLod1Entity(s);
         this.buildingDamageBand.delete(s);
+      }
+      const staleLod = this.buildingMeshLod1Templates.get(structureId);
+      if (staleLod) {
+        for (const g of staleLod.geometries) g.dispose();
+        this.buildingMeshLod1Templates.delete(structureId);
       }
       // The instanced tiles of this type, and the band they were last drawn at.
       this.structureInstances.dropIdle(structureId);
@@ -8511,6 +8554,7 @@ export class ThreeRenderer implements Renderer {
       disposeBuildingMeshTemplate(previousIdle);
     }
     this.buildingMeshIdleTemplates.set(structureId, idleTemplate);
+    if (cloneLod1) this.buildingMeshLod1Templates.set(structureId, cloneLod1);
     // GH-974: a per-tile type with no construction mesh draws instanced, if its
     // template can (every mesh at the root's own frame). The tiles are stood up
     // by the next `updateBuildingMeshes`.
@@ -8721,7 +8765,7 @@ export class ThreeRenderer implements Renderer {
    */
   async loadDecorMeshes(urls: ReadonlyMap<string, string>): Promise<void> {
     const parts = new Map<string, { role: DecorMeshRole; geometry: THREE.BufferGeometry }[]>();
-    const textured = new Map<string, { geometry: THREE.BufferGeometry; map: THREE.Texture }>();
+    const textured = new Map<string, { geometry: THREE.BufferGeometry; map: THREE.Texture | null }>();
     await Promise.all(
       [...urls].map(async ([id, url]) => {
         const gltf = await gltfLoader().loadAsync(url);
@@ -8750,6 +8794,13 @@ export class ThreeRenderer implements Renderer {
               );
             }
             const src = (mesh.material as THREE.MeshStandardMaterial | undefined)?.map;
+            if (!src && id.endsWith(`_${LOD1_VARIANT}`)) {
+              // GH-974: the LOD1 twin ships zero materials and a UV0 into `<family>_0`'s bake; it is paired with
+              // that map below, once every part of this load has arrived.
+              mesh.updateWorldMatrix(true, false);
+              textured.set(id, { geometry: mesh.geometry.clone().applyMatrix4(mesh.matrixWorld), map: null });
+              return;
+            }
             if (!src) {
               throw new Error(
                 `loadDecorMeshes: "${id}" declares rl_textured but carries no base_color map`
@@ -8789,10 +8840,25 @@ export class ThreeRenderer implements Renderer {
         if (list.length > 0) parts.set(id, list);
       })
     );
+    // GH-974: pair each LOD1 twin with the map of its family's variant 0. A twin whose full part did not arrive
+    // is dropped (the family then draws its full art at every zoom), never drawn with no texture.
+    const pairedTextured = new Map<string, TexturedDecorPart>();
+    for (const [id, part] of textured) {
+      if (part.map !== null) {
+        pairedTextured.set(id, { geometry: part.geometry, map: part.map });
+        continue;
+      }
+      const full = textured.get(`${id.slice(0, -(LOD1_VARIANT.length + 1))}_0`);
+      if (full?.map) pairedTextured.set(id, { geometry: part.geometry, map: full.map });
+      else {
+        console.error(`loadDecorMeshes: ${id} has no full part to take its map from; drawing the full art at every zoom`);
+        part.geometry.dispose();
+      }
+    }
     this.disposeDecorGeometrySet(this.decorSet);
     this.disposeTexturedDecorSet(this.texturedDecorSet);
     this.decorSet = { parts };
-    this.texturedDecorSet = { parts: textured };
+    this.texturedDecorSet = { parts: pairedTextured };
     this.terrainDirty = true;
   }
 
@@ -10392,6 +10458,7 @@ export class ThreeRenderer implements Renderer {
    * consults every frame, so it holds. `instancing-ab.ts --toggle=lod1` times it.
    */
   debugStructureLod1(enabled: boolean): void {
+    this.lod1Enabled = enabled;
     this.structureInstances.setLod1Enabled(enabled);
   }
 
@@ -10451,6 +10518,7 @@ export class ThreeRenderer implements Renderer {
     for (const e of this.meshUnitEntities.values()) tag(e.root, 'units: infantry');
     for (const e of this.vehicleMeshEntities.values()) tag(e.root, 'units: vehicles');
     for (const r of this.buildingMeshIdleEntities.values()) tag(r, 'buildings');
+    for (const r of this.buildingMeshLod1Entities.values()) tag(r, 'buildings');
     for (const r of this.buildingMeshWreckEntities.values()) tag(r, 'buildings');
     for (const r of this.structureInstances.meshes()) tag(r, 'buildings');
     for (const w of this.meshWrecks) tag(w.root, 'wrecks');
@@ -10692,7 +10760,10 @@ export class ThreeRenderer implements Renderer {
   }
 
   private updateBuildingMeshes(): void {
-    if (this.buildingMeshIdleTemplates.size === 0) return;
+    if (this.buildingMeshIdleTemplates.size === 0) {
+      this.stepLod1(this.camera.zoom); // the ditch's twin needs no building template
+      return;
+    }
     const st = this.sim.structures;
     const elevation = this.retained.elevation;
 
@@ -10750,6 +10821,17 @@ export class ThreeRenderer implements Renderer {
           this.buildingMeshIdleEntities.set(s, root);
           // A standing building never moves: placed once, frozen once.
           this.scene.add(freezeStatic(root));
+          // GH-974: the twin, the same placement, hidden until `stepLod1` shows it below the zoom band.
+          const lodTemplate = this.buildingMeshLod1Templates.get(type.id);
+          if (lodTemplate) {
+            const twin = lodTemplate.root.clone(true);
+            twin.position.copy(root.position);
+            twin.quaternion.copy(root.quaternion);
+            twin.scale.copy(root.scale);
+            twin.visible = false;
+            this.buildingMeshLod1Entities.set(s, twin);
+            this.scene.add(freezeStatic(twin));
+          }
           // A clone stood up already damaged (a type whose mesh landed after
           // the first hit) draws its band from the first frame, not from
           // the next `structureHit`.
@@ -10803,6 +10885,7 @@ export class ThreeRenderer implements Renderer {
         if (idleEntity) {
           this.scene.remove(idleEntity);
           this.buildingMeshIdleEntities.delete(s);
+          this.removeLod1Entity(s);
         }
         this.buildingDamageBand.delete(s);
         // The hand-off: a building that died BURNING keeps its fire on the
@@ -10848,6 +10931,33 @@ export class ThreeRenderer implements Renderer {
     // GH-974: the frame's zoom decides full art or LOD1 twin for every instanced per-tile set.
     this.structureInstances.setZoom(this.camera.zoom);
     this.structureInstances.flush();
+    this.stepLod1(this.camera.zoom);
+  }
+
+  /** Removes the LOD1 clone of structure `s`, if it has one (its geometry belongs to the template). */
+  private removeLod1Entity(s: number): void {
+    const twin = this.buildingMeshLod1Entities.get(s);
+    if (twin === undefined) return;
+    this.scene.remove(twin);
+    this.buildingMeshLod1Entities.delete(s);
+  }
+
+  /**
+   * GH-974: this frame's zoom decides full art or LOD1 twin for the clone-drawn buildings and the ditch. One band and
+   * one hysteresis for all of them (`lod1Active`, the wall's). A clone keeps its full art while scarred.
+   */
+  private stepLod1(zoom: number): void {
+    this.buildingLodOn = this.lod1Enabled && lod1Active(zoom, this.buildingLodOn);
+    for (const [s, twin] of this.buildingMeshLod1Entities) {
+      const full = this.buildingMeshIdleEntities.get(s);
+      if (full === undefined) continue;
+      const showTwin = !this.buildingLayerHidden && lod1Shown(this.buildingLodOn, this.buildingDamageBand.get(s));
+      twin.visible = showTwin;
+      full.visible = !this.buildingLayerHidden && !showTwin;
+    }
+    if (this.texturedDecorGroup !== null) {
+      this.ditchLodOn = stepTexturedDecorLod(this.texturedDecorGroup, zoom, this.ditchLodOn, this.lod1Enabled);
+    }
   }
 
   /**

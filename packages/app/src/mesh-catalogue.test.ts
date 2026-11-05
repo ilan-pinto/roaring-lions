@@ -48,6 +48,7 @@ import {
   VEHICLE_UNIT_MESHES,
   BUILDING_MESHES,
   DECOR_MESHES,
+  DECOR_LOD1,
   type DecorFamilyName,
   VFX_MESHES,
   PROP_MESHES,
@@ -166,11 +167,28 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     });
     expect('wall_lod1' in BUILDING_MESHES).toBe(false);
     expect(claimedMeshFiles().has('buildings/wall_lod1.glb')).toBe(true);
-    // The only twin today: a second one is a deliberate act with its own source and its own gate exemption.
-    expect(Object.entries(BUILDING_MESHES).filter(([, b]) => b.lod1 !== undefined).map(([id]) => id)).toEqual(['wall']);
+    // The twins today: another is a deliberate act with its own source and its own gate exemption (LOD_TWINS).
+    expect(Object.entries(BUILDING_MESHES).filter(([, b]) => b.lod1 !== undefined).map(([id]) => id).sort()).toEqual(['house', 'wall']);
+    expect(BUILDING_MESHES.house.lod1).toBe('buildings/house_lod1.glb');
+    expect('house_lod1' in BUILDING_MESHES).toBe(false);
+    expect(claimedMeshFiles().has('buildings/house_lod1.glb')).toBe(true);
+    const houseManifest = meshManifestFor(meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set(), ['house']));
+    expect(houseManifest.buildings.find((b) => b.id === 'house')?.lod1).toBe(meshUrl('buildings/house_lod1.glb'));
     // It reaches the loader, under the SHIPPED root.
     const manifest = meshManifestFor(meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set(), ['wall']));
     expect(manifest.buildings.find((b) => b.id === 'wall')?.lod1).toBe(meshUrl('buildings/wall_lod1.glb'));
+  });
+
+  it('wires the ditch\'s LOD1 twin as `ditch_lod1`, a key of its own and never a variant of the family (GH-974)', () => {
+    expect(DECOR_LOD1).toEqual({ ditch: 'decor/ditch_lod1.glb' });
+    expect(DECOR_MESHES.ditch).toEqual(['decor/ditch_0.glb']); // the placements still name variant 0 only
+    expect(claimedMeshFiles().has('decor/ditch_lod1.glb')).toBe(true);
+    const manifest = meshManifestFor({ ...meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set(), []), decor: new Set(['ditch']) } as ReturnType<typeof meshPlanFor>);
+    expect([...manifest.decor.keys()].sort()).toEqual(['ditch_0', 'ditch_lod1']);
+    expect(manifest.decor.get('ditch_lod1')).toBe(meshUrl('decor/ditch_lod1.glb'));
+    // a family with no twin gets no such key
+    const grass = meshManifestFor({ ...meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set(), []), decor: new Set(['grass']) } as ReturnType<typeof meshPlanFor>);
+    expect([...grass.decor.keys()].some((k) => k.endsWith('_lod1'))).toBe(false);
   });
 
   it('keys every building-mesh entry by a real structure type id', () => {
@@ -609,7 +627,7 @@ describe('meshManifestFor', () => {
     });
     expect(m.rigged).toEqual([{ id: 'civilians', urls: RIGGED_UNIT_MESHES.civilians.files.map(meshUrl), faction: 'civilian' }]);
     expect(m.vehicles).toEqual([{ id: 'mbt_lavi', url: meshUrl('vehicles/mbt_lavi.glb') }]);
-    expect(m.buildings).toEqual([{ id: 'house', url: meshUrl('buildings/house.glb') }]);
+    expect(m.buildings).toEqual([{ id: 'house', url: meshUrl('buildings/house.glb'), lod1: meshUrl('buildings/house_lod1.glb') }]);
     expect([...m.decor.entries()]).toEqual([
       ['rock_0', meshUrl('decor/rock_0.glb')],
       ['rock_1', meshUrl('decor/rock_1.glb')],

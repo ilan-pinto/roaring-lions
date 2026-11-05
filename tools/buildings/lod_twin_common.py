@@ -144,7 +144,7 @@ def smooth_normals(ob, angle_deg=35.0):
     me.normals_split_custom_set(out)
 
 
-def build_and_export(quads, sampler, out_blend, out_glb, credit, smooth_roles=(), node_props=None):
+def build_and_export(quads, sampler, out_blend, out_glb, credit, smooth_roles=(), node_props=None, post_uv=None):
     """Fresh scene, one object per role (named and tagged for the role), UVs, .blend, .glb. Returns the objects."""
     kit.new_scene()
     parts = []
@@ -168,6 +168,8 @@ def build_and_export(quads, sampler, out_blend, out_glb, credit, smooth_roles=()
         ob.data.materials.clear()
         parts.append(ob)
     project_uvs(parts, sampler)
+    if post_uv:
+        post_uv(parts)
     for ob in parts:
         if ob.name in smooth_roles:
             smooth_normals(ob)

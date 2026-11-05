@@ -43,8 +43,9 @@ SRC_FULL = os.path.join(REPO, "art", "meshes", "buildings", "house.glb")
 OUT_GLB = os.path.join(REPO, "art", "meshes", "buildings", "house_lod1.glb")
 OUT_BLEND = os.path.join(REPO, "art", "src", "buildings", "house_lod1.blend")
 
-CELL = 0.9
-TRI_CEILING = 3500
+CELL = 0.6          # the stone is ~0.3 m: a 0.9 m cell lost the coursing and read as plaster from zoom 1.6
+HIDDEN_CELL = 1.0   # the north and west faces never face the camera; coarse ALONG the run, the same CELL up the edge
+TRI_CEILING = 4000
 CREDIT = ("House LOD1 (GH-974) -- built in Blender from code (tools/buildings/author_house_lod1.py), "
           "derived from art/meshes/buildings/house.glb, project original")
 
@@ -94,7 +95,8 @@ def point(axis, plane, a, b):
 def face(Q, solids, own, role, axis, sign, plane, ra, rb, extras_a=(), extras_b=(), holes=(), cell=CELL):
     """A grid of quads on the plane `axis`=plane facing `sign`, spanning ra x rb. A cell is dropped when it lies inside
     another solid or inside a hole. Returns the (a-lines, b-lines) used so a reveal can share its edge vertices."""
-    la, lb = lines(ra[0], ra[1], cell, extras_a), lines(rb[0], rb[1], cell, extras_b)
+    ca_, cb_ = cell if isinstance(cell, tuple) else (cell, cell)
+    la, lb = lines(ra[0], ra[1], ca_, extras_a), lines(rb[0], rb[1], cb_, extras_b)
     nrm = {"x": (sign, 0, 0), "y": (0, sign, 0), "z": (0, 0, sign)}[axis]
     for i in range(len(la) - 1):
         for j in range(len(lb) - 1):
@@ -127,7 +129,9 @@ def box(Q, solids, bx, role_side, role_top, extra=None, cell=CELL):
     for k, (axis, sign, plane, ra, rb) in spec.items():
         ea, eb, holes = extra.get(k, ((), (), ()))
         role = role_top if k == "z+" else role_side
-        out[k] = face(Q, solids, bx, role, axis, sign, plane, ra, rb, ea, eb, holes, cell)
+        c = (HIDDEN_CELL, cell) if (k in ("x-", "y+") and cell == CELL and axis == "x") else \
+            (HIDDEN_CELL, cell) if (k in ("x-", "y+") and cell == CELL) else cell
+        out[k] = face(Q, solids, bx, role, axis, sign, plane, ra, rb, ea, eb, holes, c)
     return out
 
 

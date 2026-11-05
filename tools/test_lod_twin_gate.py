@@ -13,6 +13,17 @@ at or above `LOD_TWIN_MIN_IOU`). Masks here are synthetic and the catalogue text
   3. the exemption is for ONE pair: the twin against a third near-identical mesh    -> still a silhouette collision
   4. no exemption table at all (`twins={}`)                                         -> the twin/full pair collides (the gate's own red)
   5. a table naming a twin with no render                                           -> "has no render"
+
+and the DECOR twin (the ditch: `check_decor_meshes`, synthetic GLB headers in a temp dir):
+
+  6. the shipped table and catalogue, a twin with zero textures and its full beside it -> no failures (control)
+  7. the same twin with a texture                                                    -> "ships zero materials"
+  8. the catalogue's DECOR_LOD1 does not name it                                       -> "does not wire it"
+  9. its full mesh is not on disk                                                    -> "twin of nothing"
+ 10. the table is empty: the zero-texture file is an exempt family with no texture   -> "exactly one material"
+ 11. a zero-texture file NOT in the table (a stray ditch_9.glb)                       -> "exactly one material"
+ 12. the twin lost `rl_textured`                                                     -> "does not declare rl_textured"
+ 13. an unrelated family's zero-texture file is unaffected (still a decor role file)  -> no failures
 """
 import os
 import sys
@@ -46,13 +57,48 @@ def main():
         if not ok:
             bad.append(name)
 
-    expect("0 control: wired and a twin", v.check_collisions(masks) + v.check_lod_twins(masks, shipped), None)
-    expect("1 unwired", v.check_lod_twins(masks, shipped.replace("lod1: 'buildings/wall_lod1.glb'", "")), "does not name it")
+    WALL = {"wall_lod1": "wall"}
+    expect("0 control: wired and a twin", v.check_collisions(masks) + v.check_lod_twins(masks, shipped, twins=WALL), None)
+    hmasks = {"house": full, "house_lod1": twin}
+    expect("0b control: the house pair, wired", v.check_collisions(hmasks) + v.check_lod_twins(hmasks, shipped, twins={"house_lod1": "house"}), None)
+    expect("0c house unwired", v.check_lod_twins(hmasks, shipped.replace("lod1: 'buildings/house_lod1.glb'", ""), twins={"house_lod1": "house"}), "does not name it")
+    expect("0d the shipped table names the house", [] if v.LOD_TWINS.get("house_lod1") == "house" else ["house_lod1 missing from LOD_TWINS"], None)
+    expect("1 unwired", v.check_lod_twins(masks, shipped.replace("lod1: 'buildings/wall_lod1.glb'", ""), twins=WALL), "does not name it")
     skewed = {"wall": full, "wall_lod1": box(40, 60)}
-    expect("2 not a twin", v.check_lod_twins(skewed, shipped), "no longer reads as the same mesh")
+    expect("2 not a twin", v.check_lod_twins(skewed, shipped, twins=WALL), "no longer reads as the same mesh")
     expect("3 exemption is one pair", v.check_collisions({**masks, "fence": other}), "wall_lod1 (mesh) vs fence")
     expect("4 no exemption", v.check_collisions(masks, twins={}), "silhouette collision")
-    expect("5 twin has no render", v.check_lod_twins({"wall": full}, shipped), "has no render")
+    expect("5 twin has no render", v.check_lod_twins({"wall": full}, shipped, twins=WALL), "has no render")
+
+    import json
+    import struct
+    import tempfile
+
+    def glb(path, header):
+        body = json.dumps(header).encode()
+        body += b" " * (-len(body) % 4)
+        with open(path, "wb") as fh:
+            fh.write(struct.pack("<III", 0x46546C67, 2, 20 + len(body)) + struct.pack("<II", len(body), 0x4E4F534A) + body)
+
+    textured_node = {"nodes": [{"name": "ditch", "mesh": 0, "extras": {"rl_textured": True}}], "meshes": [{"name": "ditch"}]}
+    full_hdr = {**textured_node, "materials": [{}], "images": [{}], "textures": [{}]}
+
+    def decor(files, **kw):
+        with tempfile.TemporaryDirectory() as d:
+            for name, header in files.items():
+                glb(os.path.join(d, name), header)
+            failures, _ = v.check_decor_meshes(d, catalogue_text=kw.pop("cat", shipped), **kw)
+            return failures
+
+    both = {"ditch_0.glb": full_hdr, "ditch_lod1.glb": textured_node}
+    expect("6 decor twin control", decor(both), None)
+    expect("7 twin with a texture", decor({**both, "ditch_lod1.glb": full_hdr}), "ships zero materials")
+    expect("8 twin not wired", decor(both, cat=shipped.replace("'decor/ditch_lod1.glb'", "")), "does not wire it")
+    expect("9 full missing", decor({"ditch_lod1.glb": textured_node}), "twin of nothing")
+    expect("10 empty table", decor(both, twins={}), "exactly one material")
+    expect("11 stray zero-texture file", decor({**both, "ditch_9.glb": textured_node}), "exactly one material")
+    expect("12 twin lost rl_textured", decor({**both, "ditch_lod1.glb": {"nodes": [{"name": "ditch", "mesh": 0}], "meshes": [{"name": "ditch"}]}}), "does not declare rl_textured")
+    expect("13 other families unchanged", decor({**both, "bush_0.glb": {"nodes": [{"name": "b", "mesh": 0, "extras": {"rl_role": "foliage"}}], "meshes": [{"name": "b"}]}}), None)
     return 1 if bad else 0
 
 
