@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { backendRefusal, backendTerm, chromiumArgsFor, expectedKind, mixedBackendRefusal, parseGpuArm, urlGpuParam } from './backend';
 import { envKey } from './baseline';
+import { HUD_WALL_CLOCK_SETTLE_MS, QUIET_SCENARIO, captureScript } from './capture-protocol';
 
 const BASELINES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../golden-baselines');
 const RENDER_GPU = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../packages/render/src/gpu.ts');
@@ -65,5 +66,22 @@ describe('the backend refusals (exit 2)', () => {
     expect(mixedBackendRefusal([a, { id: 'open', backend: { kind: 'node-webgl2', adapter: 'webgl2' } }])).toMatch(/mixed backends/);
     expect(mixedBackendRefusal([a, { id: 'open', backend: { kind: 'node-webgpu', adapter: 'y' } }])).toMatch(/mixed backends/);
     expect(mixedBackendRefusal([])).toBeNull();
+  });
+});
+
+describe('the node arms wait the HUD wall-clock animations out', () => {
+  it('only a node arm waits and redraws the minimap; the legacy script is untouched', () => {
+    const node = captureScript(QUIET_SCENARIO, 'webgpu');
+    expect(node).toContain(`setTimeout(r, ${HUD_WALL_CLOCK_SETTLE_MS})`);
+    expect(node).toContain('window.__lions.redrawMinimap()');
+    const legacy = captureScript(QUIET_SCENARIO);
+    expect(legacy).not.toContain('redrawMinimap');
+    expect(legacy).not.toContain('setTimeout');
+  });
+  it('outlasts the longest minimap animation (PING_MS 2500, read from source: tools may not import the app)', () => {
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../packages/app/src/ui/minimap.ts'), 'utf8');
+    const ping = Number(/export const PING_MS = (\d+);/.exec(src)?.[1]);
+    const flash = Number(/export const FLASH_MS = (\d+);/.exec(src)?.[1]);
+    expect(HUD_WALL_CLOCK_SETTLE_MS).toBeGreaterThan(Math.max(ping, flash));
   });
 });

@@ -1048,6 +1048,20 @@ export const REPAINT_SCRIPT = `(async () => {
   return JSON.stringify({ tick: window.__lions.sim.tickCount });
 })()`;
 
+/**
+ * GH-943 P0: the HUD's wall-clock animations must have RUN OUT before a node arm photographs. The minimap's alert ring
+ * (`FLASH_MS` 1400) and ping (`PING_MS` 2500, `packages/app/src/ui/minimap.ts`) fade on WALL time and are drawn only on a sim tick,
+ * so the phase a photograph catches is however long the capture step happened to take: on CI's wgpu arm 5 fresh-page captures of
+ * `quiet` gave 4 distinct pictures, every difference a 36 x 36 px faint ring on the minimap (443-459 px, max channel delta 11-26).
+ * The legacy protocol photographs promptly and was never exposed; the node arms take two extra photographs for the settled-frame
+ * check, so they wait the animations out and then redraw the minimap once, which paints it with no ring. Chrome, not the world:
+ * nothing here reaches the renderer or the sim.
+ */
+export const HUD_WALL_CLOCK_SETTLE_MS = 2600;
+const NODE_HUD_SETTLE_STATEMENTS = `await new Promise(function (r) { setTimeout(r, ${HUD_WALL_CLOCK_SETTLE_MS}); });
+window.__lions.redrawMinimap();
+`;
+
 /** The node backends' zero-time repaint: the same `frame(1, 0)`, then wait for the GPU to finish the submitted work
  *  (`onSubmittedWorkDone`), so the next screenshot cannot catch a frame still in flight. Legacy keeps `REPAINT_SCRIPT`. */
 export const NODE_REPAINT_SCRIPT = `(async () => {
@@ -1134,7 +1148,7 @@ ${HIDE_ALERT_FEED_STATEMENTS}
 ${gotoLine}
 ${zoomLine}${ordersLine}${parkLine}${stepLine}
 ${CAPTURE_PRECONDITION_STATEMENTS}
-${arm === 'legacy' ? '' : 'await window.__lions.renderer.whenGpuIdle();\n'}const c = window.__lions.renderer.camera;
+${arm === 'legacy' ? '' : NODE_HUD_SETTLE_STATEMENTS + 'await window.__lions.renderer.whenGpuIdle();\n'}const c = window.__lions.renderer.camera;
 const canvas = window.__lions.renderer.canvas;
 const r = canvas.getBoundingClientRect();
 const bi = window.__lions.renderer.backendInfo();
