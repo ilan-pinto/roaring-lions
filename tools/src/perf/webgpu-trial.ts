@@ -49,7 +49,7 @@ const errorCounts = new Map<string, number>();
 async function newPage(width: number, height: number): Promise<Page> {
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: DPR });
   await page.addInitScript(musicOffInitScript({}, { quality: 'high' }));
-  await page.addInitScript('window.__name = (f) => f;');
+  await page.addInitScript('window.__name = (f) => f; window.process = { env: {} };');
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
     const t = m.text();
@@ -145,7 +145,7 @@ async function runCurve(mode: Mode): Promise<ArmRun['curve']> {
 
 const runs: { arm: Mode; round: number; views: ArmRun; curve?: ArmRun['curve'] }[] = [];
 for (let round = 0; round < ROUNDS; round++) {
-  const order: Mode[] = SMOKE ? ['gl', 'gls', 'gpu'] : round === 0 ? ['gl', 'gls', 'gpu', 'gpu', 'gls'] : ['gls', 'gpu', 'gpu', 'gls'];
+  const order: Mode[] = args.find((a) => a.startsWith('--arms=')) ? (arg('arms', '').split(',') as Mode[]) : SMOKE ? ['gl', 'gls', 'gpu'] : round === 0 ? ['gl', 'gls', 'gpu', 'gpu', 'gls'] : ['gls', 'gpu', 'gpu', 'gls'];
   for (const tag of order) {
     console.log(`[webgpu-trial] round ${round + 1} arm ${tag} (loadavg ${os.loadavg().map((v) => v.toFixed(1)).join('/')})`);
     const views = await runViews(tag, OUT && (SMOKE || !runs.some((q) => q.arm === tag)) ? `${OUT.replace(/\.json$/, '')}-${tag}.png` : '');

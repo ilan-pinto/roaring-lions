@@ -45,7 +45,7 @@ export async function probeWebGpu(nav: GpuNavigatorLike | undefined): Promise<We
   return { ok: true, adapter: name || 'unknown', fallbackAdapter: adapter.isFallbackAdapter === true };
 }
 
-export type UnportedKind = 'shader-material' | 'on-before-compile' | 'env-map';
+export type UnportedKind = 'shader-material' | 'on-before-compile' | 'env-map' | 'image-release';
 
 export interface UnportedHook {
   readonly kind: UnportedKind;
@@ -105,6 +105,16 @@ export function censusUnported(root: THREE.Object3D): UnportedHook[] {
         // The occlusion outline is a depth-fail trick in GLSL; as a stock material it would paint every unit a flat colour.
         if (HIDE_WITHOUT_HOOK.has(materialKey(m, o))) o.visible = false;
       }
+      // GLB bitmaps are closed after their first upload (`units/gltf-loader.ts`); WebGPU uploads more than once and would
+      // draw them black. Already-armed textures are disarmed here while their bitmap is still open.
+      for (const v of Object.values(m)) {
+        const t = v as THREE.Texture | null;
+        const img = t && t.isTexture === true ? (t.image as { close?: unknown; width?: number } | null) : null;
+        if (t && img && typeof img.close === 'function' && (img.width ?? 0) > 0 && t.onUpdate !== null) {
+          t.onUpdate = null;
+          note('image-release', materialKey(m, o));
+        }
+      }
       const env = (m as THREE.MeshStandardMaterial).envMap;
       if (env && (env as THREE.Texture & { isRenderTargetTexture?: boolean }).isRenderTargetTexture === true) {
         note('env-map', materialKey(m, o));
@@ -127,7 +137,9 @@ export function unportedWarnings(hooks: readonly UnportedHook[], seen: Set<strin
         ? 'ShaderMaterial has no TSL port in the trial: the object is HIDDEN'
         : h.kind === 'on-before-compile'
           ? 'onBeforeCompile GLSL has no TSL port in the trial: it draws as the stock material WITHOUT the hook'
-          : 'render-target envMap belongs to the WebGL context: DROPPED';
+          : h.kind === 'image-release'
+            ? 'the load-time bitmap release after first upload is WebGL-only (WebGPU uploads twice): DISARMED'
+            : 'render-target envMap belongs to the WebGL context: DROPPED';
     out.push(`[webgpu-trial] UNPORTED ${h.kind} "${h.key}" (${h.objects} object${h.objects === 1 ? '' : 's'}): ${what}`);
   }
   return out;

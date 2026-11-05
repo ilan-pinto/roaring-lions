@@ -65,6 +65,8 @@ interface RendererLike {
 
 interface BatchedLike {
   isBatchedMesh?: boolean;
+  isDirectionalLight?: boolean;
+  castShadow?: boolean;
   perObjectFrustumCulled?: boolean;
   _multiDrawCount?: number;
 }
@@ -102,6 +104,12 @@ export interface Arm {
 export function prepareArm(r: RendererLike, mode: Mode): Arm {
   const gpu = mode === 'gpu';
   for (const l of HIDDEN_LAYERS) r.setDebugLayerVisible(l, false);
+  // BOTH arms draw with the sun's shadow OFF. On WebGPURenderer r186 the sun's ShadowDepthTexture is destroyed and
+  // recreated during the first frames, and every later submit names the destroyed texture (a GPUValidationError per
+  // frame, the frame is dropped): a shadowed WebGPU time would be a time for dropped work. See spike-results.md.
+  r.scene.traverse((o) => {
+    if (o.isDirectionalLight) o.castShadow = false;
+  });
   const handle = r.gpuTrialHandle?.() ?? null;
   if (gpu) {
     if (r.gpuTrialState !== 'active' || !handle) throw new Error(`webgpu arm is not active (state ${r.gpuTrialState}, ${r.gpuTrialReason ?? ''})`);

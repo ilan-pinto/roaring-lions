@@ -111,6 +111,7 @@ export async function createWebGpuTrial(opts: WebGpuTrialOptions): Promise<{ tri
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();
   let frames = 0;
+  let builds = 0;
   let size = { w: 0, h: 0, pr: 0 };
 
   const runCensus = (scene: THREE.Scene): void => {
@@ -121,6 +122,7 @@ export async function createWebGpuTrial(opts: WebGpuTrialOptions): Promise<{ tri
 
   const build = (scene: THREE.Scene, camera: THREE.Camera): void => {
     pipeline?.dispose();
+    console.info(`[webgpu-trial] pipeline build #${++builds} (post ${post})`);
     const { pass, mrt, output, normalView, renderOutput } = TSL;
     const scenePass = pass(scene, camera);
     let node;
