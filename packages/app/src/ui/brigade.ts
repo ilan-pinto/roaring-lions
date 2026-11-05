@@ -665,6 +665,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
               const key = ask.kind === 'unit' ? `unit:${ask.unitId}` : `tier:${ask.unitId}.${ask.track}.${ask.tier + 1}`;
               storesAnswered(onBuy(ask), key);
             },
+      // The Garage's own purchase, at the unit's credit price (GH-317).
+      onBuyCredits:
+        opts.onBuy === undefined ? undefined : (unitId, price) => storesAnswered(opts.onBuy?.(unitId, price), `unit:${unitId}`),
       units: state.units,
       ledger: opts.ledger,
       credits: state.credits,

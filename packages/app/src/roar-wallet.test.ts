@@ -108,7 +108,7 @@ describe('G-S3: the wallet outlives a new campaign, ?fresh and a slot load', () 
     ...emptyRoar(),
     coins: { free: 120, paid: 0 },
     entitlements: { units: { apc_kipod: { free: true } }, upgrades: { mbt_lavi: { armour: { tier: 2, paidTiers: 0 } } } },
-    earn: { welcomed: true, campaignDone: false, missions: { m1: { won: true, stars: 2 } } },
+    earn: { welcomed: true, campaignDone: false, backfilled: false, missions: { m1: { won: true, stars: 2 } } },
   });
 
   it('New campaign / ?fresh (newCampaign) leaves lions.roar byte-identical', () => {
@@ -148,7 +148,7 @@ describe('G-S3: the wallet outlives a new campaign, ?fresh and a slot load', () 
     expect(after.coins.free).toBe(0);
     expect(after.entitlements.units).toEqual({});
     expect(after.entitlements.upgrades).toEqual({});
-    expect(after.earn).toEqual(emptyRoar().earn);
+    expect(after.earn).toEqual({ ...emptyRoar().earn, backfilled: true }); // a reset must not reopen the back-payment
   });
 
   it('the reset keeps what a paid coin bought (by construction in the type; the state is unreachable until ST7)', () => {

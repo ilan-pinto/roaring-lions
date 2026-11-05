@@ -81,6 +81,7 @@ export function roarEarn(w: RoarWallet, win: VictoryWin, world: ParsedWorld, at:
     earn: {
       welcomed: true,
       campaignDone: w.earn.campaignDone || finishes,
+      backfilled: w.earn.backfilled,
       missions: { ...w.earn.missions, [win.missionId]: { won: true, stars: Math.max(prev.stars, stars) } },
     },
   };
@@ -116,4 +117,53 @@ export function settleVictory(
   const write = writeVictory(store, v.ledger, v.account, owed !== null ? owed.wallet : null);
   if (write !== 'saved' || owed === null) return { write, awards: [], total: 0, balance: spendable(before) };
   return { write, awards: owed.awards, total: owed.total, balance: spendable(owed.wallet) };
+}
+
+/**
+ * The one-time back-payment (GH-317, lead ruling 5 Nov): a wallet that is being
+ * CREATED is paid, from the campaign ledger as it stands, what the earn table
+ * would have paid for the wins already on it -- the welcome issue (if any mission
+ * is won), 10 a won mission, 5 a star at its best, 100 if the campaign is done.
+ * The tutorial and any mission off the map pay nothing, as in `roarEarn`.
+ *
+ * Pure. It is called by `loadRoar` only when the key is absent (`ledger-store.ts`),
+ * never on a slot load or import, and it fills `earn` exactly as winning would
+ * (`welcomed`, `campaignDone`, `missions`), so it cannot pay twice and a later
+ * replay pays only for a NEW star. One receipt, `source: 'backfill'`. The coins
+ * are free coins; `paid` is untouched.
+ */
+export function roarBackfill(w: RoarWallet, ledger: LedgerData, world: ParsedWorld, at: number): RoarWallet {
+  const doneRaw = ledger['campaign.completed_missions'];
+  const done = new Set(Array.isArray(doneRaw) ? doneRaw.filter((m): m is string => typeof m === 'string') : []);
+  const results = ledger['campaign.mission_results'];
+  const missions: Record<string, { won: boolean; stars: number }> = { ...w.earn.missions };
+  let coins = 0;
+  let anyWin = false;
+  for (const id of worldMissionIds(world)) {
+    if (!done.has(id)) continue;
+    anyWin = true;
+    const prev = missions[id] ?? { won: false, stars: 0 };
+    const stars = clampStars(results?.[id]?.stars ?? 0);
+    // Only the difference between the ledger's lifetime record and what `earn` holds.
+    if (!prev.won) coins += EARN.firstWin;
+    coins += EARN.star * Math.max(0, stars - prev.stars);
+    missions[id] = { won: true, stars: Math.max(prev.stars, stars) };
+  }
+  if (anyWin && !w.earn.welcomed) coins += EARN.welcome;
+  const finishes = !w.earn.campaignDone && campaignComplete(world, ledger);
+  if (finishes) coins += EARN.campaign;
+  const base: RoarWallet = {
+    ...w,
+    earn: { welcomed: w.earn.welcomed || anyWin, campaignDone: w.earn.campaignDone || finishes, backfilled: true, missions },
+  };
+  return grantFree(base, coins, (id, c) => ({ kind: 'earn', id, at, coins: c, source: 'backfill' }), at);
+}
+
+/**
+ * Settles an unsettled wallet's back-payment at boot (G-E3), before any slot or
+ * import UI can swap the ledger: the first `readRoar` is what settles it, so it is
+ * made here, against the ledger the player actually earned.
+ */
+export function settleRoarAtBoot(store: Pick<LedgerStore, 'readRoar'>): void {
+  store.readRoar();
 }

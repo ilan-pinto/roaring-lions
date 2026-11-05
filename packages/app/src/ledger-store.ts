@@ -58,7 +58,7 @@
  * catch it, put the three keys back from `snapshotCampaign`, and the screen
  * says the write was refused (save reliability, keyboard-and-saves).
  */
-import { emptyRoar, loadRoar, resetFree, restoreRoarText, saveRoar, snapshotRoarText, type RoarWallet } from './roar-wallet';
+import { emptyRoar, loadRoar, resetFree, restoreRoarText, saveRoar, snapshotRoarText, type RoarSeed, type RoarWallet } from './roar-wallet';
 import type { LedgerData, LedgerRosterEntry } from '@lions/sim';
 import {
   ACCOUNT_KEY,
@@ -224,7 +224,10 @@ function completedIn(ledger: LedgerData | null | undefined): ReadonlySet<string>
  * function with a different backend, which is what keeps the test double from
  * being a second implementation that can disagree with the real one.
  */
-function overStorage(store: StorageLike | null): LedgerStore {
+function overStorage(store: StorageLike | null, backfill?: RoarBackfill): LedgerStore {
+  /** The back-payment, read from the ledger AS IT STANDS when the wallet is first made. */
+  const seed: RoarSeed | undefined =
+    backfill === undefined || store === null ? undefined : (w) => backfill(w, dropMalformed(loadLedger(store)));
   return {
     available: store !== null,
     readLedger: (): CampaignLedger => dropMalformed(loadLedger(store)),
@@ -257,7 +260,7 @@ function overStorage(store: StorageLike | null): LedgerStore {
       // Both or neither: the wallet's free half is cleared first, and put back
       // if removing the account then fails, so a refusal never leaves the
       // account gone with the free coins it paid still in the wallet.
-      const wallet = loadRoar(store);
+      const wallet = loadRoar(store, seed);
       const roarBefore = snapshotRoarText(store);
       if (roarBefore === null) return removeStoredAccount(store);
       try {
@@ -282,7 +285,7 @@ function overStorage(store: StorageLike | null): LedgerStore {
     writeSlotsRaw: (json: string): void => {
       if (store) store.setItem(SAVES_KEY, json);
     },
-    readRoar: (): RoarWallet => (store ? loadRoar(store) : emptyRoar()),
+    readRoar: (): RoarWallet => (store ? loadRoar(store, seed) : emptyRoar()),
     writeRoar: (w: RoarWallet): void => {
       if (store) saveRoar(store, w);
     },
@@ -329,9 +332,13 @@ function safeStorage(): StorageLike | null {
   }
 }
 
+/** The wallet's one-time back-payment (GH-317): the new wallet and the ledger, the
+ *  wallet with the old wins paid. Injected so this door does not import the world. */
+export type RoarBackfill = (w: RoarWallet, ledger: LedgerData) => RoarWallet;
+
 /** The shipping store. The app builds exactly one, in `main.ts`. */
-export function browserLedgerStore(): LedgerStore {
-  return overStorage(safeStorage());
+export function browserLedgerStore(backfill?: RoarBackfill): LedgerStore {
+  return overStorage(safeStorage(), backfill);
 }
 
 /**
@@ -348,7 +355,7 @@ export interface MemoryLedgerStore extends LedgerStore {
   readonly map: Map<string, string>;
 }
 
-export function memoryLedgerStore(seed: Partial<Record<string, string>> = {}): MemoryLedgerStore {
+export function memoryLedgerStore(seed: Partial<Record<string, string>> = {}, backfill?: RoarBackfill): MemoryLedgerStore {
   const map = new Map<string, string>();
   for (const [key, value] of Object.entries(seed)) if (value !== undefined) map.set(key, value);
   // Through the same `overStorage` the browser path takes, so a spec written
@@ -358,7 +365,7 @@ export function memoryLedgerStore(seed: Partial<Record<string, string>> = {}): M
     setItem: (k, v) => void map.set(k, v),
     removeItem: (k) => void map.delete(k),
   };
-  return { ...overStorage(backend), raw: (k) => map.get(k) ?? null, map };
+  return { ...overStorage(backend, backfill), raw: (k) => map.get(k) ?? null, map };
 }
 
 /** The unavailable variant: what every call site gets in a private window with

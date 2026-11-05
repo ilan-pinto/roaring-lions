@@ -63,8 +63,8 @@ export interface TrackEntitlement {
   paidTiers: number;
 }
 
-export type EarnSource = 'welcome' | 'first_win' | 'star' | 'campaign';
-const EARN_SOURCES: readonly string[] = ['welcome', 'first_win', 'star', 'campaign'];
+export type EarnSource = 'welcome' | 'first_win' | 'star' | 'campaign' | 'backfill';
+const EARN_SOURCES: readonly string[] = ['welcome', 'first_win', 'star', 'campaign', 'backfill'];
 
 export type RoarReceipt =
   | { kind: 'earn'; id: string; at: number; coins: CoinSplit; source: EarnSource; missionId?: string }
@@ -78,6 +78,9 @@ export interface EarnRecord {
   welcomed: boolean;
   /** The campaign-complete bonus has landed. */
   campaignDone: boolean;
+  /** The one-time back-payment from the campaign ledger has been settled
+   *  (`roarBackfill`), whether it paid or not. Lives here, in the wallet, never in a slot. */
+  backfilled: boolean;
   /** Per mission: won at least once, and the best stars ever paid for. */
   missions: Record<string, { won: boolean; stars: number }>;
 }
@@ -99,7 +102,7 @@ export function emptyRoar(): RoarWallet {
     version: ROAR_VERSION,
     coins: { free: 0, paid: 0 },
     entitlements: { units: {}, upgrades: {} },
-    earn: { welcomed: false, campaignDone: false, missions: {} },
+    earn: { welcomed: false, campaignDone: false, backfilled: false, missions: {} },
     receipts: [],
   };
 }
@@ -169,6 +172,7 @@ export function migrateRoar(raw: unknown): RoarWallet {
   const earn = isObj(raw.earn) ? raw.earn : {};
   out.earn.welcomed = earn.welcomed === true;
   out.earn.campaignDone = earn.campaignDone === true;
+  out.earn.backfilled = earn.backfilled === true;
   if (isObj(earn.missions)) {
     for (const [id, v] of Object.entries(earn.missions)) {
       if (!isObj(v)) continue;
@@ -228,22 +232,43 @@ export function migrateTestWallet(raw: unknown): RoarWallet {
   return out;
 }
 
-export function loadRoar(store: StorageLike): RoarWallet {
+/**
+ * Runs once per wallet, until it sets `earn.backfilled` (a new wallet, a migrated
+ * test wallet, or one made before the back-payment). It must set the marker: the caller reads the campaign ledger and returns the
+ * wallet with the back-payment in it (`roarBackfill`, roar-earn.ts). The result
+ * is written at once, so the key then exists and this cannot run again; a slot
+ * load or import finds the key and earns nothing (G-E3).
+ */
+export type RoarSeed = (w: RoarWallet) => RoarWallet;
+
+export function loadRoar(store: StorageLike, seed?: RoarSeed): RoarWallet {
   try {
     const text = store.getItem(ROAR_KEY);
-    if (text !== null) return migrateRoar(JSON.parse(text));
+    if (text !== null) {
+      const existing = migrateRoar(JSON.parse(text));
+      if (existing.earn.backfilled || seed === undefined) return existing;
+      // A wallet made before the back-payment existed: settle it once, same write.
+      const settled = seed(existing);
+      try {
+        store.setItem(ROAR_KEY, JSON.stringify(settled));
+      } catch {
+        /* the wallet still reads correctly from memory; the next read settles again, to the same result */
+      }
+      return settled;
+    }
     const legacy = store.getItem(LEGACY_TEST_KEY);
-    if (legacy === null) return emptyRoar();
-    const migrated = migrateTestWallet(JSON.parse(legacy));
+    const base = legacy === null ? emptyRoar() : migrateTestWallet(JSON.parse(legacy));
+    if (legacy === null && seed === undefined) return base;
+    const made = seed !== undefined ? seed(base) : base;
     // Once: write the new key, then delete the old. A refusal leaves the old key
     // in place and the next read migrates again, to the same result.
     try {
-      store.setItem(ROAR_KEY, JSON.stringify(migrated));
-      store.removeItem(LEGACY_TEST_KEY);
+      store.setItem(ROAR_KEY, JSON.stringify(made));
+      if (legacy !== null) store.removeItem(LEGACY_TEST_KEY);
     } catch {
       /* the wallet still reads correctly from memory */
     }
-    return migrated;
+    return made;
   } catch {
     return emptyRoar();
   }
@@ -372,7 +397,8 @@ export function resetFree(w: RoarWallet): RoarWallet {
     version: ROAR_VERSION,
     coins: { free: 0, paid: w.coins.paid },
     entitlements: { units, upgrades },
-    earn: { welcomed: false, campaignDone: false, missions: {} },
+    // Reset must not reopen the back-payment: the ledger survives it.
+    earn: { welcomed: false, campaignDone: false, backfilled: true, missions: {} },
     receipts: w.receipts.filter((r) => r.coins.paid > 0),
   };
 }

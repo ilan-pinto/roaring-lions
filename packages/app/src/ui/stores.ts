@@ -68,6 +68,9 @@ export interface StoresOptions extends StoreInput {
   /** A Buy pressed with coins. The caller buys, saves, and redraws the
    *  Stores; this screen only asks. */
   onBuy?: (ask: CoinAsk) => void;
+  /** A "Buy with credits" pressed on a unit card: the Garage's own purchase
+   *  (`buyUnlock`), at the unit's credit price. Absent: no such button. */
+  onBuyCredits?: (unitId: string, credits: number) => void;
   /** The `data-buy`/`data-focus` key of the control to focus after a redraw. */
   focusKey?: string;
 }
@@ -439,6 +442,28 @@ function coinBuy(coins: number, label: string, enabled: boolean, ctx: Ctx, key: 
   return buy;
 }
 
+/** Whether a unit card offers "Buy with credits": the unit is for sale by
+ *  credits (`affordable`: the earned credits on hand cover its price), the
+ *  account is live (`credits` is defined), and the caller can buy. Credits and
+ *  coins never mix: this never reads the coin wallet. */
+export function creditBuyEnabled(item: UnitItem, credits: number | undefined, canBuy: boolean): boolean {
+  return canBuy && item.state === 'affordable' && item.credits !== undefined && credits !== undefined && credits >= item.credits;
+}
+
+function creditBuy(item: UnitItem, ctx: Ctx): HTMLButtonElement | null {
+  const onBuyCredits = ctx.opts.onBuyCredits;
+  const price = item.credits;
+  if (price === undefined || !creditBuyEnabled(item, ctx.opts.credits, onBuyCredits !== undefined)) return null;
+  const buy = document.createElement('button');
+  buy.type = 'button';
+  buy.className = 'rl-stores__buy rl-stores__buy--credits';
+  buy.dataset.buy = `credits:${item.id}`;
+  buy.textContent = t('stores.buy.credits', { n: price });
+  buy.setAttribute('aria-label', t('stores.buy.credits.aria', { name: item.name, n: price }));
+  buy.addEventListener('click', () => onBuyCredits?.(item.id, price));
+  return buy;
+}
+
 /** The aria label's last clause: why a Buy cannot be pressed, or nothing. */
 function buyNote(cost: number | null, ctx: Ctx): string {
   if (!ctx.wallet.live) return t('stores.buy.note.preview');
@@ -524,6 +549,8 @@ function unitCard(item: UnitItem, ctx: Ctx): HTMLElement {
   if (forSale(item.state) && item.coins !== undefined) {
     const label = t('stores.buy.aria', { name: item.name, n: item.coins, note: buyNote(coinCost(item), ctx) });
     body.appendChild(coinBuy(item.coins, label, buyEnabled(item, ctx.wallet), ctx, `unit:${item.id}`, { kind: 'unit', unitId: item.id }));
+    const byCredits = creditBuy(item, ctx);
+    if (byCredits !== null) body.appendChild(byCredits);
   } else {
     body.appendChild(el('span', `rl-stores__state rl-stores__state--${item.state}`, t(`stores.state.${item.state}`)));
   }

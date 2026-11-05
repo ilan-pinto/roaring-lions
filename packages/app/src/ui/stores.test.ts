@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
 import type { LedgerData, UnlockGate } from '@lions/sim';
 import { showBrigade, type BrigadeUnit } from './brigade';
-import { showStores, type StoresOptions } from './stores';
+import { creditBuyEnabled, showStores, type StoresOptions } from './stores';
 import { COIN_PACKS } from './stores-model';
 
 /** The real KDF roster, as `main.ts` builds it for the garage. */
@@ -281,7 +281,9 @@ describe('the garage\'s Stores tab', () => {
     expect(host.querySelector<HTMLElement>('.rl-garage__wallet')?.hidden).toBe(true);
     const buys = [...host.querySelectorAll<HTMLButtonElement>('.rl-stores button[data-buy]')];
     expect(buys.length).toBeGreaterThan(10);
-    expect(buys.filter((b) => !b.disabled)).toEqual([]);
+    // Every COIN Buy is disabled. A "Buy with credits" is the Garage's own credit
+    // purchase and is live exactly where the credits cover the unit (GH-317).
+    expect(buys.filter((b) => !b.disabled && !b.classList.contains('rl-stores__buy--credits'))).toEqual([]);
     // ...and back: the Stores is unmounted, not merely hidden.
     views[0].click();
     expect(host.querySelector('.rl-stores')).toBeNull();
@@ -340,5 +342,42 @@ describe('the garage\'s Stores tab', () => {
     });
     expect(host.querySelector('.rl-garage__views')).toBeNull();
     dispose();
+  });
+});
+
+describe('GH-317: "Buy with credits" on a Store card', () => {
+  const creditBtn = (host: HTMLElement, id: string): HTMLButtonElement | null => host.querySelector(`[data-item="${id}"] button[data-buy="credits:${id}"]`);
+
+  it('is offered, and asks the Garage purchase at the credit price, when the credits cover the unit', () => {
+    const asked: [string, number][] = [];
+    const { host, dispose } = mountStores({ ledger: { 'roe.mission_ratings': { a: 60 } }, credits: 500, onBuyCredits: (id, n) => asked.push([id, n]) });
+    const b = creditBtn(host, 'recon_drone');
+    expect(b).not.toBeNull();
+    expect(b?.textContent).toBe('Buy with credits · 220');
+    b?.click();
+    expect(asked).toEqual([['recon_drone', 220]]);
+    dispose();
+  });
+
+  it('is absent when the credits fall short, the unit is owned, or the caller cannot buy', () => {
+    const short = mountStores({ ledger: { 'roe.mission_ratings': { a: 60 } }, credits: 100, onBuyCredits: () => undefined });
+    expect(creditBtn(short.host, 'recon_drone')).toBeNull();
+    short.dispose();
+    const owned = mountStores({ units: roster(new Set(['recon_drone'])), credits: 500, onBuyCredits: () => undefined });
+    expect(creditBtn(owned.host, 'recon_drone')).toBeNull();
+    owned.dispose();
+    const preview = mountStores({ credits: 500 });
+    expect(preview.host.querySelectorAll('[data-buy^="credits:"]')).toHaveLength(0);
+    preview.dispose();
+  });
+
+  it('creditBuyEnabled reads credits alone, never the coin wallet', () => {
+    const item = { kind: 'unit', id: 'u', name: 'U', state: 'affordable', credits: 220, coins: 22, honest: { kind: 'payNow' }, specialForces: false } as const;
+    expect(creditBuyEnabled(item, 220, true)).toBe(true);
+    expect(creditBuyEnabled(item, 219, true)).toBe(false);
+    expect(creditBuyEnabled(item, undefined, true)).toBe(false);
+    expect(creditBuyEnabled(item, 500, false)).toBe(false);
+    expect(creditBuyEnabled({ ...item, state: 'locked' }, 500, true)).toBe(false);
+    expect(creditBuyEnabled({ ...item, state: 'coins' }, 500, true)).toBe(false);
   });
 });
