@@ -426,6 +426,41 @@ describe('StructureInstances LOD1 twin', () => {
     expect(none.setIdleLod1('wall', twin())).toBe(false); // no standing template at all
   });
 
+  /** A one-mesh twin (role `wall`, as the shipped wall_lod1): the roof and body joined. */
+  function joinedTwin(name = 'wall'): BuildingMeshTemplate {
+    const root = new THREE.Group();
+    root.scale.setScalar(2);
+    const g = new THREE.PlaneGeometry(1, 1);
+    const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial());
+    mesh.name = name;
+    root.add(mesh);
+    return { root, materials: [], geometries: [g] };
+  }
+
+  it('a one-mesh twin pairs to the full art when every full part shares one material, and draws one set per chunk', () => {
+    const scene = new THREE.Group();
+    const si = new StructureInstances(scene);
+    const full = template();
+    const shared = new THREE.MeshStandardMaterial();
+    full.root.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = shared; });
+    si.setIdleTemplate('wall', full);
+    const lod = joinedTwin('cap'); // no role match at all: only the shared material pairs it
+    expect(si.setIdleLod1('wall', lod)).toBe(true);
+    si.addIdle(1, 'wall', at(1, 0, 0), 0, clean);
+    si.setZoom(1.0);
+    si.flush();
+    const twinDraws = si.meshes().filter((m) => m.visible && lod.geometries.includes(m.geometry));
+    expect(twinDraws.length).toBe(1); // one draw, where the two-part twin cost two
+    expect(twinDraws[0].material).toBe(shared);
+  });
+
+  it('refuses a one-mesh twin when the full parts carry different materials', () => {
+    const si = new StructureInstances(new THREE.Group());
+    si.setIdleTemplate('wall', template()); // wall and roof have distinct materials
+    expect(si.setIdleLod1('wall', joinedTwin('cap'))).toBe(false);
+    expect(si.hasLod1('wall')).toBe(false);
+  });
+
   it('the A/B switch holds: with the twin disabled, full art is drawn at every zoom, every frame', () => {
     const { si, full } = arm();
     si.addIdle(1, 'wall', at(1, 0, 0), 0, clean);

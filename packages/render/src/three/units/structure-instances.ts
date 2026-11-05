@@ -327,7 +327,8 @@ export class StructureInstances {
 
   /**
    * Registers `typeId`'s LOD1 twin. Each of its meshes is paired, by `rl_role`,
-   * with the standing template's mesh whose material it is drawn with. Returns
+   * with the standing template's mesh whose material it is drawn with (a one-mesh twin
+   * pairs to the full art when all its parts share one material). Returns
    * false (and registers nothing) if a twin mesh has no such partner or the twin
    * is not instanceable, so the caller can say so; the type then draws full art
    * at every zoom. Call after `setIdleTemplate`, which clears any earlier twin.
@@ -337,8 +338,15 @@ export class StructureInstances {
     if (!sets?.idleParts || !instanceableTemplate(template)) return false;
     const full = sets.idleParts;
     const pairs: { part: InstancePart; full: InstancePart }[] = [];
+    // A ONE-mesh twin (the wall's roof and body joined, so a chunk-set costs one draw) has
+    // no role of its own to pair on: it takes the full art's material when EVERY full part
+    // carries the same one. A twin of several parts, or full parts of different materials,
+    // still pairs strictly by role.
+    const single = partsOf(template).length === 1;
+    const sharedMaterial = full.length > 0 && full.every((f) => f.mesh.material === full[0].mesh.material);
     for (const part of partsOf(template)) {
-      const partner = full.find((f) => roleOf(f.mesh) === roleOf(part.mesh));
+      const partner =
+        full.find((f) => roleOf(f.mesh) === roleOf(part.mesh)) ?? (single && sharedMaterial ? full[0] : undefined);
       if (!partner) return false;
       pairs.push({ part, full: partner });
     }
