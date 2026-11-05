@@ -169,6 +169,12 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: '=0 draws the pre-L1 frame: no sky environment, the shipped hemisphere, the 0.45 metal cap (GH-943; on by default)',
   },
   {
+    name: 'gpu',
+    // GH-943 L5 option (b): a SPIKE, never the default. A value flag like `tod`, sandbox-only like it, and not a
+    // SANDBOX_FLAGS boolean, so the Free play picker does not offer it. `gpu-trial-flag.ts` reads it.
+    blurb: '=webgpu draws the sandbox through WebGPURenderer (GH-943 L5 trial; falls back to WebGL2 with a console.warn when no adapter answers; unported GLSL hooks warn by name)',
+  },
+  {
     name: 'grade',
     // Look uplift L2 (GH-943), ON by default since 2 Nov 2026; `=0` is the A/B switch. A value flag like `tod`, not a
     // SANDBOX_FLAGS boolean, and a SANDBOX flag like it: a mission never reads it (N-23). `time-of-day.ts`'s `gradeOf`

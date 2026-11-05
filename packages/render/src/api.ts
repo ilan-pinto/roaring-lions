@@ -476,6 +476,13 @@ export interface RendererOptions {
    */
   environmentLight?: boolean;
   /**
+   * GH-943 L5, option (b): the WebGPU trial, `&gpu=webgpu` in the sandbox. A SPIKE (`three/spike/webgpu-trial.ts`):
+   * when set and a WebGPU adapter answers, a second canvas draws the same scene through `WebGPURenderer`; when
+   * not, a `console.warn` says why and the unchanged WebGL2 path draws. Absent is today's frame, to the bit.
+   * Three-only. Presentation only: nothing here is read by the sim.
+   */
+  gpuTrial?: 'webgpu';
+  /**
    * Look uplift L2 (GH-943): a colour grade, folded into the output pass between the tone map and the
    * vignette (`three/output-grade.ts`, maths in `three/grade-maths.ts`). `json` is a `data/grades/<id>.json`
    * file; `strength` scales every deviation from identity (1 = as authored, 0 = identity, default 1).

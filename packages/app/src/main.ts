@@ -319,6 +319,7 @@ import { gradeOf, lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { enginesOf } from './engines-flag';
 import { buildingFitOf } from './building-fit-flag';
 import { environmentLightOf } from './environment-flag';
+import { gpuTrialOf } from './gpu-trial-flag';
 import { registerServiceWorker } from './service-worker';
 import {
   Router,
@@ -2246,6 +2247,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const tod = timeOfDayOf((mission as { map: object } | undefined) ?? null, params);
   if (tod.warning) console.warn(`[lions] ${tod.warning}`);
   const lightOverride = lightOverrideOf((mission as { map: object } | undefined) ?? null);
+  const gpuTrial = gpuTrialOf(params, mission === undefined);
+  if (gpuTrial.warning) console.warn(`[lions] ${gpuTrial.warning}`);
   // Look uplift L2 (GH-943): the colour grade, ON by default (`&grade=0` is the A/B switch).
   // A mission's own `map.grade` wins over the flag's id, like `time_of_day`. Day is the identity and builds no pass.
   const gradeChoice = gradeOf((mission as { map: object } | undefined) ?? null, params, tod.value, grades);
@@ -2266,6 +2269,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ...(fit.value !== undefined ? { buildingFit: fit.value } : {}),
     // Look uplift L1 (GH-943): on by default; `&envlight=0` is the A/B switch. Presentation only.
     ...(environmentLightOf(params) ? {} : { environmentLight: false }),
+    // GH-943 L5 trial: sandbox only, off unless `&gpu=webgpu`. The renderer falls back to WebGL2 by itself.
+    ...(gpuTrial.value !== undefined ? { gpuTrial: gpuTrial.value } : {}),
     ...(gradeChoice.grade !== null ? { grade: { json: gradeChoice.grade, strength: gradeChoice.strength } } : {}),
     // Pass C2/C4 (P5): asked live, so the settings panel's motion switch
     // reaches the near-miss flinch mid-mission.
