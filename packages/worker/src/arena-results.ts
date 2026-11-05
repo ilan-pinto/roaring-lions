@@ -26,6 +26,12 @@ export const isArenaPath = (pathname: string): boolean => pathname === '/arena-r
 
 const notFound = (): Response => new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 
+/** If-None-Match (RFC 9110): `*`, or a comma-separated list of entity tags, weak (`W/`) ones compared weakly. */
+export function matchesEtag(header: string | null, etag: string): boolean {
+  if (header === null) return false;
+  return header.split(',').map((t) => t.trim()).some((t) => t === '*' || t.replace(/^W\//, '') === etag);
+}
+
 export function handleArenaResults(req: Request, env: ArenaEnv, doc: ArenaResults | null = ARENA_RESULTS): Response {
   const { pathname } = new URL(req.url);
   if (arenaHidden(env)) return notFound();
@@ -35,7 +41,7 @@ export function handleArenaResults(req: Request, env: ArenaEnv, doc: ArenaResult
   if (doc === null && json) return notFound();
   const etag = `"${doc === null ? 'empty' : doc.digest}"`;
   const headers: Record<string, string> = { 'cache-control': doc === null ? 'public, max-age=60' : ARENA_CACHE_CONTROL, etag };
-  if (req.headers.get('if-none-match') === etag) return new Response(null, { status: 304, headers });
+  if (matchesEtag(req.headers.get('if-none-match'), etag)) return new Response(null, { status: 304, headers });
   headers['content-type'] = json ? 'application/json; charset=utf-8' : 'text/html; charset=utf-8';
   if (!json) headers['content-security-policy'] = ARENA_PAGE_CSP;
   const body = json ? JSON.stringify(doc) : doc === null ? renderEmpty() : renderPreview(doc);

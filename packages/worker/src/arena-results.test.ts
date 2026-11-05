@@ -26,6 +26,10 @@ function fixture(label: string): ArenaResults {
   return { ...body, digest: digestOf(body) } as unknown as ArenaResults;
 }
 
+const ARENA_CSP_LITERAL =
+  "default-src 'self'; script-src 'none'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; " +
+  "font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+
 /** A DB that fails the test on ANY touch. */
 const throwingDb = new Proxy({}, { get: (_t, k) => { throw new Error(`the arena page touched env.DB.${String(k)}`); } });
 const env = (extra: Record<string, unknown> = {}): Env =>
@@ -54,8 +58,9 @@ describe('G9: public, cacheable, no D1, no cookie', () => {
     expect(html.status).toBe(200);
     // PAGE_CSP, minus its inline-script allowance: nothing else differs.
     const csp = html.headers.get('content-security-policy') ?? '';
-    expect(csp).toContain("script-src 'none'");
-    expect(csp).toBe(PAGE_CSP.replace("script-src 'unsafe-inline'", "script-src 'none'"));
+    expect(csp).toBe(ARENA_CSP_LITERAL);
+    // ...and it is PAGE_CSP with only the script source changed.
+    expect(csp.replace("script-src 'none'", "script-src 'unsafe-inline'")).toBe(PAGE_CSP);
     expect(html.headers.get('x-content-type-options')).toBe('nosniff');
     expect(html.headers.get('set-cookie')).toBeNull();
     const json = await worker.fetch(req('/arena-results.json'), env());
@@ -67,6 +72,15 @@ describe('G9: public, cacheable, no D1, no cookie', () => {
     return html.text().then((t) => {
       expect(t).not.toMatch(/<script|\son\w+=|href=|src=/i);
     });
+  });
+  it('If-None-Match: strong, weak, a list, and * all give 304; a different tag gives 200', () => {
+    const d = `"${doc.digest}"`;
+    for (const h of [d, `W/${d}`, `"other", ${d}`, `W/"other",W/${d}`, '*', ` ${d} `]) {
+      expect(handleArenaResults(req('/arena-results', { headers: { 'if-none-match': h } }), {}, doc).status, h).toBe(304);
+    }
+    for (const h of ['"other"', `"${doc.digest}x"`, 'W/"other", "also"', '']) {
+      expect(handleArenaResults(req('/arena-results', { headers: { 'if-none-match': h } }), {}, doc).status, h).toBe(200);
+    }
   });
   it('POST is refused', () => {
     expect(handleArenaResults(req('/arena-results', { method: 'POST' }), {}, doc).status).toBe(405);
@@ -88,7 +102,9 @@ describe('empty state: nothing published yet', () => {
     expect(res.headers.get('cache-control')).toBe('no-store');
   });
   it('tripwire: once data/arena/results.json exists, the Worker must bundle it (arena-data.ts)', () => {
-    if (existsSync(ROOT + 'data/arena/results.json')) expect(ARENA_RESULTS, 'edit packages/worker/src/arena-data.ts').not.toBeNull();
+    if (existsSync(ROOT + 'data/arena/results.json')) {
+      expect(ARENA_RESULTS, 'P4: edit packages/worker/src/arena-data.ts to import the file. Then ALSO convert the two empty-state Worker tests above to the handleArenaResults(..., null) form (they assume the bundled data is null), and add a Worker-level test (worker.fetch) of a data-bearing page.').not.toBeNull();
+    }
     else expect(ARENA_RESULTS).toBeNull();
   });
 });
