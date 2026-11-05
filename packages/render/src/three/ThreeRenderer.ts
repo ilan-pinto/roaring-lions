@@ -113,6 +113,7 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
+import { setImageReleaseEnabled } from './units/gltf-loader';
 import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
 import { rainReadNow, rainRimNow, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
@@ -3509,6 +3510,9 @@ export class ThreeRenderer implements Renderer {
 
   async init(host: HTMLElement): Promise<void> {
     this.host = host;
+    // L5 trial: WebGPU uploads a texture more than once, so the loader must not close bitmaps. Before ANY load starts,
+    // not when the trial comes up: a GLB that landed first would already be armed and draw black.
+    if (this.opts.gpuTrial === 'webgpu') setImageReleaseEnabled(false);
     this.loadGroundTexture();
     // Defilade T4: the flipbook atlases. Fail-soft and unawaited -- until
     // both land the flipbook draws nothing (no fallback billow).
@@ -5228,7 +5232,18 @@ export class ThreeRenderer implements Renderer {
         // Explicit rather than trusting `autoClear`, which the post chain's
         // own `RenderPass` turns off and on around itself.
         this.renderer.clear();
-        this.renderer.render(this.scene, camera);
+        // L5 trial: WebGPURenderer's ShadowNode stores its render target in `light.shadow.map`, the very slot
+        // WebGLShadowMap reads. A WebGL shadow pass here re-set-up that target, bumped its depth texture's
+        // version, and WebGPU then destroyed the GPUTexture its bind groups still named ("Destroyed texture
+        // ShadowDepthTexture used in a submit", every frame after). With the trial on, this one WebGL draw
+        // goes without the shadow pass; the minimap loses its shadows, which only the trial ever sees.
+        const shadowsWere = this.renderer.shadowMap.enabled;
+        if (this.gpuTrial) this.renderer.shadowMap.enabled = false;
+        try {
+          this.renderer.render(this.scene, camera);
+        } finally {
+          this.renderer.shadowMap.enabled = shadowsWere;
+        }
         // `renderToScreen` is false by default, so this draws its full-screen
         // quad into `encoded` -- tone-mapped and sRGB-encoded by its own
         // defines, which it reads off this renderer's `toneMapping` and
