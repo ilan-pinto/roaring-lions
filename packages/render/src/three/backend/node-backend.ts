@@ -17,6 +17,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 import type { BackendKind } from '../../gpu';
 import type { PostConfig, PostKit, RenderBackend } from './backend';
 import { createNodePostChain, type NodePostChain } from '../post-chain.node';
+import { createFogStageFactory } from '../fog-pass.node';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -95,6 +96,9 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     kit,
     get post() {
       return chain;
+    },
+    setFog: (table, hazeLow, maths) => {
+      kit.fog = createFogStageFactory(table, hazeLow, maths);
     },
     configure: (config) => build(config),
     setPixelRatio: (r) => renderer.setPixelRatio(r),
