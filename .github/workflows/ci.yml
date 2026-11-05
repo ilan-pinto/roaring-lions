@@ -139,6 +139,8 @@ jobs:
       # does not cover (render cost stays a manual browser gate).
       - run: pnpm perf:units
       - run: pnpm build
+      # GH-943 P0: three.core shared, three/webgpu lazy, main chunk clean and under its ceiling.
+      - run: pnpm --filter @lions/tools webgpu:bundle
 
   # The visual regression gate: three.js against a committed three.js baseline
   # (tools/src/ci/three-baseline-gate.ts). Its own job rather than a step in
@@ -333,6 +335,87 @@ jobs:
         with:
           name: visual-baseline-output
           path: visual-baseline-output
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # GH-943 WebGPU-primary migration, P0: the node backends' capture arms, REPORT-ONLY.
+  #
+  # `-wgl2` is three's WebGPURenderer on its own WebGL2 backend, `-wgpu` is the same renderer on WebGPU (Dawn on SwiftShader/Vulkan;
+  # the fallback adapter is allowed on CI only). Neither has a committed baseline (their keys are `...-wgl2` and `...-wgpu`, and
+  # nothing is blessed before P7), so each arm runs the gate in its no-baseline mode: it captures every scenario, runs the
+  # reference-free layer checks and the settled-frame check, and REFUSES (exit 2) a page that drew through the wrong backend.
+  # `continue-on-error` at JOB level keeps a red arm off the PR; the numbers it prints are the P0 findings. The `visual` job above
+  # is untouched and stays the only voting gate.
+  #
+  # Each arm is also timed (the wall-clock line in the step summary), because design section 4 turns this from per-PR to
+  # nightly-only if the wgpu arm needs more than 3x the legacy arm's time.
+  visual-backends:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [webgl2, webgpu]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      # Which Chromium launch arguments give a stable WebGPU device on this runner (report-only; the evidence behind
+      # `chromiumArgsFor('webgpu')`). Only the wgpu arm needs it.
+      - name: WebGPU device smoke (launch-argument variants)
+        if: matrix.arm == 'webgpu'
+        run: pnpm --filter @lions/tools exec tsx src/ci/webgpu-smoke.ts 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || true
+      - name: Gate arm (report-only, no baseline)
+        run: |
+          set +e
+          start=$(date +%s)
+          pnpm golden-baseline -- --gpu=${{ matrix.arm }} --port=5185 --out-dir=visual-backend-output-${{ matrix.arm }}
+          code=$?
+          secs=$(( $(date +%s) - start ))
+          echo "gate arm ${{ matrix.arm }}: exit $code in ${secs}s"
+          {
+            echo "### visual-backends / ${{ matrix.arm }}"
+            echo ""
+            echo "- gate exit code: \`$code\` (0 pass, 1 differs or a self-check failed, 2 refused or capture failed, 3 no baseline: the expected state in P0)"
+            echo "- gate wall time: ${secs} s"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - name: Bit-identical captures, backend assertion, unported census (5 fresh pages)
+        run: |
+          set +e
+          start=$(date +%s)
+          pnpm --filter @lions/tools backend-gates -- --gpu=${{ matrix.arm }} --scenario=quiet --runs=5 --port=5186 --out-dir=backend-gates-output 2>&1 | tee backend-gates.log
+          code=${PIPESTATUS[0]}
+          secs=$(( $(date +%s) - start ))
+          {
+            echo "- bit-identical gate exit code: \`$code\` in ${secs} s (0 identical, 1 differ, 2 refused)"
+            echo ""
+            echo '```'
+            grep -E "PASS|FAIL|REFUSED|unported|  (on-before|shader|env-map|image)" backend-gates.log | head -80
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - name: Upload captures
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: visual-backend-output-${{ matrix.arm }}
+          path: |
+            visual-backend-output-${{ matrix.arm }}
+            backend-gates-output
+            backend-gates.log
           if-no-files-found: ignore
           retention-days: 3
 

@@ -22,7 +22,7 @@
 // assert the exact fills and strokes, which a real context would only let it
 // assert by reading pixels back.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { units } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import { colorSlot } from '@lions/render';
@@ -902,6 +902,24 @@ describe('the alert flash', () => {
     recorder.ops.length = 0;
     minimap.onTick();
     expect(ring()).toBeUndefined();
+  });
+
+  it('redrawFresh drops a ring that expired after the last draw, where redrawGround keeps it (GH-943 node-arm capture)', () => {
+    const { minimap } = mount(() => false);
+    const t0 = performance.now();
+    minimap.flash([{ x: 12, y: 34 }], t0 - FLASH_MS / 2, IMPORTANT_WARN);
+    minimap.onTick();
+    const now = vi.spyOn(performance, 'now').mockReturnValue(t0 + FLASH_MS * 3);
+    try {
+      recorder.ops.length = 0;
+      minimap.redrawGround();
+      expect(ring()).toBeDefined();
+      recorder.ops.length = 0;
+      minimap.redrawFresh();
+      expect(ring()).toBeUndefined();
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('draws over the unit dots and under the viewport outline', () => {

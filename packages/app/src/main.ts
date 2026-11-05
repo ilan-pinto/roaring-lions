@@ -198,6 +198,8 @@ import { watchSmallScreen } from './ui/small-screen';
 import { watchNoGpu } from './ui/no-gpu';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
+import { gpuOf } from './gpu-flag';
+import { frameLoopFrozen, setFrameLoopFrozen } from './frame-freeze';
 import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock, isWorksKind, type ProductionRuntime } from './ui/production';
 import { IntelMoments, READY_FLASH_MS, type IntelOutput } from './ui/intel-moments';
@@ -2246,6 +2248,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const tod = timeOfDayOf((mission as { map: object } | undefined) ?? null, params);
   if (tod.warning) console.warn(`[lions] ${tod.warning}`);
   const lightOverride = lightOverrideOf((mission as { map: object } | undefined) ?? null);
+  // GH-943 P0: which renderer draws. Sandbox only; absent is the legacy renderer, to the bit.
+  const gpuChoice = gpuOf(params, mission === undefined);
+  if (gpuChoice.warning) console.warn(`[lions] ${gpuChoice.warning}`);
   // Look uplift L2 (GH-943): the colour grade, ON by default (`&grade=0` is the A/B switch).
   // A mission's own `map.grade` wins over the flag's id, like `time_of_day`. Day is the identity and builds no pass.
   const gradeChoice = gradeOf((mission as { map: object } | undefined) ?? null, params, tod.value, grades);
@@ -2266,6 +2271,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ...(fit.value !== undefined ? { buildingFit: fit.value } : {}),
     // Look uplift L1 (GH-943): on by default; `&envlight=0` is the A/B switch. Presentation only.
     ...(environmentLightOf(params) ? {} : { environmentLight: false }),
+    ...(gpuChoice.value !== undefined ? { gpu: gpuChoice.value } : {}),
     ...(gradeChoice.grade !== null ? { grade: { json: gradeChoice.grade, strength: gradeChoice.strength } } : {}),
     // Pass C2/C4 (P5): asked live, so the settings panel's motion switch
     // reaches the near-miss flinch mid-mission.
@@ -6688,6 +6694,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       help: () => {
         console.info(`[lions] ${helpText()}`);
       },
+      /** GH-943 P0: raises or lowers the harness's frame-loop freeze (`frame-freeze.ts`): the native rAF keeps running, the loop's
+       *  body does not. Capture instruments only; the game never calls it. */
+      freezeLoop: (on: boolean) => setFrameLoopFrozen(on),
       // Absent in a room: the room's clock is the only clock, and a console
       // step there would run frames this machine does not have. A room has
       // `net()` instead: hashes agreed, stalls, reconnects (`net/net-report.ts`).
@@ -6790,7 +6799,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
        *  gate's `crown` toggle needs it: the frame loop is frozen there, so a
        *  terrain rebuild would otherwise never reach the minimap's photograph
        *  -- the one place `relief` and `aftermath` show a crown summit. */
-      redrawMinimap: () => minimap.redrawGround(),
+      redrawMinimap: (fresh?: boolean) => (fresh === true ? minimap.redrawFresh() : minimap.redrawGround()),
 
       /** Put the pointer somewhere and run the REAL hover read, returning the
        *  cursor key it produced.
@@ -7128,6 +7137,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let roomStatusSeen: TransportStatus = room?.status() ?? { kind: 'local' };
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
+    // GH-943 P0: the harness's frame-loop freeze (`frame-freeze.ts`). The loop keeps re-arming through the NATIVE rAF, runs no
+    // tick and draws no frame, and holds the clock so nothing is owed when the flag comes down. Never set by the game.
+    if (frameLoopFrozen()) {
+      advanceClock(clock, performance.now(), gameSpeed, true, MS_PER_TICK);
+      return;
+    }
     // The speed control feeds the ACCUMULATOR, never the tick. A tick is 50 ms
     // of sim time at every setting (invariant 1); 2x runs two of them where one
     // would have run, and 0 runs none while the frame still draws, so the

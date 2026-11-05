@@ -180,6 +180,10 @@ import {
   type LitTimeOfDay,
 } from './time-of-day';
 import { disposeAndReleaseContext, noteSharedTextures } from './context-release';
+import { backendLogLine, planBackend, probeWebGpu, wantsNodeBackend, type BackendInfo, type GpuNavigatorLike } from '../gpu';
+import type { RenderBackend } from './backend/backend';
+import type { UnportedHook } from './backend/unported';
+import { setImageReleaseEnabled } from './units/gltf-loader';
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import type { OutputVignette } from './vignette-pass';
@@ -1221,7 +1225,24 @@ export class ThreeRenderer implements Renderer {
   objectiveZones?: readonly ObjectiveZoneView[];
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
 
-  private readonly renderer: THREE.WebGLRenderer;
+  /**
+   * The legacy `WebGLRenderer`, built ONLY for the legacy path (`makeGlRenderer`). A node boot (`opts.gpu` asking for the
+   * WebGPURenderer) never constructs one: two renderers over one scene graph share `light.shadow.map` (d75c79faa). Reach it
+   * through `renderer`, which says so loudly if a legacy-only path runs on a node boot.
+   */
+  private glRenderer: THREE.WebGLRenderer | null = null;
+  /** GH-943 P0: the node `RenderBackend` once `init` has built it, else null (legacy, or before init). */
+  private nodeBackend: RenderBackend | null = null;
+  /** What `backendInfo()` reports. `legacy-gl` until a node init says otherwise. */
+  private backendInfoValue: BackendInfo;
+  /** True when `opts.gpu` asked for the node backend; fixed at construction (it decides whether a WebGLRenderer exists). */
+  private readonly nodeWanted: boolean;
+  private get renderer(): THREE.WebGLRenderer {
+    if (this.glRenderer === null) {
+      throw new Error('ThreeRenderer: a legacy-gl path ran on a node backend boot (P1-P5 port it; see docs/agent-notes/renderer.md)');
+    }
+    return this.glRenderer;
+  }
   private readonly scene = new THREE.Scene();
   /** The sim side this player commands (`opts.viewerSide`, network design
    *  §5.1): its units reveal fog and always draw. Absent is 0, single-player,
@@ -3306,14 +3327,14 @@ export class ThreeRenderer implements Renderer {
     // un-antialiasing the composer-less path -- which is the path the spikes
     // and any future `frame()` before `init()` draw through, and which has
     // no SMAA to fall back on.
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    // A field work under construction is cut by a per-material clip plane
-    // (`units/construction-clip.ts`); local planes are ignored without this.
-    this.renderer.localClippingEnabled = true;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
-    this.renderer.setClearColor(new THREE.Color(this.opts.background));
+    this.nodeWanted = wantsNodeBackend(opts.gpu);
+    this.backendInfoValue = { kind: 'legacy-gl', adapter: 'none', requested: opts.gpu ?? 'legacy' };
+    if (this.nodeWanted) {
+      // GH-943 P0: the node backend closes GLB bitmaps never (WebGPU uploads a texture twice). Before ANY load starts.
+      setImageReleaseEnabled(false);
+    } else {
+      this.glRenderer = this.makeGlRenderer();
+    }
     // AND `scene.background`, which is the one that actually decides the
     // colour the composer's target is cleared to -- measured, not belt and
     // braces. `setClearColor` hands the triple to `state.buffers.color`
@@ -3488,7 +3509,7 @@ export class ThreeRenderer implements Renderer {
   }
 
   get canvas(): HTMLCanvasElement {
-    return this.renderer.domElement;
+    return this.nodeBackend?.domElement ?? this.renderer.domElement;
   }
   /**
    * CSS pixels, NOT the drawing buffer's size.
@@ -3515,6 +3536,13 @@ export class ThreeRenderer implements Renderer {
 
   async init(host: HTMLElement): Promise<void> {
     this.host = host;
+    // GH-943 P0: a node boot builds its backend FIRST (it decides whether a WebGLRenderer ever exists); a failure falls back
+    // to the legacy path, loudly, and `backendInfo()` says so.
+    if (this.nodeWanted) await this.initNodeBackend();
+    else {
+      this.backendInfoValue = { kind: 'legacy-gl', adapter: 'webgl2', requested: this.opts.gpu ?? 'legacy' };
+      console.info(backendLogLine(this.backendInfoValue));
+    }
     this.loadGroundTexture();
     // Defilade T4: the flipbook atlases. Fail-soft and unawaited -- until
     // both land the flipbook draws nothing (no fallback billow).
@@ -3526,6 +3554,20 @@ export class ThreeRenderer implements Renderer {
     // fakes exercise with a renderer stub that has four members.
     // `maxPixelRatio` (GH-469): the menu's backdrop asks for a lower one.
     this.pixelRatio = Math.min(globalThis.devicePixelRatio || 1, this.opts.maxPixelRatio ?? PIXEL_RATIO_CAP);
+    if (this.nodeBackend) {
+      this.nodeBackend.setPixelRatio(this.pixelRatio);
+      this.fitToHost();
+      // P1 ports the post chain, the sky environment (PMREM), fog, AO, bloom, vignette and grade to the node pipeline. Until
+      // then a node boot draws the scene pass and the output transform only, and the census names what is missing.
+      host.appendChild(this.nodeBackend.domElement);
+      this.resizeObserver = new ResizeObserver(() => {
+        this.fitToHost();
+      });
+      this.resizeObserver.observe(host);
+      this.seedFromSim();
+      await this.nodeBackend.prepare(this.scene, this.viewCamera);
+      return;
+    }
     this.renderer.setPixelRatio(this.pixelRatio);
     // L1 (GH-943): the sky needs a live context, so it is painted here. Materials adopted
     // before this line (none in practice: templates load after `init`) receive it now.
@@ -3627,6 +3669,70 @@ export class ThreeRenderer implements Renderer {
     // elapse before that first tick lands.
     this.seedFromSim();
     await Promise.resolve();
+  }
+
+  /** The legacy renderer, built exactly as the constructor always built it (comment above `nodeWanted` in the constructor). */
+  private makeGlRenderer(): THREE.WebGLRenderer {
+    const r = new THREE.WebGLRenderer({ antialias: true, stencil: true });
+    r.outputColorSpace = THREE.SRGBColorSpace;
+    // A field work under construction is cut by a per-material clip plane
+    // (`units/construction-clip.ts`); local planes are ignored without this.
+    r.localClippingEnabled = true;
+    r.toneMapping = THREE.ACESFilmicToneMapping;
+    r.toneMappingExposure = 1.0;
+    r.setClearColor(new THREE.Color(this.opts.background));
+    return r;
+  }
+
+  /**
+   * GH-943 P0: builds the node backend (`opts.gpu` is auto, webgpu or webgl2), by its own dynamic import. The backend KIND is
+   * asserted inside `createNodeBackend` (`forceWebGL` is set explicitly on both arms), so what draws is what `backendInfo()` says.
+   * A WebGPU failure falls to node-WebGL2, a node failure to the legacy path; each step is logged with its reason, never silent.
+   */
+  private async initNodeBackend(): Promise<void> {
+    const requested = this.opts.gpu ?? 'legacy';
+    const probe = await probeWebGpu(globalThis.navigator as unknown as GpuNavigatorLike | undefined);
+    const plan = planBackend(requested, probe);
+    let reason = plan.kind === 'node-webgl2' ? plan.reason : '';
+    const attempts: boolean[] = plan.kind === 'node-webgpu' ? [false, true] : [true];
+    for (const forceWebGL of attempts) {
+      const { createNodeBackend } = await import('./backend/node-backend');
+      const made = await createNodeBackend({
+        background: this.opts.background,
+        forceWebGL,
+        adapter: plan.kind === 'node-webgpu' ? plan.adapter : 'webgl2',
+      });
+      if (this.disposed) {
+        if ('backend' in made) made.backend.dispose();
+        return;
+      }
+      if ('backend' in made) {
+        this.nodeBackend = made.backend;
+        this.backendInfoValue = { kind: made.backend.kind, adapter: made.backend.adapter, requested, ...(reason !== '' ? { reason } : {}) };
+        console.info(backendLogLine(this.backendInfoValue));
+        return;
+      }
+      reason = made.reason;
+    }
+    // Nothing node drew: the legacy path, said so.
+    this.glRenderer = this.makeGlRenderer();
+    this.backendInfoValue = { kind: 'legacy-gl', adapter: 'webgl2', requested, reason };
+    console.warn(backendLogLine(this.backendInfoValue));
+  }
+
+  /** `Renderer.backendInfo` (`api.ts`). Read by the harness, the log, feedback and settings. */
+  backendInfo(): BackendInfo {
+    return this.backendInfoValue;
+  }
+
+  /** `Renderer.unportedHooks` (`api.ts`): the node backend's census, empty on the legacy path. */
+  unportedHooks(): readonly UnportedHook[] {
+    return this.nodeBackend?.unported() ?? [];
+  }
+
+  /** `Renderer.whenGpuIdle` (`api.ts`): the node backend's `onSubmittedWorkDone`; resolved at once on legacy. */
+  whenGpuIdle(): Promise<void> {
+    return this.nodeBackend?.whenSubmitted() ?? Promise.resolve();
   }
 
   /** `Renderer.setQuiet` (`api.ts`): see `quiet.ts` for what `onEvents` drops. */
@@ -3840,7 +3946,7 @@ export class ThreeRenderer implements Renderer {
     if (this.disposed) return;
     this.disposed = true;
     // Before `releaseResources` disposes the materials it is read through.
-    noteSharedTextures(this.renderer, this.scene);
+    if (this.glRenderer) noteSharedTextures(this.glRenderer, this.scene);
     // L1 (GH-943): strip the environment from every material it gave one to (a clone memoised on a
     // shared GLB material outlives this renderer), then free the texture while the context lives.
     this.environment?.dispose();
@@ -3850,7 +3956,10 @@ export class ThreeRenderer implements Renderer {
       // LAST: three's own caches, then the context itself. Everything
       // `releaseResources` freed was freed by a live context; after this
       // line there is none.
-      disposeAndReleaseContext(this.renderer);
+      if (this.glRenderer) disposeAndReleaseContext(this.glRenderer);
+      // The node backend releases its own device (`renderer.dispose()` then `device.destroy()`), never `loseContext()`.
+      this.nodeBackend?.dispose();
+      this.nodeBackend = null;
       this.host = null;
     }
   }
@@ -4170,6 +4279,10 @@ export class ThreeRenderer implements Renderer {
     if (!this.host) return;
     this.cssWidth = Math.max(1, this.host.clientWidth);
     this.cssHeight = Math.max(1, this.host.clientHeight);
+    if (this.nodeBackend) {
+      this.nodeBackend.setSize(this.cssWidth, this.cssHeight);
+      return;
+    }
     this.renderer.setSize(this.cssWidth, this.cssHeight);
     this.post?.setSize(this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
   }
@@ -4406,7 +4519,10 @@ export class ThreeRenderer implements Renderer {
     // whose own `antialias: true` stands in for the SMAA pass. Tone mapping
     // and the sRGB encode happen either way -- on this path the renderer
     // does them itself, on the composer's path `OutputPass` does.
-    if (this.post) {
+    if (this.nodeBackend) {
+      this.applyZoomFade();
+      this.nodeBackend.render(this.scene, camera);
+    } else if (this.post) {
       this.applyZoomFade();
       this.post.render();
     } else this.renderer.render(this.scene, camera);
@@ -5023,7 +5139,7 @@ export class ThreeRenderer implements Renderer {
    * it: the picture is what the player is looking at, minus the DOM.
    */
   captureView(maxWidth: number): ImageData | null {
-    if (this.disposed || this.post === null) return null;
+    if (this.disposed || this.post === null || this.glRenderer === null) return null;
     const copy = new ShaderPass(CopyShader);
     try {
       const px = captureComposerView(
@@ -5104,6 +5220,9 @@ export class ThreeRenderer implements Renderer {
    * GTAO, no vignette, no SMAA.
    */
   private photographGround(size: number): ImageData | null {
+    // GH-943 P0: the ground photograph is a WebGLRenderer render target. A node boot keeps the minimap's painted terrain until
+    // P1 ports it ASYNC on the SAME renderer (never a second renderer over this scene graph).
+    if (this.glRenderer === null) return null;
     const w = this.sim.width;
     const h = this.sim.height;
     if (w < 1 || h < 1) return null;
@@ -10573,6 +10692,7 @@ export class ThreeRenderer implements Renderer {
       extra.push(['post chain', this.post.composer.renderTarget1.texture]);
       extra.push(['post chain', this.post.composer.renderTarget2.texture]);
     }
+    if (this.glRenderer === null) return buildInventory(entries, null, extra);
     return buildInventory(entries, this.renderer, extra);
   }
 

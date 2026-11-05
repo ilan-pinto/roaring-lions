@@ -109,8 +109,22 @@ function isClosable(v: unknown): v is Closable {
   );
 }
 
+/** GH-943 P0: WebGPURenderer (either of its backends) can upload a texture more than once, and closing the bitmap after the first
+ *  upload draws it black. A node boot turns the release OFF; it is on everywhere else, always. */
+// Read from the URL at module load as well as from `ThreeRenderer`'s constructor: the app starts loading GLBs before
+// `ThreeRenderer.init` runs, so a flag set later finds textures already armed (and closed) and they draw black.
+let imageReleaseEnabled = !/[?&]gpu=(auto|webgpu|webgl2)(&|$)/.test(globalThis.location?.search ?? '');
+export function setImageReleaseEnabled(on: boolean): void {
+  imageReleaseEnabled = on;
+}
+/** Read-back for the P0 harness refusal "uploaded again": is the release armed? */
+export function imageReleaseIsEnabled(): boolean {
+  return imageReleaseEnabled;
+}
+
 /** Arm one texture: close its bitmap after its first upload. Idempotent. */
 export function releaseImageAfterUpload(texture: THREE.Texture): void {
+  if (!imageReleaseEnabled) return;
   if (!isClosable(texture.image) || texture.userData[RELEASED_IMAGE_KEY] !== undefined) return;
   const previous = texture.onUpdate;
   const t = texture;
