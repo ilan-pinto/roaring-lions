@@ -1074,6 +1074,16 @@ export function repaintScriptFor(arm: GpuArm): string {
   return arm === 'legacy' ? REPAINT_SCRIPT : NODE_REPAINT_SCRIPT;
 }
 
+/**
+ * GH-943 P1 T1: on a node arm, one NATIVE rAF between the toggle and the zero-time repaint. The node backend's `PassNode` redraws at
+ * most once per `frameId`, and `frameId` advances on the renderer's own rAF, so a `frame(1, 0)` issued in the same task as the toggle
+ * is a stale repaint: the "hidden" photograph would show the "shown" frame and every layer would read as contributing nothing. The
+ * frame loop is frozen by the app flag on a node arm (never a stubbed global rAF), so this rAF is the real one. Legacy has no such
+ * seam and keeps its script byte-identical.
+ */
+export const NODE_NATIVE_RAF_STATEMENT = `  await new Promise(function (r) { window.requestAnimationFrame(function () { r(); }); });
+`;
+
 /** Switches one named draw layer off (`visible: false`) or back on, then
  *  repaints with `REPAINT_SCRIPT`'s own zero-time `frame(1, 0)`.
  *
@@ -1092,11 +1102,11 @@ export function repaintScriptFor(arm: GpuArm): string {
  *
  *  Returns the object count `setDebugLayerVisible` reports, for the log line
  *  only. The gate's verdict comes from the two SCREENSHOTS. */
-export function layerToggleScript(layer: string, visible: boolean, arm: GpuArm = 'legacy'): string {
+export function layerToggleScript(layer: string, visible: boolean, arm: GpuArm = 'legacy', opts: CaptureScriptOptions = {}): string {
   return `(async () => {
   const objects = window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(layer)}, ${visible});
-  window.__lions.renderer.frame(1, 0);
-${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${layer === 'crown' ? '  window.__lions.redrawMinimap();\n' : ''}  return JSON.stringify({ layer: ${JSON.stringify(layer)}, visible: ${visible}, objects, tick: window.__lions.sim.tickCount });
+${arm === 'legacy' ? '' : NODE_NATIVE_RAF_STATEMENT}  window.__lions.renderer.frame(1, 0);
+${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${layer === 'crown' ? '  window.__lions.redrawMinimap();\n' : ''}${opts.matchNodeRoot !== undefined ? matchNodeStatements(opts.matchNodeRoot) : ''}  return JSON.stringify({ layer: ${JSON.stringify(layer)}, visible: ${visible}, objects, tick: window.__lions.sim.tickCount });
 })()`;
 }
 
@@ -1112,7 +1122,36 @@ ${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${l
  *  `FREEZE_FRAME_LOOP_STATEMENTS`, which awaits a real frame. Playwright
  *  awaits a promise an evaluated expression returns, and so does devtools'
  *  console. */
-export function captureScript(scenario: Scenario = QUIET_SCENARIO, arm: GpuArm = 'legacy'): string {
+/**
+ * GH-943 P1 T1: the `--match-node` legacy arm. The node backend draws less than the shipping legacy chain (its census hides every
+ * `ShaderMaterial` object and the occlusion outline, and P0 has no AO), so a parity ratio against SHIPPED legacy would measure that
+ * gap, not the effect. This statement runs the node backend's own `censusUnported` on the LEGACY scene (the same function, loaded
+ * from the dev server by its `/@fs/` path so the module instance is the page's own) and switches the AO pass off, then repaints, so
+ * the legacy frame is "what the node chain draws". Presentation only: it touches scene visibility, never the sim. The AO stays off
+ * until T7 ports it; T7 removes the line. Legacy arm only (a node arm needs no matching, it IS the node chain).
+ */
+export function matchNodeStatements(repoRoot: string): string {
+  const unported = `/@fs${repoRoot}/packages/render/src/three/backend/unported.ts`;
+  return `{
+  const _r = window.__lions.renderer;
+  const _u = await import(${JSON.stringify(unported)});
+  if (_r.aoPass) _r.aoPass.enabled = false;
+  const _found = _u.censusUnported(_r.scene);
+  if (!Array.isArray(_found)) throw new Error('match-node: censusUnported returned no list');
+  _r.frame(1, 0);
+}
+`;
+}
+
+export interface CaptureScriptOptions {
+  /** Run `matchNodeStatements` before the camera is read (legacy arm only; the gate's `--match-node`). */
+  readonly matchNodeRoot?: string;
+}
+
+export function captureScript(scenario: Scenario = QUIET_SCENARIO, arm: GpuArm = 'legacy', opts: CaptureScriptOptions = {}): string {
+  if (opts.matchNodeRoot !== undefined && arm !== 'legacy') {
+    throw new Error('captureScript: --match-node is a legacy-arm option (a node arm already draws the node chain)');
+  }
   if (scenario.cameraMarker === undefined && scenario.cameraTile === undefined) {
     throw new Error(`captureScript: scenario "${scenario.id}" sets neither cameraMarker nor cameraTile`);
   }
@@ -1148,7 +1187,7 @@ ${HIDE_ALERT_FEED_STATEMENTS}
 ${gotoLine}
 ${zoomLine}${ordersLine}${parkLine}${stepLine}
 ${CAPTURE_PRECONDITION_STATEMENTS}
-${arm === 'legacy' ? '' : NODE_HUD_SETTLE_STATEMENTS + 'await window.__lions.renderer.whenGpuIdle();\n'}const c = window.__lions.renderer.camera;
+${opts.matchNodeRoot !== undefined ? matchNodeStatements(opts.matchNodeRoot) : ''}${arm === 'legacy' ? '' : NODE_HUD_SETTLE_STATEMENTS + 'await window.__lions.renderer.whenGpuIdle();\n'}const c = window.__lions.renderer.camera;
 const canvas = window.__lions.renderer.canvas;
 const r = canvas.getBoundingClientRect();
 const bi = window.__lions.renderer.backendInfo();

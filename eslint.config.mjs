@@ -3,6 +3,7 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
 import { PORTED_FILES, portedFilesBlocks } from './tools/webgpu_ratchet.mjs';
+import { ROAR_FENCE, RENDER_DEP_SELECTOR, RATCHET_BASE } from './tools/webgpu_fences.mjs';
 
 const SIM_MSG =
   'Banned in @lions/sim (invariant 2, CLAUDE.md): the sim is Q16.16 fixed-point. ' +
@@ -86,12 +87,6 @@ const APP_RESTRICTED = {
 // (invariant 4). These modules stay out of the sim, the renderer, the net package and
 // the app's versus plumbing (`packages/app/src/net/**`, `match-world.ts` above all): a
 // room's kit is a claim the shell hands it (`OpenDeps.tiers`), never a read of the wallet.
-const ROAR_FENCE = {
-  group: ['**/roar-wallet', '**/roar-wallet.ts', '**/roar-earn', '**/roar-earn.ts', '**/account-view', '**/account-view.ts'],
-  message:
-    'The Roar-coin wallet (GH-317) is single-player: keep roar-wallet, roar-earn and account-view out of the sim, ' +
-    'the renderer, the net package and packages/app/src/net. A versus room is handed its claim; it never reads the wallet.',
-};
 
 export default defineConfig(
   {
@@ -244,10 +239,7 @@ export default defineConfig(
     rules: {
       'no-restricted-syntax': [
         'error',
-        {
-          selector: 'ImportDeclaration[source.value=/^@lions\\u002F(app|data)/]',
-          message: '@lions/render may import @lions/sim only (CLAUDE.md dependency direction).',
-        },
+        RENDER_DEP_SELECTOR,
       ],
     },
   },
@@ -385,5 +377,5 @@ export default defineConfig(
     rules: { 'no-restricted-imports': ['error', { ...APP_RESTRICTED, patterns: [...APP_RESTRICTED.patterns, ROAR_FENCE] }] },
   },
   // GH-943 P0: the GLSL ratchet. Empty until P1 ports a file; see tools/webgpu_ratchet.mjs.
-  ...portedFilesBlocks(PORTED_FILES)
+  ...portedFilesBlocks(PORTED_FILES, RATCHET_BASE)
 );

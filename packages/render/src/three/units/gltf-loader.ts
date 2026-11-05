@@ -113,7 +113,15 @@ function isClosable(v: unknown): v is Closable {
  *  upload draws it black. A node boot turns the release OFF; it is on everywhere else, always. */
 // Read from the URL at module load as well as from `ThreeRenderer`'s constructor: the app starts loading GLBs before
 // `ThreeRenderer.init` runs, so a flag set later finds textures already armed (and closed) and they draw black.
-let imageReleaseEnabled = !/[?&]gpu=(auto|webgpu|webgl2)(&|$)/.test(globalThis.location?.search ?? '');
+// `&gpu=` is SANDBOX-ONLY until the cutover (packages/app/src/gpu-flag.ts: a mission always draws legacy), so this read has the same
+// gate: a sandbox is `/free-play/<map>` or the old `?sandbox=<map>` form (the router redirects it onto the path, after this runs).
+// Without it a mission URL carrying `&gpu=webgpu` would leave the release OFF while the renderer, correctly, stayed legacy.
+const GPU_FLAG_ON = /[?&]gpu=(auto|webgpu|webgl2)(&|$)/;
+const IN_SANDBOX = /^\/free-play\/[^/]|[?&]sandbox=/;
+export function gpuFlagReleaseOff(pathname: string, search: string): boolean {
+  return GPU_FLAG_ON.test(search) && IN_SANDBOX.test(pathname + search);
+}
+let imageReleaseEnabled = !gpuFlagReleaseOff(globalThis.location?.pathname ?? '', globalThis.location?.search ?? '');
 export function setImageReleaseEnabled(on: boolean): void {
   imageReleaseEnabled = on;
 }
