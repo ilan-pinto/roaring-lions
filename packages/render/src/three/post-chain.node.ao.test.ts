@@ -13,12 +13,14 @@ import {
   type NodeAoDeps,
 } from './post-chain.node';
 import { seededAoNoiseTexture } from './ao-occluder';
+import { createOrthoAwareGtao } from './gtao-ortho.node';
 import { QUALITY_PRESETS } from '../quality';
 
 async function aoDeps(): Promise<NodeAoDeps> {
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
-  const { ao } = await import('three/addons/tsl/display/GTAONode.js');
+  const gtaoModule = await import('three/addons/tsl/display/GTAONode.js');
+  const ao = createOrthoAwareGtao({ TSL, GTAONode: gtaoModule.default as never });
   const { denoise } = await import('three/addons/tsl/display/DenoiseNode.js');
   return { W, TSL, ao: ao as never, denoise: denoise as never };
 }
@@ -226,5 +228,29 @@ describe('the private fields the AO relies on, pinned against three 0.186.1', ()
     // Falsify: delete the `den.noiseNode.value = seeded` line in `createNodeAoStage`; the two builds then differ.
     expect(await build()).toEqual(first);
     expect(first).toEqual(bytes(seededAoNoiseTexture()));
+  });
+});
+
+describe('the GTAO view direction follows the camera', () => {
+  /** Every node reachable from `root`. */
+  const reaches = (root: { traverse(f: (n: unknown) => void): void }, target: unknown): boolean => {
+    let hit = false;
+    root.traverse((n) => {
+      if (n === target) hit = true;
+    });
+    return hit;
+  };
+
+  it('an orthographic camera gets the constant (0,0,1): the graph has no normalize of the view position; perspective keeps it', async () => {
+    const deps = await aoDeps();
+    const tex = (): never => deps.TSL.texture(new THREE.DataTexture(new Uint8Array(4), 1, 1)) as never;
+    const make = (cam: THREE.Camera) =>
+      deps.ao(tex(), tex(), cam) as unknown as { viewDirOf(p: unknown): { traverse(f: (n: unknown) => void): void } };
+    const viewPosition = deps.TSL.vec3(1, 2, 3);
+    const ortho = make(new THREE.OrthographicCamera()).viewDirOf(viewPosition);
+    const persp = make(new THREE.PerspectiveCamera()).viewDirOf(viewPosition);
+    // Falsify: drop the `if (this.orthographic)` early return in `viewDirOf`; the ortho graph then reaches the view position.
+    expect(reaches(ortho, viewPosition)).toBe(false);
+    expect(reaches(persp, viewPosition)).toBe(true);
   });
 });

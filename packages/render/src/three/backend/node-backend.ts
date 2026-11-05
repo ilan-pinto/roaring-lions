@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import type { BackendKind } from '../../gpu';
 import type { AoControl, PostConfig, PostKit, RenderBackend } from './backend';
+import { createOrthoAwareGtao } from '../gtao-ortho.node';
 import { createNodePostChain, createNodeAoStage, type NodePostChain, type OutputMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
@@ -52,7 +53,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   // BloomNode is a TSL node (`three/addons/tsl/display`), like SMAA: loaded here, in the lazy chunk.
   const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
   // GTAO and its denoise (T7): also TSL nodes under `tsl/display`, not postprocessing passes.
-  const { ao: gtao } = await import('three/addons/tsl/display/GTAONode.js');
+  const gtaoModule = await import('three/addons/tsl/display/GTAONode.js');
+  const gtao = createOrthoAwareGtao({ TSL, GTAONode: gtaoModule.default as never });
   const { denoise } = await import('three/addons/tsl/display/DenoiseNode.js');
   const renderer: WebGPURenderer = new W.WebGPURenderer({ antialias: false, alpha: false, forceWebGL: opts.forceWebGL });
   try {
