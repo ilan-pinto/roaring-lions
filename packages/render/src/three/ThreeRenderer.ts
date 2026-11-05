@@ -672,6 +672,7 @@ import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel } from './haze';
 import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
+import { FogUniforms, type FogPassLike } from './fog-spec';
 import {
   RAIN_SPLASH_KEY,
   RAIN_STREAK_KEY,
@@ -2882,7 +2883,7 @@ export class ThreeRenderer implements Renderer {
    * below releases both of these.
    */
   private readonly shroud: ShroudTexture;
-  private fogPass: FogOfWarPass | null = null;
+  private fogPass: FogPassLike | null = null;
   /**
    * Task 13: ambient occlusion, the contact shadow under a hull and along a
    * wall base. Built in `init()` for the same reason the fog pass is (it
@@ -3561,6 +3562,15 @@ export class ThreeRenderer implements Renderer {
       // (`nodeBackend.kit`: fog T4, bloom T5, AO T7) are null until those tasks land, so until then the chain is the scene pass,
       // the output transform and SMAA, and the legacy `fogPass`/`aoPass`/`bloomPass` fields stay null (every toggle that reads
       // them is null-safe and returns 0). Sky environment (T6), grade and vignette (T3) are not on this path yet.
+      // GH-943 P1 (T4): the fog's uniform table is the legacy pass's own record (`FogUniforms`), so every `fogPass` site below
+      // (reveal, haze, shimmer, focus, the debug layers) is the same code on both backends; the node fog stage reads the table.
+      const rain = this.rainSettings;
+      const fog = new FogUniforms(this.shroud.texture, this.sim.width, this.sim.height, rain === null ? undefined : { hazeLow: rain.hazeLow });
+      this.fogPass = fog;
+      if (this.viewAll) fog.uniforms.uRevealAll.value = 1;
+      this.nodeBackend.setFog(fog.uniforms, fog.hazeLow);
+      this.applyBackdropFog();
+      this.applyHaze();
       this.nodeBackend.configure({ scene: this.scene, camera: this.viewCamera, quality: this.opts.quality ?? QUALITY_PRESETS.high });
       this.mountAndObserve(host);
       this.seedFromSim();
@@ -3601,9 +3611,10 @@ export class ThreeRenderer implements Renderer {
     // reads as `readBuffer.depthTexture` is that pass's own depth. The chain
     // does NOT take ownership (see `PostChain.setFogPass`), so `dispose()`
     // releases this one.
-    this.fogPass = this.createFogPass();
-    if (this.viewAll) this.fogPass.uniforms.uRevealAll.value = 1;
-    this.post.setFogPass(this.fogPass);
+    const legacyFog = this.createFogPass();
+    this.fogPass = legacyFog;
+    if (this.viewAll) legacyFog.uniforms.uRevealAll.value = 1;
+    this.post.setFogPass(legacyFog);
     this.applyBackdropFog();
     // Ground plan 2, Task 9: the dust haze lives in the same pass (R-14).
     this.applyHaze();

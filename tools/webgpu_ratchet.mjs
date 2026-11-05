@@ -11,6 +11,8 @@ export const PORTED_FILES = [
   // GH-943 P1 (T2): the node post chain. The ratchet lists the NODE twin: it is the file that must stay GLSL-free. Its legacy
   // twin (post-chain.ts, the EffectComposer) keeps its passes until P8, so it is not listed here.
   'packages/render/src/three/post-chain.node.ts',
+  // GH-943 P1 (T4): the fog, haze, shroud and beam-shimmer stage. Its legacy twin (fog-pass.ts) keeps its GLSL until P8.
+  'packages/render/src/three/fog-pass.node.ts',
 ];
 
 /**
