@@ -11,6 +11,7 @@ import { Sim, fx, ONE, AIR_LAND_TICKS, type Fx, type UnitTypeJson } from '@lions
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import { AIR_LIFT_PX } from './units/frame-state';
+import { AIR_CARRIER_LIFT_PX } from './units/air-carrier';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../project';
 import type { OverlayBatch } from './units/overlays';
 
@@ -71,6 +72,7 @@ const U_MOBILITY = 0x80000000;
 interface Privates {
   overlayBatch: OverlayBatch;
   airLiftY(i: number, alpha: number): number;
+  pickLiftPx(i: number): number;
   updateOverlays(alpha: number): void;
 }
 
@@ -130,5 +132,43 @@ describe('air lift for a non-carrier aircraft (#706 §3.5)', () => {
     renderer.snapshot();
     expect(priv.airLiftY(id, 1)).toBe(0);
     expect(shadowAlpha(priv)).toBe(0);
+  });
+});
+
+/** GH-1007 P2: a seated aircraft, so `isAir` AND `isAirCarrier`, read from the sim's own type (no id list). */
+const CARRIER: UnitTypeJson = {
+  id: 'al_carrier',
+  role: 'apc',
+  hull: { hp: 3000, armor: { front: 300, side: 200, rear: 100 }, transport_slots: 6 },
+  mobility: { speed_tiles_s: 1, domain: 'air' },
+  sensors: { optics: 1, sight_tiles: 10, signature: 1 },
+};
+
+describe('air carrier flying height (GH-1007 P2)', () => {
+  function both() {
+    const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
+    const drone = sim.spawn(sim.addUnitType(GUNSHIP), 0, fx.from(9.5), fx.from(11.5));
+    const carrier = sim.spawn(sim.addUnitType(CARRIER), 0, fx.from(14.5), fx.from(11.5));
+    const renderer = new ThreeRenderer(sim, makeOpts());
+    renderer.snapshot();
+    renderer.snapshot();
+    return { sim, drone, carrier, priv: renderer as unknown as Privates };
+  }
+
+  it('a carrier is drawn at 28 px and a drone at 14, and the type flags say why', () => {
+    const { sim, drone, carrier, priv } = both();
+    expect(sim.unitTypes[sim.state.typeIdx[carrier]].isAirCarrier).toBe(true);
+    expect(sim.unitTypes[sim.state.typeIdx[drone]].isAirCarrier).toBe(false);
+    expect(priv.airLiftY(carrier, 1)).toBe(AIR_CARRIER_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL);
+    expect(priv.airLiftY(drone, 1)).toBe(14 * WORLD_Y_PER_LIFT_PIXEL);
+  });
+
+  it('the pick reads the same per-unit lift as the drawn hull, in pixels', () => {
+    const { drone, carrier, priv } = both();
+    for (const id of [drone, carrier]) {
+      expect(priv.pickLiftPx(id) * WORLD_Y_PER_LIFT_PIXEL).toBeCloseTo(priv.airLiftY(id, 1), 12);
+    }
+    expect(priv.pickLiftPx(carrier)).toBe(28);
+    expect(priv.pickLiftPx(drone)).toBe(14);
   });
 });

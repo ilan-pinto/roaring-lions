@@ -375,8 +375,8 @@ import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
-import { AIR_LIFT_PX } from './units/frame-state';
 import { airLiftFrac } from './units/air-lift';
+import { airFlyingLiftPx, carrierGearConform } from './units/air-carrier';
 import {
   hullPickFor,
   pickUnit as pickUnitPure,
@@ -7328,7 +7328,8 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly pickLiftPx = (i: number): number => {
     const st = this.sim.state;
-    return this.sim.unitTypes[st.typeIdx[i]].isAir ? AIR_LIFT_PX * airLiftFrac(st.airState[i], st.airTimer[i], 1) : 0;
+    const type = this.sim.unitTypes[st.typeIdx[i]];
+    return type.isAir ? airFlyingLiftPx(type.isAirCarrier) * airLiftFrac(st.airState[i], st.airTimer[i], 1) : 0;
   };
   /**
    * A ground vehicle is picked by its HULL, not its feet (the 4 Nov lead report: a right-click on an
@@ -8139,7 +8140,9 @@ export class ThreeRenderer implements Renderer {
    */
   private airLiftY(i: number, alpha: number): number {
     const st = this.sim.state;
-    return AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL * airLiftFrac(st.airState[i], st.airTimer[i], alpha);
+    // GH-1007 P2: an air carrier flies at AIR_CARRIER_LIFT_PX (28), every other aircraft at AIR_LIFT_PX (14).
+    const flyPx = airFlyingLiftPx(this.sim.unitTypes[st.typeIdx[i]].isAirCarrier);
+    return flyPx * WORLD_Y_PER_LIFT_PIXEL * airLiftFrac(st.airState[i], st.airTimer[i], alpha);
   }
 
   /**
@@ -10289,7 +10292,11 @@ export class ThreeRenderer implements Renderer {
 
       // The terrain half, ground vehicles only, at the DRAWN centre (the hull
       // stands on the ground it is drawn over) -- `vehicleConformAt`.
-      const conform = this.vehicleConformAt(entity.templateKey, type.isAir, drawX, drawY, centreGroundY, facingNorm);
+      // GH-1007 P2: an air CARRIER blends the same conform in by `1 - airLiftFrac` over its gear footprint, so it is
+      // level in the air and sits on its four gear contacts once landed. Every other aircraft stays null.
+      const conform = type.isAirCarrier
+        ? this.carrierConformAt(drawX, drawY, centreGroundY, facingNorm, airLiftFrac(st.airState[i], st.airTimer[i], alpha))
+        : this.vehicleConformAt(entity.templateKey, type.isAir, drawX, drawY, centreGroundY, facingNorm);
       if (conform !== null) {
         pitch += conform.pitchRad;
         roll += conform.rollRad;
@@ -10539,6 +10546,24 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * GH-1007 P2: the terrain conform of an air carrier (`units/air-carrier.ts`): the ground under its four gear
+   * contacts, scaled by `1 - liftFrac`. Same scratch and same caveat as `vehicleConformAt`: the returned object is
+   * `hullConform`, overwritten by the next call.
+   */
+  private carrierConformAt(x: number, y: number, centreGroundY: number, facingNorm: number, liftFrac: number): HullConform {
+    const input = this.hullConformInput;
+    input.elevation = this.retained.elevation;
+    input.blocked = this.sim.blocked;
+    input.mapWidth = this.sim.width;
+    input.mapHeight = this.sim.height;
+    input.centreX = x;
+    input.centreY = y;
+    input.centreGroundY = centreGroundY;
+    input.facingNorm = facingNorm;
+    return carrierGearConform(input, this.vehicleHullCorners, this.hullConform, liftFrac);
+  }
+
+  /**
    * The pose a vehicle's wreck is handed over in (final review of WP-A1.3,
    * ruling 9). `beginVehicleDeath` and the settle after it keep the root's
    * position and rotation for the rest of the mission, and the root still
@@ -10570,7 +10595,9 @@ export class ThreeRenderer implements Renderer {
     const airLift = type.isAir ? this.airLiftY(id, 1) : 0;
     let pitch = 0;
     let roll = 0;
-    const conform = this.vehicleConformAt(entity.templateKey, type.isAir, x, y, centreGroundY, facingNorm);
+    const conform = type.isAirCarrier
+      ? this.carrierConformAt(x, y, centreGroundY, facingNorm, airLiftFrac(st.airState[id], st.airTimer[id], 1))
+      : this.vehicleConformAt(entity.templateKey, type.isAir, x, y, centreGroundY, facingNorm);
     if (conform !== null) {
       pitch = conform.pitchRad;
       roll = conform.rollRad;
