@@ -19,6 +19,7 @@ import type { PostConfig, PostKit, RenderBackend } from './backend';
 import { createNodePostChain, type NodePostChain, type OutputMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
+import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -105,6 +106,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     domElement: canvas,
     kit,
     bloom: nodeBloom.control,
+    pmrem: createNodePmremHost(W.PMREMGenerator as unknown as NodePmremGeneratorCtor, renderer),
     get post() {
       return chain;
     },

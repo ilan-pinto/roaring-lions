@@ -18,6 +18,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/vignette-pass.node.ts',
   // GH-943 P1 (T5): the node bloom (BloomNode). Twin of bloom.ts, which keeps UnrealBloomPass until P8.
   'packages/render/src/three/bloom.node.ts',
+  // GH-943 P1 (T6): the node sky environment.
+  'packages/render/src/three/environment.node.ts',
 ];
 
 /**

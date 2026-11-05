@@ -22,6 +22,7 @@ import type { FogUniformTable } from '../fog-spec';
 import type { FogMaths } from '../fog-pass.node';
 import type { OutputMaths } from '../post-chain.node';
 import type { BloomControl } from '../bloom-spec';
+import type { NodePmremHost } from '../environment';
 
 /**
  * GH-943 P1 (T2): what a post-chain stage factory is handed, and what it gives back. A stage reads `input` (the previous
@@ -75,6 +76,8 @@ export interface RenderBackend {
   /** GH-943 P1 (T5): the bloom stage's switch (layer toggle, zoom fade) and its debug read. Always present on a node backend; `built` is
    *  false until the chain holds a bloom stage. */
   readonly bloom: BloomControl;
+  /** GH-943 P1 (T6): what `EnvironmentRegistry.attach` takes on this backend (the node PMREM bake). */
+  readonly pmrem: NodePmremHost;
   /** Builds the node post chain for this scene, camera and quality preset; `render` rebuilds it if it is called with another pair. */
   configure(config: PostConfig): void;
   /** The node post chain (null before `configure`). Same `PostChainLike` the legacy `PostChain` extends. */
