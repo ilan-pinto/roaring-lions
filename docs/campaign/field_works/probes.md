@@ -113,6 +113,7 @@ win is within +-15% of the shipped plan's on the same seeds, and the camp stands
 |---|---|---|---|---|
 | `ein_qasab_3_buildup` (camp at (21,34), the south landing) | 30/30 / 30/30 | 6.24 / 6.21 min (+0.6%) | 57 s | **in band: ships** |
 | `umm_zeitoun_2_buildup` (camp at (21,34), the plan buys on its line and the Remetz when the purse allows) | 30/30 / 30/30 | 5.38 / 4.20 min (**+28.1%**) | 56 s | **outside the band: ships WITHOUT the camp** |
+| `umm_zeitoun_4_clearance` (camp at (26,38), the open road south of the escarpment; the line buys `inf_squad` and `at_team` until 240 s; GH-277 second wave, 5 Nov) | 30/30 / 30/30 | 5.66 / 5.73 min (-1.3%) | 30 s | **in band: ships** |
 
 Umm Zeitoun II: the 350 for the camp displaces the Remetz the plan buys at 0:00 (500 start), and the mission's win is
 quick (4.2 min) and does not need a second door, so the camp is a pure cost there, slower by 28%: a trap, not a dominant buy.

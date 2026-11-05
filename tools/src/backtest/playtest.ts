@@ -42,7 +42,7 @@ import { EIN_QASAB_PLANS } from './plans/ein_qasab';
 import { playOrderOf } from './play-order';
 import { telMarum3Plan } from './plans/tel_marum';
 import { uz2Plan } from './plans/umm_zeitoun';
-import { forwardCampPlan, EQ3_CAMP } from './plans/forward_camp';
+import { forwardCampPlan, EQ3_CAMP, UZ4_CAMP } from './plans/forward_camp';
 import { countBeams, remetzReport } from './plans/e6-remetz';
 
 
@@ -2689,6 +2689,12 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   });
 };
 run('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'victory', 'umm_zeitoun_4_clearance');
+// GH-277 second wave: the same plan with a forward camp, ordered at 0:00. Gates 10 and 11 at the end of this file.
+{
+  const camp = forwardCampPlan(uz4Plan, UZ4_CAMP);
+  run('umm_zeitoun_4_clearance', camp.plan, ledUZ3, 'victory', 'umm_zeitoun_4_clearance (forward camp)', undefined,
+    undefined, undefined, undefined, undefined, undefined, undefined, camp.onEvents);
+}
 
 // --- E5 special forces Task 5: the `(bought)` probes ---------------------------
 //
@@ -3892,7 +3898,8 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // plan is still `beit_sahwan_2_foothold` (112), so "40 of 41". The report-only chain from `wadi_halam_5_depot` is taken
 // out of `runLog` and is not counted.
 // 2026-11-04, GH-277: 40 -> 41. Was 40. The Ein Qasab III run with a forward camp is a winning plan and earns its sweep (302 intel).
-const INTEL_WINNERS_ONE_SWEEP = 41;
+// 2026-11-05, GH-277: 41 -> 42. Was 41. The Umm Zeitoun IV run with a forward camp is a winning plan and earns its sweep (316 intel).
+const INTEL_WINNERS_ONE_SWEEP = 42;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
@@ -4020,7 +4027,7 @@ const BUILDING_PLANS = ['beit_sahwan_2_foothold', 'deir_amun_2_foothold', 'wadi_
 // The bands are the design's and are fixed here, not tuned against a reading.
 // Umm Zeitoun II is NOT here: measured with the camp its median win moved +28.1% (5.38 min against 4.20), outside the band,
 // so it ships without the camp (docs/campaign/field_works/probes.md).
-const FORWARD_CAMP_MISSIONS = ['ein_qasab_3_buildup'] as const;
+const FORWARD_CAMP_MISSIONS = ['ein_qasab_3_buildup', 'umm_zeitoun_4_clearance'] as const;
 const FORWARD_CAMP_MEDIAN_BAND = 0.15;
 const FORWARD_CAMP_BY_S = 120;
 {
