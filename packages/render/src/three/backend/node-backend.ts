@@ -2,8 +2,8 @@
  * GH-943 P0: the node `RenderBackend`. WebGPURenderer plus a `RenderPipeline`, behind its own dynamic import
  * (`import('./node-backend')` in `ThreeRenderer.init`), so `three/webgpu` and `three/tsl` never enter the main chunk or a legacy boot.
  *
- * P0 draws the scene pass and the output transform only (ACES at exposure 1.0, then sRGB): every unported GLSL hook is
- * censused and named (`unported.ts`), and the post chain (fog, AO, bloom, grade, vignette, SMAA) arrives at P1. What this proves is
+ * P1 (T2) builds the node post chain (`../post-chain.node.ts`): scene pass, [fog, AO, bloom: null kit factories until T4/T7/T5], output (ACES 1.0, sRGB), SMAA. Every unported GLSL hook is
+ * censused and named (`unported.ts`), and the rest of the chain (the real fog, AO, bloom, grade, vignette, the sky environment) arrives task by task through `kit`. What this proves is
  * the SEAM: one canvas, one renderer, a deterministic frame, an asserted backend kind, a native-rAF loop.
  *
  * `forceWebGL` is set EXPLICITLY on both arms and `isWebGPUBackend` is asserted after init, because WebGPURenderer otherwise
@@ -13,9 +13,10 @@
  * `requestAnimationFrame`. Whether a stubbed global rAF changes anything here is the P0 hypothesis `tools/src/perf/raf-hypothesis.ts` tests.
  */
 import * as THREE from 'three';
-import type { WebGPURenderer, RenderPipeline } from 'three/webgpu';
+import type { WebGPURenderer } from 'three/webgpu';
 import type { BackendKind } from '../../gpu';
-import type { RenderBackend } from './backend';
+import type { PostConfig, PostKit, RenderBackend } from './backend';
+import { createNodePostChain, type NodePostChain } from '../post-chain.node';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -41,6 +42,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   const warn = opts.warn ?? ((m: string): void => console.warn(m));
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
+  // SMAA is a TSL node (`three/addons/tsl/display`), not a `three/addons/postprocessing` pass: loaded here, in the lazy chunk.
+  const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
   const renderer: WebGPURenderer = new W.WebGPURenderer({ antialias: false, alpha: false, forceWebGL: opts.forceWebGL });
   try {
     await renderer.init();
@@ -64,8 +67,11 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   renderer.setClearColor(new THREE.Color(opts.background));
   const canvas = renderer.domElement;
 
-  let pipeline: RenderPipeline | null = null;
-  let builtFor: { scene: THREE.Scene; camera: THREE.Camera } | null = null;
+  let chain: NodePostChain | null = null;
+  let builtFor: PostConfig | null = null;
+  /** Null factories until each task lands (T4 fog, T5 bloom, T7 AO). The chain reads them when it is built. */
+  const kit: PostKit = { fog: null, ao: null, bloom: null };
+  const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();
   let frames = 0;
@@ -76,20 +82,21 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     for (const line of unportedWarnings(found, seen)) warn(line);
   };
 
-  const build = (scene: THREE.Scene, camera: THREE.Camera): void => {
-    pipeline?.dispose();
-    const { pass, renderOutput } = TSL;
-    const scenePass = pass(scene, camera);
-    const display = renderOutput(scenePass.getTextureNode('output'), THREE.ACESFilmicToneMapping, THREE.SRGBColorSpace);
-    pipeline = new W.RenderPipeline(renderer, display);
-    pipeline.outputColorTransform = false;
-    builtFor = { scene, camera };
+  const build = (config: PostConfig): void => {
+    chain?.dispose();
+    chain = createNodePostChain({ W, TSL, smaa: smaa as never }, renderer, config.scene, config.camera, config.quality, kit);
+    builtFor = config;
   };
 
   const backend: RenderBackend = {
     kind,
     adapter: isGpu ? opts.adapter : 'webgl2',
     domElement: canvas,
+    kit,
+    get post() {
+      return chain;
+    },
+    configure: (config) => build(config),
     setPixelRatio: (r) => renderer.setPixelRatio(r),
     getPixelRatio: () => renderer.getPixelRatio(),
     setSize: (w, h) => renderer.setSize(w, h),
@@ -100,15 +107,15 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     render(scene, camera) {
       if (frames % CENSUS_EVERY_FRAMES === 0) runCensus(scene);
       frames++;
-      if (!pipeline || !builtFor || builtFor.scene !== scene || builtFor.camera !== camera) build(scene, camera);
-      pipeline?.render();
+      if (!chain || !builtFor || builtFor.scene !== scene || builtFor.camera !== camera) build({ scene, camera, quality: builtFor?.quality ?? DEFAULT_QUALITY });
+      chain?.render();
     },
     whenSubmitted: () => (be.device ? be.device.queue.onSubmittedWorkDone() : Promise.resolve()),
     unported: () => [...hooks.values()],
     stats: () => ({ calls: renderer.info.render.drawCalls, triangles: renderer.info.render.triangles }),
     dispose() {
-      pipeline?.dispose();
-      pipeline = null;
+      chain?.dispose();
+      chain = null;
       // WebGPU path: renderer.dispose() then device.destroy() (design section 1). Never `loseContext()` ourselves.
       const device = be.device;
       renderer.dispose();

@@ -15,7 +15,41 @@
  */
 import type * as THREE from 'three';
 import type { BackendKind } from '../../gpu';
+import type { Node as TslNode, PassNode } from 'three/webgpu';
+import type { PostChainLike, PostQuality } from '../post-chain-shared';
 import type { UnportedHook } from './unported';
+
+/**
+ * GH-943 P1 (T2): what a post-chain stage factory is handed, and what it gives back. A stage reads `input` (the previous
+ * stage's colour, SCENE-REFERRED linear HalfFloat for fog, AO and bloom) and returns the node that replaces it. `scenePass` is the
+ * chain's own scene pass, for the stages that need its depth or a second output (fog and AO read depth).
+ *
+ * The factories live on a `PostKit` so `ThreeRenderer` builds every stage through one seam on both backends, each factory
+ * `null` until its task lands (T4 fog, T5 bloom, T7 AO): a `null` factory is a stage the chain does not have, and
+ * `passNames` omits it.
+ */
+export interface PostStageContext {
+  readonly input: TslNode;
+  readonly scenePass: PassNode;
+  readonly TSL: typeof import('three/tsl');
+  readonly scene: THREE.Scene;
+  readonly camera: THREE.Camera;
+}
+export interface PostStage {
+  readonly node: TslNode;
+  dispose?(): void;
+}
+export type PostStageFactory = (ctx: PostStageContext) => PostStage;
+export interface PostKit {
+  fog: PostStageFactory | null;
+  ao: PostStageFactory | null;
+  bloom: PostStageFactory | null;
+}
+export interface PostConfig {
+  readonly scene: THREE.Scene;
+  readonly camera: THREE.Camera;
+  readonly quality: PostQuality;
+}
 
 export interface RenderBackend {
   /** `node-webgpu` or `node-webgl2`, ASSERTED after init (the renderer's own fallback is never trusted). */
@@ -25,6 +59,12 @@ export interface RenderBackend {
   setPixelRatio(ratio: number): void;
   getPixelRatio(): number;
   setSize(cssWidth: number, cssHeight: number): void;
+  /** The stage factories the chain is built from. Read when `configure` (or the first `render`) builds the chain. */
+  readonly kit: PostKit;
+  /** Builds the node post chain for this scene, camera and quality preset; `render` rebuilds it if it is called with another pair. */
+  configure(config: PostConfig): void;
+  /** The node post chain (null before `configure`). Same `PostChainLike` the legacy `PostChain` extends. */
+  readonly post: PostChainLike | null;
   /** Compiles every program the scene needs now (`compileAsync`), so the first photographed frame is not a cold one. */
   prepare(scene: THREE.Scene, camera: THREE.Camera): Promise<void>;
   /** Draws one frame. Synchronous, like `WebGLRenderer.render`; never installs an animation loop of its own. */
