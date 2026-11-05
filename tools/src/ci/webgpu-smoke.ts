@@ -5,6 +5,8 @@
 //   pnpm --filter @lions/tools exec tsx src/ci/webgpu-smoke.ts
 import { createServer } from 'node:http';
 import { chromium } from 'playwright';
+import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPort } from '../ui-review/port';
 
 const VARIANTS: Record<string, string[]> = {
   'A swiftshader-vulkan': ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--ignore-gpu-blocklist'],
@@ -14,16 +16,18 @@ const VARIANTS: Record<string, string[]> = {
   'E no-sandbox-gpu': ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--disable-gpu-sandbox', '--ignore-gpu-blocklist'],
 };
 
+const wantPort = await claimPort('webgpu-smoke', 'WEBGPU_SMOKE_PORT', 5187);
 const server = createServer((_q, res) => {
   res.setHeader('content-type', 'text/html');
   res.end('<!doctype html><canvas id=c width=256 height=256></canvas>');
 });
-await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-const port = (server.address() as { port: number }).port;
+await new Promise<void>((r) => server.listen(wantPort, '127.0.0.1', r));
+const port = wantPort;
 
 for (const [name, args] of Object.entries(VARIANTS)) {
   const browser = await chromium.launch({ headless: true, args });
   const page = await browser.newPage();
+  await page.addInitScript(musicOffInitScript());
   const errs: string[] = [];
   page.on('pageerror', (e) => errs.push(e.message.slice(0, 100)));
   page.on('console', (m) => m.type() === 'error' && errs.push(m.text().slice(0, 100)));
