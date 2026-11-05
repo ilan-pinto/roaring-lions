@@ -122,3 +122,9 @@ export const EQ3_CAMP: ForwardCampSpec = { x: 21, y: 34, muster: [24, 19] };
 
 /** Umm Zeitoun IV (GH-277, second wave): the camp on the open road south of the escarpment, the line buys rifle squads and AT teams for the push north. */
 export const UZ4_CAMP: ForwardCampSpec = { x: 26, y: 38, muster: [30, 20], buys: ['inf_squad', 'at_team'], buyUntil: 240 };
+
+/** Mission id to its camp spec: the one table the plans (playtest.ts) and gate 11 both read, so a spec with `buys` cannot dodge the gate. */
+export const FORWARD_CAMP_SPECS: Readonly<Record<string, ForwardCampSpec>> = {
+  ein_qasab_3_buildup: EQ3_CAMP,
+  umm_zeitoun_4_clearance: UZ4_CAMP
+};

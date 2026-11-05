@@ -42,7 +42,7 @@ import { EIN_QASAB_PLANS } from './plans/ein_qasab';
 import { playOrderOf } from './play-order';
 import { telMarum3Plan } from './plans/tel_marum';
 import { uz2Plan } from './plans/umm_zeitoun';
-import { forwardCampPlan, EQ3_CAMP, UZ4_CAMP } from './plans/forward_camp';
+import { forwardCampPlan, FORWARD_CAMP_SPECS } from './plans/forward_camp';
 import { countBeams, remetzReport } from './plans/e6-remetz';
 
 
@@ -488,7 +488,7 @@ passiveAcrossSeeds('ein_qasab_3_buildup', 'ein_qasab_3_buildup (no orders)', 'de
 run('ein_qasab_3_buildup', EIN_QASAB_PLANS.ein_qasab_3_buildup, { ...eq2, 'intel.marked_positions': [] }, 'victory', 'ein_qasab_3_buildup (no marks)', 2);
 // GH-277 (4 Nov 2026): the same plan with a forward camp at the south landing, ordered at 0:00. Gates at the end of this file.
 {
-  const camp = forwardCampPlan(EIN_QASAB_PLANS.ein_qasab_3_buildup, EQ3_CAMP);
+  const camp = forwardCampPlan(EIN_QASAB_PLANS.ein_qasab_3_buildup, FORWARD_CAMP_SPECS.ein_qasab_3_buildup);
   run('ein_qasab_3_buildup', camp.plan, eq2, 'victory', 'ein_qasab_3_buildup (forward camp)', 2,
     undefined, undefined, undefined, undefined, undefined, undefined, camp.onEvents);
 }
@@ -2691,7 +2691,7 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
 run('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'victory', 'umm_zeitoun_4_clearance');
 // GH-277 second wave: the same plan with a forward camp, ordered at 0:00. Gates 10 and 11 at the end of this file.
 {
-  const camp = forwardCampPlan(uz4Plan, UZ4_CAMP);
+  const camp = forwardCampPlan(uz4Plan, FORWARD_CAMP_SPECS.umm_zeitoun_4_clearance);
   run('umm_zeitoun_4_clearance', camp.plan, ledUZ3, 'victory', 'umm_zeitoun_4_clearance (forward camp)', undefined,
     undefined, undefined, undefined, undefined, undefined, undefined, camp.onEvents);
 }
@@ -4030,8 +4030,8 @@ const BUILDING_PLANS = ['beit_sahwan_2_foothold', 'deir_amun_2_foothold', 'wadi_
 const FORWARD_CAMP_MISSIONS = ['ein_qasab_3_buildup', 'umm_zeitoun_4_clearance'] as const;
 const FORWARD_CAMP_MEDIAN_BAND = 0.15;
 const FORWARD_CAMP_BY_S = 120;
-// The missions whose build plan buys on the camp's line (UZ4_CAMP.buys); Ein Qasab III buys at the rear door, so its line is not asked to produce.
-const FORWARD_CAMP_BUYS: ReadonlySet<string> = new Set(['umm_zeitoun_4_clearance']);
+// Gate 11 also asks the camp's line to produce wherever the spec buys on it (`spec.buys`, derived from FORWARD_CAMP_SPECS);
+// Ein Qasab III buys at the rear door, so its line is not asked to.
 {
   const median = (xs: number[]): number => {
     const s = [...xs].sort((a, b) => a - b);
@@ -4068,7 +4068,7 @@ const FORWARD_CAMP_BUYS: ReadonlySet<string> = new Set(['umm_zeitoun_4_clearance
       process.exitCode = 1;
     }
     console.log(`forward camp ${id}: bodies out of the camp's line per seed: ${fromCamp.join(', ')}`);
-    if (FORWARD_CAMP_BUYS.has(id) && fromCamp.some((n) => !(n > 0))) {
+    if ((FORWARD_CAMP_SPECS[id]?.buys?.length ?? 0) > 0 && fromCamp.some((n) => !(n > 0))) {
       console.error(`forward camp ${id}: FAILED — the camp's line produced nothing on a seed (${fromCamp.join(', ')}), gate 11 needs bodies out of its door on every seed`);
       process.exitCode = 1;
     }
