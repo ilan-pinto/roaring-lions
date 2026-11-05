@@ -7478,6 +7478,10 @@ export class Sim {
     let bestHurts = false;
     // Ranked squared distance (see `rank` below), not always the raw one.
     let bestDistSq = 0x7fffffff;
+    // GH-976: 0 = not asked yet, 1 = a known hostile structure is in reach of
+    // this weapon, 2 = none. Asked lazily, once, and only if a firepower-killed
+    // hull turns up, so a scan with neither pays nothing.
+    let structInReach = 0;
     for (let t = 0; t < this.count; t++) {
       if (!this.engageable(shooter, w, t)) continue;
       const dSq = this.engageDSq;
@@ -7485,6 +7489,19 @@ export class Sim {
       // face the target shows this shooter (weaponHurts). Suppressive fire at
       // armour it cannot defeat is a fallback, not a preference.
       const hurts = this.weaponHurts(w, t, this.engageOX, this.engageOY);
+      // GH-976: a hull with its firepower killed is not worth a shot when a
+      // known hostile structure is in reach: it stays the target forever (its
+      // regen outpaces a mortar round), and structure targeting only runs when
+      // no unit is. A LIVE hull the weapon cannot hurt is deliberately kept as
+      // the last resort: suppressing an armed tank is not waste, and it still
+      // shoots back. The structure query overwrites engageDSq/OX/OY (eyePoint),
+      // but dSq and hurts are already in locals.
+      if (this.firepowerKilled[t] === 1 && !this.unitTypes[this.typeIdx[t]].isSoft && STRUCT_DAMAGE[w.cls] !== 0) {
+        if (structInReach === 0) {
+          structInReach = this.selectStructureTarget(shooter, w, true) >= 0 ? 1 : 2;
+        }
+        if (structInReach === 1) continue;
+      }
       // Nearest first — except that an anti-armour weapon counts a soft or
       // unarmed target as further off than it is, so a Spike spends its
       // missile on the tank and not the rifle squad beside it.
@@ -7514,7 +7531,7 @@ export class Sim {
    * inside — armies do not level a town for the sake of it, and ROE scores
    * the difference.
    */
-  private selectStructureTarget(shooter: number, w: WeaponStats): number {
+  private selectStructureTarget(shooter: number, w: WeaponStats, ownedOnly = false): number {
     const cap = this.capacity;
     const sSide = this.side[shooter];
     let best = -1;
@@ -7530,7 +7547,7 @@ export class Sim {
       const ownedHostile =
         (owner === 0 || owner === 1) && owner !== sSide && sSide <= 1 &&
         this.stKnown[sSide * MAX_STRUCTURES + s] !== 0;
-      if (!ownedHostile && this.stOccupants[s] === 0) continue;
+      if (!ownedHostile && (ownedOnly || this.stOccupants[s] === 0)) continue;
       // Protected sites are never engaged on a gunner's initiative.
       if (this.structureTypes[this.stTypeIdx[s]].roePenalty >= PROTECTED_ROE) continue;
       let hostileInside = ownedHostile;
