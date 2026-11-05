@@ -43,7 +43,7 @@ describe('the earn table', () => {
     ]);
     expect(r.total).toBe(120);
     expect(r.wallet.coins).toEqual({ free: 120, paid: 0 });
-    expect(r.wallet.earn).toEqual({ welcomed: true, campaignDone: false, missions: { [ids[0]]: { won: true, stars: 2 } } });
+    expect(r.wallet.earn).toEqual({ welcomed: true, campaignDone: false, backfilled: false, missions: { [ids[0]]: { won: true, stars: 2 } } });
     expect(r.wallet.receipts.map((x) => x.kind === 'earn' && x.source)).toEqual(['welcome', 'first_win', 'star']);
   });
 
@@ -272,6 +272,38 @@ describe('settling a victory', () => {
   });
 });
 
+describe('GH-317: the back-payment for a wallet that already exists', () => {
+  const back = (w: RoarWallet, l: LedgerData): RoarWallet => roarBackfill(w, l, world, 7);
+  const old = ledgerOf([ids[0], ids[1], ids[2]], { [ids[0]]: 3, [ids[1]]: 2, [ids[2]]: 1 }) as CampaignLedger;
+  /** A post-4-Nov wallet: one win (ids[1], 1 star) and the welcome already paid. */
+  const post = (): RoarWallet => roarEarn(emptyRoar(), { missionId: ids[1], stars: 1, ledger: ledgerOf([ids[1]]) }, world, 1).wallet;
+  const keyed = (w: RoarWallet): ReturnType<typeof memoryLedgerStore> =>
+    memoryLedgerStore({ [LEDGER_KEY]: JSON.stringify(old), [ROAR_KEY]: JSON.stringify(w) }, back);
+
+  it('pays exactly the difference: unrecorded first wins and stars above the recorded best', () => {
+    const w = post();
+    expect(spendable(w)).toBe(115);
+    const r = back(w, old);
+    // ids[0]: 10 + 15; ids[1]: stars 1 -> 2 is +5, no first win; ids[2]: 10 + 5. No welcome.
+    expect(spendable(r) - spendable(w)).toBe(25 + 5 + 15);
+    expect(r.earn.backfilled).toBe(true);
+    expect(r.earn.missions[ids[1]]).toEqual({ won: true, stars: 2 });
+  });
+
+  it('settles once on load: a second load pays 0', () => {
+    const s = keyed(post());
+    expect(spendable(s.readRoar())).toBe(115 + 45);
+    expect(spendable(s.readRoar())).toBe(115 + 45);
+    expect(s.readRoar().receipts.filter((x) => x.kind === 'earn' && x.source === 'backfill')).toHaveLength(1);
+  });
+
+  it('a wallet with the marker set pays 0', () => {
+    const w = { ...post(), earn: { ...post().earn, backfilled: true } };
+    const s = keyed(w);
+    expect(spendable(s.readRoar())).toBe(115);
+  });
+});
+
 describe('GH-317: the one-time back-payment for wins from before the wallet', () => {
   const backfill = (w: RoarWallet, l: LedgerData): RoarWallet => roarBackfill(w, l, world, 7);
   /** Three won missions at 3, 2 and 0 stars, and the tutorial won too. */
@@ -299,8 +331,12 @@ describe('GH-317: the one-time back-payment for wins from before the wallet', ()
 
   it('pays nothing for a ledger with no campaign win', () => {
     const w = emptyRoar();
-    expect(roarBackfill(w, ledgerOf(['beit_sahwan_0_tutorial']), world, 7)).toBe(w);
-    expect(roarBackfill(w, {}, world, 7)).toBe(w);
+    for (const l of [ledgerOf(['beit_sahwan_0_tutorial']), {}]) {
+      const r = roarBackfill(w, l, world, 7);
+      expect(r.coins).toEqual({ free: 0, paid: 0 });
+      expect(r.earn).toEqual({ welcomed: false, campaignDone: false, backfilled: true, missions: {} });
+      expect(r.receipts).toEqual([]);
+    }
   });
 
   it('runs once: on the first read of a missing wallet, and never again', () => {

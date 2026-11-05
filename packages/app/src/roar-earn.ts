@@ -81,6 +81,7 @@ export function roarEarn(w: RoarWallet, win: VictoryWin, world: ParsedWorld, at:
     earn: {
       welcomed: true,
       campaignDone: w.earn.campaignDone || finishes,
+      backfilled: w.earn.backfilled,
       missions: { ...w.earn.missions, [win.missionId]: { won: true, stars: Math.max(prev.stars, stars) } },
     },
   };
@@ -137,17 +138,23 @@ export function roarBackfill(w: RoarWallet, ledger: LedgerData, world: ParsedWor
   const results = ledger['campaign.mission_results'];
   const missions: Record<string, { won: boolean; stars: number }> = { ...w.earn.missions };
   let coins = 0;
+  let anyWin = false;
   for (const id of worldMissionIds(world)) {
-    if (!done.has(id) || missions[id]?.won === true) continue;
+    if (!done.has(id)) continue;
+    anyWin = true;
+    const prev = missions[id] ?? { won: false, stars: 0 };
     const stars = clampStars(results?.[id]?.stars ?? 0);
-    missions[id] = { won: true, stars };
-    coins += EARN.firstWin + EARN.star * stars;
+    // Only the difference between the ledger's lifetime record and what `earn` holds.
+    if (!prev.won) coins += EARN.firstWin;
+    coins += EARN.star * Math.max(0, stars - prev.stars);
+    missions[id] = { won: true, stars: Math.max(prev.stars, stars) };
   }
-  if (coins === 0 && Object.keys(missions).length === Object.keys(w.earn.missions).length) return w;
-  const welcome = !w.earn.welcomed;
-  if (welcome) coins += EARN.welcome;
+  if (anyWin && !w.earn.welcomed) coins += EARN.welcome;
   const finishes = !w.earn.campaignDone && campaignComplete(world, ledger);
   if (finishes) coins += EARN.campaign;
-  const base: RoarWallet = { ...w, earn: { welcomed: true, campaignDone: w.earn.campaignDone || finishes, missions } };
+  const base: RoarWallet = {
+    ...w,
+    earn: { welcomed: w.earn.welcomed || anyWin, campaignDone: w.earn.campaignDone || finishes, backfilled: true, missions },
+  };
   return grantFree(base, coins, (id, c) => ({ kind: 'earn', id, at, coins: c, source: 'backfill' }), at);
 }
