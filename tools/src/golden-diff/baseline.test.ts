@@ -940,6 +940,8 @@ describe('BASELINES layerChecks', () => {
     const SUB_THRESHOLD_PX = 100;
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
+        // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.
+        if (check.kind === 'zero') continue;
         const m = MEASURED[id]?.[check.layer];
         expect(m, `no measurement recorded for ${id}/${check.layer}`).toBeDefined();
         if (!m) continue;
@@ -987,7 +989,7 @@ describe('the `fogged` scenario (look uplift L1, GH-943)', () => {
   });
 
   it('holds the shroud, the haze and the vehicles it is named for, and the environment on them', () => {
-    const layers = (BASELINES.fogged.layerChecks ?? []).map((c) => c.layer).sort();
+    const layers = (BASELINES.fogged.layerChecks ?? []).filter((c) => c.kind !== 'zero').map((c) => c.layer).sort();
     expect(layers).toEqual(['environment', 'fog', 'haze', 'units']);
   });
 
@@ -1000,7 +1002,7 @@ describe('the `fogged` scenario (look uplift L1, GH-943)', () => {
 
 describe('the `graded` scenario (look uplift L2, GH-943)', () => {
   it('carries the grade layer check, and the vehicles and environment the frame is named for', () => {
-    const layers = (BASELINES.graded.layerChecks ?? []).map((c) => c.layer).sort();
+    const layers = (BASELINES.graded.layerChecks ?? []).filter((c) => c.kind !== 'zero').map((c) => c.layer).sort();
     expect(layers).toEqual(['environment', 'grade', 'units']);
   });
 
@@ -1239,5 +1241,27 @@ describe('capture keeps the alert feed out of shot (repaint drift since #488)', 
     );
     expect(hud).toMatch(/this\.feed\.className = 'rl-feed';/);
     expect(HIDE_ALERT_FEED_STATEMENTS).toContain(".rl-feed { display: none !important; }");
+  });
+});
+
+describe('the `bloom` zero check (GH-943 P1 T5)', () => {
+  const declared = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded', 'relief'];
+  it('is declared, once and as a ZERO check, on every gated quiet scenario, and on no other', () => {
+    for (const id of Object.keys(BASELINES)) {
+      const hits = (BASELINES[id].layerChecks ?? []).filter((c) => c.layer === 'bloom');
+      if (declared.includes(id)) {
+        expect(hits.length, id).toBe(1);
+        expect(hits[0].kind, id).toBe('zero');
+      } else {
+        // aftermath fires muzzle-flash lights past 1.0 on purpose; combat and dusk are not gated.
+        expect(hits.length, id).toBe(0);
+      }
+    }
+  });
+  it('fails a frame the bloom moved by one pixel, and passes an unmoved one', () => {
+    const check = (BASELINES.quiet.layerChecks ?? []).find((c) => c.layer === 'bloom');
+    if (!check) throw new Error('quiet has no bloom check');
+    expect(evaluateLayerCheck(summary({}), check).ok).toBe(true);
+    expect(evaluateLayerCheck(summary({ changedPixels: 1 }), check).ok).toBe(false);
   });
 });

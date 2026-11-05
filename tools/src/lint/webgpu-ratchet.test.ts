@@ -28,6 +28,7 @@ const PORTED_FLOOR: readonly string[] = [
   'packages/render/src/three/fog-pass.node.ts',
   'packages/render/src/three/output-grade.node.ts',
   'packages/render/src/three/vignette-pass.node.ts',
+  'packages/render/src/three/bloom.node.ts',
 ];
 const FIXTURE = 'packages/render/src/three/fixture-ported.ts';
 

@@ -448,7 +448,7 @@ const L3_MARK =
   'panel and the turret band (boxes tested on the object-space position, `units/team-mask.ts`) fall back to the bake. Floors are a ' +
   'third of the smallest run, rounded down. ';
 
-export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
+const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
     // The camera sits on `town_center` while the sandbox force spawns at the
     // friendly anchor, so almost nothing in this framing is driven by
@@ -1943,6 +1943,38 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       'honest threshold exists between them, so this scene is reported and not voted on.',
   },
 } as const;
+
+/**
+ * GH-943 P1 (T5): the `bloom` ZERO check. Bloom thresholds a scene-referred LINEAR luminance of 1.0 (`bloom-spec.ts`), and the
+ * census holds every quiet frame under 0.9, so hiding the bloom must move NOTHING: exactly 0 px and 0.0000. A frame that moves is
+ * a bloom adding where nothing exceeds 1.0 (a threshold or smoothWidth drift, or a node graph that blends instead of adding 0).
+ * Declared on every gated scenario whose frame is quiet by construction (tick 0, nothing fired, or a framing with no effect in
+ * it); `aftermath` is NOT among them -- it steps to tick 300 with the sandbox force firing, and its muzzle-flash lights are the
+ * documented over-1.0 pixels in `perf/bloom-census.ts`, so a zero check there would measure the flash, not a defect.
+ * Witnessed on BOTH node keys and legacy by the parity job (`parity-bands.ts`, band `zero`). Below `ZOOM_FADE_OFF` (0.7) the
+ * bloom is already faded to 0 on every arm, so on such a framing this check is true but vacuous; the framings at zoom >= 0.7 are
+ * the ones that can fail it.
+ */
+const BLOOM_ZERO_CHECK: LayerCheckSpec = {
+  kind: 'zero',
+  layer: 'bloom',
+  minMeanAbsChannelDelta: 0,
+  minDiffPixels: 0,
+  rationale:
+    'ZERO check (no floor): the bloom thresholds linear luminance 1.0 and the quiet-frame census holds every frame under 0.9, so ' +
+    'hiding it must move exactly nothing. Falsified by BLOOM_THRESHOLD = 0.5 in `bloom-spec.ts`: the high-pass then passes the ' +
+    'lit ground and the check goes red on any scenario at zoom >= 0.7.',
+};
+
+/** The scenarios the zero check is declared on: every gated one except `aftermath` (see `BLOOM_ZERO_CHECK`). */
+const BLOOM_ZERO_SCENARIOS: readonly string[] = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded', 'relief'];
+
+export const BASELINES: Readonly<Record<string, BaselineSpec>> = Object.fromEntries(
+  Object.entries(BASELINES_DECLARED).map(([id, spec]) => [
+    id,
+    BLOOM_ZERO_SCENARIOS.includes(id) && isGated(spec) ? { ...spec, layerChecks: [...(spec.layerChecks ?? []), BLOOM_ZERO_CHECK] } : spec,
+  ])
+);
 
 /** `gated` defaults to true so a new entry has to opt OUT of the gate rather
  *  than opt in -- the direction that fails loudly when someone forgets. */

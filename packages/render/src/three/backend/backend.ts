@@ -21,6 +21,7 @@ import type { UnportedHook } from './unported';
 import type { FogUniformTable } from '../fog-spec';
 import type { FogMaths } from '../fog-pass.node';
 import type { OutputMaths } from '../post-chain.node';
+import type { BloomControl } from '../bloom-spec';
 
 /**
  * GH-943 P1 (T2): what a post-chain stage factory is handed, and what it gives back. A stage reads `input` (the previous
@@ -71,6 +72,9 @@ export interface RenderBackend {
   setFog(table: FogUniformTable, hazeLow: number, maths: FogMaths): void;
   /** GH-943 P1 (T3): hands the backend the shared grade and vignette maths (injected, see `GradeMaths`). Call BEFORE `configure`. */
   setOutputMaths(maths: OutputMaths): void;
+  /** GH-943 P1 (T5): the bloom stage's switch (layer toggle, zoom fade) and its debug read. Always present on a node backend; `built` is
+   *  false until the chain holds a bloom stage. */
+  readonly bloom: BloomControl;
   /** Builds the node post chain for this scene, camera and quality preset; `render` rebuilds it if it is called with another pair. */
   configure(config: PostConfig): void;
   /** The node post chain (null before `configure`). Same `PostChainLike` the legacy `PostChain` extends. */
