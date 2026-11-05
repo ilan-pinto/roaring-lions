@@ -230,8 +230,8 @@ describe('the harness stays up after the match, and a respawn into the ended roo
     expect(w.body.tick).toBeGreaterThanOrEqual(finalTick - 40);   // the replay ran on to the end, not 20 ticks into it
     const o = await call(second.client, 'order', { verb: 'halt', ids: [1] });
     expect(o.body.error).toBe('match over');
-    const st = await call(second.client, 'status');
-    expect(st.body.result).not.toBeNull();
+    // Poll, not a single read: under load the replay can still be finishing.
+    expect(await resultOf(second.client)).not.toBeNull();
     await second.client.close();
   }, 90_000);
 });
