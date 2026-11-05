@@ -1208,6 +1208,15 @@ export class Minimap {
   redrawGround(): void {
     this.draw(this.lastDrawMs, true);
   }
+  /**
+   * A full draw at the CURRENT clock and state, unlike `redrawGround`, which freezes the clock at the last draw. A debug hook for
+   * the visual gate's NODE arms (`__lions.redrawMinimap(true)`): after the wall-clock rings (`FLASH_MS`, `PING_MS`) have run
+   * out, one fresh draw paints the minimap with none of them, so a photograph does not depend on how long the capture step took.
+   * Exact while the sim is frozen, which is the only place it is called from.
+   */
+  redrawFresh(): void {
+    this.draw(performance.now());
+  }
   /** What the last full draw showed, for `redrawGround`. */
   private lastDrawMs = 0;
   private lastDots: MinimapDot[] | null = null;

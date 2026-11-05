@@ -6799,7 +6799,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
        *  gate's `crown` toggle needs it: the frame loop is frozen there, so a
        *  terrain rebuild would otherwise never reach the minimap's photograph
        *  -- the one place `relief` and `aftermath` show a crown summit. */
-      redrawMinimap: () => minimap.redrawGround(),
+      redrawMinimap: (fresh?: boolean) => (fresh === true ? minimap.redrawFresh() : minimap.redrawGround()),
 
       /** Put the pointer somewhere and run the REAL hover read, returning the
        *  cursor key it produced.

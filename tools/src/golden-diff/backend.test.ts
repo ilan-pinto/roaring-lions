@@ -73,7 +73,7 @@ describe('the node arms wait the HUD wall-clock animations out', () => {
   it('only a node arm waits and redraws the minimap; the legacy script is untouched', () => {
     const node = captureScript(QUIET_SCENARIO, 'webgpu');
     expect(node).toContain(`setTimeout(r, ${HUD_WALL_CLOCK_SETTLE_MS})`);
-    expect(node).toContain('window.__lions.redrawMinimap()');
+    expect(node).toContain('window.__lions.redrawMinimap(true)');
     const legacy = captureScript(QUIET_SCENARIO);
     expect(legacy).not.toContain('redrawMinimap');
     expect(legacy).not.toContain('setTimeout');
