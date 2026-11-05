@@ -184,7 +184,8 @@ export function pickUnit(
   reachY = 0,
   pickable: (i: number) => boolean = () => true,
   radiusFloor?: (i: number) => number,
-  hull?: HullPick
+  hull?: HullPick,
+  reachScale?: (i: number) => number
 ): number {
   let best = -1;
   let bestTier = 2;
@@ -206,11 +207,29 @@ export function pickUnit(
     const fx = wx - curX[i];
     const fy = wy - curY[i];
     const feet = fx * fx + fy * fy;
+    // GH-1007 P2: an air unit is drawn `lift` pixels above its tile, so the ground its drawn hull hides reaches
+    // that much further up the screen. `reachScale(i)` is 1 for every unit that is not lifted, and then this unit
+    // reads the SAME reach variables as before, bit for bit (a ground unit never takes the branch).
+    let rX = reachX;
+    let rY = reachY;
+    let r2 = reach2;
+    let hX = hullReachX;
+    let hY = hullReachY;
+    if (reachScale !== undefined) {
+      const k = reachScale(i);
+      if (k !== 1) {
+        rX = reachX * k;
+        rY = reachY * k;
+        r2 = rX * rX + rY * rY;
+        hX = hullReachX * k;
+        hY = hullReachY * k;
+      }
+    }
     // Distance to the segment from the feet to `reach` beyond them (the
     // ground the unit's body hides); with no reach, the feet alone.
-    const t = reach2 > 0 ? Math.min(1, Math.max(0, (fx * reachX + fy * reachY) / reach2)) : 0;
-    const dx = fx - t * reachX;
-    const dy = fy - t * reachY;
+    const t = r2 > 0 ? Math.min(1, Math.max(0, (fx * rX + fy * rY) / r2)) : 0;
+    const dx = fx - t * rX;
+    const dy = fy - t * rY;
     const d = dx * dx + dy * dy;
     // Two tiers. TIER 0 is the old test, untouched: the unit's feet-and-body segment within the radius. TIER 1 is
     // a hull-only hit: a ground vehicle whose box covers the click though its feet do not reach it (a nose, a
@@ -225,7 +244,7 @@ export function pickUnit(
       if (hull !== undefined) {
         const shape = hull.shapeOf(i);
         if (shape !== null) {
-          const h = hullScoreSq(wx, wy, curX[i], curY[i], shape, hull.heading(i), hullReachX, hullReachY);
+          const h = hullScoreSq(wx, wy, curX[i], curY[i], shape, hull.heading(i), hX, hY);
           if (h <= marginSq) {
             score = h;
             ok = true;
@@ -280,6 +299,11 @@ export const PICK_BODY_HEIGHT_TILES = 0.6;
  *
  * `radiusFloor` (E6, chunk B) is a per-unit MINIMUM on that radius: a swarm entity stands for a
  * cloud 1.5 tiles across, so a click anywhere in the cloud picks it even at the order radius.
+ *
+ * `liftPx` (GH-1007 P2) is how many lift pixels the renderer draws unit `i` above its tile
+ * (`AIR_LIFT_PX * airLiftFrac`, read from the renderer and never recomputed here; 0 for a ground
+ * unit). The ground a lifted body hides reaches that much further up the screen, so the whole drawn
+ * hull is pickable at the tight order radius. Absent, or 0, every unit is picked exactly as before.
  */
 export function pickUnitAtScreen(
   px: number,
@@ -297,12 +321,20 @@ export function pickUnitAtScreen(
   pickable: (i: number) => boolean = () => true,
   radiusTiles: number = PICK_RADIUS_TILES,
   radiusFloor?: (i: number) => number,
-  hull?: HullPick
+  hull?: HullPick,
+  liftPx?: (i: number) => number
 ): number {
   const g = screenToWorldThree(px, py, cam, vp, elevation, mapWidth, mapHeight);
   const top = worldToScreenThree(cam.x, cam.y, cam, vp, PICK_BODY_HEIGHT_TILES / WORLD_Y_PER_LIFT_PIXEL);
   const behind = screenToWorldThree(top.x, top.y, cam, vp);
-  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, radiusTiles, behind.x - cam.x, behind.y - cam.y, pickable, radiusFloor, hull);
+  // GH-1007 P2: the reach is linear in lift (the camera is orthographic), so a unit drawn `lift` px above its tile
+  // hides `1 + lift / bodyPx` times the ground a body on the ground does. Only a lifted unit scales; the rest read 1.
+  const bodyLiftPx = PICK_BODY_HEIGHT_TILES / WORLD_Y_PER_LIFT_PIXEL;
+  const reachScale = liftPx === undefined ? undefined : (i: number): number => {
+    const l = liftPx(i);
+    return l > 0 ? 1 + l / bodyLiftPx : 1;
+  };
+  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, radiusTiles, behind.x - cam.x, behind.y - cam.y, pickable, radiusFloor, hull, reachScale);
 }
 
 /**
@@ -331,6 +363,10 @@ export function pickUnitAtScreen(
  * unit's base must still catch it; a box drawn low that only catches a
  * higher "centre" point would silently miss short units and over-select on
  * relief where the two diverge most.
+ *
+ * `liftPx` (GH-1007 P2): for a unit it reads above 0 (an air unit, `AIR_LIFT_PX * airLiftFrac`), the
+ * drawn hull point, `lift` px above the feet, is projected as well and either may be inside the box.
+ * Absent, or 0, only the feet are tested, as before.
  */
 export function unitsInScreenRect(
   x0: number,
@@ -346,7 +382,8 @@ export function unitsInScreenRect(
   mapHeight: number,
   cam: Camera,
   vp: Viewport,
-  pickable: (i: number) => boolean = () => true
+  pickable: (i: number) => boolean = () => true,
+  liftPx?: (i: number) => number
 ): number[] {
   const lo = { x: Math.min(x0, x1), y: Math.min(y0, y1) };
   const hi = { x: Math.max(x0, x1), y: Math.max(y0, y1) };
@@ -356,9 +393,19 @@ export function unitsInScreenRect(
     if (!pickable(i)) continue;
     const x = curX[i];
     const y = curY[i];
-    const liftPx = groundLevelAt(elevation, mapWidth, mapHeight, x, y) * ELEV_STEP;
-    const { x: sx, y: sy } = worldToScreenThree(x, y, cam, vp, liftPx);
-    if (sx >= lo.x && sx <= hi.x && sy >= lo.y && sy <= hi.y) out.push(i);
+    const groundPx = groundLevelAt(elevation, mapWidth, mapHeight, x, y) * ELEV_STEP;
+    const { x: sx, y: sy } = worldToScreenThree(x, y, cam, vp, groundPx);
+    if (sx >= lo.x && sx <= hi.x && sy >= lo.y && sy <= hi.y) {
+      out.push(i);
+      continue;
+    }
+    // GH-1007 P2: an air unit is DRAWN `lift` px above its feet, so a box round the floating hull alone must catch it
+    // too. The feet stay a hit (a box round the shadow or the tile selected it before); the drawn point is added.
+    const lift = liftPx === undefined ? 0 : liftPx(i);
+    if (lift > 0) {
+      const { x: hx, y: hy } = worldToScreenThree(x, y, cam, vp, groundPx + lift);
+      if (hx >= lo.x && hx <= hi.x && hy >= lo.y && hy <= hi.y) out.push(i);
+    }
   }
   return out;
 }

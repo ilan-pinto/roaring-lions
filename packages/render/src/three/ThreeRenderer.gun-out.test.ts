@@ -9,6 +9,10 @@ import { vehicleGunOutDrawn } from './units/gun-out';
 import { GUN_OUT_FIRE_LIFT_TILES, GUN_OUT_FIRE_REACH_TILES, liftShiftTiles } from './units/gun-out-fx';
 import { ELLIPSE_BY_TYPE, ELLIPSE_PAD_TILES } from './units/readability';
 import { QUALITY_PRESETS } from '../quality';
+import { worldToScreenThree, WORLD_Y_PER_LIFT_PIXEL } from './camera';
+import { AIR_LIFT_PX } from './units/frame-state';
+import { PICK_BODY_HEIGHT_TILES } from './units/pick';
+import type { Camera } from '../project';
 import vehicleDamagedSmoke from '../../../../data/vfx/vehicle_damaged_smoke.json';
 import puffJson from '../../../../data/vfx/gun_out_puff.json';
 import fireJson from '../../../../data/vfx/gun_out_fire.json';
@@ -307,6 +311,34 @@ describe('the hull pick reaches the real renderer', () => {
     const past = h.renderer.worldToScreen(noseX + 1.2, 11.5);
     expect(h.renderer.unitAtScreen(past.x, past.y, 0.5)).toBe(-1);
     h.renderer.dispose();
+  });
+});
+
+describe('the air lift reaches the real renderer (GH-1007 P2)', () => {
+  /** The screen point `lift` pixels above the unit's tile, through the renderer's own camera and viewport. */
+  const drawnAt = (r: ThreeRenderer, lift: number): { x: number; y: number } =>
+    worldToScreenThree(9.5, 11.5, (r as unknown as { camera: Camera }).camera, { width: r.width, height: r.height }, lift);
+
+  it('box-select and the order pick find a helicopter at its drawn hull, which its feet alone are too far from', async () => {
+    const heli = await setUp({ type: AIR });
+    const hull = drawnAt(heli.renderer, AIR_LIFT_PX);
+    const feet = drawnAt(heli.renderer, 0);
+    expect(feet.y - hull.y).toBeGreaterThan(5); // the drawn hull really is clear of the feet
+    // Break check: remove `this.pickLiftPx` from the `unitsInScreenRectPure` call -> [] here.
+    expect(heli.renderer.unitsInScreenRect(hull.x - 4, hull.y - 4, hull.x + 4, hull.y + 4)).toEqual([heli.id]);
+    // The top of the drawn body, at the order radius. Break check: remove `this.pickLiftPx` from the
+    // `pickUnitAtScreenPure` call in `unitAtScreen` -> -1 here.
+    const top = drawnAt(heli.renderer, AIR_LIFT_PX + 0.9 * (PICK_BODY_HEIGHT_TILES / WORLD_Y_PER_LIFT_PIXEL));
+    expect(heli.renderer.unitAtScreen(top.x, top.y, 0.5)).toBe(heli.id);
+    heli.renderer.dispose();
+  });
+
+  it('a ground vehicle on the same tile gets none of it', async () => {
+    const lavi = await setUp();
+    const hull = drawnAt(lavi.renderer, AIR_LIFT_PX);
+    // Break check: make `pickLiftPx` ignore `isAir` -> the Lavi is found in the air above it.
+    expect(lavi.renderer.unitsInScreenRect(hull.x - 4, hull.y - 4, hull.x + 4, hull.y + 4)).toEqual([]);
+    lavi.renderer.dispose();
   });
 });
 
