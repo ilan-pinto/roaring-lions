@@ -65,6 +65,7 @@ export function forwardCampPlan(
     // The camp first, so its 350 comes off the purse before the shipped plan's t=0 purchase asks for the rest.
     at(0, () => {
       record.ordered = rt.requestConstruct('kdf_forward_camp', spec.x, spec.y, real);
+      runNotes.forwardCampFromCamp = 0;
     });
     const gated = (t: string): number[] => (t === 'demo_squad' ? lent : ids(t).filter((i) => !ours.has(i)));
     base(sim, rt, gated, at);
@@ -108,6 +109,7 @@ export function forwardCampPlan(
         if (fresh.length > 0) {
           for (const i of fresh) ours.add(i);
           record.fromCamp += fresh.length;
+          runNotes.forwardCampFromCamp = record.fromCamp;
           sim.queueCommand({ kind: 'attackMove', ids: fresh, ...M(spec.muster[0], spec.muster[1]) });
         }
       });
@@ -120,3 +122,9 @@ export const EQ3_CAMP: ForwardCampSpec = { x: 21, y: 34, muster: [24, 19] };
 
 /** Umm Zeitoun IV (GH-277, second wave): the camp on the open road south of the escarpment, the line buys rifle squads and AT teams for the push north. */
 export const UZ4_CAMP: ForwardCampSpec = { x: 26, y: 38, muster: [30, 20], buys: ['inf_squad', 'at_team'], buyUntil: 240 };
+
+/** Mission id to its camp spec: the one table the plans (playtest.ts) and gate 11 both read, so a spec with `buys` cannot dodge the gate. */
+export const FORWARD_CAMP_SPECS: Readonly<Record<string, ForwardCampSpec>> = {
+  ein_qasab_3_buildup: EQ3_CAMP,
+  umm_zeitoun_4_clearance: UZ4_CAMP
+};

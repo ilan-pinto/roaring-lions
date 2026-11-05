@@ -1,13 +1,13 @@
 // GH-974: `house_lod1` (its own bake) and `ditch_lod1` (borrows the full ditch's) pinned against their sources, from the BYTES of both GLBs (the wall's twin: wall_lod1.test.ts).
 //
-// The twin is drawn INSTEAD of the compound wall below zoom 2.0, with the wall's own
-// material, so five things must stay true of it or the swap shows. None of this imports
-// the exporter or the renderer: the oracle is the two files and literals.
-//   - the same node names and `rl_role` extras as the wall (the renderer pairs by role);
-//   - the same bounds, within 5 mm (a taller or fatter twin pops at the swap);
-//   - at most 350 triangles, and under 12% of the wall's (the point of the asset);
-//   - zero materials, images and textures (it borrows the wall's), but a UV0 on every
-//     primitive, every UV inside the unit square (it samples the wall's bake: option (a));
+// A twin is drawn INSTEAD of its full mesh below its swap zoom, so these must stay true of it or the swap shows.
+// None of this imports the exporter or the renderer: the oracle is the two files and literals.
+//   - the same node names and `rl_role` extras as the full mesh (the renderer pairs by role), and the same `rl_textured` flag;
+//   - the same bounds, within the per-twin tolerance (a taller or fatter twin pops at the swap);
+//   - a triangle ceiling and a share of the full mesh's triangles (the point of the asset);
+//   - materials: the house twin OWNS its bake (exactly one material, image and texture, a JPEG of 1024 px at most);
+//     the ditch twin BORROWS ditch_0's bake (zero materials, images and textures). Either way a UV0 on every
+//     primitive, every UV inside the unit square;
 //   - both files are the SHIPPED art/meshes sources, not a scratch copy.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
