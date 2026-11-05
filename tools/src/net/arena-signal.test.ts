@@ -119,10 +119,11 @@ describe('pnpm arena under a signal', () => {
   }, 180_000);
 
   it('a second SIGINT during the cleanup exits at once, 130, the cleanup unfinished (the escape hatch)', async () => {
-    // The cleanup is held open for a minute (the deaf child's SIGKILL escalation, stretched): nothing but the second
-    // signal can end it, so no assertion here races the wall clock, however long this process or the arena is
-    // descheduled. "At once" is read from the state the exit leaves: the deaf child is still alive, so the cleanup
-    // did not run to its end.
+    // The deaf child's SIGKILL escalation is stretched to 60 s, so the first cleanup is no longer cut short by it:
+    // stopRun bounds the abort step at SIGNAL_STEP_MS (5 s, arena.ts), and that is now the race window (it was the 2 s
+    // kill). A worker descheduled for less than that cannot flip an assertion here. The assertion that discriminates is
+    // the 'second SIGINT' log line: only the escape hatch writes it, so it fails if the exit came from the first
+    // cleanup finishing by itself. "At once" is also read from state: the deaf child is still alive at exit.
     const { arena, tmpRoot, pidFile, stderr, exit } = startArena({ stubborn: true, killMs: 60_000 });
     await until('the external player\'s temp directory', () => readdirSync(tmpRoot).some((d) => d.startsWith('lions-arena-')), 120_000);
     await until('the sleeper\'s pid', () => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', 30_000);
