@@ -23,6 +23,8 @@
       "base_pk": 0.75,
       "magazine": 3,
       "reload_s": 8,
+      "reserve": 9,
+      "rearm_s": 30,
       "ineffective_vs": [
         "apfsds",
         "kinetic",
