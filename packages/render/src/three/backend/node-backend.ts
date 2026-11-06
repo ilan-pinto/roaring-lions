@@ -17,7 +17,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 import type { BackendKind } from '../../gpu';
 import type { AoControl, PostConfig, PostKit, RenderBackend } from './backend';
 import { createOrthoAwareGtao } from '../gtao-ortho.node';
-import { createNodePostChain, createNodeAoStage, type NodePostChain, type OutputMaths } from '../post-chain.node';
+import { createNodePostChain, createNodeAoStage, type NodePostChain, type OutputMaths, type AoMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
@@ -35,6 +35,8 @@ export interface NodeBackendOptions {
   readonly adapter: string;
   /** The shared bloom constants and helpers, injected (see `BloomMaths`); `output-maths.ts`'s `BLOOM_MATHS`. */
   readonly bloomMaths: BloomMaths;
+  /** The shared AO constants and helpers, injected (see `AoMaths`); `output-maths.ts`'s `AO_MATHS`. */
+  readonly aoMaths: AoMaths;
   readonly warn?: (msg: string) => void;
 }
 
@@ -87,7 +89,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   // T5: the bloom stage. Its control outlives chain rebuilds (the toggle state survives `build`).
   const nodeBloom = createNodeBloom({ bloom: bloom as never, W, renderer, maths: opts.bloomMaths });
   kit.bloom = nodeBloom.factory;
-  const aoStage = createNodeAoStage({ W, TSL, ao: gtao as never, denoise: denoise as never });
+  const aoStage = createNodeAoStage({ W, TSL, ao: gtao as never, denoise: denoise as never, maths: opts.aoMaths });
   kit.ao = aoStage.factory;
   const aoControl: AoControl = aoStage.control;
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;

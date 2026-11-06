@@ -26,7 +26,20 @@ import type { AoControl, PostKit, PostStage, PostStageFactory } from './backend/
 import type { PostChainLike, PostQuality, PostStageName } from './post-chain-shared';
 import { NodeOutputGrade, type GradeMaths } from './output-grade.node';
 import { NodeOutputVignette, type VignetteMaths } from './vignette-pass.node';
-import { AO_RADIUS_TILES, AO_RESOLUTION_SCALE, AO_SCALE, isAoOccluder, seededAoNoiseTexture } from './ao-occluder';
+import type { AO_RADIUS_TILES, AO_RESOLUTION_SCALE, AO_SCALE, isAoOccluder, seededAoNoiseTexture } from './ao-occluder';
+
+/**
+ * `ao-occluder.ts`'s constants and helpers, INJECTED rather than imported: legacy `post-chain.ts` imports the same module, so the bundler
+ * hoists it into the ThreeRenderer chunk and a value import here would make the node-backend chunk load that chunk (and the legacy
+ * composer in it); the bundle census (`pnpm --filter @lions/tools webgpu:bundle`) fails on exactly that. Built by `output-maths.ts`.
+ */
+export interface AoMaths {
+  readonly radiusTiles: typeof AO_RADIUS_TILES;
+  readonly resolutionScale: typeof AO_RESOLUTION_SCALE;
+  readonly scale: typeof AO_SCALE;
+  readonly isOccluder: typeof isAoOccluder;
+  readonly seededNoiseTexture: typeof seededAoNoiseTexture;
+}
 
 /** A string only this module carries: the bundle census looks for it, so it can prove no `.node.ts` reached the shared or legacy chunk. */
 export const NODE_POST_MARKER = 'rl-node-post-scene';
@@ -162,11 +175,11 @@ export const NODE_AO_PREPASS_NAME = 'rl-node-ao-prepass';
  *    light's `shadow.autoUpdate`, which is the flag the node path consults;
  *  - only the meshes THIS call hid are restored, so a mesh that was already invisible (the unported-GLSL census hides some) stays so.
  */
-export function withAoOccludersOnly<T>(scene: THREE.Scene, draw: () => T): T {
+export function withAoOccludersOnly<T>(scene: THREE.Scene, isOccluder: AoMaths['isOccluder'], draw: () => T): T {
   const hidden: THREE.Object3D[] = [];
   const frozen: THREE.LightShadow[] = [];
   scene.traverse((object) => {
-    if (object.visible && !isAoOccluder(object)) {
+    if (object.visible && !isOccluder(object)) {
       object.visible = false;
       hidden.push(object);
     }
@@ -212,6 +225,7 @@ export interface NodeAoDeps {
   readonly ao: (depth: TslNode, normal: TslNode, camera: THREE.Camera) => GtaoNodeLike;
   /** `denoise` from `three/addons/tsl/display/DenoiseNode.js`. */
   readonly denoise: (texture: TslNode, depth: TslNode, normal: TslNode, camera: THREE.Camera) => DenoiseNodeLike;
+  readonly maths: AoMaths;
 }
 
 /** The swizzles `Node` carries at runtime and `three/webgpu`'s types leave off. */
@@ -231,14 +245,14 @@ export interface NodeAoStage {
 }
 
 /** The PassNode subclass: skips its scene render while the gate says the AO contributes nothing, and draws only the occluders. */
-function aoPrePassClass(W: NodeAoDeps['W']) {
+function aoPrePassClass(W: NodeAoDeps['W'], isOccluder: AoMaths['isOccluder']) {
   return class AoPrePass extends W.PassNode {
     /** True while the AO is in the picture (blend above 0 and the layer on). */
     gate: () => boolean = () => true;
 
     override updateBefore(frame: Parameters<PassNode['updateBefore']>[0]): boolean | undefined {
       if (!this.gate()) return undefined;
-      return withAoOccludersOnly(this.scene as THREE.Scene, () => super.updateBefore(frame));
+      return withAoOccludersOnly(this.scene as THREE.Scene, isOccluder, () => super.updateBefore(frame));
     }
   };
 }
@@ -253,7 +267,7 @@ function aoPrePassClass(W: NodeAoDeps['W']) {
  */
 export function createNodeAoStage(deps: NodeAoDeps): NodeAoStage {
   const { W, TSL } = deps;
-  const AoPrePass = aoPrePassClass(W);
+  const AoPrePass = aoPrePassClass(W, deps.maths.isOccluder);
   const blendUniform = TSL.uniform(1);
   let weight = 1;
   let on = true;
@@ -288,7 +302,7 @@ export function createNodeAoStage(deps: NodeAoDeps): NodeAoStage {
 
   let last: ReturnType<NodeAoStage['parts']> = null;
   const factory: PostStageFactory = (ctx) => {
-    const scale = ctx.quality.aoScale ?? AO_RESOLUTION_SCALE;
+    const scale = ctx.quality.aoScale ?? deps.maths.resolutionScale;
     const prePass = new AoPrePass(W.PassNode.COLOR, ctx.scene, ctx.camera, {
       type: THREE.HalfFloatType,
       depthBuffer: true,
@@ -306,8 +320,8 @@ export function createNodeAoStage(deps: NodeAoDeps): NodeAoStage {
     const gtao = deps.ao(depth, normal, ctx.camera);
     gtao.resolutionScale = scale;
     gtao.useTemporalFiltering = false;
-    gtao.radius.value = AO_RADIUS_TILES;
-    gtao.scale.value = AO_SCALE;
+    gtao.radius.value = deps.maths.radiusTiles;
+    gtao.scale.value = deps.maths.scale;
     gtao.thickness.value = 1;
     gtao.distanceExponent.value = 1;
     gtao.distanceFallOff.value = 1;
@@ -320,7 +334,7 @@ export function createNodeAoStage(deps: NodeAoDeps): NodeAoStage {
     // DenoiseNode builds its noise from `new SimplexNoise()`, whose random source is `Math`: a different texture in every process
     // (the drift `AO_NOISE_SEED` exists to stop on the legacy path). GTAONode's own noise is a magic square and already stable.
     den._noiseTexture.dispose();
-    const seeded = seededAoNoiseTexture();
+    const seeded = deps.maths.seededNoiseTexture();
     den._noiseTexture = seeded;
     den.noiseNode.value = seeded;
 

@@ -14,6 +14,7 @@ import {
 } from './post-chain.node';
 import { seededAoNoiseTexture } from './ao-occluder';
 import { createOrthoAwareGtao } from './gtao-ortho.node';
+import { AO_MATHS, OUTPUT_MATHS } from './output-maths';
 import { QUALITY_PRESETS } from '../quality';
 
 async function aoDeps(): Promise<NodeAoDeps> {
@@ -22,7 +23,7 @@ async function aoDeps(): Promise<NodeAoDeps> {
   const gtaoModule = await import('three/addons/tsl/display/GTAONode.js');
   const ao = createOrthoAwareGtao({ TSL, GTAONode: gtaoModule.default as never });
   const { denoise } = await import('three/addons/tsl/display/DenoiseNode.js');
-  return { W, TSL, ao: ao as never, denoise: denoise as never };
+  return { W, TSL, ao: ao as never, denoise: denoise as never, maths: AO_MATHS };
 }
 
 /** A scene with one of each kind of thing the AO must and must not see. */
@@ -52,7 +53,7 @@ describe('withAoOccludersOnly: the AO-exempt filter', () => {
   it('hides the backdrop, smoke, rain and the normal-less hull for the draw only, and freezes the sun shadow', () => {
     const w = world();
     let seen: Record<string, boolean> = {};
-    withAoOccludersOnly(w.scene, () => {
+    withAoOccludersOnly(w.scene, AO_MATHS.isOccluder, () => {
       seen = { terrain: w.terrain.visible, backdrop: w.backdrop.visible, smoke: w.smoke.visible, rain: w.rain.visible, outline: w.outline.visible };
       expect(w.sun.shadow.autoUpdate).toBe(false);
     });
@@ -66,7 +67,7 @@ describe('withAoOccludersOnly: the AO-exempt filter', () => {
     const w = world();
     w.smoke.visible = false;
     expect(() =>
-      withAoOccludersOnly(w.scene, () => {
+      withAoOccludersOnly(w.scene, AO_MATHS.isOccluder, () => {
         throw new Error('shader compile');
       })
     ).toThrow('shader compile');
@@ -148,7 +149,7 @@ describe('the node AO stage', () => {
     const W = deps.W;
     const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
     const chain = createNodePostChain(
-      { W, TSL: deps.TSL, smaa: smaa as never },
+      { W, TSL: deps.TSL, smaa: smaa as never, outputMaths: OUTPUT_MATHS },
       {} as never,
       new THREE.Scene(),
       new THREE.OrthographicCamera(),
@@ -158,7 +159,7 @@ describe('the node AO stage', () => {
     expect(chain.passNames).toEqual(['RenderPass', 'FogOfWarPass', 'GTAOPass', 'QuarterBloomPass', 'OutputPass', 'SMAAPass']);
     chain.dispose();
     const medium = createNodePostChain(
-      { W, TSL: deps.TSL, smaa: smaa as never },
+      { W, TSL: deps.TSL, smaa: smaa as never, outputMaths: OUTPUT_MATHS },
       {} as never,
       new THREE.Scene(),
       new THREE.OrthographicCamera(),
