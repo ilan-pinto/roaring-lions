@@ -22,6 +22,7 @@
  * judges 0.5 / 1 / 1.5.
  */
 import { paletteHex } from './palette-hex';
+import type { Ops } from './fog-ops';
 
 export type Rgb = readonly [number, number, number];
 
@@ -193,4 +194,25 @@ export function bakeLutFloats(g: ResolvedGrade, size = GRADE_LUT_SIZE): Float32A
 /** The grade id a time-of-day preset ships, or null for the identity (day). `night` resolves to dusk elsewhere (D10). */
 export function gradeIdForPreset(preset: 'dawn' | 'day' | 'dusk'): 'dawn' | 'dusk' | null {
   return preset === 'day' ? null : preset;
+}
+
+/**
+ * The LUT lookup coordinate for a display-referred colour: `clamp(c, 0, 1) * (N - 1) / N + 0.5 / N`, which lands on texel centres
+ * (see `bakeLutFloats`). Written ONCE against `ops`, so the node twin and a vitest read the same maths. `c` may be a scalar or a
+ * vector in the ops' own type (the node chain hands it a vec3). The legacy GLSL (`LOOKUP_GLSL` in `output-grade.ts`) spells the
+ * same two constants from `GRADE_LUT_SIZE`.
+ */
+export function lutCoord<T>(ops: Ops<T>, c: T, size = GRADE_LUT_SIZE): T {
+  return ops.add(ops.mul(ops.clamp(c, 0, 1), ops.lit((size - 1) / size)), ops.lit(0.5 / size));
+}
+
+/** The dither's interleaved-gradient noise, 0..1, of a pixel position (`gradeNoise` in `output-grade.ts`'s GLSL). */
+export function gradeNoise<T>(ops: Ops<T>, x: T, y: T): T {
+  const dot = ops.add(ops.mul(x, ops.lit(0.06711056)), ops.mul(y, ops.lit(0.00583715)));
+  return ops.fract(ops.mul(ops.lit(52.9829189), ops.fract(dot)));
+}
+
+/** What the dither adds to a colour (display-referred 0..1 units): one LSB at `lsb` = 1, centred on zero. */
+export function gradeDitherOffset<T>(ops: Ops<T>, x: T, y: T, lsb: T): T {
+  return ops.mul(ops.sub(gradeNoise(ops, x, y), ops.lit(0.5)), ops.div(lsb, ops.lit(255)));
 }

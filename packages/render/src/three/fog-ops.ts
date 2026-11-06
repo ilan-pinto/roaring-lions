@@ -1,5 +1,5 @@
 /**
- * GH-943 WebGPU-primary P1 (T4): the arithmetic the fog pass's maths is written ONCE against. `haze.ts` (`hazeAmountOps`),
+ * GH-943 WebGPU-primary P1 (T4, widened by T3): the arithmetic the fog pass's, and the output stage's, maths is written ONCE against. `haze.ts` (`hazeAmountOps`),
  * `shimmer.ts` (`shimmerOffsetOps`) and `fogDim` below take an `Ops<T>`; `NUMBER_OPS` runs them as plain doubles (the vitest maths
  * and the legacy exports `hazeAmount` / `shimmerOffsetPx`), and `fog-pass.node.ts` supplies a TSL `Ops<Node>` that builds the same
  * expression as a graph. The legacy GLSL (`fog-pass.ts`) keeps its own text, pinned to these constants by `fog-pass.test.ts`.
@@ -21,7 +21,15 @@ export interface Ops<T> {
   mix(a: T, b: T, t: T): T;
   /** a < b ? x : y */
   selectLt(a: T, b: T, x: T, y: T): T;
+  /** a - floor(a) (GLSL `fract`; T3: the grade dither's hash) */
+  fract(a: T): T;
+  /** clamp(a, lo, hi) with literal bounds (T3: the grade LUT coordinate) */
+  clamp(a: T, lo: number, hi: number): T;
+  /** GLSL `smoothstep(e0, e1, x)` (T3: the vignette) */
+  smoothstep(e0: T, e1: T, x: T): T;
 }
+
+const clampN = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 export const NUMBER_OPS: Ops<number> = {
   lit: (n) => n,
@@ -34,6 +42,12 @@ export const NUMBER_OPS: Ops<number> = {
   length2: (x, y) => Math.hypot(x, y),
   mix: (a, b, t) => a + (b - a) * t,
   selectLt: (a, b, x, y) => (a < b ? x : y),
+  fract: (a) => a - Math.floor(a),
+  clamp: clampN,
+  smoothstep: (e0, e1, x) => {
+    const t = clampN((x - e0) / (e1 - e0), 0, 1);
+    return t * t * (3 - 2 * t);
+  },
 };
 
 /**

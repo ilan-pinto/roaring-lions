@@ -13,6 +13,9 @@ export const PORTED_FILES = [
   'packages/render/src/three/post-chain.node.ts',
   // GH-943 P1 (T4): the fog, haze, shroud and beam-shimmer stage. Its legacy twin (fog-pass.ts) keeps its GLSL until P8.
   'packages/render/src/three/fog-pass.node.ts',
+  // GH-943 P1 (T3): the grade LUT + dither, and the vignette, as nodes of the output stage.
+  'packages/render/src/three/output-grade.node.ts',
+  'packages/render/src/three/vignette-pass.node.ts',
 ];
 
 /**

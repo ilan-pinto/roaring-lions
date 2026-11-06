@@ -3,7 +3,7 @@
  * `EffectComposer`; same stages, same order, same pass names.
  *
  * Legacy order, from the code (design section 3 has it wrong; see `post-chain-shared.ts`):
- *   HalfFloat RenderPass -> fog -> GTAO -> bloom -> OutputPass (ACES 1.0, sRGB; T3 adds grade, vignette, dither) -> SMAA.
+ *   HalfFloat RenderPass -> fog -> GTAO -> bloom -> OutputPass (ACES 1.0, sRGB, then T3's grade LUT, vignette and dither) -> SMAA.
  * Stages whose factory is `null` on the `PostKit` are absent, and so are the quality-gated ones, exactly as on the legacy side
  * (`ThreeRenderer.init` builds AO only for `quality.ao`, bloom only for `bloom: 'quarter'`, SMAA only for `quality.smaa`).
  *
@@ -24,18 +24,29 @@ import * as THREE from 'three';
 import type { Node as TslNode, PassNode, RenderPipeline, WebGPURenderer } from 'three/webgpu';
 import type { PostKit, PostStage } from './backend/backend';
 import type { PostChainLike, PostQuality, PostStageName } from './post-chain-shared';
+import { NodeOutputGrade, type GradeMaths } from './output-grade.node';
+import { NodeOutputVignette, type VignetteMaths } from './vignette-pass.node';
 
 /** A string only this module carries: the bundle census looks for it, so it can prove no `.node.ts` reached the shared or legacy chunk. */
 export const NODE_POST_MARKER = 'rl-node-post-scene';
+
+/** The shared (legacy-and-node) output-stage maths, injected: see `GradeMaths`. Built once by `output-maths.ts`. */
+export interface OutputMaths {
+  readonly grade: GradeMaths;
+  readonly vignette: VignetteMaths;
+}
 
 export interface NodePostDeps {
   readonly W: typeof import('three/webgpu');
   readonly TSL: typeof import('three/tsl');
   /** `smaa` from `three/addons/tsl/display/SMAANode.js` (loaded by the backend; the file is a TSL node, not a postprocessing pass). */
   readonly smaa: (node: TslNode) => TslNode;
+  readonly outputMaths: OutputMaths;
 }
 
 export interface NodePostChain extends PostChainLike {
+  readonly grade: NodeOutputGrade;
+  readonly vignette: NodeOutputVignette;
   /** The scene pass, for the stages that read its depth (T4 fog, T7 AO) and for the tests that pin its target. */
   readonly scenePass: PassNode;
   readonly pipeline: RenderPipeline;
@@ -86,8 +97,17 @@ export function createNodePostChain(
   if (quality.ao) run('GTAOPass', kit.ao);
   if (quality.bloom === 'quarter') run('QuarterBloomPass', kit.bloom);
 
-  // 5. The output transform, once: ACES at exposure 1.0 then the sRGB encode (the pipeline's own is switched off below).
+  // 5. The output transform, once: ACES at exposure 1.0 then the sRGB encode (the pipeline's own is switched off below). Then, on the
+  // display-referred colour and in the legacy fragment order (T3): grade LUT, roundTripHalf x vignette, dither. A fixed graph: both
+  // handles are uniforms, so a grade or a vignette switch never rebuilds a program.
+  const grade = new NodeOutputGrade(TSL, deps.outputMaths.grade);
+  const vignette = new NodeOutputVignette(TSL, deps.outputMaths.vignette);
   colour = TSL.renderOutput(colour, THREE.ACESFilmicToneMapping, THREE.SRGBColorSpace);
+  {
+    const encoded = colour as unknown as { rgb: TslNode; a: TslNode };
+    const rgb = grade.dither(vignette.apply(grade.lookup(encoded.rgb)));
+    colour = TSL.vec4(rgb as never, encoded.a as never) as unknown as TslNode;
+  }
   names.push('OutputPass');
 
   // 6. SMAA, last, on display-referred colour. Its input is a HalfFloat render-to-texture.
@@ -107,12 +127,15 @@ export function createNodePostChain(
     scenePass,
     pipeline,
     smaaInput,
+    grade,
+    vignette,
     passNames: names,
     render() {
       pipeline.render();
     },
     dispose() {
       pipeline.dispose();
+      grade.dispose();
       for (const o of owned) o.dispose();
       scenePass.dispose();
       depthTexture.dispose();

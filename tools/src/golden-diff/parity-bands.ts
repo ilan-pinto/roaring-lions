@@ -24,6 +24,7 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   { scenario: 'quiet', layer: 'environment', band: 'loose', r0: UNREAD, note: 'T6: intensity on node, null envMap on legacy' },
   { scenario: 'quiet', layer: 'haze', band: 'tight', r0: UNREAD, note: 'T4: haze lives in the fog pass' },
   { scenario: 'quiet', layer: 'vignette', band: 'tight', r0: UNREAD, note: 'T3: vignette x roundTripHalf, after the grade' },
+  { scenario: 'relief', layer: 'vignette', band: 'tight', r0: UNREAD, note: 'T3: the second vignette witness (tel_marum, different corners)' },
   { scenario: 'fogged', layer: 'fog', band: 'tight', r0: UNREAD, note: 'T4: shroud' },
   { scenario: 'fogged', layer: 'haze', band: 'tight', r0: UNREAD, note: 'T4' },
   { scenario: 'fogged', layer: 'environment', band: 'loose', r0: UNREAD, note: 'T6' },

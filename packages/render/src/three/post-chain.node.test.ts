@@ -14,12 +14,13 @@ import { createNodePostChain, NODE_POST_MARKER, type NodePostChain, type NodePos
 import type { PostKit } from './backend/backend';
 import { QUALITY_PRESETS } from '../quality';
 import { bloomPassFor } from './bloom';
+import { OUTPUT_MATHS } from './output-maths';
 
 async function deps(): Promise<NodePostDeps> {
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
   const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
-  return { W, TSL, smaa: smaa as never };
+  return { W, TSL, smaa: smaa as never, outputMaths: OUTPUT_MATHS };
 }
 
 /** The composer needs only these members of a renderer at construction (as `post-chain.test.ts`). */

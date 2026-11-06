@@ -27,41 +27,9 @@
  */
 import * as THREE from 'three';
 import type { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { VIGNETTE_HALF_DIAGONAL, VIGNETTE_RADIUS, VIGNETTE_SOFTNESS, VIGNETTE_STRENGTH } from './vignette-spec';
 
-/**
- * How much of the colour is taken away where the vignette is at FULL
- * strength -- `rgb * (1 - uStrength)`.
- *
- * 0.55 rather than a token 0.2: the background beyond the skirt is
- * `shadow.1` (`#14150F`, the darkest thing in the palette), and the purpose
- * is for the lit ground to have ALREADY arrived near that value by the time
- * it meets it. A weak vignette leaves the step visible and merely tints it.
- */
-export const VIGNETTE_STRENGTH = 0.55;
-
-/**
- * Where the darkening starts, as a fraction of the half-DIAGONAL: 0 at the
- * frame's centre, 1 at a corner.
- *
- * 0.62 keeps the whole of the playable centre untouched -- the shader's
- * `smoothstep` is exactly 0 below this, not merely small, so a mid-map
- * pixel is bit-identical with the vignette on and off. That is the property
- * this task was asked to preserve and it is structural rather than
- * measured.
- */
-export const VIGNETTE_RADIUS = 0.62;
-
-/**
- * How far past `uRadius` the ramp takes to reach full strength.
- *
- * 0.45 puts the top of the ramp at d = 1.07, PAST the corner -- so a corner
- * pixel sits at `smoothstep(0.62, 1.07, 1.0)` = 0.9348 of full strength and
- * the gradient is still moving when it runs out of frame. Landing the ramp
- * exactly on the corner instead would flatten the outer eighth of the
- * picture into a constant, which reads as a dark ring rather than as a
- * falloff.
- */
-export const VIGNETTE_SOFTNESS = 0.45;
+export { VIGNETTE_STRENGTH, VIGNETTE_RADIUS, VIGNETTE_SOFTNESS } from './vignette-spec';
 
 /**
  * `length(vUv - 0.5) / 0.7071` is 0 at the centre and exactly 1 at each
@@ -70,7 +38,7 @@ export const VIGNETTE_SOFTNESS = 0.45;
  * the short axis untouched on a 21:9 monitor and crush it on a phone.
  */
 const FALLOFF_GLSL = `
-  float vigD = length(vUv - 0.5) / 0.7071;
+  float vigD = length(vUv - 0.5) / ${VIGNETTE_HALF_DIAGONAL};
   float vigV = smoothstep(uVigRadius, uVigRadius + uVigSoftness, vigD);
 `;
 
