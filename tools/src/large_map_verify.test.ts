@@ -467,11 +467,11 @@ describe('the asymmetric spec (Tel Marum (large))', () => {
 
   it('the placer\'s moves are a literal: one too many or one too few is red, and so is a pairing the spec forgets', () => {
     const { json, rules, spec } = freshTm();
-    expect(run(json, rules, { ...spec, displaced: { ...spec.displaced, 'kdf/sarim': 12 } }).some((x) => x.includes('kdf/sarim: the placer moved 13 units off their formation tile, the spec says 12'))).toBe(true);
-    expect(run(json, rules, { ...spec, displaced: { ...spec.displaced, 'kdf/kdf': 8 } }).some((x) => x.includes('kdf/kdf: the placer moved 7 units'))).toBe(true);
+    expect(run(json, rules, { ...spec, displaced: { ...spec.displaced, 'kdf/sarim': 12 } }).some((x) => x.includes('kdf/sarim: the placer moved 11 units off their formation tile, the spec says 12'))).toBe(true);
+    expect(run(json, rules, { ...spec, displaced: { ...spec.displaced, 'kdf/kdf': 8 } }).some((x) => x.includes('kdf/kdf: the placer moved 5 units'))).toBe(true);
     const rest = { ...spec.displaced };
     delete rest['sarim/kdf'];
-    expect(run(json, rules, { ...spec, displaced: rest }).some((x) => x.includes('sarim/kdf: the spec pins no displaced count (the placer moved 10)'))).toBe(true);
+    expect(run(json, rules, { ...spec, displaced: rest }).some((x) => x.includes('sarim/kdf: the spec pins no displaced count (the placer moved 5)'))).toBe(true);
   });
 
   it('a unit the placer puts on a boulder is red (closed to wheels), and one it puts on a camp tile is red', () => {

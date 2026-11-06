@@ -550,8 +550,9 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
     visibility: { towns: ['town_block'] },
     asymmetric: true,
     // the real placer's moves, each by an independent count of the formation tiles that are rock, a building or off the map (Python,
-    // over the rows and the two force tables): 7, 13 and 10 of 30, 41 and 41 units. The original's own seats move 10, 11 and 15.
-    displaced: { 'kdf/kdf': 7, 'kdf/sarim': 13, 'sarim/kdf': 10 },
+    // over the rows and the two force tables): 5, 11 and 5 of 30, 41 and 41 units, at the seats (54,64) and (58,34). The same count read
+    // 7, 13 and 10 at the doubled seats (54,90) and (58,34), which is how the counter was checked. The original's own seats move 10, 11 and 15.
+    displaced: { 'kdf/kdf': 5, 'kdf/sarim': 11, 'sarim/kdf': 5 },
   }),
   // GH-920 B3. An open plain: no cut, no tunnels (the original has no rules file), a lone centre marker, and the
   // seats on the anti-diagonal. The income is a table a mirror room never reads. This is the FIRST build, the one offered.

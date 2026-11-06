@@ -112,14 +112,17 @@ describe('the map is Tel Marum at twice the tile', () => {
 });
 
 describe('seats, markers and zones', () => {
-  it('the original\'s measured seats (VERSUS_SEATS) doubled: (54,90) and (58,34), 56.1 tiles apart, named in the map as versus_0 and versus_1', () => {
-    expect([...SEAT_0, ...SEAT_1]).toEqual([54, 90, 58, 34]);
-    expect(markersL.versus_0).toEqual([54, 90]);
+  it('the seats: the hostile one is the original\'s (29,17) doubled, (58,34); the friendly one is moved from its doubled (54,90) to (54,64), 30.3 tiles apart (GH-920 fit, 6 Nov), named in the map as versus_0 and versus_1', () => {
+    expect([...SEAT_0, ...SEAT_1]).toEqual([54, 64, 58, 34]);
+    expect(markersL.versus_0).toEqual([54, 64]);
     expect(markersL.versus_1).toEqual([58, 34]);
-    expect(Math.hypot(markersL.versus_1[0] - markersL.versus_0[0], markersL.versus_1[1] - markersL.versus_0[1])).toBeCloseTo(56.14, 1);
-    // the original has no seat markers: its seats are the VERSUS_SEATS table (27,45) / (29,17)
+    expect(Math.hypot(markersL.versus_1[0] - markersL.versus_0[0], markersL.versus_1[1] - markersL.versus_0[1])).toBeCloseTo(30.27, 1);
+    // the original has no seat markers: its seats are the VERSUS_SEATS table (27,45) / (29,17); only the hostile one is still doubled
     expect(markersS.versus_0).toBeUndefined();
-    expect([27 * 2, 45 * 2, 29 * 2, 17 * 2]).toEqual([54, 90, 58, 34]);
+    expect([29 * 2, 17 * 2]).toEqual([58, 34]);
+    // the friendly seat's distance to the approach (the fight) is the fit's point: 42.4 tiles when doubled, 17.1 now, against the hostile seat's 17.2
+    expect(Math.hypot(markersL.approach[0] - markersL.versus_0[0], markersL.approach[1] - markersL.versus_0[1])).toBeCloseTo(17.09, 1);
+    expect(Math.hypot(markersL.approach[0] - markersL.versus_1[0], markersL.approach[1] - markersL.versus_1[1])).toBeCloseTo(17.2, 1);
   });
 
   it('every marker of the original is here at exactly twice its tile, plus the two seats and nothing else', () => {
@@ -143,7 +146,7 @@ describe('seats, markers and zones', () => {
   });
 
   it('each seat stands in open ground, in the bowl / the valley it stood in', () => {
-    expect(rowsL[90][54]).toBe('.');
+    expect(rowsL[64][54]).toBe('.');
     expect(rowsL[34][58]).toBe('.');
     // the second seat is SOUTH of the wall band (rows 24-35 are the wall; its bowl is rows 30-35), as the original's (29,17) is in the bowl rows 15-17
     expect(markersL.versus_1[1]).toBeLessThanOrEqual(35);
@@ -167,9 +170,9 @@ describe('the rules file', () => {
   it('each camp keeps its tile offset from its seat: (-7,+1) and (-4,-3), 2x2 as the original\'s', () => {
     expect(srules.ends.friendly.camp).toEqual({ at: [20, 46], size: [2, 2] });   // moved from 21 on main with the camp exits (GH-976, 5 Nov)
     expect(srules.ends.hostile.camp).toEqual({ at: [25, 14], size: [2, 2] });
-    expect(rules.ends.friendly.camp).toEqual({ at: [47, 91], size: [2, 2] });
+    expect(rules.ends.friendly.camp).toEqual({ at: [47, 65], size: [2, 2] });
     expect(rules.ends.hostile.camp).toEqual({ at: [54, 31], size: [2, 2] });
-    expect([47 - 54, 91 - 90]).toEqual([20 - 27, 46 - 45]);
+    expect([47 - 54, 65 - 64]).toEqual([20 - 27, 46 - 45]);
     expect([54 - 58, 31 - 34]).toEqual([25 - 29, 14 - 17]);
     for (const [end, seat] of [['friendly', markersL.versus_0], ['hostile', markersL.versus_1]] as const) {
       const c = rules.ends[end].camp;
@@ -178,41 +181,47 @@ describe('the rules file', () => {
     }
   });
 
-  it('the four tunnel routes: mouth and middle point at twice the original\'s tile; each VENT keeps its tile offset from the approach (the fight), capacity copied from the source route (main moved two from 4 to 3)', () => {
+  it('the four tunnel routes: the middle point at twice the original\'s tile; the friendly mouths move with the friendly seat (26 tiles north); each VENT is the source vent\'s offset from the approach scaled by K (friendly 0.5, hostile 1) and the hostile end pulled 0.7 of the way to its seat; capacity copied from the source route (main moved two from 4 to 3)', () => {
     const appr = markersS.approach;
     const apprL = markersL.approach;
     expect(apprL).toEqual([48, 48]);
+    const rule = { friendly: { k: 0.5, home: 0, seat: markersL.versus_0, shift: [0, -26] }, hostile: { k: 1, home: 0.7, seat: markersL.versus_1, shift: [0, 0] } };
     for (const end of ['friendly', 'hostile'] as const) {
+      const { k, home, seat, shift } = rule[end];
       srules.tunnels![end]!.forEach((r, i) => {
         const t = rules.tunnels![end]![i]!;
         expect(t.id, r.id).toBe(r.id.replace(/^tm_/, 'tml_'));
         expect(t.capacity, r.id).toBe(r.capacity);   // copied from the source route
-        expect(t.points[0], r.id).toEqual([2 * r.points[0]![0], 2 * r.points[0]![1]]);
+        expect(t.points[0], r.id).toEqual([2 * r.points[0]![0] + shift[0], 2 * r.points[0]![1] + shift[1]]);
         expect(t.points[1], r.id).toEqual([2 * r.points[1]![0], 2 * r.points[1]![1]]);
         const vent = r.points[2]!;
-        expect(t.points[2], r.id).toEqual([apprL[0] + vent[0] - appr[0], apprL[1] + vent[1] - appr[1]]);
+        const vx = apprL[0] + k * (vent[0] - appr[0]);
+        const vy = apprL[1] + k * (vent[1] - appr[1]);
+        const want = [Math.round(vx + home * (seat[0] - vx)), Math.round(vy + home * (seat[1] - vy))];
+        // the generator takes the nearest open tile to this point, so the shipped vent is near it and not necessarily on it
+        expect(Math.hypot(t.points[2]![0] - want[0], t.points[2]![1] - want[1]), r.id).toBeLessThanOrEqual(3);
       });
     }
     // literals, so the rule above is not the only witness
-    expect(rules.tunnels!.friendly!.map((r) => r.points)).toEqual([[[44, 88], [28, 76], [36, 54]], [[52, 88], [68, 80], [62, 58]]]);
-    expect(rules.tunnels!.hostile!.map((r) => r.points)).toEqual([[[44, 34], [32, 44], [37, 51]], [[58, 34], [66, 44], [60, 51]]]);
+    expect(rules.tunnels!.friendly!.map((r) => r.points)).toEqual([[[44, 62], [28, 76], [42, 51]], [[52, 62], [68, 80], [55, 53]]]);
+    expect(rules.tunnels!.hostile!.map((r) => r.points)).toEqual([[[44, 34], [32, 44], [52, 39]], [[58, 34], [66, 44], [59, 39]]]);
   });
 });
 
 describe('the verifier on it (B2 checks, run on the shipped data, with the asymmetric spec)', () => {
-  it('passes every check, with the seats 56.1 apart and the placer moving 7, 13 and 10 units off their formation tiles', () => {
+  it('passes every check, with the seats 30.3 apart and the placer moving 5, 11 and 5 units off their formation tiles', () => {
     const { json, rules: r, spec } = shipped('tel_marum_l');
     expect(spec.asymmetric).toBe(true);
-    expect(spec.displaced).toEqual({ 'kdf/kdf': 7, 'kdf/sarim': 13, 'sarim/kdf': 10 });
+    expect(spec.displaced).toEqual({ 'kdf/kdf': 5, 'kdf/sarim': 11, 'sarim/kdf': 5 });
     const rep = verifyLargeMap(json, r, spec);
     expect(rep.failures).toEqual([]);
-    expect(rep.facts.seat_distance).toBe(56.1);
+    expect(rep.facts.seat_distance).toBe(30.3);
     expect(rep.facts.fat_stairs).toBe(0);
     expect(rep.facts.thick_wall_blocks).toBe(0);
     expect(rep.facts.road_blocks).toBe(0);
-    expect(rep.facts.displaced_kdf_kdf).toBe(7);
-    expect(rep.facts.displaced_kdf_sarim).toBe(13);
-    expect(rep.facts.displaced_sarim_kdf).toBe(10);
+    expect(rep.facts.displaced_kdf_kdf).toBe(5);
+    expect(rep.facts.displaced_kdf_sarim).toBe(11);
+    expect(rep.facts.displaced_sarim_kdf).toBe(5);
     expect(Number(rep.facts.built_share)).toBeLessThanOrEqual(0.01);
     // the equal-cost-both-ways rule is the symmetric maps': here the way back is shorter (a descent is free), and both are finite
     expect(Number(rep.facts.foot_seat_to_seat)).toBeGreaterThan(Number(rep.facts.foot_seat_to_seat_back));

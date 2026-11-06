@@ -739,15 +739,17 @@ What the redo needs before it opens: a wall LOD or fewer wall tiles in the centr
 What differs from the other three large maps:
 - **It is not point-symmetric**, so there is no half-turn anywhere: the generator draws the whole map, and `large_map_verify.ts`
   reads it with `asymmetric: true` (it skips the half-turn, the seat diagonal and equal flow cost both ways; it asks instead for the
-  real placer's moves to equal the spec's `displaced` literals, 7 / 13 / 10 per pairing, and for every unit to land open to wheels and
+  real placer's moves to equal the spec's `displaced` literals, 5 / 11 / 5 per pairing (7 / 13 / 10 at the doubled seats), and for every unit to land open to wheels and
   off the camps). The original's own seats move 10 / 11 / 15 units the same way: its formation overlaps rock and `placeOnOpen` spirals.
-- **Seats are the original's measured seats doubled**, `(54,90)` and `(58,34)`, as `versus_0`/`versus_1` markers (the original names
-  them in `VERSUS_SEATS`). They stand 56.1 tiles apart, not the 78 of the other large maps: the second seat is in the bowl before the
-  pass, and that is what a twin gives. Both seats are SOUTH of the wall band, so no seat-to-seat route crosses it and the verifier has no
-  `crossings`.
-- **Camps keep their tile offset from the seat** (`(-6,+1)`, `(-4,-3)`); a tunnel mouth and middle point double; a **vent keeps its tile
-  offset from the approach** (the fight), the lesson of PR 953 (a doubled vent sat 15-20 tiles from any line of fire). A rule fixed
-  before any seed was read, not a value fitted.
+- **The hostile seat is the original's measured seat doubled**, `(58,34)`; **the friendly seat is fitted**, `(54,64)` (doubled it was
+  `(54,90)`, 42 tiles from the approach to the hostile seat's 17, and the faction cells followed that gap; GH-920, 6 Nov). Both are
+  `versus_0`/`versus_1` markers (the original names its own in `VERSUS_SEATS`). They stand 30.3 tiles apart, not the 78 of the other
+  large maps. Both seats are SOUTH of the wall band, so no seat-to-seat route crosses it and the verifier has no `crossings`.
+- **Camps keep their tile offset from the seat** (`(-7,+1)`, `(-4,-3)`); a tunnel middle point doubles, and the friendly mouths move with
+  the friendly seat (26 tiles north). A **vent is the source vent's offset from the approach scaled by K** (the fight; the lesson of
+  PR 953: a doubled vent sat 15-20 tiles from any line of fire), K 0.5 at the friendly end and 1 at the hostile end, the hostile end
+  then pulled 0.7 of the way to its seat (`VENTS` in `build.mjs`). Unlike the first build's rule, these values ARE fitted, on seeds
+  43000-43191 (GH-920); the choice rule was fixed before the read and no candidate met the 60/40 bar in every cell.
 - Rock and the boulder corridor copy as 2x2 blocks (the corridor is 4 x 12, 48 `b` tiles, plus the 16-tile scree apron); the village
   keeps its native 3x2; `keepCliffs` is applied (the sketch is full of two-level steps: wall band, pass bowl, a 2-level berm).
   The 6-tile rock outcrop in the valley is a crown summit in the original; copied as 2x2 blocks it is 24 tiles and crowns nothing

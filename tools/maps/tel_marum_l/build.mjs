@@ -62,9 +62,21 @@ export const VERSUS_PATH = join(ROOT, 'data', 'versus', `${ID}.json`);
 
 /** The original's measured seats (packages/app/src/net/versus-seats.ts VERSUS_SEATS.tel_marum), as the sketch has them. */
 export const SOURCE_SEATS = { friendly: [27, 45], hostile: [29, 17] };
-/** This map's seats: twice the tile. */
-export const SEAT_0 = SOURCE_SEATS.friendly.map((v) => 2 * v);
+/**
+ * This map's seats. The hostile seat is twice the source tile. The friendly seat is NOT: at twice the tile
+ * (54, 90) it is 42 tiles from the approach to the hostile seat's 17, and the faction cells followed that
+ * asymmetry (GH-920). (54, 64) is the screened fit of 6 Nov; see the GH-920 comment for the table.
+ */
+export const SEAT_0 = [54, 64];
 export const SEAT_1 = SOURCE_SEATS.hostile.map((v) => 2 * v);
+/** The friendly seat's move from twice its source tile: the route mouths at that end move with it. */
+const SEAT_0_SHIFT = [SEAT_0[0] - 2 * SOURCE_SEATS.friendly[0], SEAT_0[1] - 2 * SOURCE_SEATS.friendly[1]];
+/**
+ * Where each end's tunnel vents sit, as a scale on the source vent's offset from the approach marker (k) and a
+ * pull toward the end's own seat (home, 0 = none, 1 = the seat). At twice the offset the vents sat 1.4x to
+ * 1.9x farther from each seat than in the original and the games dragged to the cap.
+ */
+const VENTS = { friendly: { k: 0.5, home: 0 }, hostile: { k: 1, home: 0.7 } };
 
 /** The source map, as the generator reads it: symbols and levels by cell. */
 export function loadSketch() {
@@ -178,15 +190,22 @@ export function layout(t) {
   const zones = Object.fromEntries(Object.entries(src.zones).map(([name, r]) => [name, rescaleRect(r, AREA_ZONES.has(name) ? 'area' : 'landmark')]));
   const fight = src.markers.approach; // the sketch's centre of the fight
   const fightL = markers.approach;
-  const relaid = (r) => ({
+  const relaid = (end) => (r) => ({
     id: r.id.replace(/^tm_/, 'tml_'),
     points: r.points.map((p, i) => {
-      if (i === r.points.length - 1) return nearestOpen(t, [fightL[0] + (p[0] - fight[0]), fightL[1] + (p[1] - fight[1])], `route ${r.id} vent`);
-      return nearestOpen(t, [2 * p[0], 2 * p[1]], `route ${r.id} point ${i}`);
+      if (i === r.points.length - 1) {
+        const { k, home } = VENTS[end];
+        const seat = end === 'friendly' ? SEAT_0 : SEAT_1;
+        const vx = fightL[0] + k * (p[0] - fight[0]);
+        const vy = fightL[1] + k * (p[1] - fight[1]);
+        return nearestOpen(t, [Math.round(vx + home * (seat[0] - vx)), Math.round(vy + home * (seat[1] - vy))], `route ${r.id} vent`);
+      }
+      const mv = i === 0 && end === 'friendly' ? SEAT_0_SHIFT : [0, 0];
+      return nearestOpen(t, [2 * p[0] + mv[0], 2 * p[1] + mv[1]], `route ${r.id} point ${i}`);
     }),
     capacity: r.capacity,
   });
-  const tunnels = { friendly: rules.tunnels.friendly.map(relaid), hostile: rules.tunnels.hostile.map(relaid) };
+  const tunnels = { friendly: rules.tunnels.friendly.map(relaid('friendly')), hostile: rules.tunnels.hostile.map(relaid('hostile')) };
   // each camp keeps its tile offset from its seat
   const camp = (end) => {
     const c = rules.ends[end].camp.at;
