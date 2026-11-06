@@ -902,6 +902,8 @@ describe('BASELINES layerChecks', () => {
         // GH-984 N2, 2026-11-03: `nature:capture --phase=signal`, 3 fresh loads, bit-identical, ANGLE Metal (CI re-measures at the bless).
         // 25 px is sub-threshold: the pixel floor is 0 and the magnitude carries it.
         disturb: { px: 25, mean: 0.0015 },
+        // GH-984 N3, 2026-11-04: `nature:capture --phase=signal --layer=wash`, 3 fresh loads, bit-identical, ANGLE Metal (CI re-measures at the bless).
+        wash: { px: 15, mean: 0.0008 },
       },
       // Plan 3 Task 8 (GH-238 K8), 2026-10-07: `kit:capture -- --toggle`, the
       // gate's own capture code, 3 fresh loads per layer, bit-identical

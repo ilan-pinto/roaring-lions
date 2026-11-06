@@ -541,6 +541,10 @@ export const DEBUG_LAYERS = [
   // the `wind` shape: the frame writes the slot count and the arrays, never the amplitude, and skips its own work
   // while the amplitude is 0, so a repaint cannot undo it. Witnessed by the gated `vehicle` scenario's layer check.
   'disturb',
+  // GH-984 N3: the helicopters' rotor wash on the vegetation (the flatten and the thrash; `terrain/disturb.ts`). A flag the frame's
+  // disturber build reads every frame (a helicopter takes no slot while hidden), so a repaint cannot undo it, and the vehicles'
+  // `disturb` bend stays. The dust ring is not this layer's. Witnessed by the gated `vehicle` scenario's layer check.
+  'wash',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

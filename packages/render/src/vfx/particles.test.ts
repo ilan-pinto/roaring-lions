@@ -13,7 +13,7 @@
  * instead of `sampleLerp`. The P1/P2 hand-computed-alpha assertions below
  * failed as expected; reverting restored green.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ParticleSystem, isSoftParticleSprite } from './particles';
 import type { ParticleSpec } from './emitters';
 
@@ -358,5 +358,39 @@ describe('ParticleSystem.forEachLive -- the soft flag', () => {
     const seen: boolean[] = [];
     system.forEachLive(LAYER_ABOVE, (_x, _y, _c, _a, _r, soft) => seen.push(soft));
     expect(seen.sort()).toEqual([false, true]);
+  });
+});
+
+describe('ParticleSystem.spawn -- speedScale (GH-984 N3: a stronger rotor wash flings a wider ring)', () => {
+  const spec = (): ParticleSpec => makeSpec({ count: 6, lifetime_ms: 60_000, speed_tiles_s: [2, 4], cone_deg: 360, drag: 0 });
+  function ring(speedScale: number | undefined, emitOverMs = 0): number[] {
+    const system = new ParticleSystem(16, (key) => key);
+    let a = 12345;
+    const rand = (): number => ((a = (a * 1664525 + 1013904223) >>> 0) / 4294967296);
+    system.spawn({ ...spec(), emit_over_ms: emitOverMs }, 0, 0, 0, 0.5, 1, LAYER_BELOW, 0, 0, emitOverMs > 0 ? undefined : { rand, ageSec: 0 }, speedScale);
+    if (emitOverMs > 0) system.step(emitOverMs / 1000 + 0.1);
+    system.step(1, 1);
+    return collect(system, LAYER_BELOW).map((p) => Math.hypot(p.x, p.y));
+  }
+  it('multiplies the launch speed and nothing else: the same stream, the same directions, the ring scaled', () => {
+    const full = ring(undefined);
+    const half = ring(0.5);
+    expect(full.length).toBeGreaterThan(2);
+    expect(half).toHaveLength(full.length);
+    for (let k = 0; k < full.length; k++) expect(half[k]).toBeCloseTo(full[k] * 0.5, 9);
+    expect(ring(1)).toEqual(full);
+  });
+  it('reaches a sustained (emit_over_ms) emission too', () => {
+    // An undated sustained emission trickles through `pending` and draws from Math.random: pin it so the ratio is exact.
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const full = ring(undefined, 100);
+      const half = ring(0.5, 100);
+      expect(full.length).toBeGreaterThan(2);
+      expect(half).toHaveLength(full.length);
+      expect(Math.max(...half)).toBeCloseTo(Math.max(...full) * 0.5, 9);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

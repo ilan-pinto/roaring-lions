@@ -329,6 +329,7 @@ import { hexToLinear } from './terrain/shared';
 import { DEFAULT_WIND, windGust, windHeading } from './terrain/wind';
 import { makeWindUniforms, type WindUniformSet } from './terrain/wind-uniforms';
 import {
+  DISTURB_KIND_AIR,
   DISTURB_KIND_FOOT,
   DISTURB_KIND_HULL,
   DISTURB_KIND_NONE,
@@ -465,6 +466,7 @@ import {
 } from './units/trigger-fx';
 import {
   ROTOR_WASH_MIN_STRENGTH,
+  rotorWashPuffSpeed,
   rotorWashStrength,
   washAgeSec,
   washRand,
@@ -1793,8 +1795,10 @@ export class ThreeRenderer implements Renderer {
   private readonly disturbRadiusOfType: Float64Array;
   /** The frame's inputs to `disturbField.build`: a persistent object, its fields rewritten every frame (no allocation). */
   private readonly disturbFrame: DisturbFrame = {
-    count: 0, tick: 0, alpha: 0, focusX: 0, focusZ: 0, viewRadius: 0, slots: 0, wakes: false, foot: false,
+    count: 0, tick: 0, alpha: 0, focusX: 0, focusZ: 0, viewRadius: 0, slots: 0, wakes: false, foot: false, air: true,
   };
+  /** The `wash` debug layer (GH-984 N3): 1 shipped, 0 takes the helicopters' slots away. Read by `updateDisturbers` every frame, so a repaint cannot undo it. */
+  private washLayerOn = true;
   private readonly disturbSource: DisturbSource;
   /** `opts.reducedMotion?.()` as `frame()` last asked it (every frame, every map): the clods read it. */
   private reducedPrefNow = false;
@@ -3122,8 +3126,15 @@ export class ThreeRenderer implements Renderer {
     this.disturbRadiusOfType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) {
       const type = sim.unitTypes[t];
-      // Air is N3's (rotor wash); a hull is "wheeled" in the sim's own sense (tracked included); the rest walk.
-      this.disturbKindOfType[t] = type.isAir ? DISTURB_KIND_NONE : type.wheeled ? DISTURB_KIND_HULL : DISTURB_KIND_FOOT;
+      // A rotorcraft is N3's wash, by the rule the dust ring has always used (`updateRotorWash`): an air type that is not soft. A soft one
+      // in the air (every drone, the paramotor) throws no wash. A hull is "wheeled" in the sim's own sense (tracked included); the rest walk.
+      this.disturbKindOfType[t] = type.isAir
+        ? type.isSoft
+          ? DISTURB_KIND_NONE
+          : DISTURB_KIND_AIR
+        : type.wheeled
+          ? DISTURB_KIND_HULL
+          : DISTURB_KIND_FOOT;
       this.disturbRadiusOfType[t] = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type));
     }
     this.disturbSource = {
@@ -3135,6 +3146,8 @@ export class ThreeRenderer implements Renderer {
       curZ: this.curY,
       kindOfType: this.disturbKindOfType,
       radiusOfType: this.disturbRadiusOfType,
+      speed: this.entitySpeed,
+      airHeight: (i, alpha) => this.airLiftY(i, alpha),
       skip: (i) => this.hiddenFromViewer(i) || this.buriedLast[i] === 1 || this.sim.state.garrisonedIn[i] >= 0,
     };
     this.churn = makeChurnState(n);
@@ -4645,6 +4658,12 @@ export class ThreeRenderer implements Renderer {
         const next = visible ? 1 : 0;
         const changed = this.disturbU.amp.value === next ? 0 : 1;
         this.disturbU.amp.value = next;
+        return changed;
+      }
+      case 'wash': {
+        // The helicopters' slots, taken away and given back: `updateDisturbers` reads the flag every frame, so a repaint cannot undo it.
+        const changed = this.washLayerOn === visible ? 0 : 1;
+        this.washLayerOn = visible;
         return changed;
       }
       case 'buildings':
@@ -11833,12 +11852,14 @@ export class ThreeRenderer implements Renderer {
       // As the exhaust: no wash from an aircraft hidden from a versus seat,
       // slots still spent (N1a final review). Never true in single-player.
       const washHidden = this.hiddenFromViewer(i);
+      // GH-984 N3: a stronger wash flings its ring wider (the count and size already follow the strength).
+      const puffSpeed = rotorWashPuffSpeed(strength);
       for (let slot = first; slot <= last && !washHidden; slot++) {
         const rand = washRand(i, slot);
         const ageSec = washAgeSec(slot, nowMs);
         for (const layer of wash.particles) {
           const fxLayer = fxLayerIndex(wash.layer, layer.additive ?? false);
-          this.particleSystem.spawn(layer, wx, wy, 0, strength, prio, fxLayer, 0, 0, { rand, ageSec });
+          this.particleSystem.spawn(layer, wx, wy, 0, strength, prio, fxLayer, 0, 0, { rand, ageSec }, puffSpeed);
         }
       }
       if (last >= first) this.rotorWashSlot[i] = last;
@@ -11875,6 +11896,7 @@ export class ThreeRenderer implements Renderer {
     f.slots = quality.slots;
     f.wakes = quality.wakes;
     f.foot = quality.foot;
+    f.air = this.washLayerOn;
     field.build(this.disturbSource, f);
     u.n.value = field.count;
     u.box.value.set(field.box[0], field.box[1], field.box[2], field.box[3]);
