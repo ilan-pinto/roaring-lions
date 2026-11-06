@@ -1,0 +1,50 @@
+# CodeRabbit: a two-week ADVISORY trial (lead, 6 Nov 2026). It comments; it never blocks a merge.
+# The repository's own gates (determinism, falsification, the visual gate) stay the real guard.
+language: en-GB
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: ["main"]
+    ignore_title_keywords: ["re-bless", "ledger", "do not merge"]
+  path_filters:
+    - "!tools/golden-baselines/**"
+    - "!assets/**"
+    - "!art/**"
+    - "!docs/HANDOVER.md"
+    - "!**/*.glb"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!pnpm-lock.yaml"
+    - "!data/arena/results.json"
+  path_instructions:
+    - path: "packages/sim/**"
+      instructions: >-
+        Deterministic simulation. Flag any floating point, Math.*, Date.*, Math.random or a global random stream:
+        the sim is Q16.16 fixed point (fx.mul, fx.div, LUT trig) with a seeded per-entity rng(entityId). Flag
+        per-entity object allocation inside a per-tick loop (struct-of-arrays only), any import from another
+        package, and any change that could move the determinism golden hash without the commit saying why.
+    - path: "packages/render/**"
+      instructions: >-
+        Presentation only: nothing here may write sim state or influence an outcome. `three` may be imported only
+        under packages/render/src/three/**. Animation reads the SIM clock (presentationSimMs), never wall-clock dt.
+        Vertex and uniform colours are linear (hexToLinear); colours come from palette keys, never raw hex.
+    - path: "packages/app/src/ui/**"
+      instructions: >-
+        No hex or rgba() colour literals (semantic CSS tokens or color-mix only), and every player-facing string
+        goes through t() with an en.json key. Never resolve a label table at module load.
+    - path: "data/**"
+      instructions: >-
+        Content is data validated by JSON Schema; flag behaviour that belongs in the schema rather than engine code.
+    - path: "**/*.test.ts"
+      instructions: >-
+        Every check must be able to fail. Flag a test that normalises by what it measures, asserts an identity,
+        recomputes its own expected value from the code under test, or loops over a possibly empty array.
+chat:
+  auto_reply: true
