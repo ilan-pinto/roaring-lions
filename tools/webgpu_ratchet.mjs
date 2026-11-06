@@ -16,6 +16,8 @@ export const PORTED_FILES = [
   // GH-943 P1 (T3): the grade LUT + dither, and the vignette, as nodes of the output stage.
   'packages/render/src/three/output-grade.node.ts',
   'packages/render/src/three/vignette-pass.node.ts',
+  // GH-943 P1 (T5): the node bloom (BloomNode). Twin of bloom.ts, which keeps UnrealBloomPass until P8.
+  'packages/render/src/three/bloom.node.ts',
 ];
 
 /**

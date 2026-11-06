@@ -12,6 +12,7 @@
 // from inside would be black, and the compositor's presented frame is what a player sees.
 import { createPostChain } from '../../../packages/render/src/three/post-chain';
 import { createNodeBackend } from '../../../packages/render/src/three/backend/node-backend';
+import { BLOOM_MATHS, OUTPUT_MATHS } from '../../../packages/render/src/three/output-maths';
 import { QUALITY_PRESETS } from '../../../packages/render/src/quality';
 import { resolveGrade, type GradeJson } from '../../../packages/render/src/three/grade-maths';
 import dusk from '../../../data/grades/dusk.json';
@@ -51,7 +52,7 @@ export async function drawRampCard(arm: RampArm, graded: boolean): Promise<RampR
     await rAF();
     return { kind: 'legacy-gl', adapter: 'webgl2', graded };
   }
-  const made = await createNodeBackend({ background: '#000000', forceWebGL: arm === 'webgl2', adapter: 'ramp-card' });
+  const made = await createNodeBackend({ background: '#000000', forceWebGL: arm === 'webgl2', adapter: 'ramp-card', bloomMaths: BLOOM_MATHS });
   if ('reason' in made) throw new Error(`ramp card: node backend refused: ${made.reason}`);
   const be = made.backend;
   be.setPixelRatio(1);
@@ -59,6 +60,7 @@ export async function drawRampCard(arm: RampArm, graded: boolean): Promise<RampR
   be.domElement.id = 'ramp-card';
   be.domElement.style.cssText = `position:fixed;left:0;top:0;width:${width}px;height:${height}px`;
   document.body.appendChild(be.domElement);
+  be.setOutputMaths(OUTPUT_MATHS);
   be.configure({ scene, camera, quality: QUALITY_PRESETS.low });
   const post = be.post;
   if (post === null) throw new Error('ramp card: the node backend built no post chain');
