@@ -56,6 +56,7 @@ import { gpuLaunchArgs } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPortOrAttach } from '../ui-review/port';
 import { NATURE_DEFAULT_PORT, naturePortRefusal } from './nature-port';
+import { armOrder, pairedLine, pairedStats, runRounds } from './nature-abba';
 
 const TAG = 'nature';
 const arg = (k: string, d: string): string => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
@@ -684,22 +685,23 @@ async function costPhase(browser: Browser, errors: string[]): Promise<void> {
     for (const rung of [shipped, ...[16, 8, 0].filter((r) => r < shipped)]) {
       let worst = -Infinity;
       for (const zoom of [0.5, 1]) {
-        // Interleaved A B A B A B so a drifting machine hits both arms alike; the load is read either side of every round.
-        const A: Sample[] = [];
-        const B: Sample[] = [];
+        // ABBA: off,on then on,off, alternating per round, so a drifting machine cancels in the paired median instead of
+        // always handing the later arm the higher load (GH-984 N3: a fixed order read +6 of 6 on a 28.8 -> 41.7 ms drift).
+        // The 1-minute load is read either side of every round.
         const loads: string[] = [];
-        for (let round = 0; round < 3; round++) {
+        const { off: A, on: B } = await runRounds(6, armOrder, async (arm, round) => {
           const l0 = load();
-          await set(false, rung);
-          A.push(await sample(zoom));
-          await set(true, rung);
-          B.push(await sample(zoom));
-          loads.push(`${l0} -> ${load()}`);
-        }
-        const delta = f(B, 'gpuP95') - f(A, 'gpuP95');
+          await set(arm === 'on', rung);
+          const s = await sample(zoom);
+          loads.push(`r${round + 1} ${arm} ${l0} -> ${load()}`);
+          return s;
+        });
+        const pairedGpu = pairedStats(A.map((x) => x.gpuP95), B.map((x) => x.gpuP95));
+        const pairedCpu = pairedStats(A.map((x) => x.cpuMed), B.map((x) => x.cpuMed));
+        const delta = pairedGpu.median; // the sign-off number: the paired median, not the difference of arm medians
         worst = Math.max(worst, delta);
-        say(`[cost ${preset}] slots ${rung} z${zoom}: off gpu p95 ${f(A, 'gpuP95').toFixed(2)} / on ${f(B, 'gpuP95').toFixed(2)} -> delta ${delta.toFixed(2)} ms (budget ${budget}); gpu median ${f(A, 'gpuMed').toFixed(2)} / ${f(B, 'gpuMed').toFixed(2)}; cpu median ${f(A, 'cpuMed').toFixed(2)} / ${f(B, 'cpuMed').toFixed(2)}; draw calls ${A[0].calls} / ${B[0].calls}; programs ${A[0].programs} / ${B[0].programs}; slots live ${B[0].n}; rounds off ${A.map((x) => x.gpuP95.toFixed(1)).join(',')} on ${B.map((x) => x.gpuP95.toFixed(1)).join(',')}; load (1/5/15 min) per round, start -> end: ${loads.join(' | ')}`);
-        rows.push(`| ${preset} | ${rung} | ${zoom} | ${f(A, 'gpuP95').toFixed(2)} | ${f(B, 'gpuP95').toFixed(2)} | ${delta.toFixed(2)} | ${budget} | ${f(A, 'cpuMed').toFixed(2)} / ${f(B, 'cpuMed').toFixed(2)} | ${A[0].calls} / ${B[0].calls} | ${loads.map((l) => l.split(' ')[0] + '->' + l.split(' -> ')[1].split(' ')[0]).join(' ')} |`);
+        say(`[cost ${preset}] slots ${rung} z${zoom}: off gpu p95 ${f(A, 'gpuP95').toFixed(2)} / on ${f(B, 'gpuP95').toFixed(2)} -> paired delta ${delta.toFixed(2)} ms (budget ${budget}; ${pairedLine(pairedGpu)}; unpaired p95 delta ${(f(B, 'gpuP95') - f(A, 'gpuP95')).toFixed(2)}; cpu median ${pairedLine(pairedCpu)}); gpu median ${f(A, 'gpuMed').toFixed(2)} / ${f(B, 'gpuMed').toFixed(2)}; cpu median ${f(A, 'cpuMed').toFixed(2)} / ${f(B, 'cpuMed').toFixed(2)}; draw calls ${A[0].calls} / ${B[0].calls}; programs ${A[0].programs} / ${B[0].programs}; slots live ${B[0].n}; rounds off ${A.map((x) => x.gpuP95.toFixed(1)).join(',')} on ${B.map((x) => x.gpuP95.toFixed(1)).join(',')}; load (1/5/15 min) per arm-run, start -> end, in measured order: ${loads.join(' | ')}`);
+        rows.push(`| ${preset} | ${rung} | ${zoom} | ${f(A, 'gpuP95').toFixed(2)} | ${f(B, 'gpuP95').toFixed(2)} | ${delta.toFixed(2)} | ${budget} | ${f(A, 'cpuMed').toFixed(2)} / ${f(B, 'cpuMed').toFixed(2)} | ${A[0].calls} / ${B[0].calls} | ${pairedGpu.positive}/${pairedGpu.rounds} | ${loads.map((l) => { const [a, b] = l.split(' -> '); const h = a.split(' '); return `${h[0]}${h[1]}:${h[2]}->${b.split(' ')[0]}`; }).join(' ')} |`);
       }
       if (worst <= budget) {
         say(`[cost ${preset}] slots ${rung}: within budget (worst delta ${worst.toFixed(2)} <= ${budget})`);
@@ -758,7 +760,7 @@ async function main(): Promise<void> {
         '# N2 measurements (GH-984)',
         '',
         ...(costRows.length
-          ? ['| preset | slots | zoom | gpu p95 off | gpu p95 on | delta ms | budget | cpu median off / on | draw calls off / on | load 1 min per round (start->end) |', '|---|---|---|---|---|---|---|---|---|---|', ...costRows, '']
+          ? ['| preset | slots | zoom | gpu p95 off | gpu p95 on | paired delta ms | budget | cpu median off / on | draw calls off / on | paired + rounds | load 1 min per arm-run (start->end, measured order) |', '|---|---|---|---|---|---|---|---|---|---|---|', ...costRows, '']
           : []),
         '```',
         ...lines,
