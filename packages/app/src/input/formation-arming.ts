@@ -16,6 +16,7 @@
  * another formation takes its place (`retire`). A key that cannot arm (an inert button) says why and leaves
  * whatever was armed armed; a key with no row at all says nothing.
  */
+import type { FormationClosedReason } from '../net/versus-formations';
 import { formationArmNote, formationReason, type FormationId, type FormationView } from '../ui/formation-model';
 import { armFormationKey, issueFormation } from './formation';
 import type { IntentWorld, OrderSink, Resolution } from './intents';
@@ -30,6 +31,8 @@ export interface FormationArmingDeps {
   sink: OrderSink;
   /** `formationsOpenIn(netConfig?.mode)`. */
   open(): boolean;
+  /** Why it is closed when `open()` is false (`formationClosedReason`); absent: the versus line. */
+  reason?(): FormationClosedReason | undefined;
   /** A formation has just been armed: disarm everything else that owns the next click. */
   onArmed(): void;
   /** The unit's formation class (`FM_CLASS_NONE` = none), for the resolver's `min_members` count. */
@@ -119,7 +122,7 @@ export function createFormationArming(deps: FormationArmingDeps): FormationArmin
       if (armed === null) return null;
       const formation = armed;
       putDown();
-      return issueFormation(deps.world, deps.sink, { ids: deps.ids(), formation, x, y, append, formationsOpen: deps.open(), classOf: deps.classOf });
+      return issueFormation(deps.world, deps.sink, { ids: deps.ids(), formation, x, y, append, formationsOpen: deps.open(), closedReason: deps.reason?.(), classOf: deps.classOf });
     },
   };
 }

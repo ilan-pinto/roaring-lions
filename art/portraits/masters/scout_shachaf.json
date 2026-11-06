@@ -2,7 +2,7 @@
   "unit": "scout_shachaf",
   "variant": "team",
   "source": "assets/meshes/vehicles/scout_shachaf.glb",
-  "source_sha256": "d1741fca6fbd55564b02489176e6f54b354bfb51b52276c4720397d62f5ca2df",
+  "source_sha256": "9930880e9a6316d20e66608c3e1b1252aee73af2d3b30d7fa52847b0a1746394",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,
@@ -17,7 +17,7 @@
     0.9321
   ],
   "materials": {
-    "baked": 2,
-    "flat": 2
+    "baked": 4,
+    "flat": 0
   }
 }

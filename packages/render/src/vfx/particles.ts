@@ -94,6 +94,7 @@ interface PendingEmission {
   layerIdx: number;
   velX: number;
   velY: number;
+  speedScale: number;
   /** Total particles this emission owes, computed once at spawn() time --
    *  the same `pick(count) * (0.5 + magnitude*0.9)` burst has always used. */
   total: number;
@@ -208,6 +209,11 @@ export class ParticleSystem {
    * existed. `> 0` spreads the remaining particles across that many
    * milliseconds via `pending`/`step()` -- the first particle still lands
    * immediately, so a sustained effect never has a silent gap at its start.
+   *
+   * `speedScale` (default 1) multiplies the emitter's authored launch speed,
+   * AFTER the speed is drawn, so the random stream is unchanged: rotor wash
+   * flings a wider ring the stronger it is (GH-984 N3). Every other caller
+   * omits it.
    */
   spawn(
     spec: ParticleSpec,
@@ -219,7 +225,8 @@ export class ParticleSystem {
     layerIdx: number,
     velX = 0,
     velY = 0,
-    det?: SpawnDeterminism
+    det?: SpawnDeterminism,
+    speedScale = 1
   ): void {
     const rand = det?.rand ?? Math.random;
     const ageSec = det?.ageSec ?? 0;
@@ -242,18 +249,18 @@ export class ParticleSystem {
       for (let j = 0; j < n; j++) {
         const a = ageSec - (emitOverMs * j) / n / 1000;
         if (a < 0) continue;
-        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, a, true);
+        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, a, true, speedScale);
       }
       return;
     }
 
-    this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, ageSec, dated);
+    this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, ageSec, dated, speedScale);
 
     if (emitOverMs <= 0 || n <= 1) {
       // Burst path, byte-for-byte the loop this always was: same per-particle
       // work (spawnOne), same order, same count.
       for (let k = 1; k < n; k++) {
-        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, ageSec, dated);
+        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, ageSec, dated, speedScale);
       }
       return;
     }
@@ -270,6 +277,7 @@ export class ParticleSystem {
       layerIdx,
       velX,
       velY,
+      speedScale,
       total: n,
       spawned: 1,
       elapsedMs: 0,
@@ -295,13 +303,14 @@ export class ParticleSystem {
     velY: number,
     rand: () => number = Math.random,
     ageSec = 0,
-    dated = false
+    dated = false,
+    speedScale = 1
   ): void {
     const i = this.freeSlot(priority);
     if (i < 0) return;
     if (this.alive[i] === 0) this.liveCount++;
     const a = dirRad + (rand() - 0.5) * coneRad;
-    const speed = pick(spec.speed_tiles_s, 0, rand);
+    const speed = pick(spec.speed_tiles_s, 0, rand) * speedScale;
     const inherit = spec.inherit_velocity ?? 0;
     this.x[i] = x;
     this.y[i] = y;
@@ -380,7 +389,7 @@ export class ParticleSystem {
       const t = Math.min(1, e.elapsedMs / e.durationMs);
       const due = Math.min(e.total, Math.round(t * e.total));
       while (e.spawned < due) {
-        this.spawnOne(e.spec, e.x, e.y, e.dirRad, e.coneRad, e.scale, e.resolved, e.priority, e.layerIdx, e.velX, e.velY);
+        this.spawnOne(e.spec, e.x, e.y, e.dirRad, e.coneRad, e.scale, e.resolved, e.priority, e.layerIdx, e.velX, e.velY, undefined, 0, false, e.speedScale);
         e.spawned++;
       }
       if (e.spawned >= e.total) this.pending.splice(p, 1);

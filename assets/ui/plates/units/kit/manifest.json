@@ -11,72 +11,80 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        1011,
+        948,
         706
-      ]
+      ],
+      "glb_sha256": "892188f1992b2f057b8cedb836b6f6796443fcd8010fbd7e51576cfa70f6e652"
     },
     "dozer_d9": {
       "file": "dozer_d9.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        884,
-        614
-      ]
+        954,
+        616
+      ],
+      "glb_sha256": "823a3700fed3a610c83155b8cb6cbfda49bfa2bb62bc80864fc15e6ee7d919cc"
     },
     "heli_peten": {
       "file": "heli_peten.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        547,
-        397
-      ]
+        1116,
+        742
+      ],
+      "glb_sha256": "5ec08a2949d4909a105f7d63874a36d219a4b9e973d086a345065dbcb9575bb9"
     },
     "ifv_namer": {
       "file": "ifv_namer.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        1034,
-        648
-      ]
+        966,
+        703
+      ],
+      "glb_sha256": "016b314de339bda7234b6cb747ade8b1db4d5fd131fbcf450e06540905f247a9"
     },
     "jeep_shoded": {
       "file": "jeep_shoded.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        555,
-        446
-      ]
+        550,
+        445
+      ],
+      "glb_sha256": "e15972f32b842d845d229a906ed73138f8867709689a8eda8baed19ed401de72"
     },
     "mbt_lavi": {
       "file": "mbt_lavi.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        938,
-        528
-      ]
+        868,
+        539
+      ],
+      "glb_sha256": "8083617af883445c4a65c172d2d5feff9534991dc2f40aeabd90eafdd36d64b9"
     },
     "scout_shachaf": {
       "file": "scout_shachaf.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        534,
-        524
-      ]
+        532,
+        525
+      ],
+      "glb_sha256": "9930880e9a6316d20e66608c3e1b1252aee73af2d3b30d7fa52847b0a1746394"
     },
     "apc_eitan": {
       "file": "apc_eitan.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        1019,
-        678
-      ]
+        956,
+        677
+      ],
+      "glb_sha256": "a77cc7473a53401c288275226332986e80823f4059758c9161e8b15a1f68d90e"
     }
   }
 }
