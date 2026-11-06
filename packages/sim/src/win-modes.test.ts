@@ -457,6 +457,23 @@ describe('ground_only: aircraft hold and contest nothing (GH-976 WP3)', () => {
     expect(today.status()).toBe('active');
   });
 
+  it('a side-0 aircraft is not an anchor of the contest: an enemy beside only the helicopter does not contest the squad holding far away', () => {
+    // East flag [30,4,6,6]. Helicopter (30,4), holding squad (35,9), enemy squad (30,5): 1 tile from the helicopter (1 <= 36) and
+    // dx 5, dy 4 from the squad (25 + 16 = 41 > 36, outside the 6-tile contest radius), so only the helicopter is contested.
+    const setup = (flag: boolean | undefined) => {
+      const w = airWorld(flag);
+      w.put(w.helo, 0, 30, 4);
+      w.put(w.squad, 0, 35, 9);
+      w.put(w.squad, 1, 30, 5);
+      w.step(FIVE_S);
+      return w;
+    };
+    expect(setup(true).status()).toBe('complete');
+    const today = setup(undefined);
+    expect(today.status()).toBe('active');
+    expect(today.hold()).toBe(0);
+  });
+
   /** A squad of `side` aboard `car` (a helicopter or a jeep), the pair standing on the flag at (32, 6). */
   function aboard(w: ReturnType<typeof airWorld>, car: number, side: 0 | 1): { car: number; riders: number[] } {
     const c = w.put(car, side, 32, 6);

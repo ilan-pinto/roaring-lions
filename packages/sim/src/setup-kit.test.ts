@@ -320,6 +320,13 @@ describe('the kit is configuration that cannot be given twice or late', () => {
     expect(build([[1, 1, 1, 1]]).sim.hash()).toBe(base);
     expect(build([[1, 1, 1, 2]]).sim.hash()).not.toBe(base);
     expect(build([]).sim.hash()).not.toBe(base);
+    // The allowance alone: hesco 11 against 12, same bans, same everything else, at tick 0.
+    const eleven = (() => {
+      const w = build([[1, 1, 1, 1]], false);
+      w.sim.setSetupKit([{ structType: w.hesco, allowance: 11 }, { structType: w.post, allowance: 4 }, { structType: w.twall, allowance: 2 }], [[1, 1, 1, 1]]);
+      return w.sim.hash();
+    })();
+    expect(eleven).not.toBe(base);
     const placed = build([[1, 1, 1, 1]]);
     send(placed.sim, { kind: 'fortify', side: 0, kit: 0, x: 4, y: 4 });
     const twin = build([[1, 1, 1, 1]]);

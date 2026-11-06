@@ -125,14 +125,10 @@ describe('weapons tight: the shipped roster (GH-976, R0.5)', () => {
     for (const must of ['mortar_team', 'rocket_battery', 'atgm_cell', 'sniper_team', 'demo_squad', 'breach_team', 'drone_swarm', 'aa_remetz', 'dozer_d9', 'loiter_drone', 'mbt_lavi']) {
       expect(ids, must).toContain(must);
     }
-    // Every faction the data ships that has anything armed is in the sweep: the set is read from the data, not written here.
+    // The factions that must be in the sweep, written here (a filter that silently dropped one fails). The data-derived half was deleted:
+    // it recomputed ROSTER's own filter and could not fail.
     const armedFactions = new Set(ROSTER.map((u) => u.faction));
-    const allFactions = new Set((Object.values(units) as Json[]).map((u) => u.faction));
     for (const f of ['kdf', 'sarim', 'ashwar', 'rif']) expect(armedFactions.has(f), `faction ${f} in the sweep`).toBe(true);
-    for (const f of allFactions) {
-      const armedOfF = (Object.values(units) as Json[]).filter((u) => u.faction === f && ((u.weapons?.length ?? 0) > 0 || (u.abilities ?? []).some((a) => HURTS.has(a))));
-      if (armedOfF.length > 0) expect(armedFactions.has(f), `faction ${f} has armed types the sweep skipped`).toBe(true);
-    }
   });
 
   for (const band of [4, 0]) {
