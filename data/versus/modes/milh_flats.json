@@ -9,6 +9,14 @@
     "friendly": { "at": [4, 11], "size": [5, 5] },
     "hostile": { "at": [39, 32], "size": [5, 5] }
   },
+  "flag_setup": {
+    "flags": {
+      "friendly": { "at": [3, 30], "size": [5, 5] },
+      "hostile": { "at": [40, 13], "size": [5, 5] }
+    },
+    "hold_s": 45,
+    "setup": { "seconds": 180, "band_tiles": 8, "kit": { "hesco": 12, "sandbag_post": 4, "t_wall": 2 } }
+  },
   "modes": {
     "camp": { "wipe": "after_camp" },
     "flag": { "hold_s": 30 },

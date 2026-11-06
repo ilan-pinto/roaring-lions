@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
 import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODES as NET_WIN_MODES, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, economyRoom, validateConfig, winModeAllowed, winModeField, type MatchConfig } from '@lions/net';
-import { campYardZone, flagZone, maps, versusModeMissionOf, versusModes, versusRules, WIN_MODES, type VersusModeFileJson } from '@lions/data';
-import { MODE_CAMP_REACH, OFFERED_MAPS, WIN_MODES as MJS_WIN_MODES, versusModeFailures } from '../validate_versus_modes.mjs';
+import { SETUP_BAND_TILES_48, SETUP_BAND_TILES_LARGE, SETUP_KIT, SETUP_SECONDS, STRUCTURE_SYMBOLS, TERRAIN_LEGEND, campYardZone, flagZone, maps, parseMap, setupRegionOf, versusModeMissionOf, versusModes, versusRules, WIN_MODES, type MapJson, type VersusModeFileJson } from '@lions/data';
+import { FOOT_OPEN, MODE_CAMP_REACH, OFFERED_MAPS, SETUP_BAND_TILES_48 as MJS_BAND_48, SETUP_BAND_TILES_LARGE as MJS_BAND_LARGE, SETUP_KIT as MJS_KIT, SETUP_SECONDS as MJS_SECONDS, WIN_MODES as MJS_WIN_MODES, setupRegion, versusModeFailures } from '../validate_versus_modes.mjs';
 import { CAMP_REACH } from '../validate_versus_rules.mjs';
 import { buildMatchWorld } from '../../packages/app/src/net/match-world';
 
@@ -382,7 +382,8 @@ describe('versusModeFailures, one mutation at a time', () => {
     expect(only(noFlags)).toEqual(['data/versus/modes/wadi_tarfan.json: the flag mode needs `flags`']);
     const noMode = wt();
     delete (noMode.modes as { flag?: unknown }).flag;
-    expect(only(noMode)).toEqual(['data/versus/modes/wadi_tarfan.json: `flags` is declared and no flag mode uses it']);
+    // GH-976 v2: the staged flag_setup beside it needs the flag mode too, so the file now says that as well.
+    expect(only(noMode)).toEqual(['data/versus/modes/wadi_tarfan.json: `flags` is declared and no flag mode uses it', 'data/versus/modes/wadi_tarfan.json: flag_setup needs the flag mode (`modes.flag`) beside it']);
   });
 
   it('GH-976 P3: a flag tile off the map or on a building, a flag on a seat, flags that overlap each other or a camp, and a zone the map already has', () => {
@@ -665,4 +666,161 @@ describe('a win-mode room survives a snapshot (a rejoin)', () => {
     if (mode === 'points') expect(a.runtime!.scoreUnitsOf(0) + a.runtime!.scoreUnitsOf(1)).toBeGreaterThan(0); // the race had moved
     if (mode === 'flag') expect(a.runtime!.objectiveList.some((o) => o.status === 'complete' || o.ticksLeft !== 600)).toBe(true); // a hold had begun
   }, 90_000);
+});
+
+
+// ---------------------------------------------------------------------------------------------------
+// GH-976 v2: the staged `flag_setup` block
+// ---------------------------------------------------------------------------------------------------
+describe('GH-976 v2: flag_setup', () => {
+  const SETUP_MAPS = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+  type Setup = { flags: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } }; hold_s: number; setup: { seconds: number; band_tiles: number; kit: Record<string, number> } };
+  const withSetup = (map: string): { file: string; doc: Doc & { flag_setup: Setup } }[] => modeFor(map) as { file: string; doc: Doc & { flag_setup: Setup } }[];
+  /** The failures after `edit` has changed the staged block of `map`'s file. */
+  const failuresAfter = (map: string, edit: (fs: Setup, doc: Doc) => void): string[] => {
+    const f = withSetup(map);
+    edit(f[0].doc.flag_setup, f[0].doc);
+    return versusModeFailures(f, mapsById);
+  };
+  const mirror = (at: number[], size: number[], map: string): number[] => [(maps[map as keyof typeof maps] as unknown as { width: number }).width - at[0] - size[0], (maps[map as keyof typeof maps] as unknown as { height: number }).height - at[1] - size[1]];
+
+  it('exactly the five v1 maps carry it, beside the unchanged flags and modes.flag, and each is a valid file', () => {
+    expect(shipped.filter((s) => (s.doc as { flag_setup?: unknown }).flag_setup !== undefined).map((s) => s.doc.map)).toEqual([...SETUP_MAPS].sort());
+    for (const m of SETUP_MAPS) {
+      const doc = shipped.find((s) => s.doc.map === m)!.doc as Doc & { flag_setup: Setup };
+      expect(doc.flags, m).toBeDefined();
+      expect(doc.modes.flag, m).toBeDefined();
+      expect(doc.flag_setup.hold_s, m).toBe(45);
+      expect(doc.flag_setup.setup.kit, m).toEqual(SETUP_KIT);
+      expect(doc.flag_setup.setup.seconds, m).toBe(SETUP_SECONDS);
+      expect(doc.flag_setup.setup.band_tiles, m).toBe(maps[m as keyof typeof maps].width > 48 ? SETUP_BAND_TILES_LARGE : SETUP_BAND_TILES_48);
+    }
+  });
+
+  it('the validator\'s copies of the constants are the shipped ones', () => {
+    expect(MJS_KIT).toEqual(SETUP_KIT);
+    expect(MJS_SECONDS).toBe(SETUP_SECONDS);
+    expect(MJS_BAND_48).toBe(SETUP_BAND_TILES_48);
+    expect(MJS_BAND_LARGE).toBe(SETUP_BAND_TILES_LARGE);
+  });
+
+  // The falsifications: each shipped file with ONE edit, and the line it must name.
+  it('the shipped wadi_tarfan_l flags in flag_setup -> G-ratio (own path 68, enemy path 34)', () => {
+    const lines = failuresAfter('wadi_tarfan_l', (fs, doc) => { fs.flags = clone(doc.flags!) as Setup['flags']; });
+    expect(lines.some((l) => l.includes('G-ratio') && l.includes('own path 68, enemy path 34'))).toBe(true);
+  });
+  it('wadi_tarfan flags at own path 13 -> G-depth', () => {
+    const lines = failuresAfter('wadi_tarfan', (fs) => { fs.flags.friendly.at = [20, 3]; fs.flags.hostile.at = mirror([20, 3], [5, 5], 'wadi_tarfan'); });
+    expect(lines.some((l) => l.includes('G-depth') && l.includes('own path 13 is not 6-12'))).toBe(true);
+  });
+  it('a top-left x of 2 -> G-edge', () => {
+    const lines = failuresAfter('wadi_tarfan', (fs) => { fs.flags.friendly.at = [2, 3]; fs.flags.hostile.at = mirror([2, 3], [5, 5], 'wadi_tarfan'); });
+    expect(lines.some((l) => l.includes('G-edge'))).toBe(true);
+  });
+  it.each([
+    ['friendly', [3, 2], 'top'],
+    ['friendly', [2, 3], 'left'],
+    ['hostile', [41, 20], 'right'],
+    ['hostile', [20, 41], 'bottom'],
+  ] as const)('G-edge, one flag alone (the %s flag at %j, its %s edge): the mirror cannot stand in for the clause', (end, at, edge) => {
+    const lines = failuresAfter('wadi_tarfan', (fs) => { fs.flags[end].at = [...at]; });
+    expect(lines.some((l) => l.includes(`${end} flag`) && l.includes('G-edge')), `${edge} edge`).toBe(true);
+  });
+  it('wadi_tarfan band_tiles 2 -> S4 (the staged flags stand 22 tiles off the line, so S3 stays quiet at band 2: see the S2/S3 case)', () => {
+    const lines = failuresAfter('wadi_tarfan', (fs) => { fs.setup.band_tiles = 2; });
+    expect(lines.some((l) => l.includes('S4 band_tiles 2 is under 8'))).toBe(true);
+  });
+  it('milh_flats band_tiles 6 -> S4', () => {
+    expect(failuresAfter('milh_flats', (fs) => { fs.setup.band_tiles = 6; }).some((l) => l.includes('S4'))).toBe(true);
+  });
+  it('a band that is not the size class\'s -> named, even when it is wide enough', () => {
+    expect(failuresAfter('milh_flats', (fs) => { fs.setup.band_tiles = 10; }).some((l) => l.includes('band_tiles 10 is not 8'))).toBe(true);
+  });
+  it('one flag moved one tile -> mirror', () => {
+    const lines = failuresAfter('wadi_tarfan_l', (fs) => { fs.flags.hostile.at = [fs.flags.hostile.at[0] + 1, fs.flags.hostile.at[1]]; });
+    expect(lines.some((l) => l.includes('point mirrors'))).toBe(true);
+  });
+  it('hesco 13 -> kit', () => {
+    expect(failuresAfter('wadi_tarfan', (fs) => { fs.setup.kit.hesco = 13; }).some((l) => l.includes('kit hesco is 13'))).toBe(true);
+  });
+  it('seconds 120 -> seconds (and the mode-objective seconds rule does not fire on the block)', () => {
+    const lines = failuresAfter('wadi_tarfan', (fs) => { fs.setup.seconds = 120; });
+    expect(lines.some((l) => l.includes('flag_setup seconds is 120'))).toBe(true);
+    expect(lines.some((l) => l.includes('a mode objective has no `seconds`'))).toBe(false);
+    // ...while a stray `seconds` anywhere else still does.
+    const f = withSetup('wadi_tarfan');
+    (f[0].doc.modes.flag as Record<string, unknown>).seconds = 30;
+    expect(versusModeFailures(f, mapsById).some((l) => l.includes('a mode objective has no `seconds`'))).toBe(true);
+  });
+  it('a flag apron one tile over the band -> S2', () => {
+    const lines = failuresAfter('wadi_tarfan', (fs) => { fs.flags.friendly.at = [14, 14]; fs.flags.hostile.at = mirror([14, 14], [5, 5], 'wadi_tarfan'); });
+    expect(lines.some((l) => l.includes('S2') && l.includes('1 tiles of its 11x11 apron'))).toBe(true);
+    expect(lines.some((l) => l.includes('S3'))).toBe(true); // the same flag stands inside 17 tiles of the enemy region
+  });
+  it('flag_setup on a map that is not point-symmetric, or with no flag mode, is refused', () => {
+    const f = clone(shipped.find((s) => s.doc.map === 'tel_marum')!) as { file: string; doc: Doc & { flag_setup?: Setup } };
+    f.doc.flag_setup = clone((shipped.find((s) => s.doc.map === 'wadi_tarfan')!.doc as unknown as { flag_setup: Setup }).flag_setup);
+    expect(versusModeFailures([f], mapsById).some((l) => l.includes('only for a point-symmetric map'))).toBe(true);
+    expect(failuresAfter('wadi_tarfan', (_fs, doc) => { delete doc.modes.flag; delete doc.flags; }).some((l) => l.includes('needs the flag mode'))).toBe(true);
+  });
+  it('a flag over an exit, a blocked tile, an anchor or a camp is refused', () => {
+    expect(failuresAfter('wadi_tarfan', (fs) => { (fs.flags.friendly as Record<string, unknown>).exit = [1, 1]; }).some((l) => l.includes('declares an exit'))).toBe(true);
+    expect(failuresAfter('wadi_tarfan', (fs) => { fs.flags.friendly.at = [8, 8]; }).some((l) => l.includes('holds the friendly anchor'))).toBe(true);
+    expect(failuresAfter('wadi_tarfan', (fs) => { fs.flags.friendly.at = [12, 17]; }).some((l) => l.includes('overlaps the friendly camp'))).toBe(true);
+  });
+
+  describe('the region twin', () => {
+    const anchorsOfMap = (m: string): { friendly: [number, number]; hostile: [number, number] } => {
+      const mk = (maps[m as keyof typeof maps] as unknown as { markers: Record<string, number[]> }).markers;
+      return { friendly: mk.versus_0 as [number, number], hostile: mk.versus_1 as [number, number] };
+    };
+    it('for each of the five maps, .mjs setupRegion equals @lions/data setupRegionOf, cell for cell', () => {
+      for (const m of SETUP_MAPS) {
+        const map = maps[m as keyof typeof maps] as unknown as { width: number; height: number };
+        const a = m === 'wadi_tarfan' ? { friendly: [10, 10] as [number, number], hostile: [37, 37] as [number, number] } : anchorsOfMap(m);
+        const band = map.width > 48 ? 12 : 8;
+        expect([...setupRegion(map, a, band)], m).toEqual([...setupRegionOf(map.width, map.height, a.friendly, a.hostile, band)]);
+      }
+    });
+    it('both match the 12x1 literals', () => {
+      const want = [0, 0, 0, 0, 0, -1, 1, 1, 1, 1, 1, 1];
+      expect(setupRegion({ width: 12, height: 1 }, { friendly: [0, 0], hostile: [10, 0] }, 2)).toEqual(want);
+      expect([...setupRegionOf(12, 1, [0, 0], [10, 0], 2)]).toEqual(want);
+    });
+    it('96x96 with corner seats (D^2 past int32): the .mjs twin equals a BigInt oracle written here, cell for cell (R0.20)', () => {
+      const W = 96;
+      const got = setupRegion({ width: W, height: W }, { friendly: [0, 0], hostile: [95, 95] }, 12);
+      const A = [1n, 1n];
+      const B = [191n, 191n];
+      const L = (A[0] - B[0]) ** 2n + (A[1] - B[1]) ** 2n;
+      let beyond = 0;
+      for (let y = 0; y < W; y++) {
+        for (let x = 0; x < W; x++) {
+          const c = [BigInt(2 * x + 1), BigInt(2 * y + 1)];
+          const D = (c[0] - B[0]) ** 2n + (c[1] - B[1]) ** 2n - ((c[0] - A[0]) ** 2n + (c[1] - A[1]) ** 2n);
+          if (D * D > 2n ** 31n) beyond++;
+          expect(got[y * W + x], `(${x},${y})`).toBe(D * D >= 4n * 144n * L ? (D > 0n ? 0 : 1) : -1);
+        }
+      }
+      expect(beyond).toBeGreaterThan(0);
+    });
+  });
+
+  it('R0.25: the validator\'s foot mask is parseMap\'s own, for every symbol of the legend', () => {
+    const symbols = [...Object.keys(TERRAIN_LEGEND), ...Object.keys(STRUCTURE_SYMBOLS)];
+    expect(symbols.length).toBeGreaterThan(10);
+    for (const sym of symbols) {
+      // A 6x6 block of the symbol: big enough for any footprint, and parseMap reads the mask itself.
+      const rows = Array.from({ length: 6 }, () => sym.repeat(6));
+      let parsed;
+      try {
+        parsed = parseMap({ id: 'foot_probe', width: 6, height: 6, rows, theme: 'wetland', markers: {} } as unknown as MapJson);
+      } catch {
+        continue; // a structure symbol the loader will not take as a bare block is judged by the legend below
+      }
+      expect(FOOT_OPEN.has(sym), `symbol ${sym}`).toBe(parsed.blocked[0] === 0);
+    }
+    for (const sym of Object.keys(TERRAIN_LEGEND)) expect(FOOT_OPEN.has(sym), `terrain ${sym}`).toBe(TERRAIN_LEGEND[sym].blocked === 0);
+    for (const sym of Object.keys(STRUCTURE_SYMBOLS)) expect(FOOT_OPEN.has(sym), `structure ${sym}`).toBe(false);
+  });
 });

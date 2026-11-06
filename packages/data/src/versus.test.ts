@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { VERSUS_CAP_MINUTES_DEFAULT, doctrines, maps, versusCapMinutesOf, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf } from './index';
+import type { VersusModeFileJson } from './versus';
+import { SETUP_BAND_TILES_LARGE, SETUP_KIT, SETUP_SECONDS, VERSUS_CAP_MINUTES_DEFAULT, doctrines, flagBlockOf, maps, setupLineOf, setupRegionOf, versusCapMinutesOf, versusMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf } from './index';
 
 describe('the exports', () => {
   it('doctrines are the two shipped files, keyed by faction, with the Q4 caps', () => {
@@ -86,5 +87,89 @@ describe('versusCapMinutesOf (GH-913 L8)', () => {
   it('takes 25..60 and throws on the rest', () => {
     for (const ok of [25, 35, 60]) expect(versusCapMinutesOf({ ...base, cap_minutes: ok })).toBe(ok);
     for (const bad of [24, 61, 0, 35.5, Number.NaN]) expect(() => versusCapMinutesOf({ ...base, cap_minutes: bad }), String(bad)).toThrow(/cap_minutes/);
+  });
+});
+
+describe('GH-976 v2: setupRegionOf', () => {
+  it('literal oracle: a 12x1 map, seats at 0 and 10, band 2 -> cells 0-4 are 0, cell 5 the band, cells 6-11 are 1', () => {
+    const r = setupRegionOf(12, 1, [0, 0], [10, 0], 2);
+    expect([...r]).toEqual([0, 0, 0, 0, 0, -1, 1, 1, 1, 1, 1, 1]);
+  });
+  it('the diagonal seats of a 48x48 map are point images: region[t] === 1 - region[mirror], and the band maps onto itself', () => {
+    const r = setupRegionOf(48, 48, [10, 10], [37, 37], 8);
+    let band = 0;
+    for (let y = 0; y < 48; y++) {
+      for (let x = 0; x < 48; x++) {
+        const v = r[y * 48 + x];
+        const m = r[(47 - y) * 48 + (47 - x)];
+        if (v === -1) { expect(m).toBe(-1); band++; } else expect(v).toBe(1 - m);
+      }
+    }
+    expect(band).toBeGreaterThan(0);
+    expect(r[10 * 48 + 10]).toBe(0);
+    expect(r[37 * 48 + 37]).toBe(1);
+  });
+  /** The BigInt oracle: every cell of a W x W map, doubled coordinates, exact. Returns how many cells had D^2 above 2^31. */
+  const bigOracle = (W: number, a: [number, number], b: [number, number], band: number, got: ArrayLike<number>): number => {
+    const A = [BigInt(2 * a[0] + 1), BigInt(2 * a[1] + 1)];
+    const B = [BigInt(2 * b[0] + 1), BigInt(2 * b[1] + 1)];
+    const L = (A[0] - B[0]) ** 2n + (A[1] - B[1]) ** 2n;
+    let beyond32 = 0;
+    for (let y = 0; y < W; y++) {
+      for (let x = 0; x < W; x++) {
+        const c = [BigInt(2 * x + 1), BigInt(2 * y + 1)];
+        const D = (c[0] - B[0]) ** 2n + (c[1] - B[1]) ** 2n - ((c[0] - A[0]) ** 2n + (c[1] - A[1]) ** 2n);
+        if (D * D > 2n ** 31n) beyond32++;
+        const want = D * D >= 4n * BigInt(band) ** 2n * L ? (D > 0n ? 0 : 1) : -1;
+        expect(got[y * W + x], `(${x},${y})`).toBe(want);
+      }
+    }
+    return beyond32;
+  };
+  it('96x96, the shipped seats (20,20) / (75,75), band 12: every cell equals a BigInt oracle written here', () => {
+    // These seats keep D^2 under 2^31 (max about 1.75e9); the next case is the one that leaves int32.
+    bigOracle(96, [20, 20], [75, 75], 12, setupRegionOf(96, 96, [20, 20], [75, 75], 12));
+  });
+  it('96x96 with seats in the corners (D^2 up to 2e10, past int32): every cell equals the BigInt oracle (R0.20)', () => {
+    const beyond = bigOracle(96, [0, 0], [95, 95], 12, setupRegionOf(96, 96, [0, 0], [95, 95], 12));
+    expect(beyond).toBeGreaterThan(0); // the oracle really does leave int32
+  });
+});
+
+describe('GH-976 v2: setupLineOf', () => {
+  it('is the bisector clipped to the rectangle: the diagonal seats give the anti-diagonal corner to corner', () => {
+    const l = setupLineOf(48, 48, [10, 10], [37, 37]);
+    const ends = [l.a, l.b].sort((p, q) => p[0] - q[0]);
+    expect(ends[0][0]).toBeCloseTo(0, 9);
+    expect(ends[0][1]).toBeCloseTo(48, 9);
+    expect(ends[1][0]).toBeCloseTo(48, 9);
+    expect(ends[1][1]).toBeCloseTo(0, 9);
+  });
+  it('seats side by side give the vertical line through their midpoint, edge to edge', () => {
+    const l = setupLineOf(48, 48, [5, 10], [15, 10]);
+    expect(l.a[0]).toBeCloseTo(10.5, 9);
+    expect(l.b[0]).toBeCloseTo(10.5, 9);
+    expect(Math.abs(l.a[1] - l.b[1])).toBeCloseTo(48, 9);
+  });
+});
+
+describe('GH-976 v2: flagBlockOf', () => {
+  const file = versusModes.wadi_tarfan_l;
+  it('setup false is today\'s flags and hold, with no setup block', () => {
+    const b = flagBlockOf(file, false);
+    expect(b.flags).toBe(file.flags);
+    expect(b.holdS).toBe(30);
+    expect(b.setup).toBeNull();
+  });
+  it('setup true is the staged block', () => {
+    const b = flagBlockOf(file, true);
+    expect(b.flags).toBe(file.flag_setup?.flags);
+    expect(b.holdS).toBe(45);
+    expect(b.setup).toEqual({ seconds: SETUP_SECONDS, band_tiles: SETUP_BAND_TILES_LARGE, kit: { ...SETUP_KIT } });
+  });
+  it('a file without flag_setup throws', () => {
+    const bare: VersusModeFileJson = { ...file, flag_setup: undefined };
+    expect(() => flagBlockOf(bare, true)).toThrow(/no flag_setup/);
+    expect(() => flagBlockOf({ ...bare, flags: undefined }, false)).toThrow(/no flag mode/);
   });
 });
