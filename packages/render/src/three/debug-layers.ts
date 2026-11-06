@@ -170,6 +170,14 @@
  * frame with an HDR effect in it (`blast:capture`), never a gated golden
  * scenario.
  *
+ * `ao`, ADDED FOR GH-943 P1 T7 (`./post-chain.ts` `WorldGTAOPass`, `./post-chain.node.ts`
+ * `createNodeAoStage`): the ambient-occlusion pass, on BOTH paths. Legacy: the
+ * pass's own `enabled`, `bloom`'s shape. Node: the backend's `AoControl`, which
+ * zeroes the blend uniform and skips the pre-pass. Neither is re-asserted per
+ * frame (`applyZoomFade` re-enables a pass only if it held it off), so it
+ * holds across the repaint. Absent on `low` and `medium` (`quality.ao` false
+ * builds no pass), where it toggles 0 objects.
+ *
  * `overlays`, ADDED FOR TASK 10'S KEY-ART PLATE (not the visual gate -- the
  * Phase 0 capture tool that added it was its only caller, and retired with
  * the key-art plate it drew (scene-host plan Task 7); no capture tool calls
@@ -462,6 +470,7 @@ export const DEBUG_LAYERS = [
   'units',
   'vignette',
   'bloom',
+  'ao',
   'skirt',
   'backdrop',
   'overlays',

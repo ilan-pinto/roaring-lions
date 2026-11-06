@@ -11,6 +11,8 @@ import { VIGNETTE_RADIUS, VIGNETTE_SOFTNESS, VIGNETTE_STRENGTH, vignetteFactor, 
 import { BLOOM_RADIUS, BLOOM_RESOLUTION_SCALE, BLOOM_SMOOTH_WIDTH, BLOOM_STRENGTH, BLOOM_THRESHOLD, bloomStrengthFor, tightHalfRgba } from './bloom-spec';
 import type { OutputMaths } from './post-chain.node';
 import type { BloomMaths } from './bloom.node';
+import { AO_RADIUS_TILES, AO_RESOLUTION_SCALE, AO_SCALE, isAoOccluder, seededAoNoiseTexture } from './ao-occluder';
+import type { AoMaths } from './post-chain.node';
 
 export const OUTPUT_MATHS: OutputMaths = {
   grade: { bakeLutFloats, lutSize: GRADE_LUT_SIZE, gradeDitherOffset, isIdentity, lutCoord },
@@ -26,4 +28,13 @@ export const BLOOM_MATHS: BloomMaths = {
   smoothWidth: BLOOM_SMOOTH_WIDTH,
   strengthFor: bloomStrengthFor,
   tightHalfRgba,
+};
+
+/** T7: the AO's constants and helpers (`ao-occluder.ts`), passed to `createNodeBackend` for the same reason. */
+export const AO_MATHS: AoMaths = {
+  radiusTiles: AO_RADIUS_TILES,
+  resolutionScale: AO_RESOLUTION_SCALE,
+  scale: AO_SCALE,
+  isOccluder: isAoOccluder,
+  seededNoiseTexture: seededAoNoiseTexture,
 };

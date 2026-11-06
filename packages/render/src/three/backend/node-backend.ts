@@ -15,8 +15,9 @@
 import * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import type { BackendKind } from '../../gpu';
-import type { PostConfig, PostKit, RenderBackend } from './backend';
-import { createNodePostChain, type NodePostChain, type OutputMaths } from '../post-chain.node';
+import type { AoControl, PostConfig, PostKit, RenderBackend } from './backend';
+import { createOrthoAwareGtao } from '../gtao-ortho.node';
+import { createNodePostChain, createNodeAoStage, type NodePostChain, type OutputMaths, type AoMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
@@ -34,6 +35,8 @@ export interface NodeBackendOptions {
   readonly adapter: string;
   /** The shared bloom constants and helpers, injected (see `BloomMaths`); `output-maths.ts`'s `BLOOM_MATHS`. */
   readonly bloomMaths: BloomMaths;
+  /** The shared AO constants and helpers, injected (see `AoMaths`); `output-maths.ts`'s `AO_MATHS`. */
+  readonly aoMaths: AoMaths;
   readonly warn?: (msg: string) => void;
 }
 
@@ -51,6 +54,10 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
   // BloomNode is a TSL node (`three/addons/tsl/display`), like SMAA: loaded here, in the lazy chunk.
   const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
+  // GTAO and its denoise (T7): also TSL nodes under `tsl/display`, not postprocessing passes.
+  const gtaoModule = await import('three/addons/tsl/display/GTAONode.js');
+  const gtao = createOrthoAwareGtao({ TSL, GTAONode: gtaoModule.default as never });
+  const { denoise } = await import('three/addons/tsl/display/DenoiseNode.js');
   const renderer: WebGPURenderer = new W.WebGPURenderer({ antialias: false, alpha: false, forceWebGL: opts.forceWebGL });
   try {
     await renderer.init();
@@ -77,11 +84,14 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   let chain: NodePostChain | null = null;
   let builtFor: PostConfig | null = null;
   let outputMaths: OutputMaths | null = null;
-  /** Null factories until each task lands (T4 fog, T5 bloom, T7 AO). The chain reads them when it is built. */
+  /** Null factories until each task lands (T4 fog; T5 bloom and T7 AO are built just below). The chain reads them when it is built. */
   const kit: PostKit = { fog: null, ao: null, bloom: null };
   // T5: the bloom stage. Its control outlives chain rebuilds (the toggle state survives `build`).
   const nodeBloom = createNodeBloom({ bloom: bloom as never, W, renderer, maths: opts.bloomMaths });
   kit.bloom = nodeBloom.factory;
+  const aoStage = createNodeAoStage({ W, TSL, ao: gtao as never, denoise: denoise as never, maths: opts.aoMaths });
+  kit.ao = aoStage.factory;
+  const aoControl: AoControl = aoStage.control;
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();
@@ -107,6 +117,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     kit,
     bloom: nodeBloom.control,
     pmrem: createNodePmremHost(W.PMREMGenerator as unknown as NodePmremGeneratorCtor, renderer),
+    ao: aoControl,
     get post() {
       return chain;
     },

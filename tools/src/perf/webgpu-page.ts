@@ -37,8 +37,6 @@ interface RendererLike {
   unportedHooks(): { kind: string; key: string; objects: number }[];
   nodeBackend: NodeBackendLike | null;
   post?: { render: () => void } | null;
-  /** Legacy's GTAO pre-pass (`createAoPass`); null on the node arms, whose P0 chain has no AO. */
-  aoPass?: { enabled: boolean } | null;
   scene: { traverse(f: (o: BatchedLike) => void): void };
   renderer: { info: { autoReset: boolean; reset(): void; render: { calls: number; triangles: number } } };
   loadDecorMeshes(urls: ReadonlyMap<string, string>): Promise<void>;
@@ -83,8 +81,9 @@ const WARM_FRAMES = 61;
 
 /**
  * What legacy L is timed as. `shipped`: the player's frame. `matched` (the default): the scene the P0 node chain draws, which is
- * legacy MINUS three things the node arms cannot draw yet (measured on wadi_halam_4 z1, 300 figures, 5 Nov):
- *  - the GTAO normal pre-pass (a third draw of the scene: 10.54 M -> 7.80 M triangles), switched off;
+ * legacy MINUS what the node arms cannot draw yet (measured on wadi_halam_4 z1, 300 figures, 5 Nov). The GTAO normal pre-pass
+ * (a third draw of the scene: 10.54 M -> 7.80 M triangles) USED to be switched off here; P1 T7 gave the node chain its own AO, so
+ * matched L keeps it on and the arms draw the same three scene passes. What is still removed:
  *  - every `ShaderMaterial` object and the occlusion outline (`rl-silhouette-outline`), which `censusUnported` hides on the node
  *    arms: the SAME function is run on L's scene here, so the hidden set is the node arms' by construction (7.58 M -> 5.312005 M,
  *    against the node arms' 5.311988 M: 17 triangles apart).
@@ -94,7 +93,6 @@ const WARM_FRAMES = 61;
 export type LegacyScene = 'matched' | 'shipped';
 
 function matchNodeScene(r: RendererLike): void {
-  if (r.aoPass) r.aoPass.enabled = false;
   censusUnported(r.scene as unknown as Parameters<typeof censusUnported>[0]);
 }
 
@@ -186,32 +184,17 @@ export async function timeFrames(r: RendererLike, frames: number, beforeMeasure:
       frameTriangles = i.triangles;
       await sync();
     } else {
-      // Legacy draws the scene a THIRD time, GTAO's normal pre-pass (`WorldGTAOPass`), which the P0 node chain does not have
-      // (shadow + scene pass + output only; AO arrives at P1). `frameTriangles` is the whole frame; `triangles` is the frame with
-      // that pass switched off for this one stats frame -- the passes every arm draws, which is what "the same scene" compares.
+      // Legacy draws the scene a third time, GTAO's normal pre-pass (`WorldGTAOPass`), and since P1 T7 the node chain does too
+      // (`AoPrePass`). Both arms now count it, so `triangles` and `frameTriangles` are the same whole-frame number.
       const info = r.renderer.info;
-      const legacyTriangles = (): number => {
-        info.autoReset = false;
-        info.reset();
-        r.frame(1, 0);
-        const t = info.render.triangles;
-        calls = info.render.calls;
-        info.autoReset = true;
-        return t;
-      };
-      frameTriangles = legacyTriangles();
+      info.autoReset = false;
+      info.reset();
+      r.frame(1, 0);
+      triangles = info.render.triangles;
+      calls = info.render.calls;
+      info.autoReset = true;
+      frameTriangles = triangles;
       await sync();
-      const ao = r.aoPass ?? null;
-      if (ao !== null && ao.enabled) {
-        await tick();
-        ao.enabled = false;
-        try {
-          triangles = legacyTriangles();
-        } finally {
-          ao.enabled = true;
-        }
-        await sync();
-      } else triangles = frameTriangles;
     }
     const entries = entriesNow(r);
     const synced: number[] = [];

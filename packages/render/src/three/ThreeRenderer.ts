@@ -673,7 +673,7 @@ import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
-import { BLOOM_MATHS, OUTPUT_MATHS } from './output-maths';
+import { AO_MATHS, BLOOM_MATHS, OUTPUT_MATHS } from './output-maths';
 import {
   RAIN_SPLASH_KEY,
   RAIN_STREAK_KEY,
@@ -3732,6 +3732,7 @@ export class ThreeRenderer implements Renderer {
         forceWebGL,
         adapter: plan.kind === 'node-webgpu' ? plan.adapter : 'webgl2',
         bloomMaths: BLOOM_MATHS,
+        aoMaths: AO_MATHS,
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();
@@ -4686,6 +4687,23 @@ export class ThreeRenderer implements Renderer {
         const was = this.gradePass?.enabled ?? false;
         if (this.gradePass) this.gradePass.enabled = visible;
         return this.gradePass === null || !this.gradePass.active || was === visible ? 0 : 1;
+      }
+      case 'ao': {
+        // GH-943 P1 (T7): `bloom`'s shape on the legacy path (the pass's own `enabled`, which `applyZoomFade` only ever
+        // re-enables if IT held it off), and the backend's `AoControl` on the node path. Neither is re-asserted per frame, so
+        // the toggle holds across the gate's zero-time repaint. 0 with no pass (`low` and `medium`, or `init()` never ran) and
+        // when it was already in that state.
+        const node = this.nodeBackend?.ao ?? null;
+        if (this.nodeBackend) {
+          if (node === null || !this.postChain()?.passNames.includes('GTAOPass')) return 0;
+          const was = node.enabled;
+          node.setEnabled(visible);
+          return was === visible ? 0 : 1;
+        }
+        const ao = this.aoPass;
+        const was = ao?.enabled ?? false;
+        if (ao) ao.enabled = visible;
+        return ao === null || was === visible ? 0 : 1;
       }
       case 'bloom': {
         // Defilade Task 4: `vignette`'s shape exactly -- the pass's own
@@ -9199,6 +9217,9 @@ export class ThreeRenderer implements Renderer {
    */
   private applyZoomFade(): void {
     const w = zoomFadeWeight(this.camera.zoom);
+    // GH-943 P1 (T7): the node path has no `aoPass`; its AO reads the same weight through the backend's control (the blend
+    // uniform, and the pre-pass is skipped at exactly 0, as the legacy pass is disabled there).
+    this.nodeBackend?.ao?.setBlend(w);
     const ao = this.aoPass as unknown as { enabled: boolean; blendIntensity: number } | null;
     if (ao) {
       ao.blendIntensity = w;
