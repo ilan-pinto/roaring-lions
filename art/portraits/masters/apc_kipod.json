@@ -2,7 +2,7 @@
   "unit": "apc_kipod",
   "variant": "team",
   "source": "assets/meshes/vehicles/apc_kipod.glb",
-  "source_sha256": "f1366c135324035f3243a7129aee50bc78a55908a5101f90afebb67821e8eb9f",
+  "source_sha256": "892188f1992b2f057b8cedb836b6f6796443fcd8010fbd7e51576cfa70f6e652",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,
@@ -13,11 +13,11 @@
   "ndc_box": [
     0.04,
     0.96,
-    0.1289,
-    0.8711
+    0.1067,
+    0.8933
   ],
   "materials": {
-    "baked": 2,
-    "flat": 2
+    "baked": 4,
+    "flat": 0
   }
 }

@@ -39,6 +39,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { glbSha256 } from './glb-hash';
 import { chromium, type Browser } from 'playwright';
 import { paletteColor } from '@lions/data';
 import { ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
@@ -90,6 +91,8 @@ interface CloseupEntry {
   yawDeg: number;
   elevationDeg: number;
   distance: number;
+  /** sha256 of the GLB photographed (`glb-hash.ts`). */
+  glb_sha256?: string;
 }
 interface CloseupManifest {
   version: 1;
@@ -225,6 +228,7 @@ async function run(): Promise<void> {
         yawDeg: focus.yawDeg,
         elevationDeg: res.info.camera.elevationDeg,
         distance: res.info.camera.distance,
+        glb_sha256: glbSha256(job.id),
       };
       const lead = focus.figure ? `, lead ${focus.figure}` : '';
       console.log(
