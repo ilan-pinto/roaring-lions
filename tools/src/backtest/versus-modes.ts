@@ -88,6 +88,8 @@ export interface ModePlayed {
   /** The camp fell (the game was decided by the goal) while the side that lost it still had an armed unit: a CONTESTED finish
    *  (G1b). False for a razed-after-a-wipe game, a wipe, a cap. */
   contested?: boolean;
+  /** `ModePlayOptions.probeAt` only: the sim hash and the runtime digest after that tick (GH-976 WP1, FLAG_V1_GAME_PIN). */
+  probe?: { hash: number; digest: number };
 }
 
 export interface ModePlayOptions {
@@ -108,6 +110,8 @@ export interface ModePlayOptions {
    *  fire and only the goal or the cap decides. It answers one question for the lead: how much of the goal share
    *  does annihilation take? */
   wipeEnds?: false;
+  /** PIN ONLY: record `sim.hash()` and `runtime.digest()` once the sim has run this many ticks (`ModePlayed.probe`). Changes nothing else. */
+  probeAt?: number;
 }
 
 /** The mirror, the arrangement every cell played before GH-976 P4. */
@@ -276,6 +280,7 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
   const noteWipe = (): void => {
     if (wipeTick === undefined && (!armedStanding(w.sim, 0) || !armedStanding(w.sim, 1))) wipeTick = w.sim.tickCount;
   };
+  let probe: { hash: number; digest: number } | undefined;
   const read = (o: MatchResult): ModePlayed => {
     const base = finish(o, w.sim.tickCount, sideOfEnd);
     noteWipe();
@@ -287,6 +292,7 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
       ...(mode === 'points' ? { points: [runtime.scoreOf(sideOfEnd[0]), runtime.scoreOf(sideOfEnd[1])] as [number, number] } : {}),
       ...(wipeTick === undefined ? {} : { wipeTick }),
       contested,
+      ...(probe === undefined ? {} : { probe }),
     };
   };
   for (let t = 0; t < cap; t++) {
@@ -296,6 +302,7 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
       else pointsOrder(w, zoneNames, passiveSide);
     }
     matchTick(w);
+    if (opts.probeAt !== undefined && w.sim.tickCount === opts.probeAt) probe = { hash: w.sim.hash(), digest: runtime.digest() };
     if (w.sim.tickCount % DECIDE_EVERY_TICKS === 0) {
       noteWipe();
       const o = outcomeOf(w.sim, w.sim.tickCount, unitCost, production, cap, goals);
