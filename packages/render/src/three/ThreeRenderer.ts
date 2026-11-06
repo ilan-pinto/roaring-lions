@@ -4536,6 +4536,14 @@ export class ThreeRenderer implements Renderer {
     camera.updateMatrixWorld();
     this.groundLayer?.cullRows(camera);
     this.scatterLayer?.cullRows(camera);
+    // GH-913: the wall and house sets draw only the instances this camera or the sun's shadow box reaches.
+    {
+      const sun = this.sceneLights.sun;
+      sun.updateMatrixWorld();
+      sun.target.updateMatrixWorld();
+      sun.shadow.updateMatrices(sun);
+      this.structureInstances.cull(camera, sun.shadow);
+    }
     // The haze's focus plane is the camera's look-at point, which IS the
     // screen centre: `updateDimetricCamera` aims a symmetric orthographic
     // frustum at world (camera.x, 0, camera.y), so no half-tile offset --
@@ -5365,6 +5373,7 @@ export class ThreeRenderer implements Renderer {
         // The photograph's camera is not the frame's: every chunk draws whole for it (the next frame re-cuts).
         this.groundLayer?.resetRows();
         this.scatterLayer?.resetRows();
+        this.structureInstances.drawAll();
         this.renderer.setRenderTarget(linear);
         // Explicit rather than trusting `autoClear`, which the post chain's
         // own `RenderPass` turns off and on around itself.

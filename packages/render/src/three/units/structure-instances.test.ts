@@ -509,3 +509,93 @@ describe('stateOfKey', () => {
     expect(stateOfKey('10|1|1')).toBe(10);
   });
 });
+
+describe('InstanceSet.cull (GH-913)', () => {
+  /** An orthographic top-down camera over a `half` x `half` window centred on (cx, cz), and its frustum + key. */
+  function view(cx: number, cz: number, half: number): { frustum: THREE.Frustum; key: Float32Array } {
+    const cam = new THREE.OrthographicCamera(-half, half, half, -half, 1, 100);
+    cam.position.set(cx, 50, cz);
+    cam.up.set(0, 0, -1);
+    cam.lookAt(cx, 0, cz);
+    cam.updateMatrixWorld();
+    const m = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    const key = new Float32Array(32);
+    key.set(m.elements, 0);
+    return { frustum: new THREE.Frustum().setFromProjectionMatrix(m), key };
+  }
+  const filled = (n: number) => {
+    const scene = new THREE.Scene();
+    const { set } = newSet(scene, 4);
+    for (let i = 0; i < n; i++) set.set(i, at(i * 4, 0, 0)); // a row of boxes 4 apart along x
+    set.flush(false);
+    return set;
+  };
+
+  it('draws only the instances in view, the visible ones first, and leaves the culling sphere the whole set', () => {
+    const set = filled(20); // x = 0 .. 76
+    const { frustum, key } = view(40, 0, 6);
+    set.cull(frustum, null, key);
+    expect(set.mesh.count, 'x in 34..46: the boxes at 36, 40, 44 (radius reaches 32 and 48 too)').toBeLessThan(8);
+    expect(set.mesh.count).toBeGreaterThanOrEqual(3);
+    for (let i = 0; i < set.mesh.count; i++) expect(Math.abs(posOf(set.mesh, i).x - 40)).toBeLessThanOrEqual(10);
+    // every instance is still in the buffer exactly once, and keys follow their matrices
+    const xs = new Set<number>();
+    for (let i = 0; i < 20; i++) xs.add(posOf(set.mesh, i).x);
+    expect(xs.size).toBe(20);
+    for (let k = 0; k < 20; k++) {
+      expect(set.has(k)).toBe(true);
+      set.remove(k); // slot map must still point at the right slot: removing every key empties the set
+    }
+    expect(set.count).toBe(0);
+  });
+
+  it('the culling sphere covers every instance, not the visible prefix', () => {
+    const set = filled(20);
+    const { frustum, key } = view(40, 0, 6);
+    set.cull(frustum, null, key);
+    const sphere = set.mesh.boundingSphere as THREE.Sphere;
+    expect(sphere.containsPoint(new THREE.Vector3(0, 0, 0))).toBe(true);
+    expect(sphere.containsPoint(new THREE.Vector3(76, 0, 0))).toBe(true);
+  });
+
+  it('an instance only the SHADOW frustum reaches is kept; an unchanged view and set recut nothing', () => {
+    const set = filled(20);
+    const cam = view(40, 0, 6);
+    const sun = view(4, 0, 3); // the shadow box sits over x = 4, far from the camera
+    const key = new Float32Array(32);
+    key.set(cam.key.subarray(0, 16), 0);
+    key.set(sun.key.subarray(0, 16), 16);
+    set.cull(cam.frustum, sun.frustum, key);
+    const xs: number[] = [];
+    for (let i = 0; i < set.mesh.count; i++) xs.push(posOf(set.mesh, i).x);
+    expect(xs.some((x) => x === 4), 'the instance under the shadow box is drawn').toBe(true);
+    expect(xs.some((x) => x === 40), 'and the one under the camera').toBe(true);
+    expect(xs.some((x) => x === 76), 'and nothing else').toBe(false);
+    // unchanged: a different frustum object with the same key does nothing
+    const before = set.mesh.count;
+    set.cull(view(200, 200, 1).frustum, null, key);
+    expect(set.mesh.count).toBe(before);
+  });
+
+  it('a set that changed recuts, and add/remove after a cut keep the whole set drawable', () => {
+    const set = filled(20);
+    const { frustum, key } = view(40, 0, 6);
+    set.cull(frustum, null, key);
+    set.set(99, at(40, 0, 1));
+    expect(set.mesh.count, 'a new instance resets the count to the whole set until the next cut').toBe(21);
+    set.flush(false);
+    set.cull(frustum, null, key);
+    let found = false;
+    for (let i = 0; i < set.mesh.count; i++) if (posOf(set.mesh, i).z === 1) found = true;
+    expect(found, 'the new instance is in view and drawn').toBe(true);
+  });
+
+  it('drawAll restores every instance', () => {
+    const set = filled(20);
+    const { frustum, key } = view(40, 0, 6);
+    set.cull(frustum, null, key);
+    expect(set.mesh.count).toBeLessThan(20);
+    set.drawAll();
+    expect(set.mesh.count).toBe(20);
+  });
+});

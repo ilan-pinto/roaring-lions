@@ -118,6 +118,12 @@ export function instanceableTemplate(template: BuildingMeshTemplate): boolean {
   return parts.every((p) => p.rel.elements.every((v, i) => Math.abs(v - identity.elements[i]) < IDENTITY_EPSILON));
 }
 
+/** Two views' matrices (the camera's and the sun shadow's) in the key `cull` compares. */
+const CUT_KEY_LENGTH = 32;
+
+/** World units added to an instance's culling sphere: float slack and the scar/roof overhang, nothing visible. */
+const CULL_PAD = 0.25;
+
 /**
  * One instanced mesh, packed densely: slot `i` of `keys` owns instance `i`.
  * Removing swaps the last instance into the hole. Grows by replacing its mesh.
@@ -128,6 +134,18 @@ export class InstanceSet {
   private readonly slotOf = new Map<number, number>();
   private capacity: number;
   private dirty = false;
+  /** Per instance (slot order): world sphere centre xyz and radius, for `cull`. Rebuilt when the set changed. */
+  private bounds = new Float32Array(0);
+  private boundsDirty = true;
+  /** The view `cull` last cut for (NaN when none), and whether the set changed since. */
+  private readonly cutKey = new Float32Array(CUT_KEY_LENGTH).fill(NaN);
+  private cutDirty = true;
+  private scratchMatrices = new Float32Array(0);
+  private scratchBounds = new Float32Array(0);
+  private scratchKeys: number[] = [];
+  private visibleMask = new Uint8Array(0);
+  private static readonly sphere = new THREE.Sphere();
+  private static readonly local = new THREE.Vector3();
 
   constructor(
     private readonly part: InstancePart,
@@ -171,6 +189,9 @@ export class InstanceSet {
       this.slotOf.set(key, slot);
       this.mesh.count = this.keys.length;
     }
+    this.boundsDirty = true;
+    this.cutDirty = true;
+    this.mesh.count = this.keys.length;
     // The part sits at the root's own frame (`instanceableTemplate`), so the instance IS the root matrix.
     this.mesh.setMatrixAt(slot, root);
     this.dirty = true;
@@ -191,6 +212,8 @@ export class InstanceSet {
     this.slotOf.delete(key);
     this.mesh.count = this.keys.length;
     this.dirty = true;
+    this.boundsDirty = true;
+    this.cutDirty = true;
     return true;
   }
 
@@ -205,13 +228,116 @@ export class InstanceSet {
     this.mesh = next;
     this.scene.add(next);
     this.dirty = true;
+    this.boundsDirty = true;
+    this.cutDirty = true;
+  }
+
+  /**
+   * GH-913: draws only the instances whose sphere reaches `main` or `shadow` (the sun's fitted box, so a wall off
+   * screen whose shadow falls on screen is kept). Slots are permuted, keys and `slotOf` with them, so the visible
+   * ones are a prefix and `mesh.count` is the cut; the culling sphere stays the whole set's, so three's own test
+   * (and the shadow pass's) is unchanged. `viewKey` is the two views' matrices; an unchanged one and an unchanged set cost nothing.
+   */
+  cull(main: THREE.Frustum, shadow: THREE.Frustum | null, viewKey: Float32Array): void {
+    const total = this.keys.length;
+    if (!this.mesh.visible || total === 0) return;
+    if (!this.cutDirty) {
+      let same = true;
+      for (let i = 0; i < CUT_KEY_LENGTH; i++) {
+        if (this.cutKey[i] !== viewKey[i]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return;
+    }
+    this.cutKey.set(viewKey);
+    this.cutDirty = false;
+    if (this.boundsDirty) this.rebuildBounds();
+    if (this.visibleMask.length < total) this.visibleMask = new Uint8Array(total * 2);
+    const sphere = InstanceSet.sphere;
+    let visible = 0;
+    let prefix = true;
+    for (let i = 0; i < total; i++) {
+      sphere.center.set(this.bounds[i * 4], this.bounds[i * 4 + 1], this.bounds[i * 4 + 2]);
+      sphere.radius = this.bounds[i * 4 + 3] + CULL_PAD;
+      const seen = main.intersectsSphere(sphere) || (shadow !== null && shadow.intersectsSphere(sphere));
+      this.visibleMask[i] = seen ? 1 : 0;
+      if (seen) {
+        visible++;
+        if (i >= visible) prefix = false;
+      }
+    }
+    // (`i >= visible` after the increment: a visible slot sits past the end of the run of visible slots so far)
+    if (!prefix) this.permute(visible);
+    this.mesh.count = visible;
+  }
+
+  /** Back to every instance (a camera that is not the frame's own is about to render). */
+  drawAll(): void {
+    this.mesh.count = this.keys.length;
+    this.cutKey.fill(NaN);
+    this.cutDirty = true;
+  }
+
+  private rebuildBounds(): void {
+    const total = this.keys.length;
+    if (this.bounds.length < total * 4) this.bounds = new Float32Array(total * 8);
+    const geometry = this.part.geometry;
+    if (geometry.boundingSphere === null) geometry.computeBoundingSphere();
+    const g = geometry.boundingSphere as THREE.Sphere;
+    const m = this.mesh.instanceMatrix.array as Float32Array;
+    const v = InstanceSet.local;
+    const e = new THREE.Matrix4();
+    for (let i = 0; i < total; i++) {
+      e.fromArray(m, i * 16);
+      v.copy(g.center).applyMatrix4(e);
+      const sx = Math.hypot(m[i * 16], m[i * 16 + 1], m[i * 16 + 2]);
+      const sy = Math.hypot(m[i * 16 + 4], m[i * 16 + 5], m[i * 16 + 6]);
+      const sz = Math.hypot(m[i * 16 + 8], m[i * 16 + 9], m[i * 16 + 10]);
+      this.bounds[i * 4] = v.x;
+      this.bounds[i * 4 + 1] = v.y;
+      this.bounds[i * 4 + 2] = v.z;
+      this.bounds[i * 4 + 3] = g.radius * Math.max(sx, sy, sz);
+    }
+    // The culling sphere is the WHOLE set's, worked out at full count; `flush` nulls it when the set changes.
+    this.mesh.count = total;
+    this.mesh.boundingSphere = null;
+    this.mesh.computeBoundingSphere();
+    this.boundsDirty = false;
+  }
+
+  /** Stable partition: visible slots first. Keys, `slotOf`, matrices and bounds move together. */
+  private permute(visible: number): void {
+    const total = this.keys.length;
+    if (this.scratchMatrices.length < total * 16) {
+      this.scratchMatrices = new Float32Array(total * 32);
+      this.scratchBounds = new Float32Array(total * 8);
+    }
+    const m = this.mesh.instanceMatrix.array as Float32Array;
+    this.scratchKeys.length = total;
+    let a = 0;
+    let b = visible;
+    for (let i = 0; i < total; i++) {
+      const to = this.visibleMask[i] === 1 ? a++ : b++;
+      this.scratchMatrices.set(m.subarray(i * 16, i * 16 + 16), to * 16);
+      this.scratchBounds.set(this.bounds.subarray(i * 4, i * 4 + 4), to * 4);
+      this.scratchKeys[to] = this.keys[i];
+    }
+    m.set(this.scratchMatrices.subarray(0, total * 16));
+    this.bounds.set(this.scratchBounds.subarray(0, total * 4));
+    for (let i = 0; i < total; i++) {
+      this.keys[i] = this.scratchKeys[i];
+      this.slotOf.set(this.keys[i], i);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
   }
 
   /** Uploads what changed and refreshes the culling sphere and visibility. */
   flush(hidden: boolean): void {
     if (this.dirty) {
       this.mesh.instanceMatrix.needsUpdate = true;
-      // The sphere is built from the matrices, lazily, once it is null.
+      // The sphere is built from the matrices, lazily, once it is null (`cull` builds it first, at full count).
       this.mesh.boundingSphere = null;
       this.dirty = false;
     }
@@ -579,6 +705,37 @@ export class StructureInstances {
     this.hidden = hidden;
     this.flush();
     return this.meshes().length;
+  }
+
+  private readonly cutFrustum = new THREE.Frustum();
+  private readonly cutScreen = new THREE.Matrix4();
+  private readonly cutKey = new Float32Array(CUT_KEY_LENGTH);
+
+  /**
+   * GH-913: every set draws only the instances `camera` or the sun's shadow box reaches (`InstanceSet.cull`).
+   * Call once a frame after `flush`, with the frame's final camera and the sun's refitted shadow. No draw added.
+   */
+  cull(camera: THREE.Camera, shadow: THREE.LightShadow | null): void {
+    this.cutScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.cutKey.set(this.cutScreen.elements, 0);
+    if (shadow) this.cutKey.set(shadow.matrix.elements, 16);
+    else this.cutKey.fill(0, 16);
+    this.cutFrustum.setFromProjectionMatrix(this.cutScreen, camera.coordinateSystem, camera.reversedDepth);
+    const sun = shadow ? shadow.getFrustum() : null;
+    for (const sets of this.types.values()) {
+      for (const list of sets.idle.values()) for (const set of list) set.cull(this.cutFrustum, sun, this.cutKey);
+      for (const list of sets.idleLod.values()) for (const set of list) set.cull(this.cutFrustum, sun, this.cutKey);
+      for (const list of sets.wreck.values()) for (const set of list) set.cull(this.cutFrustum, sun, this.cutKey);
+    }
+  }
+
+  /** Every instance of every set again (the ground photograph's camera is not the frame's). */
+  drawAll(): void {
+    for (const sets of this.types.values()) {
+      for (const list of sets.idle.values()) for (const set of list) set.drawAll();
+      for (const list of sets.idleLod.values()) for (const set of list) set.drawAll();
+      for (const list of sets.wreck.values()) for (const set of list) set.drawAll();
+    }
   }
 
   /** Uploads every changed matrix. Call once per frame, after the updates. */
