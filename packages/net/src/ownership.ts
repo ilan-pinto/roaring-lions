@@ -126,7 +126,9 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
     case 'cancelWorks':
       return !world.versus && cmd.side === side;
     case 'setupReady':
-      // GH-976 R0.9: a stub. The set-up commands open in WP4.
+    case 'fortify':
+    case 'unfortify':
+      // GH-976 R0.9: stubs. The set-up commands open in WP4.
       return false;
   }
 }

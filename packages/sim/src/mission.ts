@@ -235,6 +235,11 @@ export interface ObjectiveJson {
    *  units and contest against the other's; `score` credits it; `raze` names who the razing wins for
    *  (the structures fall to anyone's guns). Any other type refuses it at construction. */
   side?: number;
+  /** GH-976 WP3: a `capture` that only ground units hold or contest. A unit that is an aircraft by type
+   *  (`Sim.isAircraft`, landed or not), and a unit carried by one, neither holds the zone nor contests it. The TS type only:
+   *  `mission.schema.json` does not know it, so no authored mission can set it; a versus room's built mission can. Absent
+   *  is today's rule, byte for byte. */
+  ground_only?: boolean;
   /** GH-976: a `score` objective's block (a versus win mode, `goalsOnly` rooms only). */
   score?: ScoreJson;
 }
@@ -2871,6 +2876,9 @@ export class MissionRuntime {
         o.holdTicks += value * sc.per_value_destroyed * SCORE_PER_VALUE;
       }
     }
+    // GH-976 R0.7: the flag objectives wait for the bell. Nothing in a flag room scores before it (steps 1-3 write no points
+    // there), so this one early return is the whole rule; the hold clock starts at the bell, not at tick 0.
+    if (this.sim.setupActive) return;
     this.stepObjectives(tick, out);
   }
 
@@ -3926,13 +3934,14 @@ export class MissionRuntime {
    * Is the ground being fought over? True when a living enemy stands inside
    * the zone AND close enough to one of your units there to dispute it.
    */
-  private contestedIn(zone: readonly number[]): boolean {
+  private contestedIn(zone: readonly number[], groundOnly = false): boolean {
     const st = this.sim.state;
     for (let f = 0; f < this.sim.entityCount; f++) {
       if (st.alive[f] === 0 || st.side[f] !== 0 || !tileInZone(st, f, zone)) continue;
       if (st.tunnelIn[f] >= 0) continue;
       if (this.sim.isDown(f)) continue; // GH-707: a man down holds nothing to contest
-      if (this.enemyNear(f, zone)) return true;
+      if (groundOnly && this.skipsGround(f)) continue;
+      if (this.enemyNear(f, zone, groundOnly)) return true;
     }
     return false;
   }
@@ -3947,7 +3956,7 @@ export class MissionRuntime {
    * point sits inside the zone holds a capture hostage from underground, with
    * nothing on the map for the player to shoot.
    */
-  private enemyNear(f: number, zone?: readonly number[]): boolean {
+  private enemyNear(f: number, zone?: readonly number[], groundOnly = false): boolean {
     const st = this.sim.state;
     for (let e = 0; e < this.sim.entityCount; e++) {
       if (st.alive[e] === 0 || st.side[e] !== 1) continue;
@@ -3955,6 +3964,7 @@ export class MissionRuntime {
       if (st.tunnelIn[e] >= 0) continue;
       // GH-707 (the lead, 22 Oct): a wounded enemy contests no ground.
       if (this.sim.isDown(e)) continue;
+      if (groundOnly && this.skipsGround(e)) continue;
       const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
       const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
       if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
@@ -4041,7 +4051,16 @@ export class MissionRuntime {
     }
   }
 
-  private livingIn(zone: readonly number[], side: number): number {
+  /** GH-976 WP3 (`ground_only`): an aircraft by type, or a unit an aircraft carries (landed or hovering), stands on no ground.
+   *  A unit carried by a GROUND vehicle is not skipped: it keeps today's rule. */
+  private skipsGround(id: number): boolean {
+    const st = this.sim.state;
+    if (this.sim.isAircraft(id)) return true;
+    const car = st.carriedBy[id];
+    return car >= 0 && this.sim.isAircraft(car);
+  }
+
+  private livingIn(zone: readonly number[], side: number, groundOnly = false): number {
     let n = 0;
     const st = this.sim.state;
     for (let i = 0; i < this.sim.entityCount; i++) {
@@ -4051,6 +4070,7 @@ export class MissionRuntime {
       if (st.tunnelIn[i] >= 0) continue;
       // GH-707 (the lead, 22 Oct): nor does a man down.
       if (this.sim.isDown(i)) continue;
+      if (groundOnly && this.skipsGround(i)) continue;
       const tx = st.posX[i] >> 16;
       const ty = st.posY[i] >> 16;
       if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) n++;
@@ -4387,8 +4407,9 @@ export class MissionRuntime {
         // for a side-1 objective too. (Passing the side was written and deleted: a mutation of it was green,
         // because it cannot change an answer.)
         const side = d.side === 1 ? 1 : 0;
-        const present = z !== undefined && this.livingIn(z, side) > 0;
-        const held = present && z !== undefined && !this.contestedIn(z);
+        const groundOnly = d.ground_only === true;
+        const present = z !== undefined && this.livingIn(z, side, groundOnly) > 0;
+        const held = present && z !== undefined && !this.contestedIn(z, groundOnly);
         o.paused = held ? null : present ? 'contested' : 'unheld';
         if (held) o.holdTicks++;
         else o.holdTicks = 0; // taking ground has to be done in one go

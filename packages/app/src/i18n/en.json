@@ -329,6 +329,8 @@
   "net.advisor.cmd.construct": "Build field works at ({x}, {y}) with {n, plural, one {# unit} other {# units}}",
   "net.advisor.cmd.cancelConstruct": "Cancel a field works site",
   "net.advisor.cmd.setupReady": "Press Ready for the set-up",
+  "net.advisor.cmd.fortify": "Place a fortification at ({x}, {y})",
+  "net.advisor.cmd.unfortify": "Take down a fortification at ({x}, {y})",
   "arena.watch.title": "Arena run",
   "arena.watch.stop": "Stop watching",
   "arena.strip.label": "Arena run",

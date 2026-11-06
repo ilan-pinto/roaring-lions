@@ -47,6 +47,8 @@ const SAMPLE: { [K in Command['kind']]: Extract<Command, { kind: K }> } = {
   enterTunnel: { kind: 'enterTunnel', ids: [1], tunnel: 0 },
   vent: { kind: 'vent', ids: [1], mode: 'raid' },
   setupReady: { kind: 'setupReady', side: 0 },
+  fortify: { kind: 'fortify', side: 0, kit: 0, x: 1, y: 1 },
+  unfortify: { kind: 'unfortify', side: 0, x: 1, y: 1 },
 };
 
 /**
