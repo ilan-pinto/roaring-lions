@@ -49,7 +49,7 @@ export type WinMode = (typeof WIN_MODES)[number];
  *    ends the game before a camp falls. That needs an engine rule (annihilation off, or a goal-aware wipe), not data.
  *  - **GH-976, 5 Nov: `camp` on `wadi_tarfan` and `wadi_tarfan_l` too**, with forward camps and `modes.camp.wipe: after_camp` (a wiped side keeps
  *    playing while its camp stands; the screen over the ground the reach allows is above, and it now reads differently once the camp may stand 8-10
- *    tiles out, past `MODE_CAMP_REACH` 10 in `tools/validate_versus_modes.mjs`): wadi_tarfan (12,18) / (34,28), wadi_tarfan_l (26,30) / (68,64),
+ *    tiles out; `MODE_CAMP_REACH` is 10 in `tools/validate_versus_modes.mjs`, the economy camps keep `CAMP_REACH` 6): wadi_tarfan (13,18) / (33,28) (the screened (12,18) / (34,28) put a spawned unit on a camp tile), wadi_tarfan_l (26,30) / (68,64),
  *    exits point-mirrored. The fresh-seed read (28000-28191, 192 per arm) is in the PR that added them; milh_flats_l, rujm_sawda and tel_marum stay out
  *    (no placement passed every gate there: GH-976).
  *  - `flag` (GH-976 P3; the raid probe: two infantry squads go for the flag, the rest of the force plays the base probe) reads

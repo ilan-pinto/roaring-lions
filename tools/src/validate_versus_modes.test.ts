@@ -77,7 +77,7 @@ describe('the shipped win-mode files', () => {
     const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
     expect(WIN_MODE_FAIR_MAPS.points).toEqual(SEVEN); // wadi_tarfan 56.3%, milh_flats 57.3% (P1); the other five 51-55% on 4000-4287: see config.ts
     expect(WIN_MODE_FAIR_MAPS.flag).toEqual(SEVEN);   // wadi_tarfan 56.9%, milh_flats 52.1% (P3); the other five 44-55% (45-55% of the decisive games)
-    expect(WIN_MODE_FAIR_MAPS.camp).toEqual(['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l']); // forward camps; milh_flats (15,39)/(31,7): 52.4%, 96.5% by the goal; wadi_tarfan (12,18)/(34,28) and wadi_tarfan_l (26,30)/(68,64) with wipe after_camp (GH-976, 5 Nov); the others stay out: see config.ts
+    expect(WIN_MODE_FAIR_MAPS.camp).toEqual(['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l']); // forward camps; milh_flats (15,39)/(31,7): 52.4%, 96.5% by the goal; wadi_tarfan (13,18)/(33,28) and wadi_tarfan_l (26,30)/(68,64) with wipe after_camp (GH-976, 5 Nov); the others stay out: see config.ts
     expect([...VERSUS_FAIR_MAPS].sort()).toEqual([...SEVEN].sort());
     for (const map of SEVEN) for (const mode of ['points', 'flag'] as const) expect(versusModes[map].modes[mode], `${map} ${mode}`).toBeDefined();
     // ...and no KDF-v-Sarim cell: the one that passed (points on wadi_tarfan_l at 10 per 100) was a kill race and was removed.
