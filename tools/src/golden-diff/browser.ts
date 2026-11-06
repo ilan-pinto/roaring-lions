@@ -11,10 +11,13 @@
 // a PNG plus the camera/tick state the capture was taken at.
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { PNG } from 'pngjs';
 import { chromium, type Browser, type Page } from 'playwright';
 import { BOOT_SETTLE_SCRIPT, FREEZE_FRAME_LOOP_SCRIPT, NODE_REPAINT_SCRIPT, bootFreezeRefusal, bootFreezeScriptFor } from './capture-protocol';
 import { chromiumArgsFor, type GpuArm, type PageBackend } from './backend';
 import { settledFrameRefusal } from './settled-frame';
+import { frameContentRefusal, frameContentStats, validationErrorRefusal } from './frame-content';
 import { dismissDeployGate } from './capture-guard';
 
 // Re-exported for every existing importer: the logic moved to `capture-guard.ts`
@@ -202,11 +205,26 @@ export async function capture(
     bootFrozenPages.add(page);
   }
   try {
-    return await captureAttempts(page, url, script, outFile, label, needsDeploy, pageErrors, arm);
+    const result = await captureAttempts(page, url, script, outFile, label, needsDeploy, pageErrors, arm);
+    // GH-943 P1: a node capture must be a PICTURE, and one the GPU accepted. Outside the retry loop on purpose: a black frame or a
+    // validation error is the code's answer, and a second attempt would give it again (`frame-content.ts` has the history).
+    if (arm !== 'legacy') {
+      const refusal = nodeCaptureRefusal(outFile, pageErrors);
+      if (refusal !== null) throw new Error(`[${label}] REFUSED (${arm}): ${refusal}`);
+    }
+    return result;
   } finally {
     page.off('pageerror', onPageError);
     page.off('console', onConsole);
   }
+}
+
+/** Why a node-arm capture is refused after it settled: GPU validation errors in the page, or a black or near-constant frame. */
+export function nodeCaptureRefusal(pngFile: string, pageErrors: readonly string[]): string | null {
+  const gpu = validationErrorRefusal(pageErrors);
+  if (gpu !== null) return gpu;
+  const png = PNG.sync.read(readFileSync(pngFile));
+  return frameContentRefusal(frameContentStats(png.data, png.width, png.height));
 }
 
 /** Pages `capture()` has already given `BOOT_FREEZE_INIT_SCRIPT`. */
