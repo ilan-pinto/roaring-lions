@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { versusRules } from '@lions/data';
 import type { MatchConfig } from '@lions/net';
-import { FORMATION_VERSUS_REASON_KEY, VERSUS_FORMATIONS_CLOSED_MAPS, VERSUS_FORMATIONS_OPEN, formationsClosedByRules, formationsOpenIn, roomKindOf } from './versus-formations';
+import { FORMATION_ROOM_REASON_KEY, FORMATION_VERSUS_REASON_KEY, VERSUS_FORMATIONS_CLOSED_MAPS, VERSUS_FORMATIONS_OPEN, formationClosedReason, formationsClosedByRules, formationsOpenIn, roomKindOf } from './versus-formations';
 import { t } from '../i18n/t';
 
 // GH-859 P1a: the one predicate behind the sender strip, the receiver gate and the HUD row's inert state.
@@ -88,6 +89,43 @@ describe('formationsOpenIn', () => {
     expect(formationsClosedByRules('nosuch', 'economy')).toBe(false);
     expect(formationsClosedByRules(null, 'economy')).toBe(false);
     expect(formationsClosedByRules('tel_marum', undefined)).toBe(false);
+  });
+  // GH-859: "not in versus rooms yet" is wrong in a room kind a map's rules file closes: formations ARE in versus rooms, just not in this kind.
+  it('the reason line: a Tel Marum economy room says its own thing; Wadi Tarfan (large) keeps the versus line', () => {
+    expect(FORMATION_ROOM_REASON_KEY).toBe('hud.formation.inert.room');
+    const tel = formationClosedReason('tel_marum', 'economy');
+    expect(tel).toEqual({ key: 'hud.formation.inert.room', params: { kind: 'economy' } });
+    expect(t(tel.key, tel.params)).toBe('Formations are off in economy rooms on this map');
+    const large = formationClosedReason('wadi_tarfan_l', 'economy');
+    expect(large).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
+    expect(t(large.key, large.params)).toBe('Formations are not in versus rooms yet');
+    // a map that is whole-closed keeps the versus line whatever its kind; a kind the rules do not close has nothing to say (the versus line is the default)
+    expect(formationClosedReason('wadi_tarfan_l', 'mirror')).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
+    expect(formationClosedReason('tel_marum', 'mirror')).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
+    expect(formationClosedReason(null, undefined)).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
+  });
+  it('precedence: a map closed WHOLE, or the gate shut, keeps the versus line even when its rules file also closes the kind', () => {
+    const yes = (): boolean => true;
+    // the injected rules close every kind everywhere; only the map / gate decide which line is true
+    expect(formationClosedReason('tel_marum', 'economy', true, yes)).toEqual({ key: FORMATION_ROOM_REASON_KEY, params: { kind: 'economy' } });
+    expect(formationClosedReason('wadi_tarfan_l', 'economy', true, yes)).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
+    expect(formationClosedReason('tel_marum', 'economy', false, yes)).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
+    // and the rules are asked about the room's own map and kind
+    const asked: unknown[][] = [];
+    formationClosedReason('tel_marum', 'placed', true, (m, k) => { asked.push([m, k]); return false; });
+    expect(asked).toEqual([['tel_marum', 'placed']]);
+  });
+  it('the room line names a kind it knows and falls back to a plain phrase for any other', () => {
+    expect(t(FORMATION_ROOM_REASON_KEY, { kind: 'economy' })).toBe('Formations are off in economy rooms on this map');
+    for (const kind of ['mirror', 'placed']) expect(t(FORMATION_ROOM_REASON_KEY, { kind }), kind).toBe('Formations are off in this kind of room on this map');
+  });
+  it('main.ts hands the room kind\'s reason to the HUD row, the arming and the armed cursor (a call that drops it falls back to the versus line)', () => {
+    const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
+    expect(main).toContain('const formationClosedNow = () => formationClosedReason(netConfig?.map, roomKindOf(netConfig));');
+    expect(main).toContain('formationClosedReason: formationClosedNow,'); // the HUD's deps
+    expect(main).toContain('closedReason: formationClosedNow(), units:'); // the arming's row
+    expect(main).toContain('reason: formationClosedNow,'); // the arming's deps
+    expect(main).toContain('reason: formationClosedNow() } : null,'); // the armed cursor
   });
   it('the reason line is a real catalogue string', () => {
     expect(FORMATION_VERSUS_REASON_KEY).toBe('hud.formation.inert.versus');

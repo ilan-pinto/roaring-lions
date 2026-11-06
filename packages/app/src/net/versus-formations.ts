@@ -28,6 +28,16 @@ export const VERSUS_FORMATIONS_CLOSED_MAPS: readonly string[] = ['wadi_tarfan_l'
 /** The HUD row's reason line when formations are inactive in a versus room (a `t()` key). */
 export const FORMATION_VERSUS_REASON_KEY = 'hud.formation.inert.versus';
 
+/** The reason line when formations are open in versus but THIS kind of room on this map is closed (`formations_closed_in`, a `t()` key
+ *  taking the room `kind`). `FORMATION_VERSUS_REASON_KEY` ("not in versus rooms yet") is wrong there: they ARE in versus rooms. */
+export const FORMATION_ROOM_REASON_KEY = 'hud.formation.inert.room';
+
+/** A catalogue key and its parameters: what the HUD row and the order note say when formations are inactive. */
+export interface FormationClosedReason {
+  readonly key: string;
+  readonly params?: Readonly<Record<string, string | number>>;
+}
+
 /** The three kinds of versus room, as a map's rules file names them (`formations_closed_in`): a same-faction room, a KDF-v-Sarim win-mode
  *  room (two placed forces, no economy) and a KDF-v-Sarim room on the skirmish economy. */
 export type VersusRoomKind = 'mirror' | 'placed' | 'economy';
@@ -45,6 +55,21 @@ export function formationsClosedByRules(map: string | null | undefined, kind: Ve
   if (map === undefined || map === null || kind === undefined) return false;
   const rules = (versusRules as Readonly<Record<string, { readonly formations_closed_in?: readonly VersusRoomKind[] } | undefined>>)[map];
   return rules?.formations_closed_in?.includes(kind) === true;
+}
+
+/** Why formations are inactive in a room on this map of this kind: the room line when only the map's rules file closes this kind (the gate is
+ *  open and the map is not in `VERSUS_FORMATIONS_CLOSED_MAPS`), the versus line otherwise (the gate shut, or a map closed whole, `wadi_tarfan_l`).
+ *  Resolved when asked, never at module load, so it follows the player's locale. `versusOpen` and `closedByRules` are injectable, like
+ *  `formationsOpenIn`'s gate, so a test can witness the precedence: no shipped map is both closed whole and listed in a rules file. */
+export function formationClosedReason(
+  map: string | null | undefined,
+  kind: VersusRoomKind | undefined,
+  versusOpen: boolean = VERSUS_FORMATIONS_OPEN,
+  closedByRules: (map: string | null | undefined, kind: VersusRoomKind | undefined) => boolean = formationsClosedByRules,
+): FormationClosedReason {
+  const wholeMapClosed = !versusOpen || (map !== undefined && map !== null && VERSUS_FORMATIONS_CLOSED_MAPS.includes(map));
+  if (!wholeMapClosed && kind !== undefined && closedByRules(map, kind)) return { key: FORMATION_ROOM_REASON_KEY, params: { kind } };
+  return { key: FORMATION_VERSUS_REASON_KEY };
 }
 
 /** Whether formations are open in a room of this mode. A versus room follows the gate, and is closed on a map

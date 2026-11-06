@@ -29,6 +29,7 @@ import {
   type FormationFacts,
   type FormationUnitFact,
 } from './formation-model';
+import { formationClosedReason } from '../net/versus-formations';
 import { chipStatus, groupChips, type UnitFacts } from './selection-model';
 
 const ARMOUR = 0;
@@ -112,6 +113,24 @@ describe('formationRow: why a button is inert', () => {
 
   it('a medic and an aircraft do not ring the zone', () => {
     expect(formationRow(facts([u(MEDIC), u(AIRCRAFT)]), null)[2].reasonKey).toBe('hud.formation.inert.ambushNoGround');
+  });
+});
+
+describe('formationRow: a room kind its map closes (GH-859, 5 Nov)', () => {
+  const closedFacts = (map: string, kind: 'economy' | 'mirror') => ({ ...facts(MIXED, false), closedReason: formationClosedReason(map, kind) });
+  it('every button is inert with the ROOM line, naming the kind, not "not in versus rooms yet"', () => {
+    const row = formationRow(closedFacts('tel_marum', 'economy'), null);
+    expect(row.map((v) => [v.inert, v.reasonKey, v.reasonParams])).toEqual(Array(3).fill([true, 'hud.formation.inert.room', { kind: 'economy' }]));
+    expect(formationReason(row[0])).toBe('Formations are off in economy rooms on this map');
+  });
+  it('Wadi Tarfan (large) and a caller that gives no reason keep the versus line, unchanged', () => {
+    expect(formationRow(closedFacts('wadi_tarfan_l', 'economy'), null).map((v) => v.reasonKey)).toEqual(Array(3).fill('hud.formation.inert.versus'));
+    expect(formationRow(facts(MIXED, false), null).map((v) => v.reasonKey)).toEqual(Array(3).fill('hud.formation.inert.versus'));
+    expect(formationReason(formationRow(closedFacts('wadi_tarfan_l', 'economy'), null)[0])).toBe('Formations are not in versus rooms yet');
+  });
+  it('an open room never takes the reason: the closed reason is read only while formations are closed', () => {
+    const row = formationRow({ ...facts(MIXED, true), closedReason: formationClosedReason('tel_marum', 'economy') }, null);
+    expect(row.every((v) => v.reasonKey !== 'hud.formation.inert.room')).toBe(true);
   });
 });
 
