@@ -137,6 +137,7 @@ import { holdDraft, readDraft } from './feedback/draft';
 import { isClosed as feedbackClosed } from './feedback/gate';
 import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
+import { withGroundPhoto } from './ui/ground-photo';
 import { answered as promptAnswered, asked as promptAsked, ignored as promptIgnored, readPromptState, shouldAsk, writePromptState } from './feedback/prompt-policy';
 import { ReplayRecorder } from './feedback/replay';
 import { afterAction, promotionsBetween } from './ui/after-action';
@@ -2748,11 +2749,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // null on anything it cannot do: the painted tiles simply stay.
   if (field) {
     try {
-      const shot = renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX) ?? null;
+      // GH-943 P1 (T8): awaited. The node backends' photograph is async (a WebGPU readback is); the legacy one resolves at once.
+      const shot = (await (renderer.captureGroundAlbedoAsync?.(BRIEFING_GROUND_PX) ?? renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX))) ?? null;
       if (shot) loading.setGroundPhoto(new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height));
     } catch (err) {
       console.warn('briefing: the ground photograph failed; the painted ground stays', err);
     }
+    // The photograph can take frames on the node backends: a navigation that superseded this boot meanwhile ends it here.
+    if (req.signal.aborted) abandon('left while the ground was photographed');
   }
 
   /**
@@ -6236,15 +6240,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               // The ground after the fight, photographed now rather than at
               // the missionEnd event: by the time the moment ends, the renderer
               // has drawn the last tick, so a building that fell on it is rubble.
-              let photo: ImageData | null = null;
-              if (debriefOpts.ground) {
-                try {
-                  const shot = renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX) ?? null;
-                  if (shot) photo = new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height);
-                } catch (err) {
-                  console.warn('debrief: the ground photograph failed; the painted ground stays', err);
-                }
-              }
+              const reportWith = (photo: ImageData | null): void => {
               // GH-464: "How was that mission?", at most once per mission
               // (`prompt-policy.ts`). Asked is recorded now, so a reload on
               // this screen does not ask twice.
@@ -6270,6 +6266,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 })
               );
               if (prompt) screenDisposers.push(prompt.dispose);
+              };
+              // GH-943 P1 (T8): legacy runs `reportWith` before this returns; a node backend awaits its async photograph, and a
+              // disposed screen writes nothing (`ui/ground-photo.ts`).
+              if (debriefOpts.ground) withGroundPhoto(renderer, BRIEFING_GROUND_PX, () => disposed, reportWith);
+              else reportWith(null);
             });
           }
         }

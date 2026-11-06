@@ -83,6 +83,14 @@ describe('takePicture', () => {
     const toDataURL = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL');
     const encode = vi.fn<Encoder>(async () => blob('image/webp'));
     expect(await takePicture({}, encode)).toBeNull();
+    // T8: the node backends answer ASYNC. The awaited form wins, and its rows are flipped like the synchronous form's.
+    const sync = vi.fn(() => null);
+    const asyncShot = vi.fn(async () => glPixels());
+    const enc = vi.fn<Encoder>(async (img) => blob('image/webp', img.data[0] === 0 ? 10 : 20));
+    const viaAsync = await takePicture({ captureView: sync, captureViewAsync: asyncShot }, enc);
+    expect(asyncShot).toHaveBeenCalledWith(PICTURE_WIDTH);
+    expect(sync).not.toHaveBeenCalled();
+    expect(viaAsync?.blob.size).toBe(10); // flipped: the top row (blue, red channel 0) comes first
     expect(await takePicture({ captureView: () => null }, encode)).toBeNull();
     expect(encode).not.toHaveBeenCalled();
     expect(toBlob).not.toHaveBeenCalled();

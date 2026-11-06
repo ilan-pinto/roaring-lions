@@ -28,6 +28,8 @@ export const PICTURE_WIDTHS: readonly number[] = [1280, 1024, 800, 640];
 
 export interface PictureSource {
   captureView?(maxWidth: number): ImageData | null;
+  /** GH-943 P1 (T8): the awaited form; the node backends cannot read synchronously. Preferred when present. */
+  captureViewAsync?(maxWidth: number): Promise<ImageData | null>;
 }
 
 export interface Picture {
@@ -79,7 +81,7 @@ export async function encodeToFit(img: ImageData, encode: Encoder = canvasEncode
 export async function takePicture(r: PictureSource, encode: Encoder = canvasEncoder): Promise<Picture | null> {
   let raw: ImageData | null;
   try {
-    raw = r.captureView?.(PICTURE_WIDTH) ?? null;
+    raw = (await (r.captureViewAsync?.(PICTURE_WIDTH) ?? r.captureView?.(PICTURE_WIDTH))) ?? null;
   } catch {
     raw = null;
   }

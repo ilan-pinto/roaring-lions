@@ -191,12 +191,16 @@ import { resolveGrade, type GradeJson } from './grade-maths';
 import { zoomFadeWeight } from './zoom-fade';
 import { BLOOM_STRENGTH, bloomPassFor, luminanceCensus, type LuminanceCensus, type QuarterBloomPass } from './bloom';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
+/** GH-943 P1 (T8): the longest an async photograph waits for the native frame it asks for. A hidden tab never fires a rAF. */
+const FRAME_WAIT_FALLBACK_MS = 250;
+
 // The ONE piece of the post chain `captureGroundAlbedo` needs -- see that
 // method for why a render target cannot simply be read back raw.
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { CopyShader } from 'three/addons/shaders/CopyShader.js';
 import { captureComposerView } from './capture-view';
+import { AsyncPhotoMemo } from './readback';
 import { FlashLightManager } from './flash-light';
 import { SupportAircraftManager } from './units/support-aircraft';
 import { ShockRingPool } from './units/shock-ring';
@@ -673,7 +677,7 @@ import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
-import { AO_MATHS, BLOOM_MATHS, OUTPUT_MATHS } from './output-maths';
+import { AO_MATHS, BLOOM_MATHS, OUTPUT_MATHS, READBACK_MATHS } from './output-maths';
 import {
   RAIN_SPLASH_KEY,
   RAIN_STREAK_KEY,
@@ -1564,6 +1568,9 @@ export class ThreeRenderer implements Renderer {
   /** The square `groundPhoto` was taken at. A caller asking for a different
    *  size gets a fresh photograph rather than a resampled one. */
   private groundPhotoPx = 0;
+  /** GH-943 P1 (T8): the node path's memo. The photograph is ASYNC there, so it lives in a generation-guarded memo
+   *  (`readback.ts`): one that lands after an `invalidateGroundPhoto` describes superseded ground and is discarded. */
+  private readonly nodePhoto = new AsyncPhotoMemo<ImageData>();
 
   /**
    * Throw the memo away, so the NEXT `captureGroundAlbedo` photographs again.
@@ -1584,6 +1591,7 @@ export class ThreeRenderer implements Renderer {
   private invalidateGroundPhoto(): void {
     this.groundPhoto = null;
     this.groundPhotoPx = 0;
+    this.nodePhoto.invalidate();
   }
 
   /**
@@ -3733,6 +3741,7 @@ export class ThreeRenderer implements Renderer {
         adapter: plan.kind === 'node-webgpu' ? plan.adapter : 'webgl2',
         bloomMaths: BLOOM_MATHS,
         aoMaths: AO_MATHS,
+        readbackMaths: READBACK_MATHS,
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();
@@ -5128,24 +5137,56 @@ export class ThreeRenderer implements Renderer {
     if (this.disposed) return null;
     if (!Number.isFinite(sizePx) || sizePx < 1) return null;
     const size = Math.floor(sizePx);
-    // The dirty gate comes BEFORE the memo and that order is load-bearing,
-    // not tidiness. `frame()` drops the memo when it rebuilds, but
-    // `setDecor`/`setElevation` only mark the terrain dirty -- so between
-    // one of those and the next frame the memo describes ground that is
-    // already superseded, and consulting it first would hand out a
-    // photograph of a map that no longer exists. The size guard stays above
-    // both: a caller asking for no pixels must not trigger a terrain build.
-    if (this.terrainDirty) {
-      // The same gate `frame()` uses, not a second builder -- see above.
-      this.rebuildTerrain();
-      this.terrainDirty = false;
-      this.invalidateGroundPhoto();
+    this.settleTerrainForPhoto();
+    if (this.nodeBackend !== null) {
+      // GH-943 P1 (T8): the node photograph is ASYNC. The memo answers once it has landed; until then this starts it (once per
+      // generation and size) and answers null, so the minimap keeps its painted terrain and picks the photograph up on a later
+      // redraw -- by IDENTITY, exactly as the legacy path's invalidation reaches it.
+      const have = this.nodePhoto.get(size);
+      if (have !== null) return have;
+      if (this.terrainMesh !== null) void this.nodePhoto.request(size, () => this.photographGroundNode(size));
+      return null;
     }
     if (this.groundPhoto !== null && this.groundPhotoPx === size) return this.groundPhoto;
     if (this.terrainMesh === null) return null;
     this.groundPhoto = this.photographGround(size);
     this.groundPhotoPx = this.groundPhoto === null ? 0 : size;
     return this.groundPhoto;
+  }
+
+  /**
+   * The dirty gate comes BEFORE the memo and that order is load-bearing, not tidiness. `frame()` drops the memo when it rebuilds,
+   * but `setDecor`/`setElevation` only mark the terrain dirty -- so between one of those and the next frame the memo describes
+   * ground that is already superseded, and consulting it first would hand out a photograph of a map that no longer exists. The
+   * size guard stays above it: a caller asking for no pixels must not trigger a terrain build. The same gate `frame()` uses, not a
+   * second builder.
+   */
+  private settleTerrainForPhoto(): void {
+    if (this.terrainDirty) {
+      this.rebuildTerrain();
+      this.terrainDirty = false;
+      this.invalidateGroundPhoto();
+    }
+  }
+
+  /**
+   * `Renderer.captureGroundAlbedoAsync` (GH-943 P1 T8): the photograph, awaited. Legacy answers from the synchronous path; node
+   * waits for the async one (one native frame after the map-wide shadow fit, a direct render into its own target, an async
+   * readback). Resolves null on anything it cannot do, and when `invalidateGroundPhoto` ran while it flew (the ground it would
+   * have shown has since changed -- ask again).
+   */
+  async captureGroundAlbedoAsync(sizePx: number): Promise<ImageData | null> {
+    if (this.nodeBackend === null) return this.captureGroundAlbedo(sizePx);
+    if (this.disposed || !Number.isFinite(sizePx) || sizePx < 1) return null;
+    const size = Math.floor(sizePx);
+    this.settleTerrainForPhoto();
+    if (this.terrainMesh === null) return null;
+    return this.nodePhoto.request(size, () => this.photographGroundNode(size));
+  }
+
+  /** `Renderer.groundPhotoSettled` (`api.ts`): resolves when no ground photograph is in flight. The capture protocol awaits it before the minimap's fresh redraw. */
+  groundPhotoSettled(): Promise<void> {
+    return this.nodePhoto.settled();
   }
 
   /**
@@ -5228,6 +5269,24 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * `Renderer.captureViewAsync` (GH-943 P1 T8): `captureView`, awaited. Legacy answers from the synchronous path. Node draws the
+   * pipeline's final node into an 8-bit target and reads it back async (`./capture-view.node.ts`); rows BOTTOM-UP either way.
+   */
+  async captureViewAsync(maxWidth: number): Promise<ImageData | null> {
+    const backend = this.nodeBackend;
+    if (backend === null) return this.captureView(maxWidth);
+    if (this.disposed || !Number.isFinite(maxWidth) || maxWidth < 1) return null;
+    try {
+      const px = await backend.captureView(maxWidth);
+      if (px === null || this.disposed) return null;
+      return new ImageData(new Uint8ClampedArray(px.data.buffer), px.width, px.height);
+    } catch (err) {
+      console.warn('[lions] view capture failed; the note goes without a picture:', err);
+      return null;
+    }
+  }
+
+  /**
    * `captureGroundAlbedo`'s GL half: one orthographic render of the world
    * from straight above, read back as bytes.
    *
@@ -5296,6 +5355,85 @@ export class ThreeRenderer implements Renderer {
     const h = this.sim.height;
     if (w < 1 || h < 1) return null;
 
+    const camera = this.groundPhotoCamera(w, h);
+
+    // HalfFloat for the scene pass, exactly as `post-chain.ts`'s own target
+    // is and for the same reason: the scene renders linear and unclamped, so
+    // an 8-bit intermediate would crush the highlights before tone mapping
+    // ever saw them. The second target is bytes, because that is what comes
+    // back.
+    const linear = new THREE.WebGLRenderTarget(size, size, { type: THREE.HalfFloatType });
+    const encoded = new THREE.WebGLRenderTarget(size, size);
+    const output = new OutputPass();
+    const wasTarget = this.renderer.getRenderTarget();
+    let restoreLayers: () => void = () => undefined;
+    try {
+      // The buildings, before the photograph and not after it. `frame()`
+      // stands a loaded building mesh up in `updateBuildingMeshes`, which
+      // runs AFTER this capture does at boot -- and `composeTerrain` skips
+      // the palette box for any structure whose art has loaded
+      // (`hasArt`). So without this call a photographed town is its
+      // `underBuilding` pads and nothing else: no buildings, and no
+      // building shadows on the ground beside them. Idempotent for a living
+      // structure (it only instantiates a clone it does not already have),
+      // so `frame()`'s own call a moment later finds the work done. A type
+      // whose GLB has not arrived yet keeps the palette box `composeTerrain`
+      // already gave it, exactly as it does on the field.
+      //
+      // `updateStructures` is deliberately NOT called beside it: a
+      // structure billboard is a static quad built to face the DIMETRIC
+      // camera (`units/structures.ts`), so from straight above it is
+      // edge-on. On the mesh path -- the default, and every shipped
+      // building type has a GLB -- that path is forced to an empty
+      // placement list anyway.
+      this.updateBuildingMeshes();
+      try {
+        restoreLayers = this.hideForGroundPhoto();
+        this.renderer.setRenderTarget(linear);
+        // Explicit rather than trusting `autoClear`, which the post chain's
+        // own `RenderPass` turns off and on around itself.
+        this.renderer.clear();
+        this.renderer.render(this.scene, camera);
+        // `renderToScreen` is false by default, so this draws its full-screen
+        // quad into `encoded` -- tone-mapped and sRGB-encoded by its own
+        // defines, which it reads off this renderer's `toneMapping` and
+        // `outputColorSpace`.
+        // `deltaTime`/`maskActive` are in the `Pass` signature and unread by
+        // this pass; 0 and false are what `EffectComposer` hands a pass with
+        // no clock of its own.
+        // `OutputPass` binds `encoded` itself but does NOT clear it
+        // (`Pass.clear` is false by default), and its full-screen quad
+        // depth-tests like any other material. A render target's depth
+        // attachment has no defined initial contents, so the quad is given
+        // a cleared buffer to draw against rather than a driver's goodwill.
+        this.renderer.setRenderTarget(encoded);
+        this.renderer.clear();
+        output.render(this.renderer, encoded, linear, 0, false);
+      } finally {
+        // Restored whatever happened above (`hideForGroundPhoto`): a capture that threw with the units switched off would take
+        // every unit off the battlefield for the rest of the mission.
+        restoreLayers();
+      }
+
+      const pixels = new Uint8Array(size * size * 4);
+      this.renderer.readRenderTargetPixels(encoded, 0, 0, size, size, pixels);
+      // The rows are bottom-up here (GL's origin) and the app flips them --
+      // `minimap.ts`'s `flipRows`, which is pure and has the two tests this
+      // method cannot have.
+      return new ImageData(new Uint8ClampedArray(pixels.buffer), size, size);
+    } catch (err) {
+      console.warn('[lions] ground albedo capture failed; the minimap keeps its painted terrain:', err);
+      return null;
+    } finally {
+      this.renderer.setRenderTarget(wasTarget);
+      output.dispose();
+      encoded.dispose();
+      linear.dispose();
+    }
+  }
+
+  /** The top-down orthographic camera a ground photograph (either backend) is taken from -- see `photographGround`'s notes. */
+  private groundPhotoCamera(w: number, h: number): THREE.OrthographicCamera {
     const camera = new THREE.OrthographicCamera(
       -w / 2,
       w / 2,
@@ -5319,108 +5457,104 @@ export class ThreeRenderer implements Renderer {
     camera.lookAt(w / 2, 0, h / 2);
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
+    return camera;
+  }
 
-    // HalfFloat for the scene pass, exactly as `post-chain.ts`'s own target
-    // is and for the same reason: the scene renders linear and unclamped, so
-    // an 8-bit intermediate would crush the highlights before tone mapping
-    // ever saw them. The second target is bytes, because that is what comes
-    // back.
-    const linear = new THREE.WebGLRenderTarget(size, size, { type: THREE.HalfFloatType });
-    const encoded = new THREE.WebGLRenderTarget(size, size);
-    const output = new OutputPass();
-    const wasTarget = this.renderer.getRenderTarget();
-    // What each layer's visibility was BEFORE this call, so the restore puts
-    // back what it found rather than writing `true` at both. A debug harness
-    // that switched a layer off on purpose -- the visual gate's toggle A/B,
-    // or the retired Phase 0 plate capture -- must not have it switched
-    // back on by a minimap photograph that happened to run in between. Read
-    // off the same two pieces of state `setDebugLayerVisible` itself
-    // writes, so there is no third place recording what is hidden.
+  /**
+   * Hides what a ground photograph must not show (units, overlays, the rain) and takes the map-wide shadow box, and returns the
+   * function that puts every one back to what it WAS. Shared by `photographGround` (legacy, synchronous) and
+   * `photographGroundNode` (async): one list of what is hidden, so the two cannot drift.
+   *
+   * What each layer's visibility was BEFORE this call is what the restore writes back, rather than `true` at all three: a debug
+   * harness that switched a layer off on purpose (the visual gate's toggle A/B) must not have it switched back on by a minimap
+   * photograph that happened to run in between. Read off the same state `setDebugLayerVisible` itself writes. The rain is weather,
+   * not ground: the photograph shows the wet tones and the water but no streaks (spec 4.4).
+   *
+   * Hiding is several calls, and a throw from a later one must not leave an earlier one's layer hidden for the rest of the
+   * mission, which is far worse than a minimap with no photograph: so a throw restores what was done and rethrows.
+   */
+  private hideForGroundPhoto(): () => void {
     const unitsWereVisible = !this.unitsDebugHidden;
     const overlaysWereVisible = this.overlayBatch.mesh.visible;
-    // The falling rain is weather, not ground: the minimap's photograph shows
-    // the wet tones and the water but no streaks (spec 4.4). Restored to what it
-    // was, as the two above are.
     const rainWasVisible = this.rain?.mesh.visible ?? false;
+    const restore = (): void => {
+      this.setDebugLayerVisible('overlays', overlaysWereVisible);
+      this.setDebugLayerVisible('units', unitsWereVisible);
+      if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
+    };
     try {
-      // The buildings, before the photograph and not after it. `frame()`
-      // stands a loaded building mesh up in `updateBuildingMeshes`, which
-      // runs AFTER this capture does at boot -- and `composeTerrain` skips
-      // the palette box for any structure whose art has loaded
-      // (`hasArt`). So without this call a photographed town is its
-      // `underBuilding` pads and nothing else: no buildings, and no
-      // building shadows on the ground beside them. Idempotent for a living
-      // structure (it only instantiates a clone it does not already have),
-      // so `frame()`'s own call a moment later finds the work done. A type
-      // whose GLB has not arrived yet keeps the palette box `composeTerrain`
-      // already gave it, exactly as it does on the field.
-      //
-      // `updateStructures` is deliberately NOT called beside it: a
-      // structure billboard is a static quad built to face the DIMETRIC
-      // camera (`units/structures.ts`), so from straight above it is
-      // edge-on. On the mesh path -- the default, and every shipped
-      // building type has a GLB -- that path is forced to an empty
-      // placement list anyway.
-      this.updateBuildingMeshes();
-      try {
-        // Inside the try, not above it: hiding is two calls, and a throw
-        // from the second would otherwise leave the first one's layer
-        // hidden for the rest of the mission.
-        this.setDebugLayerVisible('units', false);
-        this.setDebugLayerVisible('overlays', false);
-        if (this.rain !== null) this.rain.mesh.visible = false;
-        // Defilade Task 2: a view-fitted shadow box covers only the
-        // camera's ground, so the top-down photograph takes the map-wide box;
-        // the next frame refits.
-        if (this.shadowFitMode === 'view') {
-          this.updateShadowFit(this.viewCamera, 'map');
-          this.shadowFitDirty = true;
-        }
-        this.renderer.setRenderTarget(linear);
-        // Explicit rather than trusting `autoClear`, which the post chain's
-        // own `RenderPass` turns off and on around itself.
-        this.renderer.clear();
-        this.renderer.render(this.scene, camera);
-        // `renderToScreen` is false by default, so this draws its full-screen
-        // quad into `encoded` -- tone-mapped and sRGB-encoded by its own
-        // defines, which it reads off this renderer's `toneMapping` and
-        // `outputColorSpace`.
-        // `deltaTime`/`maskActive` are in the `Pass` signature and unread by
-        // this pass; 0 and false are what `EffectComposer` hands a pass with
-        // no clock of its own.
-        // `OutputPass` binds `encoded` itself but does NOT clear it
-        // (`Pass.clear` is false by default), and its full-screen quad
-        // depth-tests like any other material. A render target's depth
-        // attachment has no defined initial contents, so the quad is given
-        // a cleared buffer to draw against rather than a driver's goodwill.
-        this.renderer.setRenderTarget(encoded);
-        this.renderer.clear();
-        output.render(this.renderer, encoded, linear, 0, false);
-      } finally {
-        // Restored whatever happened above: a capture that threw with the
-        // units switched off would take every unit off the battlefield for
-        // the rest of the mission, which is far worse than a minimap with
-        // no photograph. To what they WERE, not to `true` -- see
-        // `unitsWereVisible` above.
-        this.setDebugLayerVisible('overlays', overlaysWereVisible);
-        this.setDebugLayerVisible('units', unitsWereVisible);
-        if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
-      }
+      this.setDebugLayerVisible('units', false);
+      this.setDebugLayerVisible('overlays', false);
+      if (this.rain !== null) this.rain.mesh.visible = false;
+      this.fitShadowToMap();
+    } catch (err) {
+      restore();
+      throw err;
+    }
+    return restore;
+  }
 
-      const pixels = new Uint8Array(size * size * 4);
-      this.renderer.readRenderTargetPixels(encoded, 0, 0, size, size, pixels);
-      // The rows are bottom-up here (GL's origin) and the app flips them --
-      // `minimap.ts`'s `flipRows`, which is pure and has the two tests this
-      // method cannot have.
-      return new ImageData(new Uint8ClampedArray(pixels.buffer), size, size);
+  /** Defilade Task 2: a view-fitted shadow box covers only the camera's ground, so a top-down photograph takes the map-wide box; the next frame refits. */
+  private fitShadowToMap(): void {
+    if (this.shadowFitMode === 'view') {
+      this.updateShadowFit(this.viewCamera, 'map');
+      this.shadowFitDirty = true;
+    }
+  }
+
+  /** One native animation frame, or `FRAME_WAIT_FALLBACK_MS` -- whichever comes first, because a hidden tab never fires a rAF and a briefing must not wait on one. */
+  private nextNativeFrame(): Promise<void> {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (): void => {
+        if (done) return;
+        done = true;
+        resolve();
+      };
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(finish);
+      setTimeout(finish, FRAME_WAIT_FALLBACK_MS);
+    });
+  }
+
+  /**
+   * GH-943 P1 (T8): the node path's ground photograph. The same scene, the same camera and the same hidden layers as
+   * `photographGround`, but ONE direct `renderer.render` into the backend's own target (never the pipeline), read back ASYNC.
+   *
+   * Order, and why: the map-wide shadow box is taken FIRST and one native frame is waited out (`PassNode`/the shadow pass redraw
+   * once per frame; a same-task render after a refit is stale), THEN the layers are hidden, the box is taken again (a frame in
+   * between may have refitted the view), the render and the readback are issued in the SAME task, and the layers are put back in
+   * that task too -- so no frame ever draws with the units hidden. The readback itself needs no scene state: it is already
+   * submitted.
+   *
+   * The caller's generation (`nodePhoto`) decides whether the result is still wanted. Null on any failure: a HUD decoration must
+   * not be able to take the battlefield down.
+   */
+  private async photographGroundNode(size: number): Promise<ImageData | null> {
+    const backend = this.nodeBackend;
+    if (backend === null || this.disposed) return null;
+    const w = this.sim.width;
+    const h = this.sim.height;
+    if (w < 1 || h < 1) return null;
+    try {
+      // Before the photograph, as on the legacy path (`photographGround`): a loaded building stands up here, not a palette box.
+      this.updateBuildingMeshes();
+      this.fitShadowToMap();
+      await this.nextNativeFrame();
+      if (this.disposed || this.nodeBackend !== backend) return null;
+      const camera = this.groundPhotoCamera(w, h);
+      let pending: Promise<Awaited<ReturnType<RenderBackend['photographGround']>>>;
+      const restore = this.hideForGroundPhoto();
+      try {
+        pending = backend.photographGround(this.scene, camera, size);
+      } finally {
+        restore();
+      }
+      const raw = await pending;
+      if (raw === null || this.disposed) return null;
+      return new ImageData(new Uint8ClampedArray(raw.data.buffer), raw.width, raw.height);
     } catch (err) {
       console.warn('[lions] ground albedo capture failed; the minimap keeps its painted terrain:', err);
       return null;
-    } finally {
-      this.renderer.setRenderTarget(wasTarget);
-      output.dispose();
-      encoded.dispose();
-      linear.dispose();
     }
   }
 
