@@ -225,6 +225,7 @@ const SAMPLE: { readonly [K in Command['kind']]: Extract<Command, { kind: K }> }
   cancelConstruct: { kind: 'cancelConstruct', site: 2 },
   raiseWorks: { kind: 'raiseWorks', side: 0, works: 'sandbag_wall', x: 14, y: 15, ids: [] },
   cancelWorks: { kind: 'cancelWorks', side: 0, site: 3 },
+  setupReady: { kind: 'setupReady', side: 1 },
 };
 const SAMPLES: readonly Command[] = [
   ...Object.values(SAMPLE),
@@ -244,7 +245,7 @@ describe('snapshot: the command and runtime queues are state', () => {
 
   it('a command of every kind, queued between two ticks, round trips byte-equal into the right queue', () => {
     const { sim } = queued();
-    expect((props(sim).commandQueue as unknown[]).length, 'sim-run kinds').toBe(18 + 3);
+    expect((props(sim).commandQueue as unknown[]).length, 'sim-run kinds').toBe(19 + 3);
     expect((props(sim).runtimeQueue as unknown[]).length, 'runtime-run kinds').toBe(7 + 1);
     const S = encodeSim(sim);
     const fresh = runSetup(SEED).sim;

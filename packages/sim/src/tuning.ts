@@ -635,3 +635,7 @@ export const MAX_FORMATION_TYPES = 255;
  *  full-map walk). It is an order-time cost, never a per-tick one (`formation-template.ts`'
  *  `compileFormation` computes each file's own extent under it). */
 export const FORMATION_WALK_CAP = 24;
+
+/** Capture the flag v2 set-up (GH-976). Ticks from the moment BOTH sides have pressed Ready to the bell: 100 ticks
+ *  = 5 s at 20 Hz. A plain tick count, not Q16.16. The bell is never later than the set-up clock's `untilTick`. */
+export const SETUP_BELL_DELAY_TICKS = 100;

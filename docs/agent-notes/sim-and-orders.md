@@ -967,3 +967,18 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   `--defend` arm), the report-only G1b contested share, and `passiveLost` now reads `cleanWins` (goal or wipe only; it counted cap wins before).
   `--camps=rules --camp-wipe=after_camp` screens a map with no camp block with its economy-rules camps, in memory. A survivor that cannot hurt a
   camp (one mortar team left, seed 18175 of milh_flats, defend east) runs to the cap: G5's "never razed" count is what sees it.
+
+- **The set-up phase (GH-976, WP2 of capture-the-flag v2).** `Sim.beginSetup({ untilTick, region })` before tick 0, once; it latches `setupLive`
+  and every other piece hangs off it (`hash()` folds `'SU'`, `setupUntil`, `readyMask` and the region only behind it, so no other pin moved; the new pin is
+  `SETUP_WORLD_PIN`). `setupActive` is `tickCount < setupUntil`; `setupReady` (the command) sets a side's bit, and with both set `setupUntil =
+  min(setupUntil, tickCount + SETUP_BELL_DELAY_TICKS)`. The `setupBell` event is pushed by the tick whose count IS `setupUntil`, before `applyCommands`.
+  While active: (1) `SETUP_REFUSED_KINDS` (11 kinds) is the first statement of `applyCommands`' loop; (2) weapons tight: `stepCombat` takes the
+  pinned-branch writes for every unit, `stepKamikaze` returns, `stepDemolition` zeroes; detection still runs, so fire starts on the bell tick itself
+  if the forces already know each other; (3) the region clamp, a CLOSED boundary for sides 0 and 1 (never above): the wall-clip slide, the
+  post-separation revert, `disembark` (the `+HALF` spot, else the hull's own spot, else REFUSED and the rider stays aboard; a dead carrier never refuses),
+  `unloadAir`'s `spreadTiles`, and the `stepAirCarriers` landing snap; (4) `garrison` is refused per unit for a building whose centroid tile or `exitTile`
+  is outside its region (`spread` runs as the plain order). Facts worth knowing: the clamp holds an aircraft too, a clamped unit keeps `moving` 1 (so
+  `setupHeldAtLine` is the HUD read), and the landing-snap guard is reachable only by a carrier already outside its region (a goal tile is a tile centre,
+  so a carrier in an own tile is never within half a tile of a band LZ). `support` is a runtime kind: `queueCommand` never hands it to `applyCommands`, so its
+  `SETUP_REFUSED_KINDS` entry has no observable effect to read and its test row is held only by the key-set comparison. The region helper lives in
+  `@lions/data` (WP1); sim tests and `tools/src/setup-weapons-tight.test.ts` build theirs inline.
