@@ -349,7 +349,9 @@ describe('the score file the harness leaves for `pnpm bot`', () => {
     const unreadable = join(d, 'locked.json');
     writeFileSync(unreadable, '{}');
     chmodSync(unreadable, 0o000);
-    expect(readScoreFile(unreadable).status).toBe('invalid');
+    // uid 0 reads through mode 000, so the file is not unreadable there; the
+    // assertion is only meaningful for an unprivileged user.
+    if (process.getuid?.() !== 0) expect(readScoreFile(unreadable).status).toBe('invalid');
     chmodSync(unreadable, 0o600);
   });
   it('referee stats from a file are shape-checked before anything prints them', () => {
