@@ -3,7 +3,7 @@ import { AIR_AIRBORNE } from '@lions/sim';
 import { pickUnitAtScreen, unitsInScreenRect, PICK_RADIUS_TILES, PICK_BODY_HEIGHT_TILES } from './pick';
 import { worldToScreenThree, WORLD_Y_PER_LIFT_PIXEL } from '../camera';
 import { airLiftFrac } from './air-lift';
-import { AIR_LIFT_PX } from './frame-state';
+import { AIR_CARRIER_LIFT_PX, airFlyingLiftPx } from './air-carrier';
 import { type Camera, type Viewport } from '../../project';
 
 /**
@@ -37,7 +37,8 @@ const drawnLiftPx = (flyPx: number): number => flyPx * airLiftFrac(AIR_AIRBORNE,
 /** How tall the pick body is, in lift pixels (the segment the ground-hidden reach is measured over). */
 const BODY_PX = PICK_BODY_HEIGHT_TILES / WORLD_Y_PER_LIFT_PIXEL;
 
-describe.each([AIR_LIFT_PX, 28])('air unit flying at %i px', (flyPx) => {
+// The carrier value is the shipped constant (P2), not a literal: 14 is a drone, AIR_CARRIER_LIFT_PX a Yanshuf.
+describe.each([airFlyingLiftPx(false), AIR_CARRIER_LIFT_PX])('air unit flying at %i px', (flyPx) => {
   const u = one(24, 24);
   const lift = drawnLiftPx(flyPx);
   const liftOf = (): number => lift;
