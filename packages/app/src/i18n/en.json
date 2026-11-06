@@ -1126,6 +1126,7 @@
   "formation.ambush.name": "Ambush",
   "formation.ambush.blurb": "Ring the clicked ground and hold. Armed units fire on what they can reach.",
   "hud.formation.inert.versus": "Formations are not in versus rooms yet",
+  "hud.formation.inert.room": "{kind, select, economy {Formations are off in economy rooms on this map} other {Formations are off in this kind of room on this map}}",
   "hud.formation.face.travel": "Faces the way you march.",
   "hud.formation.face.front": "Faces the approach.",
   "hud.formation.face.inward": "Faces inward.",
