@@ -149,3 +149,69 @@ export function r0Outside(rows = PARITY_ROWS): BandReport[] {
   }
   return out;
 }
+
+export interface SheetFrameView {
+  readonly zoom: number;
+  readonly png: string;
+  readonly settled: boolean;
+  readonly syncedMs: number;
+  readonly syncedSpread: number;
+  readonly rounds: readonly number[];
+  readonly triangles: number;
+  readonly draws: number;
+}
+export interface SheetArmView {
+  readonly arm: 'L' | 'G' | 'F' | 'LS';
+  readonly backend: string;
+  readonly adapter: string;
+  readonly load: number;
+  readonly camera: { x: number; y: number };
+  readonly tick: number;
+  readonly frames: readonly SheetFrameView[];
+  readonly minimap: string;
+}
+export interface SheetPanelView {
+  readonly name: string;
+  readonly zoom: number;
+  readonly file: string;
+  readonly mean: number;
+  readonly changed: number;
+}
+
+const base = (f: string): string => f.slice(f.lastIndexOf('/') + 1);
+const ARM_NAME = { L: 'L matched', G: 'G', F: 'F', LS: 'L shipped' } as const;
+
+/** The sheet's HTML. Every arm is OPTIONAL (a run with `--arms` that omits one still assembles a sheet, with that cell marked absent). */
+export function sheetHtml(arms: Partial<Record<'L' | 'G' | 'F' | 'LS', SheetArmView>>, panels: readonly SheetPanelView[], title: string, zooms: readonly number[]): string {
+  const absent = (what: string): string => `<div class="c"><div class="cap">${what}: not captured in this run</div></div>`;
+  const cell = (a: SheetArmView | undefined, id: keyof typeof ARM_NAME, z: number): string => {
+    const f = a?.frames.find((x) => x.zoom === z);
+    if (a === undefined || f === undefined) return absent(`${ARM_NAME[id]} z${z}`);
+    return `<div class="c"><img src="${base(f.png)}"><div class="cap">${ARM_NAME[id]} z${z}: synced ${f.syncedMs.toFixed(2)} ms (spread ${f.syncedSpread.toFixed(2)}, ${f.rounds.length} rounds), ${f.triangles.toLocaleString()} tris, ${f.draws} draws${f.settled ? '' : ' UNSETTLED'}<br>${a.backend} / ${a.adapter} / load ${a.load.toFixed(2)}</div></div>`;
+  };
+  const rows = (['L', 'G', 'F'] as const).map((id) => `<div class="row">${zooms.map((z) => cell(arms[id], id, z)).join('')}</div>`).join('');
+  const diffRows = (['G', 'F'] as const)
+    .map((t) => {
+      const mine = panels.filter((p) => p.name.startsWith(t));
+      return `<div class="row">${mine.length === 0 ? absent(`|${t} - L| panels`) : mine.map((p) => `<div class="c"><img src="${base(p.file)}"><div class="cap">|${p.name}| x8 at z${p.zoom}: mean abs channel delta ${p.mean.toFixed(4)}, ${p.changed.toLocaleString()} px changed</div></div>`).join('')}</div>`;
+    })
+    .join('');
+  const mini = (['L', 'G', 'F'] as const)
+    .map((id) => {
+      const a = arms[id];
+      return a === undefined ? '' : `<div class="m"><img src="${base(a.minimap)}"><div class="cap">${id} minimap, 2x</div></div>`;
+    })
+    .join('');
+  const ref = arms.L ?? arms.G ?? arms.F ?? arms.LS;
+  const cam = ref === undefined ? 'unknown' : `(${ref.camera.x.toFixed(1)}, ${ref.camera.y.toFixed(1)}), tick ${ref.tick}`;
+  return `<!doctype html><meta charset="utf-8"><style>
+body{margin:0;padding:16px;background:#111;color:#ddd;font:13px/1.35 ui-monospace,Menlo,monospace;width:1800px}
+.row{display:flex;gap:8px;margin-bottom:8px}.c{width:588px}.c img{width:588px;display:block}.m img{display:block}.cap{padding:2px 0}
+h2{margin:14px 0 6px;font-size:14px}
+</style>
+<h2>GH-943 WebGPU P1 sheet: ${title}, booted camera ${cam}, parked force, music off</h2>
+<h2>Rows: L matched (AO on), G (node on WebGPU), F (node on WebGL2). Columns: z${zooms.join(', z')}.</h2>${rows}
+<h2>Differences (x8)</h2>${diffRows}
+<h2>L shipped at z1 (the player's frame, no census), and the minimap per arm</h2>
+<div class="row">${cell(arms.LS, 'LS', 1)}<div class="c" style="display:flex;gap:8px;align-items:flex-start">${mini}</div></div>`;
+}

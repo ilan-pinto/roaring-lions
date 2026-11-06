@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PNG } from 'pngjs';
-import { countValidationErrors, diffPanel, gateTable, parseQuietMax, r0Outside, syncedSummary, type GateInputs } from './webgpu-p1-sheet-lib';
+import { sheetHtml, type SheetArmView, countValidationErrors, diffPanel, gateTable, parseQuietMax, r0Outside, syncedSummary, type GateInputs } from './webgpu-p1-sheet-lib';
 
 const flat = (v: number): PNG => {
   const p = new PNG({ width: 2, height: 1 });
@@ -95,5 +95,18 @@ describe('r0Outside', () => {
     expect(r0Outside(row(1.2))).toHaveLength(1);
     expect(r0Outside(row(1.0))).toHaveLength(0);
     expect(r0Outside(row(null))).toHaveLength(0);
+  });
+});
+
+describe('sheetHtml', () => {
+  const frame = (z: number) => ({ zoom: z, png: `/o/frame-L-z${z}.png`, settled: true, syncedMs: 1, syncedSpread: 0, rounds: [1, 1, 1], triangles: 5, draws: 2 });
+  const L: SheetArmView = { arm: 'L', backend: 'legacy-gl', adapter: 'a', load: 1, camera: { x: 1, y: 2 }, tick: 5, frames: [frame(1), frame(1.6), frame(2.5)], minimap: '/o/minimap-L.png' };
+  it('assembles with the L-shipped arm (and every other) absent instead of throwing', () => {
+    const html = sheetHtml({ L }, [], 't', [1, 1.6, 2.5]);
+    expect(html).toContain('L shipped z1: not captured');
+    expect(html).toContain('frame-L-z1.png');
+  });
+  it('assembles with no arm at all', () => {
+    expect(sheetHtml({}, [], 't', [1])).toContain('not captured');
   });
 });

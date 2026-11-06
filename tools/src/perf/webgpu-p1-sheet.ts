@@ -37,6 +37,8 @@ import {
   gateTable,
   parseQuietMax,
   r0Outside,
+  sheetHtml,
+  type SheetArmView,
   syncedSummary,
   type AbbaVerdictRow,
 } from './webgpu-p1-sheet-lib';
@@ -299,46 +301,21 @@ interface PanelRow {
 
 async function buildSheet(arms: Map<SheetArm, ArmSheet>): Promise<{ panels: PanelRow[]; sheet: string }> {
   const panels: PanelRow[] = [];
-  const L = arms.get('L') as ArmSheet;
+  const L = arms.get('L');
   for (const t of ['G', 'F'] as const) {
+    const T = arms.get(t);
+    if (L === undefined || T === undefined) continue;
     for (const z of ZOOMS) {
-      const a = loadPng((L.frames.find((f) => f.zoom === z) as FrameReading).png);
-      const b = loadPng(((arms.get(t) as ArmSheet).frames.find((f) => f.zoom === z) as FrameReading).png);
-      const d = diffPanel(a, b);
+      const fa = L.frames.find((f) => f.zoom === z);
+      const fb = T.frames.find((f) => f.zoom === z);
+      if (fa === undefined || fb === undefined) continue;
+      const d = diffPanel(loadPng(fa.png), loadPng(fb.png));
       const file = path.join(OUT, `diff-${t}-L-z${z}.png`);
       writeFileSync(file, PNG.sync.write(d.png));
       panels.push({ name: `${t} - L`, zoom: z, file, mean: d.meanAbsChannelDelta, changed: d.changedPixels });
     }
   }
-  const rel = (f: string): string => path.basename(f);
-  const cap = (a: ArmSheet, f: FrameReading): string =>
-    `<div class="cap">${a.arm === 'LS' ? 'L shipped' : a.arm === 'L' ? 'L matched' : a.arm} z${f.zoom}: synced ${f.syncedMs.toFixed(2)} ms (spread ${f.syncedSpread.toFixed(2)}, ${f.rounds.length} rounds), ${f.triangles.toLocaleString()} tris, ${f.draws} draws${f.settled ? '' : ' UNSETTLED'}<br>${a.backend} / ${a.adapter} / load ${a.load.toFixed(2)}</div>`;
-  const cell = (a: ArmSheet, z: number): string => {
-    const f = a.frames.find((x) => x.zoom === z) as FrameReading;
-    return `<div class="c"><img src="${rel(f.png)}">${cap(a, f)}</div>`;
-  };
-  const rows = (['L', 'G', 'F'] as const).map((id) => `<div class="row">${ZOOMS.map((z) => cell(arms.get(id) as ArmSheet, z)).join('')}</div>`).join('');
-  const diffRows = (['G', 'F'] as const)
-    .map(
-      (t) =>
-        `<div class="row">${panels
-          .filter((p) => p.name.startsWith(t))
-          .map((p) => `<div class="c"><img src="${rel(p.file)}"><div class="cap">|${p.name}| x8 at z${p.zoom}: mean abs channel delta ${p.mean.toFixed(4)}, ${p.changed.toLocaleString()} px changed</div></div>`)
-          .join('')}</div>`
-    )
-    .join('');
-  const LS = arms.get('LS') as ArmSheet;
-  const mini = (['L', 'G', 'F'] as const).map((id) => `<div class="m"><img src="${rel((arms.get(id) as ArmSheet).minimap)}"><div class="cap">${id} minimap, 2x</div></div>`).join('');
-  const html = `<!doctype html><meta charset="utf-8"><style>
-body{margin:0;padding:16px;background:#111;color:#ddd;font:13px/1.35 ui-monospace,Menlo,monospace;width:1800px}
-.row{display:flex;gap:8px;margin-bottom:8px}.c{width:588px}.c img{width:588px;display:block}.m img{display:block}.cap{padding:2px 0}
-h2{margin:14px 0 6px;font-size:14px}
-</style>
-<h2>GH-943 WebGPU P1 sheet: ${MAP}, booted camera (${L.camera.x.toFixed(1)}, ${L.camera.y.toFixed(1)}), parked force, tick ${L.tick}, quality high, 1440x900 DPR 2, music off</h2>
-<h2>Rows: L matched (AO on), G (node on WebGPU), F (node on WebGL2). Columns: z1, z1.6, z2.5.</h2>${rows}
-<h2>Differences (x8)</h2>${diffRows}
-<h2>L shipped at z1 (the player's frame, no census), and the minimap per arm</h2>
-<div class="row">${cell(LS, 1)}<div class="c" style="display:flex;gap:8px;align-items:flex-start">${mini}</div></div>`;
+  const html = sheetHtml(Object.fromEntries(arms) as Partial<Record<SheetArm, SheetArmView>>, panels, `${MAP}, quality ${QUALITY}, 1440x900 DPR ${DPR}`, ZOOMS);
   const htmlFile = path.join(OUT, 'p1-sheet.html');
   writeFileSync(htmlFile, html);
   return { panels, sheet: htmlFile };
