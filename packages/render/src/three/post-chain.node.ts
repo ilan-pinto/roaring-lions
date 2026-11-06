@@ -9,7 +9,10 @@
  *
  * What is pinned here (each has a test and a falsification, see the commit message):
  *  - the scene pass is HalfFloat colour with a `DepthStencilFormat` / `UnsignedInt248Type` depth texture, which three's WebGPU
- *    backend maps to `depth24plus-stencil8`. P2 decals and the P3 outline need the half-float target and the stencil;
+ *    backend maps to `depth24plus-stencil8`. P2 decals and the P3 outline need the half-float target and the stencil. The fog stage
+ *    SAMPLES that depth, which WebGPU allows only through a depth-only view: three 0.186.1 asked for `aspect: 'all'` and the bind
+ *    group was invalid (G drew black on Metal). The fix is three r187's own line, carried as `patches/three@0.186.1.patch` and pinned
+ *    by `backend/depth-aspect.node.test.ts`;
  *  - SMAA reads a HalfFloat render-to-texture of the display-referred colour, not an 8-bit one;
  *  - the output transform is `renderOutput` with `outputColorTransform = false` on the pipeline, so the tone map and the encode
  *    happen exactly once, in the graph.
