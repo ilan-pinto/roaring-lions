@@ -74,6 +74,9 @@ describe('the node arms wait the HUD wall-clock animations out', () => {
     const node = captureScript(QUIET_SCENARIO, 'webgpu');
     expect(node).toContain(`setTimeout(r, ${HUD_WALL_CLOCK_SETTLE_MS})`);
     expect(node).toContain('window.__lions.redrawMinimap(true)');
+    // T8: the async ground photograph is awaited BEFORE the fresh redraw, never after it.
+    expect(node.indexOf('groundPhotoSettled')).toBeGreaterThan(0);
+    expect(node.indexOf('groundPhotoSettled')).toBeLessThan(node.indexOf('redrawMinimap(true)'));
     const legacy = captureScript(QUIET_SCENARIO);
     expect(legacy).not.toContain('redrawMinimap');
     expect(legacy).not.toContain('setTimeout');

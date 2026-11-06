@@ -1054,11 +1054,13 @@ export const REPAINT_SCRIPT = `(async () => {
  * so the phase a photograph catches is however long the capture step happened to take: on CI's wgpu arm 5 fresh-page captures of
  * `quiet` gave 4 distinct pictures, every difference a 36 x 36 px faint ring on the minimap (443-459 px, max channel delta 11-26).
  * The legacy protocol photographs promptly and was never exposed; the node arms take two extra photographs for the settled-frame
- * check, so they wait the animations out and then redraw the minimap FRESH once (`redrawMinimap(true)`: `redrawGround` would keep the clock of the last draw, ring included), which paints it with no ring. Chrome, not the world:
+ * check, so they wait the animations out and then ask for the minimap's ground (T8: the node photograph is ASYNC, so `groundPhotoSettled()` is awaited, or the first fresh redraw would paint the painted terrain) and redraw the minimap FRESH once (`redrawMinimap(true)`: `redrawGround` would keep the clock of the last draw, ring included), which paints it with no ring. Chrome, not the world:
  * nothing here reaches the renderer or the sim.
  */
 export const HUD_WALL_CLOCK_SETTLE_MS = 2600;
 const NODE_HUD_SETTLE_STATEMENTS = `await new Promise(function (r) { setTimeout(r, ${HUD_WALL_CLOCK_SETTLE_MS}); });
+window.__lions.redrawMinimap();
+await window.__lions.renderer.groundPhotoSettled?.();
 window.__lions.redrawMinimap(true);
 `;
 

@@ -1183,6 +1183,21 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'WATCHED GOING RED: `setDebugLayerVisible(\'disturb\')` made a no-op reads 0 px / 0.0000 here, under both floors ' +
           '(`ThreeRenderer.disturb-clock.test.ts` goes red on the same mutation).',
       },
+      {
+        layer: 'wash',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.0002,
+        rationale:
+          'GH-984 N3, 2026-11-04: hiding the helicopters\' rotor wash on the vegetation (the `wash` flag: a helicopter takes no disturber slot; the dust ring is not this layer\'s) moves ' +
+          '15 px / 0.0008, bit-identical across three fresh page loads, repaint control 0 px / 0.0000 on all three; measured with ' +
+          '`pnpm nature:capture --phase=signal --layer=wash` (the gate\'s own URL, freeze, repaint, toggle script and pixelmatch threshold), ANGLE Metal, Apple M3 Pro, ' +
+          'frame loop frozen, tick 140, 22 disturber slots live of which ONE is a rotor wash (the sandbox force\'s parked `heli_peten`). A very small signal by nature: ' +
+          'it hovers where only a little foliage is in reach. 15 px is under SUB_THRESHOLD_PX (100), so the pixel floor is 0 and the magnitude floor carries it ' +
+          '(a third of 0.0008, rounded down to 0.0002). THE FLOOR WAS MEASURED ON METAL, NOT ON CI\'S SWIFTSHADER: re-measure it from the CI logs at the bless, and do not bless it ' +
+          'from the branch. No new gated scenario was added: the `vehicle` scenario does give a signal; a stronger witness (a helicopter over a grove) would be a new scenario with an ' +
+          'absolute targetTick, which the lead has not asked for. NOT watched going red in the browser (the sheets launch had no second pass for it): at the renderer level, ' +
+          'removing the `f.air = this.washLayerOn` write turns `ThreeRenderer.wash-clock.test.ts` red.',
+      },
     ],
     rationale:
       'whole frame, mesh vehicles plus continuous dust/exhaust FX. 40 px / 0.004 since GH-803 ' +

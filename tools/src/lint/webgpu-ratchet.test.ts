@@ -30,6 +30,7 @@ const PORTED_FLOOR: readonly string[] = [
   'packages/render/src/three/vignette-pass.node.ts',
   'packages/render/src/three/bloom.node.ts',
   'packages/render/src/three/environment.node.ts',
+  'packages/render/src/three/capture-view.node.ts',
 ];
 const FIXTURE = 'packages/render/src/three/fixture-ported.ts';
 

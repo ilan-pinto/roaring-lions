@@ -13,6 +13,8 @@ import type { OutputMaths } from './post-chain.node';
 import type { BloomMaths } from './bloom.node';
 import { AO_RADIUS_TILES, AO_RESOLUTION_SCALE, AO_SCALE, isAoOccluder, seededAoNoiseTexture } from './ao-occluder';
 import type { AoMaths } from './post-chain.node';
+import { READBACK_LAYOUT, normaliseReadback } from './readback';
+import type { ReadbackMaths } from './capture-view.node';
 
 export const OUTPUT_MATHS: OutputMaths = {
   grade: { bakeLutFloats, lutSize: GRADE_LUT_SIZE, gradeDitherOffset, isIdentity, lutCoord },
@@ -38,3 +40,6 @@ export const AO_MATHS: AoMaths = {
   isOccluder: isAoOccluder,
   seededNoiseTexture: seededAoNoiseTexture,
 };
+
+/** T8: the readback layout and normaliser (`readback.ts`), passed to `createNodeBackend` for the same reason. */
+export const READBACK_MATHS: ReadbackMaths = { layout: READBACK_LAYOUT, normalise: normaliseReadback };
