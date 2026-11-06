@@ -205,6 +205,7 @@
  * boot roster did not field is picked up by `main.ts`'s 1 Hz mesh sweep, and
  * the pre-warm below waits long enough for it.
  */
+import { glbSha256 } from './glb-hash';
 import { chromium, type Browser, type Page } from 'playwright';
 import { spawn as spawnProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -348,6 +349,8 @@ interface PlateManifestEntry {
   width: number;
   height: number;
   extent: [number, number];
+  /** sha256 of the GLB this plate was photographed from (`glb-hash.ts`). */
+  glb_sha256?: string;
 }
 
 interface PlateManifest {
@@ -822,7 +825,7 @@ async function runCapture(): Promise<void> {
       if (extent[0] === 0 || extent[1] === 0) {
         throw new Error(`${id}: empty extent -- the diff is broken or the unit did not spawn`);
       }
-      const entry: PlateManifestEntry = { file, width: candidate.width, height: candidate.height, extent };
+      const entry: PlateManifestEntry = { file, width: candidate.width, height: candidate.height, extent, glb_sha256: glbSha256(id) };
       console.log(`[${TAG}] ${id}: extent ${extent[0]}x${extent[1]} (${diffPixels} differing px)`);
 
       if (isChild) {

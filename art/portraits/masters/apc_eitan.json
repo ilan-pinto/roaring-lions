@@ -2,7 +2,7 @@
   "unit": "apc_eitan",
   "variant": "team",
   "source": "assets/meshes/vehicles/apc_eitan.glb",
-  "source_sha256": "9bc3dd1dd4eef937828793841c2e047a692425d614ce67c228a628a897a2deca",
+  "source_sha256": "a77cc7473a53401c288275226332986e80823f4059758c9161e8b15a1f68d90e",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,
@@ -13,11 +13,11 @@
   "ndc_box": [
     0.04,
     0.96,
-    0.1678,
-    0.8322
+    0.1588,
+    0.8412
   ],
   "materials": {
-    "baked": 2,
-    "flat": 2
+    "baked": 4,
+    "flat": 0
   }
 }

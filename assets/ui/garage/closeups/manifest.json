@@ -15,18 +15,20 @@
       "unit": "apc_eitan",
       "track": "armour",
       "subject": "kit",
-      "yawDeg": 225,
+      "yawDeg": 0,
       "elevationDeg": 18,
-      "distance": 4.209
+      "distance": 3.918,
+      "glb_sha256": "a77cc7473a53401c288275226332986e80823f4059758c9161e8b15a1f68d90e"
     },
     "apc_eitan_firepower": {
       "file": "apc_eitan_firepower.jpg",
       "unit": "apc_eitan",
       "track": "firepower",
       "subject": "kit",
-      "yawDeg": 225,
+      "yawDeg": 270,
       "elevationDeg": 18,
-      "distance": 1.273
+      "distance": 1,
+      "glb_sha256": "a77cc7473a53401c288275226332986e80823f4059758c9161e8b15a1f68d90e"
     },
     "apc_eitan_sensors": {
       "file": "apc_eitan_sensors.jpg",
@@ -35,7 +37,8 @@
       "subject": "kit",
       "yawDeg": 90,
       "elevationDeg": 18,
-      "distance": 2.93
+      "distance": 2.93,
+      "glb_sha256": "a77cc7473a53401c288275226332986e80823f4059758c9161e8b15a1f68d90e"
     },
     "apc_kipod_armour": {
       "file": "apc_kipod_armour.jpg",
@@ -44,16 +47,18 @@
       "subject": "kit",
       "yawDeg": 90,
       "elevationDeg": 18,
-      "distance": 3.575
+      "distance": 3.575,
+      "glb_sha256": "892188f1992b2f057b8cedb836b6f6796443fcd8010fbd7e51576cfa70f6e652"
     },
     "apc_kipod_firepower": {
       "file": "apc_kipod_firepower.jpg",
       "unit": "apc_kipod",
       "track": "firepower",
       "subject": "kit",
-      "yawDeg": 225,
+      "yawDeg": 90,
       "elevationDeg": 18,
-      "distance": 1.136
+      "distance": 1.275,
+      "glb_sha256": "892188f1992b2f057b8cedb836b6f6796443fcd8010fbd7e51576cfa70f6e652"
     },
     "apc_kipod_sensors": {
       "file": "apc_kipod_sensors.jpg",
@@ -62,7 +67,8 @@
       "subject": "kit",
       "yawDeg": 315,
       "elevationDeg": 18,
-      "distance": 2.674
+      "distance": 2.674,
+      "glb_sha256": "892188f1992b2f057b8cedb836b6f6796443fcd8010fbd7e51576cfa70f6e652"
     },
     "attack_drone_armour": {
       "file": "attack_drone_armour.jpg",
@@ -116,7 +122,8 @@
       "subject": "kit",
       "yawDeg": 90,
       "elevationDeg": 18,
-      "distance": 3.343
+      "distance": 3.343,
+      "glb_sha256": "823a3700fed3a610c83155b8cb6cbfda49bfa2bb62bc80864fc15e6ee7d919cc"
     },
     "dozer_d9_sensors": {
       "file": "dozer_d9_sensors.jpg",
@@ -125,16 +132,18 @@
       "subject": "kit",
       "yawDeg": 135,
       "elevationDeg": 18,
-      "distance": 1.783
+      "distance": 1.757,
+      "glb_sha256": "823a3700fed3a610c83155b8cb6cbfda49bfa2bb62bc80864fc15e6ee7d919cc"
     },
     "heli_peten_armour": {
       "file": "heli_peten_armour.jpg",
       "unit": "heli_peten",
       "track": "armour",
       "subject": "kit",
-      "yawDeg": 0,
+      "yawDeg": 180,
       "elevationDeg": 18,
-      "distance": 0.966
+      "distance": 1.021,
+      "glb_sha256": "5ec08a2949d4909a105f7d63874a36d219a4b9e973d086a345065dbcb9575bb9"
     },
     "heli_peten_firepower": {
       "file": "heli_peten_firepower.jpg",
@@ -143,7 +152,8 @@
       "subject": "kit",
       "yawDeg": 225,
       "elevationDeg": 18,
-      "distance": 1.727
+      "distance": 1.727,
+      "glb_sha256": "5ec08a2949d4909a105f7d63874a36d219a4b9e973d086a345065dbcb9575bb9"
     },
     "heli_peten_gunship_armour": {
       "file": "heli_peten_gunship_armour.jpg",
@@ -179,7 +189,8 @@
       "subject": "kit",
       "yawDeg": 270,
       "elevationDeg": 18,
-      "distance": 1.346
+      "distance": 1.468,
+      "glb_sha256": "5ec08a2949d4909a105f7d63874a36d219a4b9e973d086a345065dbcb9575bb9"
     },
     "heli_yanshuf_armour": {
       "file": "heli_yanshuf_armour.jpg",
@@ -215,7 +226,8 @@
       "subject": "kit",
       "yawDeg": 90,
       "elevationDeg": 18,
-      "distance": 3.692
+      "distance": 3.694,
+      "glb_sha256": "016b314de339bda7234b6cb747ade8b1db4d5fd131fbcf450e06540905f247a9"
     },
     "ifv_namer_firepower": {
       "file": "ifv_namer_firepower.jpg",
@@ -224,7 +236,8 @@
       "subject": "kit",
       "yawDeg": 270,
       "elevationDeg": 18,
-      "distance": 1.603
+      "distance": 1.615,
+      "glb_sha256": "016b314de339bda7234b6cb747ade8b1db4d5fd131fbcf450e06540905f247a9"
     },
     "ifv_namer_sensors": {
       "file": "ifv_namer_sensors.jpg",
@@ -233,7 +246,8 @@
       "subject": "kit",
       "yawDeg": 135,
       "elevationDeg": 18,
-      "distance": 2.615
+      "distance": 2.615,
+      "glb_sha256": "016b314de339bda7234b6cb747ade8b1db4d5fd131fbcf450e06540905f247a9"
     },
     "jeep_shoded_armour": {
       "file": "jeep_shoded_armour.jpg",
@@ -242,7 +256,8 @@
       "subject": "kit",
       "yawDeg": 315,
       "elevationDeg": 18,
-      "distance": 2.24
+      "distance": 2.24,
+      "glb_sha256": "e15972f32b842d845d229a906ed73138f8867709689a8eda8baed19ed401de72"
     },
     "jeep_shoded_firepower": {
       "file": "jeep_shoded_firepower.jpg",
@@ -251,7 +266,8 @@
       "subject": "kit",
       "yawDeg": 0,
       "elevationDeg": 18,
-      "distance": 1.412
+      "distance": 1.412,
+      "glb_sha256": "e15972f32b842d845d229a906ed73138f8867709689a8eda8baed19ed401de72"
     },
     "jeep_shoded_sensors": {
       "file": "jeep_shoded_sensors.jpg",
@@ -260,7 +276,8 @@
       "subject": "kit",
       "yawDeg": 90,
       "elevationDeg": 18,
-      "distance": 2.146
+      "distance": 2.145,
+      "glb_sha256": "e15972f32b842d845d229a906ed73138f8867709689a8eda8baed19ed401de72"
     },
     "mbt_lavi_armour": {
       "file": "mbt_lavi_armour.jpg",
@@ -269,7 +286,8 @@
       "subject": "kit",
       "yawDeg": 180,
       "elevationDeg": 18,
-      "distance": 3.516
+      "distance": 3.516,
+      "glb_sha256": "8083617af883445c4a65c172d2d5feff9534991dc2f40aeabd90eafdd36d64b9"
     },
     "mbt_lavi_firepower": {
       "file": "mbt_lavi_firepower.jpg",
@@ -278,7 +296,8 @@
       "subject": "kit",
       "yawDeg": 90,
       "elevationDeg": 18,
-      "distance": 2.093
+      "distance": 2.093,
+      "glb_sha256": "8083617af883445c4a65c172d2d5feff9534991dc2f40aeabd90eafdd36d64b9"
     },
     "mbt_lavi_sensors": {
       "file": "mbt_lavi_sensors.jpg",
@@ -287,7 +306,8 @@
       "subject": "kit",
       "yawDeg": 180,
       "elevationDeg": 18,
-      "distance": 3.034
+      "distance": 3.034,
+      "glb_sha256": "8083617af883445c4a65c172d2d5feff9534991dc2f40aeabd90eafdd36d64b9"
     },
     "recon_drone_armour": {
       "file": "recon_drone_armour.jpg",
@@ -314,16 +334,18 @@
       "subject": "kit",
       "yawDeg": 225,
       "elevationDeg": 18,
-      "distance": 2.492
+      "distance": 2.492,
+      "glb_sha256": "9930880e9a6316d20e66608c3e1b1252aee73af2d3b30d7fa52847b0a1746394"
     },
     "scout_shachaf_firepower": {
       "file": "scout_shachaf_firepower.jpg",
       "unit": "scout_shachaf",
       "track": "firepower",
       "subject": "kit",
-      "yawDeg": 225,
+      "yawDeg": 90,
       "elevationDeg": 18,
-      "distance": 0.789
+      "distance": 0.965,
+      "glb_sha256": "9930880e9a6316d20e66608c3e1b1252aee73af2d3b30d7fa52847b0a1746394"
     },
     "scout_shachaf_sensors": {
       "file": "scout_shachaf_sensors.jpg",
@@ -332,7 +354,8 @@
       "subject": "kit",
       "yawDeg": 180,
       "elevationDeg": 18,
-      "distance": 1.551
+      "distance": 1.551,
+      "glb_sha256": "9930880e9a6316d20e66608c3e1b1252aee73af2d3b30d7fa52847b0a1746394"
     }
   }
 }

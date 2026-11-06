@@ -2,7 +2,7 @@
   "unit": "mbt_lavi",
   "variant": "team",
   "source": "assets/meshes/vehicles/mbt_lavi.glb",
-  "source_sha256": "41e1ae94acaf21d5cf7e9619a34434d4e03a365d3353815d015baffd8ca6e6a9",
+  "source_sha256": "8083617af883445c4a65c172d2d5feff9534991dc2f40aeabd90eafdd36d64b9",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,
@@ -13,8 +13,8 @@
   "ndc_box": [
     0.04,
     0.96,
-    0.1401,
-    0.8599
+    0.1244,
+    0.8756
   ],
   "materials": {
     "baked": 4,

@@ -11,18 +11,20 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        864,
-        509
-      ]
+        924,
+        510
+      ],
+      "glb_sha256": "a77cc7473a53401c288275226332986e80823f4059758c9161e8b15a1f68d90e"
     },
     "apc_kipod": {
       "file": "apc_kipod.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        886,
+        948,
         580
-      ]
+      ],
+      "glb_sha256": "892188f1992b2f057b8cedb836b6f6796443fcd8010fbd7e51576cfa70f6e652"
     },
     "at_team": {
       "file": "at_team.jpg",
@@ -38,9 +40,10 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        139,
-        106
-      ]
+        221,
+        208
+      ],
+      "glb_sha256": "308af3dcfb68a88906069cea511e9e9c63135e26632d4bce01b5941870d7ad95"
     },
     "breach_team": {
       "file": "breach_team.jpg",
@@ -56,9 +59,10 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        174,
+        240,
         215
-      ]
+      ],
+      "glb_sha256": "20cb6a8863428a819a2ab7c65e4e1dccd1882a01f4cd639dd539fc69a544bcbb"
     },
     "dozer_d9": {
       "file": "dozer_d9.jpg",
@@ -74,45 +78,50 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        549,
-        391
-      ]
+        1116,
+        742
+      ],
+      "glb_sha256": "5ec08a2949d4909a105f7d63874a36d219a4b9e973d086a345065dbcb9575bb9"
     },
     "ifv_namer": {
       "file": "ifv_namer.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        1030,
-        602
-      ]
+        963,
+        657
+      ],
+      "glb_sha256": "016b314de339bda7234b6cb747ade8b1db4d5fd131fbcf450e06540905f247a9"
     },
     "inf_squad": {
       "file": "inf_squad.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        289,
-        239
-      ]
+        296,
+        241
+      ],
+      "glb_sha256": "633b5cdcc07d8561019dcef7745f5398c958774c1e0b828bfdc9f2c9d7684f7c"
     },
     "jeep_shoded": {
       "file": "jeep_shoded.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        508,
-        354
-      ]
+        505,
+        353
+      ],
+      "glb_sha256": "e15972f32b842d845d229a906ed73138f8867709689a8eda8baed19ed401de72"
     },
     "mbt_lavi": {
       "file": "mbt_lavi.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        808,
-        528
-      ]
+        861,
+        539
+      ],
+      "glb_sha256": "8083617af883445c4a65c172d2d5feff9534991dc2f40aeabd90eafdd36d64b9"
     },
     "mortar_team": {
       "file": "mortar_team.jpg",
@@ -128,9 +137,10 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        156,
-        107
-      ]
+        229,
+        187
+      ],
+      "glb_sha256": "13bb5bdbd3e2de356fe7ae797ef6f98436e5c5c88d69f2d0745ef186a6a5dc23"
     },
     "scout_shachaf": {
       "file": "scout_shachaf.jpg",
@@ -138,8 +148,9 @@
       "height": 1200,
       "extent": [
         510,
-        406
-      ]
+        408
+      ],
+      "glb_sha256": "9930880e9a6316d20e66608c3e1b1252aee73af2d3b30d7fa52847b0a1746394"
     },
     "sniper_team": {
       "file": "sniper_team.jpg",
@@ -245,9 +256,10 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        808,
-        533
-      ]
+        865,
+        542
+      ],
+      "glb_sha256": "b13f49f812a177ab4c7f95eebe3dc60ebcd6bdcedbe2212c3ef6097de555e8cd"
     },
     "spg_long_range": {
       "file": "spg_long_range.jpg",
