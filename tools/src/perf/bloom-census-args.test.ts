@@ -22,6 +22,12 @@ describe('resolveCensusGpu (GH-943 P1 T5)', () => {
     expect(w.arm).toBe('webgl2');
     expect(w.launchArgs).not.toContain('--enable-unsafe-webgpu');
   });
+  it('the webgpu arm on Metal carries no SwiftShader flag (T9)', () => {
+    const g = resolveCensusGpu(['--gpu=webgpu', '--hw=metal'], 'darwin');
+    expect(g.launchArgs).toContain('--enable-unsafe-webgpu');
+    expect(g.launchArgs).toContain('--use-angle=metal');
+    expect(g.launchArgs.join(' ')).not.toMatch(/swiftshader/);
+  });
   it('refuses a value that is neither an arm nor a hardware (never a silent fallback)', () => {
     expect(() => resolveCensusGpu(['--gpu=vulkan'], 'linux')).toThrow(/not a known backend/);
     expect(() => resolveCensusGpu(['--gpu=webgpu', '--hw=vulkan'], 'linux')).toThrow(/not a known backend/);
