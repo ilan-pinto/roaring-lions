@@ -36,6 +36,7 @@ export const COMMAND_KINDS = [
   'build', 'support', 'cancelBuild', 'setRally', 'clearRally',
   'construct', 'cancelConstruct', 'raiseWorks', 'cancelWorks',
   'enterTunnel', 'vent',
+  'setupReady', // GH-976: a stub until WP4 opens the wire (`cleanCommand` refuses it)
 ] as const satisfies readonly Command['kind'][];
 
 /** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
@@ -285,6 +286,9 @@ export function cleanCommand(v: unknown): Command | null {
         : { kind, side: c.side, works: c.works, x: c.x, y: c.y, ids };
     case 'cancelWorks':
       return isInt(c.side) && isInt(c.site) ? { kind, side: c.side, site: c.site } : null;
+    case 'setupReady':
+      // GH-976 R0.9: a stub. The set-up commands open on the wire in WP4; until then they vanish here on both machines.
+      return null;
     default: {
       const unreachable: never = kind;
       return unreachable;

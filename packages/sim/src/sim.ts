@@ -223,6 +223,7 @@ import {
   MAX_FORMATION_GROUPS_PER_SIDE,
   type SupportKind,
   SPREAD_REACH_SQ,
+  SETUP_BELL_DELAY_TICKS,
 } from './tuning';
 import { bestCoverTile, figuresStanding, rescuePriority, scaleDown, scarredShare } from './wounds';
 
@@ -1317,7 +1318,25 @@ export type Command =
   | { kind: 'raiseWorks'; side: number; works: string; x: number; y: number; ids: number[] }
   /** The player's request to take down one of his own field-works sites (`site` is the works
    *  row). Runtime-run (`requestCancelWorks`), which queues the sim's `cancelConstruct`. */
-  | { kind: 'cancelWorks'; side: number; site: number };
+  | { kind: 'cancelWorks'; side: number; site: number }
+  /** Capture the flag v2 (GH-976): this side presses Ready. Both sides ready brings the bell forward to
+   *  `SETUP_BELL_DELAY_TICKS` later (`Sim.beginSetup`). A repeat, a bad side, or one after the bell is a no-op. */
+  | { kind: 'setupReady'; side: number };
+
+/** The commands the sim drops while a set-up is active (R0.5): each could damage, or take a unit off the board, before
+ *  the bell. `support` is also dropped at the net layer; it is listed because the sim holds the invariant. The first
+ *  statement of `applyCommands`' per-command loop tests it, before any side effect. */
+export const SETUP_REFUSED_KINDS: ReadonlySet<Command['kind']> = new Set<Command['kind']>([
+  'smoke', 'demolish', 'chargeTunnel', 'attack', 'enterTunnel', 'vent', 'reveal', 'callStrike', 'support', 'construct', 'cancelConstruct',
+]);
+
+/** The set-up phase a world is built with (`Sim.beginSetup`). */
+export interface SetupSpec {
+  /** The tick the bell rings unless both sides Ready earlier: seconds x 20. > 0. */
+  readonly untilTick: number;
+  /** Per tile: 0 / 1 the side that may stand there before the bell, -1 the band. Length width*height. */
+  readonly region: Int8Array;
+}
 
 /** Why a field-works footprint is refused (`Sim.placementReason`), the first failing rule. */
 export type PlacementRefusal = 'off_map' | 'blocked' | 'no_footing' | 'not_level' | 'overlap' | 'seals_passage';
@@ -1351,6 +1370,8 @@ export type ComponentResult =
 /** Every roll the model makes is on an event, in full, for the debug overlay.
  *  All numeric payloads are raw Q16.16 — the render side converts. */
 export type SimEvent =
+  | { kind: 'setupReady'; tick: number; side: 0 | 1 }
+  | { kind: 'setupBell'; tick: number }
   | { kind: 'spawn'; tick: number; entity: number; typeId: string; side: number }
   | {
       kind: 'contact';
@@ -1536,6 +1557,7 @@ export const SIM_EVENT_KINDS = [
   'fieldFixed', 'beam',
   'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated', 'woundStabilised',
   'woundAdmitted', 'woundRejoined', 'woundLost',
+  'setupReady', 'setupBell',
   'landRefused', 'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
 
@@ -1990,6 +2012,15 @@ export class Sim {
   /** True once a formation has been ordered (never by registering one). hash() folds the block
    *  above only while set. */
   private fmLive = false;
+  // GH-976 capture-the-flag v2 set-up. `setupLive` is latched by `beginSetup` and gates the hash block, so a world
+  // that never begins one keeps every pin. `setupUntil` is the bell tick (lowered by both sides' Ready), `readyMask` bit s
+  // is side s's Ready. All three are state; the region is config (a room rebuilds it) and is folded into the hash anyway
+  // (R0.21), so a mask skew between two clients desyncs on the first hash tick.
+  private setupLive = false;
+  private setupUntil = 0;
+  private readyMask = 0;
+  /** Per tile: 0 / 1 the side that may stand there before the bell, -1 the band. Zeros until `beginSetup`. */
+  private readonly setupRegion: Int8Array;
   /** Registered formations, compiled (`addFormationType`). Config: rebuilt with the match. */
   private readonly formationTypes: CompiledFormation[] = [];
   /** Diagnostics for tools (never hashed, off unless a tool turns it on): a ring of
@@ -2501,6 +2532,7 @@ export class Sim {
     this.cover = new Uint8Array(tiles);
     this.elevation = new Uint8Array(tiles);
     this.openGrid = new Uint8Array(tiles);
+    this.setupRegion = new Int8Array(tiles);
     this.smoke = new Uint8Array(tiles);
     this.trail = new Uint8Array(tiles);
     this.alive = new Uint8Array(n);
@@ -3193,6 +3225,82 @@ export class Sim {
   /** Field works: true once `side` has seen owned structure `s` (the latch). */
   structureKnownTo(side: number, s: number): boolean {
     return this.stKnown[side * MAX_STRUCTURES + s] === 1;
+  }
+
+  // ---- GH-976: the set-up phase (clock, early bell, region clamp, weapons tight) ----
+
+  /**
+   * Begin a set-up phase, once, before tick 0 (GH-976). Until `untilTick` (or the early bell, both sides Ready plus
+   * `SETUP_BELL_DELAY_TICKS`) a unit of side 0 or 1 may stand only on tiles whose region cell is its side, and every
+   * weapon is held. Throws when `tickCount !== 0`, when called twice, on a region of the wrong length or a cell that is
+   * not -1, 0 or 1, and when `untilTick` is not a positive integer. The region is copied.
+   */
+  beginSetup(spec: SetupSpec): void {
+    if (this.tickCount !== 0) throw new Error('beginSetup is setup-only (before the first tick)');
+    if (this.setupLive) throw new Error('beginSetup called twice');
+    if (!Number.isInteger(spec.untilTick) || spec.untilTick <= 0) throw new Error(`beginSetup: untilTick ${String(spec.untilTick)} must be a positive integer`);
+    if (spec.region.length !== this.width * this.height) {
+      throw new Error(`beginSetup: region has ${spec.region.length} cells, the map has ${this.width * this.height}`);
+    }
+    for (let t = 0; t < spec.region.length; t++) {
+      const c = spec.region[t];
+      if (c !== -1 && c !== 0 && c !== 1) throw new Error(`beginSetup: region cell ${t} is ${c}, expected -1, 0 or 1`);
+    }
+    this.setupRegion.set(spec.region);
+    this.setupUntil = spec.untilTick;
+    this.readyMask = 0;
+    this.setupLive = true;
+  }
+
+  /** True from `beginSetup` until the bell tick: weapons are held and the region clamp stands. */
+  get setupActive(): boolean {
+    return this.setupLive && this.tickCount < this.setupUntil;
+  }
+
+  /** The tick the bell rings (it moves earlier when both sides are Ready); -1 in a world with no set-up. */
+  get setupBellTick(): number {
+    return this.setupLive ? this.setupUntil : -1;
+  }
+
+  /** Whether `side` has pressed Ready (false in a world with no set-up, and for a side above 1). */
+  setupReady(side: 0 | 1): boolean {
+    return this.setupLive && (side === 0 || side === 1) && (this.readyMask & (1 << side)) !== 0;
+  }
+
+  /** The region cell of tile (tx, ty): 0 / 1 a side's, -1 the band, -2 when this world has no set-up (or off the map). */
+  setupRegionAt(tx: number, ty: number): -2 | -1 | 0 | 1 {
+    if (!this.setupLive || tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return -2;
+    return this.setupRegion[ty * this.width + tx] as -1 | 0 | 1;
+  }
+
+  /** Pure read for the HUD chip: the set-up is on, the unit is walking, and its order's goal tile lies outside its
+   *  region, so the clamp is what is holding it. False for a unit above side 1 (never clamped). */
+  setupHeldAtLine(id: number): boolean {
+    if (!this.setupActive || id < 0 || id >= this.count || this.alive[id] === 0 || this.moving[id] === 0) return false;
+    const sd = this.side[id];
+    if (sd > 1) return false;
+    return !this.setupOwnTile(sd, this.goalX[id] >> 16, this.goalY[id] >> 16);
+  }
+
+  /** Whether tile (tx, ty) is on the map and in `side`'s region. A side above 1 is never clamped: always true. Read
+   *  only inside a set-up. */
+  private setupOwnTile(side: number, tx: number, ty: number): boolean {
+    if (side > 1) return true;
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return false;
+    return this.setupRegion[ty * this.width + tx] === side;
+  }
+
+  /** `setupReady`: set the side's bit, and with both set, ring no later than `SETUP_BELL_DELAY_TICKS` from now. */
+  private applySetupReady(side: number): void {
+    if (!this.setupActive || (side !== 0 && side !== 1)) return;
+    const bit = 1 << side;
+    if ((this.readyMask & bit) !== 0) return;
+    this.readyMask |= bit;
+    this.pendingEvents.push({ kind: 'setupReady', tick: this.tickCount, side });
+    if (this.readyMask === 3) {
+      const early = this.tickCount + SETUP_BELL_DELAY_TICKS;
+      this.setupUntil = this.setupUntil < early ? this.setupUntil : early;
+    }
   }
 
   /** GH-698: true once an air carrier type is registered, or (#706) an aircraft has
@@ -4308,6 +4416,9 @@ export class Sim {
 
   /** Advance exactly one 20 Hz tick. Returns the events it produced. */
   tick(): SimEvent[] {
+    // GH-976: the bell rings on the tick whose count IS the set-up clock, before this tick's commands, so an order given
+    // on the bell tick is already unclamped (setupActive is false from here).
+    if (this.setupLive && this.tickCount === this.setupUntil) this.pendingEvents.push({ kind: 'setupBell', tick: this.tickCount });
     this.applyCommands();
     this.stepDigging();
     this.stepDetection();
@@ -5755,6 +5866,13 @@ export class Sim {
     const q = this.commandQueue;
     for (let c = 0; c < q.length; c++) {
       let cmd = q[c];
+      // GH-976 (R0.5): the first statement. A command that could damage, or take a unit off the board, is dropped
+      // while a set-up is active, before any side effect (the containment filter below writes columns).
+      if (this.setupLive && this.setupActive && SETUP_REFUSED_KINDS.has(cmd.kind)) continue;
+      if (cmd.kind === 'setupReady') {
+        this.applySetupReady(cmd.side);
+        continue;
+      }
       // Containment is a rule, not a list of places that remembered it: every
       // surface command refuses a buried unit HERE, at the single point where
       // its ids expand, before any branch sees them. The earth decides where
@@ -6009,6 +6127,27 @@ export class Sim {
         // Field works: nobody moves into a building that is still going up
         // (and `removeStructure` relies on it: an unfinished one is empty).
         if (this.stProgress[s] < ONE) continue;
+        // GH-976 (R0.4): in set-up, a building whose centroid tile or exit tile lies outside the issuing unit's
+        // region is not enterable: a man inside would come out, or fire from, past the line. Per unit, so a
+        // mixed selection keeps the ids that may go. `spread` is dropped to the plain order (the nearest-building
+        // share would pick buildings this test never saw).
+        if (this.setupActive) {
+          const [ex, ey] = this.exitTile(s);
+          const cxT = this.stCx[s] >> 16;
+          const cyT = this.stCy[s] >> 16;
+          const exT = ex >> 16;
+          const eyT = ey >> 16;
+          const own: number[] = [];
+          for (const id of cmd.ids) {
+            const sd = this.side[id];
+            if (this.setupOwnTile(sd, cxT, cyT) && this.setupOwnTile(sd, exT, eyT)) own.push(id);
+          }
+          for (const id of own) {
+            if (!this.canGarrisonOrder(id)) continue;
+            this.sendToGarrison(id, s, false);
+          }
+          continue;
+        }
         // Walk to the doorway; stepGarrison lets them in when they arrive
         // and there is room. Overflow simply waits outside (unless `spread`,
         // GH-972, which shares the group out and sends the overflow on).
@@ -7886,8 +8025,17 @@ export class Sim {
   private stepCombat(): void {
     this.aimTurned.fill(0);
     this.braceWant.fill(0);
+    const tight = this.setupActive;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.firepowerKilled[i] === 1) continue;
+      // GH-976 (R0.5): weapons tight during a set-up. The pinned branch's writes: nothing is engaged, so no beam, no
+      // structure fire, and an attack-mover does not halt to engage. Detection still runs.
+      if (tight) {
+        this.engaging[i] = 0;
+        this.curTarget[i] = -1;
+        this.curStructure[i] = -1;
+        continue;
+      }
       // The outbound half of containment — the inbound half is Task 7's
       // selectTarget/splash/suppression guards. The earth stops fire in both
       // directions: without this, a unit below ground with a live contact
@@ -10206,13 +10354,14 @@ export class Sim {
     });
   }
 
-  /** Put a passenger down beside its vehicle. */
-  private disembark(id: number, shaken: boolean): void {
+  /**
+   * Put a passenger down beside its vehicle. True when it came out. In a set-up (GH-976, R0.4) a rider of side 0 or 1
+   * is put down only on a tile of its own region: the `+HALF` spot, else the hull's own spot, else the unload is
+   * REFUSED (false, the rider stays aboard). A dead carrier never refuses: the rider is put at the wreck.
+   */
+  private disembark(id: number, shaken: boolean): boolean {
     const car = this.carriedBy[id];
-    if (car < 0) return;
-    this.carriedBy[id] = -1;
-    if (this.passengers[car] > 0) this.passengers[car]--;
-    if (this.woundLive) this.refreshSpeedMul(car);
+    if (car < 0) return true;
     // Step clear of the hull so they do not stack on it.
     let px = this.clampX(fx.add(this.posX[car], HALF));
     let py = this.clampY(fx.add(this.posY[car], HALF));
@@ -10228,6 +10377,18 @@ export class Sim {
       px = fx.add(fx.fromInt(this.snapX), HALF);
       py = fx.add(fx.fromInt(this.snapY), HALF);
     }
+    if (this.setupActive && !this.setupOwnTile(this.side[id], px >> 16, py >> 16)) {
+      // Not that spot: the hull's own (it stands in its region, the clamp holds it there), else stay aboard.
+      if (this.setupOwnTile(this.side[id], this.posX[car] >> 16, this.posY[car] >> 16) || this.alive[car] === 0) {
+        px = this.posX[car];
+        py = this.posY[car];
+      } else {
+        return false;
+      }
+    }
+    this.carriedBy[id] = -1;
+    if (this.passengers[car] > 0) this.passengers[car]--;
+    if (this.woundLive) this.refreshSpeedMul(car);
     this.posX[id] = px;
     this.posY[id] = py;
     this.moving[id] = 0;
@@ -10248,6 +10409,7 @@ export class Sim {
       carrier: car,
       loaded: false,
     });
+    return true;
   }
 
   /** Everyone out. */
@@ -10484,6 +10646,9 @@ export class Sim {
         const dx = fx.sub(this.posX[i], this.goalX[i]);
         const dy = fx.sub(this.posY[i], this.goalY[i]);
         if (dx > HALF || dx < -HALF || dy > HALF || dy < -HALF) continue; // stopped short: hovers
+        // GH-976 (R0.4): the snap below would carry the hull onto the LZ tile centre. In a set-up an LZ outside the
+        // carrier's region is never set down on: it holds its hover.
+        if (this.setupActive && !this.setupOwnTile(this.side[i], this.goalX[i] >> 16, this.goalY[i] >> 16)) continue;
         this.airState[i] = AIR_LANDING;
         this.airTimer[i] = AIR_LAND_TICKS;
         // Onto the LZ tile centre exactly (it is within HALF already), so the
@@ -10781,10 +10946,12 @@ export class Sim {
           if (x < 0 || y < 0 || x >= w || y >= h) continue;
           const t = y * w + x;
           if (mask[t] !== 0) continue;
+          // GH-976 (R0.4): in a set-up the spread holds own-region tiles only.
+          if (this.setupActive && !this.setupOwnTile(this.side[i], x, y)) continue;
           this.spreadTiles[n++] = t;
         }
       }
-      this.disembark(i, false);
+      if (!this.disembark(i, false)) continue; // GH-976: refused at the line, the rider stays aboard
       if (n > 0) {
         const t = this.spreadTiles[k % n];
         const tx = t % w;
@@ -10804,6 +10971,8 @@ export class Sim {
    * into the target, not shooting at it.
    */
   private stepKamikaze(): void {
+    // GH-976 (R0.5): weapons tight. A munition does not dive before the bell.
+    if (this.setupActive) return;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
       // A munition steers itself off its side's contacts, with no order to
@@ -11260,6 +11429,7 @@ export class Sim {
    * stand is exactly where the defenders are shooting.
    */
   private stepDemolition(): void {
+    const tight = this.setupActive;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
       // The automatic branch below sets charges wherever a demolisher merely
@@ -11269,6 +11439,12 @@ export class Sim {
       if (this.tunnelIn[i] >= 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (!type.canDemolish) continue;
+      // GH-976 (R0.5): weapons tight. No charge is set before the bell, wherever the team halts.
+      if (tight) {
+        this.demoTicks[i] = 0;
+        this.demoTarget[i] = -1;
+        continue;
+      }
       // Arrival, for a unit under orders. A `demolish` order aims the unit at
       // the building's centre, which is inside its own footprint and so can
       // never be stood on: `moving` never clears on its own. The wall-slide
@@ -12235,6 +12411,9 @@ export class Sim {
     const w = this.width;
     this.displaced.fill(0);
     if (this.sepLive) this.buildSepGrid();
+    // GH-976 (R0.4): while a set-up is active a unit of side 0 or 1 may not step onto a tile outside its region.
+    const tight = this.setupActive;
+    const region = this.setupRegion;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.moving[i] === 0 || this.mobilityKilled[i] === 1) continue;
       // The belt, not a duplicate. Every autonomous setter of `moving` is
@@ -12328,6 +12507,23 @@ export class Sim {
         if (clip[tileY * w + ntx] === 0) {
           ny = py;
         } else if (clip[nty * w + tileX] === 0) {
+          nx = px;
+        } else {
+          nx = px;
+          ny = py;
+        }
+      }
+      // GH-976 (R0.4): the same three-branch slide against the region. Outside the `!isAir` guard above, so an aircraft
+      // is held at the line too. A unit slides along the line and its order stands (`moving` stays 1); a unit above
+      // side 1 (a civilian, a neutral) is never clamped. A separate `if` on a per-tick local, so a world with no
+      // set-up runs the code above untouched.
+      const sd = this.side[i];
+      if (tight && sd <= 1 && region[(ny >> 16) * w + (nx >> 16)] !== sd) {
+        const rx = nx >> 16;
+        const ry = ny >> 16;
+        if (region[tileY * w + rx] === sd && (type.isAir || clip[tileY * w + rx] === 0)) {
+          ny = py;
+        } else if (region[ry * w + tileX] === sd && (type.isAir || clip[ry * w + tileX] === 0)) {
           nx = px;
         } else {
           nx = px;
@@ -12454,6 +12650,12 @@ export class Sim {
             }
           }
         }
+      }
+      // GH-976 (R0.4): separation steers sideways and tests only the terrain, so a final pass puts back any step that
+      // ended outside the unit's region. The unit holds where it stood.
+      if (tight && sd <= 1 && (nx !== px || ny !== py) && region[(ny >> 16) * w + (nx >> 16)] !== sd) {
+        nx = px;
+        ny = py;
       }
       const mvx = fx.sub(nx, px);
       const mvy = fx.sub(ny, py);
@@ -13348,6 +13550,15 @@ export class Sim {
       h = hashArray(h, this.fmDuty);
       h = hashArray(h, this.fmHomeX);
       h = hashArray(h, this.fmHomeY);
+    }
+    // GH-976: the set-up block, deferred like the formation block. `setupLive` is latched by `beginSetup`, so a world that
+    // never begins one hashes as before. The region is config but is folded (R0.21): two clients that disagree on the
+    // mask differ at the first hash tick.
+    if (this.setupLive) {
+      h = hashWord(h, 0x53550976); // 'SU' GH-976
+      h = hashWord(h, this.setupUntil);
+      h = hashWord(h, this.readyMask);
+      h = hashArray(h, this.setupRegion);
     }
     return h >>> 0;
   }

@@ -85,6 +85,8 @@ export const ORDER_WITHHELD = {
   // Versus tunnels (GH-681): `observe` shows a seat neither its routes nor its buried units yet, so a model verb would be blind.
   enterTunnel: { legal: true, why: 'observe shows no tunnel routes yet, so a model could not name one (GH-681)' },
   vent: { legal: true, why: 'observe shows no buried units yet, so a model could not name one (GH-681)' },
+  // Capture the flag v2 (GH-976): the sim's set-up command. The wire opens in WP4 and the verbs in WP8.
+  setupReady: { legal: false, why: 'set-up commands open in WP4' },
 } as const satisfies Partial<Record<Command['kind'], { legal: boolean; why: string }>>;
 
 type Verb = Exclude<(typeof COMMAND_KINDS)[number], keyof typeof ORDER_WITHHELD>;

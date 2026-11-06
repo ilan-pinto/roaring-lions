@@ -387,6 +387,13 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   // Encoded even when empty, so the format pin moves by exactly these three rows.
   // Compiled formation files, registered by the match config (like `unitTypes`).
   { name: 'formationTypes', cls: 'config', kind: obj('array') },
+  // GH-976 capture-the-flag v2 set-up, APPENDED: the latch, the bell tick and the Ready bits (state), and the region mask
+  // (config: a room's `buildMatchWorld` rebuilds it through `beginSetup`; it is hashed all the same, behind `setupLive`).
+  // The three state rows are encoded even when empty, so the format pin moves by exactly them.
+  { name: 'setupLive', cls: 'state', kind: SCALAR },
+  { name: 'setupUntil', cls: 'state', kind: SCALAR },
+  { name: 'readyMask', cls: 'state', kind: SCALAR },
+  { name: 'setupRegion', cls: 'config', kind: typed('Int8Array', 'cells') },
 ];
 
 /** `Rng`'s only own property: one mulberry32 word per entity slot. */

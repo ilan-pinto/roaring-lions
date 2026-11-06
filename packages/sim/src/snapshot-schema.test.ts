@@ -151,6 +151,8 @@ function show(v: unknown): string {
 const CONFIG = [
   'width', 'height', 'capacity', 'seed', 'unitTypes', 'structureTypes', 'boulder', 'hasBoulders', 'openGrid',
   'humanHeldBySide', 'tnPoints', 'tnTiles', 'state', 'structures', 'works', 'sepCols', 'formationTypes',
+  // GH-976: the set-up region mask (a room's buildMatchWorld rebuilds it through beginSetup; it is hashed behind setupLive).
+  'setupRegion',
 ];
 const DERIVED = ['fields'];
 const SCRATCH = [
