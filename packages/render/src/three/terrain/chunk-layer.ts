@@ -16,10 +16,18 @@
  *
  * Every mesh is frozen static (`static-matrix.ts`) and frustum-culled by three's default bounding
  * sphere, which is now measured over the chunk's own vertices.
+ *
+ * ROW BANDS (GH-913). A chunk survives three's test when its sphere reaches the screen, and is then
+ * drawn WHOLE: at Rujm's centre a view that needs 1,481 tiles drew 6,144. A chunk's index buffer is its
+ * tile rows in order (`sliceChunk`), so each row is one contiguous index range, and `cullRows` narrows
+ * the geometry's draw range to the rows (first to last) whose own vertex box reaches the camera
+ * frustum. No draw call is added and no vertex moves; a dropped row had no vertex inside the frustum, so
+ * not one pixel changes. `resetRows` restores the full range for any camera that is not the frame's own
+ * (the ground photograph).
  */
 import * as THREE from 'three';
 import { freezeStatic } from '../static-matrix';
-import { chunkCount, chunkGridFor, chunksTouching, sliceChunk, type ChunkGrid } from './chunks';
+import { chunkCount, chunkGridFor, chunksTouching, chunkTiles, sliceChunk, type ChunkGrid } from './chunks';
 import { srgbToLinearByte, type GeometryOptions } from './mesh';
 import type { TiledMeshData } from './tiled-mesh';
 import type { MeshData } from './types';
@@ -32,6 +40,13 @@ export class ChunkedMeshLayer {
   private meshes: (THREE.Mesh | null)[] = [];
   /** The map the current meshes were cut from, so a different one rebuilds everything. */
   private built: { width: number; height: number } | null = null;
+  /** Per chunk (parallel to `meshes`): its row bands, or null for a chunk that draws nothing or a whole map. */
+  private bands: (RowBands | null)[] = [];
+  /** The view-projection the draw ranges were last cut for (NaN when none is). */
+  private readonly cutFor = new Float32Array(16).fill(NaN);
+  private readonly frustum = new THREE.Frustum();
+  private readonly projScreen = new THREE.Matrix4();
+  private readonly box = new THREE.Box3();
 
   /**
    * `parent` is the scene. A map left whole puts its ONE mesh straight into `parent`, exactly where
@@ -82,6 +97,7 @@ export class ChunkedMeshLayer {
       this.grid = null;
       this.built = { width: tiled.width, height: tiled.height };
       this.meshes = [this.place(tiled.mesh, this.parent)];
+      this.bands = [null];
       return 1;
     }
     if (dirty === null || !same || this.grid === null) {
@@ -90,7 +106,12 @@ export class ChunkedMeshLayer {
       this.built = { width: tiled.width, height: tiled.height };
       this.parent.add(this.container);
       this.meshes = new Array<THREE.Mesh | null>(chunkCount(grid)).fill(null);
-      for (let c = 0; c < this.meshes.length; c++) this.meshes[c] = this.place(sliceChunk(tiled, grid, c, srgbToLinearByte), this.container, true);
+      this.bands = new Array<RowBands | null>(chunkCount(grid)).fill(null);
+      for (let c = 0; c < this.meshes.length; c++) {
+        this.meshes[c] = this.place(sliceChunk(tiled, grid, c, srgbToLinearByte), this.container, true);
+        this.bands[c] = this.meshes[c] === null ? null : rowBandsOf(tiled, grid, c);
+      }
+      this.cutFor.fill(NaN);
       return this.meshes.length;
     }
     const touched = chunksTouching(grid, dirty);
@@ -101,13 +122,71 @@ export class ChunkedMeshLayer {
         old.geometry.dispose();
       }
       this.meshes[c] = this.place(sliceChunk(tiled, grid, c, srgbToLinearByte), this.container, true);
+      this.bands[c] = this.meshes[c] === null ? null : rowBandsOf(tiled, grid, c);
     }
+    this.cutFor.fill(NaN);
     return touched.length;
+  }
+
+  /**
+   * Narrows every chunk's draw range to the rows that reach `camera`'s frustum. Call once a frame, after
+   * the camera's matrices are final and before anything renders with it. A no-op on a map left whole, and
+   * when the camera has not moved since the last cut (`update` and `resetRows` forget the cut).
+   */
+  cullRows(camera: THREE.Camera): void {
+    if (this.grid === null) return;
+    this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    const e = this.projScreen.elements;
+    let same = true;
+    for (let i = 0; i < 16; i++) {
+      if (this.cutFor[i] !== e[i]) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return;
+    for (let i = 0; i < 16; i++) this.cutFor[i] = e[i];
+    this.frustum.setFromProjectionMatrix(this.projScreen, camera.coordinateSystem, camera.reversedDepth);
+    for (let c = 0; c < this.meshes.length; c++) {
+      const mesh = this.meshes[c];
+      const b = this.bands[c];
+      if (mesh === null || b === null) continue;
+      let first = -1;
+      let last = -1;
+      for (let r = 0; r < b.rows; r++) {
+        if (b.count[r] === 0) continue;
+        this.box.min.set(b.box[r * 6] - PAD, b.box[r * 6 + 1] - PAD, b.box[r * 6 + 2] - PAD);
+        this.box.max.set(b.box[r * 6 + 3] + PAD, b.box[r * 6 + 4] + PAD, b.box[r * 6 + 5] + PAD);
+        if (!this.frustum.intersectsBox(this.box)) continue;
+        if (first < 0) first = r;
+        last = r;
+      }
+      if (first < 0) mesh.geometry.setDrawRange(0, 0);
+      else mesh.geometry.setDrawRange(b.start[first], b.start[last] + b.count[last] - b.start[first]);
+    }
+  }
+
+  /** Every chunk back to its full draw range (a camera that is not the frame's own is about to render). */
+  resetRows(): void {
+    for (const m of this.meshes) m?.geometry.setDrawRange(0, Infinity);
+    this.cutFor.fill(NaN);
+  }
+
+  /** Indices the layer submits for one draw of every chunk, as the draw ranges stand (specs and the census). */
+  get drawnIndexCount(): number {
+    let n = 0;
+    for (const m of this.meshes) {
+      if (m === null) continue;
+      const total = m.geometry.getIndex()?.count ?? 0;
+      n += Math.min(total - m.geometry.drawRange.start, m.geometry.drawRange.count);
+    }
+    return n;
   }
 
   dispose(): void {
     this.clear();
     this.meshes = [];
+    this.bands = [];
     this.built = null;
   }
 
@@ -129,4 +208,52 @@ export class ChunkedMeshLayer {
     into.add(mesh);
     return mesh;
   }
+}
+
+/** World units a row's box is grown by before the frustum test: float slack, nothing the eye can use. */
+const PAD = 0.05;
+
+/** One chunk's rows: `start`/`count` are index ranges in the chunk's own index buffer, `box` six floats a row
+ *  (min xyz, max xyz) over the vertices the row's tiles own. */
+interface RowBands {
+  readonly rows: number;
+  readonly start: Uint32Array;
+  readonly count: Uint32Array;
+  readonly box: Float32Array;
+}
+
+function rowBandsOf(tiled: TiledMeshData, grid: ChunkGrid, chunk: number): RowBands {
+  const { x0, y0, x1, y1 } = chunkTiles(grid, chunk);
+  const rows = y1 - y0;
+  const start = new Uint32Array(rows);
+  const count = new Uint32Array(rows);
+  const box = new Float32Array(rows * 6);
+  const pos = tiled.mesh.positions;
+  let at = 0;
+  for (let r = 0; r < rows; r++) {
+    const first = (y0 + r) * grid.width + x0;
+    const end = (y0 + r) * grid.width + x1;
+    start[r] = at;
+    count[r] = tiled.indexStart[end] - tiled.indexStart[first];
+    at += count[r];
+    let minX = Infinity;
+    let minY = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let maxZ = -Infinity;
+    for (let k = tiled.vertexStart[first] * 3, e = tiled.vertexStart[end] * 3; k < e; k += 3) {
+      const x = pos[k];
+      const y = pos[k + 1];
+      const z = pos[k + 2];
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    }
+    box.set([minX, minY, minZ, maxX, maxY, maxZ], r * 6);
+  }
+  return { rows, start, count, box };
 }

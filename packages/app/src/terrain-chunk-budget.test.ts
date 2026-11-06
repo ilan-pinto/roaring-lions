@@ -144,6 +144,37 @@ describe('an 80x80 map with a large ditch submits a fraction of what the whole-m
   });
 });
 
+describe('row bands: a chunk draws only the tile rows that reach the camera (GH-913)', () => {
+  // Rujm centre sits on a chunk corner, so six 32-tile chunks (6,144 tiles) survive three's sphere test for a
+  // view that holds 565 tiles at zoom 1.6 and 1,481 at zoom 1. Measured on the staged redo map, per pass:
+  // ground + scatter 193k triangles whole-chunk, 128k at zoom 1 and 80k at zoom 1.6 with the bands (no draw added).
+  let rujm: ReturnType<typeof build>;
+  let on: CensusRow[];
+  let off: CensusRow[];
+  beforeAll(() => {
+    rujm = build('rujm_sawda');
+    const list = [at(rujm.markers, 'centre', 1), at(rujm.markers, 'centre', 1.6), at(rujm.markers, 'versus_0', 1.6)];
+    on = censusTerrain({ ...rujm.input, edges: rujm.game, rowCull: true }, list);
+    off = censusTerrain({ ...rujm.input, edges: rujm.game, rowCull: false }, list);
+  }, 60_000);
+
+  const terrain = (r: CensusRow) => (r.layers.ground?.main.triangles ?? 0) + (r.layers.scatter?.main.triangles ?? 0);
+
+  it('submits far fewer ground and scatter triangles in every view, for the same number of draws', () => {
+    for (let i = 0; i < on.length; i++) {
+      expect(terrain(on[i]), `view ${i}`).toBeLessThan(terrain(off[i]) * 0.85);
+      expect(terrain(on[i]), `view ${i} still draws the ground in view`).toBeGreaterThan(terrain(off[i]) * 0.1);
+      expect(on[i].layers.ground.main.calls).toBe(off[i].layers.ground.main.calls);
+      expect(on[i].layers.scatter.main.calls).toBe(off[i].layers.scatter.main.calls);
+    }
+    expect(terrain(on[1]), 'zoom 1.6 at the centre: under 60% of the whole chunks').toBeLessThan(terrain(off[1]) * 0.6);
+  });
+
+  it('the AO pre-pass draws the same rows as the main pass', () => {
+    for (const r of on) expect(r.layers.ground.ao.triangles).toBe(r.layers.ground.main.triangles);
+  });
+});
+
 describe('Wadi Tarfan (48x48) is exactly as it was', () => {
   let wadi: ReturnType<typeof build>;
   let row: CensusRow;

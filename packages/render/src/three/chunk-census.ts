@@ -81,6 +81,9 @@ export interface CensusInput {
   /** A chunk edge in tiles per layer, or null to leave that layer whole. Unlike the game, a number
    *  chunks a map of ANY size. */
   readonly edges: Readonly<Record<ChunkLayer, number | null>>;
+  /** Cut the ground and scatter chunks to the rows the camera reaches (`ChunkedMeshLayer.cullRows`), as the
+   *  game does every frame. Default true; false is the whole-chunk draw it replaced. */
+  readonly rowCull?: boolean;
 }
 
 /** `art/meshes/decor/*.glb` as the renderer's `loadDecorMeshes` bakes them (scaled, in world space,
@@ -133,7 +136,10 @@ function trianglesOf(object: THREE.Object3D): number {
   }
   const mesh = object as THREE.Mesh;
   const index = mesh.geometry?.getIndex();
-  const per = index ? index.count / 3 : 0;
+  // The draw range, as three's own `renderBufferDirect` applies it (clamped to the index buffer).
+  const range = mesh.geometry?.drawRange;
+  const drawn = index ? Math.max(0, Math.min(index.count - (range?.start ?? 0), range?.count ?? Infinity)) : 0;
+  const per = drawn / 3;
   return (object as THREE.InstancedMesh).isInstancedMesh ? per * (object as THREE.InstancedMesh).count : per;
 }
 
@@ -224,6 +230,11 @@ export function censusTerrain(input: CensusInput, views: readonly CensusView[]):
       walked = 0;
       walkedBy.clear();
       scene.updateMatrixWorld(true);
+      if (input.rowCull !== false) {
+        camera.updateMatrixWorld();
+        ground.cullRows(camera);
+        scatter.cullRows(camera);
+      }
       pass = 'main';
       renderer.render(scene, camera);
       const hidden: THREE.Object3D[] = [];

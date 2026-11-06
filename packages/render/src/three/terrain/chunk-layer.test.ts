@@ -181,3 +181,72 @@ describe('ChunkedMeshLayer colours (GH-920 B5: sliced straight into the linear a
     expect(Array.from(tiled.mesh.colors)).toEqual(before);
   });
 });
+
+describe('ChunkedMeshLayer.cullRows (row bands)', () => {
+  // A 24 x 24 map of lifted quads in 12-tile chunks, seen by a top-down orthographic camera over a 6 x 6 window.
+  const lift = (x: number, y: number) => ((x + y) % 5 === 0 ? 2 : 0);
+  const camera = (cx: number, cz: number, half: number) => {
+    const cam = new THREE.OrthographicCamera(-half, half, half, -half, 1, 100);
+    cam.position.set(cx, 50, cz);
+    cam.up.set(0, 0, -1);
+    cam.lookAt(cx, 0, cz);
+    cam.updateMatrixWorld();
+    return cam;
+  };
+  const build = () => {
+    const l = new ChunkedMeshLayer(new THREE.Scene(), 'bands', material, true, (d) => toGeometry(d), (w, h) => chunkGridFor(w, h, 'ground', 12, 0));
+    l.update(quadMesh(24, 24, lift), null);
+    return l;
+  };
+
+  it('draws only the rows that reach the frustum, and no vertex of a dropped triangle is inside it', () => {
+    const l = build();
+    const total = 24 * 24 * 6;
+    expect(l.drawnIndexCount).toBe(total);
+    const cam = camera(12, 12, 3);
+    l.cullRows(cam);
+    const drawn = l.drawnIndexCount;
+    expect(drawn, 'a 6 x 6 window drew a handful of rows, not the map').toBeLessThan(total * 0.4);
+    expect(drawn).toBeGreaterThan(0);
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    let dropped = 0;
+    let inside = 0;
+    for (const m of l.chunkMeshes) {
+      const pos = m.geometry.getAttribute('position');
+      const idx = m.geometry.getIndex() as THREE.BufferAttribute;
+      const { start, count } = m.geometry.drawRange;
+      const p = new THREE.Vector3();
+      for (let i = 0; i < idx.count; i++) {
+        p.fromBufferAttribute(pos, idx.getX(i));
+        const isDrawn = i >= start && i < start + count;
+        if (!isDrawn) {
+          dropped++;
+          expect(frustum.containsPoint(p), 'a vertex of a dropped row is on screen').toBe(false);
+        } else if (frustum.containsPoint(p)) inside++;
+      }
+    }
+    expect(dropped, 'not vacuous: most indices were dropped').toBeGreaterThan(total * 0.5);
+    expect(inside, 'not vacuous: the on-screen vertices are all in the drawn range').toBeGreaterThan(20);
+  });
+
+  it('moving the camera re-cuts, a window off the map draws nothing, and resetRows draws it all again', () => {
+    const l = build();
+    l.cullRows(camera(4, 4, 3));
+    const a = l.drawnIndexCount;
+    l.cullRows(camera(20, 20, 3));
+    const b = l.drawnIndexCount;
+    expect(a).toBeGreaterThan(0);
+    expect(b).toBeGreaterThan(0);
+    l.cullRows(camera(200, 200, 3));
+    expect(l.drawnIndexCount).toBe(0);
+    l.resetRows();
+    expect(l.drawnIndexCount).toBe(24 * 24 * 6);
+  });
+
+  it('a map left whole is untouched', () => {
+    const l = new ChunkedMeshLayer(new THREE.Scene(), 'whole', material, true, (d) => toGeometry(d), () => null);
+    l.update(quadMesh(10, 10), null);
+    l.cullRows(camera(200, 200, 3));
+    expect(l.drawnIndexCount).toBe(10 * 10 * 6);
+  });
+});

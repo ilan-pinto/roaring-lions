@@ -610,6 +610,14 @@ as one mesh is the zero):
 The ditch is the whole win and wants the finest cut: each draw is ~38k triangles a segment. The ground is a wash at 80x80 (inside the
 0.3-0.7 ms round-to-round spread); it is kept at 32 because its cost grows with area and a draw per chunk does not, and for GH-920.
 
+**Row bands (GH-913, 6 Nov 2026).** A kept ground or scatter chunk used to draw WHOLE: at Rujm's centre (a chunk corner) six 32-tile
+chunks, 6,144 tiles, for a view of 1,481 (zoom 1) or 565 (zoom 1.6), while the 48x48 control draws its 2,304. The remaining centre
+excess (+0.53..+0.65 ms against a +0.5 bar) tracked triangles (+443k / +378k), not calls (-4 / +15). `ChunkedMeshLayer.cullRows(camera)`
+narrows each chunk's draw range to the first..last tile row whose own vertex box reaches the frame's frustum (`ThreeRenderer.frame`, after
+`threeCamera()`); `resetRows()` before `photographGround`. No draw is added and no pixel changes. Census, ground + scatter a pass at the
+centre: 193k -> 128k (z1), 80k (z1.6), control 93k. A finer chunk edge buys the same triangles with more calls and was a wash in the
+browser; do not retry it for this. `censusTerrain({ rowCull })` is the A/B switch.
+
 **Chunking the decor was built, measured and removed.** The brief's premise was that the decor batches walk every instance on the map and
 chunks would cut that. Measured in the same page (one `BatchedMesh` per role per chunk, the exact per-instance cull and sort kept,
 memoised; `pan-cull` is the sum of the batches' `onBeforeRender` over a 40-frame pan, the camera moving every frame):

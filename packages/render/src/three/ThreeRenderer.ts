@@ -4531,6 +4531,11 @@ export class ThreeRenderer implements Renderer {
     // The beam's heat shimmer, projected through the SAME shaken camera that draws the ground.
     this.feedBeamShimmer(camera, alpha);
     this.updateShadowFit(camera);
+    // GH-913: a chunked map draws only the tile rows of each ground and scatter chunk that reach THIS frame's
+    // camera (no draw added, no pixel changed). After `threeCamera()` so the shake is in the matrices.
+    camera.updateMatrixWorld();
+    this.groundLayer?.cullRows(camera);
+    this.scatterLayer?.cullRows(camera);
     // The haze's focus plane is the camera's look-at point, which IS the
     // screen centre: `updateDimetricCamera` aims a symmetric orthographic
     // frustum at world (camera.x, 0, camera.y), so no half-tile offset --
@@ -5357,6 +5362,9 @@ export class ThreeRenderer implements Renderer {
           this.updateShadowFit(this.viewCamera, 'map');
           this.shadowFitDirty = true;
         }
+        // The photograph's camera is not the frame's: every chunk draws whole for it (the next frame re-cuts).
+        this.groundLayer?.resetRows();
+        this.scatterLayer?.resetRows();
         this.renderer.setRenderTarget(linear);
         // Explicit rather than trusting `autoClear`, which the post chain's
         // own `RenderPass` turns off and on around itself.
