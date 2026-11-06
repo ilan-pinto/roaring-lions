@@ -561,10 +561,10 @@ the periodic 11 s gust on the fixed axis; a trunk holds still). Facts that cost 
 lead's pick, +0 draw calls and +0 programs (the chunk rides the wind's, after it). `terrain/disturb-uniforms.ts` is the three-side uniform set, shared
 by reference like the wind's. Facts that cost thinking:
 
-- **A disturber is `a = (ax, az, bx, bz)` and `b = (radius, strength)`.** A moving hull is a capsule from where it is now (`lerp(prev, cur, alpha)` of
+- **A disturber is `a = (ax, az, bx, bz)` and `b = (radius, strength, kind)`** (`kind` 1 is a rotor wash, N3; three floats a slot, `DISTURB_B_STRIDE`). A moving hull is a capsule from where it is now (`lerp(prev, cur, alpha)` of
   the sim, never the drawn hull: its weight lag is per frame) back to where it was 30 ticks (1.5 s) ago; a parked one is the same capsule with no length,
   a disc of its `RADIUS_BY_TYPE` ring radius (full push inside 0.55 of it, gone at 1.25). A wake shorter than 0.3 tile blends to the disc, so a hull that has
-  just stopped is not a streak. Infantry are discs at 0.25 strength, `high` only. Air is N3's (the kind table already skips it).
+  just stopped is not a streak. Infantry are discs at 0.25 strength, `high` only. A helicopter is N3's rotor wash (next section).
 - **The wake is built from the TICK ring and nothing a frame can reach.** `WakeRing` holds 8 samples per entity at ticks that are multiples of 5;
   `ThreeRenderer.snapshot()` (via `stepVehicleNature`) writes it once per sim tick, re-seeding a newcomer or a hull that jumped more than a tile (the tracks'
   own teleport rule). `ThreeRenderer.disturb-clock.test.ts` proves two frame cadences reaching one tick leave every disturber uniform bit-identical, and that a
@@ -587,3 +587,28 @@ by reference like the wind's. Facts that cost thinking:
   `aftermath`'s `decals` layer witnesses it.
 - Shadow and AO keep the rest pose (as for the wind). Instrument: `pnpm nature:capture` (the mock sheets, the layer signal and the frame-cost A/B in one Metal
   browser, port 5182 by default, 5177 refused).
+
+## Rotor wash on the vegetation (GH-984 N3)
+
+A helicopter (an air type that is not `isSoft`: the rule `updateRotorWash` has always used, so every drone and the paramotor still throw nothing) takes a
+slot of kind `DISTURB_KIND_AIR` in N2's array. +0 draw calls, +0 programs; the chunk is N2's with a second accumulator. Facts that cost thinking:
+
+- **The curve was on its flat top.** `rotorWashStrength` was 1.0 from 0.6 wu down, and the renderer draws every air unit at `AIR_LIFT_PX` = 14 px =
+  **0.357 wu** (a landing brings it down over `airLiftFrac`), so a hover and a touchdown threw identical dust and "peaks on a landing" was impossible. The
+  full point is now the ground (0 wu), the none-height 1.5 wu (was 3.0): hover 0.76, touchdown 1.0. `rotor-wash.test.ts` pins strength strictly rising
+  as `airLiftFrac` falls through a landing (mutation: invert the height term).
+- **The slot** is a disc (head = tail, no wake) at `lerp(prev, cur, alpha)`, strength `rotorWashStrength(airLiftY(i, alpha), entitySpeed[i])` (both pure in the
+  tick and alpha; the dust keeps reading the DRAWN height), reach `R0 x (1.5 + hNorm)` tiles with R0 = 1.2 and `hNorm` the height over the curve's span.
+  `b.x` holds the reach over `DISTURB_REACH`, because the falloff is written in ring radii. No slot under `ROTOR_WASH_MIN_STRENGTH`.
+- **Flatten is N2's push**, radial because a disc pushes away from its centre: grass and reeds lie down outward.
+- **Thrash** is `min(wash, 1) x weight x thrashMax(class) x sin(2 pi (uSwayTime / 0.4 + phase))` added to the lean's angle, `wash` the sum of the pushes of the
+  wash slots only (`b.z`), `phase = fract(0.7361 x ox + 0.4219 x oz)` per instance, `uSwayTime` the wind's SIM clock. Shrub 0.06 and crown 0.02 of their height
+  each way (mine, for the sheets to judge); grass and reed 0. The GLSL evaluates it only where `rlDWash > 0.0001`, so N2 pays for no `sin`/`pow`.
+  `uDisturbSpring` 0 (reduced motion) drops it and leaves the flatten static.
+- **Dust.** `ParticleSystem.spawn` takes a trailing `speedScale` (default 1, applied after the speed is drawn so the random stream is unchanged); the wash passes
+  `rotorWashPuffSpeed(strength)` = 0.5 + 0.5 x strength. Count and size already followed the strength (the magnitude argument).
+- **The `wash` debug layer** is a flag (`washLayerOn`) the frame's disturber build reads every frame: hidden, helicopters take no slot. The dust ring is not its.
+  Gate check on the `vehicle` scenario (`baseline.ts`): hiding it moves only 15 px / 0.0008 (one parked `heli_peten`, little foliage in reach), floor 0 px / 0.0002, measured
+  on Metal, so re-measure from CI at the bless. No new scenario was added.
+- Instrument: `pnpm nature:capture` defaults to `--phase=wash-sheets,signal,cost --layer=wash` (`--layer=disturb` reproduces N2, `--phase=sheets` is N2's sheets).
+  The sheet arms are two page loads (the dust is dated by slot).

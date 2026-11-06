@@ -57,6 +57,7 @@ import { aimPenaltyPct, breakSeconds, combatBand, hpWord, recoverySeconds, repai
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import { weaponName } from './weapon-name';
+import type { FormationClosedReason } from '../net/versus-formations';
 import { patchChildren } from './dom-patch';
 import {
   FORMATION_IDS,
@@ -377,6 +378,8 @@ export interface HudDeps {
    *  every button inert and the versus reason. Absent: open (single-player, and every test that
    *  does not exercise the room). */
   formationsOpen?: () => boolean;
+  /** Why it is closed when `formationsOpen()` is false (`formationClosedReason`, GH-859): the room kind's own line. Absent: the versus line. */
+  formationClosedReason?: () => FormationClosedReason | undefined;
   /** The label an order button prints for the key that does the same thing.
    *  `row.key` (from `selection-model.ts`'s `ORDERS`) is an `input/keymap.ts`
    *  ACTION id for every bound order and the literal `'RMB'` for `attackMove`
@@ -2631,7 +2634,7 @@ export class Hud {
     const st = sim.state;
     const mine = sel.filter((i) => isOwnSide(st.side[i], this.viewer));
     const units = formationUnitFacts(sim, mine);
-    const rows = formationRow({ formationsOpen: this.deps.formationsOpen?.() ?? true, units }, this.deps.armedFormation?.() ?? null);
+    const rows = formationRow({ formationsOpen: this.deps.formationsOpen?.() ?? true, closedReason: this.deps.formationClosedReason?.(), units }, this.deps.armedFormation?.() ?? null);
     this.formationCounts = classCounts(units.filter((u) => u.free));
     if (rows.length === 0) {
       this.formationBar.style.display = 'none';

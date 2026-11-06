@@ -17,7 +17,7 @@
 import { formations } from '@lions/data';
 import { FM_CLASS_NONE, FORMATION_CLASSES, compileFormation, fmExcludes, templateOffsets, type CompiledFormation, type FormationJson } from '@lions/sim';
 import { t } from '../i18n/t';
-import { FORMATION_VERSUS_REASON_KEY } from '../net/versus-formations';
+import { FORMATION_VERSUS_REASON_KEY, type FormationClosedReason } from '../net/versus-formations';
 import type { Action } from '../input/keymap';
 import { escapeHtml } from './escape-html';
 import type { OrderFamily } from './order-sight';
@@ -99,6 +99,8 @@ export interface FormationUnitFact {
 export interface FormationFacts {
   /** `formationsOpenIn(netConfig?.mode)`: false in a versus room until P1b. */
   formationsOpen: boolean;
+  /** Why it is closed when `formationsOpen` is false (GH-859: a room kind a map's rules file closes says so). Absent: the versus line. */
+  closedReason?: FormationClosedReason;
   units: readonly FormationUnitFact[];
 }
 
@@ -115,7 +117,7 @@ export interface FormationView {
   /** Why it is inert, a catalogue key; present exactly when `inert` is. */
   reasonKey?: string;
   /** The reason's parameters (`needsMin`'s `n`, the formation's own `min_members`), when it has any. */
-  reasonParams?: { n: number };
+  reasonParams?: Readonly<Record<string, string | number>>;
 }
 
 const ROW: readonly { id: FormationId; key: FormationView['key']; family: FormationView['family'] }[] = [
@@ -138,10 +140,13 @@ export function formationRow(facts: FormationFacts, armed: FormationId | null): 
   const freeAll = placeable.filter((u) => u.free);
   return ROW.map((spec) => {
     let reasonKey: string | undefined;
-    let reasonParams: { n: number } | undefined;
+    let reasonParams: Readonly<Record<string, string | number>> | undefined;
     // The units a formation leaves out do not count toward its minimum: the sim counts placeable members only (GH-859).
     const free = freeAll.filter((u) => !formationLeavesOut(spec.id, u.cls));
-    if (!facts.formationsOpen) reasonKey = FORMATION_VERSUS_REASON_KEY;
+    if (!facts.formationsOpen) {
+      reasonKey = facts.closedReason?.key ?? FORMATION_VERSUS_REASON_KEY;
+      reasonParams = facts.closedReason?.params;
+    }
     else if (free.length < formationMinMembers(spec.id)) {
       reasonKey = 'hud.formation.inert.needsMin';
       reasonParams = { n: formationMinMembers(spec.id) };

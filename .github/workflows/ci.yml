@@ -445,7 +445,7 @@ jobs:
 
   # GH-943 WebGPU-primary, P1: the PARITY report, REPORT-ONLY (`continue-on-error` at job level, like `visual-backends`).
   #
-  # Runs the shipping renderer once more with `--match-node` (the node backend's census applied to the legacy scene, AO off: "legacy
+  # Runs the shipping renderer once more with `--match-node` (the node backend's census applied to the legacy scene, AO on as on the node arms since T7: "legacy
   # as the node chain draws it") and sets its layer-toggle readings beside each node arm's, from the `summary.json` files
   # `visual-backends` uploaded (`ci/parity-run.ts`, bands in `golden-diff/parity-bands.ts`). The numbers are the product; the lead
   # votes the bands in at the P1 sheet. Nothing here can turn the PR red.

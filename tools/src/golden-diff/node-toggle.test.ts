@@ -25,12 +25,16 @@ describe('--match-node (the legacy-matched arm)', () => {
   it('a plain legacy capture script carries no matching', () => {
     expect(captureScript(QUIET_SCENARIO)).not.toContain('censusUnported');
   });
-  it('the matched script runs the node census on the legacy scene, switches AO off, and repaints, before the camera is read', () => {
+  it('the matched script runs the node census on the legacy scene and repaints, before the camera is read', () => {
     const s = captureScript(QUIET_SCENARIO, 'legacy', { matchNodeRoot: ROOT });
     expect(s).toContain(`/@fs${ROOT}/packages/render/src/three/backend/unported.ts`);
     expect(s.indexOf('censusUnported')).toBeGreaterThan(-1);
-    expect(s.indexOf('aoPass.enabled = false')).toBeGreaterThan(-1);
     expect(s.indexOf('censusUnported')).toBeLessThan(s.indexOf('const c = window.__lions.renderer.camera'));
+  });
+  it('matched L keeps its AO ON (T7 gave the node chain AO): nothing in the matched scripts touches the AO pass', () => {
+    // Falsify: put `if (_r.aoPass) _r.aoPass.enabled = false;` back into `matchNodeStatements` and both assertions go red.
+    expect(captureScript(QUIET_SCENARIO, 'legacy', { matchNodeRoot: ROOT })).not.toMatch(/aoPass/);
+    expect(layerToggleScript('fog', true, 'legacy', { matchNodeRoot: ROOT })).not.toMatch(/aoPass/);
   });
   it('re-applies after every layer toggle (a re-shown layer would otherwise un-hide a ShaderMaterial object)', () => {
     expect(layerToggleScript('fog', true, 'legacy', { matchNodeRoot: ROOT })).toContain('censusUnported');

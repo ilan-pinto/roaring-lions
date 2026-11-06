@@ -307,6 +307,18 @@ export function playMode(mapId: MapId, mode: WinModeId, seed: number, opts: Mode
   return read(o);
 }
 
+/** A raid or a rush that ends a match before this many seconds is a rush win (report only; GH-976, 6 Nov). */
+export const RUSH_S = 120;
+
+/** Report-only timing of the games the goal decided: the median seconds to win, and how many ended before `RUSH_S`. */
+export function describeTiming(games: readonly ModePlayed[]): string {
+  const won = games.filter((g) => g.by === 'objective').map((g) => g.ticks / 20).sort((a, b) => a - b);
+  if (won.length === 0) return 'no game decided by the goal';
+  const mid = Math.floor(won.length / 2);
+  const median = won.length % 2 === 1 ? won[mid] : (won[mid - 1] + won[mid]) / 2;
+  return `median ${Math.round(median)} s to win over ${won.length} goal games, rush wins (before ${RUSH_S} s) ${won.filter((t) => t < RUSH_S).length}`;
+}
+
 // ---------------------------------------------------------------------------
 // The reading
 // ---------------------------------------------------------------------------
@@ -625,8 +637,10 @@ export function modeMain(args: readonly string[] = process.argv.slice(2), playFn
     for (const mode of modes) for (const arr of arrangements) {
       // The mirror's lines read as they always did; a faction cell names its arrangement, and the faction at each end.
       const cell = arr[0] === arr[1] ? `${mapId} ${mode}` : `${mapId} ${mode} ${arr.join('/')}`;
-      const active = tallyModes(rows(mapId, mode, { arr }));
+      const activeRows = rows(mapId, mode, { arr });
+      const active = tallyModes(activeRows);
       console.log(`${cell} active:   ${describeTally(active, arr)}`);
+      console.log(`${cell} timing:   ${describeTiming(activeRows)}`);
       const verdicts = [
         `fair ${fairWithin(active) ? 'within' : 'OUTSIDE'} (${pct(Math.max(...active.wins), active.seeds)}%)`,
         `decisive ${fairWithinDecisive(active) ? 'within' : 'OUTSIDE'} (${pct(Math.max(...active.wins), active.wins[0] + active.wins[1])}% of ${active.wins[0] + active.wins[1]})`,

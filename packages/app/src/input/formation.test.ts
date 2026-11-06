@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { fx, type Command } from '@lions/sim';
+import { formationClosedReason } from '../net/versus-formations';
 import { formationRow, type FormationUnitFact } from '../ui/formation-model';
 import { armFormationKey, formationIds, resolveFormationOrder, type FormationOrderContext } from './formation';
 import { applyIntent, type IntentWorld } from './intents';
@@ -129,6 +130,17 @@ describe('resolveFormationOrder: too few free units', () => {
     const res = resolveFormationOrder(world(), ctx({ ids: [4, 5], formation: 'ambush' }));
     expect(res.intents[0]).toMatchObject({ formation: 'ambush' });
     expect(res.note).toBeUndefined();
+  });
+});
+
+describe('resolveFormationOrder: a room kind its map closes (GH-859, 5 Nov)', () => {
+  it('a Tel Marum economy room posts the ROOM line, with no order; Wadi Tarfan (large) and an absent reason keep the versus line', () => {
+    const tel = resolveFormationOrder(world(), ctx({ formationsOpen: false, closedReason: formationClosedReason('tel_marum', 'economy') }));
+    expect(tel.intents).toEqual([]);
+    expect(tel.note).toEqual({ text: 'Formations are off in economy rooms on this map', tone: 'mute' });
+    const large = resolveFormationOrder(world(), ctx({ formationsOpen: false, closedReason: formationClosedReason('wadi_tarfan_l', 'economy') }));
+    expect(large.note?.text).toBe('Formations are not in versus rooms yet');
+    expect(resolveFormationOrder(world(), ctx({ formationsOpen: false })).note?.text).toBe('Formations are not in versus rooms yet');
   });
 });
 

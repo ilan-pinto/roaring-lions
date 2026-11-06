@@ -17,7 +17,7 @@
  */
 import { FM_CLASS_NONE } from '@lions/sim';
 import { t } from '../i18n/t';
-import { FORMATION_VERSUS_REASON_KEY } from '../net/versus-formations';
+import { FORMATION_VERSUS_REASON_KEY, type FormationClosedReason } from '../net/versus-formations';
 import { formationMinMembers, formationVerb, type FormationId, type FormationView } from '../ui/formation-model';
 import { orderDenied, resolveMoveOrder, type IntentWorld, type OrderSink, type Resolution } from './intents';
 import type { Action } from './keymap';
@@ -44,6 +44,8 @@ export interface FormationOrderContext {
   append: boolean;
   /** `formationsOpenIn(netConfig?.mode)`. */
   formationsOpen: boolean;
+  /** The line to post when `formationsOpen` is false and the room kind (not the versus gate) is what closed it; absent: the versus line. */
+  closedReason?: FormationClosedReason;
   /** The unit's formation class (`FM_CLASS_NONE` = none): the sim counts only classed units toward `min_members`, so the
    *  resolver does too, and the order degrades exactly when the sim would. */
   classOf: (id: number) => number;
@@ -63,7 +65,7 @@ export function resolveFormationOrder(world: IntentWorld, ctx: FormationOrderCon
   // function only changes what an accepted click turns into.
   const base = resolveMoveOrder(world, { ids, x, y, append });
   if (!ctx.formationsOpen) {
-    return { intents: [], roe: base.roe, marker: false, note: { text: t(FORMATION_VERSUS_REASON_KEY), tone: 'mute' } };
+    return { intents: [], roe: base.roe, marker: false, note: { text: t(ctx.closedReason?.key ?? FORMATION_VERSUS_REASON_KEY, ctx.closedReason?.params), tone: 'mute' } };
   }
   if (base.intents.length === 0) return base;
   const verb = formationVerb(formation);

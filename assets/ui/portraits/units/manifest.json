@@ -20,14 +20,14 @@
       "file": "apc_eitan.png",
       "extent": [
         182,
-        132
+        136
       ]
     },
     "apc_kipod": {
       "file": "apc_kipod.png",
       "extent": [
         182,
-        148
+        156
       ]
     },
     "at_nlos_team": {
@@ -62,7 +62,7 @@
       "file": "atgm_cell.png",
       "extent": [
         174,
-        160
+        155
       ],
       "lead": {
         "file": "lead/atgm_cell.png",
@@ -181,7 +181,7 @@
       "file": "ifv_namer.png",
       "extent": [
         182,
-        132
+        133
       ]
     },
     "inf_grenadier": {
@@ -215,13 +215,13 @@
     "inf_squad": {
       "file": "inf_squad.png",
       "extent": [
-        168,
-        174
+        174,
+        138
       ],
       "lead": {
         "file": "lead/inf_squad.png",
         "extent": [
-          64,
+          88,
           174
         ]
       }
@@ -258,14 +258,14 @@
       "file": "mbt_lavi.png",
       "extent": [
         182,
-        144
+        150
       ]
     },
     "mbt_lavi_camo": {
       "file": "mbt_lavi_camo.png",
       "extent": [
-        182,
-        142
+        181,
+        144
       ]
     },
     "militia_cell": {
@@ -285,13 +285,13 @@
     "mortar_crew": {
       "file": "mortar_crew.png",
       "extent": [
-        148,
-        174
+        174,
+        136
       ],
       "lead": {
         "file": "lead/mortar_crew.png",
         "extent": [
-          78,
+          93,
           174
         ]
       }

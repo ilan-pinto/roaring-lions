@@ -7,6 +7,9 @@ settings:
 overrides:
   undici@>=7.18.0 <7.30.1: 7.30.1
 
+patchedDependencies:
+  three@0.186.1: 1d6b35bde16c20061eaae07350bb97f627c758be1855f89d6e444109ccd0ab29
+
 importers:
 
   .:
@@ -82,7 +85,7 @@ importers:
         version: link:../sim
       three:
         specifier: 0.186.1
-        version: 0.186.1
+        version: 0.186.1(patch_hash=1d6b35bde16c20061eaae07350bb97f627c758be1855f89d6e444109ccd0ab29)
     devDependencies:
       '@types/three':
         specifier: ^0.186.0
@@ -3510,7 +3513,7 @@ snapshots:
 
   symbol-tree@3.2.4: {}
 
-  three@0.186.1: {}
+  three@0.186.1(patch_hash=1d6b35bde16c20061eaae07350bb97f627c758be1855f89d6e444109ccd0ab29): {}
 
   tinybench@6.2.2: {}
 
