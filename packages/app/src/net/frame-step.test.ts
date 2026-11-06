@@ -325,9 +325,34 @@ describe('seatWorldFor', () => {
       expect(seatWorldFor(cfg, sim).formationAllowed(0, 'attack'), map).toBe(false);
     }
   });
+  it('GH-859 (5 Nov): a Tel Marum ECONOMY room refuses a formation order at the receiver; a Tel Marum mirror room, a Tel Marum placed room and a Wadi Tarfan economy room accept it', () => {
+    const sim = fakeSim();
+    const rooms = (map: string, faction1: 'kdf' | 'sarim', winMode?: 'camp'): MatchConfig => {
+      const cfg = config({ mode: 'versus', map, ...(winMode === undefined ? {} : { winMode }) });
+      cfg.seats[1] = { ...cfg.seats[1], side: 1, faction: faction1 };
+      return cfg;
+    };
+    // the shipped gate (open), the order as a stale or forged client sends it
+    const order: Command = { kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' };
+    const refused = seatWorldFor(rooms('tel_marum', 'sarim'), sim);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(refused.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);
+    expect(validateCommand(order, 1, refused)).toBe(false);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0 }, 1, refused)).toBe(true); // the same order without the field passes
+    for (const [name, cfg] of [
+      ['tel_marum mirror', rooms('tel_marum', 'kdf')],
+      ['tel_marum placed (win mode)', rooms('tel_marum', 'sarim', 'camp')],
+      ['wadi_tarfan economy', rooms('wadi_tarfan', 'sarim')],
+    ] as const) {
+      const w = seatWorldFor(cfg, sim);
+      expect(w.formationAllowed(0, 'attack'), name).toBe(true);
+      expect(validateCommand(order, 1, w), name).toBe(true);
+    }
+  });
   it('GH-859 P1a: with the gate open (P1b\'s path) a versus room runs the TABLE logic, by the seat\'s faction', () => {
     const sim = fakeSim();
-    const cfg = config({ mode: 'versus' });
+    // Was the fixture's default map, tel_marum: a Sarim seat 1 makes that a Tel Marum ECONOMY room, which the lead closed on 5 Nov (GH-859,
+    // `formations_closed_in` in data/versus/tel_marum.json), so this table check runs on Wadi Tarfan, an economy room that stays open.
+    const cfg = config({ mode: 'versus', map: 'wadi_tarfan' });
     cfg.seats[1] = { ...cfg.seats[1], side: 1, faction: 'sarim' };
     const w = seatWorldFor(cfg, sim, true);
     expect([w.formationAllowed(0, 'column'), w.formationAllowed(1, 'column'), w.formationAllowed(1, 'nosuch')]).toEqual([true, true, false]);

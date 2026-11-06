@@ -13,7 +13,7 @@ import { applyFrame, economyRoom, matchDigest, type Frame, type MatchConfig, typ
 import { formations } from '@lions/data';
 import type { Command } from '@lions/sim';
 import { shippedContentDigest } from './content-digest';
-import { VERSUS_FORMATIONS_OPEN, formationsOpenIn } from './versus-formations';
+import { VERSUS_FORMATIONS_OPEN, formationsOpenIn, roomKindOf } from './versus-formations';
 
 /** The slice of `Sim` the body touches. */
 export interface FrameSim {
@@ -128,7 +128,7 @@ export function seatWorldFor(
     // versus room while the gate is closed (the lead's ruling, 29 Oct), so a forced or stale client's formation order drops
     // on both machines. The protocol still carries the field; P1b opens the gate.
     formationAllowed: (seat: Seat, id: string) =>
-      formationsOpenIn(config?.mode, versusFormationsOpen, config?.map) && formationFielded(formations, config?.seats[seat].faction ?? 'kdf', id),
+      formationsOpenIn(config?.mode, versusFormationsOpen, config?.map, roomKindOf(config)) && formationFielded(formations, config?.seats[seat].faction ?? 'kdf', id),
     sideOfEntity: (id: number) => (Number.isInteger(id) && id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
   };
 }

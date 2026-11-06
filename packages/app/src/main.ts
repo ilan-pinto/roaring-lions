@@ -226,7 +226,7 @@ import { callRally, canRally } from './input/rally-call';
 import { beginPatrol, patrolClick, patrolPointOk, type PatrolDraft } from './input/patrol';
 import { formationIds } from './input/formation';
 import { createFormationArming } from './input/formation-arming';
-import { formationsOpenIn } from './net/versus-formations';
+import { formationsOpenIn, roomKindOf } from './net/versus-formations';
 import { formationRow } from './ui/formation-model';
 import { formationClassOfUnit, formationUnitFacts } from './ui/formation-sim';
 import { callCancelWorks, callWorks } from './input/works-call';
@@ -3111,7 +3111,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1);
   /** GH-859 P1a: formations are off in a versus room until P1b -- the one predicate (`net/versus-formations.ts`),
    *  read by the HUD's row, the arming and the click's resolver alike. */
-  const formationsOpen = (): boolean => formationsOpenIn(netConfig?.mode, undefined, netConfig?.map);
+  const formationsOpen = (): boolean => formationsOpenIn(netConfig?.mode, undefined, netConfig?.map, roomKindOf(netConfig));
   /** Who a formation order is handed: the selected own living, less any unit inside a building, aboard a carrier or
    *  below ground (the sim leaves those out at accept time, so leaving them out here keeps `min_members` honest). */
   const formationOrderIds = (): number[] =>
@@ -3644,7 +3644,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? spectatorSink
     : room === null
     ? transport
-    : roomOrderSink(() => room.status(), transport, () => { blockedNotes?.blocked(); }, netConfig?.mode, undefined, netConfig?.map);
+    : roomOrderSink(() => room.status(), transport, () => { blockedNotes?.blocked(); }, netConfig?.mode, undefined, netConfig?.map, roomKindOf(netConfig));
   /** The advisor's panel and proposal strip (N4a task 10), a versus room only.
    *  Mounted hidden and shown while the room says an advisor sits beside THIS
    *  seat (`onAdvisors`, installed with the scoreboard below, which hears
@@ -3655,7 +3655,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let advisorPanel: AdvisorPanel | null = null;
   if (room !== null && netConfig !== null && netSeat !== null && versusRoom && !spectating) {
     const myNetSeat: Seat = netSeat;
-    const orderSink = roomOrderSink(() => room.status(), transport, () => blockedNotes?.blocked(), netConfig.mode, undefined, netConfig.map);
+    const orderSink = roomOrderSink(() => room.status(), transport, () => blockedNotes?.blocked(), netConfig.mode, undefined, netConfig.map, roomKindOf(netConfig));
     const panel = mountAdvisorPanel(document.body, {
       send: (a) => room.advisor(a),
       queueCommand: (cmd) => orderSink.queueCommand(cmd),
@@ -4702,7 +4702,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (spectating) return;
     let refused = false;
     applyIntent(
-      room === null ? transport : roomOrderSink(() => room.status(), transport, () => { refused = true; }, netConfig?.mode, undefined, netConfig?.map),
+      room === null ? transport : roomOrderSink(() => room.status(), transport, () => { refused = true; }, netConfig?.mode, undefined, netConfig?.map, roomKindOf(netConfig)),
       intent,
       sim
     );
