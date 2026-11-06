@@ -30,8 +30,8 @@
  * PHASE `cost`. `wadi_tarfan_l` (96x96) sandbox, topped up with Lavis and riflemen to the sandbox sim's capacity
  * (256: not 400, the sandbox cannot hold more), 24 hulls driving round the view so every slot is live and the
  * bounding box covers the view (the worst case for the shader). Per preset (one boot each: the preset applies at boot),
- * the `disturb` layer off (amplitude 0 and the frame's own work skipped: N2 as good as absent) against on, INTERLEAVED
- * three rounds, at zoom 0.5 and 1, `renderer.frame(1, 16)` cpu median/p95 and `gl.finish`-bracketed gpu median/p95
+ * the `disturb` layer off (amplitude 0 and the frame's own work skipped: N2 as good as absent) against on, ABBA
+ * (arm order alternates per round), six rounds, gated on the paired median of on - off, at zoom 0.5 and 1, `renderer.frame(1, 16)` cpu median/p95 and `gl.finish`-bracketed gpu median/p95
  * (`render-frame-cost.ts`'s method), then the slot ladder 24/16/8/0 on the same page. Conditions printed: GL renderer,
  * drawing buffer, load average before and after.
  */
@@ -56,7 +56,7 @@ import { gpuLaunchArgs } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { claimPortOrAttach } from '../ui-review/port';
 import { NATURE_DEFAULT_PORT, naturePortRefusal } from './nature-port';
-import { armOrder, pairedLine, pairedStats, runRounds } from './nature-abba';
+import { armOrder, median, pairedLine, pairedStats, runRounds } from './nature-abba';
 
 const TAG = 'nature';
 const arg = (k: string, d: string): string => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
@@ -677,8 +677,7 @@ async function costPhase(browser: Browser, errors: string[]): Promise<void> {
         r.opts.quality = { ...q, nature: { wakes: true, foot: true, ...((q.nature as Record<string, unknown>) ?? {}), slots: s } };
       }, [on, slots] as const);
     };
-    const med = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
-    const f = (xs: Sample[], k: 'cpuMed' | 'cpuP95' | 'gpuMed' | 'gpuP95'): number => med(xs.map((x) => x[k]));
+    const f = (xs: Sample[], k: 'cpuMed' | 'cpuP95' | 'gpuMed' | 'gpuP95'): number => median(xs.map((x) => x[k]));
     const budget = preset === 'high' ? 0.6 : preset === 'medium' ? 0.5 : 0.3;
     const shipped = preset === 'high' ? 24 : preset === 'medium' ? 16 : 8;
     // The shipped rung first; over budget on either zoom steps down the 24/16/8/0 ladder and re-measures.
