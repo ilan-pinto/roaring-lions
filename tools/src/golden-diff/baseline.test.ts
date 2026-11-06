@@ -1245,7 +1245,7 @@ describe('capture keeps the alert feed out of shot (repaint drift since #488)', 
 });
 
 describe('the `bloom` zero check (GH-943 P1 T5)', () => {
-  const declared = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded', 'relief'];
+  const declared = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'];
   it('is declared, once and as a ZERO check, on every gated quiet scenario, and on no other', () => {
     for (const id of Object.keys(BASELINES)) {
       const hits = (BASELINES[id].layerChecks ?? []).filter((c) => c.layer === 'bloom');

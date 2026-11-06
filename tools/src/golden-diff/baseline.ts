@@ -1966,8 +1966,9 @@ const BLOOM_ZERO_CHECK: LayerCheckSpec = {
     'lit ground and the check goes red on any scenario at zoom >= 0.7.',
 };
 
-/** The scenarios the zero check is declared on: every gated one except `aftermath` (see `BLOOM_ZERO_CHECK`). */
-const BLOOM_ZERO_SCENARIOS: readonly string[] = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded', 'relief'];
+/** The scenarios the zero check is declared on: every gated one except `aftermath` (see `BLOOM_ZERO_CHECK`) and `relief`
+ * (tick 500: the legacy reading is 167 px / 0.0139, pixels exceed linear 1.0; lead-approved 6 Nov, PR 1061). No threshold moved. */
+const BLOOM_ZERO_SCENARIOS: readonly string[] = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'];
 
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = Object.fromEntries(
   Object.entries(BASELINES_DECLARED).map(([id, spec]) => [
