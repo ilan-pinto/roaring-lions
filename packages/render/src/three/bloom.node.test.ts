@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { createNodePostChain, type NodePostChain, type NodePostDeps } from './post-chain.node';
 import { createNodeBloom, type BloomFactory } from './bloom.node';
+import { BLOOM_MATHS, OUTPUT_MATHS } from './output-maths';
 import {
   BLOOM_RADIUS,
   BLOOM_RESOLUTION_SCALE,
@@ -27,14 +28,14 @@ async function world() {
   const TSL = await import('three/tsl');
   const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
   const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
-  const deps: NodePostDeps = { W, TSL, smaa: smaa as never };
+  const deps: NodePostDeps = { W, TSL, smaa: smaa as never, outputMaths: OUTPUT_MATHS };
   return { W, TSL, deps, bloom: bloom as unknown as BloomFactory };
 }
 const fakeRenderer = {} as never;
 
 async function chainWith(quality: (typeof QUALITY_PRESETS)['high']) {
   const w = await world();
-  const nb = createNodeBloom({ bloom: w.bloom, W: w.W, renderer: fakeRenderer });
+  const nb = createNodeBloom({ bloom: w.bloom, W: w.W, renderer: fakeRenderer, maths: BLOOM_MATHS });
   const chain: NodePostChain = createNodePostChain(
     w.deps,
     fakeRenderer,
@@ -62,7 +63,7 @@ async function built() {
     node = b as unknown as Built;
     return b;
   };
-  const nb = createNodeBloom({ bloom: spy, W: w.W, renderer: fakeRenderer });
+  const nb = createNodeBloom({ bloom: spy, W: w.W, renderer: fakeRenderer, maths: BLOOM_MATHS });
   const chain = createNodePostChain(w.deps, fakeRenderer, new THREE.Scene(), new THREE.PerspectiveCamera(), QUALITY_PRESETS.high, {
     fog: null,
     ao: null,
@@ -130,7 +131,7 @@ describe('the toggle and the zoom fade drive the strength uniform, and 0 adds no
 
   it('state set BEFORE the chain exists, or kept across a rebuild, still lands on the new node', async () => {
     const w = await world();
-    const nb = createNodeBloom({ bloom: w.bloom, W: w.W, renderer: fakeRenderer });
+    const nb = createNodeBloom({ bloom: w.bloom, W: w.W, renderer: fakeRenderer, maths: BLOOM_MATHS });
     nb.control.setEnabled(false);
     expect(nb.control.built).toBe(false);
     const make = () =>

@@ -23,7 +23,31 @@
 import * as THREE from 'three';
 import type { Node as TslNode, WebGPURenderer } from 'three/webgpu';
 import type { PostStage, PostStageContext, PostStageFactory } from './backend/backend';
-import { BLOOM_RADIUS, BLOOM_RESOLUTION_SCALE, BLOOM_SMOOTH_WIDTH, BLOOM_STRENGTH, BLOOM_THRESHOLD, bloomStrengthFor, tightHalfRgba, type BloomControl } from './bloom-spec';
+import type {
+  BLOOM_RADIUS,
+  BLOOM_RESOLUTION_SCALE,
+  BLOOM_SMOOTH_WIDTH,
+  BLOOM_STRENGTH,
+  BLOOM_THRESHOLD,
+  bloomStrengthFor,
+  tightHalfRgba,
+  BloomControl,
+} from './bloom-spec';
+
+/**
+ * `bloom-spec.ts`'s constants and helpers, INJECTED rather than imported: legacy `bloom.ts` re-exports that module, so the bundler hoists
+ * it into the ThreeRenderer chunk, and a value import here would make the node-backend chunk load that chunk (and the legacy composer in
+ * it); the bundle census (`pnpm --filter @lions/tools webgpu:bundle`) fails on exactly that. Built by `output-maths.ts`.
+ */
+export interface BloomMaths {
+  readonly strength: typeof BLOOM_STRENGTH;
+  readonly radius: typeof BLOOM_RADIUS;
+  readonly threshold: typeof BLOOM_THRESHOLD;
+  readonly resolutionScale: typeof BLOOM_RESOLUTION_SCALE;
+  readonly smoothWidth: typeof BLOOM_SMOOTH_WIDTH;
+  readonly strengthFor: typeof bloomStrengthFor;
+  readonly tightHalfRgba: typeof tightHalfRgba;
+}
 
 /** The slice of `BloomNode` this file touches (the node is a TempNode; it is also a graph node). */
 export interface BloomNodeLike {
@@ -42,6 +66,7 @@ export interface NodeBloomDeps {
   /** For `readPreBloom` only (the debug read): the runtime classes and the renderer. */
   readonly W: typeof import('three/webgpu');
   readonly renderer: WebGPURenderer;
+  readonly maths: BloomMaths;
 }
 
 export interface NodeBloom {
@@ -54,15 +79,15 @@ export function createNodeBloom(deps: NodeBloomDeps): NodeBloom {
   let input: TslNode | null = null;
   let enabled = true;
   let fade = 1;
-  const strength = (): number => bloomStrengthFor(enabled, fade);
+  const strength = (): number => deps.maths.strengthFor(enabled, fade);
   const apply = (): void => {
     if (node) node.strength.value = strength();
   };
 
   const factory: PostStageFactory = (ctx: PostStageContext): PostStage => {
-    const built = deps.bloom(ctx.input, BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD);
-    built.smoothWidth.value = BLOOM_SMOOTH_WIDTH;
-    built.setResolutionScale(BLOOM_RESOLUTION_SCALE);
+    const built = deps.bloom(ctx.input, deps.maths.strength, deps.maths.radius, deps.maths.threshold);
+    built.smoothWidth.value = deps.maths.smoothWidth;
+    built.setResolutionScale(deps.maths.resolutionScale);
     node = built;
     input = ctx.input;
     apply();
@@ -119,7 +144,7 @@ export function createNodeBloom(deps: NodeBloomDeps): NodeBloom {
         quad.render(renderer);
         renderer.setRenderTarget(was);
         const raw = (await renderer.readRenderTargetPixelsAsync(target, 0, 0, width, height)) as unknown as Uint16Array;
-        return { data: tightHalfRgba(raw, width, height), width, height };
+        return { data: deps.maths.tightHalfRgba(raw, width, height), width, height };
       } finally {
         renderer.setRenderTarget(was);
         quad.geometry.dispose();

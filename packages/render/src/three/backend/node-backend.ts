@@ -18,7 +18,7 @@ import type { BackendKind } from '../../gpu';
 import type { PostConfig, PostKit, RenderBackend } from './backend';
 import { createNodePostChain, type NodePostChain, type OutputMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
-import { createNodeBloom } from '../bloom.node';
+import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -31,6 +31,8 @@ export interface NodeBackendOptions {
   readonly forceWebGL: boolean;
   /** The adapter name the probe found, for `node-webgpu`. */
   readonly adapter: string;
+  /** The shared bloom constants and helpers, injected (see `BloomMaths`); `output-maths.ts`'s `BLOOM_MATHS`. */
+  readonly bloomMaths: BloomMaths;
   readonly warn?: (msg: string) => void;
 }
 
@@ -77,7 +79,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   /** Null factories until each task lands (T4 fog, T5 bloom, T7 AO). The chain reads them when it is built. */
   const kit: PostKit = { fog: null, ao: null, bloom: null };
   // T5: the bloom stage. Its control outlives chain rebuilds (the toggle state survives `build`).
-  const nodeBloom = createNodeBloom({ bloom: bloom as never, W, renderer });
+  const nodeBloom = createNodeBloom({ bloom: bloom as never, W, renderer, maths: opts.bloomMaths });
   kit.bloom = nodeBloom.factory;
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();

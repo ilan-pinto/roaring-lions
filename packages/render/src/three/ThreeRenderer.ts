@@ -673,7 +673,7 @@ import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
-import { OUTPUT_MATHS } from './output-maths';
+import { BLOOM_MATHS, OUTPUT_MATHS } from './output-maths';
 import {
   RAIN_SPLASH_KEY,
   RAIN_STREAK_KEY,
@@ -3730,6 +3730,7 @@ export class ThreeRenderer implements Renderer {
         background: this.opts.background,
         forceWebGL,
         adapter: plan.kind === 'node-webgpu' ? plan.adapter : 'webgl2',
+        bloomMaths: BLOOM_MATHS,
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();
