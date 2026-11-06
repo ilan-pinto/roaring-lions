@@ -98,7 +98,7 @@ export function gateTable(g: GateInputs): GateRow[] {
     detail: g.triangles.length === 0 ? 'no triangle reading' : g.triangles.map((t) => `z${t.zoom}: L ${t.L} F ${t.F} G ${t.G}`).join('; '),
   });
   for (const b of g.bloom) {
-    const ok = b.exit === 0 && b.quietMax !== null && b.quietMax < BLOOM_QUIET_CEILING;
+    const ok = b.exit === 0 && b.quietMax !== null && b.quietMax > 0 && b.quietMax < BLOOM_QUIET_CEILING; // a max of exactly 0 is a black buffer, not a quiet scene
     rows.push({ item: `bloom census ${b.arm}: quiet max < ${BLOOM_QUIET_CEILING}`, verdict: ok ? 'PASS' : 'FAIL', detail: `exit ${b.exit}, max ${b.quietMax === null ? 'unread' : b.quietMax}` });
   }
   rows.push({

@@ -48,6 +48,7 @@ const ROOT = path.resolve(TOOLS, '..');
 const OUT = path.resolve(arg('out-dir', ''));
 const MAX_LOAD = Number(arg('max-load', String(MAX_LOADAVG_1M)));
 const ABBA_ROUNDS = Number(arg('abba-rounds', '6'));
+const WAIT_QUIET = Number(arg('wait-quiet', '10'));
 const LOCK = arg('lock', '');
 const DPR = Number(arg('dpr', '2'));
 const QUALITY = arg('quality', 'high') as 'low' | 'medium' | 'high';
@@ -87,7 +88,7 @@ interface ChildResult {
 }
 /** Runs one sibling tool to completion, streaming its output. Its own dev server and browser are its own business. */
 async function runTool(file: string, toolArgs: string[]): Promise<ChildResult> {
-  const load = await untilQuiet(10);
+  const load = await untilQuiet(WAIT_QUIET);
   console.log(`\n[p1-sheet] >>> ${file} ${toolArgs.join(' ')} (loadavg ${load.toFixed(2)})`);
   return new Promise((resolve) => {
     const child = spawn('pnpm', ['exec', 'tsx', file, ...toolArgs], { cwd: TOOLS, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -185,7 +186,7 @@ const timeScript = (arm: SheetArm): string => `(async () => {
 })()`;
 
 async function sheetArm(browser: Browser, arm: SheetArm, port: number): Promise<ArmSheet> {
-  const load = await untilQuiet(10);
+  const load = await untilQuiet(WAIT_QUIET);
   const lines: string[] = [];
   const page: Page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: DPR });
   page.on('pageerror', (e) => lines.push(`pageerror: ${e.message}`));
@@ -348,7 +349,7 @@ h2{margin:14px 0 6px;font-size:14px}
 // ---------------------------------------------------------------------------------------------------------------------------
 
 const startedAt = new Date().toISOString();
-const startLoad = await untilQuiet(10);
+const startLoad = await untilQuiet(WAIT_QUIET);
 const md: string[] = [];
 let abbaRows: AbbaVerdictRow[] = [];
 let triangles: { zoom: number; L: number; F: number; G: number }[] = [];
@@ -360,7 +361,7 @@ const consoleAll: string[] = [];
 
 if (!SKIP.has('abba')) {
   const jsonFile = path.join(OUT, 'abba.json');
-  const abbaArgs = (armList: string): string[] => [`--port=${BASE_PORT}`, `--root=${ROOT}`, '--counts=300,600', `--rounds=${ABBA_ROUNDS}`, '--frames=60', '--wait-quiet=10', `--max-load=${MAX_LOAD}`, `--arms=${armList}`, '--legacy=matched', `--out=${jsonFile}`];
+  const abbaArgs = (armList: string): string[] => [`--port=${BASE_PORT}`, `--root=${ROOT}`, '--counts=300,600', `--rounds=${ABBA_ROUNDS}`, '--frames=60', `--wait-quiet=${WAIT_QUIET}`, `--max-load=${MAX_LOAD}`, `--arms=${armList}`, '--legacy=matched', `--out=${jsonFile}`];
   let r = await runTool('src/perf/webgpu-abba-run.ts', abbaArgs('F,G'));
   validation += countValidationErrors(r.out.split('\n'));
   if (r.code === 2 && /GPUValidationError/i.test(r.out)) {

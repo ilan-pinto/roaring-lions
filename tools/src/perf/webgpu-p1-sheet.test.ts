@@ -67,6 +67,7 @@ describe('gateTable goes red on a constructed input', () => {
   it('a bloom quiet max at the ceiling, an unread max or a non-zero exit is FAIL', () => {
     expect(verdictOf({ ...good, bloom: [{ arm: 'G', exit: 0, quietMax: 0.9 }] }, /bloom/)).toBe('FAIL');
     expect(verdictOf({ ...good, bloom: [{ arm: 'G', exit: 0, quietMax: null }] }, /bloom/)).toBe('FAIL');
+    expect(verdictOf({ ...good, bloom: [{ arm: 'G', exit: 0, quietMax: 0 }] }, /bloom/)).toBe('FAIL');
     expect(verdictOf({ ...good, bloom: [{ arm: 'G', exit: 2, quietMax: 0.1 }] }, /bloom/)).toBe('FAIL');
   });
   it('one validation error, a missing rAF line or a short sheet is FAIL', () => {
