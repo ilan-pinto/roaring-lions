@@ -125,11 +125,43 @@ export interface EnvironmentBake {
 }
 export type BakeSky = (gl: THREE.WebGLRenderer, colors: SkyColors, previous: EnvironmentBake | null) => EnvironmentBake;
 
-/** The real bake: CPU gradient -> `fromEquirectangular`, repainting `previous`'s target when there is one. */
-export const pmremBake: BakeSky = (gl, colors, previous) => {
+/**
+ * GH-943 P1 (T6): what the registry is attached to on the NODE backend. There is no `WebGLRenderer` there, and the PMREM
+ * generator is `three/webgpu`'s, which only the lazy node chunk may import, so the node backend hands over a host that carries
+ * its own bake (`environment.node.ts`, `createNodePmremHost`). Its presence also switches the registry's toggle to intensity
+ * (see `EnvironmentRegistry.setEnabled`).
+ */
+export interface NodePmremHost {
+  readonly isNodePmremHost: true;
+  readonly bake: (sky: SkyImage, previous: EnvironmentBake | null) => EnvironmentBake;
+}
+/**
+ * The sky as the registry hands it to a node bake: the SAME `skyEquirectFloats` image the legacy bake uses, already converted to
+ * half floats. The registry supplies it so the node twin imports NOTHING at runtime from this module: a module both the legacy
+ * ThreeRenderer chunk and the lazy node chunk import is placed in the ThreeRenderer chunk, which a node boot must not load
+ * (the bundle census refuses it).
+ */
+export interface SkyImage {
+  readonly half: Uint16Array;
+  readonly width: number;
+  readonly height: number;
+}
+export type PmremHost = THREE.WebGLRenderer | NodePmremHost;
+export function isNodePmremHost(h: PmremHost | null): h is NodePmremHost {
+  return h !== null && (h as NodePmremHost).isNodePmremHost === true;
+}
+
+/** The sky image as half floats (what both the legacy and the node bake upload). */
+export function skyHalfImage(colors: SkyColors): SkyImage {
   const floats = skyEquirectFloats(colors, SKY_WIDTH, SKY_HEIGHT);
   const half = new Uint16Array(floats.length);
   for (let i = 0; i < floats.length; i++) half[i] = THREE.DataUtils.toHalfFloat(floats[i]);
+  return { half, width: SKY_WIDTH, height: SKY_HEIGHT };
+}
+
+/** The real bake: CPU gradient -> `fromEquirectangular`, repainting `previous`'s target when there is one. */
+export const pmremBake: BakeSky = (gl, colors, previous) => {
+  const { half } = skyHalfImage(colors);
   const source = new THREE.DataTexture(half, SKY_WIDTH, SKY_HEIGHT, THREE.RGBAFormat, THREE.HalfFloatType);
   source.mapping = THREE.EquirectangularReflectionMapping;
   source.colorSpace = THREE.NoColorSpace;
@@ -160,7 +192,7 @@ export const pmremBake: BakeSky = (gl, colors, previous) => {
 export class EnvironmentRegistry {
   private preset: LitTimeOfDay;
   private bake: EnvironmentBake | null = null;
-  private gl: THREE.WebGLRenderer | null = null;
+  private gl: PmremHost | null = null;
   private readonly live = new Set<WeakRef<THREE.MeshStandardMaterial>>();
   /** Each registered material's class, resolved once at adoption (its tag, else the template's fallback). */
   private readonly classOf = new WeakMap<THREE.Material, EnvClass>();
@@ -187,7 +219,7 @@ export class EnvironmentRegistry {
   }
 
   /** Give the registry its GL context and paint the sky. Idempotent. */
-  attach(gl: THREE.WebGLRenderer): void {
+  attach(gl: PmremHost): void {
     if (this.disposed || this.gl !== null) return;
     this.gl = gl;
     this.paint();
@@ -197,6 +229,9 @@ export class EnvironmentRegistry {
   /**
    * The debug layer: false strips the environment from every registered
    * material (the frame is then lit by the hemisphere alone), true puts it back.
+   * On the NODE backend it zeroes `envMapIntensity` and keeps the `envMap`: a
+   * null/non-null flip changes the material's node program and would rebuild it,
+   * an intensity is a uniform (GH-943 P1 T6).
    * Returns how many live materials it wrote.
    */
   setEnabled(on: boolean): number {
@@ -217,7 +252,8 @@ export class EnvironmentRegistry {
 
   private paint(): void {
     if (this.gl === null) return;
-    this.bake = this.bakeSky(this.gl, skyColorsFor(this.preset, this.resolveHex), this.bake);
+    const colors = skyColorsFor(this.preset, this.resolveHex);
+    this.bake = isNodePmremHost(this.gl) ? this.gl.bake(skyHalfImage(colors), this.bake) : this.bakeSky(this.gl, colors, this.bake);
     this.builds++;
   }
 
@@ -246,13 +282,15 @@ export class EnvironmentRegistry {
     const cls = this.classOf.get(m);
     if (cls === undefined) return false;
     const spec = envSpecFor(cls);
-    const tex = this.enabled ? this.texture : null;
+    // Node backend: the toggle is an intensity, never a null envMap (a program rebuild).
+    const byIntensity = isNodePmremHost(this.gl);
+    const tex = this.enabled || byIntensity ? this.texture : null;
     if (spec.receives && tex !== null) {
       if (m.envMap !== tex) {
         m.envMap = tex;
         m.needsUpdate = true;
       }
-      m.envMapIntensity = spec.intensity;
+      m.envMapIntensity = this.enabled ? spec.intensity : 0;
       return true;
     }
     if (m.envMap !== null) {

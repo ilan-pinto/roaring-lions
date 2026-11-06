@@ -11,6 +11,7 @@
  * WebGLRenderer's context) is dropped. Copied from the L5 spike (`spike/webgpu-trial-gate.ts`).
  */
 import * as THREE from 'three';
+import { NODE_PMREM_TAG } from '../environment.node';
 
 export type UnportedKind = 'shader-material' | 'on-before-compile' | 'env-map' | 'image-release';
 
@@ -83,7 +84,12 @@ export function censusUnported(root: THREE.Object3D): UnportedHook[] {
         }
       }
       const env = (m as THREE.MeshStandardMaterial).envMap;
-      if (env && (env as THREE.Texture & { isRenderTargetTexture?: boolean }).isRenderTargetTexture === true) {
+      // A PMREM baked BY the node renderer (`environment.node.ts`, tagged) is valid here; only the WebGLRenderer's is dropped.
+      if (
+        env &&
+        (env as THREE.Texture & { isRenderTargetTexture?: boolean }).isRenderTargetTexture === true &&
+        (env.userData as Record<string, unknown>)[NODE_PMREM_TAG] !== true
+      ) {
         note('env-map', materialKey(m, o));
         (m as THREE.MeshStandardMaterial).envMap = null;
       }
