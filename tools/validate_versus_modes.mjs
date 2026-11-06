@@ -10,7 +10,7 @@
 //     never begin), does not overlap the other flag or a camp, and is no zone of the map already (the loader adds
 //     `flag_friendly` / `flag_hostile`, and the room refuses a name that is taken);
 //   - every camp tile is inside the map, on open ground (OPEN_SYMBOLS, the rules files' own set), the camp
-//     stands within CAMP_REACH tiles (Chebyshev) of its END's anchor, and the two camps do not overlap;
+//     stands within MODE_CAMP_REACH tiles (Chebyshev) of its END's anchor, and the two camps do not overlap;
 //   - a points zone names a zone the map declares, or (with `at` and `size`, GH-976 P4) declares its own ground, whose name
 //     the map does not have and which is at least half open; either way it is listed once and contains NEITHER end's anchor:
 //     a seat that held a scoring zone from its first tick would be paid for standing still;
@@ -20,7 +20,13 @@
 //
 // The anchors come from `anchorsOf` of the rules validator (the measured seats first, else the map's own
 // versus_0/versus_1 markers), which tools/src/validate_versus_rules.test.ts holds to the shipped function.
-import { CAMP_REACH, OPEN_SYMBOLS, anchorsOf, pointSymmetric, scanExit } from './validate_versus_rules.mjs';
+import { OPEN_SYMBOLS, anchorsOf, pointSymmetric, scanExit } from './validate_versus_rules.mjs';
+
+/** How far a MODE camp may stand from its end's anchor (Chebyshev, nearest camp tile): 10 (GH-976, 5 Nov). The economy camps of
+ *  data/versus/<map>.json keep CAMP_REACH 6 (validate_versus_rules.mjs): a mode camp is a raid target, not a production yard, and the
+ *  forward camps that make "destroy the camp" fair stand 8 (wadi_tarfan) and 10 (wadi_tarfan_l) tiles out. milh_flats' (15,39) and
+ *  (31,7) are within 6 and unchanged. A camp past 10 has not been read fair anywhere. */
+export const MODE_CAMP_REACH = 10;
 
 /** @lions/net WIN_MODES. */
 export const WIN_MODES = ['camp', 'points', 'flag'];
@@ -79,8 +85,8 @@ export function versusModeFailures(files, mapsById) {
           if (anchors) reach = Math.min(reach, Math.max(Math.abs(x - anchors[end][0]), Math.abs(y - anchors[end][1])));
         }
       }
-      if (anchors && reach > CAMP_REACH) {
-        out.push(`${file}: ${end} camp is ${reach} tiles (Chebyshev) from the ${end} anchor (${anchors[end].join(',')}); the most is ${CAMP_REACH}`);
+      if (anchors && reach > MODE_CAMP_REACH) {
+        out.push(`${file}: ${end} camp is ${reach} tiles (Chebyshev) from the ${end} anchor (${anchors[end].join(',')}); the most is ${MODE_CAMP_REACH}`);
       }
       camps.push({ end, tiles });
       // GH-976: the exit (tile index) is an open ring tile of the footprint -- the set the sim's exitTile scans.

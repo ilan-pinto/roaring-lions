@@ -902,7 +902,7 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   blobs that attack-move on each other's camp meet, and the wipe ends the game before a camp falls: 3% (wadi_tarfan) and 56% (milh_flats) decided by
   the camp. `--wipe=off` takes the goal share to 100% (annihilation is the cause) and leaves the passive wins (8-44 of 288), so (1) is defender advantage
   and not an annihilation artefact.
-- **The data lever.** The `camps` of a mode file (any open 2x2, within `CAMP_REACH` 6 of the seat's anchor, point-symmetric where the map is). Moving the
+- **The data lever.** The `camps` of a mode file (any open 2x2, within `MODE_CAMP_REACH` 10 of the seat's anchor (`tools/validate_versus_modes.mjs`; the ECONOMY camps keep `CAMP_REACH` 6), point-symmetric where the map is). Moving the
   camps forward, toward the enemy, takes the passive seat out of its own cover: the attacker razes before it fights. Passive lost 48 of 48 in every
   forward cell of wadi_tarfan and milh_flats. The goal share is the second lever, and only milh_flats moves it: (15,39) / (31,7) reads 96% by the goal.
 - **Shipped: `camp` on `milh_flats` only, camps (15,39) and (31,7).** Fitted on 0-191 (92 / 100, 52.1%, 96.4% by the goal, passive 192 / 192 from each
@@ -910,6 +910,16 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   each end. It is a RACE (mean 95 s), read as "not unfair for this probe's play" like the flag. (The raid took 32 s on the east camp and 82 s on
   the west one, and a defender that stood on its camp held it 55 / 96 in the west and 8 / 96 in the east. That gap was the EXIT CORNER, not the
   terrain: see "The exit corner" below. The numbers in this bullet are the pre-fix reading.)
+- **`camp` on `wadi_tarfan` and `wadi_tarfan_l` (GH-976, 5 Nov; the lead's ruling).** Forward camps with `wipe: after_camp`: wadi_tarfan (13,18) exit (12,17) and
+  (33,28) exit (35,30), reach 8; wadi_tarfan_l (26,30) exit (25,29) and (68,64) exit (70,66), reach 10; all point mirrors. The screen that found them
+  (stride-2 grid, reach 7-12, 6-seed passive screen then 24-seed all-arm, finals at 25000) read wadi_tarfan at (12,18) / (34,28); that pair puts a PLACED-force
+  unit on a camp tile ((12,18) and (35,29) at spawn) and `validate_versus_modes.test.ts` "no camp tile is a tile the placed force spawns on" refuses it, so it was
+  moved one tile east, which keeps the reach and the mirror. Fresh seeds 28000-28191 (192 per arm, mirror): wadi_tarfan west 101 / east 91 (52.6%), 100% by the goal,
+  passive lost 192 / 192 from each end (0 wipes), holds 8 / 17, active mean raze 61 s of 120; wadi_tarfan_l 100 / 92 (52.1%), 100% by the goal, passive lost 192 / 192 from
+  each end, holds 14 / 13, active mean raze 88 s of 240; no wiped-but-unrazed game in any arm. The **passive-arm failure of the old camps was placement, not structure**:
+  a passive seat loses every game once the camp stands forward of its anchor (relative to the enemy). milh_flats_l, rujm_sawda and tel_marum stay out: no placement
+  passed every gate (rujm_sawda fails G5 on one unrazed game or G4; tel_marum's east end wins 70% and its camps cannot be true mirrors on a map that is not
+  point-symmetric; milh_flats_l passed but 15% of its defend games end on the cap). The long defend games on milh_flats_l are why it is not listed.
 - **The exit corner (GH-976, 5 Nov).** `structureExit` answered `exitTile`, the first open tile of a ROW-MAJOR scan from the NW corner of the ring. That
   is not point-symmetric: the west camp's exit was (14.5,38.5) on its back side, the east camp's (30.5,6.5) facing the attack, where the mirror of the
   west exit is (33.5,9.5). The raiders aim at the enemy camp's exit and the defender stands on its own, so one end raided in 32 s and the other in 84 s
@@ -939,7 +949,7 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   `goalsOf` hands it to `outcomeOf` (app only; no sim change, no hash change). With `after_camp` and exactly one side armed, `outcomeOf` returns
   ongoing: the wiped side's camp stands until razed, and the razer's `goalOutcome` is the win. At a stalemate or the cap that lone armed side wins
   (`armedWins`, `by` stays `stalemate` / `time`), because `byForces` counts unarmed value and could hand the cap to the wiped side. A mutual wipe is
-  still a draw; surrender and forfeit are room endings and untouched; `ends` is byte-identical. milh_flats ships `after_camp`; wadi_tarfan stays `{}`.
+  still a draw; surrender and forfeit are room endings and untouched; `ends` is byte-identical. milh_flats, wadi_tarfan and wadi_tarfan_l ship `after_camp`.
   Probe gates (`tools/src/backtest/versus-modes.ts`): G5 (after a wipe no capped game, mean wipe-to-goal at most 120 s on 48x48, 240 s above), G4 (the
   `--defend` arm), the report-only G1b contested share, and `passiveLost` now reads `cleanWins` (goal or wipe only; it counted cap wins before).
   `--camps=rules --camp-wipe=after_camp` screens a map with no camp block with its economy-rules camps, in memory. A survivor that cannot hurt a

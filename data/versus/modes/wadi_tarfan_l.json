@@ -1,11 +1,16 @@
 {
   "id": "wadi_tarfan_l",
   "map": "wadi_tarfan_l",
+  "camps": {
+    "friendly": { "at": [26, 30], "size": [2, 2], "exit": [25, 29] },
+    "hostile": { "at": [68, 64], "size": [2, 2], "exit": [70, 66] }
+  },
   "flags": {
     "friendly": { "at": [54, 54], "size": [5, 5] },
     "hostile": { "at": [37, 37], "size": [5, 5] }
   },
   "modes": {
+    "camp": { "wipe": "after_camp" },
     "flag": { "hold_s": 30 },
     "points": {
       "zones": [

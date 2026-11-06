@@ -136,15 +136,17 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     const r = rig();
     showArenaSetup(r.host, r.deps);
     await settle();
-    pickMap(r, 'wadi_tarfan');
+    pickMap(r, 'tel_marum');
     expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden')).toBe(false);
     expect(opts(modeField(r))).toEqual(['annihilation', 'points', 'flag']);
     expect([...modeField(r).options].map((o) => o.textContent)).toEqual(['Annihilation', 'Points race', 'Capture the flag']);
-    // Camp is read fair nowhere: never on the list.
+    // Camp is read fair on wadi_tarfan, milh_flats and wadi_tarfan_l (GH-976, 5 Nov) and nowhere else: not on tel_marum or rujm_sawda.
     expect(opts(modeField(r))).not.toContain('camp');
-    for (const id of ['rujm_sawda', 'tel_marum', 'wadi_tarfan_l']) {
+    pickMap(r, 'rujm_sawda');
+    expect(opts(modeField(r)), 'rujm_sawda').toEqual(['annihilation', 'points', 'flag']);
+    for (const id of ['wadi_tarfan', 'wadi_tarfan_l']) {
       pickMap(r, id);
-      expect(opts(modeField(r)), id).toEqual(['annihilation', 'points', 'flag']);
+      expect(opts(modeField(r)), id).toEqual(['annihilation', 'camp', 'points', 'flag']);
     }
   });
 
@@ -231,7 +233,7 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     showArenaSetup(r.host, r.deps);
     await settle();
     const [mapSel, , modeSel] = [...r.host.querySelectorAll<HTMLSelectElement>('select')]; // map, matchup, how to win
-    mapSel.value = 'wadi_tarfan';
+    mapSel.value = 'tel_marum';
     mapSel.dispatchEvent(new Event('change'));
     modeSel.value = 'flag';
     modeSel.dispatchEvent(new Event('change'));

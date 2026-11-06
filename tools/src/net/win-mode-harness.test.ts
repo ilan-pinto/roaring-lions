@@ -340,7 +340,9 @@ describe('pnpm arena --mode', () => {
     expect(refusalOf('wadi_tarfan', 'mirror', 'points')).toBeNull();
     expect(refusalOf('milh_flats', 'mirror', 'points')).toBeNull();
     expect(refusalOf('tel_marum', 'mirror', 'points')).toBeNull();   // GH-976 P4: the five other open maps
-    expect(refusalOf('wadi_tarfan', 'mirror', 'camp')).toMatch(/not offered on this map/);
+    expect(refusalOf('wadi_tarfan', 'mirror', 'camp')).toBeNull();   // GH-976, 5 Nov: forward camps with wipe after_camp
+    expect(refusalOf('wadi_tarfan_l', 'mirror', 'camp')).toBeNull();
+    expect(refusalOf('rujm_sawda', 'mirror', 'camp')).toMatch(/not offered on this map/);
     expect(refusalOf('wadi_tarfan', 'mirror', 'flag')).toBeNull();
     expect(refusalOf('milh_flats', 'mirror', 'flag')).toBeNull();
     expect(refusalOf('tel_marum', 'mirror', 'flag')).toBeNull();

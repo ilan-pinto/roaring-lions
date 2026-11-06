@@ -7,7 +7,8 @@ import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
 import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODES as NET_WIN_MODES, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, economyRoom, validateConfig, winModeAllowed, winModeField, type MatchConfig } from '@lions/net';
 import { campYardZone, flagZone, maps, versusModeMissionOf, versusModes, versusRules, WIN_MODES, type VersusModeFileJson } from '@lions/data';
-import { OFFERED_MAPS, WIN_MODES as MJS_WIN_MODES, versusModeFailures } from '../validate_versus_modes.mjs';
+import { MODE_CAMP_REACH, OFFERED_MAPS, WIN_MODES as MJS_WIN_MODES, versusModeFailures } from '../validate_versus_modes.mjs';
+import { CAMP_REACH } from '../validate_versus_rules.mjs';
 import { buildMatchWorld } from '../../packages/app/src/net/match-world';
 
 const ROOT = join(__dirname, '..', '..');
@@ -58,7 +59,7 @@ describe('the shipped win-mode files', () => {
     expect(winModeField(undefined)).toBeUndefined();
   });
 
-  it('the maps a mode is read fair on all carry that mode and are maps a room is offered on; camp is read fair on milh_flats alone', () => {
+  it('the maps a mode is read fair on all carry that mode and are maps a room is offered on; camp is read fair on wadi_tarfan, milh_flats and wadi_tarfan_l', () => {
     for (const mode of NET_WIN_MODES) {
       for (const map of WIN_MODE_FAIR_MAPS[mode]) {
         expect(VERSUS_FAIR_MAPS, `${mode} on ${map}`).toContain(map);
@@ -76,12 +77,14 @@ describe('the shipped win-mode files', () => {
     const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
     expect(WIN_MODE_FAIR_MAPS.points).toEqual(SEVEN); // wadi_tarfan 56.3%, milh_flats 57.3% (P1); the other five 51-55% on 4000-4287: see config.ts
     expect(WIN_MODE_FAIR_MAPS.flag).toEqual(SEVEN);   // wadi_tarfan 56.9%, milh_flats 52.1% (P3); the other five 44-55% (45-55% of the decisive games)
-    expect(WIN_MODE_FAIR_MAPS.camp).toEqual(['milh_flats']); // forward camps (15,39)/(31,7): 52.4%, 96.5% by the goal, passive lost 576 of 576 on 4000-4287; the others cannot: see config.ts
+    expect(WIN_MODE_FAIR_MAPS.camp).toEqual(['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l']); // forward camps; milh_flats (15,39)/(31,7): 52.4%, 96.5% by the goal; wadi_tarfan (13,18)/(33,28) and wadi_tarfan_l (26,30)/(68,64) with wipe after_camp (GH-976, 5 Nov); the others stay out: see config.ts
     expect([...VERSUS_FAIR_MAPS].sort()).toEqual([...SEVEN].sort());
     for (const map of SEVEN) for (const mode of ['points', 'flag'] as const) expect(versusModes[map].modes[mode], `${map} ${mode}`).toBeDefined();
     // ...and no KDF-v-Sarim cell: the one that passed (points on wadi_tarfan_l at 10 per 100) was a kill race and was removed.
     expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: {}, points: {}, flag: {} });
-    expect(winModeAllowed('camp', 'wadi_tarfan')).toBe(false);
+    expect(winModeAllowed('camp', 'wadi_tarfan')).toBe(true);
+    expect(winModeAllowed('camp', 'wadi_tarfan_l')).toBe(true);
+    for (const out of ['milh_flats_l', 'rujm_sawda', 'tel_marum', 'beit_sahwan_outskirts']) expect(winModeAllowed('camp', out), out).toBe(false);
     expect(winModeAllowed('camp', 'milh_flats')).toBe(true);
     expect(winModeAllowed('camp', 'milh_flats', 'kdf')).toBe(false);   // the mirror only
     expect(winModeAllowed('points', 'wadi_tarfan_l', 'kdf')).toBe(false);
@@ -169,18 +172,23 @@ describe('the shipped win-mode files', () => {
     expect(found).toEqual(['tel_marum kdf/sarim flag friendly flag atgm_cell', 'wadi_tarfan kdf/sarim points bluff_near_1 atgm_cell', 'wadi_tarfan sarim/kdf points bluff_near_0 atgm_cell']);
   });
 
-  it('wadi_tarfan\'s camps are its rules file\'s, and milh_flats\' two camps are point-symmetric about the map centre', () => {
-    const w = shipped.find((s) => s.doc.map === 'wadi_tarfan')!.doc;
-    // The footprints are the rules file's; the mode file adds an authored `exit` (the NW scan is not point-symmetric, GH-976).
-    const noExit = (c: { at: readonly number[]; size: readonly number[] }): unknown => ({ at: c.at, size: c.size });
-    expect({ friendly: noExit(w.camps!.friendly), hostile: noExit(w.camps!.hostile) }).toEqual({ friendly: noExit(versusRules.wadi_tarfan.ends.friendly.camp), hostile: noExit(versusRules.wadi_tarfan.ends.hostile.camp) });
-    expect([w.camps!.friendly.exit, w.camps!.hostile.exit]).toEqual([[6, 6], [41, 41]]);
-    const m = shipped.find((s) => s.doc.map === 'milh_flats')!.doc.camps!;
-    // 48x48: tile (x, y) maps to (47 - x, 47 - y), so a 2x2 at (x, y) maps to (46 - x, 46 - y).
-    expect(m.hostile.at).toEqual([46 - m.friendly.at[0], 46 - m.friendly.at[1]]);
-    // The ground the camp mode was READ fair on (GH-976 camp-mode, 4000-4287). A one-tile move is a different cell: the surface is a race, re-read it.
-    expect(m).toEqual({ friendly: { at: [15, 39], size: [2, 2], exit: [14, 38] }, hostile: { at: [31, 7], size: [2, 2], exit: [33, 9] } });
-    expect([m.friendly.exit![0] + m.hostile.exit![0], m.friendly.exit![1] + m.hostile.exit![1]]).toEqual([47, 47]);
+  it('the three camp maps\' camps are point-symmetric about the map centre, forward of the seat, and read where they stand', () => {
+    const doc = (map: string): NonNullable<Doc['camps']> => shipped.find((s) => s.doc.map === map)!.doc.camps!;
+    const sizeOf = (map: string): number => (maps as unknown as Record<string, { width: number }>)[map].width;
+    for (const map of ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l']) {
+      const c = doc(map);
+      const n = sizeOf(map);
+      // tile (x, y) maps to (n - 1 - x, n - 1 - y), so a 2x2 at (x, y) maps to (n - 2 - x, n - 2 - y); the exits are point mirrors of each other.
+      expect(c.hostile.at, map).toEqual([n - 2 - c.friendly.at[0], n - 2 - c.friendly.at[1]]);
+      expect(c.hostile.exit, map).toEqual([n - 1 - c.friendly.exit![0], n - 1 - c.friendly.exit![1]]);
+    }
+    // The ground each camp mode was READ fair on (GH-976 camp-mode; wadi_tarfan and wadi_tarfan_l on 28000-28191, 5 Nov). A one-tile move is a
+    // different cell: the surface is a race, re-read it.
+    expect(doc('milh_flats')).toEqual({ friendly: { at: [15, 39], size: [2, 2], exit: [14, 38] }, hostile: { at: [31, 7], size: [2, 2], exit: [33, 9] } });
+    expect(doc('wadi_tarfan')).toEqual({ friendly: { at: [13, 18], size: [2, 2], exit: [12, 17] }, hostile: { at: [33, 28], size: [2, 2], exit: [35, 30] } });
+    expect(doc('wadi_tarfan_l')).toEqual({ friendly: { at: [26, 30], size: [2, 2], exit: [25, 29] }, hostile: { at: [68, 64], size: [2, 2], exit: [70, 66] } });
+    // wadi_tarfan's mode camps are no longer its rules file's economy camps (7,7) / (39,39): the economy keeps its yards at the seat (CAMP_REACH 6).
+    expect(versusRules.wadi_tarfan.ends.friendly.camp.at).not.toEqual(doc('wadi_tarfan').friendly.at);
   });
 
   it('on a point-symmetric map the points zones come in the map\'s point-symmetric pairs, so both seats are offered the same ground', () => {
@@ -249,44 +257,58 @@ describe('versusModeFailures, one mutation at a time', () => {
     camps(wall).hostile.at = [40, 10]; // wadi_tarfan row 10 col 40 is a house tile
     expect(only(wall).some((f) => /not open ground/.test(f))).toBe(true);
     const far = wt();
-    camps(far).friendly.at = [20, 20];
+    camps(far).friendly.at = [22, 22]; // 12 tiles from the (10,10) anchor; the most is 10
     expect(only(far).some((f) => /tiles \(Chebyshev\) from the friendly anchor/.test(f))).toBe(true);
     const clash = wt();
-    camps(clash).hostile = { at: [7, 7], size: [2, 2] };
+    camps(clash).hostile = { at: [13, 18], size: [2, 2] };
     expect(only(clash).some((f) => /the two camps overlap/.test(f))).toBe(true);
+  });
+
+  it('GH-976 (5 Nov): a mode camp may stand 10 tiles from its anchor and no more; the economy camps keep 6', () => {
+    expect(MODE_CAMP_REACH).toBe(10);
+    // wadi_tarfan's friendly seat is (10,10): a 2x2 whose nearest tile is 10 away passes, 11 fails (a pair moved together keeps the mirror).
+    const at10 = wt();
+    camps(at10).friendly = { at: [20, 18], size: [2, 2], exit: [19, 17] };
+    camps(at10).hostile = { at: [26, 28], size: [2, 2], exit: [28, 30] };
+    expect(only(at10).filter((f) => /Chebyshev/.test(f))).toEqual([]);
+    const at11 = wt();
+    camps(at11).friendly = { at: [21, 18], size: [2, 2], exit: [20, 17] };
+    camps(at11).hostile = { at: [25, 28], size: [2, 2], exit: [27, 30] };
+    expect(only(at11).some((f) => /11 tiles \(Chebyshev\) from the friendly anchor .*the most is 10/.test(f))).toBe(true);
+    expect(CAMP_REACH).toBe(6);
   });
 
   it('GH-976: a camp exit is an open ring tile; on a point-symmetric map the two exits are point mirrors', () => {
     const base = wt();
     expect(only(base)).toEqual([]);
     const nudgedHostile = wt(); // one tile off the mirror, still a ring tile
-    camps(nudgedHostile).hostile.exit = [40, 41];
+    camps(nudgedHostile).hostile.exit = [34, 30];
     expect(only(nudgedHostile).some((f) => /not point mirrors/.test(f))).toBe(true);
     const nudgedFriendly = wt();
-    camps(nudgedFriendly).friendly.exit = [7, 6];
+    camps(nudgedFriendly).friendly.exit = [13, 17];
     expect(only(nudgedFriendly).some((f) => /not point mirrors/.test(f))).toBe(true);
     const inside = wt();
-    camps(inside).friendly.exit = [7, 7];
+    camps(inside).friendly.exit = [13, 18];
     expect(only(inside).some((f) => /not a ring tile/.test(f))).toBe(true);
     const far = wt();
     camps(far).friendly.exit = [4, 4];
     expect(only(far).some((f) => /not a ring tile/.test(f))).toBe(true);
-    const derived = wt(); // derived: with no exit, the NW scan gives (6,6) and (38,38), which are not mirrors
+    const derived = wt(); // derived: with no exit, the NW scan gives (32,27) for the hostile camp, not the mirror (35,30) of (12,17)
     delete (camps(derived).hostile as { exit?: unknown }).exit;
     expect(only(derived).some((f) => /not point mirrors/.test(f))).toBe(true);
   });
 
   it('GH-976: the two camp footprints are point mirrors on a point-symmetric map, beside the exits', () => {
-    const wide = wt(); // a 3x2 hostile camp whose exit (41,41) is still a ring tile and still the mirror of (6,6): only the footprint is off
+    const wide = wt(); // a 3x2 hostile camp whose exit (35,30) is still a ring tile and still the mirror of (12,17): only the footprint is off
     camps(wide).hostile.size = [3, 2];
     const fails = only(wide).filter((f) => /footprints/.test(f));
     expect(fails.length).toBe(1);
     expect(only(wide).some((f) => /camp exits .* not point mirrors/.test(f))).toBe(false);
     const lopsided = wt(); // a 3x2 FRIENDLY camp: its corner sums with the hostile's still reach the far edge, only the sizes differ
-    camps(lopsided).friendly = { at: [7, 7], size: [3, 2], exit: [6, 6] };
+    camps(lopsided).friendly = { at: [13, 18], size: [3, 2], exit: [12, 17] };
     expect(only(lopsided).filter((f) => /footprints/.test(f)).length).toBe(1);
     const shifted = wt(); // a camp one tile nearer its end, with an exit that still mirrors the other: the exits alone pass this
-    camps(shifted).friendly = { at: [6, 7], size: [2, 2], exit: [6, 6] };
+    camps(shifted).friendly = { at: [12, 18], size: [2, 2], exit: [12, 17] };
     expect(only(shifted).some((f) => /footprints/.test(f))).toBe(true);
     expect(only(shifted).some((f) => /camp exits .* not point mirrors/.test(f))).toBe(false);
     for (const s of shipped.filter((x) => x.doc.camps !== undefined && SYMMETRIC_MAPS.includes(x.doc.map))) {
@@ -294,7 +316,7 @@ describe('versusModeFailures, one mutation at a time', () => {
     }
   });
 
-  it('GH-976: camp `wipe` is ends or after_camp in the schema and the validator; milh_flats ships after_camp, wadi_tarfan the default', () => {
+  it('GH-976: camp `wipe` is ends or after_camp in the schema and the validator; all three camp maps ship after_camp', () => {
     for (const wipe of ['ends', 'after_camp']) {
       const d = wt();
       d.modes.camp = { wipe };
@@ -306,7 +328,7 @@ describe('versusModeFailures, one mutation at a time', () => {
     expect(validate(bad)).toBe(false);
     expect(only(bad).some((f) => /is not ends or after_camp/.test(f))).toBe(true);
     expect(shipped.find((s) => s.doc.map === 'milh_flats')!.doc.modes.camp).toEqual({ wipe: 'after_camp' });
-    expect(shipped.find((s) => s.doc.map === 'wadi_tarfan')!.doc.modes.camp).toEqual({});
+    for (const map of ['wadi_tarfan', 'wadi_tarfan_l']) expect(shipped.find((s) => s.doc.map === map)!.doc.modes.camp, map).toEqual({ wipe: 'after_camp' });
   });
 
   it('a points zone the map does not have, listed twice, or holding a seat\'s anchor', () => {
@@ -377,7 +399,7 @@ describe('versusModeFailures, one mutation at a time', () => {
     flags(clash).hostile.at = [...flags(clash).friendly.at];
     expect(only(clash).some((f) => /the two flags overlap/.test(f))).toBe(true);
     const onCamp = wt();
-    flags(onCamp).friendly.at = [6, 6]; // the camp is [7,7,2,2]
+    flags(onCamp).friendly.at = [11, 16]; // the camp is [13,18,2,2]
     expect(only(onCamp).some((f) => /the friendly flag overlaps the friendly camp/.test(f))).toBe(true);
     const named = clone(modeFor('wadi_tarfan')[0]);
     const taken = { ...(maps.wadi_tarfan as unknown as { zones: Record<string, number[]> }) };
@@ -458,17 +480,17 @@ describe('versusModeMissionOf', () => {
       { id: 'raze_camp_1', type: 'raze', primary: true, side: 1, target: campYardZone('friendly') },
     ]);
     expect(mission.structures).toEqual([
-      { type: 'camp', at: [7, 7], size: [2, 2], side: 0, owner: 0 },
-      { type: 'camp', at: [39, 39], size: [2, 2], side: 1, owner: 1 },
+      { type: 'camp', at: [13, 18], size: [2, 2], side: 0, owner: 0 },
+      { type: 'camp', at: [33, 28], size: [2, 2], side: 1, owner: 1 },
     ]);
-    expect(zones).toEqual({ camp_yard_friendly: [7, 7, 2, 2], camp_yard_hostile: [39, 39, 2, 2] });
+    expect(zones).toEqual({ camp_yard_friendly: [13, 18, 2, 2], camp_yard_hostile: [33, 28, 2, 2] });
     expect(JSON.stringify(mission)).not.toContain('seconds');
   });
 
   it('camp: with the sides at the other ends, side 0 razes the camp now at the FRIENDLY end', () => {
     const { mission } = versusModeMissionOf(file(), 'camp', { friendly: 1, hostile: 0 });
     expect(mission.objectives[0]).toEqual({ id: 'raze_camp_0', type: 'raze', primary: true, side: 0, target: campYardZone('friendly') });
-    expect(mission.structures.map((s) => [s.side, s.at])).toEqual([[0, [39, 39]], [1, [7, 7]]]);
+    expect(mission.structures.map((s) => [s.side, s.at])).toEqual([[0, [33, 28]], [1, [13, 18]]]);
   });
 
   it('points: both sides run the same score block, side 0 first', () => {
@@ -580,8 +602,8 @@ describe('a win-mode room (buildMatchWorld)', () => {
     expect(economyRoom(c)).toBe(false);
     expect(economyRoom({ ...c, winMode: undefined })).toBe(true);
     const w = buildMatchWorld(c);
-    expect(w.sim.structures.owner[w.sim.structureAt(7, 7)]).toBe(1);
-    expect(w.sim.structures.owner[w.sim.structureAt(39, 39)]).toBe(0);
+    expect(w.sim.structures.owner[w.sim.structureAt(13, 18)]).toBe(1);
+    expect(w.sim.structures.owner[w.sim.structureAt(33, 28)]).toBe(0);
     // Goals only: no production line, in a room that would otherwise have a camp menu.
     expect(w.runtime!.productionLines(0)).toEqual([]);
     expect(w.runtime!.productionLines(1)).toEqual([]);
