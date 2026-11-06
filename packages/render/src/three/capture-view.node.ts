@@ -17,13 +17,24 @@
  */
 import * as THREE from 'three';
 import type { Node as TslNode, RenderPipeline, WebGPURenderer } from 'three/webgpu';
-import { READBACK_LAYOUT, normaliseReadback } from './readback';
+import type { READBACK_LAYOUT, normaliseReadback } from './readback';
+
+/**
+ * `readback.ts`'s layout table and normaliser, INJECTED rather than imported: `ThreeRenderer` also imports that module, so the bundler
+ * hoists it into the ThreeRenderer chunk and a value import here would make the node-backend chunk load that chunk (and the legacy
+ * composer in it); the bundle census (`pnpm --filter @lions/tools webgpu:bundle`) fails on exactly that. Built by `output-maths.ts`.
+ */
+export interface ReadbackMaths {
+  readonly layout: typeof READBACK_LAYOUT;
+  readonly normalise: typeof normaliseReadback;
+}
 
 export interface NodeCaptureDeps {
   readonly W: typeof import('three/webgpu');
   readonly TSL: typeof import('three/tsl');
   readonly renderer: WebGPURenderer;
   readonly kind: 'node-webgpu' | 'node-webgl2';
+  readonly readback: ReadbackMaths;
 }
 
 /** Tight RGBA8, rows bottom-up. */
@@ -53,7 +64,7 @@ function bytesTarget(w: number, h: number): THREE.RenderTarget {
 
 async function read(d: NodeCaptureDeps, target: THREE.RenderTarget, width: number, height: number): Promise<RawPixels> {
   const raw = (await d.renderer.readRenderTargetPixelsAsync(target, 0, 0, width, height)) as unknown as ArrayLike<number>;
-  return { data: normaliseReadback(raw, width, height, READBACK_LAYOUT[d.kind]), width, height };
+  return { data: d.readback.normalise(raw, width, height, d.readback.layout[d.kind]), width, height };
 }
 
 /** Draws `node` over the whole of `into` with a QuadMesh; restores nothing (the caller owns the render-target restore). */
