@@ -74,6 +74,18 @@ describe('the shipped versus rules', () => {
     const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, (s.doc as { capacity?: number }).capacity]));
     expect(declared).toEqual({ milh_flats_l: 512, rujm_sawda: 512, tel_marum: undefined, wadi_tarfan: undefined, wadi_tarfan_l: 512 }); // Was no wadi_tarfan_l or milh_flats_l (GH-920 B3)
   });
+  it('GH-859 (5 Nov): the schema takes `formations_closed_in` as a unique list of mirror, placed, economy and refuses the rest; only tel_marum declares it (economy)', () => {
+    const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
+    const ajv = new (Ajv2020 as unknown as new (o: object) => {
+      compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
+    })({ allErrors: true, strict: false });
+    const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
+    const doc = (formations_closed_in: unknown): unknown => ({ ...rulesFor('wadi_tarfan')[0].doc, formations_closed_in });
+    for (const ok of [[], ['economy'], ['mirror', 'placed'], ['mirror', 'placed', 'economy']]) expect(validate(doc(ok)), JSON.stringify(ok)).toBe(true);
+    for (const bad of [['bogus'], ['economy', 'economy'], 'economy', true, [1], null]) expect(validate(doc(bad)), JSON.stringify(bad)).toBe(false);
+    const declared = Object.fromEntries(shipped.map((s) => [s.doc.map, (s.doc as { formations_closed_in?: string[] }).formations_closed_in]));
+    expect(declared).toEqual({ milh_flats_l: undefined, rujm_sawda: undefined, tel_marum: ['economy'], wadi_tarfan: undefined, wadi_tarfan_l: undefined });
+  });
   it('the validator\'s anchors are versusAnchors\' answer for both matchup maps', () => {
     expect(CAMP_REACH).toBe(6);
     expect(MJS_SEATS).toEqual(VERSUS_SEATS);

@@ -247,6 +247,19 @@ against a 56.5% base, bar 60), and stays closed through `VERSUS_FORMATIONS_CLOSE
 (`seatWorldFor(cfg, sim, false)`, `roomOrderSink(..., false)`) or use the closed map (`mcp-tools.test.ts` runs its refusal on Wadi Tarfan (large)). The text below is the
 history of the closed gate; its mechanism is unchanged.
 
+**5 Nov (the lead's ruling, GH-859): open, except `tel_marum` economy rooms.** The gate was already open on every map but `wadi_tarfan_l`; what the ruling adds is one
+EXCLUSION, and it is data. `data/versus/<map>.json` takes an optional `formations_closed_in` (a unique list of `mirror`, `placed`, `economy`; schema
+`versus_rules.schema.json`, folded into the content digest like the rest of the file), and `formationsOpenIn(mode, open, map, kind)` reads it with the room's kind from
+`roomKindOf(config)` (`economy` is `economyRoom(config)`, `placed` a KDF-v-Sarim win-mode room, `mirror` a same-faction room). Only `tel_marum.json` declares one
+(`["economy"]`), pinned in `versus-formations.test.ts`. Every consumer passes the kind: the sender strip (`roomOrderSink`), the receiver gate (`seatWorldFor`) and the
+HUD (`main.ts`'s `formationsOpen`); `room-pause.test.ts` reads `main.ts` to pin that all four call sites do. Nothing in the sim moved (the sim registers the formations in every
+room as before): no sim pin, snapshot pin or witness row moved, `shippedContentDigest()` did (694647666 to -647773803), and the snapshot-rejoin premise still holds on its seed.
+**Fresh-seed S4 for the ruling** (`pnpm versus:probe --per-seed`, then `pnpm s4:gate`; seeds 29000-29191 as set A and 29192-29383 as set B, used by no earlier run; main `484e166`;
+the 16 cells of the 5 Nov re-run, base and the three arms): **1 TRIP of 48**, `wadi_tarfan` KDF-friendly tunnels cell 3, arm (b): 66.1% for the Sarim end against a 57.8% base at set A
+(S above 65 goes straight to the baseline clause, so set B is not asked; pooled A+B it reads 63.0% against a 60.4% base, +2.6). `tel_marum` KDF-friendly ECONOMY, the cell the 5 Nov
+re-run tripped on seeds 0-383 (64.6% against 51.3%), was a RERUN at set A (60.4%) and PASSES pooled here (58.9% against 56.0%, p 0.45): the exclusion is the lead's call and stays, and
+the cell goes on the watch list. The other tunnels cells at the bar: `wadi_tarfan` KDF-friendly (c) hostile 62.8 pooled, `tel_marum` KDF-friendly (b) 62.0 pooled with a 60.4 base.
+
 ### (History) Versus: formations were OFF (lead's ruling, 29 Oct, GH-859; still off after P1b, S4 failed)
 
 Formations ship in single player. In a versus room they are off. The mechanism is ONE predicate,

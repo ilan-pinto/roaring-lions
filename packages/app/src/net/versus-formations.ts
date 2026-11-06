@@ -9,6 +9,8 @@
  *
  * ONE predicate, three consumers. Do not re-derive "are formations open here" anywhere else.
  */
+import { versusRules } from '@lions/data';
+import { economyRoom, type MatchConfig } from '@lions/net';
 
 /** OPEN (the lead, 1 Nov, GH-859): S4 passed clean (0 TRIP of 27 cells, tunnels A+B pooled, 192 seeds paired with each cell's own baseline) on Beit Sahwan, Tel Marum and Milh Flats with the shipped Attack (aircraft left out, `legs: false`), and again on Wadi Tarfan
  *  (0 TRIP of 21 cells, GH-945) once its seats and tunnel capacities were re-measured. On 3 Nov the same S4 was run on the three large maps, on seeds 30000-30383 that no choice had seen: Rujm Sawda and Milh Flats (large) passed
@@ -26,11 +28,34 @@ export const VERSUS_FORMATIONS_CLOSED_MAPS: readonly string[] = ['wadi_tarfan_l'
 /** The HUD row's reason line when formations are inactive in a versus room (a `t()` key). */
 export const FORMATION_VERSUS_REASON_KEY = 'hud.formation.inert.versus';
 
+/** The three kinds of versus room, as a map's rules file names them (`formations_closed_in`): a same-faction room, a KDF-v-Sarim win-mode
+ *  room (two placed forces, no economy) and a KDF-v-Sarim room on the skirmish economy. */
+export type VersusRoomKind = 'mirror' | 'placed' | 'economy';
+
+/** Which kind of versus room a config is, or `undefined` for a room that is not a versus room (single player, the sandbox). */
+export function roomKindOf(config: Pick<MatchConfig, 'mode' | 'seats' | 'winMode'> | null | undefined): VersusRoomKind | undefined {
+  if (config === null || config === undefined || config.mode !== 'versus') return undefined;
+  if (economyRoom(config)) return 'economy';
+  return config.seats[0].faction === config.seats[1].faction ? 'mirror' : 'placed';
+}
+
+/** Whether a map's rules file closes formations in rooms of this kind (GH-859, the lead's ruling of 5 Nov: open, except a Tel Marum
+ *  economy room). Data, not a list of ids here: `formations_closed_in` in `data/versus/<map>.json`. A map with no rules file closes nothing. */
+export function formationsClosedByRules(map: string | null | undefined, kind: VersusRoomKind | undefined): boolean {
+  if (map === undefined || map === null || kind === undefined) return false;
+  const rules = (versusRules as Readonly<Record<string, { readonly formations_closed_in?: readonly VersusRoomKind[] } | undefined>>)[map];
+  return rules?.formations_closed_in?.includes(kind) === true;
+}
+
 /** Whether formations are open in a room of this mode. A versus room follows the gate, and is closed on a map
- *  in `VERSUS_FORMATIONS_CLOSED_MAPS` whatever the gate says; anything else (single-player has no mode, the
- *  sandbox room) is open. `versusOpen` is injectable so a test can witness the open path (P1b's) without
- *  editing the constant; production callers leave it at the default. `map` is the room's (`config.map`). */
-export function formationsOpenIn(mode: 'versus' | 'sandbox' | undefined | null, versusOpen: boolean = VERSUS_FORMATIONS_OPEN, map?: string | null): boolean {
+ *  in `VERSUS_FORMATIONS_CLOSED_MAPS` whatever the gate says, and in a room whose KIND its map's rules file closes
+ *  (`formations_closed_in`); anything else (single-player has no mode, the sandbox room) is open. `versusOpen` is injectable so a
+ *  test can witness the open path (P1b's) without editing the constant; production callers leave it at the default.
+ *  `map` is the room's (`config.map`) and `kind` its `roomKindOf(config)`: a caller that leaves `kind` out gets today's answer for
+ *  the map alone, so every production caller passes both. */
+export function formationsOpenIn(mode: 'versus' | 'sandbox' | undefined | null, versusOpen: boolean = VERSUS_FORMATIONS_OPEN, map?: string | null, kind?: VersusRoomKind): boolean {
   if (mode !== 'versus') return true;
-  return versusOpen && !(map !== undefined && map !== null && VERSUS_FORMATIONS_CLOSED_MAPS.includes(map));
+  if (!versusOpen) return false;
+  if (map !== undefined && map !== null && VERSUS_FORMATIONS_CLOSED_MAPS.includes(map)) return false;
+  return !formationsClosedByRules(map, kind);
 }

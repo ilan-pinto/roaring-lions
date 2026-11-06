@@ -16,6 +16,12 @@
       "default": 256,
       "description": "The room's entity capacity (GH-913 L3). `spawn` never reuses a dead slot, so this budgets everyone who ever enters the match, wounded men included. Absent means 256. A larger map raises it (rujm_sawda: 512, measured at about 5% on the tick and +1.4 KiB on a gzipped snapshot). Read by buildMatchWorld through @lions/data's `versusCapacityOf`; a snapshot restore builds from the same config, so it follows. Never below 256."
     },
+    "formations_closed_in": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["mirror", "placed", "economy"] },
+      "description": "Room kinds on this map in which combat formations stay CLOSED even with the versus gate open (GH-859, the lead's ruling of 5 Nov): a room of that kind sends no `formation` on a move or attack-move and drops one it receives, exactly as a closed gate does. `economy` is a KDF-v-Sarim room on the skirmish economy (`economyRoom`), `placed` a KDF-v-Sarim win-mode room (two placed forces, no economy), `mirror` a same-faction room. Absent means open in all three. Set only where S4 (`pnpm s4:gate`) tripped a cell of that kind. Read by packages/app/src/net/versus-formations.ts; folded into the content digest with the rest of the file."
+    },
     "cap_minutes": {
       "type": "integer",
       "minimum": 25,

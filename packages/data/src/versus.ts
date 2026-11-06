@@ -33,6 +33,8 @@ export interface VersusRulesJson {
   readonly capacity?: number;
   /** GH-913 L8: the match cap in minutes (`VERSUS_CAP_MINUTES_DEFAULT` when absent). */
   readonly cap_minutes?: number;
+  /** GH-859: room kinds on this map in which formations stay closed with the versus gate open (absent: open in all). */
+  readonly formations_closed_in?: readonly ('mirror' | 'placed' | 'economy')[];
   readonly ends: { readonly friendly: VersusEndJson; readonly hostile: VersusEndJson };
   readonly tunnels?: { readonly friendly?: readonly VersusTunnelJson[]; readonly hostile?: readonly VersusTunnelJson[] };
   readonly zones?: Readonly<Record<string, readonly number[]>>;

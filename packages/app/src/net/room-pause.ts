@@ -16,7 +16,7 @@ import { t } from '../i18n/t';
 import type { CommandSink } from '../input/intents';
 import { leaveHref } from '../ui/leave-copy';
 import { routes } from '../shell/links';
-import { formationsOpenIn } from './versus-formations';
+import { formationsOpenIn, type VersusRoomKind } from './versus-formations';
 import type { Command } from '@lions/sim';
 
 export interface RoomPauseCall {
@@ -214,9 +214,11 @@ export function roomOrderSink(
   mode: 'versus' | 'sandbox' | undefined,
   versusFormationsOpen?: boolean,
   /** The room's map (`config.map`): a map in `VERSUS_FORMATIONS_CLOSED_MAPS` strips formations whatever the gate says (GH-913 L8). */
-  map?: string
+  map?: string,
+  /** The room's kind (`roomKindOf(config)`): a kind the map's rules file closes strips them too (GH-859, `formations_closed_in`). */
+  kind?: VersusRoomKind
 ): CommandSink {
-  const open = formationsOpenIn(mode, versusFormationsOpen, map);
+  const open = formationsOpenIn(mode, versusFormationsOpen, map, kind);
   return {
     queueCommand(cmd) {
       if (ordersWait(status())) onBlocked();

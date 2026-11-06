@@ -484,6 +484,17 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
     roomOrderSink(LIVE, tel.sink, () => {}, 'versus', true, 'tel_marum').queueCommand(move());
     expect(tel.got).toEqual([move()]);
   });
+  it('GH-859 (5 Nov): a Tel Marum ECONOMY room strips the formation (the sender); a Tel Marum mirror or placed room and a Wadi Tarfan economy room deliver it', () => {
+    const strip = collect();
+    roomOrderSink(LIVE, strip.sink, () => {}, 'versus', true, 'tel_marum', 'economy').queueCommand(move());
+    roomOrderSink(LIVE, strip.sink, () => {}, 'versus', undefined, 'tel_marum', 'economy').queueCommand(attackMove());
+    expect(strip.got).toEqual([withoutFormation(move()), withoutFormation(attackMove())]);
+    for (const [map, kind] of [['tel_marum', 'mirror'], ['tel_marum', 'placed'], ['wadi_tarfan', 'economy']] as const) {
+      const open = collect();
+      roomOrderSink(LIVE, open.sink, () => {}, 'versus', true, map, kind).queueCommand(move());
+      expect(open.got, `${map} ${kind}`).toEqual([move()]);
+    }
+  });
   it('GH-945: with the gate open a Wadi Tarfan room delivers the formation (it was stripped from 1 Nov until its Sarim lean was settled)', () => {
     const wadi = collect();
     roomOrderSink(LIVE, wadi.sink, () => {}, 'versus', true, 'wadi_tarfan').queueCommand(move());
@@ -492,8 +503,9 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
 
   it('GH-913 L8: every main.ts consumer of the predicate passes the room\'s map (a call that drops it would open Wadi Tarfan (large))', () => {
     const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
-    expect(main).toContain('formationsOpenIn(netConfig?.mode, undefined, netConfig?.map)');
-    expect(main.match(/netConfig\??\.mode, undefined, netConfig\??\.map\)/g)).toHaveLength(4);
+    // GH-859 (5 Nov): and the room's KIND (`roomKindOf`), which a map's rules file may close (Tel Marum economy). A call that drops it opens that room.
+    expect(main).toContain('formationsOpenIn(netConfig?.mode, undefined, netConfig?.map, roomKindOf(netConfig))');
+    expect(main.match(/netConfig\??\.mode, undefined, netConfig\??\.map, roomKindOf\(netConfig\)\)/g)).toHaveLength(4);
     expect(main.match(/formationsOpenIn\(/g)).toHaveLength(1); // the one call (the import line has no paren)
   });
 

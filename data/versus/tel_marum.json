@@ -1,6 +1,7 @@
 {
   "id": "tel_marum",
   "map": "tel_marum",
+  "formations_closed_in": ["economy"],
   "ends": {
     "friendly": { "camp": { "at": [20, 46], "size": [2, 2] } },
     "hostile": { "camp": { "at": [25, 14], "size": [2, 2] } }
