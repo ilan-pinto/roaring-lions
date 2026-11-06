@@ -26,7 +26,7 @@
 //        --baseline-dir=path --bless --reason="..." --gpu=legacy|webgl2|webgpu --match-node
 //
 // --match-node (GH-943 P1) is the parity job's LEGACY arm: the shipping renderer with the node backend's census applied to its scene (every
-// ShaderMaterial object and the occlusion outline hidden, AO off) so a parity ratio compares like with like. It is legacy-only, never
+// ShaderMaterial object and the occlusion outline hidden; AO stays on, the node chain has it since T7) so a parity ratio compares like with like. It is legacy-only, never
 // blesses, and reads NO baseline (it would otherwise be judged against the shipped legacy pictures): it writes `summary.json` per
 // scenario with every layer reading, for `ci/parity-run.ts`.
 //

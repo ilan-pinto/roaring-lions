@@ -1126,18 +1126,21 @@ ${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${l
  *  console. */
 /**
  * GH-943 P1 T1: the `--match-node` legacy arm. The node backend draws less than the shipping legacy chain (its census hides every
- * `ShaderMaterial` object and the occlusion outline, and P0 has no AO), so a parity ratio against SHIPPED legacy would measure that
- * gap, not the effect. This statement runs the node backend's own `censusUnported` on the LEGACY scene (the same function, loaded
- * from the dev server by its `/@fs/` path so the module instance is the page's own) and switches the AO pass off, then repaints, so
- * the legacy frame is "what the node chain draws". Presentation only: it touches scene visibility, never the sim. The AO stays off
- * until T7 ports it; T7 removes the line. Legacy arm only (a node arm needs no matching, it IS the node chain).
+ * `ShaderMaterial` object and the occlusion outline), so a parity ratio against SHIPPED legacy would measure that gap, not the
+ * effect. This statement runs the node backend's own `censusUnported` on the LEGACY scene (the same function, loaded from the dev
+ * server by its `/@fs/` path so the module instance is the page's own), then repaints, so the legacy frame is "what the node chain
+ * draws". Presentation only: it touches scene visibility, never the sim. Legacy arm only (a node arm needs no matching, it IS the
+ * node chain).
+ *
+ * The AO pass stays ON. P0 had no node AO, so this used to switch the legacy GTAO off; T7 (`createNodeAoStage`) ported it, and with
+ * the line still here the parity job compared an AO-less L against node arms that draw AO. Whatever the quality preset turns on for
+ * the node chain, it turns on for legacy too, so nothing else needs matching.
  */
 export function matchNodeStatements(repoRoot: string): string {
   const unported = `/@fs${repoRoot}/packages/render/src/three/backend/unported.ts`;
   return `{
   const _r = window.__lions.renderer;
   const _u = await import(${JSON.stringify(unported)});
-  if (_r.aoPass) _r.aoPass.enabled = false;
   const _found = _u.censusUnported(_r.scene);
   if (!Array.isArray(_found)) throw new Error('match-node: censusUnported returned no list');
   _r.frame(1, 0);

@@ -6,6 +6,9 @@
 //      hash the same. Each capture already passed the settled-frame check inside `capture()` (two zero-time repaints, byte-equal).
 //   2. THE BACKEND IS ASSERTED from the page's `backendInfo()` on every run (exit 2 on a mismatch or a mix).
 //   3. THE ZERO-UNPORTED CENSUS is printed in full from `renderer.unportedHooks()`. REPORT-ONLY in P0.
+//   4. A PICTURE, ACCEPTED BY THE GPU (GH-943 P1, inside `capture()` for every node arm): a run whose page logged a GPU validation
+//      error, or whose frame is black or near-constant (`golden-diff/frame-content.ts`), is REFUSED (exit 2). Five identical black
+//      frames are "5 of 5 byte-identical": that is how G drew nothing on 2026-11-06 and this gate still said PASS.
 //
 // Exit codes: 0 all pass, 1 the pictures differ, 2 usage / refused backend / capture failure. No baseline is read or written.
 import { createHash } from 'node:crypto';
