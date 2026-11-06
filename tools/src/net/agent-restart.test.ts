@@ -192,13 +192,16 @@ describe('the harness stays up after the match, and a respawn into the ended roo
     p0.client?.transport.surrender();   // seat 0 gives up: the match is over, seat 1 has won
     return { relay, code, ticketFile, first, p0 };
   }
-  const resultOf = async (client: Client): Promise<unknown> => {
-    for (let i = 0; i < 100; i++) {
+  /** The match's result as `status` reports it, polled until `timeoutMs` (GH-973): a terminal room's result is
+   *  settled by the harness's own next pump, a moment after `wait` has answered `ended`, so a single read can be null. */
+  const resultOf = async (client: Client, timeoutMs = 15_000): Promise<unknown> => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
       const st = await call(client, 'status');
       if (st.body.result !== null && st.body.result !== undefined) return st.body.result;
+      if (Date.now() >= deadline) return null;
       await sleep(50);
     }
-    return null;
   };
 
   it('answers with the final result for as long as its client stays, and says match over to an order', async () => {
@@ -230,8 +233,9 @@ describe('the harness stays up after the match, and a respawn into the ended roo
     expect(w.body.tick).toBeGreaterThanOrEqual(finalTick - 40);   // the replay ran on to the end, not 20 ticks into it
     const o = await call(second.client, 'order', { verb: 'halt', ids: [1] });
     expect(o.body.error).toBe('match over');
-    const st = await call(second.client, 'status');
-    expect(st.body.result).not.toBeNull();
+    // `wait` and `order` answer from the link (closed: `ended`, `match over`); the RESULT is settled by the harness's next
+    // pump, so poll for it, bounded, instead of reading once (the one-in-four flake at this line, 5 Nov).
+    expect(await resultOf(second.client)).not.toBeNull();
     await second.client.close();
   }, 90_000);
 });

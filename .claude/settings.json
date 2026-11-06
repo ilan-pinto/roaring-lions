@@ -2,5 +2,6 @@
   "deniedMcpServers": [
     { "serverName": "claude.ai Interactive_Brokers_IBKR" },
     { "serverName": "Interactive_Brokers_IBKR" }
-  ]
+  ],
+  "crossSessionInbound": "accept"
 }

@@ -673,7 +673,7 @@ import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
 import { FOG_OFFMAP_FADE_TILES, FogUniforms, type FogPassLike } from './fog-spec';
 import { fogDim } from './fog-ops';
-import { OUTPUT_MATHS } from './output-maths';
+import { BLOOM_MATHS, OUTPUT_MATHS } from './output-maths';
 import {
   RAIN_SPLASH_KEY,
   RAIN_STREAK_KEY,
@@ -3730,6 +3730,7 @@ export class ThreeRenderer implements Renderer {
         background: this.opts.background,
         forceWebGL,
         adapter: plan.kind === 'node-webgpu' ? plan.adapter : 'webgl2',
+        bloomMaths: BLOOM_MATHS,
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();
@@ -4692,6 +4693,12 @@ export class ThreeRenderer implements Renderer {
         // `withPreBloomBuffer` restores what it found), so the toggle holds
         // across the gate's zero-time repaint. 0 with no pass (`low`, or
         // `init()` never ran) and when it was already in that state.
+        // GH-943 P1 (T5): on a node backend the switch is the bloom STRENGTH uniform (a compiled graph has no skip), held by
+        // `nodeBackend.bloom`; 0 with no bloom stage built and when it was already in that state, like the legacy path.
+        if (this.nodeBackend) {
+          const b = this.nodeBackend.bloom;
+          return b.built && b.setEnabled(visible) ? 1 : 0;
+        }
         const was = this.bloomPass?.enabled ?? false;
         if (this.bloomPass) this.bloomPass.enabled = visible;
         return this.bloomPass === null || was === visible ? 0 : 1;
@@ -5157,6 +5164,20 @@ export class ThreeRenderer implements Renderer {
       this.renderer.readRenderTargetPixels(target, 0, 0, target.width, target.height, data);
       return { ...luminanceCensus(data, stride), width: target.width, height: target.height };
     });
+  }
+
+  /**
+   * DEBUG ONLY, three-only, node backends only (GH-943 P1 T5): `debugPreBloomLuminance`'s async twin. The node chain has no
+   * composer buffer to borrow, so the bloom stage draws its own INPUT node (the fog/AO output the high-pass thresholds) into a
+   * HalfFloat target and reads it back asynchronously (`bloom.node.ts`'s `readPreBloom`; WebGPU pads rows to 256 bytes, which
+   * `tightHalfRgba` strips). Same census, same stride. `null` on the legacy path (use `debugPreBloomLuminance`) or with no bloom
+   * stage built (a `low` preset).
+   */
+  async debugPreBloomLuminanceAsync(stride = 5): Promise<(LuminanceCensus & { width: number; height: number }) | null> {
+    if (this.disposed || this.nodeBackend === null) return null;
+    const read = await this.nodeBackend.bloom.readPreBloom();
+    if (read === null || this.disposed) return null;
+    return { ...luminanceCensus(read.data, stride), width: read.width, height: read.height };
   }
 
   /**
@@ -9188,6 +9209,8 @@ export class ThreeRenderer implements Renderer {
         this.zoomFadeHeldAo = false;
       }
     }
+    // GH-943 P1 (T5): the node chain's bloom is faded through its strength uniform (`BloomControl.setFade`).
+    this.nodeBackend?.bloom.setFade(w);
     const bloom = this.bloomPass;
     if (bloom) {
       bloom.strength = BLOOM_STRENGTH * w;

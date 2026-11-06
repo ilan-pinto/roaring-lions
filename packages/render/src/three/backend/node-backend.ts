@@ -2,7 +2,7 @@
  * GH-943 P0: the node `RenderBackend`. WebGPURenderer plus a `RenderPipeline`, behind its own dynamic import
  * (`import('./node-backend')` in `ThreeRenderer.init`), so `three/webgpu` and `three/tsl` never enter the main chunk or a legacy boot.
  *
- * P1 (T2) builds the node post chain (`../post-chain.node.ts`): scene pass, [fog, AO, bloom: null kit factories until T4/T7/T5], output (ACES 1.0, sRGB), SMAA. Every unported GLSL hook is
+ * P1 (T2) builds the node post chain (`../post-chain.node.ts`): scene pass, [fog, AO: null kit factories until T4/T7; bloom: T5], output (ACES 1.0, sRGB), SMAA. Every unported GLSL hook is
  * censused and named (`unported.ts`), and the rest of the chain (the real fog, AO, bloom, grade, vignette, the sky environment) arrives task by task through `kit`. What this proves is
  * the SEAM: one canvas, one renderer, a deterministic frame, an asserted backend kind, a native-rAF loop.
  *
@@ -18,6 +18,7 @@ import type { BackendKind } from '../../gpu';
 import type { PostConfig, PostKit, RenderBackend } from './backend';
 import { createNodePostChain, type NodePostChain, type OutputMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
+import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -30,6 +31,8 @@ export interface NodeBackendOptions {
   readonly forceWebGL: boolean;
   /** The adapter name the probe found, for `node-webgpu`. */
   readonly adapter: string;
+  /** The shared bloom constants and helpers, injected (see `BloomMaths`); `output-maths.ts`'s `BLOOM_MATHS`. */
+  readonly bloomMaths: BloomMaths;
   readonly warn?: (msg: string) => void;
 }
 
@@ -45,6 +48,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   const TSL = await import('three/tsl');
   // SMAA is a TSL node (`three/addons/tsl/display`), not a `three/addons/postprocessing` pass: loaded here, in the lazy chunk.
   const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
+  // BloomNode is a TSL node (`three/addons/tsl/display`), like SMAA: loaded here, in the lazy chunk.
+  const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
   const renderer: WebGPURenderer = new W.WebGPURenderer({ antialias: false, alpha: false, forceWebGL: opts.forceWebGL });
   try {
     await renderer.init();
@@ -73,6 +78,9 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   let outputMaths: OutputMaths | null = null;
   /** Null factories until each task lands (T4 fog, T5 bloom, T7 AO). The chain reads them when it is built. */
   const kit: PostKit = { fog: null, ao: null, bloom: null };
+  // T5: the bloom stage. Its control outlives chain rebuilds (the toggle state survives `build`).
+  const nodeBloom = createNodeBloom({ bloom: bloom as never, W, renderer, maths: opts.bloomMaths });
+  kit.bloom = nodeBloom.factory;
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();
@@ -96,6 +104,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     adapter: isGpu ? opts.adapter : 'webgl2',
     domElement: canvas,
     kit,
+    bloom: nodeBloom.control,
     get post() {
       return chain;
     },
