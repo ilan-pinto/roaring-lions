@@ -164,12 +164,12 @@ describe('the rules file', () => {
     expect(srules.cap_minutes).toBeUndefined();
   });
 
-  it('each camp keeps its tile offset from its seat: (-6,+1) and (-4,-3), 2x2 as the original\'s', () => {
-    expect(srules.ends.friendly.camp).toEqual({ at: [21, 46], size: [2, 2] });
+  it('each camp keeps its tile offset from its seat: (-7,+1) and (-4,-3), 2x2 as the original\'s', () => {
+    expect(srules.ends.friendly.camp).toEqual({ at: [20, 46], size: [2, 2] });   // moved from 21 on main with the camp exits (GH-976, 5 Nov)
     expect(srules.ends.hostile.camp).toEqual({ at: [25, 14], size: [2, 2] });
-    expect(rules.ends.friendly.camp).toEqual({ at: [48, 91], size: [2, 2] });
+    expect(rules.ends.friendly.camp).toEqual({ at: [47, 91], size: [2, 2] });
     expect(rules.ends.hostile.camp).toEqual({ at: [54, 31], size: [2, 2] });
-    expect([48 - 54, 91 - 90]).toEqual([21 - 27, 46 - 45]);
+    expect([47 - 54, 91 - 90]).toEqual([20 - 27, 46 - 45]);
     expect([54 - 58, 31 - 34]).toEqual([25 - 29, 14 - 17]);
     for (const [end, seat] of [['friendly', markersL.versus_0], ['hostile', markersL.versus_1]] as const) {
       const c = rules.ends[end].camp;
@@ -178,7 +178,7 @@ describe('the rules file', () => {
     }
   });
 
-  it('the four tunnel routes: mouth and middle point at twice the original\'s tile; each VENT keeps its tile offset from the approach (the fight), capacity 4', () => {
+  it('the four tunnel routes: mouth and middle point at twice the original\'s tile; each VENT keeps its tile offset from the approach (the fight), capacity copied from the source route (main moved two from 4 to 3)', () => {
     const appr = markersS.approach;
     const apprL = markersL.approach;
     expect(apprL).toEqual([48, 48]);
@@ -186,7 +186,7 @@ describe('the rules file', () => {
       srules.tunnels![end]!.forEach((r, i) => {
         const t = rules.tunnels![end]![i]!;
         expect(t.id, r.id).toBe(r.id.replace(/^tm_/, 'tml_'));
-        expect(t.capacity, r.id).toBe(4);
+        expect(t.capacity, r.id).toBe(r.capacity);   // copied from the source route
         expect(t.points[0], r.id).toEqual([2 * r.points[0]![0], 2 * r.points[0]![1]]);
         expect(t.points[1], r.id).toEqual([2 * r.points[1]![0], 2 * r.points[1]![1]]);
         const vent = r.points[2]!;

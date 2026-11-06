@@ -411,11 +411,11 @@ describe('the built-share cap is per map', () => {
 
 // --- the versus gate cannot be skipped by forgetting a field (GH-974 review) ---------------------------------------------
 describe('the visibility gate is required of every spec', () => {
-  it('the exempt set is exactly the three maps offered before the gate; every other spec (the two staged redos) holds a town list', () => {
+  it('the exempt set is exactly the three maps offered before the gate; every other spec (the staged redos, and Tel Marum (large), GH-920 B3) holds a town list', () => {
     const exempt = Object.keys(SPECS).filter((id) => 'exempt' in SPECS[id]().visibility).sort();
     expect(exempt).toEqual(['milh_flats_l', 'rujm_sawda', 'wadi_tarfan_l']);
     const bound = Object.keys(SPECS).filter((id) => 'towns' in SPECS[id]().visibility);
-    expect(bound).toEqual(['milh_flats_l_redo', 'rujm_sawda_redo', 'wadi_tarfan_l_redo']);
+    expect(bound).toEqual(['tel_marum_l', 'milh_flats_l_redo', 'rujm_sawda_redo', 'wadi_tarfan_l_redo']);
     expect(Object.keys(SPECS).length).toBe(exempt.length + bound.length);
   });
 

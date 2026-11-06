@@ -546,6 +546,8 @@ export const SPECS: Readonly<Record<string, () => LargeMapSpec>> = {
     routesPerEnd: 2,
     income: { zones: 5, perMin: 140 },
     reference: maps.tel_marum as unknown as MapJson,
+    maxBuiltShare: MAX_BUILT_SHARE,
+    visibility: { towns: ['town_block'] },
     asymmetric: true,
     // the real placer's moves, each by an independent count of the formation tiles that are rock, a building or off the map (Python,
     // over the rows and the two force tables): 7, 13 and 10 of 30, 41 and 41 units. The original's own seats move 10, 11 and 15.

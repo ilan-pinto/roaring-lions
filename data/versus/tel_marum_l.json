@@ -6,7 +6,7 @@
   "ends": {
     "friendly": {
       "camp": {
-        "at": [48, 91],
+        "at": [47, 91],
         "size": [2, 2]
       }
     },
@@ -26,7 +26,7 @@
           [28, 76],
           [36, 54]
         ],
-        "capacity": 4
+        "capacity": 3
       },
       {
         "id": "tml_s_east",
@@ -35,7 +35,7 @@
           [68, 80],
           [62, 58]
         ],
-        "capacity": 4
+        "capacity": 3
       }
     ],
     "hostile": [
