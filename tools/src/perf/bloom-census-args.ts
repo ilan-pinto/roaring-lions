@@ -28,5 +28,8 @@ export function resolveCensusGpu(argv: readonly string[], platform: NodeJS.Platf
   const hardware = resolveGpuBackend(hwArgv, platform);
   // The WebGPU arm runs Dawn on SwiftShader/Vulkan (`chromiumArgsFor`); it supplies its own ANGLE flag, so the hardware flags are
   // the baseline and the arm's follow.
-  return { arm, hardware, launchArgs: [...gpuLaunchArgs(hardware), ...chromiumArgsFor(arm)] };
+  // On Metal the WebGPU arm is Dawn on the Apple adapter, so it must NOT carry `chromiumArgsFor`'s SwiftShader/Vulkan flags (their
+  // trailing `--use-angle=swiftshader` would win and the census would read a software rasteriser while stating Metal). GH-943 P1 T9.
+  const nodeArgs = arm === 'webgpu' && hardware === 'metal' ? ['--enable-unsafe-webgpu'] : chromiumArgsFor(arm);
+  return { arm, hardware, launchArgs: [...gpuLaunchArgs(hardware), ...nodeArgs] };
 }
