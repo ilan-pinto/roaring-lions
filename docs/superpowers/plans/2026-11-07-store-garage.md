@@ -354,8 +354,10 @@ recording.
     `wounded_sarim` in no list;
   - the side-face literal: the generator's placement makes `presentedArmor` read `side`. Use the facing convention
     `facing.test.ts` uses, and say which;
-  - every KDF id in `data/units/kdf` is a key, and every soft KDF type's list holds every armed enemy (soft means
-    everything hurts it).
+  - every KDF id in `data/units/kdf` is a key, and every soft KDF type's list holds every armed enemy **whose weapons can
+    target the unit's domain** (`can_target` has `air` for an aircraft or drone, `ground` for a ground unit). Soft means
+    every compatible weapon hurts it, not that every weapon can reach it: `atgm_cell`'s Kornet is `can_target:
+    ["ground"]`, so it is correctly absent from the air-domain `recon_drone`'s list, and a literal asserts that absence.
 - [ ] **Step 2: Run** `pnpm vitest run tools/src/store_threat_table.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement** the generator and run `pnpm store:threats` to write the JSON.
 - [ ] **Step 4: Falsify, then undo:**
@@ -431,7 +433,11 @@ Rules (spec §1.2), with the points the spec leaves open settled:
 - [ ] **Step 1: Write the failing tests** (spec §4, T1, T3, T4, T6, T7, T8; T9 on a LITERAL fixture here, because
   the shipped howitzer has no tracks until WP8):
   - T1: the starting roster open (`apc_eitan`, `at_team`, `inf_squad`, `jeep_shoded`, `mortar_team`). Against
-    `spg_long_range` the closest unit is `mortar_team`; against `inf_medic_squad` it is `inf_squad`;
+    `spg_long_range` the closest unit is `mortar_team`; against `inf_medic_squad` it is `inf_squad`. Add a literal
+    fixture case, because `spg_long_range` and `mortar_team` share the role `artillery` and the starting roster has no
+    unit that matches the howitzer's bucket but not its role: an open unit of ANOTHER role in the howitzer's
+    `roleBucket`. Role-first still answers `mortar_team`; bucket-first would
+    answer the fixture unit;
   - T3: per tag, a literal fixture with the field gets the tag and the same fixture without it does not. Over the
     shipped KDF roster every tag holds on at least one unit and not on all;
   - T4: `APP_HEAVY_COLLATERAL === Number(/HEAVY_COLLATERAL = (\d+)/.exec(missionTs)[1]) / 65536`, reading
@@ -450,7 +456,8 @@ Rules (spec §1.2), with the points the spec leaves open settled:
 - [ ] **Step 3: Implement** `unitAdds`. `where.versus` and `where.campaignOnly` follow R0.8, with the `// GH-1102:`
   comment.
 - [ ] **Step 4: Falsify, then undo:**
-  - T1: swap steps 1 and 2 (bucket first), and the howitzer reads "first of its kind";
+  - T1: swap steps 1 and 2 (bucket first), and the fixture case answers the other-role unit instead of
+    `mortar_team`. On the starting roster alone this swap changes nothing, which is why the fixture exists;
   - T3: `minRange` `> 0` → `>= 0`, and "not on all" goes red;
   - T4: the copy set to 0.4;
   - T6: coverage over `kdf` instead of `open`, and the medic is no longer "first";
@@ -620,7 +627,9 @@ export function buyUpgradeRun(account: BrigadeAccount, unitId: string, track: st
 **Files:**
 - Modify: `packages/app/src/ui/stores.ts`. The tier row gains a credit Buy beside the coin Buy
   (`data-buy="credits:<unit>.<track>"`), computed from `creditAsk(prices, item.earned, item.owned)` and
-  `opts.credits` (R0.4). `StoresOptions.onBuyTierCredits?: (unitId, track, to, price) => void`. Absent: no button.
+  `opts.credits` (R0.4). **The row's credit price line follows the ask too:** `priceLine(item.next.credits, ...)`
+  (`stores.ts:593`) shows the single tier's 340, so while the ask is a run (`ask.again > 0`) the credit figure is
+  `ask.price` (740) and the coin figure stays `item.next.coins`. The button and the figure beside it never disagree. `StoresOptions.onBuyTierCredits?: (unitId, track, to, price) => void`. Absent: no button.
   `tierCreditBuyEnabled(ask, credits, unitOpen, canBuy)` is exported and pure.
 - Modify: `packages/app/src/main.ts`. `onBuyTierCredits` calls WP5's `buyTierWithCredits` and redraws the Stores
   with the existing `focusKey`.
@@ -635,14 +644,16 @@ export function buyUpgradeRun(account: BrigadeAccount, unitId: string, track: st
     Buy. With credits 740 it shows the run label;
   - Review Focus 3: a locked unit shows no credit Buy;
   - Review Focus 5: preview shows no credit Buy;
-  - a press routes `('spg_long_range', 'armour', 3, 740)` to `onBuyTierCredits`.
+  - a press routes `('spg_long_range', 'armour', 3, 740)` to `onBuyTierCredits`;
+  - the price line: in the same fixture the row's credit figure reads 740 (not 340) and its coin figure is unchanged.
 - [ ] **Step 2: Run** them. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Falsify, then undo:**
   - read `wallet.coins` instead of `credits`: T20 goes red;
   - key the button on `item.state === 'affordable'`: Review Focus 1 goes red. Its 345 credits cover tier 3 alone
     (340) and not the run (740), so a state-keyed button shows;
-  - drop the `unitOpen` test: the locked-unit test goes red.
+  - drop the `unitOpen` test: the locked-unit test goes red;
+  - pass `item.next.credits` to `priceLine` again: the price-line test goes red (340 for 740).
 - [ ] **Step 5: Run** `pnpm vitest run packages/app/src/ui`, `pnpm validate:ui`, `pnpm typecheck` and `pnpm lint`.
 - [ ] **Step 6: Commit** with `git commit -- <paths>`. Open the PR as "held for the lead's sheet (D2)".
 
@@ -660,7 +671,10 @@ PR. **Implementer:** Sonnet.
   (`upgrades` blocks copied verbatim from `docs/campaign/special_units/gh1077/tracks.json`)
 - Delete: `docs/campaign/special_units/gh1077/tracks.json`, `tools/src/gh1077_staged.test.ts`
 - Create: `tools/src/bought_unit_tracks.test.ts` (T12)
-- Modify: `tools/src/garage_closeups.test.ts`: 36 → 47, 13 → 18, and the teams-with-tracks 8 → 12 (R0.6). These
+- Modify: `tools/src/garage_closeups.test.ts`: 36 → 47, 13 → 18, and the teams-with-tracks 8 → 12 (R0.6). The 36 sits
+  in FIVE places in "owes one per KDF vehicle or aircraft type" and "refuses a run that wrote a different count": the
+  test title, `toHaveLength(36)`, the `declares 36 vehicle and aircraft` regex, `assertCloseupCount(36, plan)` not
+  throwing, and the wrong-count case `assertCloseupCount(37, plan)` (becomes 48, so it stays one off). These
   three literals go red on this commit and are green only after WP9's commit. CI runs on the PR head, after both.
 - Modify: `packages/app/src/ui/stores-adds.test.ts`. T9 on the shipped `spg_long_range`: 1,350 credits and **145**
   coins (literal, from WP1's fit; update the literal if the fit moved a price by ruling).
