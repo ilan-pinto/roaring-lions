@@ -12,18 +12,17 @@
 // half-turn symmetric, which is why one vent moved at both ends and nowhere else. A vent that is moved at one end only leaves
 // the two seat orders reading different games.
 import { describe, expect, it } from 'vitest';
-import { versusRules, type VersusRulesJson } from '@lions/data';
+import { versusRules, type VersusRulesJson, type VersusTunnelJson } from '@lions/data';
 
-type Route = { id: string; points: number[][]; capacity: number };
 const rules = (versusRules as Record<string, VersusRulesJson>).wadi_tarfan;
-const routes = (end: 'friendly' | 'hostile'): Route[] => (rules.tunnels?.[end] ?? []) as Route[];
-const route = (end: 'friendly' | 'hostile', id: string): Route => {
+const routes = (end: 'friendly' | 'hostile'): readonly VersusTunnelJson[] => rules.tunnels?.[end] ?? [];
+const route = (end: 'friendly' | 'hostile', id: string): VersusTunnelJson => {
   const r = routes(end).find((t) => t.id === id);
   if (r === undefined) throw new Error(`wadi_tarfan has no ${end} route ${id}`);
   return r;
 };
-const vent = (r: Route): number[] => r.points[r.points.length - 1];
-const turn = (p: number[]): number[] => [47 - p[0], 47 - p[1]];
+const vent = (r: VersusTunnelJson): readonly [number, number] => r.points[r.points.length - 1];
+const turn = (p: readonly [number, number]): [number, number] => [47 - p[0], 47 - p[1]];
 
 describe('wadi_tarfan tunnel vents (GH-884)', () => {
   it('route A: the vents stand one tile south of the old (25,32) and (22,15)', () => {
