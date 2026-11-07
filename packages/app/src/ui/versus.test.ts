@@ -673,8 +673,8 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
 
   it('GH-976 v2 R0.22: the lobby reads the hold through flagBlockOf: 45 seconds on a map in FLAG_SETUP_MAPS, 30 on every other', () => {
     const listed = FLAG_SETUP_MAPS as string[];
-    const before = [...listed]; // restored below, never cleared
-    listed.push('wadi_tarfan');
+    const before = [...listed]; // restored below, never left cleared
+    listed.splice(0, listed.length, 'wadi_tarfan'); // exactly one map listed, whatever ships, so 'every other' is true
     try {
       const { stage } = mount();
       pick(mapRadio(stage, 'wadi_tarfan'));
