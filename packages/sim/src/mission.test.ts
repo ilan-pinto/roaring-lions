@@ -5556,7 +5556,7 @@ describe('population cap (GH-183 F3)', () => {
   function popWorld(
     partial: Partial<MissionJson>,
     cap: number | null | undefined,
-    opts: { house?: boolean; tunnel?: boolean; camp?: boolean; caps?: readonly [number | null, number | null] } = {}
+    opts: { house?: boolean; tunnel?: boolean; camp?: boolean; caps?: readonly [number | null, number | null]; exempt?: ReadonlySet<number> } = {}
   ): World & { house: number } {
     const sim = new Sim({ seed: 7, width: 28, height: 12, capacity: 64 });
     const ids = new Map<string, number>();
@@ -5592,6 +5592,7 @@ describe('population cap (GH-183 F3)', () => {
       unitInfo: (u) => CATALOGUE[u] ?? null,
       ...(tunnels.length > 0 ? { tunnels } : {}),
       ...(opts.caps !== undefined ? { popCaps: opts.caps } : cap !== undefined ? { popCaps: [cap, null] as const } : {}),
+      ...(opts.exempt !== undefined ? { popExempt: opts.exempt } : {}),
     });
     runtime.start();
     return {
@@ -5619,6 +5620,23 @@ describe('population cap (GH-183 F3)', () => {
     expect(w.runtime.buildBlockedReason('pop_heavy')).toBeNull();
     expect(w.runtime.requestBuild('pop_heavy')).toBe(true);
     expect(w.runtime.popCapped('pop_heavy')).toBe(false);
+  });
+
+  it('GH-1102: an exempt entity takes no population; the same type not exempt still counts; an empty set changes nothing', () => {
+    // Five pop_inf (ids 0-4, 1 each) under cap 6: ids 0 and 1 exempt leave 3 used, so a 2-pop build fits.
+    const w = popWorld({ starting_force: [squad(5)] }, 6, { exempt: new Set([0, 1]) });
+    expect(w.runtime.population(0)).toBe(3);
+    expect(w.runtime.populationView()).toEqual({ used: 3, cap: 6 });
+    expect(w.runtime.buildBlockedReason('pop_heavy')).toBeNull();
+    // An exempt unit's death frees nothing: it never counted. A counted one's death frees its 1.
+    w.sim.debugKill(0);
+    expect(w.runtime.population(0)).toBe(3);
+    w.sim.debugKill(2);
+    expect(w.runtime.population(0)).toBe(2);
+    // An empty set reads exactly as no set.
+    const empty = popWorld({ starting_force: [squad(5)] }, 6, { exempt: new Set() });
+    expect(empty.runtime.population(0)).toBe(5);
+    expect(empty.runtime.economyHash()).toBe(popWorld({ starting_force: [squad(5)] }, 6).runtime.economyHash());
   });
 
   it('cap 6 with 5 used: a 1-pop build succeeds, a 2-pop build is refused and costs nothing', () => {

@@ -54,28 +54,54 @@ export function seatSpecials(seat: SeatConfig | undefined): string[] {
 }
 
 /**
- * Where a seat's specials stand: offsets in the force's own frame, as `VERSUS_KDF`'s are
- * (dx toward the enemy, dy along the line), and the hostile end mirrors them through its
- * anchor the same way. The k-th special the seat brings (in `units` order) takes slot k. They
- * sit behind the placed force's rear rank (`apc_eitan` and `mortar_team` at dx -2), a reserve
- * that arrives with the force at tick 0. One slot per Store special, so a seat that owns
- * every one still has a slot for each (`versus-specials.test.ts`).
+ * Where a seat's specials stand: offsets in the seat's OWN frame -- `dx` along the line from its
+ * anchor to the enemy's (negative is behind it), `dy` across that line -- turned onto the map by
+ * `slotTile`, so a seat whose enemy lies along -y (tel_marum) or on a diagonal (wadi_tarfan) still
+ * has its specials BEHIND it, never off to one flank. The hostile end's frame points the other
+ * way, so its slots are the friendly end's mirrored through the map's centre line, as the forces
+ * are. The k-th special the seat brings (in `units` order) takes slot k. Two rows, at depths 3
+ * and 4, just behind the placed force's rear rank (`apc_eitan` and `mortar_team` at depth 2), so
+ * they fit even where the seat stands 4 tiles from the edge (beit_sahwan_outskirts' (4,22)). One
+ * slot per Store special (`versus-specials.test.ts`).
  */
 export const SPECIAL_SLOTS: readonly (readonly [number, number])[] = [
-  [-4, -6], [-4, -2], [-4, 2], [-4, 6],
-  [-5, -4], [-5, 0], [-5, 4],
-  [-6, -6], [-6, -2], [-6, 2], [-6, 6],
-  [-7, 0],
+  [-3, -5], [-3, -3], [-3, -1], [-3, 1], [-3, 3], [-3, 5],
+  [-4, -6], [-4, -4], [-4, -2], [-4, 0], [-4, 2], [-4, 4],
 ];
+
+/**
+ * The map tile slot `(dx, dy)` names for a seat at `own` facing `enemy`: `own + dx * u + dy * v`,
+ * `u` the unit vector to the enemy and `v = (-u.y, u.x)` across it, rounded to the nearest tile.
+ * Only `+ - * /`, `Math.sqrt` and `Math.round`, each exactly specified by IEEE 754 and ECMAScript,
+ * so two engines land every slot on the same tile (no `atan2`, no `sin`). A slot that falls off the
+ * map is pulled toward the seat along `u`, a tile at a time, until it is on it; only a slot still
+ * off the map at depth 0 (the across offset itself overhangs) is clamped to the edge.
+ */
+export function slotTile(own: readonly [number, number], enemy: readonly [number, number], dx: number, dy: number, w: number, h: number): [number, number] {
+  const ex = enemy[0] - own[0];
+  const ey = enemy[1] - own[1];
+  const len = Math.sqrt(ex * ex + ey * ey);
+  const ux = len === 0 ? 1 : ex / len;
+  const uy = len === 0 ? 0 : ey / len;
+  const at = (d: number): [number, number] => [Math.round(own[0] + d * ux - dy * uy), Math.round(own[1] + d * uy + dy * ux)];
+  for (let d = dx; d <= 0; d++) {
+    const [x, y] = at(d);
+    if (x >= 0 && y >= 0 && x < w && y < h) return [x, y];
+  }
+  const [x, y] = at(0);
+  return [Math.min(Math.max(x, 0), w - 1), Math.min(Math.max(y, 0), h - 1)];
+}
 
 /**
  * Spawns each side's specials at tick 0, the FRIENDLY end's first (as `versusSpawns` places
  * its forces), so entity ids do not depend on which side a seat plays. Each lands on the open
- * tile nearest its slot (Chebyshev rings, row-major inside a ring) that its OWN mobility can
- * stand on -- the vehicle mask (`blocked | boulder`) for a wheeled or tracked hull, the foot
- * mask for anything else -- and that no unit already stands on. Never a wall, rock, building
- * or (for a vehicle) a boulder field or ditch: the search widens until it finds one, and a map
- * with no such tile at all throws rather than strand a unit in a wall.
+ * tile nearest its slot (`slotTile`; Chebyshev rings, row-major inside a ring) that its OWN
+ * mobility can stand on -- the vehicle mask (`blocked | boulder`) for a wheeled or tracked hull,
+ * the foot mask for anything else -- and that no unit already stands on. Never a wall, rock,
+ * building or (for a vehicle) a boulder field or ditch: the search widens over the whole map, and
+ * a special for which no such tile exists is DROPPED with a `console.warn` naming it, never
+ * stranded in a wall and never a thrown boot. Both peers build from the same config, so both drop
+ * the same special.
  *
  * Returns the entity ids, by side.
  */
@@ -94,9 +120,7 @@ export function spawnSpecials(
   const taken = new Set<number>();
   const st = sim.state;
   for (let i = 0; i < sim.entityCount; i++) if (st.alive[i] === 1) taken.add((st.posY[i] >> 16) * w + (st.posX[i] >> 16));
-  const openNear = (x: number, y: number, mask: Uint8Array): [number, number] => {
-    const cx = Math.min(Math.max(x, 0), w - 1);
-    const cy = Math.min(Math.max(y, 0), h - 1);
+  const openNear = ([cx, cy]: [number, number], mask: Uint8Array): [number, number] | null => {
     const reach = Math.max(w, h);
     for (let r = 0; r <= reach; r++) {
       for (let dy = -r; dy <= r; dy++) {
@@ -110,22 +134,26 @@ export function spawnSpecials(
         }
       }
     }
-    throw new Error(`spawnSpecials: no open tile on the map for a special near (${x},${y})`);
+    return null;
   };
-  const [ax, ay] = anchors.friendly;
-  const [bx, by] = anchors.hostile;
   const atFriendly: 0 | 1 = ends[0] === 'friendly' ? 0 : 1;
   for (const side of [atFriendly, atFriendly === 0 ? 1 : 0] as const) {
     const friendly = side === atFriendly;
-    const facing = friendly ? hostileFacing(bx, by, ax, ay) : hostileFacing(ax, ay, bx, by);
+    const own = friendly ? anchors.friendly : anchors.hostile;
+    const enemy = friendly ? anchors.hostile : anchors.friendly;
+    const facing = hostileFacing(enemy[0], enemy[1], own[0], own[1]);
     specialsBySide[side].forEach((id, k) => {
       const t = typeOfBySide[side].get(id);
       if (t === undefined) throw new Error(`spawnSpecials: ${id} is not registered for side ${side}`);
       const slot = SPECIAL_SLOTS[k];
       if (slot === undefined) throw new Error(`spawnSpecials: no slot for special ${k} (${id})`);
-      const [dx, dy] = slot;
       const mask = sim.unitTypes[t].pathDomain === DOMAIN_VEHICLE ? sim.blockedVehicle : sim.blocked;
-      const [ox, oy] = friendly ? openNear(ax + dx, ay + dy, mask) : openNear(bx - dx, by - dy, mask);
+      const tile = openNear(slotTile(own, enemy, slot[0], slot[1], w, h), mask);
+      if (tile === null) {
+        console.warn(`spawnSpecials: no open tile for ${id} (side ${side}) anywhere on the map: it stays out of this match`);
+        return;
+      }
+      const [ox, oy] = tile;
       taken.add(oy * w + ox);
       out[side].push(sim.spawn(t, side, fx.from(ox + 0.5), fx.from(oy + 0.5), facing));
     });

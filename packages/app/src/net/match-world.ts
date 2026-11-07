@@ -39,7 +39,9 @@ export interface MatchWorld {
   bySide: [number[], number[]];
   /** GH-1102: the Store specials each SIDE fields (`seatSpecials`), in `units` order, and so the
    *  ids the mesh plan must add (`versusUnitTypes`). `[[], []]` in a matched room, and in any
-   *  brigade room where nobody brings one. */
+   *  brigade room where nobody brings one. A special with no legal tile anywhere is still listed
+   *  here and dropped, with a warning, by `spawnSpecials`; `bySide` holds what spawned. Every
+   *  spawned special is exempt from the population cap (`MissionContext.popExempt`). */
   specialsBySide: readonly [readonly string[], readonly string[]];
   /** The skirmish economy's runtime (N3 Task 3): camps, purses, doctrine
    *  menus and income zones, from `data/versus/<map>.json` and
@@ -157,8 +159,14 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // The runtime comes AFTER both forces, so every entity id a mirror room
   // spawned, and so every mirror byte, is what it was; a mirror builds none.
   // GH-976: a win-mode room (never an economy room, `economyRoom`) plays a goals-only runtime instead.
+  // GH-1102: the lead's 7 Nov ruling -- a Store special takes no population. The specials spawn
+  // after the runtime (below), so the runtime is handed the set now and the ids go in once they
+  // exist, before any tick. Only a room that fields one hands a set at all, so every other room's
+  // context, and every byte of it, is what it was.
+  const fieldsSpecials = specialsBySide[0].length > 0 || specialsBySide[1].length > 0;
+  const popExempt = new Set<number>();
   const built = economy
-    ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide, tunnelRoutes)
+    ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide, tunnelRoutes, fieldsSpecials ? popExempt : undefined)
     : config.winMode !== undefined ? modeRuntime(sim, config.map, config.winMode, map, typeOf, endOfSide) : null;
   const runtime = built?.runtime ?? null;
   const structureTypes = built?.structureTypes ?? [];
@@ -166,7 +174,10 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // spawned, and every structure the runtime stood, is what it was; and a camp the runtime
   // stood is already blocked ground the placement steps round.
   const specials = spawnSpecials(sim, typeOfBySide, anchors, endOfSide, specialsBySide);
-  for (const side of [0, 1] as const) bySide[side].push(...specials[side]);
+  for (const side of [0, 1] as const) {
+    bySide[side].push(...specials[side]);
+    for (const id of specials[side]) popExempt.add(id);
+  }
   return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, specialsBySide, runtime, winMode: config.winMode ?? null, campWipe: config.winMode === 'camp' && versusModes[config.map]?.modes.camp?.wipe === 'after_camp' ? 'after_camp' : 'ends', structureTypes };
 }
 
@@ -258,6 +269,7 @@ function economyRuntime(
   factions: readonly [Faction, Faction],
   endOfSide: readonly [SpawnEnd, SpawnEnd],
   tunnels: readonly TunnelRouteJson[],
+  popExempt?: ReadonlySet<number>,
 ): { runtime: MissionRuntime; structureTypes: string[] } {
   const rules = versusRules[mapId];
   if (rules === undefined) throw new Error(`buildMatchWorld: map "${mapId}" has no versus rules file`);
@@ -280,6 +292,8 @@ function economyRuntime(
     roadMask: roadMaskOf(map),
     unitInfo: versusUnitInfo([doctrine[0].menu, doctrine[1].menu]),
     popCaps: [doctrine[0].pop_cap ?? null, doctrine[1].pop_cap ?? null],
+    // GH-1102: the Store specials, by entity id; absent in a room that fields none.
+    ...(popExempt === undefined ? {} : { popExempt }),
     economy: {
       logisticsStart: [doctrine[0].budget.logistics_start, doctrine[1].budget.logistics_start],
       logisticsRatePerMin: [0, 0],

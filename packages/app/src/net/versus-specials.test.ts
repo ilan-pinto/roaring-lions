@@ -1,14 +1,14 @@
 // GH-1102: every Store special a player owns joins that player's starting force in a
 // brigade room; a matched room is byte-identical; a bot seat and a Sarim seat field none;
 // no special stands in a wall. Oracles are LITERALS, never read from the code under test.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { units } from '@lions/data';
 import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, sidesOfFactions, validateConfig, type MatchConfig } from '@lions/net';
 import { DOMAIN_VEHICLE, Sim } from '@lions/sim';
 import { buildMatchWorld, type MatchWorld } from './match-world';
 import { versusUnitTypes } from './versus-force';
 import { versusRoster } from './versus-roster';
-import { ownedStoreSpecials, seatSpecials, SPECIAL_SLOTS, spawnSpecials, STORE_SPECIAL_IDS } from './versus-specials';
+import { ownedStoreSpecials, seatSpecials, slotTile, SPECIAL_SLOTS, spawnSpecials, STORE_SPECIAL_IDS } from './versus-specials';
 
 /** The twelve Store specials in `units` order (literal). */
 const STORE = ['recon_zikit', 'heli_peten_gunship', 'inf_medic_squad', 'veh_ambulance', 'air_medevac_heli', 'mbt_lavi_camo', 'spg_long_range', 'ugv_recon_dog', 'spg_cluster', 'at_nlos_team', 'inf_grenadier', 'demo_tzav'];
@@ -20,7 +20,10 @@ const APPENDED = ['mbt_lavi_camo', 'spg_long_range', 'ugv_recon_dog', 'at_nlos_t
 const MATCHED_TYPES = 39;
 const TEL_MATCHED_PIN = 2541694446;
 const BEIT_MATCHED_PIN = 701662394;
-const BRIGADE_CAMO_PIN = 422407671;
+// Was 422407671 (the first build of this PR). Moved by the review fix that turns the slots into each seat's own
+// frame (`slotTile`) with the two shallower rows: tel_marum's enemy lies along -y, so the camo Lavi now stands behind
+// its seat (26,47) instead of out on its flank. The matched pins beside it did not move.
+const BRIGADE_CAMO_PIN = 3730337271;
 
 type Kit = 'matched' | 'brigade';
 interface SeatOpts { kit?: Kit; unlocks?: string[]; kind?: 'human' | 'bot' }
@@ -139,6 +142,35 @@ describe('buildMatchWorld: a brigade room fields each seat\'s owned specials', (
   });
 });
 
+describe('the population cap: a Store special takes none (the lead, 7 Nov)', () => {
+  it("own all nine and the seat's free population is what it is with none, in every economy room, from either end", () => {
+    for (const map of FACTION_MATCHUP_MAPS) {
+      for (const kdfSeat of [0, 1] as const) {
+        const factions: ['kdf' | 'sarim', 'kdf' | 'sarim'] = kdfSeat === 0 ? ['kdf', 'sarim'] : ['sarim', 'kdf'];
+        const seats = (unlocks: string[]): [SeatOpts, SeatOpts] => (kdfSeat === 0 ? [{ unlocks }, {}] : [{}, { unlocks }]);
+        const none = buildMatchWorld(room(map, seats([]), { factions }));
+        const all = buildMatchWorld(room(map, seats(STORE), { factions }));
+        // The KDF is side 0 in a faction room (LD1).
+        expect(all.specialsBySide[0], map).toEqual(COMING);
+        expect(all.bySide[0].length - none.bySide[0].length, map).toBe(COMING.length);
+        const free = (w: MatchWorld) => {
+          const rt = w.runtime;
+          if (rt === null) throw new Error(`${map}: not an economy room`);
+          const cap = rt.popCap(0);
+          if (cap === null) throw new Error(`${map}: KDF uncapped`);
+          return cap - rt.population(0);
+        };
+        expect(free(all), `${map} KDF seat ${kdfSeat}`).toBe(free(none));
+        // The exemption is by entity, not by type: the specials' types still cost population when built.
+        for (const id of ['inf_medic_squad', 'inf_grenadier', 'mbt_lavi_camo']) {
+          const t = all.typeOf.get(id);
+          expect(t === undefined ? 0 : all.sim.unitTypes[t].population, `${map} ${id}`).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+});
+
 describe('buildMatchWorld: a matched room spawns no special, and its bytes do not move', () => {
   it('a matched config whose seats carry unlocks builds the matched pins (beit, tel; 200 ticks)', () => {
     for (const [map, pin] of [['beit_sahwan_outskirts', BEIT_MATCHED_PIN], ['tel_marum', TEL_MATCHED_PIN]] as const) {
@@ -190,28 +222,70 @@ describe('spawnSpecials: never in a wall', () => {
       }
     }
   });
+  it("slots turn with the seat's own frame: behind is away from the enemy, whatever way the enemy lies (literals)", () => {
+    // beit_sahwan_outskirts' friendly seat (4,22) faces (40,23): east, so depth 4 behind is x 0.
+    expect(slotTile([4, 22], [40, 23], -4, 0, 48, 48)).toEqual([0, 22]);
+    // tel_marum's friendly seat (26,45) faces (29,17): north. Depth 3 behind would be y 48, off a 48-row
+    // map, so it is pulled in to depth 2, y 47 -- behind the seat, not out on its flank.
+    expect(slotTile([26, 45], [29, 17], -3, 0, 48, 48)).toEqual([26, 47]);
+    // Across the line: +dy runs along v = (-u.y, u.x). Facing north (-y) that is east (+x); facing east, south (+y).
+    expect(slotTile([20, 20], [20, 0], 0, 5, 48, 48)).toEqual([25, 20]);
+    expect(slotTile([20, 20], [40, 20], 0, 5, 48, 48)).toEqual([20, 25]);
+  });
+  it('on every versus map, from either end, the specials stand behind their seat: mean depth at least 1.5 tiles back, none over a tile forward', () => {
+    const maps = [...new Set([...VERSUS_FAIR_MAPS, ...FACTION_MATCHUP_MAPS])];
+    for (const map of maps) {
+      for (const owner of [0, 1] as const) {
+        const w = buildMatchWorld(room(map, owner === 0 ? [{ unlocks: STORE }, {}] : [{}, { unlocks: STORE }]));
+        const own = w.endOfSide[owner] === 'friendly' ? w.anchors.friendly : w.anchors.hostile;
+        const enemy = w.endOfSide[owner] === 'friendly' ? w.anchors.hostile : w.anchors.friendly;
+        const ex = enemy[0] - own[0];
+        const ey = enemy[1] - own[1];
+        const len = Math.sqrt(ex * ex + ey * ey);
+        const depth = (i: number) => ((w.sim.state.posX[i] / 65536 - 0.5 - own[0]) * ex + (w.sim.state.posY[i] / 65536 - 0.5 - own[1]) * ey) / len;
+        const depths = w.bySide[owner].slice(-COMING.length).map(depth);
+        const mean = depths.reduce((a, b) => a + b, 0) / depths.length;
+        expect(mean, `${map} seat ${owner}: ${depths.map((d) => d.toFixed(1)).join(',')}`).toBeLessThanOrEqual(-1.5);
+        expect(Math.max(...depths), `${map} seat ${owner}`).toBeLessThanOrEqual(1);
+      }
+    }
+  });
   it('a slot in a wall, or a boulder field under a vehicle, moves the special to open ground beside it', () => {
-    // A 24x24 open sim, friendly anchor (12,12) facing a hostile anchor east of it: slot 0 is (-4,-6),
-    // so the first special's slot tile is (8,6). Wall it, and boulder the slot of the second, a vehicle.
+    // A 24x24 open sim, friendly anchor (12,12) facing a hostile anchor due east: u = (1,0), v = (0,1),
+    // so slot 0 (-3,-5) is tile (9,7) and slot 1 (-3,-3) is tile (9,9). Wall the first; boulder the second, a vehicle's.
     const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 16 });
     const all = units as unknown as Record<string, never>;
     const typeOf = new Map<string, number>([['inf_grenadier', sim.addUnitType(all.inf_grenadier)], ['mbt_lavi_camo', sim.addUnitType(all.mbt_lavi_camo)]]);
-    sim.setBlocked(8, 6, true);
-    sim.setBoulder(8, 10, true); // slot 1 is (-4,-2): (8,10)
+    sim.setBlocked(9, 7, true);
+    sim.setBoulder(9, 9, true);
     const anchors = { friendly: [12, 12] as const, hostile: [20, 12] as const };
     const [ids] = spawnSpecials(sim, [typeOf, typeOf], anchors, ['friendly', 'hostile'], [['inf_grenadier', 'mbt_lavi_camo'], []]);
     const tileOf = (i: number): [number, number] => [sim.state.posX[i] >> 16, sim.state.posY[i] >> 16];
     expect(ids).toHaveLength(2);
-    // The grenadier's slot is a wall: it stands beside it, on foot ground.
-    expect(tileOf(ids[0])).not.toEqual([8, 6]);
+    expect(tileOf(ids[0])).not.toEqual([9, 7]);
     expect(sim.blocked[tileOf(ids[0])[1] * 24 + tileOf(ids[0])[0]]).toBe(0);
-    // The camo Lavi's slot is a boulder field: a wall to a tracked hull, so it stands off it too.
-    expect(tileOf(ids[1])).not.toEqual([8, 10]);
+    expect(tileOf(ids[1])).not.toEqual([9, 9]);
     expect(sim.blockedVehicle[tileOf(ids[1])[1] * 24 + tileOf(ids[1])[0]]).toBe(0);
     // Both one ring out: the search takes the nearest open tile, not just any.
-    for (const [i, [sx, sy]] of [[ids[0], [8, 6]], [ids[1], [8, 10]]] as const) {
+    for (const [i, [sx, sy]] of [[ids[0], [9, 7]], [ids[1], [9, 9]]] as const) {
       const [x, y] = tileOf(i);
       expect(Math.max(Math.abs(x - sx), Math.abs(y - sy))).toBe(1);
+    }
+  });
+  it('a special with no legal tile anywhere is dropped with a warning naming it, not thrown, and the rest still spawn', () => {
+    // Every tile a vehicle could stand on is a boulder field; the foot soldier still finds ground.
+    const sim = new Sim({ seed: 1, width: 12, height: 12, capacity: 16 });
+    const all = units as unknown as Record<string, never>;
+    const typeOf = new Map<string, number>([['mbt_lavi_camo', sim.addUnitType(all.mbt_lavi_camo)], ['inf_grenadier', sim.addUnitType(all.inf_grenadier)]]);
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) sim.setBoulder(x, y, true);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const out = spawnSpecials(sim, [typeOf, typeOf], { friendly: [6, 6], hostile: [6, 1] }, ['friendly', 'hostile'], [['mbt_lavi_camo', 'inf_grenadier'], []]);
+      expect(out[0].map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)).toEqual(['inf_grenadier']);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain('mbt_lavi_camo');
+    } finally {
+      warn.mockRestore();
     }
   });
 });
