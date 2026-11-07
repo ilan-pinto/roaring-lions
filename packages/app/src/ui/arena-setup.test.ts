@@ -242,6 +242,36 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     } finally { listed.splice(0, listed.length, ...before); }
   });
 
+  it('GH-1079: a cap typed above what the next mode allows comes down to that mode\'s maximum, and one below it stays', async () => {
+    const listed = FLAG_SETUP_MAPS as string[];
+    const before = [...listed]; // restored below, never cleared
+    listed.push('wadi_tarfan');
+    try {
+      const r = rig();
+      showArenaSetup(r.host, r.deps);
+      await settle();
+      const cap = field(r.host, 'Cap (ticks)') as HTMLInputElement;
+      pickMap(r, 'wadi_tarfan');
+      modeField(r).value = 'flag';
+      modeField(r).dispatchEvent(new Event('change'));
+      expect(cap.max).toBe('36000');
+      cap.value = '35000'; // legal in the 30-minute flag room
+      cap.dispatchEvent(new Event('input'));
+      modeField(r).value = 'points';
+      modeField(r).dispatchEvent(new Event('change'));
+      expect(cap.max).toBe('30000');
+      expect(cap.value).toBe('30000'); // was 35000: above the max, so refused at Start with bad_number
+      cap.value = '20000';
+      cap.dispatchEvent(new Event('input'));
+      modeField(r).value = 'flag';
+      modeField(r).dispatchEvent(new Event('change'));
+      expect(cap.value).toBe('20000'); // typed and in range: left alone
+      q<HTMLButtonElement>(r.host, '.rl-arena-setup__start').click();
+      await settle();
+      expect(bodyOfStart(r)).toMatchObject({ map: 'wadi_tarfan', mode: 'flag', capTicks: 20000 });
+    } finally { listed.splice(0, listed.length, ...before); }
+  });
+
   it('is locked while a run is going, like the rest of the form', async () => {
     const r = rig();
     r.status.value = { ...RUNNING, run: { ...RUNNING.run, mode: 'points' } };
