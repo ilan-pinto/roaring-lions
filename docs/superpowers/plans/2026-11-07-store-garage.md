@@ -23,8 +23,8 @@ headless playtest, and `pnpm closeups:garage` (the bay's own three.js turntable,
 **Spec:** `docs/superpowers/specs/2026-11-07-store-garage-benefits-design.md` (PR 1094, branch
 `docs/store-garage-design`, head `b5fb216a0`). Read it from that branch if PR 1094 has not merged. The lead's
 rulings are the last comment on GH-1076 and on GH-1077 (7 Nov, identical). Where the rulings and the spec disagree,
-the rulings win. Where this plan's §0 settles a contradiction between the spec and the code, §0 wins, and the lead
-review confirms each §0 default.
+the rulings win. Where this plan's §0 settles a contradiction between the spec and the code, §0 wins. R0.1 is
+already ruled by the lead (7 Nov, on PR 1109's review). The lead review confirms the other §0 defaults.
 
 **Base:** `origin/main` `4cdac8fdc`. Find code by SYMBOL, never by line: `showStores`, `StoresOptions`,
 `creditBuyEnabled`, `creditBuy`, `storeItems`, `tierItem`, `TierItem`, `coinPrice`, `buyEnabled`,
@@ -38,13 +38,21 @@ review confirms each §0 default.
 - GH-1076 and GH-1077: no comment except the lead's rulings block (D1 to D6, 7 Nov), quoted under Global
   Constraints.
 - PR 1094 (the spec) is open, docs only.
-- **GH-1102 / branch `versus/brigade-specials`** (in flight, no PR yet; the worktree at
-  `../roaring-lions-ep/brigade-specials` has uncommitted edits to `packages/net/src/{config,protocol,index}.ts`,
-  new `packages/net/src/specials.ts`, and `packages/worker/src/match/{match-room,room-fields,routes,store-specials}.ts`).
-  The ruling it builds (lead, 7 Nov 19:12, superseding the reserve design PR 1107): with "Bring your brigade" on,
-  every special a player owns joins that player's starting force. It refuses `veh_ambulance`, `air_medevac_heli`
-  (`rescue`) and `spg_cluster` (`conduct`) through `VERSUS_REFUSED_SPECIALS`, and reads `accountState().boughtUnits`
-  (coin-bought included) into the create/join body beside `tiers`. See **Conflicts**.
+- **PR 1110, GH-1102, branch `versus/brigade-specials`** (open; head `d667dd5c0` when this plan was revised). The
+  ruling it builds (lead, 7 Nov 19:12, superseding the reserve design PR 1107): with "Bring your brigade" on, every
+  special a player owns joins that player's starting force. What it already does:
+  - `@lions/net` exports `specialRefusal` and `VERSUS_REFUSED_SPECIALS` (`packages/net/src/specials.ts`), which refuse
+    `veh_ambulance`, `air_medevac_heli` (`rescue`) and `spg_cluster` (`conduct`);
+  - the claim carries `accountState().boughtUnits` (coin-bought included) beside `tiers`;
+  - `buildMatchWorld` APPENDS each held special a seat brings after the roster and side 1's copies
+    (`appendedSpecials`, `versus-specials.ts`). It walks tiers over that walked roster:
+    `seatKitTiers(seat, roster = versusRoster())`, called as `seatKitTiers(seats[s], walked)`;
+  - it tests `demo_tzav`'s armour tier 1 on an appended special, and pins `BRIGADE_CAMO_PIN = 422407671` (tel_marum,
+    seed 20260727, seat 0 brings `mbt_lavi_camo`, 200 ticks) in `packages/app/src/net/versus-specials.test.ts`;
+  - it changes `packages/app/src/net/versus-roster.ts`, in the `VERSUS_HELD_UNITS` header only: the held specials
+    stay out of the BASE roster.
+
+  See **Conflicts**.
 - **PR 1101** (accounts spec, GH-1075, open, docs only): coins become server-authoritative. Its A0 moves
   `coinPrice`, `buyTierWithCoins`, `storeItems`, `resetFree`, `migrateRoar` and the other coin rules byte for byte
   into a new leaf package, `@lions/economy`, with app re-exports. Credits and the brigade account stay trusted from
@@ -62,6 +70,8 @@ review confirms each §0 default.
     them first.
   - D2: 11 engine close-up renders are approved. No Meshy. The lead sees the sheet before merge.
   - D3: R3, credits fill the earned path below the tier they buy, with one button whose label states the run.
+  - **R0.1 (lead, 7 Nov, on PR 1109's review):** DROP the "Count online" run. Credits still fill the earned path below
+    the tier they buy, as D3 ruled.
   - D4: a sim-generated Hurt-by table.
   - D5: Buy with credits on the Stores' tier rows.
   - D6: one "What it adds" panel, opened from the card.
@@ -115,21 +125,21 @@ the code.
 
 ## §0 Rulings: the spec checked against the code
 
-**R0.1 The "Count online" button is dropped. Its price-the-run half stays.** The spec's R3 sells, after coins have
-maxed a track, a credit run whose only effect is that "the coin tiers count in network play". On `origin/main`
-nothing on a room path reads `networkView`:
+**R0.1 The "Count online" run is dropped. RULED by the lead, 7 Nov, on PR 1109's review.** Credits still fill the
+earned path below the tier they buy, as D3 ruled. The spec's R3 sold, after coins had maxed a track, a credit run
+whose only effect was that "the coin tiers count in network play". On `origin/main` nothing on a room path reads
+`networkView`:
 - a matched room sends no tiers (`coin-claim.test.ts`, "a matched create sends no tiers");
 - a brigade room sends `accountState().ownedTiers`, the single-player view with coin tiers included. That is the
   ruled exception (D4 of 11 Oct, the same test).
 
-GH-1102 extends the same single-player view to the specials. So the catch-up would sell nothing observable.
-Plan:
+PR 1110 extends the same single-player view to the specials. So the catch-up would have sold nothing observable.
+As built:
 - `creditAsk` returns `null` when the single-player tier is at the top of the track, whoever paid for it;
 - there is no "Count online" label;
 - the run label says what is true: "Tier 3 · 740 credits (pays for tiers 1-2 again, on credits)".
 
-The catch-up returns when a room reads the earned view: PR 1101's verified rooms, if they choose to. The lead review
-confirms the default.
+This is settled and does not wait for the sheet. Only the run label's wording goes on the sheet.
 
 **R0.2 `creditAsk` takes `(prices, earned, owned)`, not the coin tier.** `owned` is `max(earned, coins)`, the view
 the Garage and the Stores already hold (`ownedTiers`, `TierItem.owned`), and `earned` is the account's own
@@ -162,19 +172,35 @@ the engine render D2 approved, run by the `blender-art` agent. It is that task's
 empty `hull`/`glass`/`metal` region. `garage-focus.ts` then frames the whole model and warns by name. WP9 lists
 every such warning on the sheet. Changing the focus rules or adding kit parts is out of scope (spec §5).
 
-**R0.8 The panel's versus line meets GH-1102.** The spec's block F has two values: "Also on the versus camp menu"
-(in `kdf.json`'s `menu`, not held) and "Campaign and free play only". Under the GH-1102 ruling an owned special that
-is not refused joins a brigade room's starting force, so "campaign and free play only" would be false for six of the
-nine. The model gets a third value, `brigadeRoom`, "Joins your force in brigade versus rooms", read from
-`@lions/net`'s `specialRefusal(id) === null` for a bought-only unit. It is implemented in whichever of WP3 and the
-GH-1102 app half lands SECOND, with its test (see **Conflicts**). Until then WP3 ships the two values and a
-`// GH-1102:` comment on the branch.
+**R0.8 The panel's versus line follows PR 1110.** The spec's block F has two values: "Also on the versus camp menu"
+(in `kdf.json`'s `menu`, not held) and "Campaign and free play only". Under PR 1110 every owned bought-only unit
+except the refused three joins a brigade room's starting force, so "campaign and free play only" would be false for
+nine of the twelve. The rule, for block F's versus line:
+- a bought-only unit (`isBoughtOnly`) with `specialRefusal(id) === null` shows `brigadeRoom`, "Joins your force in
+  brigade versus rooms";
+- a unit in `kdf.json`'s `menu` and not in `VERSUS_HELD_UNITS` shows `versus`, "Also on the versus camp menu". It can
+  show beside `brigadeRoom`;
+- `campaignOnly` shows only when neither holds. That covers the refused three: `veh_ambulance`, `air_medevac_heli`
+  and `spg_cluster`.
+
+`unitAdds` takes the refusal as an injected `AddsInput.refusal: (id: string) => string | null`, so WP3 stays
+independent and is tested with a literal fixture. WP6 wires `@lions/net`'s `specialRefusal` and therefore
+HARD-DEPENDS on PR 1110 merging. The app never keeps its own copy of the refused list.
 
 **R0.9 The threat table needs airborne targets.** `focusHurts` reads `isAirborne(target)` to choose a weapon's
 air or ground slot. The generator asserts `isAirborne` for every KDF `isAir` type before it records a row. A landed
 medevac would answer the ground slots and list rifles as a threat. It also asserts the KDF unit presents its SIDE
 plate to the shooter, by literal (R0.10). `focusHurts` tests no range, so the four-tile spacing fixes the face and
 nothing else.
+
+**The facing value.** Angles in the sim are turns x 65536 (`ARC_60 = 10923`, `ARC_120 = 21845`, `tuning.ts`), and
+`presentedArmor` takes the bearing `fx.atan2(oy - ty, ox - tx)` against `facing[target]`. The KDF unit spawns at tile
+(6, 8) with `facing = 16384` (90°), and the shooter at (10, 8), due east, bearing 0. So `rel = 16384`, which lies
+strictly between `ARC_60` and `ARC_120`: the side plate. The literal: `presentedArc` reads `1` after a `focusHurts`
+call on that pair. It is the scratch the sim documents `focusHurts` as writing, and the generator reads it before the
+next call. If `presentedArc` is not readable from tools, compare against `facing = 0` (front, `rel = 0`) on
+`mbt_lavi` against `rpg_team`, where front and side give different answers. Pick that pair by reading the JSON
+(`hull.armor.side` < its penetration < `hull.armor.front`) and name it in the test.
 
 **R0.10 The threat table's literal oracles.** The spec's T5 gives two: `sarim_rifles` is not in `mbt_lavi`'s list,
 and `atgm_cell` is. This plan adds two more:
@@ -188,23 +214,42 @@ and `atgm_cell` is. This plan adds two more:
 
 ## Conflicts
 
-**GH-1102, `versus/brigade-specials` (owned specials join a brigade room's force).**
-- **Tracks on specials must travel with tiers.** The brigade claim already sends every owned tier, but the world
-  applies tiers by walking the versus roster (`seatKitTiers` over `versusRoster()`, which skips
-  `VERSUS_HELD_UNITS`). Once GH-1102 registers the specials for a brigade seat, its walk must cover them too, or the
-  nine's new tiers are dropped in versus without a sound. Whichever of WP8 (the data) and the GH-1102 app half lands
-  SECOND adds `packages/app/src/net/special-tiers.test.ts`. A brigade KDF seat that owns `inf_grenadier` with
-  armour tier 2 fields it at the tier-2 `hull.hp` (a literal read from WP1's fit table). The same claim in a matched
-  room fields base hp. Falsification: skip specials in the tier walk, and the first assertion goes red.
-- **Coin tiers in a brigade room.** GH-1102 reads `accountState()`, so coin-bought specials and their coin tiers
-  travel, consistent with D4 of 11 Oct. R0.1 depends on this. If GH-1102 switches to `networkView`, R0.1's catch-up
-  becomes meaningful again, and the coordinator raises it with the lead.
-- **Shared files.** `packages/app/src/main.ts` (GH-1102 edits the `openRoom` deps near `tiers: () =>
-  accountState().ownedTiers`; WP5 and WP7 edit the Garage and Stores handlers): resolve by hunk.
-  `packages/app/src/i18n/en.json` (GH-1102's lobby copy): resolve by key. Panel block F's versus line follows R0.8.
-- **Pins.** The nine's new `upgrades` blocks change `shippedContentDigest()`. It is recomputed, never a literal
-  (`content-digest.test.ts`). WP8 confirms with `git grep -n shippedContentDigest` before claiming that no pin moves.
-  No roster-count or hash pin moves in WP8, because the nine stay out of `versusRoster()` until GH-1102.
+**PR 1110, GH-1102, `versus/brigade-specials` (owned specials join a brigade room's force).**
+- **Tracks on specials travel with tiers.** PR 1110 already walks tiers over the walked roster
+  (`seatKitTiers(seat, walked)`, the base roster plus the appended specials) and tests it on `demo_tzav`. What it
+  cannot test yet is the nine's NEW tracks, because they do not exist until WP8. So WP8 adds
+  `packages/app/src/net/special-tiers.test.ts` against PR 1110's signatures (`buildMatchWorld`, `seatKitTiers(seat,
+  roster)`, `MatchWorld.specialsBySide`), with Q16.16 literals as PR 1110's own `demo_tzav` test writes them:
+  - `inf_grenadier`, a special that is in the BASE roster. A brigade KDF seat with `unlocks: ['inf_grenadier']` and
+    `tiers: { inf_grenadier: { armour: 2 } }` fields it at the tier-2 `hull.hp`, a literal computed by hand from
+    `inf_grenadier.json`'s base hp and WP1's fitted tier-2 delta. The same claim in a matched room fields base hp;
+  - `mbt_lavi_camo`, an APPENDED special, the same way at armour tier 2. Its tracks copy `mbt_lavi`'s, so the
+    literal is `mbt_lavi`'s tier-2 hp.
+
+  Falsification: call `seatKitTiers(seats[s])` (the default `versusRoster()`) in `buildMatchWorld`, and the
+  `mbt_lavi_camo` case goes red while the `inf_grenadier` case stays green. That is why there are two cases.
+- **WP6 hard-depends on PR 1110 merging.** `brigadeRoom` is built on `@lions/net`'s `specialRefusal` (R0.8). WP8
+  also starts after PR 1110 merges, because `special-tiers.test.ts` needs its signatures.
+- **Coin tiers in a brigade room.** PR 1110 reads `accountState()`, so coin-bought specials and their coin tiers
+  travel, consistent with D4 of 11 Oct. That is the fact R0.1's ruling rests on.
+- **Shared files.**
+  - `packages/app/src/main.ts`: PR 1110 edits the `openRoom` deps near `tiers: () => accountState().ownedTiers`;
+    WP5 and WP7 edit the Garage and Stores handlers. Resolve by hunk.
+  - `packages/app/src/i18n/en.json`: PR 1110's lobby copy. Resolve by key.
+  - `packages/app/src/ui/theme.css`: PR 1110's lobby line-up styles and WP6's panel. Resolve by block.
+  - `packages/app/src/net/versus-roster.ts`: PR 1110 changes it (the `VERSUS_HELD_UNITS` header). This plan only
+    reads `VERSUS_HELD_UNITS`, in WP3, and edits nothing there.
+- **Pins after WP8.**
+  - `shippedContentDigest()` moves, on purpose. Since PR 1110, the nine's tiers can change a brigade room's world (an
+    owned special wears its owner's tiers). So two builds that disagree on the nine's `upgrades` must not rejoin each
+    other's rooms, and the digest is what refuses it. The digest is recomputed, never a literal
+    (`content-digest.test.ts`). WP8 runs `git grep -n shippedContentDigest` and the connect and rejoin suites to
+    confirm that no literal holds it.
+  - `BRIGADE_CAMO_PIN` (PR 1110, `versus-specials.test.ts`) must NOT move. Its seat brings `mbt_lavi_camo` with no
+    tiers, and an untiered type is the base JSON whatever tracks it declares (`applyUpgrades` at tier 0). WP8
+    re-runs it. If it moves, a track reached the sim without a tier. That breaks the `applyUpgrades`-before-
+    `addUnitType` rule: stop and raise it, never re-pin.
+  - No roster-count pin moves: the nine's ids do not change, and the held ones stay out of the base roster.
 
 **PR 1101, accounts (coins server-authoritative later).**
 - **A0's byte-for-byte move.** This plan edits none of `coinPrice`, `buyTierWithCoins`, `storeItems`, `tierItem`,
@@ -231,16 +276,17 @@ and `atgm_cell` is. This plan adds two more:
 | WP3 | `unitAdds` pure model | M | — (fixture table) | WP1, WP2, WP4 | general-purpose (Sonnet) | Sonnet |
 | WP4 | `creditAsk` and `buyUpgradeRun` (R3) | S | — | WP1, WP2, WP3 | general-purpose (Sonnet) | Opus (the G2/G3 money invariants) |
 | WP5 | Garage credit Buy through `creditAsk` | S-M | WP4 | WP6 | general-purpose (Sonnet) | Sonnet |
-| WP6 | the panel in the Stores (D6), copy, CSS | M | WP2, WP3 | WP5 | general-purpose (Sonnet) | Sonnet |
+| WP6 | the panel in the Stores (D6), copy, CSS | M | WP2, WP3, **PR 1110 merged** | WP5 | general-purpose (Sonnet) | Sonnet |
 | WP7 | Stores tier-row credit Buy (D5) | S | WP4, WP5, WP6 | WP8 | general-purpose (Sonnet) | Sonnet |
-| WP8 | the nine tracks land (data, tests, docs) | S-M | WP1 merged, WP5 merged | WP7 | general-purpose (Sonnet) | Sonnet |
+| WP8 | the nine tracks land (data, tests, docs) | S-M | WP1, WP5 and PR 1110 merged | WP7 | general-purpose (Sonnet) | Sonnet |
 | WP9 | the 11 close-ups (same branch and PR as WP8) | S | WP8's commit | WP7 | `blender-art` (Sonnet) | Sonnet |
 | WP10 | the look sheet for the lead | S | WP6, WP7, WP9 branches | — | general-purpose (Sonnet); the coordinator publishes | — |
 | Lead review | | — | WP10 | — | — | — |
 | WP11 | merge order and notes | S | the lead's answer | — | general-purpose (Haiku: mechanical) | Sonnet |
 
-Waves: **A** = WP1, WP2, WP3, WP4 (four streams). **B** = WP5, WP6. **C** = WP7, then WP8+WP9 as one PR. **D** =
-WP10, the lead review, WP11.
+Waves: **A** = WP1, WP2, WP3, WP4 (four streams). **B** = WP5, and WP6 once PR 1110 has merged. **C** = WP7,
+then WP8+WP9 as one PR (also gated on PR 1110). **D** = WP10, the lead review, WP11. If PR 1110 is still open when
+wave B starts, WP5 proceeds alone and the coordinator waits on PR 1110 for WP6. No task works around it.
 
 **Merge policy.** WP1 to WP5 change no screen a player sees (WP5 changes the Garage label only on a coin-started
 track) and merge on green under the standing grant. The UI PRs (WP6, WP7) and the data and art PR (WP8+WP9) open
@@ -252,8 +298,12 @@ dead button.
 - `packages/app/src/i18n/en.json`: WP5 (run labels), WP6 (panel and `role.*.purpose`), WP7 (tier-row labels). Resolve
   by key.
 - `packages/app/src/ui/stores.ts`, `stores.test.ts`: WP6, then WP7. Serial.
-- `packages/app/src/main.ts`: WP5 (`buyTierWithCredits`), then WP7 (wiring). Serial. GH-1102: by hunk.
-- `packages/app/src/ui/theme.css`: WP6 only (WP7 reuses `rl-stores__buy--credits`).
+- `packages/app/src/main.ts`: WP5 (`buyTierWithCredits`), then WP7 (wiring). Serial. PR 1110: by hunk.
+- `packages/app/src/ui/stores-adds.ts`: WP3 only. WP6 passes `@lions/net`'s `specialRefusal` in as `refusal`.
+- `packages/app/src/ui/theme.css`: WP6 only (WP7 reuses `rl-stores__buy--credits`). PR 1110 also edits it, for the
+  lobby; resolve by block.
+- `packages/app/src/net/versus-roster.ts`: changed by PR 1110 (the header only). No task here edits it; WP3 reads
+  `VERSUS_HELD_UNITS`.
 - `packages/app/src/brigade-account.ts`, `upgrade-pay.ts`: WP4 only.
 - `packages/app/src/ui/brigade.ts`, `garage-board.ts`: WP5 only.
 - `data/units/kdf/*.json`, `tools/src/garage_closeups.test.ts`, `assets/ui/garage/closeups/`: WP8+WP9 only.
@@ -317,7 +367,15 @@ Every task runs in its own worktree under `/Users/ilpinto/dev/roaring-lions-ep/`
 - [ ] **Step 7: Commit** with `git commit -- docs/campaign/economy/upgrades.md docs/campaign/special_units/gh1077/tracks.json tools/src/gh1077_staged.test.ts`.
   The message lists each falsification and its red line.
 
-**Gate:** CI green. The fit table shows all four measurements in band. **Falsification:** Step 4.
+**Gate:** none is enforced here. CI cannot see the fit: no `upgrades` block is in `data/units/` yet, so every CI
+balance step runs on today's data, and a green run says nothing about the nine. WP1's evidence is:
+- the four measurements, posted verbatim on GH-1077 and in `upgrades.md` §3;
+- the Step 4 reds, each one in the commit message. Keep BOTH WP1 mutations, T15's +5000 hp and T16's −300 hp:
+  T15 proves the cost-curve check sees an absurd tier, and T16 proves (or disproves) that the playtest sees the medic.
+
+`gh1077_staged.test.ts` is enforced, but it guards only the staged prices. **WP8 is the first enforced gate on the
+fit**, when CI's two `--max-tier` invocations, `pnpm balance` and `pnpm playtest` first run on the landed data.
+**Falsification:** Step 4.
 
 ---
 
@@ -344,20 +402,28 @@ export function buildThreatTable(): Record<string, string[]>;
 ```
 
 Method: one headless `Sim` per (enemy, KDF) pair on a 16x16 open map. Register both types through `unitTypeFromJson`
-and `addUnitType`. Spawn the KDF unit at side 0, faced so the shooter stands on its side, and the enemy at side 1
-four tiles away. No tick runs: `focusHurts` is a read. Assert R0.9 (`isAirborne` for every KDF `isAir` type) before
-recording.
+and `addUnitType`. Spawn the KDF unit at side 0 on tile (6, 8) with `facing = 16384` (90°, R0.9), and the enemy at
+side 1 on (10, 8), due east and four tiles away, so the shooter stands on the KDF unit's side plate. No tick runs:
+`focusHurts` is a read. Assert R0.9 (`isAirborne` for every KDF `isAir` type) before recording.
 
 - [ ] **Step 1: Write the failing test** `store_threat_table.test.ts`:
   - `buildThreatTable()` deep-equals the committed JSON;
   - the literals (R0.10): `atgm_cell` ∈ `mbt_lavi`; `sarim_rifles` ∉ `mbt_lavi`; `manpad_team` ∈ `air_medevac_heli`;
     `wounded_sarim` in no list;
-  - the side-face literal: the generator's placement makes `presentedArmor` read `side`. Use the facing convention
-    `facing.test.ts` uses, and say which;
-  - every KDF id in `data/units/kdf` is a key, and every soft KDF type's list holds every armed enemy **whose weapons can
-    target the unit's domain** (`can_target` has `air` for an aircraft or drone, `ground` for a ground unit). Soft means
-    every compatible weapon hurts it, not that every weapon can reach it: `atgm_cell`'s Kornet is `can_target:
-    ["ground"]`, so it is correctly absent from the air-domain `recon_drone`'s list, and a literal asserts that absence.
+  - the side-face literal: `facing = 16384` against a shooter at bearing 0 gives `presentedArc === 1` (side), and
+    `facing = 0` gives `0` (front). If `presentedArc` is not readable from tools, use R0.9's named front/side pair;
+  - every KDF id in `data/units/kdf` is a key, and every soft KDF type's list holds every armed enemy **whose weapons
+    can target the unit's domain** (`can_target` has `air` for an aircraft or drone, `ground` for a ground unit).
+    Soft means every compatible weapon hurts it, not that every weapon can reach it. `atgm_cell`'s Kornet is
+    `can_target: ["ground"]`, so it is correctly absent from the air-domain `recon_drone`'s list, and a literal asserts
+    that absence;
+  - **the loops cannot pass empty:**
+    - the KDF id list the test walks has at least 30 entries (32 on the base: `data/units/kdf` holds 32 files, so a
+      bound of 40 would fail on today's data);
+    - the armed-enemy list has at least 12 (16 on the base: 17 files less `wounded_sarim`);
+    - at least one KDF type is soft, and at least one is not;
+    - the not-soft type's list is a strict subset of the domain-compatible armed enemies, so "soft means everything
+      compatible" cannot be the rule for all.
 - [ ] **Step 2: Run** `pnpm vitest run tools/src/store_threat_table.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement** the generator and run `pnpm store:threats` to write the JSON.
 - [ ] **Step 4: Falsify, then undo:**
@@ -365,7 +431,9 @@ recording.
   - make the generator record every armed enemy, and the `sarim_rifles` literal goes red;
   - face the KDF unit toward the shooter (front plate), and the side-face literal goes red. `atgm_cell` may still
     hurt the Lavi, which is why the face has its own literal;
-  - spawn the medevac landed, and the R0.9 assertion throws.
+  - spawn the medevac landed, and the R0.9 assertion throws;
+  - read the KDF list from an empty directory, and the "at least 30" bound goes red where the per-id loop would have
+    passed vacuously.
 - [ ] **Step 5: Run** `pnpm vitest run tools/src`, `pnpm typecheck` and `pnpm lint`. `git diff --stat origin/main --
   packages/sim` is empty.
 - [ ] **Step 6: Commit** with `git commit -- <paths>`. The message lists the falsifications.
@@ -404,6 +472,9 @@ export interface AddsInput {
   readonly worldMissionIds: readonly string[];            // data/campaign/world.json
   readonly versusMenu: ReadonlySet<string>;               // data/doctrines/kdf.json menu
   readonly threats: Readonly<Record<string, readonly string[]>>;   // threat-table.json (WP2), injected
+  /** Why a Store special is refused in a versus room, or null (R0.8). WP6 passes `@lions/net`'s `specialRefusal`
+   *  (PR 1110); tests pass a literal fixture. Never a copied list. */
+  readonly refusal: (id: string) => string | null;
 }
 export interface UnitAdds {
   readonly role: { role: string; bucket: string };
@@ -414,7 +485,8 @@ export interface UnitAdds {
   readonly gap: readonly ({ kind: 'firstRole'; role: string } | { kind: 'newTags'; tags: readonly AddsTag[] }
     | { kind: 'reach'; n: number; d: number } | { kind: 'plusOne'; role: string; name: string })[];
   readonly where: readonly ({ kind: 'dock'; n: number } | { kind: 'fieldedAs'; base: string; mission: string }
-    | { kind: 'loaned'; n: number } | { kind: 'versus' } | { kind: 'campaignOnly' } | { kind: 'coinsSinglePlayer' })[];
+    | { kind: 'loaned'; n: number } | { kind: 'versus' } | { kind: 'brigadeRoom' } | { kind: 'campaignOnly' }
+    | { kind: 'coinsSinglePlayer' })[];
   readonly upgrades: null | { tracks: readonly string[]; tiers: number; credits: number; coins: number };
 }
 export function unitAdds(input: AddsInput): UnitAdds;
@@ -451,10 +523,16 @@ Rules (spec §1.2), with the points the spec leaves open settled:
     tier's coin price, which differs from `coinPrice(740)`. Pick a fixture where the two differ, and say so in the
     test;
   - the threat literal: a fixture `threats` that names `atgm_cell` for the candidate puts it in a group;
-  - no unit id in the source (the grep above).
+  - the versus line (R0.8), with a literal fixture `refusal` that refuses `spg_cluster` only:
+    - `spg_long_range` (bought-only, not refused) shows `brigadeRoom`;
+    - `spg_cluster` (refused) shows `campaignOnly` and no `brigadeRoom`;
+    - an earned unit on the fixture menu shows `versus` and no `brigadeRoom`;
+  - no unit id in the source (the grep above). **The loops cannot pass empty:** the KDF id list the grep walks has
+    at least 30 entries (32 on the base), and the T3 sweep runs over every `ADDS_TAGS` entry (19) against that same
+    list. An empty roster makes "holds on at least one" fail, never pass.
 - [ ] **Step 2: Run** `pnpm vitest run packages/app/src/ui/stores-adds.test.ts`. Expected: FAIL.
-- [ ] **Step 3: Implement** `unitAdds`. `where.versus` and `where.campaignOnly` follow R0.8, with the `// GH-1102:`
-  comment.
+- [ ] **Step 3: Implement** `unitAdds`. The versus line follows R0.8 through the injected `refusal`. Nothing
+  imports `@lions/net`'s specials here, so WP3 does not wait for PR 1110.
 - [ ] **Step 4: Falsify, then undo:**
   - T1: swap steps 1 and 2 (bucket first), and the fixture case answers the other-role unit instead of
     `mortar_team`. On the starting roster alone this swap changes nothing, which is why the fixture exists;
@@ -464,7 +542,9 @@ Rules (spec §1.2), with the points the spec leaves open settled:
   - T7: the comparison unit read from base JSON (350);
   - T8: drop the `from_ledger` filter (2), or count every mission for `dock`;
   - T9: `coinPrice(sum)`;
-  - id grep: add `if (unit.id === 'spg_long_range')` anywhere.
+  - id grep: add `if (unit.id === 'spg_long_range')` anywhere;
+  - R0.8: ignore `refusal` (every bought-only unit gets `brigadeRoom`), and the `spg_cluster` case goes red;
+  - the empty-loop bound: feed the grep an empty id list, and the "at least 30" assertion goes red.
 - [ ] **Step 5: Run** `pnpm vitest run packages/app/src/ui`, `pnpm typecheck` and `pnpm lint`.
 - [ ] **Step 6: Commit** with `git commit -- <paths>`.
 
@@ -502,11 +582,20 @@ export function buyUpgradeRun(account: BrigadeAccount, unitId: string, track: st
     - `(3, 3)` → `null`;
     - `(2, 2)` → `{3, 3, 340, 0}`;
     - `(1, 2)` → `{2, 3, 580, 1}`;
-  - T18 the G2 invariant: a seeded random walk of 200 operations over R2 (coin buys through `buyTierWithCoins`, unchanged) and R3
-    (`creditAsk` + `buyUpgradeRun`) on one three-tier track. After every step:
-    - the credits spent on the track are ≥ the sum of the earned tiers' prices;
-    - `networkView` never exceeds `earned`;
-    - `max(earned, coins)` never decreases;
+  - T18 the G2 invariant: a seeded random walk of 200 operations over R2 (coin buys through `buyTierWithCoins`,
+    unchanged) and R3 (`creditAsk` + `buyUpgradeRun`) on one three-tier track priced `[160, 240, 340]`. The test
+    keeps its OWN shadow record, written only from the literal prices and each call's `ok`:
+    - `shadowEarned`, set to `to` on each accepted credit run and never read from the account;
+    - `shadowSpent`, the running sum of each accepted run's price;
+    - `shadowCoins`, set on each accepted coin buy.
+
+    After every step:
+    - `account.upgrades[u][t] === shadowEarned`;
+    - `networkView(...).ownedTiers[u][t] === shadowEarned`. The network view is checked against the independent
+      counter, never against the account it is derived from: `networkView ≤ earned` would be an identity;
+    - `shadowSpent >= [160, 240, 340].slice(0, shadowEarned)` summed (literal prices), and the balance equals the
+      start minus `shadowSpent`;
+    - `max(shadowEarned, shadowCoins)` never decreases, and equals the single-player view;
   - T22 G3: `buyUpgradeRun` pushes no grant, `earned_total` does not move, and the balance falls by exactly `price`;
   - the refusals: `from !== earned + 1`, `to < from`, `price` 0 or not an integer, `balance < price` each give
     `ok: false` with the account identical (`toBe`, the same object);
@@ -517,7 +606,9 @@ export function buyUpgradeRun(account: BrigadeAccount, unitId: string, track: st
   one writer. Its existing tests must stay green unchanged.
 - [ ] **Step 4: Falsify, then undo:**
   - `from = owned + 1`: T17 case 2 prices tier 3 alone (340) and goes red;
-  - record `earned = to` while charging only tier `to` (`price = prices[to-1]`): T18 goes red;
+  - record `earned = to` while charging only tier `to` (`price = prices[to-1]`): T18's `shadowSpent` bound goes red;
+  - make `networkView` return the single-player view: T18's network-view assertion goes red on the first coin buy.
+    (`networkView ≤ earned` measured against the account could not catch this);
   - push a grant on purchase: T22;
   - return `{1, 3, …}` for `(0, 3)`: the R0.1 case goes red;
   - write the coin tiers into the slot snapshot: T21.
@@ -574,10 +665,14 @@ export function buyUpgradeRun(account: BrigadeAccount, unitId: string, track: st
 
 ### Task WP6: the "What it adds" panel in the Stores (D6), its copy and CSS
 
-**Branch:** `store/adds-panel` (after WP2 and WP3 merge). **Implementer:** Sonnet.
+**Branch:** `store/adds-panel`. It starts after WP2, WP3 **and PR 1110** merge. **HARD dependency:** the panel's
+versus line is built on `@lions/net`'s `specialRefusal` (R0.8). If PR 1110 has not merged, WP6 waits. It never
+copies the refused list and never builds against an unmerged branch. **Implementer:** Sonnet.
 
 **Files:**
-- Modify: `packages/app/src/ui/stores.ts`:
+- Modify: `packages/app/src/ui/stores.ts`. It passes `refusal: specialRefusal` (imported from `@lions/net`) into
+  `unitAdds`, and draws `where.brigadeRoom` as `stores.adds.where.brigadeRoom`: "Joins your force in brigade versus
+  rooms". It also adds:
   - the "What it adds" control on each unit card (`data-focus="adds:<id>"`, `aria-expanded`, `aria-controls`);
   - one panel (`role="region"`, labelled with the unit's name) under that card's grid row;
   - `StoresOptions.adds?: string` and `onAdds?: (id: string | null) => void`, kept through redraws like `shelf`.
@@ -602,7 +697,12 @@ export function buyUpgradeRun(account: BrigadeAccount, unitId: string, track: st
   - Review Focus 4: buy with the panel open. The card leaves the shelf, the panel goes with it, and focus lands on a
     connected node;
   - Review Focus 5: preview mode draws the panel, and the panel's draw path never calls the wallet (a spy on
-    `readRoar`).
+    `readRoar`);
+  - the versus line, against the REAL `specialRefusal`, over all twelve bought-only units (the list is asserted
+    to have 12 entries, so the loop cannot pass empty):
+    - each of the nine that may come shows "Joins your force in brigade versus rooms" (its `t()` key);
+    - `veh_ambulance`, `air_medevac_heli` and `spg_cluster` do not, and show "Campaign and free play only" unless they
+      are on the menu.
 - [ ] **Step 2: Run** them. Expected: FAIL.
 - [ ] **Step 3: Implement.** The panel calls `unitAdds` with the injected `threat-table.json`. Each block is drawn
   from the discriminated values, one `t()` sentence each. Signed stat differences take `.rl-good` / `.rl-bad` by
@@ -611,7 +711,8 @@ export function buyUpgradeRun(account: BrigadeAccount, unitId: string, track: st
   - skip closing the previous panel, and two regions exist;
   - write one literal English string into the panel, and the pseudo test goes red;
   - delete `role.artillery.purpose`, and T2 goes red;
-  - T11: add a hex literal to the panel CSS, and `pnpm validate:ui` goes red.
+  - T11: add a hex literal to the panel CSS, and `pnpm validate:ui` goes red;
+  - pass `refusal: () => null`: the three refused units show the brigade line, and the versus-line test goes red.
 - [ ] **Step 5: Run** `pnpm vitest run packages/app/src/ui`, `pnpm validate:ui`, `pnpm typecheck` and `pnpm lint`.
   `player-wording.test.ts` stays green.
 - [ ] **Step 6: Commit** with `git commit -- <paths>`. Open the PR as "held for the lead's sheet (D2)".
@@ -663,8 +764,10 @@ export function buyUpgradeRun(account: BrigadeAccount, unitId: string, track: st
 
 ### Task WP8: the nine tracks land (data, tests, docs)
 
-**Branch:** `data/bought-unit-tracks` (after WP1 and WP5 merge). WP9 commits to the SAME branch, and both go in one
-PR. **Implementer:** Sonnet.
+**Branch:** `data/bought-unit-tracks`. It starts after WP1, WP5 and PR 1110 merge: `special-tiers.test.ts` needs PR
+1110's `seatKitTiers(seat, roster)` and `BRIGADE_CAMO_PIN`. WP9 commits to the SAME branch, and both go in one PR.
+**Implementer:** Sonnet. This is the FIRST task whose gates enforce WP1's fit: CI's balance steps now see the
+nine's tracks.
 
 **Files:**
 - Modify: `data/units/kdf/{mbt_lavi_camo,spg_long_range,spg_cluster,at_nlos_team,veh_ambulance,air_medevac_heli,inf_medic_squad,inf_grenadier,ugv_recon_dog}.json`
@@ -675,32 +778,45 @@ PR. **Implementer:** Sonnet.
   in FIVE places in "owes one per KDF vehicle or aircraft type" and "refuses a run that wrote a different count": the
   test title, `toHaveLength(36)`, the `declares 36 vehicle and aircraft` regex, `assertCloseupCount(36, plan)` not
   throwing, and the wrong-count case `assertCloseupCount(37, plan)` (becomes 48, so it stays one off). These
-  three literals go red on this commit and are green only after WP9's commit. CI runs on the PR head, after both.
+  literals go red on this commit and are green only after WP9's commit. CI runs on the PR head, after both.
 - Modify: `packages/app/src/ui/stores-adds.test.ts`. T9 on the shipped `spg_long_range`: 1,350 credits and **145**
   coins (literal, from WP1's fit; update the literal if the fit moved a price by ruling).
 - Modify: `docs/campaign/economy/upgrades.md` (each new §3 entry marked shipped, with the commit)
-- Maybe: `packages/app/src/net/special-tiers.test.ts`, if the GH-1102 app half has merged (see **Conflicts**)
+- Create: `packages/app/src/net/special-tiers.test.ts`. Its two cases, `inf_grenadier` in the base roster and
+  `mbt_lavi_camo` appended, each at armour tier 2 with a literal Q16.16 hp, are described under **Conflicts**.
 
 - [ ] **Step 1: Write the failing tests:**
   - T12: every `isBoughtOnly` KDF unit declares at least two tracks. The nine's prices equal the price rule from
     LITERAL multipliers, halves to even. The exemptions are named, and the test asserts that each exemption
     actually deviates, so a stale exemption goes red: E5's three, `attack_drone`, `heli_yanshuf`;
-  - the shipped T9 literal.
+  - the shipped T9 literal;
+  - `special-tiers.test.ts`, both cases. Each hp is hand-computed into a literal from the unit JSON's base hp plus
+    WP1's tier-2 delta. It is never read through `applyUpgrades`, because the oracle takes literals.
 - [ ] **Step 2: Copy** the staged blocks into the nine JSONs. Diff them against the staged file:
   `node -e` deep-equal, printed in the PR. Delete the staged file and its test in the same commit.
 - [ ] **Step 3: Run** `pnpm validate:data`, then the two `validate_balance.py --max-tier` invocations CI runs, `pnpm
-  balance`, `pnpm playtest`, `pnpm test:determinism` (the hash unmoved), `pnpm vitest run tools/src packages`, and
-  `git grep -n shippedContentDigest` (no literal pin moves).
+  balance`, `pnpm playtest`, `pnpm test:determinism` (the hash unmoved) and `pnpm vitest run tools/src packages`.
+  Two versus pins follow:
+  - `pnpm vitest run packages/app/src/net/versus-specials.test.ts`: `BRIGADE_CAMO_PIN` (PR 1110) is UNCHANGED. Its seat
+    brings `mbt_lavi_camo` with no tiers, so the new tracks must not reach that world. If it moves, stop and raise
+    it, never re-pin (see **Conflicts**);
+  - `git grep -n shippedContentDigest` and the connect and rejoin suites: the digest moves on purpose, because the
+    nine's tiers can now change a brigade room. It is recomputed and no literal holds it. If a literal does, update it
+    and give that reason in the commit.
 - [ ] **Step 4: Falsify, then undo:**
   - delete `spg_long_range`'s `upgrades`: T12 goes red;
   - move one tier price by 5: T12 goes red;
   - remove `heli_yanshuf` from the exemptions: T12 goes red. Then replace its prices with rule prices in a scratch
     copy and keep it exempt: the "exemption deviates" assertion goes red;
-  - `garage_closeups.test.ts` with no JPEGs: red by name (this is the state before WP9, recorded, not undone).
+  - `garage_closeups.test.ts` with no JPEGs: red by name (this is the state before WP9, recorded, not undone);
+  - in `buildMatchWorld`, call `seatKitTiers(seats[s])` (the default base roster) instead of `seatKitTiers(seats[s],
+    walked)`: `special-tiers.test.ts`'s `mbt_lavi_camo` case goes red and the `inf_grenadier` case stays green;
+  - drop the `inf_grenadier` tier-2 delta in a scratch copy of its JSON: the `inf_grenadier` literal goes red.
 - [ ] **Step 5: Commit** with `git commit -- <paths>`. The commit message lists the red lines and says that
   `garage_closeups.test.ts` turns green at WP9.
 
-**Gate:** T12, T13 (after WP9), T14, T15, T16, T23. **Falsification:** Step 4, and WP1's for T14 to T16.
+**Gate:** T12, T13 (after WP9), T14, T15, T16, T23, `special-tiers.test.ts`, and `BRIGADE_CAMO_PIN` unchanged. This
+is the first enforced gate on WP1's fit. **Falsification:** Step 4, and WP1's for T14 to T16.
 
 ---
 
@@ -775,8 +891,8 @@ never into the repo. It holds:
   It asks:
   - D2: approve the 11 close-ups as rendered, with any whole-model framing named?
   - the panel: does it read before buying, and is any block noise?
-  - R0.1: drop the "Count online" catch-up while no room reads the earned view (default yes)?
-  - the run label wording.
+  - the run label wording ("pays for tiers 1-2 again, on credits"). R0.1 itself is already ruled and is not asked
+    again.
 
 **Gate:** the seed test. The sheet itself is evidence, not a gate.
 
@@ -804,8 +920,8 @@ with a new render after the lead approves its framing, per the house rule. A rej
 
 - [ ] **Step 1: Merge in order:** WP6, then WP7, then WP8+WP9, each on green, each after the lead's yes. After each
   merge, run `gh run list` and check the run.
-- [ ] **Step 2:** If the GH-1102 app half has landed and WP8 did not add `special-tiers.test.ts`, open that test now
-  (see **Conflicts**). Also add R0.8's `brigadeRoom` value if WP3 shipped without it.
+- [ ] **Step 2:** After the WP8+WP9 merge, re-run `versus-specials.test.ts` (`BRIGADE_CAMO_PIN`) and
+  `special-tiers.test.ts` on `main`. Both stay green.
 - [ ] **Step 3: Commit** the notes with `git commit -- <paths>`. Comment on GH-1076 and GH-1077 with the merged PRs.
   Close neither issue: the lead does.
 
@@ -850,4 +966,13 @@ with a new render after the lead approves its framing, per the house rule. A rej
   - `t()` and no colour literals: WP6 and WP7 (pseudo test, `validate:ui`).
 - Names are used consistently across tasks: `unitAdds`, `AddsInput`, `UnitAdds`, `APP_HEAVY_COLLATERAL`,
   `buildThreatTable`, `creditAsk`, `CreditAsk`, `buyUpgradeRun`, `buyTierWithCredits`, `tierCreditBuyEnabled`,
-  `onBuyTierCredits`, `StoresOptions.adds`/`onAdds`, `store:threats`, `store-garage:sheet`.
+  `onBuyTierCredits`, `StoresOptions.adds`/`onAdds`, `AddsInput.refusal`, `brigadeRoom`, `special-tiers.test.ts`,
+  `store:threats`, `store-garage:sheet`.
+- Revised 7 Nov after PR 1109's review:
+  - R0.1 is ruled (dropped);
+  - the Conflicts section is rewritten against PR 1110 (head `d667dd5c0`);
+  - WP6 and WP8 depend on PR 1110;
+  - T18 checks an independent shadow counter;
+  - WP1's evidence is stated, and WP8 is the first enforced gate;
+  - the empty-loop bounds are added;
+  - WP2's facing value is named (16384).
