@@ -203,6 +203,9 @@ export interface VersusModeFileJson {
   readonly camps?: { readonly friendly: VersusModeCampJson; readonly hostile: VersusModeCampJson };
   /** Flag zones by END, required by the `flag` mode (GH-976 P3). */
   readonly flags?: { readonly friendly: VersusEndJson['camp']; readonly hostile: VersusEndJson['camp'] };
+  /** GH-976 v2, STAGED: the defended-flag layout and its set-up. Read only through `flagBlockOf(file, true)`, which a room whose
+   *  config carries `flagSetup` asks for; the shipped `flags` and `modes.flag` are untouched until the per-map relist. */
+  readonly flag_setup?: FlagSetupJson;
   readonly modes: {
     /** Destroy the camp. `wipe` is `"ends"` (the default: a side with no armed unit loses at once) or `"after_camp"` (GH-976:
      *  a wiped side keeps playing while its camp stands, and the survivor must still raze it). Typed `string`, not the literal
@@ -287,13 +290,12 @@ export function versusModeMissionOf(
       mission.objectives.push({ id: `raze_camp_${side}`, type: 'raze', primary: true, side, target: campYardZone(endOf(side === 0 ? 1 : 0)) });
     }
   } else if (mode === 'flag') {
-    const flags = file.flags;
-    const f = file.modes.flag;
-    if (f === undefined || flags === undefined) throw new Error(`versus mode file "${file.id}": no flag mode`);
+    // GH-976 R0.22: the rules come through the one reader. v1 rooms read today's block (setup false) until the per-map relist.
+    const { flags, holdS } = flagBlockOf(file, false);
     const endOf = (side: 0 | 1): 'friendly' | 'hostile' => (sideAt.friendly === side ? 'friendly' : 'hostile');
     for (const end of ['friendly', 'hostile'] as const) zones[flagZone(end)] = [flags[end].at[0], flags[end].at[1], flags[end].size[0], flags[end].size[1]];
     for (const side of sides) {
-      mission.objectives.push({ id: `raid_flag_${side}`, type: 'capture', primary: true, side, target: flagZone(endOf(side === 0 ? 1 : 0)), seconds: f.hold_s });
+      mission.objectives.push({ id: `raid_flag_${side}`, type: 'capture', primary: true, side, target: flagZone(endOf(side === 0 ? 1 : 0)), seconds: holdS });
     }
   } else {
     const p = file.modes.points;
@@ -308,4 +310,95 @@ export function versusModeMissionOf(
     }
   }
   return { mission, zones };
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Capture the flag v2 (GH-976): the staged `flag_setup` block, the set-up regions and the one reader
+// ---------------------------------------------------------------------------------------------------
+
+/** The kit pieces a side places in the set-up, in slot order (the sim's `setSetupKit` takes them in this order). */
+export const SETUP_KIT_PIECES = ['hesco', 'sandbag_post', 't_wall'] as const;
+export type SetupKitPiece = (typeof SETUP_KIT_PIECES)[number];
+/** The lead's fixed kit, per side. A different number is a ruling, not data (`validate:data` holds a file to it). */
+export const SETUP_KIT: Readonly<Record<SetupKitPiece, number>> = { hesco: 12, sandbag_post: 4, t_wall: 2 };
+/** The lead's fixed set-up length: 3:00. */
+export const SETUP_SECONDS = 180;
+/** The flag match cap, minutes, set-up included. A twin of `@lions/net`'s (the Worker imports net and not data); WP4 pins the pair. */
+export const FLAG_SETUP_CAP_MINUTES = 30;
+/** Band width, tiles, by size class: 8 on a 48x48 map, 12 on an 80x80 or 96x96 map. */
+export const SETUP_BAND_TILES_48 = 8;
+export const SETUP_BAND_TILES_LARGE = 12;
+
+/** The staged flag block of a mode file: flags 6-12 path tiles behind their own seat, the hold, and the set-up. */
+export interface FlagSetupJson {
+  readonly flags: { readonly friendly: VersusEndJson['camp']; readonly hostile: VersusEndJson['camp'] };
+  readonly hold_s: number;
+  readonly setup: { readonly seconds: number; readonly band_tiles: number; readonly kit: Readonly<Record<string, number>> };
+}
+
+/**
+ * The set-up regions of a map: -1 for the band, 0 for the region of seat `a`, 1 for the region of seat `b`; length
+ * `width * height`, row-major. A tile is in the band when its centre lies less than `bandTiles / 2` from the perpendicular
+ * bisector of the two seats. Exact: doubled coordinates make every centre an integer (C = 2x+1), D = |C-B|^2 - |C-A|^2 and
+ * L = |A-B|^2 are integers, and the cell is decided by D^2 >= 4 band^2 L. Plain JS numbers throughout: D^2 passes 2^31 on a
+ * 96x96 map (R0.20), so no `|0`, no `Math.imul`, no Int32Array scratch, and no square root. Its plain-node twin is
+ * `setupRegion` in tools/validate_versus_modes.mjs.
+ */
+export function setupRegionOf(width: number, height: number, a: readonly [number, number], b: readonly [number, number], bandTiles: number): Int8Array {
+  const out = new Int8Array(width * height);
+  const ax = 2 * a[0] + 1;
+  const ay = 2 * a[1] + 1;
+  const bx = 2 * b[0] + 1;
+  const by = 2 * b[1] + 1;
+  const L = (ax - bx) * (ax - bx) + (ay - by) * (ay - by);
+  const bandSq = 4 * bandTiles * bandTiles * L;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const cx = 2 * x + 1;
+      const cy = 2 * y + 1;
+      const D = (cx - bx) * (cx - bx) + (cy - by) * (cy - by) - ((cx - ax) * (cx - ax) + (cy - ay) * (cy - ay));
+      out[y * width + x] = D * D >= bandSq ? (D > 0 ? 0 : 1) : -1;
+    }
+  }
+  return out;
+}
+
+/**
+ * The seat bisector clipped to the map rectangle, in tile units (the rectangle is [0, width] x [0, height], a tile centre at
+ * x + 0.5). PRESENTATION ONLY (the dashed line): floating point is fine here, and the sim never reads it. The seats must differ.
+ */
+export function setupLineOf(width: number, height: number, a: readonly [number, number], b: readonly [number, number]): { a: [number, number]; b: [number, number] } {
+  const mx = (a[0] + b[0]) / 2 + 0.5;
+  const my = (a[1] + b[1]) / 2 + 0.5;
+  // The line through (mx, my) with direction perpendicular to a->b.
+  const dx = -(b[1] - a[1]);
+  const dy = b[0] - a[0];
+  if (dx === 0 && dy === 0) throw new Error('setupLineOf: the two seats are the same tile');
+  let tMin = -Infinity;
+  let tMax = Infinity;
+  const clip = (p: number, d: number, lo: number, hi: number): void => {
+    if (d === 0) return;
+    const t1 = (lo - p) / d;
+    const t2 = (hi - p) / d;
+    tMin = Math.max(tMin, Math.min(t1, t2));
+    tMax = Math.min(tMax, Math.max(t1, t2));
+  };
+  clip(mx, dx, 0, width);
+  clip(my, dy, 0, height);
+  return { a: [mx + dx * tMin, my + dy * tMin], b: [mx + dx * tMax, my + dy * tMax] };
+}
+
+/**
+ * The ONE switch point for a flag room's rules (GH-976 R0.1, R0.22). `setup` true: the staged `flag_setup` block, hold and
+ * set-up included. `setup` false: today's `flags` and `modes.flag.hold_s`, with `setup` null. Throws when the block asked for
+ * is absent.
+ */
+export function flagBlockOf(file: VersusModeFileJson, setup: boolean): { flags: FlagSetupJson['flags']; holdS: number; setup: FlagSetupJson['setup'] | null } {
+  if (setup) {
+    const f = file.flag_setup;
+    if (f === undefined) throw new Error(`versus mode file "${file.id}": no flag_setup`);
+    return { flags: f.flags, holdS: f.hold_s, setup: f.setup };
+  }
+  if (file.flags === undefined || file.modes.flag === undefined) throw new Error(`versus mode file "${file.id}": no flag mode`);
+  return { flags: file.flags, holdS: file.modes.flag.hold_s, setup: null };
 }

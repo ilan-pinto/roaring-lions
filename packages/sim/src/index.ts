@@ -99,11 +99,13 @@ export {
   WEAPON_CLASS,
   unitTypeFromJson,
   SIM_EVENT_KINDS,
+  SETUP_REFUSED_KINDS,
   BRACE_NONE,
   BRACE_DROPPING,
   BRACE_KNEELING,
   BRACE_RISING,
   type SimConfig,
+  type SetupSpec,
   type Command,
   type RuntimeCommand,
   type SimEvent,
@@ -119,6 +121,8 @@ export {
 } from './sim';
 // Halt-to-fire clip timing for the renderer (spec 2026-10-05-infantry-halt-to-fire §5).
 export { KNEEL_DROP_TICKS, KNEEL_RISE_TICKS } from './tuning';
+// Capture the flag v2 (GH-976): the early bell's delay, for the HUD's "bell in 5 s" line.
+export { SETUP_BELL_DELAY_TICKS } from './tuning';
 export { AMBUSH_RADIUS_DEFAULT, AMBUSH_RADIUS_MAX, MAX_PATROL_WAYPOINTS } from './tuning';
 // #706: the crew field fix's length, for the HUD's repair countdown (`Sim.fieldFixRate` gives the rate).
 export { FIELD_FIX_TICKS } from './tuning';

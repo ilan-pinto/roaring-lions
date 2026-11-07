@@ -24,10 +24,14 @@ import {
   RELIEF_W,
   RIFLES,
   RUN_SEED,
+  SETUP_SEED,
+  SETUP_TICKS,
   WW_SEED,
   WW_SQUAD,
   economyAdvance,
   economyDrive,
+  setupDrive,
+  setupSetup,
   formationDrive,
   formationSetup,
   economySetup,
@@ -1714,5 +1718,61 @@ describe('determinism of an APS stock world (1600-tick replay, GH-884)', () => {
 
   it('the pinned hash', () => {
     expect(apsStockWorld(884).hash).toBe(APS_STOCK_WORLD_PIN);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// SETUP_WORLD_PIN (GH-976): a NEW pin, not a moved one. No other replay here calls `beginSetup`, so the deferred `setupLive`
+// block (setupUntil, readyMask, the region mask) is outside all of them. This is the replay that sees it: a 32x32 map, a
+// 200-tick set-up, side 0 ordering its squad across the line at tick 1 (the region clamp holds it), side 1 Ready at 20 and
+// side 0 at 40 (the early bell, at 140), then both sides attack-moving on each other's centroid until tick 600. The test
+// asserts the events seen (two setupReady, one setupBell at 140, a fire from the bell tick on, none before) and that the clamped squad
+// never stood outside region 0 before the bell, so a change that quietly stops any of it fails there and not only on the number.
+function setupWorld(seed: number): { hash: number; ready: string[]; bells: number[]; firstFire: number; fires: number; escaped: number } {
+  const { sim, ids } = setupSetup(seed);
+  const ready: string[] = [];
+  const bells: number[] = [];
+  let firstFire = -1;
+  let fires = 0;
+  let escaped = 0;
+  for (let t = 0; t < SETUP_TICKS; t++) {
+    setupDrive(sim, t, ids);
+    for (const e of sim.tick()) {
+      if (e.kind === 'setupReady') ready.push(`${e.tick}:${e.side}`);
+      if (e.kind === 'setupBell') bells.push(e.tick);
+      if (e.kind === 'fire') {
+        fires++;
+        if (firstFire < 0) firstFire = e.tick;
+      }
+    }
+    if (sim.setupActive) {
+      for (const id of ids.squad0) {
+        if (sim.setupRegionAt(sim.state.posX[id] >> 16, sim.state.posY[id] >> 16) !== 0) escaped++;
+      }
+    }
+  }
+  return { hash: sim.hash(), ready, bells, firstFire, fires, escaped };
+}
+
+// SETUP_WORLD_PIN: born 2026-11-06 (GH-976), read from the first run. It moves when a set-up rule (the clock, the early bell,
+// the region clamp, weapons tight) or the fold of its block changes; say why in the commit that moves it.
+const SETUP_WORLD_PIN = 1156937055;
+
+describe('determinism of a set-up world (600-tick replay, GH-976)', () => {
+  it('two runs from the seed agree, and the run rings the early bell at 140 and fights only after it', () => {
+    const a = setupWorld(SETUP_SEED);
+    const b = setupWorld(SETUP_SEED);
+    expect(b).toEqual(a);
+    expect(a.ready).toEqual(['20:1', '40:0']);
+    expect(a.bells).toEqual([140]);
+    // The bell tick itself is no longer set-up (setupActive is false from it), and the two forces already know each other
+    // (detection runs through set-up), so the first round goes out ON tick 140 and on no tick before.
+    expect(a.firstFire).toBeGreaterThanOrEqual(140);
+    expect(a.fires).toBeGreaterThan(0);
+    expect(a.escaped).toBe(0);
+  });
+
+  it('the pinned hash', () => {
+    expect(setupWorld(SETUP_SEED).hash).toBe(SETUP_WORLD_PIN);
   });
 });

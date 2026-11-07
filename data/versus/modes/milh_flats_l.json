@@ -5,6 +5,14 @@
     "friendly": { "at": [54, 60], "size": [5, 5] },
     "hostile": { "at": [37, 31], "size": [5, 5] }
   },
+  "flag_setup": {
+    "flags": {
+      "friendly": { "at": [10, 75], "size": [5, 5] },
+      "hostile": { "at": [81, 16], "size": [5, 5] }
+    },
+    "hold_s": 45,
+    "setup": { "seconds": 180, "band_tiles": 12, "kit": { "hesco": 12, "sandbag_post": 4, "t_wall": 2 } }
+  },
   "modes": {
     "flag": { "hold_s": 30 },
     "points": {

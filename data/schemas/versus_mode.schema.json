@@ -29,6 +29,45 @@
         "hostile": { "$ref": "#/$defs/camp" }
       }
     },
+    "flag_setup": {
+      "type": "object",
+      "required": ["flags", "hold_s", "setup"],
+      "additionalProperties": false,
+      "description": "Capture the flag v2 (GH-976), STAGED: a defended flag 6-12 path tiles behind its own seat, and a set-up before the fighting. Read only by a room whose config carries `flagSetup`, through @lions/data's `flagBlockOf(file, true)`; the shipped `flags` and `modes.flag` are untouched and a room without `flagSetup` never reads this. Only on a point-symmetric map that also carries `modes.flag`. `pnpm validate:data` (tools/validate_versus_modes.mjs) holds the placement rules (G-ratio, G-depth, G-edge, the point mirror) and the set-up rules (S2-S4), the fixed kit and the fixed 180 seconds.",
+      "properties": {
+        "flags": {
+          "type": "object",
+          "required": ["friendly", "hostile"],
+          "additionalProperties": false,
+          "description": "Where each END's flag zone stands in a set-up room: a 5x5 top-left tile, by END, the hostile one the point mirror of the friendly one.",
+          "properties": {
+            "friendly": { "$ref": "#/$defs/camp" },
+            "hostile": { "$ref": "#/$defs/camp" }
+          }
+        },
+        "hold_s": { "type": "integer", "minimum": 30, "maximum": 60, "description": "Seconds a side must hold the enemy flag zone alone, in one go." },
+        "setup": {
+          "type": "object",
+          "required": ["seconds", "band_tiles", "kit"],
+          "additionalProperties": false,
+          "properties": {
+            "seconds": { "type": "integer", "minimum": 60, "maximum": 600, "description": "The set-up length. The lead fixed it at 180; validate:data holds the file to it." },
+            "band_tiles": { "type": "integer", "minimum": 2, "maximum": 24, "description": "Width of the no-man's band across the seat bisector: 8 on a 48x48 map, 12 on an 80x80 or 96x96 map." },
+            "kit": {
+              "type": "object",
+              "required": ["hesco", "sandbag_post", "t_wall"],
+              "additionalProperties": false,
+              "description": "Pieces each side may place in the set-up. The lead fixed it at 12 / 4 / 2; validate:data holds the file to it.",
+              "properties": {
+                "hesco": { "type": "integer", "minimum": 0, "maximum": 32 },
+                "sandbag_post": { "type": "integer", "minimum": 0, "maximum": 32 },
+                "t_wall": { "type": "integer", "minimum": 0, "maximum": 32 }
+              }
+            }
+          }
+        }
+      }
+    },
     "modes": {
       "type": "object",
       "minProperties": 1,

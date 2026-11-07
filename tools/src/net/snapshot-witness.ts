@@ -70,6 +70,7 @@ import {
   FM_SEED,
   RELIEF_SEED,
   ORDERS_SEED,
+  SETUP_SEED,
   RUN_SEED,
   WW_SEED,
   economyAdvance,
@@ -83,6 +84,8 @@ import {
   reliefSetup,
   runDrive,
   runSetup,
+  setupDrive,
+  setupSetup,
   woundedSetup,
 } from '../../../packages/sim/src/golden-worlds.test-helper';
 import {
@@ -324,6 +327,15 @@ export function goldenWounded(): SnapWorld {
   return simWorld(woundedSetup(WW_SEED), () => undefined);
 }
 /**
+ * The set-up world of SETUP_WORLD_PIN (GH-976, WP2): a 200-tick set-up on a 32x32 map, a squad ordered across the line at
+ * tick 1 (the region clamp holds it), the early bell brought forward by Ready at 20 and 40 (140), then a fight. It is the only
+ * world in which `setupUntil` and `readyMask` move, and the clamp, the bell and weapons tight are all in play at a cut.
+ */
+export function goldenSetup(): SnapWorld {
+  const { sim, ids } = setupSetup(SETUP_SEED);
+  return simWorld(sim, (t) => setupDrive(sim, t, ids));
+}
+/**
  * The formation world of FORMATION_WORLD_PIN (GH-859 P1a): a Column, an Attack and an Ambush ring ordered on the
  * shipped formation files, and a side-1 Column walking into the ring. A versus room carries no formation (the
  * lead's versus-off ruling, GH-859: `net/versus-formations.ts`), so this single-player world is the only one in
@@ -482,6 +494,21 @@ export function worldSpecs(): WorldSpec[] {
   out.push({ id: 'golden relief (900)', plan: goldenPlan(900), build: goldenRelief });
   out.push({ id: 'golden orders (900)', plan: goldenPlan(900), build: goldenOrders });
   out.push({ id: 'golden wounded (600)', plan: goldenPlan(600), build: goldenWounded });
+  out.push({
+    id: 'golden setup (600)',
+    // Cuts around every edge of the set-up: before any Ready (0, 19), between side 1's Ready (20) and side 0's (40) at 21 and 39,
+    // right after the early bell is armed (41), mid-set-up (97), the tick before the bell (139), the bell tick itself (140), the
+    // first tick after it (141), and well into the fight (250). The horizon is 150, so the last cut ends inside the 600 ticks.
+    plan: { Ts: [0, 19, 21, 39, 41, 97, 139, 140, 141, 250], horizon: 150, tailFrom: 100, end: 600 },
+    build: goldenSetup,
+    exercised: (a) => {
+      const it = internals(a.sim) as unknown as { setupLive: boolean; setupUntil: number; readyMask: number };
+      if (!it.setupLive) return 'the set-up world stopped beginning a set-up: setupLive is false at its end';
+      if (it.readyMask !== 3) return `the set-up world stopped pressing Ready: readyMask ${it.readyMask} at its end (need 3)`;
+      if (it.setupUntil !== 140) return `the set-up world's early bell moved: setupUntil ${it.setupUntil} at its end (need 140)`;
+      return null;
+    },
+  });
   out.push({
     id: 'golden formations (1100)',
     // Cuts early in the march (40: the pace cap live, nobody has reached a checkpoint), mid-march and mid-dress (110: a Column member waiting, the dress clock running, the pace capped), before the ring
@@ -793,6 +820,12 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'sepLive',
     'vehicle separation (GH-421): set once, by addUnitType, when a registered type declares a footprint, so it holds its build value at every cut. ' +
       'Its RESTORE is proved by the poisoned fork like every state row. Covered by a world that registers its first footprinted type mid-match'
+  ),
+  ...rows(
+    'setupLive',
+    'the set-up latch (GH-976): set once, by `beginSetup` before tick 0, so it holds its build value at every cut and in every world that has a set-up. ' +
+      'Its RESTORE is proved by the poisoned fork like every state row. (setupUntil and readyMask DO move, in the golden set-up world: Ready arms the early bell.) ' +
+      'Covered by a world that begins its set-up mid-build, which `beginSetup` forbids'
   ),
   ...rows(
     'apsStockLive',

@@ -1134,3 +1134,87 @@ export function formationDrive(sim: Sim, t: number, ids: FormationWorldIds): voi
   }
 }
 export const FM_CASUALTY_TICK = 180;
+
+// ---------------------------------------------------------------------------------------------
+// The set-up world (GH-976, WP2): SETUP_WORLD_PIN's replay. A 32x32 open map, seats at (6,6) and (25,25), a band of 4, a
+// set-up of 200 ticks. Side 0 orders its squad across the line at tick 1 (the clamp holds it), side 1 presses Ready at 20
+// and side 0 at 40 (the early bell at 140), and after the bell both sides attack-move on each other's centroid. 600 ticks.
+
+export const SETUP_SEED = 976;
+export const SETUP_SIZE = 32;
+export const SETUP_UNTIL_TICKS = 200;
+export const SETUP_BAND_TILES = 4;
+export const SETUP_ANCHORS = [[6, 6], [25, 25]] as const;
+export const SETUP_TICKS = 600;
+
+/**
+ * The region of a map, by the perpendicular bisector of two seats: 0 on the first seat's side, 1 on the other's, -1 for a
+ * tile whose centre lies less than `band / 2` from the bisector. Plain integer maths, in half-tile units so every term is an
+ * integer (a tile centre is 2x + 1): with s = (c - m) . (b - a) in those units, s = 4 d L for a centre at distance d from the
+ * bisector and seats L apart, so d < band / 2 is s * s < 4 band^2 L^2 (L^2 in tiles^2). Inline on purpose: the sim package must
+ * not import `@lions/data`, so this is not the shipped region helper.
+ */
+export function setupRegionOf(size: number, a: readonly [number, number], b: readonly [number, number], band: number): Int8Array {
+  const out = new Int8Array(size * size);
+  const a2x = 2 * a[0] + 1;
+  const a2y = 2 * a[1] + 1;
+  const b2x = 2 * b[0] + 1;
+  const b2y = 2 * b[1] + 1;
+  const m2x = (a2x + b2x) / 2;
+  const m2y = (a2y + b2y) / 2;
+  const l2 = ((b2x - a2x) * (b2x - a2x) + (b2y - a2y) * (b2y - a2y)) / 4;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const s = (2 * x + 1 - m2x) * (b2x - a2x) + (2 * y + 1 - m2y) * (b2y - a2y);
+      out[y * size + x] = s * s < 4 * band * band * l2 ? -1 : s < 0 ? 0 : 1;
+    }
+  }
+  return out;
+}
+
+export interface SetupWorldIds {
+  readonly squad0: number[];
+  readonly tank0: number;
+  readonly squad1: number[];
+  readonly tank1: number;
+}
+
+export function setupSetup(seed: number): { sim: Sim; ids: SetupWorldIds } {
+  const sim = new Sim({ seed, width: SETUP_SIZE, height: SETUP_SIZE, capacity: 32 });
+  sim.beginSetup({
+    untilTick: SETUP_UNTIL_TICKS,
+    region: setupRegionOf(SETUP_SIZE, SETUP_ANCHORS[0], SETUP_ANCHORS[1], SETUP_BAND_TILES),
+  });
+  const rifles = sim.addUnitType(RIFLES);
+  const tank = sim.addUnitType(TANK);
+  const put = (type: number, side: number, x: number, y: number): number => sim.spawn(type, side, fx.from(x + 0.5), fx.from(y + 0.5));
+  const squad0 = [put(rifles, 0, 11, 11), put(rifles, 0, 10, 12), put(rifles, 0, 12, 10)];
+  const tank0 = put(tank, 0, 9, 9);
+  const squad1 = [put(rifles, 1, 20, 20), put(rifles, 1, 21, 19), put(rifles, 1, 19, 21)];
+  const tank1 = put(tank, 1, 22, 22);
+  return { sim, ids: { squad0, tank0, squad1, tank1 } };
+}
+
+/** The mean position of `ids` (Q16.16, truncating integer division), for the post-bell attack-move. */
+function centroidOf(sim: Sim, ids: readonly number[]): [number, number] {
+  let sx = 0;
+  let sy = 0;
+  for (const id of ids) {
+    sx += sim.state.posX[id];
+    sy += sim.state.posY[id];
+  }
+  return [(sx - (sx % ids.length)) / ids.length, (sy - (sy % ids.length)) / ids.length];
+}
+
+export function setupDrive(sim: Sim, t: number, ids: SetupWorldIds): void {
+  const at = (n: number): number => fx.from(n + 0.5);
+  if (t === 1) sim.queueCommand({ kind: 'move', ids: ids.squad0, x: at(27), y: at(27) });
+  if (t === 20) sim.queueCommand({ kind: 'setupReady', side: 1 });
+  if (t === 40) sim.queueCommand({ kind: 'setupReady', side: 0 });
+  if (t === 141) {
+    const [x1, y1] = centroidOf(sim, [...ids.squad1, ids.tank1]);
+    const [x0, y0] = centroidOf(sim, [...ids.squad0, ids.tank0]);
+    sim.queueCommand({ kind: 'attackMove', ids: [...ids.squad0, ids.tank0], x: x1, y: y1 });
+    sim.queueCommand({ kind: 'attackMove', ids: [...ids.squad1, ids.tank1], x: x0, y: y0 });
+  }
+}
