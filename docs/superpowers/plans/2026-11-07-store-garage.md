@@ -223,8 +223,9 @@ and `atgm_cell` is. This plan adds two more:
   - `inf_grenadier`, a special that is in the BASE roster. A brigade KDF seat with `unlocks: ['inf_grenadier']` and
     `tiers: { inf_grenadier: { armour: 2 } }` fields it at the tier-2 `hull.hp`, a literal computed by hand from
     `inf_grenadier.json`'s base hp and WP1's fitted tier-2 delta. The same claim in a matched room fields no
-    `inf_grenadier` at all (`unlocks` is ignored there and the type is never registered; PR 1110's matched pins
-    read the same), so that case asserts the absence, not a base-hp unit;
+    `inf_grenadier`: the type IS registered (it is in `versusRoster()`, not in `VERSUS_HELD_UNITS`) but nothing
+    spawns it, because `unlocks` is ignored there (PR 1110's matched pins read the same). So that case asserts it is
+    not spawned, not a base-hp unit;
   - `mbt_lavi_camo`, an APPENDED special, the same way at armour tier 2. Its tracks copy `mbt_lavi`'s, so the
     literal is `mbt_lavi`'s tier-2 hp.
 
