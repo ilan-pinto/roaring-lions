@@ -105,6 +105,31 @@ describe('sheetHtml', () => {
     const html = sheetHtml({ L }, [], 't', [1, 1.6, 2.5]);
     expect(html).toContain('L shipped z1: not captured');
     expect(html).toContain('frame-L-z1.png');
+    // each absent cell names its own arm and zoom
+    expect(html).toContain('G z1: not captured in this run');
+    expect(html).toContain('F z2.5: not captured in this run');
+    expect(html).not.toContain('L matched z1: not captured');
+  });
+  it('names the missing |G - L| and |F - L| panels when none were produced, and only those', () => {
+    const none = sheetHtml({ L }, [], 't', [1]);
+    expect(none).toContain('|G - L| panels: not captured in this run');
+    expect(none).toContain('|F - L| panels: not captured in this run');
+    const gPanel = { name: 'G - L', zoom: 1, file: '/o/diff-G-z1.png', mean: 0.5, changed: 7 };
+    const some = sheetHtml({ L }, [gPanel], 't', [1]);
+    expect(some).not.toContain('|G - L| panels: not captured');
+    expect(some).toContain('diff-G-z1.png');
+    expect(some).toContain('|F - L| panels: not captured in this run');
+  });
+  it('heads the sheet with the first present arm in L, G, F, LS order, else unknown', () => {
+    const at = (arm: SheetArmView['arm'], x: number, y: number, tick: number): SheetArmView => ({ ...L, arm, camera: { x, y }, tick });
+    const G = at('G', 7.25, 9.5, 42);
+    const F = at('F', 3, 4, 11);
+    const LS = at('LS', 5, 6, 22);
+    expect(sheetHtml({ G }, [], 't', [1])).toContain('booted camera (7.3, 9.5), tick 42');
+    expect(sheetHtml({ F, LS }, [], 't', [1])).toContain('booted camera (3.0, 4.0), tick 11');
+    expect(sheetHtml({ LS }, [], 't', [1])).toContain('booted camera (5.0, 6.0), tick 22');
+    expect(sheetHtml({ L, G }, [], 't', [1])).toContain('booted camera (1.0, 2.0), tick 5');
+    expect(sheetHtml({}, [], 't', [1])).toContain('booted camera unknown,');
   });
   it('assembles with no arm at all', () => {
     expect(sheetHtml({}, [], 't', [1])).toContain('not captured');
