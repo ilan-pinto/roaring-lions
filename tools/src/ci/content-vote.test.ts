@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { captureRefusalMessage, frameContentRefusal, frameContentStats, isContentRefusalLine, validationErrorRefusal } from '../golden-diff/frame-content';
+import { captureRefusalMessage, frameContentRefusal, frameContentStats, isContentRefusalLine, retriedValidationRefusal, validationErrorRefusal } from '../golden-diff/frame-content';
 import { contentVote, countPngs } from './content-vote';
 
 /**
@@ -155,5 +155,45 @@ describe('the visual-backends job votes (.github/workflows/ci.yml)', () => {
       expect(backends.slice(at, end === -1 ? undefined : end), name).toMatch(/\n\s+exit 0\s*(\n|$)/);
     }
     expect(job('visual-parity')).toMatch(/\n {4}continue-on-error: true\n/);
+  });
+});
+
+/**
+ * Review of PR 1092 (CodeRabbit, verified against browser.ts): `capture()` clears its page errors at the top of every attempt, so a GPU validation
+ * error from an attempt that FAILED for another reason (an unsettled frame, a timeout) was printed as a "page said:" line and then forgotten; a clean
+ * retry passed, and so did the vote. The retry loop now also prints the refusal line for it.
+ */
+describe('a GPU validation error from a capture attempt that was retried', () => {
+  const err = 'console.error: GPUValidationError: Invalid BindGroup (a depth texture bound with aspect all)';
+  it('gets the refusal line the vote reads, and a clean second attempt no longer hides it', () => {
+    const line = retriedValidationRefusal('quiet', 'webgpu', [err]);
+    expect(line).not.toBeNull();
+    expect(isContentRefusalLine(line as string)).toBe(true);
+    // the log of a run: attempt 1 failed (unsettled) after the page logged the error; attempt 2 passed; the scenario then finished normally
+    const log = [
+      '[quiet] capture attempt 1 failed: settled-frame: two zero-time repaints differ',
+      `[quiet]   page said: ${err}`,
+      line as string,
+      ...clean,
+    ];
+    const r = contentVote({ logs: [{ name: 'gate-arm.log', lines: log }], captures: 12 });
+    expect(r.ok).toBe(false);
+    expect(r.failures[0]).toContain('GPUValidationError');
+    // without the added line the same log votes PASS: that is the hole
+    expect(contentVote({ logs: [{ name: 'gate-arm.log', lines: log.filter((l) => l !== line) }], captures: 12 }).ok).toBe(true);
+  });
+  it('is a node-arm refusal only, and only for a validation error', () => {
+    expect(retriedValidationRefusal('quiet', 'legacy', [err])).toBeNull();
+    expect(retriedValidationRefusal('quiet', 'webgl2', ['pageerror: boom'])).toBeNull();
+    expect(retriedValidationRefusal('quiet', 'webgl2', [])).toBeNull();
+  });
+  it('is wired into the retry loop, as a log line (the retry itself still happens)', () => {
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../golden-diff/browser.ts'), 'utf8');
+    const catchAt = src.indexOf('} catch (err) {\n      lastErr = err;');
+    expect(catchAt).toBeGreaterThan(-1);
+    const block = src.slice(catchAt, src.indexOf('throw new Error(', catchAt));
+    expect(block).toContain('retriedValidationRefusal(label, arm, pageErrors)');
+    expect(block).toContain('console.warn(lost)');
+    expect(block).not.toMatch(/\bthrow\b/);
   });
 });

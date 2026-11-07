@@ -105,3 +105,17 @@ export function validationErrorRefusal(lines: readonly string[]): string | null 
   if (hits.length === 0) return null;
   return `${GPU_VALIDATION_PREFIX} the page logged ${hits.length} GPU validation error(s); the first: "${(hits[0] as string).slice(0, 200)}"`;
 }
+
+/**
+ * The refusal line for a GPU validation error logged by a capture ATTEMPT THAT FAILED and will be retried, or null.
+ *
+ * `capture()` clears its page errors at the top of every attempt, and only the attempt that finishes is judged (`nodeCaptureRefusal`). So a
+ * validation error from an attempt that failed for another reason (an unsettled frame, a timeout) would be printed as a "page said:" line, dropped,
+ * and a clean second attempt would pass: "any GPU validation error" fails the CI vote, so the error is also printed here, in the one shape the
+ * vote reads (`captureRefusalMessage`). It is a log line, not a throw: the retry still happens. The legacy arm has no such refusal.
+ */
+export function retriedValidationRefusal(label: string, arm: string, pageErrors: readonly string[]): string | null {
+  if (arm === 'legacy') return null;
+  const refusal = validationErrorRefusal(pageErrors);
+  return refusal === null ? null : captureRefusalMessage(label, arm, refusal);
+}

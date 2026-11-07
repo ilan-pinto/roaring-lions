@@ -17,7 +17,7 @@ import { chromium, type Browser, type Page } from 'playwright';
 import { BOOT_SETTLE_SCRIPT, FREEZE_FRAME_LOOP_SCRIPT, NODE_REPAINT_SCRIPT, bootFreezeRefusal, bootFreezeScriptFor } from './capture-protocol';
 import { chromiumArgsFor, type GpuArm, type PageBackend } from './backend';
 import { settledFrameRefusal } from './settled-frame';
-import { captureRefusalMessage, frameContentRefusal, frameContentStats, validationErrorRefusal } from './frame-content';
+import { captureRefusalMessage, frameContentRefusal, frameContentStats, retriedValidationRefusal, validationErrorRefusal } from './frame-content';
 import { dismissDeployGate } from './capture-guard';
 
 // Re-exported for every existing importer: the logic moved to `capture-guard.ts`
@@ -305,6 +305,9 @@ async function captureAttempts(
       console.warn(`[${label}] capture attempt ${attempt + 1} failed: ${(err as Error).message}`);
       for (const line of pageErrors.slice(0, 10)) console.warn(`[${label}]   page said: ${line}`);
       if (pageErrors.length === 0) console.warn(`[${label}]   the page reported no errors of its own.`);
+      // GH-943: a GPU validation error from an attempt that failed and is retried must still reach the CI vote (the next attempt clears `pageErrors`).
+      const lost = retriedValidationRefusal(label, arm, pageErrors);
+      if (lost !== null) console.warn(lost);
     }
   }
   throw new Error(
