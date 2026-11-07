@@ -658,7 +658,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     pick(mapRadio(stage, 'milh_flats'));
     pick(winRadios(stage).find((r) => r.value === 'points')!);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('points');
-    expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('first to 600 wins');
+    expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('First to 600. Hold a zone alone to earn its points every minute (10 to 50 a minute)');
     expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'milh_flats', matchup: 'mirror', winMode: 'points' });
   });
 
@@ -720,7 +720,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       expect(placed.hidden).toBe(true);
       expect(describedBy(sideRadio(stage, side))).toBe('Camps, income and production on');
       pick(winRadios(stage).find((r) => r.value === 'points')!);
-      expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('first to 600 wins');
+      expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('First to 600. Hold a zone alone to earn its points every minute (10 to 40 a minute)');
       // A mode on a faction pairing is the placed forces with no economy, so the economy line would be untrue.
       expect(economy.hidden).toBe(true);
       expect(placed.hidden).toBe(false);
