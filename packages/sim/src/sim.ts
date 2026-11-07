@@ -3380,7 +3380,8 @@ export class Sim {
   /** Pure (GH-976 WP3): why `side` may not place kit slot `kit` on integer tile (x, y) now, or null. The first failing rule:
    *  `not_setup`, `no_kit`, `placements_spent`, `outside_region`, `banned`, `occupied`, then the footprint rules of
    *  `placementReason` (`footprintRefusal`, 1 x 1), then `no_structure_slot`. A tile off the map has no region cell, so it
-   *  reads `outside_region`. */
+   *  reads `outside_region`. `occupied` is a body standing on the tile (any side), or an own moving ground unit whose goal
+   *  or a queued waypoint is on it (GH-1079). */
   fortifyReason(side: 0 | 1, kit: number, x: number, y: number): FortifyRefusal | null {
     if (!this.setupActive) return 'not_setup';
     if ((side !== 0 && side !== 1) || !Number.isInteger(kit) || kit < 0 || kit >= 3 || this.kitStructType[kit] < 0 || this.kitLeft[side * 3 + kit] === 0) return 'no_kit';
@@ -3393,6 +3394,18 @@ export class Sim {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.tunnelIn[i] >= 0 || this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.isAirborne(i)) continue;
       if (this.posX[i] >> 16 === x && this.posY[i] >> 16 === y) return 'occupied';
+      // GH-1079: a tile an OWN ground unit is walking to is taken too: its goal and every queued waypoint. A goal is
+      // snapped to open ground once, when the order is issued (`applyMove`), and nothing re-snaps it (`advanceLeg` copies
+      // a waypoint as stored), so a piece on one parks the unit flush against the piece's face with `moving` 1 for the
+      // rest of the match, its queue behind it. Own side only: on an enemy unit the refusal would tell the player where
+      // that side's orders point. An aircraft in the air was skipped above (it flies over a piece); one settling onto
+      // an LZ is not airborne, and its goal is where it will stand.
+      if (this.side[i] !== side || this.moving[i] === 0) continue;
+      if (this.goalX[i] >> 16 === x && this.goalY[i] >> 16 === y) return 'occupied';
+      const base = i * MAX_WAYPOINTS;
+      for (let k = 0; k < this.wpCount[i]; k++) {
+        if (this.wpX[base + k] >> 16 === x && this.wpY[base + k] >> 16 === y) return 'occupied';
+      }
     }
     const why = this.footprintRefusal(x, y, 1, 1);
     if (why !== null) return why;
