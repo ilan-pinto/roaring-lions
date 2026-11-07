@@ -278,7 +278,10 @@ function settleLostTargets(ctx: ToolContext, view: SideView): void {
   }
 }
 
-function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null): Record<string, unknown> {
+/** The commands whose point is to go somewhere: a unit that holds is not obeying them yet. */
+const MOVE_KINDS: ReadonlySet<string> = new Set(['move', 'attackMove', 'attack']);
+
+export function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null): Record<string, unknown> {
   const listed = new Set([...view.units.map((u) => u.id), ...view.contacts.map((u) => u.id)]);
   const c = r.cmd as Record<string, unknown>;
   const out: Record<string, unknown> = { ref: r.ref, status: r.status, verb: r.cmd.kind, queuedTick: r.queuedTick, settledTick: r.settledTick };
@@ -312,6 +315,11 @@ function describeOrder(r: OrderRecord, view: SideView, memory: SeatMemory | null
       if (alive.length > 0) out.fallback = fallbackFor(alive, seen);
     }
   }
+  // GH-1098: an applied move that went to a unit that cannot advance says so (the order was accepted; the unit holds).
+  if (r.status === 'applied' && Array.isArray(c.ids) && MOVE_KINDS.has(r.cmd.kind)) {
+    const holding = view.units.filter((u) => u.held !== undefined && (c.ids as number[]).includes(u.id)).map((u) => ({ id: u.id, held: u.held }));
+    if (holding.length > 0) out.holding = holding;
+  }
   if (isInt(c.carrier) && listed.has(c.carrier)) out.carrier = c.carrier;
   if (isInt(c.structure)) out.structure = c.structure;
   if (isInt(c.tunnel)) out.tunnel = c.tunnel;
@@ -342,7 +350,7 @@ export function clockOfCtx(ctx: ToolContext): { simTick: number; relayTick: numb
 
 const observe: ToolDef = {
   name: 'observe',
-  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight (each with `inSight: true`, always, and `seenTick`: the sim tick the fog last confirmed it, at most 3 ticks old; its `tile` is where it stands NOW, so a contact that keeps one tile across observes is standing still; a unit that left sight is not a contact, and what you remember of it is `lastSeen` on an order), held buildings, the legal stances, the score (read from one tick: your `lost` is always the enemy\'s `destroyed`, and your `destroyed` its `lost`; a difference you see between two observes is the match having run on, and `lost`/`destroyed` count what died anywhere, in sight or not), the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was), or proposals (assist). An applied `attack` settles in the log: `done` with `reason: target destroyed` and `settledTick` the tick of the kill when the target died in your sight; `dropped` with `reason: target no longer in sight`, `lastSeen` and a `fallback` attackMove when it left your sight (`settledTick` is the observe that noticed it; `lastSeen.tick` is when sight was lost). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units. A unit that is pinned (suppressed) reads `held: pinned` in its row: the sim slows it to a crawl until the fire lifts, so a `move` stays `applied` and `moving` while it barely advances.',
+  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight (each with `inSight: true`, always, and `seenTick`: the sim tick the fog last confirmed it, at most 3 ticks old; its `tile` is where it stands NOW, so a contact that keeps one tile across observes is standing still; a unit that left sight is not a contact, and what you remember of it is `lastSeen` on an order), held buildings, the legal stances, the score (read from one tick: your `lost` is always the enemy\'s `destroyed`, and your `destroyed` its `lost`; a difference you see between two observes is the match having run on, and `lost`/`destroyed` count what died anywhere, in sight or not), the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was), or proposals (assist). An applied `attack` settles in the log: `done` with `reason: target destroyed` and `settledTick` the tick of the kill when the target died in your sight; `dropped` with `reason: target no longer in sight`, `lastSeen` and a `fallback` attackMove when it left your sight (`settledTick` is the observe that noticed it; `lastSeen.tick` is when sight was lost). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units. `moving` is the order flag, never progress: a unit that is not advancing reads `held` in its row, one of `routed` (fleeing), `immobilised` (mobility killed: an order is accepted and the hull never steps), `garrisoned`, `pinned` (suppressed: the sim slows it to a crawl until the fire lifts) or `checkpoint` (a formation member waiting at a waypoint for its group); no `held` means nothing holds it. An applied order in the log names the units it was given that are held right now as `holding: [{id, held}]`.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {

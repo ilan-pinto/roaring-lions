@@ -279,6 +279,13 @@ the room runs; the tools add no legality rule of their own, only argument-shape 
   in one round are each checked against the purse as it stands, not as the first
   will leave it; `observe`'s `economy.purse` is what to read before the next.
 
+**`moving` is not progress (GH-1098).** `moving` is the sim's order flag: an
+immobilised tank given an `attackMove` reads `moving` and goes nowhere. A unit
+that is held back reads `held` in its row (`routed`, `immobilised`, `garrisoned`,
+`pinned`, `checkpoint`; absent means nothing holds it), from the sim's public
+reads only (`view.ts` `heldReasonOf`). An `applied` move, attackMove or attack in
+the order log lists the held units it went to as `holding: [{id, held}]`.
+
 **`observe` shows what these verbs need.** Each own unit has `stance` (`free`,
 `ambush` with `radius`, `patrol` with `points`; a held unit reads `free`, since
 `hold` is a halt and keeps no state) and the view lists `stances`. In an economy
