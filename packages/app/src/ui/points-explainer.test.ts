@@ -38,7 +38,8 @@ describe('the points HUD at match start (GH-1103)', () => {
     scoreOf: (s: 0 | 1) => scores[s],
     incomeZones: [
       { zone: 'a', rect: [0, 0, 4, 4], state: a, holder: a },
-      { zone: 'b', rect: [8, 8, 4, 4], state: b, holder: b },
+      // A contested zone: the runtime writes holder -1 (state -2). The viewer's own holder also appears below.
+      { zone: 'b', rect: [8, 8, 4, 4], state: b, holder: b === -2 ? -1 : b },
     ],
   });
   const explainText = () => document.querySelector<HTMLElement>('.rl-net-points__explain')!;
@@ -57,6 +58,12 @@ describe('the points HUD at match start (GH-1103)', () => {
     p.update(pointsViewOf(rt([5, 5], 0, -2), rules, 0));
     expect(document.querySelector('[data-row=mine] .rl-net-points__rate')!.textContent).toBe('+30 a minute');
     expect(document.querySelector('[data-row=theirs] .rl-net-points__rate')!.textContent).toBe('+0 a minute');
+  });
+  it('a contested zone pays nobody even when its stale holder is you', () => {
+    const p = new NetPoints(document.body, { theirs: 'Raven' });
+    const stale = { scoreOf: () => 0, incomeZones: [{ zone: 'a', rect: [0, 0, 4, 4], state: -2, holder: 0 }] };
+    p.update(pointsViewOf(stale, rules, 0));
+    expect(document.querySelector('[data-row=mine] .rl-net-points__rate')!.textContent).toBe('+0 a minute');
   });
   it('maps a held zone for the minimap', () => {
     const v = pointsViewOf(rt([0, 0], 0, 1), rules, 0);

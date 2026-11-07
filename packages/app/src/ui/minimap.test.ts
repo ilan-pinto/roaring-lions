@@ -170,6 +170,8 @@ interface Recorder {
 }
 
 let recorder: Recorder;
+/** Every `fillText` the stub context was asked for (GH-1103 zone labels). */
+const fillTexts: string[] = [];
 const realGetContext = HTMLCanvasElement.prototype.getContext;
 
 function installContext(): Recorder {
@@ -199,7 +201,7 @@ function installContext(): Recorder {
     imageSmoothingEnabled: true,
     setTransform: () => {},
     clearRect: () => {},
-    fillText: () => {},
+    fillText: (text: string) => { fillTexts.push(text); },
     strokeText: () => {},
     // A real 2D context's save/restore stack, for the style fields this stub
     // records. A no-op pair would make a missing `restore()` untestable.
@@ -2213,6 +2215,11 @@ describe('pay marks: a points race labels the ground that pays (GH-1103)', () =>
     expect(marks.map((m) => m.state)).toEqual(['held', 'unheld']);
     expect(marks[0].rect).toEqual([10, 10, 6, 6]);
     expect(marks[0].at).toEqual({ x: 13, y: 13 });
+  });
+  it('writes the label on the canvas', () => {
+    fillTexts.length = 0;
+    mount(() => true, { payZones: () => [{ rect: [10, 10, 6, 6], perMin: 40, state: 'held' }] });
+    expect(fillTexts).toContain('+40/min');
   });
   it('draws nothing without pay zones', () => {
     expect(payMarks([])).toEqual([]);
