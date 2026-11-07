@@ -474,7 +474,7 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
   it('GH-859 (7 Nov): with the gate open a Wadi Tarfan (large) room delivers the formation (the sender), like Rujm Sawda and Milh Flats (large) since 3 Nov; with the gate shut it strips it', () => {
     const shut = collect();
     roomOrderSink(LIVE, shut.sink, () => {}, 'versus', false, 'wadi_tarfan_l').queueCommand(move());
-    expect(shut.got).toEqual([withoutFormation(move())]);
+    expect(shut.got).toEqual([{ kind: 'move', ids: [3, 4], x: 1 << 16, y: 2 << 16, append: true }]);
     for (const map of ['rujm_sawda', 'milh_flats_l', 'wadi_tarfan_l']) {
       const open = collect();
       roomOrderSink(LIVE, open.sink, () => {}, 'versus', true, map).queueCommand(move());
@@ -488,7 +488,10 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
     const strip = collect();
     roomOrderSink(LIVE, strip.sink, () => {}, 'versus', true, 'tel_marum', 'economy').queueCommand(move());
     roomOrderSink(LIVE, strip.sink, () => {}, 'versus', undefined, 'tel_marum', 'economy').queueCommand(attackMove());
-    expect(strip.got).toEqual([withoutFormation(move()), withoutFormation(attackMove())]);
+    expect(strip.got).toEqual([
+      { kind: 'move', ids: [3, 4], x: 1 << 16, y: 2 << 16, append: true },
+      { kind: 'attackMove', ids: [3], x: 5 << 16, y: 6 << 16 },
+    ]);
     for (const [map, kind] of [['tel_marum', 'mirror'], ['tel_marum', 'placed'], ['wadi_tarfan', 'economy']] as const) {
       const open = collect();
       roomOrderSink(LIVE, open.sink, () => {}, 'versus', true, map, kind).queueCommand(move());
