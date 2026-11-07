@@ -34,7 +34,7 @@ R2. Raid and hold, not carry home. The engine has it all (`capture` with `side`,
 
 R3. Hold 45 s in one go; the probe may fit 30-60, one value per size class.
 
-R4. Contest: hold needs >= 1 raiding ground unit (living, surface, not down) inside and no enemy ground unit inside. The 6-tile contest radius covers the zone. An enemy ground unit inside, or the raiders leaving, resets to 0. Aircraft neither hold nor contest (`ground_only: true`, set by `versusModeMissionOf`; no mission sets it, so no pin moves). Annihilation, the cap and the same-tick double capture (a draw) are unchanged.
+R4. Contest: hold needs >= 1 raiding ground unit (living, surface, not down) inside and no enemy ground unit inside. The contest is the shipped rule, `Mission.contestedIn`: an enemy unit within `CONTEST_RADIUS_SQ` (6 tiles) of one of yours, both standing in the zone. A 5x5 zone's diagonal is 7.07 tiles, so the radius covers it except between two units each within about 0.7 tile of OPPOSITE corners (up to 7.06 apart): those two do not contest. **Open (WP2 decides, with the lead):** keep the v1 rule as it is (the probe measures it), or let the set-up hold test presence of both sides in the zone with no radius; either way WP2 adds an opposite-corner test that pins the choice. An enemy ground unit inside, or the raiders leaving, resets to 0. Aircraft neither hold nor contest (`ground_only: true`, set by `versusModeMissionOf`; no mission sets it, so no pin moves). Annihilation, the cap and the same-tick double capture (a draw) are unchanged.
 
 ## 2. The set-up phase
 | option | what | for | against |
@@ -82,13 +82,13 @@ HUD: DEFEND (mine) / RAID (theirs); `NetFlags` rows "Defend: open", "Raid: holdi
 `observe.setup: { secondsLeft, line: {a, b}, kit: {hesco, sandbag_post, t_wall}, ready: {mine, theirs} } | null`; verbs `fortify {piece, x, y}`, `unfortify {x, y}`, `ready` in `mcp-tools` and the order desk. Prompt (`tools/src/net/win-rule.ts`): generalise the renumbering ("twelve lines"); line 6 the hold rule; line 8 defend; new line 9 set-up.
 
 ## 6. Interim
-YES, pull flag from the lobby now: `WIN_MODE_FAIR_MAPS.flag = []`, the Worker then refuses "win mode not offered on this map" and the lobby and arena hide it. Engine, mode files and probe stay; nothing in `data/arena` names flag.
+**Superseded by the lead's later ruling (recorded in the plan's R0.1): flag STAYS offered as it is until the new version replaces it.** Nothing is unlisted. The new data is staged (`flag_setup`, beside the shipped `flags`) so the live mode never reads it; the plan's R0.1 has the mechanism. (The original text proposed pulling flag from the lobby with `WIN_MODE_FAIR_MAPS.flag = []`; that was WP0, now dropped.)
 
 ## 7. Work packages (S <= 0.5 d, M 1-2 d), ~12-14 agent-days
 | WP | size | content | gate |
 |---|---|---|---|
-| WP0 | S | Unlist flag; update the pinning tests (`config.test.ts`, `routes.test.ts`, `match-room.test.ts`, arena suites); note on GH-976 | lobby offers no flag |
-| WP1 | S-M | Schema `modes.flag.setup {seconds, band_tiles, kit}`, `cap_minutes`, `hold_s` 45; validator R1 and S1-S4; drop the seven files' old `flags` | old wadi_tarfan_l flags red on G-ratio |
+| WP0 | — | DROPPED (lead's ruling, plan R0.1): flag stays offered until the new version replaces it; nothing is unlisted | — |
+| WP1 | S-M | Schema: a top-level `flag_setup {setup {seconds, band_tiles, kit}, cap_minutes, hold_s 45}` STAGED beside the shipped `flags`, which are kept (the live mode never reads the new block); validator R1 and S1-S4 on the new block | old wadi_tarfan_l flags red on G-ratio |
 | WP2 | M | Sim set-up: clock, `ready`, regions, clamp, weapons tight, `setupLive` fold, snapshot rows, `SETUP_WORLD_PIN` | M6, M7 red; determinism pins unmoved |
 | WP3 | M | Kit commands, `ground_only`, `cleanCommand`/`validateCommand` | seal/region refusals; air tests red without `ground_only` |
 | WP4 | S-M | Runtime wiring, objectives wait for the bell, 30-min cap twin, content digest, rejoin premise seed | rejoin mid-set-up replays to the same hash |
@@ -96,7 +96,7 @@ YES, pull flag from the lobby now: `WIN_MODE_FAIR_MAPS.flag = []`, the Worker th
 | WP6 | M (~0.5 d a map) | Refit the five maps; PR table to the lead BEFORE listing | all bars |
 | WP7 | M | HUD and lobby (parallel to WP5-6) | jsdom tests, `validate:ui` |
 | WP8 | S-M | Bot (parallel to WP5-6) | `win-rule` throws on prompt drift |
-| WP9 | S | Relist maps that passed; CLAUDE.md and `sim-and-orders.md` | — |
+| WP9 | S | List the maps that passed (`FLAG_SETUP_MAPS`); CLAUDE.md and `sim-and-orders.md`; file the follow-up issue that folds `flag_setup` into `flags` and deletes the v1 branch | — |
 
 ## 8. Open questions for the lead
 1. Set-up length and cap: B (3:00 with early Ready, 30-min flag match) or A (90 s inside the map caps)? Literal 30-min prep refused.
