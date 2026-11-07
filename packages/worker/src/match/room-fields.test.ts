@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { kitField, seatTiersField } from './room-fields';
+import { kitField, seatSpecialsField, seatTiersField } from './room-fields';
 import { KIT_TRACKS } from './kit-tracks';
 
 describe('kitField', () => {
@@ -67,5 +67,23 @@ describe('seatTiersField: a seat\'s claim, cleaned against the shipped tracks', 
     expect(seatTiersField(body)).toEqual({ mbt_lavi: { armour: 1 } });
     const all = Object.fromEntries(Object.entries(KIT_TRACKS).map(([id, t]) => [id, { ...t }]));
     expect(Object.keys(seatTiersField(all))).toHaveLength(Object.keys(KIT_TRACKS).length);
+  });
+});
+
+describe("seatSpecialsField: a seat's Store-special claim, cleaned against the shipped table (GH-1102)", () => {
+  it('keeps a shipped special, once, in the table order; refuses a forged id, a non-store unit, a prototype key and a non-string', () => {
+    const body = JSON.parse('["mbt_lavi_camo","no_such_unit","__proto__","constructor","mbt_lavi","sarim_rifles",7,null,{"id":"demo_tzav"},"recon_zikit","mbt_lavi_camo"]') as unknown;
+    // Literal: recon_zikit precedes mbt_lavi_camo in `units`, so it comes first whatever the body's order.
+    expect(seatSpecialsField(body)).toEqual(['recon_zikit', 'mbt_lavi_camo']);
+  });
+  it('a forged id alone is the empty claim', () => {
+    expect(seatSpecialsField(['mbt_lavi_camo_mk2'])).toEqual([]);
+    expect(seatSpecialsField(['MBT_LAVI_CAMO', ' mbt_lavi_camo'])).toEqual([]);
+  });
+  it('anything that is not an array is the empty claim', () => {
+    for (const v of ['mbt_lavi_camo', 1, null, undefined, true, {}, { 0: 'mbt_lavi_camo', length: 1 }]) expect(seatSpecialsField(v), String(v)).toEqual([]);
+  });
+  it('keeps a refused special: the mint refuses it and the lobby names it, so it is never dropped unseen', () => {
+    expect(seatSpecialsField(['spg_cluster', 'veh_ambulance'])).toEqual(['veh_ambulance', 'spg_cluster']);
   });
 });

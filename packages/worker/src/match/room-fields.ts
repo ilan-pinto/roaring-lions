@@ -1,6 +1,7 @@
 import { callsignOrDefault, type Pace, type SeatConfig } from '@lions/net';
 import { isShippedMap } from './map-ids';
 import { KIT_TRACKS } from './kit-tracks';
+import { STORE_SPECIALS } from './store-specials';
 
 /** What `/api/match` and the room's `/create` both read from a create body:
  *  one default map and one cap, so the route and the room cannot disagree. */
@@ -93,4 +94,21 @@ export function seatTiersField(v: unknown): SeatTiers {
     if (kept !== null) out[id] = kept;
   }
   return out;
+}
+
+export type SeatSpecials = string[];
+/**
+ * A seat's Store-special claim (GH-1102), cleaned against the shipped table
+ * (`STORE_SPECIALS`): structural checks only (decision 22, as `seatTiersField`). It walks
+ * the TABLE, not the body, so the output is at most the table, in the table's order, each
+ * id once, whatever the body holds: a forged id, a non-string, a duplicate and a
+ * prototype key are never read. Anything that is not an array is the empty claim.
+ * Whether a cleaned id then comes into the match is the mint's question (a brigade room,
+ * a human KDF seat, `VERSUS_REFUSED_SPECIALS`), not this one's.
+ */
+export function seatSpecialsField(v: unknown): SeatSpecials {
+  if (!Array.isArray(v)) return [];
+  // The body is already bounded by the route's cap (`body-cap.ts`); a Set makes the walk one lookup an id.
+  const claimed = new Set<unknown>(v);
+  return STORE_SPECIALS.filter((id) => claimed.has(id));
 }

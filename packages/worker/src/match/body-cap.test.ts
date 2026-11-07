@@ -8,6 +8,7 @@ import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, SNAPSHOT_MAX_COMPRESSED_BYTES } fro
 import { handleMatch, MATCH_BODY_MAX_BYTES } from './routes';
 import { signTicket } from './ticket';
 import { KIT_TRACKS } from './kit-tracks';
+import { STORE_SPECIALS } from './store-specials';
 import { SHIPPED_MAP_IDS } from './map-ids';
 import { MAX_FIELD_CHARS, ROUND_TICKS_RANGE, ROUND_WALL_MS_RANGE } from './room-fields';
 import type { Env, RateLimiter } from '../d1';
@@ -36,9 +37,11 @@ function legitimateBodies(): { create: object; join: object } {
   const callsign = wide(MAX_CALLSIGN_CHARS, '😀');        // 4 bytes a code point; survives NFKC
   const pace = { kind: 'paced', roundTicks: ROUND_TICKS_RANGE.max, roundWallMs: ROUND_WALL_MS_RANGE.max };
   const tiers = fullTiers();
+  // GH-1102: every Store special owned, from the real table.
+  const specials = [...STORE_SPECIALS];
   return {
-    create: { player, callsign, map: longestMap, build, mode: 'versus', matchup: 'mirror', kind: 'human', pace, kit: 'brigade', tiers },
-    join: { player, callsign, build, kind: 'human', tiers },
+    create: { player, callsign, map: longestMap, build, mode: 'versus', matchup: 'mirror', kind: 'human', pace, kit: 'brigade', tiers, specials },
+    join: { player, callsign, build, kind: 'human', tiers, specials },
   };
 }
 
@@ -150,9 +153,10 @@ describe('the /api/match body cap', () => {
     const { env, created } = fakeRooms();
     const res = await handleMatch(postRaw(`${ORIGIN}/api/match`, JSON.stringify(create)), env, NOW);
     expect(res.status).toBe(201);
-    const room = created[0] as { tiers: Record<string, Record<string, number>>; kit: string };
+    const room = created[0] as { tiers: Record<string, Record<string, number>>; kit: string; specials: string[] };
     expect(room.kit).toBe('brigade');
     expect(room.tiers).toEqual(fullTiers());   // the whole claim survived, so the body really was read
+    expect(room.specials).toEqual([...STORE_SPECIALS]);
     const f = await withRoom();
     const j = await handleMatch(postRaw(`${ORIGIN}/api/match/${CODE}/join`, JSON.stringify(join)), f.env, NOW);
     expect(j.status).toBe(200);
