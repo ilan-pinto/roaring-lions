@@ -5,7 +5,7 @@ import { flagMarksOf, flagViewOf, type FlagRuntime, type FlagRules } from './fla
 
 const RULES: FlagRules = {
   flags: { friendly: { at: [6, 30], size: [5, 5] }, hostile: { at: [37, 13], size: [5, 5] } },
-  modes: { flag: { hold_s: 30 } },
+  holdS: 30,
 };
 type Row = FlagRuntime['objectiveList'][number];
 const rt = (r0: Partial<Row>, r1: Partial<Row>): FlagRuntime => ({

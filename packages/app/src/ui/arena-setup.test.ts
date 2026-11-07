@@ -2,6 +2,7 @@
 // GH-954 W2: the DEV-only /arena setup screen, in jsdom with a recording fetch. The token below is made up.
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FLAG_SETUP_MAPS } from '@lions/net';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 import { missingKeys, setCatalogue } from '../i18n/t';
@@ -217,6 +218,26 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     q<HTMLButtonElement>(r.host, '.rl-arena-setup__start').click();
     await settle();
     expect(bodyOfStart(r)).toMatchObject({ map: 'wadi_tarfan', mode: 'flag', capTicks: 9000 });
+  });
+
+  it('GH-976 v2 R0.8/R0.22: a flag room on a map in FLAG_SETUP_MAPS shows the set-up hold (45 s) and the 30-minute cap, and another mode keeps the map\'s', async () => {
+    (FLAG_SETUP_MAPS as string[]).push('wadi_tarfan');
+    try {
+      const r = rig();
+      showArenaSetup(r.host, r.deps);
+      await settle();
+      const cap = field(r.host, 'Cap (ticks)') as HTMLInputElement;
+      pickMap(r, 'wadi_tarfan');
+      modeField(r).value = 'flag';
+      modeField(r).dispatchEvent(new Event('change'));
+      expect(r.host.textContent).toContain('for 45 seconds');
+      expect(cap.value).toBe('36000');
+      expect(cap.max).toBe('36000');
+      modeField(r).value = 'points';
+      modeField(r).dispatchEvent(new Event('change'));
+      expect(cap.value).toBe('30000');
+      expect(cap.max).toBe('30000');
+    } finally { (FLAG_SETUP_MAPS as string[]).length = 0; }
   });
 
   it('is locked while a run is going, like the rest of the form', async () => {

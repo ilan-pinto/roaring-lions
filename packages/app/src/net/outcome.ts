@@ -14,7 +14,7 @@
  * ending (`over`) is no result of its own -- the panel is already up.
  */
 import { doctrines, units } from '@lions/data';
-import { endingLoser, matchCapTicks, type MatchConfig, type Seat, type WinMode } from '@lions/net';
+import { endingLoser, matchCapTicks, matchCapTicksOf, type MatchConfig, type Seat, type WinMode } from '@lions/net';
 import { isHashTick } from './frame-step';
 
 /** Each side's surviving force value, by SIDE (index 0 is side 0). */
@@ -314,8 +314,8 @@ export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string
  *  on any other tick, and without a room. */
 export function hashTickOutcome(frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction, goals?: OutcomeGoals): MatchResult | null {
   if (!isHashTick(frameTick, config)) return null;
-  // The cap is the MAP's (GH-913 L8): 25 minutes, or the longer one its rules file declares.
-  const o = outcomeOf(sim, sim.tickCount, unitCost, production, matchCapTicks(config?.map), goals);
+  // The cap is the ROOM's (GH-913 L8, GH-976 R0.8): 25 minutes, the longer one its map's rules file declares, or 30 in a flag set-up room.
+  const o = outcomeOf(sim, sim.tickCount, unitCost, production, (config === null ? matchCapTicks(undefined) : matchCapTicksOf(config)), goals);
   return o.kind === 'ongoing' ? null : o;
 }
 

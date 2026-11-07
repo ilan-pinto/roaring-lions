@@ -39,8 +39,8 @@
  * DOM through `textContent` only, never through markup (the lobby chat is
  * `NetChat`, which keeps to that too).
  */
-import { maps, versusModes } from '@lions/data';
-import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, versusMapAllowed, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
+import { flagBlockOf, maps, versusModes } from '@lions/data';
+import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, versusMapAllowed, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
@@ -713,7 +713,9 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
     placedNote.hidden = !narrowed || winMode === null;
     describeFaction();
     const target = winMode === 'points' ? versusModes[map]?.modes.points?.target ?? 0 : 0;
-    const hold = winMode === 'flag' ? versusModes[map]?.modes.flag?.hold_s ?? 0 : 0;
+    // GH-976 R0.22: through the one reader, for the rules a room on this map would play (the Worker mints `flagSetup` from the same list).
+    const flagFile = winMode === 'flag' ? versusModes[map] : undefined;
+    const hold = flagFile === undefined || flagFile.modes.flag === undefined ? 0 : flagBlockOf(flagFile, flagSetupRoom({ winMode: 'flag', flagSetup: flagSetupFor(map, 'flag') })).holdS;
     winHint.textContent = t(`versus.win.${winMode ?? 'annihilation'}.hint`, { target, hold });
   }
 

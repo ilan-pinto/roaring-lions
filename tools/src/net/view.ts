@@ -6,7 +6,7 @@
  * renderer's own predicate -- `unitIsObserved`, `heldShown` -- called with this
  * seat's fog, not a copy. A pure read: it never writes to the sim.
  */
-import { versusModes } from '@lions/data';
+import { flagBlockOf, versusModes } from '@lions/data';
 import type { Faction, WinMode } from '@lions/net';
 import { campOf } from '../../../packages/app/src/net/versus-force';
 import { flagViewOf, type FlagView } from '../../../packages/app/src/net/flag-view';
@@ -182,8 +182,9 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
   const economy = economyView(w, side);
   const pointsRules = w.winMode === 'points' ? versusModes[w.mapJson.id]?.modes.points : undefined;
   const points = pointsRules !== undefined && w.runtime !== null ? pointsViewOf(w.runtime, pointsRules, side) : undefined;
-  const flagRules = w.winMode === 'flag' ? versusModes[w.mapJson.id] : undefined;
-  const flags = flagRules?.flags !== undefined && w.runtime !== null ? flagViewOf(w.runtime, { flags: flagRules.flags, modes: flagRules.modes }, side, w.endOfSide[side]) : undefined;
+  // GH-976 R0.22: the flag block through the one reader; a set-up room (`w.setup`) reads the staged block.
+  const flagFile = w.winMode === 'flag' ? versusModes[w.mapJson.id] : undefined;
+  const flags = flagFile !== undefined && w.runtime !== null ? flagViewOf(w.runtime, flagBlockOf(flagFile, w.setup !== null), side, w.endOfSide[side]) : undefined;
   return {
     tick: sim.tickCount,
     clock: clockOf(sim.tickCount),

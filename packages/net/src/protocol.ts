@@ -36,8 +36,7 @@ export const COMMAND_KINDS = [
   'build', 'support', 'cancelBuild', 'setRally', 'clearRally',
   'construct', 'cancelConstruct', 'raiseWorks', 'cancelWorks',
   'enterTunnel', 'vent',
-  'setupReady', // GH-976: a stub until WP4 opens the wire (`cleanCommand` refuses it)
-  'fortify', 'unfortify', // GH-976 WP3: the same stubs
+  'setupReady', 'fortify', 'unfortify', // GH-976 v2: the set-up commands, open on the wire since WP4 (a set-up room only: `validateCommand`)
 ] as const satisfies readonly Command['kind'][];
 
 /** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
@@ -288,10 +287,13 @@ export function cleanCommand(v: unknown): Command | null {
     case 'cancelWorks':
       return isInt(c.side) && isInt(c.site) ? { kind, side: c.side, site: c.site } : null;
     case 'setupReady':
+      // GH-976 v2: rebuilt from `side` alone. Whether the room plays a set-up and whose side it is are `validateCommand`'s.
+      return isInt(c.side) ? { kind, side: c.side } : null;
     case 'fortify':
+      // `kit` is a slot of `Sim.setSetupKit` and (x, y) an integer TILE, not Q16.16; their ranges are `validateCommand`'s (it knows the map).
+      return isInt(c.side) && isInt(c.kit) && isInt(c.x) && isInt(c.y) ? { kind, side: c.side, kit: c.kit, x: c.x, y: c.y } : null;
     case 'unfortify':
-      // GH-976 R0.9: stubs. The set-up commands open on the wire in WP4; until then they vanish here on both machines.
-      return null;
+      return isInt(c.side) && isInt(c.x) && isInt(c.y) ? { kind, side: c.side, x: c.x, y: c.y } : null;
     default: {
       const unreachable: never = kind;
       return unreachable;
