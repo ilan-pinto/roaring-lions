@@ -25,7 +25,7 @@ import { productionRefusal } from './economy-view';
 import type { OrderRecord } from './order-desk';
 import { orderExamplesForDescription } from './order-examples';
 import type { SeatMemory } from './seat-memory';
-import { STANCES, TERRAIN_LEGEND, terrainView, type SideView } from './view';
+import { STANCES, TERRAIN_LEGEND, type SideView } from './view';
 
 export type Scope = 'advise' | 'assist' | 'command';
 export const SCOPES: readonly Scope[] = ['advise', 'assist', 'command'];
@@ -372,7 +372,7 @@ export const TERRAIN_MAX_TILES = 96 * 96;
 
 const terrain: ToolDef = {
   name: 'terrain',
-  description: `The ground of the map, public to both seats as the map is to a human: one string a row, one character a tile (${Object.entries(TERRAIN_LEGEND).map(([k, v]) => `\`${k}\` ${v}`).join('; ')}), and \`elevation\`, one digit (0-9) a tile, where the map has relief: higher ground sees over lower obstacles (never further). \`rows[0]\` is the row of \`origin\`'s y, and its first character is \`origin\`. It never shows a unit, smoke or the fog. Call it once at the start to plan routes and positions (it changes only when a building falls, to rubble cover); \`observe\` gives each unit's and contact's own \`cover\` and \`elev\`. Optional window \`x\`, \`y\` (top-left tile) and \`w\`, \`h\` (tiles; default the rest of the map).`,
+  description: `The ground of the map, public to both seats as the map is to a human: one string a row, one character a tile (${Object.entries(TERRAIN_LEGEND).map(([k, v]) => `\`${k}\` ${v}`).join('; ')}), and \`elevation\`, one digit (0-9) a tile, where the map has relief: higher ground sees over lower obstacles (never further). \`rows[0]\` is the row of \`origin\`'s y, and its first character is \`origin\`. It never shows a unit or smoke. A tile you see now reads as it is; every other tile reads as the match began, so a building that falls out of your sight still stands here. Call it once at the start to plan routes and positions, and again for ground you now see; \`observe\` gives each unit's and contact's own \`cover\` and \`elev\`. Optional window \`x\`, \`y\` (top-left tile) and \`w\`, \`h\` (tiles; default the rest of the map).`,
   scopes: SCOPES,
   schema: {
     type: 'object',
@@ -394,7 +394,7 @@ const terrain: ToolDef = {
     const ww = Math.min((a.w as number | undefined) ?? mw - x0, mw - x0);
     const hh = Math.min((a.h as number | undefined) ?? mh - y0, mh - y0);
     if (ww * hh > TERRAIN_MAX_TILES) return refuse('invalid', { detail: `at most ${TERRAIN_MAX_TILES} tiles a call: ask for a smaller window` });
-    return ok(terrainView(w, x0, y0, ww, hh));
+    return ok(ctx.client.terrain(x0, y0, ww, hh));
   },
 };
 

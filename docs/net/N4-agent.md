@@ -292,9 +292,11 @@ carries `cover` and `elev` of its tile (absent at 0; a garrisoned, carried or
 buried unit carries none), a unit whose type lays smoke is flagged `smoke`, and
 `observe` lists `formations`: the formation ids this room accepts, from the
 receiver's own gate (`seatWorld.formationAllowed`), `[]` where the room closes
-them. A new tool, `terrain`, answers the map's ground from the sim's live grids,
-one character a tile plus `elevation` digits, in an optional window. All of it is
-public (the map is), and none of it is a legality rule: ownership still decides.
+them. A new tool, `terrain`, answers the map's ground, one character a tile plus
+`elevation` digits, in an optional window: live on the tiles the seat's fog sees
+now, and everywhere else the ground as the match began (a world built fresh from
+the config), so a building that falls under the fog is never told. None of it is
+a legality rule: ownership still decides.
 
 **`observe` shows what these verbs need.** Each own unit has `stance` (`free`,
 `ambush` with `radius`, `patrol` with `points`; a held unit reads `free`, since

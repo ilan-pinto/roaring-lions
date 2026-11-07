@@ -260,6 +260,32 @@ describe('order: the formation field (GH-859 P1a)', () => {
     expect(part.origin).toEqual([4, 6]);
     expect(part.rows).toEqual(whole.rows.slice(6, 8).map((r) => r.slice(4, 7)));
     expect(body(await call(ctx, 'terrain', { x: w.sim.width, y: 0 }))).toMatchObject({ error: 'off the map' });
+    expect(body(await call(ctx, 'terrain', { x: 0, y: w.sim.height }))).toMatchObject({ error: 'off the map' });
+    // A window past the right and bottom edges is clamped to the map, not refused.
+    const corner = body(await call(ctx, 'terrain', { x: w.sim.width - 2, y: w.sim.height - 3, w: 10, h: 10 })) as { rows: string[]; origin: number[] };
+    expect(corner.origin).toEqual([w.sim.width - 2, w.sim.height - 3]);
+    expect(corner.rows).toEqual(whole.rows.slice(w.sim.height - 3).map((r) => r.slice(w.sim.width - 2)));
+  });
+  it('GH-1097 review: a building that falls far from every unit of the seat still stands in its terrain (no news through the fog)', async () => {
+    const { a } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const w = a.client.world() as MatchWorld;
+    const sim = w.sim;
+    const own = (body(await call(ctx, 'observe')) as { units: { tile: [number, number] }[] }).units.map((u) => u.tile);
+    // The building tile farthest from the seat's own force: out of any sight range on this map (asserted, not assumed).
+    let best: [number, number] = [-1, -1];
+    let bestD = -1;
+    for (let y = 0; y < sim.height; y++) for (let x = 0; x < sim.width; x++) {
+      if (sim.blocked[y * sim.width + x] === 0 || w.mapJson.rows[y][x] === '^') continue;
+      const d = Math.min(...own.map(([ux, uy]) => Math.hypot(ux - x, uy - y)));
+      if (d > bestD) { bestD = d; best = [x, y]; }
+    }
+    expect(bestD).toBeGreaterThan(20);
+    const [x, y] = best;
+    expect((body(await call(ctx, 'terrain', { x, y, w: 1, h: 1 })) as { rows: string[] }).rows).toEqual(['#']);
+    (sim.blocked as Uint8Array)[y * sim.width + x] = 0; // fixture: a collapse (sim.ts `collapse`), on this seat's own world
+    (sim.cover as Uint8Array)[y * sim.width + x] = 1;
+    expect((body(await call(ctx, 'terrain', { x, y, w: 1, h: 1 })) as { rows: string[] }).rows).toEqual(['#']);
   });
   // PR 1104 (the lead, 7 Nov) opens Wadi Tarfan (large): `VERSUS_FORMATIONS_CLOSED_MAPS` becomes []. Until it lands on this branch's
   // base the map is still closed, so the case runs once the constant no longer names it; it is never edited to pass.

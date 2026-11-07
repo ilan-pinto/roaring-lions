@@ -9,7 +9,7 @@ import { applyWinRule } from './win-rule';
 import { BOT_ADDENDUM, botPrompt } from './bot';
 import { readStandingPrompt } from './external-player';
 import { FogTracker } from './fog-tracker';
-import { sideView, terrainView, TERRAIN_LEGEND, type UnitLine } from './view';
+import { openingGroundOf, sideView, terrainView, TERRAIN_LEGEND, type UnitLine } from './view';
 import { versusConfig } from './test-config';
 
 function world(map = 'wadi_tarfan') {
@@ -25,10 +25,16 @@ function firstTile(w: ReturnType<typeof world>['w'], what: string, pred: (t: num
   throw new Error(`the map has no ${what} tile`);
 }
 
+/** The ground as the room's match began, from a world built fresh from the same config (as the agent client builds it). */
+const openingOf = (w: ReturnType<typeof world>['w']) => openingGroundOf(buildMatchWorld(versusConfig(w.mapJson.id)));
+/** `terrain` as seat 0 reads it: live where its fog sees the tile centre now, the opening ground elsewhere. */
+const seen = (w: ReturnType<typeof world>['w'], fog: FogTracker, x: number, y: number, wt: number, ht: number) =>
+  terrainView(w, openingOf(w), (tx, ty) => fog.visibleTile(tx + 0.5, ty + 0.5), x, y, wt, ht);
+
 describe('GH-1097: terrain, the map\'s ground as the model reads it', () => {
-  it('one character a tile, from the live grids: cover digits, buildings, ridges and open ground; elevation where there is relief', () => {
-    const { w } = world();
-    const t = terrainView(w, 0, 0, w.sim.width, w.sim.height);
+  it('one character a tile: cover digits, buildings, ridges and open ground; elevation where there is relief', () => {
+    const { w, fog } = world();
+    const t = seen(w, fog, 0, 0, w.sim.width, w.sim.height);
     expect(t.size).toEqual([w.sim.width, w.sim.height]);
     expect(t.rows).toHaveLength(w.sim.height);
     for (const r of t.rows) {
@@ -46,19 +52,25 @@ describe('GH-1097: terrain, the map\'s ground as the model reads it', () => {
     expect(t.elevation?.[ey][ex]).toBe(String(sim.elevation[ey * sim.width + ex]));
   });
   it('a window reads the same tiles as the whole map, with its origin', () => {
-    const { w } = world();
-    const whole = terrainView(w, 0, 0, w.sim.width, w.sim.height);
-    const part = terrainView(w, 10, 12, 7, 5);
+    const { w, fog } = world();
+    const whole = seen(w, fog, 0, 0, w.sim.width, w.sim.height);
+    const part = seen(w, fog, 10, 12, 7, 5);
     expect(part.origin).toEqual([10, 12]);
     expect(part.rows).toEqual(whole.rows.slice(12, 17).map((r) => r.slice(10, 17)));
   });
-  it('a fallen building reads as its rubble, not as the authored #: the grid is the sim\'s', () => {
-    const { w } = world();
+  // The review of PR 1106: built from the live grids alone, `terrain` told a seat of a collapse anywhere, under the fog too.
+  it('a building that falls OUT of the seat\'s sight still stands in terrain; one that falls in sight reads as its rubble', () => {
+    const { w, fog } = world();
     const sim = w.sim;
-    const [x, y] = firstTile(w, 'building', (i, tx, ty) => sim.blocked[i] !== 0 && w.mapJson.rows[ty][tx] !== '^');
-    (sim.blocked as Uint8Array)[y * sim.width + x] = 0; // fixture: a collapse opens the tile (sim.ts `collapse`)
+    const hidden = firstTile(w, 'building out of sight', (i, tx, ty) => sim.blocked[i] !== 0 && w.mapJson.rows[ty][tx] !== '^' && !fog.visibleTile(tx + 0.5, ty + 0.5));
+    const [x, y] = hidden;
+    expect(seen(w, fog, x, y, 1, 1).rows).toEqual(['#']);
+    (sim.blocked as Uint8Array)[y * sim.width + x] = 0; // fixture: a collapse opens the tile and leaves rubble (sim.ts `collapse`)
     (sim.cover as Uint8Array)[y * sim.width + x] = 1;
-    expect(terrainView(w, x, y, 1, 1).rows).toEqual(['1']);
+    expect(fog.visibleTile(x + 0.5, y + 0.5)).toBe(false);
+    expect(seen(w, fog, x, y, 1, 1).rows).toEqual(['#']);
+    // The same tile, seen: the live ground.
+    expect(terrainView(w, openingOf(w), () => true, x, y, 1, 1).rows).toEqual(['1']);
   });
 });
 

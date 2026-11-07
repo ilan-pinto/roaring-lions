@@ -267,10 +267,26 @@ export interface TerrainView {
   /** The window's top-left tile; `rows[0][0]` is this tile. */
   origin: [number, number];
   legend: Record<string, string>;
-  /** One string a row, one character a tile, from the sim's live grids (a fallen building reads as its rubble's cover). */
+  /** One string a row, one character a tile. A tile the seat sees NOW reads the live ground (a building that fell in
+   *  sight reads as its rubble's cover); every other tile reads the ground as the match began (`OpeningGround`), so a
+   *  collapse under the fog is never told. */
   rows: string[];
-  /** One digit a tile (0-9), the same window; absent when every tile of the window is level 0. */
+  /** One digit a tile (0-9), the same window, as authored (the sim never changes a level); absent when every tile of
+   *  the window is level 0. */
   elevation?: string[];
+}
+
+/**
+ * The ground as the match began (GH-1097 review): the map as authored and the structures the room places on it, copied
+ * from a world built fresh from the room's config and never ticked. It holds nothing the match has done, so `terrain`
+ * reads it for every tile out of the seat's sight. It is built from the config, not from the seat's own world, because a
+ * seat that rejoined from a snapshot holds a world already part-way through.
+ */
+export interface OpeningGround { width: number; blocked: Uint8Array; boulder: Uint8Array; cover: Uint8Array; elevation: Uint8Array }
+
+export function openingGroundOf(fresh: MatchWorld): OpeningGround {
+  const sim = fresh.sim;
+  return { width: sim.width, blocked: sim.blocked.slice(), boulder: sim.boulder.slice(), cover: sim.cover.slice(), elevation: sim.elevation.slice() };
 }
 
 export const TERRAIN_LEGEND: Readonly<Record<string, string>> = {
@@ -284,11 +300,12 @@ export const TERRAIN_LEGEND: Readonly<Record<string, string>> = {
 };
 
 /**
- * The ground of a window of the map (GH-1097), public to both seats as the map is to a human: the sim's live `blocked`,
- * `boulder`, `cover` and `elevation` grids, with the authored symbol only to tell a ridge from a building and a boulder
- * field from a ditch or a marsh. Never an entity, never smoke, never the fog: a pure read of the ground.
+ * The ground of a window of the map (GH-1097), as a human seat knows it: the opening ground for every tile, and the
+ * sim's live `blocked`, `boulder` and `cover` only where `visibleAt` says the seat sees the tile now (the fog's own
+ * test, `FogTracker.visibleTile`). The authored symbol only tells a ridge from a building and a boulder field from a
+ * ditch or a marsh. Never an entity, never smoke: a pure read.
  */
-export function terrainView(w: MatchWorld, x0: number, y0: number, wTiles: number, hTiles: number): TerrainView {
+export function terrainView(w: MatchWorld, opening: OpeningGround, visibleAt: (x: number, y: number) => boolean, x0: number, y0: number, wTiles: number, hTiles: number): TerrainView {
   const sim = w.sim;
   const rows: string[] = [];
   const elev: string[] = [];
@@ -300,11 +317,12 @@ export function terrainView(w: MatchWorld, x0: number, y0: number, wTiles: numbe
     for (let x = x0; x < x0 + wTiles; x++) {
       const t = y * sim.width + x;
       const a = authored[x];
-      if (sim.blocked[t] !== 0) row += a === '^' ? '^' : '#';
-      else if (sim.boulder[t] !== 0) row += a === 'd' || a === '~' ? a : 'b';
-      else if (sim.cover[t] > 0) row += String(Math.min(3, sim.cover[t]));
+      const g = visibleAt(x, y) ? sim : opening;
+      if (g.blocked[t] !== 0) row += a === '^' ? '^' : '#';
+      else if (g.boulder[t] !== 0) row += a === 'd' || a === '~' ? a : 'b';
+      else if (g.cover[t] > 0) row += String(Math.min(3, g.cover[t]));
       else row += '.';
-      const e = sim.elevation[t];
+      const e = opening.elevation[t];
       if (e > 0) anyElev = true;
       er += String(e);
     }
