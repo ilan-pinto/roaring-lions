@@ -9,6 +9,23 @@
 //
 // Pure (pixels or lines in, a verdict out) so a test can feed a black, a flat and a real frame and watch each verdict.
 
+/** How a content refusal starts, as `capture()` words it and `ci/content-vote.ts` reads it back out of a log. One source for both ends. */
+export const FRAME_CONTENT_PREFIX = 'frame-content:';
+export const GPU_VALIDATION_PREFIX = 'gpu-validation:';
+
+/** The error `capture()` throws for a refused node capture: `[<label>] REFUSED (<arm>): <refusal>`. */
+export function captureRefusalMessage(label: string, arm: string, refusal: string): string {
+  return `[${label}] REFUSED (${arm}): ${refusal}`;
+}
+
+const CONTENT_REFUSAL_LINE = new RegExp(`\\] REFUSED \\([a-z0-9]+\\): (?:${GPU_VALIDATION_PREFIX}|${FRAME_CONTENT_PREFIX})`);
+
+/** A log line that carries a CONTENT refusal (a GPU validation error, or a black or near-constant frame) in `captureRefusalMessage`'s shape.
+ *  A backend refusal, a baseline difference and a parity band are not content, and are not matched. */
+export function isContentRefusalLine(line: string): boolean {
+  return CONTENT_REFUSAL_LINE.test(line);
+}
+
 /** Rec. 709 luma of an 8-bit sRGB pixel, in 0..255 (the encoded value: this asks "is anything there", not a light measurement). */
 function luma(r: number, g: number, b: number): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -72,10 +89,10 @@ export const MIN_STD_LUMA = 4;
 
 /** Why this capture is not a picture of a scene, or null when it is. */
 export function frameContentRefusal(s: FrameContentStats, minMean = MIN_MEAN_LUMA, minStd = MIN_STD_LUMA): string | null {
-  if (s.pixels === 0) return 'frame-content: the capture has no pixels';
+  if (s.pixels === 0) return `${FRAME_CONTENT_PREFIX} the capture has no pixels`;
   const read = `mean luma ${s.meanLuma.toFixed(2)}, std ${s.stdLuma.toFixed(2)} over ${s.pixels} px`;
-  if (s.meanLuma < minMean) return `frame-content: the frame is black (${read}; floor mean >= ${minMean}): the renderer drew nothing, so every later reading of it is vacuous`;
-  if (s.stdLuma < minStd) return `frame-content: the frame is near-constant (${read}; floor std >= ${minStd}): one flat colour is not a scene`;
+  if (s.meanLuma < minMean) return `${FRAME_CONTENT_PREFIX} the frame is black (${read}; floor mean >= ${minMean}): the renderer drew nothing, so every later reading of it is vacuous`;
+  if (s.stdLuma < minStd) return `${FRAME_CONTENT_PREFIX} the frame is near-constant (${read}; floor std >= ${minStd}): one flat colour is not a scene`;
   return null;
 }
 
@@ -86,5 +103,5 @@ const GPU_VALIDATION = /GPUValidationError|Invalid BindGroup|Invalid CommandBuff
 export function validationErrorRefusal(lines: readonly string[]): string | null {
   const hits = lines.filter((l) => GPU_VALIDATION.test(l));
   if (hits.length === 0) return null;
-  return `gpu-validation: the page logged ${hits.length} GPU validation error(s); the first: "${(hits[0] as string).slice(0, 200)}"`;
+  return `${GPU_VALIDATION_PREFIX} the page logged ${hits.length} GPU validation error(s); the first: "${(hits[0] as string).slice(0, 200)}"`;
 }
