@@ -14,8 +14,8 @@ import { economyRoom, type MatchConfig } from '@lions/net';
 
 /** OPEN (the lead, 1 Nov, GH-859): S4 passed clean (0 TRIP of 27 cells, tunnels A+B pooled, 192 seeds paired with each cell's own baseline) on Beit Sahwan, Tel Marum and Milh Flats with the shipped Attack (aircraft left out, `legs: false`), and again on Wadi Tarfan
  *  (0 TRIP of 21 cells, GH-945) once its seats and tunnel capacities were re-measured. On 3 Nov the same S4 was run on the three large maps, on seeds 30000-30383 that no choice had seen: Rujm Sawda and Milh Flats (large) passed
- *  (mirror cell, 0 TRIP of 3) and opened; Wadi Tarfan (large) tripped one of 21 cells (placed, both ends, Sarim friendly: KDF leads 60.4% pooled against a 56.5% base) and stays closed
- *  through `VERSUS_FORMATIONS_CLOSED_MAPS`. A formation amplifies a base lean 2.5 to 5 times (GH-945), so a map's base is level before it is offered with formations.
+ *  (mirror cell, 0 TRIP of 3) and opened; Wadi Tarfan (large) tripped one of 21 cells (placed, both ends, Sarim friendly: KDF leads 60.4% pooled against a 56.5% base) and was closed
+ *  through `VERSUS_FORMATIONS_CLOSED_MAPS` until its S4 re-run came back clean on 6 Nov (0 of 21) and the lead opened it on 7 Nov. The list is empty; only the tel_marum economy room is closed (data). A formation amplifies a base lean 2.5 to 5 times (GH-945), so a map's base is level before it is offered with formations.
  *  Closing it again is this one constant. */
 export const VERSUS_FORMATIONS_OPEN = true;
 

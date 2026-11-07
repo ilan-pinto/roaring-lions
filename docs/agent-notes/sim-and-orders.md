@@ -243,8 +243,8 @@ settled and opened by GH-945 (re-seated at its own markers (10,10)/(37,37), ever
 the formation amplifies a base lean about 2.5 to 5 times, so a map needs a LEVEL base, not one merely inside 60/40). **3 Nov (GH-913): the same S4 on the three
 large maps, seeds 30000-30383 that no choice had seen** (shipped Attack, A+B pooled where a RERUN or the tunnels cell asks): Rujm Sawda (mirror, 0 TRIP of 3) and
 Milh Flats (large) (mirror, 0 TRIP of 3) OPENED; Wadi Tarfan (large) (21 cells) tripped one, placed Attack-on-both-ends Sarim friendly (the KDF end 60.4% pooled
-against a 56.5% base, bar 60), and stays closed through `VERSUS_FORMATIONS_CLOSED_MAPS`. The tests that witness the CLOSED path inject the gate
-(`seatWorldFor(cfg, sim, false)`, `roomOrderSink(..., false)`) or use the closed map (`mcp-tools.test.ts` runs its refusal on Wadi Tarfan (large)). The text below is the
+against a 56.5% base, bar 60), and was closed through `VERSUS_FORMATIONS_CLOSED_MAPS` until the 6 Nov re-run (0 TRIP of 21) and the lead's ruling of 7 Nov (GH-859): the list is empty since, and only the tel_marum economy room is closed (data). The tests that witness the CLOSED path inject the gate
+(`seatWorldFor(cfg, sim, false)`, `roomOrderSink(..., false)`) or use the closed room (`mcp-tools.test.ts` runs its refusal on a tel_marum economy room once PR 1106 lands). The text below is the
 history of the closed gate; its mechanism is unchanged.
 
 **5 Nov (the lead's ruling, GH-859): open, except `tel_marum` economy rooms.** The gate was already open on every map but `wadi_tarfan_l`; what the ruling adds is one
