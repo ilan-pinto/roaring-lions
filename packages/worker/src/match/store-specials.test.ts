@@ -24,6 +24,7 @@ describe('the Store specials a seat may claim (GH-1102)', () => {
     expect([...STORE_SPECIALS], `paste into store-specials.ts:\n${JSON.stringify(data, null, 2)}`).toEqual(data);
   });
   it('are all KDF: a Sarim seat has no store, so it can own none', () => {
+    expect(fromData().length, 'the loop below has something to check').toBeGreaterThan(0);
     for (const u of fromData()) expect(u.faction, u.id).toBe('kdf');
   });
   it('fit inside the bound validateConfig puts on a seat\'s unlocks', () => {
