@@ -114,14 +114,17 @@ before the static assets, and `wrangler.jsonc`'s `run_worker_first` already cove
 
 **WebAuthn parameters.**
 
-- `rp.id` is the request's hostname, checked against a pinned list, `ACCOUNT_RP_IDS`.
+- `rp.id` is the request's hostname, checked against a pinned list, `ACCOUNT_RP_IDS`. The client
+  data's `origin` is a scheme, host and port, so it is checked against its own pinned list,
+  `ACCOUNT_ORIGINS` (`https://roaring-lions.pint12.workers.dev` today), and each origin's host must
+  equal an `rp.id`. A hostname list cannot match an origin string.
   `rp.name` is "Roaring Lions".
 - `user.id` is 16 random bytes, `member.user_handle`, and never the internal id.
 - `residentKey: 'required'`, so sign-in needs no username.
 - `userVerification: 'preferred'`, and `attestation: 'none'`.
 - Algorithms ES256 (-7) and RS256 (-257). RS256 is for Windows Hello.
 - Verification checks:
-  - the client data's `type`, `challenge` and `origin` (exact, against the same list);
+  - the client data's `type`, `challenge` and `origin` (exact, against `ACCOUNT_ORIGINS`);
   - the `rpIdHash`;
   - the UP flag;
   - the signature.
@@ -142,6 +145,9 @@ before the static assets, and `wrangler.jsonc`'s `run_worker_first` already cove
   `SELECT`, and D1 reads are plentiful.
 - **Lifetime.** A session lasts 30 days from its last use and 180 days at most. The expiry is
   extended at most once a UTC day per session, so a busy player costs one row written a day.
+  **When the expiry moves, the response re-sends `Set-Cookie` with a fresh `Max-Age`.** A cookie's
+  own clock does not slide, so without it the browser drops the cookie 30 days after sign-in while
+  the server still holds the session.
   There are at most 10 sessions per member; the oldest is evicted.
 - **A fresh session** (`fresh_until`, 5 minutes after a passkey or recovery sign-in) is required for
   three things:
@@ -367,7 +373,7 @@ CREATE TABLE match_seat (
 CREATE INDEX match_seat_member ON match_seat (member_id, started_at);
 
 CREATE TABLE tombstone (
-  id_hash       TEXT PRIMARY KEY,        -- sha256(member.id); nothing else
+  id_hash       TEXT PRIMARY KEY,        -- sha256(member.public_id), the id every device holds; nothing else
   deleted_at    INTEGER NOT NULL         -- swept after 90 days (§6.4)
 ) WITHOUT ROWID;
 
@@ -477,6 +483,7 @@ The JSON shapes are given here in outline; the A1 and A2 plans give them in full
 | `GET matches` | session | 0 | The member's own history, paged. |
 | `GET export` | session | 0 | §6.2. |
 | `POST delete` | fresh session | many | §6.4. **Works while closed.** |
+| `POST gone` | none | 0 | `{idHash}` against `tombstone`: 410 `{deleted: true}` or 404 (§6.4 step 4). **Works while closed.** |
 
 Every write carries `op_id`, a UUID from the client, and the server records it in `account_op`
 inside the same batch. A retry returns the first answer. **D1's `batch()` is one transaction**, so
@@ -804,13 +811,16 @@ The profile screen offers it as a file download: "Download my data".
    - the profile and the member.
 
    Match seats are set to `member_id NULL, kind 'deleted'`. Match records left with no member seat
-   are deleted. A `tombstone(sha256(id))` row is written.
+   are deleted. A `tombstone(sha256(public_id))` row is written.
 3. **This device** removes the cache, the outbox and `lions.account`, and boots as a fresh guest.
    It offers to keep a local copy of the campaign as guest data: the default is no, and the
    download in step 1 is the recommended way to keep one.
-4. **Other devices** get 401 on their next request, then 410 with `{deleted: true}` once the
-   tombstone matches their last known id hash. They clear their cache and say, through `t()`, that
-   the account was deleted. They do not re-upload their outbox.
+4. **Other devices** get 401 on their next request. A device that held a session then asks
+   `POST /api/account/gone` (no auth) with `{idHash: sha256(publicId)}`, the `publicId` it keeps in
+   `lions.account`. The Worker answers 410 `{deleted: true}` if a tombstone matches and 404
+   otherwise (the session simply expired). A public id is 40 bits and is already shown beside the
+   name, so its hash reveals nothing a stranger could not already read. On 410 the device clears its
+   cache and says, through `t()`, that the account was deleted. They do not re-upload their outbox.
 5. **Restores.** If the lead ever restores the accounts database from Time Travel, the tombstones
    that are still kept are re-applied by a script (`tools/accounts-reapply-tombstones.mjs`) before
    the switch reopens. The runbook says so.
@@ -884,6 +894,9 @@ spec's approval.
 | A1-11 | Off switch: booting under jsdom without `?accounts` makes zero `/api/account` fetches | Remove the `?accounts` and production gate |
 | A1-12 | A throwing storage: `lions.account` and `lions.account.prompt` reads fall back to guest with no throw | Remove the `try` around the property access |
 | A1-13 | Closed means closed: with no `flags.accounts` row, `register/options` answers 404 while `login/*`, `export` and `delete` work | Read a missing row as open (the feedback default) |
+| A1-14 | A valid origin passes and a wrong scheme, host or port fails against `ACCOUNT_ORIGINS`, while the same host with the wrong port still has a valid `rp.id` | Compare the origin to `ACCOUNT_RP_IDS` |
+| A1-15 | A session whose expiry moves answers with `Set-Cookie` carrying a fresh `Max-Age`; one that does not move sends none | Drop the `Set-Cookie` on the slide |
+| A1-16 | After delete, `POST gone` with `sha256(publicId)` answers 410 and with an unknown hash 404, with the switch closed | Key the tombstone by the internal member id |
 
 ### A2: claim, sync, server coins, the prompt (about 7 agent-days)
 
