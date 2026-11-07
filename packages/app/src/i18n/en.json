@@ -328,6 +328,7 @@
   "net.advisor.cmd.support": "Call {support} on ({x}, {y})",
   "net.advisor.cmd.construct": "Build field works at ({x}, {y}) with {n, plural, one {# unit} other {# units}}",
   "net.advisor.cmd.cancelConstruct": "Cancel a field works site",
+  "net.advisor.cmd.setupReady": "Press Ready for the set-up",
   "arena.watch.title": "Arena run",
   "arena.watch.stop": "Stop watching",
   "arena.strip.label": "Arena run",

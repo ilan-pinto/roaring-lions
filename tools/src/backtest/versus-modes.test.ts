@@ -621,3 +621,23 @@ describe('GH-976 P4: the flag sweep knob and a ground the mode declares (in memo
     expect(describeTiming([g('annihilation', 100)])).toBe('no game decided by the goal');
   });
 });
+
+describe('GH-976 v2: FLAG_V1_GAME_PIN (R0.19): a v1 flag game stays byte for byte until the per-map relist', () => {
+  // Read on the WP1 base (720db3e47), seed 35000, before any other edit: only `probeAt` was added to `playMode`. The raid is a
+  // minute long here, so the state is read at tick 1,000, inside the game, not at the plan's tick 2,400 (no game reaches it).
+  // The flag block these games read is `flagBlockOf(file, false)`; if that ever returns the staged flag_setup, both go red.
+  const FLAG_V1_GAME_PIN = {
+    wadi_tarfan: { probe: { hash: 140936277, digest: 1985883999 }, result: { winner: 1, by: 'objective', ticks: 1240 } },
+    rujm_sawda: { probe: { hash: 2495921269, digest: 896909483 }, result: { winner: 0, by: 'objective', ticks: 1360 } },
+  } as const;
+  it.each(['wadi_tarfan', 'rujm_sawda'] as const)('%s: the hash and runtime digest at tick 1000, and the full game\'s winner, finish and length', (map) => {
+    const g = playMode(map, 'flag', seedOf(35000), { probeAt: 1000 });
+    expect(g.probe).toEqual(FLAG_V1_GAME_PIN[map].probe);
+    expect({ winner: g.winner, by: g.by, ticks: g.ticks }).toEqual(FLAG_V1_GAME_PIN[map].result);
+  }, FULL_GAMES_TIMEOUT_MS);
+  it('probeAt changes nothing else: the same game without it ends the same way', () => {
+    const g = playMode('wadi_tarfan', 'flag', seedOf(35000));
+    expect(g.probe).toBeUndefined();
+    expect({ winner: g.winner, by: g.by, ticks: g.ticks }).toEqual(FLAG_V1_GAME_PIN.wadi_tarfan.result);
+  }, FULL_GAMES_TIMEOUT_MS);
+});
