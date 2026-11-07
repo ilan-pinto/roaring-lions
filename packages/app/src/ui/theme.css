@@ -8474,6 +8474,18 @@ fieldset.rl-versus__maps {
 .rl-versus__seat[data-ready='1'] .rl-versus__state {
   color: var(--good);
 }
+/* GH-1102: the Store specials a seat brings into a brigade room, and the ones that stay out. */
+.rl-versus__lineup {
+  display: grid;
+  gap: 0.15rem;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink);
+  text-align: center;
+}
+.rl-versus__lineup p { margin: 0; }
+.rl-versus__lineup-none,
+.rl-versus__lineup-out { color: var(--ink-mute); }
 .rl-versus__dot {
   flex: none;
   width: 0.6rem;

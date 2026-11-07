@@ -557,7 +557,7 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
     expect(describedBy(sw)).toBe('Both sides field the standard kit');
     sw.click();
     expect(sw.getAttribute('aria-checked')).toBe('true');
-    expect(describedBy(sw)).toBe('Friends only: each of you fields the upgrades you bought');
+    expect(describedBy(sw)).toBe('Friends only: each player brings the upgrades and the Store special units they own. A bot fields the standard force');
     sw.click();
     expect(sw.getAttribute('aria-checked')).toBe('false');
     expect(stage.querySelectorAll('.rl-versus__kit-toggle')).toHaveLength(1);
@@ -597,7 +597,7 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
       stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
       await flush();
       const line = stage.querySelector('.rl-versus__room-kit');
-      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, kit).toBe(kit === 'brigade' ? 'Brigades (friends only)' : 'Standard kit for both');
+      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, kit).toBe(kit === 'brigade' ? 'Brigades: upgrades and Store specials (friends only)' : 'Standard kit for both');
       expect(line?.getAttribute('data-kit')).toBe(kit);
     }
     expect(missingKeys()).toEqual([]);
@@ -609,6 +609,51 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
     fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum', ['kdf', 'kdf'], 'brigade');
     expect(stage.querySelector('.rl-versus__room-kit')?.getAttribute('data-kit')).toBe('brigade');
     expect(stage.querySelector('.rl-versus__room-kit')?.innerHTML).not.toMatch(/<(?!\/?span)/);
+  });
+});
+
+// GH-1102: in a brigade room each seat's card shows the Store specials it brings, before Ready.
+describe("bring your brigade: both line-ups in the lobby (GH-1102)", () => {
+  const SEATS_SPECIALS: SeatState[] = [
+    { seat: 0, callsign: 'Ari', connected: true, ready: false, specials: ['mbt_lavi_camo', 'spg_cluster', 'veh_ambulance'] },
+    { seat: 1, callsign: 'Bo', connected: true, ready: false, specials: [] },
+  ];
+  const joined = async (kit: 'brigade' | 'matched', seats: SeatState[] = SEATS_SPECIALS) => {
+    const { transport } = fakeTransport();
+    const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats, map: 'tel_marum', factions: ['kdf', 'kdf'], kit } }));
+    const stage = document.createElement('div');
+    room(stage, 'ABCDEF', deps({ open }));
+    stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+    await flush();
+    return stage;
+  };
+  const cardOf = (stage: ParentNode, seat: 0 | 1) => stage.querySelector<HTMLElement>(`.rl-versus__fcard[data-seat="${seat}"]`)!;
+
+  it("each seat's card names what joins its force and what stays out, with the reason; a seat with none reads Standard force", async () => {
+    const stage = await joined('brigade');
+    const host = cardOf(stage, 0);
+    // Names are the unit JSON's `name` (data), in the order the room sent them.
+    expect(host.querySelector('.rl-versus__lineup-brings')?.textContent).toBe('Brings: Lavi Ambush Tank');
+    expect(host.querySelector('.rl-versus__lineup-out')?.textContent).toBe(
+      "Stays out of versus: Te'o Cluster Howitzer (its price is Conduct, and a versus room has no civilians), Pered Armoured Ambulance (rescue is not in versus yet)");
+    expect(cardOf(stage, 1).querySelector('.rl-versus__lineup-none')?.textContent).toBe('Standard force');
+    expect(cardOf(stage, 1).querySelector('.rl-versus__lineup-brings')).toBeNull();
+    expect(missingKeys()).toEqual([]);
+  });
+  it('a matched room shows no line-up at all', async () => {
+    const stage = await joined('matched', SEATS_TWO);
+    expect(stage.querySelector('.rl-versus__lineup')).toBeNull();
+  });
+  it('?pseudo=1: every line-up string is bracketed, so none bypassed t()', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const stage = await joined('brigade');
+      const shown = [...stage.querySelectorAll('.rl-versus__lineup p')].map((e) => e.textContent ?? '');
+      expect(shown.length).toBe(3);
+      for (const text of shown) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
+    } finally {
+      setCatalogue('en', en);
+    }
   });
 });
 
