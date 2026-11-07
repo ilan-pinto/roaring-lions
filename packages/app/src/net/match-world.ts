@@ -300,6 +300,8 @@ function economyRuntime(
     },
   };
   const runtime = new MissionRuntime(sim, mission as MissionJson, ctx);
+  // GH-1102: `popExempt` is still EMPTY here (the specials spawn after this runtime stands its camps), so neither
+  // `start()` nor the camp-exit setup below may read `population()`; today neither does.
   runtime.start();
   // GH-976: an authored camp exit per END (the NW scan is not point-symmetric). Static setup data, out of hash().
   for (const end of ['friendly', 'hostile'] as const) {

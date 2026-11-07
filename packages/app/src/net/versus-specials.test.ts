@@ -129,8 +129,9 @@ describe('buildMatchWorld: a brigade room fields each seat\'s owned specials', (
     }
   });
   it('pins the brigade world a special joins (tel_marum, seed 20260727, seat 0 brings the camo Lavi; 200 ticks)', () => {
-    // NEW pin (GH-1102), no prior value: the first brigade world with a Store special in it. It moves when the
-    // placement, the slot table, the registration order or the special's own data moves; the matched pin beside it must not.
+    // GH-1102: the first brigade world with a Store special in it; its history (was 422407671) is beside
+    // BRIGADE_CAMO_PIN at the top of this file. It moves when the placement, the slot table, the registration
+    // order or the special's own data moves; the matched pin beside it must not.
     expect(hashAfter(buildMatchWorld(room('tel_marum', [{ unlocks: ['mbt_lavi_camo'] }, {}], { seed: 20260727 })), 200)).toBe(BRIGADE_CAMO_PIN);
   });
   it('two builds of one brigade config hash equal; swapping who owns the special builds a different world', () => {
