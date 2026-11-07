@@ -91,12 +91,15 @@ export function gateTable(g: GateInputs): GateRow[] {
   for (const r of g.abba.filter((x) => x.test === 'F')) {
     rows.push({ item: `ABBA n${r.target}: F vs L (bar ${F_BAR}, reported)`, verdict: r.met ? 'PASS' : 'FAIL', detail: `x${r.ratio.toFixed(3)}${r.withinSpread ? ' (inside spread)' : ''}` });
   }
-  const triBad = g.triangles.filter((t) => Math.abs(t.F - t.L) > t.L * 0.01 || Math.abs(t.G - t.L) > t.L * 0.01);
+  const triBad = g.triangles.filter((t) => !(t.L > 0) || Math.abs(t.F - t.L) > t.L * 0.01 || Math.abs(t.G - t.L) > t.L * 0.01);
   rows.push({
     item: 'ABBA triangle agreement, AO on (within 1%)',
     verdict: g.triangles.length > 0 && triBad.length === 0 ? 'PASS' : 'FAIL',
     detail: g.triangles.length === 0 ? 'no triangle reading' : g.triangles.map((t) => `z${t.zoom}: L ${t.L} F ${t.F} G ${t.G}`).join('; '),
   });
+  for (const arm of ['G', 'F'] as const) {
+    if (!g.bloom.some((b) => b.arm === arm)) rows.push({ item: `bloom census ${arm}: quiet max < ${BLOOM_QUIET_CEILING}`, verdict: 'FAIL', detail: 'no census exists (skipped or not run)' });
+  }
   for (const b of g.bloom) {
     const ok = b.exit === 0 && b.quietMax !== null && b.quietMax > 0 && b.quietMax < BLOOM_QUIET_CEILING; // a max of exactly 0 is a black buffer, not a quiet scene
     rows.push({ item: `bloom census ${b.arm}: quiet max < ${BLOOM_QUIET_CEILING}`, verdict: ok ? 'PASS' : 'FAIL', detail: `exit ${b.exit}, max ${b.quietMax === null ? 'unread' : b.quietMax}` });

@@ -63,6 +63,14 @@ describe('gateTable goes red on a constructed input', () => {
   it('a triangle disagreement above 1% is FAIL', () => {
     expect(verdictOf({ ...good, triangles: [{ zoom: 1, L: 1000, F: 1000, G: 1020 }] }, /triangle/)).toBe('FAIL');
     expect(verdictOf({ ...good, triangles: [] }, /triangle/)).toBe('FAIL');
+    // all three arms reading 0 agree with each other and are still not a reading
+    expect(verdictOf({ ...good, triangles: [{ zoom: 1, L: 0, F: 0, G: 0 }] }, /triangle/)).toBe('FAIL');
+  });
+  it('a bloom arm that never ran (G or F absent) is FAIL, not a dropped row', () => {
+    expect(verdictOf({ ...good, bloom: [] }, /bloom census G/)).toBe('FAIL');
+    expect(verdictOf({ ...good, bloom: [] }, /bloom census F/)).toBe('FAIL');
+    expect(verdictOf({ ...good, bloom: good.bloom.filter((b) => b.arm === 'G') }, /bloom census F/)).toBe('FAIL');
+    expect(verdictOf({ ...good, bloom: good.bloom.filter((b) => b.arm === 'G') }, /bloom census G/)).toBe('PASS');
   });
   it('a bloom quiet max at the ceiling, an unread max or a non-zero exit is FAIL', () => {
     expect(verdictOf({ ...good, bloom: [{ arm: 'G', exit: 0, quietMax: 0.9 }] }, /bloom/)).toBe('FAIL');
@@ -83,7 +91,7 @@ describe('parsers', () => {
     expect(countValidationErrors(['ok', 'GPUValidationError: x', 'Destroyed texture y'])).toBe(2);
   });
   it('takes the highest max column of the census table, ignoring the header and the aftermath rows', () => {
-    const out = ['map | quality | view (x,y,zoom) | samples | p50 | p99 | max | frac>1.0', 'a | high | whole (1,2,0.5) | 10 | 0.1 | 0.4 | 0.62 | 0.0000', 'b | high | force (1,2,1.6) | 10 | 0.1 | 0.4 | 0.71 | 0.0000'].join('\n');
+    const out = ['map | quality | view (x,y,zoom) | samples | p50 | p99 | max | frac>1.0', 'a | high | whole (1,2,0.5) | 10 | 0.1 | 0.4 | 0.62 | 0.0000', 'b | high | force (1,2,1.6) | 10 | 0.1 | 0.4 | 0.71 | 0.0000', 'a aftermath | high | whole (1,2,0.5) | 10 | 0.1 | 0.4 | 3.5 | 0.2000', 'map | quality | view | samples | p50 | p99 | 9.0 | frac'].join('\n');
     expect(parseQuietMax(out)).toBe(0.71);
     expect(parseQuietMax('nothing')).toBeNull();
   });
