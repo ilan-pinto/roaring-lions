@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps, paletteTeamColors } from '@lions/data';
 import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODE_FAIR_FACTION_CELLS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
-import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
+import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, kitHintKey, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
 import { isDialogOpen } from './confirm';
@@ -542,6 +542,21 @@ describe('showVersus (/versus)', () => {
   });
 });
 
+// GH-1102 phase 0: the brigade hint says plainly that Store special units stay out, in both wordings.
+describe('the brigade hint says Store special units stay out of versus', () => {
+  const STAY_OUT = 'Special units from the Stores stay out of versus for now';
+  it('holds the sentence in the friend-room and the bot-game wording, and the bot one drops "each of you"', () => {
+    const friend = en['versus.lobby.kit.hint'];
+    const bot = en['versus.lobby.kit.hint.bot'];
+    expect(friend).toContain(STAY_OUT);
+    expect(bot).toContain(STAY_OUT);
+    expect(bot).toContain('the bot fields the standard kit');
+    expect(bot).not.toContain('each of you');
+    expect(kitHintKey(true)).toBe('versus.lobby.kit.hint.bot');
+    expect(kitHintKey(false)).toBe('versus.lobby.kit.hint');
+  });
+});
+
 // Per-seat kit: "Bring your brigade", a host's toggle for a friends' room.
 describe('bring your brigade: the host\'s toggle and the room\'s kit line', () => {
   const toggle = (stage: ParentNode) => stage.querySelector<HTMLButtonElement>('.rl-versus__kit-toggle');
@@ -557,7 +572,8 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
     expect(describedBy(sw)).toBe('Both sides field the standard kit');
     sw.click();
     expect(sw.getAttribute('aria-checked')).toBe('true');
-    expect(describedBy(sw)).toBe('Friends only: each of you fields the upgrades you bought');
+    expect(describedBy(sw)).toBe('Friends only: each of you fields the upgrades you bought. Special units from the Stores stay out of versus for now.');
+    expect(describedBy(sw)).toContain('Special units from the Stores stay out of versus for now');
     sw.click();
     expect(sw.getAttribute('aria-checked')).toBe('false');
     expect(stage.querySelectorAll('.rl-versus__kit-toggle')).toHaveLength(1);
@@ -597,7 +613,7 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
       stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
       await flush();
       const line = stage.querySelector('.rl-versus__room-kit');
-      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, kit).toBe(kit === 'brigade' ? 'Brigades (friends only)' : 'Standard kit for both');
+      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, kit).toBe(kit === 'brigade' ? 'Brigade upgrades (friends only)' : 'Standard kit for both');
       expect(line?.getAttribute('data-kit')).toBe(kit);
     }
     expect(missingKeys()).toEqual([]);

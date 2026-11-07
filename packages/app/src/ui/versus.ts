@@ -61,6 +61,12 @@ import { mapCard, mapPicture, pairsBoth, splitMapLabel } from './versus-ground';
  *  `versus.test.ts` pins it against that file's text. */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 6;
+/** The brigade hint's key: the bot-game wording when the other seat is a bot (GH-1102). The host form
+ *  opens a friends' room, so it passes false; the seat's `kind` is not on the client's lobby yet. */
+export function kitHintKey(otherSeatIsBot: boolean): 'versus.lobby.kit.hint' | 'versus.lobby.kit.hint.bot' {
+  return otherSeatIsBot ? 'versus.lobby.kit.hint.bot' : 'versus.lobby.kit.hint';
+}
+
 /** The room's own cap (`@lions/net`'s `MAX_CALLSIGN_CHARS`, one number for both sides). */
 export const CALLSIGN_MAX = MAX_CALLSIGN_CHARS;
 /** The map a host is offered first, when it ships. */
@@ -741,7 +747,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   kitSwitch.setAttribute('aria-describedby', kitHint.id);
   const paintKit = (): void => {
     kitSwitch.setAttribute('aria-checked', String(kit));
-    kitHint.textContent = t('versus.lobby.kit.hint', { on: String(kit) });
+    kitHint.textContent = t(kitHintKey(false), { on: String(kit) });
   };
   kitSwitch.addEventListener('click', () => {
     kit = !kit;
