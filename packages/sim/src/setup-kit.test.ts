@@ -168,7 +168,11 @@ describe('where a piece may go', () => {
 
   it('a queued waypoint of an own moving unit is occupied too', () => {
     const { sim, rifles } = build();
+    // A unit that stands still takes id 0, so the squad's queue starts at a non-zero offset (`i * MAX_WAYPOINTS`): with
+    // the squad at id 0 a wrong per-unit offset reads the same slots and passes.
+    const first = sim.spawn(rifles, 0, pos(2.5), pos(20.5));
     const sq = sim.spawn(rifles, 0, pos(2.5), pos(12.5));
+    expect(sq).toBeGreaterThan(first);
     sim.queueCommand({ kind: 'move', ids: [sq], x: pos(6.5), y: pos(12.5) });
     sim.queueCommand({ kind: 'move', ids: [sq], x: pos(12.5), y: pos(12.5), append: true });
     run(sim, 2);

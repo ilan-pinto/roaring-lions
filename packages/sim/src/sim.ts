@@ -3399,7 +3399,9 @@ export class Sim {
       // a waypoint as stored), so a piece on one parks the unit flush against the piece's face with `moving` 1 for the
       // rest of the match, its queue behind it. Own side only: on an enemy unit the refusal would tell the player where
       // that side's orders point. An aircraft in the air was skipped above (it flies over a piece); one settling onto
-      // an LZ is not airborne, and its goal is where it will stand.
+      // an LZ is not airborne, and its goal is where it will stand. The `moving` gate also skips a formation member away
+      // on a call (`fmDuty` OUT): `finishLeg` stops it with `moving` 0 and its queue kept, so its waypoints are not read
+      // here until it is sent home (`fmReturnHome` sets `moving` 1 again).
       if (this.side[i] !== side || this.moving[i] === 0) continue;
       if (this.goalX[i] >> 16 === x && this.goalY[i] >> 16 === y) return 'occupied';
       const base = i * MAX_WAYPOINTS;
