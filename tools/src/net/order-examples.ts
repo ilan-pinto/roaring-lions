@@ -24,6 +24,11 @@ export interface OrderExample {
 export const ORDER_EXAMPLES: readonly OrderExample[] = [
   { verb: 'move', group: 'to a tile: ids + x, y', json: '{"verb":"move","ids":[12,14],"x":40,"y":22}', inDescription: true },
   { verb: 'attackMove', group: 'to a tile: ids + x, y', json: '{"verb":"attackMove","ids":[12,14],"x":40,"y":22}', inDescription: false },
+  // GH-1097: a formation rides on its verb (`observe`'s `formations` lists what the room accepts). The 7 Nov match gave
+  // none: the prompt never showed one, and the tool's description called them closed.
+  { verb: 'move', group: 'in formation: ids + x, y + formation', json: '{"verb":"move","ids":[12,14],"x":40,"y":22,"formation":"column"}', inDescription: true },
+  { verb: 'attackMove', group: 'in formation: ids + x, y + formation', json: '{"verb":"attackMove","ids":[12,14],"x":40,"y":22,"formation":"attack"}', inDescription: true },
+  { verb: 'move', group: 'in formation: ids + x, y + formation', json: '{"verb":"move","ids":[12,14],"x":40,"y":22,"formation":"ambush"}', inDescription: false },
   { verb: 'smoke', group: 'to a tile: ids + x, y', json: '{"verb":"smoke","ids":[12],"x":38,"y":22}', inDescription: false },
   { verb: 'attack', group: 'at a contact: ids + target', json: '{"verb":"attack","ids":[12,14],"target":87}', inDescription: true },
   { verb: 'halt', group: 'ids only', json: '{"verb":"halt","ids":[12,14]}', inDescription: true },

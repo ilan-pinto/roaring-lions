@@ -25,7 +25,7 @@ import { productionRefusal } from './economy-view';
 import type { OrderRecord } from './order-desk';
 import { orderExamplesForDescription } from './order-examples';
 import type { SeatMemory } from './seat-memory';
-import { STANCES, type SideView } from './view';
+import { STANCES, TERRAIN_LEGEND, terrainView, type SideView } from './view';
 
 export type Scope = 'advise' | 'assist' | 'command';
 export const SCOPES: readonly Scope[] = ['advise', 'assist', 'command'];
@@ -350,7 +350,7 @@ export function clockOfCtx(ctx: ToolContext): { simTick: number; relayTick: numb
 
 const observe: ToolDef = {
   name: 'observe',
-  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight (each with `inSight: true`, always, and `seenTick`: the sim tick the fog last confirmed it, at most 3 ticks old; its `tile` is where it stands NOW, so a contact that keeps one tile across observes is standing still; a unit that left sight is not a contact, and what you remember of it is `lastSeen` on an order), held buildings, the legal stances, the score (read from one tick: your `lost` is always the enemy\'s `destroyed`, and your `destroyed` its `lost`; a difference you see between two observes is the match having run on, and `lost`/`destroyed` count what died anywhere, in sight or not), the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was), or proposals (assist). An applied `attack` settles in the log: `done` with `reason: target destroyed` and `settledTick` the tick of the kill when the target died in your sight; `dropped` with `reason: target no longer in sight`, `lastSeen` and a `fallback` attackMove when it left your sight (`settledTick` is the observe that noticed it; `lastSeen.tick` is when sight was lost). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units. `moving` is the order flag, never progress: a unit that is not advancing reads `held` in its row, one of `routed` (fleeing), `immobilised` (mobility killed: an order is accepted and the hull never steps), `garrisoned`, `pinned` (suppressed: the sim slows it to a crawl until the fire lifts) or `checkpoint` (a formation member waiting at a waypoint for its group); no `held` means nothing holds it. An applied order in the log names the units it was given that are held right now as `holding: [{id, held}]`.',
+  description: 'What your seat may know now: your units (id, type, tile, hp %, flags, stance), enemy contacts in sight (each with `inSight: true`, always, and `seenTick`: the sim tick the fog last confirmed it, at most 3 ticks old; its `tile` is where it stands NOW, so a contact that keeps one tile across observes is standing still; a unit that left sight is not a contact, and what you remember of it is `lastSeen` on an order), held buildings, the legal stances, the score (read from one tick: your `lost` is always the enemy\'s `destroyed`, and your `destroyed` its `lost`; a difference you see between two observes is the match having run on, and `lost`/`destroyed` count what died anywhere, in sight or not), the clock, the `mode` the match is won by and, in a points race, `points` (both sides\' points, the target, each zone with what it pays a minute and who holds it: public to both seats), and your recent orders, OLDEST FIRST (command; a unit that died since reads `fates: [{id, fate: died, tick}]` on the order, whose own `status` stays what it was), or proposals (assist). An applied `attack` settles in the log: `done` with `reason: target destroyed` and `settledTick` the tick of the kill when the target died in your sight; `dropped` with `reason: target no longer in sight`, `lastSeen` and a `fallback` attackMove when it left your sight (`settledTick` is the observe that noticed it; `lastSeen.tick` is when sight was lost). The clock is `simTick` (ticks run here, what this view is of), `relayTick` and `behind` (see `status`). In a KDF-against-Sarim room also `economy`: your purse, your camps\' production lines (what is building, the queue, the rally point), the menu you may build from (cost, population, build seconds, and `blocked` with the reason when `build` would refuse it now) and your population cap. Tiles, never world units. `moving` is the order flag, never progress: a unit that is not advancing reads `held` in its row, one of `routed` (fleeing), `immobilised` (mobility killed: an order is accepted and the hull never steps), `garrisoned`, `pinned` (suppressed: the sim slows it to a crawl until the fire lifts) or `checkpoint` (a formation member waiting at a waypoint for its group); no `held` means nothing holds it. An applied order in the log names the units it was given that are held right now as `holding: [{id, held}]`. `held` also reads `carried` (a passenger in a transport: it goes where its carrier goes until `unload`) and `tunnel` (underground: no surface order reaches it until it comes up at the vent). Each unit and contact row carries `cover` (1-3, of the tile it stands on; absent on open ground) and `elev` (its elevation level; absent at 0): `terrain` has the whole map. A unit flagged `smoke` can lay a smoke screen (`order` verb `smoke`). `formations` lists the combat formations this room accepts on a `move` or `attackMove` now, each `{id, verb}`; `[]` where the room closes them.',
   scopes: SCOPES,
   schema: { type: 'object', properties: {}, additionalProperties: false },
   async run(ctx) {
@@ -364,6 +364,37 @@ const observe: ToolDef = {
     else if (ctx.scope === 'assist') orders = [...ctx.proposals].slice(-ORDER_RECORDS).map(([proposal, status]) => ({ proposal, status }));
     const clock = clockOfCtx(ctx);
     return ok({ ...view, ...clock, tick: clock.simTick, orders });
+  },
+};
+
+/** GH-1097: the largest window `terrain` answers in one call, in tiles (a 96x96 map is one call). */
+export const TERRAIN_MAX_TILES = 96 * 96;
+
+const terrain: ToolDef = {
+  name: 'terrain',
+  description: `The ground of the map, public to both seats as the map is to a human: one string a row, one character a tile (${Object.entries(TERRAIN_LEGEND).map(([k, v]) => `\`${k}\` ${v}`).join('; ')}), and \`elevation\`, one digit (0-9) a tile, where the map has relief: higher ground sees over lower obstacles (never further). \`rows[0]\` is the row of \`origin\`'s y, and its first character is \`origin\`. It never shows a unit, smoke or the fog. Call it once at the start to plan routes and positions (it changes only when a building falls, to rubble cover); \`observe\` gives each unit's and contact's own \`cover\` and \`elev\`. Optional window \`x\`, \`y\` (top-left tile) and \`w\`, \`h\` (tiles; default the rest of the map).`,
+  scopes: SCOPES,
+  schema: {
+    type: 'object',
+    properties: { x: { type: 'integer', minimum: 0 }, y: { type: 'integer', minimum: 0 }, w: { type: 'integer', minimum: 1 }, h: { type: 'integer', minimum: 1 } },
+    additionalProperties: false,
+  },
+  async run(ctx, raw) {
+    if (ctx.client.config() === null) return notStarted(ctx);
+    const w = ctx.client.world();
+    if (w === null) return notStarted(ctx);
+    const a = argsOf(raw);
+    const [mw, mh] = [w.sim.width, w.sim.height];
+    for (const k of ['x', 'y', 'w', 'h'] as const) {
+      if (a[k] !== undefined && (!isInt(a[k]) || (a[k] as number) < (k === 'w' || k === 'h' ? 1 : 0))) return refuse('invalid', { detail: `${k} is a whole number of tiles` });
+    }
+    const x0 = (a.x as number | undefined) ?? 0;
+    const y0 = (a.y as number | undefined) ?? 0;
+    if (x0 >= mw || y0 >= mh) return refuse('off the map', { detail: `the map is ${mw}x${mh} tiles` });
+    const ww = Math.min((a.w as number | undefined) ?? mw - x0, mw - x0);
+    const hh = Math.min((a.h as number | undefined) ?? mh - y0, mh - y0);
+    if (ww * hh > TERRAIN_MAX_TILES) return refuse('invalid', { detail: `at most ${TERRAIN_MAX_TILES} tiles a call: ask for a smaller window` });
+    return ok(terrainView(w, x0, y0, ww, hh));
   },
 };
 
@@ -718,7 +749,7 @@ function sweepRefusal(ctx: ToolContext): ToolResult | null {
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units, or your production. The arguments are ONE flat JSON object with the keys below (no nesting, no extra keys), for example ${orderExamplesForDescription()} (placeholder ids and tiles: take yours from observe; the standing prompt lists one for every verb). verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape (refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}, while formations are closed in versus rooms: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack), or one of your wounded men from casualties.mine (rescue: a medic goes to treat and carry him to your camp); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). An id in \`ids\` that was your unit and has since died, been removed or lain down wounded does not refuse the order: it goes to the living ids and the answer carries \`lost: [{id, fate, tick}]\` (the order log's shape); only an order with no living id is refused (\`not your unit\`, naming each id and its fate), and an id that was never yours is refused as before. An attack on a contact that has left your sight answers \`target no longer in sight\`, with its \`lastSeen\` tile and tick and a \`fallback\` attackMove you may send as written (nothing is converted for you). An attack you sent that settles later reads in \`observe\` as \`done\` (\`reason: target destroyed\`, \`settledTick\` the kill) when the target died in your sight, or \`dropped\` (\`reason: target no longer in sight\`, \`lastSeen\`, \`fallback\`) when it left your sight; a death you could not see is never told. command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units, or your production. The arguments are ONE flat JSON object with the keys below (no nesting, no extra keys), for example ${orderExamplesForDescription()} (placeholder ids and tiles: take yours from observe; the standing prompt lists one for every verb). verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids (every verb but build, cancelBuild, setRally, clearRally); x, y: a tile (move, attackMove, smoke, setRally); stance: hold | ambush | patrol (setStance: hold halts and stands; ambush halts and holds fire until an enemy closes to radius tiles, an integer 1-10, default 3; patrol walks waypoints, 2-4 tiles [x, y], in order and round again, and fights what it meets); unit, line, index (production, KDF against Sarim rooms only: build a unit id from economy.menu in observe, on line, a number from economy.lines, default the shortest queue; cancelBuild line + index, -1 for the item in production and 0 upward for those waiting; setRally line + x, y, where new units walk to; clearRally line; paid when the order is carried out, so look at economy.purse in observe before you build again); formation: a combat formation id for a group of 2 or more (column and ambush ride on move, attack on attackMove): column marches in files on checkpoints and halts on contact, attack arrives in line with armour in front and presses on contact, ambush rings the tile in cover and springs when the enemy closes; observe's \`formations\` lists those this room accepts (open in most versus rooms; where the room closes them the order is refused as invalid, detail ${FORMATIONS_CLOSED_IN_VERSUS}: send the plain order); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack), or one of your wounded men from casualties.mine (rescue: a medic goes to treat and carry him to your camp); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). An id in \`ids\` that was your unit and has since died, been removed or lain down wounded does not refuse the order: it goes to the living ids and the answer carries \`lost: [{id, fate, tick}]\` (the order log's shape); only an order with no living id is refused (\`not your unit\`, naming each id and its fate), and an id that was never yours is refused as before. An attack on a contact that has left your sight answers \`target no longer in sight\`, with its \`lastSeen\` tile and tick and a \`fallback\` attackMove you may send as written (nothing is converted for you). An attack you sent that settles later reads in \`observe\` as \`done\` (\`reason: target destroyed\`, \`settledTick\` the kill) when the target died in your sight, or \`dropped\` (\`reason: target no longer in sight\`, \`lastSeen\`, \`fallback\`) when it left your sight; a death you could not see is never told. command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',
@@ -741,7 +772,7 @@ const order: ToolDef = {
       unit: { type: 'string', description: 'build only: a unit id from economy.menu in observe' },
       line: { type: 'integer', minimum: 0, maximum: MAX_PRODUCTION_LINES - 1, description: 'a production line from economy.lines in observe (build: optional, default the shortest queue)' },
       index: { type: 'integer', minimum: -1, maximum: MAX_LINE_QUEUE - 1, description: 'cancelBuild only: -1 the item in production, 0 upward those waiting' },
-      formation: { type: 'string', description: 'move or attackMove only: a shipped formation id (column, ambush: move; attack: attackMove). The units take its slots about the tile', enum: formations.map((f) => f.id) },
+      formation: { type: 'string', description: 'move or attackMove only: a formation id from observe `formations` (column, ambush: move; attack: attackMove). The units take its slots about the tile', enum: formations.map((f) => f.id) },
       sweep: { type: 'boolean', description: 'attackMove only, and only bot against bot in command scope: on arrival, go on to hunt remembered enemies' },
       note: { type: 'string' },
     },
@@ -769,9 +800,9 @@ const order: ToolDef = {
     if (cmd === null) return refuse('invalid');
     if (!ctx.client.precheck(cmd)) {
       // GH-859 P1b (M8): the order is refused for its formation alone when the same order without one would have passed.
-      // Formations are closed in versus rooms (the lead's 29 Oct ruling: `net/versus-formations.ts`), so that is the name
-      // the refusal gives -- a bare `invalid` told an agent nothing it could act on. When the gate opens, this is where a
-      // second cause (a faction that does not field the shape) would be told apart.
+      // Formations are open in versus rooms except where `net/versus-formations.ts` closes them (the map `wadi_tarfan_l`, a
+      // room kind a map's rules file names: the lead's 5 Nov ruling, PR 1071), so that is the name the refusal gives -- a
+      // bare `invalid` told an agent nothing it could act on. `observe`'s `formations` lists what this room accepts.
       if ('formation' in cmd && cmd.formation !== undefined && ctx.client.precheck({ ...cmd, formation: undefined } as Command)) {
         return refuse('invalid', { detail: FORMATIONS_CLOSED_IN_VERSUS });
       }
@@ -893,7 +924,7 @@ const submitScore: ToolDef = {
   },
 };
 
-export const TOOLS: readonly ToolDef[] = [observe, status, wait, inbox, say, ping, order, endRound, matchStats, submitScore];
+export const TOOLS: readonly ToolDef[] = [observe, terrain, status, wait, inbox, say, ping, order, endRound, matchStats, submitScore];
 /** The tools only a scoring seat (`ToolContext.scoreFile`) is given. */
 const SCORING_TOOLS: readonly string[] = [matchStats.name, submitScore.name];
 

@@ -65,14 +65,26 @@ describe('GH-1098: the other reasons, and the order log', () => {
     const { w, c, row } = setup();
     expect(row(c)).not.toHaveProperty('held');
     const sim = w.sim as unknown as { fmDuty: Uint8Array };
-    sim.fmDuty[c] = 1; // FM_DUTY_WAIT; private column, no public writer outside a formation march (disabled in versus)
+    sim.fmDuty[c] = 1; // FM_DUTY_WAIT; private column, written only by a formation march (open in versus since PR 1071, except wadi_tarfan_l and a tel_marum economy room)
     expect(row(c).held).toBe('checkpoint');
+  });
+  it('a passenger in a transport reads held: carried', () => {
+    const { w, a, row } = setup();
+    expect(row(a)).not.toHaveProperty('held');
+    w.sim.state.carriedBy[a] = 0; // fixture: the carrier index is only read as >= 0
+    expect(row(a).held).toBe('carried');
+  });
+  it('a unit underground in a tunnel reads held: tunnel', () => {
+    const { w, b, row } = setup();
+    expect(row(b)).not.toHaveProperty('held');
+    w.sim.state.tunnelIn[b] = 0; // fixture: the tunnel index is only read as >= 0
+    expect(row(b).held).toBe('tunnel');
   });
 });
 
 describe('GH-1098: an applied move says which of its units hold', () => {
-  const rec = (kind: 'attackMove' | 'halt', ids: number[], status: OrderRecord['status'] = 'applied'): OrderRecord =>
-    ({ ref: 1, status, cmd: kind === 'halt' ? { kind, ids } : { kind, ids, x: 0, y: 0 }, queuedTick: 1, sentTick: 1, settledTick: 2 }) as unknown as OrderRecord;
+  const rec = (kind: 'attackMove' | 'move' | 'attack' | 'halt', ids: number[], status: OrderRecord['status'] = 'applied'): OrderRecord =>
+    ({ ref: 1, status, cmd: kind === 'halt' ? { kind, ids } : kind === 'attack' ? { kind, ids, target: 999 } : { kind, ids, x: 0, y: 0 }, queuedTick: 1, sentTick: 1, settledTick: 2 }) as unknown as OrderRecord;
   it('lists the immobilised unit and not the free one', () => {
     const { w, fog, a, c, go } = setup();
     w.sim.state.mobilityKilled[a] = 1;
@@ -81,5 +93,15 @@ describe('GH-1098: an applied move says which of its units hold', () => {
     expect(describeOrder(rec('attackMove', [a, c]), view, null).holding).toEqual([{ id: a, held: 'immobilised' }]);
     expect(describeOrder(rec('halt', [a]), view, null)).not.toHaveProperty('holding');
     expect(describeOrder(rec('attackMove', [a], 'dropped'), view, null)).not.toHaveProperty('holding');
+  });
+  it('a move and an attack name their held units the same way (the three verbs whose point is to go somewhere)', () => {
+    const { w, fog, a, b, c, go } = setup();
+    w.sim.state.mobilityKilled[a] = 1;
+    w.sim.debugSuppress(b, 8 << 16);
+    go(a);
+    const view = sideView(w, 0, fog, null);
+    expect(describeOrder(rec('move', [a, b, c]), view, null).holding).toEqual([{ id: a, held: 'immobilised' }, { id: b, held: 'pinned' }]);
+    expect(describeOrder(rec('attack', [b, c]), view, null).holding).toEqual([{ id: b, held: 'pinned' }]);
+    expect(describeOrder(rec('move', [c]), view, null)).not.toHaveProperty('holding');
   });
 });

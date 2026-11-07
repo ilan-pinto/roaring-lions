@@ -286,6 +286,16 @@ that is held back reads `held` in its row (`routed`, `immobilised`, `garrisoned`
 reads only (`view.ts` `heldReasonOf`). An `applied` move, attackMove or attack in
 the order log lists the held units it went to as `holding: [{id, held}]`.
 
+**The ground and the formations a commander reads (GH-1097).** `held` also reads
+`carried` (a passenger) and `tunnel` (underground). Each unit and contact row
+carries `cover` and `elev` of its tile (absent at 0; a garrisoned, carried or
+buried unit carries none), a unit whose type lays smoke is flagged `smoke`, and
+`observe` lists `formations`: the formation ids this room accepts, from the
+receiver's own gate (`seatWorld.formationAllowed`), `[]` where the room closes
+them. A new tool, `terrain`, answers the map's ground from the sim's live grids,
+one character a tile plus `elevation` digits, in an optional window. All of it is
+public (the map is), and none of it is a legality rule: ownership still decides.
+
 **`observe` shows what these verbs need.** Each own unit has `stance` (`free`,
 `ambush` with `radius`, `patrol` with `points`; a held unit reads `free`, since
 `hold` is a halt and keeps no state) and the view lists `stances`. In an economy

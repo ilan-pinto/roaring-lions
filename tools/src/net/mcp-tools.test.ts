@@ -51,7 +51,7 @@ async function drive<T>(loop: Loop, runners: { pump(n: number): number }[], p: P
 }
 
 /** Two seat clients, both started; both seats human unless `kinds` says otherwise. */
-async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot'; map?: string } = {}): Promise<{ loop: Loop; a: Joined; c: Joined; room: Awaited<ReturnType<typeof newRoom>> }> {
+async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot'; map?: string; matchup?: 'kdf' | 'sarim' } = {}): Promise<{ loop: Loop; a: Joined; c: Joined; room: Awaited<ReturnType<typeof newRoom>> }> {
   const room = await newRoom(kinds);
   const a = join(room.loop, await room.ticket(0), 0);
   const c = join(room.loop, await room.ticket(1), 1);
@@ -63,9 +63,9 @@ async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot'
 describe('the tools a scope is given (case 1)', () => {
   const names = (s: Scope): string[] => toolsFor(s).map((t) => t.name).sort();
   it('advise has no order and no end_round; assist has order, not end_round; command has both and no ping', () => {
-    expect(names('advise')).toEqual(['inbox', 'observe', 'ping', 'say', 'status', 'wait']);
-    expect(names('assist')).toEqual(['inbox', 'observe', 'order', 'ping', 'say', 'status', 'wait']);
-    expect(names('command')).toEqual(['end_round', 'inbox', 'observe', 'order', 'say', 'status', 'wait']);
+    expect(names('advise')).toEqual(['inbox', 'observe', 'ping', 'say', 'status', 'terrain', 'wait']);
+    expect(names('assist')).toEqual(['inbox', 'observe', 'order', 'ping', 'say', 'status', 'terrain', 'wait']);
+    expect(names('command')).toEqual(['end_round', 'inbox', 'observe', 'order', 'say', 'status', 'terrain', 'wait']);
   });
   it('a tool called outside its scope refuses, whatever the server registered', async () => {
     const sockless = new AgentClient({ server: 'https://room.test', code: ROOM_CODE, ticket: 't', build: ROOM_BUILD, role: 'advisor', seat: 0, log: () => {}, open: () => ({ onopen: null, onmessage: null, onclose: null, send: () => {}, close: () => {} }) });
@@ -216,11 +216,51 @@ describe('order: the formation field (GH-859 P1a)', () => {
     for (const w of [wa, wc]) expect(own.every((id) => w.sim.formationGroupOf(id) >= 0)).toBe(true);
     expect(wa.sim.hash()).toBe(wc.sim.hash());
   });
- it('the order tool says formations are refused in versus rooms while closed, and names the detail it answers with (M8)', () => {
+ it('the order tool says where formations are refused, and names the detail it answers with (M8); it no longer calls them closed in versus (GH-1097)', () => {
     const order = TOOLS.find((t) => t.name === 'order');
     expect(order).toBeDefined();
     expect(order!.description).toContain('formations-closed-in-versus');
-    expect(order!.description).toContain('closed in versus rooms');
+    expect(order!.description).toContain('open in most versus rooms');
+    expect(order!.description).not.toContain('while formations are closed in versus rooms');
+  });
+  // GH-1097: the 7 Nov match gave no formation order. `observe` now says which the room accepts, from the receiver's own gate.
+  it('GH-1097: observe lists the three formations in an open room, and the Column it lists is accepted and sent as a Command with its formation', async () => {
+    const { loop, a, c } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const seen = body(await call(ctx, 'observe')) as { formations: { id: string; verb: string }[] };
+    expect(seen.formations).toEqual([{ id: 'ambush', verb: 'move' }, { id: 'attack', verb: 'attackMove' }, { id: 'column', verb: 'move' }]);
+    const own = sideIds(a.client.world() as MatchWorld, 0).slice(0, 3);
+    const r = await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20, formation: 'attack' });
+    expect(r.ok, r.text).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd') as { cmd: { kind: string; formation?: string } }[];
+    expect(sent.map((m) => [m.cmd.kind, m.cmd.formation])).toEqual([['attackMove', 'attack']]);
+  });
+  it('GH-1097: terrain answers the map\'s rows (a window when asked), and refuses a window off the map', async () => {
+    const { a } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const w = a.client.world() as MatchWorld;
+    const whole = body(await call(ctx, 'terrain')) as { rows: string[]; origin: number[]; size: number[] };
+    expect(whole.size).toEqual([w.sim.width, w.sim.height]);
+    expect(whole.rows).toHaveLength(w.sim.height);
+    expect(whole.rows.every((r) => r.length === w.sim.width)).toBe(true);
+    const part = body(await call(ctx, 'terrain', { x: 4, y: 6, w: 3, h: 2 })) as { rows: string[]; origin: number[] };
+    expect(part.origin).toEqual([4, 6]);
+    expect(part.rows).toEqual(whole.rows.slice(6, 8).map((r) => r.slice(4, 7)));
+    expect(body(await call(ctx, 'terrain', { x: w.sim.width, y: 0 }))).toMatchObject({ error: 'off the map' });
+  });
+  it('GH-1097: observe lists none on wadi_tarfan_l (closed whole) and none in a tel_marum economy room (closed by its rules file), where the order is refused with the reason and nothing is sent', async () => {
+    for (const o of [{ map: 'wadi_tarfan_l' }, { map: 'tel_marum', matchup: 'sarim' as const }]) {
+      const { loop, a } = await twoSeats({ ...BOTS, ...o });
+      const ctx = createContext(a.client, 'command');
+      const seen = body(await call(ctx, 'observe')) as { formations: unknown[]; units: { id: number }[] };
+      expect(seen.formations, o.map).toEqual([]);
+      const own = seen.units.slice(0, 3).map((u) => u.id); // a Sarim host is side 1
+      const r = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20, formation: 'column' });
+      expect(body(r), o.map).toEqual({ error: 'invalid', detail: 'formations-closed-in-versus' });
+      await loop.flush();
+      expect(sentBy(loop, a).filter((m) => m.t === 'cmd'), o.map).toEqual([]);
+    }
   });
   it('an id nobody ships, a formation on the wrong verb or on another verb, is refused and nothing is sent', async () => {
     const { loop, a } = await twoSeats(BOTS);

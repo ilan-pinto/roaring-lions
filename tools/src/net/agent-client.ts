@@ -22,7 +22,7 @@ import {
   type WinMode,
 } from '@lions/net';
 import type { Command, SimEvent } from '@lions/sim';
-import { versusModes } from '@lions/data';
+import { formations, versusModes } from '@lions/data';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { prepareRejoin, snapshotLink, type Prepared, type SnapshotLink } from '../../../packages/app/src/net/snapshot-link';
 import { SnapshotProducer, type ProducerStats } from '../../../packages/app/src/net/snapshot-producer';
@@ -43,7 +43,7 @@ import { FogTracker } from './fog-tracker';
 import { SeatMemory } from './seat-memory';
 import { RefereeTally, resultText, type RefereeStats } from './match-score';
 import { OrderDesk } from './order-desk';
-import { sideView, type SideView } from './view';
+import { sideView, type FormationLine, type SideView } from './view';
 import { nodeSocket } from './node-socket';
 
 /**
@@ -435,7 +435,12 @@ export class AgentClient {
     const live = this.live;
     if (live === null) throw new Error('AgentClient.view: the match has not started');
     const r = this.result();
-    return sideView(live.w, live.side, live.fog, r === null ? null : resultLine(r, live.side), r === null ? null : byOf(r));
+    const view = sideView(live.w, live.side, live.fog, r === null ? null : resultLine(r, live.side), r === null ? null : byOf(r));
+    // GH-1097: the formations this seat may order here, by the receiver's own gate (`seatWorldFor`'s `formationAllowed`:
+    // the room's open state, its map, its kind, and the seat's faction), so `observe` never offers what ownership drops.
+    const seat = this.o.seat;
+    view.formations = formations.filter((f) => live.seatWorld.formationAllowed(seat, f.id)).map((f): FormationLine => ({ id: f.id, verb: f.verb as FormationLine['verb'] }));
+    return view;
   }
 
   /**
