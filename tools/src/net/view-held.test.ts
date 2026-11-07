@@ -65,7 +65,7 @@ describe('GH-1098: the other reasons, and the order log', () => {
     const { w, c, row } = setup();
     expect(row(c)).not.toHaveProperty('held');
     const sim = w.sim as unknown as { fmDuty: Uint8Array };
-    sim.fmDuty[c] = 1; // FM_DUTY_WAIT; private column, written only by a formation march (open in versus since PR 1071, except wadi_tarfan_l and a tel_marum economy room)
+    sim.fmDuty[c] = 1; // FM_DUTY_WAIT; private column, written only by a formation march (open in versus since PR 1071, except a tel_marum economy room)
     expect(row(c).held).toBe('checkpoint');
   });
   it('a passenger in a transport reads held: carried', () => {
