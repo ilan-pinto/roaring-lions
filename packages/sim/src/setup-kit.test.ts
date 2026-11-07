@@ -4,7 +4,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { RIFLES } from './golden-worlds.test-helper';
-import { Rng } from './rng';
 import { Sim, type FortifyRefusal, type SimEvent, type UnitTypeJson } from './sim';
 import { SETUP_PLACEMENTS_PER_SIDE } from './tuning';
 
@@ -262,40 +261,55 @@ describe('after the bell', () => {
   });
 });
 
-describe('field works are unchanged by the extraction (placementReason === footprintRefusal)', () => {
-  it('agrees on 200 seeded random footprints over a map of walls, boulders, levels and structures', () => {
+describe('field works are unchanged by the extraction (literal reasons, taken from the pre-WP3 inline rules at d03d78a28)', () => {
+  // A 20 x 20 map built by hand. Expected values are written out, not computed: each came from reading the old inline
+  // placementReason by eye (off_map, blocked, no_footing, not_level, overlap, seals_passage, in that order).
+  const world = () => {
     const sim = new Sim({ seed: 3, width: 20, height: 20, capacity: 8 });
-    const types = [[1, 1], [2, 1], [1, 3], [2, 2], [3, 2]].map(([fw, fh], i) => ({ fw, fh, id: sim.addStructureType(WORKS(`w${i}`, [fw, fh])) }));
+    const one = sim.addStructureType(WORKS('one', [1, 1]));
+    const two = sim.addStructureType(WORKS('two', [2, 2]));
     const plain = sim.addStructureType({ id: 'plain', hp_per_tile: 100, garrison_slots: 0, rubble_cover: 0 });
-    const r = new Rng(20261106, 1); // the TEST's own seeded stream, entity 0
-    const below = (n: number): number => r.nextU32(0) % n;
-    for (let i = 0; i < 40; i++) sim.setBlocked(below(20), below(20), true);
-    for (let i = 0; i < 25; i++) sim.setBoulder(below(20), below(20), true);
-    for (let i = 0; i < 30; i++) sim.setElevation(below(20), below(20), 1 + below(2));
-    for (let i = 0; i < 6; i++) {
-      const x = below(18);
-      const y = below(18);
-      if (blockedAt(sim, y * 20 + x) === 0) sim.addStructure(plain, [y * 20 + x]);
+    sim.setBlocked(5, 5, true); // a wall tile
+    sim.setBoulder(8, 8, true); // a boulder
+    sim.setElevation(11, 11, 1); // a raised tile beside level 0
+    sim.addStructure(plain, [3 * 20 + 3]); // a standing structure at (3,3)
+    sim.setBlocked(3, 3, false); // ...unblocked so the overlap rule, not the blocked rule, answers there
+    for (let y = 0; y < 20; y++) if (y !== 9) sim.setBlocked(14, y, true); // a wall across the map with one gap at y = 9
+    return { sim, one, two };
+  };
+  const probe = (sim: Sim) => sim as unknown as { footprintRefusal(tx: number, ty: number, fw: number, fh: number): string | null };
+
+  it('every refusal reason, and one acceptance, for hand-placed footprints', () => {
+    const { sim, one, two } = world();
+    // [type, x, y, expected]
+    const cases: [number, number, number, string | null][] = [
+      [one, -1, 4, 'off_map'],
+      [one, 20, 4, 'off_map'],
+      [two, 19, 4, 'off_map'], // 19 + 2 > 20
+      [two, 4, 19, 'off_map'],
+      [one, 5, 5, 'blocked'],
+      [two, 4, 4, 'blocked'], // (5,5) is the far corner of the 2 x 2
+      [one, 8, 8, 'no_footing'],
+      [two, 7, 7, 'no_footing'],
+      [two, 10, 10, 'not_level'], // (11,11) is level 1, the rest level 0
+      [one, 11, 11, null], // a lone raised tile is level with itself
+      [one, 3, 3, 'overlap'],
+      [two, 2, 2, 'overlap'],
+      [one, 14, 9, 'seals_passage'],
+      [one, 1, 1, null],
+      [two, 16, 16, null],
+    ];
+    for (const [t, x, y, want] of cases) {
+      expect(sim.placementReason(t, x, y, 0), `placementReason ${t} at ${x},${y}`).toBe(want);
     }
-    const probe = sim as unknown as { footprintRefusal(tx: number, ty: number, fw: number, fh: number): string | null };
-    const seen = new Set<string | null>();
-    for (let n = 0; n < 200; n++) {
-      const t = types[below(types.length)];
-      const x = below(24) - 2;
-      const y = below(24) - 2;
-      const a = sim.placementReason(t.id, x, y, 0);
-      expect(a, `#${n}: ${t.fw}x${t.fh} at ${x},${y}`).toBe(probe.footprintRefusal(x, y, t.fw, t.fh));
-      seen.add(a);
-    }
-    // Not vacuous: every rule this draw can reach answered at least once.
-    // ('overlap' is reachable only through a pending field-works site, which works.test.ts covers; a standing structure is blocked first.)
-    for (const why of ['off_map', 'blocked', 'no_footing', 'not_level', null]) expect(seen.has(why), String(why)).toBe(true);
-    // The seal rule on a clean map: a wall across it with one gap, and the footprint in the gap.
-    const gap = new Sim({ seed: 3, width: 20, height: 20, capacity: 8 });
-    const works = gap.addStructureType(WORKS('gap', [1, 1]));
-    for (let y = 0; y < 20; y++) if (y !== 9) gap.setBlocked(14, y, true);
-    expect(gap.placementReason(works, 14, 9, 0)).toBe('seals_passage');
-    expect((gap as unknown as typeof probe).footprintRefusal(14, 9, 1, 1)).toBe('seals_passage');
+    // The shared rule set, asked with a footprint directly (what fortify does, 1 x 1).
+    expect(probe(sim).footprintRefusal(-1, 4, 1, 1)).toBe('off_map');
+    expect(probe(sim).footprintRefusal(5, 5, 1, 1)).toBe('blocked');
+    expect(probe(sim).footprintRefusal(8, 8, 1, 1)).toBe('no_footing');
+    expect(probe(sim).footprintRefusal(10, 10, 2, 2)).toBe('not_level');
+    expect(probe(sim).footprintRefusal(3, 3, 1, 1)).toBe('overlap');
+    expect(probe(sim).footprintRefusal(14, 9, 1, 1)).toBe('seals_passage');
+    expect(probe(sim).footprintRefusal(1, 1, 1, 1)).toBe(null);
   });
 });
 
