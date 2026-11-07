@@ -639,7 +639,6 @@ describe('M5: the cursor and the click count classed units alike', () => {
     const note = (reason?: ReturnType<typeof formationClosedReason>) =>
       cursorAt(w.sim, world_, point(24.5, 20.5), { ids: [a, b], armed: null, confirm: false, armedSmoke: false, armedFormation: { id: 'column', ids: [a, b], open: false, ...(reason ? { reason } : {}) } }).res.note?.text;
     expect(note(formationClosedReason('tel_marum', 'economy'))).toBe('Formations are off in economy rooms on this map');
-    expect(note(formationClosedReason('wadi_tarfan_l', 'economy'))).toBe('Formations are not in versus rooms yet');
     expect(note()).toBe('Formations are not in versus rooms yet');
   });
 

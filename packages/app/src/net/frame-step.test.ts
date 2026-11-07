@@ -314,15 +314,11 @@ describe('seatWorldFor', () => {
     expect(validateCommand({ kind: 'attackMove', ids: [4], x: 0, y: 0, formation: 'attack' }, 1, w)).toBe(false);
     expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0 }, 1, w)).toBe(true);
   });
-  it('GH-859 (1 Nov): the SHIPPED gate is open on a Tel Marum, Beit Sahwan, Milh Flats, Wadi Tarfan (GH-945), Rujm Sawda or Milh Flats (large) (3 Nov) room and closed on Wadi Tarfan (large)', () => {
+  it('GH-859 (1 Nov): the SHIPPED gate is open on a Tel Marum, Beit Sahwan, Milh Flats, Wadi Tarfan (GH-945), Rujm Sawda, Milh Flats (large) (3 Nov) or Wadi Tarfan (large) (7 Nov) room', () => {
     const sim = fakeSim();
-    for (const map of ['tel_marum', 'beit_sahwan_outskirts', 'milh_flats', 'wadi_tarfan', 'rujm_sawda', 'milh_flats_l']) {
+    for (const map of ['tel_marum', 'beit_sahwan_outskirts', 'milh_flats', 'wadi_tarfan', 'rujm_sawda', 'milh_flats_l', 'wadi_tarfan_l']) {
       const cfg = config({ mode: 'versus', map });
       expect(seatWorldFor(cfg, sim).formationAllowed(0, 'attack'), map).toBe(true);
-    }
-    for (const map of ['wadi_tarfan_l']) {
-      const cfg = config({ mode: 'versus', map });
-      expect(seatWorldFor(cfg, sim).formationAllowed(0, 'attack'), map).toBe(false);
     }
   });
   it('GH-859 (5 Nov): a Tel Marum ECONOMY room refuses a formation order at the receiver; a Tel Marum mirror room, a Tel Marum placed room and a Wadi Tarfan economy room accept it', () => {
@@ -360,16 +356,15 @@ describe('seatWorldFor', () => {
     // single-player ignores the versus gate either way
     expect(seatWorldFor(null, sim, false).formationAllowed(0, 'column')).toBe(true);
   });
-  it('GH-913 L8: with the gate OPEN a Wadi Tarfan (large) room still fields NO formation, and the receiver drops the order', () => {
+  it('GH-859 (7 Nov): with the gate OPEN a Wadi Tarfan (large) room fields the formations, and the receiver accepts the order (it was closed from 3 Nov)', () => {
     const sim = fakeSim();
     const rujm = config({ mode: 'versus', map: 'wadi_tarfan_l' });
     rujm.seats[1] = { ...rujm.seats[1], side: 1 };
     const w = seatWorldFor(rujm, sim, true);
-    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);
-    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, w)).toBe(false);
-    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0 }, 1, w)).toBe(true);
-    // ...while another versus map with the gate open runs the table (the control that makes the map the cause)
-    expect(seatWorldFor(config({ mode: 'versus', map: 'tel_marum' }), sim, true).formationAllowed(0, 'column')).toBe(true);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(true);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, w)).toBe(true);
+    // ...and with the gate shut it is shut there too (the control that makes the gate, not the map, the cause)
+    expect(seatWorldFor(rujm, sim, false).formationAllowed(0, 'column')).toBe(false);
   });
   it('GH-945: Wadi Tarfan follows the gate like any other map (it was closed like Rujm Sawda, 1 Nov, until its Sarim lean was settled)', () => {
     const sim = fakeSim();
