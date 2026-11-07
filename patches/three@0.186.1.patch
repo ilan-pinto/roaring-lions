@@ -1,0 +1,61 @@
+diff --git a/build/three.webgpu.js b/build/three.webgpu.js
+index 48b30e6bf4bf114ba5524ae509c81c4a043d27ea..1cd4eead165bfaaefba7dae1f4ba5c1899005f29 100644
+--- a/build/three.webgpu.js
++++ b/build/three.webgpu.js
+@@ -77211,7 +77211,9 @@ const GPUTextureViewDimension = {
+ };
+ 
+ const GPUTextureAspect = {
+-	All: 'all'};
++	All: 'all',
++	DepthOnly: 'depth-only'
++};
+ 
+ const GPUInputStepMode = {
+ 	Vertex: 'vertex',
+@@ -85015,7 +85017,7 @@ class WebGPUBindingUtils {
+ 
+ 					if ( resourceGPU === undefined ) {
+ 
+-						const aspectGPU = GPUTextureAspect.All;
++						const aspectGPU = binding.texture.isDepthTexture ? GPUTextureAspect.DepthOnly : GPUTextureAspect.All;
+ 
+ 						let dimensionViewGPU;
+ 
+diff --git a/build/three.webgpu.nodes.js b/build/three.webgpu.nodes.js
+index e96c4ae08d528fea66c58e5869923c1675822ac9..84a7497d636d92a083b269b7a170da36b8d71b1e 100644
+--- a/build/three.webgpu.nodes.js
++++ b/build/three.webgpu.nodes.js
+@@ -77211,7 +77211,9 @@ const GPUTextureViewDimension = {
+ };
+ 
+ const GPUTextureAspect = {
+-	All: 'all'};
++	All: 'all',
++	DepthOnly: 'depth-only'
++};
+ 
+ const GPUInputStepMode = {
+ 	Vertex: 'vertex',
+@@ -85015,7 +85017,7 @@ class WebGPUBindingUtils {
+ 
+ 					if ( resourceGPU === undefined ) {
+ 
+-						const aspectGPU = GPUTextureAspect.All;
++						const aspectGPU = binding.texture.isDepthTexture ? GPUTextureAspect.DepthOnly : GPUTextureAspect.All;
+ 
+ 						let dimensionViewGPU;
+ 
+diff --git a/src/renderers/webgpu/utils/WebGPUBindingUtils.js b/src/renderers/webgpu/utils/WebGPUBindingUtils.js
+index 1d0692888703ac8e48df19c86f38249caf579238..cea33eac6beec53e3bedfeadfe5e4ff6600941a7 100644
+--- a/src/renderers/webgpu/utils/WebGPUBindingUtils.js
++++ b/src/renderers/webgpu/utils/WebGPUBindingUtils.js
+@@ -351,7 +351,7 @@ class WebGPUBindingUtils {
+ 
+ 					if ( resourceGPU === undefined ) {
+ 
+-						const aspectGPU = GPUTextureAspect.All;
++						const aspectGPU = binding.texture.isDepthTexture ? GPUTextureAspect.DepthOnly : GPUTextureAspect.All;
+ 
+ 						let dimensionViewGPU;
+ 

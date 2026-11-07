@@ -6,7 +6,7 @@ import type { MapId } from '@lions/data';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
 import { economyRoom } from '@lions/net';
 import {
-  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96, contestedShare, holdsBalanced, razeLimitS, razeOk, razeVerdict, withCampOverride, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
+  GOAL_SHARE_MIN_PERCENT, POINTS_SPLIT, RAID_SQUADS, RAZE_MEAN_MAX_S_48, RAZE_MEAN_MAX_S_96, contestedShare, holdsBalanced, razeLimitS, razeOk, razeVerdict, withCampOverride, flagOrder, idleSidesFor, parseFlags, parseZones, raidParty, withFlagOverride, withPointsOverride, campOrder, describeTally, describeTiming, fairWithin, fairWithinDecisive, goalShareOk, modeConfig, modeMain, modeSelfCheck, passiveLost, playMode, pointsOrder, tallyModes,
   type ModePlayFn, type ModePlayed,
 } from './versus-modes';
 import { main as probeMain, seedOf } from './versus-probe';
@@ -612,4 +612,12 @@ describe('GH-976 P4: the flag sweep knob and a ground the mode declares (in memo
     expect(g).toMatchObject({ winner: 0, by: 'objective' });
     expect(g.points![0]).toBeGreaterThanOrEqual(300);
   }, FULL_GAMES_TIMEOUT_MS);
+
+  it('describeTiming: the median seconds over goal-decided games only, and the games that ended before the rush line', () => {
+    const g = (by: 'objective' | 'annihilation', ticks: number) => ({ winner: 0 as const, by, ticks });
+    // 20 Hz: 1000 ticks = 50 s, 2000 = 100 s, 4000 = 200 s; the wipe (9000 ticks) is no goal game and moves nothing.
+    expect(describeTiming([g('objective', 1000), g('objective', 2000), g('objective', 4000), g('annihilation', 9000)]))
+      .toBe('median 100 s to win over 3 goal games, rush wins (before 120 s) 2');
+    expect(describeTiming([g('annihilation', 100)])).toBe('no game decided by the goal');
+  });
 });

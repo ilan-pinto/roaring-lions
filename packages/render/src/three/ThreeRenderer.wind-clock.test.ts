@@ -108,11 +108,20 @@ const TANK: UnitTypeJson = {
   mobility: { speed_tiles_s: 1.1 },
   sensors: { optics: 2, sight_tiles: 14, signature: 1 },
 };
+/** GH-984 N3: a helicopter hovering in view, so the census also compares a live rotor-wash slot (kind 1 in the `b` array). */
+const HELI: UnitTypeJson = {
+  id: 'heli_peten',
+  role: 'attack_helicopter',
+  hull: { hp: 400, armor: { front: 60, side: 40, rear: 25 } },
+  mobility: { speed_tiles_s: 3, domain: 'air' },
+  sensors: { optics: 2, sight_tiles: 14, signature: 1 },
+};
 /** The renderer each sim feeds, so `tickTo` snapshots after every tick the way `main.ts`'s `runTick` does. */
 const rendererOf = new WeakMap<Sim, ThreeRenderer>();
 function setUp(extra: Partial<RendererOptions> = {}): { r: ThreeRenderer; sim: Sim } {
   const sim = new Sim({ seed: 1, width: MAP, height: MAP, capacity: 4 });
   const tank = sim.spawn(sim.addUnitType(TANK), 0, fx.from(3.5), fx.from(11.5));
+  sim.spawn(sim.addUnitType(HELI), 0, fx.from(12.5), fx.from(9.5));
   const r = new ThreeRenderer(sim, makeOpts(extra));
   r.setDecor(new Uint8Array(MAP * MAP));
   r.camera.x = 12;
@@ -169,6 +178,10 @@ describe('the clock census (GH-984 N1)', () => {
       r.frame(0.4, 0);
       expect(windBits(r)).toBe(base);
       expect(priv(r).disturbU.n.value, 'a hull is moving, so the disturber uniforms compared are live').toBeGreaterThan(0);
+      // GH-984 N3: and the helicopter hovering in view is one of them -- an `air` slot (kind 1), so the air disturbers are on the census.
+      const b = priv(r).disturbU.b.value;
+      const kinds = Array.from({ length: priv(r).disturbU.n.value }, (_, k) => b[3 * k + 2]);
+      expect(kinds, 'the census compares a rotor-wash slot').toContain(1);
       if (weather === 'rain') expect(priv(r).rain, 'the rain batch exists, so its uniforms were compared').not.toBeNull();
       r.dispose();
     });
@@ -240,7 +253,7 @@ describe('no wall clock in the wind modules', () => {
     readFileSync(join(root, file), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
-  for (const file of ['terrain/wind.ts', 'terrain/wind-uniforms.ts', 'terrain/sway.ts', 'terrain/decor-mesh.ts', 'units/garrison-banner.ts', 'terrain/disturb.ts', 'terrain/disturb-uniforms.ts', 'units/ground-churn.ts']) {
+  for (const file of ['terrain/wind.ts', 'terrain/wind-uniforms.ts', 'terrain/sway.ts', 'terrain/decor-mesh.ts', 'units/garrison-banner.ts', 'terrain/disturb.ts', 'terrain/disturb-uniforms.ts', 'units/ground-churn.ts', 'units/rotor-wash.ts']) {
     it(`${file} reads none of dtMs, performance.now, Date.now, Math.random`, () => {
       const src = code(file);
       for (const banned of ['dtMs', 'performance.now', 'Date.now', 'Math.random', 'requestAnimationFrame']) {

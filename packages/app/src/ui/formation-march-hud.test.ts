@@ -16,6 +16,7 @@ import { formationClassOfUnit, formationUnitFacts } from './formation-sim';
 import { formationRow } from './formation-model';
 import { alertsForTick, initAlertState, type AlertWorld } from './alerts';
 import { createFormationArming } from '../input/formation-arming';
+import { formationClosedReason } from '../net/versus-formations';
 import { cursorAt, simIntentWorld, type PointerPoint } from '../input/pointer';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -626,6 +627,49 @@ describe('M5: the cursor and the click count classed units alike', () => {
       cursorAt(w.sim, world_, point(24.5, 20.5), { ids, armed: null, confirm: false, armedSmoke: false, armedFormation: { id: 'column', ids, open: true } }).res.intents[0];
     expect(read([squad, man])).not.toHaveProperty('formation');
     expect(read([squad, squad2])).toHaveProperty('formation', 'column');
+  });
+
+  // GH-859 (review of PR 1073): the room kind's reason must survive the two seams between main.ts and the resolver, the cursor's
+  // `armedFormation.reason` and the arming's `reason()`. The main.ts text pin cannot see a call inside either file drop it.
+  it('the cursor over an armed formation in a room its map closes reads the ROOM line; without a reason, the versus line', () => {
+    const w = world();
+    const a = spawn(w, w.t.inf, 0, 22, 40);
+    const b = spawn(w, w.t.inf, 0, 26, 40);
+    const world_ = simIntentWorld(w.sim, () => false);
+    const note = (reason?: ReturnType<typeof formationClosedReason>) =>
+      cursorAt(w.sim, world_, point(24.5, 20.5), { ids: [a, b], armed: null, confirm: false, armedSmoke: false, armedFormation: { id: 'column', ids: [a, b], open: false, ...(reason ? { reason } : {}) } }).res.note?.text;
+    expect(note(formationClosedReason('tel_marum', 'economy'))).toBe('Formations are off in economy rooms on this map');
+    expect(note(formationClosedReason('wadi_tarfan_l', 'economy'))).toBe('Formations are not in versus rooms yet');
+    expect(note()).toBe('Formations are not in versus rooms yet');
+  });
+
+  it('a spent arming in a room its map closes posts the ROOM line and sends nothing; without a reason, the versus line', () => {
+    const w = world();
+    const sel = [spawn(w, w.t.inf, 0, 22, 40), spawn(w, w.t.inf, 0, 26, 40)];
+    const run = (reason?: () => ReturnType<typeof formationClosedReason>) => {
+      const notes: string[] = [];
+      const sent: unknown[] = [];
+      const sink: OrderSink = { dispatch: (i) => sent.push(i), note: (text) => notes.push(text), marker: () => undefined, deny: () => undefined };
+      const arming = createFormationArming({
+        // the row is built open so the key arms; the SPEND asks `open()`, which is the closed room under test
+        row: (armed) => formationRow({ formationsOpen: true, units: formationUnitFacts(w.sim, sel) }, armed),
+        ids: () => sel,
+        world: simIntentWorld(w.sim, () => false),
+        sink,
+        open: () => false,
+        ...(reason ? { reason } : {}),
+        onArmed: () => undefined,
+        classOf: (i) => formationClassOfUnit(w.sim, i),
+        retire: () => undefined,
+      });
+      expect(arming.press('formationColumn' as never)).toBe('column');
+      arming.spend(24.5, 20.5, false);
+      return { notes, sent };
+    };
+    const room = run(() => formationClosedReason('tel_marum', 'economy'));
+    expect(room.sent).toEqual([]);
+    expect(room.notes.at(-1)).toBe('Formations are off in economy rooms on this map');
+    expect(run().notes.at(-1)).toBe('Formations are not in versus rooms yet');
   });
 
   it('main.ts wires the arming to the HUD\'s retireNote, the sim\'s class, and the routed filter', () => {

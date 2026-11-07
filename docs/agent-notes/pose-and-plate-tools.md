@@ -72,3 +72,7 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   with no `--child` is UNCHANGED from before this split: a direct,
   single-session capture that merges straight into `manifest.json`, still the
   fast path for the falsification workflow above.
+
+## Staleness gate (GH-1079, 6 Nov 2026)
+
+`plates:units` (and `--kit`) and `closeups:garage` write `glb_sha256` beside each manifest entry (`tools/src/perf/glb-hash.ts`); `render_unit_portraits.py` already wrote `source_sha256` into `art/portraits/masters/**.json`. `packages/app/src/ui/art-freshness.test.ts` compares each with the bytes of the GLB under `assets/meshes/`, so a GLB that moves without its picture fails CI. A picture audited as unchanged but not re-rendered is pinned in `assets/ui/art-freshness-adopted.json` against the GLB hash it was audited at; the test demands the entry be deleted once the picture is re-rendered. The menu host plate (`pnpm plate:host`) is not covered: it photographs a diorama, not one GLB. Re-render with `--only=<id>` one id at a time, `--metal`, as the existing manifests were.

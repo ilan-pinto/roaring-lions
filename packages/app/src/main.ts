@@ -227,7 +227,7 @@ import { callRally, canRally } from './input/rally-call';
 import { beginPatrol, patrolClick, patrolPointOk, type PatrolDraft } from './input/patrol';
 import { formationIds } from './input/formation';
 import { createFormationArming } from './input/formation-arming';
-import { formationsOpenIn, roomKindOf } from './net/versus-formations';
+import { formationClosedReason, formationsOpenIn, roomKindOf } from './net/versus-formations';
 import { formationRow } from './ui/formation-model';
 import { formationClassOfUnit, formationUnitFacts } from './ui/formation-sim';
 import { callCancelWorks, callWorks } from './input/works-call';
@@ -3116,6 +3116,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** GH-859 P1a: formations are off in a versus room until P1b -- the one predicate (`net/versus-formations.ts`),
    *  read by the HUD's row, the arming and the click's resolver alike. */
   const formationsOpen = (): boolean => formationsOpenIn(netConfig?.mode, undefined, netConfig?.map, roomKindOf(netConfig));
+  /** GH-859: why `formationsOpen()` is false, for the HUD row and the order note (a room kind its map's rules file closes says so). */
+  const formationClosedNow = () => formationClosedReason(netConfig?.map, roomKindOf(netConfig));
   /** Who a formation order is handed: the selected own living, less any unit inside a building, aboard a carrier or
    *  below ground (the sim leaves those out at accept time, so leaving them out here keeps `min_members` honest). */
   const formationOrderIds = (): number[] =>
@@ -3506,6 +3508,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     },
     armedFormation: () => formationArming.armed(),
     formationsOpen,
+    formationClosedReason: formationClosedNow,
     // `row.key` is an `input/keymap.ts` action id for every bound order and
     // the literal `'RMB'` for `attackMove` -- `isAction` tells the two apart,
     // and `bindings` (declared below, alongside the keydown listener that
@@ -5092,11 +5095,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** The armed combat formation (R/T/Y or the row's buttons): armed state, the key rule and the click's spend live in
    *  `input/formation-arming.ts`, where a spec can reach them; this only wires the world in. */
   const formationArming = createFormationArming({
-    row: (armed) => formationRow({ formationsOpen: formationsOpen(), units: formationUnitFacts(sim, myLiving()) }, armed),
+    row: (armed) => formationRow({ formationsOpen: formationsOpen(), closedReason: formationClosedNow(), units: formationUnitFacts(sim, myLiving()) }, armed),
     ids: formationOrderIds,
     world: intentWorld,
     sink: orderSink,
     open: formationsOpen,
+    reason: formationClosedNow,
     classOf: (i) => formationClassOfUnit(sim, i),
     // The arm note is a promise about the next click: taken back when that click spends it or the arm is put down.
     retire: (text, tone) => hud.retireNote(text, tone),
@@ -7006,7 +7010,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     armedSmoke: armedOrder === 'smoke',
     armedMove: armedOrder === 'move',
     // GH-859 P1a: the armed formation's cursor reads the click's own resolver (`resolveFormationOrder`).
-    armedFormation: armedFormationNow !== null ? { id: armedFormationNow, ids: formationOrderIds(), open: formationsOpen() } : null,
+    armedFormation: armedFormationNow !== null ? { id: armedFormationNow, ids: formationOrderIds(), open: formationsOpen(), reason: formationClosedNow() } : null,
     // Lane A mock (Q9): the armed patrol's cursor reads the same `patrolPointOk` its click does.
     patrolAt:
       armedOrder === 'patrol' && patrolDraft !== null
