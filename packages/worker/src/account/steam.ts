@@ -1,0 +1,157 @@
+/** Steam OpenID 2.0 sign-in and linking (GH-1075 A1). Only the OpenID endpoint is ever called: no profile API. */
+import { readCookie } from '../auth';
+import type { D1Like } from '../d1';
+import { ACCOUNT_RETURN_PATH, CHALLENGE_MS, STEAM_OP, accountOrigins, preCookieName } from './config';
+import { randomB64url, sha256Hex } from './crypto';
+import { accountJson, readAccountBody } from './http';
+import { newAccountBudget, perMinute } from './limits';
+import { accountsOpen, createMember, memberForIdentity } from './member';
+import type { AccountCtx, AccountDeps } from './routes';
+import { createSession, requireSession } from './session';
+
+export type SteamPurpose = 'steam-login' | 'steam-link';
+export type ReturnCode = 'ok' | 'linked' | 'cancelled' | 'expired' | 'nocookie' | 'invalid' | 'steam' | 'closed' | 'limit' | 'taken';
+
+const OPENID_NS = 'http://specs.openid.net/auth/2.0';
+const SELECT = 'http://specs.openid.net/auth/2.0/identifier_select';
+const CLAIMED = /^https:\/\/steamcommunity\.com\/openid\/id\/(\d{17})$/;
+const SIGNED_REQUIRED = ['op_endpoint', 'claimed_id', 'identity', 'return_to', 'response_nonce', 'assoc_handle'];
+const C_SHAPE = /^[A-Za-z0-9_-]{43}$/;
+
+const preAttrs = 'Secure; HttpOnly; SameSite=Lax; Path=/';
+const preCookie = (c: string, value: string, maxAge: number): string => `${preCookieName(c)}=${value}; ${preAttrs}; Max-Age=${maxAge}`;
+
+/** Steam's own word for the response is checked, never trusted: five-and-more checks, then the server round trip. */
+export async function verifyOpenId(
+  params: URLSearchParams,
+  expect: { returnTo: string },
+  fetch: AccountDeps['fetch'],
+): Promise<{ steamId: string } | { refused: 'invalid' | 'steam' }> {
+  const invalid = { refused: 'invalid' } as const;
+  if (params.get('openid.mode') !== 'id_res') return invalid;
+  if (params.get('openid.op_endpoint') !== STEAM_OP) return invalid;
+  if (params.get('openid.return_to') !== expect.returnTo) return invalid;
+  const claimed = params.get('openid.claimed_id') ?? '';
+  const match = CLAIMED.exec(claimed);
+  if (match === null) return invalid;
+  if (params.get('openid.identity') !== claimed) return invalid;
+  const signed = (params.get('openid.signed') ?? '').split(',');
+  if (!SIGNED_REQUIRED.every((f) => signed.includes(f))) return invalid;
+  const body = new URLSearchParams();
+  for (const [k, v] of params) if (k.startsWith('openid.')) body.set(k, v);
+  body.set('openid.mode', 'check_authentication');
+  let text: string;
+  try {
+    const res = await fetch(STEAM_OP, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    if (res.status !== 200) return { refused: 'steam' };
+    text = await res.text();
+  } catch {
+    return { refused: 'steam' };
+  }
+  if (!text.split('\n').some((line) => line.trim() === 'is_valid:true')) return invalid;
+  return { steamId: match[1] ?? '' };
+}
+
+/** POST steam/start. */
+export async function steamStart(ctx: AccountCtx): Promise<Response> {
+  const db = ctx.env.ACCOUNTS;
+  if (db === undefined) return accountJson(503, { error: 'accounts are not configured' });
+  const origin = new URL(ctx.req.url).origin;
+  if (!accountOrigins(ctx.env).includes(origin)) return accountJson(403, { error: 'forbidden' });
+  if (await perMinute(ctx.req, ctx.env.ACCOUNT_LIMIT)) return accountJson(429, { error: 'limit' });
+  const body = await readAccountBody<{ purpose?: unknown }>(ctx.req);
+  const purpose = body !== null && body !== 'too_large' ? body.purpose : undefined;
+  if (purpose !== 'steam-login' && purpose !== 'steam-link') return accountJson(400, { error: 'bad_request' });
+  let memberId: string | null = null;
+  if (purpose === 'steam-link') {
+    const got = await requireSession(ctx, { fresh: true });
+    if (got instanceof Response) return got;
+    memberId = got.session.memberId;
+  }
+  const c = randomB64url(32);
+  const pre = randomB64url(32);
+  await db
+    .prepare('INSERT INTO auth_challenge (challenge_hash, purpose, member_id, pre_hash, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)')
+    .bind(await sha256Hex(c), purpose, memberId, await sha256Hex(pre), ctx.now + CHALLENGE_MS)
+    .run();
+  const q = new URLSearchParams({
+    'openid.ns': OPENID_NS,
+    'openid.mode': 'checkid_setup',
+    'openid.return_to': `${origin}/api/account/steam/return?c=${c}`,
+    'openid.realm': origin,
+    'openid.identity': SELECT,
+    'openid.claimed_id': SELECT,
+  });
+  return accountJson(200, { url: `${STEAM_OP}?${q.toString()}` }, { 'set-cookie': preCookie(c, pre, 300) });
+}
+
+function back(code: ReturnCode, cookies: string[]): Response {
+  const h = new Headers({ location: `${ACCOUNT_RETURN_PATH}&r=${code}`, 'cache-control': 'no-store' });
+  for (const c of cookies) h.append('set-cookie', c);
+  return new Response(null, { status: 303, headers: h });
+}
+
+async function signIn(db: D1Like, memberId: string, now: number): Promise<string> {
+  const s = await createSession(db, memberId, now);
+  await db.batch(s.statements);
+  return s.setCookie;
+}
+
+/** GET steam/return: the one account GET that writes. Every outcome is a 303 that clears this challenge's pre cookie. */
+export async function steamReturn(ctx: AccountCtx): Promise<Response> {
+  const db = ctx.env.ACCOUNTS;
+  if (db === undefined) return accountJson(503, { error: 'accounts are not configured' });
+  const url = new URL(ctx.req.url);
+  const c = url.searchParams.get('c') ?? '';
+  const clears = C_SHAPE.test(c) ? [preCookie(c, '', 0)] : [];
+  const done = (code: ReturnCode, extra: string[] = []): Response => back(code, [...clears, ...extra]);
+  if (await perMinute(ctx.req, ctx.env.ACCOUNT_LIMIT)) return done('limit');
+  if (clears.length === 0) return done('expired');
+  const ch = await db
+    .prepare(
+      `DELETE FROM auth_challenge WHERE challenge_hash = ?1 AND expires_at > ?2 AND purpose IN ('steam-login','steam-link')
+       RETURNING purpose, member_id, pre_hash`,
+    )
+    .bind(await sha256Hex(c), ctx.now)
+    .first<{ purpose: SteamPurpose; member_id: string | null; pre_hash: string | null }>();
+  if (ch === null) return done('expired');
+  if (url.searchParams.get('openid.mode') === 'cancel') return done('cancelled');
+  const pre = readCookie(ctx.req, preCookieName(c));
+  if (pre === null || pre === '') return done('nocookie');
+  if ((await sha256Hex(pre)) !== ch.pre_hash) return done('invalid');
+  const verdict = await verifyOpenId(url.searchParams, { returnTo: `${url.origin}/api/account/steam/return?c=${c}` }, ctx.deps.fetch);
+  if ('refused' in verdict) return done(verdict.refused);
+  const steamId = verdict.steamId;
+  const existing = await memberForIdentity(db, 'steam', steamId, ctx.now);
+
+  if (ch.purpose === 'steam-login') {
+    if (existing !== null) return done('ok', [await signIn(db, existing, ctx.now)]);
+    if (!(await accountsOpen(db))) return done('closed');
+    if (!(await newAccountBudget(db, ctx.env, ctx.req, ctx.now))) return done('limit');
+    const made = await createMember(db, ctx.now, { provider: 'steam', subject: steamId });
+    return done('ok', [made.setCookie]);
+  }
+
+  const memberId = ch.member_id;
+  if (memberId === null) return done('invalid');
+  if (existing !== null) return done(existing === memberId ? 'linked' : 'taken');
+  const other = await db
+    .prepare(`SELECT subject FROM member_identity WHERE member_id = ?1 AND provider = 'steam'`)
+    .bind(memberId)
+    .first<{ subject: string }>();
+  if (other !== null) return done('taken');
+  try {
+    await db
+      .prepare(`INSERT INTO member_identity (id, member_id, provider, subject, state, created_at, last_used_day) VALUES (?1, ?2, 'steam', ?3, 'active', ?4, ?5)`)
+      .bind(randomB64url(16), memberId, steamId, ctx.now, Math.floor(ctx.now / 86_400_000))
+      .run();
+  } catch {
+    return done('taken');
+  }
+  return done('linked');
+}
+

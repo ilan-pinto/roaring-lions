@@ -62,7 +62,7 @@ describe('the account door', () => {
     const h = accountHarness();
     const url = 'https://roaring-lions.pint12.workers.dev/api/account/steam/return';
     const get = await handleAccount(new Request(url), h.env, Date.now());
-    expect(get.status).not.toBe(403);
+    expect(get.status).toBe(303);
     const post = await handleAccount(new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://roaring-lions.pint12.workers.dev' }, body: '{}' }), h.env, Date.now());
     expect(post.status).toBe(403);
     const other = await handleAccount(new Request(url.replace('steam/return', 'steam/start')), h.env, Date.now());

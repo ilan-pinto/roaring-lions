@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import type { Env, RateLimiter } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { memoryKV } from './kv';
-import { handleAccount } from './routes';
+import { handleAccount, type AccountDeps } from './routes';
 
 export const ACCOUNTS_MIGRATIONS = fileURLToPath(new URL('../../migrations-accounts/', import.meta.url));
 
@@ -29,6 +29,8 @@ export interface AccountHarnessOpts {
   /** The dispatcher under test; default `handleAccount`. */
   handler?: (req: Request, env: AccountTestEnv, now: number) => Promise<Response>;
   now?: number;
+  /** The outbound calls the handler may make; default the real fetch. */
+  deps?: AccountDeps;
 }
 
 const limiter = (ok: boolean): RateLimiter => ({ limit: async () => ({ success: ok }) });
@@ -45,7 +47,7 @@ export function accountHarness(opts: AccountHarnessOpts = {}) {
     ACCOUNT_LIMIT: limiter(!deny.has('ACCOUNT_LIMIT')),
     ACCOUNT_OP_LIMIT: limiter(!deny.has('ACCOUNT_OP_LIMIT')),
   };
-  const handler = opts.handler ?? ((req, e, now) => handleAccount(req, e, now));
+  const handler = opts.handler ?? ((req, e, now) => handleAccount(req, e, now, opts.deps));
   const call = (method: string, path: string, init: CallInit = {}): Promise<Response> => {
     const headers = new Headers({ 'x-rl-account': '1', 'content-type': 'application/json' });
     const origin = init.origin === undefined ? TEST_ORIGIN : init.origin;
@@ -62,3 +64,17 @@ export function accountHarness(opts: AccountHarnessOpts = {}) {
   };
   return { db, kv, env, call };
 }
+
+/** A stand-in for Steam's OpenID endpoint: records every call, answers `check_authentication`. */
+export function steamStub(opts: { valid?: boolean; down?: boolean } = {}): AccountDeps & { calls: { url: string; body: string }[] } {
+  const calls: { url: string; body: string }[] = [];
+  return {
+    calls,
+    fetch: async (url, init) => {
+      calls.push({ url, body: String(init.body ?? '') });
+      if (opts.down === true) throw new Error('steam is down');
+      return new Response(`ns:http://specs.openid.net/auth/2.0\nis_valid:${opts.valid === false ? 'false' : 'true'}\n`, { status: 200 });
+    },
+  };
+}
+

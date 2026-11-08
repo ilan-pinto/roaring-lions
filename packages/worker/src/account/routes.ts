@@ -3,6 +3,7 @@ import type { Env } from '../d1';
 import { accountGuard, accountJson } from './http';
 import { accountsOpen } from './member';
 import { me } from './profile';
+import { steamReturn, steamStart } from './steam';
 import { clearedSessionCookie, requireSession, sessionJson } from './session';
 
 export interface AccountDeps { fetch(url: string, init: RequestInit): Promise<Response> }
@@ -33,6 +34,8 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
     },
   },
   { method: 'GET', pattern: 'me', handler: me },
+  { method: 'POST', pattern: 'steam/start', handler: steamStart },
+  { method: 'GET', pattern: 'steam/return', handler: steamReturn },
   {
     method: 'POST',
     pattern: 'logout',
