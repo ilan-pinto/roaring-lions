@@ -22,7 +22,7 @@
  */
 import type { LedgerData } from '@lions/sim';
 import { campaignComplete } from './campaign-complete';
-import { grantFree, type EarnSource, type RoarWallet } from './wallet';
+import { grantFree, type EarnRecord, type EarnSource, type RoarWallet } from './wallet';
 import { worldMissionIds, type ParsedWorld } from './world';
 
 /** What each kind of payout is worth. The Stores' copy and the debrief read these. */
@@ -84,6 +84,54 @@ export function roarEarn(w: RoarWallet, win: VictoryWin, world: ParsedWorld, at:
   return { wallet, awards, total: awards.reduce((n, a) => n + a.coins, 0) };
 }
 
+/** What a ledger proves was won: the input of the back-payment's difference loop. */
+export interface EarnEvidence {
+  missions: Readonly<Record<string, { won: boolean; stars: number }>>;
+  campaignDone: boolean;
+}
+
+/**
+ * The wins a campaign ledger holds: world missions in `campaign.completed_missions`
+ * only, each `won: true`, its stars clamped 0 to 3 from `campaign.mission_results`.
+ */
+export function evidenceFromLedger(ledger: LedgerData, world: ParsedWorld): EarnEvidence {
+  const doneRaw = ledger['campaign.completed_missions'];
+  const done = new Set(Array.isArray(doneRaw) ? doneRaw.filter((m): m is string => typeof m === 'string') : []);
+  const results = ledger['campaign.mission_results'];
+  const missions: Record<string, { won: boolean; stars: number }> = {};
+  for (const id of worldMissionIds(world)) {
+    if (!done.has(id)) continue;
+    missions[id] = { won: true, stars: clampStars(results?.[id]?.stars ?? 0) };
+  }
+  return { missions, campaignDone: campaignComplete(world, ledger) };
+}
+
+/**
+ * What the table owes for `evidence` beyond what `record` already holds, and the
+ * record once paid. Pure; ids are taken in `worldMissionIds` order, and an id off
+ * the world pays nothing.
+ */
+export function earnDifference(record: EarnRecord, evidence: EarnEvidence, world: ParsedWorld): { coins: number; record: EarnRecord } {
+  const missions: Record<string, { won: boolean; stars: number }> = { ...record.missions };
+  let coins = 0;
+  let anyWin = false;
+  for (const id of worldMissionIds(world)) {
+    const ev = evidence.missions[id];
+    if (!ev || !ev.won) continue;
+    anyWin = true;
+    const prev = missions[id] ?? { won: false, stars: 0 };
+    const stars = clampStars(ev.stars);
+    // Only the difference between the lifetime record and what `earn` holds.
+    if (!prev.won) coins += EARN.firstWin;
+    coins += EARN.star * Math.max(0, stars - prev.stars);
+    missions[id] = { won: true, stars: Math.max(prev.stars, stars) };
+  }
+  if (anyWin && !record.welcomed) coins += EARN.welcome;
+  const finishes = evidence.campaignDone && !record.campaignDone;
+  if (finishes) coins += EARN.campaign;
+  return { coins, record: { welcomed: record.welcomed || anyWin, campaignDone: record.campaignDone || finishes, backfilled: record.backfilled, missions } };
+}
+
 /**
  * The one-time back-payment (GH-317, lead ruling 5 Nov): a wallet that is being
  * CREATED is paid, from the campaign ledger as it stands, what the earn table
@@ -98,28 +146,7 @@ export function roarEarn(w: RoarWallet, win: VictoryWin, world: ParsedWorld, at:
  * are free coins; `paid` is untouched.
  */
 export function roarBackfill(w: RoarWallet, ledger: LedgerData, world: ParsedWorld, at: number): RoarWallet {
-  const doneRaw = ledger['campaign.completed_missions'];
-  const done = new Set(Array.isArray(doneRaw) ? doneRaw.filter((m): m is string => typeof m === 'string') : []);
-  const results = ledger['campaign.mission_results'];
-  const missions: Record<string, { won: boolean; stars: number }> = { ...w.earn.missions };
-  let coins = 0;
-  let anyWin = false;
-  for (const id of worldMissionIds(world)) {
-    if (!done.has(id)) continue;
-    anyWin = true;
-    const prev = missions[id] ?? { won: false, stars: 0 };
-    const stars = clampStars(results?.[id]?.stars ?? 0);
-    // Only the difference between the ledger's lifetime record and what `earn` holds.
-    if (!prev.won) coins += EARN.firstWin;
-    coins += EARN.star * Math.max(0, stars - prev.stars);
-    missions[id] = { won: true, stars: Math.max(prev.stars, stars) };
-  }
-  if (anyWin && !w.earn.welcomed) coins += EARN.welcome;
-  const finishes = !w.earn.campaignDone && campaignComplete(world, ledger);
-  if (finishes) coins += EARN.campaign;
-  const base: RoarWallet = {
-    ...w,
-    earn: { welcomed: w.earn.welcomed || anyWin, campaignDone: w.earn.campaignDone || finishes, backfilled: true, missions },
-  };
-  return grantFree(base, coins, (id, c) => ({ kind: 'earn', id, at, coins: c, source: 'backfill' }), at);
+  const r = earnDifference(w.earn, evidenceFromLedger(ledger, world), world);
+  const base: RoarWallet = { ...w, earn: { ...r.record, backfilled: true } };
+  return grantFree(base, r.coins, (id, c) => ({ kind: 'earn', id, at, coins: c, source: 'backfill' }), at);
 }
