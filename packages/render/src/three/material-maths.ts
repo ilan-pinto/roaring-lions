@@ -22,12 +22,12 @@ import {
   reliefTiltOps,
   reliefTintRampOps,
 } from './terrain/relief-read';
-import { heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
+import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
   // T3: the node ground (`terrain/mesh.node.ts`).
-  ground: { slots: GROUND_SLOTS, slotUniforms, roadDistanceRangeTiles: ROAD_DISTANCE_RANGE_TILES, roadBands, heightBiased, rescaleWeights, macroDecode, macroFactor,
+  ground: { slots: GROUND_SLOTS, slotUniforms, roadDistanceRangeTiles: ROAD_DISTANCE_RANGE_TILES, roadBands, heightBiased, rescaleWeights, macroDecode, macroFactor, groundBlend,
     // T4: the relief read.
     relief: {
       tilt: reliefTiltOps,

@@ -41,10 +41,10 @@ function groundGeometry(): THREE.BufferGeometry {
   return g;
 }
 
-async function compile(owner: GroundMaterial, lit = false): Promise<Built> {
+async function compile(owner: GroundMaterial, maths = MATERIAL_MATHS.ground, lit = false): Promise<Built> {
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
-  const ground = buildNodeGround({ W, TSL, maths: MATERIAL_MATHS.ground }, owner);
+  const ground = buildNodeGround({ W, TSL, maths }, owner);
   const mesh = new THREE.Mesh(groundGeometry(), ground.material);
   const r = new W.WebGPURenderer({ forceWebGL: true });
   // The typings hide the builder's working members; this is the slice the test reads.
@@ -213,6 +213,52 @@ describe('the node ground on WGSL (the CI wgpu arm refused this as a GPU validat
   });
 });
 
+describe('the twin wires its taps and record into the shared composition (ground-maths.test.ts evaluates the composition)', () => {
+  it('hands groundBlend the right texture, channel and uniform in every slot', async () => {
+    const owner = new GroundMaterial();
+    type Split = { node?: { value?: unknown }; components?: string };
+    let seen: { taps: Record<string, unknown>; knobs: Record<string, unknown>; range: number } | null = null;
+    const maths = {
+      ...MATERIAL_MATHS.ground,
+      groundBlend: ((o, v, range, taps, knobs) => {
+        seen = { taps: taps as never, knobs: knobs as never, range };
+        return MATERIAL_MATHS.ground.groundBlend(o, v, range, taps, knobs);
+      }) as typeof MATERIAL_MATHS.ground.groundBlend,
+    };
+    // The colour graph is a `Fn`: its body (and the call) runs when the material is built.
+    const { ground } = await compile(owner, maths);
+    expect(seen).not.toBeNull();
+    const got = seen as unknown as { taps: Record<string, unknown>; knobs: Record<string, unknown>; range: number };
+    const tex = (name: string): unknown => owner.uniforms[name]?.value;
+    /** `node.components` of a swizzle, and the texture its tap samples. */
+    const read = (x: unknown): [string | undefined, unknown] => [(x as Split).components, (x as Split).node?.value];
+    const chans = (xs: unknown, name: string): void => {
+      const list = (xs as unknown[]).map(read);
+      // A swizzle is spelled `r`/`g`/`b`/`a` or `x`/`y`/`z`/`w`: normalise to rgba.
+      const norm = list.map(([c]) => (c ?? '').replace('x', 'r').replace('y', 'g').replace('z', 'b').replace('w', 'a'));
+      expect(norm, name).toEqual(['r', 'g', 'b', 'a']);
+      for (const [, t] of list) expect(t === tex(name), `${name}: a channel from another texture`).toBe(true);
+    };
+    chans(got.taps.controlA, 'uControlA');
+    chans(got.taps.controlB, 'uControlB');
+    const slotNames = GROUND_SLOTS.map((sl) => slotUniforms(sl));
+    (got.taps.slotTexels as unknown[]).forEach((x, i) => {
+      expect(read(x)[1] === tex((slotNames[i] as { map: string }).map), `slot ${i} samples its own image`).toBe(true);
+    });
+    expect(read(got.taps.grainTexel)[1] === tex('uKnoll'), 'the grain samples the knoll image').toBe(true);
+    expect(read(got.taps.macroTexel)[1] === tex('uMacro'), 'the macro byte is the macro field').toBe(true);
+    const n = ground.numbers;
+    (got.knobs.strengths as unknown[]).forEach((x, i) => expect(x === n[(slotNames[i] as { strength: string }).strength], `strength ${i}`).toBe(true));
+    (got.knobs.means as unknown[]).forEach((x, i) => expect(x === n[(slotNames[i] as { mean: string }).mean], `mean ${i}`).toBe(true));
+    const knob: Record<string, string> = {
+      grainMean: 'uKnollMean', roadOn: 'uRoadOn', grainGain: 'uRoadGrainGain', roadTone: 'uRoadTone', shoulderTone: 'uShoulderTone',
+      rutTone: 'uRutTone', macroAmp: 'uMacroAmp', macroBright: 'uMacroBright', macroDark: 'uMacroDark',
+    };
+    for (const [k, u] of Object.entries(knob)) expect(got.knobs[k] === n[u], `${k} is ${u}`).toBe(true);
+    expect(got.range).toBe(1);
+  });
+});
+
 describe('the record drives the twin', () => {
   it('setRoadsVisible(false) reaches the road uniform on the next render update', async () => {
     const owner = new GroundMaterial();
@@ -270,7 +316,7 @@ describe('a wet owner', () => {
 
 describe('the relief read (T4): slope light, height contours and tint', () => {
   it('the contour screen rate is a derivative taken before any if in main, on the world height in levels', async () => {
-    const { frag } = await compile(new GroundMaterial(), true);
+    const { frag } = await compile(new GroundMaterial(), MATERIAL_MATHS.ground, true);
     const body = mainOf(frag);
     const firstIf = body.search(/\bif \(/);
     const rate = /\b(nodeVar\d+) = fwidth\( [^;]*\);/.exec(body);
@@ -290,7 +336,7 @@ describe('the relief read (T4): slope light, height contours and tint', () => {
 
   it('the lighting normal is replaced: the 38 degree ceiling is in the fragment, and the tilt reads the shared gain uniform', async () => {
     const owner = new GroundMaterial();
-    const { frag } = await compile(owner, true);
+    const { frag } = await compile(owner, MATERIAL_MATHS.ground, true);
     // 38 degrees in radians, the legacy GLSL's literal (`RELIEF_FRAGMENT_GLSL`), to five places.
     expect(frag).toMatch(/0\.6632[0-9]*/);
     expect(frag.match(/\batan\(/g)?.length ?? 0, 'two arc tangents: the tilt and the exaggerated tilt').toBeGreaterThanOrEqual(2);
@@ -303,7 +349,7 @@ describe('the relief read (T4): slope light, height contours and tint', () => {
     u.uReliefSlopeGain!.value = 7.5;
     u.uReliefContour!.value = 0.375;
     u.uReliefTint!.value = 0.3125;
-    const { ground, used, renderUpdate } = await compile(owner, true);
+    const { ground, used, renderUpdate } = await compile(owner, MATERIAL_MATHS.ground, true);
     for (const v of [7.5, 0.375, 0.3125]) expect(used.some((x) => x.node.value === v), `sentinel ${v} bound (non-vacuous)`).toBe(true);
     owner.setSlopeLightVisible(false);
     owner.setHeightContoursVisible(false);
@@ -328,7 +374,7 @@ describe('the relief read GRAPH wiring, gated on the lit fragment text (R12: eac
 
   it('the tint end is chosen by the SIGN of the ramp: LOW under t < 0, HIGH otherwise, on the ramp variable itself', async () => {
     // Falsify: `select(ramp.t.lessThan(0), high, low)` (swapped ends).
-    const { frag } = await compile(new GroundMaterial(), true);
+    const { frag } = await compile(new GroundMaterial(), MATERIAL_MATHS.ground, true);
     const ramp = one(/(\w+) = clamp\( \( \( \w+ - \( \w+ \/ \w+ \) \) \/ 4\.0 \), -1\.0, 1\.0 \);/, frag, 'the tint ramp: clamp((levels - median) / 4, -1, 1)');
     const sel = one(/if \( \( (\w+) < 0\.0 \) \) \{\s*\w+ = vec3\( 0\.88, 0\.9, 0\.94 \);\s*\} else \{\s*\w+ = vec3\( 1\.07, 1\.05, 1\.02 \);/, frag, 'LOW under t < 0, HIGH in the else');
     expect(sel[1], 'the select tests the ramp variable').toBe(ramp[1]);
@@ -336,7 +382,7 @@ describe('the relief read GRAPH wiring, gated on the lit fragment text (R12: eac
 
   it('the normal pass-through: h < 1e-6 keeps the (face-flipped) normal, y <= 0 keeps it too, the tilt is the other branch', async () => {
     // Falsify: `select(h.lessThan(1e-6), tilted, tilted)` (no pass-through), or the outer select's else made the tilted normal.
-    const { frag } = await compile(new GroundMaterial(), true);
+    const { frag } = await compile(new GroundMaterial(), MATERIAL_MATHS.ground, true);
     const n = one(/(\w+) = \( normalWorldGeometry \* vec3\( \( \( float\( gl_FrontFacing \) \* 2\.0 \) - 1\.0 \) \) \);/, frag, 'the face-flipped world normal');
     const outer = one(/if \( \( (\w+)\.y > 0\.0 \) \) \{/, frag, 'the y > 0 test');
     expect(outer[1], 'y is the flipped normal\'s').toBe(n[1]);
@@ -348,7 +394,7 @@ describe('the relief read GRAPH wiring, gated on the lit fragment text (R12: eac
 
   it('the relief term is masked by `top` (step(wallAlbedo, -0.5)): a wall takes none', async () => {
     // Falsify: `reliefTerm = tint.mul(line)` (mask dropped).
-    const { frag } = await compile(new GroundMaterial(), true);
+    const { frag } = await compile(new GroundMaterial(), MATERIAL_MATHS.ground, true);
     const top = one(/(\w+) = step\( \w+, -0\.5 \);/, frag, 'top = step(wallAlbedo, -0.5)');
     expect(frag, 'the final mix(1, tint*line, top)').toMatch(
       new RegExp(`mix\\( vec3\\( 1\\.0, 1\\.0, 1\\.0 \\), \\( mix\\( vec3\\( 1\\.0, 1\\.0, 1\\.0 \\), \\w+, \\( abs\\( \\w+ \\) \\* \\w+ \\) \\) \\* vec3\\( \\( 1\\.0 - \\(.*?\\) \\) \\) \\), ${top[1]} \\)`)
@@ -357,7 +403,7 @@ describe('the relief read GRAPH wiring, gated on the lit fragment text (R12: eac
 
   it('a back face flips the normal (gl_FrontFacing reaches the tilt)', async () => {
     // Falsify: drop `.mul(TSL.faceDirection)`.
-    const { frag } = await compile(new GroundMaterial(), true);
+    const { frag } = await compile(new GroundMaterial(), MATERIAL_MATHS.ground, true);
     expect(frag).toMatch(/normalWorldGeometry \* vec3\( \( \( float\( gl_FrontFacing \) \* 2\.0 \) - 1\.0 \) \)/);
   });
 });
