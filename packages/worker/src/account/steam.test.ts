@@ -409,3 +409,82 @@ describe('Steam sign-in', () => {
     }
   });
 });
+
+describe('steam/start day budget (M1)', () => {
+  const startFrom = (h: H, ip: string, purpose = 'steam-login') =>
+    h.call('POST', '/api/account/steam/start', { body: { purpose }, headers: { 'cf-connecting-ip': ip } });
+
+  it('the 51st start from one address is 429 and writes no challenge; another address still works', async () => {
+    const { h } = harness();
+    h.env.TICKET_SECRET = 'secret';
+    for (let i = 0; i < 50; i++) expect((await startFrom(h, '198.51.100.7')).status).toBe(200);
+    expect(await count(h, 'auth_challenge')).toBe(50);
+    const over = await startFrom(h, '198.51.100.7');
+    expect(over.status).toBe(429);
+    expect(await over.json()).toEqual({ error: 'limit' });
+    expect(await count(h, 'auth_challenge')).toBe(50);
+    expect((await startFrom(h, '198.51.100.8')).status).toBe(200);
+    // an over-ip request did not burn the overall count
+    const all = await h.db.prepare(`SELECT n FROM rate_day WHERE scope = 'acct-start-all'`).first<{ n: number }>();
+    expect(all?.n).toBe(51);
+    const keys = (h.db.raw.prepare('SELECT key FROM rate_day').all() as { key: string }[]).map((r) => r.key);
+    expect(keys.some((k) => k.includes('198.51.100'))).toBe(false);
+  });
+
+  it('the 5001st start overall is 429 and writes no challenge', async () => {
+    const { h } = harness();
+    h.env.TICKET_SECRET = 'secret';
+    await h.db.prepare(`INSERT INTO rate_day VALUES ('acct-start-all', '', ?1, 4999)`).bind(Math.floor(T0 / DAY)).run();
+    expect((await startFrom(h, '203.0.113.1')).status).toBe(200);
+    const before = await count(h, 'auth_challenge');
+    expect((await startFrom(h, '203.0.113.2')).status).toBe(429);
+    expect(await count(h, 'auth_challenge')).toBe(before);
+  });
+
+  it('without a secret the per-ip count is skipped but the overall one applies', async () => {
+    const { h } = harness();
+    for (let i = 0; i < 51; i++) expect((await startFrom(h, '198.51.100.9')).status).toBe(200);
+    await h.db.prepare(`UPDATE rate_day SET n = 5000 WHERE scope = 'acct-start-all'`).run();
+    expect((await startFrom(h, '198.51.100.9')).status).toBe(429);
+  });
+
+  it('a steam-link start from a stale session does not count against the budget', async () => {
+    const { h } = harness();
+    h.env.TICKET_SECRET = 'secret';
+    const res = await h.call('POST', '/api/account/steam/start', { body: { purpose: 'steam-link' } });
+    expect(res.status).toBe(401);
+    expect(await count(h, 'rate_day')).toBe(0);
+  });
+});
+
+describe('verifyOpenId hardening (I3)', () => {
+  const run = async (overrides: Record<string, string | null>) => {
+    const { h, stub, ready } = harness();
+    await ready;
+    const s = await start(h, 'steam-login');
+    const res = await ret(h, returnParams(s.c, S1, overrides), s.cookie);
+    return { code: back(res).code, calls: stub.calls.length };
+  };
+  for (const [name, o] of [
+    ['a wrong ns', { 'openid.ns': 'http://specs.openid.net/auth/1.1' }],
+    ['a missing ns', { 'openid.ns': null }],
+    ['a missing sig', { 'openid.sig': null }],
+    ['an empty sig', { 'openid.sig': '' }],
+  ] as [string, Record<string, string | null>][]) {
+    it(`refuses ${name} as invalid, with no check call`, async () => {
+      expect(await run(o)).toEqual({ code: 'invalid', calls: 0 });
+    });
+  }
+
+  it('the check_authentication fetch refuses redirects', async () => {
+    const inits: RequestInit[] = [];
+    const deps = { fetch: async (_u: string, init: RequestInit) => (inits.push(init), new Response('is_valid:true\n', { status: 200 })) };
+    const h = accountHarness({ now: T0, deps });
+    await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run();
+    const s = await start(h, 'steam-login');
+    expect(back(await ret(h, returnParams(s.c, S1), s.cookie)).code).toBe('ok');
+    expect(inits.length).toBe(1);
+    expect(inits[0]?.redirect).toBe('error');
+  });
+});
+

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { newAccountBudget, opBudget, perMinute } from './limits';
+import { handleAccount } from './routes';
 import { accountHarness } from './test-kit';
 
 const NOW = 1_790_000_000_000;
@@ -62,3 +63,45 @@ describe('account limits', () => {
     expect(await perMinute(req('1.2.3.4'), undefined)).toBe(false);
   });
 });
+
+describe('startBudget (M1)', () => {
+  it('50 per ip then refused; other ips and the overall count are separate', async () => {
+    const { startBudget } = await import('./limits');
+    const h = accountHarness();
+    const env = { ...h.env, TICKET_SECRET: 's' };
+    for (let i = 0; i < 50; i++) expect(await startBudget(h.db, env, req('198.51.100.4'), NOW)).toBe(true);
+    expect(await startBudget(h.db, env, req('198.51.100.4'), NOW)).toBe(false);
+    expect(await startBudget(h.db, env, req('198.51.100.5'), NOW)).toBe(true);
+  });
+});
+
+describe('the dispatcher fails closed without its limiters (L2)', () => {
+  const paths: [string, string][] = [
+    ['GET', '/api/account/open'], ['GET', '/api/account/me'], ['POST', '/api/account/steam/start'],
+    ['GET', '/api/account/steam/return'], ['POST', '/api/account/gone'],
+  ];
+  for (const drop of ['ACCOUNT_LIMIT', 'ACCOUNT_OP_LIMIT'] as const) {
+    it(`503 on every route family when ${drop} is unbound`, async () => {
+      const h = accountHarness();
+      const env = { ...h.env };
+      delete env[drop];
+      for (const [m, p] of paths) {
+        const res = await handleAccount(new Request('https://roaring-lions.pint12.workers.dev' + p, { method: m, headers: { 'x-rl-account': '1' } }), env, NOW);
+        expect(res.status, `${m} ${p}`).toBe(503);
+        expect(await res.json()).toEqual({ error: 'accounts are not configured' });
+      }
+    });
+  }
+  it('with both bound the same routes are served', async () => {
+    const h = accountHarness();
+    expect((await h.call('GET', '/api/account/open')).status).toBe(200);
+  });
+});
+
+describe('GET open takes the signed-in limiter', () => {
+  it('429 when ACCOUNT_OP_LIMIT is exhausted', async () => {
+    const h = accountHarness({ denyLimiter: ['ACCOUNT_OP_LIMIT'] });
+    expect((await h.call('GET', '/api/account/open')).status).toBe(429);
+  });
+});
+

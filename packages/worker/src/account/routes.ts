@@ -89,11 +89,13 @@ export function matchPath(pattern: string, path: string): Record<string, string>
   return params;
 }
 
-/** Routes that do not take the signed-in limiter: `open` is a public read; `steam/*` and `gone` take ACCOUNT_LIMIT themselves. */
-const UNLIMITED_HERE: ReadonlySet<string> = new Set(['open', 'steam/start', 'steam/return', 'gone']);
+/** Routes that do not take the signed-in limiter: `steam/*` and `gone` take ACCOUNT_LIMIT themselves. */
+const UNLIMITED_HERE: ReadonlySet<string> = new Set(['steam/start', 'steam/return', 'gone']);
 
 export async function handleAccount(req: Request, env: Env, now: number, deps?: AccountDeps): Promise<Response> {
   if (env.ACCOUNTS === undefined) return accountJson(503, { error: 'accounts are not configured' });
+  // Fail closed: a bound database with a missing limiter would silently lift every per-minute limit.
+  if (env.ACCOUNT_LIMIT === undefined || env.ACCOUNT_OP_LIMIT === undefined) return accountJson(503, { error: 'accounts are not configured' });
   const path = new URL(req.url).pathname.slice(PREFIX.length);
   const blocked = accountGuard(req, env, path);
   if (blocked !== null) return blocked;

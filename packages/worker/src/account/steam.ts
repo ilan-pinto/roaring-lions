@@ -4,7 +4,7 @@ import type { D1Like } from '../d1';
 import { ACCOUNT_RETURN_PATH, CHALLENGE_MS, STEAM_OP, accountOrigins, preCookieName } from './config';
 import { randomB64url, sha256Hex } from './crypto';
 import { accountJson, readAccountBody } from './http';
-import { newAccountBudget, perMinute } from './limits';
+import { newAccountBudget, perMinute, startBudget } from './limits';
 import { accountsOpen, createMember, memberForIdentity, sessionFor } from './member';
 import type { AccountCtx, AccountDeps } from './routes';
 import { dayOf } from '../rate-day';
@@ -42,6 +42,8 @@ export async function verifyOpenId(
     if (!OPENID_KEYS.includes(k) || seen.has(k)) return invalid;
     seen.add(k);
   }
+  if (params.get('openid.ns') !== OPENID_NS) return invalid;
+  if ((params.get('openid.sig') ?? '') === '') return invalid;
   if (params.get('openid.mode') !== 'id_res') return invalid;
   if (params.get('openid.op_endpoint') !== STEAM_OP) return invalid;
   if (params.get('openid.return_to') !== expect.returnTo) return invalid;
@@ -66,6 +68,7 @@ export async function verifyOpenId(
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
       signal: AbortSignal.timeout(8000),
+      redirect: 'error',
     });
     if (res.status !== 200) return { refused: 'steam' };
     text = await res.text();
@@ -94,6 +97,7 @@ export async function steamStart(ctx: AccountCtx): Promise<Response> {
     memberId = got.session.memberId;
     slide = got.setCookie;
   }
+  if (!(await startBudget(db, ctx.env, ctx.req, ctx.now))) return accountJson(429, { error: 'limit' });
   const c = randomB64url(32);
   const pre = randomB64url(32);
   await db
