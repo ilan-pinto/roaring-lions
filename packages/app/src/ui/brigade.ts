@@ -622,6 +622,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   let storesDispose: Disposer | null = null;
   let storesShelf: StoresShelf = 'early';
   let storesOwned = false;
+  let storesAdds: string | undefined;
   /** A coin purchase's answer: the garage redraws around the account as the
    *  store now holds it -- quietly, since it is not on screen -- and the
    *  Stores is drawn again with focus back on the control that asked. */
@@ -665,6 +666,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       onShowOwned: (on) => {
         storesOwned = on;
       },
+      adds: storesAdds,
+      onAdds: (id) => {
+        storesAdds = id ?? undefined;
+      },
       focusKey,
       onBuy:
         onBuy === undefined
@@ -676,6 +681,12 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       // The Garage's own purchase, at the unit's credit price (GH-317).
       onBuyCredits:
         opts.onBuy === undefined ? undefined : (unitId, price) => storesAnswered(opts.onBuy?.(unitId, price), `unit:${unitId}`),
+      // The tier row's credit Buy (D5) is the Garage's own: `onBuyUpgrade` runs `buyTierWithCredits`, which
+      // recomputes the ask from a fresh read (one path; the button's price is checked there, never trusted).
+      onBuyTierCredits:
+        opts.onBuyUpgrade === undefined
+          ? undefined
+          : (unitId, track, to, price) => storesAnswered(opts.onBuyUpgrade?.(unitId, track, to, price), `credits:${unitId}.${track}`),
       units: state.units,
       ledger: opts.ledger,
       credits: state.credits,
@@ -1382,6 +1393,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             unitId: u.id,
             unitName: u.name,
             owned,
+            earned: Math.min(state.earned === undefined ? owned : (state.earned[u.id]?.[trackName] ?? 0), owned),
             buy,
             locked: row.locked,
             closeup: opts.closeup?.(u.id, trackName) ?? null,

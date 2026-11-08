@@ -98,6 +98,16 @@ describe('the Garage credit Buy asks creditAsk (WP5)', () => {
     expect(g.account().balance).toBe(400);
   });
 
+  it('the track head says spent = credits paid for EARNED tiers: coins 2, earned 0 -> 0 spent (not 300)', () => {
+    const head = (host: HTMLElement): string =>
+      host.querySelector('.rl-garage__track[data-track="armour"] .rl-garage__track-spend')?.textContent ?? '';
+    const g = garage(2);
+    expect(head(g.host)).toContain(t('garage.track.spent', { spent: 0, toMax: 300 }));
+    // earned 1, coins 2: only tier 1 was paid for in credits.
+    const h = garage(2, account({ upgrades: { [UNIT_ID]: { armour: 1 } } }));
+    expect(head(h.host)).toContain(t('garage.track.spent', { spent: 100, toMax: 300 }));
+  });
+
   it('Review Focus 2, a stale ask: the coin tier moved after the draw -> landed false, account untouched', () => {
     const g = garage(0);
     expect(buyBtn(g.host)?.textContent).toContain('ier 1');

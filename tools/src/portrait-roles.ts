@@ -9,7 +9,12 @@ import {
   VEHICLE_MESH_ROLES,
 } from '../../packages/render/src/three/units/vehicle-mesh-role';
 
-const out: Record<string, Record<string, string>> = { figure: {}, figure_enemy: {} };
+// Null-prototype: the vehicle ids below come off argv, and `out['__proto__'] = {}` on a plain object would replace its prototype
+// (Snyk Code). JSON.stringify writes it exactly as it wrote the literal.
+const out: Record<string, Record<string, string>> = Object.assign(Object.create(null) as Record<string, Record<string, string>>, {
+  figure: {},
+  figure_enemy: {},
+});
 for (const r of MESH_ROLES) {
   try {
     out.figure[r] = liftTone(rampForRole(r, 'kdf'));
