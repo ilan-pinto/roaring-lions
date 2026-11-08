@@ -375,8 +375,13 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
     opts.onAdds?.(id);
     syncAdds();
     if (!byUser) return;
-    if (id !== null) addsPanel?.querySelector<HTMLElement>('.rl-stores__adds-h')?.focus();
-    else if (was !== null) addsCards.get(was)?.btn.focus();
+    if (id !== null) {
+      // The Stores scroll inside the shell's one `1fr` row, so a panel opened below the fold is clipped until it
+      // is scrolled to. `preventScroll` keeps the heading focus from fighting this; `nearest` never moves a
+      // panel that is already fully on screen. jsdom has no scrollIntoView, hence the optional call.
+      addsPanel?.querySelector<HTMLElement>('.rl-stores__adds-h')?.focus({ preventScroll: true });
+      addsPanel?.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
+    } else if (was !== null) addsCards.get(was)?.btn.focus();
   }
   /** Draws the open panel and nothing else. A card that is not on the shelf (owned, with the toggle off) has no
    *  panel: it closes, so a purchase that moves the card takes its panel with it. */

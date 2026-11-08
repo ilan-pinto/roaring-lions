@@ -422,6 +422,27 @@ describe('GH-1076: the "What it adds" panel', () => {
     expect(host.childElementCount).toBe(0);
   });
 
+  it('opening scrolls the panel into view (the shell clips it otherwise) and close does not', () => {
+    const calls: Element[] = [];
+    const proto = Element.prototype as unknown as { scrollIntoView?: (o?: unknown) => void };
+    const prior = proto.scrollIntoView;
+    proto.scrollIntoView = function (this: Element): void {
+      calls.push(this);
+    };
+    try {
+      const { host, dispose } = mountStores();
+      const a = control(host, 'apc_kipod');
+      a?.click();
+      expect(calls).toEqual([regions(host)[0]]);
+      a?.click();
+      expect(calls).toHaveLength(1);
+      dispose();
+    } finally {
+      if (prior === undefined) delete proto.scrollIntoView;
+      else proto.scrollIntoView = prior;
+    }
+  });
+
   it('the panel sits in the grid right after its card, and the open id survives a redraw', () => {
     let open: string | undefined;
     const draw = (): { host: HTMLElement; dispose: () => void } =>
