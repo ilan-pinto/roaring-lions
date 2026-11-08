@@ -9958,3 +9958,88 @@ fieldset.rl-versus__maps {
 .rl-arena-replay__digest[hidden] {
   display: none;
 }
+
+/* ---------------------------------------------------------------------- */
+/* Profile (ui/profile.ts)                                                */
+/* ---------------------------------------------------------------------- */
+
+.rl-menu--profile .rl-panel {
+  text-align: left;
+}
+.rl-profile__status {
+  margin: 0 0 var(--s2);
+  color: var(--ink);
+}
+.rl-profile__status:empty {
+  display: none;
+}
+.rl-profile__status.rl-bad {
+  color: var(--bad-text);
+}
+.rl-profile__guest,
+.rl-profile__signed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.rl-profile__privacy,
+.rl-profile__last {
+  margin: 0;
+  color: var(--ink-mute);
+}
+.rl-profile__name {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-end;
+}
+.rl-profile__name label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--s1);
+  color: var(--ink);
+}
+.rl-profile__name input[type='text'] {
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+.rl-profile__identities {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-profile__identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.rl-profile__identity-label,
+.rl-profile__public-id {
+  margin: 0;
+  color: var(--ink);
+}
+.rl-profile__verbs,
+.rl-profile__danger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-profile__telemetry {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--ink);
+}
+.rl-profile__delete {
+  border-color: var(--bad);
+  color: var(--bad-text);
+}

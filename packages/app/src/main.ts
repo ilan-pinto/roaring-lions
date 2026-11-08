@@ -295,6 +295,9 @@ import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
+import { accountsEnabled } from './account/enabled';
+import { createAccountClient } from './account/client';
+import { showProfile } from './ui/profile';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { logRejoin, netReport } from './net/net-report';
@@ -936,6 +939,12 @@ async function main(): Promise<void> {
   // so `unknownParams` does not report either as a typo, and neither is in
   // `router.start`'s own `drop` list below, so a reload keeps carrying them.
   const q = new URLSearchParams(window.location.search);
+  // GH-1075 A1: the one account client of this page. Disabled (no `?accounts`, or `?fresh`) it never calls `fetch`.
+  const accountClient = createAccountClient({
+    enabled: accountsEnabled(q),
+    fetch: window.fetch.bind(window),
+    newOpId: () => crypto.randomUUID(),
+  });
   const lang = resolveLang(q.get('lang'), settings.language);
   const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
   const cat = await loadLocale(activeLocale, BASE);
@@ -1016,6 +1025,10 @@ async function main(): Promise<void> {
       // GH-464: the menu's feedback modal -- the pause form without a picture
       // or a replay. `closeOpenDialog()` takes it down with the screen.
       feedbackAvailable: menuFeedback.shown ? menuFeedback.open() : undefined,
+      account: {
+        enabled: accountClient.enabled,
+        name: accountClient.enabled ? accountClient.me().then((m) => (m.kind === 'signedIn' ? m.displayName : null)) : undefined,
+      },
       feedback: menuFeedback.shown && !feedbackClosed()
         ? () => {
             feedbackDialog(host, {
@@ -1526,6 +1539,24 @@ async function main(): Promise<void> {
           }),
       },
       { name: 'saves', pattern: '/saves', mount: (host) => mountSaves(host) },
+      {
+        name: 'profile',
+        pattern: '/profile',
+        mount: (host, req) => {
+          if (!accountClient.enabled) {
+            // No `?accounts`: this screen does not exist. Leave softly once the router has finished mounting.
+            queueMicrotask(() => void router.navigate(routes.menu(), { replace: true }));
+            return () => {};
+          }
+          return showProfile(host, {
+            client: accountClient,
+            store: safeStorage(),
+            query: req.query,
+            telemetryPlayer: () => telemetry().ids()?.player ?? null,
+            navigate: (href) => window.location.assign(href),
+          });
+        },
+      },
       {
         name: 'credits',
         pattern: '/credits',
