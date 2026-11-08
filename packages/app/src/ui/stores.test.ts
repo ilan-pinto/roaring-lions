@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
+import { specialRefusal } from '@lions/net';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
+import { setCatalogue } from '../i18n/t';
 import type { LedgerData, UnlockGate } from '@lions/sim';
 import { showBrigade, type BrigadeUnit } from './brigade';
 import { creditBuyEnabled, showStores, type StoresOptions } from './stores';
@@ -103,7 +107,8 @@ describe('the Stores preview: no Buy is ever enabled', () => {
     // The diet: no "(you have …)", no per-card rule sentence, no Open button.
     expect(kipod?.textContent).not.toMatch(/you have|co-op|Open in the brigade/);
     expect(kipod?.querySelector('.rl-stores__path')?.textContent).toMatch(/^Free in ~\d+ missions?$/);
-    expect(kipod?.querySelectorAll('button')).toHaveLength(1);
+    // One Buy, and GH-1076's "What it adds" control beside it.
+    expect(kipod?.querySelectorAll('button[data-buy]')).toHaveLength(1);
     // GH-330: a new campaign pays again, so the gunship (8,000, past one
     // campaign's pay) is a card like any other and nothing is off sale.
     expect(host.querySelector('[data-item="heli_peten_gunship"]')?.getAttribute('data-state')).toBe('locked');
@@ -379,5 +384,184 @@ describe('GH-317: "Buy with credits" on a Store card', () => {
     expect(creditBuyEnabled(item, 500, false)).toBe(false);
     expect(creditBuyEnabled({ ...item, state: 'locked' }, 500, true)).toBe(false);
     expect(creditBuyEnabled({ ...item, state: 'coins' }, 500, true)).toBe(false);
+  });
+});
+
+describe('GH-1076: the "What it adds" panel', () => {
+  const control = (host: HTMLElement, id: string): HTMLButtonElement | null => host.querySelector<HTMLButtonElement>(`button[data-focus="adds:${id}"]`);
+  const regions = (host: HTMLElement): HTMLElement[] => [...host.querySelectorAll<HTMLElement>('[role="region"].rl-stores__adds')];
+
+  it('opening B closes A: exactly one region, aria-expanded follows, focus goes to the heading and back', () => {
+    const { host, dispose } = mountStores();
+    const a = control(host, 'apc_kipod');
+    const b = control(host, 'recon_zikit');
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(regions(host)).toHaveLength(0);
+    expect(a?.getAttribute('aria-expanded')).toBe('false');
+    a?.click();
+    expect(regions(host)).toHaveLength(1);
+    expect(regions(host)[0].dataset.adds).toBe('apc_kipod');
+    expect(a?.getAttribute('aria-expanded')).toBe('true');
+    expect(a?.getAttribute('aria-controls')).toBe(regions(host)[0].id);
+    // Focus moves to the panel's heading, and the region is named by it (which carries the unit's name).
+    const heading = regions(host)[0].querySelector<HTMLElement>('.rl-stores__adds-h');
+    expect(document.activeElement).toBe(heading);
+    expect(regions(host)[0].getAttribute('aria-labelledby')).toBe(heading?.id);
+    expect(heading?.textContent).toContain('Kipod');
+    b?.click();
+    expect(regions(host)).toHaveLength(1);
+    expect(regions(host)[0].dataset.adds).toBe('recon_zikit');
+    expect(a?.getAttribute('aria-expanded')).toBe('false');
+    expect(b?.getAttribute('aria-expanded')).toBe('true');
+    // Closing returns focus to the control that opened it.
+    b?.click();
+    expect(regions(host)).toHaveLength(0);
+    expect(document.activeElement).toBe(b);
+    dispose();
+    expect(host.childElementCount).toBe(0);
+  });
+
+  it('the panel sits in the grid right after its card, and the open id survives a redraw', () => {
+    let open: string | undefined;
+    const draw = (): { host: HTMLElement; dispose: () => void } =>
+      mountStores({ adds: open, onAdds: (id) => (open = id ?? undefined) });
+    const first = draw();
+    control(first.host, 'recon_zikit')?.click();
+    expect(open).toBe('recon_zikit');
+    expect(first.host.querySelector('[data-item="recon_zikit"]')?.nextElementSibling).toBe(regions(first.host)[0]);
+    first.dispose();
+    const second = draw();
+    expect(regions(second.host)).toHaveLength(1);
+    expect(control(second.host, 'recon_zikit')?.getAttribute('aria-expanded')).toBe('true');
+    second.dispose();
+  });
+
+  it('under ?pseudo=1 every text node in the panel went through t()', () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const { host, dispose } = mountStores();
+      let nodes = 0;
+      for (const id of ['inf_medic_squad', 'spg_long_range', 'apc_kipod']) {
+        control(host, id)?.click();
+        const panel = regions(host)[0];
+        expect(panel.dataset.adds).toBe(id);
+        const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+          const text = (n.textContent ?? '').trim();
+          if (text === '') continue;
+          nodes++;
+          expect(text, `${id}: ${text}`).toMatch(/^⟦.*⟧$/s);
+        }
+      }
+      // A walk over nothing passes forever.
+      expect(nodes).toBeGreaterThan(40);
+      dispose();
+    } finally {
+      setCatalogue('en', en);
+    }
+  });
+
+  it('the panel never reads the wallet, and the preview draws it in full', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    let reads = 0;
+    const o: StoresOptions = { units: roster(), ledger: {}, credits: 0, owned: {}, coinSrc, missionName: () => undefined };
+    Object.defineProperty(o, 'wallet', {
+      enumerable: true,
+      get: () => {
+        reads++;
+        return undefined;
+      },
+    });
+    const dispose = showStores(host, o);
+    const mounted = reads;
+    expect(mounted).toBeGreaterThan(0); // the spy sees the screen's own reads
+    control(host, 'inf_medic_squad')?.click();
+    expect(regions(host)).toHaveLength(1);
+    expect(regions(host)[0].querySelectorAll('.rl-stores__adds-block').length).toBeGreaterThanOrEqual(6);
+    expect(regions(host)[0].querySelector('button[data-buy]')).toBeNull(); // the panel carries no Buy
+    expect(reads).toBe(mounted);
+    dispose();
+  });
+
+  it('buy with the panel open: the card leaves the shelf, the panel goes with it, focus lands on a connected node', () => {
+    const coinUnits = new Set<string>();
+    let coins = 1000;
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const dispose = showBrigade(host, {
+      units: roster(),
+      ledger: {},
+      missionName: () => undefined,
+      baseOf: (id) => ((units as Record<string, unknown>)[id] as { id: string } | undefined) ?? { id },
+      possibleStars: 78,
+      credits: 0,
+      owned: {},
+      stores: {
+        coinSrc,
+        open: true,
+        read: () => ({
+          coin: { earnedUnits: new Set(), coinUnits, earnedTiers: {}, coinTiers: {} },
+          wallet: { coins, receipts: [] },
+        }),
+        onBuy: (ask) => {
+          if (ask.kind !== 'unit') return undefined;
+          coinUnits.add(ask.unitId);
+          coins -= 425;
+          return { units: roster(coinUnits), credits: 0, owned: {} };
+        },
+      },
+    });
+    control(host, 'inf_medic_squad')?.click();
+    expect(regions(host)).toHaveLength(1);
+    host.querySelector<HTMLButtonElement>('button[data-buy="unit:inf_medic_squad"]')?.click();
+    expect(host.querySelector('[data-item="inf_medic_squad"]')?.getAttribute('data-state')).toBe('coins');
+    expect(regions(host)).toHaveLength(0);
+    const focused = document.activeElement;
+    expect(focused).not.toBe(document.body);
+    expect(focused?.isConnected).toBe(true);
+    // The held id was dropped with the panel, so showing owned does not resurrect it.
+    host.querySelector<HTMLButtonElement>('.rl-stores__owned')?.click();
+    expect(regions(host)).toHaveLength(0);
+    dispose();
+  });
+
+  it('the toggle hiding an owned card closes its open panel', () => {
+    const { host, dispose } = mountStores({ units: roster(new Set(['breach_team'])), showOwned: true });
+    control(host, 'breach_team')?.click();
+    expect(regions(host)).toHaveLength(1);
+    host.querySelector<HTMLButtonElement>('.rl-stores__owned')?.click();
+    expect(regions(host)).toHaveLength(0);
+    dispose();
+  });
+
+  it('the versus line follows the real specialRefusal over all twelve Store specials', () => {
+    const specials = Object.values(units)
+      .filter((u) => {
+        if (u.faction !== 'kdf' || !('unlock' in u)) return false;
+        const g = u.unlock as { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number };
+        return g.price !== undefined && g.roe_rating_min === undefined && g.stars_min === undefined && g.after_mission === undefined;
+      })
+      .map((u) => u.id);
+    expect(specials).toHaveLength(12);
+    const { host, dispose } = mountStores();
+    const room = en['stores.adds.where.brigadeRoom'];
+    const refused: string[] = [];
+    for (const id of specials) {
+      control(host, id)?.click();
+      const panel = regions(host)[0];
+      expect(panel.dataset.adds).toBe(id);
+      const room_ = panel.querySelector('[data-where="brigadeRoom"]');
+      if (specialRefusal(id) === null) {
+        expect(room_?.textContent, id).toBe(room);
+      } else {
+        refused.push(id);
+        expect(room_, id).toBeNull();
+        expect(panel.querySelector('[data-where="campaignOnly"]')?.textContent, id).toBe(en['stores.adds.where.campaignOnly']);
+      }
+    }
+    expect(refused.sort()).toEqual(['air_medevac_heli', 'spg_cluster', 'veh_ambulance']);
+    dispose();
   });
 });

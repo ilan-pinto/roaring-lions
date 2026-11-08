@@ -614,6 +614,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   let storesDispose: Disposer | null = null;
   let storesShelf: StoresShelf = 'early';
   let storesOwned = false;
+  let storesAdds: string | undefined;
   /** A coin purchase's answer: the garage redraws around the account as the
    *  store now holds it -- quietly, since it is not on screen -- and the
    *  Stores is drawn again with focus back on the control that asked. */
@@ -656,6 +657,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       showOwned: storesOwned,
       onShowOwned: (on) => {
         storesOwned = on;
+      },
+      adds: storesAdds,
+      onAdds: (id) => {
+        storesAdds = id ?? undefined;
       },
       focusKey,
       onBuy:

@@ -43,6 +43,7 @@ import {
   type UnitItem,
 } from './stores-model';
 import { rovingStep } from './garage-model';
+import { addsAvailable, buildAddsPanel } from './stores-adds-view';
 
 export type StoresShelf = 'early' | 'cosmetics' | 'receipts';
 const SHELVES: readonly StoresShelf[] = ['early', 'cosmetics', 'receipts'];
@@ -73,6 +74,10 @@ export interface StoresOptions extends StoreInput {
   onBuyCredits?: (unitId: string, credits: number) => void;
   /** The `data-buy`/`data-focus` key of the control to focus after a redraw. */
   focusKey?: string;
+  /** The unit whose "What it adds" panel is open (GH-1076), kept through redraws like `shelf`. */
+  adds?: string;
+  /** Told when a panel opens (its unit id) or closes (`null`), so a redraw can reopen it. */
+  onAdds?: (id: string | null) => void;
 }
 
 export interface StoresWallet {
@@ -161,7 +166,19 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
 
   // The wallet every Buy is asked against: the stored one, or the preview's 0.
   const coinWallet: CoinWallet = opts.wallet !== undefined ? { live: true, coins: opts.wallet.coins } : PREVIEW_WALLET;
-  const ctx: Ctx = { opts, wallet: coinWallet };
+  // "What it adds" (GH-1076): at most one panel, under the open card's grid row. The panel carries no Buy and
+  // reads no wallet, so a purchase's focus restore is untouched.
+  const addsCards = new Map<string, { card: HTMLElement; btn: HTMLButtonElement }>();
+  let addsOpen: string | null = opts.adds ?? null;
+  let addsPanel: HTMLElement | null = null;
+  const addsHook: AddsHook = {
+    available: addsAvailable,
+    register: (id, card, btn) => {
+      addsCards.set(id, { card, btn });
+      btn.addEventListener('click', () => setAdds(addsOpen === id ? null : id, true));
+    },
+  };
+  const ctx: Ctx = { opts, wallet: coinWallet, adds: addsHook };
   if (opts.wallet !== undefined) root.dataset.live = '1';
 
   // --- head: the balance, and "Get Roar coins" beside it --------------------
@@ -347,6 +364,39 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
       anyVisible ||= on;
     }
     if (nothing !== null) nothing.hidden = anyVisible;
+    syncAdds();
+  }
+
+  /** Opens `id`'s panel (closing the other) or closes it. `byUser` moves focus: to the panel's heading on
+   *  open, back to the control on close. */
+  function setAdds(id: string | null, byUser: boolean): void {
+    const was = addsOpen;
+    addsOpen = id;
+    opts.onAdds?.(id);
+    syncAdds();
+    if (!byUser) return;
+    if (id !== null) addsPanel?.querySelector<HTMLElement>('.rl-stores__adds-h')?.focus();
+    else if (was !== null) addsCards.get(was)?.btn.focus();
+  }
+  /** Draws the open panel and nothing else. A card that is not on the shelf (owned, with the toggle off) has no
+   *  panel: it closes, so a purchase that moves the card takes its panel with it. */
+  function syncAdds(): void {
+    addsPanel?.remove();
+    addsPanel = null;
+    for (const [id, e] of addsCards) e.btn.setAttribute('aria-expanded', id === addsOpen ? 'true' : 'false');
+    if (addsOpen === null) return;
+    const entry = addsCards.get(addsOpen);
+    const section = entry?.card.closest<HTMLElement>('.rl-stores__group') ?? null;
+    if (entry === undefined || entry.card.hidden || section === null || section.hidden) {
+      addsOpen = null;
+      opts.onAdds?.(null);
+      for (const e of addsCards.values()) e.btn.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    const panel = buildAddsPanel(addsOpen, opts, opts.missionName, `rl-stores-adds-${addsOpen}`, `rl-stores-adds-h-${addsOpen}`);
+    if (panel === null) return;
+    entry.card.after(panel);
+    addsPanel = panel;
   }
 
   // --- Cosmetics and Receipts ----------------------------------------------
@@ -414,6 +464,28 @@ function earnPanel(): HTMLElement {
 interface Ctx {
   readonly opts: StoresOptions;
   readonly wallet: CoinWallet;
+  readonly adds: AddsHook;
+}
+
+/** The "What it adds" control's seam into the screen (GH-1076): which cards have one, and where it registers. */
+interface AddsHook {
+  available: (unitId: string) => boolean;
+  register: (unitId: string, card: HTMLElement, btn: HTMLButtonElement) => void;
+}
+
+/** A card's "What it adds" control: `data-focus="adds:<id>"`, `aria-expanded`, `aria-controls`. */
+function addsControl(item: UnitItem, card: HTMLElement, ctx: Ctx): HTMLButtonElement | null {
+  if (!ctx.adds.available(item.id)) return null;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'rl-stores__adds-open';
+  btn.dataset.focus = `adds:${item.id}`;
+  btn.textContent = t('stores.adds.open');
+  btn.setAttribute('aria-label', t('stores.adds.open.aria', { name: item.name }));
+  btn.setAttribute('aria-expanded', 'false');
+  btn.setAttribute('aria-controls', `rl-stores-adds-${item.id}`);
+  ctx.adds.register(item.id, card, btn);
+  return btn;
 }
 
 /** ONE price line: coins first, credits small beside them. */
@@ -554,6 +626,8 @@ function unitCard(item: UnitItem, ctx: Ctx): HTMLElement {
   } else {
     body.appendChild(el('span', `rl-stores__state rl-stores__state--${item.state}`, t(`stores.state.${item.state}`)));
   }
+  const adds = addsControl(item, card, ctx);
+  if (adds !== null) body.appendChild(adds);
   card.appendChild(body);
   return card;
 }
