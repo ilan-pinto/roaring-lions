@@ -1,0 +1,69 @@
+{
+  "about": "GH-943 WebGPU P2 T2: the four P1 v2 sheet crops `banding.test.ts` reads to prove bandingIndex SEES the reported defect (G above L-shipped on both crops). Cropped to the rectangles below from the frames named per file; the test refuses on a missing or hash-mismatched crop.",
+  "source": {
+    "run": "WebGPU P1 T9 sheet v2 (tools/src/perf/webgpu-p1-sheet.ts), 2026-11-06T13:30Z, branch tools/webgpu-p1-sheet on main with PR 1085",
+    "directory": "_coord/webgpu-primary/p1-sheet-v2 (untracked, never read by a test)",
+    "framing": "?sandbox=wadi_halam_4, booted camera (24.0, 24.0), zoom 1, sim tick 5, parked force, quality high, music off, reduced motion, 1440x900 at DPR 2 (2880x1800 device px)",
+    "arms": {
+      "G": "node on WebGPU, apple / metal-3 (frame-G-z1.png, copied out of the canvas in the render's task)",
+      "LS": "L shipped: legacy WebGL2, no census, ANGLE Metal Renderer: Apple M3 Pro (frame-LS-z1.png, page screenshot)"
+    },
+    "machine": "Apple M3 Pro, Chromium headless ANGLE/Metal, load 4.13 (G) and 4.26 (LS) at the page's start"
+  },
+  "crops": {
+    "penumbra": {
+      "x": 8,
+      "y": 1270,
+      "w": 352,
+      "h": 192
+    },
+    "lit": {
+      "x": 16,
+      "y": 712,
+      "w": 320,
+      "h": 136
+    }
+  },
+  "cropNotes": {
+    "penumbra": "the edge of the large soft shadow, lower left: lit ground above, shadow below, left of the road and below the boulder field",
+    "lit": "open lit ground left of the force, below the helicopter's ring and above the boulders, no road, ring or decal in it"
+  },
+  "files": [
+    {
+      "file": "G-penumbra.png",
+      "arm": "G",
+      "crop": "penumbra",
+      "sha256": "3bebe8c567317c818aae4afe7566f5d49dc3c0b5685cee26cf63ec77c8a1f124",
+      "bytes": 35052,
+      "sourceFrame": "frame-G-z1.png",
+      "sourceSha256": "35c0dc9b08964ec71925ebb2d0b6b6d7f2a1aa14903bf0cd442acd80cadcbb86"
+    },
+    {
+      "file": "G-lit.png",
+      "arm": "G",
+      "crop": "lit",
+      "sha256": "172b9908f8127d7374d4892c9ddff9d3acb5e05801f3a6a0f6ffb82b512fd664",
+      "bytes": 11789,
+      "sourceFrame": "frame-G-z1.png",
+      "sourceSha256": "35c0dc9b08964ec71925ebb2d0b6b6d7f2a1aa14903bf0cd442acd80cadcbb86"
+    },
+    {
+      "file": "LS-penumbra.png",
+      "arm": "LS",
+      "crop": "penumbra",
+      "sha256": "4c5410f4cac2d99dbf0912e9fadc104dfa50343c375301cda588a11fdc65a023",
+      "bytes": 76748,
+      "sourceFrame": "frame-LS-z1.png",
+      "sourceSha256": "9d552bb818057f4c46c31a955dea9ab35dbd4be115311f8d1bb73945a21ddebe"
+    },
+    {
+      "file": "LS-lit.png",
+      "arm": "LS",
+      "crop": "lit",
+      "sha256": "942c4d366979ae263a5265867e74a24f2b87d134cc6e7b0643ec1fd80c68ca7d",
+      "bytes": 58519,
+      "sourceFrame": "frame-LS-z1.png",
+      "sourceSha256": "9d552bb818057f4c46c31a955dea9ab35dbd4be115311f8d1bb73945a21ddebe"
+    }
+  ]
+}
