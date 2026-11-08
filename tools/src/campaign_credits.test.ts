@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CAMPAIGN_CREDITS } from '../../packages/app/src/ui/stores-model';
+import { CAMPAIGN_CREDITS } from '../../packages/economy/src/stores';
 
 const root = resolve(__dirname, '../..');
 
@@ -23,7 +23,7 @@ function pinned(file: string, name: string): number {
 describe('CAMPAIGN_CREDITS follows LADDER_CREDITS (GH-330)', () => {
   it('the store quotes exactly what the ladder pins', () => {
     const ladder = pinned('tools/src/backtest/playtest.ts', 'LADDER_CREDITS');
-    expect(pinned('packages/app/src/ui/stores-model.ts', 'CAMPAIGN_CREDITS')).toBe(ladder);
+    expect(pinned('packages/economy/src/stores.ts', 'CAMPAIGN_CREDITS')).toBe(ladder);
     expect(CAMPAIGN_CREDITS).toBe(ladder);
   });
 });
