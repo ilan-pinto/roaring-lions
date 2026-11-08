@@ -25,6 +25,7 @@ import type { BloomControl } from '../bloom-spec';
 import type { NodePmremHost } from '../environment';
 import type { RawPixels } from '../capture-view.node';
 import type { GroundMaterial } from '../terrain/mesh';
+import type { RingMaths } from '../units/selection-ring.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -51,7 +52,7 @@ export interface MaterialMaths {
   readonly marker: 'rl-material-maths';
   readonly ground: null;
   readonly foliage: null;
-  readonly ring: null;
+  readonly ring: RingMaths;
 }
 
 /**

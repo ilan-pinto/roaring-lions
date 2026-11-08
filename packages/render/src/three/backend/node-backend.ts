@@ -22,6 +22,8 @@ import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
 import { captureNodeView, photographNodeGround, type NodeCaptureDeps, type ReadbackMaths } from '../capture-view.node';
+import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
+import type { RingStyle } from '../units/selection-ring';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -101,6 +103,9 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   /** GH-943 P2 (T1): the material twins, null until each task lands (T3 ground, T5 ring, T6 foliage), each built from
    *  `opts.materialMaths`. A null factory leaves the legacy material in place, and this backend's census hides or names it. */
   const materials: MaterialKit = { ground: null, foliage: null, ring: null };
+  // GH-943 P2 (T5): the selection, team and wound rings. The legacy material keeps the uniform record the batch writes and carries its style.
+  materials.ring = (legacy) =>
+    createNodeRingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.ring }, legacy.userData[RING_STYLE_KEY] as RingStyle, legacy.uniforms as unknown as RingUniformRecord);
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();
