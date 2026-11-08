@@ -181,7 +181,9 @@ import {
 } from './time-of-day';
 import { disposeAndReleaseContext, noteSharedTextures } from './context-release';
 import { backendLogLine, planBackend, probeWebGpu, wantsNodeBackend, type BackendInfo, type GpuNavigatorLike } from '../gpu';
-import type { RenderBackend } from './backend/backend';
+import type { MaterialKit, RenderBackend } from './backend/backend';
+import { adoptMaterials, createTwinCache } from './node-material-adoption';
+import { MATERIAL_MATHS } from './material-maths';
 import type { UnportedHook } from './backend/unported';
 import { setImageReleaseEnabled } from './units/gltf-loader';
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
@@ -1241,6 +1243,13 @@ export class ThreeRenderer implements Renderer {
   private glRenderer: THREE.WebGLRenderer | null = null;
   /** GH-943 P0: the node `RenderBackend` once `init` has built it, else null (legacy, or before init). */
   private nodeBackend: RenderBackend | null = null;
+  /**
+   * GH-943 P2 (T1): the node backend's material twin factories (`RenderBackend.materials`), taken when `initNodeBackend` builds it;
+   * null on a legacy boot. Held apart from the backend so a spec can hand a renderer a stub kit (production never sets it otherwise).
+   */
+  private nodeMaterialKit: MaterialKit | null = null;
+  /** GH-943 P2 (T1): legacy material -> its node twin, one twin per legacy object (`adoptNodeMaterials`). */
+  private readonly nodeTwins = createTwinCache();
   /** What `backendInfo()` reports. `legacy-gl` until a node init says otherwise. */
   private backendInfoValue: BackendInfo;
   /** True when `opts.gpu` asked for the node backend; fixed at construction (it decides whether a WebGLRenderer exists). */
@@ -3607,6 +3616,10 @@ export class ThreeRenderer implements Renderer {
       this.environment?.attach(this.nodeBackend.pmrem);
       this.mountAndObserve(host);
       this.seedFromSim();
+      // GH-943 P2 (T1): every legacy material with a twin is swapped BEFORE the first census (inside `prepare`), which would
+      // otherwise hide an un-adopted ring or name an un-adopted ground as unported. The ground and decor are built lazily, by the
+      // first frame's `rebuildTerrain`, whose own adoption runs before that frame's census; this one takes what exists now.
+      this.adoptNodeMaterials(this.scene);
       await this.nodeBackend.prepare(this.scene, this.viewCamera);
       return;
     }
@@ -3755,6 +3768,7 @@ export class ThreeRenderer implements Renderer {
         bloomMaths: BLOOM_MATHS,
         aoMaths: AO_MATHS,
         readbackMaths: READBACK_MATHS,
+        materialMaths: MATERIAL_MATHS,
       });
       if (this.disposed) {
         if ('backend' in made) made.backend.dispose();
@@ -3762,6 +3776,7 @@ export class ThreeRenderer implements Renderer {
       }
       if ('backend' in made) {
         this.nodeBackend = made.backend;
+        this.nodeMaterialKit = made.backend.materials;
         this.backendInfoValue = { kind: made.backend.kind, adapter: made.backend.adapter, requested, ...(reason !== '' ? { reason } : {}) };
         console.info(backendLogLine(this.backendInfoValue));
         return;
@@ -3777,6 +3792,21 @@ export class ThreeRenderer implements Renderer {
   /** `Renderer.backendInfo` (`api.ts`). Read by the harness, the log, feedback and settings. */
   backendInfo(): BackendInfo {
     return this.backendInfoValue;
+  }
+
+  /**
+   * GH-943 P2 (T1): swaps every legacy material under `root` that has a node twin (`MaterialKit`) for that twin, through the
+   * identity cache, so one legacy object gets one twin; the legacy object keeps owning its uniforms and debug setters. Runs at
+   * every site that makes a ground, chunk or decor mesh (`rebuildTerrain`, which covers the full build, the collapse splice of
+   * `terrain/incremental.ts` and the chunk re-slice) and once in `init`'s node branch before `prepare`'s first census. A legacy
+   * boot never reaches the kit: that is THIS guard, which `ThreeRenderer.material-seam.test.ts` pins by handing a legacy renderer
+   * a stub kit. Returns how many objects it swapped.
+   */
+  private adoptNodeMaterials(root: THREE.Object3D | null): number {
+    if (this.nodeBackend === null) return 0;
+    const kit = this.nodeMaterialKit;
+    if (kit === null || root === null) return 0;
+    return adoptMaterials(root, kit, this.nodeTwins);
   }
 
   /** `Renderer.unportedHooks` (`api.ts`): the node backend's census, empty on the legacy path. */
@@ -14452,6 +14482,9 @@ export class ThreeRenderer implements Renderer {
     this.scatterLayer.update(build.state.scatter, build.dirtyTiles);
     this.terrainMesh = this.groundLayer.root;
     this.scatterMesh = this.scatterLayer.root;
+    // GH-943 P2 (T1): every ground mesh this update made carries the LEGACY `groundMat` (a full build, a collapse splice, a chunk
+    // re-slice alike: `ChunkedMeshLayer.place`), so the node twin is adopted here, on every rebuild. A no-op on legacy.
+    this.adoptNodeMaterials(this.terrainMesh);
 
     this.residualMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.residual), this.terrainMat));
     this.residualMesh.receiveShadow = true;
@@ -14482,6 +14515,9 @@ export class ThreeRenderer implements Renderer {
       this.opts.weather === 'rain'
     );
     this.scene.add(freezeStatic(this.decorGroup));
+    // GH-943 P2 (T1): the decor is rebuilt wholesale on every rebuild, with new sway materials: adopted here, before the
+    // environment below, so the class table adopts the material that draws. A no-op on legacy.
+    this.adoptNodeMaterials(this.decorGroup);
 
     // The textured half of the same placement list. `buildDecorMesh` above
     // and this partition it by family rather than competing for it -- a

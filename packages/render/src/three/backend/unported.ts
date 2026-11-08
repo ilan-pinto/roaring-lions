@@ -13,11 +13,12 @@
 import * as THREE from 'three';
 import { NODE_PMREM_TAG } from '../environment.node';
 
-export type UnportedKind = 'shader-material' | 'on-before-compile' | 'env-map' | 'image-release';
+export type UnportedKind = 'shader-material' | 'on-before-compile' | 'env-map' | 'image-release' | 'partial';
 
 export interface UnportedHook {
   readonly kind: UnportedKind;
-  /** A name a reader can grep: the material's `name`, its `customProgramCacheKey()`, else the first object's name. */
+  /** A name a reader can grep: the material's `name`, its `customProgramCacheKey()`, else the first object's name. A `partial`
+   *  hook's key is the term itself, as its twin declares it (`rl-ground: wet terms`). */
   readonly key: string;
   /** How many scene objects carry it. */
   objects: number;
@@ -26,7 +27,27 @@ export interface UnportedHook {
 /** Hooked materials that draw WRONG (not just plainer) without their hook, so the node backend hides them. */
 export const HIDE_WITHOUT_HOOK: ReadonlySet<string> = new Set(['rl-silhouette-outline']);
 
+/**
+ * GH-943 P2 (T1): the legacy material keys (as `censusUnported` names them) that have a node twin. Each port task APPENDS its key
+ * in the PR that lands the twin (T3 the ground, T5 the ring, T6 the foliage). Read ONLY through the explicit `portedKeys` option
+ * of `censusUnported`, which only `matchNodeStatements` (`tools/src/golden-diff/capture-protocol.ts`) passes, on the LEGACY
+ * scene: there a listed key is drawn by legacy because node now draws it too, so it is neither hidden nor reported, and the parity
+ * ratio of a ported layer measures something. The node backend's own census never passes it, so on node a legacy material that
+ * escaped adoption is still hidden and named whatever list it is on: an adoption bug stays loud.
+ */
+export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([]);
+
+/** `userData` key on a node twin: the terms of its legacy material it does NOT draw (`['rl-ground: wet terms']`). */
+export const UNPORTED_TERMS_KEY = 'rlUnportedTerms';
+
+export interface CensusOptions {
+  /** Legacy keys to leave visible and unreported (the L-matched arm only; see `PORTED_MATERIAL_KEYS`). Absent: none. */
+  readonly portedKeys?: ReadonlySet<string>;
+}
+
 const STOCK_ON_BEFORE_COMPILE = THREE.Material.prototype.onBeforeCompile;
+/** `Material.customProgramCacheKey()` of a material with no hook: the stock callback's own text, the same for every one of them. */
+const STOCK_PROGRAM_KEY = String(STOCK_ON_BEFORE_COMPILE);
 
 interface DrawLike extends THREE.Object3D {
   material?: THREE.Material | THREE.Material[];
@@ -39,8 +60,9 @@ function materialKey(m: THREE.Material, o: THREE.Object3D): string {
   } catch {
     cache = '';
   }
-  // `ShaderMaterial.customProgramCacheKey()` is the hook's own source text: never a usable name.
-  return m.name || (cache.length <= 60 ? cache : '') || o.name || o.parent?.name || m.type;
+  // `ShaderMaterial.customProgramCacheKey()` is the hook's own source text: never a usable name. Nor is the STOCK text (every
+  // unnamed ShaderMaterial shares it, so a key list naming it would cover all of them): those fall through to the object's name.
+  return m.name || (cache.length <= 60 && cache !== STOCK_PROGRAM_KEY ? cache : '') || o.name || o.parent?.name || m.type;
 }
 
 /**
@@ -49,8 +71,12 @@ function materialKey(m: THREE.Material, o: THREE.Object3D): string {
  * object is hidden (`visible = false`: an unconvertible material would otherwise draw as an empty node
  * material), and a render-target `envMap` (the L1 PMREM, which belongs to the WebGL context) is dropped.
  * An `onBeforeCompile` hook is left in place: the material draws as its stock self, and the report names it.
+ *
+ * GH-943 P2 (T1): a node twin that draws only part of its legacy material lists the rest in `userData.rlUnportedTerms`, and each
+ * term is reported as a `partial` hook. `opts.portedKeys` (OFF by default; see `PORTED_MATERIAL_KEYS`) exempts listed legacy keys.
  */
-export function censusUnported(root: THREE.Object3D): UnportedHook[] {
+export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}): UnportedHook[] {
+  const ported = opts.portedKeys;
   const found = new Map<string, UnportedHook>();
   const note = (kind: UnportedKind, key: string): void => {
     const id = `${kind}|${key}`;
@@ -63,15 +89,22 @@ export function censusUnported(root: THREE.Object3D): UnportedHook[] {
     if (!mat) return;
     const list = Array.isArray(mat) ? mat : [mat];
     for (const m of list) {
+      const terms = (m.userData as Record<string, unknown>)[UNPORTED_TERMS_KEY];
+      if (Array.isArray(terms)) for (const t of terms) if (typeof t === 'string') note('partial', t);
       if ((m as THREE.ShaderMaterial).isShaderMaterial === true) {
-        note('shader-material', materialKey(m, o));
+        const key = materialKey(m, o);
+        if (ported?.has(key) === true) continue;
+        note('shader-material', key);
         o.visible = false;
         continue;
       }
       if (m.onBeforeCompile !== STOCK_ON_BEFORE_COMPILE) {
-        note('on-before-compile', materialKey(m, o));
-        // The occlusion outline is a depth-fail trick in GLSL; as a stock material it would paint every unit a flat colour.
-        if (HIDE_WITHOUT_HOOK.has(materialKey(m, o))) o.visible = false;
+        const key = materialKey(m, o);
+        if (ported?.has(key) !== true) {
+          note('on-before-compile', key);
+          // The occlusion outline is a depth-fail trick in GLSL; as a stock material it would paint every unit a flat colour.
+          if (HIDE_WITHOUT_HOOK.has(key)) o.visible = false;
+        }
       }
       // GLB bitmaps are closed after their first upload (`units/gltf-loader.ts`); WebGPU uploads more than once and would
       // draw them black. Already-armed textures are disarmed here while their bitmap is still open.
@@ -112,7 +145,9 @@ export function unportedWarnings(hooks: readonly UnportedHook[], seen: Set<strin
           ? 'onBeforeCompile GLSL has no TSL port on the node backend: it draws as the stock material WITHOUT the hook'
           : h.kind === 'image-release'
             ? 'the load-time bitmap release after first upload is WebGL-only (WebGPU uploads twice): DISARMED'
-            : 'render-target envMap belongs to the WebGL context: DROPPED';
+            : h.kind === 'partial'
+              ? 'the node twin draws its material WITHOUT this term'
+              : 'render-target envMap belongs to the WebGL context: DROPPED';
     out.push(`[lions] UNPORTED ${h.kind} "${h.key}" (${h.objects} object${h.objects === 1 ? '' : 's'}): ${what}`);
   }
   return out;
