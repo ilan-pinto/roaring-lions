@@ -246,6 +246,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     chip.href = routes.profile();
     chip.textContent = t('menu.profile.guest');
     aside.appendChild(chip);
+    addAside(t('menu.aside.privacy'), routes.privacy());
     void opts.account.name?.then((name) => {
       if (name !== null) chip.textContent = name;
     });

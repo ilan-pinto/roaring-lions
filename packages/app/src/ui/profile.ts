@@ -86,10 +86,17 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     if (isError(r)) say(r.error === 'network' || r.status === 0 ? t('profile.result.steam') : failText(r), true);
     else deps.navigate(r.url);
   };
+  const privacyLink = (): HTMLAnchorElement => {
+    const a = document.createElement('a');
+    a.className = 'rl-profile__privacy-link';
+    a.href = routes.privacy();
+    a.textContent = t('profile.privacyLink');
+    return a;
+  };
   const guestBlock = (): HTMLElement => {
     const box = document.createElement('div');
     box.className = 'rl-profile__guest';
-    box.append(button(t('profile.signIn'), () => void signIn(), 'rl-btn rl-profile__signin'), line('rl-profile__privacy', t('profile.privacy')));
+    box.append(button(t('profile.signIn'), () => void signIn(), 'rl-btn rl-profile__signin'), line('rl-profile__privacy', t('profile.privacy')), privacyLink());
     return box;
   };
 
@@ -172,6 +179,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
       button(t('profile.export'), () => void download())
     );
     box.appendChild(verbs);
+    box.appendChild(privacyLink());
 
     // Delete: the choices sit beside the button, the confirm is the last word.
     const danger = document.createElement('div');

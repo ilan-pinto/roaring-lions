@@ -6,6 +6,7 @@ import { handleStats } from './stats';
 import { handleFeedback } from './feedback-ingest';
 import { purgeExpired } from './feedback-triage';
 import { handleArenaResults, isArenaPath } from './arena-results';
+import { handlePrivacy } from './privacy-page';
 import { handleAccount } from './account/routes';
 import { reconcileTombstones, sweepAccounts } from './account/sweep';
 import { handleMatch } from './match/routes';
@@ -23,6 +24,8 @@ export default {
     if (pathname === '/api/feedback') return withSecurityHeaders(await handleFeedback(req, env, Date.now()));
     if (pathname.startsWith('/api/account/')) return withSecurityHeaders(await handleAccount(req, env, Date.now()));
     if (pathname === '/api/match' || pathname.startsWith('/api/match/')) return withSecurityHeaders(await handleMatch(req, env, Date.now()));
+    // GH-1075 A1: the privacy page. No D1, no cookie; closed (503) until the lead supplies the contact and age.
+    if (pathname === '/privacy') return withSecurityHeaders(handlePrivacy(req));
     // GH-954 P3: public, bundled data, no D1 and no cookie. Not under /stats.
     if (isArenaPath(pathname)) return withSecurityHeaders(handleArenaResults(req, env));
     if (pathname === '/stats' || pathname.startsWith('/stats/')) return withSecurityHeaders(await handleStats(req, env, Date.now()));

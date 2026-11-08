@@ -65,6 +65,15 @@ describe('showProfile', () => {
     expect(stage.textContent).toContain(t('profile.privacy'));
   });
 
+  it('links to /privacy, as a guest and when signed in', async () => {
+    for (const me of [{ kind: 'signedOut' } as MeResult, signedIn()]) {
+      const { stage, dispose } = mount(stub({ me: async () => me }));
+      await flush();
+      expect(stage.querySelector('a[href="/privacy"]')?.textContent).toBe(t('profile.privacyLink'));
+      dispose();
+    }
+  });
+
   it('sign-in starts steam-login and navigates to the returned url', async () => {
     const starts: string[] = [];
     const { stage, navigated } = mount(stub({ steamStart: async (p) => (starts.push(p), { url: 'https://steam.example/x' }) }));

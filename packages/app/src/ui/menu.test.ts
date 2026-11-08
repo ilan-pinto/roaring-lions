@@ -224,4 +224,12 @@ describe('showMenu account chip', () => {
     await Promise.resolve();
     expect(chip?.textContent).toBe('Ilan');
   });
+
+  it('links to /privacy only with an enabled account client', () => {
+    for (const [account, want] of [[undefined, false], [{ enabled: false }, false], [{ enabled: true }, true]] as const) {
+      const stage = document.createElement('div');
+      showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account });
+      expect(stage.querySelector('a[href="/privacy"]') !== null).toBe(want);
+    }
+  });
 });

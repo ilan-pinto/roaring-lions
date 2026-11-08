@@ -52,6 +52,8 @@ export const routes = {
   // now so that when they arrive there is nowhere else for the path to be
   // written down.
   profile: (): string => href('/profile'),
+  // The privacy page is served by the Worker, not the SPA: a hard navigation.
+  privacy: (): string => href('/privacy'),
   settings: (): string => href('/settings'),
   credits: (): string => href('/credits'),
   saves: (): string => href('/saves'),
