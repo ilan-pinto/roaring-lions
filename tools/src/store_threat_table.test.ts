@@ -4,7 +4,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { UnitTypeJson } from '../../packages/sim/src/sim';
+import { unitTypeFromJson, type UnitTypeJson } from '../../packages/sim/src/sim';
 import { askPair, buildThreatTable, THREAT_TABLE_PATH } from './store/threat-table';
 
 const ROOT = resolve(__dirname, '../..');
@@ -61,18 +61,36 @@ describe('threat table', () => {
     expect(Object.keys(committed).length).toBe(kdf.length);
   });
 
-  it('a soft type lists every armed enemy that can reach its domain; a hard one a strict subset', () => {
-    let soft = 0;
-    let hard = 0;
-    for (const k of kdf) {
+  it('a soft type (hull.armor.front < 30, from the unit JSON) lists every armed enemy that can reach its domain', () => {
+    const soft = kdf.filter((k) => unitTypeFromJson(k).isSoft);
+    // Literal anchors so the derived set cannot be empty or all of kdf.
+    expect(soft.map((k) => k.id)).toContain('inf_squad');
+    expect(soft.map((k) => k.id)).not.toContain('mbt_lavi');
+    expect(soft.length).toBeLessThan(kdf.length);
+    for (const k of soft) {
       const dom = domainOf(k);
       const reach = armed.filter((e) => weaponsOf(e).some((w) => w.can_target.includes(dom))).map((e) => e.id).sort();
-      const list = committed[k.id] ?? [];
-      for (const id of list) expect(reach).toContain(id);
-      if (list.length === reach.length) soft++;
-      else hard++;
+      expect(committed[k.id], k.id).toEqual(reach);
     }
-    expect(soft).toBeGreaterThanOrEqual(1);
-    expect(hard).toBeGreaterThanOrEqual(1);
+    // Hard types: a strict subset of what reaches their domain, for at least one.
+    const hard = kdf.filter((k) => !unitTypeFromJson(k).isSoft);
+    expect(hard.length).toBeGreaterThanOrEqual(1);
+    for (const k of hard) {
+      const dom = domainOf(k);
+      const reach = armed.filter((e) => weaponsOf(e).some((w) => w.can_target.includes(dom))).map((e) => e.id);
+      for (const id of committed[k.id] ?? []) expect(reach).toContain(id);
+    }
+    expect(hard.some((k) => (committed[k.id] ?? []).length < armed.length)).toBe(true);
+  });
+
+  it('the isAirborne guard (R0.9) is live: the medevac heli lists no rifle, and the guard accepts every KDF type', () => {
+    const air = kdf.filter((k) => unitTypeFromJson(k).isAir);
+    expect(air.length).toBeGreaterThanOrEqual(1);
+    expect(committed['air_medevac_heli']).not.toContain('sarim_rifles');
+    const rifle = enemies.find((e) => e.id === 'sarim_rifles');
+    if (rifle === undefined) throw new Error('sarim_rifles missing');
+    for (const k of air) {
+      expect(() => askPair(rifle, k)).not.toThrow();
+    }
   });
 });
