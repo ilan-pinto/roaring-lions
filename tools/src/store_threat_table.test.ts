@@ -75,4 +75,20 @@ describe('threat table', () => {
     expect(soft).toBeGreaterThanOrEqual(1);
     expect(hard).toBeGreaterThanOrEqual(1);
   });
+
+  it('a type with no armour on any face is soft by its own data, and lists EVERY armed enemy that can reach it', () => {
+    // Softness comes from the unit JSON (armour 0 on all three faces), never from the list under test: a list that
+    // lost an enemy would otherwise just be counted as "hard" by the loop above.
+    const unarmoured = kdf.filter((k) => {
+      const a = (k as unknown as { hull: { armor: Record<string, number> } }).hull.armor;
+      return Object.values(a).every((v) => v === 0);
+    });
+    expect(unarmoured.map((k) => k.id).sort(), 'the soft set, by armour').toEqual(['attack_drone', 'recon_drone', 'wounded_kdf']);
+    for (const k of unarmoured) {
+      const dom = domainOf(k);
+      const reach = armed.filter((e) => weaponsOf(e).some((w) => w.can_target.includes(dom))).map((e) => e.id).sort();
+      expect(reach.length, `${k.id} is reachable by something`).toBeGreaterThan(0);
+      expect(committed[k.id], k.id).toEqual(reach);
+    }
+  });
 });
