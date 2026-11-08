@@ -351,6 +351,21 @@ function ringFragmentShader(style: RingStyle): string {
 `;
 }
 
+/**
+ * The fragment's output composition, premultiplied "over" (`gl_FragColor = vec4(vColor * ca + uHaloColor * ha * (1 - ca), a)`),
+ * per channel and written once against `Ops<T>` so the node twin cannot drift from it unseen (GH-943 P2 T5 review).
+ */
+export function ringOutputOps<T>(
+  o: Ops<T>,
+  cov: RingCoverage<T>,
+  color: readonly [T, T, T],
+  halo: readonly [T, T, T]
+): { readonly rgb: readonly [T, T, T]; readonly a: T } {
+  const one = o.lit(1);
+  const ch = (c: T, h: T): T => o.add(o.mul(c, cov.ca), o.mul(o.mul(h, cov.ha), o.sub(one, cov.ca)));
+  return { rgb: [ch(color[0], halo[0]), ch(color[1], halo[1]), ch(color[2], halo[2])], a: cov.a };
+}
+
 /** GH-943 P2 (T1): the ring material's name, shared by all three batches (selection, team, wound): what the node census names it
  *  and what `legacyTwinSlot` keys the ring twin on. */
 export const SELECTION_RING_MATERIAL_NAME = 'rl-selection-ring';

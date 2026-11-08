@@ -16,6 +16,7 @@ import { SELECTION_RING, TEAM_RING, WOUND_RING } from './readability';
 import {
   RING_STYLE_KEY as LEGACY_STYLE_KEY,
   ringFragmentOps,
+  ringOutputOps,
   ringPxPerTile,
   SELECTION_RING_MATERIAL_NAME,
   SelectionRingBatch,
@@ -81,6 +82,23 @@ describe('the ring fragment maths on numbers (literals)', () => {
     expect(o(2, 0).ca).toBeCloseTo(o(0, 1).ca, 9);
     expect(o(1.95, 0).ca).toBeCloseTo(0.95, 9);
     expect(o(0, 0.95).ca).toBeCloseTo(0.95, 9);
+  });
+});
+
+describe('the output composition on numbers (literals)', () => {
+  const out = (ca: number, ha: number, color: [number, number, number], halo: [number, number, number]) =>
+    ringOutputOps(NUMBER_OPS, { ca, ha, a: ca + ha * (1 - ca) }, color, halo);
+  it('is colour * ca + halo * ha * (1 - ca) per channel, with alpha ca + ha (1 - ca)', () => {
+    const r = out(0.5, 0.4, [1, 0.5, 0.25], [0.2, 0.4, 0.8]);
+    expect(r.rgb[0]).toBeCloseTo(0.5 + 0.2 * 0.4 * 0.5, 12);
+    expect(r.rgb[1]).toBeCloseTo(0.25 + 0.4 * 0.4 * 0.5, 12);
+    expect(r.rgb[2]).toBeCloseTo(0.125 + 0.8 * 0.4 * 0.5, 12);
+    expect(r.a).toBeCloseTo(0.5 + 0.4 * 0.5, 12);
+  });
+  it('a solid core hides the halo colour, and a halo-only pixel carries only the halo colour', () => {
+    expect(out(1, 0.5, [1, 0, 0], [0, 0, 1]).rgb).toEqual([1, 0, 0]);
+    expect(out(0, 0.5, [1, 0, 0], [0, 0, 1]).rgb).toEqual([0, 0, 0.5]);
+    expect(out(0, 0.5, [1, 0, 0], [0, 0, 1]).a).toBe(0.5);
   });
 });
 
@@ -195,6 +213,24 @@ describe('the twin graph', () => {
     const w = await compile(wound.mesh);
     expect(w.vertex).toContain('aArc');
     expect(w.glsl).toContain('sin(');
+  });
+
+  it('the output composition reaches the shader: colour * ca + halo * ha * (1 - ca), alpha ca + ha (1 - ca) multiplied into the alpha', async () => {
+    const b = ringBatch();
+    b.mesh.material = await twinOf(b);
+    const { glsl } = await compile(b.mesh);
+    const v = '(nodeVar\\d+)';
+    // alpha: a = ca + ha * (1 - ca), the variable the fragment alpha is multiplied by and the discard tests
+    const alpha = new RegExp(`${v} = \\( ${v} \\+ \\( ${v} \\* \\( 1\\.0 - \\2 \\) \\) \\);`).exec(glsl);
+    expect(alpha, 'no a = ca + ha (1 - ca) in the shader').not.toBeNull();
+    const [, a, ca, ha] = alpha as RegExpExecArray;
+    expect(glsl).toContain(`DiffuseColor.w = ( DiffuseColor.w * ${a} );`);
+    // colour, each channel: vColor.c * ca + haloColor.c * ha * (1 - ca)
+    for (const c of ['x', 'y', 'z']) {
+      expect(glsl, `channel ${c}`).toMatch(
+        new RegExp(`nodeVarying\\d+\\.${c} \\* ${ca} \\) \\+ \\( \\( nodeUniform\\d+\\.${c} \\* ${ha} \\) \\* \\( 1\\.0 - ${ca} \\) \\)`)
+      );
+    }
   });
 
   it('every bound uniform reaches the graph', async () => {

@@ -12,7 +12,7 @@
 import type { MaterialMaths } from './backend/backend';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
 import { SELECTION_RING } from './units/readability';
-import { ringFragmentOps } from './units/selection-ring';
+import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
@@ -20,6 +20,7 @@ export const MATERIAL_MATHS: MaterialMaths = {
   foliage: null,
   ring: {
     fragmentOps: ringFragmentOps,
+    outputOps: ringOutputOps,
     polygonOffsetFactor: DECAL_POLYGON_OFFSET_FACTOR,
     polygonOffsetUnits: DECAL_POLYGON_OFFSET_UNITS,
     halfExtraTiles: SELECTION_RING.haloTiles + SELECTION_RING.featherTiles,

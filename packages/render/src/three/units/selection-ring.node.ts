@@ -27,11 +27,12 @@ import type * as WEBGPU from 'three/webgpu';
 import { tslOps, type N, type Tsl } from '../fog-pass.node';
 import type { Ops } from '../fog-ops';
 import type { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from '../decal-pool';
-import type { RingStyle, ringFragmentOps } from './selection-ring';
+import type { RingStyle, ringFragmentOps, ringOutputOps } from './selection-ring';
 
 /** The shared ring maths, INJECTED (see the header): `material-maths.ts`'s `ring` slot. */
 export interface RingMaths {
   readonly fragmentOps: typeof ringFragmentOps;
+  readonly outputOps: typeof ringOutputOps;
   readonly polygonOffsetFactor: typeof DECAL_POLYGON_OFFSET_FACTOR;
   readonly polygonOffsetUnits: typeof DECAL_POLYGON_OFFSET_UNITS;
   /** `SELECTION_RING.haloTiles + featherTiles`: the grid's half-extent beyond the semi-axes (the vertex shader's `HALO + F`). */
@@ -55,6 +56,7 @@ export interface RingTwinDeps {
 /** What a test may read back: the bound number uniforms, by record key. */
 export interface RingTwinBound {
   readonly uPxPerTile: N;
+  readonly uHaloColor: N;
   readonly uTimeSec?: N;
   readonly uPulseOn?: N;
 }
@@ -90,7 +92,7 @@ export function createNodeRingMaterial(deps: RingTwinDeps, style: RingStyle, uni
   // vLocal: the fragment's position in the ring's own frame, tiles. The grid's half-extent is the semi-axes plus halo and feather.
   const local = aOffset.mul(aAxes.add(TSL.vec2(maths.halfExtraTiles, maths.halfExtraTiles)));
 
-  let bound: RingTwinBound = { uPxPerTile };
+  let bound: RingTwinBound = { uPxPerTile, uHaloColor };
   let arcInputs: { fraction: N; pulse: N; timeSec: N; pulseOn: N } | undefined;
   if (arc) {
     if (uniforms.uTimeSec === undefined || uniforms.uPulseOn === undefined) {
@@ -100,7 +102,7 @@ export function createNodeRingMaterial(deps: RingTwinDeps, style: RingStyle, uni
     const uPulseOn = num(uniforms.uPulseOn);
     const aArc = TSL.attribute('aArc', 'vec2');
     arcInputs = { fraction: aArc.x, pulse: aArc.y, timeSec: uTimeSec, pulseOn: uPulseOn };
-    bound = { uPxPerTile, uTimeSec, uPulseOn };
+    bound = { uPxPerTile, uHaloColor, uTimeSec, uPulseOn };
   }
 
   const cov = maths.fragmentOps(o, style, {
@@ -111,14 +113,19 @@ export function createNodeRingMaterial(deps: RingTwinDeps, style: RingStyle, uni
     pxPerTile: uPxPerTile,
     arc: arcInputs,
   });
-  const oneMinusCa = o.sub(o.lit(1), cov.ca);
+  const out = maths.outputOps(
+    o,
+    cov,
+    [aRingColor.x, aRingColor.y, aRingColor.z],
+    [uHaloColor.x, uHaloColor.y, uHaloColor.z]
+  );
 
   const m = new W.MeshBasicNodeMaterial();
   m.name = NODE_RING_MATERIAL_NAME;
-  m.colorNode = aRingColor.mul(cov.ca).add(uHaloColor.mul(cov.ha).mul(oneMinusCa)) as never;
-  m.opacityNode = cov.a as never;
+  m.colorNode = TSL.vec3(...out.rgb) as never;
+  m.opacityNode = out.a as never;
   // `a <= 0` is discarded, as the legacy shader's `discard`.
-  m.maskNode = cov.a.greaterThan(0) as never;
+  m.maskNode = out.a.greaterThan(0) as never;
   m.transparent = true;
   m.blending = W.CustomBlending;
   m.blendEquation = W.AddEquation;
