@@ -80,7 +80,13 @@ describe('threat table', () => {
       const reach = armed.filter((e) => weaponsOf(e).some((w) => w.can_target.includes(dom))).map((e) => e.id);
       for (const id of committed[k.id] ?? []) expect(reach).toContain(id);
     }
-    expect(hard.some((k) => (committed[k.id] ?? []).length < armed.length)).toBe(true);
+    // Strict subset of what reaches the unit's OWN domain, for the heavy hitters: a hard type that lists every
+    // reachable enemy (the generator ignoring armour) must fail. mbt_lavi cannot be hurt by a rifle squad.
+    const reachOf = (k: (typeof kdf)[number]): string[] =>
+      armed.filter((e) => weaponsOf(e).some((w) => w.can_target.includes(domainOf(k)))).map((e) => e.id);
+    const strict = hard.filter((k) => (committed[k.id] ?? []).length < reachOf(k).length);
+    expect(strict.length).toBeGreaterThanOrEqual(Math.ceil(hard.length / 2));
+    expect(strict.map((k) => k.id)).toContain('mbt_lavi');
   });
 
   it('the isAirborne guard (R0.9) is live: the medevac heli lists no rifle, and the guard accepts every KDF type', () => {
