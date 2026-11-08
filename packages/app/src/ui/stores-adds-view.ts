@@ -43,7 +43,9 @@ function shipped(): Fixed {
   fixed = {
     all: new Map(list.map((u) => [u.id, u])),
     kdf: list.filter((u) => u.faction === 'kdf'),
-    enemies: list.filter((u) => u.faction === 'sarim'),
+    // Every unit of data/units/enemy (sarim, ashwar, rif): the threat table's own domain. The model throws for a
+    // hard KDF type missing from the table, so a narrower list would disagree with it.
+    enemies: list.filter((u) => u.faction !== 'kdf' && u.faction !== 'civilian'),
     missions: Object.values(missions) as unknown as MissionJson[],
     worldMissionIds: (world.regions as { towns: { missions: string[] }[] }[]).flatMap((r) => r.towns.flatMap((x) => x.missions)),
     versusMenu: new Set(doctrines.kdf.menu),
