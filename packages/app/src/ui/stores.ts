@@ -448,7 +448,15 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
       [...root.querySelectorAll<HTMLElement>('[data-buy], [data-focus]')].find(
         (e) => (e.dataset.buy ?? e.dataset.focus) === k && usable(e)
       );
-    const unit = key.startsWith('unit:') ? key.slice(5) : key.startsWith('tier:') ? key.slice(5).split('.')[0] : null;
+    // `unit:<id>`, `tier:<id>.<track>.<n>` and `credits:<id>[.<track>]` all name a unit; once the press has
+    // bought its last rung the control is gone and focus falls to that unit's card, never the shelf tab.
+    const unit = key.startsWith('unit:')
+      ? key.slice(5)
+      : key.startsWith('tier:')
+        ? key.slice(5).split('.')[0]
+        : key.startsWith('credits:')
+          ? key.slice(8).split('.')[0]
+          : null;
     const target =
       byKey(key) ?? (unit !== null ? (byKey(`card:${unit}`) ?? byKey(`card:tiers:${unit}`)) : undefined) ?? tabEls.get(shelf);
     target?.focus();

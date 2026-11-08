@@ -634,6 +634,21 @@ describe('D5: "Buy with credits" on a Stores tier row (WP7, T20)', () => {
     m.dispose();
   });
 
+  it('after a credit purchase that maxes the track, focus lands on the unit\'s tier card, not the shelf tab', () => {
+    // The press was credits:spg_long_range.armour; the redraw has no such Buy left (tier 3 owned and earned).
+    const m = run({
+      credits: 0,
+      owned: { spg_long_range: { armour: 3 } },
+      coin: { ...coinRun, earnedTiers: { spg_long_range: { armour: 3 } }, coinTiers: {} },
+      showOwned: true,
+      focusKey: 'credits:spg_long_range.armour',
+    });
+    expect(btn(m.host)).toBeNull();
+    expect(document.activeElement?.getAttribute('data-focus')).toBe('card:tiers:spg_long_range');
+    expect(document.activeElement?.getAttribute('role')).not.toBe('tab');
+    m.dispose();
+  });
+
   it('the row credit figure follows the ask (740, not 340) and the coin figure is unchanged', () => {
     const m = run({ credits: 740 });
     const row = m.host.querySelector('[data-item="tiers:spg_long_range"] .rl-stores__tier');
