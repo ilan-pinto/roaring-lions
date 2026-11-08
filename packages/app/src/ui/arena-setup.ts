@@ -16,6 +16,7 @@
 import { flagSetupFor, flagSetupRoom, matchCapTicksOf, matchupAllowed, MATCHUPS, winModeField, winModesOffered, type Matchup } from '@lions/net';
 import { flagBlockOf, versusModes } from '@lions/data';
 import { t } from '../i18n/t';
+import { pointsExplainer } from './points-explainer';
 import { fetchPlayers, fetchStatus, SetupRefused, startRun, stopRun, type PlayerRow, type StartRequest, type StatusView, type UsageView } from '../net/arena-setup-api';
 import type { Disposer } from '../shell/router';
 
@@ -205,7 +206,8 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
     const file = versusModes[mapSel.value];
     // GH-976 R0.22: the hold comes through the one reader, for the rules a room on this map would play.
     const hold = file !== undefined && file.modes.flag !== undefined ? flagBlockOf(file, flagSetupRoom({ winMode: 'flag', flagSetup: flagSetupFor(mapSel.value, 'flag') })).holdS : 0;
-    modeHint.textContent = t(`versus.win.${modeSel.value}.hint`, { target: file?.modes.points?.target ?? 0, hold });
+    const pointsRules = modeSel.value === 'points' ? file?.modes.points : undefined;
+    modeHint.textContent = pointsRules !== undefined ? pointsExplainer(pointsRules) : t(`versus.win.${modeSel.value}.hint`, { target: file?.modes.points?.target ?? 0, hold });
     cap.max = String(capOf());
     if (!capEdited) cap.value = String(modeSel.value === 'annihilation' ? Math.min(SETUP_DEFAULTS.capTicks, capOf()) : capOf());
     // A typed cap is left alone, but never above the new maximum (GH-1079): a mode change can lower it, as a map change can.

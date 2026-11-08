@@ -72,7 +72,7 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { advisorMayRelay, factionsOfMatchup, flagSetupFor, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, winModeField, winModeRequest, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg, type WinMode } from '@lions/net';
+import { advisorMayRelay, factionsOfMatchup, flagSetupFor, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, winModeField, winModeRequest, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, specialRefusal, type AdvisorScope, type ClientMsg, type Faction, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg, type WinMode } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { readCapped } from '../read-capped';
@@ -81,7 +81,7 @@ import { PendingBook, ReservationBook, admitTick, decide } from './snapshot-inta
 import { SNAP_MISMATCH_PER_ROOM, writeSnapMismatch } from './snap-mismatch-log';
 import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
-import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField, type Kit, type SeatKind, type SeatTiers } from './room-fields';
+import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, seatKindField, seatSpecialsField, seatTiersField, textField, type Kit, type SeatKind, type SeatSpecials, type SeatTiers } from './room-fields';
 import { compactLog, writeDesync } from './desync-log';
 
 export const TICK_MS = 50;
@@ -146,6 +146,10 @@ interface RoomMeta {
    *  (`seatTiersField`). Recorded whatever the kit rule; `mintConfig` reads it only for a KDF
    *  seat in a `brigade` room. */
   claims: [SeatTiers, SeatTiers];
+  /** GH-1102: the Store specials each seat claims to own, from `/create` and `/join`, cleaned
+   *  against the shipped table (`seatSpecialsField`). Recorded whatever the kit rule, like
+   *  `claims`; `seatSpecials` reads it only for a human KDF seat in a `brigade` versus room. */
+  owned: [SeatSpecials, SeatSpecials];
   /** The win mode `/create` asked for (GH-976 P2); absent is annihilation. Versus rooms only. */
   winMode?: WinMode;
 }
@@ -177,6 +181,8 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
     // so what a revived room mints is never more than `seatTiersField` lets through.
     kit: m.mode === 'versus' ? kitField(m.kit) : 'matched',
     claims: Array.isArray(m.claims) && m.claims.length === 2 ? [seatTiersField(m.claims[0]), seatTiersField(m.claims[1])] : [seatTiersField(null), seatTiersField(null)],
+    // A room from before GH-1102 owns no specials; a stored claim is cleaned again, as the tiers are.
+    owned: Array.isArray(m.owned) && m.owned.length === 2 ? [seatSpecialsField(m.owned[0]), seatSpecialsField(m.owned[1])] : [[], []],
     // A room from before win modes is annihilation; a stored mode is read through the same field as a client's.
     ...(m.mode === 'versus' && winModeField(m.winMode) !== undefined ? { winMode: winModeField(m.winMode) } : {}),
   };
@@ -482,7 +488,15 @@ export class MatchRoom {
       const s = st.seats[seat];
       const faction = mode === 'versus' ? st.factions[seat] : 'kdf';
       const tiers: SeatTiers = kit === 'brigade' && faction === 'kdf' ? this.meta?.claims[seat] ?? {} : {};
-      return { seat, side: mode === 'versus' ? sides[seat] : 0, faction, kit, tiers, unlocks: [], player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
+      // GH-1102: the seat's Store specials, less the ones a versus room cannot field. A refused one is
+      // logged here, at the one mint, and both seats were shown it in the lobby (`lobbyFor`).
+      const unlocks: string[] = [];
+      for (const id of this.seatSpecials(seat, faction)) {
+        const why = specialRefusal(id);
+        if (why === null) unlocks.push(id);
+        else console.log('MatchRoom: brigade special refused', st.code, seat, id, why);
+      }
+      return { seat, side: mode === 'versus' ? sides[seat] : 0, faction, kit, tiers, unlocks, player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
     };
     // `dataDigest: 0` stays in the wire format, but no client folds it (L4):
     // each folds the digest of its own content.
@@ -511,10 +525,25 @@ export class MatchRoom {
   private advisorsFor(seat: Seat): WebSocket[] {
     return this.ctx.getWebSockets().filter((ws) => advisorOf(ws)?.seat === seat);
   }
+  /** GH-1102: the Store specials `seat` brings, refused ones included: its cleaned claim in a
+   *  `brigade` versus room for a HUMAN seat playing KDF (Sarim has no store, and a bot owns
+   *  nothing, whatever its join body says); `[]` everywhere else. The one rule the mint and
+   *  the lobby both read, so the lobby shows exactly what the config will carry. */
+  private seatSpecials(seat: Seat, faction: Faction): SeatSpecials {
+    const m = this.meta;
+    if (m === null || m.mode !== 'versus' || m.kit !== 'brigade') return [];
+    if (faction !== 'kdf' || m.kinds[seat] !== 'human') return [];
+    return m.owned[seat];
+  }
   /** A `lobby` as `seat` is told it: its own seat, and the room's kit rule when
-   *  it is `brigade` (the lobby shows it to both seats; absent is matched). */
+   *  it is `brigade` (the lobby shows it to both seats; absent is matched). In a
+   *  brigade room each seat also carries the specials it brings (GH-1102), so
+   *  both line-ups are on screen before Ready. */
   private lobbyFor(msg: Extract<ServerMsg, { t: 'lobby' }>, seat: Seat): ServerMsg {
-    return { ...msg, you: seat, ...(this.meta?.kit === 'brigade' && this.meta.mode === 'versus' ? { kit: 'brigade' as const } : {}), ...(this.meta?.mode === 'versus' && this.meta.winMode !== undefined ? { winMode: this.meta.winMode } : {}) };
+    const brigade = this.meta?.kit === 'brigade' && this.meta.mode === 'versus';
+    // The lobby names each seat's faction (`lobbyMsg`); a room that names none is the KDF mirror.
+    const seats = brigade ? msg.seats.map((s) => ({ ...s, specials: [...this.seatSpecials(s.seat, msg.factions?.[s.seat] ?? 'kdf')] })) : msg.seats;
+    return { ...msg, seats, you: seat, ...(brigade ? { kit: 'brigade' as const } : {}), ...(this.meta?.mode === 'versus' && this.meta.winMode !== undefined ? { winMode: this.meta.winMode } : {}) };
   }
   /** `'all'` reaches every seated socket, advisors included, each `lobby` naming
    *  the socket's own seat; a seat-targeted message reaches that seat's own
@@ -786,7 +815,7 @@ export class MatchRoom {
       const factions = factionsOfMatchup(matchup);
       this.st = createRoom(body.code, body.matchId, Date.now(), map, factions);
       this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens(), kinds: [seatKindField(body.kind), 'human'], pace: paceField(body.pace),
-        kit: mode === 'versus' ? kitField(body.kit) : 'matched', claims: [seatTiersField(body.tiers), seatTiersField(null)],
+        kit: mode === 'versus' ? kitField(body.kit) : 'matched', claims: [seatTiersField(body.tiers), seatTiersField(null)], owned: [seatSpecialsField(body.specials), []],
         ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) };
       // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).
       this.ctx.storage.sql.exec(CREATE_SQL);
@@ -831,7 +860,7 @@ export class MatchRoom {
       if (typeof body.build === 'string' && body.build !== '' && meta.build !== '' && body.build !== meta.build) {
         return Response.json({ error: 'build_mismatch', build: meta.build }, { status: 412 });
       }
-      this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true, kinds: [meta.kinds[0], seatKindField(body.kind)], claims: [meta.claims[0], seatTiersField(body.tiers)] };
+      this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true, kinds: [meta.kinds[0], seatKindField(body.kind)], claims: [meta.claims[0], seatTiersField(body.tiers)], owned: [meta.owned[0], seatSpecialsField(body.specials)] };
       await this.ctx.storage.put('meta', this.meta);
       return Response.json({ seat: 1 });
     }

@@ -26,6 +26,12 @@ describe('validateConfig', () => {
     expect(validateConfig({ ...CONFIG, mode: 'coop' })).toBeNull();
     expect(validateConfig({ ...CONFIG, seats: [CONFIG.seats[0], { ...CONFIG.seats[1], faction: 'ashwar' }] })).toBeNull();
   });
+  it("GH-1102: a seat's unlocks are at most 32 strings (SPECIALS_MAX, literal), so a stored config is bounded as the body is", () => {
+    const withUnlocks = (unlocks: unknown[]) => ({ ...CONFIG, seats: [{ ...CONFIG.seats[0], unlocks }, CONFIG.seats[1]] });
+    expect(validateConfig(withUnlocks(Array.from({ length: 32 }, (_, i) => `u${i}`)))).not.toBeNull();
+    expect(validateConfig(withUnlocks(Array.from({ length: 33 }, (_, i) => `u${i}`)))).toBeNull();
+    expect(validateConfig(withUnlocks(['demo_tzav', 7]))).toBeNull();
+  });
 });
 
 describe('validateConfig: SeatConfig.tiers is the account\'s nested per-type shape', () => {

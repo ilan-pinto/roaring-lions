@@ -39,9 +39,10 @@
  * DOM through `textContent` only, never through markup (the lobby chat is
  * `NetChat`, which keeps to that too).
  */
-import { flagBlockOf, maps, versusModes } from '@lions/data';
-import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, versusMapAllowed, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
+import { flagBlockOf, maps, units, versusModes } from '@lions/data';
+import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, specialRefusal, versusMapAllowed, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
+import { pointsExplainer } from './points-explainer';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
 import { isTextEntry } from '../shell/escape-back';
@@ -123,6 +124,36 @@ export const ADVISOR_TICKET_FILE = '~/.roaring-lions/advisor-ticket';
 /** The ready-to-paste command. The ticket is never in it. */
 export function advisorCommand(origin: string, code: string, scope: AdvisorScope): string {
   return `pnpm --silent agent -- --server ${origin} --code ${code} --scope ${scope} --ticket-file ${ADVISOR_TICKET_FILE}`;
+}
+
+/** A unit's name, as its JSON gives it (data, like the Garage's names); the id when it has none. */
+const unitNameOf = (id: string): string => (units as Readonly<Record<string, { name?: string } | undefined>>)[id]?.name ?? id;
+
+/**
+ * GH-1102: the line-up one seat brings into a brigade room, as the room said (`SeatState.specials`):
+ * the Store specials that join its force, and those a versus room refuses, each with its reason, so
+ * nothing the player owns is left out unseen. A seat with none (a bot, a Sarim seat, a player who
+ * owns no special) reads "Standard force". Resolved at draw time, never at module load.
+ */
+export function lineUp(s: Pick<SeatState, 'specials'>): HTMLElement {
+  const box = document.createElement('div');
+  box.className = 'rl-versus__lineup';
+  const owned = s.specials ?? [];
+  const coming = owned.filter((id) => specialRefusal(id) === null);
+  const out = owned.filter((id) => specialRefusal(id) !== null);
+  const line = (cls: string, text: string): void => {
+    const p = document.createElement('p');
+    p.className = cls;
+    p.textContent = text;
+    box.appendChild(p);
+  };
+  if (coming.length === 0) line('rl-versus__lineup-none', t('versus.room.specials.none'));
+  else line('rl-versus__lineup-brings', t('versus.room.specials.brings', { list: coming.map(unitNameOf).join(', ') }));
+  if (out.length > 0) {
+    const list = out.map((id) => t('versus.room.specials.why', { name: unitNameOf(id), why: specialRefusal(id) ?? 'other' })).join(', ');
+    line('rl-versus__lineup-out', t('versus.room.specials.out', { list }));
+  }
+  return box;
 }
 
 /** A room between `/versus` and the start. */
@@ -716,7 +747,9 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
     // GH-976 R0.22: through the one reader, for the rules a room on this map would play (the Worker mints `flagSetup` from the same list).
     const flagFile = winMode === 'flag' ? versusModes[map] : undefined;
     const hold = flagFile === undefined || flagFile.modes.flag === undefined ? 0 : flagBlockOf(flagFile, flagSetupRoom({ winMode: 'flag', flagSetup: flagSetupFor(map, 'flag') })).holdS;
-    winHint.textContent = t(`versus.win.${winMode ?? 'annihilation'}.hint`, { target, hold });
+    const pointsRules = winMode === 'points' ? versusModes[map]?.modes.points : undefined;
+    // GH-1103: a points race explains its own scoring, from the map's mode data.
+    winHint.textContent = pointsRules !== undefined ? pointsExplainer(pointsRules) : t(`versus.win.${winMode ?? 'annihilation'}.hint`, { target, hold });
   }
 
   // --- bring your brigade: a switch, and its one-line hint ------------------
@@ -1091,6 +1124,8 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
         who.appendChild(you);
       }
       el.append(who, factionArt(r.factions[n], 'rl-versus__art--big'), force);
+      // GH-1102: in a brigade room, the line-up this seat brings, before Ready.
+      if (r.kit === 'brigade') el.appendChild(lineUp(s));
       if (s.ready) el.dataset.ready = '1';
       state.textContent = t(s.ready ? 'versus.room.ready' : 'versus.room.notReady');
       el.appendChild(state);

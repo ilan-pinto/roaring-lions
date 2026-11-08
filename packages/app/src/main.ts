@@ -105,7 +105,8 @@ import { createShownTimer, incomeHeld, loadHintsSeen, markHintSeen, owedRule, ty
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { mountBelowGround, type BelowGroundStrip } from './ui/below-ground';
 import { trackCloseup } from './ui/garage-closeup';
-import { Minimap, minimapSizeFor, flipRows } from './ui/minimap';
+import { Minimap, minimapSizeFor, flipRows, type PayZone } from './ui/minimap';
+import { pointsExplainer } from './ui/points-explainer';
 import { alertsForTick, initAlertState, missionEventTier, nextJump, type Alert, type AlertState, type JumpTarget } from './ui/alerts';
 import { roomAlertsForTick, roomArrivals } from './ui/sandbox-feed';
 import { PinnedSince } from './ui/pinned-since';
@@ -172,7 +173,8 @@ import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
-import { buyUnlock, buyUpgrade } from './brigade-account';
+import { buyUnlock } from './brigade-account';
+import { buyTierWithCredits } from './credit-buy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
@@ -301,6 +303,7 @@ import { seatShouldProduceSnapshots } from './net/snapshot-gate';
 import { settleRejoin } from './net/snapshot-rejoin';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
+import { ownedStoreSpecials } from './net/versus-specials';
 import { buildMatchWorld, matchTick, tunnelRouteOf } from './net/match-world';
 import { SPECTATOR_SHOWN, spectatorSink, type SpectateEnd, type SpectateHooks } from './net/spectator';
 import { roomDockMenu, roomDockRuntime, roomEconomyView } from './net/room-economy';
@@ -311,7 +314,7 @@ import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
-import { NetPoints } from './ui/net-points';
+import { NetPoints, payZoneOf } from './ui/net-points';
 import { NetFlags } from './ui/net-flags';
 import { flagMarksOf, flagViewOf, type FlagView } from './net/flag-view';
 import { pointsViewOf, type PointsView } from './net/points-view';
@@ -1152,7 +1155,7 @@ async function main(): Promise<void> {
      *  answers the same way -- the store is the truth either way. */
     const now = (): GarageState => {
       const a = accountState();
-      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers };
+      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
     };
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => {
@@ -1282,9 +1285,24 @@ async function main(): Promise<void> {
           }
         : undefined,
       owned: ownedTiers,
+      earned: ledgerStore.readAccount().upgrades,
       onBuyUpgrade: ledgerStore.available
         ? (unitId, track, tier, price) => {
-            const { account, ok } = buyUpgrade(ledgerStore.readAccount(), unitId, track, tier, price);
+            // A credit Buy pays the run `creditAsk` states, recomputed from a FRESH read of the
+            // account and the single-player view (Review Focus 2): the button's price is checked,
+            // never trusted.
+            const prices = garageUnits(accountState().boughtUnits)
+              .find((g) => g.id === unitId)
+              ?.upgrades?.[track]?.tiers.map((x) => x.price);
+            if (prices === undefined) return { ...now(), landed: false };
+            const { account, ok } = buyTierWithCredits(
+              { account: ledgerStore.readAccount(), owned: accountState().ownedTiers },
+              prices,
+              unitId,
+              track,
+              tier,
+              price
+            );
             // Same reasoning as `onBuy` above: the control disabled itself
             // against a stale read, so answer with the true state instead of
             // returning silently. `landed` as above (M1).
@@ -1316,6 +1334,8 @@ async function main(): Promise<void> {
         // nowhere else (per-seat kit): this is the one read of the account on
         // a room path. The world is built from the room's config, never from it.
         tiers: () => accountState().ownedTiers,
+        // GH-1102: the Store specials the account owns, by the same path and the same rule.
+        specials: () => ownedStoreSpecials(accountState().boughtUnits),
         ...(signal ? { signal } : {}),
       }),
     maps: versusMaps(),
@@ -2321,7 +2341,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? withWoundedTypes(missionUnitTypes(resolvedMission ?? mission, new Set(Object.keys(units))), woundsOf)
     : versusRoom
       // A versus room fields its two factions' forces and nothing else.
-      ? withWoundedTypes(versusUnitTypes(versusFactions), woundsOf)
+      ? withWoundedTypes(versusUnitTypes(versusFactions, versusWorld?.specialsBySide), woundsOf)
       : withWoundedTypes(sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks }), woundsOf);
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
@@ -4009,6 +4029,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // more to compare than the work being avoided.
   let lastShot: ImageData | null = null;
   let lastFlipped: ImageData | null = null;
+  /** GH-1103: the ground a points race pays for, set once the room's points view exists (below the minimap). */
+  let payZonesNow: () => readonly PayZone[] = () => [];
   const minimap = new Minimap(document.body, {
     sim,
     viewer: me,
@@ -4021,6 +4043,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     objectives: () => runtime?.objectiveList ?? [],
     // S-F F2 Z-B: held income ground, from the HUD beat's one view.
     income: () => income,
+    payZones: () => payZonesNow(),
     // GH-279: the refuge, only while an evacuation is still being scored.
     refuge: () => (runtime ? activeRefuge(runtime.objectiveList, evacTargets, refugeAt) : null),
     // The map's own lit ground, photographed by the renderer (Task 15).
@@ -6613,7 +6636,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const pointsRules = netConfig?.winMode === 'points' ? versusModes[netConfig.map]?.modes.points : undefined;
   const pointsViewNow = (): PointsView | null =>
     pointsRules !== undefined && versusWorld?.runtime != null && !spectating ? pointsViewOf(versusWorld.runtime, pointsRules, me) : null;
-  const netPoints = pointsViewNow() !== null ? new NetPoints(document.body, scoreNames) : null;
+  const netPoints = pointsViewNow() !== null ? new NetPoints(document.body, scoreNames, pointsRules !== undefined ? pointsExplainer(pointsRules) : '') : null;
+  payZonesNow = () => pointsViewNow()?.zones.map(payZoneOf) ?? [];
   if (netPoints !== null) onDispose(() => netPoints.dispose());
   /** The flag raid (GH-976 P3): how long each flag has been held, from the goals-only runtime's objectives, and the two
    *  flags outlined on the field. Both flags' state is public by design (`net/flag-view.ts`); no unit is shown. A flag room

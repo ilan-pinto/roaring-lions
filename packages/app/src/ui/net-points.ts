@@ -9,7 +9,8 @@
  * battlefield that makes it, which removes it in its own disposer.
  */
 import { currentLocale, t } from '../i18n/t';
-import type { PointsView, ZoneHolder } from '../net/points-view';
+import type { PointsView, PointsZone, ZoneHolder } from '../net/points-view';
+import type { PayZone, ZoneState } from './minimap';
 
 /** A number as the player's locale writes it. */
 function amount(n: number): string {
@@ -27,6 +28,13 @@ export function zoneCounts(view: Pick<PointsView, 'zones'>): Record<ZoneHolder, 
   return counts;
 }
 
+const ZONE_STATE_OF: Record<ZoneHolder, ZoneState> = { mine: 'held', theirs: 'target', contested: 'contested', none: 'unheld' };
+
+/** A points zone as the minimap draws it (GH-1103): yours solid, theirs the hostile colour, a fight pulsing, open dashed. */
+export function payZoneOf(z: PointsZone): PayZone {
+  return { rect: z.at, perMin: z.perMin, state: ZONE_STATE_OF[z.holder] };
+}
+
 /** The share of the target a score is, in whole percent, 0-100. */
 export function fillPercent(points: number, target: number): number {
   return target <= 0 ? 0 : Math.max(0, Math.min(100, Math.floor((points * 100) / target)));
@@ -37,15 +45,20 @@ export class NetPoints {
   private readonly title: HTMLParagraphElement;
   private readonly rows: Record<'mine' | 'theirs', { who: HTMLSpanElement; fill: HTMLSpanElement; n: HTMLSpanElement; rate: HTMLSpanElement }>;
   private readonly ground: HTMLParagraphElement;
+  private readonly explain: HTMLParagraphElement;
   private painted = '';
 
-  constructor(host: HTMLElement, private readonly names: { readonly theirs: string }) {
+  /** `explainer`: the scoring line (`ui/points-explainer.ts`), shown at match start while neither side has scored. */
+  constructor(host: HTMLElement, private readonly names: { readonly theirs: string }, private readonly explainer: string = '') {
     this.el = document.createElement('div');
     this.el.className = 'rl-net-points';
     this.el.setAttribute('role', 'group');
     this.el.setAttribute('aria-label', t('versus.points.label'));
     this.title = document.createElement('p');
     this.title.className = 'rl-net-points__title';
+    this.explain = document.createElement('p');
+    this.explain.className = 'rl-net-points__explain';
+    this.explain.hidden = true;
     this.ground = document.createElement('p');
     this.ground.className = 'rl-net-points__ground';
     const row = (which: 'mine' | 'theirs') => {
@@ -70,7 +83,7 @@ export class NetPoints {
     };
     this.el.appendChild(this.title);
     this.rows = { mine: row('mine'), theirs: row('theirs') };
-    this.el.appendChild(this.ground);
+    this.el.append(this.ground, this.explain);
     host.appendChild(this.el);
   }
 
@@ -90,6 +103,8 @@ export class NetPoints {
     paint('mine', t('versus.score.you'), view.mine, view.mineRate);
     paint('theirs', this.names.theirs, view.theirs, view.theirsRate);
     const c = zoneCounts(view);
+    this.explain.textContent = this.explainer;
+    this.explain.hidden = this.explainer === '' || view.mine > 0 || view.theirs > 0;
     this.ground.textContent = t('versus.points.ground', { mine: c.mine, theirs: c.theirs, contested: c.contested, open: c.none });
   }
 

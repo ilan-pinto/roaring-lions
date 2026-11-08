@@ -80,9 +80,11 @@ export function factionsBySide(config: Pick<MatchConfig, 'seats'> | null): [Fact
   return out;
 }
 
-/** Every unit type a versus room can field, for the mesh roster. */
-export function versusUnitTypes(factions: readonly [Faction, Faction]): Set<string> {
-  return new Set(factions.flatMap((f) => versusForceOf(f).map(([id]) => id)));
+/** Every unit type a versus room can field, for the mesh roster: both factions' forces, plus
+ *  (GH-1102) the Store specials either side brings (`MatchWorld.specialsBySide`), so a special
+ *  draws as its mesh and never as a proxy box beside a `console.error`. */
+export function versusUnitTypes(factions: readonly [Faction, Faction], specials: readonly (readonly string[])[] = []): Set<string> {
+  return new Set([...factions.flatMap((f) => versusForceOf(f).map(([id]) => id)), ...specials.flat()]);
 }
 
 /** A versus match (network design §9, N1): each side's faction force --
