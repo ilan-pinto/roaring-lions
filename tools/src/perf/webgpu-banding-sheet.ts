@@ -7,7 +7,9 @@
  *
  * BEFORE is made from the same code as AFTER: `uGradeDither` 0 adds exactly zero, which is the old no-grade frame bit for bit (the
  * dither was a `+ (noise - 0.5) * (uGradeDither / 255)` that did not run; it now always runs and 0 is its off). The sheet therefore needs
- * no second checkout. The bytes of the before frame equal the pre-fix frame: asserted by the probe's H1 "dither off" row.
+ * no second checkout. That the BEFORE frame equals the pre-fix frame rests on the shader (`uGradeDither` 0 adds zero) and is NOT asserted
+ * by any check here or in T2's probe: its H1 "dither off" row records pixel deltas against a baseline made from the same code, not a
+ * comparison with a frame from the pre-fix commit. Read the sheet as "dither 0 vs dither 1 on the new code" until such a comparison exists.
  *
  * Conditions as T2's probe: `?sandbox=wadi_halam_4`, booted camera z1, sim tick 5, quality high, music off, reduced motion, 1440x900 at
  * DPR 2, one Metal lock hold. REFUSES (exit 2) without the lock, above --max-load, on a page that is not hardware Metal or not the arm's
