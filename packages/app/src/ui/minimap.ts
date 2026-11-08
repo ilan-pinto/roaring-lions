@@ -87,6 +87,7 @@ import { symbolBody } from './symbol';
 import type { AlertTier } from './alerts';
 import type { Tone } from './hud-model';
 import { prefersReducedMotion } from './motion';
+import { t } from '../i18n/t';
 import { WOUND_DOWN, WOUND_STABILISED } from '@lions/sim';
 
 /**
@@ -184,6 +185,8 @@ export interface MinimapDeps {
    *  mission with no income zones. A thunk like `objectives`; optional, and
    *  absent draws nothing. */
   income?: () => IncomeView | null;
+  /** GH-1103: the ground a points race pays for, each with its pay a minute. Optional; absent draws nothing. */
+  payZones?: () => readonly PayZone[];
   /**
    * Where the families walk to, in tiles, while an evacuation objective is
    * still being scored -- null otherwise (GH-279). A thunk for the same
@@ -667,6 +670,25 @@ export interface ObjectiveMark {
   /** Income ground (S-F F2, Z-B): the logistics symbol is drawn in the mark's
    *  corner. Absent on an objective. */
   glyph?: boolean;
+  /** GH-1103: what holding this ground pays, written in the zone's corner ("+40/min"). */
+  label?: string;
+}
+
+/** A points-race zone as the minimap is told of it (GH-1103): its rectangle, its pay, and who holds it. */
+export interface PayZone {
+  readonly rect: readonly [number, number, number, number];
+  readonly perMin: number;
+  readonly state: ZoneState;
+}
+
+/** The marks for ground that pays by the minute: the zone's own look in its state, labelled with its pay. */
+export function payMarks(zones: readonly PayZone[]): ObjectiveMark[] {
+  return zones.map((z) => ({
+    state: z.state,
+    rect: z.rect,
+    at: { x: z.rect[0] + z.rect[2] / 2, y: z.rect[1] + z.rect[3] / 2 },
+    label: t('versus.points.zone', { n: z.perMin }),
+  }));
 }
 
 /** One supply route as tile-centre polylines: the open stretches and the cut one. */
@@ -1013,6 +1035,8 @@ export const ROUTE_CUT_DASH: readonly number[] = [3, 2];
  *  top-left corner (the centre is under the holders' unit dots), on a 1.4 px
  *  `--mark-edge` outline. */
 export const GLYPH_PX = 11;
+/** A zone pay label's size, in box pixels (GH-1103). */
+const LABEL_PX = 9;
 export const GLYPH_INSET = 3;
 const GLYPH_EDGE = 1.4;
 
@@ -1517,6 +1541,9 @@ export class Minimap {
     for (const m of incomeMarks(this.deps.income?.() ?? null, activeObjectiveZoneNames(objectives))) {
       this.objectiveMark(m, nowMs);
     }
+    for (const m of payMarks(this.deps.payZones?.() ?? [])) {
+      this.objectiveMark(m, nowMs);
+    }
     this.drawTunnels();
     this.drawHeld();
     const markers =
@@ -1854,7 +1881,26 @@ export class Minimap {
     outline();
     ctx.stroke();
     ctx.restore();
+    if (m.label !== undefined) this.zoneLabel(m.label, x0, y0, x1, y1, color);
     if (m.glyph === true) this.logisticsGlyph(x0 + GLYPH_INSET, y0 + GLYPH_INSET, color);
+  }
+
+  /** A zone's pay, centred in its box on a `--mark-edge` outline so it holds on pale sand (GH-1103). */
+  private zoneLabel(text: string, x0: number, y0: number, x1: number, y1: number, color: string): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+    ctx.font = `600 ${LABEL_PX}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = this.chrome.markEdge;
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, (x0 + x1) / 2, (y0 + y1) / 2);
+    ctx.fillStyle = color;
+    ctx.fillText(text, (x0 + x1) / 2, (y0 + y1) / 2);
+    ctx.restore();
   }
 
   /** The strip's own `logistics` symbol (`symbol.ts`), GLYPH_PX square at

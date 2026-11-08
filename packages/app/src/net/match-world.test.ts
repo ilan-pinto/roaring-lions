@@ -443,7 +443,8 @@ describe('the economy runtime (N3 Task 3)', () => {
     // tel_marum re-pinned 28 Oct 2026 for its friendly camp at (21,46) (GH-560 Task 7B): the camp moved and the room's world follows it. Was 750746188. wadi_tarfan (955375532) did not move.
     // wadi_tarfan re-pinned for GH-945 (seats (11,11)/(36,36) -> (10,10)/(37,37), every route at capacity 3). Was 955375532.
     // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so the KDF host's room turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old values read back (watched). Was -1979138290 (tel_marum) and -1823744084 (wadi_tarfan).
-    const VERSUS_ECONOMY_PINS =[['tel_marum', -848995620], ['wadi_tarfan', -1264532616]] as const;
+    // wadi_tarfan re-pinned for GH-884 (7 Nov 2026): route A's vents moved one tile (hostile (25,32) -> (25,33), friendly (22,15) -> (22,14)), and route geometry is hashed. Was -1264532616. Nothing in the sim moved; with the two points put back by hand the old value reads back.
+    const VERSUS_ECONOMY_PINS =[['tel_marum', -848995620], ['wadi_tarfan', -1432633581]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);

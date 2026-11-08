@@ -40,6 +40,7 @@ import {
   RING_BY_TIER,
   objectiveMarks,
   incomeMarks,
+  payMarks,
   routeLines,
   ROUTE_STROKE,
   ROUTE_CUT_DASH,
@@ -169,6 +170,8 @@ interface Recorder {
 }
 
 let recorder: Recorder;
+/** Every `fillText` the stub context was asked for (GH-1103 zone labels). */
+const fillTexts: string[] = [];
 const realGetContext = HTMLCanvasElement.prototype.getContext;
 
 function installContext(): Recorder {
@@ -198,6 +201,8 @@ function installContext(): Recorder {
     imageSmoothingEnabled: true,
     setTransform: () => {},
     clearRect: () => {},
+    fillText: (text: string) => { fillTexts.push(text); },
+    strokeText: () => {},
     // A real 2D context's save/restore stack, for the style fields this stub
     // records. A no-op pair would make a missing `restore()` untestable.
     save() {
@@ -2197,5 +2202,26 @@ describe('unit dot size', () => {
       const scale = minimapSizeFor(n, n) / n;
       expect(unitDotPx(scale) / scale).toBeLessThanOrEqual(1.6);
     }
+  });
+});
+
+describe('pay marks: a points race labels the ground that pays (GH-1103)', () => {
+  it('writes each zone\'s per-minute pay in its corner, in the zone\'s own state', () => {
+    const marks = payMarks([
+      { rect: [10, 10, 6, 6], perMin: 40, state: 'held' },
+      { rect: [30, 4, 5, 5], perMin: 10, state: 'unheld' },
+    ]);
+    expect(marks.map((m) => m.label)).toEqual(['+40/min', '+10/min']);
+    expect(marks.map((m) => m.state)).toEqual(['held', 'unheld']);
+    expect(marks[0].rect).toEqual([10, 10, 6, 6]);
+    expect(marks[0].at).toEqual({ x: 13, y: 13 });
+  });
+  it('writes the label on the canvas', () => {
+    fillTexts.length = 0;
+    mount(() => true, { payZones: () => [{ rect: [10, 10, 6, 6], perMin: 40, state: 'held' }] });
+    expect(fillTexts).toContain('+40/min');
+  });
+  it('draws nothing without pay zones', () => {
+    expect(payMarks([])).toEqual([]);
   });
 });

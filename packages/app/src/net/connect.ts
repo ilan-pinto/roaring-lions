@@ -258,6 +258,10 @@ export type OpenDeps = Pick<ConnectDeps, 'fetch' | 'origin' | 'openSocket' | 'st
    *  the world is built from the room's config, never from this machine's account,
    *  and a tier in a URL would be logged. Absent is an empty claim. */
   tiers?: () => Record<string, Record<string, number>>;
+  /** GH-1102: the Store specials the local account owns (`ownedStoreSpecials`), sent beside
+   *  `tiers` by the same rule, in the BODY only. The room cleans them, and mints them into a
+   *  brigade room only; the world is built from the room's config. Absent is none. */
+  specials?: () => readonly string[];
 };
 
 /** Why a room could not be opened, as the lobby words it: no such room, a
@@ -319,9 +323,10 @@ export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps):
   // The seat's claim travels in the body only. A create sends it just for a
   // brigade room, so a matched room's storage never holds the host's account;
   // a join always sends it, since a guest cannot know the room's rule (the room
-  // records it and mints it only into a brigade room, decision 22).
+  // records it and mints it only into a brigade room, decision 22). The claim
+  // is the tiers and, since GH-1102, the owned Store specials beside them.
   const kit = creating ? req.kit ?? 'matched' : null;
-  const claim = kit === 'matched' ? {} : { tiers: deps.tiers?.() ?? {} };
+  const claim = kit === 'matched' ? {} : { tiers: deps.tiers?.() ?? {}, specials: [...(deps.specials?.() ?? [])] };
   const body = creating
     ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus', matchup: req.matchup ?? 'mirror', kit, ...(req.winMode === undefined ? {} : { winMode: req.winMode }), ...claim }
     : { player, callsign: callsignOrDefault(req.callsign), build, ...claim };

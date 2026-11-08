@@ -1,3 +1,5 @@
+import { SPECIALS_MAX } from './specials';
+
 /** The whole input to both simulations (spec §2.1). `mode: 'sandbox'` is
  *  N0's two-humans-on-side-0 room; `'versus'` arrives with N1. */
 export type Seat = 0 | 1;
@@ -13,6 +15,10 @@ export interface SeatConfig {
    *  room. Structural checks only (`isTiers`); the room cannot check a claim
    *  against an account. */
   tiers: Record<string, Record<string, number>>;
+  /** GH-1102: the Store specials this seat brings into a brigade room (`specials.ts`), as the
+   *  room minted them: its cleaned claim minus `VERSUS_REFUSED_SPECIALS`, for a human KDF seat
+   *  in a `brigade` room only. `[]` everywhere else, as it was in every room before. At most
+   *  `SPECIALS_MAX` strings; the world cleans it again against the data (`seatSpecials`). */
   unlocks: string[];
   player: string;
   callsign: string;
@@ -371,7 +377,7 @@ function isSeatConfig(v: unknown, seat: Seat): v is SeatConfig {
   const s = v as Record<string, unknown>;
   return s.seat === seat && (s.side === 0 || s.side === 1) && (s.faction === 'kdf' || s.faction === 'sarim') &&
     (s.kit === 'matched' || s.kit === 'brigade') && isTiers(s.tiers) &&
-    Array.isArray(s.unlocks) && s.unlocks.every(isStr) &&
+    Array.isArray(s.unlocks) && s.unlocks.length <= SPECIALS_MAX && s.unlocks.every(isStr) &&
     isStr(s.player) && isStr(s.callsign) && (s.kind === 'human' || s.kind === 'bot');
 }
 

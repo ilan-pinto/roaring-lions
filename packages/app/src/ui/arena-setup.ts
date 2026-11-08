@@ -16,6 +16,7 @@
 import { matchCapTicks, matchupAllowed, MATCHUPS, winModesOffered, type Matchup } from '@lions/net';
 import { versusModes } from '@lions/data';
 import { t } from '../i18n/t';
+import { pointsExplainer } from './points-explainer';
 import { fetchPlayers, fetchStatus, SetupRefused, startRun, stopRun, type PlayerRow, type StartRequest, type StatusView, type UsageView } from '../net/arena-setup-api';
 import type { Disposer } from '../shell/router';
 
@@ -198,7 +199,8 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
     // Nothing offered here: the control is not drawn (the lobby's rule), the run is annihilation.
     modeField.hidden = offered.length === 0;
     const file = versusModes[mapSel.value];
-    modeHint.textContent = t(`versus.win.${modeSel.value}.hint`, { target: file?.modes.points?.target ?? 0, hold: file?.modes.flag?.hold_s ?? 0 });
+    const pointsRules = modeSel.value === 'points' ? file?.modes.points : undefined;
+    modeHint.textContent = pointsRules !== undefined ? pointsExplainer(pointsRules) : t(`versus.win.${modeSel.value}.hint`, { hold: file?.modes.flag?.hold_s ?? 0 });
     if (!capEdited) cap.value = String(modeSel.value === 'annihilation' ? Math.min(SETUP_DEFAULTS.capTicks, matchCapTicks(mapSel.value)) : matchCapTicks(mapSel.value));
   };
   mapSel.addEventListener('change', () => { fillMatchups(); fillModes(); });

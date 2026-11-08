@@ -208,7 +208,7 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     expect(cap.value).toBe('12000');
     modeField(r).value = 'points';
     modeField(r).dispatchEvent(new Event('change'));
-    expect(r.host.textContent).toContain('first to 600');
+    expect(r.host.textContent).toContain('First to 600.');
     cap.value = '9000';
     cap.dispatchEvent(new Event('input'));
     modeField(r).value = 'flag';
