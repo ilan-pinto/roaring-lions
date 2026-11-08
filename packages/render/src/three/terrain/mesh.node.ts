@@ -202,7 +202,7 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
     // 5. The road, branch-free; its grain tap is explicit-gradient.
     const range = lit(maths.roadDistanceRangeTiles);
     const bands = maths.roadBands(o, ctlB.g.mul(range), ctlB.a.mul(2).sub(1), ctlB.b.mul(range));
-    const gate = roadOn.mul(top);
+    const gate = roadOn.mul(0).add(1).mul(top);
     const surf = gate.mul(bands.surface);
     const shoulder = gate.mul(bands.shoulder);
     const grain = tap(knoll.map, knoll.carrier, grainUv).grad(grainDx, grainDy).rgb.div(knoll.mean);
