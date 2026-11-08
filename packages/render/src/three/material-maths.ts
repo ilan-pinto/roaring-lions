@@ -11,12 +11,13 @@
  */
 import type { MaterialMaths } from './backend/backend';
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
+import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
 import { foliageLeanOps } from './terrain/wind';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
   ground: null,
-  // T6: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
-  foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE },
+  // T6, T7: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
+  foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE, disturbSlotPushOps, disturbBendOps, disturbMax: DISTURB_MAX },
   ring: null,
 };

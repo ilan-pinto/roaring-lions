@@ -3131,6 +3131,7 @@ export class ThreeRenderer implements Renderer {
     this.disturbField = new DisturbField(n);
     this.disturbU.a.value = this.disturbField.a;
     this.disturbU.b.value = this.disturbField.b;
+    this.disturbU.slots = natureQualityOf(this.opts.quality).slots;
     this.disturbKindOfType = new Uint8Array(sim.unitTypes.length);
     this.disturbRadiusOfType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) {
