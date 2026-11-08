@@ -28,15 +28,15 @@ const NO_FLOOR = { wgl2: null, wgpu: null } as const;
 
 export const PARITY_ROWS: readonly ParityRow[] = [
   { scenario: 'quiet', layer: 'repaint-control', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'a zero-time repaint moves nothing on either arm' },
-  { scenario: 'quiet', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6: intensity on node, null envMap on legacy' },
+  { scenario: 'quiet', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6: intensity on node, null envMap on legacy (T4 note: the matched census drops the legacy envMap, so L-matched reads ~0 px here and the ratio denominator is vacuous: report-only, read the node delta, not r)' },
   { scenario: 'quiet', layer: 'haze', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T4: haze lives in the fog pass' },
   { scenario: 'quiet', layer: 'vignette', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T3: vignette x roundTripHalf, after the grade' },
   { scenario: 'relief', layer: 'vignette', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T3: the second vignette witness (tel_marum, different corners)' },
   { scenario: 'fogged', layer: 'fog', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T4: shroud' },
   { scenario: 'fogged', layer: 'haze', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T4' },
-  { scenario: 'fogged', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6' },
+  { scenario: 'fogged', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6 (T4 note: the matched census drops the legacy envMap, so L-matched reads ~0 px here and the ratio denominator is vacuous: report-only, read the node delta, not r)' },
   { scenario: 'graded', layer: 'grade', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T3: the grade LUT, display-referred' },
-  { scenario: 'graded', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6' },
+  { scenario: 'graded', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6 (T4 note: the matched census drops the legacy envMap, so L-matched reads ~0 px here and the ratio denominator is vacuous: report-only, read the node delta, not r)' },
   // GH-943 P2 (T3): the node ground's dry blend, macro and road (`terrain/mesh.node.ts`). `loose`: texture filtering differs by backend.
   { scenario: 'quiet', layer: 'roads', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3: the road surface, shoulder and ruts' },
   { scenario: 'aftermath', layer: 'roads', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3: the second roads witness' },

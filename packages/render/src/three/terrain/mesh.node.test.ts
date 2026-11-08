@@ -318,3 +318,46 @@ describe('the relief read (T4): slope light, height contours and tint', () => {
     expect(ground.numbers.uReliefSlopeGain?.value).toBe(7.5);
   });
 });
+
+describe('the relief read GRAPH wiring, gated on the lit fragment text (R12: each input, each mutation named)', () => {
+  const one = (re: RegExp, text: string, what: string): RegExpExecArray => {
+    const m = re.exec(text);
+    expect(m, what).not.toBeNull();
+    return m as RegExpExecArray;
+  };
+
+  it('the tint end is chosen by the SIGN of the ramp: LOW under t < 0, HIGH otherwise, on the ramp variable itself', async () => {
+    // Falsify: `select(ramp.t.lessThan(0), high, low)` (swapped ends).
+    const { frag } = await compile(new GroundMaterial(), true);
+    const ramp = one(/(\w+) = clamp\( \( \( \w+ - \( \w+ \/ \w+ \) \) \/ 4\.0 \), -1\.0, 1\.0 \);/, frag, 'the tint ramp: clamp((levels - median) / 4, -1, 1)');
+    const sel = one(/if \( \( (\w+) < 0\.0 \) \) \{\s*\w+ = vec3\( 0\.88, 0\.9, 0\.94 \);\s*\} else \{\s*\w+ = vec3\( 1\.07, 1\.05, 1\.02 \);/, frag, 'LOW under t < 0, HIGH in the else');
+    expect(sel[1], 'the select tests the ramp variable').toBe(ramp[1]);
+  });
+
+  it('the normal pass-through: h < 1e-6 keeps the (face-flipped) normal, y <= 0 keeps it too, the tilt is the other branch', async () => {
+    // Falsify: `select(h.lessThan(1e-6), tilted, tilted)` (no pass-through), or the outer select's else made the tilted normal.
+    const { frag } = await compile(new GroundMaterial(), true);
+    const n = one(/(\w+) = \( normalWorldGeometry \* vec3\( \( \( float\( gl_FrontFacing \) \* 2\.0 \) - 1\.0 \) \) \);/, frag, 'the face-flipped world normal');
+    const outer = one(/if \( \( (\w+)\.y > 0\.0 \) \) \{/, frag, 'the y > 0 test');
+    expect(outer[1], 'y is the flipped normal\'s').toBe(n[1]);
+    const inner = one(/if \( \( \w+ < 0\.000001 \) \) \{\s*(\w+) = (\w+);\s*\} else \{[^}]*\bvec3\( \( \w+\.x \* \w+ \), cos\( \w+ \), \( \w+\.z \* \w+ \) \);/, frag, 'h < 1e-6 -> pass-through, else the tilted vec3');
+    expect(inner[2], 'the pass-through branch assigns the untilted normal').toBe(n[1]);
+    const elseBranch = one(/\} else \{\s*(\w+) = (\w+);\s*\}\s*(?:\w+ = normalize\( \( cameraViewMatrix)/, frag, 'y <= 0 -> the untilted normal');
+    expect(elseBranch[2]).toBe(n[1]);
+  });
+
+  it('the relief term is masked by `top` (step(wallAlbedo, -0.5)): a wall takes none', async () => {
+    // Falsify: `reliefTerm = tint.mul(line)` (mask dropped).
+    const { frag } = await compile(new GroundMaterial(), true);
+    const top = one(/(\w+) = step\( \w+, -0\.5 \);/, frag, 'top = step(wallAlbedo, -0.5)');
+    expect(frag, 'the final mix(1, tint*line, top)').toMatch(
+      new RegExp(`mix\\( vec3\\( 1\\.0, 1\\.0, 1\\.0 \\), \\( mix\\( vec3\\( 1\\.0, 1\\.0, 1\\.0 \\), \\w+, \\( abs\\( \\w+ \\) \\* \\w+ \\) \\) \\* vec3\\( \\( 1\\.0 - \\(.*?\\) \\) \\) \\), ${top[1]} \\)`)
+    );
+  });
+
+  it('a back face flips the normal (gl_FrontFacing reaches the tilt)', async () => {
+    // Falsify: drop `.mul(TSL.faceDirection)`.
+    const { frag } = await compile(new GroundMaterial(), true);
+    expect(frag).toMatch(/normalWorldGeometry \* vec3\( \( \( float\( gl_FrontFacing \) \* 2\.0 \) - 1\.0 \) \)/);
+  });
+});

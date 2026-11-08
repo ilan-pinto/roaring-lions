@@ -1147,6 +1147,7 @@ export function matchNodeStatements(repoRoot: string): string {
   const _u = await import(${JSON.stringify(unported)});
   const _found = _u.censusUnported(_r.scene, { portedKeys: _u.PORTED_MATERIAL_KEYS });
   if (!Array.isArray(_found)) throw new Error('match-node: censusUnported returned no list');
+  window.__rlMatchFound = _found;
   _r.frame(1, 0);
 }
 `;
@@ -1178,8 +1179,10 @@ export function nodeCensusStatements(repoRoot: string): string {
  * reference and the toggled frames the same state. Legacy-matched arm only.
  */
 export function matchNodeSettleScript(repoRoot: string): string {
+  // `matchNodeStatements` leaves its census list on `window.__rlMatchFound` (kind, key, objects), so the gate can NAME what the first
+  // matched census meets. It stays the ONLY caller of `censusUnported` with the ported-key option.
   return `(async () => {
-${matchNodeStatements(repoRoot)}  return JSON.stringify({ tick: window.__lions.sim.tickCount });
+${matchNodeStatements(repoRoot)}  return JSON.stringify({ tick: window.__lions.sim.tickCount, found: window.__rlMatchFound });
 })()`;
 }
 

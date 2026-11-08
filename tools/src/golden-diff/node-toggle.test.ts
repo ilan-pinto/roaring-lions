@@ -68,6 +68,8 @@ describe('--match-node (the legacy-matched arm)', () => {
     expect(s.indexOf('censusUnported')).toBeGreaterThan(-1);
     expect(s.indexOf('frame(1, 0)')).toBeGreaterThan(s.indexOf('censusUnported'));
     expect(s).toContain('tickCount');
+    // It returns the census list so the gate can name what the first matched census meets.
+    expect(s).toContain('window.__rlMatchFound');
   });
   it('is refused on a node arm', () => {
     expect(() => captureScript(QUIET_SCENARIO, 'webgpu', { matchNodeRoot: ROOT })).toThrow(/legacy-arm/);
