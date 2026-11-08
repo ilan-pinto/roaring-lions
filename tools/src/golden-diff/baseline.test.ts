@@ -891,6 +891,8 @@ describe('BASELINES layerChecks', () => {
       // 5 runs), so "floor is a third of the signal" is checked against the
       // weakest reading rather than the flattering one.
       vehicle: {
+        // GH-943 P2 (T5), 8 Nov 2026: ci.yml `visual` runs 42456785749 and 42473526531 (SwiftShader), bit-identical.
+        'selection-ring': { px: 4104, mean: 0.1775 },
         units: { px: 29622, mean: 2.96 },
         // L1 (GH-943), 2 Nov 2026: relief-read-signal.ts --layers=environment, 3 fresh-page runs, bit-identical.
         environment: { px: 1074, mean: 0.4642 },
@@ -941,7 +943,7 @@ describe('BASELINES layerChecks', () => {
      *  (the last assertion in this loop). */
     const SUB_THRESHOLD_PX = 100;
     /** `scenario/layer` checks whose first CI reading has not been taken (T5's `vehicle/selection-ring`). */
-    const PENDING_FLOOR: ReadonlySet<string> = new Set(['vehicle/selection-ring']);
+    const PENDING_FLOOR: ReadonlySet<string> = new Set();
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
         // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.

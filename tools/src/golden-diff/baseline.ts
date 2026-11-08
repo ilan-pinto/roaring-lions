@@ -1200,15 +1200,14 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'selection-ring',
-        // GH-943 P2 (T5): NO FLOOR YET, on purpose. A floor is a third of the smallest of three fresh-process CI readings, and none has been
-        // taken: the first one comes from this branch's own `visual` runs. Until it is read and written below, this check cannot pass, and
-        // the `visual` job is red on this branch. The reading it prints is the number to take.
-        minDiffPixels: Number.POSITIVE_INFINITY,
-        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        minDiffPixels: 1368,
+        minMeanAbsChannelDelta: 0.0591,
         rationale:
           'GH-943 P2 T5: hiding the ground rings (the team ring of every own unit; `selectionRingGroup`, never a mesh, because `endFrame` rewrites ' +
-          'each mesh\'s `visible` every frame) on the vehicle frame. Floor NOT YET MEASURED: take it from this branch\'s CI `visual` readings. ' +
-          'Falsified by forcing the ring\'s core AND halo alpha to 0 in the shader: 0 px, FAIL (the halo is drawn outside the core, so zeroing the core alone leaves pixels).',
+          'each mesh\'s `visible` every frame) on the vehicle frame moves 4104 px / 0.1775, bit-identical on the two `visual` runs read so far ' +
+          '(ci.yml runs 42456785749 and 42473526531, linux-x64-swiftshader, the two heads differing only in node-path code), repaint control 0 px / 0.0000. ' +
+          'Floors are a third of the smallest reading, rounded down (1368, 0.0591). Falsified by forcing the ring\'s core AND halo alpha to 0 in the ' +
+          'legacy shader (the halo is drawn outside the core, so zeroing the core alone leaves pixels): the commit pair carries the CI line.',
       },
     ],
     rationale:
