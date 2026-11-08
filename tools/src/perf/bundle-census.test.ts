@@ -45,6 +45,21 @@ describe('bundle census: each finding is driven red by a constructed bundle', ()
   it('fails over the main-chunk size ceiling', () => {
     expect(run(good(), 10).join()).toMatch(/over the 10 ceiling/);
   });
+  it('holds the ceiling against the entry PLUS its static imports, not the entry file alone', () => {
+    // A small entry whose weight was hoisted into a chunk it imports statically: the boot downloads both. Measured on the entry
+    // file alone (the rule before 8 Nov 2026) this bundle passes a 100-byte ceiling; summed, it is red.
+    const c = good();
+    c[0] = { file: 'index.js', code: preload('ThreeRenderer.js') + 'import{s}from"./shared.js";import{t as e}from"./runtime.js";' };
+    c.push({ file: 'shared.js', code: `export const s="${'x'.repeat(200)}"` });
+    expect(c[0].code.length).toBeLessThan(200);
+    const f = censusChunks(c, 'index.js', 200);
+    expect(f.entryStaticClosure.sort()).toEqual(['runtime.js', 'shared.js']);
+    expect(f.entryClosureBytes).toBe(c[0].code.length + 'export const t=1'.length + c[c.length - 1].code.length);
+    expect(f.failures.join()).toMatch(/entry chunk and its static imports are \d+ bytes \(index\.js \d+ \+ (runtime|shared)\.js/);
+    // A lazy chunk does not count: the same weight behind a dynamic import is under the same ceiling.
+    c[0] = { file: 'index.js', code: preload('ThreeRenderer.js', 'shared.js') + 'import{t as e}from"./runtime.js";import("./shared.js")' };
+    expect(run(c, 200)).toEqual([]);
+  });
   it('fails when the node backend does not preload the webgpu chunk', () => {
     const c = good();
     c[4] = { file: 'node-backend.js', code: preload('core.js') + `throw new Error("${NODE_BACKEND_MARKER}");const n="${NODE_POST_MARKER}"` };

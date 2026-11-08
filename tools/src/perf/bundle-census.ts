@@ -6,7 +6,10 @@
 //   2. three/webgpu lives in its OWN lazy chunk (the node backend's second dynamic import), distinct from core, and the node-backend
 //      chunk's preload list names it. A legacy boot never fetches it.
 //   3. THE MAIN-CHUNK GUARD: the entry chunk carries no three code (core, WebGPURenderer, WebGLRenderer) and its STATIC import closure
-//      reaches none of the three chunks (core, webgpu, tsl, node-backend, the renderer). Plus a size ceiling on the entry.
+//      reaches none of the three chunks (core, webgpu, tsl, node-backend, the renderer). Plus a size ceiling on the entry AND every
+//      chunk it statically imports, summed: what a boot downloads before `main.ts` runs. The bundler is free to hoist modules the
+//      entry shares with two or more lazy chunks into a common chunk the entry imports statically (rolldown does, for `@lions/sim`,
+//      once a second lazy chunk reads it), so a ceiling on the entry FILE alone could be met by moving nothing off the boot.
 //   4. (P2, T1) the material twins' values (`material-maths.ts`) stay out of what a node boot loads statically, and every node
 //      material twin lives in the node-backend chunk.
 
@@ -67,6 +70,8 @@ export interface CensusFindings {
   readonly entryHasThree: string[];
   /** Chunks reachable from the entry by STATIC imports only. */
   readonly entryStaticClosure: string[];
+  /** The size the ceiling is held against: the entry plus every chunk in `entryStaticClosure` (`code.length` each). */
+  readonly entryClosureBytes: number;
   readonly failures: string[];
 }
 
@@ -98,7 +103,7 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
   const entry = byFile.get(entryFile);
   const failures: string[] = [];
   if (!entry) {
-    return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, entryHasThree: [], entryStaticClosure: [], failures: [`entry chunk ${entryFile} not found`] };
+    return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, entryHasThree: [], entryStaticClosure: [], entryClosureBytes: 0, failures: [`entry chunk ${entryFile} not found`] };
   }
   const entryHasThree = [CORE_MARKER, WEBGPU_MARKER, WEBGL_MARKER].filter((m) => has(entry, m));
   // Static closure from the entry.
@@ -114,6 +119,7 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
     }
   }
   const entryStaticClosure = [...seen].filter((f) => f !== entryFile);
+  const entryClosureBytes = [...seen].reduce((n, f) => n + (byFile.get(f)?.code.length ?? 0), 0);
 
   if (coreChunks.length !== 1) failures.push(`three.core must live in exactly ONE shared chunk; found ${coreChunks.length} (${coreChunks.join(', ') || 'none'})`);
   if (webgpuChunks.length !== 1) failures.push(`three/webgpu must live in exactly ONE lazy chunk; found ${webgpuChunks.length} (${webgpuChunks.join(', ') || 'none'})`);
@@ -167,6 +173,9 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
   for (const f of [...coreChunks, ...webgpuChunks, ...nodeBackendChunks]) {
     if (seen.has(f)) failures.push(`MAIN CHUNK GUARD: the entry statically imports ${f}`);
   }
-  if (entry.code.length > entryMaxBytes) failures.push(`MAIN CHUNK GUARD: the entry chunk is ${entry.code.length} bytes, over the ${entryMaxBytes} ceiling`);
-  return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, entryHasThree, entryStaticClosure, failures };
+  if (entryClosureBytes > entryMaxBytes) {
+    const parts = [entryFile, ...entryStaticClosure].map((f) => `${f} ${byFile.get(f)?.code.length ?? 0}`).join(' + ');
+    failures.push(`MAIN CHUNK GUARD: the entry chunk and its static imports are ${entryClosureBytes} bytes (${parts}), over the ${entryMaxBytes} ceiling`);
+  }
+  return { coreChunks, webgpuChunks, nodeBackendChunks, nodePostChunks, legacyPostChunks, materialMathsChunks, nodeMaterialChunks, entryHasThree, entryStaticClosure, entryClosureBytes, failures };
 }
