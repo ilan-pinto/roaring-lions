@@ -199,7 +199,11 @@ export function unitAdds(input: AddsInput): UnitAdds {
   let hurtBy: UnitAdds['hurtBy'] = null;
   if (!type.isSoft) {
     const armed = input.enemies.filter((e) => (e.weapons ?? []).length > 0 && e.role !== 'wounded');
-    const hurts = new Set(input.threats[unit.id] ?? []);
+    const row = input.threats[unit.id];
+    // A hard KDF type with no row means the generated table is stale (a unit was added without `pnpm store:threats`):
+    // say so, never read it as "nothing can hurt it".
+    if (row === undefined) throw new Error(`stores-adds: no threat-table row for ${unit.id}; run pnpm store:threats`);
+    const hurts = new Set(row);
     const byRole = new Map<string, string[]>();
     for (const e of [...armed].sort((a, b) => (a.id < b.id ? -1 : 1))) {
       if (!hurts.has(e.id)) continue;

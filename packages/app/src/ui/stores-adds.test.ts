@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { missions as shippedMissions, units, world } from '@lions/data';
+import { missions as shippedMissions, structures, units, world } from '@lions/data';
 import type { MissionJson } from '@lions/sim';
 import { coinPrice } from './stores-model';
 import { ADDS_TAGS, APP_HEAVY_COLLATERAL, unitAdds, type AddsInput, type AddsTag, type UnitJson, type WeakTag } from './stores-adds';
@@ -21,20 +21,25 @@ const START = new Set(['apc_eitan', 'at_team', 'inf_squad', 'jeep_shoded', 'mort
 const WORLD = (world.regions as { towns: { missions: string[] }[] }[]).flatMap((r) => r.towns.flatMap((t) => t.missions));
 const MISSIONS = Object.values(shippedMissions) as unknown as MissionJson[];
 
-const input = (id: string | UnitJson, over: Partial<AddsInput> = {}): AddsInput => ({
-  unit: typeof id === 'string' ? byId(id) : id,
-  kdf: KDF,
-  enemies: ENEMIES,
-  open: START,
-  ownedTiers: {},
-  ledger: {},
-  missions: MISSIONS,
-  worldMissionIds: WORLD,
-  versusMenu: new Set(),
-  threats: {},
-  refusal: () => null,
-  ...over,
-});
+const input = (id: string | UnitJson, over: Partial<AddsInput> = {}): AddsInput => {
+  const unit = typeof id === 'string' ? byId(id) : id;
+  const kdf = over.kdf ?? KDF;
+  return {
+    unit,
+    kdf,
+    enemies: ENEMIES,
+    open: START,
+    ownedTiers: {},
+    ledger: {},
+    missions: MISSIONS,
+    worldMissionIds: WORLD,
+    versusMenu: new Set(),
+    // An empty row per type: a hard type with NO row must throw, so the default names every row.
+    threats: Object.fromEntries([unit, ...kdf].map((k) => [k.id, [] as string[]])),
+    refusal: () => null,
+    ...over,
+  };
+};
 
 const allTags = (a: ReturnType<typeof unitAdds>): AddsTag[] => [...a.brings.shown.map((s) => s.tag), ...a.brings.more];
 const allWeak = (a: ReturnType<typeof unitAdds>): WeakTag[] => [...a.watch.shown, ...a.watch.more];
@@ -187,6 +192,40 @@ describe('T7: the comparison unit is read at its own owned tiers', () => {
   });
 });
 
+describe('owned tiers on the candidate and on open units', () => {
+  const tier = (patch: Record<string, number>) => ({ price: 100, patch });
+  const CAND: UnitJson = { ...BASE, id: 'fx_cand', name: 'Cand', role: 'novel', upgrades: { armour: { tiers: [tier({ 'hull.hp': 77, 'hull.armor.front': 3 })] } } } as UnitJson;
+  const row = (stat: string, tiers: Record<string, Record<string, number>>) =>
+    unitAdds(input(CAND, { kdf: [CAND], open: new Set(), ownedTiers: tiers })).compare.rows.find((r) => r.stat === stat)?.mine;
+  it('the candidate is compared as it stands: owned tier 1 adds 77 hp and 3 front armour (literals)', () => {
+    expect(row('hp', { fx_cand: { armour: 1 } })).toBe(577);
+    expect(row('hp', {})).toBe(500);
+    expect(row('armourFront', { fx_cand: { armour: 1 } })).toBe(103);
+  });
+  it('range cannot be upgraded (the whitelist forbids it), so reach never moves with tiers', () => {
+    const R = { ...CAND, upgrades: { armour: { tiers: [tier({ 'weapons[0].range_tiles': 2 })] } } } as UnitJson;
+    // If this stops throwing, an owned tier can change range and the reach line needs a real owned-tier test.
+    expect(() => unitAdds(input(R, { kdf: [R], open: new Set(), ownedTiers: { fx_cand: { armour: 1 } } }))).toThrow(/whitelist/);
+  });
+});
+
+describe('the threat table is complete', () => {
+  it('a hard KDF type with no row throws instead of reading as "nothing hurts it"; a soft type needs none', () => {
+    const hard = input(BASE, { kdf: [BASE] });
+    expect(() => unitAdds({ ...hard, threats: {} })).toThrow(/no threat-table row for fx_base/);
+    const soft = { ...BASE, hull: { ...BASE.hull, armor: { front: 10, side: 10, rear: 10 } } } as UnitJson;
+    expect(() => unitAdds({ ...input(soft, { kdf: [soft] }), threats: {} })).not.toThrow();
+  });
+});
+
+describe('F deviation: production.roles', () => {
+  it('no shipped structure type sets production.roles, so the dock count needs no structure data (spec 1.2 F, GH-277)', () => {
+    const withRoles = Object.values(structures).filter((st) => (st as { production?: { roles?: unknown } }).production?.roles !== undefined);
+    expect(Object.keys(structures).length).toBeGreaterThan(5);
+    expect(withRoles.map((st) => (st as { id?: string }).id)).toEqual([]);
+  });
+});
+
 describe('T6 block E: the gap, over the open set', () => {
   it('the medic is the first support in a starting brigade, new heal and rescue', () => {
     const gap = unitAdds(input('inf_medic_squad')).gap;
@@ -200,12 +239,17 @@ describe('T6 block E: the gap, over the open set', () => {
     expect(gap.some((g) => g.kind === 'plusOne')).toBe(false);
   });
   it('plusOne holds only when nothing else does', () => {
-    const a = unitAdds(input('mortar_team', { open: new Set([...START, 'sniper_team', 'recon_drone']) , kdf: KDF }));
-    // A second mortar-class unit beats nothing here, so the model has nothing new to say but "+1".
+    // A twin of the mortar: same role, same tags, same range, so firstRole, newTags and reach are all silent.
     const twin = { ...byId('mortar_team'), id: 'fx_mortar2', name: 'Mortar 2' } as UnitJson;
     const b = unitAdds(input(twin, { kdf: [...KDF, twin], open: START }));
     expect(b.gap).toEqual([{ kind: 'plusOne', role: 'artillery', name: byId('mortar_team').name }]);
-    expect(a.gap.length).toBeLessThanOrEqual(3);
+    // The howitzer fires reach, so plusOne is absent beside it.
+    expect(unitAdds(input('spg_long_range')).gap.some((g) => g.kind === 'plusOne')).toBe(false);
+  });
+  it('all three gap lines can hold at once, in spec order, and none is dropped', () => {
+    const odd = { ...BASE, id: 'fx_odd', name: 'Odd', role: 'novel', abilities: ['smoke'], weapons: [{ ...BASE.weapons![0], range_tiles: 40 }] } as UnitJson;
+    const gap = unitAdds(input(odd, { kdf: [odd, byId('inf_squad')], open: new Set(['inf_squad']) })).gap;
+    expect(gap.map((g) => g.kind)).toEqual(['firstRole', 'newTags', 'reach']);
   });
   it('is computed over the open set, never the catalogue', () => {
     // With every KDF unit open the medic is no longer the first support (veh_ambulance is support too).
@@ -247,10 +291,29 @@ describe('T8 block F: where it can be used', () => {
     const t = mission('m_t', { triggers: [{ on: { kind: 'timer_s', value: 5 }, do: { kind: 'reinforce', units: [{ unit: 'fx_med', count: 1 }] } }] });
     expect(where({ missions: [t], worldMissionIds: ['m_t'] })).toContainEqual({ kind: 'loaned', n: 1 });
   });
-  it('the shipped medic is on loan in many missions on a starting ledger', () => {
+  it('the shipped medic: on loan in 29 missions on a starting ledger, docked in 20 world missions (literals)', () => {
     const w = unitAdds(input('inf_medic_squad')).where;
-    const loaned = w.find((x) => x.kind === 'loaned');
-    expect(loaned && loaned.kind === 'loaned' ? loaned.n : 0).toBeGreaterThan(20);
+    expect(w).toContainEqual({ kind: 'loaned', n: 29 });
+    expect(w).toContainEqual({ kind: 'dock', n: 20 });
+  });
+  it('the ledger is read: a gate the ledger opens is not a loan, and an upgrade a ledger opens shifts the indices', () => {
+    const G: UnitJson = { ...BASE, id: 'fx_gate', name: 'Gate', role: 'support', unlock: { after_mission: 'm_y', price: 100 } } as UnitJson;
+    const X: UnitJson = { ...BASE, id: 'fx_x', name: 'X', unlock: { after_mission: 'm_x', price: 100 } } as UnitJson;
+    const trig = mission('m_t', { triggers: [{ on: { kind: 'timer_s', value: 5 }, do: { kind: 'reinforce', units: [{ unit: 'fx_gate', count: 1 }] } }] });
+    const both = mission('m_both', { starting_force: [{ unit: 'inf_squad', count: 1, upgrades_to: 'fx_x', gate_only: true }, { unit: 'fx_gate', count: 1 }] });
+    const run = (ledger: Record<string, unknown>, ms: MissionJson[]) =>
+      unitAdds(input(G, { kdf: [G, X], open: new Set(), missions: ms, worldMissionIds: ms.map((m) => m.id), ledger: ledger as AddsInput['ledger'] })).where;
+    const loaned = (w: ReturnType<typeof run>) => w.find((x) => x.kind === 'loaned');
+    // Closed gate: loaned by force and by trigger.
+    expect(loaned(run({}, [fixtureMissions[0], trig]))).toEqual({ kind: 'loaned', n: 1 }); // m_a places fx_med, not fx_gate
+    const m1 = mission('m_1', { starting_force: [{ unit: 'fx_gate', count: 1 }] });
+    expect(loaned(run({}, [m1, trig]))).toEqual({ kind: 'loaned', n: 2 });
+    // The ledger completes m_y: the candidate's own gate opens, nothing is on loan (force AND trigger).
+    expect(loaned(run({ 'campaign.completed_missions': ['m_y'] }, [m1, trig]))).toBeUndefined();
+    // Index shift: with m_x done the gate_only upgrade survives (index 0), so fx_gate is index 1 and still a loan.
+    expect(loaned(run({ 'campaign.completed_missions': ['m_x'] }, [both]))).toEqual({ kind: 'loaned', n: 1 });
+    // Without m_x the gate_only placement is dropped and fx_gate is index 0: still one loan.
+    expect(loaned(run({}, [both]))).toEqual({ kind: 'loaned', n: 1 });
   });
   it('a priced unit says the coin rule once', () => {
     expect(where().filter((w) => w.kind === 'coinsSinglePlayer')).toHaveLength(1);
