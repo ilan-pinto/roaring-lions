@@ -4562,7 +4562,10 @@ export class Sim {
   tick(): SimEvent[] {
     // GH-976: the bell rings on the tick whose count IS the set-up clock, before this tick's commands, so an order given
     // on the bell tick is already unclamped (setupActive is false from here).
-    if (this.setupLive && this.tickCount === this.setupUntil) this.pendingEvents.push({ kind: 'setupBell', tick: this.tickCount });
+    if (this.setupLive && this.tickCount === this.setupUntil) {
+      this.pendingEvents.push({ kind: 'setupBell', tick: this.tickCount });
+      this.resnapBlockedGoals();
+    }
     this.applyCommands();
     this.stepDigging();
     this.stepDetection();
@@ -4898,6 +4901,51 @@ export class Sim {
   ): [number, number] {
     this.snapOpenTile(gx, gy, mask);
     return [this.snapX, this.snapY];
+  }
+
+  /**
+   * GH-1112: the bell-tick re-snap. During the set-up a unit ordered across the line is held at it with `moving` 1, and the
+   * other side may fortify on its goal tile (`fortify` raises a blocked structure). `applyMove` snapped that goal to open
+   * ground when the order was given, so nothing re-checks it: after the bell the unit parks against the piece for good, and a
+   * bot may not re-order a unit that still reads `moving` 1.
+   *
+   * One deterministic pass, on the bell tick only (before that tick's commands), in id order. For each walking ground unit
+   * whose goal tile, or whose queued waypoint tile, is blocked for ITS domain, the point moves to the centre of the nearest
+   * open tile of that domain: `applyMove`'s own rule (`snapOpenTile`, then `fromInt + HALF`), and the goal's flow field is
+   * asked for again, as an order does. Integer maths only, no random draw.
+   *
+   * It writes only where a point is blocked, so a world with no such goal keeps its hash byte for byte. A unit whose goal is
+   * a structure by design (garrison, board, demolish, charge: their goal is a footprint and their field is snapped separately)
+   * and an aircraft (it flies over everything) are left alone, as are passengers and units underground.
+   */
+  private resnapBlockedGoals(): void {
+    const w = this.width;
+    const h = this.height;
+    for (let id = 0; id < this.count; id++) {
+      if (this.alive[id] === 0 || this.moving[id] === 0 || this.carriedBy[id] >= 0 || this.tunnelIn[id] >= 0) continue;
+      if (this.garrisonGoal[id] >= 0 || this.boardGoal[id] >= 0 || this.demolishOrder[id] >= 0 || this.chargeOrder[id] >= 0) continue;
+      const domain = this.domainOf(id);
+      if (domain === DOMAIN_AIR) continue;
+      const mask = this.maskFor(domain);
+      const gtx = fx.toInt(this.goalX[id]);
+      const gty = fx.toInt(this.goalY[id]);
+      if (gtx >= 0 && gty >= 0 && gtx < w && gty < h && mask[gty * w + gtx] !== 0) {
+        this.snapOpenTile(gtx, gty, mask);
+        this.goalX[id] = fx.add(fx.fromInt(this.snapX), HALF);
+        this.goalY[id] = fx.add(fx.fromInt(this.snapY), HALF);
+        this.fieldRef[id] = this.fieldFor(this.snapX, this.snapY, domain);
+      }
+      const n = this.wpCount[id];
+      for (let k = 0; k < n; k++) {
+        const wi = id * MAX_WAYPOINTS + k;
+        const wtx = fx.toInt(this.wpX[wi]);
+        const wty = fx.toInt(this.wpY[wi]);
+        if (wtx < 0 || wty < 0 || wtx >= w || wty >= h || mask[wty * w + wtx] === 0) continue;
+        this.snapOpenTile(wtx, wty, mask);
+        this.wpX[wi] = fx.add(fx.fromInt(this.snapX), HALF);
+        this.wpY[wi] = fx.add(fx.fromInt(this.snapY), HALF);
+      }
+    }
   }
 
   /** nearestOpenTile's answer, from the last `snapOpenTile` call. Scratch,
