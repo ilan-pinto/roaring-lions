@@ -27,7 +27,7 @@ describe('trackSummary (§4 "spent 360 · 1315 to max")', () => {
     expect(trackSummary(track('mbt_lavi', 'armour'), 1)).toEqual({ owned: 1, length: 3, spent: 360, toMax: 1315, next: 2 });
   });
   it('spent counts only EARNED tiers: coins held tiers 1-2, earned 0 -> spent 0, toMax unchanged', () => {
-    expect(trackSummary(track('mbt_lavi', 'armour'), 2, 0)).toEqual({ owned: 2, length: 3, spent: 0, toMax: trackSummary(track('mbt_lavi', 'armour'), 2).toMax, next: 3 });
+    expect(trackSummary(track('mbt_lavi', 'armour'), 2, 0)).toEqual({ owned: 2, length: 3, spent: 0, toMax: 770, next: 3 }); // literal: tier 3 of mbt_lavi armour
     expect(trackSummary(track('mbt_lavi', 'armour'), 2, 1).spent).toBe(360);
     expect(trackSummary(track('mbt_lavi', 'armour'), 1, 5).spent).toBe(360); // earned never exceeds owned
   });
