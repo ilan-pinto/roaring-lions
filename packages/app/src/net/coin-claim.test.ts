@@ -61,7 +61,7 @@ describe('G-V1: a coin-only account in a versus room', () => {
       await tick();
       expect(calls).toHaveLength(1);
       expect(calls[0].kit).toBe('matched');
-      expect(Object.keys(calls[0]).filter((k) => ['tiers', 'unlocks', 'units', 'boughtUnits'].includes(k))).toEqual([]);
+      expect(Object.keys(calls[0]).filter((k) => ['tiers', 'unlocks', 'units', 'boughtUnits', 'specials'].includes(k))).toEqual([]);
     }
   });
 

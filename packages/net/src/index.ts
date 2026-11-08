@@ -10,3 +10,4 @@ export * from './callsign';
 export * from './advisor';
 export * from './seat-rules';
 export * from './snapshot-wire';
+export * from './specials';

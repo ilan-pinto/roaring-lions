@@ -150,6 +150,13 @@ describe('parseServerMsg', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'lobby', config: CFG, seats, you: 0, map: 'm' }))).toEqual({ t: 'lobby', config: CFG, seats, you: 0, map: 'm' });
     expect(parseServerMsg(JSON.stringify({ t: 'lobby', config: {}, seats, you: 0, map: 'm' }))).toBeNull();
   });
+  it("GH-1102: a lobby seat may name the Store specials it brings; anything but a short list of strings is refused", () => {
+    const seat = { seat: 0, callsign: 'Host', connected: true, ready: false };
+    const lobby = (specials: unknown) => JSON.stringify({ t: 'lobby', config: null, seats: [{ ...seat, specials }], you: 0, map: 'm' });
+    expect(parseServerMsg(lobby(['mbt_lavi_camo']))).toEqual({ t: 'lobby', config: null, seats: [{ ...seat, specials: ['mbt_lavi_camo'] }], you: 0, map: 'm' });
+    expect(parseServerMsg(lobby([]))).not.toBeNull();
+    for (const bad of ['mbt_lavi_camo', [7], { 0: 'x' }, Array.from({ length: 33 }, () => 'x')]) expect(parseServerMsg(lobby(bad)), JSON.stringify(bad)).toBeNull();
+  });
   it('accepts only the declared error codes', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'full' }))).toEqual({ t: 'error', code: 'full' });
     // GH-954: a build_mismatch may name the room's build; anything that is not a short printable string is dropped.

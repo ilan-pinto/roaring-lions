@@ -6,6 +6,7 @@
 import { AMBUSH_RADIUS_MAX, FIRE_SUPPORT, MAX_PATROL_WAYPOINTS, FIRE_SUPPORT_KINDS, MAX_LINE_QUEUE, MAX_PRODUCTION_LINES, type Command } from '@lions/sim';
 import { isFactionPair, validateConfig, winModeField, type Faction, type MatchConfig, type Seat, type WinMode } from './config';
 import type { Frame, Stamped } from './frames';
+import { SPECIALS_MAX } from './specials';
 import { ADVISOR_SCOPES, cleanAdvisorMsg, type AdvisorMsg, type AdvisorScope } from './advisor';
 
 export const MAX_MESSAGE_BYTES = 4096;
@@ -48,7 +49,11 @@ type MissingCommandKind = Exclude<Command['kind'], (typeof COMMAND_KINDS)[number
 const COMMAND_KINDS_COMPLETE: [MissingCommandKind] extends [never] ? true : { missingFromCOMMAND_KINDS: MissingCommandKind } = true;
 void COMMAND_KINDS_COMPLETE;
 
-export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean }
+/** `specials` (GH-1102): the Store specials this seat brings, as the room cleaned its claim
+ *  (`seatSpecialsField`), refused ones included so the lobby can list them
+ *  (`VERSUS_REFUSED_SPECIALS`). Named only in a brigade versus room, and `[]` for a bot or a
+ *  Sarim seat there; absent everywhere else, which is every room before it. */
+export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean; specials?: string[] }
 
 export type ClientMsg =
   /** `from` (snapshot S3, D6): the first frame tick this client lacks; the
@@ -359,7 +364,8 @@ function isFrame(v: unknown): v is Frame {
 function isSeatState(v: unknown): v is SeatState {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
-  return isSeat(s.seat) && isStr(s.callsign) && typeof s.connected === 'boolean' && typeof s.ready === 'boolean';
+  return isSeat(s.seat) && isStr(s.callsign) && typeof s.connected === 'boolean' && typeof s.ready === 'boolean' &&
+    (s.specials === undefined || (Array.isArray(s.specials) && s.specials.length <= SPECIALS_MAX && s.specials.every(isStr)));
 }
 
 /** `log` and `lobby` are the two messages that can exceed the client cap (a

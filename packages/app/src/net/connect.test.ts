@@ -758,6 +758,22 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
       expect('kit' in calls[0].body).toBe(false);
     });
 
+    it("GH-1102: a brigade create and a join carry the owned Store specials beside the tiers; a matched create carries none", async () => {
+      const SPECIALS = ['mbt_lavi_camo', 'demo_tzav'];
+      const brigade = answering(201);
+      void openRoom({ kind: 'create', map: 'tel_marum', callsign: 'Ari', kit: 'brigade' }, 'b', deps({ fetch: brigade.f, openSocket: () => fakeSocket(), tiers: () => OWNED, specials: () => SPECIALS })).catch(() => {});
+      await tick();
+      expect(brigade.calls[0].body.specials).toEqual(SPECIALS);
+      const join = answering(200, { code: 'ABCDEF', seat: 1, ticket: 'tk-j' });
+      void openRoom({ kind: 'join', code: 'ABCDEF', callsign: 'Bo' }, 'b', deps({ fetch: join.f, openSocket: () => fakeSocket(), specials: () => SPECIALS })).catch(() => {});
+      await tick();
+      expect(join.calls[0].body.specials).toEqual(SPECIALS);
+      const matched = answering(201);
+      void openRoom({ kind: 'create', map: 'tel_marum', callsign: 'Ari', kit: 'matched' }, 'b', deps({ fetch: matched.f, openSocket: () => fakeSocket(), specials: () => SPECIALS })).catch(() => {});
+      await tick();
+      expect('specials' in matched.calls[0].body).toBe(false);
+    });
+
     it('the account is read when the request is made, never in the URL', async () => {
       const { f, calls } = answering(201);
       let reads = 0;
@@ -802,7 +818,7 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     const sock = fakeSocket();
     const p = openRoom({ kind: 'join', code: 'abcdef', callsign: 'Bo' }, 'b', deps({ fetch: f, openSocket: () => sock }));
     await tick();
-    expect(calls).toEqual([{ url: 'http://x/api/match/ABCDEF/join', body: { player: 'pid-o', callsign: 'Bo', build: 'b', tiers: {} } }]);
+    expect(calls).toEqual([{ url: 'http://x/api/match/ABCDEF/join', body: { player: 'pid-o', callsign: 'Bo', build: 'b', tiers: {}, specials: [] } }]);
     sock.onopen?.({});
     sock.onmessage?.({ data: JSON.stringify({ ...LOBBY_TWO, you: 1 }) });
     expect((await p).seat).toBe(1);

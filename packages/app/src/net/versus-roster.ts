@@ -34,6 +34,12 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * design gives a special unit a seat. `ugv_recon_dog` (Phase 8) joins them for the same
  * reason. So does `at_nlos_team` (Phase 7), and `demo_tzav` (GH-274, bought-only).
  *
+ * GH-1102 (the lead, 7 Nov 2026): those Store specials stay out of the BASE roster, but a
+ * brigade room registers each one a seat brings (`versus-specials.ts`), only in that room and
+ * AFTER every roster type and side 1's kit copies, so no type index here moves and a room in
+ * which nobody brings one registers exactly this roster. `veh_ambulance`, `air_medevac_heli`
+ * and `spg_cluster` are refused even there (`@lions/net`'s `VERSUS_REFUSED_SPECIALS`).
+ *
  * `drone_swarm` (E6, GH-274 chunk A1): a Sarim campaign enemy (E6 Q10) that no doctrine menu
  * builds and no seat fields, and one entity standing for twelve drones, which a lockstep
  * versus world has no rule for yet. Held the same way until a versus design gives it a seat;
