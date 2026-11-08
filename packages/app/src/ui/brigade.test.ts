@@ -1331,6 +1331,17 @@ describe('showBrigade — the bay carries the kit (§3.1, F4, F5)', () => {
     const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1, sensors: 1 } } });
     expect(text(host, '.rl-garage__kit-total')).toBe('350 credits of kit');
   });
+  // GH-1143: "credits of kit" counts what credits paid for. Armour tier 2 here is held by coins (owned 2, earned 1), and
+  // sensors tier 1 is a coin tier too (earned 0): only armour tier 1 (200) was paid in credits.
+  it('counts only the tiers credits paid for: coin-held tiers are not "credits of kit"', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 2, sensors: 1 } }, earned: { inf_squad: { armour: 1 } } });
+    expect(text(host, '.rl-garage__kit-total')).toBe('200 credits of kit');
+  });
+  it('says nothing when every tier the unit holds is a coin tier', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1 } }, earned: { inf_squad: {} } });
+    expect(host.querySelector('.rl-garage__kit-total')).toBeNull();
+    expect(host.querySelector('.rl-garage__plate')?.getAttribute('data-kit')).toBe('1'); // the plate still shows the kit it holds
+  });
   // R-5: against a base-JSON maximum, the roster's strongest unit fills its
   // bar with base and has no room left to draw what it bought.
   it('leaves the roster’s strongest unit room to draw its kit', () => {

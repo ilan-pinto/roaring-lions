@@ -1235,6 +1235,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // One reading of "how kitted is this unit" drives both the plate's mark
     // and the credits line below it -- never two arithmetics for one idea.
     const kit = kitSummary(upgradable, tiers);
+    // GH-1143: the bay's line says "credits of kit", so it counts what credits paid for: the account's EARNED tiers, not the
+    // single-player tier (`max(earned, coins)`) the plate and the pips read. A caller with no earned record cannot tell the
+    // two apart, and reads as before.
+    const creditKit = state.earned === undefined ? kit : kitSummary(upgradable, ownedTiers(u, state.earned));
 
     // M3 (lead ruling L2): a locked unit that still OWNS tiers -- one a gate
     // re-locked after it was kitted -- keeps them, dormant; the sim's
@@ -1318,8 +1322,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // What this type's kit cost, directly under the numbers it bought.
     // Absent when nothing has been spent -- the same "nothing to say" rule
     // the kit mark above follows.
-    if (kit.spent > 0) {
-      bay.appendChild(el('div', 'rl-garage__kit-total', t('garage.kit.total', { n: kit.spent })));
+    if (creditKit.spent > 0) {
+      bay.appendChild(el('div', 'rl-garage__kit-total', t('garage.kit.total', { n: creditKit.spent })));
     }
 
     // The blurb is the unit's own JSON — data, in the unit's file, beside its
