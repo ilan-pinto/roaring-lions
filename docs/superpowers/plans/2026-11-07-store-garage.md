@@ -982,7 +982,8 @@ with a new render after the lead approves its framing, per the house rule. A rej
 
 ## As built (8 Nov 2026)
 
-- Landed: WP1 PR 1118, WP2 1117, WP3 1115, WP4 1114, WP5 1119, WP6 1120, WP7 1122, WP8+WP9 1123.
+- Landed: WP1 PR 1118, WP2 1117, WP3 1115, WP4 1114, WP5 1119, WP6 1120, WP7 1122.
+- Pending: WP8+WP9 (PR 1123, the nine tracks and the 11 close-ups) is open and its `gates` check was red when this was written; it counts as landed only when it merges.
 - The lead passed the look sheet as rendered (GH-1076). The panel trims and the same-role benchmark were not required.
 - The notes WP11 owes are in `docs/agent-notes/shell-and-ui.md`, "Stores: What it adds, and credit runs", and
   `pnpm store:threats` is in `CLAUDE.md`.

@@ -218,16 +218,20 @@ in `packages/economy/src/world.ts`.
 
 Plan: `docs/superpowers/plans/2026-11-07-store-garage.md` (its Conflicts and R0.x rulings win). Landed as
 PR 1114 (`creditAsk`/`buyUpgradeRun`), 1115 (`unitAdds`), 1117 (threat table), 1118 (balance fit), 1119 (Garage
-credit Buy), 1120 (the panel), 1122 (Stores tier-row credit Buy), 1123 (the nine tracks plus the 11 close-ups).
+credit Buy), 1120 (the panel), 1122 (Stores tier-row credit Buy). PR 1123 (the nine tracks plus the 11 close-ups) was still open when this was written.
 
 - **`unitAdds`** (`packages/app/src/ui/stores-adds.ts`, drawn by `stores-adds-view.ts`) is one pure model behind the
   Stores' "What it adds" panel. The versus line follows PR 1110: a bought-only unit with `specialRefusal(id) === null`
-  shows `brigadeRoom`; `campaignOnly` shows only for the refused three. The refusal is injected
+  shows `brigadeRoom`; `campaignOnly` shows whenever neither `brigadeRoom` nor a versus line applies (`!brigadeRoom && !versus` in `stores-adds.ts`): the refused three, and also every other unit held out of versus, such as `heli_yanshuf`. The refusal is injected
   (`AddsInput.refusal`), the app keeps no copy of the list.
 - **The Hurt-by table is generated.** `pnpm store:threats` (`tools/src/store/threat-table.ts`) asks a headless
   `Sim`'s own `focusHurts` and writes `threat-table.json`. `tools/src/store_threat_table.test.ts` goes red on any
-  roster or tuning change until it is regenerated: regenerate, do not edit the JSON. The generator asserts airborne
-  targets and the side plate by literal, and `wounded_sarim` is excluded by `role`, never by id.
+  roster or tuning change until it is regenerated: regenerate the JSON, never hand-edit it. The test's own literal
+  assertions (R0.10, for example which enemy appears in which unit's list) are different: they are the maintainers' to
+  update by hand when a roster change legitimately changes them. The generator throws if a type's `isAirborne` does not
+  match its domain (R0.9); the side plate (facing 16384 reads `presentedArc` 1, facing 0 reads 0) is asserted by the
+  test, not the generator, so run `store_threat_table.test.ts` after every regeneration. `wounded_sarim` is excluded by
+  `role`, never by id.
 - **R3 with R0.1.** `creditAsk(prices, earned, owned)` (`upgrade-pay.ts`) prices a credit run: credits fill the earned
   path below the tier they buy. It returns `null` when the single-player tier is already the top, whoever paid for it.
   There is no "Count online" run (R0.1, ruled by the lead). `owned` is `max(earned, coins)`; no caller reads the wallet
