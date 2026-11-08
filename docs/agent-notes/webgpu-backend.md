@@ -9,3 +9,33 @@ Design: `_coord/webgpu-primary/design.md` (lead-approved 5 Nov 2026). P0 only: L
 - Visual gate: `--gpu=legacy|webgl2|webgpu` on `golden-baseline`. The envKey backend term (`-wgl2`, `-wgpu`) comes from `backendInfo()` read on the page; legacy keys are unchanged (pinned against every committed baseline directory). Node arms freeze the loop with `window.__lionsFreezeLoop` (`packages/app/src/frame-freeze.ts`), never a stubbed rAF, and photograph only after two zero-time repaints read byte-identical. Mixed-backend runs are refused (exit 2). Nothing is blessed for a node key before P7.
 - `tools/webgpu_ratchet.mjs`: the ESLint ratchet. `PORTED_FILES` starts empty and only gains entries.
 - TODO(P7): the four synchronous `webgl2Available` screens switch to `ui/gpu-probe.ts`'s `drawableNow()`; the settings panel and the feedback note show `backendInfo()`.
+
+## Banding (P2 T2)
+
+The lead saw banding in the large soft shadow and on the lit ground of the node (G) frames of the P1 v2 sheet. T2 measured it; T8 fixes it.
+
+**Cause.** 8-bit quantisation of smooth gradients, with NO dither on a day map, on BOTH paths. L hides it under the ground texture; G has no ground texture yet (the legacy splice is not ported, T3), so it shows it. Three readings settle it:
+- **H0:** the legacy frame with `ground-albedo` and `macro` hidden (the flat palette ground G draws) bands like G: 0.563 / 0.636 (penumbra / lit) on Metal, against G's 0.636 / 0.679 and textured L's 0.001 / 0.000.
+- **H1:** the output dither runs only while a grade is on (`uGradeOn > 0.5`, `output-grade.ts`, the node twin alike). `wadi_halam_4` is a day map with no grade, so `uGradeOn` reads 0 on both arms and nothing is dithered. Forcing the dither on (a near-identity grade, `uGradeDither` 1) takes G from 0.636 / 0.679 to 0.064 / 0.054 (Metal). Dither on with `uGradeDither` 0 leaves it banded (0.649 / 0.666).
+- **The large soft "shadow" is the fog-of-war shroud, not a shadow map (HX).** Revealing every tile (`fog` hidden) moves 51,334 of the penumbra crop's 67,584 px (mean channel delta 52 over the frame). Every shadow toggle moves at most 470 px of that crop and leaves the index where it was.
+
+**Not the cause.** H2: the node chain is HalfFloat end to end until the canvas (scene pass `rgba16float`, depth `depth24plus-stencil8`, SMAA input `rgba16float`, canvas `bgra8unorm`, `srgb`, tone mapping `standard`); the scene pass at FloatType reads 0.636 / 0.683. H3: `shadow.radius` 0 and 4 (1 ships), BasicShadowMap and VSM do not move the index (node shadow depth `depth24plus`, UnsignedInt `Depth`, the same compare as legacy). H4: AO off RAISES G's index a little (0.693 / 0.697; its noise breaks plateaus). H5: the sky light moves no ground pixel (the ground takes no environment, by design). The node dither's y flip is right: the dither-on minus dither-off difference correlates with the bottom-left IGN at 0.725-0.766 on L and G, and with the top-left one at under 0.01.
+
+**Recommended fix for T8: run the dither always, not only with a grade, on both paths.** One LSB of the same IGN after the output transform (drop the `uGradeOn > 0.5` guard on the dither, keep it on the LUT). It changes legacy: every L frame gains a one-LSB noise (2.7 M px moved at mean 0.26 channel units on this framing, invisible on textured ground), so every golden baseline moves, and per ruling 2 the PR waits for the lead's look and a CI bless. T3's texture port alone would bring G to L on these crops (textured L reads 0.000), but the flat-palette reading shows any untextured gradient (the shroud edge, a dusk sky term, a future flat material) bands on both paths without the dither. Rectangular (1 LSB) is enough on these crops (0.05-0.06); on the shallowest gradient the metric masks (1 level per 32 px) it leaves 11-13 px plateaus at every level crossing (synthetic 0.177), and a triangular dither (two IGN samples, 2 LSB) reads 0.000 there. T8 can choose; the measured default is rectangular.
+
+**Instruments.** `tools/src/golden-diff/banding.ts` (`bandingIndex`: the mask is a 9x9 box-blurred luma changing 0.5-4 levels over 32 px; the index is the masked pixels in a run of 12+ px of identical 8-bit luma, read along the gradient's axis, that ends in a 1-level step; an empty mask is a refusal). Its fixtures, `fixtures/banding/` (the four P1 v2 crops, G 0.636 / 0.679 and L-shipped 0.001 / 0.000), prove it sees the defect. `tools/src/perf/webgpu-banding-probe.ts` reads every hypothesis on every arm and refuses a toggle that moved nothing; on CI it runs from `webgpu-noise.yml` (`gh workflow run webgpu-noise.yml --ref <branch> -f probe=banding`).
+
+Metal readings (one lock hold, 2026-11-08, port 5193; `?sandbox=wadi_halam_4`, booted camera z1, sim tick 5, quality high, music off, 1440x900 DPR 2, L matched; Apple M3 Pro, L on ANGLE Metal, G on `apple / metal-3`; 1-min load 2.52 at start, 2.93 mid, 4.02 end):
+
+| hyp | variant | L penumbra / lit | G penumbra / lit |
+|---|---|---|---|
+| - | baseline | 0.001 / 0.000 | 0.636 / 0.679 |
+| H0 | flat ground | 0.563 / 0.636 | 0.636 / 0.679 (G has no texture: 0 px moved) |
+| H1 | dither on | 0.000 / 0.000 | 0.064 / 0.054 |
+| H1 | dither off (grade on) | 0.001 / 0.000 | 0.649 / 0.666 |
+| H2 | scene pass Float | n/a (node) | 0.636 / 0.683 |
+| H3 | radius 0 / radius 4 | 0.001 / 0.000, 0.001 / 0.000 | 0.636 / 0.679, 0.637 / 0.679 |
+| H3 | Basic / VSM | 0.001 / 0.000, n/a | 0.637 / 0.679, 0.634 / 0.679 |
+| H4 | AO off | 0.002 / 0.000 | 0.693 / 0.697 |
+| H5 | environment off | 0.001 / 0.000 | 0.637 / 0.679 |
+| HX | shroud revealed | 0.000 / 0.000 | 0.636 / 0.679 |
