@@ -1646,9 +1646,10 @@ Power score (this document's own re-derivation of `validate_balance.py`'s curve)
 **Scope.** Spec `2026-11-07-store-garage-benefits-design.md` §2.2 and plan
 `2026-11-07-store-garage.md` Task WP1, under the lead's ruling D1 (7 Nov): tracks for the nine
 bought-only KDF units that shipped with none, with no premium for bought units. Base:
-`origin/main` `336c5bc42`. These tracks are **staged, not shipped**: they live in
-`docs/campaign/special_units/gh1077/tracks.json` (guarded by `tools/src/gh1077_staged.test.ts`)
-until WP8 moves them into `data/units/kdf/` in one commit with their close-ups. E5's three
+`origin/main` `336c5bc42`. These tracks are **shipped** (WP8, branch `data/bought-unit-tracks`): the
+staged file `docs/campaign/special_units/gh1077/tracks.json` and its test `gh1077_staged.test.ts`
+were deleted in the commit that copied the blocks, verbatim, into `data/units/kdf/`, and
+`tools/src/bought_unit_tracks.test.ts` (T12) guards them. E5's three
 (`recon_zikit`, `demo_tzav`, `heli_peten_gunship`), `attack_drone` (§7.4) and `heli_yanshuf` keep
 their own prices.
 
@@ -1681,8 +1682,8 @@ none broke), and no price moved. The sibling exceptions were taken as drafted, e
 - No soft unit turns hard: the foot faces top out at +2 (front 12 mm), and the hard census stays
   16 (`vehicle_health_bounds.test.ts` passes on the patched roster).
 
-**Price rule.** §1's formula, unchanged by the fit. The table below is the staged file's, and
-`gh1077_staged.test.ts` recomputes every price from literal multipliers.
+**Price rule.** §1's formula, unchanged by the fit. The table below is the shipped blocks', and
+`bought_unit_tracks.test.ts` recomputes every price from literal multipliers.
 
 | unit | logistics | tracks: tier prices (credits) | credits to max | coins to max |
 |---|---|---|---|---|
@@ -2814,7 +2815,7 @@ campaign") — the long tail is intended, not a pricing miss.
 | yahalom_squad | 3 (armour, sensors, firepower) | 3 | 1475 |
 | **all 17** | | | **34965** (was 36260 before `attack_drone`'s re-price, §7.4) |
 
-**GH-1077 (2026-11-08), staged, not yet shipped** (§3, last block): the nine bought-only units with
+**GH-1077 (2026-11-08), shipped (WP8)** (§3, last block): the nine bought-only units with
 no tracks get 16,050 credits of tiers between them, 1,750 coins.
 
 | type | tracks | tiers | total price |

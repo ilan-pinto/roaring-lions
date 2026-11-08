@@ -298,6 +298,10 @@ describe('T9 block G: the credit and coin totals', () => {
   it('a unit with no tracks is null', () => {
     expect(unitAdds(input(BASE, { kdf: [BASE] })).upgrades).toBeNull();
   });
+  it('the shipped Te\'o Howitzer: 1,350 credits and 145 coins (GH-1077, WP1\'s fit)', () => {
+    // 160+240+340 and 130+200+280 credits; each tier's coin price summed, not coinPrice(1350).
+    expect(unitAdds(input('spg_long_range')).upgrades).toEqual({ tracks: ['armour', 'sensors'], tiers: 6, credits: 1350, coins: 145 });
+  });
 });
 
 describe('Hurt by', () => {
