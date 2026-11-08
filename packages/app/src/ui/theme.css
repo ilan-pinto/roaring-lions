@@ -6545,6 +6545,124 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-stores__card[data-state='coins'] {
   border-color: var(--roar);
 }
+/* "What it adds" (GH-1076): one control per unit card, one panel under that card's grid row. `dense` lets the
+   cards after the open one fill its row, so the full-width panel sits directly below. Semantic tokens and
+   .rl-good/.rl-bad only. */
+.rl-stores__cards {
+  grid-auto-flow: row dense;
+}
+.rl-menu--garage .rl-stores__adds-open {
+  padding: var(--s1) var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-stores__adds-open[aria-expanded='true'] {
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-stores__adds {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: var(--s4);
+  background: var(--well);
+  border: 1px solid var(--selected);
+  /* Never taller than the shell's Stores region can show: the panel scrolls inside itself past this, so its
+     last block is always reachable at 1280x720 as at 1920x1080. */
+  max-height: calc(100vh - 2 * var(--s6) - 12rem); /* px-ok */
+  overflow-y: auto;
+}
+.rl-menu--garage .rl-stores__adds-h {
+  margin: 0 0 var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  font-weight: 800;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-stores__adds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: var(--s4);
+}
+.rl-stores__adds-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+.rl-menu--garage .rl-stores__adds-bh {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-stores__adds-list,
+.rl-stores__adds-stats {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-stores__adds-item,
+.rl-stores__adds-note,
+.rl-stores__adds-role,
+.rl-stores__adds-purpose {
+  margin: 0;
+  font-size: var(--t-band);
+  color: var(--ink);
+}
+.rl-stores__adds-item[hidden] {
+  display: none;
+}
+.rl-stores__adds-note {
+  color: var(--ink-mute);
+}
+.rl-stores__adds-role {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.rl-stores__adds-purpose {
+  flex-basis: 100%;
+  color: var(--ink-dim);
+}
+.rl-stores__adds-stat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--s3);
+  font-size: var(--t-band);
+}
+.rl-stores__adds-stat-n {
+  color: var(--ink-dim);
+}
+.rl-stores__adds-stat-v,
+.rl-stores__adds-stat-d {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.rl-menu--garage .rl-stores__adds-more {
+  align-self: flex-start;
+  padding: 0;
+  font-size: var(--t-band);
+  color: var(--ink-dim);
+  background: transparent;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
 .rl-stores__receipts-wrap {
   overflow-x: auto;
 }
