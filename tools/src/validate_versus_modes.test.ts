@@ -78,7 +78,9 @@ describe('the shipped win-mode files', () => {
     // The literals (GH-976 P4): each of the seven open maps carries both modes, each read fair in the mirror, in a fixed order.
     const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
     expect(WIN_MODE_FAIR_MAPS.points).toEqual(SEVEN); // wadi_tarfan 56.3%, milh_flats 57.3% (P1); the other five 51-55% on 4000-4287: see config.ts
-    expect(WIN_MODE_FAIR_MAPS.flag).toEqual(SEVEN);   // wadi_tarfan 56.9%, milh_flats 52.1% (P3); the other five 44-55% (45-55% of the decisive games)
+    // The v1 raid read fair on all seven (P3, P4) and is still in every mode file below, but the lead pulled it from the lobby
+    // (GH-1139: an opening attack-move wins it in 32-62 s); WP9 relists the maps that pass CTF v2.
+    expect(WIN_MODE_FAIR_MAPS.flag).toEqual([]);
     expect(WIN_MODE_FAIR_MAPS.camp).toEqual(['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l']); // forward camps; milh_flats (15,39)/(31,7): 52.4%, 96.5% by the goal; wadi_tarfan (13,18)/(33,28) and wadi_tarfan_l (26,30)/(68,64) with wipe after_camp (GH-976, 5 Nov); the others stay out: see config.ts
     expect([...VERSUS_FAIR_MAPS].sort()).toEqual([...SEVEN].sort());
     for (const map of SEVEN) for (const mode of ['points', 'flag'] as const) expect(versusModes[map].modes[mode], `${map} ${mode}`).toBeDefined();

@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { flagBlockOf, versusModes } from '@lions/data';
+import { WIN_MODE_FAIR_MAPS } from '@lions/net';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
 import { pointsViewOf } from '../../../packages/app/src/net/points-view';
 import { flagViewOf } from '../../../packages/app/src/net/flag-view';
@@ -229,7 +230,10 @@ describe('pnpm bot --mode', () => {
     expect(parseBotArgs([...base, '--mode=annihilation'])).toMatchObject({ winMode: null });
     const bad = parseBotArgs([...base, '--mode=rally']);
     expect('error' in bad && bad.error).toMatch(/--mode is annihilation\|camp\|points\|flag/);
-    expect(parseBotArgs([...base, '--mode=flag'])).toMatchObject({ winMode: 'flag' });
+    // GH-1139: no lobby offers flag until CTF v2 lands (WP9), so the bot is not told to expect one.
+    const flag = parseBotArgs([...base, '--mode=flag']);
+    expect('error' in flag && flag.error).toMatch(/flag is offered in no room until capture the flag v2 \(GH-1139\)/);
+    expect(parseBotArgs([...base, '--mode=camp'])).toMatchObject({ winMode: 'camp' });
   });
   it('the prompt and the harness\'s arguments follow it; without it neither mentions a mode', () => {
     const withMode = botPrompt({ room: 'ABCDEF', seat: 1, winMode: 'points' });
@@ -353,9 +357,8 @@ describe('pnpm arena --mode', () => {
     expect(refusalOf('wadi_tarfan', 'mirror', 'camp')).toBeNull();   // GH-976, 5 Nov: forward camps with wipe after_camp
     expect(refusalOf('wadi_tarfan_l', 'mirror', 'camp')).toBeNull();
     expect(refusalOf('rujm_sawda', 'mirror', 'camp')).toMatch(/not offered on this map/);
-    expect(refusalOf('wadi_tarfan', 'mirror', 'flag')).toBeNull();
-    expect(refusalOf('milh_flats', 'mirror', 'flag')).toBeNull();
-    expect(refusalOf('tel_marum', 'mirror', 'flag')).toBeNull();
+    // GH-1139: flag is out of every lobby until CTF v2 lands (WP9), so the arena refuses it as the Worker would.
+    for (const map of ['wadi_tarfan', 'milh_flats', 'tel_marum', 'wadi_tarfan_l']) expect(refusalOf(map, 'mirror', 'flag'), map).toMatch(/not offered on this map/);
     expect(refusalOf('tel_marum', 'mirror', 'camp')).toMatch(/not offered on this map/);
     // GH-976 P4 review: no KDF-against-Sarim cell passed, so every faction pairing is refused for every mode.
     expect(refusalOf('wadi_tarfan_l', 'kdf', 'points')).toMatch(/not offered on this map for this matchup/);
@@ -461,6 +464,11 @@ describe('a KDF-against-Sarim mode room, and the arena that refuses to start one
 // One real flag raid, end to end: the Worker's route and room, two in-process players (a stub that sends two infantry squads at
 // the enemy flag and leaves the rest where they stand, and a passive control), the referee's tally and the report.
 describe('a flag raid played through the arena (GH-976 P3)', () => {
+  // GH-1139: flag is out of the lobby until WP9; this test of the arena's flag path stands its one map back in for its run.
+  const flagList = WIN_MODE_FAIR_MAPS.flag as string[];
+  const SHIPPED = [...flagList];
+  beforeEach(() => { flagList.push('wadi_tarfan'); });
+  afterEach(() => { flagList.splice(0, flagList.length, ...SHIPPED); });
   const tileCentre = (t: number): number => (t + 0.5) * 65536;
   /** The stub reads `observe` only: its first two infantry squads, ordered once on the middle of the flag `observe` names as `theirs`. */
   let sent = false;

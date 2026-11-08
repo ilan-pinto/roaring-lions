@@ -62,7 +62,7 @@ import { homedir } from 'node:os';
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MAX_CALLSIGN_CHARS, type WinMode } from '@lions/net';
+import { MAX_CALLSIGN_CHARS, winModeOpen, type WinMode } from '@lions/net';
 import { joinRoom, JoinRefused } from './agent';
 import { buildId } from './build-id';
 import { readScoreFile, refereeMarkdown, replyFormat, rubricText, scoresMarkdown, type ScoreOutcome } from './match-score';
@@ -149,6 +149,8 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
   const modeValue = got.get('mode');
   const winMode = modeValue === undefined ? undefined : modeFlag(modeValue);
   if (modeValue !== undefined && winMode === undefined) return { error: `--mode is ${MODE_FLAG_VALUES}, the mode the room was opened with\n${USAGE}` };
+  // GH-1139: a mode no lobby offers cannot be the room's mode (flag is out until capture the flag v2 is relisted, WP9).
+  if (winMode !== undefined && winMode !== null && !winModeOpen(winMode)) return { error: `--mode ${winMode}: ${winMode} is offered in no room until capture the flag v2 (GH-1139)\n${USAGE}` };
   return {
     room: room.toUpperCase(),
     model: id,
