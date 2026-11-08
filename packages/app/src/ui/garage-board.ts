@@ -60,15 +60,18 @@ export interface TrackSummary {
   readonly next: number | null;
 }
 
-export function trackSummary(track: UpgradeTrack, owned: number): TrackSummary {
+/** `spent` is credits actually PAID: only the tiers the account earned (`earned`, default `owned`), never a tier
+ *  the coin path holds, which cost coins. `toMax` and `next` follow `owned`, the single-player tier. */
+export function trackSummary(track: UpgradeTrack, owned: number, earned: number = owned): TrackSummary {
   const length = track.tiers.length;
   const clamped = Math.min(Math.max(owned, 0), length);
+  const paid = Math.min(Math.max(earned, 0), clamped);
   let spent = 0;
   let toMax = 0;
   track.tiers.forEach((tier, i) => {
     // `i` is 0-based; tier `i + 1` is owned exactly when `i < clamped`.
-    if (i < clamped) spent += tier.price;
-    else toMax += tier.price;
+    if (i < paid) spent += tier.price;
+    if (i >= clamped) toMax += tier.price;
   });
   return { owned: clamped, length, spent, toMax, next: clamped < length ? clamped + 1 : null };
 }
@@ -105,6 +108,8 @@ export interface TrackDeps {
   readonly unitId: string;
   readonly unitName: string;
   readonly owned: number;
+  /** The account's own tier (credits paid), at most `owned`; absent reads as `owned`. */
+  readonly earned?: number;
   /** Present only when the caller supplied both a balance and a purchase
    *  callback -- the rule `showBrigade` has always followed for a Buy
    *  control anywhere on this screen. `asked` is the focus key a purchase
@@ -173,7 +178,7 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   // mark and a kit total that all read the account and said otherwise.
   const locked = deps.locked === true;
 
-  const summary = trackSummary(track, deps.owned);
+  const summary = trackSummary(track, deps.owned, deps.earned);
 
   const trackWrap = el('div', 'rl-garage__track');
   trackWrap.dataset.track = trackName;
