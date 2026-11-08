@@ -24,6 +24,9 @@ const FENCED: [string, string][] = [
   ['packages/net/src/index.ts', "import { emptyRoar } from '../../app/src/roar-wallet';\nvoid emptyRoar;\n"],
   ['packages/app/src/net/match-world.ts', "import { networkView } from '@lions/economy';\nvoid networkView;\n"],
   ['packages/worker/src/match/match-room.ts', "import { emptyRoar } from '@lions/economy';\nvoid emptyRoar;\n"],
+  ['packages/sim/src/index.ts', "import { emptyRoar } from '../../economy/src/index';\nvoid emptyRoar;\n"],
+  ['packages/net/src/index.ts', "import { emptyRoar } from '../../economy/src';\nvoid emptyRoar;\n"],
+  ['packages/app/src/net/match-world.ts', "import { emptyRoar } from '../../../economy/src/wallet';\nvoid emptyRoar;\n"],
   ['packages/worker/src/match/routes.ts', "import { emptyRoar } from '../../../app/src/roar-wallet';\nvoid emptyRoar;\n"],
 ];
 
