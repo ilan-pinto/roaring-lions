@@ -35,6 +35,7 @@ import {
   coinCost,
   packBonusPercent,
   storeItems,
+  unitItem,
   type CoinAsk,
   type CoinWallet,
   type Honest,
@@ -43,6 +44,8 @@ import {
   type UnitItem,
 } from './stores-model';
 import { rovingStep } from './garage-model';
+import { creditAsk, type CreditAsk } from '../upgrade-pay';
+import { addsAvailable, buildAddsPanel } from './stores-adds-view';
 
 export type StoresShelf = 'early' | 'cosmetics' | 'receipts';
 const SHELVES: readonly StoresShelf[] = ['early', 'cosmetics', 'receipts'];
@@ -71,8 +74,17 @@ export interface StoresOptions extends StoreInput {
   /** A "Buy with credits" pressed on a unit card: the Garage's own purchase
    *  (`buyUnlock`), at the unit's credit price. Absent: no such button. */
   onBuyCredits?: (unitId: string, credits: number) => void;
+  /** A "Buy with credits" pressed on a tier row (D5): the unit, the track, the tier the
+   *  run ENDS on and the run's total (`creditAsk`). The caller recomputes the ask from a
+   *  fresh read (`buyTierWithCredits`); the price is checked there, never trusted. Absent:
+   *  no such button. */
+  onBuyTierCredits?: (unitId: string, track: string, to: number, price: number) => void;
   /** The `data-buy`/`data-focus` key of the control to focus after a redraw. */
   focusKey?: string;
+  /** The unit whose "What it adds" panel is open (GH-1076), kept through redraws like `shelf`. */
+  adds?: string;
+  /** Told when a panel opens (its unit id) or closes (`null`), so a redraw can reopen it. */
+  onAdds?: (id: string | null) => void;
 }
 
 export interface StoresWallet {
@@ -161,7 +173,29 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
 
   // The wallet every Buy is asked against: the stored one, or the preview's 0.
   const coinWallet: CoinWallet = opts.wallet !== undefined ? { live: true, coins: opts.wallet.coins } : PREVIEW_WALLET;
-  const ctx: Ctx = { opts, wallet: coinWallet };
+  // "What it adds" (GH-1076): at most one panel, under the open card's grid row. The panel carries no Buy and
+  // reads no wallet, so a purchase's focus restore is untouched.
+  const addsCards = new Map<string, { card: HTMLElement; btn: HTMLButtonElement }>();
+  let addsOpen: string | null = opts.adds ?? null;
+  let addsPanel: HTMLElement | null = null;
+  const addsHook: AddsHook = {
+    available: addsAvailable,
+    register: (id, card, btn) => {
+      addsCards.set(id, { card, btn });
+      btn.addEventListener('click', () => setAdds(addsOpen === id ? null : id, true));
+    },
+  };
+  const ctx: Ctx = {
+    opts,
+    wallet: coinWallet,
+    adds: addsHook,
+    unitOpen: (unitId) => {
+      const u = opts.units.find((x) => x.id === unitId);
+      if (u === undefined) return false;
+      const state = unitItem(u, opts).state;
+      return state === 'earned' || state === 'coins';
+    },
+  };
   if (opts.wallet !== undefined) root.dataset.live = '1';
 
   // --- head: the balance, and "Get Roar coins" beside it --------------------
@@ -347,6 +381,44 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
       anyVisible ||= on;
     }
     if (nothing !== null) nothing.hidden = anyVisible;
+    syncAdds();
+  }
+
+  /** Opens `id`'s panel (closing the other) or closes it. `byUser` moves focus: to the panel's heading on
+   *  open, back to the control on close. */
+  function setAdds(id: string | null, byUser: boolean): void {
+    const was = addsOpen;
+    addsOpen = id;
+    opts.onAdds?.(id);
+    syncAdds();
+    if (!byUser) return;
+    if (id !== null) {
+      // The Stores scroll inside the shell's one `1fr` row, so a panel opened below the fold is clipped until it
+      // is scrolled to. `preventScroll` keeps the heading focus from fighting this; `nearest` never moves a
+      // panel that is already fully on screen. jsdom has no scrollIntoView, hence the optional call.
+      addsPanel?.querySelector<HTMLElement>('.rl-stores__adds-h')?.focus({ preventScroll: true });
+      addsPanel?.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
+    } else if (was !== null) addsCards.get(was)?.btn.focus();
+  }
+  /** Draws the open panel and nothing else. A card that is not on the shelf (owned, with the toggle off) has no
+   *  panel: it closes, so a purchase that moves the card takes its panel with it. */
+  function syncAdds(): void {
+    addsPanel?.remove();
+    addsPanel = null;
+    for (const [id, e] of addsCards) e.btn.setAttribute('aria-expanded', id === addsOpen ? 'true' : 'false');
+    if (addsOpen === null) return;
+    const entry = addsCards.get(addsOpen);
+    const section = entry?.card.closest<HTMLElement>('.rl-stores__group') ?? null;
+    if (entry === undefined || entry.card.hidden || section === null || section.hidden) {
+      addsOpen = null;
+      opts.onAdds?.(null);
+      for (const e of addsCards.values()) e.btn.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    const panel = buildAddsPanel(addsOpen, opts, opts.missionName, `rl-stores-adds-${addsOpen}`, `rl-stores-adds-h-${addsOpen}`);
+    if (panel === null) return;
+    entry.card.after(panel);
+    addsPanel = panel;
   }
 
   // --- Cosmetics and Receipts ----------------------------------------------
@@ -376,7 +448,15 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
       [...root.querySelectorAll<HTMLElement>('[data-buy], [data-focus]')].find(
         (e) => (e.dataset.buy ?? e.dataset.focus) === k && usable(e)
       );
-    const unit = key.startsWith('unit:') ? key.slice(5) : key.startsWith('tier:') ? key.slice(5).split('.')[0] : null;
+    // `unit:<id>`, `tier:<id>.<track>.<n>` and `credits:<id>[.<track>]` all name a unit; once the press has
+    // bought its last rung the control is gone and focus falls to that unit's card, never the shelf tab.
+    const unit = key.startsWith('unit:')
+      ? key.slice(5)
+      : key.startsWith('tier:')
+        ? key.slice(5).split('.')[0]
+        : key.startsWith('credits:')
+          ? key.slice(8).split('.')[0]
+          : null;
     const target =
       byKey(key) ?? (unit !== null ? (byKey(`card:${unit}`) ?? byKey(`card:tiers:${unit}`)) : undefined) ?? tabEls.get(shelf);
     target?.focus();
@@ -414,6 +494,30 @@ function earnPanel(): HTMLElement {
 interface Ctx {
   readonly opts: StoresOptions;
   readonly wallet: CoinWallet;
+  readonly adds: AddsHook;
+  /** Whether a unit is open (earned or coin-bought): `TierItem.state` cannot say, since `locked` also means short of credits. */
+  readonly unitOpen: (unitId: string) => boolean;
+}
+
+/** The "What it adds" control's seam into the screen (GH-1076): which cards have one, and where it registers. */
+interface AddsHook {
+  available: (unitId: string) => boolean;
+  register: (unitId: string, card: HTMLElement, btn: HTMLButtonElement) => void;
+}
+
+/** A card's "What it adds" control: `data-focus="adds:<id>"`, `aria-expanded`, `aria-controls`. */
+function addsControl(item: UnitItem, card: HTMLElement, ctx: Ctx): HTMLButtonElement | null {
+  if (!ctx.adds.available(item.id)) return null;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'rl-stores__adds-open';
+  btn.dataset.focus = `adds:${item.id}`;
+  btn.textContent = t('stores.adds.open');
+  btn.setAttribute('aria-label', t('stores.adds.open.aria', { name: item.name }));
+  btn.setAttribute('aria-expanded', 'false');
+  btn.setAttribute('aria-controls', `rl-stores-adds-${item.id}`);
+  ctx.adds.register(item.id, card, btn);
+  return btn;
 }
 
 /** ONE price line: coins first, credits small beside them. */
@@ -461,6 +565,36 @@ function creditBuy(item: UnitItem, ctx: Ctx): HTMLButtonElement | null {
   buy.textContent = t('stores.buy.credits', { n: price });
   buy.setAttribute('aria-label', t('stores.buy.credits.aria', { name: item.name, n: price }));
   buy.addEventListener('click', () => onBuyCredits?.(item.id, price));
+  return buy;
+}
+
+/** Whether a tier row offers "Buy with credits": the ASK is stated (the track is not
+ *  maxed), the unit is open, the caller can buy, and the earned credits cover the whole
+ *  ASK, which is the run when coins have run ahead, not the one rung (R0.4). Credits
+ *  alone: this never reads the coin wallet and never `TierItem.state`. */
+export function tierCreditBuyEnabled(ask: CreditAsk | null, credits: number | undefined, unitOpen: boolean, canBuy: boolean): boolean {
+  return canBuy && unitOpen && ask !== null && credits !== undefined && credits >= ask.price;
+}
+
+function tierCreditBuy(item: TierItem, ask: CreditAsk, ctx: Ctx): HTMLButtonElement | null {
+  const onBuy = ctx.opts.onBuyTierCredits;
+  if (!tierCreditBuyEnabled(ask, ctx.opts.credits, ctx.unitOpen(item.unitId), onBuy !== undefined)) return null;
+  const track = t(`garage.track.${item.track}`);
+  const args = { to: ask.to, price: ask.price, from: ask.from, last: ask.to - 1, name: item.unitName, track, n: ask.price, tier: ask.to };
+  const buy = document.createElement('button');
+  buy.type = 'button';
+  buy.className = 'rl-stores__buy rl-stores__buy--credits';
+  buy.dataset.buy = `credits:${item.unitId}.${item.track}`;
+  if (ask.again > 0) {
+    // The run label states the run: "Tier 3 · 740 credits (pays for tiers 1-2 again, on credits)".
+    const one = ask.again === 1;
+    buy.textContent = t(one ? 'stores.buy.tier.run1' : 'stores.buy.tier.run', args);
+    buy.setAttribute('aria-label', t(one ? 'stores.buy.tier.run1.aria' : 'stores.buy.tier.run.aria', args));
+  } else {
+    buy.textContent = t('stores.buy.tier.credits', args);
+    buy.setAttribute('aria-label', t('stores.buy.tier.credits.aria', args));
+  }
+  buy.addEventListener('click', () => onBuy?.(item.unitId, item.track, ask.to, ask.price));
   return buy;
 }
 
@@ -554,6 +688,8 @@ function unitCard(item: UnitItem, ctx: Ctx): HTMLElement {
   } else {
     body.appendChild(el('span', `rl-stores__state rl-stores__state--${item.state}`, t(`stores.state.${item.state}`)));
   }
+  const adds = addsControl(item, card, ctx);
+  if (adds !== null) body.appendChild(adds);
   card.appendChild(body);
   return card;
 }
@@ -590,7 +726,11 @@ function tierCard(list: readonly TierItem[], ctx: Ctx, ownedEls: HTMLElement[]):
     head.appendChild(pips);
     row.appendChild(head);
     if (item.next !== null && forSale(item.state)) {
-      row.appendChild(priceLine(item.next.credits, item.next.coins, opts));
+      // The credit figure follows the ASK: while coins hold tiers the earned path lacks, the Buy is a
+      // run and the figure beside it is the run's total (the button and the figure never disagree).
+      const prices = (opts.units.find((x) => x.id === item.unitId)?.upgrades?.[item.track]?.tiers ?? []).map((x) => x.price);
+      const ask = creditAsk(prices, item.earned, item.owned);
+      row.appendChild(priceLine(ask !== null && ask.again > 0 ? ask.price : item.next.credits, item.next.coins, opts));
       const label = t('stores.buy.tier.aria', {
         name: item.unitName,
         track: t(`garage.track.${item.track}`),
@@ -598,10 +738,12 @@ function tierCard(list: readonly TierItem[], ctx: Ctx, ownedEls: HTMLElement[]):
         n: item.next.coins,
         note: buyNote(coinCost(item), ctx),
       });
-      const ask: CoinAsk = { kind: 'tier', unitId: item.unitId, track: item.track, tier: item.next.tier };
+      const coinAsk: CoinAsk = { kind: 'tier', unitId: item.unitId, track: item.track, tier: item.next.tier };
       row.appendChild(
-        coinBuy(item.next.coins, label, buyEnabled(item, ctx.wallet), ctx, `tier:${item.unitId}.${item.track}.${item.next.tier}`, ask)
+        coinBuy(item.next.coins, label, buyEnabled(item, ctx.wallet), ctx, `tier:${item.unitId}.${item.track}.${item.next.tier}`, coinAsk)
       );
+      const byCredits = ask === null ? null : tierCreditBuy(item, ask, ctx);
+      if (byCredits !== null) row.appendChild(byCredits);
     } else {
       row.appendChild(el('span', `rl-stores__state rl-stores__state--${item.state}`, t(`stores.state.${item.state}`)));
     }

@@ -148,6 +148,52 @@ describe('where a piece may go', () => {
     expect(refusal(send(sim, { kind: 'fortify', side: 0, kit: 0, x: 8, y: 8 }))).toBe('occupied');
   });
 
+  // GH-1079. Before the goal rule the piece on (12, 8) was accepted, and the squad stopped at x 11.99 with `moving` 1 for
+  // the 600 ticks the repro ran: flush against the piece's face, never arriving.
+  it('the tile an own unit is walking to is occupied; a piece on its path is not, and it re-routes and arrives', () => {
+    const { sim, rifles } = build();
+    const sq = sim.spawn(rifles, 0, pos(2.5), pos(8.5));
+    sim.queueCommand({ kind: 'move', ids: [sq], x: pos(12.5), y: pos(8.5) });
+    run(sim, 10);
+    expect(sim.state.moving[sq], 'mid-walk').toBe(1);
+    expect(sim.state.posX[sq] >> 16, 'still well short of the goal').toBeLessThan(8);
+    expect(sim.fortifyReason(0, 0, 12, 8)).toBe('occupied');
+    expect(refusal(send(sim, { kind: 'fortify', side: 0, kit: 0, x: 12, y: 8 }))).toBe('occupied');
+    expect(sim.fortifyReason(0, 0, 13, 8), 'the tile past the goal').toBeNull();
+    expect(kinds(send(sim, { kind: 'fortify', side: 0, kit: 0, x: 8, y: 8 })), 'a piece across the path').toContain('fortified');
+    run(sim, 300);
+    expect(sim.state.moving[sq], 'arrived').toBe(0);
+    expect([sim.state.posX[sq] >> 16, sim.state.posY[sq] >> 16]).toEqual([12, 8]);
+  });
+
+  it('a queued waypoint of an own moving unit is occupied too', () => {
+    const { sim, rifles } = build();
+    // A unit that stands still takes id 0, so the squad's queue starts at a non-zero offset (`i * MAX_WAYPOINTS`): with
+    // the squad at id 0 a wrong per-unit offset reads the same slots and passes.
+    const first = sim.spawn(rifles, 0, pos(2.5), pos(20.5));
+    const sq = sim.spawn(rifles, 0, pos(2.5), pos(12.5));
+    expect(sq).toBeGreaterThan(first);
+    sim.queueCommand({ kind: 'move', ids: [sq], x: pos(6.5), y: pos(12.5) });
+    sim.queueCommand({ kind: 'move', ids: [sq], x: pos(12.5), y: pos(12.5), append: true });
+    run(sim, 2);
+    expect(sim.fortifyReason(0, 0, 6, 12), 'the goal').toBe('occupied');
+    expect(sim.fortifyReason(0, 0, 12, 12), 'the waypoint behind it').toBe('occupied');
+    expect(sim.fortifyReason(0, 0, 9, 12), 'between the two').toBeNull();
+  });
+
+  it('the goal rule is own side, and skips an aircraft in the air: an enemy\'s goal and a flying helicopter\'s goal are free tiles', () => {
+    const { sim, rifles, helo } = build();
+    const foe = sim.spawn(rifles, 1, pos(22.5), pos(8.5));
+    sim.queueCommand({ kind: 'move', ids: [foe], x: pos(12.5), y: pos(8.5) }); // into side 0's region: held at the line
+    const air = sim.spawn(helo, 0, pos(2.5), pos(20.5));
+    sim.queueCommand({ kind: 'move', ids: [air], x: pos(12.5), y: pos(20.5) });
+    run(sim, 2);
+    expect(sim.state.moving[foe]).toBe(1);
+    expect(sim.state.moving[air]).toBe(1);
+    expect(sim.fortifyReason(0, 0, 12, 8), 'the enemy\'s goal: refusing it would show where his order points').toBeNull();
+    expect(sim.fortifyReason(0, 0, 12, 20), 'the helicopter flies over a piece').toBeNull();
+  });
+
   it('an enemy unit counts too, and a dead one, an airborne one and a carried one do not', () => {
     const { sim, rifles, helo } = build();
     const dead = sim.spawn(rifles, 0, pos(3.5), pos(3.5));
