@@ -51,7 +51,9 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <ul>
 <li>Your SteamID64, which links to your public Steam profile.</li>
 <li>The display name you choose, and a random Player ID shown beside it.</li>
+<li>The day the account was created and the day you last signed in (the 36-month rule below uses it).</li>
 <li>A hash of each sign-in session, with the day it was made and the day it was last used.</li>
+<li>For a few minutes while you sign in, a hash of the sign-in challenge. It is swept away after five minutes.</li>
 <li>An empty coin wallet. Campaign progress, the brigade and save slots are added later, and this page is updated then.</li>
 </ul>
 

@@ -10,7 +10,7 @@ const fixtureValues = { contact: 'fixture-contact', minAge: 15 };
 describe('the privacy page', () => {
   it('the page names what A1 stores', () => {
     const html = renderPrivacy(fixtureValues);
-    for (const m of ['SteamID64', 'SteamID', 'display name', 'Player ID', 'session', 'keyed hash', 'Cloudflare', '36 months', '90 days', 'Download my data', 'Delete my account', 'anonymous', '?notrack', '15', 'fixture-contact']) {
+    for (const m of ['SteamID64', 'SteamID', 'display name', 'Player ID', 'session', 'last signed in', 'sign-in challenge', 'keyed hash', 'Cloudflare', '36 months', '90 days', 'Download my data', 'Delete my account', 'anonymous', '?notrack', '15', 'fixture-contact']) {
       expect(html, m).toContain(m);
     }
   });

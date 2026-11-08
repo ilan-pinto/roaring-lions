@@ -316,6 +316,24 @@ describe('Router', () => {
     off();
   });
 
+  it('interceptLinks leaves a Worker-served page (/privacy) to the browser', async () => {
+    const { router, log } = makeRouter({ start: '/' });
+    await router.start();
+    const off = interceptLinks(document, router);
+    const a = document.createElement('a');
+    a.href = '/privacy';
+    document.body.appendChild(a);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    a.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    await router.idle();
+    expect(log.some((l) => l.includes('404'))).toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+    err.mockRestore();
+    off();
+  });
+
   // GH-285: the end screen's "try again" is `<a href="/mission/<the id we are
   // on>">`. Before the router that was a real anchor, and a browser follows a
   // link to the page it is already on by loading it again. interceptLinks took

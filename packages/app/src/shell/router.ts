@@ -416,6 +416,9 @@ export class Router {
   }
 }
 
+/** Paths the Worker answers itself, not the SPA: a click on one must be a real page load (GH-1075 A1, /privacy). */
+export const WORKER_PAGE_PATHS: readonly string[] = ['/privacy'];
+
 /**
  * Same-origin anchors become navigations. A modifier click, a middle click,
  * `target`, `download` or a foreign origin is left to the browser — a player
@@ -432,6 +435,7 @@ export function interceptLinks(root: HTMLElement | Document, router: Router): Di
     if (a.target.length > 0 || a.hasAttribute('download')) return;
     const url = new URL(a.href, window.location.href);
     if (url.origin !== window.location.origin) return;
+    if (WORKER_PAGE_PATHS.includes(url.pathname)) return;
     ev.preventDefault();
     // `reload`: taking the click over must not change what it does. A browser
     // follows a link to the page it is on by loading that page again, and the
