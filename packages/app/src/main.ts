@@ -94,6 +94,7 @@ import {
   formations,
   grades,
   versusModes,
+  flagBlockOf,
 } from '@lions/data';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
@@ -288,7 +289,7 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, flagSetupRoom, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
@@ -6632,10 +6633,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** The flag raid (GH-976 P3): how long each flag has been held, from the goals-only runtime's objectives, and the two
    *  flags outlined on the field. Both flags' state is public by design (`net/flag-view.ts`); no unit is shown. A flag room
    *  only, never a spectator. */
-  const flagRules = netConfig?.winMode === 'flag' ? versusModes[netConfig.map] : undefined;
+  // GH-976 R0.22: the flag block through the one reader, for the rules this room plays.
+  const flagFile = netConfig?.winMode === 'flag' ? versusModes[netConfig.map] : undefined;
+  const flagRules = flagFile !== undefined && netConfig !== null ? flagBlockOf(flagFile, flagSetupRoom(netConfig)) : undefined;
   const flagViewNow = (): FlagView | null =>
-    flagRules?.flags !== undefined && versusWorld?.runtime != null && !spectating
-      ? flagViewOf(versusWorld.runtime, { flags: flagRules.flags, modes: flagRules.modes }, me, versusWorld.endOfSide[me])
+    flagRules !== undefined && versusWorld?.runtime != null && !spectating
+      ? flagViewOf(versusWorld.runtime, flagRules, me, versusWorld.endOfSide[me])
       : null;
   const netFlags = flagViewNow() !== null ? new NetFlags(document.body) : null;
   if (netFlags !== null) onDispose(() => netFlags.dispose());

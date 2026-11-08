@@ -170,9 +170,11 @@ describe('registered, and OFFERED (GH-920 B7: the lead\'s ruling opened it for t
     expect(SHIPPED_MAP_IDS).toContain('wadi_tarfan_l');
   });
 
-  it('stays closed for formations even when the versus gate is open (S4 on 3 Nov, seeds 30000-30383: 1 TRIP of 21, placed both ends Sarim friendly, KDF 60.4% pooled against a 56.5% base); a sandbox room on it is not a versus room', () => {
-    expect(formationsOpenIn('versus', true, 'wadi_tarfan_l')).toBe(false);
-    expect(formationsOpenIn('versus', undefined, 'wadi_tarfan_l')).toBe(false);
+  it('is open for formations in versus since 7 Nov (GH-859: S4 on 3 Nov tripped 1 of 21 cells, the 6 Nov re-run 0 of 21); the gate shut closes it, and the tel_marum economy room stays the closed control', () => {
+    expect(formationsOpenIn('versus', true, 'wadi_tarfan_l')).toBe(true);
+    expect(formationsOpenIn('versus', undefined, 'wadi_tarfan_l')).toBe(true);
+    expect(formationsOpenIn('versus', false, 'wadi_tarfan_l')).toBe(false);
+    expect(formationsOpenIn('versus', true, 'tel_marum', 'economy')).toBe(false);
     expect(formationsOpenIn('sandbox', undefined, 'wadi_tarfan_l')).toBe(true);
     expect(formationsOpenIn(undefined, undefined, 'wadi_tarfan_l')).toBe(true);
     // the original stays open

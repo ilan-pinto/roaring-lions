@@ -506,3 +506,25 @@ describe('hello.from and the log from echo (snapshot S3, D6)', () => {
     }
   });
 });
+
+describe('cleanCommand: the set-up commands (GH-976 v2, R0.9)', () => {
+  it('rebuilds setupReady, fortify and unfortify from their declared fields, and drops a stray one', () => {
+    expect(cleanCommand({ kind: 'setupReady', side: 1 })).toEqual({ kind: 'setupReady', side: 1 });
+    expect(cleanCommand({ kind: 'fortify', side: 0, kit: 2, x: 10, y: 11 })).toEqual({ kind: 'fortify', side: 0, kit: 2, x: 10, y: 11 });
+    expect(cleanCommand({ kind: 'unfortify', side: 0, x: 10, y: 11 })).toEqual({ kind: 'unfortify', side: 0, x: 10, y: 11 });
+    const pad = 'x'.repeat(4000);
+    expect(cleanCommand({ kind: 'setupReady', side: 0, pad })).toEqual({ kind: 'setupReady', side: 0 });
+    expect(cleanCommand({ kind: 'fortify', side: 0, kit: 0, x: 1, y: 2, pad, ids: [1] })).toEqual({ kind: 'fortify', side: 0, kit: 0, x: 1, y: 2 });
+    expect(cleanCommand({ kind: 'unfortify', side: 0, x: 1, y: 2, pad })).toEqual({ kind: 'unfortify', side: 0, x: 1, y: 2 });
+    expect(Object.keys(cleanCommand({ kind: 'fortify', side: 0, kit: 0, x: 1, y: 2, pad }) as object)).toEqual(['kind', 'side', 'kit', 'x', 'y']);
+  });
+  it('refuses a missing or non-integer field', () => {
+    const bad: unknown[] = [
+      { kind: 'setupReady' }, { kind: 'setupReady', side: '0' }, { kind: 'setupReady', side: 0.5 },
+      { kind: 'fortify', side: 0, kit: 0, x: 1 }, { kind: 'fortify', side: 0, x: 1, y: 2 }, { kind: 'fortify', side: 0, kit: 0.5, x: 1, y: 2 },
+      { kind: 'fortify', side: 0, kit: 0, x: '1', y: 2 }, { kind: 'fortify', kit: 0, x: 1, y: 2 },
+      { kind: 'unfortify', side: 0, x: 1 }, { kind: 'unfortify', x: 1, y: 2 }, { kind: 'unfortify', side: 0, x: 1.5, y: 2 },
+    ];
+    for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
+  });
+});

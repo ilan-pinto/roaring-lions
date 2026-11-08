@@ -1,5 +1,5 @@
-import { applyTerrain, doctrines, formations, maps, parseMap, roadMaskOf, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
-import { economyRoom, endOfSeat, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
+import { applyTerrain, doctrines, flagBlockOf, formations, maps, parseMap, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap, type SetupKitPiece } from '@lions/data';
+import { economyRoom, endOfSeat, flagSetupRoom, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';
 import { standMapStructures } from '../map-sim';
@@ -60,6 +60,14 @@ export interface MatchWorld {
    *  `versusMissionOf`), so the browser loads their meshes (N3 Task 6): a room has no
    *  mission whose `structures` the mesh plan could read. `[]` in a mirror room. */
   structureTypes: readonly string[];
+  /** GH-976 v2: the set-up a flag room plays when `flagSetupRoom(config)` -- the band, the line the HUD draws, and the kit's three
+   *  pieces in `SETUP_KIT_PIECES` order with the sim type each raises -- else null. Static setup data, out of `hash()`: the sim holds
+   *  the region and the kit itself (`beginSetup`, `setSetupKit`). A v1 flag room and every other room is null. */
+  setup: {
+    bandTiles: number;
+    line: { a: [number, number]; b: [number, number] };
+    kit: readonly { piece: SetupKitPiece; structType: number; allowance: number }[];
+  } | null;
 }
 
 /**
@@ -96,7 +104,7 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const capacity = roomCapacity(config.map);
   const sim = new Sim({ seed: config.seed, width: map.width, height: map.height, capacity, humanHeld: seatRules(config).humanHeld });
   applyTerrain(map, sim);
-  standMapStructures(sim, map, economy);
+  const structTypes = standMapStructures(sim, map, economy);
 
   // Positional: entry r IS the sim's route index, so assert it (see main.ts).
   const tunnelRoutes = map.tunnels.map(tunnelRouteOf);
@@ -167,7 +175,7 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const popExempt = new Set<number>();
   const built = economy
     ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide, tunnelRoutes, fieldsSpecials ? popExempt : undefined)
-    : config.winMode !== undefined ? modeRuntime(sim, config.map, config.winMode, map, typeOf, endOfSide) : null;
+    : config.winMode !== undefined ? modeRuntime(sim, config.map, config.winMode, map, typeOf, endOfSide, flagSetupRoom(config)) : null;
   const runtime = built?.runtime ?? null;
   const structureTypes = built?.structureTypes ?? [];
   // GH-1102: each side's Store specials, last of all, so every entity id a room without them
@@ -178,7 +186,44 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
     bySide[side].push(...specials[side]);
     for (const id of specials[side]) popExempt.add(id);
   }
-  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, specialsBySide, runtime, winMode: config.winMode ?? null, campWipe: config.winMode === 'camp' && versusModes[config.map]?.modes.camp?.wipe === 'after_camp' ? 'after_camp' : 'ends', structureTypes };
+  // GH-976 v2: the set-up, after the forces, the runtime and the specials and before any tick. A restored world is built through this same path, so
+  // the region and the kit's type indices (config, not state) are what the source had. A v1 flag room takes none of it.
+  const setup = flagSetupRoom(config) ? beginMatchSetup(sim, config.map, map, anchors, endOfSide, structTypes) : null;
+  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, specialsBySide, runtime, winMode: config.winMode ?? null, campWipe: config.winMode === 'camp' && versusModes[config.map]?.modes.camp?.wipe === 'after_camp' ? 'after_camp' : 'ends', structureTypes, setup };
+}
+
+/**
+ * The set-up of a flag room (GH-976 v2, `flagSetupRoom`): the region from the two seats' anchors (labels are SIDES, so cell 0 is
+ * the region of the end side 0 stands at), the clock, and the kit with the two flag grounds as bans. The kit's sim types come
+ * from the catalogue map `standMapStructures` returns, which registers EVERY structure type whether the map uses it or not (R0.24),
+ * so a map with no hesco symbol still resolves one. Throws when the map has no `flag_setup` block.
+ */
+function beginMatchSetup(
+  sim: Sim,
+  mapId: string,
+  map: ParsedMap,
+  anchors: SandboxAnchors,
+  endOfSide: readonly [SpawnEnd, SpawnEnd],
+  structTypes: ReadonlyMap<string, number>,
+): NonNullable<MatchWorld['setup']> {
+  const file = versusModes[mapId];
+  if (file === undefined) throw new Error(`buildMatchWorld: map "${mapId}" has no versus mode file`);
+  const block = flagBlockOf(file, true);
+  if (block.setup === null) throw new Error(`buildMatchWorld: map "${mapId}" has no flag_setup`);
+  const a = anchors[endOfSide[0]];
+  const b = anchors[endOfSide[1]];
+  sim.beginSetup({ untilTick: block.setup.seconds * 20, region: setupRegionOf(map.width, map.height, a, b, block.setup.band_tiles) });
+  const kit = SETUP_KIT_PIECES.map((piece) => {
+    const structType = structTypes.get(piece);
+    if (structType === undefined) throw new Error(`buildMatchWorld: structure type "${piece}" is not in the catalogue`);
+    return { piece, structType, allowance: block.setup?.kit[piece] ?? 0 };
+  });
+  const bans = (['friendly', 'hostile'] as const).map((end): [number, number, number, number] => {
+    const f = block.flags[end];
+    return [f.at[0], f.at[1], f.size[0], f.size[1]];
+  });
+  sim.setSetupKit(kit.map((k) => ({ structType: k.structType, allowance: k.allowance })), bans);
+  return { bandTiles: block.setup.band_tiles, line: setupLineOf(map.width, map.height, a, b), kit };
 }
 
 /** The entity capacity of the room on `mapId`: its rules file's `capacity`, else 256. Mirror rooms
@@ -328,11 +373,12 @@ function modeRuntime(
   map: ParsedMap,
   typeOf: ReadonlyMap<string, number>,
   endOfSide: readonly [SpawnEnd, SpawnEnd],
+  setup = false,
 ): { runtime: MissionRuntime; structureTypes: string[] } {
   const file = versusModes[mapId];
   if (file === undefined || file.modes[mode] === undefined) throw new Error(`buildMatchWorld: map "${mapId}" has no "${mode}" win mode`);
   const sideAt = (end: SpawnEnd): 0 | 1 => (endOfSide[0] === end ? 0 : 1);
-  const { mission, zones } = versusModeMissionOf(file, mode, { friendly: sideAt('friendly'), hostile: sideAt('hostile') });
+  const { mission, zones } = versusModeMissionOf(file, mode, { friendly: sideAt('friendly'), hostile: sideAt('hostile') }, { setup });
   for (const name of Object.keys(zones)) {
     if (Object.hasOwn(map.zones, name)) throw new Error(`versus mode "${mapId}": zone "${name}" is already a zone of the map`);
   }

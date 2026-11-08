@@ -123,7 +123,7 @@ describe('formationRow: a room kind its map closes (GH-859, 5 Nov)', () => {
     expect(row.map((v) => [v.inert, v.reasonKey, v.reasonParams])).toEqual(Array(3).fill([true, 'hud.formation.inert.room', { kind: 'economy' }]));
     expect(formationReason(row[0])).toBe('Formations are off in economy rooms on this map');
   });
-  it('Wadi Tarfan (large) and a caller that gives no reason keep the versus line, unchanged', () => {
+  it('a map with no room line (Wadi Tarfan large, open since 7 Nov) and a caller that gives no reason keep the versus line, unchanged', () => {
     expect(formationRow(closedFacts('wadi_tarfan_l', 'economy'), null).map((v) => v.reasonKey)).toEqual(Array(3).fill('hud.formation.inert.versus'));
     expect(formationRow(facts(MIXED, false), null).map((v) => v.reasonKey)).toEqual(Array(3).fill('hud.formation.inert.versus'));
     expect(formationReason(formationRow(closedFacts('wadi_tarfan_l', 'economy'), null)[0])).toBe('Formations are not in versus rooms yet');
