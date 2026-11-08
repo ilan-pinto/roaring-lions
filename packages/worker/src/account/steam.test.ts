@@ -240,6 +240,68 @@ describe('Steam sign-in', () => {
     expect(res.headers.getSetCookie().some((c) => c.startsWith(SESSION_COOKIE))).toBe(false);
   });
 
+  it('refuses smuggled openid keys: NUL suffix, other case, unknown name, foreign signed field (C1)', async () => {
+    const { h, stub, ready } = harness();
+    await ready;
+    const victim = `https://steamcommunity.com/openid/id/${S2}`;
+    const a = `https://steamcommunity.com/openid/id/${S1}`;
+    const cases = [
+      (c: string) => `openid.claimed_id%00x=${encodeURIComponent(a)}&openid.identity%00x=${encodeURIComponent(a)}&${returnParams(c, S2)}`,
+      (c: string) => `openid.CLAIMED_ID=${encodeURIComponent(a)}&${returnParams(c, S2)}`,
+      (c: string) => `${returnParams(c, S2)}&openid.extra=1`,
+      (c: string) => `OPENID.claimed_id=${encodeURIComponent(a)}&${returnParams(c, S2)}`,
+      (c: string) => `openid_claimed_id=1&${returnParams(c, S2)}`,
+      (c: string) => returnParams(c, S2, { 'openid.signed': 'signed,op_endpoint,claimed_id,identity,return_to,response_nonce,assoc_handle,foo' }),
+    ];
+    expect(victim).toContain(S2);
+    for (const build of cases) {
+      const s = await start(h, 'steam-login');
+      expect(back(await ret(h, build(s.c), s.cookie)).code).toBe('invalid');
+    }
+    expect(await count(h, 'session')).toBe(0);
+    expect(stub.calls.length).toBe(0);
+  });
+
+  it('the check body carries exactly the allowlisted keys with the values the checks read', async () => {
+    const { h, stub, ready } = harness();
+    await ready;
+    const s = await start(h, 'steam-login');
+    await ret(h, returnParams(s.c, S1), s.cookie);
+    const sent = Object.fromEntries(new URLSearchParams(stub.calls[0]?.body));
+    expect(Object.keys(sent).sort()).toEqual(['openid.assoc_handle', 'openid.claimed_id', 'openid.identity', 'openid.mode', 'openid.ns', 'openid.op_endpoint', 'openid.response_nonce', 'openid.return_to', 'openid.sig', 'openid.signed']);
+    expect(sent['openid.mode']).toBe('check_authentication');
+    expect(sent['openid.claimed_id']).toBe(`https://steamcommunity.com/openid/id/${S1}`);
+  });
+
+  it('a throwing rate limiter is still a 303 (m1)', async () => {
+    const { h, ready } = harness();
+    await ready;
+    const s = await start(h, 'steam-login');
+    h.env.ACCOUNT_LIMIT = { limit: async () => { throw new Error('binding down'); } };
+    expect(back(await ret(h, returnParams(s.c, S1), s.cookie))).toMatchObject({ status: 303, code: 'steam' });
+  });
+
+  it('steam-link start passes on the slide cookie (m2)', async () => {
+    const { h, ready } = harness();
+    await ready;
+    await seedMember(h, 'm1');
+    const cookie = await freshCookie(h, 'm1');
+    await h.db.prepare('UPDATE session SET last_seen_day = 1').run();
+    const res = await h.call('POST', '/api/account/steam/start', { body: { purpose: 'steam-link' }, cookie });
+    const sets = res.headers.getSetCookie();
+    expect(sets.length).toBe(2);
+    expect(sets.some((c) => c.startsWith(SESSION_COOKIE + '='))).toBe(true);
+  });
+
+  it('a link whose member vanished is not "taken" (M7)', async () => {
+    const stub = steamStub();
+    const h = accountHarness({ now: T0, deps: stub, foreignKeys: true });
+    await seedMember(h, 'm1');
+    const s = await start(h, 'steam-link', await freshCookie(h, 'm1'));
+    await h.db.prepare('DELETE FROM member WHERE id = ?1').bind('m1').run();
+    expect(back(await ret(h, returnParams(s.c, S1), s.cookie)).code).toBe('steam');
+  });
+
   it('cancel_returns_cancelled', async () => {
     const { h, ready } = harness();
     await ready;

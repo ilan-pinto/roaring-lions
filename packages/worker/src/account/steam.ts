@@ -17,6 +17,11 @@ const OPENID_NS = 'http://specs.openid.net/auth/2.0';
 const SELECT = 'http://specs.openid.net/auth/2.0/identifier_select';
 const CLAIMED = /^https:\/\/steamcommunity\.com\/openid\/id\/(\d{17})$/;
 const SIGNED_REQUIRED = ['op_endpoint', 'claimed_id', 'identity', 'return_to', 'response_nonce', 'assoc_handle'];
+const OPENID_KEYS = [
+  'openid.ns', 'openid.mode', 'openid.op_endpoint', 'openid.claimed_id', 'openid.identity',
+  'openid.return_to', 'openid.response_nonce', 'openid.assoc_handle', 'openid.signed', 'openid.sig',
+];
+const SIGNED_ALLOWED = ['signed', 'ns', 'mode', ...SIGNED_REQUIRED];
 const C_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
 const preAttrs = 'Secure; HttpOnly; SameSite=Lax; Path=/';
@@ -29,11 +34,12 @@ export async function verifyOpenId(
   fetch: AccountDeps['fetch'],
 ): Promise<{ steamId: string } | { refused: 'invalid' | 'steam' }> {
   const invalid = { refused: 'invalid' } as const;
-  // A repeated openid.* key would let the checks read one value and Steam be asked about another.
+  // Only these openid.* keys exist, each once, exactly spelled: a smuggled key (NUL suffix, other case,
+  // a repeat) could make Steam's parser read a value the checks below never saw.
   const seen = new Set<string>();
   for (const k of params.keys()) {
-    if (!k.startsWith('openid.')) continue;
-    if (seen.has(k)) return invalid;
+    if (!k.toLowerCase().startsWith('openid')) continue;
+    if (!OPENID_KEYS.includes(k) || seen.has(k)) return invalid;
     seen.add(k);
   }
   if (params.get('openid.mode') !== 'id_res') return invalid;
@@ -45,8 +51,13 @@ export async function verifyOpenId(
   if (params.get('openid.identity') !== claimed) return invalid;
   const signed = (params.get('openid.signed') ?? '').split(',');
   if (!SIGNED_REQUIRED.every((f) => signed.includes(f))) return invalid;
+  if (!signed.every((f) => SIGNED_ALLOWED.includes(f))) return invalid;
+  // The check body is built from the very values read above, never forwarded wholesale.
   const body = new URLSearchParams();
-  for (const [k, v] of params) if (k.startsWith('openid.')) body.set(k, v);
+  for (const k of OPENID_KEYS) {
+    const v = params.get(k);
+    if (v !== null && k !== 'openid.mode') body.set(k, v);
+  }
   body.set('openid.mode', 'check_authentication');
   let text: string;
   try {
@@ -117,9 +128,9 @@ export async function steamReturn(ctx: AccountCtx): Promise<Response> {
   const c = url.searchParams.get('c') ?? '';
   const clears = C_SHAPE.test(c) ? [preCookie(c, '', 0)] : [];
   const done = (code: ReturnCode, extra: string[] = []): Response => back(code, [...clears, ...extra]);
-  if (await perMinute(ctx.req, ctx.env.ACCOUNT_LIMIT)) return done('limit');
   if (clears.length === 0) return done('expired');
   try {
+    if (await perMinute(ctx.req, ctx.env.ACCOUNT_LIMIT)) return done('limit');
     const ch = await db
       .prepare(
         `DELETE FROM auth_challenge WHERE challenge_hash = ?1 AND expires_at > ?2 AND purpose IN ('steam-login','steam-link')
