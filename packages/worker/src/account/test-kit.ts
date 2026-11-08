@@ -66,14 +66,14 @@ export function accountHarness(opts: AccountHarnessOpts = {}) {
 }
 
 /** A stand-in for Steam's OpenID endpoint: records every call, answers `check_authentication`. */
-export function steamStub(opts: { valid?: boolean; down?: boolean } = {}): AccountDeps & { calls: { url: string; body: string }[] } {
+export function steamStub(opts: { valid?: boolean; down?: boolean; status?: number } = {}): AccountDeps & { calls: { url: string; body: string }[] } {
   const calls: { url: string; body: string }[] = [];
   return {
     calls,
     fetch: async (url, init) => {
       calls.push({ url, body: String(init.body ?? '') });
       if (opts.down === true) throw new Error('steam is down');
-      return new Response(`ns:http://specs.openid.net/auth/2.0\nis_valid:${opts.valid === false ? 'false' : 'true'}\n`, { status: 200 });
+      return new Response(`ns:http://specs.openid.net/auth/2.0\nis_valid:${opts.valid === false ? 'false' : 'true'}\n`, { status: opts.status ?? 200 });
     },
   };
 }

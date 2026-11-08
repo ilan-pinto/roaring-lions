@@ -174,6 +174,72 @@ describe('Steam sign-in', () => {
     expect(back(await ret(h, returnParams(b.c, S2), jar)).code).toBe('ok');
   });
 
+  it('refuses a repeated openid.* key: victim first, the signed value last (C1)', async () => {
+    const { h, ready } = harness();
+    await ready;
+    await seedMember(h, 'victim', S2);
+    const s = await start(h, 'steam-login');
+    const victim = `https://steamcommunity.com/openid/id/${S2}`;
+    const q = `openid.claimed_id=${encodeURIComponent(victim)}&openid.identity=${encodeURIComponent(victim)}&${returnParams(s.c, S1)}`;
+    const res = await ret(h, q, s.cookie);
+    expect(back(res).code).toBe('invalid');
+    expect(await count(h, 'session')).toBe(0);
+    expect(res.headers.getSetCookie().some((c) => c.startsWith(SESSION_COOKIE))).toBe(false);
+  });
+
+  it('start answers exactly the six OpenID parameters, and a Lax 300 s pre cookie', async () => {
+    const { h, ready } = harness();
+    await ready;
+    const res = await h.call('POST', '/api/account/steam/start', { body: { purpose: 'steam-login' } });
+    const url = new URL(((await res.json()) as { url: string }).url);
+    expect(url.origin + url.pathname).toBe(STEAM_OP);
+    const c = new URL(url.searchParams.get('openid.return_to') ?? '').searchParams.get('c') ?? '';
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      'openid.ns': 'http://specs.openid.net/auth/2.0',
+      'openid.mode': 'checkid_setup',
+      'openid.return_to': `${ORIGIN}/api/account/steam/return?c=${c}`,
+      'openid.realm': ORIGIN,
+      'openid.identity': 'http://specs.openid.net/auth/2.0/identifier_select',
+      'openid.claimed_id': 'http://specs.openid.net/auth/2.0/identifier_select',
+    });
+    const cookie = res.headers.get('set-cookie') ?? '';
+    expect(cookie.startsWith(preCookieName(c) + '=')).toBe(true);
+    expect(cookie.split('; ').slice(1)).toEqual(['Secure', 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=300']);
+  });
+
+  it('steam-link from a stale session answers 403 reauth', async () => {
+    const { h, ready } = harness();
+    await ready;
+    await seedMember(h, 'm1');
+    const cookie = await freshCookie(h, 'm1');
+    await h.db.prepare('UPDATE session SET fresh_until = 0').run();
+    const res = await h.call('POST', '/api/account/steam/start', { body: { purpose: 'steam-link' }, cookie });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'reauth' });
+    expect(await count(h, 'auth_challenge')).toBe(0);
+  });
+
+  it('a Steam check answering 503 is r=steam', async () => {
+    const stub = steamStub({ status: 503 });
+    const h = accountHarness({ now: T0, deps: stub });
+    await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run();
+    const s = await start(h, 'steam-login');
+    expect(back(await ret(h, returnParams(s.c, S1), s.cookie)).code).toBe('steam');
+    expect(await count(h, 'session')).toBe(0);
+  });
+
+  it('a database failure after the consume is still a 303 (I1)', async () => {
+    const { h, ready } = harness();
+    await ready;
+    const s = await start(h, 'steam-login');
+    const real = h.db.batch.bind(h.db);
+    h.db.batch = async () => { throw new Error('d1 down'); };
+    const res = await ret(h, returnParams(s.c, S1), s.cookie);
+    h.db.batch = real;
+    expect(back(res)).toMatchObject({ status: 303, code: 'steam' });
+    expect(res.headers.getSetCookie().some((c) => c.startsWith(SESSION_COOKIE))).toBe(false);
+  });
+
   it('cancel_returns_cancelled', async () => {
     const { h, ready } = harness();
     await ready;
@@ -231,11 +297,12 @@ describe('Steam sign-in', () => {
     await ready;
     await seedMember(h, 'm1', S1);
     await seedMember(h, 'm2');
-    const before = JSON.stringify([await h.db.prepare('SELECT id, member_id, provider, subject, state FROM member_identity ORDER BY id').all(), await h.db.prepare('SELECT id, public_id, id_hash, user_handle, created_at FROM member ORDER BY id').all()]);
     const s = await start(h, 'steam-link', await freshCookie(h, 'm2'));
+    const dump = async (): Promise<string> =>
+      JSON.stringify(await Promise.all(['member', 'member_identity', 'profile', 'wallet'].map((t) => h.db.prepare(`SELECT * FROM ${t} ORDER BY 1`).all())));
+    const before = await dump();
     expect(back(await ret(h, returnParams(s.c, S1), s.cookie)).code).toBe('taken');
-    const after = JSON.stringify([await h.db.prepare('SELECT id, member_id, provider, subject, state FROM member_identity ORDER BY id').all(), await h.db.prepare('SELECT id, public_id, id_hash, user_handle, created_at FROM member ORDER BY id').all()]);
-    expect(after).toBe(before);
+    expect(await dump()).toBe(before);
   });
 
   it('linking: own steam is linked, a new one inserts, a second different one is taken', async () => {

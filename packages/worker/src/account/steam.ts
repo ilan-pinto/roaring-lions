@@ -5,9 +5,10 @@ import { ACCOUNT_RETURN_PATH, CHALLENGE_MS, STEAM_OP, accountOrigins, preCookieN
 import { randomB64url, sha256Hex } from './crypto';
 import { accountJson, readAccountBody } from './http';
 import { newAccountBudget, perMinute } from './limits';
-import { accountsOpen, createMember, memberForIdentity } from './member';
+import { accountsOpen, createMember, memberForIdentity, sessionFor } from './member';
 import type { AccountCtx, AccountDeps } from './routes';
-import { createSession, requireSession } from './session';
+import { dayOf } from '../rate-day';
+import { requireSession } from './session';
 
 export type SteamPurpose = 'steam-login' | 'steam-link';
 export type ReturnCode = 'ok' | 'linked' | 'cancelled' | 'expired' | 'nocookie' | 'invalid' | 'steam' | 'closed' | 'limit' | 'taken';
@@ -28,6 +29,13 @@ export async function verifyOpenId(
   fetch: AccountDeps['fetch'],
 ): Promise<{ steamId: string } | { refused: 'invalid' | 'steam' }> {
   const invalid = { refused: 'invalid' } as const;
+  // A repeated openid.* key would let the checks read one value and Steam be asked about another.
+  const seen = new Set<string>();
+  for (const k of params.keys()) {
+    if (!k.startsWith('openid.')) continue;
+    if (seen.has(k)) return invalid;
+    seen.add(k);
+  }
   if (params.get('openid.mode') !== 'id_res') return invalid;
   if (params.get('openid.op_endpoint') !== STEAM_OP) return invalid;
   if (params.get('openid.return_to') !== expect.returnTo) return invalid;
@@ -46,6 +54,7 @@ export async function verifyOpenId(
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
+      signal: AbortSignal.timeout(8000),
     });
     if (res.status !== 200) return { refused: 'steam' };
     text = await res.text();
@@ -67,10 +76,12 @@ export async function steamStart(ctx: AccountCtx): Promise<Response> {
   const purpose = body !== null && body !== 'too_large' ? body.purpose : undefined;
   if (purpose !== 'steam-login' && purpose !== 'steam-link') return accountJson(400, { error: 'bad_request' });
   let memberId: string | null = null;
+  let slide: string | null = null;
   if (purpose === 'steam-link') {
     const got = await requireSession(ctx, { fresh: true });
     if (got instanceof Response) return got;
     memberId = got.session.memberId;
+    slide = got.setCookie;
   }
   const c = randomB64url(32);
   const pre = randomB64url(32);
@@ -86,19 +97,16 @@ export async function steamStart(ctx: AccountCtx): Promise<Response> {
     'openid.identity': SELECT,
     'openid.claimed_id': SELECT,
   });
-  return accountJson(200, { url: `${STEAM_OP}?${q.toString()}` }, { 'set-cookie': preCookie(c, pre, 300) });
+  const headers = new Headers();
+  headers.append('set-cookie', preCookie(c, pre, 300));
+  if (slide !== null) headers.append('set-cookie', slide);
+  return accountJson(200, { url: `${STEAM_OP}?${q.toString()}` }, headers);
 }
 
 function back(code: ReturnCode, cookies: string[]): Response {
   const h = new Headers({ location: `${ACCOUNT_RETURN_PATH}&r=${code}`, 'cache-control': 'no-store' });
   for (const c of cookies) h.append('set-cookie', c);
   return new Response(null, { status: 303, headers: h });
-}
-
-async function signIn(db: D1Like, memberId: string, now: number): Promise<string> {
-  const s = await createSession(db, memberId, now);
-  await db.batch(s.statements);
-  return s.setCookie;
 }
 
 /** GET steam/return: the one account GET that writes. Every outcome is a 303 that clears this challenge's pre cookie. */
@@ -111,14 +119,30 @@ export async function steamReturn(ctx: AccountCtx): Promise<Response> {
   const done = (code: ReturnCode, extra: string[] = []): Response => back(code, [...clears, ...extra]);
   if (await perMinute(ctx.req, ctx.env.ACCOUNT_LIMIT)) return done('limit');
   if (clears.length === 0) return done('expired');
-  const ch = await db
-    .prepare(
-      `DELETE FROM auth_challenge WHERE challenge_hash = ?1 AND expires_at > ?2 AND purpose IN ('steam-login','steam-link')
-       RETURNING purpose, member_id, pre_hash`,
-    )
-    .bind(await sha256Hex(c), ctx.now)
-    .first<{ purpose: SteamPurpose; member_id: string | null; pre_hash: string | null }>();
-  if (ch === null) return done('expired');
+  try {
+    const ch = await db
+      .prepare(
+        `DELETE FROM auth_challenge WHERE challenge_hash = ?1 AND expires_at > ?2 AND purpose IN ('steam-login','steam-link')
+         RETURNING purpose, member_id, pre_hash`,
+      )
+      .bind(await sha256Hex(c), ctx.now)
+      .first<{ purpose: SteamPurpose; member_id: string | null; pre_hash: string | null }>();
+    if (ch === null) return done('expired');
+    return await finishReturn(ctx, db, url, c, ch, done);
+  } catch {
+    // Ruling 12: a top-level navigation never gets a bare error page. No SteamID is logged.
+    return done('steam');
+  }
+}
+
+async function finishReturn(
+  ctx: AccountCtx,
+  db: D1Like,
+  url: URL,
+  c: string,
+  ch: { purpose: SteamPurpose; member_id: string | null; pre_hash: string | null },
+  done: (code: ReturnCode, extra?: string[]) => Response,
+): Promise<Response> {
   if (url.searchParams.get('openid.mode') === 'cancel') return done('cancelled');
   const pre = readCookie(ctx.req, preCookieName(c));
   if (pre === null || pre === '') return done('nocookie');
@@ -126,10 +150,10 @@ export async function steamReturn(ctx: AccountCtx): Promise<Response> {
   const verdict = await verifyOpenId(url.searchParams, { returnTo: `${url.origin}/api/account/steam/return?c=${c}` }, ctx.deps.fetch);
   if ('refused' in verdict) return done(verdict.refused);
   const steamId = verdict.steamId;
-  const existing = await memberForIdentity(db, 'steam', steamId, ctx.now);
+  const existing = await memberForIdentity(db, 'steam', steamId, ctx.now, ch.purpose === 'steam-login');
 
   if (ch.purpose === 'steam-login') {
-    if (existing !== null) return done('ok', [await signIn(db, existing, ctx.now)]);
+    if (existing !== null) return done('ok', [await sessionFor(db, existing, ctx.now)]);
     if (!(await accountsOpen(db))) return done('closed');
     if (!(await newAccountBudget(db, ctx.env, ctx.req, ctx.now))) return done('limit');
     const made = await createMember(db, ctx.now, { provider: 'steam', subject: steamId });
@@ -147,10 +171,11 @@ export async function steamReturn(ctx: AccountCtx): Promise<Response> {
   try {
     await db
       .prepare(`INSERT INTO member_identity (id, member_id, provider, subject, state, created_at, last_used_day) VALUES (?1, ?2, 'steam', ?3, 'active', ?4, ?5)`)
-      .bind(randomB64url(16), memberId, steamId, ctx.now, Math.floor(ctx.now / 86_400_000))
+      .bind(randomB64url(16), memberId, steamId, ctx.now, dayOf(ctx.now))
       .run();
-  } catch {
-    return done('taken');
+  } catch (err) {
+    if (/UNIQUE/i.test(err instanceof Error ? err.message : String(err))) return done('taken');
+    throw err;
   }
   return done('linked');
 }

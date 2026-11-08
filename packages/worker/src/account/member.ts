@@ -12,20 +12,20 @@ export async function accountsOpen(db: D1Like): Promise<boolean> {
 }
 
 /** The member behind an active identity, or null. A hit also stamps the identity's `last_used_day`. */
-export async function memberForIdentity(db: D1Like, provider: string, subject: string, now: number = Date.now()): Promise<string | null> {
+export async function memberForIdentity(db: D1Like, provider: string, subject: string, now: number = Date.now(), stamp = true): Promise<string | null> {
   const row = await db
     .prepare(`SELECT id, member_id FROM member_identity WHERE provider = ?1 AND subject = ?2 AND state = 'active'`)
     .bind(provider, subject)
     .first<{ id: string; member_id: string }>();
   if (row === null) return null;
-  await db.prepare('UPDATE member_identity SET last_used_day = ?2 WHERE id = ?1').bind(row.id, dayOf(now)).run();
+  if (stamp) await db.prepare('UPDATE member_identity SET last_used_day = ?2 WHERE id = ?1').bind(row.id, dayOf(now)).run();
   return row.member_id;
 }
 
 const MAX_PUBLIC_ID_TRIES = 5;
 
 /** A signed-in session for a member who already exists: its statements run in a batch of their own. */
-async function sessionFor(db: D1Like, memberId: string, now: number): Promise<string> {
+export async function sessionFor(db: D1Like, memberId: string, now: number): Promise<string> {
   const s = await createSession(db, memberId, now);
   await db.batch(s.statements);
   return s.setCookie;
