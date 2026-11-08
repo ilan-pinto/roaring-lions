@@ -68,6 +68,8 @@ async function fixture(opts: { wet?: boolean; role?: 'foliage' | 'trunk'; slots?
 interface Built {
   readonly vertex: string;
   readonly used: ReadonlySet<unknown>;
+  /** The program's name for each uniform node. */
+  readonly names: ReadonlyMap<unknown, string>;
 }
 
 /** The vertex program three builds for `material` drawing `mesh`. */
@@ -78,13 +80,17 @@ function compile(f: Fixture, material: THREE.Material): Built {
     material: unknown;
     build(): void;
     vertexShader: string;
-    uniforms: { vertex: Array<{ node: unknown }> };
+    uniforms: { vertex: Array<{ node: unknown; name: string }> };
   };
   builder.scene = new THREE.Scene();
   builder.camera = new THREE.OrthographicCamera();
   builder.material = material;
   builder.build();
-  return { vertex: builder.vertexShader, used: new Set(builder.uniforms.vertex.map((u) => u.node)) };
+  return {
+    vertex: builder.vertexShader,
+    used: new Set(builder.uniforms.vertex.map((u) => u.node)),
+    names: new Map(builder.uniforms.vertex.map((u) => [u.node, u.name])),
+  };
 }
 
 const mainOf = (src: string): string => src.slice(src.indexOf('void main()'));
@@ -387,5 +393,70 @@ describe('the disturbers (T7), compiled into the twin', () => {
     // ...and the buffer three uploads is the same numbers, padded to vec4 (b: 3 floats + 1 pad).
     const buf = (d.uDisturbB as unknown as { value: Float32Array }).value;
     expect(Array.from(buf.subarray(20, 23))).toEqual([15.25, 16.25, 17.25]);
+  });
+});
+
+describe('graph wiring, per input, on program text (ruling R12)', () => {
+  // The twin's position graph assembles the wind's and the bend's inputs from the batched position, the instance origin, rlNature and the
+  // record. The field maths is gated on numbers; THESE gates pin which program value each input is read from. Each names its mutation.
+  const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  async function program(): Promise<{ main: string; rest: string; origin: string; nat: string; time: string; spring: string; dir: string; disturb: string }> {
+    const f = await fixture({ slots: 8 });
+    const built = compile(f, f.twin);
+    const main = mainOf(built.vertex);
+    const d = nodeDisturbBindings(f.twin) as DisturbBindings;
+    const name = (n: unknown): string => built.names.get(n) as string;
+    const rest = /(nodeVar\d+) = \( nodeUniform\d+ \* vec4\( positionLocal, 1\.0 \) \)\.xyz;/.exec(main)?.[1];
+    const origin = /(nodeVar\d+) = \( nodeUniform\d+ \* vec4\( nodeVar\d+\.xyz, 1\.0 \) \)\.xyz;/.exec(main)?.[1];
+    const nat = /(nodeVar\d+) = rlNature;/.exec(main)?.[1];
+    if (rest === undefined || origin === undefined || nat === undefined) throw new Error('spec: the program no longer has the rest/origin/nature vars');
+    // The disturber section: from the loop to the end of the block that holds it.
+    const at = main.indexOf('for ( int i');
+    const open = main.lastIndexOf('if (', at);
+    let depth = 0;
+    let end = at;
+    for (let k = main.indexOf('{', open); k < main.length; k++) {
+      if (main[k] === '{') depth++;
+      if (main[k] === '}' && --depth === 0) {
+        end = k;
+        break;
+      }
+    }
+    return { main, rest, origin, nat, time: name(f.bound.uSwayTime), spring: name(d.uDisturbSpring), dir: name(f.bound.uWindDir), disturb: main.slice(open, end) };
+  }
+
+  it('the bend subtracts the instance origin on all three axes from the REST position', async () => {
+    // Falsify: relH = restWorld.y (no origin y) / relX = restWorld.x (no origin x) / relZ without origin z.
+    const p = await program();
+    for (const axis of ['x', 'y', 'z']) expect(p.disturb, axis).toContain(`( ${p.rest}.${axis} - ${p.origin}.${axis} )`);
+  });
+
+  it('the bend reads class from rlNature.y and the height lane from rlNature.x, in that order', async () => {
+    // Falsify: cls = v.nature.x (swapped lanes).
+    const p = await program();
+    expect(p.disturb).toContain(`${p.nat}.y < 0.5`);
+    expect(p.disturb).toContain(`clamp( ${p.nat}.x, 0.0, 1.0 )`);
+    expect(p.disturb).not.toContain(`${p.nat}.x < 0.5`);
+    expect(p.disturb).not.toContain(`clamp( ${p.nat}.y, 0.0, 1.0 )`);
+  });
+
+  it('the thrash runs on the sim clock uniform and is scaled by the spring uniform', async () => {
+    // Falsify: tSec = float(0) / spring = float(1) in the bend call.
+    const p = await program();
+    expect(p.disturb).toContain(`( ${p.time} / 0.4 )`);
+    expect(p.disturb).toMatch(new RegExp(`sin\\([^\\n]*\\) \\* ${esc(p.spring)} \\);`));
+    expect(p.disturb).not.toMatch(/\* 1\.0 \);/);
+  });
+
+  it('the wind: worldH is the rest height over the ORIGIN, hN and class are the nature lanes, the heading feeds the gust phase as (x, z)', async () => {
+    // Falsify (T6's gaps): worldH = restWorld.y (no origin) / hN: v.nature.y / cls: v.nature.x / dirX: uWindDir.y or dirZ: uWindDir.x.
+    const p = await program();
+    expect(p.main).toMatch(new RegExp(`= \\( \\( ${esc(p.rest)}\\.y - ${esc(p.origin)}\\.y \\) / [0-9.]+ \\);`));
+    expect(p.main).toContain(`= ${p.nat}.x;`);
+    expect(p.main).not.toContain(`= ${p.nat}.y;`);
+    expect(p.main).toContain(`${p.nat}.y < 0.5`);
+    expect(p.main).not.toContain(`${p.nat}.x < 0.5`);
+    expect(p.main).toContain(`( ( ${p.origin}.x * ${p.dir}.x ) + ( ${p.origin}.z * ${p.dir}.y ) )`);
   });
 });
