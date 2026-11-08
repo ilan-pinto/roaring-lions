@@ -10,6 +10,7 @@ import { AgentClient } from './agent-client';
 import { createContext, toolsFor, TOOLS, type Scope, type ToolContext, type ToolResult } from './mcp-tools';
 import { ROOM_BUILD, ROOM_CODE, ROOM_MAP, ROOM_NOW, newRoom, play, type Loop } from './test-room';
 import { versusConfig } from './test-config';
+import { VERSUS_FORMATIONS_CLOSED_MAPS } from '../../../packages/app/src/net/versus-formations';
 
 beforeEach(() => { vi.useFakeTimers({ now: ROOM_NOW }); });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -51,7 +52,7 @@ async function drive<T>(loop: Loop, runners: { pump(n: number): number }[], p: P
 }
 
 /** Two seat clients, both started; both seats human unless `kinds` says otherwise. */
-async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot'; map?: string } = {}): Promise<{ loop: Loop; a: Joined; c: Joined; room: Awaited<ReturnType<typeof newRoom>> }> {
+async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot'; map?: string; matchup?: 'kdf' | 'sarim' } = {}): Promise<{ loop: Loop; a: Joined; c: Joined; room: Awaited<ReturnType<typeof newRoom>> }> {
   const room = await newRoom(kinds);
   const a = join(room.loop, await room.ticket(0), 0);
   const c = join(room.loop, await room.ticket(1), 1);
@@ -63,9 +64,9 @@ async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot'
 describe('the tools a scope is given (case 1)', () => {
   const names = (s: Scope): string[] => toolsFor(s).map((t) => t.name).sort();
   it('advise has no order and no end_round; assist has order, not end_round; command has both and no ping', () => {
-    expect(names('advise')).toEqual(['inbox', 'observe', 'ping', 'say', 'status', 'wait']);
-    expect(names('assist')).toEqual(['inbox', 'observe', 'order', 'ping', 'say', 'status', 'wait']);
-    expect(names('command')).toEqual(['end_round', 'inbox', 'observe', 'order', 'say', 'status', 'wait']);
+    expect(names('advise')).toEqual(['inbox', 'observe', 'ping', 'say', 'status', 'terrain', 'wait']);
+    expect(names('assist')).toEqual(['inbox', 'observe', 'order', 'ping', 'say', 'status', 'terrain', 'wait']);
+    expect(names('command')).toEqual(['end_round', 'inbox', 'observe', 'order', 'say', 'status', 'terrain', 'wait']);
   });
   it('a tool called outside its scope refuses, whatever the server registered', async () => {
     const sockless = new AgentClient({ server: 'https://room.test', code: ROOM_CODE, ticket: 't', build: ROOM_BUILD, role: 'advisor', seat: 0, log: () => {}, open: () => ({ onopen: null, onmessage: null, onclose: null, send: () => {}, close: () => {} }) });
@@ -157,19 +158,29 @@ describe('order in command scope (case 2)', () => {
 // human seat plays -- command scope, both seats `kind: 'bot'` (the arena,
 // parity with the in-process `rush`) -- and never in assist.
 const BOTS = { host: 'bot', guest: 'bot' } as const;
+/** The one versus room that closes formations: a Tel Marum economy room (KDF v Sarim, the host Sarim). */
+const CLOSED_ROOM = { map: 'tel_marum', matchup: 'sarim' } as const;
+/** The first `n` of this seat's own unit ids, as `observe` lists them (a Sarim host is side 1). */
+async function ownIds(ctx: ToolContext, n: number): Promise<number[]> {
+  const ids = (body(await call(ctx, 'observe')) as { units: { id: number }[] }).units.slice(0, n).map((u) => u.id);
+  expect(ids).toHaveLength(n);
+  return ids;
+}
 // GH-859 P1a: the agent harness orders a combat formation through the same door a human's click will use.
 describe('order: the formation field (GH-859 P1a)', () => {
-  // Task 6V (the lead's ruling, 29 Oct): formations are OFF in versus rooms until S4 passed. They opened on 1 Nov on the maps S4 covered, so
-  // the refusal is witnessed on Wadi Tarfan (large), which stays closed (`VERSUS_FORMATIONS_CLOSED_MAPS`; it was Wadi Tarfan until GH-945, and Rujm Sawda until 3 Nov); the open map is the last test of this block.
+  // Task 6V (the lead's ruling, 29 Oct): formations are OFF in versus rooms until S4 passed. They opened on 1 Nov on the maps S4 covered, and
+  // map by map after (Wadi Tarfan with GH-945, Rujm Sawda on 3 Nov, Wadi Tarfan (large) with PR 1104), so the refusal is witnessed in the one
+  // room still closed: a Tel Marum economy room (KDF v Sarim; `formations_closed_in` in data/versus/tel_marum.json, the lead's 5 Nov ruling).
+  // A Sarim host is side 1, so the ids are read from `observe`. The open map is the last test of this block.
   // `twoSeats` is a versus room. The agent
   // harness checks an order with the same `validateCommand` the receiver runs, so a formation order is refused before it is sent.
   // The open-gate plumbing (stamped, framed, the same group on both sims) is witnessed in `two-client.test.ts` ("GATE OPEN").
-  it('a Column move in a versus room is refused as invalid and nothing is sent; the plain move goes through and forms no group', async () => {
-    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'wadi_tarfan_l' });
+  it('a Column move in a closed versus room is refused as invalid and nothing is sent; the plain move goes through and forms no group', async () => {
+    const { loop, a, c } = await twoSeats({ ...BOTS, ...CLOSED_ROOM });
     const ctx = createContext(a.client, 'command');
     const wa = a.client.world() as MatchWorld;
     const wc = c.client.world() as MatchWorld;
-    const own = sideIds(wa, 0).slice(0, 4);
+    const own = await ownIds(ctx, 4);
     expect(own).toHaveLength(4);
     // Both machines still REGISTER the formations: the sim is untouched, the door is what is shut.
     for (const w of [wa, wc]) expect(w.sim.formationTypeCount()).toBe(3);
@@ -190,10 +201,10 @@ describe('order: the formation field (GH-859 P1a)', () => {
     expect(wa.sim.hash()).toBe(wc.sim.hash());
   });
   it('an attack formation on an attackMove is refused the same way, and the plain attackMove forms no group', async () => {
-    const { loop, a, c } = await twoSeats({ ...BOTS, map: 'wadi_tarfan_l' });
+    const { loop, a, c } = await twoSeats({ ...BOTS, ...CLOSED_ROOM });
     const ctx = createContext(a.client, 'command');
     const wa = a.client.world() as MatchWorld;
-    const own = sideIds(wa, 0).slice(0, 3);
+    const own = await ownIds(ctx, 3);
     const r = await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20, formation: 'attack' });
     expect(r.ok).toBe(false);
     expect(body(r)).toEqual({ error: 'invalid', detail: 'formations-closed-in-versus' });
@@ -216,11 +227,88 @@ describe('order: the formation field (GH-859 P1a)', () => {
     for (const w of [wa, wc]) expect(own.every((id) => w.sim.formationGroupOf(id) >= 0)).toBe(true);
     expect(wa.sim.hash()).toBe(wc.sim.hash());
   });
- it('the order tool says formations are refused in versus rooms while closed, and names the detail it answers with (M8)', () => {
+ it('the order tool says where formations are refused, and names the detail it answers with (M8); it no longer calls them closed in versus (GH-1097)', () => {
     const order = TOOLS.find((t) => t.name === 'order');
     expect(order).toBeDefined();
     expect(order!.description).toContain('formations-closed-in-versus');
-    expect(order!.description).toContain('closed in versus rooms');
+    expect(order!.description).toContain('except a Tel Marum economy room');
+    expect(order!.description).not.toContain('wadi_tarfan_l');
+    expect(order!.description).not.toContain('while formations are closed in versus rooms');
+  });
+  // GH-1097: the 7 Nov match gave no formation order. `observe` now says which the room accepts, from the receiver's own gate.
+  it('GH-1097: observe lists the three formations in an open room, and the Column it lists is accepted and sent as a Command with its formation', async () => {
+    const { loop, a, c } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const seen = body(await call(ctx, 'observe')) as { formations: { id: string; verb: string }[] };
+    expect(seen.formations).toEqual([{ id: 'ambush', verb: 'move' }, { id: 'attack', verb: 'attackMove' }, { id: 'column', verb: 'move' }]);
+    const own = sideIds(a.client.world() as MatchWorld, 0).slice(0, 3);
+    const r = await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20, formation: 'attack' });
+    expect(r.ok, r.text).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd') as { cmd: { kind: string; formation?: string } }[];
+    expect(sent.map((m) => [m.cmd.kind, m.cmd.formation])).toEqual([['attackMove', 'attack']]);
+  });
+  it('GH-1097: terrain answers the map\'s rows (a window when asked), and refuses a window off the map', async () => {
+    const { a } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const w = a.client.world() as MatchWorld;
+    const whole = body(await call(ctx, 'terrain')) as { rows: string[]; origin: number[]; size: number[] };
+    expect(whole.size).toEqual([w.sim.width, w.sim.height]);
+    expect(whole.rows).toHaveLength(w.sim.height);
+    expect(whole.rows.every((r) => r.length === w.sim.width)).toBe(true);
+    const part = body(await call(ctx, 'terrain', { x: 4, y: 6, w: 3, h: 2 })) as { rows: string[]; origin: number[] };
+    expect(part.origin).toEqual([4, 6]);
+    expect(part.rows).toEqual(whole.rows.slice(6, 8).map((r) => r.slice(4, 7)));
+    expect(body(await call(ctx, 'terrain', { x: w.sim.width, y: 0 }))).toMatchObject({ error: 'off the map' });
+    expect(body(await call(ctx, 'terrain', { x: 0, y: w.sim.height }))).toMatchObject({ error: 'off the map' });
+    // A window past the right and bottom edges is clamped to the map, not refused.
+    const corner = body(await call(ctx, 'terrain', { x: w.sim.width - 2, y: w.sim.height - 3, w: 10, h: 10 })) as { rows: string[]; origin: number[] };
+    expect(corner.origin).toEqual([w.sim.width - 2, w.sim.height - 3]);
+    expect(corner.rows).toEqual(whole.rows.slice(w.sim.height - 3).map((r) => r.slice(w.sim.width - 2)));
+  });
+  it('GH-1097 review: a building that falls far from every unit of the seat still stands in its terrain (no news through the fog)', async () => {
+    const { a } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const w = a.client.world() as MatchWorld;
+    const sim = w.sim;
+    const own = (body(await call(ctx, 'observe')) as { units: { tile: [number, number] }[] }).units.map((u) => u.tile);
+    // The building tile farthest from the seat's own force: out of any sight range on this map (asserted, not assumed).
+    let best: [number, number] = [-1, -1];
+    let bestD = -1;
+    for (let y = 0; y < sim.height; y++) for (let x = 0; x < sim.width; x++) {
+      if (sim.blocked[y * sim.width + x] === 0 || w.mapJson.rows[y][x] === '^') continue;
+      const d = Math.min(...own.map(([ux, uy]) => Math.hypot(ux - x, uy - y)));
+      if (d > bestD) { bestD = d; best = [x, y]; }
+    }
+    expect(bestD).toBeGreaterThan(20);
+    const [x, y] = best;
+    expect((body(await call(ctx, 'terrain', { x, y, w: 1, h: 1 })) as { rows: string[] }).rows).toEqual(['#']);
+    (sim.blocked as Uint8Array)[y * sim.width + x] = 0; // fixture: a collapse (sim.ts `collapse`), on this seat's own world
+    (sim.cover as Uint8Array)[y * sim.width + x] = 1;
+    expect((body(await call(ctx, 'terrain', { x, y, w: 1, h: 1 })) as { rows: string[] }).rows).toEqual(['#']);
+  });
+  // PR 1104 (the lead, 7 Nov) opens Wadi Tarfan (large): `VERSUS_FORMATIONS_CLOSED_MAPS` becomes []. Until it lands on this branch's
+  // base the map is still closed, so the case runs once the constant no longer names it; it is never edited to pass.
+  it.skipIf(VERSUS_FORMATIONS_CLOSED_MAPS.includes('wadi_tarfan_l'))('GH-1097: on wadi_tarfan_l observe lists all three formations, and a Column move is accepted', async () => {
+    const { a } = await twoSeats({ ...BOTS, map: 'wadi_tarfan_l' });
+    const ctx = createContext(a.client, 'command');
+    const seen = body(await call(ctx, 'observe')) as { formations: { id: string }[] };
+    expect(seen.formations.map((f) => f.id)).toEqual(['ambush', 'attack', 'column']);
+    const r = await call(ctx, 'order', { verb: 'move', ids: await ownIds(ctx, 3), x: 20, y: 20, formation: 'column' });
+    expect(r.ok, r.text).toBe(true);
+  });
+  it('GH-1097: observe lists none in a tel_marum economy room (closed by its rules file), where the order is refused with the reason and nothing is sent', async () => {
+    for (const o of [CLOSED_ROOM]) {
+      const { loop, a } = await twoSeats({ ...BOTS, ...o });
+      const ctx = createContext(a.client, 'command');
+      const seen = body(await call(ctx, 'observe')) as { formations: unknown[]; units: { id: number }[] };
+      expect(seen.formations, o.map).toEqual([]);
+      const own = seen.units.slice(0, 3).map((u) => u.id); // a Sarim host is side 1
+      const r = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20, formation: 'column' });
+      expect(body(r), o.map).toEqual({ error: 'invalid', detail: 'formations-closed-in-versus' });
+      await loop.flush();
+      expect(sentBy(loop, a).filter((m) => m.t === 'cmd'), o.map).toEqual([]);
+    }
   });
   it('an id nobody ships, a formation on the wrong verb or on another verb, is refused and nothing is sent', async () => {
     const { loop, a } = await twoSeats(BOTS);

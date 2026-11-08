@@ -303,7 +303,7 @@ export const BOT_ADDENDUM = `
 
 The other player may take a while to press Ready: until the match has started, keep calling \`wait\` (it blocks) and do not give up.
 
-This room has a human in it, so play is REALTIME, not the paced match described above: the match runs while you think. Never call \`end_round\` (it answers "not a paced room"). Your loop is \`observe\`, \`order\`, \`wait\` (20 to 200 ticks, then look again), until \`status\` shows a result. Check \`pace\` in \`status\`; only if it says paced do rounds and \`end_round\` apply.
+This room has a human in it, so play is REALTIME, not the paced match described above: the match runs while you think. Never call \`end_round\` (it answers "not a paced room"). Your loop is \`observe\`, \`order\`, \`wait\` (20 to 200 ticks, then look again), until \`status\` shows a result. The match does not wait while you think, so keep the doctrine's cadence: \`wait\` 100 ticks between looks (60 while you are in contact, never more than 200), and in each look give every group that needs one its order (several orders in one look is normal). Check \`pace\` in \`status\`; only if it says paced do rounds and \`end_round\` apply.
 
 If \`observe\` shows an \`economy\`, you can build: send a \`build\` order for a unit on \`economy.menu\` (cost in logistics, against your \`purse\` and your population cap), and set a \`setRally\` point so the new units gather where you want them. A build is paid a few seconds after you send it, so check \`purse\` in \`observe\` before the next one. A unit's \`stance\` (\`hold\`, \`ambush\`, \`patrol\`) is set with the \`setStance\` verb of \`order\`.
 
