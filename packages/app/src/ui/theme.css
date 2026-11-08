@@ -9550,10 +9550,18 @@ fieldset.rl-versus__maps {
   display: none;
 }
 .rl-net-points__title,
+.rl-net-points__explain,
 .rl-net-points__ground {
   margin: 0;
   color: var(--ink-dim);
   white-space: nowrap;
+}
+.rl-net-points__explain {
+  max-width: 34em;
+  white-space: normal;
+}
+.rl-net-points__explain[hidden] {
+  display: none;
 }
 .rl-net-points__title {
   text-transform: uppercase;
