@@ -10,8 +10,8 @@ import { FLAG_SETUP_CAP_MINUTES, SETUP_BAND_TILES_48, SETUP_BAND_TILES_LARGE, SE
 import { FOOT_OPEN, MODE_CAMP_REACH, OFFERED_MAPS, SETUP_BAND_TILES_48 as MJS_BAND_48, SETUP_BAND_TILES_LARGE as MJS_BAND_LARGE, SETUP_KIT as MJS_KIT, SETUP_SECONDS as MJS_SECONDS, WIN_MODES as MJS_WIN_MODES, setupRegion, versusModeFailures } from '../validate_versus_modes.mjs';
 import { CAMP_REACH, scanExit } from '../validate_versus_rules.mjs';
 import { LZ_SEARCH_TILES } from '../../packages/sim/src/tuning';
-import { SETUP_PLACEMENTS_PER_SIDE } from '@lions/sim';
-import { buildMatchWorld } from '../../packages/app/src/net/match-world';
+import { SETUP_PLACEMENTS_PER_SIDE, fx } from '@lions/sim';
+import { buildMatchWorld, type MatchWorld } from '../../packages/app/src/net/match-world';
 
 const ROOT = join(__dirname, '..', '..');
 const DIR = join(ROOT, 'data', 'versus', 'modes');
@@ -213,20 +213,53 @@ describe('the shipped win-mode files', () => {
     }
   });
 
-  it('no camp tile is a tile the placed force spawns on', () => {
-    // Only the two files that carry the `camp` mode have camps (the mode is read fair nowhere: GH-976 P1).
+  // GH-976 (the lead's ruling, 8 Nov): the placement rule "no camp tile is a tile the placed force spawns on" EXEMPTS AIRCRAFT. A flying unit never blocks a camp
+  // (V5 on milh_flats, 3x3 camps, puts a recon drone over each footprint). "Aircraft" is read from the sim's own `isAir`, which is the unit JSON's
+  // `mobility.domain === 'air'`, never from a unit id, so a ground unit on a camp tile is refused whatever its name.
+  const campRoom = (map: string): MatchWorld => {
+    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'camp' } as never) as MatchConfig;
+    return buildMatchWorld(c);
+  };
+  /** The units standing on a camp's footprint, as `{ id, air, at }`; with `aircraftExempt` (the rule) a flying unit is not counted. */
+  const unitsOnCamp = (w: MatchWorld, camp: { at: readonly number[]; size: readonly number[] }, aircraftExempt: boolean): { id: string; air: boolean; at: string }[] => {
+    const out: { id: string; air: boolean; at: string }[] = [];
+    const st = w.sim.state;
+    for (let i = 0; i < w.sim.entityCount; i++) {
+      if (st.alive[i] !== 1) continue;
+      const type = w.sim.unitTypes[st.typeIdx[i]];
+      if (aircraftExempt && type.isAir) continue;
+      const x = Math.floor(st.posX[i] / 65536);
+      const y = Math.floor(st.posY[i] / 65536);
+      if (x >= camp.at[0] && x < camp.at[0] + camp.size[0] && y >= camp.at[1] && y < camp.at[1] + camp.size[1]) out.push({ id: type.id, air: type.isAir, at: `${x},${y}` });
+    }
+    return out;
+  };
+
+  it('no camp tile is a tile the placed force spawns on (aircraft exempt)', () => {
+    // Only the files that carry the `camp` mode have camps (the mode is read fair nowhere: GH-976 P1).
     for (const { doc } of shipped.filter((x) => x.doc.camps !== undefined)) {
-      const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map: doc.map, mode: 'versus', seats: [0, 1].map((s) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' })), pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'camp' } as never) as MatchConfig;
-      const w = buildMatchWorld(c);
-      const occupied = new Set<string>();
-      for (const ids of w.bySide) for (const i of ids) occupied.add(`${Math.floor(w.sim.state.posX[i] / 65536)},${Math.floor(w.sim.state.posY[i] / 65536)}`);
+      const w = campRoom(doc.map);
       for (const end of ['friendly', 'hostile'] as const) {
-        const camp = doc.camps![end];
-        for (let dy = 0; dy < camp.size[1]; dy++) for (let dx = 0; dx < camp.size[0]; dx++) {
-          expect(occupied.has(`${camp.at[0] + dx},${camp.at[1] + dy}`), `${doc.map} ${end} camp tile under a unit`).toBe(false);
-        }
+        expect(unitsOnCamp(w, doc.camps![end], true), `${doc.map} ${end} camp tile under a ground unit`).toEqual([]);
       }
     }
+  });
+
+  it('an aircraft on a camp tile is exempt, and a ground unit on a camp tile is still refused', () => {
+    const w = campRoom('milh_flats');
+    const camp = { at: [20, 20], size: [2, 2] } as const; // open ground well clear of both seats and both shipped camps
+    expect(unitsOnCamp(w, camp, false), 'nothing stands there before the test puts it').toEqual([]);
+    const typeIdx = (air: boolean): number => w.sim.unitTypes.findIndex((u) => u.isAir === air && u.id !== '');
+    const spawnOn = (idx: number): void => { w.sim.spawn(idx, 0, fx.from(camp.at[0] + 0.5), fx.from(camp.at[1] + 0.5)); };
+    // an aircraft, whichever the roster has: not counted by the rule, counted without the exemption
+    spawnOn(typeIdx(true));
+    expect(unitsOnCamp(w, camp, true), 'the rule lets an aircraft stand on a camp tile').toEqual([]);
+    expect(unitsOnCamp(w, camp, false).map((u) => u.air), 'without the exemption it would be refused').toEqual([true]);
+    // a ground unit: refused, named, whatever its id is
+    spawnOn(typeIdx(false));
+    const refused = unitsOnCamp(w, camp, true);
+    expect(refused.length, 'a ground unit on a camp tile is refused').toBe(1);
+    expect(refused[0].air).toBe(false);
   });
 });
 
