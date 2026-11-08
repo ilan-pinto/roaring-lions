@@ -5,6 +5,7 @@ import globals from 'globals';
 import { PORTED_FILES, portedFilesBlocks } from './tools/webgpu_ratchet.mjs';
 import { ROAR_FENCE, RENDER_DEP_SELECTOR, RATCHET_BASE } from './tools/webgpu_fences.mjs';
 
+const ECON_MSG = '@lions/economy imports @lions/sim and @lions/data only (GH-1075 A0, CLAUDE.md dependency direction).';
 const SIM_MSG =
   'Banned in @lions/sim (invariant 2, CLAUDE.md): the sim is Q16.16 fixed-point. ' +
   'Math.sin/cos/pow/exp are not bit-identical across JS engines. Use fx.* from packages/sim/src/fixed.ts.';
@@ -266,6 +267,43 @@ export default defineConfig(
         },
       ],
     },
+  },
+  {
+    files: ['packages/economy/src/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportDeclaration[source.value=/^@lions\\u002F(app|render|worker|net)/]',
+          message: ECON_MSG,
+        },
+        {
+          selector: 'ImportDeclaration[source.value=/\\u002F(app|render|worker|net)\\u002Fsrc\\u002F/]',
+          message: ECON_MSG,
+        },
+        {
+          selector: 'ExportNamedDeclaration[source.value=/^@lions\\u002F(app|render|worker|net)/]',
+          message: ECON_MSG,
+        },
+        {
+          selector: 'ExportNamedDeclaration[source.value=/\\u002F(app|render|worker|net)\\u002Fsrc\\u002F/]',
+          message: ECON_MSG,
+        },
+        {
+          selector: 'ExportAllDeclaration[source.value=/^@lions\\u002F(app|render|worker|net)/]',
+          message: ECON_MSG,
+        },
+        {
+          selector: 'ExportAllDeclaration[source.value=/\\u002F(app|render|worker|net)\\u002Fsrc\\u002F/]',
+          message: ECON_MSG,
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/worker/src/match/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [ROAR_FENCE] }] },
   },
   {
     files: ['packages/worker/src/**/*.ts'],
