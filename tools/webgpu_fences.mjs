@@ -7,7 +7,7 @@
 
 /** GH-317 (gate G-V2): the Roar-coin wallet is single-player. */
 export const ROAR_FENCE = {
-  group: ['**/roar-wallet', '**/roar-wallet.ts', '**/roar-earn', '**/roar-earn.ts', '**/account-view', '**/account-view.ts', '@lions/economy', '@lions/economy/*'],
+  group: ['**/roar-wallet', '**/roar-wallet.ts', '**/roar-earn', '**/roar-earn.ts', '**/account-view', '**/account-view.ts', '@lions/economy', '@lions/economy/*', '**/economy/src', '**/economy/src/*'],
   message:
     'The Roar-coin wallet (GH-317) is single-player: keep roar-wallet, roar-earn, account-view or @lions/economy out of the sim, ' +
     'the renderer, the net package and packages/app/src/net. A versus room is handed its claim; it never reads the wallet.',
