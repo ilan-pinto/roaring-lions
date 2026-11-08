@@ -15,8 +15,9 @@
  *   4. A count of GPUValidationErrors over every page and every child's output, and a black/flat check of every node frame.
  * `--report-only` rebuilds the numbers and the sheet from `p2-data.json` in --out-dir (no GPU run, no lock, no dev server), so a rule
  * table can be corrected after the run is READ without a second lock hold. It still opens a plain headless Chromium (no GPU args) to
- * screenshot the written `p2-sheet.html` into `p2-sheet.png`, so Playwright's browser must be installed.
- * REFUSES (exit 2) without `--lock=<dir>` naming an existing directory, on a loaded machine, or on a page that is not hardware Metal.
+ * screenshot the written `p2-sheet.html` into `p2-sheet.png`, so Playwright's browser must be installed. The run's captured PNGs must
+ * still be in --out-dir: the report reads them back (a moved directory is fine, the stored paths are rebased onto --out-dir by base name).
+ * REFUSES (exit 2, but not under --report-only) without `--lock=<dir>` naming an existing directory, on a loaded machine, or on a page that is not hardware Metal.
  * r0 and the node floors are NOT measured here: they are printed from `parity-bands.ts`, where CI's three runs per key put them.
  */
 import { chromium, type Browser, type Page } from 'playwright';
