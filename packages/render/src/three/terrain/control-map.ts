@@ -35,6 +35,8 @@
  */
 import { DECOR_GROVE, DECOR_KNOLL, DECOR_MARSH, DECOR_RIDGE, DECOR_ROAD, hexToLinear } from './shared';
 import { boxBlur, fbm2, valueNoise2 } from './noise';
+import { NUMBER_OPS } from '../fog-ops';
+import { heightBiased as heightBiasOps, macroFactor as macroFactorOps, rescaleWeights } from './ground-maths';
 import { buildRoadGraph, junctionDistanceAt, roadDistanceAt, ROAD_EDGE_BEND_CYCLES, type RoadGraph } from './road-graph';
 import type { TerrainSurface } from './surface';
 import type { TerrainInput } from './types';
@@ -736,12 +738,9 @@ function floatsEqual(a: Float32Array, b: Float32Array): boolean {
  * still feed the same fragment shader `control-map.ts`'s A/B textures do.
  */
 
-/** How strongly a tile's OWN blend weight is pulled toward 1 (and its
- *  neighbours' pulled toward 0) by a favourable relative height, at the
- *  midpoint of the blend (`w = 0.5`) where the pull is strongest. Zero at
- *  `w = 0` and `w = 1`: a tile that already owns the whole texel, or none of
- *  it, has nothing left to gain from height. */
-export const HEIGHT_BLEND = 0.15;
+// `HEIGHT_BLEND`, `MACRO_LUMINANCE` and `MACRO_HUE` live in `ground-maths.ts` (GH-943 P2 T3), beside the one implementation of
+// the bias and the macro factor that this module and the node ground share; they are re-exported here under their old names.
+export { HEIGHT_BLEND, MACRO_LUMINANCE, MACRO_HUE } from './ground-maths';
 
 /**
  * Biases a set of blend weights `w` toward whichever channel sits on higher
@@ -762,12 +761,9 @@ export const HEIGHT_BLEND = 0.15;
  * weight was already 0).
  */
 export function heightBiased(w: readonly number[], h: readonly number[]): number[] {
-  const raw = w.map((wi, i) => Math.max(0, wi + HEIGHT_BLEND * h[i] * 4 * wi * (1 - wi)));
-  const rawSum = raw.reduce((sum, v) => sum + v, 0);
-  if (rawSum === 0) return w.slice();
-  const wantSum = w.reduce((sum, v) => sum + v, 0);
-  const scale = wantSum / rawSum;
-  return raw.map((v) => v * scale);
+  if (w.length === 0) return [];
+  const raw = w.map((wi, i) => heightBiasOps(NUMBER_OPS, wi, h[i] as number));
+  return rescaleWeights(NUMBER_OPS, w, raw);
 }
 
 /** Side length, in texels, of the macro field -- fixed regardless of map
@@ -787,13 +783,6 @@ export const MACRO_OCTAVES = 3;
  *  design reason for them to differ -- both exist to keep the field smooth
  *  at the scale a `fbm2` sample can actually resolve. */
 export const MACRO_BLUR_TILES = 1.5;
-/** Maximum luminance swing the macro field can apply, at `m = +/-1` and
- *  amplitude 1 -- see `macroFactor`. */
-export const MACRO_LUMINANCE = 0.07;
-/** Maximum hue-mix weight the macro field can apply toward its bright/dark
- *  tint, at `|m| = 1` and amplitude 1 -- see `macroFactor`. */
-export const MACRO_HUE = 0.04;
-
 export interface MacroField {
   readonly size: number;
   /** `size * size` bytes, row-major, one per texel: 128 is neutral (`m = 0`),
@@ -904,8 +893,5 @@ export function macroFactor(
   bright: readonly number[],
   dark: readonly number[]
 ): [number, number, number] {
-  const luminance = 1 + MACRO_LUMINANCE * m * amp;
-  const hueWeight = MACRO_HUE * Math.abs(m) * amp;
-  const tint = m >= 0 ? bright : dark;
-  return [0, 1, 2].map((c) => luminance * (1 + hueWeight * (tint[c] - 1))) as [number, number, number];
+  return [0, 1, 2].map((c) => macroFactorOps(NUMBER_OPS, m, amp, bright[c] as number, dark[c] as number)) as [number, number, number];
 }

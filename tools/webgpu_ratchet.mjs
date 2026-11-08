@@ -22,6 +22,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/environment.node.ts',
   // GH-943 P1 (T8): the async ground photograph and view capture.
   'packages/render/src/three/capture-view.node.ts',
+  // GH-943 P2 (T3): the node ground (the dry blend, the macro and the road). Its legacy twin (terrain/mesh.ts) keeps its splice until P8.
+  'packages/render/src/three/terrain/mesh.node.ts',
 ];
 
 /**
@@ -39,6 +41,7 @@ export const TWINS = Object.freeze({
   [`${THREE}bloom.ts`]: `${THREE}bloom.node.ts`,
   [`${THREE}environment.ts`]: `${THREE}environment.node.ts`,
   [`${THREE}capture-view.ts`]: `${THREE}capture-view.node.ts`,
+  [`${THREE}terrain/mesh.ts`]: `${THREE}terrain/mesh.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */

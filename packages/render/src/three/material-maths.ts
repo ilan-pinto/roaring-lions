@@ -10,10 +10,14 @@
  * Presentation only. Nothing here is read by the sim.
  */
 import type { MaterialMaths } from './backend/backend';
+import { GROUND_SLOTS, slotUniforms } from './terrain/mesh';
+import { ROAD_DISTANCE_RANGE_TILES } from './terrain/control-map';
+import { heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
-  ground: null,
+  // T3: the node ground (`terrain/mesh.node.ts`).
+  ground: { slots: GROUND_SLOTS, slotUniforms, roadDistanceRangeTiles: ROAD_DISTANCE_RANGE_TILES, roadBands, heightBiased, rescaleWeights, macroDecode, macroFactor },
   foliage: null,
   ring: null,
 };

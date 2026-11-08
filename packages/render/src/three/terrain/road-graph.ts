@@ -22,6 +22,8 @@
  * edges: a rung that only crosses the width of a street is not a branch.
  */
 import { DECOR_ROAD } from './shared';
+import { NUMBER_OPS } from '../fog-ops';
+import { roadBands, type RoadBands } from './ground-maths';
 import type { TerrainInput } from './types';
 
 /** A road tile, by its map coordinates. Its centre -- the point every
@@ -251,35 +253,22 @@ export function junctionDistanceAt(g: RoadGraph, px: number, pz: number): number
 
 // -- Road profile (spec §5) --------------------------------------------
 
-/** Half the packed-surface width, in tiles either side of the centreline. */
-export const ROAD_HALF_WIDTH = 0.36;
-/** Width, in tiles, the surface edge softens across -- centred on
- *  `ROAD_HALF_WIDTH`, so it runs from `H - F/2` to `H + F/2`. */
-export const ROAD_EDGE_FALLOFF = 0.18;
-/** How far, in tiles, a wander signal (`bend`, typically an `fbm2` sample at
- *  `ROAD_EDGE_BEND_CYCLES`) can push the edge in or out. Keeps a long road's
- *  edge from reading as a perfectly straight ruler line. */
-export const ROAD_EDGE_BEND = 0.08;
+// The cross-section's constants live in `ground-maths.ts` (GH-943 P2 T3), where the one implementation of the profile is
+// written against `Ops<T>` for this module and the node ground alike; they are re-exported here under their old names.
+export {
+  ROAD_HALF_WIDTH,
+  ROAD_EDGE_FALLOFF,
+  ROAD_EDGE_BEND,
+  SHOULDER_TILES,
+  SHOULDER_ALPHA,
+  RUT_OFFSET,
+  RUT_WIDTH,
+  RUT_ALPHA,
+  RUT_JUNCTION_FADE,
+} from './ground-maths';
 /** `fbm2` cycles-per-tile a caller samples `bend` at -- exported so the edge
  *  wander and whatever else reads it agree on the same frequency. */
 export const ROAD_EDGE_BEND_CYCLES = 2;
-
-/** Width, in tiles, of the bleached shoulder band just past the surface
- *  edge. */
-export const SHOULDER_TILES = 0.12;
-/** The shoulder's peak strength, at the surface edge itself. */
-export const SHOULDER_ALPHA = 0.4;
-
-/** Distance, in tiles either side of the centreline, of each wheel rut. */
-export const RUT_OFFSET = 0.17;
-/** Width, in tiles, of one rut. */
-export const RUT_WIDTH = 0.06;
-/** A rut's peak strength, away from any junction. */
-export const RUT_ALPHA = 0.35;
-/** Distance, in tiles, over which the ruts fade in as a query point moves
- *  away from a junction -- what keeps a crossroads from drawing four
- *  ruts as concentric rings through its own centre. */
-export const RUT_JUNCTION_FADE = 0.4;
 
 /** Cycle length, in tiles, of the road's own surface grain (a caller's
  *  `fbm2` sample), and the gain that grain is mixed in at. Exported for the
@@ -288,24 +277,8 @@ export const RUT_JUNCTION_FADE = 0.4;
 export const ROAD_GRAIN_TILES = 2;
 export const ROAD_GRAIN_GAIN = 0.6;
 
-export interface RoadProfile {
-  /** 1 on packed road surface, fading to 0 past the edge. */
-  readonly surface: number;
-  /** 0..`SHOULDER_ALPHA`, a bleached band just past the surface edge. */
-  readonly shoulder: number;
-  /** 0..`RUT_ALPHA`, the two wheel-track darkenings, faded near a
-   *  junction. */
-  readonly rut: number;
-}
-
-/** The GLSL `smoothstep` exactly: a clamped cubic Hermite ease between
- *  `edge0` and `edge1`. Kept local (rather than reused from elsewhere in
- *  this backend) because it must be the CPU-side twin of whatever shader
- *  samples this same curve, bit-for-bit in behaviour if not in bits. */
-function smoothstep(edge0: number, edge1: number, x: number): number {
-  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
-  return t * t * (3 - 2 * t);
-}
+/** The road's three bands at one point (`ground-maths.ts`'s `RoadBands`, on numbers). */
+export type RoadProfile = RoadBands<number>;
 
 /**
  * The road's cross-section at perpendicular distance `d` (tiles, always
@@ -321,20 +294,5 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
  * shift the ruts out of parallel with it.
  */
 export function roadProfile(d: number, bend: number, junctionDist: number): RoadProfile {
-  const e = d + ROAD_EDGE_BEND * bend;
-  const edgeLo = ROAD_HALF_WIDTH - ROAD_EDGE_FALLOFF / 2;
-  const edgeHi = ROAD_HALF_WIDTH + ROAD_EDGE_FALLOFF / 2;
-  const edgeT = smoothstep(edgeLo, edgeHi, e);
-  const surface = 1 - edgeT;
-
-  const shoulderT = 1 - smoothstep(edgeHi, edgeHi + SHOULDER_TILES, e);
-  const shoulder = SHOULDER_ALPHA * edgeT * shoulderT;
-
-  const rutLo = RUT_WIDTH / 2 - 0.01;
-  const rutHi = RUT_WIDTH / 2 + 0.01;
-  const rutBand = 1 - smoothstep(rutLo, rutHi, Math.abs(d - RUT_OFFSET));
-  const junctionFade = smoothstep(0, RUT_JUNCTION_FADE, junctionDist);
-  const rut = RUT_ALPHA * rutBand * junctionFade * surface;
-
-  return { surface, shoulder, rut };
+  return roadBands(NUMBER_OPS, d, bend, junctionDist);
 }

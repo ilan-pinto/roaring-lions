@@ -37,6 +37,15 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   { scenario: 'fogged', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6' },
   { scenario: 'graded', layer: 'grade', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T3: the grade LUT, display-referred' },
   { scenario: 'graded', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6' },
+  // GH-943 P2 (T3): the node ground's dry blend, macro and road (`terrain/mesh.node.ts`). `loose`: texture filtering differs by backend.
+  { scenario: 'quiet', layer: 'roads', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3: the road surface, shoulder and ruts' },
+  { scenario: 'aftermath', layer: 'roads', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3: the second roads witness' },
+  { scenario: 'quiet', layer: 'ground-albedo', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3: the five-slot albedo blend' },
+  { scenario: 'open-ground', layer: 'ground-albedo', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3' },
+  { scenario: 'relief', layer: 'ground-albedo', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3' },
+  { scenario: 'quiet', layer: 'macro', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3: the macro field' },
+  { scenario: 'open-ground', layer: 'macro', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3' },
+  { scenario: 'aftermath', layer: 'macro', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3' },
   // GH-943 P1 (T5): bloom adds exactly 0 wherever nothing exceeds linear luminance 1.0 (a ZERO check on every quiet gated scenario).
   ...['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'].map(
     (scenario): ParityRow => ({ scenario, layer: 'bloom', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: bloom adds +0 on a frame with nothing over 1.0' })
