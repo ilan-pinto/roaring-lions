@@ -136,6 +136,7 @@ export function censusChunks(chunks: readonly Chunk[], entryFile: string, entryM
   for (const f of materialMathsChunks) {
     if (nodeBackendChunks.includes(f)) failures.push(`material-maths.ts (the app-side material values) is in the node-backend chunk ${f}: a twin value-imports it`);
     if (f === entryFile) failures.push(`MAIN CHUNK GUARD: material-maths.ts is in the entry chunk ${f}`);
+    else if (seen.has(f)) failures.push(`MAIN CHUNK GUARD: material-maths.ts is in ${f}, which the entry ${entryFile} statically imports`);
   }
   for (const f of nodeMaterialChunks) {
     if (!nodeBackendChunks.includes(f)) failures.push(`a node material twin ("${NODE_MATERIAL_MARKER}*", a .node.ts) leaked into ${f}, which is not the node-backend chunk`);

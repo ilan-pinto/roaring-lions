@@ -141,7 +141,7 @@ function makeOpts(gpu: RendererOptions['gpu']): RendererOptions {
 
 interface Private {
   scene: THREE.Scene;
-  groundMat: THREE.Material;
+  groundMat: THREE.Material & { uniforms: Record<string, { value: unknown }> };
   nodeMaterialKit: MaterialKit | null;
   terrainMesh: THREE.Object3D | null;
   decorGroup: THREE.Group | null;
@@ -277,7 +277,13 @@ describe('a node boot adopts before the first census', () => {
     expect(decor.map((b) => b.name).sort()).toEqual(['decor-foliage', 'decor-trunk']);
     for (const b of decor) expect((b.material as THREE.Material).name).toBe('stub-twin-foliage');
     // The legacy material keeps owning its uniforms: the debug setters still write the legacy object.
-    expect(r.setDebugLayerVisible('roads', false)).toBeGreaterThanOrEqual(0);
+    const legacy = priv.groundMat;
+    legacy.uniforms.uRoadOn.value = 1;
+    expect(r.setDebugLayerVisible('roads', false)).toBe(1);
+    expect(legacy.uniforms.uRoadOn.value).toBe(0);
+    // Already hidden: the setter reports no change and the value stays 0.
+    expect(r.setDebugLayerVisible('roads', false)).toBe(0);
+    expect(legacy.uniforms.uRoadOn.value).toBe(0);
     r.dispose();
   });
 });

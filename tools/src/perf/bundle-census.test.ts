@@ -97,6 +97,11 @@ describe('bundle census: each finding is driven red by a constructed bundle', ()
     d[0] = { file: 'index.js', code: preload('ThreeRenderer.js') + `import{t as e}from"./runtime.js";const mm="${MATERIAL_MATHS_MARKER}"` };
     expect(run(d).join()).toMatch(/MAIN CHUNK GUARD: material-maths.ts is in the entry chunk index.js/);
   });
+  it('P2 (T1): fails when material-maths.ts sits in a NON-entry chunk the entry statically imports (it loads eagerly)', () => {
+    const c = good();
+    c[1] = { file: 'runtime.js', code: `export const t=1;const mm="${MATERIAL_MATHS_MARKER}"` };
+    expect(run(c).join()).toMatch(/MAIN CHUNK GUARD: material-maths.ts is in runtime.js, which the entry index.js statically imports/);
+  });
   it('P2 (T1): is not vacuous: a bundle with no material-maths marker anywhere fails', () => {
     const c = good();
     c[5] = { file: 'ThreeRenderer.js', code: `import{a}from"./core.js";export const r="${LEGACY_POST_MARKERS[0]}"` };
