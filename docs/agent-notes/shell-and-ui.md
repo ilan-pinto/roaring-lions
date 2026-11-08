@@ -213,3 +213,31 @@ re-export modules, so no call site moved: `roar-wallet`, `brigade-account`,
 renderer, the net package nor the match code can import the wallet. The tests
 stay in the app (the app is where the behaviour is driven); `parseWorld` lives
 in `packages/economy/src/world.ts`.
+
+## Stores: What it adds, and credit runs (GH-1076, GH-1077)
+
+Plan: `docs/superpowers/plans/2026-11-07-store-garage.md` (its Conflicts and R0.x rulings win). Landed as
+PR 1114 (`creditAsk`/`buyUpgradeRun`), 1115 (`unitAdds`), 1117 (threat table), 1118 (balance fit), 1119 (Garage
+credit Buy), 1120 (the panel), 1122 (Stores tier-row credit Buy), 1123 (the nine tracks plus the 11 close-ups).
+
+- **`unitAdds`** (`packages/app/src/ui/stores-adds.ts`, drawn by `stores-adds-view.ts`) is one pure model behind the
+  Stores' "What it adds" panel. The versus line follows PR 1110: a bought-only unit with `specialRefusal(id) === null`
+  shows `brigadeRoom`; `campaignOnly` shows only for the refused three. The refusal is injected
+  (`AddsInput.refusal`), the app keeps no copy of the list.
+- **The Hurt-by table is generated.** `pnpm store:threats` (`tools/src/store/threat-table.ts`) asks a headless
+  `Sim`'s own `focusHurts` and writes `threat-table.json`. `tools/src/store_threat_table.test.ts` goes red on any
+  roster or tuning change until it is regenerated: regenerate, do not edit the JSON. The generator asserts airborne
+  targets and the side plate by literal, and `wounded_sarim` is excluded by `role`, never by id.
+- **R3 with R0.1.** `creditAsk(prices, earned, owned)` (`upgrade-pay.ts`) prices a credit run: credits fill the earned
+  path below the tier they buy. It returns `null` when the single-player tier is already the top, whoever paid for it.
+  There is no "Count online" run (R0.1, ruled by the lead). `owned` is `max(earned, coins)`; no caller reads the wallet
+  to price a credit Buy. `buyUpgradeRun` writes only `balance` and `upgrades`, so `ACCOUNT_VERSION` stays 2.
+  **`buyUpgradeRun` trusts the caller's price**: the recompute in `credit-buy.ts` (`creditAsk` against the live
+  account, refusing a stale `to`/`price`) is the only guard. Any new caller must recompute the same way.
+- **A2 requirement (stale cache).** `creditAsk` reads the coin tier through the cache. A coin spend still in the
+  outbox can leave the cache one tier low, and a credit run would re-buy a tier coins already own (R4). When A2
+  makes coin spends server-authoritative, DISABLE the credit Buy on a track with a pending coin spend for that
+  track. Tracked in GH-1142. `buyUpgradeRun` itself is GH-1146.
+- **Known gaps left open** (each has an issue): the Garage bay line "400 credits of kit" still counts coin-held
+  tiers (GH-1143); `pnpm playtest` only exercises the medic's track, not the other eight (GH-1144); possible
+  existing overflows at 1280 on the Garage cards and at 1920 on pseudo card text (GH-1145).

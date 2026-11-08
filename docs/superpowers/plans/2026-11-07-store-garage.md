@@ -979,3 +979,13 @@ with a new render after the lead approves its framing, per the house rule. A rej
   - WP1's evidence is stated, and WP8 is the first enforced gate;
   - the empty-loop bounds are added;
   - WP2's facing value is named (16384).
+
+## As built (8 Nov 2026)
+
+- Landed: WP1 PR 1118, WP2 1117, WP3 1115, WP4 1114, WP5 1119, WP6 1120, WP7 1122, WP8+WP9 1123.
+- The lead passed the look sheet as rendered (GH-1076). The panel trims and the same-role benchmark were not required.
+- The notes WP11 owes are in `docs/agent-notes/shell-and-ui.md`, "Stores: What it adds, and credit runs", and
+  `pnpm store:threats` is in `CLAUDE.md`.
+- Carry-overs filed: GH-1142 (A2: no credit Buy on a track with a pending coin spend), GH-1143 (Garage bay line counts
+  coin-held tiers), GH-1144 (playtest sees only the medic's track), GH-1145 (possible overflows at 1280 and 1920),
+  GH-1146 (`buyUpgradeRun` trusts the caller's price).
