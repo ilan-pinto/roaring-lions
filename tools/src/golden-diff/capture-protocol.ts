@@ -1132,6 +1132,10 @@ ${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${l
  * draws". Presentation only: it touches scene visibility, never the sim. Legacy arm only (a node arm needs no matching, it IS the
  * node chain).
  *
+ * GH-943 P2 (T1): it passes `{ portedKeys: PORTED_MATERIAL_KEYS }`, and it is the ONLY caller that does
+ * (`match-node-ported-keys.test.ts`): a legacy material whose twin the node chain now draws stays visible here, so the ported
+ * layer's legacy delta is real and its parity ratio measures something. The node backend's own census never passes it.
+ *
  * The AO pass stays ON. P0 had no node AO, so this used to switch the legacy GTAO off; T7 (`createNodeAoStage`) ported it, and with
  * the line still here the parity job compared an AO-less L against node arms that draw AO. Whatever the quality preset turns on for
  * the node chain, it turns on for legacy too, so nothing else needs matching.
@@ -1141,7 +1145,7 @@ export function matchNodeStatements(repoRoot: string): string {
   return `{
   const _r = window.__lions.renderer;
   const _u = await import(${JSON.stringify(unported)});
-  const _found = _u.censusUnported(_r.scene);
+  const _found = _u.censusUnported(_r.scene, { portedKeys: _u.PORTED_MATERIAL_KEYS });
   if (!Array.isArray(_found)) throw new Error('match-node: censusUnported returned no list');
   _r.frame(1, 0);
 }
