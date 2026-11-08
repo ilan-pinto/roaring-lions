@@ -41,10 +41,10 @@ function groundGeometry(): THREE.BufferGeometry {
   return g;
 }
 
-async function compile(owner: GroundMaterial): Promise<Built> {
+async function compile(owner: GroundMaterial, maths = MATERIAL_MATHS.ground): Promise<Built> {
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
-  const ground = buildNodeGround({ W, TSL, maths: MATERIAL_MATHS.ground }, owner);
+  const ground = buildNodeGround({ W, TSL, maths }, owner);
   const mesh = new THREE.Mesh(groundGeometry(), ground.material);
   const r = new W.WebGPURenderer({ forceWebGL: true });
   // The typings hide the builder's working members; this is the slice the test reads.
@@ -204,6 +204,52 @@ describe('the node ground on WGSL (the CI wgpu arm refused this as a GPU validat
     expect(read.size, 'eight filtered samplers: five slots, two controls, the macro').toBe(8);
     expect(wgsl.match(/\btextureSampleGrad\(/g), 'the road grain').toHaveLength(1);
     expect(() => assertNoImplicitSampleInConditional(wgsl)).not.toThrow();
+  });
+});
+
+describe('the twin wires its taps and record into the shared composition (ground-maths.test.ts evaluates the composition)', () => {
+  it('hands groundBlend the right texture, channel and uniform in every slot', async () => {
+    const owner = new GroundMaterial();
+    type Split = { node?: { value?: unknown }; components?: string };
+    let seen: { taps: Record<string, unknown>; knobs: Record<string, unknown>; range: number } | null = null;
+    const maths = {
+      ...MATERIAL_MATHS.ground,
+      groundBlend: ((o, v, range, taps, knobs) => {
+        seen = { taps: taps as never, knobs: knobs as never, range };
+        return MATERIAL_MATHS.ground.groundBlend(o, v, range, taps, knobs);
+      }) as typeof MATERIAL_MATHS.ground.groundBlend,
+    };
+    // The colour graph is a `Fn`: its body (and the call) runs when the material is built.
+    const { ground } = await compile(owner, maths);
+    expect(seen).not.toBeNull();
+    const got = seen as unknown as { taps: Record<string, unknown>; knobs: Record<string, unknown>; range: number };
+    const tex = (name: string): unknown => owner.uniforms[name]?.value;
+    /** `node.components` of a swizzle, and the texture its tap samples. */
+    const read = (x: unknown): [string | undefined, unknown] => [(x as Split).components, (x as Split).node?.value];
+    const chans = (xs: unknown, name: string): void => {
+      const list = (xs as unknown[]).map(read);
+      // A swizzle is spelled `r`/`g`/`b`/`a` or `x`/`y`/`z`/`w`: normalise to rgba.
+      const norm = list.map(([c]) => (c ?? '').replace('x', 'r').replace('y', 'g').replace('z', 'b').replace('w', 'a'));
+      expect(norm, name).toEqual(['r', 'g', 'b', 'a']);
+      for (const [, t] of list) expect(t === tex(name), `${name}: a channel from another texture`).toBe(true);
+    };
+    chans(got.taps.controlA, 'uControlA');
+    chans(got.taps.controlB, 'uControlB');
+    const slotNames = GROUND_SLOTS.map((sl) => slotUniforms(sl));
+    (got.taps.slotTexels as unknown[]).forEach((x, i) => {
+      expect(read(x)[1] === tex((slotNames[i] as { map: string }).map), `slot ${i} samples its own image`).toBe(true);
+    });
+    expect(read(got.taps.grainTexel)[1] === tex('uKnoll'), 'the grain samples the knoll image').toBe(true);
+    expect(read(got.taps.macroTexel)[1] === tex('uMacro'), 'the macro byte is the macro field').toBe(true);
+    const n = ground.numbers;
+    (got.knobs.strengths as unknown[]).forEach((x, i) => expect(x === n[(slotNames[i] as { strength: string }).strength], `strength ${i}`).toBe(true));
+    (got.knobs.means as unknown[]).forEach((x, i) => expect(x === n[(slotNames[i] as { mean: string }).mean], `mean ${i}`).toBe(true));
+    const knob: Record<string, string> = {
+      grainMean: 'uKnollMean', roadOn: 'uRoadOn', grainGain: 'uRoadGrainGain', roadTone: 'uRoadTone', shoulderTone: 'uShoulderTone',
+      rutTone: 'uRutTone', macroAmp: 'uMacroAmp', macroBright: 'uMacroBright', macroDark: 'uMacroDark',
+    };
+    for (const [k, u] of Object.entries(knob)) expect(got.knobs[k] === n[u], `${k} is ${u}`).toBe(true);
+    expect(got.range).toBe(1);
   });
 });
 

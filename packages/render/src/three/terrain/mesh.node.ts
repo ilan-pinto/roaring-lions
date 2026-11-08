@@ -13,6 +13,8 @@
  *      derivatives of the grain uv taken before it (WGSL rejects an implicit-gradient sample in non-uniform control flow, and the
  *      gate in `mesh.node.test.ts` pins the form, not the absence of a branch);
  *   6. the road, shoulder and rut tones mixed into the vertex colour, then `albedo x macro`.
+ * Steps 2-6 after the taps are ONE function, `ground-maths.ts`'s `groundBlend`, written against `Ops<T>`: this file samples and
+ * wires, and `ground-maths.test.ts` evaluates the composition on numbers (`mesh.node.test.ts` pins the wiring).
  *
  * **Not drawn here, and said so** (`userData.rlUnportedTerms`, the census's `partial` kind): the relief read (slope light, height
  * contours, tint: T4) and, on a wet owner, the wet terms (P4, ruled 7 Nov). A wet owner gets the DRY graph, byte for byte: the graph
@@ -36,7 +38,7 @@
 import * as THREE from 'three';
 import type { GroundMaterial, GroundSlot, slotUniforms } from './mesh';
 import type { ROAD_DISTANCE_RANGE_TILES } from './control-map';
-import type { heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './ground-maths';
+import type { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './ground-maths';
 import { tslOps, type N, type Tsl } from '../fog-pass.node';
 
 /** The name every ground twin carries (`NODE_MATERIAL_MARKER`'s prefix, `tools/src/perf/bundle-census.ts`). */
@@ -59,6 +61,8 @@ export interface GroundMaths {
   readonly rescaleWeights: typeof rescaleWeights;
   readonly macroDecode: typeof macroDecode;
   readonly macroFactor: typeof macroFactor;
+  /** The whole dry composition after the taps (T3 fix round): the graph's wiring, testable on numbers. */
+  readonly groundBlend: typeof groundBlend;
 }
 
 export interface NodeGroundDeps {
@@ -104,7 +108,6 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
   const { W, maths } = deps;
   const TSL = deps.TSL as unknown as GroundTsl;
   const o = tslOps(deps.TSL as unknown as Tsl);
-  const lit = o.lit;
   const rec = owner.uniforms as unknown as Rec;
   const read = (name: string): { value: unknown } => {
     const r = rec[name];
@@ -179,47 +182,38 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
     const ones = TSL.vec3(1, 1, 1);
     const luma = TSL.vec3(LUMA[0], LUMA[1], LUMA[2]);
 
-    // 2. The five slots: a ratio to the image's mean, mixed from 1 by the strength. Unconditional.
-    const factors = slots.map((s) => TSL.mix(ones, tap(s.map, s.carrier, groundUv.div(s.tiles)).rgb.div(s.mean), s.strength));
-
-    // 3. The control map, at the fragment's own map position. A wall ignores it and takes its rock weight.
+    // 2-6. The taps (unconditional; the road grain explicit-gradient), then the composition, written once in `ground-maths.ts`.
     const ctlUv = worldXZ.div(mapSize);
     const ctlA = tap('uControlA', 'uMapSize', ctlUv);
     const ctlB = tap('uControlB', 'uMapSize', ctlUv);
-    const top = o.step(wall, lit(-0.5));
-    const w: N[] = [
-      top.mul(ctlA.r),
-      top.mul(ctlA.g).add(lit(1).sub(top).mul(TSL.max(wall, lit(0)))),
-      top.mul(ctlA.b),
-      top.mul(ctlA.a),
-      top.mul(ctlB.r),
-    ];
-
-    // 4. Height bias (each weight by its own strength-scaled texel's luminance deviation), then the rescale.
-    const biased = w.map((wi, i) => maths.heightBiased(o, wi, TSL.dot(factors[i] as N, luma).sub(1)));
-    const weights = maths.rescaleWeights(o, w, biased);
-
-    // 5. The road, branch-free; its grain tap is explicit-gradient.
-    const range = lit(maths.roadDistanceRangeTiles);
-    const bands = maths.roadBands(o, ctlB.g.mul(range), ctlB.a.mul(2).sub(1), ctlB.b.mul(range));
-    const gate = roadOn.mul(top);
-    const surf = gate.mul(bands.surface);
-    const shoulder = gate.mul(bands.shoulder);
-    const grain = tap(knoll.map, knoll.carrier, grainUv).grad(grainDx, grainDy).rgb.div(knoll.mean);
-    const rut = bands.rut.mul(gate).mul(TSL.smoothstep(lit(0.85), lit(1.05), TSL.dot(grain, luma)));
-    const grainTerm = surf.mul(TSL.mix(ones, grain, grainGain).sub(ones));
-    const offRoad = lit(1).sub(surf);
-
-    // 6. The tones into the vertex colour, then albedo x macro.
-    let tone = TSL.mix(vertexTone, roadTone, surf);
-    tone = TSL.mix(tone, shoulderTone, shoulder);
-    tone = TSL.mix(tone, rutTone, rut);
-    let albedo: N = ones;
-    for (let i = 0; i < weights.length; i++) albedo = albedo.add((weights[i] as N).mul(offRoad).mul((factors[i] as N).sub(ones)));
-    albedo = albedo.add(grainTerm);
-    const m = maths.macroDecode(o, tap('uMacro', 'uMapSize', ctlUv).r);
-    const macro = maths.macroFactor(o, m, macroAmp, macroBright, macroDark);
-    return TSL.vec4(tone.mul(albedo).mul(macro), 1);
+    const blend = maths.groundBlend(
+      o,
+      { luma: (rgb) => TSL.dot(rgb, luma), one3: ones },
+      maths.roadDistanceRangeTiles,
+      {
+        vertexTone,
+        wall,
+        slotTexels: slots.map((s) => tap(s.map, s.carrier, groundUv.div(s.tiles)).rgb),
+        controlA: [ctlA.r, ctlA.g, ctlA.b, ctlA.a],
+        controlB: [ctlB.r, ctlB.g, ctlB.b, ctlB.a],
+        grainTexel: tap(knoll.map, knoll.carrier, grainUv).grad(grainDx, grainDy).rgb,
+        macroTexel: tap('uMacro', 'uMapSize', ctlUv).r,
+      },
+      {
+        strengths: slots.map((s) => s.strength),
+        means: slots.map((s) => s.mean),
+        grainMean: knoll.mean,
+        roadOn,
+        grainGain,
+        roadTone,
+        shoulderTone,
+        rutTone,
+        macroAmp,
+        macroBright,
+        macroDark,
+      }
+    );
+    return TSL.vec4(blend.colour, 1);
   })();
 
   const mat = new W.MeshStandardNodeMaterial({ roughness: 1, metalness: 0, side: THREE.DoubleSide });
