@@ -180,11 +180,14 @@ describe('the order of the output stage in the node graph', () => {
     const lutSelect = selects.find((s) => subtree(s).has(lutSamples[0]));
     expect(lutSelect).toBeDefined();
     expect(subtree(lutSelect).has(outputNodes[0])).toBe(true);
-    // The dither is outermost: its select (the one holding the pixel position) contains the whole vignette product.
+    // The dither is outermost and UNGUARDED (T8): the output node is an add whose subtree holds the whole vignette product and the
+    // pixel position, and no ConditionalNode of the grade-on uniform wraps it.
     const frag = named(all, 'ScreenNode').filter((s) => (s as { scope?: string }).scope === 'coordinate');
     expect(frag.length).toBeGreaterThan(0);
-    const ditherSelect = selects.find((s) => subtree(s).has(frag[0]) && subtree(s).has(mul));
-    expect(ditherSelect).toBeDefined();
+    const ditherAdd = [...all].find((n) => (n as { op?: string }).op === '+' && subtree(n).has(frag[0]) && subtree(n).has(mul));
+    expect(ditherAdd, 'the dither add holds the vignette product and the pixel position').toBeDefined();
+    const guarded = selects.find((s) => subtree(s).has(frag[0]) && subtree(s).has(mul));
+    expect(guarded, 'no select of the grade-on uniform guards the dither').toBeUndefined();
     // ...and the vignette product does NOT contain the pixel position: the dither comes after it.
     expect(inVig.has(frag[0])).toBe(false);
     chain.dispose();
@@ -229,6 +232,12 @@ describe('the grade and vignette handles on the node chain', () => {
     expect(chain.grade.apply(null)).toBe(false);
     expect(chain.grade.apply(IDENTITY_GRADE)).toBe(false);
     expect(chain.grade.uniforms.uGradeOn.value).toBe(0);
+    // ...but it still dithers (T8): the amount is 1, not 0, with no grade on.
+    expect(chain.grade.uniforms.uGradeDither.value).toBe(1);
+    chain.grade.apply(null, { dither: false });
+    expect(chain.grade.uniforms.uGradeDither.value).toBe(0);
+    chain.grade.apply(null);
+    expect(chain.grade.uniforms.uGradeDither.value).toBe(1);
     chain.dispose();
   });
 

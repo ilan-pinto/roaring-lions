@@ -9,14 +9,15 @@
  * keeps the spec's ORDER (display-referred, after tone map and encode, before the vignette) and
  * pays only a 3D texture fetch. The maths is `grade-maths.ts`.
  *
- * **Identity builds nothing.** `apply(null)` and `apply(identity)` leave the material on the
- * vignette-folded source it had, byte for byte, so day, and a map with no grade, draw the frame
- * they draw today. `apply(grade)` swaps in a source with the lookup, and `needsUpdate` recompiles
- * once; a later `apply` with another grade only rewrites the LUT's texels.
+ * **Identity builds no lookup.** `apply(null)` and `apply(identity)` leave the material on the
+ * dither-only source (the vignette-folded one plus the always-on dither, T8), so day, and a map
+ * with no grade, draw no lookup. `apply(grade)` swaps in a source with the lookup, and
+ * `needsUpdate` recompiles once; a later `apply` with another grade only rewrites the LUT's texels.
  *
  * **Banding.** A 32^3 LUT cannot band by itself (a half-float LUT, trilinear), but the canvas is
  * 8-bit, and a graded dark gradient covers fewer 8-bit levels than the same gradient ungraded.
- * `dither` adds one LSB of interleaved-gradient noise at the very end of the shader. See the
+ * `dither` adds one LSB of interleaved-gradient noise at the very end of the shader, on EVERY frame
+ * (T8: a day map has no grade and an undithered smooth gradient bands in 8 bits). See the
  * mock README for the measurement that chose the default.
  *
  * Presentation only: nothing here is read by the sim.
@@ -30,10 +31,13 @@ const GRADE_ANCHOR = 'fragColor.rgb = roundTripHalf(fragColor.rgb)';
 const MAIN_ANCHOR = 'void main()';
 const END_ANCHOR = /\}\s*$/;
 
-const UNIFORMS_GLSL = `
+const LUT_UNIFORMS_GLSL = `
 precision highp sampler3D;
 uniform sampler3D uGradeLut;
 uniform float uGradeOn;
+`;
+
+const DITHER_UNIFORMS_GLSL = `
 uniform float uGradeDither;
 float gradeNoise(vec2 p) {
   return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
@@ -47,27 +51,29 @@ const LOOKUP_GLSL = `  if (uGradeOn > 0.5) {
   }
   `;
 
-const DITHER_GLSL = `  if (uGradeOn > 0.5) fragColor.rgb += (gradeNoise(gl_FragCoord.xy) - 0.5) * (uGradeDither / 255.0);\n}`;
+/** GH-943 P2 T8: NOT guarded by `uGradeOn`. A day map has no grade and used to draw no dither at all, so a smooth gradient (a flat ground) banded in 8 bits. */
+const DITHER_GLSL = `  fragColor.rgb += (gradeNoise(gl_FragCoord.xy) - 0.5) * (uGradeDither / 255.0);\n}`;
 
-/** Rewrites a vignette-folded `OutputPass` fragment source to carry the grade. Pure string work, exported for a GL-free test. */
-export function foldGradeShader(fragment: string): string {
+/**
+ * Rewrites a vignette-folded `OutputPass` fragment source to carry the dither and, with `withLut`, the grade's lookup. Pure string work,
+ * exported for a GL-free test. The dither is always folded in (T8); the lookup only when a grade is on.
+ */
+export function foldGradeShader(fragment: string, withLut = true): string {
   if (!fragment.includes(GRADE_ANCHOR) || !fragment.includes(MAIN_ANCHOR) || !END_ANCHOR.test(fragment)) {
     throw new Error(
       "output-grade: OutputPass's fragment source no longer has the anchors the grade folds into " +
         "('fragColor.rgb = roundTripHalf(...)', 'void main()' and the closing brace) -- the vignette fold or three changed; re-anchor."
     );
   }
-  return fragment
-    .replace(MAIN_ANCHOR, `${UNIFORMS_GLSL}${MAIN_ANCHOR}`)
-    .replace(GRADE_ANCHOR, `${LOOKUP_GLSL}${GRADE_ANCHOR}`)
-    .replace(END_ANCHOR, DITHER_GLSL);
+  const declared = fragment.replace(MAIN_ANCHOR, `${withLut ? LUT_UNIFORMS_GLSL : ''}${DITHER_UNIFORMS_GLSL}${MAIN_ANCHOR}`);
+  return (withLut ? declared.replace(GRADE_ANCHOR, `${LOOKUP_GLSL}${GRADE_ANCHOR}`) : declared).replace(END_ANCHOR, DITHER_GLSL);
 }
 
 /** `half`: the shipped LUT (RGBA16F). `byte`: an RGBA8 LUT, a measurement arm only (banding mock). */
 export type LutPrecision = 'half' | 'byte';
 
 export interface ApplyOptions {
-  /** One LSB of noise before the 8-bit write. Default true. */
+  /** One LSB of noise before the 8-bit write. Default true; false is a measurement arm. Applies with or without a grade. */
   readonly dither?: boolean;
   readonly lut?: LutPrecision;
 }
@@ -104,25 +110,31 @@ export class OutputGrade {
     uGradeDither: THREE.IUniform<number>;
   };
   private readonly material: THREE.ShaderMaterial;
+  /** The vignette-folded source plus the dither and no lookup: what every frame draws while no grade is on. */
   private readonly baseFragment: string;
+  /** The stock vignette-folded source, before any of this class's folding. */
+  private readonly rawFragment: string;
   private folded = false;
   private on = true;
   private lut: THREE.Data3DTexture | null = null;
 
   constructor(outputPass: OutputPass) {
     this.material = outputPass.material;
-    this.baseFragment = this.material.fragmentShader;
+    this.rawFragment = this.material.fragmentShader;
+    this.baseFragment = foldGradeShader(this.rawFragment, false);
+    this.material.fragmentShader = this.baseFragment;
+    this.material.needsUpdate = true;
     this.uniforms = { uGradeLut: { value: null }, uGradeOn: { value: 0 }, uGradeDither: { value: 1 } };
     // Held on the table from the start so a later fold only has to switch the source.
     Object.assign(outputPass.uniforms, this.uniforms);
   }
 
-  /** True when a lookup is compiled into the output shader. False for day, a map with no grade, and any identity. */
+  /** True when a lookup is compiled into the output shader. False for day, a map with no grade, and any identity (the dither is always there). */
   get active(): boolean {
     return this.folded;
   }
 
-  /** The debug layer's switch. Off is the lookup and the dither skipped: the ungraded output, bit for bit. */
+  /** The debug layer's switch. Off is the lookup skipped: the ungraded output. The dither is not the grade's and stays. */
   get enabled(): boolean {
     return this.on;
   }
@@ -141,6 +153,7 @@ export class OutputGrade {
         this.folded = false;
       }
       this.uniforms.uGradeOn.value = 0;
+      this.uniforms.uGradeDither.value = options.dither === false ? 0 : 1;
       return false;
     }
     // A fresh texture each time: a LUT is 256 KB, a grade changes at boot or on a mock-sheet flag, and replacing
@@ -150,7 +163,7 @@ export class OutputGrade {
     this.uniforms.uGradeLut.value = this.lut;
     this.uniforms.uGradeDither.value = options.dither === false ? 0 : 1;
     if (!this.folded) {
-      this.material.fragmentShader = foldGradeShader(this.baseFragment);
+      this.material.fragmentShader = foldGradeShader(this.rawFragment);
       this.material.needsUpdate = true;
       this.folded = true;
     }
