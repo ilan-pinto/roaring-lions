@@ -310,8 +310,8 @@ function ringFragmentShaderArc(style: RingStyle): string {
     float halo = smoothstep(0.0, ${F}, s) * (1.0 - smoothstep(${HALO}, ${HALO_END}, s));
     float breathe = 0.5 + 0.5 * sin(uTimeSec * 6.2831853 / ${PERIOD});
     float am = mix(1.0, mix(${FLOOR}, 1.0, breathe), vArc.y * uPulseOn);
-    float ca = core * ${CORE_A} * am;
-    float ha = halo * ${HALO_A} * am;
+    float ca = core * ${CORE_A} * am * 0.0;
+    float ha = halo * ${HALO_A} * am * 0.0;
     float a = ca + ha * (1.0 - ca);
     if (a <= 0.0) discard;
     gl_FragColor = vec4(vColor * ca + uHaloColor * ha * (1.0 - ca), a);
@@ -342,8 +342,8 @@ function ringFragmentShader(style: RingStyle): string {
     float w = max(${T}, ${PX} / uPxPerTile);
     float core = smoothstep(-w - ${F}, -w, s) * (1.0 - smoothstep(0.0, ${F}, s));
     float halo = smoothstep(0.0, ${F}, s) * (1.0 - smoothstep(${HALO}, ${HALO_END}, s));
-    float ca = core * ${CORE_A};
-    float ha = halo * ${HALO_A};
+    float ca = core * ${CORE_A} * 0.0;
+    float ha = halo * ${HALO_A} * 0.0;
     float a = ca + ha * (1.0 - ca);
     if (a <= 0.0) discard;
     gl_FragColor = vec4(vColor * ca + uHaloColor * ha * (1.0 - ca), a);
