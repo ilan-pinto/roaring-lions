@@ -70,6 +70,37 @@ async function compile(owner: GroundMaterial): Promise<Built> {
   return { frag: builder.fragmentShader, vert: builder.vertexShader, ground, mesh, used: builder.uniforms.fragment, renderUpdate };
 }
 
+/**
+ * The twin's WGSL fragment, from three's own `WGSLNodeBuilder`. There is no GPU here, so the renderer is never initialised: the
+ * builder reads three facts from it (`hasFeature`, the backend's sample count and format for a texture, the device's features),
+ * stubbed to an ordinary single-sampled device with no optional features. The texture filterability the builder decides on (whether
+ * a sampler is declared, `textureSample` or `textureLoad`) comes from the textures themselves, which are the real ones.
+ */
+async function compileWgsl(owner: GroundMaterial): Promise<string> {
+  const W = await import('three/webgpu');
+  const TSL = await import('three/tsl');
+  const ground = buildNodeGround({ W, TSL, maths: MATERIAL_MATHS.ground }, owner);
+  const mesh = new THREE.Mesh(groundGeometry(), ground.material);
+  const r = new W.WebGPURenderer({ forceWebGL: false });
+  const stubbed = r as unknown as { hasFeature(): boolean; backend: Record<string, unknown> };
+  stubbed.hasFeature = () => false;
+  stubbed.backend.utils = { getTextureSampleData: () => ({ primarySamples: 1 }), getTextureFormatGPU: () => 'rgba8unorm' };
+  stubbed.backend.device = { features: new Set<string>() };
+  const Builder = (W as unknown as { WGSLNodeBuilder: new (m: THREE.Mesh, r: unknown) => unknown }).WGSLNodeBuilder;
+  const builder = new Builder(mesh, r) as {
+    scene: THREE.Scene;
+    camera: THREE.Camera;
+    material: unknown;
+    build(): void;
+    fragmentShader: string;
+  };
+  builder.scene = new THREE.Scene();
+  builder.camera = new THREE.OrthographicCamera();
+  builder.material = ground.material;
+  builder.build();
+  return builder.fragmentShader;
+}
+
 /** `void main() { ... }` of a generated shader. */
 const mainOf = (src: string): string => src.slice(src.indexOf('void main()'));
 
@@ -159,6 +190,20 @@ describe('the node ground graph', () => {
   it('has no implicit-gradient sample inside a conditional (the checker in sample-uniformity.test.ts is falsified on a fixture)', async () => {
     const { frag } = await compile(new GroundMaterial());
     expect(() => assertNoImplicitSampleInConditional(frag)).not.toThrow();
+  });
+});
+
+describe('the node ground on WGSL (the CI wgpu arm refused this as a GPU validation error before the white pixel was filterable)', () => {
+  it('declares a sampler for every sampler it reads, samples every tap filtered, the grain with textureSampleGrad', async () => {
+    const wgsl = await compileWgsl(new GroundMaterial());
+    const declared = new Set([...wgsl.matchAll(/var (\w+_sampler) : sampler;/g)].map((m) => m[1]));
+    const read = new Set([...wgsl.matchAll(/\btexture\w*\( \w+, (\w+_sampler),/g)].map((m) => m[1]));
+    expect(read.size, 'the fragment samples (non-vacuous)').toBeGreaterThan(0);
+    expect([...read].filter((n) => !declared.has(n)), 'a sampler read but never declared').toEqual([]);
+    expect(wgsl, 'an unfiltered load: a texture bound at build was unfilterable').not.toMatch(/\btextureLoad\(/);
+    expect(read.size, 'eight filtered samplers: five slots, two controls, the macro').toBe(8);
+    expect(wgsl.match(/\btextureSampleGrad\(/g), 'the road grain').toHaveLength(1);
+    expect(() => assertNoImplicitSampleInConditional(wgsl)).not.toThrow();
   });
 });
 
