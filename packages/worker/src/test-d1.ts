@@ -7,10 +7,14 @@ import type { D1Like, D1Stmt } from './d1';
 
 const MIGRATIONS = fileURLToPath(new URL('../migrations/', import.meta.url));
 
-export function openTestD1(): D1Like & { raw: DatabaseSync } {
+/** `dir` defaults to the telemetry migrations; the accounts database passes its own. `foreignKeys: true`
+ *  runs `PRAGMA foreign_keys = ON` first, as D1 does in production (off by default so the existing tests are unchanged). */
+export function openTestD1(opts: { dir?: string; foreignKeys?: boolean } = {}): D1Like & { raw: DatabaseSync } {
+  const dir = opts.dir ?? MIGRATIONS;
   const db = new DatabaseSync(':memory:');
-  for (const f of readdirSync(MIGRATIONS).filter((n) => n.endsWith('.sql')).sort()) {
-    db.exec(readFileSync(MIGRATIONS + f, 'utf8'));
+  if (opts.foreignKeys === true) db.exec('PRAGMA foreign_keys = ON');
+  for (const f of readdirSync(dir).filter((n) => n.endsWith('.sql')).sort()) {
+    db.exec(readFileSync(dir + f, 'utf8'));
   }
   const stmt = (sql: string, args: unknown[] = []): D1Stmt => ({
     bind: (...v) => stmt(sql, v),
