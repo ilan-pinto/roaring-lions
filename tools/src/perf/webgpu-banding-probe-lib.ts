@@ -88,8 +88,11 @@ export interface VariantRow {
   /** Each crop's own delta. */
   readonly crops: Record<CropId, Delta>;
   readonly index: Record<CropId, IndexReading>;
-  /** The frame after the restore equals the baseline on the stable pixels. */
+  /** After the restore, both CROPS equal the baseline (what every later row's reading depends on). */
   readonly restored: boolean;
+  /** After the restore, stable pixels anywhere in the frame that still differ from the baseline (the parked force's animation is not
+   *  fully caught by one control pair, so this is reported, not voted). */
+  readonly restoreFramePx: number;
 }
 
 /**
@@ -152,12 +155,12 @@ export function pearson(a: readonly number[], b: readonly number[]): number {
 /** The markdown table of the rows, one line per variant and arm. */
 export function variantTable(rows: readonly VariantRow[]): string[] {
   const out = [
-    '| hyp | variant | arm | toggle | frame delta px (mean) | penumbra delta px | lit delta px | index penumbra | index lit | restored |',
+    '| hyp | variant | arm | toggle | frame delta px (mean) | penumbra delta px | lit delta px | index penumbra | index lit | crops restored |',
     '|---|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {
     out.push(
-      `| ${r.hypothesis} | ${r.variant} | ${r.arm} | ${r.applied} | ${r.frame.changed} (${r.frame.meanAbs.toFixed(4)}) | ${r.crops.penumbra.changed} | ${r.crops.lit.changed} | ${fmtIndex(r.index.penumbra)} | ${fmtIndex(r.index.lit)} | ${r.restored ? 'yes' : 'NO'} |`
+      `| ${r.hypothesis} | ${r.variant} | ${r.arm} | ${r.applied} | ${r.frame.changed} (${r.frame.meanAbs.toFixed(4)}) | ${r.crops.penumbra.changed} | ${r.crops.lit.changed} | ${fmtIndex(r.index.penumbra)} | ${fmtIndex(r.index.lit)} | ${r.restored ? 'yes' : 'NO'} (frame ${r.restoreFramePx} px) |`
     );
   }
   return out;

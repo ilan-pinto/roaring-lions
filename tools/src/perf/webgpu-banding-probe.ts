@@ -339,9 +339,10 @@ ${ARM_OF[arm] === 'legacy' ? '' : '  await R.whenGpuIdle();\n'}  return JSON.str
       const r = document.querySelector('canvas')?.getBoundingClientRect();
       return { x: r?.x ?? 0, y: r?.y ?? 0, width: r?.width ?? 0, height: r?.height ?? 0 };
     })) as { x: number; y: number; width: number; height: number };
+    // The caller has just repainted (`repaintScript`): the screenshot path photographs that frame; the canvas path draws one more
+    // zero-time frame in its own task (it must, to read the WebGPU canvas back).
     const grab = async (): Promise<Frame> => {
       if (grabKind === 'canvas') return toFrame(Buffer.from((await page.evaluate(CANVAS_GRAB_SCRIPT)) as string, 'base64'));
-      await page.evaluate(repaintScript(arm));
       return toFrame(await page.screenshot({ clip: rect }));
     };
     const readCrops = (f: Frame): Record<CropId, IndexReading> => ({ penumbra: readIndex(f, CROPS.penumbra), lit: readIndex(f, CROPS.lit) });
@@ -350,7 +351,9 @@ ${ARM_OF[arm] === 'legacy' ? '' : '  await R.whenGpuIdle();\n'}  return JSON.str
       lit: abDelta(a, b, unstable, CROPS.lit),
     });
 
+    await page.evaluate(repaintScript(arm));
     const base = await grab();
+    await page.evaluate(repaintScript(arm));
     const again = await grab();
     if (base.w !== 1440 * DPR || base.h !== 900 * DPR) refuse(`${arm}: frame is ${base.w}x${base.h}, expected ${1440 * DPR}x${900 * DPR} (the crops are in that frame)`);
     const unstable = unstableMask(base, again);
@@ -379,9 +382,12 @@ ${ARM_OF[arm] === 'legacy' ? '' : '  await R.whenGpuIdle();\n'}  return JSON.str
         frame: abDelta(base, f, unstable),
         crops: cropDeltas(base, f, unstable),
         index: readCrops(f),
-        restored: abDelta(base, back, unstable).changed === 0,
+        restored: CROP_IDS.every((c) => abDelta(base, back, unstable, CROPS[c]).changed === 0),
+        restoreFramePx: abDelta(base, back, unstable).changed,
       };
       rows.push(row);
+      // Written as it goes: a page that dies mid-run still leaves every row it read.
+      writeFileSync(path.join(OUT, `partial-${arm}.json`), JSON.stringify({ arm, baseline, control, reads, rows }, null, 2));
       console.log(`[banding-probe] ${arm} ${v.hypothesis} ${v.id}: ${applied}; frame ${row.frame.changed} px, penumbra ${row.crops.penumbra.changed} px idx ${fmtIndex(row.index.penumbra)}, lit ${row.crops.lit.changed} px idx ${fmtIndex(row.index.lit)}${row.restored ? '' : ' NOT RESTORED'}`);
     }
     const on = ditherFrames['dither-on'];

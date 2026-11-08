@@ -26,6 +26,7 @@ const row = (hypothesis: VariantRow['hypothesis'], arm: VariantRow['arm'], chang
   crops: { penumbra: ZERO, lit: ZERO },
   index: { penumbra: { index: 0, masked: 1 }, lit: { index: 0, masked: 1 } },
   restored: true,
+  restoreFramePx: 0,
 });
 
 describe('deadHypotheses: a toggle that moved nothing tested nothing', () => {
