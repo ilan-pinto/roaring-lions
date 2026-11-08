@@ -208,14 +208,14 @@ describe('playMode: a room\'s own world', () => {
       if (call === undefined || call.kind !== 'attackMove') throw new Error('no order');
       return [call.x / 65536, call.y / 65536];
     };
-    // West defends its own exit (14,38); east attacks it too -- the same point, and not east's own (33,9).
-    expect(target(0)).toEqual([14.5, 38.5]); // the exit tile's centre
-    expect(target(1)).toEqual([14.5, 38.5]);
+    // West defends its own exit (12,36); east attacks it too -- the same point, and not east's own (35,11).
+    expect(target(0)).toEqual([12.5, 36.5]); // the exit tile's centre
+    expect(target(1)).toEqual([12.5, 36.5]);
     // Once the enemy has no armed unit the defender marches on the enemy camp instead.
     for (const id of w.bySide[1]) w.sim.debugKill(id);
     spy.mockClear();
     campOrder(w, 'milh_flats', -1, 0);
-    expect(target(0)).toEqual([33.5, 9.5]);
+    expect(target(0)).toEqual([35.5, 11.5]);
   }, FULL_GAMES_TIMEOUT_MS);
 
   it('the room config carries the mode and nothing else changes', () => {
