@@ -281,7 +281,7 @@ export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'te
 // The large 96x96 Wadi Tarfan (GH-920 B7) joins for the mirror AND both faction cells (it is in
 // `FACTION_MATCHUP_MAPS` too): B4 read every offered cell at its shipped seats (20,20)/(75,75) inside 60/40 on held-out
 // seeds (set C, 4000-4287, 288 seeds a cell; the lead's ruling of 2 Nov: fair at its seats, the one-tile seat
-// neighbourhood is a report, not a gate). Formations stay closed on it (`VERSUS_FORMATIONS_CLOSED_MAPS`): its S4 run of 3 Nov tripped one cell of 21.
+// neighbourhood is a report, not a gate). Formations are open on it since 7 Nov (GH-859): its S4 run of 3 Nov tripped one cell of 21, the 6 Nov re-run none of 21.
 //
 // The large 96x96 Milh Flats (GH-920 B7) joins as a MIRROR-ONLY map, like its 48x48 original, and is in
 // `FACTION_MATCHUP_MAPS` never: B4 read only the mirror cells at its seats (20,75)/(75,20), KDF v KDF 50.0% pooled over

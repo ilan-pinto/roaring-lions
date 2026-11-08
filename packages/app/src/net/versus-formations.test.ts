@@ -26,9 +26,12 @@ describe('formationsOpenIn', () => {
     // Was ['rujm_sawda']: Wadi Tarfan (large) is closed from birth, until its own S4 run (GH-920 B3).
     // Was ['rujm_sawda', 'wadi_tarfan_l']: Milh Flats (large) is closed from birth too (GH-920 B3).
     // Was ['rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']: Rujm Sawda and Milh Flats (large) passed their own S4 run on 3 Nov (GH-913); Wadi Tarfan (large) tripped one cell of 21 and stays.
-    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual(['wadi_tarfan_l']);
-    expect(formationsOpenIn('versus', true, 'wadi_tarfan_l')).toBe(false);
-    expect(formationsOpenIn('versus', undefined, 'wadi_tarfan_l')).toBe(false);
+    // Wadi Tarfan (large) left on 7 Nov (GH-859, the lead's ruling; S4 re-run clean, 0 TRIP of 21). The list is empty and re-adding it must fail here.
+    expect([...VERSUS_FORMATIONS_CLOSED_MAPS]).toEqual([]);
+    expect(formationsOpenIn('versus', true, 'wadi_tarfan_l')).toBe(true);
+    expect(formationsOpenIn('versus', undefined, 'wadi_tarfan_l')).toBe(true);
+    expect(formationsOpenIn('versus', false, 'wadi_tarfan_l')).toBe(false);
+    for (const kind of ['mirror', 'placed', 'economy'] as const) expect(formationsOpenIn('versus', true, 'wadi_tarfan_l', kind), kind).toBe(true);
     // The two that passed follow the gate like any other map: open with it open, shut with it shut.
     for (const map of ['rujm_sawda', 'milh_flats_l']) {
       expect(formationsOpenIn('versus', true, map), map).toBe(true);
@@ -91,24 +94,22 @@ describe('formationsOpenIn', () => {
     expect(formationsClosedByRules('tel_marum', undefined)).toBe(false);
   });
   // GH-859: "not in versus rooms yet" is wrong in a room kind a map's rules file closes: formations ARE in versus rooms, just not in this kind.
-  it('the reason line: a Tel Marum economy room says its own thing; Wadi Tarfan (large) keeps the versus line', () => {
+  it('the reason line: a Tel Marum economy room says its own thing; Wadi Tarfan (large) has no room line (it is open in every kind)', () => {
     expect(FORMATION_ROOM_REASON_KEY).toBe('hud.formation.inert.room');
     const tel = formationClosedReason('tel_marum', 'economy');
     expect(tel).toEqual({ key: 'hud.formation.inert.room', params: { kind: 'economy' } });
     expect(t(tel.key, tel.params)).toBe('Formations are off in economy rooms on this map');
-    const large = formationClosedReason('wadi_tarfan_l', 'economy');
-    expect(large).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
-    expect(t(large.key, large.params)).toBe('Formations are not in versus rooms yet');
-    // a map that is whole-closed keeps the versus line whatever its kind; a kind the rules do not close has nothing to say (the versus line is the default)
-    expect(formationClosedReason('wadi_tarfan_l', 'mirror')).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
+    // Wadi Tarfan (large) is open and its rules file closes nothing: no room line, the default is all that is left
+    expect(formationClosedReason('wadi_tarfan_l', 'economy')).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
+    // a kind the rules do not close has nothing to say (the versus line is the default)
     expect(formationClosedReason('tel_marum', 'mirror')).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
     expect(formationClosedReason(null, undefined)).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
   });
-  it('precedence: a map closed WHOLE, or the gate shut, keeps the versus line even when its rules file also closes the kind', () => {
+  it('precedence: the gate shut (or a map closed WHOLE, none today) keeps the versus line even when its rules file also closes the kind', () => {
     const yes = (): boolean => true;
     // the injected rules close every kind everywhere; only the map / gate decide which line is true
     expect(formationClosedReason('tel_marum', 'economy', true, yes)).toEqual({ key: FORMATION_ROOM_REASON_KEY, params: { kind: 'economy' } });
-    expect(formationClosedReason('wadi_tarfan_l', 'economy', true, yes)).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
+    // a map closed whole: none ships (VERSUS_FORMATIONS_CLOSED_MAPS is empty since 7 Nov), so only the gate-shut half of this precedence is witnessed
     expect(formationClosedReason('tel_marum', 'economy', false, yes)).toEqual({ key: FORMATION_VERSUS_REASON_KEY });
     // and the rules are asked about the room's own map and kind
     const asked: unknown[][] = [];
