@@ -66,6 +66,6 @@ export interface Env {
   ACCOUNT_LIMIT?: RateLimiter;
   /** GH-1075: 60 a minute per IP, for the cheap ops. */
   ACCOUNT_OP_LIMIT?: RateLimiter;
-  /** GH-1075: comma-separated extra origins allowed to write, for a local relay only. */
+  /** GH-1075: comma-separated extra origins for WebAuthn client data and the Steam realm. A local relay needs this and ALLOWED_ORIGINS both set. */
   ACCOUNT_ORIGINS?: string;
 }
