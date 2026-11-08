@@ -104,7 +104,7 @@ export async function handleAccount(req: Request, env: Env, now: number, deps?: 
     if (route.method !== method) continue;
     const params = matchPath(route.pattern, path);
     if (params === null) continue;
-    // The signed-in class (everything but `open` and the sign-in class, which limit themselves) shares ACCOUNT_OP_LIMIT.
+    // The signed-in class (everything but the sign-in class, which limits itself) shares ACCOUNT_OP_LIMIT.
     if (!UNLIMITED_HERE.has(route.pattern) && (await perMinute(req, env.ACCOUNT_OP_LIMIT))) return accountJson(429, { error: 'limit' });
     return route.handler({ req, env, now, deps: deps ?? { fetch: (url, init) => globalThis.fetch(url, init) }, path, params });
   }

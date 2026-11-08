@@ -476,7 +476,7 @@ describe('verifyOpenId hardening (I3)', () => {
     });
   }
 
-  it('the check_authentication fetch refuses redirects', async () => {
+  it('the check_authentication fetch does not follow redirects', async () => {
     const inits: RequestInit[] = [];
     const deps = { fetch: async (_u: string, init: RequestInit) => (inits.push(init), new Response('is_valid:true\n', { status: 200 })) };
     const h = accountHarness({ now: T0, deps });
@@ -484,7 +484,15 @@ describe('verifyOpenId hardening (I3)', () => {
     const s = await start(h, 'steam-login');
     expect(back(await ret(h, returnParams(s.c, S1), s.cookie)).code).toBe('ok');
     expect(inits.length).toBe(1);
-    expect(inits[0]?.redirect).toBe('error');
+    expect(inits[0]?.redirect).toBe('manual');
+  });
+
+  it('a 302 from the check endpoint is r=steam, never a sign-in', async () => {
+    const deps = { fetch: async () => new Response('is_valid:true\n', { status: 302, headers: { location: 'https://evil.example/' } }) };
+    const h = accountHarness({ now: T0, deps });
+    await h.db.prepare(`INSERT INTO flags VALUES ('accounts','open',0)`).run();
+    const s = await start(h, 'steam-login');
+    expect(back(await ret(h, returnParams(s.c, S1), s.cookie)).code).toBe('steam');
+    expect(await count(h, 'member')).toBe(0);
   });
 });
-

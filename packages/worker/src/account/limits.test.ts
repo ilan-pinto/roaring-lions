@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { newAccountBudget, opBudget, perMinute } from './limits';
+import { ipBudgetAddress } from './limits';
 import { handleAccount } from './routes';
 import { accountHarness } from './test-kit';
 
@@ -65,7 +66,7 @@ describe('account limits', () => {
 });
 
 describe('startBudget (M1)', () => {
-  it('50 per ip then refused; other ips and the overall count are separate', async () => {
+  it('50 per ip then refused; another ip is still served', async () => {
     const { startBudget } = await import('./limits');
     const h = accountHarness();
     const env = { ...h.env, TICKET_SECRET: 's' };
@@ -105,3 +106,33 @@ describe('GET open takes the signed-in limiter', () => {
   });
 });
 
+describe('startBudget refusals and ipv6 (M1 gaps)', () => {
+  it('over the overall cap, a fresh ip is refused and nothing is written', async () => {
+    const { startBudget } = await import('./limits');
+    const h = accountHarness();
+    const env = { ...h.env, TICKET_SECRET: 's' };
+    await h.db.prepare(`INSERT INTO rate_day VALUES ('acct-start-all', '', ?1, 5000)`).bind(Math.floor(NOW / 86_400_000)).run();
+    const rows = () => (h.db.raw.prepare('SELECT COUNT(*) AS n FROM rate_day').get() as { n: number }).n;
+    const before = rows();
+    expect(await startBudget(h.db, env, req('198.51.100.60'), NOW)).toBe(false);
+    expect(rows()).toBe(before);
+  });
+
+  it('two addresses in one /64 share the per-ip budget; another /64 does not', async () => {
+    const { startBudget } = await import('./limits');
+    const h = accountHarness();
+    const env = { ...h.env, TICKET_SECRET: 's' };
+    for (let i = 0; i < 50; i++) expect(await startBudget(h.db, env, req(`2001:db8:1:2::${i + 1}`), NOW)).toBe(true);
+    expect(await startBudget(h.db, env, req('2001:db8:1:2:aaaa:bbbb:cccc:dddd'), NOW)).toBe(false);
+    expect(await startBudget(h.db, env, req('2001:db8:1:3::1'), NOW)).toBe(true);
+  });
+
+  it('ipBudgetAddress: /64 for v6, unchanged for v4', () => {
+    expect(ipBudgetAddress('198.51.100.4')).toBe('198.51.100.4');
+    expect(ipBudgetAddress('unknown')).toBe('unknown');
+    expect(ipBudgetAddress('2001:db8:1:2::1')).toBe(ipBudgetAddress('2001:DB8:1:2:ffff:0:0:9'));
+    expect(ipBudgetAddress('2001:db8:1:2::1')).not.toBe(ipBudgetAddress('2001:db8:1:3::1'));
+    expect(ipBudgetAddress('::1')).toBe('0000:0000:0000:0000::/64');
+    expect(ipBudgetAddress('2001:db8::')).toBe('2001:0db8:0000:0000::/64');
+  });
+});

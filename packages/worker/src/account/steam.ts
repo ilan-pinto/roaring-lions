@@ -68,7 +68,7 @@ export async function verifyOpenId(
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
       signal: AbortSignal.timeout(8000),
-      redirect: 'error',
+      redirect: 'manual', // workerd does not implement 'error'; any 3xx is refused by the status check below
     });
     if (res.status !== 200) return { refused: 'steam' };
     text = await res.text();
