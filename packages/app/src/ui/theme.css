@@ -6573,6 +6573,10 @@ button.rl-menu__item[data-kind='aside'] {
   padding: var(--s4);
   background: var(--well);
   border: 1px solid var(--selected);
+  /* Never taller than the shell's Stores region can show: the panel scrolls inside itself past this, so its
+     last block is always reachable at 1280x720 as at 1920x1080. */
+  max-height: calc(100vh - 2 * var(--s6) - 12rem); /* px-ok */
+  overflow-y: auto;
 }
 .rl-menu--garage .rl-stores__adds-h {
   margin: 0 0 var(--s3);
