@@ -172,7 +172,8 @@ import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
-import { buyUnlock, buyUpgrade } from './brigade-account';
+import { buyUnlock } from './brigade-account';
+import { buyTierWithCredits } from './credit-buy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
@@ -1153,7 +1154,7 @@ async function main(): Promise<void> {
      *  answers the same way -- the store is the truth either way. */
     const now = (): GarageState => {
       const a = accountState();
-      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers };
+      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
     };
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => {
@@ -1283,9 +1284,24 @@ async function main(): Promise<void> {
           }
         : undefined,
       owned: ownedTiers,
+      earned: ledgerStore.readAccount().upgrades,
       onBuyUpgrade: ledgerStore.available
         ? (unitId, track, tier, price) => {
-            const { account, ok } = buyUpgrade(ledgerStore.readAccount(), unitId, track, tier, price);
+            // A credit Buy pays the run `creditAsk` states, recomputed from a FRESH read of the
+            // account and the single-player view (Review Focus 2): the button's price is checked,
+            // never trusted.
+            const prices = garageUnits(accountState().boughtUnits)
+              .find((g) => g.id === unitId)
+              ?.upgrades?.[track]?.tiers.map((x) => x.price);
+            if (prices === undefined) return { ...now(), landed: false };
+            const { account, ok } = buyTierWithCredits(
+              { account: ledgerStore.readAccount(), owned: accountState().ownedTiers },
+              prices,
+              unitId,
+              track,
+              tier,
+              price
+            );
             // Same reasoning as `onBuy` above: the control disabled itself
             // against a stale read, so answer with the true state instead of
             // returning silently. `landed` as above (M1).
