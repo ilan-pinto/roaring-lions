@@ -273,7 +273,7 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
   const lightNormal = TSL.Fn(() => {
     const n = TSL.normalWorldGeometry.mul(TSL.faceDirection);
     const h = TSL.length(TSL.vec2(n.x, n.z));
-    const tilt = relief.tilt(o, h, n.y, slopeGain, o.lit(relief.maxTiltRad));
+    const tilt = relief.tilt(o, h, n.y, o.lit(2), o.lit(relief.maxTiltRad));
     const tilted = TSL.vec3(n.x.mul(tilt.s), tilt.c, n.z.mul(tilt.s));
     const world = TSL.select(n.y.greaterThan(0), TSL.select(h.lessThan(1e-6), n, tilted), n);
     return TSL.normalize(TSL.cameraViewMatrix.mul(TSL.vec4(world, 0)).xyz);
