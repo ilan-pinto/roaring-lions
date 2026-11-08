@@ -15,7 +15,9 @@
 // docs/campaign/special_units/gh709/numbers.md. A probe outside its band is a unit to
 // retune (the lead's call), never a band to widen.
 //
-// Run: `pnpm --filter @lions/tools su:probes` (exit 1 when a claim fails).
+// Run: `pnpm --filter @lions/tools su:probes` (exit 1 when a claim fails). `-- --max-tier` (GH-1144) bakes the nine bought-only units at the top
+// tier of every track they carry (their own `upgrades` block, else the staged GH-1077 one) before probes 1-11 read them; probe 12 always compares
+// base with max tier and is REPORT ONLY.
 
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -31,19 +33,49 @@ import {
   type WeaponJson,
 } from '@lions/sim';
 import { runBattle, units } from './harness';
+import { applyUpgrades, maxTiers, type UpgradableUnit } from '@lions/data';
 
 const WEST = 32768;
+/** First simulation seed of probe 12's drills; the other probes keep their own fixed seeds. 0 unless a held-out read sets SU_SEED0. */
+const SEED0 = Number(process.env.SU_SEED0 ?? 0);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const STAGED = join(ROOT, 'docs', 'campaign', 'special_units', 'gh709');
 
+/** The staged upgrade blocks of the nine bought-only units (GH-1077 WP1). WP8 moves them into the unit JSONs and deletes the file, so a unit's OWN
+ *  `upgrades` block wins and an absent file reads as "no staged blocks". */
+const GH1077_TRACKS = join(ROOT, 'docs', 'campaign', 'special_units', 'gh1077', 'tracks.json');
+function stagedTracks(): Record<string, unknown> {
+  return existsSync(GH1077_TRACKS) ? (JSON.parse(readFileSync(GH1077_TRACKS, 'utf8')) as Record<string, unknown>) : {};
+}
+
+export interface StagedOptions {
+  /** Bake the unit at its top tier on every track it carries (GH-1144): the unit's own `upgrades` block, else the staged GH-1077 block. */
+  maxTier?: boolean;
+}
+
+/** `json` at the top tier of every track it carries (its own block, else the staged one for `id`); a unit with no block at all is returned as it is. */
+export function atMaxTier(id: string, json: UnitTypeJson): UnitTypeJson {
+  const own = (json as { upgrades?: unknown }).upgrades;
+  const block = own ?? stagedTracks()[id];
+  if (!block) return json;
+  const withTracks = { ...json, upgrades: block } as unknown as UpgradableUnit & UnitTypeJson;
+  return applyUpgrades(withTracks, maxTiers(withTracks)) as UnitTypeJson;
+}
+
 /** A unit still staged in gh709 is read from disk; one that has landed (Phase 2 on) is the
- *  registered `@lions/data` entry, so a probe follows a unit out of staging unchanged. */
-export function stagedUnit(id: string): UnitTypeJson {
+ *  registered `@lions/data` entry, so a probe follows a unit out of staging unchanged. With
+ *  `maxTier` (GH-1144) the unit is baked at its top tiers: the comparators a probe reads straight
+ *  from `units` (the plain Lavi, inf_squad, the attackers) are NOT baked. */
+export function stagedUnit(id: string, opts: StagedOptions = {}): UnitTypeJson {
   const path = join(STAGED, `${id}.json`);
-  if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf8')) as UnitTypeJson;
-  const landed = (units as Record<string, UnitTypeJson | undefined>)[id];
-  if (!landed) throw new Error(`special-units probe: ${id} is neither staged in gh709 nor registered in @lions/data`);
-  return landed;
+  let json: UnitTypeJson;
+  if (existsSync(path)) json = JSON.parse(readFileSync(path, 'utf8')) as UnitTypeJson;
+  else {
+    const landed = (units as Record<string, UnitTypeJson | undefined>)[id];
+    if (!landed) throw new Error(`special-units probe: ${id} is neither staged in gh709 nor registered in @lions/data`);
+    json = landed;
+  }
+  return opts.maxTier ? atMaxTier(id, json) : json;
 }
 
 function median(xs: number[]): number {
@@ -834,6 +866,221 @@ export const DEFERRED: readonly { unit: string; phase: string; needs: string }[]
 ];
 
 // ---------------------------------------------------------------------------
+// Probe 12 (GH-1144): the nine bought-only units' tracks, at max tier against base. REPORT ONLY.
+//
+// The playtest sees only the medic's track of the nine (GH-1144), and probes 1-11 claim the units' IDENTITIES, not the strength of a track: in the
+// GH-1077 review three deliberately broken tracks (a howitzer at 35,000 hp, the dog's sensors x6, the NLOS gun at accuracy -5) left `su:probes`
+// green. This probe exercises each track directly, the same three drills for every unit, so a track that does nothing or does harm shows:
+//   armour    the unit stands UNARMED at 8 tiles from one fixed attacker chosen from its data (air -> manpad_team; soft hull, front < 30 mm ->
+//             gun_truck; hard hull -> atgm_cell); the reading is the mean SECONDS IT SURVIVES in a 120 s window. (Not the fraction of hp lost:
+//             a penetration costs a share of MAX hp (GH-560), so the hp an armour track adds is invisible to that fraction by construction.)
+//   sensors   the unit (unarmed, 30000 hp) faces a standing sarim_rifles at 6, 10 and 14 tiles; the reading is the first tick the target is
+//             IDENTIFIED (contact level 2), never when it never is within 20 s.
+//   firepower the armed units with a firepower track fire at a standing, unarmed, 30000-hp sarim_rifles at 8 tiles for 20 s; the reading is the
+//             damage dealt.
+// Each drill reads the SAME seeds at base and at max tier. A claim is "max tier is no worse than base", plus one "gain" claim per track the unit
+// carries (the track must buy something this drill can see: a tie is printed as a miss); a miss is PRINTED and never fails the run
+// (the lead decides, and a drill is a coarse instrument: an attacker that cannot hurt a hull reads 0 at both tiers and says so).
+// ---------------------------------------------------------------------------
+/** The nine bought-only units that shipped with no tracks (GH-1077 spec 2.1). */
+export const NINE: readonly string[] = [
+  'air_medevac_heli',
+  'at_nlos_team',
+  'inf_grenadier',
+  'inf_medic_squad',
+  'mbt_lavi_camo',
+  'spg_cluster',
+  'spg_long_range',
+  'ugv_recon_dog',
+  'veh_ambulance',
+];
+export const TRACK_SEEDS = 30;
+const SOFT_FRONT_MM = 30; // tuning.ts SOFT_ARMOR_LIMIT: below it the hull is soft
+const ARMOUR_CAP_TICKS = 120 * TICKS_PER_SECOND;
+const SIGHT_CAP_TICKS = 20 * TICKS_PER_SECOND;
+const FIRE_CAP_TICKS = 20 * TICKS_PER_SECOND;
+export const SIGHT_RANGES = [6, 10, 14] as const;
+
+export function attackerFor(json: UnitTypeJson): 'manpad_team' | 'gun_truck' | 'atgm_cell' {
+  if (json.mobility.domain === 'air') return 'manpad_team';
+  return json.hull.armor.front < SOFT_FRONT_MM ? 'gun_truck' : 'atgm_cell';
+}
+
+/** Seconds the unarmed unit survives one fixed attacker 8 tiles away, capped at the 120 s window. */
+export function armourDrill(json: UnitTypeJson, seed: number): number {
+  const sim = new Sim({ seed: seed + SEED0, width: 24, height: 16, capacity: 4 });
+  const target = sim.addUnitType({ ...json, weapons: [] });
+  const attacker = sim.addUnitType(units[attackerFor(json)]);
+  const id = sim.spawn(target, 0, fx.from(4.5), fx.from(8.5));
+  sim.spawn(attacker, 1, fx.from(12.5), fx.from(8.5), WEST);
+  for (let t = 0; t < ARMOUR_CAP_TICKS; t++) {
+    sim.tick();
+    if (sim.state.alive[id] !== 1) return sim.tickCount / TICKS_PER_SECOND;
+  }
+  return ARMOUR_CAP_TICKS / TICKS_PER_SECOND;
+}
+
+/** First tick the unit (unarmed, 30000 hp) identifies a standing sarim_rifles `range` tiles away; null when it never does inside 20 s. */
+export function sightDrill(json: UnitTypeJson, range: number, seed: number): number | null {
+  const sim = new Sim({ seed: seed + SEED0, width: 40, height: 16, capacity: 4 });
+  const observer = sim.addUnitType({ ...json, weapons: [], hull: { ...json.hull, hp: 30000 } });
+  const target = sim.addUnitType(units.sarim_rifles);
+  sim.spawn(observer, 0, fx.from(4.5), fx.from(8.5));
+  const id = sim.spawn(target, 1, fx.from(4.5 + range), fx.from(8.5), WEST);
+  for (let t = 0; t < SIGHT_CAP_TICKS; t++) {
+    sim.tick();
+    if (sim.contactLevel(0, id) === 2) return sim.tickCount;
+  }
+  return null;
+}
+
+/** Damage the unit deals to a standing, unarmed, 30000-hp sarim_rifles 8 tiles away in 20 s. */
+export function fireDrill(json: UnitTypeJson, seed: number): number {
+  const sim = new Sim({ seed: seed + SEED0, width: 24, height: 16, capacity: 4 });
+  const shooter = sim.addUnitType(json);
+  const dummy = sim.addUnitType({ ...units.sarim_rifles, weapons: [], hull: { ...units.sarim_rifles.hull, hp: 30000 } });
+  sim.spawn(shooter, 0, fx.from(4.5), fx.from(8.5));
+  const id = sim.spawn(dummy, 1, fx.from(12.5), fx.from(8.5), WEST);
+  const hp0 = sim.state.hp[id];
+  runBattle(sim, FIRE_CAP_TICKS);
+  return (hp0 - sim.state.hp[id]) / 65536; // hp is Q16.16
+}
+
+export interface TrackStats {
+  hp: number;
+  front: number;
+  side: number;
+  rear: number;
+  sightTiles: number;
+  optics: number;
+  accuracy: number | null;
+  penetration: number | null;
+}
+export function statsOf(json: UnitTypeJson): TrackStats {
+  const j = json as unknown as {
+    hull: { hp: number; armor: { front: number; side: number; rear: number } };
+    sensors: { sight_tiles: number; optics: number };
+    weapons: { accuracy?: number; penetration?: number }[];
+  };
+  const w = j.weapons[0];
+  return {
+    hp: j.hull.hp,
+    front: j.hull.armor.front,
+    side: j.hull.armor.side,
+    rear: j.hull.armor.rear,
+    sightTiles: j.sensors.sight_tiles,
+    optics: j.sensors.optics,
+    accuracy: w?.accuracy ?? null,
+    penetration: w?.penetration ?? null,
+  };
+}
+
+export interface TrackRow {
+  id: string;
+  tracks: string[];
+  attacker: string;
+  stats: { base: TrackStats; max: TrackStats };
+  /** Mean seconds survived against the fixed attacker (120 s window). */
+  armour: { base: number; max: number };
+  /** Median first-identified tick per range (+Infinity when it never is). */
+  sight: Record<number, { base: number; max: number }>;
+  /** Mean damage dealt, only for an armed unit with a firepower track. */
+  fire: { base: number; max: number } | null;
+}
+export interface TrackClaim {
+  id: string;
+  claim: string;
+  ok: boolean;
+  detail: string;
+}
+
+const meanOf = (xs: number[]): number => xs.reduce((s, x) => s + x, 0) / xs.length;
+
+export function trackRow(id: string, base: UnitTypeJson, max: UnitTypeJson, seeds = TRACK_SEEDS): TrackRow {
+  const block = ((max as { upgrades?: unknown }).upgrades ?? stagedTracks()[id] ?? {}) as Record<string, unknown>;
+  const tracks = Object.keys(block).sort();
+  const seedList = Array.from({ length: seeds }, (_, s) => 98000 + s);
+  const sight: TrackRow['sight'] = {};
+  for (const r of SIGHT_RANGES) {
+    const at = (j: UnitTypeJson) => median(seedList.map((s) => sightDrill(j, r, s + r * 100) ?? Number.POSITIVE_INFINITY));
+    sight[r] = { base: at(base), max: at(max) };
+  }
+  const armed = (base.weapons?.length ?? 0) > 0 && tracks.includes('firepower');
+  return {
+    id,
+    tracks,
+    attacker: attackerFor(base),
+    stats: { base: statsOf(base), max: statsOf(max) },
+    armour: { base: meanOf(seedList.map((s) => armourDrill(base, s))), max: meanOf(seedList.map((s) => armourDrill(max, s))) },
+    sight,
+    fire: armed ? { base: meanOf(seedList.map((s) => fireDrill(base, s))), max: meanOf(seedList.map((s) => fireDrill(max, s))) } : null,
+  };
+}
+
+/** The probe's table: every unit of `ids`, base against max tier. `max` is read straight from `stagedUnit(id, { maxTier: true })`. */
+export function trackTable(ids: readonly string[] = NINE, seeds = TRACK_SEEDS): TrackRow[] {
+  return ids.map((id) => trackRow(id, stagedUnit(id), stagedUnit(id, { maxTier: true }), seeds));
+}
+
+const EPS = 0.005;
+/** The report-only claims: max tier is no worse than base on every drill the unit's tracks bear on. Never added to a run's failures. */
+export function trackClaims(rows: readonly TrackRow[]): TrackClaim[] {
+  const out: TrackClaim[] = [];
+  for (const r of rows) {
+    const a = r.stats.base;
+    const b = r.stats.max;
+    const f = (n: number | null) => (n === null ? '-' : String(Math.round(n * 1000) / 1000));
+    const stat = (key: keyof TrackStats) => `${f(a[key])}->${f(b[key])}`;
+    out.push({
+      id: r.id,
+      claim: 'tracks apply',
+      ok: b.hp >= a.hp && b.front >= a.front && b.side >= a.side && b.rear >= a.rear && b.sightTiles >= a.sightTiles && b.optics >= a.optics,
+      detail: `hp ${stat('hp')}, armour ${stat('front')}/${stat('side')}/${stat('rear')}, sight ${stat('sightTiles')}, optics ${stat('optics')}`,
+    });
+    out.push({
+      id: r.id,
+      claim: 'armour',
+      ok: r.armour.max >= r.armour.base - EPS,
+      detail: `${r.attacker}, survives ${r.armour.base.toFixed(1)} s -> ${r.armour.max.toFixed(1)} s`,
+    });
+    for (const range of SIGHT_RANGES) {
+      const s = r.sight[range];
+      const tk = (x: number) => (Number.isFinite(x) ? String(x) : 'never');
+      out.push({ id: r.id, claim: `sensors ${range}t`, ok: s.max <= s.base, detail: `identified at tick ${tk(s.base)} -> ${tk(s.max)}` });
+    }
+    if (r.fire !== null) {
+      out.push({ id: r.id, claim: 'firepower', ok: r.fire.max >= r.fire.base - EPS, detail: `damage dealt ${r.fire.base.toFixed(1)} -> ${r.fire.max.toFixed(1)}` });
+    }
+    // One "gain" claim per track the unit carries: the track must buy something the matching drill can see (a tie is a miss, and says so).
+    if (r.tracks.includes('armour')) {
+      out.push({ id: r.id, claim: 'armour gain', ok: r.armour.max > r.armour.base + EPS, detail: `survives ${r.armour.base.toFixed(1)} s -> ${r.armour.max.toFixed(1)} s against ${r.attacker}${r.armour.max === r.armour.base ? ' (a tie: the added hp/armour changes nothing against this attacker)' : ''}` });
+    }
+    if (r.tracks.includes('sensors')) {
+      const earlier = SIGHT_RANGES.filter((rg) => r.sight[rg].max < r.sight[rg].base);
+      out.push({ id: r.id, claim: 'sensors gain', ok: earlier.length > 0, detail: earlier.length > 0 ? `identifies the target sooner at ${earlier.map((x) => `${x}t`).join(', ')}` : 'identifies it no sooner at 6, 10 or 14 tiles' });
+    }
+    if (r.tracks.includes('firepower') && r.fire !== null) {
+      out.push({ id: r.id, claim: 'firepower gain', ok: r.fire.max > r.fire.base + EPS, detail: `damage dealt ${r.fire.base.toFixed(1)} -> ${r.fire.max.toFixed(1)}` });
+    }
+  }
+  return out;
+}
+
+/** The switches `su:probes` takes. Anything else throws: a switch that is silently ignored is the failure this exists to prevent. */
+export interface Switches {
+  maxTier: boolean;
+}
+export function parseSwitches(argv: readonly string[]): Switches {
+  const sw: Switches = { maxTier: false };
+  for (const a of argv) {
+    if (a === '--') continue; // pnpm hands the script its own "--" (`pnpm --filter @lions/tools su:probes -- --max-tier`)
+    if (a === '--max-tier') sw.maxTier = true;
+    else throw new Error(`su:probes: unknown switch "${a}" (the only one is --max-tier)`);
+  }
+  return sw;
+}
+
+// ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
 function tk(x: number | null): string {
@@ -841,11 +1088,14 @@ function tk(x: number | null): string {
   return `${x}`;
 }
 
-function main(): void {
+export function main(argv: readonly string[] = process.argv.slice(2)): string[] {
   const t0 = Date.now();
   const fails: string[] = [];
+  const sw = parseSwitches(argv);
+  const stage = (id: string): UnitTypeJson => stagedUnit(id, { maxTier: sw.maxTier });
+  if (sw.maxTier) console.log('su probes at MAX TIER: each bought-only unit baked at the top tier of every track it carries (its own block, else the staged GH-1077 one); comparators (the plain Lavi, inf_squad, the attackers) are not baked');
 
-  const d = detectTable(stagedUnit('mbt_lavi_camo'));
+  const d = detectTable(stage('mbt_lavi_camo'));
   console.log('');
   console.log(
     `SU probe 1 -- first tick the observer identifies the tank (${DETECT_SEEDS} seeds, ` +
@@ -866,7 +1116,7 @@ function main(): void {
   console.log('* = non-claim cell (outside the observer\'s sight, or the plain Lavi is not found either).');
   fails.push(...detectClaims(d));
 
-  const dt = duelTable(stagedUnit('spg_long_range'));
+  const dt = duelTable(stage('spg_long_range'));
   console.log('');
   console.log(`SU probe 2 -- spg_long_range vs rocket_battery, a recon_drone spotting for each side, ${DUEL_SEEDS} seeds, ${DUEL_CAP_TICKS / TICKS_PER_SECOND} s cap`);
   console.log('distance   spg wins   grad wins   draws   spg hp left   mean s   rounds to kill');
@@ -876,7 +1126,7 @@ function main(): void {
   }
   console.log(q11Note(dt));
 
-  const ct = coverTable(stagedUnit('inf_grenadier'));
+  const ct = coverTable(stage('inf_grenadier'));
   console.log('');
   console.log(`SU probe 9 -- 2 squads vs 3 militia_cell, net hp margin (militia lost - own lost), mean of ${COVER_SEEDS} seeds, ${COVER_CAP_TICKS / TICKS_PER_SECOND} s`);
   console.log('unit           margin open  margin cover2   dealt open  dealt cover2');
@@ -890,13 +1140,13 @@ function main(): void {
   console.log(`dealt ratio grenadier/inf_squad (printed, not a claim)  open ${ct.dealtRatio.open.toFixed(2)}x  cover2 ${ct.dealtRatio.cover2.toFixed(2)}x`);
   fails.push(...coverClaims(ct));
 
-  const tt = tunnelTable(stagedUnit('ugv_recon_dog'));
+  const tt = tunnelTable(stage('ugv_recon_dog'));
   console.log('');
   console.log('SU probe 10 -- first tick a pre_dug route is identified, carrier driving 26 tiles to it (synthetic map)');
   for (const c of TUNNEL_CARRIERS) console.log(`${c.padEnd(15)} ${tk(tt[c])}`);
   fails.push(...tunnelClaims(tt));
 
-  const nt = nlosReachTable(stagedUnit('at_nlos_team'));
+  const nt = nlosReachTable(stage('at_nlos_team'));
   console.log('');
   console.log(`SU probe 4a -- at_nlos_team vs a target 20 tiles east behind a 2-tile wall, a recon_drone spotting (no identifyTo), ${NLOS_SEEDS} seeds, ${NLOS_CAP_TICKS / TICKS_PER_SECOND} s cap`);
   console.log('target          variant      kills   spotted   mean s to kill   rounds fired');
@@ -907,7 +1157,7 @@ function main(): void {
   }
   fails.push(...nlosReachClaims(nt));
 
-  const nc = nlosConductTable(stagedUnit('at_nlos_team'));
+  const nc = nlosConductTable(stage('at_nlos_team'));
   console.log('');
   console.log(`SU probe 4b -- Conduct lost killing an atgm_cell inside a flagged zone (clinic), ${NLOS_SEEDS} seeds, ${NLOS_CAP_TICKS / TICKS_PER_SECOND} s cap`);
   console.log('shooter        distance   kills   rounds   Conduct lost (mean)   seeds charged');
@@ -916,7 +1166,7 @@ function main(): void {
   }
   fails.push(...nlosConductClaims(nc));
 
-  const ctab = clusterTable(stagedUnit('spg_cluster'));
+  const ctab = clusterTable(stage('spg_cluster'));
   console.log('');
   console.log(`SU probe 11 -- spg_cluster at 18 tiles, targets identified each tick, ${CLUSTER_SEEDS} seeds, ${CLUSTER_CAP_TICKS / TICKS_PER_SECOND} s cap`);
   console.log('scene          gun        hp lost   worst seed   rounds   hp lost/round   peak supp   house hp lost   garrisoned');
@@ -933,6 +1183,27 @@ function main(): void {
   }
   fails.push(...clusterClaims(ctab));
 
+  const rows = trackTable();
+  console.log('');
+  console.log(`SU probe 12 -- the nine bought-only units, base -> max tier (GH-1144), REPORT ONLY, ${TRACK_SEEDS} seeds, armour 120 s window / sensors 20 s / firepower 20 s`);
+  console.log('unit              tracks                       hp          armour F/S/R      sight   optics   survives vs (attacker)             first identified 6t/10t/14t       firepower dealt');
+  for (const r of rows) {
+    const a = r.stats.base;
+    const b = r.stats.max;
+    const tk = (x: number) => (Number.isFinite(x) ? String(x) : 'never');
+    const rnd = (x: number) => String(Math.round(x * 1000) / 1000);
+    const sightCells = SIGHT_RANGES.map((rg) => `${tk(r.sight[rg].base)}>${tk(r.sight[rg].max)}`).join(' / ');
+    console.log(
+      `${r.id.padEnd(17)} ${r.tracks.join(',').padEnd(28)} ${`${a.hp}>${b.hp}`.padEnd(11)} ${`${a.front}/${a.side}/${a.rear}>${b.front}/${b.side}/${b.rear}`.padEnd(17)} ` +
+        `${`${a.sightTiles}>${b.sightTiles}`.padEnd(7)} ${`${rnd(a.optics)}>${rnd(b.optics)}`.padEnd(8)} ${`${r.attacker} ${r.armour.base.toFixed(1)}>${r.armour.max.toFixed(1)} s`.padEnd(33)} ` +
+        `${sightCells.padEnd(33)} ${r.fire === null ? '-' : `${r.fire.base.toFixed(0)}>${r.fire.max.toFixed(0)}`}`,
+    );
+  }
+  const claims12 = trackClaims(rows);
+  const missed12 = claims12.filter((c) => !c.ok);
+  for (const c of missed12) console.log(`REPORT  MISS  ${c.id} ${c.claim}: ${c.detail}`);
+  console.log(`probe 12 (report only, never fails the run): ${claims12.length - missed12.length} of ${claims12.length} claims hold${missed12.length > 0 ? `, ${missed12.length} missed` : ''}`);
+
   console.log('');
   for (const x of DEFERRED) console.log(`${x.unit}: deferred to ${x.phase} (needs ${x.needs})`);
 
@@ -944,6 +1215,7 @@ function main(): void {
   }
   console.log(`(${((Date.now() - t0) / 1000).toFixed(1)}s)`);
   if (fails.length > 0) process.exitCode = 1;
+  return fails;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
