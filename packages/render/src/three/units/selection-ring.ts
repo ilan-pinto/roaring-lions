@@ -287,6 +287,10 @@ function ringFragmentShader(style: RingStyle): string {
 `;
 }
 
+/** GH-943 P2 (T1): the ring material's name, shared by all three batches (selection, team, wound): what the node census names it
+ *  and what `legacyTwinSlot` keys the ring twin on. */
+export const SELECTION_RING_MATERIAL_NAME = 'rl-selection-ring';
+
 /**
  * The ring's material: the annulus shader above, `uHaloColor` (LINEAR,
  * `shadow.1`) and `uPxPerTile` (`endFrame` sets it). Premultiplied "over";
@@ -297,6 +301,8 @@ function ringFragmentShader(style: RingStyle): string {
 export function createSelectionRingMaterial(halo: Rgb, style: RingStyle = DEFAULT_RING_STYLE): THREE.ShaderMaterial {
   const arc = style.arcThicken !== undefined;
   return new THREE.ShaderMaterial({
+    // GH-943 P2 (T1): the census key and the node twin's slot (`node-material-adoption.ts`). A name moves no program.
+    name: SELECTION_RING_MATERIAL_NAME,
     uniforms: {
       uPxPerTile: { value: ringPxPerTile(1) },
       uHaloColor: { value: new THREE.Vector3(halo[0], halo[1], halo[2]) },
@@ -411,7 +417,11 @@ const LARGE_INDICES = gridTriangles(RING_GRID_XXL) * 3;
  * range, one upload range per attribute. `capacity` bounds the TOTAL.
  */
 export class SelectionRingBatch {
-  readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  /** `material` until the node backend adopts its twin (`ThreeRenderer.adoptNodeMaterials`, GH-943 P2), which reads `material`'s record. */
+  readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
+  /** The legacy material, held apart from `mesh.material`: it owns the uniform record `endFrame` and `setClock` write, on both
+   *  backends, so swapping the mesh's material for a node twin moves no write. */
+  readonly material: THREE.ShaderMaterial;
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly axesAttr: THREE.BufferAttribute;
@@ -536,7 +546,8 @@ export class SelectionRingBatch {
     this.layoutDirty = false;
     geometry.setDrawRange(0, 0);
 
-    this.mesh = new THREE.Mesh(geometry, createSelectionRingMaterial(this.resolveShadow(), opts.style));
+    this.material = createSelectionRingMaterial(this.resolveShadow(), opts.style);
+    this.mesh = new THREE.Mesh(geometry, this.material);
     this.mesh.name = 'selection-ring';
     this.mesh.renderOrder = SELECTION_RING_RENDER_ORDER;
     this.mesh.castShadow = false;
@@ -663,7 +674,7 @@ export class SelectionRingBatch {
     const cap = this.capacity;
     this.mesh.geometry.setDrawRange((cap - nl) * LARGE_INDICES, nl * LARGE_INDICES + ns * SMALL_INDICES);
     this.mesh.visible = nl + ns > 0;
-    const u = this.mesh.material.uniforms;
+    const u = this.material.uniforms;
     u.uPxPerTile.value = ringPxPerTile(zoom);
     const halo = this.resolveShadow();
     (u.uHaloColor.value as THREE.Vector3).set(halo[0], halo[1], halo[2]);
@@ -686,7 +697,7 @@ export class SelectionRingBatch {
   /** Arc mode: the clock the pulse reads (SIM seconds, never accumulated wall-clock) and whether it
    *  runs at all -- false is reduced motion, a steady ring. A no-op on a ring without an arc. */
   setClock(timeSec: number, pulseOn: boolean): void {
-    const u = this.mesh.material.uniforms;
+    const u = this.material.uniforms;
     if (u.uTimeSec === undefined) return;
     u.uTimeSec.value = timeSec;
     u.uPulseOn.value = pulseOn ? 1 : 0;
@@ -694,6 +705,7 @@ export class SelectionRingBatch {
 
   dispose(): void {
     this.mesh.geometry.dispose();
-    this.mesh.material.dispose();
+    // A node twin, if one was adopted, goes with it (`node-material-adoption.ts`).
+    this.material.dispose();
   }
 }

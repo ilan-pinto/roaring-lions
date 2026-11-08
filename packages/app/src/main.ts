@@ -94,6 +94,7 @@ import {
   formations,
   grades,
   versusModes,
+  flagBlockOf,
 } from '@lions/data';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
@@ -172,7 +173,8 @@ import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
-import { buyUnlock, buyUpgrade } from './brigade-account';
+import { buyUnlock } from './brigade-account';
+import { buyTierWithCredits } from './credit-buy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
@@ -287,7 +289,7 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, flagSetupRoom, seatRules, validateCommand, type MatchConfig, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
@@ -1166,7 +1168,7 @@ async function main(): Promise<void> {
      *  answers the same way -- the store is the truth either way. */
     const now = (): GarageState => {
       const a = accountState();
-      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers };
+      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
     };
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => {
@@ -1296,9 +1298,24 @@ async function main(): Promise<void> {
           }
         : undefined,
       owned: ownedTiers,
+      earned: ledgerStore.readAccount().upgrades,
       onBuyUpgrade: ledgerStore.available
         ? (unitId, track, tier, price) => {
-            const { account, ok } = buyUpgrade(ledgerStore.readAccount(), unitId, track, tier, price);
+            // A credit Buy pays the run `creditAsk` states, recomputed from a FRESH read of the
+            // account and the single-player view (Review Focus 2): the button's price is checked,
+            // never trusted.
+            const prices = garageUnits(accountState().boughtUnits)
+              .find((g) => g.id === unitId)
+              ?.upgrades?.[track]?.tiers.map((x) => x.price);
+            if (prices === undefined) return { ...now(), landed: false };
+            const { account, ok } = buyTierWithCredits(
+              { account: ledgerStore.readAccount(), owned: accountState().ownedTiers },
+              prices,
+              unitId,
+              track,
+              tier,
+              price
+            );
             // Same reasoning as `onBuy` above: the control disabled itself
             // against a stale read, so answer with the true state instead of
             // returning silently. `landed` as above (M1).
@@ -6656,10 +6673,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** The flag raid (GH-976 P3): how long each flag has been held, from the goals-only runtime's objectives, and the two
    *  flags outlined on the field. Both flags' state is public by design (`net/flag-view.ts`); no unit is shown. A flag room
    *  only, never a spectator. */
-  const flagRules = netConfig?.winMode === 'flag' ? versusModes[netConfig.map] : undefined;
+  // GH-976 R0.22: the flag block through the one reader, for the rules this room plays.
+  const flagFile = netConfig?.winMode === 'flag' ? versusModes[netConfig.map] : undefined;
+  const flagRules = flagFile !== undefined && netConfig !== null ? flagBlockOf(flagFile, flagSetupRoom(netConfig)) : undefined;
   const flagViewNow = (): FlagView | null =>
-    flagRules?.flags !== undefined && versusWorld?.runtime != null && !spectating
-      ? flagViewOf(versusWorld.runtime, { flags: flagRules.flags, modes: flagRules.modes }, me, versusWorld.endOfSide[me])
+    flagRules !== undefined && versusWorld?.runtime != null && !spectating
+      ? flagViewOf(versusWorld.runtime, flagRules, me, versusWorld.endOfSide[me])
       : null;
   const netFlags = flagViewNow() !== null ? new NetFlags(document.body) : null;
   if (netFlags !== null) onDispose(() => netFlags.dispose());

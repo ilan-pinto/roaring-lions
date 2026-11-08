@@ -29,6 +29,7 @@ describe('@lions/economy imports @lions/sim and @lions/data only', () => {
   it('cannot reach the app by a relative path', async () => {
     const found = await restricted(FILE, "import { emptyRoar } from '../../app/src/roar-wallet';\nvoid emptyRoar;\n");
     expect(found.length).toBeGreaterThanOrEqual(1);
+    for (const m of found) expect(m).toMatch(/@lions\/economy imports @lions\/sim and @lions\/data only/);
   });
 
   it('cannot re-export from the app', async () => {
