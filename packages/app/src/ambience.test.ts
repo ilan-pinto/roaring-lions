@@ -39,6 +39,7 @@ const EXPECTED: Record<keyof typeof maps, AmbienceBed> = {
   tel_marum_1: 'ridge',
   tel_marum_2: 'ridge',
   tel_marum_3: 'ridge',
+  tel_marum_l: 'ridge',
   tile_green: 'open',
   tile_knoll: 'open',
   tile_orchard: 'open',

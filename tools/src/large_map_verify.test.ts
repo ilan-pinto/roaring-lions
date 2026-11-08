@@ -411,11 +411,11 @@ describe('the built-share cap is per map', () => {
 
 // --- the versus gate cannot be skipped by forgetting a field (GH-974 review) ---------------------------------------------
 describe('the visibility gate is required of every spec', () => {
-  it('the exempt set is exactly the three maps offered before the gate; every other spec (the two staged redos) holds a town list', () => {
+  it('the exempt set is exactly the three maps offered before the gate; every other spec (the staged redos, and Tel Marum (large), GH-920 B3) holds a town list', () => {
     const exempt = Object.keys(SPECS).filter((id) => 'exempt' in SPECS[id]().visibility).sort();
     expect(exempt).toEqual(['milh_flats_l', 'rujm_sawda', 'wadi_tarfan_l']);
     const bound = Object.keys(SPECS).filter((id) => 'towns' in SPECS[id]().visibility);
-    expect(bound).toEqual(['milh_flats_l_redo', 'rujm_sawda_redo', 'wadi_tarfan_l_redo']);
+    expect(bound).toEqual(['tel_marum_l', 'milh_flats_l_redo', 'rujm_sawda_redo', 'wadi_tarfan_l_redo']);
     expect(Object.keys(SPECS).length).toBe(exempt.length + bound.length);
   });
 
@@ -436,3 +436,84 @@ describe('the visibility gate is required of every spec', () => {
     expect(out.facts.visible_whole_map).toBeUndefined();
   });
 });
+
+// GH-920 B3: Tel Marum (large) is NOT point-symmetric (a campaign valley played from two measured seats), so its spec says
+// `asymmetric: true`. What that flag skips is held by the first test (it is the only reason the map passes), and each check it
+// adds in place of the skipped ones is red on a constructed input.
+describe('the asymmetric spec (Tel Marum (large))', () => {
+  const freshTm = () => {
+    const s = shipped('tel_marum_l');
+    return { json: JSON.parse(JSON.stringify(s.json)) as MapJson, rules: JSON.parse(JSON.stringify(s.rules)) as Rules, spec: s.spec };
+  };
+  const setCell = (json: MapJson, x: number, y: number, c: string) => setRow(json.rows as string[], x, y, c);
+  const run = (json: MapJson, rules: Rules, spec: ReturnType<typeof shipped>['spec']) => verifyLargeMap(json, rules as unknown as VersusRulesJson, spec).failures;
+
+  it('passes every check on the shipped map, which is not point-symmetric, and reports the way back as a fact', () => {
+    const { json, rules, spec } = freshTm();
+    const r = verifyLargeMap(json, rules as unknown as VersusRulesJson, spec);
+    expect(r.failures).toEqual([]);
+    expect(Number(r.facts.asymmetric_tiles)).toBeGreaterThan(6000);
+    expect(r.facts.foot_seat_to_seat_back).toBeDefined();
+    expect(r.facts.wheels_seat_to_seat_back).toBeDefined();
+  });
+
+  it('read as symmetric the same map is red on the half-turn, the seat diagonal and the camps (the flag is what lets it through)', () => {
+    const { json, rules, spec } = freshTm();
+    const f = run(json, rules, { ...spec, asymmetric: false, displaced: undefined });
+    for (const needle of ['are not their half-turn twin', 'is not the friendly camp mirrored', 'is not on the main diagonal', 'is not versus_0']) {
+      expect(f.some((x) => x.includes(needle)), needle).toBe(true);
+    }
+  });
+
+  it('the placer\'s moves are a literal: one too many or one too few is red, and so is a pairing the spec forgets', () => {
+    const { json, rules, spec } = freshTm();
+    expect(run(json, rules, { ...spec, displaced: { ...spec.displaced, 'kdf/sarim': 12 } }).some((x) => x.includes('kdf/sarim: the placer moved 11 units off their formation tile, the spec says 12'))).toBe(true);
+    expect(run(json, rules, { ...spec, displaced: { ...spec.displaced, 'kdf/kdf': 8 } }).some((x) => x.includes('kdf/kdf: the placer moved 5 units'))).toBe(true);
+    const rest = { ...spec.displaced };
+    delete rest['sarim/kdf'];
+    expect(run(json, rules, { ...spec, displaced: rest }).some((x) => x.includes('sarim/kdf: the spec pins no displaced count (the placer moved 5)'))).toBe(true);
+  });
+
+  it('a unit the placer puts on a boulder is red (closed to wheels), and one it puts on a camp tile is red', () => {
+    const { json, rules, spec } = freshTm();
+    // every open tile of the bowl rows 30-35 becomes boulder: the displaced Sarim-end units can only land on it
+    for (let y = 30; y <= 35; y++) for (let x = 38; x <= 59; x++) if ((json.rows as string[])[y][x] === '.') setCell(json, x, y, 'b');
+    const f = run(json, rules, spec);
+    const landed = f.find((x) => x.includes('closed to wheels') && x.includes('landed on b'));
+    expect(landed).toBeDefined();
+    // a camp under where one lands
+    const m = /landed on b at \((\d+),(\d+)\)/.exec(landed ?? '');
+    expect(m).not.toBeNull();
+    const fresh2 = freshTm();
+    const camped = fresh2.rules;
+    camped.ends.hostile.camp.at = [Number(m?.[1]), Number(m?.[2])];
+    expect(run(fresh2.json, camped, fresh2.spec).some((x) => x.includes('landed on a camp tile'))).toBe(true);
+  });
+
+  it('a seat marker missing, a marker on rock and a marker off the map are red here as on a symmetric map', () => {
+    const { json, rules, spec } = freshTm();
+    const mk = json.markers as Record<string, number[]>;
+    const keep = mk.versus_1;
+    delete (mk as Record<string, unknown>).versus_1;
+    expect(run(json, rules, spec).some((x) => x.includes('a seat marker is missing'))).toBe(true);
+    mk.versus_1 = keep;
+    mk.pass = [48, 40]; // the outcrop's rock
+    expect(run(json, rules, spec).some((x) => x.includes('ground nothing can stand on'))).toBe(true);
+    mk.pass = [200, 3]; // the loader itself refuses a marker off the map, before the verifier reads anything
+    expect(() => run(json, rules, spec)).toThrow('is out of bounds');
+  });
+
+  it('the checks that are not about symmetry still bite: a vent inside 18 tiles of the opposing anchor, a dropped route, a house four times its footprint', () => {
+    const { json, rules, spec } = freshTm();
+    const r2 = JSON.parse(JSON.stringify(rules)) as Rules;
+    const t = r2.tunnels.friendly[0]!;
+    t.points[2] = [56, 40]; // 6.3 from the hostile anchor (58,34)
+    expect(run(json, r2, spec).some((x) => x.includes('is 6.3 tiles from the hostile anchor'))).toBe(true);
+    const r3 = JSON.parse(JSON.stringify(rules)) as Rules;
+    r3.tunnels.hostile.pop();
+    expect(run(json, r3, spec).some((x) => x.includes('tunnel routes per end are 2 and 1'))).toBe(true);
+    for (let y = 6; y < 10; y++) for (let x = 48; x < 52; x++) setCell(json, x, y, '#');
+    expect(run(json, rules, spec).some((x) => x.includes('building(s) over their type\'s native footprint') || x.includes('shapes are'))).toBe(true);
+  });
+});
+

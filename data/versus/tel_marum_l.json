@@ -1,0 +1,84 @@
+{
+  "id": "tel_marum_l",
+  "map": "tel_marum_l",
+  "capacity": 512,
+  "cap_minutes": 35,
+  "ends": {
+    "friendly": {
+      "camp": {
+        "at": [47, 65],
+        "size": [2, 2]
+      }
+    },
+    "hostile": {
+      "camp": {
+        "at": [54, 31],
+        "size": [2, 2]
+      }
+    }
+  },
+  "tunnels": {
+    "friendly": [
+      {
+        "id": "tml_s_west",
+        "points": [
+          [44, 62],
+          [28, 76],
+          [42, 51]
+        ],
+        "capacity": 3
+      },
+      {
+        "id": "tml_s_east",
+        "points": [
+          [52, 62],
+          [68, 80],
+          [55, 53]
+        ],
+        "capacity": 3
+      }
+    ],
+    "hostile": [
+      {
+        "id": "tml_n_west",
+        "points": [
+          [44, 34],
+          [32, 44],
+          [52, 39]
+        ],
+        "capacity": 4
+      },
+      {
+        "id": "tml_n_east",
+        "points": [
+          [58, 34],
+          [66, 44],
+          [59, 39]
+        ],
+        "capacity": 4
+      }
+    ]
+  },
+  "income_zones": [
+    {
+      "zone": "pass",
+      "rate_per_min": 40
+    },
+    {
+      "zone": "approach",
+      "rate_per_min": 40
+    },
+    {
+      "zone": "overwatch_east",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "overwatch_west",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "ammo_draw",
+      "rate_per_min": 20
+    }
+  ]
+}
