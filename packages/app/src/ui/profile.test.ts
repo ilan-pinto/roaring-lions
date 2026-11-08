@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import type { AccountClient, AccountError, MeResult } from '../account/client';
+import type { AccountClient, AccountError, IdentityView, MeResult } from '../account/client';
 import { ACCOUNT_BINDING_KEY } from '../account/binding';
 import { t } from '../i18n/t';
 import { showProfile, type ProfileDeps } from './profile';
@@ -15,7 +15,7 @@ function memStore(initial: Record<string, string> = {}) {
 }
 
 const steam = { id: 'ident-1', provider: 'steam', label: null, createdAt: 1, lastUsedDay: null, steamId: '76561197960287930' };
-const signedIn = (identities = [steam]): MeResult => ({ kind: 'signedIn', publicId: 'ABCD2345', displayName: 'Ilan', showRecord: false, fresh: true, identities });
+const signedIn = (identities: IdentityView[] = [steam]): MeResult => ({ kind: 'signedIn', publicId: 'ABCD2345', displayName: 'Ilan', showRecord: false, fresh: true, identities });
 
 function stub(over: Partial<AccountClient> = {}): AccountClient & { calls: string[] } {
   const calls: string[] = [];
@@ -111,9 +111,16 @@ describe('showProfile', () => {
     expect(one.stage.textContent).toContain(t('profile.identity.last'));
     const two = mount(stub({ me: async () => signedIn([steam, { ...steam, id: 'ident-2' }]) }));
     await flush();
-    for (const b of two.stage.querySelectorAll<HTMLButtonElement>('button')) {
-      if (b.textContent === t('profile.identity.remove')) expect(b.disabled).toBe(false);
-    }
+    const removes = [...two.stage.querySelectorAll<HTMLButtonElement>('button')].filter((b) => b.textContent === t('profile.identity.remove'));
+    expect(removes.length, 'one Remove button per identity').toBe(2);
+    for (const b of removes) expect(b.disabled).toBe(false);
+  });
+
+  it('an identity with no label and no Steam id shows translated copy, never the raw provider token', async () => {
+    const { stage } = mount(stub({ me: async () => signedIn([steam, { id: 'ident-pk', provider: 'passkey', label: null, createdAt: steam.createdAt, lastUsedDay: null }]) }));
+    await flush();
+    expect(stage.textContent).toContain(t('profile.identity.other'));
+    expect(stage.textContent).not.toContain('passkey');
   });
 
   it('rejects a 2-character name without calling the server, and saves a good one', async () => {

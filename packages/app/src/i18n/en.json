@@ -1709,6 +1709,7 @@
   "profile.identity.steam": "Steam · {id}",
   "profile.identity.remove": "Remove",
   "profile.identity.last": "This is your only way to sign in, so it cannot be removed.",
+  "profile.identity.other": "Another way to sign in",
   "profile.signOut": "Sign out",
   "profile.signOutAll": "Sign out everywhere",
   "profile.export": "Download my data",
@@ -1730,6 +1731,6 @@
   "profile.result.nocookie": "Sign-in needs this site's cookies. Allow them and try again.",
   "profile.result.steam": "Steam did not answer. Try again in a minute.",
   "profile.result.closed": "New accounts are not open yet.",
-  "profile.result.limit": "Too many sign-ins from here today. Try again tomorrow.",
+  "profile.result.limit": "Too many sign-ins from here. Try again later.",
   "profile.result.taken": "That Steam account belongs to another player."
 }

@@ -121,7 +121,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
   const identityRow = (me: SignedInMe, id: IdentityView, reload: () => void): HTMLElement => {
     const li = document.createElement('li');
     li.className = 'rl-profile__identity';
-    const label = id.provider === 'steam' && id.steamId !== undefined ? t('profile.identity.steam', { id: id.steamId }) : (id.label ?? id.provider);
+    const label = id.provider === 'steam' && id.steamId !== undefined ? t('profile.identity.steam', { id: id.steamId }) : (id.label ?? t('profile.identity.other'));
     const only = me.identities.length <= 1;
     const rm = button(t('profile.identity.remove'), () => {
       void deps.client.deleteIdentity(id.id).then((r) => {

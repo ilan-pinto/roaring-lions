@@ -243,7 +243,6 @@ describe('Steam sign-in', () => {
   it('refuses smuggled openid keys: NUL suffix, other case, unknown name, foreign signed field (C1)', async () => {
     const { h, stub, ready } = harness();
     await ready;
-    const victim = `https://steamcommunity.com/openid/id/${S2}`;
     const a = `https://steamcommunity.com/openid/id/${S1}`;
     const cases = [
       (c: string) => `openid.claimed_id%00x=${encodeURIComponent(a)}&openid.identity%00x=${encodeURIComponent(a)}&${returnParams(c, S2)}`,
@@ -253,7 +252,6 @@ describe('Steam sign-in', () => {
       (c: string) => `openid_claimed_id=1&${returnParams(c, S2)}`,
       (c: string) => returnParams(c, S2, { 'openid.signed': 'signed,op_endpoint,claimed_id,identity,return_to,response_nonce,assoc_handle,foo' }),
     ];
-    expect(victim).toContain(S2);
     for (const build of cases) {
       const s = await start(h, 'steam-login');
       expect(back(await ret(h, build(s.c), s.cookie)).code).toBe('invalid');
