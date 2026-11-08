@@ -69,7 +69,13 @@ export interface CensusRule {
 export const CENSUS_RULES: readonly CensusRule[] = [
   { kind: /^partial$/, key: /^rl-ground: wet terms/, reason: 'wet ground terms (THEME_WET): a wet map draws dry on node, P4 (ruled 7 Nov)' },
   { kind: /./, key: /garrison-banner/, reason: 'garrison banner wind (`rl-garrison-banner`, a separate hook): P3 (units)' },
-  // Extended after the Metal run's census was READ, entry by entry, with the phase that owns it (see the sheet README).
+  // Added after the Metal run's census was READ and every entry traced to its object (a scene probe listed name, parent and uniforms):
+  { kind: /^shader-material$/, key: /^ShaderMaterial$/, reason: 'unnamed ShaderMaterial batches: ground decal pools, HP/overlay batches, tracers, shells, smoke, flipbook and tunnel overlays (decals, VFX): P3/P4' },
+  { kind: /^shader-material$/, key: /^(beam-batch|flipbook-fire|flipbook-smoke)$/, reason: 'the E6 beam and the flipbook fire and smoke (VFX): P4' },
+  { kind: /^shader-material$/, key: /^zone-band$/, reason: 'the zone-band overlay (overlays): P3' },
+  { kind: /^on-before-compile$/, key: /^(BakedMaterial|material|material\.001)$/, reason: 'textured bake vehicle and wreck materials carrying the team mark / bake-luma hook (textured bakes, team mark): P3' },
+  { kind: /^on-before-compile$/, key: /^backdrop-/, reason: 'the valley backdrop meshes (backdrop): P3/P4' },
+  { kind: /^on-before-compile$/, key: /^rl-silhouette-outline$/, reason: 'the occlusion outline (hidden on node by HIDE_WITHOUT_HOOK): P3' },
   { kind: /^image-release$/, key: /./, reason: 'GLB bitmap release disarmed on node (P0 behaviour, by design)' },
 ];
 

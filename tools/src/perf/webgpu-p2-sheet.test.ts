@@ -118,6 +118,22 @@ describe('classifyCensus', () => {
     expect(v.expected.map((e) => e.key)).toEqual(['rl-ground: wet terms', 'rl-garrison-banner']);
     expect(v.unexpected.map((e) => e.key)).toEqual(['rl-selection-ring', 'rl-foliage-sway']);
   });
+  it('the P3/P4 entries read off the Metal census are expected, and only under their own kind', () => {
+    const v = classifyCensus([
+      { kind: 'shader-material', key: 'ShaderMaterial', objects: 30 },
+      { kind: 'on-before-compile', key: 'BakedMaterial', objects: 25 },
+      { kind: 'on-before-compile', key: 'backdrop-kit-lod1', objects: 1 },
+      { kind: 'on-before-compile', key: 'rl-silhouette-outline', objects: 38 },
+    ]);
+    expect(v.unexpected).toHaveLength(0);
+    // the same names under the wrong kind, and a ported ground that came back, are NOT expected
+    const w = classifyCensus([
+      { kind: 'on-before-compile', key: 'ShaderMaterial', objects: 1 },
+      { kind: 'shader-material', key: 'BakedMaterial', objects: 1 },
+      { kind: 'on-before-compile', key: 'rl-ground', objects: 1 },
+    ]);
+    expect(w.unexpected).toHaveLength(3);
+  });
   it('every rule carries a reason that names a phase or a ruling', () => {
     for (const r of CENSUS_RULES) expect(r.reason).toMatch(/P\d|ruled|by design/);
   });
