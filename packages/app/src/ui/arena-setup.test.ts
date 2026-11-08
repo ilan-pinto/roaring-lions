@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // GH-954 W2: the DEV-only /arena setup screen, in jsdom with a recording fetch. The token below is made up.
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FLAG_SETUP_MAPS } from '@lions/net';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FLAG_SETUP_MAPS, WIN_MODE_FAIR_MAPS } from '@lions/net';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 import { missingKeys, setCatalogue } from '../i18n/t';
@@ -100,6 +100,14 @@ describe('the setup form', () => {
 });
 
 describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen map and matchup', () => {
+  // GH-1139: flag is out of the lobby until CTF v2 lands (WP9). The picker's flag path is code WP9 turns back on, so these
+  // tests stand the seven v1 maps back in for their own run; the test that reads what is offered TODAY takes them out first.
+  const V1_FLAG_MAPS = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+  const flagList = WIN_MODE_FAIR_MAPS.flag as string[];
+  const SHIPPED = [...flagList];
+  const asShipped = (): void => { flagList.splice(0, flagList.length, ...SHIPPED); };
+  beforeEach(() => { flagList.push(...V1_FLAG_MAPS.filter((m) => !flagList.includes(m))); });
+  afterEach(asShipped);
   const pickMap = (r: Rig, id: string): void => {
     const map = field(r.host, 'Map') as HTMLSelectElement;
     map.value = id;
@@ -133,21 +141,22 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
     expect(bodyOfStart(r).matchup).toBe('kdf');
   });
 
-  it('lists exactly what winModesOffered lists for the map, in the mirror: Annihilation, Points race, Capture the flag, on all four maps', async () => {
+  it('lists exactly what winModesOffered lists for the map, in the mirror: Annihilation and Points race on all four maps, never Capture the flag (GH-1139)', async () => {
+    asShipped();   // the table as it ships
     const r = rig();
     showArenaSetup(r.host, r.deps);
     await settle();
     pickMap(r, 'tel_marum');
     expect(modeField(r).closest('.rl-arena-setup__field')!.hasAttribute('hidden')).toBe(false);
-    expect(opts(modeField(r))).toEqual(['annihilation', 'points', 'flag']);
-    expect([...modeField(r).options].map((o) => o.textContent)).toEqual(['Annihilation', 'Points race', 'Capture the flag']);
+    expect(opts(modeField(r))).toEqual(['annihilation', 'points']);
+    expect([...modeField(r).options].map((o) => o.textContent)).toEqual(['Annihilation', 'Points race']);
     // Camp is read fair on wadi_tarfan, milh_flats and wadi_tarfan_l (GH-976, 5 Nov) and nowhere else: not on tel_marum or rujm_sawda.
     expect(opts(modeField(r))).not.toContain('camp');
     pickMap(r, 'rujm_sawda');
-    expect(opts(modeField(r)), 'rujm_sawda').toEqual(['annihilation', 'points', 'flag']);
+    expect(opts(modeField(r)), 'rujm_sawda').toEqual(['annihilation', 'points']);
     for (const id of ['wadi_tarfan', 'wadi_tarfan_l']) {
       pickMap(r, id);
-      expect(opts(modeField(r)), id).toEqual(['annihilation', 'camp', 'points', 'flag']);
+      expect(opts(modeField(r)), id).toEqual(['annihilation', 'camp', 'points']);
     }
   });
 

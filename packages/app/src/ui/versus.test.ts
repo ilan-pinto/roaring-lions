@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps, paletteTeamColors } from '@lions/data';
-import { FACTION_MATCHUP_MAPS, FLAG_SETUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODE_FAIR_FACTION_CELLS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, FLAG_SETUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
 import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
@@ -659,6 +659,15 @@ describe("bring your brigade: both line-ups in the lobby (GH-1102)", () => {
 
 // GH-976 P2: the host picks how the match is won; the lobby offers a mode only where it was read fair.
 describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => {
+  // GH-1139: flag is out of the lobby until CTF v2 lands (WP9, `WIN_MODE_FAIR_MAPS.flag` is empty). The flag lobby path is still
+  // code that WP9 turns back on, so these tests stand the seven v1 maps back in for their own run; the test that reads what
+  // the lobby offers TODAY takes them out first.
+  const V1_FLAG_MAPS = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+  const flagList = WIN_MODE_FAIR_MAPS.flag as string[];
+  const SHIPPED = [...flagList];
+  const asShipped = (): void => { flagList.splice(0, flagList.length, ...SHIPPED); };
+  beforeEach(() => { flagList.push(...V1_FLAG_MAPS.filter((m) => !flagList.includes(m))); });
+  afterEach(asShipped);
   const winRadios = (stage: ParentNode) => [...stage.querySelectorAll<HTMLInputElement>('.rl-versus__win input.rl-versus__side-radio')];
   const winGroup = (stage: ParentNode) => stage.querySelector<HTMLElement>('fieldset.rl-versus__win')!;
   const created = async (stage: HTMLElement, open: ReturnType<typeof vi.fn>): Promise<RoomRequest> => {
@@ -789,7 +798,8 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     }
   }));
 
-  it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: Destroy the camp on wadi_tarfan, milh_flats and wadi_tarfan_l', () => {
+  it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: Destroy the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, and never Capture the flag (GH-1139)', () => {
+    asShipped();   // the table as it ships
     const stage = mountPick(deps({ maps: [...MAPS, WADI_TARFAN_L] }));
     const offered: Record<string, string[]> = {};
     for (const m of [...MAPS, WADI_TARFAN_L]) {
@@ -797,8 +807,8 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       offered[m.id] = winRadios(stage).map((r) => r.value);
     }
     expect(offered).toEqual({
-      beit_sahwan_outskirts: ['annihilation', 'points', 'flag'], milh_flats: ['annihilation', 'camp', 'points', 'flag'], tel_marum: ['annihilation', 'points', 'flag'],
-      wadi_tarfan: ['annihilation', 'camp', 'points', 'flag'], wadi_tarfan_l: ['annihilation', 'camp', 'points', 'flag'],
+      beit_sahwan_outskirts: ['annihilation', 'points'], milh_flats: ['annihilation', 'camp', 'points'], tel_marum: ['annihilation', 'points'],
+      wadi_tarfan: ['annihilation', 'camp', 'points'], wadi_tarfan_l: ['annihilation', 'camp', 'points'],
     });
   });
 
