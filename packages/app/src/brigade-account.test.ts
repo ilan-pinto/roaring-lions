@@ -3,6 +3,7 @@ import {
   ACCOUNT_KEY,
   buyUnlock,
   buyUpgrade,
+  buyUpgradeRun,
   emptyAccount,
   loadAccount,
   migrateAccount,
@@ -224,6 +225,16 @@ describe('brigade account', () => {
     const loaded = loadAccount(s);
     expect(loaded.upgrades.inf_squad?.armour).toBe(1);
     expect(loaded.balance).toBe(700);
+  });
+
+  it('buys a run of tiers at once: one price, earned = to, no grant', () => {
+    const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
+    const { account, ok } = buyUpgradeRun(funded, 'spg_long_range', 'armour', 1, 3, 740);
+    expect(ok).toBe(true);
+    expect(account.balance).toBe(260);
+    expect(account.upgrades.spg_long_range?.armour).toBe(3);
+    expect(account.grants).toEqual(funded.grants);
+    expect(account.earned_total).toBe(1000);
   });
 
   it('resetAccount clears upgrades (existing behaviour)', () => {

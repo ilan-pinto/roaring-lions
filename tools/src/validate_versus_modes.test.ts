@@ -5,10 +5,12 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODES as NET_WIN_MODES, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, economyRoom, validateConfig, winModeAllowed, winModeField, type MatchConfig } from '@lions/net';
-import { SETUP_BAND_TILES_48, SETUP_BAND_TILES_LARGE, SETUP_KIT, SETUP_SECONDS, STRUCTURE_SYMBOLS, TERRAIN_LEGEND, campYardZone, flagZone, maps, parseMap, setupRegionOf, versusModeMissionOf, versusModes, versusRules, WIN_MODES, type MapJson, type VersusModeFileJson } from '@lions/data';
+import { FACTION_MATCHUP_MAPS, FLAG_SETUP_CAP_MINUTES as NET_FLAG_SETUP_CAP_MINUTES, FLAG_SETUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODES as NET_WIN_MODES, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, economyRoom, validateConfig, winModeAllowed, winModeField, type MatchConfig } from '@lions/net';
+import { FLAG_SETUP_CAP_MINUTES, SETUP_BAND_TILES_48, SETUP_BAND_TILES_LARGE, SETUP_KIT, SETUP_SECONDS, STRUCTURE_SYMBOLS, TERRAIN_LEGEND, campYardZone, flagZone, maps, parseMap, setupRegionOf, versusModeMissionOf, versusModes, versusRules, WIN_MODES, type MapJson, type VersusModeFileJson } from '@lions/data';
 import { FOOT_OPEN, MODE_CAMP_REACH, OFFERED_MAPS, SETUP_BAND_TILES_48 as MJS_BAND_48, SETUP_BAND_TILES_LARGE as MJS_BAND_LARGE, SETUP_KIT as MJS_KIT, SETUP_SECONDS as MJS_SECONDS, WIN_MODES as MJS_WIN_MODES, setupRegion, versusModeFailures } from '../validate_versus_modes.mjs';
-import { CAMP_REACH } from '../validate_versus_rules.mjs';
+import { CAMP_REACH, scanExit } from '../validate_versus_rules.mjs';
+import { LZ_SEARCH_TILES } from '../../packages/sim/src/tuning';
+import { SETUP_PLACEMENTS_PER_SIDE } from '@lions/sim';
 import { buildMatchWorld } from '../../packages/app/src/net/match-world';
 
 const ROOT = join(__dirname, '..', '..');
@@ -822,5 +824,110 @@ describe('GH-976 v2: flag_setup', () => {
     }
     for (const sym of Object.keys(TERRAIN_LEGEND)) expect(FOOT_OPEN.has(sym), `terrain ${sym}`).toBe(TERRAIN_LEGEND[sym].blocked === 0);
     for (const sym of Object.keys(STRUCTURE_SYMBOLS)) expect(FOOT_OPEN.has(sym), `structure ${sym}`).toBe(false);
+  });
+});
+
+
+// ---------------------------------------------------------------------------------------------------
+// GH-976 v2 WP4: the runtime wiring over the five staged maps
+// ---------------------------------------------------------------------------------------------------
+describe('GH-976 v2 WP4: a flagSetup world over the five staged maps', () => {
+  const FIVE = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+  /** A KDF mirror flag room with `flagSetup` (what the Worker mints for a listed map); seat 0 is side 0 at the friendly end. */
+  const setupRoom = (map: string): MatchConfig => {
+    const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map, mode: 'versus', seats: [seat(0), seat(1)], pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'flag', flagSetup: true });
+    if (c === null) throw new Error('bad config');
+    return c;
+  };
+  /** The maps in `list` whose mode file has no staged `flag_setup`: the check `FLAG_SETUP_MAPS` is held to. */
+  const unstaged = (list: readonly string[]): string[] => list.filter((m) => (versusModes[m] as VersusModeFileJson | undefined)?.flag_setup === undefined);
+
+  it('the cap twin: data\'s FLAG_SETUP_CAP_MINUTES is net\'s, and is 30', () => {
+    expect(NET_FLAG_SETUP_CAP_MINUTES).toBe(FLAG_SETUP_CAP_MINUTES);
+    expect(FLAG_SETUP_CAP_MINUTES).toBe(30);
+  });
+  it('every map in FLAG_SETUP_MAPS has a flag_setup block (and the check sees a map that has none)', () => {
+    expect(unstaged(FLAG_SETUP_MAPS)).toEqual([]);
+    // The loop above is empty while the list is: prove the check itself can fail, on the five and on a map without a block.
+    expect(unstaged(FIVE)).toEqual([]);
+    expect(unstaged(['wadi_tarfan', 'tel_marum', 'nowhere'])).toEqual(['tel_marum', 'nowhere']);
+  });
+  it.each(FIVE)('S1 %s: built with flagSetup, every unit of each side stands inside its own side\'s region', (map) => {
+    const w = buildMatchWorld(setupRoom(map));
+    expect(w.bySide[0].length).toBeGreaterThan(0);
+    expect(w.bySide[1].length).toBeGreaterThan(0);
+    for (const side of [0, 1] as const) {
+      for (const id of w.bySide[side]) {
+        const tx = w.sim.state.posX[id] >> 16;
+        const ty = w.sim.state.posY[id] >> 16;
+        expect(w.sim.setupRegionAt(tx, ty), `${map} side ${side} unit ${id} at (${tx},${ty})`).toBe(side);
+      }
+    }
+  });
+  it.each(FIVE)('the structure budget %s: map structures + 2 x SETUP_PLACEMENTS_PER_SIDE fit the 256 the table holds (ids are never reused, R0.10)', (map) => {
+    const w = buildMatchWorld(setupRoom(map));
+    // 256 is the sim's MAX_STRUCTURES (sim.ts, not exported): `addStructure` throws past it.
+    expect(w.sim.structureCount + 2 * SETUP_PLACEMENTS_PER_SIDE, map).toBeLessThanOrEqual(256);
+  });
+  it('SETUP_PLACEMENTS_PER_SIDE is 36, twice the kit (R0.10)', () => {
+    expect(SETUP_PLACEMENTS_PER_SIDE).toBe(2 * (SETUP_KIT.hesco + SETUP_KIT.sandbag_post + SETUP_KIT.t_wall));
+    expect(SETUP_PLACEMENTS_PER_SIDE).toBe(36);
+  });
+  /**
+   * The camp-exit LZ (WP2 sim-guard review). A unit built during the set-up is put at its camp's `structureExit` by `spawnPlacement`
+   * (production delivers `count: 1`, so the placement spread `SPREAD` -- 1.25 tiles, `(k % 3) * SPREAD` -- is 0 for the one body),
+   * and an air carrier is then settled by `settleOnGround` -> `lzFor`, a ring search to `LZ_SEARCH_TILES` Chebyshev from that tile.
+   * None of it is clamped to the region, so the whole square of radius `LZ_SEARCH_TILES` round the exit tile must be the camp owner's
+   * region. Camps are read from both places a camp is authored: the mode file's `camps` and the economy rules file's `ends[].camp`.
+   */
+  const campExits = (map: string): { source: string; end: 'friendly' | 'hostile'; exit: [number, number] }[] => {
+    const parsed = maps[map as keyof typeof maps] as unknown as { width: number; height: number; rows: string[] };
+    const out: { source: string; end: 'friendly' | 'hostile'; exit: [number, number] }[] = [];
+    const modeCamps = (versusModes[map] as unknown as { camps?: Record<'friendly' | 'hostile', { at: [number, number]; size: [number, number]; exit?: [number, number] }> }).camps;
+    const ruleCamps = (versusRules[map] as unknown as { ends: Record<'friendly' | 'hostile', { camp: { at: [number, number]; size: [number, number]; exit?: [number, number] } }> } | undefined)?.ends;
+    for (const end of ['friendly', 'hostile'] as const) {
+      for (const [source, camp] of [['mode camps', modeCamps?.[end]], ['rules camp', ruleCamps?.[end].camp]] as const) {
+        if (camp === undefined) continue;
+        const exit = camp.exit ?? (scanExit(parsed, camp) as [number, number] | null);
+        if (exit === null) throw new Error(`${map} ${source} ${end}: no exit`);
+        out.push({ source, end, exit });
+      }
+    }
+    return out;
+  };
+  /** Foreign tiles within `reach` (Chebyshev, clipped to the map) of `exit`: the camp owner's region must hold them all. */
+  const foreignWithin = (w: ReturnType<typeof buildMatchWorld>, owner: 0 | 1, exit: readonly [number, number], reach: number): { tile: [number, number]; dist: number }[] => {
+    const out: { tile: [number, number]; dist: number }[] = [];
+    for (let y = Math.max(0, exit[1] - reach); y <= Math.min(w.sim.height - 1, exit[1] + reach); y++) {
+      for (let x = Math.max(0, exit[0] - reach); x <= Math.min(w.sim.width - 1, exit[0] + reach); x++) {
+        if (w.sim.setupRegionAt(x, y) !== owner) out.push({ tile: [x, y], dist: Math.max(Math.abs(x - exit[0]), Math.abs(y - exit[1])) });
+      }
+    }
+    return out;
+  };
+  /** The failures of the camp-exit LZ rule over `exits`, each naming the map, the camp, the tile and its distance. */
+  const lzFailures = (map: string, w: ReturnType<typeof buildMatchWorld>, exits: ReturnType<typeof campExits>): string[] => {
+    const out: string[] = [];
+    for (const c of exits) {
+      const owner: 0 | 1 = w.endOfSide[0] === c.end ? 0 : 1;
+      for (const f of foreignWithin(w, owner, c.exit, LZ_SEARCH_TILES)) out.push(`${map} ${c.source} ${c.end} exit (${c.exit}): tile (${f.tile}) is not side ${owner}'s, ${f.dist} from the exit`);
+    }
+    return out;
+  };
+  it.each(FIVE)('camp-exit LZ %s: every tile within LZ_SEARCH_TILES of each camp exit is the camp owner\'s region', (map) => {
+    const w = buildMatchWorld(setupRoom(map));
+    const exits = campExits(map);
+    expect(exits.length, `${map}: a camp to test`).toBeGreaterThan(0);
+    expect(lzFailures(map, w, exits)).toEqual([]);
+  });
+  it('camp-exit LZ: the rule goes red for a camp exit moved (in memory) to within 6 tiles of the band, and names the tile and distance', () => {
+    const w = buildMatchWorld(setupRoom('wadi_tarfan'));
+    const moved = campExits('wadi_tarfan').map((c) => (c.end === 'friendly' ? { ...c, exit: [20, 20] as [number, number] } : c));
+    const failures = lzFailures('wadi_tarfan', w, moved);
+    expect(failures.length).toBeGreaterThan(0);
+    expect(failures[0]).toMatch(/wadi_tarfan .* friendly exit \(20,20\): tile \(\d+,\d+\) is not side 0's, [1-6] from the exit/);
+    // Only the moved end fails: the hostile exits, still where they were shipped, read clean.
+    expect(failures.every((f) => f.includes('friendly'))).toBe(true);
   });
 });

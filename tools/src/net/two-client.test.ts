@@ -42,6 +42,7 @@ function worldFor(sim: SimView): SeatWorld {
     tunnelExists: (id) => Number.isInteger(id) && id >= 0 && id < sim.tunnelCount,
     factionOfSeat: () => 'kdf',
     tunnelOwner: () => -1,
+    setupRoom: false,
     formationAllowed: (_seat, id) => formations.some((f) => f.id === id),
   };
 }

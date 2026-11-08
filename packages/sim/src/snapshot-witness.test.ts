@@ -454,7 +454,11 @@ describe('snapshot format pin', () => {
     // scalars) and one `config` row (setupRegion, Int8Array x cells; the format digest covers it), present even when no world begins a set-up. With those
     // four rows cut from snapshot-schema.ts the same run reads 355222469 again (watched), so the move is exactly the new
     // rows. 1873871182 is read off a fresh run. The golden hash did not move: nothing folds the block until `beginSetup`.
-    expect(h >>> 0).toBe(1873871182);
+    // Was 1873871182. GH-976 WP3 (the set-up kit) appended three `state` rows (kitLeft Int16Array x 6, kitPlaced Int16Array x 2,
+    // stKit Int8Array x 256) and two `config` rows (kitStructType Int16Array x 3, kitBans, an array), present even when no world
+    // sets a kit. With those five rows cut from snapshot-schema.ts the same run reads 1873871182 again (watched), so the move is
+    // exactly the new rows. 3026783768 is read off a fresh run. The golden hash did not move: nothing folds the kit until `beginSetup`.
+    expect(h >>> 0).toBe(3026783768);
   });
 });
 

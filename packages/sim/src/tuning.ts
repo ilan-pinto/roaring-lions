@@ -639,3 +639,8 @@ export const FORMATION_WALK_CAP = 24;
 /** Capture the flag v2 set-up (GH-976). Ticks from the moment BOTH sides have pressed Ready to the bell: 100 ticks
  *  = 5 s at 20 Hz. A plain tick count, not Q16.16. The bell is never later than the set-up clock's `untilTick`. */
 export const SETUP_BELL_DELAY_TICKS = 100;
+
+/** Capture the flag v2 set-up kit (GH-976): the most `fortify` placements one side may have accepted over a set-up, twice
+ *  the kit (12 + 4 + 2 = 18). `unfortify` refunds the allowance but not the placement, because structure ids are never
+ *  reused (`MAX_STRUCTURES` 256) and unlimited churn would exhaust the table (R0.10). A plain count, not Q16.16. */
+export const SETUP_PLACEMENTS_PER_SIDE = 36;

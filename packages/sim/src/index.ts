@@ -30,7 +30,7 @@ export {
   worksRefund,
   NOT_ON_LINE,
 } from './mission';
-export type { PlacementRefusal } from './sim';
+export type { FortifyRefusal, PlacementRefusal } from './sim';
 export { DOMAIN_AIR, DOMAIN_FOOT, DOMAIN_VEHICLE } from './sim';
 // GH-859 P1b: what a formation member is doing for its group (`Sim.formationDutyOf`), so the app reads names, not copies.
 export { FM_DUTY_NONE, FM_DUTY_WAIT, FM_DUTY_OUT, FM_DUTY_RETURN } from './sim';
@@ -122,7 +122,7 @@ export {
 // Halt-to-fire clip timing for the renderer (spec 2026-10-05-infantry-halt-to-fire §5).
 export { KNEEL_DROP_TICKS, KNEEL_RISE_TICKS } from './tuning';
 // Capture the flag v2 (GH-976): the early bell's delay, for the HUD's "bell in 5 s" line.
-export { SETUP_BELL_DELAY_TICKS } from './tuning';
+export { SETUP_BELL_DELAY_TICKS, SETUP_PLACEMENTS_PER_SIDE } from './tuning';
 export { AMBUSH_RADIUS_DEFAULT, AMBUSH_RADIUS_MAX, MAX_PATROL_WAYPOINTS } from './tuning';
 // #706: the crew field fix's length, for the HUD's repair countdown (`Sim.fieldFixRate` gives the rate).
 export { FIELD_FIX_TICKS } from './tuning';
