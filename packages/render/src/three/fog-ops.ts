@@ -27,6 +27,24 @@ export interface Ops<T> {
   clamp(a: T, lo: number, hi: number): T;
   /** GLSL `smoothstep(e0, e1, x)` (T3: the vignette) */
   smoothstep(e0: T, e1: T, x: T): T;
+  // GH-943 P2 (T1): the material twins' arithmetic (ground, relief, ring, wind, disturb), added once so T3-T7 never edit this
+  // file. Deliberately absent: `tan` (derive sin/cos), `atan` (use `atan2(x, 1)`), `mod` (derive from `floor`), and every
+  // derivative (`fwidth`, `dFdx`): a screen-space rate is graph-only, so a twin computes it in TSL and passes it IN.
+  min(a: T, b: T): T;
+  max(a: T, b: T): T;
+  abs(a: T): T;
+  floor(a: T): T;
+  /** GLSL `step(edge, x)`: `x < edge ? 0 : 1` */
+  step(edge: T, x: T): T;
+  pow(a: T, b: T): T;
+  cos(a: T): T;
+  /** GLSL `atan(y, x)`, the two-argument arc tangent, in (-pi, pi] */
+  atan2(y: T, x: T): T;
+  sqrt(a: T): T;
+  /** e^a (the disturb spring's decay) */
+  exp(a: T): T;
+  /** -1, 0 or 1 (the road's side) */
+  sign(a: T): T;
 }
 
 const clampN = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -48,6 +66,49 @@ export const NUMBER_OPS: Ops<number> = {
     const t = clampN((x - e0) / (e1 - e0), 0, 1);
     return t * t * (3 - 2 * t);
   },
+  min: Math.min,
+  max: Math.max,
+  abs: Math.abs,
+  floor: Math.floor,
+  step: (edge, x) => (x < edge ? 0 : 1),
+  pow: Math.pow,
+  cos: Math.cos,
+  atan2: Math.atan2,
+  sqrt: Math.sqrt,
+  exp: Math.exp,
+  // `Math.sign(-0)` is -0; GLSL's `sign(0.0)` is 0. They compare equal, so nothing downstream can tell.
+  sign: Math.sign,
+};
+
+/**
+ * GH-943 P2 (T1): unsigned 32-bit integer arithmetic, for the gust lattice hash (`tileHash`, `tile-hash.ts`; `tileHashOps` there
+ * is the body written against this). Every value is a uint32 bit pattern: `NUMBER_INT_OPS` holds it as a double in [0, 2^32), the
+ * TSL twin (`tslIntOps`, `fog-pass.node.ts`) as a `uint` node, whose `*`, `+` and `>>` wrap and shift exactly as below.
+ */
+export interface IntOps<T> {
+  /** An unsigned literal (taken mod 2^32). */
+  lit(n: number): T;
+  /** An integer-valued float as its 32-bit two's-complement pattern: GLSL `uint(int(a))` (a negative lattice index wraps). */
+  fromFloat(a: T): T;
+  /** a + b mod 2^32 */
+  add(a: T, b: T): T;
+  /** a * b mod 2^32 (`Math.imul`, GLSL `uint * uint`) */
+  imul(a: T, b: T): T;
+  xor(a: T, b: T): T;
+  /** An UNSIGNED (logical) shift right: the vacated top bits are 0, whatever the top bit was (JS `>>>`, GLSL `uint >> n`). */
+  shr(a: T, bits: number): T;
+  /** The top 24 bits as a float in [0, 1): `float(a >> 8) / 2^24`, exact in a 32-bit float. */
+  toFloat01(a: T): T;
+}
+
+export const NUMBER_INT_OPS: IntOps<number> = {
+  lit: (n) => n >>> 0,
+  fromFloat: (a) => (a | 0) >>> 0,
+  add: (a, b) => (a + b) >>> 0,
+  imul: (a, b) => Math.imul(a, b) >>> 0,
+  xor: (a, b) => (a ^ b) >>> 0,
+  shr: (a, bits) => a >>> bits,
+  toFloat01: (a) => (a >>> 8) / 16777216,
 };
 
 /**
