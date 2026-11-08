@@ -1170,6 +1170,19 @@ export function nodeCensusStatements(repoRoot: string): string {
 `;
 }
 
+/**
+ * GH-943 P2 (T4, R9): the matched census, run ONCE MORE before the layer checks' reference photograph. On `relief` and `aftermath` the
+ * legacy-matched arm read a constant offset (12932 px / 1.27 and 17586 px / 2.36, EXACTLY its own `environment` reading) on every check
+ * after the first toggle: the first toggle's census hid or dropped something the capture's census had not yet met, so the reference
+ * (taken before any toggle) differed from every toggled photograph by that. Settling the census before the reference makes the
+ * reference and the toggled frames the same state. Legacy-matched arm only.
+ */
+export function matchNodeSettleScript(repoRoot: string): string {
+  return `(async () => {
+${matchNodeStatements(repoRoot)}  return JSON.stringify({ tick: window.__lions.sim.tickCount });
+})()`;
+}
+
 export interface CaptureScriptOptions {
   /** Re-run the node census after a layer toggle (NODE arms only; the gate sets it for webgl2 and webgpu). See `nodeCensusStatements`. */
   readonly nodeCensusRoot?: string;

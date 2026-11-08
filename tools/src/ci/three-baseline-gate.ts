@@ -120,6 +120,7 @@ import {
   threeUrl,
   captureScript,
   layerToggleScript,
+  matchNodeSettleScript,
   repaintScriptFor,
   type CaptureScriptOptions,
   SCENARIOS,
@@ -344,7 +345,15 @@ async function runSelfChecks(
   // milliseconds, so this is the same picture drawn twice.
   const shownPng = path.join(dir, 'layer-shown.png');
   await rephotograph(page, repaintScriptFor(arm), shownPng, captured.rect);
-  const control = computeDiff(capturedPng, shownPng, {
+  // The legacy-matched arm settles its census once more and re-photographs, so the control (and every toggle below, which re-runs the
+  // census) is measured against the same state: see `matchNodeSettleScript`. Other arms compare against the capture itself.
+  let controlRef = capturedPng;
+  if (scriptOpts.matchNodeRoot !== undefined) {
+    controlRef = path.join(dir, 'current-matched.png');
+    await rephotograph(page, matchNodeSettleScript(scriptOpts.matchNodeRoot), controlRef, captured.rect);
+    await rephotograph(page, repaintScriptFor(arm), shownPng, captured.rect);
+  }
+  const control = computeDiff(controlRef, shownPng, {
     outDir: dir,
     diffFileName: 'diff-repaint-control.png',
     threshold: PIXELMATCH_THRESHOLD,

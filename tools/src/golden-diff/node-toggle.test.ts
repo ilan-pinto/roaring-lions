@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { QUIET_SCENARIO, captureScript, layerToggleScript, nodeCensusStatements } from './capture-protocol';
+import { QUIET_SCENARIO, captureScript, layerToggleScript, matchNodeSettleScript, nodeCensusStatements } from './capture-protocol';
 
 const ROOT = '/repo';
 
@@ -61,6 +61,13 @@ describe('--match-node (the legacy-matched arm)', () => {
   });
   it('re-applies after every layer toggle (a re-shown layer would otherwise un-hide a ShaderMaterial object)', () => {
     expect(layerToggleScript('fog', true, 'legacy', { matchNodeRoot: ROOT })).toContain('censusUnported');
+  });
+  it('the settle script runs the matched census, then repaints, and reads back the tick', () => {
+    const s = matchNodeSettleScript(ROOT);
+    expect(s).toContain('PORTED_MATERIAL_KEYS');
+    expect(s.indexOf('censusUnported')).toBeGreaterThan(-1);
+    expect(s.indexOf('frame(1, 0)')).toBeGreaterThan(s.indexOf('censusUnported'));
+    expect(s).toContain('tickCount');
   });
   it('is refused on a node arm', () => {
     expect(() => captureScript(QUIET_SCENARIO, 'webgpu', { matchNodeRoot: ROOT })).toThrow(/legacy-arm/);
