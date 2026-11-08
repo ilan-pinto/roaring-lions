@@ -1705,8 +1705,10 @@ describe('capture the flag v2 (GH-976 WP4): the room mints flagSetup from FLAG_S
   const FLAG = { mode: 'versus', map: 'wadi_tarfan', winMode: 'flag' };
   /** Stands `wadi_tarfan` in the list for one test (the list is a const array, read at call time). */
   const listed = async (fn: () => Promise<void>): Promise<void> => {
-    (FLAG_SETUP_MAPS as string[]).push('wadi_tarfan');
-    try { await fn(); } finally { (FLAG_SETUP_MAPS as string[]).length = 0; }
+    const list = FLAG_SETUP_MAPS as string[];
+    const before = [...list]; // restored below, never cleared
+    list.push('wadi_tarfan');
+    try { await fn(); } finally { list.splice(0, list.length, ...before); }
   };
   it('a flag room on wadi_tarfan carries no flagSetup while the list is empty', async () => {
     expect(FLAG_SETUP_MAPS).toEqual([]);

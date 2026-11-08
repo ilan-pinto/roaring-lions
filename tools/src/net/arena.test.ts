@@ -179,6 +179,7 @@ describe('pnpm arena', () => {
 
   it('GH-976 v2 R0.8: a mode game\'s default cap is the ROOM\'s: 30 minutes for a flag room on a map in FLAG_SETUP_MAPS, else the map\'s', () => {
     const list = FLAG_SETUP_MAPS as string[];
+    const before = [...list]; // restored below, never cleared
     const argv = ['--a', 'rush', '--b', 'passive', '--map', 'rujm_sawda', '--mode', 'flag'];
     expect(parseArgs(argv)).toMatchObject({ capTicks: 42_000 });
     list.push('rujm_sawda');
@@ -189,7 +190,7 @@ describe('pnpm arena', () => {
       expect(parseArgs([...argv, '--cap-ticks', '36000'])).toMatchObject({ capTicks: 36_000 });
       // Another mode on the same map is not a set-up room.
       expect(parseArgs(['--a', 'rush', '--b', 'passive', '--map', 'rujm_sawda', '--mode', 'points'])).toMatchObject({ capTicks: 42_000 });
-    } finally { list.length = 0; }
+    } finally { list.splice(0, list.length, ...before); }
   });
 
   it('reads --gate as a flag that takes no value, off by default', () => {

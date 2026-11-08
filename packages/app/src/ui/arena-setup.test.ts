@@ -221,7 +221,9 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
   });
 
   it('GH-976 v2 R0.8/R0.22: a flag room on a map in FLAG_SETUP_MAPS shows the set-up hold (45 s) and the 30-minute cap, and another mode keeps the map\'s', async () => {
-    (FLAG_SETUP_MAPS as string[]).push('wadi_tarfan');
+    const listed = FLAG_SETUP_MAPS as string[];
+    const before = [...listed]; // restored below, never cleared
+    listed.push('wadi_tarfan');
     try {
       const r = rig();
       showArenaSetup(r.host, r.deps);
@@ -237,7 +239,7 @@ describe('how to win (GH-976 P3): only the modes the lobby offers for the chosen
       modeField(r).dispatchEvent(new Event('change'));
       expect(cap.value).toBe('30000');
       expect(cap.max).toBe('30000');
-    } finally { (FLAG_SETUP_MAPS as string[]).length = 0; }
+    } finally { listed.splice(0, listed.length, ...before); }
   });
 
   it('is locked while a run is going, like the rest of the form', async () => {

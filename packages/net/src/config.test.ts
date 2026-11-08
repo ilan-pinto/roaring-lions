@@ -286,13 +286,14 @@ describe('capture the flag v2: flagSetup, FLAG_SETUP_MAPS and the cap twin (GH-9
   });
   it('flagSetupFor mints true only for a FLAG room on a listed map (read at call time)', () => {
     const list = FLAG_SETUP_MAPS as string[];
+    const before = [...list]; // restored below, never cleared
     list.push('wadi_tarfan');
     try {
       expect(flagSetupFor('wadi_tarfan', 'flag')).toBe(true);
       expect(flagSetupFor('wadi_tarfan', 'points')).toBeUndefined();
       expect(flagSetupFor('wadi_tarfan', null)).toBeUndefined();
       expect(flagSetupFor('milh_flats', 'flag')).toBeUndefined();
-    } finally { list.length = 0; }
+    } finally { list.splice(0, list.length, ...before); }
   });
   it('the cap: 30 minutes (36,000 ticks) in a set-up room on rujm_sawda, 35 without it', () => {
     expect(FLAG_SETUP_CAP_MINUTES).toBe(30);

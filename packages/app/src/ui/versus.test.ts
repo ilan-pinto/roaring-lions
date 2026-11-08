@@ -717,7 +717,9 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
   });
 
   it('GH-976 v2 R0.22: the lobby reads the hold through flagBlockOf: 45 seconds on a map in FLAG_SETUP_MAPS, 30 on every other', () => {
-    (FLAG_SETUP_MAPS as string[]).push('wadi_tarfan');
+    const listed = FLAG_SETUP_MAPS as string[];
+    const before = [...listed]; // restored below, never left cleared
+    listed.splice(0, listed.length, 'wadi_tarfan'); // exactly one map listed, whatever ships, so 'every other' is true
     try {
       const { stage } = mount();
       pick(mapRadio(stage, 'wadi_tarfan'));
@@ -726,7 +728,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       pick(mapRadio(stage, 'milh_flats'));
       pick(winRadios(stage).find((r) => r.value === 'flag')!);
       expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('for 30 seconds');
-    } finally { (FLAG_SETUP_MAPS as string[]).length = 0; }
+    } finally { listed.splice(0, listed.length, ...before); }
   });
 
   it('a pick that the next pairing does not offer is dropped, not carried to a cell it was never read fair on', async () => withFactionPoints(['kdf'], async () => {
