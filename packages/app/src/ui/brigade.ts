@@ -681,6 +681,12 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       // The Garage's own purchase, at the unit's credit price (GH-317).
       onBuyCredits:
         opts.onBuy === undefined ? undefined : (unitId, price) => storesAnswered(opts.onBuy?.(unitId, price), `unit:${unitId}`),
+      // The tier row's credit Buy (D5) is the Garage's own: `onBuyUpgrade` runs `buyTierWithCredits`, which
+      // recomputes the ask from a fresh read (one path; the button's price is checked there, never trusted).
+      onBuyTierCredits:
+        opts.onBuyUpgrade === undefined
+          ? undefined
+          : (unitId, track, to, price) => storesAnswered(opts.onBuyUpgrade?.(unitId, track, to, price), `credits:${unitId}.${track}`),
       units: state.units,
       ledger: opts.ledger,
       credits: state.credits,
