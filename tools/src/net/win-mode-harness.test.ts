@@ -7,7 +7,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { versusModes } from '@lions/data';
+import { flagBlockOf, versusModes } from '@lions/data';
 import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
 import { pointsViewOf } from '../../../packages/app/src/net/points-view';
 import { flagViewOf } from '../../../packages/app/src/net/flag-view';
@@ -108,8 +108,8 @@ describe('observe in a flag room (GH-976 P3)', () => {
       const fog = new FogTracker(w.sim, 0);
       const v = sideView(w, 0, fog, null);
       expect(v.mode).toBe('flag');
-      const f = versusModes[map].flags!;
-      expect(v.flags).toEqual(flagViewOf(w.runtime!, { flags: f, modes: versusModes[map].modes }, 0, w.endOfSide[0]));
+      const f = flagBlockOf(versusModes[map], false).flags;
+      expect(v.flags).toEqual(flagViewOf(w.runtime!, flagBlockOf(versusModes[map], false), 0, w.endOfSide[0]));
       expect(v.flags!.holdSeconds).toBe(30);
       // Side 0 stands at the friendly end of a mirror room: it defends the friendly flag and raids the hostile one.
       expect(v.flags!.mine.at).toEqual([f.friendly.at[0], f.friendly.at[1], f.friendly.size[0], f.friendly.size[1]]);
@@ -118,6 +118,16 @@ describe('observe in a flag room (GH-976 P3)', () => {
       expect(v).not.toHaveProperty('points');
       expect(v).not.toHaveProperty('economy');
     }
+  });
+
+  it('GH-976 v2 R0.22: in a set-up room the harness reads the STAGED block: the flag_setup grounds and the 45 s hold', () => {
+    const w = buildMatchWorld({ ...modeConfig('wadi_tarfan', 'flag', 4000), flagSetup: true });
+    const v = sideView(w, 0, new FogTracker(w.sim, 0), null);
+    const staged = flagBlockOf(versusModes.wadi_tarfan, true);
+    expect(staged.flags.friendly.at).not.toEqual(flagBlockOf(versusModes.wadi_tarfan, false).flags.friendly.at);
+    expect(v.flags!.holdSeconds).toBe(45);
+    expect(v.flags!.mine.at).toEqual([staged.flags.friendly.at[0], staged.flags.friendly.at[1], staged.flags.friendly.size[0], staged.flags.friendly.size[1]]);
+    expect(v.flags!.theirs.at).toEqual([staged.flags.hostile.at[0], staged.flags.hostile.at[1], staged.flags.hostile.size[0], staged.flags.hostile.size[1]]);
   });
 
   it('a seat at the other end reads the same board from its own side: mine and theirs swap', () => {

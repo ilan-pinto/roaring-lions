@@ -1,6 +1,6 @@
 // GH-976 (WP2, R0.5): the roster sweep for weapons tight. The check that fails the day a new weapon class arrives.
 //
-// Every shipped KDF and Sarim unit type that can hurt something (a weapon, or a demolish / kamikaze / tunnel-charge
+// Every shipped unit type of EVERY faction (kdf, sarim, ashwar, rif, and whatever ships next) that can hurt something (a weapon, or a demolish / kamikaze / tunnel-charge
 // ability: beams, the swarm, mortars, rockets, ATGMs, snipers, demo and breach charge teams, the dozer), registered the way
 // a room registers it (`sim.addUnitType` on the shipped JSON), stands at the edge of its own region in a set-up, in sight
 // of the other side's edge across the band, attack-moving on it. Zero `fire`, `impact`, `beam` or structure-hit event, and
@@ -45,9 +45,10 @@ const WALL = { id: 'wt_wall', name: 'Wall', hp_per_tile: 600, garrison_slots: 0,
 
 type Json = UnitTypeJson & { faction?: string };
 const HURTS = new Set(['demolish', 'kamikaze', 'tunnel_charge']);
+// No faction filter (WP3 review): the sweep exists to fail the day a new weapon class arrives, whichever faction brings it.
 const ROSTER: Json[] = (Object.entries(units) as [UnitId, Json][])
   .map(([, u]) => u)
-  .filter((u) => (u.faction === 'kdf' || u.faction === 'sarim') && ((u.weapons?.length ?? 0) > 0 || (u.abilities ?? []).some((a) => HURTS.has(a))));
+  .filter((u) => (u.weapons?.length ?? 0) > 0 || (u.abilities ?? []).some((a) => HURTS.has(a)));
 
 /** Types whose control (no set-up) stays silent in this little world, and why. Everything else must fight in its control. */
 const SILENT_CONTROL: Readonly<Record<string, string>> = {};
@@ -124,7 +125,10 @@ describe('weapons tight: the shipped roster (GH-976, R0.5)', () => {
     for (const must of ['mortar_team', 'rocket_battery', 'atgm_cell', 'sniper_team', 'demo_squad', 'breach_team', 'drone_swarm', 'aa_remetz', 'dozer_d9', 'loiter_drone', 'mbt_lavi']) {
       expect(ids, must).toContain(must);
     }
-    expect(new Set(ROSTER.map((u) => u.faction))).toEqual(new Set(['kdf', 'sarim']));
+    // The factions that must be in the sweep, written here (a filter that silently dropped one fails). The data-derived half was deleted:
+    // it recomputed ROSTER's own filter and could not fail.
+    const armedFactions = new Set(ROSTER.map((u) => u.faction));
+    for (const f of ['kdf', 'sarim', 'ashwar', 'rif']) expect(armedFactions.has(f), `faction ${f} in the sweep`).toBe(true);
   });
 
   for (const band of [4, 0]) {
@@ -145,4 +149,64 @@ describe('weapons tight: the shipped roster (GH-976, R0.5)', () => {
     }
     expect(silent.sort()).toEqual(Object.keys(SILENT_CONTROL).sort());
   });
+});
+
+// ---- the garrisoned shooter, on its own (WP3 review) ---------------------------------------------------------------------
+// The sub-case inside `play` could pass vacuously: if the unit never reached the house it was an ordinary rifleman and the
+// check said nothing about a window. Here the garrison is the point: a unit ordered into a house in its own region is asserted
+// INSIDE it (`garrisonedIn`), and the same world with no set-up must show that very unit firing, so a pass is not a unit that
+// could not shoot from a window. The enemy is an unarmed dummy 6 tiles off, in its own region.
+
+/** Garrisoners whose control does not fire from the window in this little world, and why. Everything else must. */
+const SILENT_GARRISON_CONTROL: Readonly<Record<string, string>> = {
+  mortar_team: 'its only weapon is a mortar: `fires_from_building` is false, so a window never fires it',
+  at_nlos_team: 'its only weapon is an indirect missile: `fires_from_building` is false, so a window never fires it',
+};
+
+function playGarrison(u: Json, band: number, setup: boolean, ticks: number): { inside: boolean; shots: number; hurt: boolean } {
+  const sim = new Sim({ seed: 976, width: W, height: H, capacity: 16, humanHeld: [true, true] });
+  if (setup) sim.beginSetup({ untilTick: UNTIL, region: region(band) });
+  const tU = sim.addUnitType(u);
+  const gnd = sim.addUnitType(DUMMY_GROUND);
+  const house = sim.addStructureType(HOUSE);
+  const hs = sim.addStructure(house, [24 * W + 18]);
+  const shooter = sim.spawn(tU, 0, fx.from(16.5), fx.from(24.5));
+  const dummy = sim.spawn(gnd, 1, fx.from(24.5), fx.from(24.5));
+  const dummyHp = sim.state.hp[dummy];
+  sim.queueCommand({ kind: 'garrison', ids: [shooter], structure: hs });
+  let shots = 0;
+  for (let t = 0; t < ticks; t++) for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === shooter) shots++;
+  return { inside: sim.state.garrisonedIn[shooter] === hs, shots, hurt: sim.state.hp[dummy] !== dummyHp || sim.state.alive[dummy] === 0 };
+}
+
+describe('weapons tight: a garrisoned shooter fires from nowhere before the bell (GH-976, WP3 review)', () => {
+  const GARRISONERS = ROSTER.filter((u) => (u.abilities ?? []).includes('garrison') && (u.weapons?.length ?? 0) > 0);
+
+  it('the roster has garrisoners with weapons in it', () => {
+    expect(GARRISONERS.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('an exemption from the control is true: every weapon of a silent-control type has fires_from_building false in the data', () => {
+    for (const id of Object.keys(SILENT_GARRISON_CONTROL)) {
+      const u = GARRISONERS.find((g) => g.id === id);
+      expect(u, `${id} is a garrisoner with weapons`).toBeDefined();
+      const weapons = (u?.weapons ?? []) as { fires_from_building?: boolean }[];
+      expect(weapons.length).toBeGreaterThan(0);
+      for (const w of weapons) expect(w.fires_from_building, id).toBe(false);
+    }
+  });
+
+  for (const band of [4, 0]) {
+    for (const u of GARRISONERS) {
+      it(`${u.id} (band ${band}): inside the house before the bell, and silent; the control shoots from the same window`, () => {
+        const tight = playGarrison(u, band, true, UNTIL - 1);
+        expect(tight.inside, 'entered the house during the set-up').toBe(true);
+        expect(tight.shots, 'shots during the set-up').toBe(0);
+        expect(tight.hurt, 'the dummy was hurt').toBe(false);
+        const control = playGarrison(u, band, false, UNTIL - 1);
+        expect(control.inside, 'the control also entered').toBe(true);
+        if (SILENT_GARRISON_CONTROL[u.id] === undefined) expect(control.shots, 'the control fires from the window').toBeGreaterThan(0);
+      });
+    }
+  }
 });

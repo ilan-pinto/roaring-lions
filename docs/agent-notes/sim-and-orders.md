@@ -243,8 +243,8 @@ settled and opened by GH-945 (re-seated at its own markers (10,10)/(37,37), ever
 the formation amplifies a base lean about 2.5 to 5 times, so a map needs a LEVEL base, not one merely inside 60/40). **3 Nov (GH-913): the same S4 on the three
 large maps, seeds 30000-30383 that no choice had seen** (shipped Attack, A+B pooled where a RERUN or the tunnels cell asks): Rujm Sawda (mirror, 0 TRIP of 3) and
 Milh Flats (large) (mirror, 0 TRIP of 3) OPENED; Wadi Tarfan (large) (21 cells) tripped one, placed Attack-on-both-ends Sarim friendly (the KDF end 60.4% pooled
-against a 56.5% base, bar 60), and stays closed through `VERSUS_FORMATIONS_CLOSED_MAPS`. The tests that witness the CLOSED path inject the gate
-(`seatWorldFor(cfg, sim, false)`, `roomOrderSink(..., false)`) or use the closed map (`mcp-tools.test.ts` runs its refusal on Wadi Tarfan (large)). The text below is the
+against a 56.5% base, bar 60), and was closed through `VERSUS_FORMATIONS_CLOSED_MAPS` until the 6 Nov re-run (0 TRIP of 21) and the lead's ruling of 7 Nov (GH-859): the list is empty since, and only the tel_marum economy room is closed (data). The tests that witness the CLOSED path inject the gate
+(`seatWorldFor(cfg, sim, false)`, `roomOrderSink(..., false)`) or use the closed room (`mcp-tools.test.ts` runs its refusal on a tel_marum economy room once PR 1106 lands). The text below is the
 history of the closed gate; its mechanism is unchanged.
 
 **5 Nov (the lead's ruling, GH-859): open, except `tel_marum` economy rooms.** The gate was already open on every map but `wadi_tarfan_l`; what the ruling adds is one
@@ -982,3 +982,17 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
   so a carrier in an own tile is never within half a tile of a band LZ). `support` is a runtime kind: `queueCommand` never hands it to `applyCommands`, so its
   `SETUP_REFUSED_KINDS` entry has no observable effect to read and its test row is held only by the key-set comparison. The region helper lives in
   `@lions/data` (WP1); sim tests and `tools/src/setup-weapons-tight.test.ts` build theirs inline.
+
+- **The set-up kit, `ground_only` and the bell wait (GH-976, WP3).** `Sim.setSetupKit(kit, bans)` after `beginSetup`, before tick 0, once: `kit[i]` is slot i of
+  `@lions/data`'s `SETUP_KIT_PIECES` (hesco, sandbag_post, t_wall), `bans` are `[x, y, w, h]` rects (the flags' ground). `fortify {side, kit, x, y}` and `unfortify
+  {side, x, y}` are commands; `fortifyReason(side, kit, x, y)` is the pure refusal, in this order: `not_setup`, `no_kit` (bad slot or side, or allowance 0),
+  `placements_spent` (`SETUP_PLACEMENTS_PER_SIDE` 36 lifetime accepted, never refunded: structure ids are never reused, R0.10), `outside_region` (also off the map),
+  `banned`, `occupied` (a living, surface, non-airborne, un-garrisoned, un-carried body on the tile, ANY side), then `footprintRefusal(x, y, 1, 1)` (the rules of
+  `placementReason`, extracted: `placementReason` calls it with the buildable's footprint, so field works are byte-identical), then `no_structure_slot`. An accepted
+  piece is `addStructure(.., { owner: side })` (so `fwLive` and the owned-structure latch turn on, R0.12) with `stKit[s] = slot`; `unfortify` refuses a garrisoned post
+  (`occupied`, R0.11: `removeStructure` would throw) and refunds the allowance, not the placement. New state: `kitLeft` (side x 3 + slot), `kitPlaced`, `stKit`; new
+  config: `kitStructType`, `kitBans` (both hashed). All of it folds into `hash()` inside the `setupLive` block after the marker `0x53550977`. Aircraft: `Sim.isAircraft(id)`
+  is the TYPE flag (landed or not). `ObjectiveJson.ground_only` (TS type only, never in `mission.schema.json`) makes a `capture` skip aircraft and anyone an aircraft
+  carries (landed or hovering) in `livingIn`/`contestedIn`/`enemyNear`; a unit in a GROUND vehicle keeps today's rule. `stepGoals` returns before `stepObjectives` while
+  `setupActive`, so a flag's hold clock starts at the bell. 36 placements in one tick on wadi_tarfan_l with 30 live fields cost about 6.6 ms
+  (`tools/src/perf/setup-kit-timing.ts`, printed, not a gate).

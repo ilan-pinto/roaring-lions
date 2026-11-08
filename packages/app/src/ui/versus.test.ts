@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps, paletteTeamColors } from '@lions/data';
-import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODE_FAIR_FACTION_CELLS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, FLAG_SETUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODE_FAIR_FACTION_CELLS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
 import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
@@ -714,6 +714,21 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('flag');
     expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('for 30 seconds');
     expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan', matchup: 'mirror', winMode: 'flag' });
+  });
+
+  it('GH-976 v2 R0.22: the lobby reads the hold through flagBlockOf: 45 seconds on a map in FLAG_SETUP_MAPS, 30 on every other', () => {
+    const listed = FLAG_SETUP_MAPS as string[];
+    const before = [...listed]; // restored below, never left cleared
+    listed.splice(0, listed.length, 'wadi_tarfan'); // exactly one map listed, whatever ships, so 'every other' is true
+    try {
+      const { stage } = mount();
+      pick(mapRadio(stage, 'wadi_tarfan'));
+      pick(winRadios(stage).find((r) => r.value === 'flag')!);
+      expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('for 45 seconds');
+      pick(mapRadio(stage, 'milh_flats'));
+      pick(winRadios(stage).find((r) => r.value === 'flag')!);
+      expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('for 30 seconds');
+    } finally { listed.splice(0, listed.length, ...before); }
   });
 
   it('a pick that the next pairing does not offer is dropped, not carried to a cell it was never read fair on', async () => withFactionPoints(['kdf'], async () => {

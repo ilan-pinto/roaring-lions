@@ -48,6 +48,7 @@ function machine() {
     tunnelOwner: () => -1,
     versus: true,
     economy: false,
+    setupRoom: false,
     formationAllowed: () => false,
   };
   return { sim, world, houses, west, east, wCars, eCars };

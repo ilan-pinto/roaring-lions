@@ -422,6 +422,8 @@ const COMMAND_FIELDS: { readonly [K in Command['kind']]: { readonly [F in KeysOf
   raiseWorks: { side: 'int', works: 'str', x: 'int', y: 'int', ids: 'ids' },
   cancelWorks: { side: 'int', site: 'int' },
   setupReady: { side: 'int' },
+  fortify: { side: 'int', kit: 'int', x: 'int', y: 'int' },
+  unfortify: { side: 'int', x: 'int', y: 'int' },
 };
 
 /** The seven kinds the sim sets aside for the runtime (`RuntimeCommand`); a `Record` so it too is exhaustive both ways. */

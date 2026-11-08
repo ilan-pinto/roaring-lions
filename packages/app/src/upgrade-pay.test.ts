@@ -19,6 +19,7 @@ describe('T17 creditAsk (R3 with R0.1)', () => {
     [3, 3, null],
     [2, 2, { from: 3, to: 3, price: 340, again: 0 }],
     [1, 2, { from: 2, to: 3, price: 580, again: 1 }],
+    [2, 0, { from: 3, to: 3, price: 340, again: 0 }],
   ] as const)('earned %i, owned %i', (earned, owned, want) => {
     expect(creditAsk(PRICES, earned, owned)).toEqual(want);
   });
@@ -41,10 +42,18 @@ describe('buyUpgradeRun refusals', () => {
     expect(r.account).toBe(funded);
   });
   it('price must be a positive integer', () => {
-    for (const price of [0, -5, 2.5, Number.NaN]) {
+    for (const price of [0, -5, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       const r = buyUpgradeRun(funded, 'u', 'armour', 1, 3, price);
       expect(r.ok).toBe(false);
       expect(r.account).toBe(funded);
+    }
+  });
+  it('from and to must be integers', () => {
+    const rich = payMission(emptyAccount(), 'm', 100000, 1).account;
+    for (const [from, to] of [[1, 2.5], [1, Number.POSITIVE_INFINITY], [1, Number.NaN], [1.5, 2], [Number.NaN, 2]] as const) {
+      const r = buyUpgradeRun(rich, 'u', 'armour', from, to, 100);
+      expect(r.ok).toBe(false);
+      expect(r.account).toBe(rich);
     }
   });
   it('the balance must cover the price', () => {
@@ -85,11 +94,14 @@ function mulberry32(seed: number): () => number {
 }
 
 describe('T18 G2: credits and coins on one track, against an independent shadow', () => {
-  const START = 500;
+  // Epochs alternate a rich start (a full 1..3 run, 740, is affordable) and a poor one.
+  const startOf = (epoch: number): number => (epoch % 2 === 0 ? 1200 : 500);
   const COIN_PRICE = [30, 40, 50] as const;
   for (const seed of [1, 7, 42, 99]) {
     it(`a 200-operation walk (seed ${seed}) keeps earned, spend and the network view exact`, () => {
       const rnd = mulberry32(seed);
+      let epoch = 0;
+      let START = startOf(epoch);
       const fresh = (): { a: BrigadeAccount; w: RoarWallet } => ({
         a: payMission(emptyAccount(), 'm', START, 1).account,
         w: grantCouponCoins(emptyRoar(), 5000, ['c'], 1),
@@ -99,7 +111,8 @@ describe('T18 G2: credits and coins on one track, against an independent shadow'
       let shadowEarned = 0;
       let shadowSpent = 0;
       let shadowCoins = 0;
-      let prevOwned = 0;
+      let prevEarnedOnAccount = 0;
+      let topRuns = 0;
       let creditRuns = 0;
       let coinBuys = 0;
       let refused = 0;
@@ -135,13 +148,23 @@ describe('T18 G2: credits and coins on one track, against an independent shadow'
               shadowEarned = ask.to;
               shadowSpent += expected;
               creditRuns++;
+              if (ask.to === 3) {
+                topRuns++;
+                // The run reached the top tier: both views and the balance agree, right here.
+                expect(a.upgrades.u?.armour).toBe(3);
+                expect(networkView(a, w).ownedTiers.u?.armour).toBe(3);
+                expect(singlePlayerView(a, w).ownedTiers.u?.armour).toBe(3);
+                expect(a.balance).toBe(START - shadowSpent);
+              }
             } else {
               expect(res.account).toBe(a);
               refused++;
             }
           }
         } else {
-          // A stale or forged run is refused whatever the balance.
+          // A run whose `from` skips a tier (stale) is refused whatever the balance.
+          // A forged PRICE with valid from/to is accepted by buyUpgradeRun by design: the
+          // caller (the WP5 handler) is the guard, not this function.
           const res = buyUpgradeRun(a, 'u', 'armour', shadowEarned + 2, shadowEarned + 2, 1);
           expect(res.ok).toBe(false);
           expect(res.account).toBe(a);
@@ -150,22 +173,27 @@ describe('T18 G2: credits and coins on one track, against an independent shadow'
         expect(a.upgrades.u?.armour ?? 0).toBe(shadowEarned);
         expect(networkView(a, w).ownedTiers.u?.armour ?? 0).toBe(shadowEarned);
         expect(singlePlayerView(a, w).ownedTiers.u?.armour ?? 0).toBe(Math.max(shadowEarned, shadowCoins));
-        expect(shadowSpent).toBeGreaterThanOrEqual(sumLiteral(1, shadowEarned));
+        // Account side: what left the balance covers the literal prices of every tier now held.
+        expect(START - a.balance).toBeGreaterThanOrEqual(sumLiteral(1, a.upgrades.u?.armour ?? 0));
         expect(a.balance).toBe(START - shadowSpent);
         expect(a.earned_total).toBe(START);
         expect(a.grants).toHaveLength(1);
         const now = Math.max(shadowEarned, shadowCoins);
-        expect(now).toBeGreaterThanOrEqual(prevOwned);
-        prevOwned = now;
+        const earnedOnAccount = a.upgrades.u?.armour ?? 0;
+        expect(earnedOnAccount).toBeGreaterThanOrEqual(prevEarnedOnAccount);
+        prevEarnedOnAccount = earnedOnAccount;
         // New epoch once the track is full, so the walk keeps exercising short balances.
         if (now >= 3 && rnd() < 0.5) {
+          epoch++;
+          START = startOf(epoch);
           ({ a, w } = fresh());
-          shadowEarned = shadowSpent = shadowCoins = prevOwned = 0;
+          shadowEarned = shadowSpent = shadowCoins = prevEarnedOnAccount = 0;
         }
       }
       // The walk must have reached the interesting cases, or it proves nothing.
       expect(creditRuns).toBeGreaterThan(5);
       expect(coinBuys).toBeGreaterThan(5);
+      expect(topRuns).toBeGreaterThan(0);
       expect(refused).toBeGreaterThan(0);
       expect(nulls).toBeGreaterThan(0);
     });

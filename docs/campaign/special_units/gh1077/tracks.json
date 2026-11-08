@@ -1,0 +1,590 @@
+{
+  "air_medevac_heli": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "hull.hp": 56,
+            "hull.armor.front": 0,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 200,
+          "patch": {
+            "hull.hp": 120,
+            "hull.armor.front": 0,
+            "hull.armor.side": 3,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 280,
+          "patch": {
+            "hull.hp": 200,
+            "hull.armor.front": 0,
+            "hull.armor.side": 5,
+            "hull.armor.rear": 4
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 110,
+          "patch": {
+            "sensors.optics": 0.09,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 165,
+          "patch": {
+            "sensors.optics": 0.17,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 230,
+          "patch": {
+            "sensors.optics": 0.28,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  },
+  "at_nlos_team": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 105,
+          "patch": {
+            "hull.hp": 27,
+            "hull.armor.front": 1,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 160,
+          "patch": {
+            "hull.hp": 57,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 225,
+          "patch": {
+            "hull.hp": 95,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 85,
+          "patch": {
+            "sensors.optics": 0.1,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 130,
+          "patch": {
+            "sensors.optics": 0.18,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 185,
+          "patch": {
+            "sensors.optics": 0.3,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    },
+    "firepower": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "weapons[0].accuracy": 0.03,
+            "weapons[0].penetration": 80
+          }
+        },
+        {
+          "price": 200,
+          "patch": {
+            "weapons[0].accuracy": 0.06,
+            "weapons[0].penetration": 160
+          }
+        },
+        {
+          "price": 280,
+          "patch": {
+            "weapons[0].accuracy": 0.07,
+            "weapons[0].penetration": 250
+          }
+        }
+      ]
+    }
+  },
+  "inf_grenadier": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "hull.hp": 28,
+            "hull.armor.front": 1,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 190,
+          "patch": {
+            "hull.hp": 60,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 270,
+          "patch": {
+            "hull.hp": 100,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 105,
+          "patch": {
+            "sensors.optics": 0.08,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 160,
+          "patch": {
+            "sensors.optics": 0.15,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 225,
+          "patch": {
+            "sensors.optics": 0.25,
+            "sensors.sight_tiles": 2
+          }
+        }
+      ]
+    },
+    "firepower": {
+      "tiers": [
+        {
+          "price": 160,
+          "patch": {
+            "weapons[0].accuracy": 0.03,
+            "weapons[0].penetration": 2
+          }
+        },
+        {
+          "price": 240,
+          "patch": {
+            "weapons[0].accuracy": 0.06,
+            "weapons[0].penetration": 5
+          }
+        },
+        {
+          "price": 335,
+          "patch": {
+            "weapons[0].accuracy": 0.1,
+            "weapons[0].penetration": 8
+          }
+        }
+      ]
+    }
+  },
+  "inf_medic_squad": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 120,
+          "patch": {
+            "hull.hp": 25,
+            "hull.armor.front": 1,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 175,
+          "patch": {
+            "hull.hp": 54,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 250,
+          "patch": {
+            "hull.hp": 90,
+            "hull.armor.front": 2,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 95,
+          "patch": {
+            "sensors.optics": 0.08,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 150,
+          "patch": {
+            "sensors.optics": 0.15,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 205,
+          "patch": {
+            "sensors.optics": 0.25,
+            "sensors.sight_tiles": 2
+          }
+        }
+      ]
+    }
+  },
+  "mbt_lavi_camo": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 385,
+          "patch": {
+            "hull.hp": 210,
+            "hull.armor.front": 14,
+            "hull.armor.side": 6,
+            "hull.armor.rear": 3
+          }
+        },
+        {
+          "price": 575,
+          "patch": {
+            "hull.hp": 450,
+            "hull.armor.front": 25,
+            "hull.armor.side": 11,
+            "hull.armor.rear": 5
+          }
+        },
+        {
+          "price": 815,
+          "patch": {
+            "hull.hp": 750,
+            "hull.armor.front": 35,
+            "hull.armor.side": 15,
+            "hull.armor.rear": 8
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 315,
+          "patch": {
+            "sensors.optics": 0.1,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 480,
+          "patch": {
+            "sensors.optics": 0.18,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 670,
+          "patch": {
+            "sensors.optics": 0.3,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    },
+    "firepower": {
+      "tiers": [
+        {
+          "price": 480,
+          "patch": {
+            "weapons[0].accuracy": 0.03,
+            "weapons[0].penetration": 104
+          }
+        },
+        {
+          "price": 720,
+          "patch": {
+            "weapons[0].accuracy": 0.06,
+            "weapons[0].penetration": 208
+          }
+        },
+        {
+          "price": 1010,
+          "patch": {
+            "weapons[0].accuracy": 0.1,
+            "weapons[0].penetration": 325
+          }
+        }
+      ]
+    }
+  },
+  "spg_cluster": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 160,
+          "patch": {
+            "hull.hp": 98,
+            "hull.armor.front": 4,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 240,
+          "patch": {
+            "hull.hp": 210,
+            "hull.armor.front": 9,
+            "hull.armor.side": 4,
+            "hull.armor.rear": 3
+          }
+        },
+        {
+          "price": 340,
+          "patch": {
+            "hull.hp": 350,
+            "hull.armor.front": 15,
+            "hull.armor.side": 8,
+            "hull.armor.rear": 5
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "sensors.optics": 0.07,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 200,
+          "patch": {
+            "sensors.optics": 0.14,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 280,
+          "patch": {
+            "sensors.optics": 0.23,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  },
+  "spg_long_range": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 160,
+          "patch": {
+            "hull.hp": 98,
+            "hull.armor.front": 4,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 240,
+          "patch": {
+            "hull.hp": 210,
+            "hull.armor.front": 9,
+            "hull.armor.side": 4,
+            "hull.armor.rear": 3
+          }
+        },
+        {
+          "price": 340,
+          "patch": {
+            "hull.hp": 350,
+            "hull.armor.front": 15,
+            "hull.armor.side": 8,
+            "hull.armor.rear": 5
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "sensors.optics": 0.07,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 200,
+          "patch": {
+            "sensors.optics": 0.14,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 280,
+          "patch": {
+            "sensors.optics": 0.23,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  },
+  "ugv_recon_dog": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 75,
+          "patch": {
+            "hull.hp": 11
+          }
+        },
+        {
+          "price": 115,
+          "patch": {
+            "hull.hp": 24
+          }
+        },
+        {
+          "price": 160,
+          "patch": {
+            "hull.hp": 40
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 65,
+          "patch": {
+            "sensors.optics": 0.13,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 95,
+          "patch": {
+            "sensors.optics": 0.24,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 135,
+          "patch": {
+            "sensors.optics": 0.4,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  },
+  "veh_ambulance": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 215,
+          "patch": {
+            "hull.hp": 119,
+            "hull.armor.front": 17,
+            "hull.armor.side": 11,
+            "hull.armor.rear": 6
+          }
+        },
+        {
+          "price": 325,
+          "patch": {
+            "hull.hp": 255,
+            "hull.armor.front": 36,
+            "hull.armor.side": 22,
+            "hull.armor.rear": 14
+          }
+        },
+        {
+          "price": 460,
+          "patch": {
+            "hull.hp": 425,
+            "hull.armor.front": 60,
+            "hull.armor.side": 38,
+            "hull.armor.rear": 22
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 180,
+          "patch": {
+            "sensors.optics": 0.08,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 270,
+          "patch": {
+            "sensors.optics": 0.15,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 380,
+          "patch": {
+            "sensors.optics": 0.25,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  }
+}

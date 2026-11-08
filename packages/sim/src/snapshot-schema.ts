@@ -394,6 +394,13 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'setupUntil', cls: 'state', kind: SCALAR },
   { name: 'readyMask', cls: 'state', kind: SCALAR },
   { name: 'setupRegion', cls: 'config', kind: typed('Int8Array', 'cells') },
+  // GH-976 WP3, APPENDED: the set-up kit. kitLeft (side x 3 + slot), kitPlaced (per side) and stKit (per structure) are state; the
+  // slot's structure type and the ban rects are config (a room's setup rebuilds them through setSetupKit; hashed behind setupLive).
+  { name: 'kitLeft', cls: 'state', kind: typed('Int16Array', { fixed: 6 }) },
+  { name: 'kitPlaced', cls: 'state', kind: typed('Int16Array', { fixed: 2 }) },
+  { name: 'stKit', cls: 'state', kind: typed('Int8Array', { fixed: 256 }) },
+  { name: 'kitStructType', cls: 'config', kind: typed('Int16Array', { fixed: 3 }) },
+  { name: 'kitBans', cls: 'config', kind: obj('array') },
 ];
 
 /** `Rng`'s only own property: one mulberry32 word per entity slot. */

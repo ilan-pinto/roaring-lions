@@ -196,7 +196,10 @@ describe('T21 reset and slots with credit tiers and coin tiers', () => {
     expect(exportSlot(slot)).not.toContain('entitlements');
     expect(exportSlot(slot)).not.toContain('paidTiers');
     // Play on: spend more credits, buy another coin tier, then load the slot back.
-    s.writeAccount(buyUpgradeRun(earned, 'spg_long_range', 'armour', 3, 3, 340).account);
+    const played = buyUpgradeRun(earned, 'spg_long_range', 'armour', 3, 3, 340);
+    expect(played.ok, 'the purchase after the slot was saved landed').toBe(true);
+    s.writeAccount(played.account);
+    expect(s.readAccount().upgrades.spg_long_range?.armour, 'play-on moved the tier before the load').toBe(3);
     s.writeRoar({ ...coinWallet(), coins: { free: 1, paid: 0 } });
     const newer = s.map.get(ROAR_KEY);
     const loaded = loadSlot(s, 'a');

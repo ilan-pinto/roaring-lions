@@ -1139,6 +1139,9 @@ export const FM_CASUALTY_TICK = 180;
 // The set-up world (GH-976, WP2): SETUP_WORLD_PIN's replay. A 32x32 open map, seats at (6,6) and (25,25), a band of 4, a
 // set-up of 200 ticks. Side 0 orders its squad across the line at tick 1 (the clamp holds it), side 1 presses Ready at 20
 // and side 0 at 40 (the early bell at 140), and after the bell both sides attack-move on each other's centroid. 600 ticks.
+// WP3 adds the kit: at tick 0 side 0 places six hesco and a sandbag post (and one hesco across the line, refused
+// `outside_region`), side 1 two t-walls and two hesco; at tick 2 side 0 takes one hesco down, and at tick 3 one rifleman is
+// ordered into the post. Structure ids follow the order of acceptance (the map has none): hesco 0-5, the post 6, side 1's 7-10.
 
 export const SETUP_SEED = 976;
 export const SETUP_SIZE = 32;
@@ -1172,6 +1175,21 @@ export function setupRegionOf(size: number, a: readonly [number, number], b: rea
   return out;
 }
 
+/** The kit's pieces, as the data package's JSON states them (the sim package imports nothing, so inline), in SETUP_KIT_PIECES order. */
+const SETUP_KIT_TYPES = [
+  { id: 'hesco', name: 'HESCO Bastion', hp_per_tile: 600, garrison_slots: 0, rubble_cover: 2, low_profile: true, standing_cover: 3 },
+  { id: 'sandbag_post', name: 'Sandbag Post', hp_per_tile: 120, garrison_slots: 1, garrison_cover: 1, floors: 1, rubble_cover: 1, low_profile: true, standing_cover: 2 },
+  { id: 't_wall', name: 'T-Wall', hp_per_tile: 900, garrison_slots: 0, rubble_cover: 2 },
+] as const;
+/** Side 0's six hesco (kit 0), its post (kit 1) and the tile it takes back down; side 1's t-walls (kit 2) and hesco. All own-region, none under a unit. */
+export const SETUP_HESCO_0: readonly (readonly [number, number])[] = [[8, 4], [10, 5], [12, 6], [14, 7], [6, 10], [7, 12]];
+export const SETUP_POST_0 = [10, 9] as const;
+export const SETUP_UNFORTIFY_0 = [14, 7] as const;
+export const SETUP_REFUSED_0 = [22, 22] as const; // side 1's ground: refused outside_region
+export const SETUP_TWALL_1: readonly (readonly [number, number])[] = [[20, 24], [22, 23]];
+export const SETUP_HESCO_1: readonly (readonly [number, number])[] = [[24, 21], [26, 20]];
+export const SETUP_POST_ID = 6;
+
 export interface SetupWorldIds {
   readonly squad0: number[];
   readonly tank0: number;
@@ -1187,6 +1205,8 @@ export function setupSetup(seed: number): { sim: Sim; ids: SetupWorldIds } {
   });
   const rifles = sim.addUnitType(RIFLES);
   const tank = sim.addUnitType(TANK);
+  const [hesco, post, twall] = SETUP_KIT_TYPES.map((j) => sim.addStructureType(j));
+  sim.setSetupKit([{ structType: hesco, allowance: 12 }, { structType: post, allowance: 4 }, { structType: twall, allowance: 2 }], [[1, 1, 2, 2]]);
   const put = (type: number, side: number, x: number, y: number): number => sim.spawn(type, side, fx.from(x + 0.5), fx.from(y + 0.5));
   const squad0 = [put(rifles, 0, 11, 11), put(rifles, 0, 10, 12), put(rifles, 0, 12, 10)];
   const tank0 = put(tank, 0, 9, 9);
@@ -1208,7 +1228,16 @@ function centroidOf(sim: Sim, ids: readonly number[]): [number, number] {
 
 export function setupDrive(sim: Sim, t: number, ids: SetupWorldIds): void {
   const at = (n: number): number => fx.from(n + 0.5);
+  if (t === 0) {
+    for (const [x, y] of SETUP_HESCO_0) sim.queueCommand({ kind: 'fortify', side: 0, kit: 0, x, y });
+    sim.queueCommand({ kind: 'fortify', side: 0, kit: 1, x: SETUP_POST_0[0], y: SETUP_POST_0[1] });
+    sim.queueCommand({ kind: 'fortify', side: 0, kit: 0, x: SETUP_REFUSED_0[0], y: SETUP_REFUSED_0[1] });
+    for (const [x, y] of SETUP_TWALL_1) sim.queueCommand({ kind: 'fortify', side: 1, kit: 2, x, y });
+    for (const [x, y] of SETUP_HESCO_1) sim.queueCommand({ kind: 'fortify', side: 1, kit: 0, x, y });
+  }
   if (t === 1) sim.queueCommand({ kind: 'move', ids: ids.squad0, x: at(27), y: at(27) });
+  if (t === 2) sim.queueCommand({ kind: 'unfortify', side: 0, x: SETUP_UNFORTIFY_0[0], y: SETUP_UNFORTIFY_0[1] });
+  if (t === 3) sim.queueCommand({ kind: 'garrison', ids: [ids.squad0[0]], structure: SETUP_POST_ID });
   if (t === 20) sim.queueCommand({ kind: 'setupReady', side: 1 });
   if (t === 40) sim.queueCommand({ kind: 'setupReady', side: 0 });
   if (t === 141) {
