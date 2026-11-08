@@ -567,7 +567,7 @@ fit) reads exactly these, and nothing else, red:
   machine's load (it passes alone): not a pin.
 
 **Formations are already OPEN on `milh_flats_l`** (above: the FIRST build's S4, mirror cell, seeds 30000-30191), and
-`VERSUS_FORMATIONS_CLOSED_MAPS` holds only `wadi_tarfan_l`. The redo has had NO S4 run of its own, and a map's base must be level
+`VERSUS_FORMATIONS_CLOSED_MAPS` is empty since 7 Nov (only the tel_marum economy room is closed, as data). The redo has had NO S4 run of its own, and a map's base must be level
 before it is offered with formations (GH-945 amplifies a lean 2.5-5x). So a file-copy swap would open an unchecked geometry with
 formations on: in the same commit, either re-run S4 on fresh seeds (`pnpm s4:gate` over `versus:probe --per-seed` files) or add
 `milh_flats_l` to `VERSUS_FORMATIONS_CLOSED_MAPS`.
@@ -669,7 +669,7 @@ past the branch's: no sim change). The geometry was read once on seeds 0-191 and
 Inside 60/40 on both reads. The redo leans east by about 3.5 points where the shipped map reads even; at 480 games the standard error is
 2.3 points, so that is 1.5 sigma, a lean to watch and not a finding. Not re-read: one-tile seat shifts, S4 formations, the economy and
 tunnel cells (the redo changes none of the economy, but its ground is new: a KDF v Sarim opening needs them), and the lane probe of design
-section 4. **Formations are OPEN on `rujm_sawda`** (`VERSUS_FORMATIONS_CLOSED_MAPS` holds only `wadi_tarfan_l`; the shipped geometry passed
+section 4. **Formations are OPEN on `rujm_sawda`** (`VERSUS_FORMATIONS_CLOSED_MAPS` is empty since 7 Nov and only the tel_marum economy room is closed; the shipped geometry passed
 its own S4 on 3 Nov), so a file-copy swap would open an unchecked geometry with formations on: in the same commit either re-run S4 on fresh
 seeds (`pnpm s4:gate` over `versus:probe --per-seed` files) or add `rujm_sawda` to `VERSUS_FORMATIONS_CLOSED_MAPS`.
 

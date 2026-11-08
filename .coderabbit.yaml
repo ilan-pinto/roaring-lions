@@ -7,6 +7,10 @@ reviews:
   high_level_summary: true
   poem: false
   review_status: true
+  pre_merge_checks:
+    # The docstring-coverage check was most of the trial's noise (lead, 8 Nov).
+    docstrings:
+      mode: "off"
   collapse_walkthrough: true
   auto_review:
     enabled: true
@@ -47,4 +51,6 @@ reviews:
         Every check must be able to fail. Flag a test that normalises by what it measures, asserts an identity,
         recomputes its own expected value from the code under test, or loops over a possibly empty array.
 chat:
-  auto_reply: true
+  # Off: a reply to a finding no longer draws a bot follow-up, which was half the thread volume (lead, 8 Nov).
+  # Mention @coderabbitai to ask it something.
+  auto_reply: false

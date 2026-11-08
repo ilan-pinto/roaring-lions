@@ -13,26 +13,33 @@ export interface ParityRow {
   readonly band: BandName;
   /** The ratio read on CI (node / legacy-matched), per node key, once recorded. `null` until a task has 3 CI runs of it. */
   readonly r0: { readonly wgl2: number | null; readonly wgpu: number | null };
+  /**
+   * The node arm's floor on the primary delta, per node key: a third of the smallest of 3 CI runs. `null` until a task has read it
+   * (the port tasks fill their own). Below the floor, or exactly 0 while it is null, parity-run prints DEAD (REPORT-ONLY, ruling 3).
+   * Optional so rows built elsewhere (the P1 sheet tests) still type; absent reads as null. Ignored on a `zero` row: those are MEANT to read 0 on the node arm.
+   */
+  readonly nodeFloor?: { readonly wgl2: number | null; readonly wgpu: number | null };
   /** What the row asks, one line. */
   readonly note: string;
 }
 
 const UNREAD = { wgl2: null, wgpu: null } as const;
+const NO_FLOOR = { wgl2: null, wgpu: null } as const;
 
 export const PARITY_ROWS: readonly ParityRow[] = [
-  { scenario: 'quiet', layer: 'repaint-control', band: 'zero', r0: UNREAD, note: 'a zero-time repaint moves nothing on either arm' },
-  { scenario: 'quiet', layer: 'environment', band: 'loose', r0: UNREAD, note: 'T6: intensity on node, null envMap on legacy' },
-  { scenario: 'quiet', layer: 'haze', band: 'tight', r0: UNREAD, note: 'T4: haze lives in the fog pass' },
-  { scenario: 'quiet', layer: 'vignette', band: 'tight', r0: UNREAD, note: 'T3: vignette x roundTripHalf, after the grade' },
-  { scenario: 'relief', layer: 'vignette', band: 'tight', r0: UNREAD, note: 'T3: the second vignette witness (tel_marum, different corners)' },
-  { scenario: 'fogged', layer: 'fog', band: 'tight', r0: UNREAD, note: 'T4: shroud' },
-  { scenario: 'fogged', layer: 'haze', band: 'tight', r0: UNREAD, note: 'T4' },
-  { scenario: 'fogged', layer: 'environment', band: 'loose', r0: UNREAD, note: 'T6' },
-  { scenario: 'graded', layer: 'grade', band: 'tight', r0: UNREAD, note: 'T3: the grade LUT, display-referred' },
-  { scenario: 'graded', layer: 'environment', band: 'loose', r0: UNREAD, note: 'T6' },
+  { scenario: 'quiet', layer: 'repaint-control', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'a zero-time repaint moves nothing on either arm' },
+  { scenario: 'quiet', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6: intensity on node, null envMap on legacy' },
+  { scenario: 'quiet', layer: 'haze', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T4: haze lives in the fog pass' },
+  { scenario: 'quiet', layer: 'vignette', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T3: vignette x roundTripHalf, after the grade' },
+  { scenario: 'relief', layer: 'vignette', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T3: the second vignette witness (tel_marum, different corners)' },
+  { scenario: 'fogged', layer: 'fog', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T4: shroud' },
+  { scenario: 'fogged', layer: 'haze', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T4' },
+  { scenario: 'fogged', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6' },
+  { scenario: 'graded', layer: 'grade', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T3: the grade LUT, display-referred' },
+  { scenario: 'graded', layer: 'environment', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T6' },
   // GH-943 P1 (T5): bloom adds exactly 0 wherever nothing exceeds linear luminance 1.0 (a ZERO check on every quiet gated scenario).
   ...['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'].map(
-    (scenario): ParityRow => ({ scenario, layer: 'bloom', band: 'zero', r0: UNREAD, note: 'T5: bloom adds +0 on a frame with nothing over 1.0' })
+    (scenario): ParityRow => ({ scenario, layer: 'bloom', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: bloom adds +0 on a frame with nothing over 1.0' })
   ),
 ];
 
