@@ -199,7 +199,7 @@ function disturbNodes(deps: NodeFoliageDeps, rec: DisturbUniformSet, bind: (r: {
     uDisturbB,
     uDisturbBox: bind(rec.box),
     uDisturbN: bind(rec.n),
-    uDisturbAmp: bind(rec.amp),
+    uDisturbAmp: deps.TSL.uniform(0) as unknown as N,
     uDisturbSpring: bind(rec.spring),
   };
   DISTURB_BY_RECORD.set(rec, nodes);
