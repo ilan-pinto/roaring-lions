@@ -13,8 +13,9 @@
  *      and G. Six difference panels (x8).
  *   3. The node census per arm (`unportedHooks()` on G and F; the matched census on L), classified against `CENSUS_RULES`.
  *   4. A count of GPUValidationErrors over every page and every child's output, and a black/flat check of every node frame.
- * `--report-only` rebuilds the numbers and the sheet from `p2-data.json` in --out-dir (no browser, no lock), so a rule table can be
- * corrected after the run is READ without a second lock hold.
+ * `--report-only` rebuilds the numbers and the sheet from `p2-data.json` in --out-dir (no GPU run, no lock, no dev server), so a rule
+ * table can be corrected after the run is READ without a second lock hold. It still opens a plain headless Chromium (no GPU args) to
+ * screenshot the written `p2-sheet.html` into `p2-sheet.png`, so Playwright's browser must be installed.
  * REFUSES (exit 2) without `--lock=<dir>` naming an existing directory, on a loaded machine, or on a page that is not hardware Metal.
  * r0 and the node floors are NOT measured here: they are printed from `parity-bands.ts`, where CI's three runs per key put them.
  */
