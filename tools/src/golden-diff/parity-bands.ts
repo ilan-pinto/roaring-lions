@@ -47,10 +47,10 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   { scenario: 'open-ground', layer: 'macro', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3' },
   { scenario: 'aftermath', layer: 'macro', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T3' },
   // GH-943 P2 (T4): the relief read on the node ground (`terrain/mesh.node.ts`, maths in `terrain/relief-read.ts`). `loose`.
-  { scenario: 'relief', layer: 'slope-light', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T4: the lighting normal tilted by gain 2, capped at 38 degrees' },
-  { scenario: 'aftermath', layer: 'slope-light', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T4' },
-  { scenario: 'relief', layer: 'height-contours', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T4: half-level contour lines and the height tint' },
-  { scenario: 'aftermath', layer: 'height-contours', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T4' },
+  { scenario: 'relief', layer: 'slope-light', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.0188, wgpu: 0.0186 }, note: 'P2 T4: the lighting normal tilted by gain 2, capped at 38 degrees' },
+  { scenario: 'aftermath', layer: 'slope-light', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.5096, wgpu: 0.5072 }, note: 'P2 T4' },
+  { scenario: 'relief', layer: 'height-contours', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.1571, wgpu: 0.156 }, note: 'P2 T4: half-level contour lines and the height tint' },
+  { scenario: 'aftermath', layer: 'height-contours', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.1333, wgpu: 0.1328 }, note: 'P2 T4' },
   // GH-943 P1 (T5): bloom adds exactly 0 wherever nothing exceeds linear luminance 1.0 (a ZERO check on every quiet gated scenario).
   ...['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'].map(
     (scenario): ParityRow => ({ scenario, layer: 'bloom', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: bloom adds +0 on a frame with nothing over 1.0' })
