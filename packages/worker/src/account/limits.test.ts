@@ -39,6 +39,20 @@ describe('account limits', () => {
     expect(await opBudget(h.db, 'm2', NOW)).toBe(true);
   });
 
+  it('opBudget refuses the 20,001st write overall, across members (acct-all)', async () => {
+    const h = accountHarness();
+    for (let i = 0; i < 20_000; i++) expect(await opBudget(h.db, `m${i}`, NOW)).toBe(true);
+    expect(await opBudget(h.db, 'm-next', NOW)).toBe(false);
+  });
+
+  it('a missing cf-connecting-ip counts under one shared "unknown" key', async () => {
+    const h = accountHarness();
+    const env = { ...h.env, TICKET_SECRET: 's' };
+    const bare = new Request('https://x.test/');
+    for (let i = 0; i < 5; i++) expect(await newAccountBudget(h.db, env, bare, NOW)).toBe(true);
+    expect(await newAccountBudget(h.db, env, bare, NOW)).toBe(false);
+  });
+
   it('perMinute: true means limited; no limiter means not limited', async () => {
     const seen: string[] = [];
     const deny = { limit: async (o: { key: string }) => (seen.push(o.key), { success: false }) };
