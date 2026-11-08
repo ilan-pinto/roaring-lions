@@ -13,7 +13,11 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { censusChunks, type Chunk } from './bundle-census';
 
-/** The entry chunk's ceiling, bytes: measured 1,794,107 bytes with P0 on 5 Nov 2026 (origin/main d05cd6da5 + this branch); this is the ratchet, never raised to fit a change. */
+/**
+ * The entry's ceiling, bytes (`code.length`): measured 1,794,107 bytes with P0 on 5 Nov 2026 (origin/main d05cd6da5 + this branch);
+ * this is the ratchet, never raised to fit a change. Since 8 Nov 2026 it holds the entry chunk PLUS every chunk the entry statically
+ * imports (`entryClosureBytes`), unchanged in value: at origin/main c9a230a23 that sum was 1,857,936 (the entry 1,857,778 + the 158-byte runtime chunk).
+ */
 export const MAIN_CHUNK_MAX_BYTES = 1_850_000;
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -46,7 +50,9 @@ const f = censusChunks(chunks, entry, maxArg);
 const row = (c: Chunk): string => `${c.file}  raw ${(c.code.length / 1024).toFixed(1)} KiB  gzip ${((c.gzipBytes ?? 0) / 1024).toFixed(1)} KiB`;
 const pick = (files: string[]): Chunk[] => chunks.filter((c) => files.includes(c.file));
 const lines: string[] = [];
-lines.push(`entry (main chunk): ${row(chunks.find((c) => c.file === entry) as Chunk)}  ceiling ${(maxArg / 1024).toFixed(0)} KiB`);
+lines.push(`entry (main chunk): ${row(chunks.find((c) => c.file === entry) as Chunk)}`);
+for (const c of pick(f.entryStaticClosure)) lines.push(`  + statically imported by the entry: ${row(c)}`);
+lines.push(`entry + static closure: ${f.entryClosureBytes} bytes (${(f.entryClosureBytes / 1024).toFixed(1)} KiB)  ceiling ${maxArg} bytes (${(maxArg / 1024).toFixed(0)} KiB)`);
 for (const c of pick(f.coreChunks)) lines.push(`three.core (+WebGLRenderer, shared): ${row(c)}`);
 for (const c of pick(f.webgpuChunks)) lines.push(`three/webgpu (lazy): ${row(c)}`);
 for (const c of chunks.filter((x) => /^three\.tsl-/.test(x.file))) lines.push(`three/tsl (lazy): ${row(c)}`);

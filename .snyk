@@ -1,0 +1,17 @@
+# Snyk (https://snyk.io) policy file
+#
+# Snyk Code scans what ships and what someone else can reach. Excluded here:
+# the developer's own tooling, design docs, art sources and unit tests, none of
+# which is built into the game or the Worker, and none of which takes input from
+# anyone but the person running it. Never exclude packages/**, assets/** or
+# data/**: that is the shipped surface. Triage and reasons: fix/snyk-code-triage.
+#
+# Patterns are relative to this file, use spaces (a tab silently disables the
+# list), and a rule that starts with `*` is quoted.
+version: v1.25.1
+exclude:
+  global:
+    - tools/**
+    - docs/**
+    - art/**
+    - "**/*.test.ts"

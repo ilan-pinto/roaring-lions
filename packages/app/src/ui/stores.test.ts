@@ -7,7 +7,7 @@ import { pseudo } from '../i18n/pseudo';
 import { setCatalogue } from '../i18n/t';
 import type { LedgerData, UnlockGate } from '@lions/sim';
 import { showBrigade, type BrigadeUnit } from './brigade';
-import { creditBuyEnabled, showStores, type StoresOptions } from './stores';
+import { creditBuyEnabled, showStores, tierCreditBuyEnabled, type StoresOptions } from './stores';
 import { COIN_PACKS } from './stores-model';
 
 /** The real KDF roster, as `main.ts` builds it for the garage. */
@@ -584,5 +584,116 @@ describe('GH-1076: the "What it adds" panel', () => {
     }
     expect(refused.sort()).toEqual(['air_medevac_heli', 'spg_cluster', 'veh_ambulance']);
     dispose();
+  });
+});
+
+
+describe('D5: "Buy with credits" on a Stores tier row (WP7, T20)', () => {
+  // spg_long_range armour: tiers 150 + 250 + 340. Coins hold tiers 1-2 (owned 2, earned 0), so the
+  // credit Buy is the RUN to tier 3: 740, while the one rung alone is 340.
+  const spg = (unlock?: UnlockGate): BrigadeUnit => ({
+    ...roster().find((u) => u.id === 'inf_squad')!,
+    id: 'spg_long_range',
+    name: 'Long-range SPG',
+    unlock,
+    upgrades: {
+      armour: {
+        tiers: [
+          { price: 150, label: 'a', patch: {} },
+          { price: 250, label: 'b', patch: {} },
+          { price: 340, label: 'c', patch: {} },
+        ],
+      },
+    } as unknown as BrigadeUnit['upgrades'],
+  });
+  const coinRun = { earnedUnits: new Set<string>(), coinUnits: new Set<string>(), earnedTiers: { spg_long_range: { armour: 0 } }, coinTiers: { spg_long_range: { armour: 2 } } };
+  const run = (over: Partial<StoresOptions> = {}) =>
+    mountStores({
+      units: [spg()],
+      credits: 345,
+      owned: { spg_long_range: { armour: 2 } },
+      coin: coinRun,
+      wallet: { coins: 2, receipts: [] },
+      onBuyTierCredits: () => undefined,
+      ...over,
+    });
+  const btn = (host: HTMLElement): HTMLButtonElement | null => host.querySelector('button[data-buy="credits:spg_long_range.armour"]');
+
+  it('Review Focus 1: 345 credits cover tier 3 (340) but not the run (740): no credit Buy', () => {
+    const m = run();
+    expect(btn(m.host)).toBeNull();
+    m.dispose();
+  });
+
+  it('at 740 credits the run label shows, and a press routes the run to onBuyTierCredits', () => {
+    const asked: [string, string, number, number][] = [];
+    const m = run({ credits: 740, onBuyTierCredits: (u, tr, to, p) => asked.push([u, tr, to, p]) });
+    expect(btn(m.host)?.textContent).toContain('Tier 3 · 740 credits (pays for tiers 1-2 again');
+    btn(m.host)?.click();
+    expect(asked).toEqual([['spg_long_range', 'armour', 3, 740]]);
+    m.dispose();
+  });
+
+  it('after a credit purchase that maxes the track, focus lands on the unit\'s tier card, not the shelf tab', () => {
+    // The press was credits:spg_long_range.armour; the redraw has no such Buy left (tier 3 owned and earned).
+    const m = run({
+      credits: 0,
+      owned: { spg_long_range: { armour: 3 } },
+      coin: { ...coinRun, earnedTiers: { spg_long_range: { armour: 3 } }, coinTiers: {} },
+      showOwned: true,
+      focusKey: 'credits:spg_long_range.armour',
+    });
+    expect(btn(m.host)).toBeNull();
+    expect(document.activeElement?.getAttribute('data-focus')).toBe('card:tiers:spg_long_range');
+    expect(document.activeElement?.getAttribute('role')).not.toBe('tab');
+    m.dispose();
+  });
+
+  it('the row credit figure follows the ask (740, not 340) and the coin figure is unchanged', () => {
+    const m = run({ credits: 740 });
+    const row = m.host.querySelector('[data-item="tiers:spg_long_range"] .rl-stores__tier');
+    expect(row?.querySelector('.rl-stores__credits')?.textContent).toContain('740');
+    expect(row?.querySelector('.rl-stores__credits')?.textContent).not.toContain('340');
+    expect(row?.querySelector('.rl-stores__coin-n')?.textContent).toBe('35');
+    m.dispose();
+  });
+
+  it('a plain one-rung ask shows the rung price when coins have not run ahead', () => {
+    const m = run({ credits: 340, owned: { spg_long_range: { armour: 2 } }, coin: { ...coinRun, earnedTiers: { spg_long_range: { armour: 2 } }, coinTiers: {} } });
+    expect(btn(m.host)?.textContent).toBe('Buy with credits · 340');
+    m.dispose();
+  });
+
+  it('T20: zero credits with plenty of coins shows no credit Buy; coins are never read', () => {
+    const m = run({ credits: 0, wallet: { coins: 99999, receipts: [] } });
+    expect(btn(m.host)).toBeNull();
+    m.dispose();
+  });
+
+  it('Review Focus 3: a locked unit shows no credit Buy', () => {
+    const m = run({ units: [spg({ roeMin: 99, price: 500, bought: false })], credits: 99999, ledger: {} });
+    // The Stores draws no tier row for an unopened unit at all (`unlockFirst`), so the render path
+    // cannot reach the button; `unitOpen` is the second lock, pinned in the pure test below. Guard
+    // against a vacuous pass: the unit card itself IS drawn.
+    expect(m.host.querySelector('[data-item="spg_long_range"]')).not.toBeNull();
+    expect(m.host.querySelector('[data-item="tiers:spg_long_range"]')).toBeNull();
+    expect(btn(m.host)).toBeNull();
+    m.dispose();
+  });
+
+  it('Review Focus 5: the preview (no handler, no wallet) shows no credit Buy', () => {
+    const m = run({ credits: 99999, onBuyTierCredits: undefined, wallet: undefined });
+    expect(btn(m.host)).toBeNull();
+    m.dispose();
+  });
+
+  it('tierCreditBuyEnabled reads the ask, credits and openness alone', () => {
+    const ask = { from: 1, to: 3, price: 740, again: 2 };
+    expect(tierCreditBuyEnabled(ask, 740, true, true)).toBe(true);
+    expect(tierCreditBuyEnabled(ask, 739, true, true)).toBe(false);
+    expect(tierCreditBuyEnabled(ask, 740, false, true)).toBe(false);
+    expect(tierCreditBuyEnabled(ask, 740, true, false)).toBe(false);
+    expect(tierCreditBuyEnabled(null, 740, true, true)).toBe(false);
+    expect(tierCreditBuyEnabled(ask, undefined, true, true)).toBe(false);
   });
 });

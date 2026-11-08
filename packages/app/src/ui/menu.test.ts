@@ -204,3 +204,32 @@ describe('showMenu: Play with a friend (N1b)', () => {
     expect(versus?.dataset.kind).toBe('secondary');
   });
 });
+
+describe('showMenu account chip', () => {
+  it('draws no chip with a disabled client or no account option', () => {
+    for (const account of [undefined, { enabled: false }]) {
+      const stage = document.createElement('div');
+      showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account });
+      expect(stage.querySelector('[data-act="profile"]')).toBeNull();
+    }
+  });
+
+  it('links to /profile with an enabled client, guest label first and the display name once known', async () => {
+    const stage = document.createElement('div');
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account: { enabled: true, name: Promise.resolve('Ilan') } });
+    const chip = stage.querySelector<HTMLAnchorElement>('[data-act="profile"]');
+    expect(chip?.getAttribute('href')).toBe('/profile');
+    expect(chip?.textContent).toBe('Sign in with Steam');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(chip?.textContent).toBe('Ilan');
+  });
+
+  it('links to /privacy only with an enabled account client', () => {
+    for (const [account, want] of [[undefined, false], [{ enabled: false }, false], [{ enabled: true }, true]] as const) {
+      const stage = document.createElement('div');
+      showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, account });
+      expect(stage.querySelector('a[href="/privacy"]') !== null).toBe(want);
+    }
+  });
+});

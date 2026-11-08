@@ -120,10 +120,11 @@ import { refugeJump, sayFlight } from './ui/refuge-ping';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
 import { isPinned } from './ui/pinned';
 import { showMenu, showCampaign, showSandbox } from './ui/menu';
-import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
+// The garage and its Stores load with the /brigade screen, never with the entry chunk (MAIN_CHUNK_MAX_BYTES).
+import type { BrigadeUnit, GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
-import { coinTiers, spendable } from './roar-wallet';
+import { spendable } from './roar-wallet';
 import { roarBackfill, settleRoarAtBoot, settleVictory, type VictorySettle } from './roar-earn';
 import { buyWithCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
@@ -174,7 +175,7 @@ import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
 import { buyUnlock } from './brigade-account';
-import { buyTierWithCredits } from './credit-buy';
+import { buildCoinHalf, buyTierWithCredits } from './credit-buy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
@@ -295,6 +296,9 @@ import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
+import { accountsEnabled } from './account/enabled';
+// The account client and the profile screen load only behind `?accounts` (GH-1075 A1), never with the entry chunk.
+import type { AccountClient } from './account/client';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { logRejoin, netReport } from './net/net-report';
@@ -936,6 +940,18 @@ async function main(): Promise<void> {
   // so `unknownParams` does not report either as a typo, and neither is in
   // `router.start`'s own `drop` list below, so a reload keeps carrying them.
   const q = new URLSearchParams(window.location.search);
+  // GH-1075 A1: the one account client of this page. Disabled (no `?accounts`, or `?fresh`) it is never even loaded, so it
+  // never calls `fetch`; enabled, its module is fetched on first use and the one client is shared by every caller.
+  const accountsOn = accountsEnabled(q);
+  let accountClientP: Promise<AccountClient> | null = null;
+  const accountClient = (): Promise<AccountClient> =>
+    (accountClientP ??= import('./account/client').then(({ createAccountClient }) =>
+      createAccountClient({
+        enabled: true,
+        fetch: window.fetch.bind(window),
+        newOpId: () => crypto.randomUUID(),
+      })
+    ));
   const lang = resolveLang(q.get('lang'), settings.language);
   const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
   const cat = await loadLocale(activeLocale, BASE);
@@ -1016,6 +1032,15 @@ async function main(): Promise<void> {
       // GH-464: the menu's feedback modal -- the pause form without a picture
       // or a replay. `closeOpenDialog()` takes it down with the screen.
       feedbackAvailable: menuFeedback.shown ? menuFeedback.open() : undefined,
+      account: {
+        enabled: accountsOn,
+        // A client module that will not load reads as signed out, as an unreachable server does (`me()` answers `off`).
+        name: accountsOn
+          ? accountClient()
+              .then((c) => c.me())
+              .then((m) => (m.kind === 'signedIn' ? m.displayName : null), () => null)
+          : undefined,
+      },
       feedback: menuFeedback.shown && !feedbackClosed()
         ? () => {
             feedbackDialog(host, {
@@ -1141,14 +1166,17 @@ async function main(): Promise<void> {
     // Loaded once: the set of ids never changes, whatever is bought.
     const portraits: Record<string, string> = {};
     const portraitIcons = new Set<string>();
-    await Promise.all(
-      kdfUnits.map(async ({ id }) => {
+    // The screen's own module (the garage, the Stores, the "What it adds" panel) is fetched beside the portraits:
+    // it is off the entry chunk (MAIN_CHUNK_MAX_BYTES, `pnpm --filter @lions/tools webgpu:bundle`).
+    const [{ showBrigade }] = await Promise.all([
+      import('./ui/brigade'),
+      ...kdfUnits.map(async ({ id }) => {
         const picture = await loadBrigadePortrait(id);
         if (picture === null) return;
         portraits[id] = picture.url;
         if (picture.isIcon) portraitIcons.add(id);
-      })
-    );
+      }),
+    ]);
     /** The answer to every purchase and to the reset: the account as the
      *  store holds it NOW, read through `accountState()` (which reads
      *  `ledgerStore.readAccount()`), never a copy this mount kept. A refusal
@@ -1158,16 +1186,7 @@ async function main(): Promise<void> {
       return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
     };
     /** Which part of the single-player account came from coins. */
-    const coinHalf = (): CoinHalf => {
-      const account = ledgerStore.readAccount();
-      const roar = ledgerStore.readRoar();
-      return {
-        earnedUnits: new Set(account.unlocks),
-        coinUnits: new Set(Object.keys(roar.entitlements.units)),
-        earnedTiers: account.upgrades,
-        coinTiers: coinTiers(roar),
-      };
-    };
+    const coinHalf = (): CoinHalf => buildCoinHalf(kdfUnits, ledgerStore.readAccount(), ledgerStore.readRoar());
     return showBrigade(host, {
       units: kdfUnits,
       ledger: ledgerStore.readLedger(),
@@ -1526,6 +1545,27 @@ async function main(): Promise<void> {
           }),
       },
       { name: 'saves', pattern: '/saves', mount: (host) => mountSaves(host) },
+      {
+        name: 'profile',
+        pattern: '/profile',
+        mount: (host, req) => {
+          if (!accountsOn) {
+            // No `?accounts`: this screen does not exist. Leave softly once the router has finished mounting.
+            queueMicrotask(() => void router.navigate(routes.menu(), { replace: true }));
+            return () => {};
+          }
+          // The screen's module and the client load together; a navigation that lands meanwhile wins (`shell/router.ts`).
+          return Promise.all([import('./ui/profile'), accountClient()]).then(([{ showProfile }, client]) =>
+            showProfile(host, {
+              client,
+              store: safeStorage(),
+              query: req.query,
+              telemetryPlayer: () => telemetry().ids()?.player ?? null,
+              navigate: (href) => window.location.assign(href),
+            })
+          );
+        },
+      },
       {
         name: 'credits',
         pattern: '/credits',

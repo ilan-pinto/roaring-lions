@@ -108,6 +108,12 @@ export function formatStop(s: StopRead): string {
   return lines.join('\n');
 }
 
+/** `--map` is the caller's text: escaped before it is compiled, so a pattern-shaped argument (ReDoS, Snyk Code) matches literally.
+ *  A map id is `[a-z0-9_]`, which this leaves unchanged. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function main(): void {
   const argv = process.argv.slice(2);
   const dir = argv.find((a) => !a.startsWith('--'));
@@ -120,7 +126,7 @@ function main(): void {
   const treatments = new Set<string>();
   let samples = 0;
   for (const name of Object.keys(views)) {
-    const m = new RegExp(`^${map}-squad-[a-z]+-read-m-(.+)-s(\\d+)$`).exec(name);
+    const m = new RegExp(`^${escapeRegExp(map)}-squad-[a-z]+-read-m-(.+)-s(\\d+)$`).exec(name);
     if (m !== null && m[1] !== undefined && m[2] !== undefined) {
       treatments.add(m[1]);
       samples = Math.max(samples, Number(m[2]) + 1);
