@@ -92,9 +92,9 @@ describe('the map is Wadi Tarfan at twice the tile', () => {
         expect(off(vent), `${r.id} vent ${vent}`).toBeLessThanOrEqual(6);
       }
     }
-    // the original's vents were 5.0 and 5.7 off it; a doubled copy would be 9.9 and 11.3
+    // the original's vents were 4.9 and 5.7 off it, and 5.7 and 5.7 since GH-884 moved route A's friendly vent from (22,15) to (22,14); a doubled copy would be 9.9 and 11.3
     const orig = (smallRules.tunnels?.friendly ?? []).map((r) => off(r.points[r.points.length - 1]));
-    expect(orig.map((v) => Math.round(v * 10) / 10)).toEqual([4.9, 5.7]);
+    expect(orig.map((v) => Math.round(v * 10) / 10)).toEqual([5.7, 5.7]);
   });
 
   it('carries the 512-entity room and the 35-minute cap (design 5.2, the lead\'s ruling of 2 Nov)', () => {
