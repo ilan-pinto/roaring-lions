@@ -24,7 +24,7 @@ import { mcpConfig, standingPrompt } from './external-player';
 import { FogTracker } from './fog-tracker';
 import { createContext, TOOLS, type ToolContext } from './mcp-tools';
 import { ROOM_BUILD, ROOM_CODE, ROOM_NOW, newRoom, play, type Loop } from './test-room';
-import { sideView } from './view';
+import { flagBoardOf, sideView } from './view';
 import { ANNIHILATION_RULE, applyWinRule, modeFlag } from './win-rule';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -110,7 +110,9 @@ describe('observe in a flag room (GH-976 P3)', () => {
       const v = sideView(w, 0, fog, null);
       expect(v.mode).toBe('flag');
       const f = flagBlockOf(versusModes[map], false).flags;
-      expect(v.flags).toEqual(flagViewOf(w.runtime!, flagBlockOf(versusModes[map], false), 0, w.endOfSide[0]));
+      // The browser's board, line for line, plus the three facts `flagBoardOf` derives from it (GH-1139).
+      expect(v.flags).toMatchObject(flagViewOf(w.runtime!, flagBlockOf(versusModes[map], false), 0, w.endOfSide[0]));
+      expect(v.flags).toEqual(flagBoardOf(flagViewOf(w.runtime!, flagBlockOf(versusModes[map], false), 0, w.endOfSide[0])));
       expect(v.flags!.holdSeconds).toBe(30);
       // Side 0 stands at the friendly end of a mirror room: it defends the friendly flag and raids the hostile one.
       expect(v.flags!.mine.at).toEqual([f.friendly.at[0], f.friendly.at[1], f.friendly.size[0], f.friendly.size[1]]);
@@ -169,7 +171,8 @@ describe('observe in a flag room (GH-976 P3)', () => {
     const v = sideView(w, 0, new FogTracker(w.sim, 0), null);
     expect(JSON.stringify(v.flags)).not.toMatch(/"(id|type|hp|tile|units|contacts)"/);
     expect(Object.keys(v.flags!).sort()).toEqual(['holdSeconds', 'mine', 'theirs']);
-    for (const line of [v.flags!.mine, v.flags!.theirs]) expect(Object.keys(line).sort()).toEqual(['at', 'held', 'state']);
+    // GH-1139: `raider`, `holder` and `secondsLeft` are derived from the line itself: still no unit, no tile.
+    for (const line of [v.flags!.mine, v.flags!.theirs]) expect(Object.keys(line).sort()).toEqual(['at', 'held', 'holder', 'raider', 'secondsLeft', 'state']);
     const annihilation = sideView(buildMatchWorld({ ...modeConfig('wadi_tarfan', 'flag', 4000), winMode: undefined }), 0, new FogTracker(w.sim, 0), null);
     expect(annihilation).not.toHaveProperty('flags');
   });

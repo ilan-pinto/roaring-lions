@@ -90,6 +90,24 @@ export class SeatMemory {
     return this.killed.get(id) ?? null;
   }
 
+  /**
+   * Every own UNIT no longer in play, newest first, at most `max` (GH-1139: the lead's bot saw its drone only as a `died`
+   * fate on an order, and a unit that was never in an order would not show at all). A wounded man's body is a casualty,
+   * not a unit (`observe.casualties`), so it is left out. `tick` is -1 for one gone before memory began.
+   */
+  lostUnits(max: number): { id: number; type: string; fate: 'died' | 'removed' | 'unknown'; tick: number }[] {
+    const sim = this.sim;
+    const out: { id: number; type: string; fate: 'died' | 'removed' | 'unknown'; tick: number }[] = [];
+    for (const [id, g] of this.gone) {
+      const type = sim.unitTypes[sim.state.typeIdx[id]];
+      if (type.isWounded) continue;
+      out.push({ id, type: type.id, fate: g.fate, tick: g.tick });
+    }
+    // Newest first; a tie (one tick) keeps id order, so two reads of one world agree.
+    out.sort((a, b) => b.tick - a.tick || a.id - b.id);
+    return out.slice(0, max);
+  }
+
   /** What became of own unit `id` and when it was noticed, or null while it is in play (or is not this side's). `unknown`: gone before memory began, tick -1. */
   fateOf(id: number): { fate: 'died' | 'removed' | 'unknown'; tick: number } | null {
     return this.gone.get(id) ?? null;
