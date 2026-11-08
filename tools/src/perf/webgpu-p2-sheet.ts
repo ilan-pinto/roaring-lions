@@ -62,6 +62,7 @@ import {
   gateTableP2,
   p2ParityRows,
   p2SheetHtml,
+  missingFiles,
   parityTable,
   r0Outside,
   rebaseFiles,
@@ -702,7 +703,10 @@ async function report(d: RunData): Promise<boolean> {
 const dataFile = path.join(OUT, 'p2-data.json');
 if (REPORT_ONLY) {
   // Rebased: the data file stores absolute frame paths, and the directory may have moved since the run.
-  const ok = await report(rebaseFiles(JSON.parse(readFileSync(dataFile, 'utf8')) as RunData, OUT));
+  const rebased = rebaseFiles(JSON.parse(readFileSync(dataFile, 'utf8')) as RunData, OUT);
+  const missing = missingFiles(rebased, existsSync);
+  if (missing.length > 0) refuse(`--report-only: ${missing.length} PNG(s) the run recorded are not in --out-dir (${missing.slice(0, 4).map((f) => path.basename(f)).join(', ')}${missing.length > 4 ? ', ...' : ''}); copy the whole run directory`);
+  const ok = await report(rebased);
   process.exit(ok ? 0 : 1);
 }
 

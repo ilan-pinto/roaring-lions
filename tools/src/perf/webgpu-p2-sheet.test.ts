@@ -8,6 +8,7 @@ import {
   bandingOf,
   classifyCensus,
   gateTableP2,
+  missingFiles,
   p2ParityRows,
   p2SheetHtml,
   parityTable,
@@ -179,5 +180,14 @@ describe('rebaseFiles (--report-only after the output directory moved)', () => {
   it('returns a copy and does not touch the record it was given', () => {
     rebaseFiles(rec, '/new/dir');
     expect(rec.pages[0]?.frames[0]?.png).toBe('/old/run/frame-L-z1.png');
+  });
+});
+
+describe('missingFiles (--report-only refuses a run directory with a PNG missing)', () => {
+  const rec = { pages: [{ frames: [{ key: 'z1', png: '/d/frame-L-z1.png' }], minimap: '/d/minimap-L.png', wind: { on: { file: '/d/wind-L-on-diff.png', changed: 7 } } }] };
+  it('lists exactly the recorded paths the disk lacks, wind difference included', () => {
+    expect(missingFiles(rec, () => true)).toEqual([]);
+    expect(missingFiles(rec, (f) => f !== '/d/wind-L-on-diff.png')).toEqual(['/d/wind-L-on-diff.png']);
+    expect(missingFiles(rec, () => false)).toEqual(['/d/frame-L-z1.png', '/d/minimap-L.png', '/d/wind-L-on-diff.png']);
   });
 });

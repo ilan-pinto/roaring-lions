@@ -231,3 +231,14 @@ export function rebaseFiles<T>(value: T, out: string): T {
   for (const [k, v] of Object.entries(value)) copy[k] = typeof v === 'string' && FILE_KEYS.has(k) ? path.join(out, path.basename(v)) : rebaseFiles(v, out);
   return copy as T;
 }
+
+/**
+ * Every recorded frame path (`png`, `minimap`, `flatPng`, `file`) that `exists` does not find. `--report-only` refuses on a non-empty
+ * list: a deleted or never-copied PNG (a wind difference, a frame) would otherwise render as a broken image on a sheet that reports
+ * success. `exists` is injected so a constructed record drives it without a disk.
+ */
+export function missingFiles(value: unknown, exists: (file: string) => boolean): string[] {
+  if (Array.isArray(value)) return value.flatMap((v) => missingFiles(v, exists));
+  if (typeof value !== 'object' || value === null) return [];
+  return Object.entries(value).flatMap(([k, v]) => (typeof v === 'string' && FILE_KEYS.has(k) ? (exists(v) ? [] : [v]) : missingFiles(v, exists)));
+}
