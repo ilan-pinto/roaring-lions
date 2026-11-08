@@ -571,7 +571,8 @@ describe('buildMatchWorld: the flag set-up (GH-976 v2 WP4)', () => {
     }
   });
   it('a set-up room that is not a flag room (no winMode) gets none of it', () => {
-    const c = flagRoom('wadi_tarfan', false);
+    const c = flagRoom('wadi_tarfan', true);
+    expect(buildMatchWorld(c).setup, 'the fixture really is a set-up room').not.toBeNull();
     expect(buildMatchWorld({ ...c, winMode: undefined }).setup).toBeNull();
     expect(buildMatchWorld({ ...c, winMode: 'points' }).setup).toBeNull();
   });
