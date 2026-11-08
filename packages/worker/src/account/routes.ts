@@ -2,7 +2,8 @@
 import type { Env } from '../d1';
 import { accountGuard, accountJson } from './http';
 import { accountsOpen } from './member';
-import { me } from './profile';
+import { deleteIdentity } from './identity';
+import { me, patchProfile } from './profile';
 import { steamReturn, steamStart } from './steam';
 import { clearedSessionCookie, requireSession, sessionJson } from './session';
 
@@ -15,11 +16,13 @@ export interface AccountCtx {
   deps: AccountDeps;
   /** The part of the path after `/api/account/`. */
   path: string;
+  /** The `:name` segments of the matched pattern. */
+  params: Record<string, string>;
 }
 
 export interface AccountRoute {
   method: string;
-  /** The exact path after `/api/account/`. */
+  /** The path after `/api/account/`. A `:name` segment matches one segment of `[A-Za-z0-9_-]{1,64}` and is passed in `ctx.params`. */
   pattern: string;
   handler(ctx: AccountCtx): Promise<Response>;
 }
@@ -34,6 +37,8 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
     },
   },
   { method: 'GET', pattern: 'me', handler: me },
+  { method: 'PATCH', pattern: 'profile', handler: patchProfile },
+  { method: 'DELETE', pattern: 'identity/:id', handler: deleteIdentity },
   { method: 'POST', pattern: 'steam/start', handler: steamStart },
   { method: 'GET', pattern: 'steam/return', handler: steamReturn },
   {
@@ -59,13 +64,36 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
 ];
 
 const PREFIX = '/api/account/';
+const PARAM = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** The params of `pattern` matched against `path`, or null. Literal segments match exactly. */
+export function matchPath(pattern: string, path: string): Record<string, string> | null {
+  const want = pattern.split('/');
+  const have = path.split('/');
+  if (want.length !== have.length) return null;
+  const params: Record<string, string> = {};
+  for (let i = 0; i < want.length; i++) {
+    const w = want[i] ?? '';
+    const h = have[i] ?? '';
+    if (w.startsWith(':')) {
+      if (!PARAM.test(h)) return null;
+      params[w.slice(1)] = h;
+    } else if (w !== h) return null;
+  }
+  return params;
+}
 
 export async function handleAccount(req: Request, env: Env, now: number, deps?: AccountDeps): Promise<Response> {
   if (env.ACCOUNTS === undefined) return accountJson(503, { error: 'accounts are not configured' });
   const path = new URL(req.url).pathname.slice(PREFIX.length);
   const blocked = accountGuard(req, env, path);
   if (blocked !== null) return blocked;
-  const route = ACCOUNT_ROUTES.find((r) => r.method === req.method.toUpperCase() && r.pattern === path);
-  if (route === undefined) return accountJson(404, { error: 'not_found' });
-  return route.handler({ req, env, now, deps: deps ?? { fetch: (url, init) => globalThis.fetch(url, init) }, path });
+  const method = req.method.toUpperCase();
+  for (const route of ACCOUNT_ROUTES) {
+    if (route.method !== method) continue;
+    const params = matchPath(route.pattern, path);
+    if (params === null) continue;
+    return route.handler({ req, env, now, deps: deps ?? { fetch: (url, init) => globalThis.fetch(url, init) }, path, params });
+  }
+  return accountJson(404, { error: 'not_found' });
 }

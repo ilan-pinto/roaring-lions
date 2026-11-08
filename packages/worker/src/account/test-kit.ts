@@ -1,6 +1,6 @@
 /** Test harness for the accounts routes (GH-1075). Tests only: nothing in the Worker imports this file. */
 import { fileURLToPath } from 'node:url';
-import type { Env, RateLimiter } from '../d1';
+import type { D1Like, D1Stmt, Env, RateLimiter } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { memoryKV } from './kv';
 import { handleAccount, type AccountDeps } from './routes';
@@ -78,3 +78,37 @@ export function steamStub(opts: { valid?: boolean; down?: boolean; status?: numb
   };
 }
 
+
+/** A D1 whose `batch()` that carries an `account_op` insert waits until `n` lookups of `account_op` have run, so `n`
+ *  requests with one op id all miss the lookup before any of them writes. Tests only. */
+export function racingD1<T extends D1Like>(db: T, n: number): T {
+  let lookups = 0;
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => { release = r; });
+  const sqlOf = new WeakMap<D1Stmt, string>();
+  const wrap = (s: D1Stmt, sql: string): D1Stmt => {
+    const out: D1Stmt = {
+      bind: (...v) => wrap(s.bind(...v), sql),
+      run: () => s.run(),
+      all: <R>() => s.all<R>(),
+      first: async <R>() => {
+        const row = await s.first<R>();
+        if (/FROM account_op/.test(sql)) {
+          lookups++;
+          if (lookups >= n) release();
+        }
+        return row;
+      },
+    };
+    sqlOf.set(out, sql);
+    return out;
+  };
+  return {
+    ...db,
+    prepare: (sql: string) => wrap(db.prepare(sql), sql),
+    batch: async (ss: D1Stmt[]) => {
+      if (ss.some((s) => /INSERT INTO account_op/.test(sqlOf.get(s) ?? ''))) await gate;
+      return db.batch(ss);
+    },
+  };
+}
