@@ -380,10 +380,14 @@ describe('GH-1144: the --max-tier switch', () => {
     expect(NINE).toHaveLength(9);
     for (const id of NINE) {
       const base = stagedUnit(id);
+      // Snapshotted BEFORE the max-tier call: a landed unit is the registered object itself, so a bake that leaked into it in place would
+      // change `base` too, and a lazy `JSON.stringify(base)` taken afterwards would still equal the leaked default.
+      const baseJson = JSON.stringify(base);
+      const baseHp = statsOf(base).hp;
       const max = stagedUnit(id, { maxTier: true });
-      expect(JSON.stringify(max), `${id}: --max-tier changed nothing`).not.toBe(JSON.stringify(base));
-      expect(statsOf(max).hp, `${id} hp at max tier`).toBeGreaterThan(statsOf(base).hp);
-      expect(JSON.stringify(stagedUnit(id)), `${id}: the default is untouched`).toBe(JSON.stringify(base));
+      expect(JSON.stringify(max), `${id}: --max-tier changed nothing`).not.toBe(baseJson);
+      expect(statsOf(max).hp, `${id} hp at max tier`).toBeGreaterThan(baseHp);
+      expect(JSON.stringify(stagedUnit(id)), `${id}: the default is untouched`).toBe(baseJson);
     }
     expect(JSON.stringify(stagedUnit('sarim_rifles', { maxTier: true }))).toBe(JSON.stringify(stagedUnit('sarim_rifles')));
   });
