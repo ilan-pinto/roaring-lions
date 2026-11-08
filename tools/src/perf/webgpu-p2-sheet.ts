@@ -62,6 +62,7 @@ import {
   p2SheetHtml,
   parityTable,
   r0Outside,
+  rebaseFiles,
   syncedSummary,
   type BandingCell,
   type CensusEntry,
@@ -698,7 +699,8 @@ async function report(d: RunData): Promise<boolean> {
 
 const dataFile = path.join(OUT, 'p2-data.json');
 if (REPORT_ONLY) {
-  const ok = await report(JSON.parse(readFileSync(dataFile, 'utf8')) as RunData);
+  // Rebased: the data file stores absolute frame paths, and the directory may have moved since the run.
+  const ok = await report(rebaseFiles(JSON.parse(readFileSync(dataFile, 'utf8')) as RunData, OUT));
   process.exit(ok ? 0 : 1);
 }
 

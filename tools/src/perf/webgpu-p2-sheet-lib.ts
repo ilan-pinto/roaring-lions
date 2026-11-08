@@ -1,6 +1,7 @@
 // GH-943 WebGPU P2 T9: the pure half of the lead's P2 sheet (`webgpu-p2-sheet.ts` drives the browser). No playwright here, so every
 // decision can be driven red by a constructed input in `webgpu-p2-sheet.test.ts`. It EXTENDS the P1 sheet's lib (`webgpu-p1-sheet-lib.ts`):
 // the diff panel, the synced summary, the validation-error counter and the r0 report are imported from it, not copied.
+import path from 'node:path';
 import { PNG } from 'pngjs';
 import { bandingIndex, type Crop } from '../golden-diff/banding';
 import { BANDS } from '../golden-diff/parity';
@@ -209,4 +210,24 @@ body{margin:0;padding:16px;background:#111;color:#ddd;font:13px/1.35 ui-monospac
 .row{display:flex;gap:8px;margin-bottom:8px}.c{width:588px}.c img{width:588px;display:block}.cap{padding:2px 0}
 h2{margin:14px 0 6px;font-size:14px}
 </style><h2>${esc(title)}</h2>${body}`;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// `--report-only` after the output directory moved.
+// ---------------------------------------------------------------------------------------------------------------------------
+
+/** The keys of a page record that hold a PNG path the run wrote into its output directory. */
+const FILE_KEYS: ReadonlySet<string> = new Set(['png', 'minimap', 'flatPng', 'file']);
+
+/**
+ * `p2-data.json` stores the ABSOLUTE path of every frame the run wrote, so a `--report-only` rerun after the directory moved (or on
+ * another machine, from the zipped output) would throw ENOENT on the first one. Every such path is rebased onto `out` by its base
+ * name: all of a run's files sit directly in its output directory. Pure (returns a copy), so a constructed record drives it red.
+ */
+export function rebaseFiles<T>(value: T, out: string): T {
+  if (Array.isArray(value)) return value.map((v) => rebaseFiles(v, out)) as unknown as T;
+  if (typeof value !== 'object' || value === null) return value;
+  const copy: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) copy[k] = typeof v === 'string' && FILE_KEYS.has(k) ? path.join(out, path.basename(v)) : rebaseFiles(v, out);
+  return copy as T;
 }

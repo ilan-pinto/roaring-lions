@@ -11,6 +11,7 @@ import {
   p2ParityRows,
   p2SheetHtml,
   parityTable,
+  rebaseFiles,
   triangleDisagreements,
   type BandingCell,
   type CropId,
@@ -156,5 +157,27 @@ describe('the P2 parity table', () => {
 describe('p2SheetHtml', () => {
   it('says so for a frame the run did not capture', () => {
     expect(p2SheetHtml('t', [{ title: 's', rows: [[null, { caption: 'c', file: '/a/b.png' }]] }])).toMatch(/not captured in this run[\s\S]*b\.png/);
+  });
+});
+
+describe('rebaseFiles (--report-only after the output directory moved)', () => {
+  const rec = {
+    startedAt: '/not/a/path/but-a-string',
+    pages: [
+      { arm: 'L', frames: [{ key: 'z1', png: '/old/run/frame-L-z1.png' }], minimap: '/old/run/minimap-L.png', banding: { flatPng: '/old/run/frame-L-z1-flat.png' }, wind: { on: { file: '/old/run/wind-L-on-diff.png', changed: 7 } } },
+    ],
+  };
+  it('moves every stored frame path onto the new directory by base name, and leaves other strings and numbers alone', () => {
+    const r = rebaseFiles(rec, '/new/dir');
+    expect(r.pages[0]?.frames[0]?.png).toBe('/new/dir/frame-L-z1.png');
+    expect(r.pages[0]?.minimap).toBe('/new/dir/minimap-L.png');
+    expect(r.pages[0]?.banding.flatPng).toBe('/new/dir/frame-L-z1-flat.png');
+    expect(r.pages[0]?.wind.on.file).toBe('/new/dir/wind-L-on-diff.png');
+    expect(r.pages[0]?.wind.on.changed).toBe(7);
+    expect(r.startedAt).toBe('/not/a/path/but-a-string');
+  });
+  it('returns a copy and does not touch the record it was given', () => {
+    rebaseFiles(rec, '/new/dir');
+    expect(rec.pages[0]?.frames[0]?.png).toBe('/old/run/frame-L-z1.png');
   });
 });
