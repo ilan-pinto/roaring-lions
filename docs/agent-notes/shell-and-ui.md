@@ -222,7 +222,7 @@ credit Buy), 1120 (the panel), 1122 (Stores tier-row credit Buy). PR 1123 (the n
 
 - **`unitAdds`** (`packages/app/src/ui/stores-adds.ts`, drawn by `stores-adds-view.ts`) is one pure model behind the
   Stores' "What it adds" panel. The versus line follows PR 1110: a bought-only unit with `specialRefusal(id) === null`
-  shows `brigadeRoom`; `campaignOnly` shows whenever neither `brigadeRoom` nor a versus line applies (`!brigadeRoom && !versus` in `stores-adds.ts`): the refused three, and also every other unit held out of versus, such as `heli_yanshuf`. The refusal is injected
+  shows `brigadeRoom`; `campaignOnly` shows whenever neither `brigadeRoom` nor a versus line applies (`!brigadeRoom && !versus` in `stores-adds.ts`), so a unit that gets `brigadeRoom` (bought-only and not refused, such as `spg_long_range`) never shows it, even if the versus room holds it out. What shows it is the refused three, and every other unit that is held out of versus without being bought-only (`heli_yanshuf` has an earned `roe_rating_min` gate). The refusal is injected
   (`AddsInput.refusal`), the app keeps no copy of the list.
 - **The Hurt-by table is generated.** `pnpm store:threats` (`tools/src/store/threat-table.ts`) asks a headless
   `Sim`'s own `focusHurts` and writes `threat-table.json`. `tools/src/store_threat_table.test.ts` goes red on any
