@@ -128,8 +128,8 @@ describe('the lookup is folded where the spec puts it', () => {
   it('the dither-only fold carries the dither and no lookup, and the dither is unguarded', () => {
     const dOnly = foldGradeShader(fragment, false);
     expect(dOnly).not.toContain('uGradeLut');
-    expect(dOnly).toContain('fragColor.rgb += (gradeNoise(gl_FragCoord.xy) - 0.5)');
-    expect(folded).toContain('fragColor.rgb += (gradeNoise(gl_FragCoord.xy) - 0.5)');
+    expect(dOnly).toContain('fragColor.rgb += (gradeNoise(gl_FragCoord.xy) + gradeNoise(gl_FragCoord.xy + vec2(47.0, 113.0)) - 1.0)');
+    expect(folded).toContain('fragColor.rgb += (gradeNoise(gl_FragCoord.xy) + gradeNoise(gl_FragCoord.xy + vec2(47.0, 113.0)) - 1.0)');
   });
 
   it('declares sampler3D precision (a raw-shader material gets no default for it)', () => {

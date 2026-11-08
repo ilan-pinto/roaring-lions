@@ -16,7 +16,7 @@
  *
  * **Banding.** A 32^3 LUT cannot band by itself (a half-float LUT, trilinear), but the canvas is
  * 8-bit, and a graded dark gradient covers fewer 8-bit levels than the same gradient ungraded.
- * `dither` adds one LSB of interleaved-gradient noise at the very end of the shader, on EVERY frame
+ * `dither` adds +-1 LSB of triangular interleaved-gradient noise (two samples, T8/R10) at the very end of the shader, on EVERY frame
  * (T8: a day map has no grade and an undithered smooth gradient bands in 8 bits). See the
  * mock README for the measurement that chose the default.
  *
@@ -24,7 +24,7 @@
  */
 import * as THREE from 'three';
 import type { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { bakeLutFloats, GRADE_LUT_SIZE, isIdentity, type ResolvedGrade } from './grade-maths';
+import { bakeLutFloats, GRADE_DITHER_OFFSET, GRADE_LUT_SIZE, isIdentity, type ResolvedGrade } from './grade-maths';
 
 /** Where the lookup hooks in: right before the vignette folds its multiply. Asserted: a reworded fold would otherwise leave a grade that silently never draws. */
 const GRADE_ANCHOR = 'fragColor.rgb = roundTripHalf(fragColor.rgb)';
@@ -52,7 +52,7 @@ const LOOKUP_GLSL = `  if (uGradeOn > 0.5) {
   `;
 
 /** GH-943 P2 T8: NOT guarded by `uGradeOn`. A day map has no grade and used to draw no dither at all, so a smooth gradient (a flat ground) banded in 8 bits. */
-const DITHER_GLSL = `  fragColor.rgb += (gradeNoise(gl_FragCoord.xy) - 0.5) * (uGradeDither / 255.0);\n}`;
+const DITHER_GLSL = `  fragColor.rgb += (gradeNoise(gl_FragCoord.xy) + gradeNoise(gl_FragCoord.xy + vec2(${GRADE_DITHER_OFFSET.x}.0, ${GRADE_DITHER_OFFSET.y}.0)) - 1.0) * (uGradeDither / 255.0);\n}`;
 
 /**
  * Rewrites a vignette-folded `OutputPass` fragment source to carry the dither and, with `withLut`, the grade's lookup. Pure string work,
