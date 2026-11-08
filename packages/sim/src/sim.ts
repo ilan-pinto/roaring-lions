@@ -4923,6 +4923,7 @@ export class Sim {
     const h = this.height;
     for (let id = 0; id < this.count; id++) {
       if (this.alive[id] === 0 || this.moving[id] === 0 || this.carriedBy[id] >= 0 || this.tunnelIn[id] >= 0) continue;
+      // Garrison is the live skip; board, demolish and charge are belts (demolish and chargeTunnel are refused during set-up, a board goal is a carrier position, a charge goal is snapped when the order is given).
       if (this.garrisonGoal[id] >= 0 || this.boardGoal[id] >= 0 || this.demolishOrder[id] >= 0 || this.chargeOrder[id] >= 0) continue;
       const domain = this.domainOf(id);
       if (domain === DOMAIN_AIR) continue;
