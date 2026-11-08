@@ -36,17 +36,17 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { map?: string; winMode?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown }
+interface CreateOpts { map?: string; winMode?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown; specials?: unknown; joinSpecials?: unknown }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
   const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env, opts.snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks: opts.snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: opts.map ?? 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.winMode !== undefined ? { winMode: opts.winMode } : {}), ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}) }),
+    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: opts.map ?? 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.winMode !== undefined ? { winMode: opts.winMode } : {}), ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}), ...(opts.specials !== undefined ? { specials: opts.specials } : {}) }),
   }));
   expect(res.status).toBe(200);
   if (opts.join !== false) {
-    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', callsign: 'Guest', ...(opts.joinKind ? { kind: opts.joinKind } : {}), ...(opts.joinTiers !== undefined ? { tiers: opts.joinTiers } : {}) }) }));
+    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', callsign: 'Guest', ...(opts.joinKind ? { kind: opts.joinKind } : {}), ...(opts.joinTiers !== undefined ? { tiers: opts.joinTiers } : {}), ...(opts.joinSpecials !== undefined ? { specials: opts.joinSpecials } : {}) }) }));
     expect(join.status).toBe(200);
   }
   return { state, room };
@@ -1787,6 +1787,86 @@ describe('per-seat kit: the room records each seat\'s claim and mints it only in
     await say(room, ws0, { t: 'ready' });
     await say(room, ws1, { t: 'ready' });
     expect(ofType(ws0, 'start')[0].config.seats.map((s) => [s.kit, s.tiers])).toEqual([['brigade', {}], ['brigade', {}]]);
+  });
+});
+
+describe("GH-1102: each seat's Store specials join its force in a brigade room", () => {
+  const startOf = async (opts: CreateOpts) => {
+    const { ws0, ws1 } = await running(opts);
+    const [start] = ofType(ws0, 'start');
+    expect(ofType(ws1, 'start')[0].config).toEqual(start.config);
+    expect(validateConfig(JSON.parse(JSON.stringify(start.config)))).not.toBeNull();
+    return start.config;
+  };
+  const lobbyOf = async (opts: CreateOpts) => {
+    const { room } = await created(new FakeState(), opts);
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    return [ofType(ws0, 'lobby').at(-1), ofType(ws1, 'lobby').at(-1)];
+  };
+  const HOST = ['mbt_lavi_camo', 'spg_cluster', 'forged_super_tank'];
+  const GUEST = ['demo_tzav', 'veh_ambulance'];
+  it('a brigade room mints each seat its own cleaned specials, less the refused ones', async () => {
+    const c = await startOf({ mode: 'versus', kit: 'brigade', specials: HOST, joinSpecials: GUEST });
+    expect(c.seats.map((s) => s.unlocks)).toEqual([['mbt_lavi_camo'], ['demo_tzav']]);
+  });
+  it('a matched room mints none, whatever both bodies claim: its config is the one it always was', async () => {
+    for (const kit of ['matched', undefined]) {
+      const c = await startOf({ mode: 'versus', ...(kit === undefined ? {} : { kit }), specials: HOST, joinSpecials: GUEST });
+      expect(c.seats.map((s) => s.unlocks)).toEqual([[], []]);
+    }
+    expect((await startOf({ kit: 'brigade', specials: HOST, joinSpecials: GUEST })).seats.map((s) => s.unlocks)).toEqual([[], []]);
+  });
+  it('a bot seat mints none even when its join body claims some; the human keeps hers', async () => {
+    const c = await startOf({ mode: 'versus', kit: 'brigade', specials: HOST, joinSpecials: GUEST, joinKind: 'bot' });
+    expect(c.seats.map((s) => [s.kind, s.unlocks])).toEqual([['human', ['mbt_lavi_camo']], ['bot', []]]);
+    const host = await startOf({ mode: 'versus', kit: 'brigade', specials: HOST, joinSpecials: GUEST, kind: 'bot' });
+    expect(host.seats.map((s) => [s.kind, s.unlocks])).toEqual([['bot', []], ['human', ['demo_tzav']]]);
+  });
+  it('a Sarim seat mints none (Sarim has no store); its KDF opponent keeps its specials', async () => {
+    const c = await startOf({ mode: 'versus', matchup: 'kdf', kit: 'brigade', specials: HOST, joinSpecials: GUEST });
+    expect(c.seats.map((s) => [s.faction, s.unlocks])).toEqual([['kdf', ['mbt_lavi_camo']], ['sarim', []]]);
+  });
+  it('a forged id never reaches the config, even when a body skips the route', async () => {
+    const c = await startOf({ mode: 'versus', kit: 'brigade', specials: ['forged_super_tank', '__proto__', 'mbt_lavi'], joinSpecials: 'demo_tzav' });
+    expect(c.seats.map((s) => s.unlocks)).toEqual([[], []]);
+  });
+  it('the lobby shows both line-ups before Ready, refused ones included, and only in a brigade versus room', async () => {
+    const [l0, l1] = await lobbyOf({ mode: 'versus', kit: 'brigade', specials: HOST, joinSpecials: GUEST });
+    for (const l of [l0, l1]) expect(l?.seats.map((s) => s.specials)).toEqual([['mbt_lavi_camo', 'spg_cluster'], ['veh_ambulance', 'demo_tzav']]);
+    const [bot] = await lobbyOf({ mode: 'versus', kit: 'brigade', specials: HOST, joinSpecials: GUEST, joinKind: 'bot' });
+    expect(bot?.seats.map((s) => s.specials)).toEqual([['mbt_lavi_camo', 'spg_cluster'], []]);
+    for (const opts of [{ mode: 'versus', kit: 'matched' }, { mode: 'versus' }, { kit: 'brigade' }]) {
+      const [m] = await lobbyOf({ ...opts, specials: HOST, joinSpecials: GUEST });
+      expect(m?.seats.every((s) => !('specials' in s)), JSON.stringify(opts)).toBe(true);
+    }
+  });
+  it('a room persisted before GH-1102 owns no specials; a stored claim is cleaned again on revive', async () => {
+    const { state } = await created(new FakeState(), { mode: 'versus', kit: 'brigade', specials: HOST });
+    const meta = await state.storage.get<Record<string, unknown>>('meta');
+    if (!meta) throw new Error('no meta');
+    meta.owned = [['forged_super_tank', 'ugv_recon_dog'], 'junk'];
+    await state.storage.put('meta', meta);
+    const revive = async () => {
+      const room = new MatchRoom(state, env, YIELD);
+      const ws0 = await hello(room, 0);
+      const ws1 = await hello(room, 1);
+      await say(room, ws0, { t: 'ready' });
+      await say(room, ws1, { t: 'ready' });
+      return ofType(ws0, 'start')[0].config;
+    };
+    expect((await revive()).seats.map((s) => s.unlocks)).toEqual([['ugv_recon_dog'], []]);
+    const old = await created(new FakeState(), { mode: 'versus', kit: 'brigade', specials: HOST });
+    const m2 = await old.state.storage.get<Record<string, unknown>>('meta');
+    if (!m2) throw new Error('no meta');
+    delete m2.owned;
+    await old.state.storage.put('meta', m2);
+    const room = new MatchRoom(old.state, env, YIELD);
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    expect(ofType(ws0, 'start')[0].config.seats.map((s) => s.unlocks)).toEqual([[], []]);
   });
 });
 

@@ -423,6 +423,12 @@ export interface MissionContext {
    *  (null = uncapped on that side). Absent: side 0 reads the mission's own field,
    *  side 1 is uncapped. */
   popCaps?: readonly [number | null, number | null];
+  /** GH-1102: entity ids that take NO population, whatever their type (a versus brigade room's
+   *  Store specials: the lead's 7 Nov ruling exempts them from the cap). Keyed by entity, never by
+   *  type, so the same type built on a line still counts. Static setup data the app derives from
+   *  its config, so both peers hold the same set; ids are never reused (`spawn`). Absent or empty
+   *  = every unit counts, byte for byte as before. */
+  popExempt?: ReadonlySet<number>;
   /** Indices into the RESOLVED `starting_force` (the array this runtime is given, after
    *  `resolveUpgrades`) of the placements that are on loan: `loanedPlacements`' answer
    *  (unlock.ts, D5). The runtime never sees a gate, so the app and the harness compute it
@@ -1683,13 +1689,17 @@ export class MissionRuntime {
    * civilian is side 2 and counts for nobody), plus the items on that side's living lines,
    * in progress or waiting (D2, one reservation pool per side). An item leaves its line in
    * the same `step` that spawns its unit, so it is counted once on every tick: as a
-   * reservation, then as a body. One pass over the ids; no allocation.
+   * reservation, then as a body. One pass over the ids; no allocation. An id in
+   * `ctx.popExempt` (GH-1102) takes nothing.
    */
   population(side: 0 | 1): number {
     let used = 0;
     const st = this.sim.state;
+    const exempt = this.ctx.popExempt;
     for (let i = 0; i < this.sim.entityCount; i++) {
-      if (st.alive[i] === 1 && st.side[i] === side) used += this.sim.unitTypes[st.typeIdx[i]].population;
+      if (st.alive[i] !== 1 || st.side[i] !== side) continue;
+      if (exempt !== undefined && exempt.has(i)) continue;
+      used += this.sim.unitTypes[st.typeIdx[i]].population;
     }
     const lines = this.lines[side];
     for (let li = 0; li < lines.length; li++) {

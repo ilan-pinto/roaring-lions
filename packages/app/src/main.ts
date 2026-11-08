@@ -300,6 +300,7 @@ import { seatShouldProduceSnapshots } from './net/snapshot-gate';
 import { settleRejoin } from './net/snapshot-rejoin';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
+import { ownedStoreSpecials } from './net/versus-specials';
 import { buildMatchWorld, matchTick, tunnelRouteOf } from './net/match-world';
 import { SPECTATOR_SHOWN, spectatorSink, type SpectateEnd, type SpectateHooks } from './net/spectator';
 import { roomDockMenu, roomDockRuntime, roomEconomyView } from './net/room-economy';
@@ -1315,6 +1316,8 @@ async function main(): Promise<void> {
         // nowhere else (per-seat kit): this is the one read of the account on
         // a room path. The world is built from the room's config, never from it.
         tiers: () => accountState().ownedTiers,
+        // GH-1102: the Store specials the account owns, by the same path and the same rule.
+        specials: () => ownedStoreSpecials(accountState().boughtUnits),
         ...(signal ? { signal } : {}),
       }),
     maps: versusMaps(),
@@ -2320,7 +2323,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? withWoundedTypes(missionUnitTypes(resolvedMission ?? mission, new Set(Object.keys(units))), woundsOf)
     : versusRoom
       // A versus room fields its two factions' forces and nothing else.
-      ? withWoundedTypes(versusUnitTypes(versusFactions), woundsOf)
+      ? withWoundedTypes(versusUnitTypes(versusFactions, versusWorld?.specialsBySide), woundsOf)
       : withWoundedTypes(sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks }), woundsOf);
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
