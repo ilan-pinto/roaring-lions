@@ -39,3 +39,5 @@ Metal readings (one lock hold, 2026-11-08, port 5193; `?sandbox=wadi_halam_4`, b
 | H4 | AO off | 0.002 / 0.000 | 0.693 / 0.697 |
 | H5 | environment off | 0.001 / 0.000 | 0.637 / 0.679 |
 | HX | shroud revealed | 0.000 / 0.000 | 0.636 / 0.679 |
+
+SwiftShader readings (CI `webgpu-noise.yml` `probe: banding`, run 42446946339; the same framing; ubuntu-latest, L and F on ANGLE/SwiftShader Vulkan, G on `google / swiftshader`; runner load 2.1-5.1) agree: baseline L 0.000 / 0.000, F 0.415 / 0.331, G 0.625 / 0.662; L-flat 0.568 / 0.632; dither on F 0.041 / 0.025, G 0.069 / 0.055; the y convention bottom-left on all three arms (0.666-0.772, top-left under 0.01); every shadow, precision and sky-light variant within 0.01 of baseline; AO off raises F and G (0.697-0.700). Two things not chased: F bands less than G on the same rasteriser (0.415 / 0.331 against 0.625 / 0.662; both fall to 0.04-0.07 with the dither), and on the node arms a shadow type switched to Basic or VSM and back does not return the frame bit for bit (the crops differ after the restore; those rows run last, so nothing else read them).
