@@ -57,6 +57,7 @@
     "net:engines": "tsx src/net/two-engine.ts",
     "end-panel:check": "tsx src/ui-review/end-panel-check.ts",
     "coin-wallet:check": "tsx src/ui-review/coin-wallet-check.ts",
+    "store-garage:sheet": "tsx src/ui-review/store-garage-sheet.ts",
     "blast:capture": "tsx src/perf/blast-captures.ts",
     "smoke-outline:capture": "tsx src/perf/smoke-outline-captures.ts",
     "support:capture": "tsx src/perf/support-captures.ts",
