@@ -52,8 +52,10 @@ const shots: Shot[] = [];
 async function scan(page: Page, pseudo: boolean): Promise<string[]> {
   return page.evaluate((isPseudo) => {
     const notes: string[] = [];
-    const roots = document.querySelectorAll('.rl-garage, .rl-stores');
+    const roots = document.querySelectorAll('.rl-menu--garage, .rl-stores');
     let visited = 0;
+    let dataNames = 0;
+    const DATA_TEXT = ['rl-stores__card-name', 'rl-garage__card-name', 'rl-garage__name', 'rl-garage__blurb'];
     const seen = new Set<Element>();
     const name = (el: HTMLElement): string => {
       const cls = el.className.toString().trim().split(/\s+/).filter(Boolean).slice(0, 2).join('.');
@@ -62,6 +64,8 @@ async function scan(page: Page, pseudo: boolean): Promise<string[]> {
     for (const root of roots) {
       for (const el of [root, ...root.querySelectorAll('*')]) {
         if (seen.has(el) || !(el instanceof HTMLElement) || el.getClientRects().length === 0) continue;
+        // Visually hidden screen-reader text is 1px wide by design: its scrollWidth is not an overflow.
+        if (el.classList.contains('rl-sr-only')) continue;
         seen.add(el);
         visited++;
         if (el.scrollWidth > el.clientWidth + 1) {
@@ -70,12 +74,14 @@ async function scan(page: Page, pseudo: boolean): Promise<string[]> {
         if (el.children.length === 0) {
           const text = (el.textContent ?? '').trim();
           if (/^(stores|garage|brigade|common|ui|role)\.[a-z][\w.]*$/.test(text)) notes.push(`raw key ${name(el)} "${text}"`);
+          // A unit's display name and blurb are DATA (UnitType), never through t(), like mission text: counted, not flagged.
+          else if (isPseudo && DATA_TEXT.some((c) => el.classList.contains(c))) dataNames++;
           else if (isPseudo && /[A-Za-z]{3}/.test(text) && !text.startsWith('⟦')) notes.push(`unbracketed ${name(el)} "${text.slice(0, 50)}"`);
         }
       }
     }
     // A scan that visits nothing cannot fail: say how many elements it read.
-    notes.unshift(`scanned ${visited} elements`);
+    notes.unshift(`scanned ${visited} elements${isPseudo ? `, ${dataNames} unit-name/blurb texts skipped as data` : ''}`);
     return notes;
   }, pseudo);
 }
@@ -130,6 +136,17 @@ try {
         await btn.click();
         await snap(page, `stores-adds-${id}-${tag}.png`, `Stores, What it adds, ${id}, ${w}x${h}${pseudo ? ' pseudo' : ''}`, pseudo);
         await clip(page, `.rl-stores__adds[data-adds="${id}"]`, `stores-adds-${id}-${tag}-panel.png`, `The panel alone, ${id}, ${w}x${h}${pseudo ? ' pseudo' : ''}`, pseudo);
+        // Reachability: the panel must be fully inside the viewport OR scroll inside itself to its last block.
+        const reach = await page.evaluate((sel) => {
+          const p = document.querySelector(sel) as HTMLElement | null;
+          if (p === null) return 'panel absent';
+          const r = p.getBoundingClientRect();
+          const scrolls = getComputedStyle(p).overflowY !== 'visible' && p.scrollHeight > p.clientHeight;
+          const before = p.scrollTop; p.scrollTop = p.scrollHeight; const reached = p.scrollTop; p.scrollTop = before;
+          return `panel ${Math.round(r.top)}..${Math.round(r.bottom)} of ${innerHeight}px, content ${p.scrollHeight}px in ${p.clientHeight}px, ` + (scrolls ? `scrolls inside itself (reached ${reached}px)` : 'no inner scroll') + `, last block bottom ${Math.round((p.lastElementChild as HTMLElement).getBoundingClientRect().bottom)}`;
+        }, `.rl-stores__adds[data-adds="${id}"]`);
+        shots.push({ file: '', title: `panel reach ${id} ${tag}`, notes: [reach] });
+        console.log(`[${TAG}] ${tag} ${id}: ${reach}`);
       }
       if (w === 1920 || pseudo) {
         await clip(page, '[data-item="tiers:spg_long_range"]', `stores-tiers-spg_long_range-${tag}.png`, `Tier rows on the howitzer (run label beside the coin Buy), ${w}x${h}${pseudo ? ' pseudo' : ''}`, pseudo);
