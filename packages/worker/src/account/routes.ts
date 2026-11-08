@@ -3,6 +3,8 @@ import type { Env } from '../d1';
 import { accountGuard, accountJson } from './http';
 import { accountsOpen } from './member';
 import { deleteIdentity } from './identity';
+import { deleteAccount, gone } from './delete';
+import { exportAccount } from './export';
 import { me, patchProfile } from './profile';
 import { steamReturn, steamStart } from './steam';
 import { clearedSessionCookie, requireSession, sessionJson } from './session';
@@ -39,6 +41,9 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
   { method: 'GET', pattern: 'me', handler: me },
   { method: 'PATCH', pattern: 'profile', handler: patchProfile },
   { method: 'DELETE', pattern: 'identity/:id', handler: deleteIdentity },
+  { method: 'GET', pattern: 'export', handler: exportAccount },
+  { method: 'POST', pattern: 'delete', handler: deleteAccount },
+  { method: 'POST', pattern: 'gone', handler: gone },
   { method: 'POST', pattern: 'steam/start', handler: steamStart },
   { method: 'GET', pattern: 'steam/return', handler: steamReturn },
   {

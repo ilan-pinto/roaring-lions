@@ -8,11 +8,13 @@ import type { D1Like, D1Stmt } from './d1';
 const MIGRATIONS = fileURLToPath(new URL('../migrations/', import.meta.url));
 
 /** `dir` defaults to the telemetry migrations; the accounts database passes its own. `foreignKeys: true`
- *  runs `PRAGMA foreign_keys = ON` first, as D1 does in production (off by default so the existing tests are unchanged). */
+ *  runs `PRAGMA foreign_keys = ON` first, as D1 does in production. `foreignKeys: false` runs `PRAGMA foreign_keys = OFF`:
+ *  node:sqlite enforces foreign keys by default, so without it an "off" run would still cascade and could not catch a
+ *  table a delete forgot. Left out, the driver's default stands, so the existing tests are unchanged. */
 export function openTestD1(opts: { dir?: string; foreignKeys?: boolean } = {}): D1Like & { raw: DatabaseSync } {
   const dir = opts.dir ?? MIGRATIONS;
   const db = new DatabaseSync(':memory:');
-  if (opts.foreignKeys === true) db.exec('PRAGMA foreign_keys = ON');
+  if (opts.foreignKeys !== undefined) db.exec(`PRAGMA foreign_keys = ${opts.foreignKeys ? 'ON' : 'OFF'}`);
   for (const f of readdirSync(dir).filter((n) => n.endsWith('.sql')).sort()) {
     db.exec(readFileSync(dir + f, 'utf8'));
   }

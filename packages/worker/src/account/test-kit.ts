@@ -1,9 +1,13 @@
 /** Test harness for the accounts routes (GH-1075). Tests only: nothing in the Worker imports this file. */
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { D1Like, D1Stmt, Env, RateLimiter } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { memoryKV } from './kv';
 import { handleAccount, type AccountDeps } from './routes';
+import { createSession } from './session';
+import { SESSION_COOKIE } from './config';
+import { sha256Hex } from './crypto';
 
 export const ACCOUNTS_MIGRATIONS = fileURLToPath(new URL('../../migrations-accounts/', import.meta.url));
 
@@ -78,7 +82,6 @@ export function steamStub(opts: { valid?: boolean; down?: boolean; status?: numb
   };
 }
 
-
 /** A D1 whose `batch()` that carries an `account_op` insert waits until `n` lookups of `account_op` have run, so `n`
  *  requests with one op id all miss the lookup before any of them writes. Tests only. */
 export function racingD1<T extends D1Like>(db: T, n: number): T {
@@ -111,4 +114,53 @@ export function racingD1<T extends D1Like>(db: T, n: number): T {
       return db.batch(ss);
     },
   };
+}
+
+/** Every table whose CREATE body declares a member_id column, plus `member`, read from the migration itself
+ *  (an oracle that does not import MEMBER_TABLES). */
+export function memberTablesInMigration(): Set<string> {
+  const sql = readFileSync(ACCOUNTS_MIGRATIONS + '0001_members.sql', 'utf8');
+  const out = new Set<string>(['member']);
+  // A statement runs to its semicolon; comments are stripped first so a `;` in prose cannot cut one short.
+  const bare = sql.replace(/--.*$/gm, '');
+  for (const m of bare.matchAll(/CREATE TABLE (\w+)\s*\(([^;]*);/g)) {
+    if (/(^|[(,])\s*member_id\s+\w/.test(m[2] ?? '')) out.add(m[1] ?? '');
+  }
+  return out;
+}
+
+export const SEED_PUBLIC_ID = 'K7Q2ABCD';
+export const SEED_EARN = 'fixture-earn-string';
+
+/** Member `m1` with a row in EVERY member table, a second member `n1`, a match shared with `n1` and one of M's alone.
+ *  Returns M's session cookie (fresh at `now`). */
+export async function seedFullMember(db: D1Like, now: number): Promise<{ memberId: string; idHash: string; cookie: string }> {
+  const idHash = await sha256Hex(SEED_PUBLIC_ID);
+  const run = (sql: string, ...v: unknown[]) => db.prepare(sql).bind(...v).run();
+  await run('INSERT INTO member VALUES (?1, ?2, ?3, ?4, ?5, ?6)', 'm1', SEED_PUBLIC_ID, idHash, 'uh1', now, 0);
+  await run('INSERT INTO member VALUES (?1, ?2, ?3, ?4, ?5, ?6)', 'n1', 'NNNN2222', await sha256Hex('NNNN2222'), 'uh2', now, 0);
+  await run("INSERT INTO member_identity (id, member_id, provider, subject, created_at) VALUES ('i1','m1','steam','76561197960287930',?1)", now);
+  await run("INSERT INTO member_identity (id, member_id, provider, subject, created_at, public_key, sign_count) VALUES ('i2','m1','passkey','cred-1',?1, x'0A0B0C0D', 3)", now);
+  await run("INSERT INTO member_identity (id, member_id, provider, subject, state, created_at) VALUES ('i3','m1','recovery','code-hash','pending',?1)", now);
+  await run("INSERT INTO member_identity (id, member_id, provider, subject, created_at) VALUES ('i4','n1','steam','76561197960287931',?1)", now);
+  await run("INSERT INTO profile VALUES ('m1','Callsign One',1,?1)", now);
+  await run("INSERT INTO profile VALUES ('n1','Callsign Two',0,?1)", now);
+  await run("INSERT INTO wallet (member_id, free, earn, earn_lifetime, entitlements, updated_at) VALUES ('m1', 5, ?1, '{}', '{}', ?2)", SEED_EARN, now);
+  await run("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES ('m1', ?1, 'earn', 5, '{}', 'o1')", now);
+  await run("INSERT INTO coupon_use VALUES ('m1','c1',?1)", now);
+  await run("INSERT INTO campaign_state (member_id, ledger, brigade, bytes, updated_at) VALUES ('m1','{}','{}',4,?1)", now);
+  await run("INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, body, bytes) VALUES ('m1','s1','Slot',?1,'b','{}',2)", now);
+  await run("INSERT INTO device_claim VALUES ('m1','dev1',?1,'{}')", now);
+  await run("INSERT INTO account_op VALUES ('m1','op1','profile.patch',?1,'{}')", now);
+  await run("INSERT INTO auth_challenge VALUES ('chal1','steam-link','m1','pre1',?1)", now + 300_000);
+  for (const code of ['SHARED', 'SOLO']) {
+    await run("INSERT INTO match_record VALUES (?1, 1000, 2000, 'm', 'x', NULL, 'k', 'ended', 0, 10, 'b', 1)", code);
+  }
+  await run("INSERT INTO match_seat VALUES ('SHARED',1000,0,'m1','member','kdf',NULL)");
+  await run("INSERT INTO match_seat VALUES ('SHARED',1000,1,'n1','member','sarim',NULL)");
+  await run("INSERT INTO match_seat VALUES ('SOLO',1000,0,'m1','member','kdf',NULL)");
+  await run("INSERT INTO match_seat VALUES ('SOLO',1000,1,NULL,'bot','sarim','easy')");
+  const s = await createSession(db, 'm1', now);
+  await db.batch(s.statements);
+  return { memberId: 'm1', idHash, cookie: `${SESSION_COOKIE}=${s.token}` };
 }

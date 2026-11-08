@@ -1,25 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { MEMBER_TABLES, MATCH_ORPHAN_SWEEP_SQL, deleteStatements } from './tables';
-import { ACCOUNTS_MIGRATIONS, accountHarness } from './test-kit';
+import { accountHarness, memberTablesInMigration, seedFullMember } from './test-kit';
 import { memoryKV } from './kv';
-
-const MIGRATION = readFileSync(ACCOUNTS_MIGRATIONS + '0001_members.sql', 'utf8');
-
-/** Every table whose CREATE body declares a member_id column, plus `member` itself. */
-function collectMemberTables(sql: string): Set<string> {
-  const out = new Set<string>(['member']);
-  // A statement runs to its semicolon; comments are stripped first so a `;` in prose cannot cut one short.
-  const bare = sql.replace(/--.*$/gm, '');
-  for (const m of bare.matchAll(/CREATE TABLE (\w+)\s*\(([^;]*);/g)) {
-    if (/(^|[(,])\s*member_id\s+\w/.test(m[2] ?? '')) out.add(m[1] ?? '');
-  }
-  return out;
-}
 
 describe('the accounts table map', () => {
   it('every member table is mapped (A1-8)', () => {
-    const found = collectMemberTables(MIGRATION);
+    const found = memberTablesInMigration();
     // Excluded by name, none of them has a member_id column:
     //  - rate_day: per-day counters keyed by scope/IP hash, no member (plan 0.8);
     //  - flags: the lead's switches, no member;
@@ -37,14 +23,30 @@ describe('the accounts table map', () => {
     expect(sql[sql.length - 1]).toBe('DELETE FROM member WHERE id = ?1');
   });
 
-  it('every statement in the map runs against the migration', async () => {
-    const h = accountHarness({ foreignKeys: true });
-    await h.db.prepare("INSERT INTO member VALUES ('m1','PUB12345','h1','u1',1,1)").run();
+  // A1-9: a row in EVERY table, foreign keys on and off. With them off a forgotten table leaves rows; with them on it
+  // makes the `member` delete throw. Either way a table missing from MEMBER_TABLES goes red here.
+  it.each([false, true])('every statement in the map runs against the migration and leaves no row (A1-9, foreignKeys %s)', async (foreignKeys) => {
+    const h = accountHarness({ foreignKeys });
+    const now = 1_000_000;
+    await seedFullMember(h.db, now);
+    const count = async (t: string, col: string): Promise<number> =>
+      (await h.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE ${col} = 'm1'`).first<{ n: number }>())?.n ?? -1;
+    const tables = [...memberTablesInMigration()];
+    for (const t of tables) expect(await count(t, t === 'member' ? 'id' : 'member_id'), `${t} is seeded`).toBeGreaterThan(0);
     for (const t of MEMBER_TABLES) {
-      if (t.exportSql !== null) await h.db.prepare(t.exportSql).bind('m1').all();
+      if (t.exportSql !== null) expect((await h.db.prepare(t.exportSql).bind('m1').all()).results.length, `${t.table} exports`).toBeGreaterThan(0);
     }
     for (const s of deleteStatements()) await (s.bindsMember ? h.db.prepare(s.sql).bind('m1') : h.db.prepare(s.sql)).run();
-    expect(await h.db.prepare('SELECT COUNT(*) AS n FROM member').first<{ n: number }>()).toEqual({ n: 0 });
+    for (const t of tables) expect(await count(t, t === 'member' ? 'id' : 'member_id'), `${t} is empty`).toBe(0);
+  });
+});
+
+describe('the harness (A1-9)', () => {
+  it('foreignKeys false really is off, and true really is on', async () => {
+    const orphan = (fk: boolean) =>
+      accountHarness({ foreignKeys: fk }).db.prepare("INSERT INTO profile VALUES ('nobody','x',0,1)").run();
+    await orphan(false);
+    await expect(orphan(true)).rejects.toThrow();
   });
 });
 
