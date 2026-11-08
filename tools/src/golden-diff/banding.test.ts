@@ -143,6 +143,7 @@ describe('bandingIndex SEES the P1 v2 defect (committed crops)', () => {
   }
 
   it('every fixture is small (cropped to its rectangle, under 100 KB)', () => {
+    expect(manifest.files.length, 'there are fixtures to measure').toBe(4);
     for (const f of manifest.files) expect(readFileSync(path.join(FIXTURES, f.file)).length).toBeLessThan(100 * 1024);
   });
 });
