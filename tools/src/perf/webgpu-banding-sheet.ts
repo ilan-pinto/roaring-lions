@@ -261,6 +261,8 @@ const md: string[] = [
   '',
   `Conditions: map=${MAP}, 1440x900 DPR ${DPR}, booted camera z1, quality high, music off, reduced motion, Metal (L on ${out.get('L')?.info.kind}, G on ${out.get('G')?.info.adapter}); sim tick ${out.get('L')?.tick}; loadavg ${loads.map((l) => `${l.at} ${l.load1m.toFixed(2)}`).join(', ')}.`,
   '',
+  'BEFORE is dither 0 on the new code, not a frame from the pre-fix commit: that the two are byte-identical rests on the shader (uGradeDither 0 adds zero) and is not asserted by any check here.',
+  '',
   '| arm | state | phase | penumbra | lit |',
   '|---|---|---|---|---|',
   ...ARMS.flatMap((a) => (a === 'Ls' ? ['shipped'] : ['flat', 'shipped']).flatMap((s) => (['before', 'after'] as const).map((p) => `| ${LABEL[a]} | ${s} | ${p} | ${fmtIndex(cell(a, s as SheetState, p).index.penumbra)} | ${fmtIndex(cell(a, s as SheetState, p).index.lit)} |`))),

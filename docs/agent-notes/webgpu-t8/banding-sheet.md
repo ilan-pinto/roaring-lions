@@ -2,6 +2,8 @@
 
 Conditions: map=wadi_halam_4, 1440x900 DPR 2, booted camera z1, quality high, music off, reduced motion, Metal (L on legacy-gl, G on apple / metal-3); sim tick 5; loadavg start 9.71, after Ls 8.68, after L 10.27, end 9.84.
 
+BEFORE is dither 0 on the new code, not a frame from the pre-fix commit: that the two are byte-identical rests on the shader (uGradeDither 0 adds zero) and is not asserted by any check here.
+
 | arm | state | phase | penumbra | lit |
 |---|---|---|---|---|
 | L shipped | shipped | before | 0.001 | 0.000 |
