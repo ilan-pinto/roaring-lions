@@ -451,12 +451,18 @@ export interface PointsOverride {
   target?: number;
 }
 
+/** `mapId`'s win-mode file, or undefined when it has none. An OWN key only: the overrides below write into what this returns,
+ *  and a bare `versusModes[mapId]` answers `__proto__` with `Object.prototype` (prototype pollution, Snyk Code). */
+function modeFileOf(mapId: string): (typeof versusModes)[string] | undefined {
+  return Object.hasOwn(versusModes, mapId) ? versusModes[mapId] : undefined;
+}
+
 /**
  * Runs `fn` with `mapId`'s points block replaced IN MEMORY (never written to disk), for fitting the numbers on the
  * selection seeds. The block is restored afterwards, also on a throw. `zones` replaces the whole list.
  */
 export function withPointsOverride<T>(mapId: string, o: PointsOverride, fn: () => T): T {
-  const file = versusModes[mapId] as { modes: { points?: { zones: unknown; per_value_destroyed: number; target: number } } } | undefined;
+  const file = modeFileOf(mapId) as { modes: { points?: { zones: unknown; per_value_destroyed: number; target: number } } } | undefined;
   const block = file?.modes.points;
   if (block === undefined) throw new Error(`versus modes: ${mapId} has no points block to override`);
   const was = { ...block };
@@ -478,7 +484,7 @@ export interface FlagOverride {
  * selection seeds. Restored afterwards, also on a throw.
  */
 export function withFlagOverride<T>(mapId: string, o: FlagOverride, fn: () => T): T {
-  const file = versusModes[mapId] as { flags?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } }; modes: { flag?: { hold_s: number } } } | undefined;
+  const file = modeFileOf(mapId) as { flags?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } }; modes: { flag?: { hold_s: number } } } | undefined;
   if (file === undefined || file.modes.flag === undefined || file.flags === undefined) throw new Error(`versus modes: ${mapId} has no flag block to override`);
   const was = { friendly: file.flags.friendly, hostile: file.flags.hostile, hold_s: file.modes.flag.hold_s };
   if (o.flags !== undefined) {
@@ -504,12 +510,12 @@ export interface CampOverride {
 
 /** Runs `fn` with `mapId`'s camp block replaced IN MEMORY (never written to disk), restored afterwards, also on a throw. */
 export function withCampOverride<T>(mapId: string, o: CampOverride, fn: () => T): T {
-  const file = versusModes[mapId] as { camps?: unknown; modes: { camp?: { wipe?: string } } } | undefined;
+  const file = modeFileOf(mapId) as { camps?: unknown; modes: { camp?: { wipe?: string } } } | undefined;
   if (file === undefined) throw new Error(`versus modes: ${mapId} has no mode file`);
   const wasCamps = file.camps;
   const wasCamp = file.modes.camp;
   if (o.fromRules === true && (wasCamps === undefined || wasCamp === undefined)) {
-    const ends = versusRules[mapId]?.ends;
+    const ends = (Object.hasOwn(versusRules, mapId) ? versusRules[mapId] : undefined)?.ends;
     if (ends === undefined) throw new Error(`versus modes: ${mapId} has no rules-file camps to screen`);
     const camp = (e: 'friendly' | 'hostile'): { at: number[]; size: number[]; exit?: number[] } => {
       const c = ends[e].camp;
