@@ -180,13 +180,14 @@ describe('the shipped win-mode files', () => {
     for (const map of ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l']) {
       const c = doc(map);
       const n = sizeOf(map);
-      // tile (x, y) maps to (n - 1 - x, n - 1 - y), so a 2x2 at (x, y) maps to (n - 2 - x, n - 2 - y); the exits are point mirrors of each other.
-      expect(c.hostile.at, map).toEqual([n - 2 - c.friendly.at[0], n - 2 - c.friendly.at[1]]);
+      // tile (x, y) maps to (n - 1 - x, n - 1 - y), so a w x h camp at (x, y) maps to (n - w - x, n - h - y) and has the same size; the exits are point mirrors of each other.
+      expect(c.hostile.size, map).toEqual(c.friendly.size);
+      expect(c.hostile.at, map).toEqual([n - c.friendly.size[0] - c.friendly.at[0], n - c.friendly.size[1] - c.friendly.at[1]]);
       expect(c.hostile.exit, map).toEqual([n - 1 - c.friendly.exit![0], n - 1 - c.friendly.exit![1]]);
     }
     // The ground each camp mode was READ fair on (GH-976 camp-mode; wadi_tarfan and wadi_tarfan_l on 28000-28191, 5 Nov). A one-tile move is a
     // different cell: the surface is a race, re-read it.
-    expect(doc('milh_flats')).toEqual({ friendly: { at: [15, 39], size: [2, 2], exit: [14, 38] }, hostile: { at: [31, 7], size: [2, 2], exit: [33, 9] } });
+    expect(doc('milh_flats')).toEqual({ friendly: { at: [13, 37], size: [3, 3], exit: [12, 36] }, hostile: { at: [32, 8], size: [3, 3], exit: [35, 11] } }); // V5 (GH-976 camp rush): 3x3 camps, two tiles back. Was (15,39) / (31,7), 2x2.
     expect(doc('wadi_tarfan')).toEqual({ friendly: { at: [13, 18], size: [2, 2], exit: [12, 17] }, hostile: { at: [33, 28], size: [2, 2], exit: [35, 30] } });
     expect(doc('wadi_tarfan_l')).toEqual({ friendly: { at: [26, 30], size: [2, 2], exit: [25, 29] }, hostile: { at: [68, 64], size: [2, 2], exit: [70, 66] } });
     // wadi_tarfan's mode camps are no longer its rules file's economy camps (7,7) / (39,39): the economy keeps its yards at the seat (CAMP_REACH 6).
@@ -595,10 +596,10 @@ describe('a win-mode room (buildMatchWorld)', () => {
     const w = buildMatchWorld(config('milh_flats', 'camp'));
     const camps = shipped.find((s) => s.doc.map === 'milh_flats')!.doc.camps!;
     const answer = (end: 'friendly' | 'hostile'): number[] => w.sim.structureExit(w.sim.structureAt(camps[end].at[0], camps[end].at[1])).map((v) => v / 65536);
-    expect(answer('friendly')).toEqual([14.5, 38.5]);
-    expect(answer('hostile')).toEqual([33.5, 9.5]);
+    expect(answer('friendly')).toEqual([12.5, 36.5]);
+    expect(answer('hostile')).toEqual([35.5, 11.5]);
     // and the NW scan would have said otherwise for the east camp, so the check can fail
-    expect(w.sim.structureExit(w.sim.structureAt(31, 7)).map((v) => v / 65536)).not.toEqual([30.5, 6.5]);
+    expect(w.sim.structureExit(w.sim.structureAt(32, 8)).map((v) => v / 65536)).not.toEqual([31.5, 7.5]);
   });
 
   it('a camp room stands two OWNED camps, the owner being the side at that end, and a points room stands none', () => {
