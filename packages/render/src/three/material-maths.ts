@@ -10,10 +10,13 @@
  * Presentation only. Nothing here is read by the sim.
  */
 import type { MaterialMaths } from './backend/backend';
+import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
+import { foliageLeanOps } from './terrain/wind';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
   ground: null,
-  foliage: null,
+  // T6: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
+  foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE },
   ring: null,
 };

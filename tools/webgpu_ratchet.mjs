@@ -22,6 +22,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/environment.node.ts',
   // GH-943 P1 (T8): the async ground photograph and view capture.
   'packages/render/src/three/capture-view.node.ts',
+  // GH-943 P2 (T6): the swaying foliage and trunk (the wind). Its legacy twin (terrain/decor-mesh.ts) keeps its splice until P7.
+  'packages/render/src/three/terrain/decor-mesh.node.ts',
 ];
 
 /**
@@ -39,6 +41,9 @@ export const TWINS = Object.freeze({
   [`${THREE}bloom.ts`]: `${THREE}bloom.node.ts`,
   [`${THREE}environment.ts`]: `${THREE}environment.node.ts`,
   [`${THREE}capture-view.ts`]: `${THREE}capture-view.node.ts`,
+  // GH-943 P2 (T6). wind.ts also feeds the rain and the banners: a rain-only change to it must touch the twin too (intended).
+  [`${THREE}terrain/decor-mesh.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
+  [`${THREE}terrain/wind.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */

@@ -23,6 +23,7 @@ import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
 import { captureNodeView, photographNodeGround, type NodeCaptureDeps, type ReadbackMaths } from '../capture-view.node';
 import { censusUnported, unportedWarnings, type UnportedHook } from './unported';
+import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
 const CENSUS_EVERY_FRAMES = 60;
@@ -101,6 +102,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   /** GH-943 P2 (T1): the material twins, null until each task lands (T3 ground, T5 ring, T6 foliage), each built from
    *  `opts.materialMaths`. A null factory leaves the legacy material in place, and this backend's census hides or names it. */
   const materials: MaterialKit = { ground: null, foliage: null, ring: null };
+  // T6: the swaying foliage and trunk batches (the wind; the disturbers follow in T7).
+  materials.foliage = createFoliageTwinFactory({ W, TSL, maths: opts.materialMaths.foliage });
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();

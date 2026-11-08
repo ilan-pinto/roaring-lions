@@ -35,7 +35,10 @@ export const HIDE_WITHOUT_HOOK: ReadonlySet<string> = new Set(['rl-silhouette-ou
  * ratio of a ported layer measures something. The node backend's own census never passes it, so on node a legacy material that
  * escaped adoption is still hidden and named whatever list it is on: an adoption bug stays loud.
  */
-export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([]);
+export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
+  // T6: the foliage and trunk sway, dry and wet (`terrain/decor-mesh.node.ts`).
+  'rl-foliage-sway', 'rl-foliage-sway-wet', 'rl-trunk-sway', 'rl-trunk-sway-wet',
+]);
 
 /** `userData` key on a node twin: the terms of its legacy material it does NOT draw (`['rl-ground: wet terms']`). */
 export const UNPORTED_TERMS_KEY = 'rlUnportedTerms';

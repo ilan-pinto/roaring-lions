@@ -45,6 +45,26 @@ export const TRUNK_SWAY_KEY = 'rl-trunk-sway';
 export const TRUNK_SWAY_WET_KEY = 'rl-trunk-sway-wet';
 
 /**
+ * GH-943 P2 (T6): what a swaying material reads, held on the material itself (`SwayingFoliageMaterial.rlSway`) so its node twin
+ * (`decor-mesh.node.ts`, built from the legacy object alone by the `foliage` factory) binds the SAME objects the legacy splice binds:
+ * the clock, the `wind` layer's amplitude, the resolved wind and disturber sets (a caller that gave none gets the legacy and inert
+ * sets made here, once), and the two compile-time variants with the program key they select. Nothing here is a copy.
+ */
+export interface SwayRecord {
+  readonly time: { value: number };
+  readonly amp: { value: number };
+  readonly wind: WindUniformSet;
+  readonly disturb: DisturbUniformSet;
+  readonly wet: boolean;
+  readonly trunk: boolean;
+  /** The legacy program key (`FOLIAGE_SWAY_KEY` and its three siblings). */
+  readonly key: string;
+}
+
+/** A `swayingFoliageMaterial`: the ramp material plus the record its splice (and its node twin) reads. */
+export type SwayingFoliageMaterial = THREE.MeshStandardMaterial & { readonly rlSway: SwayRecord };
+
+/**
  * `rampMaterial(ramp)`, plus the wind spliced after `#include <project_vertex>`
  * (`wind.ts`'s `windVertexChunk` says why there). `trunk` is the trunk batch's
  * variant: the same chunk, whose reduced-motion branch holds still, as a trunk
@@ -57,10 +77,12 @@ export function swayingFoliageMaterial(
   sway: SwayUniforms,
   wet = false,
   trunk = false
-): THREE.MeshStandardMaterial {
-  const material = rampMaterial(ramp);
+): SwayingFoliageMaterial {
   const wind = sway.wind ?? legacyWindUniforms();
   const disturb = sway.disturb ?? inertDisturbUniforms();
+  const key = trunk ? (wet ? TRUNK_SWAY_WET_KEY : TRUNK_SWAY_KEY) : wet ? FOLIAGE_SWAY_WET_KEY : FOLIAGE_SWAY_KEY;
+  const rlSway: SwayRecord = { time: sway.time, amp: sway.amp, wind, disturb, wet, trunk, key };
+  const material = Object.assign(rampMaterial(ramp), { rlSway });
   material.onBeforeCompile = (shader) => {
     if (!shader.vertexShader.includes(SWAY_ANCHOR)) {
       throw new Error(
@@ -85,8 +107,7 @@ export function swayingFoliageMaterial(
       )
       .replace(SWAY_ANCHOR, `${SWAY_ANCHOR}\n${windVertexChunk(wet, trunk)}\n${disturbVertexChunk()}`);
   };
-  material.customProgramCacheKey = () =>
-    trunk ? (wet ? TRUNK_SWAY_WET_KEY : TRUNK_SWAY_KEY) : wet ? FOLIAGE_SWAY_WET_KEY : FOLIAGE_SWAY_KEY;
+  material.customProgramCacheKey = () => key;
   return material;
 }
 
