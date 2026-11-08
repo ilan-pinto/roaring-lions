@@ -42,6 +42,8 @@ export const TWINS = Object.freeze({
   [`${THREE}environment.ts`]: `${THREE}environment.node.ts`,
   [`${THREE}capture-view.ts`]: `${THREE}capture-view.node.ts`,
   [`${THREE}terrain/mesh.ts`]: `${THREE}terrain/mesh.node.ts`,
+  // GH-943 P2 (T4). relief-read.ts feeds the ground twin's slope light and contours: a change to it must touch mesh.node.ts too.
+  [`${THREE}terrain/relief-read.ts`]: `${THREE}terrain/mesh.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */

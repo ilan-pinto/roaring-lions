@@ -467,6 +467,8 @@ async function main(): Promise<void> {
     // environment read as "no baseline", which is exactly the report-only mode every node arm runs in.
     args.baselineDir = path.join(args.outDir, 'no-baseline-for-match-node');
   }
+  // R9: a node arm re-runs its census after every layer toggle, so a re-shown ShaderMaterial object (the decal pools) is hidden again.
+  if (arm !== 'legacy') scriptOpts = { nodeCensusRoot: REPO_ROOT };
   if (args.bless && arm !== 'legacy') {
     console.error(
       `[${TAG}] refusing to bless the ${arm} arm: the node backends have NO baselines in P0 (GH-943). Their first blesses go through the ` +

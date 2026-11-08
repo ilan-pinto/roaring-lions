@@ -14,8 +14,7 @@
  *      gate in `mesh.node.test.ts` pins the form, not the absence of a branch);
  *   6. the road, shoulder and rut tones mixed into the vertex colour, then `albedo x macro`.
  *
- * **Not drawn here, and said so** (`userData.rlUnportedTerms`, the census's `partial` kind): the relief read (slope light, height
- * contours, tint: T4) and, on a wet owner, the wet terms (P4, ruled 7 Nov). A wet owner gets the DRY graph, byte for byte: the graph
+ * **Not drawn here, and said so** (`userData.rlUnportedTerms`, the census's `partial` kind): on a wet owner, the wet terms (P4, ruled 7 Nov). A wet owner gets the DRY graph, byte for byte: the graph
  * never reads `owner.wet` or its define; only the list of unported terms does.
  *
  * **The uniforms stay a record.** The twin reads the legacy object's `uniforms` table every render (`onRenderUpdate`): numbers and
@@ -37,12 +36,21 @@ import * as THREE from 'three';
 import type { GroundMaterial, GroundSlot, slotUniforms } from './mesh';
 import type { ROAD_DISTANCE_RANGE_TILES } from './control-map';
 import type { heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './ground-maths';
+import type {
+  RELIEF_CONTOUR_STRENGTH,
+  RELIEF_CONTOUR_WIDTH_PX,
+  RELIEF_SLOPE_MAX_TILT_RAD,
+  RELIEF_TINT_HIGH,
+  RELIEF_TINT_LOW,
+  contourFactorOps,
+  reliefTiltOps,
+  reliefTintRampOps,
+} from './relief-read';
 import { tslOps, type N, type Tsl } from '../fog-pass.node';
 
 /** The name every ground twin carries (`NODE_MATERIAL_MARKER`'s prefix, `tools/src/perf/bundle-census.ts`). */
 export const NODE_GROUND_MATERIAL_NAME = 'rl-node-material-ground';
-/** What the twin does not draw, as the census names it (`UNPORTED_TERMS_KEY`). */
-export const GROUND_RELIEF_TERM = 'rl-ground: relief read';
+/** What the twin does not draw, as the census names it (`UNPORTED_TERMS_KEY`). The relief read landed in T4: only the wet terms remain. */
 export const GROUND_WET_TERM = 'rl-ground: wet terms';
 
 /**
@@ -59,6 +67,17 @@ export interface GroundMaths {
   readonly rescaleWeights: typeof rescaleWeights;
   readonly macroDecode: typeof macroDecode;
   readonly macroFactor: typeof macroFactor;
+  /** T4: the relief read's scalar parts (`relief-read.ts`) and the constants the GLSL is generated from. */
+  readonly relief: {
+    readonly tilt: typeof reliefTiltOps;
+    readonly contour: typeof contourFactorOps;
+    readonly tintRamp: typeof reliefTintRampOps;
+    readonly maxTiltRad: typeof RELIEF_SLOPE_MAX_TILT_RAD;
+    readonly contourStrength: typeof RELIEF_CONTOUR_STRENGTH;
+    readonly contourWidthPx: typeof RELIEF_CONTOUR_WIDTH_PX;
+    readonly tintLow: typeof RELIEF_TINT_LOW;
+    readonly tintHigh: typeof RELIEF_TINT_HIGH;
+  };
 }
 
 export interface NodeGroundDeps {
@@ -83,6 +102,12 @@ interface GroundTsl extends Omit<Tsl, 'texture'> {
   readonly positionWorld: GN;
   dFdx(a: N): GN;
   dFdy(a: N): GN;
+  fwidth(a: N): GN;
+  normalize(a: N): GN;
+  /** The vertex normal in world space (a varying, unflipped) and the face sign (+1 front, -1 back). */
+  readonly normalWorldGeometry: GN;
+  readonly faceDirection: GN;
+  readonly cameraViewMatrix: GN;
 }
 
 /** The legacy uniform record, as the twin reads it. */
@@ -162,6 +187,13 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
   const macroAmp = uni('uMacroAmp');
   const macroBright = uni('uMacroBright');
   const macroDark = uni('uMacroDark');
+  // T4: the relief read's five uniforms (the debug layers write `uReliefSlopeGain` / `uReliefContour` / `uReliefTint`).
+  const slopeGain = uni('uReliefSlopeGain');
+  const contourAmp = uni('uReliefContour');
+  const tintAmp = uni('uReliefTint');
+  const medianY = uni('uReliefMedianY');
+  const levelY = uni('uReliefLevelY');
+  const relief = maths.relief;
 
   const colour = TSL.Fn(() => {
     // 1. Attributes and the world position. The road grain's derivatives FIRST, as statements (an `assign` is emitted where it is
@@ -173,6 +205,10 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
     grainDx.assign(TSL.dFdx(grainUv));
     const grainDy = TSL.vec2(0, 0).toVar();
     grainDy.assign(TSL.dFdy(grainUv));
+    // The contour's screen rate, taken here for the same reason (a derivative in uniform control flow, before any select).
+    const levels = TSL.positionWorld.y.div(levelY);
+    const levelRate = TSL.float(0).toVar();
+    levelRate.assign(TSL.fwidth(levels));
     const wall = TSL.attribute('wallAlbedo', 'float');
     const groundUv = TSL.attribute('groundUv', 'vec2');
     const vertexTone = TSL.vertexColor().rgb;
@@ -219,14 +255,36 @@ export function buildNodeGround(deps: NodeGroundDeps, owner: GroundMaterial): No
     albedo = albedo.add(grainTerm);
     const m = maths.macroDecode(o, tap('uMacro', 'uMapSize', ctlUv).r);
     const macro = maths.macroFactor(o, m, macroAmp, macroBright, macroDark);
-    return TSL.vec4(tone.mul(albedo).mul(macro), 1);
+
+    // 7. The relief read, on tops only: a contour line at every half level, and a tint by height against the map's median.
+    const line = relief.contour(o, levels, levelRate, o.lit(relief.contourStrength).mul(contourAmp), o.lit(relief.contourWidthPx));
+    const ramp = relief.tintRamp(o, levels, medianY.div(levelY), tintAmp);
+    const low = TSL.vec3(...relief.tintLow);
+    const high = TSL.vec3(...relief.tintHigh);
+    const end = TSL.select(ramp.t.lessThan(0), low, high);
+    const tint = TSL.mix(ones, end, ramp.k);
+    const reliefTerm = TSL.mix(ones, tint.mul(line), top);
+    return TSL.vec4(tone.mul(albedo).mul(macro).mul(reliefTerm), 1);
+  })();
+
+  // The slope light: the LIGHTING normal only (view space), the geometry and the shadows keep the real surface. The vertex normal in
+  // world space, flipped on a back face as the legacy does, tilted by the shared maths, passed through where it has no horizontal
+  // part or points down (a wall, a back-facing sliver).
+  const lightNormal = TSL.Fn(() => {
+    const n = TSL.normalWorldGeometry.mul(TSL.faceDirection);
+    const h = TSL.length(TSL.vec2(n.x, n.z));
+    const tilt = relief.tilt(o, h, n.y, slopeGain, o.lit(relief.maxTiltRad));
+    const tilted = TSL.vec3(n.x.mul(tilt.s), tilt.c, n.z.mul(tilt.s));
+    const world = TSL.select(n.y.greaterThan(0), TSL.select(h.lessThan(1e-6), n, tilted), n);
+    return TSL.normalize(TSL.cameraViewMatrix.mul(TSL.vec4(world, 0)).xyz);
   })();
 
   const mat = new W.MeshStandardNodeMaterial({ roughness: 1, metalness: 0, side: THREE.DoubleSide });
   mat.vertexColors = false;
   mat.name = NODE_GROUND_MATERIAL_NAME;
   mat.colorNode = colour as never;
-  mat.userData.rlUnportedTerms = owner.wet ? [GROUND_RELIEF_TERM, GROUND_WET_TERM] : [GROUND_RELIEF_TERM];
+  mat.normalNode = lightNormal as never;
+  if (owner.wet) mat.userData.rlUnportedTerms = [GROUND_WET_TERM];
   return { material: mat as unknown as THREE.Material, numbers, textures };
 }
 

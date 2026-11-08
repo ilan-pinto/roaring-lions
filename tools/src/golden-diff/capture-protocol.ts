@@ -1107,7 +1107,7 @@ export const NODE_NATIVE_RAF_STATEMENT = `  await new Promise(function (r) { win
 export function layerToggleScript(layer: string, visible: boolean, arm: GpuArm = 'legacy', opts: CaptureScriptOptions = {}): string {
   return `(async () => {
   const objects = window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(layer)}, ${visible});
-${arm === 'legacy' ? '' : NODE_NATIVE_RAF_STATEMENT}  window.__lions.renderer.frame(1, 0);
+${arm !== 'legacy' && opts.nodeCensusRoot !== undefined ? nodeCensusStatements(opts.nodeCensusRoot) : ''}${arm === 'legacy' ? '' : NODE_NATIVE_RAF_STATEMENT}  window.__lions.renderer.frame(1, 0);
 ${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${layer === 'crown' ? '  window.__lions.redrawMinimap();\n' : ''}${opts.matchNodeRoot !== undefined ? matchNodeStatements(opts.matchNodeRoot) : ''}  return JSON.stringify({ layer: ${JSON.stringify(layer)}, visible: ${visible}, objects, tick: window.__lions.sim.tickCount });
 })()`;
 }
@@ -1152,7 +1152,27 @@ export function matchNodeStatements(repoRoot: string): string {
 `;
 }
 
+/**
+ * GH-943 P2 (T4, ruling R9): the NODE arms' census, re-run after a layer toggle. The node backend hides every `ShaderMaterial` object
+ * (the decal pools, until P3) from `render()` every `CENSUS_EVERY_FRAMES` (60) frames. A layer toggle that shows a layer writes
+ * `visible = true` on those objects, and the frame loop is frozen, so no census runs before the next photograph: the node draws a
+ * ShaderMaterial as an empty node material, a ~330k-390k px constant. Every aftermath check after the `decals` toggle read it (T1 and
+ * T3 both saw the same 330k-390k px on roads, macro and the rest). Re-running the SAME census the backend runs puts the scene back in
+ * the state the real node chain draws. Placed BEFORE the repaint so the next photograph sees it. Node arms only.
+ */
+export function nodeCensusStatements(repoRoot: string): string {
+  const unported = `/@fs${repoRoot}/packages/render/src/three/backend/unported.ts`;
+  return `{
+  const _u = await import(${JSON.stringify(unported)});
+  const _found = _u.censusUnported(window.__lions.renderer.scene);
+  if (!Array.isArray(_found)) throw new Error('node-census: censusUnported returned no list');
+}
+`;
+}
+
 export interface CaptureScriptOptions {
+  /** Re-run the node census after a layer toggle (NODE arms only; the gate sets it for webgl2 and webgpu). See `nodeCensusStatements`. */
+  readonly nodeCensusRoot?: string;
   /** Run `matchNodeStatements` before the camera is read (legacy arm only; the gate's `--match-node`). */
   readonly matchNodeRoot?: string;
 }

@@ -35,6 +35,7 @@
  * Everything here is three-free and pure; the GLSL below is generated from
  * the same constants, and `relief-read.test.ts` pins the maths.
  */
+import { NUMBER_OPS, type Ops } from '../fog-ops';
 
 /** The slope light's horizontal-normal gain. The mock read x3 as blotchy and x2 as clean. */
 export const RELIEF_SLOPE_GAIN = 2;
@@ -52,6 +53,38 @@ export const RELIEF_TINT_HIGH: readonly [number, number, number] = [1.07, 1.05, 
 
 export type Vec3 = readonly [number, number, number];
 
+/** The ceiling on the exaggerated tilt, radians (the GLSL's literal and the twin's). */
+export const RELIEF_SLOPE_MAX_TILT_RAD = (RELIEF_SLOPE_MAX_TILT_DEG * Math.PI) / 180;
+
+/**
+ * The slope light's scalar part, written ONCE against `Ops<T>` (GH-943 P2 T4): given the horizontal length `h` of a unit normal and
+ * its vertical part `y` (> 0, `h` > 0: the caller passes through anything else), the factors that rebuild the tilted normal as
+ * `(x * s, c, z * s)`. `tilt = atan2(h, y)`, `target = max(tilt, min(atan2(gain * h, y), maxTilt))`, `s = sin(target) / h`,
+ * `c = cos(target)`. The twin hands it `Ops<Node>`, the legacy export runs it through `NUMBER_OPS`.
+ */
+export function reliefTiltOps<T>(o: Ops<T>, h: T, y: T, gain: T, maxTilt: T): { readonly s: T; readonly c: T } {
+  const tilt = o.atan2(h, y);
+  const target = o.max(tilt, o.min(o.atan2(o.mul(gain, h), y), maxTilt));
+  return { s: o.div(o.sin(target), h), c: o.cos(target) };
+}
+
+/**
+ * The contour factor against `Ops<T>`: `d = |levels - floor(levels) - 0.5|`, `px = d / max(rate, 1e-4)`,
+ * `1 - strength * (1 - smoothstep(0, widthPx, px))`. `rate` (levels per pixel) is an ARGUMENT: `Ops<T>` has no derivative, so the
+ * twin computes `fwidth(levels)` in the graph and passes it in.
+ */
+export function contourFactorOps<T>(o: Ops<T>, levels: T, rate: T, strength: T, widthPx: T): T {
+  const d = o.abs(o.sub(o.sub(levels, o.floor(levels)), o.lit(0.5)));
+  const px = o.div(d, o.max(rate, o.lit(1e-4)));
+  return o.sub(o.lit(1), o.mul(strength, o.sub(o.lit(1), o.smoothstep(o.lit(0), widthPx, px))));
+}
+
+/** The tint's scalar ramp: `t = clamp((levels - median) / span, -1, 1)` (its sign picks the end colour) and `k = |t| * amp`. */
+export function reliefTintRampOps<T>(o: Ops<T>, levels: T, median: T, amp: T): { readonly t: T; readonly k: T } {
+  const t = o.clamp(o.div(o.sub(levels, median), o.lit(RELIEF_TINT_SPAN_LEVELS)), -1, 1);
+  return { t, k: o.mul(o.abs(t), amp) };
+}
+
 /**
  * The lighting normal for a ground normal `n` (world space, unit length):
  * tilt -> max(tilt, min(atan(gain * tan(tilt)), maxTilt)), azimuth kept.
@@ -66,10 +99,8 @@ export function exaggerateNormal(
   const [x, y, z] = n;
   const h = Math.hypot(x, z);
   if (y <= 0 || h < 1e-6) return [x, y, z];
-  const tilt = Math.atan2(h, y);
-  const target = Math.max(tilt, Math.min(Math.atan2(gain * h, y), (maxTiltDeg * Math.PI) / 180));
-  const s = Math.sin(target) / h;
-  return [x * s, Math.cos(target), z * s];
+  const { s, c } = reliefTiltOps(NUMBER_OPS, h, y, gain, (maxTiltDeg * Math.PI) / 180);
+  return [x * s, c, z * s];
 }
 
 /**
@@ -84,22 +115,14 @@ export function contourFactor(
   strength: number = RELIEF_CONTOUR_STRENGTH,
   widthPx: number = RELIEF_CONTOUR_WIDTH_PX
 ): number {
-  const d = Math.abs(heightLevels - Math.floor(heightLevels) - 0.5);
-  const px = d / Math.max(fwidthLevels, 1e-4);
-  return 1 - strength * (1 - smoothstep(0, widthPx, px));
+  return contourFactorOps(NUMBER_OPS, heightLevels, fwidthLevels, strength, widthPx);
 }
 
 /** The tint multiplier at `heightLevels` on a map whose median open level is `medianLevel`; `amp` 0 is off. */
 export function reliefTint(heightLevels: number, medianLevel: number, amp = 1): [number, number, number] {
-  const t = Math.max(-1, Math.min(1, (heightLevels - medianLevel) / RELIEF_TINT_SPAN_LEVELS));
+  const { t, k } = reliefTintRampOps(NUMBER_OPS, heightLevels, medianLevel, amp);
   const end = t < 0 ? RELIEF_TINT_LOW : RELIEF_TINT_HIGH;
-  const k = Math.abs(t) * amp;
   return [1 + (end[0] - 1) * k, 1 + (end[1] - 1) * k, 1 + (end[2] - 1) * k];
-}
-
-function smoothstep(e0: number, e1: number, x: number): number {
-  const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
-  return t * t * (3 - 2 * t);
 }
 
 const f = (v: number): string => v.toFixed(5);

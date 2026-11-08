@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { QUIET_SCENARIO, captureScript, layerToggleScript } from './capture-protocol';
+import { QUIET_SCENARIO, captureScript, layerToggleScript, nodeCensusStatements } from './capture-protocol';
 
 const ROOT = '/repo';
 
@@ -18,6 +18,29 @@ describe('layerToggleScript on a node arm (GH-943 P1)', () => {
   it('legacy is untouched: no rAF, and the same script with or without the options bag', () => {
     expect(layerToggleScript('fog', false)).not.toContain('requestAnimationFrame');
     expect(layerToggleScript('fog', false, 'legacy', {})).toBe(layerToggleScript('fog', false));
+  });
+});
+
+describe('the node arm re-runs its census after a toggle (R9: the re-shown decal ShaderMaterials)', () => {
+  it('toggle, THEN census, THEN the native rAF and the repaint, on both node arms and both directions', () => {
+    for (const arm of ['webgl2', 'webgpu'] as const) {
+      for (const visible of [true, false]) {
+        const s = layerToggleScript('decals', visible, arm, { nodeCensusRoot: ROOT });
+        const toggle = s.indexOf('setDebugLayerVisible');
+        const census = s.indexOf('censusUnported');
+        expect(census).toBeGreaterThan(toggle);
+        expect(s.indexOf('window.requestAnimationFrame')).toBeGreaterThan(census);
+        expect(s.indexOf('frame(1, 0)')).toBeGreaterThan(census);
+        expect(s).toContain(`/@fs${ROOT}/packages/render/src/three/backend/unported.ts`);
+        // The node arm runs the backend's OWN census: no ported-key exemption (that is the legacy-matched arm's).
+        expect(s).not.toContain('PORTED_MATERIAL_KEYS');
+      }
+    }
+  });
+  it('without the option, and on legacy, the toggle script is unchanged', () => {
+    expect(layerToggleScript('decals', true, 'webgpu')).not.toContain('censusUnported');
+    expect(layerToggleScript('decals', true, 'legacy', { nodeCensusRoot: ROOT })).toBe(layerToggleScript('decals', true));
+    expect(nodeCensusStatements(ROOT)).toContain('censusUnported');
   });
 });
 

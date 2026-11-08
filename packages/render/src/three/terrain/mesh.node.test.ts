@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { GroundMaterial, GROUND_SLOTS, slotUniforms } from './mesh';
 import { MATERIAL_MATHS } from '../material-maths';
-import { buildNodeGround, GROUND_RELIEF_TERM, GROUND_WET_TERM, NODE_GROUND_MATERIAL_NAME, type NodeGround } from './mesh.node';
+import { buildNodeGround, GROUND_WET_TERM, NODE_GROUND_MATERIAL_NAME, type NodeGround } from './mesh.node';
 import { assertNoImplicitSampleInConditional } from '../sample-uniformity';
 import { censusUnported } from '../backend/unported';
 
@@ -41,7 +41,7 @@ function groundGeometry(): THREE.BufferGeometry {
   return g;
 }
 
-async function compile(owner: GroundMaterial): Promise<Built> {
+async function compile(owner: GroundMaterial, lit = false): Promise<Built> {
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
   const ground = buildNodeGround({ W, TSL, maths: MATERIAL_MATHS.ground }, owner);
@@ -52,6 +52,7 @@ async function compile(owner: GroundMaterial): Promise<Built> {
     scene: THREE.Scene;
     camera: THREE.Camera;
     material: unknown;
+    lightsNode: unknown;
     build(): void;
     uniforms: { fragment: Uniform[] };
     updateNodes: Array<{ update(frame: unknown): void }>;
@@ -61,6 +62,9 @@ async function compile(owner: GroundMaterial): Promise<Built> {
   builder.scene = new THREE.Scene();
   builder.camera = new THREE.OrthographicCamera();
   builder.material = ground.material;
+  // LIT (opt-in, the relief tests): the lighting normal is only built when the scene has a light (an unlit build never reads
+  // `normalNode`). A lit build adds the standard material's own BRDF lookup, a ninth sampler, so the sampler-count gates stay unlit.
+  if (lit) builder.lightsNode = new W.LightsNode().setLights([new THREE.DirectionalLight()]);
   builder.build();
   // What a NodeFrame hands every update: the camera, scene, renderer, object and material of this draw.
   const frame = { camera: builder.camera, scene: builder.scene, renderer: r, object: mesh, material: ground.material };
@@ -76,7 +80,7 @@ async function compile(owner: GroundMaterial): Promise<Built> {
  * stubbed to an ordinary single-sampled device with no optional features. The texture filterability the builder decides on (whether
  * a sampler is declared, `textureSample` or `textureLoad`) comes from the textures themselves, which are the real ones.
  */
-async function compileWgsl(owner: GroundMaterial): Promise<string> {
+async function compileWgsl(owner: GroundMaterial, lit = false): Promise<string> {
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
   const ground = buildNodeGround({ W, TSL, maths: MATERIAL_MATHS.ground }, owner);
@@ -91,12 +95,14 @@ async function compileWgsl(owner: GroundMaterial): Promise<string> {
     scene: THREE.Scene;
     camera: THREE.Camera;
     material: unknown;
+    lightsNode: unknown;
     build(): void;
     fragmentShader: string;
   };
   builder.scene = new THREE.Scene();
   builder.camera = new THREE.OrthographicCamera();
   builder.material = ground.material;
+  if (lit) builder.lightsNode = new W.LightsNode().setLights([new THREE.DirectionalLight()]);
   builder.build();
   return builder.fragmentShader;
 }
@@ -248,16 +254,67 @@ describe('a wet owner', () => {
     expect(wet.vert).toBe(dry.vert);
   });
 
-  it('is named by the census: the wet terms and the relief read, as partial hooks; a dry owner names the relief read only', async () => {
+  it('is named by the census: the wet terms, as a partial hook; a dry owner names nothing (the relief read landed in T4)', async () => {
     const wet = await compile(new GroundMaterial({ wet: true }));
     const dry = await compile(new GroundMaterial());
     const partial = (mesh: THREE.Mesh): string[] =>
       censusUnported(mesh)
         .filter((h) => h.kind === 'partial')
         .map((h) => h.key);
-    expect(partial(wet.mesh)).toEqual([GROUND_RELIEF_TERM, GROUND_WET_TERM].sort());
-    expect(partial(dry.mesh)).toEqual([GROUND_RELIEF_TERM]);
+    expect(partial(wet.mesh)).toEqual([GROUND_WET_TERM]);
+    expect(partial(dry.mesh)).toEqual([]);
     // The twin itself carries no GLSL hook: nothing but the partial terms is reported.
     expect(censusUnported(dry.mesh).filter((h) => h.kind !== 'partial')).toEqual([]);
+  });
+});
+
+describe('the relief read (T4): slope light, height contours and tint', () => {
+  it('the contour screen rate is a derivative taken before any if in main, on the world height in levels', async () => {
+    const { frag } = await compile(new GroundMaterial(), true);
+    const body = mainOf(frag);
+    const firstIf = body.search(/\bif \(/);
+    const rate = /\b(nodeVar\d+) = fwidth\( [^;]*\);/.exec(body);
+    expect(rate, 'a variable assigned fwidth(...)').not.toBeNull();
+    expect((rate as RegExpExecArray).index, 'fwidth(...) comes before the first if').toBeLessThan(firstIf);
+    expect(body.match(/\bfwidth\(/g), 'one derivative, the contour rate').toHaveLength(1);
+  });
+
+  it('on WGSL the contour rate is taken in uniform control flow too (before the first if in main)', async () => {
+    const wgsl = await compileWgsl(new GroundMaterial(), true);
+    expect(() => assertNoImplicitSampleInConditional(wgsl)).not.toThrow();
+    const body = wgsl.slice(wgsl.indexOf('fn main('));
+    const at = body.search(/\bfwidth\(/);
+    expect(at, 'the WGSL fragment takes a fwidth').toBeGreaterThan(-1);
+    expect(at, 'fwidth(...) comes before the first if').toBeLessThan(body.search(/\bif \(/));
+  });
+
+  it('the lighting normal is replaced: the 38 degree ceiling is in the fragment, and the tilt reads the shared gain uniform', async () => {
+    const owner = new GroundMaterial();
+    const { frag } = await compile(owner, true);
+    // 38 degrees in radians, the legacy GLSL's literal (`RELIEF_FRAGMENT_GLSL`), to five places.
+    expect(frag).toMatch(/0\.6632[0-9]*/);
+    expect(frag.match(/\batan\(/g)?.length ?? 0, 'two arc tangents: the tilt and the exaggerated tilt').toBeGreaterThanOrEqual(2);
+  });
+
+  it('setSlopeLightVisible(false) and setHeightContoursVisible(false) reach the twin on the next render update; the median follows', async () => {
+    const owner = new GroundMaterial();
+    const u = owner.uniforms as Record<string, { value: unknown }>;
+    // Sentinels, so a uniform bound BY VALUE at build is visible among the used ones.
+    u.uReliefSlopeGain!.value = 7.5;
+    u.uReliefContour!.value = 0.375;
+    u.uReliefTint!.value = 0.3125;
+    const { ground, used, renderUpdate } = await compile(owner, true);
+    for (const v of [7.5, 0.375, 0.3125]) expect(used.some((x) => x.node.value === v), `sentinel ${v} bound (non-vacuous)`).toBe(true);
+    owner.setSlopeLightVisible(false);
+    owner.setHeightContoursVisible(false);
+    owner.setReliefMedianLevel(3);
+    renderUpdate();
+    for (const v of [7.5, 0.375, 0.3125]) expect(used.filter((x) => x.node.value === v).map((x) => x.name), `a uniform still holds ${v}`).toEqual([]);
+    expect([ground.numbers.uReliefSlopeGain?.value, ground.numbers.uReliefContour?.value, ground.numbers.uReliefTint?.value]).toEqual([1, 0, 0]);
+    expect(ground.numbers.uReliefMedianY?.value).toBe(u.uReliefMedianY?.value);
+    expect(ground.numbers.uReliefMedianY?.value).not.toBe(0);
+    owner.setSlopeLightVisible(true);
+    renderUpdate();
+    expect(ground.numbers.uReliefSlopeGain?.value).toBe(7.5);
   });
 });
