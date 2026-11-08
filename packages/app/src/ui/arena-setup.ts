@@ -210,6 +210,8 @@ export function showArenaSetup(host: HTMLElement, deps: ArenaSetupDeps): Dispose
     modeHint.textContent = pointsRules !== undefined ? pointsExplainer(pointsRules) : t(`versus.win.${modeSel.value}.hint`, { target: file?.modes.points?.target ?? 0, hold });
     cap.max = String(capOf());
     if (!capEdited) cap.value = String(modeSel.value === 'annihilation' ? Math.min(SETUP_DEFAULTS.capTicks, capOf()) : capOf());
+    // A typed cap is left alone, but never above the new maximum (GH-1079): a mode change can lower it, as a map change can.
+    else if (Number(cap.value) > capOf()) cap.value = String(capOf());
   };
   mapSel.addEventListener('change', () => { fillMatchups(); fillModes(); });
   matchupSel.addEventListener('change', fillModes);

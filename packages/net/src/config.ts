@@ -91,7 +91,12 @@ export type WinMode = (typeof WIN_MODES)[number];
 export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = {
   camp: ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'],
   points: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
-  flag: ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'],
+  // GH-1139 (the lead, 8 Nov): flag is OUT of every lobby until CTF v2 lands at WP9. The v1 raid that the seven reads above
+  // passed is won by an opening attack-move in 32-62 s on every map (0:55 in the lead's bot match). WP9 relists the maps that
+  // pass the v2 bars here and in `FLAG_SETUP_MAPS` together. The engine, the mode files and the probe stay; tools and tests
+  // build flag worlds directly (`validateConfig` does not read this table), and a test that needs a flag ROOM stands a map
+  // here for its own duration (read at call time, like `FLAG_SETUP_MAPS`).
+  flag: [],
 };
 
 /** The KDF-v-Sarim cells each win mode has been read fair on (GH-976 P4): per mode, per map, the HOSTS (the matchup is the
@@ -127,6 +132,12 @@ export function winModeAllowed(mode: WinMode, map: string, matchup: Matchup = 'm
   if (matchup === 'mirror') return WIN_MODE_FAIR_MAPS[mode].includes(map);
   const cells = WIN_MODE_FAIR_FACTION_CELLS[mode];
   return Object.hasOwn(cells, map) && cells[map].includes(matchup);
+}
+
+/** Whether any lobby offers `mode` at all: on some map in the mirror, or in some faction cell. False for flag until CTF v2 is
+ *  relisted (GH-1139), so a tool that is TOLD a mode (`pnpm bot --mode`) can refuse one no room can play. */
+export function winModeOpen(mode: WinMode): boolean {
+  return WIN_MODE_FAIR_MAPS[mode].length > 0 || Object.values(WIN_MODE_FAIR_FACTION_CELLS[mode]).some((hosts) => hosts.length > 0);
 }
 
 /** A win mode from anything a client sent: unknown reads as none (annihilation). */

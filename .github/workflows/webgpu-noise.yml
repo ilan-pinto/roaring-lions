@@ -5,6 +5,11 @@
 # to its class and a ratio moves only when the code moves. Not on every PR: 24 boots per key is ~20 min of SwiftShader. Dispatch it from
 # the Actions tab (or `gh workflow run webgpu-noise.yml --ref <branch>`) when a node-path PR changes what a capture draws. GitHub only
 # offers a dispatch for a workflow file that is on the default branch, so it first becomes available when this file reaches main.
+#
+# GH-943 WebGPU P2 T2: `probe: banding` runs the banding probe (`tools/src/perf/webgpu-banding-probe.ts`) instead: ONE job, the L, wgl2
+# and wgpu arms in sequence on SwiftShader, each hypothesis toggle read with `bandingIndex`, and the probe's JSON, table and crops
+# uploaded. A diagnosis for T8, report-only: nothing reads its exit. It rides this file because a dispatch needs a workflow that is
+# already on the default branch (`gh workflow run webgpu-noise.yml --ref <branch> -f probe=banding`).
 name: webgpu-noise
 
 on:
@@ -13,12 +18,16 @@ on:
       runs:
         description: Fresh-process captures per key
         default: '24'
+      probe:
+        description: noise (the zero-noise check) or banding (the P2 T2 banding probe)
+        default: noise
 
 permissions:
   contents: read
 
 jobs:
   noise:
+    if: inputs.probe != 'banding'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -63,3 +72,44 @@ jobs:
             noise-check.log
           if-no-files-found: ignore
           retention-days: 3
+
+  banding:
+    if: inputs.probe == 'banding'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      - name: Banding probe (L, wgl2, wgpu on SwiftShader)
+        run: |
+          set +e
+          pnpm --filter @lions/tools exec tsx src/perf/webgpu-banding-probe.ts --hw=swiftshader --arms=L,F,G --port=5186 --out-dir="$GITHUB_WORKSPACE/banding-probe" 2>&1 | tee banding-probe.log
+          code=${PIPESTATUS[0]}
+          {
+            echo "### webgpu banding probe (SwiftShader): exit \`$code\` (0 read, 2 refused)"
+            cat "$GITHUB_WORKSPACE/banding-probe/banding-probe.md" 2>/dev/null || tail -40 banding-probe.log
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $code
+      - name: Upload
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webgpu-banding-probe
+          path: |
+            banding-probe
+            banding-probe.log
+          if-no-files-found: ignore
+          retention-days: 14

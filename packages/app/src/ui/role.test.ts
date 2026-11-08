@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
 import { bucketVisible, isMountCarrier, ROLE_LABEL, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
+import { hasKey, t } from '../i18n/t';
 import { symbolBody } from './symbol';
 
 const BUCKETS: readonly RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
@@ -134,6 +135,18 @@ describe('bucketVisible', () => {
 });
 
 describe('ROLE_LABEL', () => {
+  // T2 (GH-1076): the Stores' panel opens with one sentence per role, written once per role and never per unit.
+  it('has a purpose sentence for every role a shipped KDF unit declares', () => {
+    const roles = new Set(
+      Object.values(units)
+        .filter((u) => u.faction === 'kdf')
+        .map((u) => u.role)
+    );
+    expect(roles.size).toBeGreaterThan(10);
+    for (const role of roles) expect(t(`role.${role}.purpose`), role).not.toBe(`role.${role}.purpose`);
+    for (const role of roles) expect(hasKey(`role.${role}.purpose`), role).toBe(true);
+  });
+
   it('covers every role any shipped KDF unit declares, so a new one cannot leak its id', () => {
     const roles = new Set(
       Object.values(units)

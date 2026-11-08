@@ -44,13 +44,14 @@ packages/
             the concrete class is reached only by dynamic import in main.ts.
   data/     unit/building/mission/vfx JSON + schemas
   app/      shell, input, UI, campaign ledger
+  economy/  the pure coin and brigade rules (@lions/economy, GH-1075): imports sim + data only; app and worker import it
   worker/   Cloudflare Worker in front of the game: static assets, POST /api/events
             into D1, /stats behind a password login (WP-T1). Nothing imports it.
 tools/      render rig, asset validator, balance sim
 docs/       GDD, art pipeline
 ```
 
-Dependency direction is strictly one-way: `app → render → sim`, and `data` is a leaf. A PR that adds an import from `sim` to anything else is wrong by construction.
+Dependency direction is strictly one-way: `app → render → sim`, and `data` is a leaf. `economy` is a leaf over `sim` and `data`; `app` and `worker` import it; nothing in versus does. A PR that adds an import from `sim` to anything else is wrong by construction.
 
 ---
 
