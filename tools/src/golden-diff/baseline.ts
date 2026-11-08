@@ -1198,6 +1198,18 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'absolute targetTick, which the lead has not asked for. NOT watched going red in the browser (the sheets launch had no second pass for it): at the renderer level, ' +
           'removing the `f.air = this.washLayerOn` write turns `ThreeRenderer.wash-clock.test.ts` red.',
       },
+      {
+        layer: 'selection-ring',
+        // GH-943 P2 (T5): NO FLOOR YET, on purpose. A floor is a third of the smallest of three fresh-process CI readings, and none has been
+        // taken: the first one comes from this branch's own `visual` runs. Until it is read and written below, this check cannot pass, and
+        // the `visual` job is red on this branch. The reading it prints is the number to take.
+        minDiffPixels: Number.POSITIVE_INFINITY,
+        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        rationale:
+          'GH-943 P2 T5: hiding the ground rings (the team ring of every own unit; `selectionRingGroup`, never a mesh, because `endFrame` rewrites ' +
+          'each mesh\'s `visible` every frame) on the vehicle frame. Floor NOT YET MEASURED: take it from this branch\'s CI `visual` readings. ' +
+          'Falsified by forcing the ring\'s core AND halo alpha to 0 in the shader: 0 px, FAIL (the halo is drawn outside the core, so zeroing the core alone leaves pixels).',
+      },
     ],
     rationale:
       'whole frame, mesh vehicles plus continuous dust/exhaust FX. 40 px / 0.004 since GH-803 ' +

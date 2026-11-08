@@ -10,10 +10,18 @@
  * Presentation only. Nothing here is read by the sim.
  */
 import type { MaterialMaths } from './backend/backend';
+import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
+import { SELECTION_RING } from './units/readability';
+import { ringFragmentOps } from './units/selection-ring';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
   ground: null,
   foliage: null,
-  ring: null,
+  ring: {
+    fragmentOps: ringFragmentOps,
+    polygonOffsetFactor: DECAL_POLYGON_OFFSET_FACTOR,
+    polygonOffsetUnits: DECAL_POLYGON_OFFSET_UNITS,
+    halfExtraTiles: SELECTION_RING.haloTiles + SELECTION_RING.featherTiles,
+  },
 };

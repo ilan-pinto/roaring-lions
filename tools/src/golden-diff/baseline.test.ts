@@ -940,10 +940,23 @@ describe('BASELINES layerChecks', () => {
      *  is still asserted non-zero below, and total erasure still fails them
      *  (the last assertion in this loop). */
     const SUB_THRESHOLD_PX = 100;
+    /** `scenario/layer` checks whose first CI reading has not been taken (T5's `vehicle/selection-ring`). */
+    const PENDING_FLOOR: ReadonlySet<string> = new Set(['vehicle/selection-ring']);
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
         // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.
         if (check.kind === 'zero') continue;
+        // GH-943 P2 (T5): a check whose floor has not been read yet is declared with an infinite floor, which cannot pass: it makes
+        // the `visual` job red on purpose and prints the reading to take. This list is exactly those, and an entry with a FINITE floor is
+        // refused here: a measured floor goes in MEASURED below, with its three readings, and leaves this list.
+        const key = `${id}/${check.layer}`;
+        if (PENDING_FLOOR.has(key)) {
+          expect([check.minMeanAbsChannelDelta, check.minDiffPixels], `${key} is pending a measurement, so its floors must be Infinity`).toEqual([
+            Number.POSITIVE_INFINITY,
+            Number.POSITIVE_INFINITY,
+          ]);
+          continue;
+        }
         const m = MEASURED[id]?.[check.layer];
         expect(m, `no measurement recorded for ${id}/${check.layer}`).toBeDefined();
         if (!m) continue;

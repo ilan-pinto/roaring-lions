@@ -4690,6 +4690,9 @@ export class ThreeRenderer implements Renderer {
         this.disturbU.amp.value = next;
         return changed;
       }
+      case 'selection-ring':
+        // The GROUP, not the meshes: each batch's `endFrame` rewrites its own mesh's `visible` every frame (an empty one costs no draw).
+        return setObjectsVisible(visible, this.selectionRingGroup);
       case 'wash': {
         // The helicopters' slots, taken away and given back: `updateDisturbers` reads the flag every frame, so a repaint cannot undo it.
         const changed = this.washLayerOn === visible ? 0 : 1;
