@@ -2,7 +2,7 @@
 import type { D1Like } from '../d1';
 import { dayOf, purgeRateDays } from '../rate-day';
 import { OP_TTL_MS, PENDING_TTL_MS, TOMB_TTL_S } from './config';
-import { deleteMember } from './delete';
+import { deleteMember, dropCancelled } from './delete';
 import type { KVLike } from './kv';
 
 /** A member with no sign-in for this many days is deleted (spec A4-4: "36 months"). */
@@ -26,7 +26,7 @@ export async function sweepAccounts(db: D1Like, now: number, kv: KVLike): Promis
     try {
       // Tombstone first (a restore re-applies it); the guard re-checks eligibility inside the batch, so a later sign-in wins.
       await kv.put('tomb:' + m.id_hash, JSON.stringify({ deletedAt: now, lastSeenDay: cutoff }), { expirationTtl: TOMB_TTL_S });
-      await deleteMember(db, m.id, { lastSeenAtMost: cutoff });
+      if (!(await deleteMember(db, m.id, { lastSeenAtMost: cutoff }))) await dropCancelled(db, kv, m.id_hash, cutoff);
     } catch (err) {
       // One member's failure must not keep the next one's deletion; the tombstone (if written) is reconciled tomorrow.
       failure ??= err;
@@ -35,27 +35,46 @@ export async function sweepAccounts(db: D1Like, now: number, kv: KVLike): Promis
   if (failure !== undefined) throw failure;
 }
 
-/** Finishes every deletion a tombstone records. Returns how many members it deleted. */
+/** Most tombstones acted on (deleted or pruned) per run, and most listing pages read: a run stays inside the subrequest budget. */
+export const RECONCILE_PER_RUN = 40;
+export const RECONCILE_MAX_PAGES = 10;
+const IN_CHUNK = 50;
+
+/** Finishes every deletion a tombstone records, and prunes a tombstone whose deletion a later sign-in cancelled.
+ *  A listing page costs one D1 query per chunk of keys; only a key whose member still exists is read. Returns how many
+ *  members it deleted. A failure on one key does not stop the others and is rethrown at the end. */
 export async function reconcileTombstones(db: D1Like, kv: KVLike): Promise<number> {
   let done = 0;
+  let acted = 0;
+  let failure: unknown;
   let cursor: string | undefined;
-  for (;;) {
+  for (let pages = 0; pages < RECONCILE_MAX_PAGES && acted < RECONCILE_PER_RUN; pages++) {
     const page = await kv.list({ prefix: 'tomb:', cursor });
-    for (const { name } of page.keys) {
-      const raw = await kv.get(name);
-      if (raw === null) continue;
-      let day: unknown;
-      try {
-        day = (JSON.parse(raw) as { lastSeenDay?: unknown }).lastSeenDay;
-      } catch {
-        continue;
+    const hashes = page.keys.map((k) => k.name.slice('tomb:'.length));
+    for (let i = 0; i < hashes.length && acted < RECONCILE_PER_RUN; i += IN_CHUNK) {
+      const chunk = hashes.slice(i, i + IN_CHUNK);
+      const found = await db
+        .prepare(`SELECT id, id_hash, last_seen_day FROM member WHERE id_hash IN (${chunk.map((_, j) => `?${j + 1}`).join(',')})`)
+        .bind(...chunk)
+        .all<{ id: string; id_hash: string; last_seen_day: number }>();
+      for (const m of found.results) {
+        if (acted >= RECONCILE_PER_RUN) break;
+        acted++;
+        try {
+          const raw = await kv.get('tomb:' + m.id_hash);
+          if (raw === null) continue;
+          const day = (JSON.parse(raw) as { lastSeenDay?: unknown }).lastSeenDay;
+          if (typeof day !== 'number') continue;
+          if (m.last_seen_day > day) await kv.delete('tomb:' + m.id_hash);
+          else if (await deleteMember(db, m.id, { lastSeenAtMost: day })) done++;
+        } catch (err) {
+          failure ??= err;
+        }
       }
-      if (typeof day !== 'number') continue;
-      const m = await db.prepare('SELECT id FROM member WHERE id_hash = ?1').bind(name.slice('tomb:'.length)).first<{ id: string }>();
-      if (m === null) continue;
-      if (await deleteMember(db, m.id, { lastSeenAtMost: day })) done++;
     }
-    if (page.list_complete || page.cursor === undefined) return done;
+    if (page.list_complete || page.cursor === undefined) break;
     cursor = page.cursor;
   }
+  if (failure !== undefined) throw failure;
+  return done;
 }

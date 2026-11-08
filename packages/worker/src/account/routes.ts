@@ -2,6 +2,7 @@
 import type { Env } from '../d1';
 import { accountGuard, accountJson } from './http';
 import { accountsOpen } from './member';
+import { perMinute } from './limits';
 import { deleteIdentity } from './identity';
 import { deleteAccount, gone } from './delete';
 import { exportAccount } from './export';
@@ -88,6 +89,9 @@ export function matchPath(pattern: string, path: string): Record<string, string>
   return params;
 }
 
+/** Routes that do not take the signed-in limiter: `open` is a public read; `steam/*` and `gone` take ACCOUNT_LIMIT themselves. */
+const UNLIMITED_HERE: ReadonlySet<string> = new Set(['open', 'steam/start', 'steam/return', 'gone']);
+
 export async function handleAccount(req: Request, env: Env, now: number, deps?: AccountDeps): Promise<Response> {
   if (env.ACCOUNTS === undefined) return accountJson(503, { error: 'accounts are not configured' });
   const path = new URL(req.url).pathname.slice(PREFIX.length);
@@ -98,6 +102,8 @@ export async function handleAccount(req: Request, env: Env, now: number, deps?: 
     if (route.method !== method) continue;
     const params = matchPath(route.pattern, path);
     if (params === null) continue;
+    // The signed-in class (everything but `open` and the sign-in class, which limit themselves) shares ACCOUNT_OP_LIMIT.
+    if (!UNLIMITED_HERE.has(route.pattern) && (await perMinute(req, env.ACCOUNT_OP_LIMIT))) return accountJson(429, { error: 'limit' });
     return route.handler({ req, env, now, deps: deps ?? { fetch: (url, init) => globalThis.fetch(url, init) }, path, params });
   }
   return accountJson(404, { error: 'not_found' });

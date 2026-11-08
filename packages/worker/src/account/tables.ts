@@ -50,8 +50,8 @@ export const MEMBER_TABLES: readonly MemberTable[] = [
   },
   {
     table: 'session', key: 'member_id', deleteSql: del('session'),
-    // Created and last-seen days only: never the token hash (§6.2).
-    exportSql: 'SELECT created_at, last_seen_day FROM session WHERE member_id = ?1 ORDER BY created_at',
+    // Created and last-seen DAYS only: never the token hash (§6.2).
+    exportSql: 'SELECT created_at / 86400000 AS created_day, last_seen_day FROM session WHERE member_id = ?1 ORDER BY created_at',
   },
   {
     table: 'member_identity', key: 'member_id', deleteSql: del('member_identity'),
@@ -80,10 +80,14 @@ WHERE s.member_id = ?1 ORDER BY r.started_at`,
 export const MATCH_ORPHAN_SWEEP_SQL =
   "DELETE FROM match_record WHERE NOT EXISTS (SELECT 1 FROM match_seat s WHERE s.code = match_record.code AND s.started_at = match_record.started_at AND s.kind = 'member')";
 
+export const RATE_DAY_SQL = "DELETE FROM rate_day WHERE scope = 'acct-ops' AND key = ?1";
+
 /** The whole delete batch in order: each table's delete (member id as ?1), the orphan sweep after `match_seat`. */
 export function deleteStatements(): { sql: string; bindsMember: boolean }[] {
   const out: { sql: string; bindsMember: boolean }[] = [];
   for (const t of MEMBER_TABLES) {
+    // The per-member day budget is keyed by the internal member id (limits.ts opBudget): no row may outlive its member.
+    if (t.table === 'member') out.push({ sql: RATE_DAY_SQL, bindsMember: true });
     out.push({ sql: t.deleteSql, bindsMember: true });
     if (t.table === 'match_seat') out.push({ sql: MATCH_ORPHAN_SWEEP_SQL, bindsMember: false });
   }

@@ -19,6 +19,8 @@ export type AccountTestEnv = Env & Required<Pick<Env, 'ACCOUNTS' | 'ACCOUNT_TOMB
 
 export interface CallInit {
   body?: unknown;
+  /** Sent as is, instead of `body` (a malformed-JSON case). */
+  rawBody?: string;
   cookie?: string;
   headers?: Record<string, string>;
   /** Default: the Worker's own origin. `null` sends none. */
@@ -62,7 +64,7 @@ export function accountHarness(opts: AccountHarnessOpts = {}) {
     const req = new Request(TEST_ORIGIN + path, {
       method,
       headers,
-      body: hasBody ? JSON.stringify(init.body) : undefined,
+      body: init.rawBody ?? (hasBody ? JSON.stringify(init.body) : undefined),
     });
     return handler(req, env, opts.now ?? Date.now());
   };
@@ -151,6 +153,8 @@ export async function seedFullMember(db: D1Like, now: number): Promise<{ memberI
   await run("INSERT INTO campaign_state (member_id, ledger, brigade, bytes, updated_at) VALUES ('m1','{}','{}',4,?1)", now);
   await run("INSERT INTO save_slot (member_id, slot_id, name, saved_at, build, body, bytes) VALUES ('m1','s1','Slot',?1,'b','{}',2)", now);
   await run("INSERT INTO device_claim VALUES ('m1','dev1',?1,'{}')", now);
+  await run("INSERT INTO rate_day VALUES ('acct-ops', 'm1', 1, 3)");
+  await run("INSERT INTO rate_day VALUES ('acct-ops', 'n1', 1, 3)");
   await run("INSERT INTO account_op VALUES ('m1','op1','profile.patch',?1,'{}')", now);
   await run("INSERT INTO auth_challenge VALUES ('chal1','steam-link','m1','pre1',?1)", now + 300_000);
   for (const code of ['SHARED', 'SOLO']) {

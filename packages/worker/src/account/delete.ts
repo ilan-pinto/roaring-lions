@@ -1,8 +1,11 @@
 /** Deleting an account (GH-1075 A1, spec §6.4). Every step is retryable while the session still exists. */
 import { ID_PATTERN } from '@lions/data/telemetry';
 import type { D1Like } from '../d1';
-import { TOMB_TTL_S } from './config';
+import { ACCOUNT_BODY_MAX_BYTES, TOMB_TTL_S } from './config';
 import { accountJson, readAccountBody } from './http';
+import { perMinute } from './limits';
+import { readCapped } from '../read-capped';
+import type { KVLike } from './kv';
 import type { AccountCtx } from './routes';
 import { clearedSessionCookie, requireSession, sessionJson } from './session';
 import { deleteStatements } from './tables';
@@ -25,7 +28,7 @@ export async function deleteMember(db: D1Like, memberId: string, guard: { lastSe
 /** The telemetry database's rows for one player, in one batch. Idempotent; touches no account row. */
 export async function deleteTelemetryFor(db: D1Like, player: string): Promise<void> {
   if (!ID_PATTERN.test(player)) throw new Error('bad telemetry player id');
-  // The attachments first: the test database does not enforce foreign keys, and a row must not outlive its note.
+  // The attachments first, explicitly: a row must not outlive its note on a database that does not cascade.
   const sql = [
     'DELETE FROM feedback_picture WHERE feedback_id IN (SELECT id FROM feedback WHERE player = ?1)',
     'DELETE FROM feedback_replay WHERE feedback_id IN (SELECT id FROM feedback WHERE player = ?1)',
@@ -46,8 +49,17 @@ export async function deleteAccount(ctx: AccountCtx): Promise<Response> {
   const kv = ctx.env.ACCOUNT_TOMBSTONES;
   if (db === undefined || kv === undefined) return accountJson(503, { error: 'accounts are not configured' });
   const { session, setCookie } = got;
-  const body = await readAccountBody<{ telemetryPlayer?: unknown }>(ctx.req);
-  if (body === 'too_large') return sessionJson(413, { error: 'too_large' }, setCookie);
+  // An empty body is "no options"; a non-empty one that is not JSON is refused, so a ticked telemetry box is never lost.
+  const raw = await readCapped(ctx.req, ACCOUNT_BODY_MAX_BYTES);
+  if (raw === null) return sessionJson(413, { error: 'too_large' }, setCookie);
+  let body: { telemetryPlayer?: unknown } | null = null;
+  if (raw.byteLength > 0) {
+    try {
+      body = JSON.parse(new TextDecoder().decode(raw)) as { telemetryPlayer?: unknown } | null;
+    } catch {
+      return sessionJson(400, { error: 'body' }, setCookie);
+    }
+  }
   const player = body !== null && typeof body === 'object' ? body.telemetryPlayer : undefined;
   if (player !== undefined && (typeof player !== 'string' || !ID_PATTERN.test(player))) return sessionJson(400, { error: 'telemetryPlayer' }, setCookie);
   const row = await db
@@ -60,6 +72,7 @@ export async function deleteAccount(ctx: AccountCtx): Promise<Response> {
     await kv.put('tomb:' + row.id_hash, JSON.stringify({ deletedAt: ctx.now, lastSeenDay: row.last_seen_day }), { expirationTtl: TOMB_TTL_S });
     // false: a sign-in raised last_seen_day past `seen` meanwhile, so the guard held the batch back. Retry reads the new day.
     if (!(await deleteMember(db, session.memberId, { lastSeenAtMost: row.last_seen_day }))) {
+      await dropCancelled(db, kv, row.id_hash, row.last_seen_day);
       return sessionJson(503, { error: 'retry' }, setCookie);
     }
   } catch {
@@ -68,10 +81,18 @@ export async function deleteAccount(ctx: AccountCtx): Promise<Response> {
   return accountJson(200, { deleted: true }, { 'set-cookie': clearedSessionCookie() });
 }
 
+/** A tombstone whose member signed in after it was written is a cancelled deletion: `gone` must not answer 410 for a live
+ *  account (a device would clear its cache). Removes the key when the member exists with a later `last_seen_day`. */
+export async function dropCancelled(db: D1Like, kv: KVLike, idHash: string, tombDay: number): Promise<void> {
+  const m = await db.prepare('SELECT last_seen_day FROM member WHERE id_hash = ?1').bind(idHash).first<{ last_seen_day: number }>();
+  if (m !== null && m.last_seen_day > tombDay) await kv.delete('tomb:' + idHash);
+}
+
 /** POST gone `{ idHash }`: 410 for a tombstoned member, else 404. No session; works while closed. */
 export async function gone(ctx: AccountCtx): Promise<Response> {
   const kv = ctx.env.ACCOUNT_TOMBSTONES;
   if (kv === undefined) return accountJson(503, { error: 'accounts are not configured' });
+  if (await perMinute(ctx.req, ctx.env.ACCOUNT_LIMIT)) return accountJson(429, { error: 'limit' });
   const body = await readAccountBody<{ idHash?: unknown }>(ctx.req);
   const h = body !== null && body !== 'too_large' && typeof body === 'object' ? body.idHash : undefined;
   if (typeof h !== 'string' || !/^[0-9a-f]{64}$/.test(h)) return accountJson(400, { error: 'idHash' });

@@ -3,7 +3,9 @@ import type { D1Like, D1Stmt } from '../d1';
 import { TOMB_TTL_S } from './config';
 import { sha256Hex } from './crypto';
 import { handleAccount } from './routes';
-import { reconcileTombstones } from './sweep';
+import { openTestD1 } from '../test-d1';
+import { memoryKV } from './kv';
+import { RECONCILE_PER_RUN, reconcileTombstones } from './sweep';
 import { accountHarness, memberTablesInMigration, seedFullMember, SEED_PUBLIC_ID } from './test-kit';
 import { deleteMember, deleteTelemetryFor } from './delete';
 
@@ -39,6 +41,8 @@ describe('POST delete', () => {
     expect(await n(h.db, "SELECT 1 FROM match_record WHERE code = 'SHARED'")).toBe(1);
     expect(await n(h.db, "SELECT 1 FROM match_record WHERE code = 'SOLO'")).toBe(0);
     expect(await n(h.db, "SELECT 1 FROM match_seat WHERE code = 'SOLO' AND kind = 'member'")).toBe(0);
+    expect(await n(h.db, "SELECT 1 FROM rate_day WHERE key = 'm1'")).toBe(0);
+    expect(await n(h.db, "SELECT 1 FROM rate_day WHERE key = 'n1'")).toBe(1);
     expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'n1'")).toBe(1);
     expect(await n(h.db, "SELECT 1 FROM profile WHERE member_id = 'n1'")).toBe(1);
     const keys = (await h.kv.list({ prefix: '' })).keys.map((k) => k.name);
@@ -163,7 +167,8 @@ describe('the telemetry option (A1-22)', () => {
   });
 
   it('removes a feedback note\'s picture and replay with it', async () => {
-    const db = accountHarness().env.DB;
+    // foreign keys OFF, so only the explicit deletes can remove an attachment (with them ON the cascade would hide a dropped one)
+    const db = openTestD1({ foreignKeys: false });
     await seedTelemetry(db, P);
     await seedTelemetry(db, Q);
     await db.prepare("INSERT INTO feedback_picture SELECT id, x'00' FROM feedback").run();
@@ -224,8 +229,98 @@ describe('the guard (serialisation with sign-in)', () => {
     expect(await reconcileTombstones(h.db, h.kv)).toBe(0);
     expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'm1'")).toBe(1);
     expect(await n(h.db, "SELECT 1 FROM wallet WHERE member_id = 'm1'")).toBe(1);
+    expect(await h.kv.get('tomb:' + idHash)).toBeNull(); // pruned: the deletion was cancelled
+    expect((await h.call('POST', '/api/account/gone', { body: { idHash } })).status).toBe(404);
+    await h.kv.put('tomb:' + idHash, JSON.stringify({ deletedAt: NOW, lastSeenDay: d }));
     await h.kv.put('tomb:' + idHash, JSON.stringify({ deletedAt: NOW, lastSeenDay: d }));
     expect(await reconcileTombstones(h.db, h.kv)).toBe(1);
     expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'm1'")).toBe(0);
+  });
+});
+
+describe('limits', () => {
+  it('gone takes the sign-in limiter and answers 429 before any KV read', async () => {
+    const h = accountHarness({ now: NOW, denyLimiter: ['ACCOUNT_LIMIT'] });
+    await h.kv.put('tomb:' + 'a'.repeat(64), '{}');
+    const res = await h.call('POST', '/api/account/gone', { body: { idHash: 'a'.repeat(64) } });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: 'limit' });
+    const ok = accountHarness({ now: NOW });
+    expect((await ok.call('POST', '/api/account/gone', { body: { idHash: 'a'.repeat(64) } })).status).toBe(404);
+  });
+
+  it('the signed-in class takes ACCOUNT_OP_LIMIT; open and the sign-in class do not', async () => {
+    const h = accountHarness({ now: NOW, denyLimiter: ['ACCOUNT_OP_LIMIT'] });
+    const { cookie } = await seedFullMember(h.db, NOW);
+    for (const [m, p] of [['GET', 'me'], ['GET', 'export'], ['POST', 'delete'], ['POST', 'logout'], ['PATCH', 'profile']] as const) {
+      expect((await h.call(m, '/api/account/' + p, { cookie, body: {} })).status, p).toBe(429);
+    }
+    expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'm1'")).toBe(1);
+    expect((await h.call('GET', '/api/account/open')).status).toBe(200);
+    expect((await h.call('POST', '/api/account/gone', { body: { idHash: 'a'.repeat(64) } })).status).toBe(404);
+  });
+});
+
+describe('cancelled deletions and malformed bodies', () => {
+  it('a guard-blocked delete answers 503 and leaves no tombstone behind', async () => {
+    let first = true;
+    const h = accountHarness({
+      now: NOW,
+      handler: (req, e, now) => {
+        const racing: D1Like = {
+          ...e.ACCOUNTS,
+          batch: async (ss: D1Stmt[]) => {
+            if (first) { first = false; await e.ACCOUNTS.prepare("UPDATE member SET last_seen_day = last_seen_day + 1 WHERE id = 'm1'").run(); }
+            return e.ACCOUNTS.batch(ss);
+          },
+        };
+        return handleAccount(req, { ...e, ACCOUNTS: racing }, now);
+      },
+    });
+    const { cookie, idHash } = await seedFullMember(h.db, NOW);
+    const res = await h.call('POST', '/api/account/delete', { cookie, body: {} });
+    expect(res.status).toBe(503);
+    expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'm1'")).toBe(1);
+    expect(await h.kv.get('tomb:' + idHash)).toBeNull();
+    expect((await h.call('POST', '/api/account/gone', { body: { idHash } })).status).toBe(404);
+  });
+
+  it('a non-empty body that is not JSON is a 400 and deletes nothing', async () => {
+    const h = accountHarness({ now: NOW });
+    const { cookie } = await seedFullMember(h.db, NOW);
+    expect((await h.call('POST', '/api/account/delete', { cookie, rawBody: '{"telemetryPlayer":' })).status).toBe(400);
+    expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'm1'")).toBe(1);
+    expect((await h.call('POST', '/api/account/delete', { cookie, rawBody: '' })).status).toBe(200);
+  });
+});
+
+describe('reconcileTombstones at scale', () => {
+  async function many(count: number, pageSize = 2) {
+    const h = accountHarness({ now: NOW });
+    const kv = memoryKV({ pageSize });
+    for (let i = 0; i < count; i++) {
+      await h.db.prepare('INSERT INTO member VALUES (?1, ?2, ?3, ?4, 1, 5)').bind('x' + i, 'PUB' + i, 'hash' + i, 'uh' + i).run();
+      await kv.put('tomb:hash' + i, JSON.stringify({ deletedAt: 1, lastSeenDay: 5 }));
+    }
+    return { h, kv };
+  }
+
+  it('walks every page of the listing', async () => {
+    const { h, kv } = await many(5);
+    expect((await kv.list({ prefix: 'tomb:' })).list_complete).toBe(false);
+    expect(await reconcileTombstones(h.db, kv)).toBe(5);
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(0);
+  });
+
+  it('one key failing does not stop the rest, and the failure is rethrown', async () => {
+    const { h, kv } = await many(4);
+    await expect(reconcileTombstones(failingBatch(h.db), kv)).rejects.toThrow('batch failed');
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(1);
+  });
+
+  it('stops after RECONCILE_PER_RUN members', async () => {
+    const { h, kv } = await many(RECONCILE_PER_RUN + 3, 1000);
+    expect(await reconcileTombstones(h.db, kv)).toBe(RECONCILE_PER_RUN);
+    expect(await n(h.db, 'SELECT 1 FROM member')).toBe(3);
   });
 });

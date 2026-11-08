@@ -36,5 +36,9 @@ describe('GET export', () => {
     expect(text).toContain('76561197960287930'); // the SteamID, in full
     expect(text).toContain(SEED_EARN); // the player's own wallet
     expect(text).not.toContain('NNNN2222'); // another member
+    expect(text).not.toContain('uh1'); // member.user_handle (WebAuthn user.id)
+    expect(text).not.toContain('"id":"m1"'); // the internal member id
+    const sessions = ((JSON.parse(text) as { tables: Record<string, Record<string, unknown>[]> }).tables.session ?? []);
+    expect(sessions[0]).toEqual({ created_day: Math.floor(NOW / 86_400_000), last_seen_day: Math.floor(NOW / 86_400_000) });
   });
 });

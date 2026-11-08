@@ -123,7 +123,8 @@ describe('sweepAccounts', () => {
     expect(await n(h.db, "SELECT 1 FROM member_identity WHERE member_id = 'm1'")).toBe(1);
     expect(await n(h.db, "SELECT 1 FROM session WHERE member_id = 'm1'")).toBe(1);
     expect((await h.call('GET', '/api/account/me', { cookie })).status).toBe(200);
-    expect(await h.kv.get('tomb:hashm1')).not.toBeNull();
+    // the cancelled deletion's tombstone is pruned, so `gone` does not call a live account deleted
+    expect(await h.kv.get('tomb:hashm1')).toBeNull();
     expect(await reconcileTombstones(h.db, h.kv)).toBe(0);
     expect(await n(h.db, "SELECT 1 FROM member WHERE id = 'm1'")).toBe(1);
   });
