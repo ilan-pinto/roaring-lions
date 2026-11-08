@@ -13,6 +13,7 @@
 import { createPostChain } from '../../../packages/render/src/three/post-chain';
 import { createNodeBackend } from '../../../packages/render/src/three/backend/node-backend';
 import { AO_MATHS, BLOOM_MATHS, OUTPUT_MATHS, READBACK_MATHS } from '../../../packages/render/src/three/output-maths';
+import { MATERIAL_MATHS } from '../../../packages/render/src/three/material-maths';
 import { QUALITY_PRESETS } from '../../../packages/render/src/quality';
 import { resolveGrade, type GradeJson } from '../../../packages/render/src/three/grade-maths';
 import dusk from '../../../data/grades/dusk.json';
@@ -52,7 +53,7 @@ export async function drawRampCard(arm: RampArm, graded: boolean): Promise<RampR
     await rAF();
     return { kind: 'legacy-gl', adapter: 'webgl2', graded };
   }
-  const made = await createNodeBackend({ background: '#000000', forceWebGL: arm === 'webgl2', adapter: 'ramp-card', bloomMaths: BLOOM_MATHS, aoMaths: AO_MATHS, readbackMaths: READBACK_MATHS });
+  const made = await createNodeBackend({ background: '#000000', forceWebGL: arm === 'webgl2', adapter: 'ramp-card', bloomMaths: BLOOM_MATHS, aoMaths: AO_MATHS, readbackMaths: READBACK_MATHS, materialMaths: MATERIAL_MATHS });
   if ('reason' in made) throw new Error(`ramp card: node backend refused: ${made.reason}`);
   const be = made.backend;
   be.setPixelRatio(1);

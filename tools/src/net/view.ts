@@ -6,7 +6,7 @@
  * renderer's own predicate -- `unitIsObserved`, `heldShown` -- called with this
  * seat's fog, not a copy. A pure read: it never writes to the sim.
  */
-import { versusModes } from '@lions/data';
+import { flagBlockOf, versusModes } from '@lions/data';
 import type { Faction, WinMode } from '@lions/net';
 import { campOf } from '../../../packages/app/src/net/versus-force';
 import { flagViewOf, type FlagView } from '../../../packages/app/src/net/flag-view';
@@ -15,7 +15,7 @@ import type { MatchWorld } from '../../../packages/app/src/net/match-world';
 import { scoreFor, scoreOf, type SideScore } from '../../../packages/app/src/net/scoreboard';
 import { heldBuildings, heldShown } from '../../../packages/render/src/three/units/held-building';
 import { unitIsObserved } from '../../../packages/render/src/three/units/observed';
-import { fx, WOUND_DOWN, WOUND_NONE, WOUND_STABILISED, type Command } from '@lions/sim';
+import { fx, FM_DUTY_WAIT, WOUND_DOWN, WOUND_NONE, WOUND_STABILISED, type Command } from '@lions/sim';
 import { isIdle } from '../../../packages/app/src/ui/idle';
 import { economyView, type EconomyView } from './economy-view';
 import type { FogTracker } from './fog-tracker';
@@ -36,8 +36,27 @@ export interface UnitLine {
   radius?: number;
   /** Patrol: how many points its beat has. */
   points?: number;
-  /** Why a unit that was ordered to move is not going anywhere. `pinned`: suppressed, so the sim slows it to 1/64 of its speed (`PIN_SPEED_SHIFT`, GDD 5.5) until the fire lifts; its order stands. */
-  held?: 'pinned';
+  /** Why a unit that was ordered to move is not going anywhere (GH-1098); absent when nothing holds it. `moving` is the
+   *  sim's order flag, not progress. See `heldReasonOf` for the reasons and their order. */
+  held?: HeldReason;
+}
+/**
+ * `routed`: broken and fleeing, it ignores its goal. `immobilised`: mobility killed by component damage, the goal stays live
+ * but the hull never steps. `garrisoned`: inside a building, it walks nowhere until it leaves. `pinned`: suppressed, so the sim
+ * slows it to 1/64 of its speed (`PIN_SPEED_SHIFT`, GDD 5.5) until the fire lifts. `checkpoint`: a formation member
+ * waiting at a waypoint for its group's dress (`fmMarchHold`, duty WAIT).
+ */
+export type HeldReason = 'routed' | 'immobilised' | 'garrisoned' | 'pinned' | 'checkpoint';
+
+/** Why unit `i` holds, from the sim's public reads (`sim.state`, `formationDutyOf`); the strongest cause first. */
+export function heldReasonOf(sim: MatchWorld['sim'], i: number): HeldReason | undefined {
+  const st = sim.state;
+  if (st.routed[i] !== 0) return 'routed';
+  if (st.mobilityKilled[i] !== 0) return 'immobilised';
+  if (st.garrisonedIn[i] >= 0) return 'garrisoned';
+  if (st.pinned[i] !== 0) return 'pinned';
+  if (sim.formationDutyOf(i) === FM_DUTY_WAIT) return 'checkpoint';
+  return undefined;
 }
 /**
  * An enemy unit in sight. `observe` lists a contact only while it stands in sight, so `inSight` is always true here, and
@@ -149,8 +168,8 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
         carriedBy: st.carriedBy[i], garrisonedIn: st.garrisonedIn[i],
       }, side)) flags.push('idle');
       const unit: UnitLine = { id: i, type: type.id, tile, hp, flags, stance: 'free' };
-      // Suppression holds a unit by design (a routed one flees instead, `stepMovement` checks routed first).
-      if (st.pinned[i] !== 0 && st.routed[i] === 0) unit.held = 'pinned';
+      const held = heldReasonOf(sim, i);
+      if (held !== undefined) unit.held = held;
       if (sim.isPatrolling(i)) {
         unit.stance = 'patrol';
         unit.points = sim.patrolCountOf(i);
@@ -182,8 +201,9 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
   const economy = economyView(w, side);
   const pointsRules = w.winMode === 'points' ? versusModes[w.mapJson.id]?.modes.points : undefined;
   const points = pointsRules !== undefined && w.runtime !== null ? pointsViewOf(w.runtime, pointsRules, side) : undefined;
-  const flagRules = w.winMode === 'flag' ? versusModes[w.mapJson.id] : undefined;
-  const flags = flagRules?.flags !== undefined && w.runtime !== null ? flagViewOf(w.runtime, { flags: flagRules.flags, modes: flagRules.modes }, side, w.endOfSide[side]) : undefined;
+  // GH-976 R0.22: the flag block through the one reader; a set-up room (`w.setup`) reads the staged block.
+  const flagFile = w.winMode === 'flag' ? versusModes[w.mapJson.id] : undefined;
+  const flags = flagFile !== undefined && w.runtime !== null ? flagViewOf(w.runtime, flagBlockOf(flagFile, w.setup !== null), side, w.endOfSide[side]) : undefined;
   return {
     tick: sim.tickCount,
     clock: clockOf(sim.tickCount),

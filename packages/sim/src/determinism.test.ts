@@ -1728,16 +1728,21 @@ describe('determinism of an APS stock world (1600-tick replay, GH-884)', () => {
 // side 0 at 40 (the early bell, at 140), then both sides attack-moving on each other's centroid until tick 600. The test
 // asserts the events seen (two setupReady, one setupBell at 140, a fire from the bell tick on, none before) and that the clamped squad
 // never stood outside region 0 before the bell, so a change that quietly stops any of it fails there and not only on the number.
-function setupWorld(seed: number): { hash: number; ready: string[]; bells: number[]; firstFire: number; fires: number; escaped: number } {
+function setupWorld(seed: number): { hash: number; ready: string[]; bells: number[]; firstFire: number; fires: number; escaped: number; kit: string[]; garrisoned: number } {
   const { sim, ids } = setupSetup(seed);
   const ready: string[] = [];
   const bells: number[] = [];
   let firstFire = -1;
   let fires = 0;
   let escaped = 0;
+  const kit: string[] = [];
+  let garrisoned = -2;
   for (let t = 0; t < SETUP_TICKS; t++) {
     setupDrive(sim, t, ids);
     for (const e of sim.tick()) {
+      if (e.kind === 'fortified') kit.push(`${e.tick}:+${e.side}:${e.kit}:${e.structure}`);
+      if (e.kind === 'fortifyRefused') kit.push(`${e.tick}:!${e.side}:${e.reason}`);
+      if (e.kind === 'unfortified') kit.push(`${e.tick}:-${e.side}:${e.kit}:${e.structure}`);
       if (e.kind === 'setupReady') ready.push(`${e.tick}:${e.side}`);
       if (e.kind === 'setupBell') bells.push(e.tick);
       if (e.kind === 'fire') {
@@ -1750,13 +1755,21 @@ function setupWorld(seed: number): { hash: number; ready: string[]; bells: numbe
         if (sim.setupRegionAt(sim.state.posX[id] >> 16, sim.state.posY[id] >> 16) !== 0) escaped++;
       }
     }
+    if (t === 139) garrisoned = sim.state.garrisonedIn[ids.squad0[0]];
   }
-  return { hash: sim.hash(), ready, bells, firstFire, fires, escaped };
+  return { hash: sim.hash(), ready, bells, firstFire, fires, escaped, kit, garrisoned };
 }
 
 // SETUP_WORLD_PIN: born 2026-11-06 (GH-976), read from the first run. It moves when a set-up rule (the clock, the early bell,
 // the region clamp, weapons tight) or the fold of its block changes; say why in the commit that moves it.
-const SETUP_WORLD_PIN = 1156937055;
+//
+// Was 1156937055 (born, WP2). GH-976 WP3 moved it once, deliberately: the world gained the set-up kit. At tick 0 side 0 places six
+// hesco and a sandbag post (one more hesco across the line is refused outside_region) and side 1 two t-walls and two hesco, a
+// hesco goes back down at tick 2, and a rifleman is ordered into the post at tick 3 and is inside it at tick 139. That adds eleven
+// structures (blocked tiles, repaired flow fields, owned structures that fold the FW block), a garrison, the kit columns (kitLeft,
+// kitPlaced, stKit) and the second marker 0x53550977 to the folded block, and the post-bell fight now runs over a changed map.
+// 3355883270 is read off the first run with the kit in. Every other pin is unmoved.
+const SETUP_WORLD_PIN = 3355883270;
 
 describe('determinism of a set-up world (600-tick replay, GH-976)', () => {
   it('two runs from the seed agree, and the run rings the early bell at 140 and fights only after it', () => {
@@ -1770,6 +1783,15 @@ describe('determinism of a set-up world (600-tick replay, GH-976)', () => {
     expect(a.firstFire).toBeGreaterThanOrEqual(140);
     expect(a.fires).toBeGreaterThan(0);
     expect(a.escaped).toBe(0);
+  });
+
+  it('the kit really is placed: side 0 six hesco (0-5) and a post (6) with one refusal, side 1 two t-walls and two hesco, one take-down, the post garrisoned before the bell', () => {
+    const a = setupWorld(SETUP_SEED);
+    expect(a.kit).toEqual([
+      '0:+0:0:0', '0:+0:0:1', '0:+0:0:2', '0:+0:0:3', '0:+0:0:4', '0:+0:0:5', '0:+0:1:6', '0:!0:outside_region',
+      '0:+1:2:7', '0:+1:2:8', '0:+1:0:9', '0:+1:0:10', '2:-0:0:3',
+    ]);
+    expect(a.garrisoned).toBe(6); // squad0[0] is inside the post (structure 6) at tick 139, one tick before the bell
   });
 
   it('the pinned hash', () => {

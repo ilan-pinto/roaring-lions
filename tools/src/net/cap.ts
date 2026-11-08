@@ -10,16 +10,17 @@
  * same state there, so the answer is the one either seat would have reached.
  * A pure read: nothing here writes to the sim.
  */
-import { matchCapTicks } from '@lions/net';
+import { matchCapTicks, matchCapTicksOf, type CapConfig } from '@lions/net';
 import { outcomeOf, type MatchResult, type OutcomeGoals, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 
 /** The result at the arena's cap. Never `ongoing`: at the MAP's cap (`matchCapTicks`: 25 minutes, 35 on Rujm
- *  Sawda, GH-913 L8) the rule always decides (annihilation, mutual, stalemate or time). `map` absent is the
- *  25-minute default. `goals` (GH-976 P2) is a win-mode room's goal: a side that completed it by the cap wins by
+ *  Sawda, GH-913 L8) the rule always decides (annihilation, mutual, stalemate or time). `room` is the room's config (a flag
+ *  set-up room's cap is 30 minutes) or just a map; absent is the 25-minute default. `goals` (GH-976 P2) is a win-mode room's goal: a side that completed it by the cap wins by
  *  the objective, as it would have in the room (`outcomeOf` asks the goal first); with no goal done, or none, the
  *  cap is decided on surviving value, exactly as before. */
-export function capOutcome(sim: OutcomeSim, production?: OutcomeProduction, map?: string, goals?: OutcomeGoals): MatchResult {
-  const cap = matchCapTicks(map);
+export function capOutcome(sim: OutcomeSim, production?: OutcomeProduction, room?: string | CapConfig, goals?: OutcomeGoals): MatchResult {
+  // GH-976 R0.8: a ROOM's cap (30 minutes in a flag set-up room) when the config is in hand; a bare map is the map form.
+  const cap = typeof room === 'object' ? matchCapTicksOf(room) : matchCapTicks(room);
   const o = outcomeOf(sim, cap, undefined, production, cap, goals);
   if (o.kind === 'ongoing') throw new Error('capOutcome: the outcome rule left a game ongoing at the cap');
   return o;

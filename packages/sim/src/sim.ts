@@ -224,6 +224,7 @@ import {
   type SupportKind,
   SPREAD_REACH_SQ,
   SETUP_BELL_DELAY_TICKS,
+  SETUP_PLACEMENTS_PER_SIDE,
 } from './tuning';
 import { bestCoverTile, figuresStanding, rescuePriority, scaleDown, scarredShare } from './wounds';
 
@@ -1321,7 +1322,13 @@ export type Command =
   | { kind: 'cancelWorks'; side: number; site: number }
   /** Capture the flag v2 (GH-976): this side presses Ready. Both sides ready brings the bell forward to
    *  `SETUP_BELL_DELAY_TICKS` later (`Sim.beginSetup`). A repeat, a bad side, or one after the bell is a no-op. */
-  | { kind: 'setupReady'; side: number };
+  | { kind: 'setupReady'; side: number }
+  /** Capture the flag v2 (GH-976): during the set-up, place one piece of `side`'s kit (`kit` is the slot of
+   *  `Sim.setSetupKit`) on integer tile (x, y). The sim answers `fortified` or `fortifyRefused` (`Sim.fortifyReason`). */
+  | { kind: 'fortify'; side: number; kit: number; x: number; y: number }
+  /** Capture the flag v2 (GH-976): during the set-up, take down the kit piece `side` placed on tile (x, y) and refund its
+   *  allowance (not the placement). The sim answers `unfortified` or `unfortifyRefused`. */
+  | { kind: 'unfortify'; side: number; x: number; y: number };
 
 /** The commands the sim drops while a set-up is active (R0.5): each could damage, or take a unit off the board, before
  *  the bell. `support` is also dropped at the net layer; it is listed because the sim holds the invariant. The first
@@ -1340,6 +1347,10 @@ export interface SetupSpec {
 
 /** Why a field-works footprint is refused (`Sim.placementReason`), the first failing rule. */
 export type PlacementRefusal = 'off_map' | 'blocked' | 'no_footing' | 'not_level' | 'overlap' | 'seals_passage';
+
+/** Why a set-up kit piece is refused (`Sim.fortifyReason`), the first failing rule: the set-up's own checks, then the
+ *  footprint rules a field-works site obeys. */
+export type FortifyRefusal = PlacementRefusal | 'not_setup' | 'no_kit' | 'placements_spent' | 'outside_region' | 'banned' | 'occupied' | 'no_structure_slot';
 
 /** The seven commands the sim sets aside for the MissionRuntime to price and run (N2, F4, and
  *  field works' `raiseWorks`/`cancelWorks`): `queueCommand` never hands them to `applyCommands`. */
@@ -1372,6 +1383,10 @@ export type ComponentResult =
 export type SimEvent =
   | { kind: 'setupReady'; tick: number; side: 0 | 1 }
   | { kind: 'setupBell'; tick: number }
+  | { kind: 'fortified'; tick: number; side: 0 | 1; kit: number; structure: number; x: number; y: number }
+  | { kind: 'fortifyRefused'; tick: number; side: number; kit: number; x: number; y: number; reason: FortifyRefusal }
+  | { kind: 'unfortified'; tick: number; side: 0 | 1; kit: number; structure: number; x: number; y: number }
+  | { kind: 'unfortifyRefused'; tick: number; side: number; x: number; y: number; reason: 'not_setup' | 'no_piece' | 'occupied' }
   | { kind: 'spawn'; tick: number; entity: number; typeId: string; side: number }
   | {
       kind: 'contact';
@@ -1557,7 +1572,7 @@ export const SIM_EVENT_KINDS = [
   'fieldFixed', 'beam',
   'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated', 'woundStabilised',
   'woundAdmitted', 'woundRejoined', 'woundLost',
-  'setupReady', 'setupBell',
+  'setupReady', 'setupBell', 'fortified', 'fortifyRefused', 'unfortified', 'unfortifyRefused',
   'landRefused', 'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
 
@@ -2021,6 +2036,16 @@ export class Sim {
   private readyMask = 0;
   /** Per tile: 0 / 1 the side that may stand there before the bell, -1 the band. Zeros until `beginSetup`. */
   private readonly setupRegion: Int8Array;
+  /** GH-976 WP3, the set-up kit. `kitLeft[side * 3 + slot]` is the allowance still to place (state; `unfortify` refunds it),
+   *  `kitPlaced[side]` the lifetime accepted `fortify` count (state; capped by `SETUP_PLACEMENTS_PER_SIDE`, never refunded),
+   *  `stKit[s]` the kit slot structure `s` was placed from, -1 for any other structure (state). The slot's structure type
+   *  (-1 until `setSetupKit`) and the ban rects (flat x, y, w, h) are config, built by `setSetupKit`; all of it is folded
+   *  into the hash behind `setupLive`. */
+  private readonly kitLeft: Int16Array;
+  private readonly kitPlaced: Int16Array;
+  private readonly stKit: Int8Array;
+  private readonly kitStructType: Int16Array;
+  private kitBans: number[] = [];
   /** Registered formations, compiled (`addFormationType`). Config: rebuilt with the match. */
   private readonly formationTypes: CompiledFormation[] = [];
   /** Diagnostics for tools (never hashed, off unless a tool turns it on): a ring of
@@ -2533,6 +2558,10 @@ export class Sim {
     this.elevation = new Uint8Array(tiles);
     this.openGrid = new Uint8Array(tiles);
     this.setupRegion = new Int8Array(tiles);
+    this.kitLeft = new Int16Array(6);
+    this.kitPlaced = new Int16Array(2);
+    this.stKit = new Int8Array(MAX_STRUCTURES).fill(-1);
+    this.kitStructType = new Int16Array(3).fill(-1);
     this.smoke = new Uint8Array(tiles);
     this.trail = new Uint8Array(tiles);
     this.alive = new Uint8Array(n);
@@ -3303,6 +3332,127 @@ export class Sim {
     }
   }
 
+  /**
+   * Give the set-up its kit (GH-976 WP3), once, after `beginSetup` and before tick 0. `kit[i]` is slot i of
+   * `SETUP_KIT_PIECES` (up to three): the registered structure type it raises and how many a side may have standing.
+   * `bans` are `[x, y, w, h]` tile rects no piece may touch (the flags' ground). The same allowance goes to both sides.
+   * Throws when there is no set-up, after the first tick, on a second call, on an unknown structure type, an allowance
+   * outside 0..255, or a malformed rect.
+   */
+  setSetupKit(kit: readonly { readonly structType: number; readonly allowance: number }[], bans: readonly (readonly [number, number, number, number])[]): void {
+    if (!this.setupLive) throw new Error('setSetupKit needs beginSetup first');
+    if (this.tickCount !== 0) throw new Error('setSetupKit is setup-only (before the first tick)');
+    if (this.kitStructType[0] !== -1 || this.kitStructType[1] !== -1 || this.kitStructType[2] !== -1) throw new Error('setSetupKit called twice');
+    if (kit.length > 3) throw new Error(`setSetupKit: ${kit.length} pieces, at most 3`);
+    for (let i = 0; i < kit.length; i++) {
+      const k = kit[i];
+      if (!Number.isInteger(k.structType) || this.structureTypes[k.structType] === undefined) throw new Error(`setSetupKit: no structure type ${String(k.structType)}`);
+      if (!Number.isInteger(k.allowance) || k.allowance < 0 || k.allowance > 255) throw new Error(`setSetupKit: allowance ${String(k.allowance)} outside 0..255`);
+    }
+    const flat: number[] = [];
+    for (const r of bans) {
+      for (let i = 0; i < 4; i++) {
+        if (!Number.isInteger(r[i])) throw new Error('setSetupKit: a ban rect needs four integers');
+      }
+      if (r[2] < 0 || r[3] < 0) throw new Error('setSetupKit: a ban rect has a negative size');
+      flat.push(r[0], r[1], r[2], r[3]);
+    }
+    for (let i = 0; i < kit.length; i++) {
+      this.kitStructType[i] = kit[i].structType;
+      this.kitLeft[i] = kit[i].allowance;
+      this.kitLeft[3 + i] = kit[i].allowance;
+    }
+    this.kitBans = flat;
+  }
+
+  /** How many of kit slot `kit` side `side` may still place (0 for a bad side or slot, and in a world with no kit). */
+  setupKitLeft(side: 0 | 1, kit: number): number {
+    if ((side !== 0 && side !== 1) || !Number.isInteger(kit) || kit < 0 || kit >= 3) return 0;
+    return this.kitLeft[side * 3 + kit];
+  }
+
+  /** The kit slot structure `s` was placed from, or -1 for a structure the kit did not place (or no such structure). */
+  setupKitOf(s: number): number {
+    if (!Number.isInteger(s) || s < 0 || s >= MAX_STRUCTURES) return -1;
+    return this.stKit[s];
+  }
+
+  /** Pure (GH-976 WP3): why `side` may not place kit slot `kit` on integer tile (x, y) now, or null. The first failing rule:
+   *  `not_setup`, `no_kit`, `placements_spent`, `outside_region`, `banned`, `occupied`, then the footprint rules of
+   *  `placementReason` (`footprintRefusal`, 1 x 1), then `no_structure_slot`. A tile off the map has no region cell, so it
+   *  reads `outside_region`. `occupied` is a body standing on the tile (any side), or an own moving ground unit whose goal
+   *  or a queued waypoint is on it (GH-1079). */
+  fortifyReason(side: 0 | 1, kit: number, x: number, y: number): FortifyRefusal | null {
+    if (!this.setupActive) return 'not_setup';
+    if ((side !== 0 && side !== 1) || !Number.isInteger(kit) || kit < 0 || kit >= 3 || this.kitStructType[kit] < 0 || this.kitLeft[side * 3 + kit] === 0) return 'no_kit';
+    if (this.kitPlaced[side] >= SETUP_PLACEMENTS_PER_SIDE) return 'placements_spent';
+    if (!Number.isInteger(x) || !Number.isInteger(y) || this.setupRegionAt(x, y) !== side) return 'outside_region';
+    const bans = this.kitBans;
+    for (let i = 0; i < bans.length; i += 4) {
+      if (x >= bans[i] && x < bans[i] + bans[i + 2] && y >= bans[i + 1] && y < bans[i + 1] + bans[i + 3]) return 'banned';
+    }
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || this.tunnelIn[i] >= 0 || this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.isAirborne(i)) continue;
+      if (this.posX[i] >> 16 === x && this.posY[i] >> 16 === y) return 'occupied';
+      // GH-1079: a tile an OWN ground unit is walking to is taken too: its goal and every queued waypoint. A goal is
+      // snapped to open ground once, when the order is issued (`applyMove`), and nothing re-snaps it (`advanceLeg` copies
+      // a waypoint as stored), so a piece on one parks the unit flush against the piece's face with `moving` 1 for the
+      // rest of the match, its queue behind it. Own side only: on an enemy unit the refusal would tell the player where
+      // that side's orders point. An aircraft in the air was skipped above (it flies over a piece); one settling onto
+      // an LZ is not airborne, and its goal is where it will stand. The `moving` gate also skips a formation member away
+      // on a call (`fmDuty` OUT): `finishLeg` stops it with `moving` 0 and its queue kept, so its waypoints are not read
+      // here until it is sent home (`fmReturnHome` sets `moving` 1 again).
+      if (this.side[i] !== side || this.moving[i] === 0) continue;
+      if (this.goalX[i] >> 16 === x && this.goalY[i] >> 16 === y) return 'occupied';
+      const base = i * MAX_WAYPOINTS;
+      for (let k = 0; k < this.wpCount[i]; k++) {
+        if (this.wpX[base + k] >> 16 === x && this.wpY[base + k] >> 16 === y) return 'occupied';
+      }
+    }
+    const why = this.footprintRefusal(x, y, 1, 1);
+    if (why !== null) return why;
+    if (this.structureCount_ >= MAX_STRUCTURES) return 'no_structure_slot';
+    return null;
+  }
+
+  /** `fortify`: place the piece if `fortifyReason` allows, and say which in an event. */
+  private applyFortify(side: number, kit: number, x: number, y: number): void {
+    const reason = side === 0 || side === 1 ? this.fortifyReason(side, kit, x, y) : 'no_kit';
+    if (reason !== null) {
+      this.pendingEvents.push({ kind: 'fortifyRefused', tick: this.tickCount, side, kit, x, y, reason });
+      return;
+    }
+    const s = this.addStructure(this.kitStructType[kit], [y * this.width + x], { owner: side });
+    this.kitLeft[side * 3 + kit]--;
+    this.kitPlaced[side]++;
+    this.stKit[s] = kit;
+    this.pendingEvents.push({ kind: 'fortified', tick: this.tickCount, side: side as 0 | 1, kit, structure: s, x, y });
+  }
+
+  /** `unfortify`: take down the kit piece `side` placed on (x, y), if nobody is inside it, and refund its allowance. The
+   *  placement count is not refunded (structure ids are never reused, R0.10). */
+  private applyUnfortify(side: number, x: number, y: number): void {
+    const refuse = (reason: 'not_setup' | 'no_piece' | 'occupied'): void => {
+      this.pendingEvents.push({ kind: 'unfortifyRefused', tick: this.tickCount, side, x, y, reason });
+    };
+    if (!this.setupActive) return refuse('not_setup');
+    const onMap = Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < this.width && y < this.height;
+    const s = onMap ? this.structureOfTile[y * this.width + x] : -1;
+    if (s < 0 || this.stAlive[s] === 0 || this.stKit[s] < 0 || this.stOwner[s] !== side) return refuse('no_piece');
+    if (this.stOccupants[s] > 0) return refuse('occupied');
+    const kit = this.stKit[s];
+    this.removeStructure(s);
+    this.kitLeft[side * 3 + kit]++;
+    this.pendingEvents.push({ kind: 'unfortified', tick: this.tickCount, side: side as 0 | 1, kit, structure: s, x, y });
+  }
+
+  /** Whether unit `id` is an aircraft by TYPE (a helicopter or a drone), landed or not. `isAirborne` is the stricter, moment-
+   *  to-moment question. False for an id that is not a unit. Read-only. */
+  isAircraft(id: number): boolean {
+    if (!Number.isInteger(id) || id < 0 || id >= this.count) return false;
+    return this.unitTypes[this.typeIdx[id]].isAir;
+  }
+
   /** GH-698: true once an air carrier type is registered, or (#706) an aircraft has
    *  been mobility-killed, and the air block is folded into hash() (Q-A). Read-only. */
   get airCarrierLive(): boolean {
@@ -3367,26 +3517,35 @@ export class Sim {
     const type = this.structureTypes[structType];
     if (type === undefined || type.buildable === null) throw new Error(`structure type ${structType} is not buildable`);
     const b = type.buildable;
+    return this.footprintRefusal(tx, ty, b.fw, b.fh);
+  }
+
+  /**
+   * The footprint rules of `placementReason` for any footprint (GH-976: `fortify` asks it with 1 x 1, a kit piece having no
+   * `buildable` block). Pure, and the same rules in the same order as above: 'off_map', 'blocked', 'no_footing',
+   * 'not_level', 'overlap', 'seals_passage'.
+   */
+  private footprintRefusal(tx: number, ty: number, fw: number, fh: number): PlacementRefusal | null {
     const w = this.width;
-    if (tx < 0 || ty < 0 || tx + b.fw > w || ty + b.fh > this.height) return 'off_map';
-    for (let y = ty; y < ty + b.fh; y++) {
-      for (let x = tx; x < tx + b.fw; x++) if (this.blocked[y * w + x] !== 0) return 'blocked';
+    if (tx < 0 || ty < 0 || tx + fw > w || ty + fh > this.height) return 'off_map';
+    for (let y = ty; y < ty + fh; y++) {
+      for (let x = tx; x < tx + fw; x++) if (this.blocked[y * w + x] !== 0) return 'blocked';
     }
-    for (let y = ty; y < ty + b.fh; y++) {
-      for (let x = tx; x < tx + b.fw; x++) if (this.boulder[y * w + x] !== 0) return 'no_footing';
+    for (let y = ty; y < ty + fh; y++) {
+      for (let x = tx; x < tx + fw; x++) if (this.boulder[y * w + x] !== 0) return 'no_footing';
     }
     const level = this.elevation[ty * w + tx];
-    for (let y = ty; y < ty + b.fh; y++) {
-      for (let x = tx; x < tx + b.fw; x++) if (this.elevation[y * w + x] !== level) return 'not_level';
+    for (let y = ty; y < ty + fh; y++) {
+      for (let x = tx; x < tx + fw; x++) if (this.elevation[y * w + x] !== level) return 'not_level';
     }
-    for (let y = ty; y < ty + b.fh; y++) {
-      for (let x = tx; x < tx + b.fw; x++) {
+    for (let y = ty; y < ty + fh; y++) {
+      for (let x = tx; x < tx + fw; x++) {
         const s = this.structureOfTile[y * w + x];
         if (s >= 0 && this.stAlive[s] === 1) return 'overlap';
         if (this.pendingSiteAt(x, y) >= 0) return 'overlap';
       }
     }
-    if (this.footprintSeals(tx, ty, b.fw, b.fh)) return 'seals_passage';
+    if (this.footprintSeals(tx, ty, fw, fh)) return 'seals_passage';
     return null;
   }
 
@@ -5871,6 +6030,14 @@ export class Sim {
       if (this.setupLive && this.setupActive && SETUP_REFUSED_KINDS.has(cmd.kind)) continue;
       if (cmd.kind === 'setupReady') {
         this.applySetupReady(cmd.side);
+        continue;
+      }
+      if (cmd.kind === 'fortify') {
+        this.applyFortify(cmd.side, cmd.kit, cmd.x, cmd.y);
+        continue;
+      }
+      if (cmd.kind === 'unfortify') {
+        this.applyUnfortify(cmd.side, cmd.x, cmd.y);
         continue;
       }
       // Containment is a rule, not a list of places that remembered it: every
@@ -10580,7 +10747,7 @@ export class Sim {
     const ok = this.canSeat(toCar, id);
     this.carriedBy[id] = fromCar;
     if (!ok) return false;
-    this.disembark(id, false);
+    if (!this.disembark(id, false)) return false;
     this.seat(toCar, id);
     this.posX[id] = this.posX[toCar];
     this.posY[id] = this.posY[toCar];
@@ -13559,6 +13726,14 @@ export class Sim {
       h = hashWord(h, this.setupUntil);
       h = hashWord(h, this.readyMask);
       h = hashArray(h, this.setupRegion);
+      // WP3: the kit. The second marker word keeps a world with a set-up and no kit apart from one whose kit is all zeros.
+      h = hashWord(h, 0x53550977);
+      h = hashArray(h, this.kitLeft);
+      h = hashArray(h, this.kitPlaced);
+      h = hashArray(h, this.stKit);
+      h = hashArray(h, this.kitStructType);
+      h = hashWord(h, this.kitBans.length);
+      for (let i = 0; i < this.kitBans.length; i++) h = hashWord(h, this.kitBans[i]);
     }
     return h >>> 0;
   }

@@ -153,6 +153,8 @@ const CONFIG = [
   'humanHeldBySide', 'tnPoints', 'tnTiles', 'state', 'structures', 'works', 'sepCols', 'formationTypes',
   // GH-976: the set-up region mask (a room's buildMatchWorld rebuilds it through beginSetup; it is hashed behind setupLive).
   'setupRegion',
+  // GH-976 WP3: the kit's structure types and ban rects (setSetupKit rebuilds them; hashed behind setupLive).
+  'kitStructType', 'kitBans',
 ];
 const DERIVED = ['fields'];
 const SCRATCH = [

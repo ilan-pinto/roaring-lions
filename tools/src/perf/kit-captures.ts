@@ -1524,7 +1524,9 @@ async function runMeasure(args: Args, port: number): Promise<void> {
   const base = `http://localhost:${port}`;
   const dev = await ensureDevServer(port, REPO_ROOT, TAG);
   const ids = args.only;
-  const rows: Record<string, MeasureRow> = {};
+  // Null-prototype maps keyed by vehicle id (`--only` is allowlisted against VEHICLES, but a key guard costs nothing):
+  // no id can reach Object.prototype, and JSON.stringify writes them exactly as it wrote `{}`.
+  const rows: Record<string, MeasureRow> = Object.create(null) as Record<string, MeasureRow>;
   for (const id of ids) rows[id] = { shimmer: {}, alias: {}, cage: {}, kitPx: {}, tone: null, lod: false };
   let gpuName = 'unknown';
   const session = async (
@@ -1592,7 +1594,7 @@ async function runMeasure(args: Args, port: number): Promise<void> {
       });
     };
     type ToneReading = { px: number; meanLinear: number; p90Linear: number };
-    const tone: Record<string, { paint: ToneReading; metal: ToneReading }> = {};
+    const tone: Record<string, { paint: ToneReading; metal: ToneReading }> = Object.create(null) as Record<string, { paint: ToneReading; metal: ToneReading }>;
     for (const which of ['paint', 'metal'] as const) {
       const want: Record<string, number> = which === 'paint' ? { armour: 2 } : { sensors: 3, firepower: 3 };
       await session(`tone-${which}`, accountWith((id) => onlyTracks(id, want), ids), async (page, tiles) => {

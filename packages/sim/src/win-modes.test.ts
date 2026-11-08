@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { MissionRuntime, type MissionContext, type MissionEvent, type MissionJson, type ObjectiveJson } from './mission';
 import { Sim, type UnitTypeJson } from './sim';
+import { AIR_AIRBORNE, AIR_LANDED } from './tuning';
 
 const SQUAD: UnitTypeJson = {
   id: 'wm_squad', role: 'infantry',
@@ -374,5 +375,200 @@ describe('goals only: the rest of the runtime is off (GH-976)', () => {
     expect(w.rt.objectiveStatus('raze_0')).toBe('active');
     w.step(5000);
     expect(w.rt.objectiveStatus('raze_0')).toBe('active');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// GH-976 WP3: `ground_only` (only units standing on the ground hold or contest a flag) and the bell wait (a flag objective
+// scores nothing until the set-up ends). Every count is a literal with its arithmetic beside it.
+
+const HELO: UnitTypeJson = {
+  id: 'wm_helo', role: 'apc',
+  hull: { hp: 900, armor: { front: 4, side: 4, rear: 4 }, transport_slots: 6 },
+  mobility: { speed_tiles_s: 3.2, domain: 'air' }, sensors: { optics: 1, sight_tiles: 10, signature: 1 }, weapons: [],
+};
+const JEEP: UnitTypeJson = {
+  id: 'wm_jeep', role: 'technical',
+  hull: { hp: 500, armor: { front: 12, side: 8, rear: 8 }, transport_slots: 4 },
+  mobility: { speed_tiles_s: 2.8, turn_rate_deg_s: 150 }, sensors: { optics: 1, sight_tiles: 9, signature: 0.8 }, weapons: [],
+};
+
+/** The flag world of `world()`, with a helicopter and a jeep registered, and the east flag [30,4,6,6] as a side-`side` capture. */
+function airWorld(groundOnly: boolean | undefined, side: 0 | 1 = 0, seconds = 5) {
+  const sim = new Sim({ seed: 9, width: 40, height: 20, capacity: 64 });
+  const squad = sim.addUnitType(SQUAD);
+  const helo = sim.addUnitType(HELO);
+  const jeep = sim.addUnitType(JEEP);
+  const objective: ObjectiveJson = { id: 'cap', type: 'capture', primary: true, side, target: 'east', seconds, ...(groundOnly === undefined ? {} : { ground_only: groundOnly }) };
+  const mission: MissionJson = { id: 'wm_air', map: { file: 'none' }, ledger: { requires: [], produces: [] }, objectives: [objective] };
+  const rt = new MissionRuntime(sim, mission, { typeIdOf: () => squad, markers: {}, zones: ZONES, goalsOnly: true });
+  rt.start();
+  const step = (n: number): void => { for (let i = 0; i < n; i++) rt.step(sim.tick()); };
+  const at = (x: number, y: number): [number, number] => [fx.from(x) + 32768, fx.from(y) + 32768];
+  const put = (type: number, s: 0 | 1, x: number, y: number): number => sim.spawn(type, s, ...at(x, y));
+  // The hold clock, read from the public list: ticksLeft = seconds x 20 - holdTicks while the objective is active.
+  const hold = (): number => {
+    const left = rt.objectiveList.find((o) => o.id === 'cap')?.ticksLeft;
+    return left === undefined ? seconds * 20 : seconds * 20 - left;
+  };
+  const status = (): string => rt.objectiveStatus('cap');
+  return { sim, rt, step, put, hold, status, squad, helo, jeep };
+}
+const FIVE_S = 5 * 20;
+
+describe('ground_only: aircraft hold and contest nothing (GH-976 WP3)', () => {
+  it('an aircraft-only raider in the zone holds 0 ticks, and a ground raider beside it holds (and completes) as it did', () => {
+    const w = airWorld(true);
+    w.put(w.helo, 0, 32, 6);
+    w.step(FIVE_S + 20);
+    expect(w.hold()).toBe(0); // 120 ticks in the zone, none counted
+    expect(w.status()).toBe('active');
+    w.put(w.squad, 0, 33, 6);
+    w.step(FIVE_S - 1);
+    expect(w.hold()).toBe(99); // the squad's own clock: 99 ticks, one short of the 100
+    expect(w.status()).toBe('active');
+    w.step(1);
+    expect(w.hold()).toBe(100);
+    expect(w.status()).toBe('complete');
+  });
+
+  it('without ground_only the same helicopter holds the flag alone, as it always has (today\'s numbers)', () => {
+    for (const flag of [undefined, false]) {
+      const w = airWorld(flag);
+      w.put(w.helo, 0, 32, 6);
+      w.step(FIVE_S - 1);
+      expect(w.hold(), `flag ${String(flag)}`).toBe(99);
+      w.step(1);
+      expect(w.status(), `flag ${String(flag)}`).toBe('complete');
+    }
+  });
+
+  it('an enemy aircraft in the zone does not reset the hold (and does without the flag: the control)', () => {
+    const g = airWorld(true);
+    g.put(g.squad, 0, 32, 6);
+    g.put(g.helo, 1, 33, 7); // inside the zone and well within the contest radius
+    g.step(FIVE_S);
+    expect(g.status()).toBe('complete');
+    const today = airWorld(undefined);
+    today.put(today.squad, 0, 32, 6);
+    today.put(today.helo, 1, 33, 7);
+    today.step(FIVE_S + 40);
+    expect(today.hold()).toBe(0);
+    expect(today.status()).toBe('active');
+  });
+
+  it('a side-0 aircraft is not an anchor of the contest: an enemy beside only the helicopter does not contest the squad holding far away', () => {
+    // East flag [30,4,6,6]. Helicopter (30,4), holding squad (35,9), enemy squad (30,5): 1 tile from the helicopter (1 <= 36) and
+    // dx 5, dy 4 from the squad (25 + 16 = 41 > 36, outside the 6-tile contest radius), so only the helicopter is contested.
+    const setup = (flag: boolean | undefined) => {
+      const w = airWorld(flag);
+      w.put(w.helo, 0, 30, 4);
+      w.put(w.squad, 0, 35, 9);
+      w.put(w.squad, 1, 30, 5);
+      w.step(FIVE_S);
+      return w;
+    };
+    expect(setup(true).status()).toBe('complete');
+    const today = setup(undefined);
+    expect(today.status()).toBe('active');
+    expect(today.hold()).toBe(0);
+  });
+
+  /** A squad of `side` aboard `car` (a helicopter or a jeep), the pair standing on the flag at (32, 6). */
+  function aboard(w: ReturnType<typeof airWorld>, car: number, side: 0 | 1): { car: number; riders: number[] } {
+    const c = w.put(car, side, 32, 6);
+    const riders = [w.put(w.squad, side, 32, 6), w.put(w.squad, side, 32, 6)];
+    for (const r of riders) expect(w.sim.embarkAtSpawn(c, r), `rider ${r} aboard`).toBe(true);
+    return { car: c, riders };
+  }
+  const settle = (w: ReturnType<typeof airWorld>, car: number, how: 'landed' | 'hovering'): void => {
+    if (how === 'landed') w.sim.state.airState[car] = AIR_LANDED;
+    else expect(w.sim.state.airState[car]).toBe(AIR_AIRBORNE);
+  };
+
+  for (const how of ['landed', 'hovering'] as const) {
+    it(`a squad embarked on a ${how} transport aircraft in the zone neither holds nor contests; the same squad on foot does both`, () => {
+      // Holds: side 0 aboard, alone in the zone, 120 ticks.
+      const holds = airWorld(true);
+      const a = aboard(holds, holds.helo, 0);
+      settle(holds, a.car, how);
+      holds.step(FIVE_S + 20);
+      expect(holds.hold(), 'aboard, alone').toBe(0);
+      // Contests: a ground raider of side 0 holds the flag while side 1's squad rides the aircraft in it.
+      const contests = airWorld(true);
+      contests.put(contests.squad, 0, 31, 5);
+      const b = aboard(contests, contests.helo, 1);
+      settle(contests, b.car, how);
+      contests.step(FIVE_S);
+      expect(contests.status(), 'aboard enemy').toBe('complete');
+      // The same two squads on foot: the first holds alone, the second contests.
+      const onFoot = airWorld(true);
+      onFoot.put(onFoot.squad, 0, 32, 6);
+      onFoot.step(FIVE_S);
+      expect(onFoot.status(), 'on foot, alone').toBe('complete');
+      const foe = airWorld(true);
+      foe.put(foe.squad, 0, 31, 5);
+      foe.put(foe.squad, 1, 32, 6);
+      foe.put(foe.squad, 1, 33, 6);
+      foe.step(FIVE_S + 40);
+      expect(foe.hold(), 'on foot, contested').toBe(0);
+    });
+  }
+
+  it('a squad inside a GROUND vehicle keeps today\'s rule: it holds, and it contests', () => {
+    // The riders must be the ONLY thing that counts, or an over-broad skip (every carried unit) could not show: so the jeep
+    // itself is written as buried (tunnelIn >= 0, which livingIn and enemyNear skip), leaving its riders, who still ride
+    // its tile, as the one thing standing on the flag. The jeep is parked, so nothing else reads the column.
+    const holds = airWorld(true);
+    const car = aboard(holds, holds.jeep, 0);
+    holds.sim.state.tunnelIn[car.car] = 0;
+    holds.step(FIVE_S);
+    expect(holds.sim.state.carriedBy[car.riders[0]]).toBe(car.car);
+    expect(holds.status(), 'a rider of a ground vehicle still holds').toBe('complete');
+    const contests = airWorld(true);
+    contests.put(contests.squad, 0, 31, 5);
+    const foe = aboard(contests, contests.jeep, 1);
+    contests.sim.state.tunnelIn[foe.car] = 0;
+    contests.step(FIVE_S + 40);
+    expect(contests.sim.state.carriedBy[foe.riders[0]]).toBe(foe.car);
+    expect(contests.hold(), 'a rider of a ground vehicle still contests').toBe(0);
+    expect(contests.status()).toBe('active');
+  });
+});
+
+describe('the bell wait: a flag objective scores nothing until the set-up ends (GH-976 R0.7)', () => {
+  function bellWorld(untilTick: number | null) {
+    const w = airWorld(true);
+    if (untilTick !== null) w.sim.beginSetup({ untilTick, region: new Int8Array(40 * 20) });
+    w.put(w.squad, 0, 32, 6); // standing on the flag from tick 0
+    return w;
+  }
+
+  it('holdTicks is 0 until the bell and counts from it: bell at 100, so tick 100 is the first counted', () => {
+    const w = bellWorld(100);
+    w.step(99);
+    expect(w.sim.setupActive).toBe(true);
+    expect(w.hold()).toBe(0);
+    w.step(1);
+    expect(w.sim.setupActive).toBe(false);
+    expect(w.hold()).toBe(1); // tick 100: the first tick after the bell clock ran out
+    w.step(9);
+    expect(w.hold()).toBe(10);
+    expect(w.status()).toBe('active');
+  });
+
+  it('with the early bell the count starts at the early bell, and a room with no set-up counts from tick 1 as before', () => {
+    const early = bellWorld(1000);
+    early.sim.queueCommand({ kind: 'setupReady', side: 0 });
+    early.sim.queueCommand({ kind: 'setupReady', side: 1 });
+    early.step(1); // both ready on tick 0's commands: the bell is at 0 + 100
+    expect(early.sim.setupBellTick).toBe(100);
+    early.step(98);
+    expect(early.hold()).toBe(0);
+    early.step(5);
+    expect(early.hold()).toBe(5); // 104 ticks run: the counted ones are tickCount 100, 101, 102, 103 and 104
+    const none = bellWorld(null);
+    none.step(10);
+    expect(none.hold()).toBe(10);
   });
 });

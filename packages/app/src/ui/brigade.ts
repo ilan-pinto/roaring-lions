@@ -42,6 +42,7 @@ import { gateSentence, gateShort } from '../gate-sentence';
 import { expandedTrack, trackEl, type TrackDeps } from './garage-board';
 import { PANEL_PATHS, statPanel, type StatPanel } from './garage-stats';
 import { t } from '../i18n/t';
+import { creditAsk } from '../upgrade-pay';
 import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
 import {
@@ -110,6 +111,10 @@ export interface GarageState {
   readonly units: BrigadeUnit[];
   readonly credits?: number;
   readonly owned?: Record<string, Record<string, number>>;
+  /** The account's own `upgrades` (paid in credits), from the same read as `owned`. A credit
+   *  Buy fills the earned path, so its ask is `creditAsk(prices, earned, owned)`. Absent reads
+   *  as `owned` (no coin tier ahead of the account), the one-tier Buy. */
+  readonly earned?: Record<string, Record<string, number>>;
   /** Whether the purchase this answers is the one the store made -- the
    *  caller's own `ok`, never inferred from the account (final review M1).
    *  The account alone cannot say it: with two tabs open, tab B buys armour
@@ -194,6 +199,9 @@ export interface BrigadeOptions {
    *  Absent tiers read as 0. Absent entirely (no account) draws every rung unbought --
    *  still informative as a read-only view of what a track offers. */
   owned?: Record<string, Record<string, number>>;
+  /** The account's own `upgrades`, apart from `owned` (the single-player view, which coins can
+   *  run ahead of). See `GarageState.earned`. */
+  earned?: Record<string, Record<string, number>>;
   /** Called when the player clicks a rung's Buy control. The caller buys,
    *  saves and answers, exactly as `onBuy` does; this screen only asks. Rendered only
    *  alongside `credits` -- both present or neither, the same rule the unit-unlock Buy
@@ -392,7 +400,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   /** The account this screen is drawing. Opens as the options hand it in and
    *  is replaced whole by each answer a purchase or a reset gets back
    *  (`answer()` below); nothing here edits it. */
-  let state: GarageState = { units: opts.units, credits: opts.credits, owned: opts.owned };
+  let state: GarageState = { units: opts.units, credits: opts.credits, owned: opts.owned, earned: opts.earned };
   const wrap = el('div', 'rl-menu rl-menu--garage');
 
   // --- header: the mark, the title, the campaign line, and the wallet -------
@@ -614,6 +622,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   let storesDispose: Disposer | null = null;
   let storesShelf: StoresShelf = 'early';
   let storesOwned = false;
+  let storesAdds: string | undefined;
   /** A coin purchase's answer: the garage redraws around the account as the
    *  store now holds it -- quietly, since it is not on screen -- and the
    *  Stores is drawn again with focus back on the control that asked. */
@@ -656,6 +665,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       showOwned: storesOwned,
       onShowOwned: (on) => {
         storesOwned = on;
+      },
+      adds: storesAdds,
+      onAdds: (id) => {
+        storesAdds = id ?? undefined;
       },
       focusKey,
       onBuy:
@@ -1351,6 +1364,13 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
           state.credits !== undefined && opts.onBuyUpgrade
             ? {
                 credits: state.credits,
+                // R3 with R0.1: the Buy's tier and price are the run `creditAsk` states, off the
+                // account's earned tier and the single-player tier, never the rung's own price.
+                ask: creditAsk(
+                  track.tiers.map((x) => x.price),
+                  Math.min(state.earned === undefined ? owned : (state.earned[u.id]?.[trackName] ?? 0), track.tiers.length),
+                  owned
+                ),
                 onBuy: (tier, price, asked) => {
                   answer(opts.onBuyUpgrade?.(u.id, trackName, tier, price), asked, {
                     kind: 'upgrade',

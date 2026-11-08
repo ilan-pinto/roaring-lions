@@ -61,7 +61,7 @@
 //          --flags=<x,y,w,h/x,y,w,h>  --hold=<s>   fit the flag raid in memory (friendly then hostile ground; never written to disk)
 
 import { fileURLToPath } from 'node:url';
-import { versusModes, type MapId, type WinModeId } from '@lions/data';
+import { flagBlockOf, versusModes, type MapId, type WinModeId } from '@lions/data';
 import { WIN_MODES, matchCapTicks, validateConfig, type MatchConfig } from '@lions/net';
 import { armedStanding, goalsOf, outcomeOf, unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
@@ -171,9 +171,11 @@ export function raidParty(w: MatchWorld, side: 0 | 1): number[] {
 }
 
 /** The tile a raid aims at: the centre of the flag zone at `end` (the flag zones of the mode file, `flags`). */
-function flagTile(mapId: string, end: 'friendly' | 'hostile'): [number, number] {
-  const f = versusModes[mapId]?.flags?.[end];
-  if (f === undefined) throw new Error(`versus modes: ${mapId} has no flag at its ${end} end`);
+function flagTile(mapId: string, end: 'friendly' | 'hostile', setup = false): [number, number] {
+  const file = versusModes[mapId];
+  if (file === undefined) throw new Error(`versus modes: ${mapId} has no flag at its ${end} end`);
+  // GH-976 R0.22: through the one reader. `setup` is a room's `flagSetupRoom(config)`; the v1 probe passes nothing.
+  const f = flagBlockOf(file, setup).flags[end];
   return [fx.from(f.at[0] + f.size[0] / 2), fx.from(f.at[1] + f.size[1] / 2)];
 }
 
@@ -192,7 +194,7 @@ export function flagOrder(w: MatchWorld, mapId: string, parties: ReadonlyMap<num
   order(w.sim, (side) => (idleSides.has(side) ? [] : livingOf(w.sim, side).filter((id) => !raiding(id))), sideOfEnd);
   for (const side of [0, 1] as const) {
     if (idleSides.has(side)) continue;
-    const target = flagTile(mapId, w.endOfSide[side === 0 ? 1 : 0]);
+    const target = flagTile(mapId, w.endOfSide[side === 0 ? 1 : 0], w.setup !== null);
     const ids = (parties.get(side) ?? []).filter((id) => w.sim.state.alive[id] === 1);
     if (ids.length > 0) w.sim.queueCommand({ kind: 'attackMove', ids, x: target[0], y: target[1] });
   }
@@ -451,12 +453,18 @@ export interface PointsOverride {
   target?: number;
 }
 
+/** `mapId`'s win-mode file, or undefined when it has none. An OWN key only: the overrides below write into what this returns,
+ *  and a bare `versusModes[mapId]` answers `__proto__` with `Object.prototype` (prototype pollution, Snyk Code). */
+function modeFileOf(mapId: string): (typeof versusModes)[string] | undefined {
+  return Object.hasOwn(versusModes, mapId) ? versusModes[mapId] : undefined;
+}
+
 /**
  * Runs `fn` with `mapId`'s points block replaced IN MEMORY (never written to disk), for fitting the numbers on the
  * selection seeds. The block is restored afterwards, also on a throw. `zones` replaces the whole list.
  */
 export function withPointsOverride<T>(mapId: string, o: PointsOverride, fn: () => T): T {
-  const file = versusModes[mapId] as { modes: { points?: { zones: unknown; per_value_destroyed: number; target: number } } } | undefined;
+  const file = modeFileOf(mapId) as { modes: { points?: { zones: unknown; per_value_destroyed: number; target: number } } } | undefined;
   const block = file?.modes.points;
   if (block === undefined) throw new Error(`versus modes: ${mapId} has no points block to override`);
   const was = { ...block };
@@ -478,18 +486,20 @@ export interface FlagOverride {
  * selection seeds. Restored afterwards, also on a throw.
  */
 export function withFlagOverride<T>(mapId: string, o: FlagOverride, fn: () => T): T {
-  const file = versusModes[mapId] as { flags?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } }; modes: { flag?: { hold_s: number } } } | undefined;
+  // A WRITE to the v1 block, restored in `finally`: the one place besides the data helper that names `flags` and `hold_s` (R0.22 is about reads).
+  const file = modeFileOf(mapId) as { flags?: { friendly: { at: number[]; size: number[] }; hostile: { at: number[]; size: number[] } }; modes: { flag?: { hold_s: number } } } | undefined;
   if (file === undefined || file.modes.flag === undefined || file.flags === undefined) throw new Error(`versus modes: ${mapId} has no flag block to override`);
-  const was = { friendly: file.flags.friendly, hostile: file.flags.hostile, hold_s: file.modes.flag.hold_s };
+  const flagMode = file.modes.flag;
+  const was = { friendly: file.flags.friendly, hostile: file.flags.hostile, hold_s: flagMode.hold_s };
   if (o.flags !== undefined) {
     file.flags.friendly = { at: [o.flags[0][0], o.flags[0][1]], size: [o.flags[0][2], o.flags[0][3]] };
     file.flags.hostile = { at: [o.flags[1][0], o.flags[1][1]], size: [o.flags[1][2], o.flags[1][3]] };
   }
-  if (o.holdS !== undefined) file.modes.flag.hold_s = o.holdS;
+  if (o.holdS !== undefined) flagMode.hold_s = o.holdS;
   try { return fn(); } finally {
     file.flags.friendly = was.friendly;
     file.flags.hostile = was.hostile;
-    file.modes.flag.hold_s = was.hold_s;
+    flagMode.hold_s = was.hold_s;
   }
 }
 
@@ -504,12 +514,12 @@ export interface CampOverride {
 
 /** Runs `fn` with `mapId`'s camp block replaced IN MEMORY (never written to disk), restored afterwards, also on a throw. */
 export function withCampOverride<T>(mapId: string, o: CampOverride, fn: () => T): T {
-  const file = versusModes[mapId] as { camps?: unknown; modes: { camp?: { wipe?: string } } } | undefined;
+  const file = modeFileOf(mapId) as { camps?: unknown; modes: { camp?: { wipe?: string } } } | undefined;
   if (file === undefined) throw new Error(`versus modes: ${mapId} has no mode file`);
   const wasCamps = file.camps;
   const wasCamp = file.modes.camp;
   if (o.fromRules === true && (wasCamps === undefined || wasCamp === undefined)) {
-    const ends = versusRules[mapId]?.ends;
+    const ends = (Object.hasOwn(versusRules, mapId) ? versusRules[mapId] : undefined)?.ends;
     if (ends === undefined) throw new Error(`versus modes: ${mapId} has no rules-file camps to screen`);
     const camp = (e: 'friendly' | 'hostile'): { at: number[]; size: number[]; exit?: number[] } => {
       const c = ends[e].camp;
