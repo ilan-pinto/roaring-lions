@@ -5,6 +5,7 @@
 // Reads `<dir>/<scenario>/summary.json` (the gate writes a `readings` block into it: the repaint control and every layer toggle)
 // from the legacy-MATCHED arm and a node arm, and judges every row of `golden-diff/parity-bands.ts` by `golden-diff/parity.ts`.
 //
+// DEAD (T1b) is printed beside the band verdict and NEVER changes the exit code.
 // Exit: 0 every row in band, 1 at least one row out of band, 2 nothing could be judged (a missing summary, a missing row, zero rows).
 // A row the legacy or node arm did not read is a REFUSAL (2), not a skip: a table that silently judged fewer rows than it declares
 // would pass vacuously. The CI job is report-only, so 1 and 2 only colour the log; the numbers are the product.
@@ -29,6 +30,11 @@ export type ArmSummaries = ReadonlyMap<string, SummaryJson>;
 export interface ParityLine {
   readonly row: ParityRow;
   readonly verdict: ParityVerdict | null;
+  /** The node A/B did not change the frame (REPORT-ONLY: never part of the exit code). Always false on a `zero` row. */
+  readonly dead: boolean;
+  /** The node delta and the floor it was held to (0 = no floor read yet), for the DEAD line. */
+  readonly nodeDelta: number | null;
+  readonly floor: number;
   /** Why the row could not be judged. */
   readonly refusal: string | null;
 }
@@ -40,23 +46,38 @@ function readingFor(s: SummaryJson | undefined, layer: string): ReadingJson | nu
   return r.layers.find((l) => l.layer === layer) ?? null;
 }
 
-export function buildParityLines(legacy: ArmSummaries, node: ArmSummaries, rows: readonly ParityRow[] = PARITY_ROWS): ParityLine[] {
+/**
+ * DEAD (ruling 3, report-only): the node delta is under the row's floor for this key, or exactly 0 while no floor is read yet. A delta
+ * EQUAL to the floor is alive. A `zero`-band row is exempt: 0 is its pass. Strict `<` against a floor that is at least the smallest
+ * positive number, so 0 is DEAD with no floor and a floor of 0 is treated as unread.
+ */
+export function isDead(row: ParityRow, key: string, nodeDelta: number): boolean {
+  if (row.band === 'zero') return false;
+  const floor = (key === 'wgl2' || key === 'wgpu' ? row.nodeFloor?.[key] : null) ?? 0;
+  return nodeDelta < Math.max(floor, Number.MIN_VALUE);
+}
+
+export function buildParityLines(legacy: ArmSummaries, node: ArmSummaries, rows: readonly ParityRow[] = PARITY_ROWS, key = ''): ParityLine[] {
   return rows.map((row) => {
     const l = readingFor(legacy.get(row.scenario), row.layer);
     const n = readingFor(node.get(row.scenario), row.layer);
-    if (l === null) return { row, verdict: null, refusal: 'the legacy-matched arm has no reading for this row' };
-    if (n === null) return { row, verdict: null, refusal: 'the node arm has no reading for this row' };
-    return { row, verdict: parityVerdict(BANDS[row.band], n, l), refusal: null };
+    const floor = (key === 'wgl2' || key === 'wgpu' ? row.nodeFloor?.[key] : null) ?? 0;
+    if (l === null) return { row, verdict: null, dead: false, nodeDelta: n?.meanAbsChannelDelta ?? null, floor, refusal: 'the legacy-matched arm has no reading for this row' };
+    if (n === null) return { row, verdict: null, dead: false, nodeDelta: null, floor, refusal: 'the node arm has no reading for this row' };
+    return { row, verdict: parityVerdict(BANDS[row.band], n, l), dead: isDead(row, key, n.meanAbsChannelDelta), nodeDelta: n.meanAbsChannelDelta, floor, refusal: null };
   });
 }
 
 export function formatParity(lines: readonly ParityLine[], key: string): string[] {
   const out = [`parity (${key}, REPORT-ONLY): ratio = node / legacy-matched, primary = meanAbsChannelDelta`];
-  for (const { row, verdict, refusal } of lines) {
+  for (const { row, verdict, refusal, dead, nodeDelta, floor } of lines) {
     const id = `${row.scenario}/${row.layer} [${row.band}]`;
     if (verdict === null) out.push(`  REFUSED ${id}: ${refusal ?? ''}`);
     else out.push(`  ${verdict.ok ? 'PASS' : 'FAIL'} ${id}: ${verdict.message}${verdict.pixelRatio === null ? '' : ` (px ratio ${verdict.pixelRatio.toFixed(3)})`}`);
+    if (dead) out.push(`  DEAD ${id}: node delta ${(nodeDelta ?? 0).toFixed(4)} is under its floor (${floor > 0 ? floor.toFixed(4) : 'none read yet, so 0 is dead'}); the node A/B does not change the frame (report-only)`);
   }
+  const deadCount = lines.filter((l) => l.dead).length;
+  if (deadCount > 0) out.push(`  DEAD rows: ${deadCount} (REPORT-ONLY, never fails the job)`);
   return out;
 }
 
@@ -84,8 +105,9 @@ export function runParity(argv: readonly string[], log: (l: string) => void = co
     return 2;
   }
   const scenarios = [...new Set(PARITY_ROWS.map((r) => r.scenario))];
-  const lines = buildParityLines(load(legacyDir, scenarios), load(nodeDir, scenarios));
-  for (const l of formatParity(lines, arg('key') ?? path.basename(nodeDir))) log(`[parity-run] ${l}`);
+  const key = arg('key') ?? path.basename(nodeDir);
+  const lines = buildParityLines(load(legacyDir, scenarios), load(nodeDir, scenarios), PARITY_ROWS, key);
+  for (const l of formatParity(lines, key)) log(`[parity-run] ${l}`);
   const code = parityExit(lines);
   log(`[parity-run] exit ${code} (0 all in band, 1 out of band, 2 not everything could be judged)`);
   return code;

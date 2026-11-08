@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import type { BackendKind } from '../../gpu';
-import type { AoControl, PostConfig, PostKit, RenderBackend } from './backend';
+import type { AoControl, MaterialKit, MaterialMaths, PostConfig, PostKit, RenderBackend } from './backend';
 import { createOrthoAwareGtao } from '../gtao-ortho.node';
 import { createNodePostChain, createNodeAoStage, type NodePostChain, type OutputMaths, type AoMaths } from '../post-chain.node';
 import { createFogStageFactory } from '../fog-pass.node';
@@ -40,6 +40,9 @@ export interface NodeBackendOptions {
   readonly aoMaths: AoMaths;
   /** The shared readback layout and normaliser, injected (see `ReadbackMaths`); `output-maths.ts`'s `READBACK_MATHS`. */
   readonly readbackMaths: ReadbackMaths;
+  /** GH-943 P2 (T1): the material twins' shared maths, injected (see `MaterialMaths`); `material-maths.ts`'s `MATERIAL_MATHS`.
+   *  Read by the `materials` factories as each lands (T3, T5, T6). */
+  readonly materialMaths: MaterialMaths;
   readonly warn?: (msg: string) => void;
 }
 
@@ -95,6 +98,9 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   const aoStage = createNodeAoStage({ W, TSL, ao: gtao as never, denoise: denoise as never, maths: opts.aoMaths });
   kit.ao = aoStage.factory;
   const aoControl: AoControl = aoStage.control;
+  /** GH-943 P2 (T1): the material twins, null until each task lands (T3 ground, T5 ring, T6 foliage), each built from
+   *  `opts.materialMaths`. A null factory leaves the legacy material in place, and this backend's census hides or names it. */
+  const materials: MaterialKit = { ground: null, foliage: null, ring: null };
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();
@@ -120,6 +126,7 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     adapter: isGpu ? opts.adapter : 'webgl2',
     domElement: canvas,
     kit,
+    materials,
     bloom: nodeBloom.control,
     pmrem: createNodePmremHost(W.PMREMGenerator as unknown as NodePmremGeneratorCtor, renderer),
     ao: aoControl,

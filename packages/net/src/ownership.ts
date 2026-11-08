@@ -33,6 +33,9 @@ export interface SeatWorld {
    *  `cancelBuild`, `setRally`, `clearRally` -- pass for the seat's own side.
    *  False in single-player and in a mirror room, which has no runtime. */
   readonly economy: boolean;
+  /** GH-976 v2: a flag room that plays the set-up rules (`flagSetupRoom(config)`). The three set-up commands -- `setupReady`,
+   *  `fortify`, `unfortify` -- pass only here, and only for the seat's own side: the same answer on both machines, from the shared config. */
+  readonly setupRoom: boolean;
   /** GH-859 P1a: whether `seat` may order formation `id` -- a shipped formation whose `factions` include
    *  the seat's own. Shipped data, so both machines answer alike; an id nobody ships answers false and the
    *  order vanishes on both. */
@@ -52,6 +55,8 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
   // Q16.16 compared as integers; NaN fails every comparison, so it is off the map.
   const onMap = (x: number, y: number): boolean =>
     x >= 0 && y >= 0 && x < world.width * 65536 && y < world.height * 65536;
+  // An integer TILE on the map (`fortify`/`unfortify` name tiles, not Q16.16 points).
+  const onTile = (x: number, y: number): boolean => Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < world.width && y < world.height;
   switch (cmd.kind) {
     case 'move': case 'attackMove':
       return (
@@ -126,10 +131,14 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
     case 'cancelWorks':
       return !world.versus && cmd.side === side;
     case 'setupReady':
+      // GH-976 v2: a set-up room's own side. Whether the bell has rung is the sim's (a late Ready is a no-op there).
+      return world.setupRoom && cmd.side === side;
     case 'fortify':
+      // The slot is one of the kit's three and (x, y) an integer tile on the map (tiles, not Q16.16); the region, the ban and
+      // the allowance are `Sim.fortifyReason`'s.
+      return world.setupRoom && cmd.side === side && Number.isInteger(cmd.kit) && cmd.kit >= 0 && cmd.kit <= 2 && onTile(cmd.x, cmd.y);
     case 'unfortify':
-      // GH-976 R0.9: stubs. The set-up commands open in WP4.
-      return false;
+      return world.setupRoom && cmd.side === side && onTile(cmd.x, cmd.y);
   }
 }
 

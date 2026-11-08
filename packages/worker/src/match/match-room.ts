@@ -72,7 +72,7 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { advisorMayRelay, factionsOfMatchup, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, winModeField, winModeRequest, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, specialRefusal, type AdvisorScope, type ClientMsg, type Faction, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg, type WinMode } from '@lions/net';
+import { advisorMayRelay, factionsOfMatchup, flagSetupFor, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, winModeField, winModeRequest, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, specialRefusal, type AdvisorScope, type ClientMsg, type Faction, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg, type WinMode } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { readCapped } from '../read-capped';
@@ -506,6 +506,9 @@ export class MatchRoom {
       pace, hashEveryTicks: 20, bufferTicks: 2, build: this.meta?.build ?? '', dataDigest: 0, snapshotEveryTicks: this.snapshotEveryTicks,
       // GH-976 P2: the win mode the host asked for, in a versus room only (`validateConfig` refuses it anywhere else).
       ...(mode === 'versus' && this.meta?.winMode !== undefined ? { winMode: this.meta.winMode } : {}),
+      // GH-976 v2: minted from the room's own map and win mode against `FLAG_SETUP_MAPS` -- never from a client value (`/create` reads no
+      // `flagSetup`, and `validateConfig` refuses one without a flag room). Empty list, no key: every room plays as before.
+      ...(mode === 'versus' && flagSetupFor(this.meta?.map ?? DEFAULT_MAP, this.meta?.winMode) !== undefined ? { flagSetup: true } : {}),
     });
     if (config === null) throw new Error('MatchRoom minted a config its own validator refuses');
     return config;

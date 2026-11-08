@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { doctrines, units, versusRules } from '@lions/data';
+import { doctrines, maps, structures, units, versusRules } from '@lions/data';
 import { matchDigest, sidesOfFactions, validateConfig, type MatchConfig, type SeatConfig } from '@lions/net';
 import type { MissionEvent } from '@lions/sim';
 import { campOf } from './versus-force';
@@ -532,3 +532,67 @@ describe('doctrine menus and the room roster (Task 3 review, M-a)', () => {
   });
 });
 
+
+describe('buildMatchWorld: the flag set-up (GH-976 v2 WP4)', () => {
+  /** A KDF mirror flag room; `flagSetup` is what the Worker would mint for a listed map. */
+  function flagRoom(map: string, flagSetup: boolean, seed = 1234): MatchConfig {
+    const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed, map, mode: 'versus', seats: [seat(0), seat(1)], pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'flag', ...(flagSetup ? { flagSetup: true } : {}) });
+    if (c === null) throw new Error('bad fixture');
+    return c;
+  }
+  /** The objective rows the runtime was built from (private to the runtime; the test reads the mission it holds). */
+  const rowsOf = (w: MatchWorld): { id: string; seconds?: number; ground_only?: boolean }[] =>
+    (w.runtime as unknown as { mission: { objectives: { id: string; seconds?: number; ground_only?: boolean }[] } }).mission.objectives;
+
+  it('a flagSetup world rings at 3600, with a 45 s hold that only the ground can serve', () => {
+    const w = buildMatchWorld(flagRoom('wadi_tarfan', true));
+    expect(w.sim.setupBellTick).toBe(3600);
+    expect(w.sim.setupActive).toBe(true);
+    expect(rowsOf(w).map((o) => [o.id, o.seconds, o.ground_only])).toEqual([['raid_flag_0', 45, true], ['raid_flag_1', 45, true]]);
+    expect(w.setup).not.toBeNull();
+    expect(w.setup?.bandTiles).toBe(8);
+    expect(w.setup?.kit.map((k) => [k.piece, k.allowance])).toEqual([['hesco', 12], ['sandbag_post', 4], ['t_wall', 2]]);
+    // The sim holds the allowance too: a placement is the sim's, the room only fed it.
+    expect([0, 1, 2].map((k) => w.sim.setupKitLeft(0, k))).toEqual([12, 4, 2]);
+  });
+  it('a v1 flag world is what it was: no set-up, a 30 s hold, no ground_only, and the same hash at tick 600', () => {
+    const w = buildMatchWorld(flagRoom('wadi_tarfan', false));
+    expect(w.sim.setupBellTick).toBe(-1);
+    expect(w.sim.setupActive).toBe(false);
+    expect(w.setup).toBeNull();
+    expect(rowsOf(w).map((o) => [o.id, o.seconds, o.ground_only])).toEqual([['raid_flag_0', 30, undefined], ['raid_flag_1', 30, undefined]]);
+    // LITERALS, read from the unmodified base (WP3's head, bec54b9e8, in its own worktree) before this PR's wiring existed, seed 1234, 600 ticks of matchTick.
+    // The game-level witness is FLAG_V1_GAME_PIN (tools/src/backtest/versus-modes.test.ts), read at tick 1000.
+    for (const [map, hash, digest] of [['wadi_tarfan', 883726690, 1894957395], ['rujm_sawda', 2708009709, 4064746163]] as const) {
+      const v1 = buildMatchWorld(flagRoom(map, false));
+      for (let i = 0; i < 600; i++) matchTick(v1);
+      expect([v1.sim.hash(), v1.runtime?.digest()], map).toEqual([hash, digest]);
+    }
+  });
+  it('a set-up room that is not a flag room (no winMode) gets none of it', () => {
+    const c = flagRoom('wadi_tarfan', false);
+    expect(buildMatchWorld({ ...c, winMode: undefined }).setup).toBeNull();
+    expect(buildMatchWorld({ ...c, winMode: 'points' }).setup).toBeNull();
+  });
+  it('R0.24: the kit types are always registered, on a map whose rows hold no hesco, sandbag or t_wall symbol, and a rebuilt world resolves the same indices', () => {
+    const kitSymbols = ['hesco', 'sandbag_post', 't_wall'].map((id) => structures[id as keyof typeof structures].symbol as string);
+    const bare = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'].filter((m) => !maps[m as keyof typeof maps].rows.some((r) => kitSymbols.some((sym) => r.includes(sym))));
+    expect(bare.length, 'a map with no kit symbol to test on').toBeGreaterThan(0);
+    for (const map of bare) {
+      const a = buildMatchWorld(flagRoom(map, true));
+      const b = buildMatchWorld(flagRoom(map, true));
+      const want = ['hesco', 'sandbag_post', 't_wall'].map((id) => Object.keys(structures).indexOf(id));
+      expect(a.setup?.kit.map((k) => k.structType), map).toEqual(want);
+      expect(b.setup?.kit.map((k) => k.structType), map).toEqual(want);
+      // And they work: a hesco goes down on an own-region tile that the sim accepts.
+      const tile = Array.from({ length: a.sim.width * a.sim.height }, (_, t) => [t % a.sim.width, Math.floor(t / a.sim.width)]).find(([x, y]) => a.sim.fortifyReason(0, 0, x, y) === null);
+      expect(tile, map).toBeDefined();
+      if (tile === undefined) continue;
+      const before = a.sim.structureCount;
+      a.sim.queueCommand({ kind: 'fortify', side: 0, kit: 0, x: tile[0], y: tile[1] });
+      a.sim.tick();
+      expect(a.sim.structureCount, map).toBe(before + 1);
+    }
+  });
+});

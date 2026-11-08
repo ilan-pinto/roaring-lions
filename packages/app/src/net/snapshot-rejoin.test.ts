@@ -474,3 +474,136 @@ describe('settleRejoin', () => {
     expect(restartFromZero).not.toHaveBeenCalled();
   });
 });
+
+
+// ---------------------------------------------------------------------------------------------------
+// GH-976 v2 WP4: a rejoin in a flag room that plays the set-up rules
+// ---------------------------------------------------------------------------------------------------
+describe('restoreForRejoin: a capture-the-flag set-up room (GH-976 v2, R0.21, Review Focus 4)', () => {
+  const MAP = 'wadi_tarfan';
+  /** A KDF mirror flag room with `flagSetup` (what the Worker mints for a listed map). */
+  function setupConfig(): MatchConfig {
+    const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+    const c = validateConfig({
+      matchId: CODE, code: CODE, seed: 3, map: MAP, mode: 'versus', seats: [seat(0), seat(1)],
+      pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b-1', dataDigest: 0, snapshotEveryTicks: EVERY, winMode: 'flag', flagSetup: true,
+    });
+    if (c === null) throw new Error('bad fixture');
+    return c;
+  }
+  /** `play`, with the sim events each tick returned collected: the `setupBell` ticks. */
+  function playEvents(config: MatchConfig, w: MatchWorld, frames: readonly Frame[]): { digests: Map<number, number>; bells: number[] } {
+    const feed = new Feed(frames);
+    const bells: number[] = [];
+    const rt = w.runtime;
+    runFrames({
+      transport: feed, sim: w.sim, seatWorld: seatWorldFor(config, w.sim), config,
+      runTick: () => { for (const e of matchTick(w).sim) if (e.kind === 'setupBell') bells.push(e.tick); },
+      ...(rt === null ? {} : { runtimeDigest: () => rt.digest() }),
+    }, frames.length);
+    return { digests: feed.digests, bells };
+  }
+  /** Frames 0..1199 carrying `at[tick]` as the stamped commands of that frame. */
+  const framesWith = (at: Record<number, Stamped[]>): Frame[] => Array.from({ length: EVERY }, (_, t) => ({ tick: t, cmds: at[t] === undefined ? [] : canonicalOrder(at[t]) }));
+  const cmd = (seat: 0 | 1, seq: number, c: Command): Stamped => ({ seat, seq, cmd: c });
+  /** Up to `n` tiles side `side` may place a hesco on, at least 6 tiles clear of every living unit, spread over the candidates. */
+  function tilesFor(w: MatchWorld, side: 0 | 1, n: number): [number, number][] {
+    const near = (x: number, y: number): boolean => [...w.bySide[0], ...w.bySide[1]].some((id) => Math.max(Math.abs((w.sim.state.posX[id] >> 16) - x), Math.abs((w.sim.state.posY[id] >> 16) - y)) < 6);
+    const all: [number, number][] = [];
+    for (let y = 0; y < w.sim.height; y++) for (let x = 0; x < w.sim.width; x++) if (w.sim.fortifyReason(side, 0, x, y) === null && !near(x, y)) all.push([x, y]);
+    expect(all.length, 'candidate tiles').toBeGreaterThanOrEqual(n);
+    const stride = Math.floor(all.length / n);
+    return Array.from({ length: n }, (_, i) => all[i * stride]);
+  }
+
+  it('rejoin mid-set-up: five pieces fortified, side 0 Ready by 900, a squad pressed on the line; 200 frames keep every hash and the runtime digest', { timeout: 60_000 }, () => {
+    const config = setupConfig();
+    const probe = buildMatchWorld(config);
+    const mine = tilesFor(probe, 0, 5);
+    const theirs = tilesFor(probe, 1, 3);
+    const squad = probe.bySide[0].slice(0, 6);
+    const at: Record<number, Stamped[]> = {
+      10: [
+        ...mine.map(([x, y], i) => cmd(0, i, { kind: 'fortify', side: 0, kit: 0, x, y })),
+        ...theirs.map(([x, y], i) => cmd(1, i, { kind: 'fortify', side: 1, kit: i === 0 ? 1 : 0, x, y })),
+      ],
+      // Across the line: the goal is inside the enemy region, so the clamp holds the squad where the regions meet.
+      50: [cmd(0, 9, { kind: 'attackMove', ids: squad, x: fx.from(40), y: fx.from(40) })],
+      900: [cmd(0, 10, { kind: 'setupReady', side: 0 })],
+    };
+    const source = buildMatchWorld(config);
+    const before = source.sim.structureCount;
+    const played = playEvents(config, source, framesWith(at));
+    expect(played.bells).toEqual([]);
+    expect(source.sim.structureCount - before, 'the fortify commands landed').toBe(8);
+    expect([0, 1, 2].map((k) => source.sim.setupKitLeft(0, k))).toEqual([12 - 5, 4, 2]);
+    expect(source.sim.setupReady(0)).toBe(true);
+    expect(source.sim.setupReady(1)).toBe(false);
+    expect(source.sim.setupActive).toBe(true);
+    // The clamp is pressed: a squad member walks with its goal in the enemy region, so the line is what holds it.
+    expect(squad.some((id) => source.sim.setupHeldAtLine(id)), 'a unit held at the line').toBe(true);
+    for (const id of squad) expect(source.sim.setupRegionAt(source.sim.state.posX[id] >> 16, source.sim.state.posY[id] >> 16), `unit ${id}`).toBe(0);
+
+    const digest = digestOf(source);
+    const raw = encodeSim(source.sim, metaAt(config, EVERY - 1, digest), source.runtime ?? undefined);
+    const verified: Verified = { raw, frameTick: EVERY - 1, matchDigest: digest >>> 0 };
+    const got = restoreForRejoin(config, verified);
+    expect(got.ok).toBe(true);
+    if (!got.ok) return;
+    expect(got.world.sim.setupActive).toBe(true);
+    expect(got.world.sim.setupBellTick).toBe(3600);
+    expect(got.world.sim.setupReady(0)).toBe(true);
+    expect([0, 1, 2].map((k) => got.world.sim.setupKitLeft(0, k))).toEqual([7, 4, 2]);
+    const more = emptyFrames(EVERY, EVERY + 200);
+    const a = playEvents(config, source, more);
+    const b = playEvents(config, got.world, more);
+    expect(a.digests.size).toBe(10);
+    expect([...b.digests]).toEqual([...a.digests]);
+    // The clamp kept holding the restored squad exactly as the source's.
+    for (const id of squad) expect(got.world.sim.state.posX[id], `unit ${id}`).toBe(source.sim.state.posX[id]);
+    expect(source.sim.setupActive).toBe(true);
+  });
+
+  /** Plays 1,200 frames with both sides Ready at `readyAt`, encodes at 1,199, and restores onto a fresh world. */
+  function bellRoom(readyAt: number): { source: MatchWorld; restored: MatchWorld; config: MatchConfig; sourceBells: number[] } {
+    const config = setupConfig();
+    const source = buildMatchWorld(config);
+    const played = playEvents(config, source, framesWith({ [readyAt]: [cmd(0, 0, { kind: 'setupReady', side: 0 }), cmd(1, 0, { kind: 'setupReady', side: 1 })] }));
+    const digest = digestOf(source);
+    const raw = encodeSim(source.sim, metaAt(config, EVERY - 1, digest), source.runtime ?? undefined);
+    const got = restoreForRejoin(config, { raw, frameTick: EVERY - 1, matchDigest: digest >>> 0 });
+    if (!got.ok) throw new Error(`restore refused: ${got.reason}`);
+    return { source, restored: got.world, config, sourceBells: played.bells };
+  }
+
+  it('rejoin at the bell, edge 1: both Ready at 1,099 ring the bell at 1,199, before the cut; the restored world has rung, pushes no second setupBell, and keeps every hash', { timeout: 60_000 }, () => {
+    const { source, restored, config, sourceBells } = bellRoom(1099);
+    expect(sourceBells).toEqual([1199]);
+    expect(source.sim.setupBellTick).toBe(1199);
+    expect(source.sim.setupActive).toBe(false);
+    expect(restored.sim.setupActive).toBe(false);
+    expect(restored.sim.setupBellTick).toBe(1199);
+    const more = emptyFrames(EVERY, EVERY + 200);
+    const a = playEvents(config, source, more);
+    const b = playEvents(config, restored, more);
+    expect(b.bells).toEqual([]);
+    expect(a.bells).toEqual([]);
+    expect(a.digests.size).toBe(10);
+    expect([...b.digests]).toEqual([...a.digests]);
+  });
+
+  it('rejoin at the bell, edge 2: both Ready at 1,100 ring the bell at 1,200; the restored world rings it on its first tick, and keeps every hash', { timeout: 60_000 }, () => {
+    const { source, restored, config, sourceBells } = bellRoom(1100);
+    expect(sourceBells).toEqual([]);
+    expect(source.sim.setupBellTick).toBe(1200);
+    expect(restored.sim.setupBellTick).toBe(1200);
+    const more = emptyFrames(EVERY, EVERY + 200);
+    const a = playEvents(config, source, more);
+    const b = playEvents(config, restored, more);
+    expect(a.bells).toEqual([1200]);
+    expect(b.bells).toEqual([1200]);
+    expect(restored.sim.setupActive).toBe(false);
+    expect(a.digests.size).toBe(10);
+    expect([...b.digests]).toEqual([...a.digests]);
+  });
+});

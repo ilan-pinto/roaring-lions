@@ -7,7 +7,7 @@
 import { setImmediate as realImmediate } from 'node:timers/promises';
 import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { OVER_CLOSE_MS, sha256Hex, validateConfig, type AdvisorMsg, type AdvisorScope, type ServerMsg, type Seat } from '@lions/net';
+import { FLAG_SETUP_MAPS, OVER_CLOSE_MS, sha256Hex, validateConfig, type AdvisorMsg, type AdvisorScope, type ServerMsg, type Seat } from '@lions/net';
 import type { D1Like, Env } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
@@ -36,13 +36,13 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { map?: string; winMode?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown; specials?: unknown; joinSpecials?: unknown }
+interface CreateOpts { map?: string; winMode?: unknown; flagSetup?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown; specials?: unknown; joinSpecials?: unknown }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
   const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env, opts.snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks: opts.snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: opts.map ?? 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.winMode !== undefined ? { winMode: opts.winMode } : {}), ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}), ...(opts.specials !== undefined ? { specials: opts.specials } : {}) }),
+    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: opts.map ?? 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.winMode !== undefined ? { winMode: opts.winMode } : {}), ...(opts.flagSetup !== undefined ? { flagSetup: opts.flagSetup } : {}), ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}), ...(opts.specials !== undefined ? { specials: opts.specials } : {}) }),
   }));
   expect(res.status).toBe(200);
   if (opts.join !== false) {
@@ -1698,6 +1698,49 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
     evict();
     const old = await hello(new MatchRoom(state, env, YIELD), 1);
     expect(ofType(old, 'lobby').at(-1)?.winMode).toBeUndefined();
+  });
+});
+
+describe('capture the flag v2 (GH-976 WP4): the room mints flagSetup from FLAG_SETUP_MAPS and its own winMode, never from a client', () => {
+  const FLAG = { mode: 'versus', map: 'wadi_tarfan', winMode: 'flag' };
+  /** Stands `wadi_tarfan` in the list for one test (the list is a const array, read at call time). */
+  const listed = async (fn: () => Promise<void>): Promise<void> => {
+    const list = FLAG_SETUP_MAPS as string[];
+    const before = [...list]; // restored below, never cleared
+    list.push('wadi_tarfan');
+    try { await fn(); } finally { list.splice(0, list.length, ...before); }
+  };
+  it('a flag room on wadi_tarfan carries no flagSetup while the list is empty', async () => {
+    expect(FLAG_SETUP_MAPS).toEqual([]);
+    const { ws0, ws1 } = await running(FLAG);
+    expect('flagSetup' in ofType(ws0, 'start')[0].config).toBe(false);
+    expect('flagSetup' in ofType(ws1, 'start')[0].config).toBe(false);
+    expect(ofType(ws0, 'start')[0].config.winMode).toBe('flag');
+  });
+  it('with the map listed, the room mints flagSetup: true into both seats\' configs, and the config validates', async () => {
+    await listed(async () => {
+      const { ws0, ws1 } = await running(FLAG);
+      const [start] = ofType(ws0, 'start');
+      expect(start.config.flagSetup).toBe(true);
+      expect(ofType(ws1, 'start')[0].config).toEqual(start.config);
+      expect(validateConfig(JSON.parse(JSON.stringify(start.config)))?.flagSetup).toBe(true);
+    });
+  });
+  it('a listed map in any other mode mints none: the field needs the flag mode', async () => {
+    await listed(async () => {
+      for (const winMode of ['points', undefined]) {
+        const { ws0 } = await running({ mode: 'versus', map: 'wadi_tarfan', ...(winMode === undefined ? {} : { winMode }) });
+        expect('flagSetup' in ofType(ws0, 'start')[0].config, String(winMode)).toBe(false);
+      }
+    });
+  });
+  it('a create body that sends flagSetup changes nothing, listed or not', async () => {
+    const lie = { ...FLAG, flagSetup: true };
+    const { ws0 } = await running(lie);
+    expect('flagSetup' in ofType(ws0, 'start')[0].config).toBe(false);
+    // And with the list empty on a map no one listed, the body still decides nothing.
+    const other = await running({ ...lie, map: 'milh_flats' });
+    expect('flagSetup' in ofType(other.ws0, 'start')[0].config).toBe(false);
   });
 });
 

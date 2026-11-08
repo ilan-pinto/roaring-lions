@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, matchCapMinutes, matchCapTicks, maxLogCmdChars } from '@lions/net';
+import { SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, matchCapMinutesOf, matchCapTicksOf, maxLogCmdChars, type CapConfig } from '@lions/net';
 import type { Command } from '@lions/sim';
 import { MAX_LOG_CMD_CHARS } from '../../../packages/worker/src/match/room-core';
 import type { FakeState } from '../../../packages/worker/src/match/fake-do';
@@ -55,6 +55,10 @@ export const WATCHDOG_MS = 5000;
 
 export interface Measured {
   map: string;
+  /** The room's mode and set-up flag, when it has them (GH-976 R0.8). This harness opens an annihilation room, so they are
+   *  absent; they are here so the cap is always read through `matchCapTicksOf` and never from the map alone. */
+  winMode?: CapConfig['winMode'];
+  flagSetup?: CapConfig['flagSetup'];
   capTicks: number;
   /** The tick the match was read at (the end of the run). */
   ticks: number;
@@ -81,6 +85,9 @@ export interface Measured {
   playerErrors: string[];
 }
 
+/** The cap-bearing slice of a measured room. */
+const roomOf = (m: Pick<Measured, 'map' | 'winMode' | 'flagSetup'>): CapConfig => ({ map: m.map, winMode: m.winMode, flagSetup: m.flagSetup });
+
 /** The watchdog rows a REAL-TIME match of `gameSeconds` costs: one a re-arm, every 5 s. */
 export function watchdogRowsReal(gameSeconds: number): number {
   return Math.ceil((gameSeconds * 1000) / WATCHDOG_MS);
@@ -98,12 +105,12 @@ export interface Verdict { ok: boolean; failures: string[]; lines: string[] }
 export function judge(m: Measured, play: { heavy: boolean; mayEndEarly?: boolean }): Verdict {
   const failures: string[] = [];
   const lines: string[] = [];
-  const minutes = matchCapMinutes(m.map);
+  const minutes = matchCapMinutesOf(roomOf(m));
   const real = realTimeRows(m);
   const bounds = rowBounds(minutes);
   lines.push(`rows at real-time pacing: ${real} (measured ${m.rows.total}, of which wall-clock alarm ${m.rows.alarm}); section 4 bound ${bounds.idle}..${bounds.busy}`);
   if (real > bounds.busy) failures.push(`rows ${real} exceed the busy bound ${bounds.busy}`);
-  const cap = maxLogCmdChars(m.map, MAX_LOG_CMD_CHARS);
+  const cap = maxLogCmdChars(roomOf(m), MAX_LOG_CMD_CHARS);
   lines.push(`command-log characters: ${m.cmdChars} of ${cap} (${((100 * m.cmdChars) / cap).toFixed(1)}%), ${m.commands} commands, stored frame JSON ${m.storedChars}`);
   if (m.cmdChars > cap) failures.push(`command characters ${m.cmdChars} exceed the cap ${cap}`);
   if (m.cmdChars > 0.9 * cap) failures.push(`command characters ${m.cmdChars} are over 90% of the cap ${cap}`);
@@ -119,7 +126,7 @@ export function judge(m: Measured, play: { heavy: boolean; mayEndEarly?: boolean
     if (m.endSnapshot.gzip > SNAPSHOT_MAX_COMPRESSED_BYTES) failures.push(`end snapshot gzip ${m.endSnapshot.gzip} exceeds ${SNAPSHOT_MAX_COMPRESSED_BYTES}`);
   }
   if (play.heavy && m.commands === 0) failures.push('the heavy play sent no commands, so the log cap was not exercised');
-  const full = m.capTicks === matchCapTicks(m.map) && play.mayEndEarly !== true;
+  const full = m.capTicks === matchCapTicksOf(roomOf(m)) && play.mayEndEarly !== true;
   if (full) {
     if (m.ticks !== m.capTicks) failures.push(`the match ran to tick ${m.ticks}, not its cap ${m.capTicks}`);
     if (!m.result.includes('time')) failures.push(`at the cap the result is "${m.result}", not a decision on time`);
@@ -192,7 +199,7 @@ export function parseArgs(argv: readonly string[]): Args | { error: string } {
   const play = got.get('play') ?? 'heavy';
   if (play !== 'heavy' && play !== 'idle' && play !== 'rush') return { error: '--play is heavy, idle or rush' };
   const a: Args = {
-    map, play, capTicks: num('cap-ticks', matchCapTicks(map)), pace: num('pace', 40), tickMs: num('tick-ms', 2),
+    map, play, capTicks: num('cap-ticks', matchCapTicksOf({ map })), pace: num('pace', 40), tickMs: num('tick-ms', 2),
     snapshotEvery: num('snapshot-every', 1200), ids: num('ids', 30), perRound: num('per-round', 4), out: got.get('out') ?? null,
   };
   for (const [k, v] of Object.entries(a)) if (typeof v === 'number' && (!Number.isInteger(v) || v < 0)) return { error: `--${k} is a whole number` };
@@ -277,7 +284,7 @@ export async function measure(a: Args, log: (line: string) => void, policyOf?: (
     const result = client.result();
     const verdictText = result !== null
       ? (result.kind === 'draw' ? `draw (${result.by})` : `side ${result.side} won (${result.by})`)
-      : (() => { const o = capOutcome(w.sim, undefined, a.map); return o.kind === 'draw' ? `draw (${o.by}, read at the cap)` : `side ${o.side} won (${o.by}, read at the cap)`; })();
+      : (() => { const o = capOutcome(w.sim, undefined, { map: a.map }); return o.kind === 'draw' ? `draw (${o.by}, read at the cap)` : `side ${o.side} won (${o.by}, read at the cap)`; })();
     const row = (state.storage as unknown as { snapshotRow: { bytes: ArrayBuffer; frame_tick: number } | null }).snapshotRow;
     const stats = logStats(state.storage.batches);
     const m: Measured = {

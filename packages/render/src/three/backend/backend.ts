@@ -24,6 +24,35 @@ import type { OutputMaths } from '../post-chain.node';
 import type { BloomControl } from '../bloom-spec';
 import type { NodePmremHost } from '../environment';
 import type { RawPixels } from '../capture-view.node';
+import type { GroundMaterial } from '../terrain/mesh';
+
+/**
+ * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
+ * that keeps owning the uniform record and the debug setters, so no toggle code changes) and returns its node twin, which reads
+ * that record. `ThreeRenderer.adoptNodeMaterials` swaps `mesh.material` legacy -> twin through an identity cache, so one legacy
+ * object gets one twin. A `null` factory is a material with no twin yet: the census still hides or names the legacy one.
+ * T3 lands `ground` (`GroundMaterial`, every ground chunk), T5 `ring` (the selection, team and wound ring batches' material), T6
+ * `foliage` (the swaying foliage and trunk batches). A legacy boot never reaches the kit.
+ */
+export type MaterialTwinFactory<L extends THREE.Material> = (legacy: L) => THREE.Material;
+export interface MaterialKit {
+  ground: MaterialTwinFactory<GroundMaterial> | null;
+  foliage: MaterialTwinFactory<THREE.MeshStandardMaterial> | null;
+  ring: MaterialTwinFactory<THREE.ShaderMaterial> | null;
+}
+/**
+ * GH-943 P2 (T1): the values bundle the material twins receive (`../material-maths.ts`'s `MATERIAL_MATHS`, the `OutputMaths`
+ * pattern): shared maths written against `Ops<T>`, handed over as VALUES, because a value import of a module the legacy materials
+ * also import would make the node chunk statically load the ThreeRenderer chunk. Every slot is `null` until its task fills it
+ * (T3 `ground`, T5 `ring`, T6 `foliage`), each with the type its twin declares. `marker` is the bundle census's handle on the
+ * module (`tools/src/perf/bundle-census.ts`, `MATERIAL_MATHS_MARKER`).
+ */
+export interface MaterialMaths {
+  readonly marker: 'rl-material-maths';
+  readonly ground: null;
+  readonly foliage: null;
+  readonly ring: null;
+}
 
 /**
  * GH-943 P1 (T2): what a post-chain stage factory is handed, and what it gives back. A stage reads `input` (the previous
@@ -81,6 +110,8 @@ export interface RenderBackend {
   setSize(cssWidth: number, cssHeight: number): void;
   /** The stage factories the chain is built from. Read when `configure` (or the first `render`) builds the chain. */
   readonly kit: PostKit;
+  /** GH-943 P2 (T1): the material twin factories (`MaterialKit`), read by `ThreeRenderer.adoptNodeMaterials`. */
+  readonly materials: MaterialKit;
   /**
    * GH-943 P1 (T4): hands the backend the fog uniform table (`FogUniforms.uniforms`, the same record the legacy pass exposes) and
    * the compile-time `hazeLow` and the shared haze/shimmer maths (injected, see `FogMaths`); the fog stage reads them. Call BEFORE `configure`, which builds the chain from the kit.
