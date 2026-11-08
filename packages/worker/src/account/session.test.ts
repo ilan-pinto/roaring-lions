@@ -81,7 +81,8 @@ describe('account sessions', () => {
   });
 
   it('slide_stops_at_absolute', async () => {
-    const h = accountHarness({ now: T0 });
+    const opts = { now: T0 };
+    const h = accountHarness(opts);
     await seedMember(h.db);
     const token = await mint(h, 'm1', T0);
     const abs = T0 + SESSION_ABS_MS;
@@ -100,6 +101,8 @@ describe('account sessions', () => {
     expect(r?.setCookie).toBe(sessionCookie(token, Math.max(0, Math.floor((abs - now) / 1000))));
     // at the absolute instant the session is dead
     expect(await resolveSession(new Request('https://x.test/', { headers: { cookie: cookieOf(token) } }), h.db, abs)).toBeNull();
+    opts.now = abs;
+    expect((await h.call('GET', '/api/account/me', { cookie: cookieOf(token) })).status).toBe(401);
   });
 
   it('an idle session expires', async () => {
@@ -113,13 +116,16 @@ describe('account sessions', () => {
   it('eleven sessions keep ten', async () => {
     const h = accountHarness({ now: T0 });
     await seedMember(h.db);
+    await seedMember(h.db, 'm2');
+    const other = await mint(h, 'm2', T0 - 5);
     const tokens: string[] = [];
     for (let i = 0; i < MAX_SESSIONS + 1; i++) tokens.push(await mint(h, 'm1', T0 + i));
-    const n = await h.db.prepare('SELECT COUNT(*) AS n FROM session').first<{ n: number }>();
+    const n = await h.db.prepare("SELECT COUNT(*) AS n FROM session WHERE member_id = 'm1'").first<{ n: number }>();
     expect(n?.n).toBe(MAX_SESSIONS);
     const res = (t: string) => resolveSession(new Request('https://x.test/', { headers: { cookie: cookieOf(t) } }), h.db, T0 + 50);
     expect(await res(tokens[0] ?? '')).toBeNull();
     expect(await res(tokens[10] ?? '')).not.toBeNull();
+    expect(await res(other)).not.toBeNull();
   });
 
   it('createSession moves member.last_seen_day and sets freshness', async () => {
