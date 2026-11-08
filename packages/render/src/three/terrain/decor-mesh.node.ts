@@ -194,7 +194,7 @@ export function createNodeFoliageMaterial(
   };
   const bound: FoliageBindings = {
     uSwayTime: bind(sway.time),
-    uSwayAmp: T.uniform(sway.amp.value), // DEAD WITNESS (GH-943 P2 T6): bound by value, reverted in the next commit
+    uSwayAmp: bind(sway.amp),
     uWindMode: bind(sway.wind.mode),
     uWindStrength: bind(sway.wind.strength),
     uWindDir: bind(sway.wind.dir),
