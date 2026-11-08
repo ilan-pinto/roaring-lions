@@ -177,9 +177,11 @@ describe('T1 block D: the closest unit', () => {
     const a = mk('fx_a', 110);
     const b = mk('fx_b', 90);
     const c = mk('fx_c', 150);
-    const open = new Set(['fx_a', 'fx_b', 'fx_c']);
-    expect(unitAdds(input(me, { kdf: [me, c, b, a], open })).compare.against).toBe('fx_a');
-    expect(unitAdds(input(me, { kdf: [me, c, a], open: new Set(['fx_a', 'fx_c']) })).compare.against).toBe('fx_a');
+    // The lowest id is also the FARTHEST (gap 200): id order alone would pick it, so only the cost gap can choose fx_a.
+    const far = mk('fx_0', 300);
+    const open = new Set(['fx_0', 'fx_a', 'fx_b', 'fx_c']);
+    expect(unitAdds(input(me, { kdf: [me, c, b, far, a], open })).compare.against).toBe('fx_a');
+    expect(unitAdds(input(me, { kdf: [me, c, far, a], open: new Set(['fx_0', 'fx_a', 'fx_c']) })).compare.against).toBe('fx_a');
   });
 });
 

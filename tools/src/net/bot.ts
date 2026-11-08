@@ -62,7 +62,7 @@ import { homedir } from 'node:os';
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MAX_CALLSIGN_CHARS, type WinMode } from '@lions/net';
+import { MAX_CALLSIGN_CHARS, winModeOpen, type WinMode } from '@lions/net';
 import { joinRoom, JoinRefused } from './agent';
 import { buildId } from './build-id';
 import { readScoreFile, refereeMarkdown, replyFormat, rubricText, scoresMarkdown, type ScoreOutcome } from './match-score';
@@ -149,6 +149,8 @@ export function parseBotArgs(argv: readonly string[]): BotArgs | { error: string
   const modeValue = got.get('mode');
   const winMode = modeValue === undefined ? undefined : modeFlag(modeValue);
   if (modeValue !== undefined && winMode === undefined) return { error: `--mode is ${MODE_FLAG_VALUES}, the mode the room was opened with\n${USAGE}` };
+  // GH-1139: a mode no lobby offers cannot be the room's mode (flag is out until capture the flag v2 is relisted, WP9).
+  if (winMode !== undefined && winMode !== null && !winModeOpen(winMode)) return { error: `--mode ${winMode}: ${winMode} is offered in no room until capture the flag v2 (GH-1139)\n${USAGE}` };
   return {
     room: room.toUpperCase(),
     model: id,
@@ -309,7 +311,9 @@ If \`observe\` shows an \`economy\`, you can build: send a \`build\` order for a
 
 Your D9 dozer (\`dozer_d9\`) is unarmed and slow: it cannot fight. Its job is to bring down buildings with the \`demolish\` order (and to repair and clear), so send it where there is a structure to take down and keep it behind your troops.
 
-\`observe\` names the \`mode\` the match is won by. \`annihilation\` is the rule in the list above. In \`points\` it is a race instead: the first side to reach \`points.target\` wins, from the zones it holds (\`points.zones\`: each pays its holder a minute, and nobody while it is contested or empty) and from the enemy units it destroys. Hold the zones, defend the lead, and ignore line 6 of the list above when \`mode\` says \`points\`.
+\`observe\` names the \`mode\` the match is won by, and \`win\` states how THIS match is won, in words, from the room's own rules: read \`win\` in your first \`observe\`, and where it differs from lines 6 and 7 of the list above, \`win\` is the rule. \`annihilation\` is the rule in the list above. In \`points\` it is a race instead: the first side to reach \`points.target\` wins, from the zones it holds (\`points.zones\`: each pays its holder a minute, and nobody while it is contested or empty) and from the enemy units it destroys. Hold the zones and defend the lead. In \`flag\` the first side to hold the other's flag ground alone for \`flags.holdSeconds\` wins at once: \`flags.theirs\` is the flag you raid and \`flags.mine\` the one you defend, and each names its \`holder\` (whose count is running: \`you\`, \`enemy\` or null) and \`secondsLeft\`. When \`flags.mine.holder\` is \`enemy\`, the enemy is winning on your flag: put a unit inside it. In \`camp\` the first side to raze the other's camp wins.
+
+\`observe\` lists your units that are gone under \`lost\` (newest first, with how and when), so a loss shows even for a unit you never gave an order.
 
 \`observe\` lists wounded men under \`casualties\` (\`mine\`, \`theirs\`), apart from \`units\` and \`contacts\`. They are not orderable units; a medic's \`rescue\` is how they are saved.
 
