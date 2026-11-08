@@ -26,6 +26,11 @@ describe('trackSummary (§4 "spent 360 · 1315 to max")', () => {
   it('prices what is spent and what is left', () => {
     expect(trackSummary(track('mbt_lavi', 'armour'), 1)).toEqual({ owned: 1, length: 3, spent: 360, toMax: 1315, next: 2 });
   });
+  it('spent counts only EARNED tiers: coins held tiers 1-2, earned 0 -> spent 0, toMax unchanged', () => {
+    expect(trackSummary(track('mbt_lavi', 'armour'), 2, 0)).toEqual({ owned: 2, length: 3, spent: 0, toMax: trackSummary(track('mbt_lavi', 'armour'), 2).toMax, next: 3 });
+    expect(trackSummary(track('mbt_lavi', 'armour'), 2, 1).spent).toBe(360);
+    expect(trackSummary(track('mbt_lavi', 'armour'), 1, 5).spent).toBe(360); // earned never exceeds owned
+  });
   it('has no next tier once maxed, and clamps an owned tier past the track', () => {
     expect(trackSummary(track('mbt_lavi', 'armour'), 9)).toEqual({ owned: 3, length: 3, spent: 1675, toMax: 0, next: null });
   });

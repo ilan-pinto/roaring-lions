@@ -122,7 +122,7 @@ import { showMenu, showCampaign, showSandbox } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
-import { coinTiers, spendable } from './roar-wallet';
+import { spendable } from './roar-wallet';
 import { roarBackfill, settleRoarAtBoot, settleVictory, type VictorySettle } from './roar-earn';
 import { buyWithCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
@@ -173,7 +173,7 @@ import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
 import { buyUnlock } from './brigade-account';
-import { buyTierWithCredits } from './credit-buy';
+import { buildCoinHalf, buyTierWithCredits } from './credit-buy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
@@ -1157,16 +1157,7 @@ async function main(): Promise<void> {
       return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
     };
     /** Which part of the single-player account came from coins. */
-    const coinHalf = (): CoinHalf => {
-      const account = ledgerStore.readAccount();
-      const roar = ledgerStore.readRoar();
-      return {
-        earnedUnits: new Set(account.unlocks),
-        coinUnits: new Set(Object.keys(roar.entitlements.units)),
-        earnedTiers: account.upgrades,
-        coinTiers: coinTiers(roar),
-      };
-    };
+    const coinHalf = (): CoinHalf => buildCoinHalf(kdfUnits, ledgerStore.readAccount(), ledgerStore.readRoar());
     return showBrigade(host, {
       units: kdfUnits,
       ledger: ledgerStore.readLedger(),

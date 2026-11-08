@@ -1393,6 +1393,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             unitId: u.id,
             unitName: u.name,
             owned,
+            earned: Math.min(state.earned === undefined ? owned : (state.earned[u.id]?.[trackName] ?? 0), owned),
             buy,
             locked: row.locked,
             closeup: opts.closeup?.(u.id, trackName) ?? null,
