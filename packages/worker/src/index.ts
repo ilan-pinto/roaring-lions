@@ -6,6 +6,7 @@ import { handleStats } from './stats';
 import { handleFeedback } from './feedback-ingest';
 import { purgeExpired } from './feedback-triage';
 import { handleArenaResults, isArenaPath } from './arena-results';
+import { handleAccount } from './account/routes';
 import { handleMatch } from './match/routes';
 import { purgeDesyncs } from './match/desync-log';
 import { purgeSnapMismatches } from './match/snap-mismatch-log';
@@ -19,6 +20,7 @@ export default {
     // #559 L-5: every response the Worker writes carries the security headers.
     if (pathname === '/api/events') return withSecurityHeaders(await handleIngest(req, env, Date.now()));
     if (pathname === '/api/feedback') return withSecurityHeaders(await handleFeedback(req, env, Date.now()));
+    if (pathname.startsWith('/api/account/')) return withSecurityHeaders(await handleAccount(req, env, Date.now()));
     if (pathname === '/api/match' || pathname.startsWith('/api/match/')) return withSecurityHeaders(await handleMatch(req, env, Date.now()));
     // GH-954 P3: public, bundled data, no D1 and no cookie. Not under /stats.
     if (isArenaPath(pathname)) return withSecurityHeaders(handleArenaResults(req, env));

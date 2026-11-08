@@ -1,3 +1,5 @@
+import type { KVLike } from './account/kv';
+
 /** The slice of Cloudflare's D1 API this Worker uses. Declared here rather than
  *  imported from @cloudflare/workers-types: those redeclare Request/Response and
  *  collide with the DOM lib the repo's root typecheck runs under. */
@@ -56,4 +58,14 @@ export interface Env {
    *  relay (`tools/src/net/local-relay.ts`), never in `wrangler.jsonc` and never as a secret: without it the
    *  route answers 404 and the Worker cannot be watched. */
   ARENA_WATCH?: string;
+  /** GH-1075 A1: the accounts database. Unbound answers 503 on every /api/account/* path. */
+  ACCOUNTS?: D1Like;
+  /** GH-1075: deletion tombstones (90 days). */
+  ACCOUNT_TOMBSTONES?: KVLike;
+  /** GH-1075: 10 a minute per IP. */
+  ACCOUNT_LIMIT?: RateLimiter;
+  /** GH-1075: 60 a minute per IP, for the cheap ops. */
+  ACCOUNT_OP_LIMIT?: RateLimiter;
+  /** GH-1075: comma-separated extra origins allowed to write, for a local relay only. */
+  ACCOUNT_ORIGINS?: string;
 }

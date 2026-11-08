@@ -1,21 +1,17 @@
 /** Test harness for the accounts routes (GH-1075). Tests only: nothing in the Worker imports this file. */
 import { fileURLToPath } from 'node:url';
-import type { D1Like, Env, RateLimiter } from '../d1';
+import type { Env, RateLimiter } from '../d1';
 import { openTestD1 } from '../test-d1';
-import { memoryKV, type KVLike } from './kv';
+import { memoryKV } from './kv';
+import { handleAccount } from './routes';
 
 export const ACCOUNTS_MIGRATIONS = fileURLToPath(new URL('../../migrations-accounts/', import.meta.url));
 
 /** The Worker's own origin, which `call` sends by default. */
 export const TEST_ORIGIN = 'https://roaring-lions.pint12.workers.dev';
 
-/** `Env` plus the accounts bindings (Task 1.2 adds them to `Env` itself as optional). */
-export type AccountTestEnv = Env & {
-  ACCOUNTS: D1Like;
-  ACCOUNT_TOMBSTONES: KVLike;
-  ACCOUNT_LIMIT: RateLimiter;
-  ACCOUNT_OP_LIMIT: RateLimiter;
-};
+/** `Env` with the accounts bindings the harness always supplies. */
+export type AccountTestEnv = Env & Required<Pick<Env, 'ACCOUNTS' | 'ACCOUNT_TOMBSTONES' | 'ACCOUNT_LIMIT' | 'ACCOUNT_OP_LIMIT'>>;
 
 export interface CallInit {
   body?: unknown;
@@ -30,7 +26,7 @@ export interface AccountHarnessOpts {
   failPut?: boolean;
   /** A limiter that rejects every call, by binding name. */
   denyLimiter?: ('ACCOUNT_LIMIT' | 'ACCOUNT_OP_LIMIT')[];
-  /** The dispatcher under test. Task 1.2 makes `handleAccount` the default here. */
+  /** The dispatcher under test; default `handleAccount`. */
   handler?: (req: Request, env: AccountTestEnv, now: number) => Promise<Response>;
   now?: number;
 }
@@ -49,9 +45,7 @@ export function accountHarness(opts: AccountHarnessOpts = {}) {
     ACCOUNT_LIMIT: limiter(!deny.has('ACCOUNT_LIMIT')),
     ACCOUNT_OP_LIMIT: limiter(!deny.has('ACCOUNT_OP_LIMIT')),
   };
-  const handler = opts.handler ?? (async () => {
-    throw new Error('accountHarness: no handler wired (handleAccount arrives in Task 1.2)');
-  });
+  const handler = opts.handler ?? ((req, e, now) => handleAccount(req, e, now));
   const call = (method: string, path: string, init: CallInit = {}): Promise<Response> => {
     const headers = new Headers({ 'x-rl-account': '1', 'content-type': 'application/json' });
     const origin = init.origin === undefined ? TEST_ORIGIN : init.origin;
