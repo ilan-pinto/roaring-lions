@@ -416,6 +416,14 @@ describe('Router transition', () => {
     router.dispose();
   });
 
+  it('?accounts is sticky across an in-app navigation (GH-1075 A1)', async () => {
+    const { router } = makeRouter({ start: '/?accounts' });
+    await router.start();
+    await router.navigate('/campaign');
+    expect(new URLSearchParams(window.location.search).has('accounts')).toBe(true);
+    router.dispose();
+  });
+
   it('lets the target override a carried key, and carries nothing the location does not have', async () => {
     const { router } = makeRouter({ start: '/?lang=he' });
     await router.start();
