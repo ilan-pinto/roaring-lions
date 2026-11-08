@@ -20,6 +20,7 @@
  * account (G-E4), and nothing here is read from the ledger's stars: a win pays by
  * the RUN's stars, so loading or importing a save slot earns nothing (G-E3).
  */
+import { worldMissionIds } from '@lions/economy';
 import type { LedgerData } from '@lions/sim';
 import type { BrigadeAccount } from './brigade-account';
 import { campaignComplete } from './campaign-close';
@@ -49,10 +50,8 @@ export interface VictoryWin {
   ledger: LedgerData;
 }
 
-/** Every mission `world.json` names, in order. */
-export function worldMissionIds(world: ParsedWorld): string[] {
-  return world.regions.flatMap((r) => r.towns.flatMap((t) => [...t.missions]));
-}
+/** Every mission `world.json` names, in order (moved to @lions/economy, GH-1075 A0). */
+export { worldMissionIds };
 
 const clampStars = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(MAX_STARS, Math.floor(n))) : 0);
 
