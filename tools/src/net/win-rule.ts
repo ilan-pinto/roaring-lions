@@ -63,3 +63,46 @@ export function modeFlag(v: string): WinMode | null | undefined {
 
 /** The accepted `--mode` values, for a usage line. */
 export const MODE_FLAG_VALUES = ['annihilation', ...WIN_MODES].join('|');
+
+/** What `winConditionOf` needs to state a room's rule: read from the room's own world, never from a flag the player passed. */
+export interface WinFacts {
+  mode: 'annihilation' | WinMode;
+  /** The room's cap, in minutes (`matchCapMinutesOf`); an arena may stop a match sooner. */
+  capMinutes: number;
+  /** Flag: the hold, in seconds. */
+  holdSeconds?: number;
+  /** Flag: only a man on the ground holds or contests (a set-up room, `ground_only`); aircraft count otherwise. */
+  groundOnly?: boolean;
+  /** Points: the target. */
+  pointsTarget?: number;
+}
+
+/**
+ * How THIS match is won, in one paragraph, for `observe.win` (GH-1139): the bot that won a flag room at 0:55 was told
+ * nothing of the flag rule, because the standing prompt states a mode only when `pnpm bot` is given `--mode`, and the
+ * player who opens the room is the one who knows it. `observe` reads the room's own mode, so this line is always the
+ * room's. Pure: facts in, a string out.
+ */
+export function winConditionOf(f: WinFacts): string {
+  const limit = `At the time limit (${f.capMinutes} minutes; an arena match may stop sooner), or if no unit on either side can move,`;
+  const atCap = `At the time limit (${f.capMinutes} minutes; an arena match may stop sooner),`;
+  switch (f.mode) {
+    case 'flag': {
+      const hold = f.holdSeconds ?? 0;
+      return [
+        `CAPTURE THE FLAG. You win at once by holding the enemy flag ground (\`flags.theirs.at\`) for ${hold} s in one go: at least one of your units inside it and no enemy unit inside.`,
+        'An enemy unit entering it, or your units leaving it, sets the count back to 0.',
+        `You LOSE the same way if the enemy holds your flag ground (\`flags.mine.at\`) for ${hold} s: keep a unit inside it to contest a raid, and send a force there when \`flags.mine.holder\` is \`enemy\`.`,
+        f.groundOnly === true ? 'Only ground units hold or contest a flag: aircraft do not.' : 'Any unit holds or contests a flag, aircraft included.',
+        'Each flag line names its `raider` (whose raid it is), its `holder` (whose count is running now: `you`, `enemy`, or null) and `secondsLeft` (until that raid wins).',
+        `Destroying every enemy combat unit also wins. ${limit} the larger surviving force value wins; equal values draw.`,
+      ].join(' ');
+    }
+    case 'points':
+      return `POINTS RACE. The first side to bank ${f.pointsTarget ?? 0} points (\`points.target\`) wins at once: a zone pays its holder each second it holds it alone, and destroying enemy units pays 1 point per 100 of their value. Destroying every enemy combat unit also wins. ${atCap} the side with more points wins and level points draw; if instead no unit on either side can move, the larger surviving force value wins.`;
+    case 'camp':
+      return `DESTROY THE ENEMY CAMP. You win at once by razing the enemy camp (\`enemyCamp\`), and lose if yours (\`camp\`) falls. Destroying every enemy combat unit also wins. ${limit} the larger surviving force value wins; equal values draw.`;
+    case 'annihilation':
+      return `ANNIHILATION. You win when the enemy has no combat unit left. ${limit} the larger surviving force value wins; equal values draw.`;
+  }
+}

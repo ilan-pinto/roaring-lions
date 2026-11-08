@@ -199,3 +199,17 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   same silent way. Two consequences worth knowing: a running browser now reloads by itself
   when a GLB lands, and the six watched directories are printed at `pnpm dev`
   boot, so "is my new mesh's directory covered?" is answered by the banner.
+
+## Coin rules live in @lions/economy (GH-1075 A0)
+
+The pure coin and brigade rules (wallet, brigade account, sha256, the campaign
+world and gate, campaign close, the earn table, the Stores model) moved from
+`packages/app` into `packages/economy` (`@lions/economy`), which imports `sim`
+and `data` only so the Worker can share them. The old app paths stay as thin
+re-export modules, so no call site moved: `roar-wallet`, `brigade-account`,
+`sha256`, `campaign`, `gate-sentence`, `campaign-close`, `roar-earn` and
+`ui/stores-model`. The G-V2 fence (`ROAR_FENCE`, GH-317) now also covers
+`@lions/economy` and `packages/worker/src/match/**`, so neither the sim, the
+renderer, the net package nor the match code can import the wallet. The tests
+stay in the app (the app is where the behaviour is driven); `parseWorld` lives
+in `packages/economy/src/world.ts`.

@@ -86,6 +86,9 @@ export interface MenuOptions {
   /** The server's switch (`GET /api/feedback`, asked once a boot): when it
    *  resolves false after this menu mounted, the button comes down. */
   feedbackAvailable?: Promise<boolean>;
+  /** The account chip (GH-1075 A1): drawn only when `enabled`. `name` resolves to the signed-in display name, or
+   *  null for a guest; until it does the chip reads as a guest's. */
+  account?: { enabled: boolean; name?: Promise<string | null> };
 }
 
 export interface CampaignOptions {
@@ -233,6 +236,19 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     aside.appendChild(feedbackBtn);
     void opts.feedbackAvailable?.then((ok) => {
       if (!ok) feedbackBtn.remove();
+    });
+  }
+  if (opts.account?.enabled) {
+    const chip = document.createElement('a');
+    chip.className = 'rl-btn rl-menu__item';
+    chip.dataset.kind = 'aside';
+    chip.dataset.act = 'profile';
+    chip.href = routes.profile();
+    chip.textContent = t('menu.profile.guest');
+    aside.appendChild(chip);
+    addAside(t('menu.aside.privacy'), routes.privacy());
+    void opts.account.name?.then((name) => {
+      if (name !== null) chip.textContent = name;
     });
   }
   // Last, deliberately: people, libraries, fonts and the licence split are

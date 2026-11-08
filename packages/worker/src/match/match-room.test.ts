@@ -7,7 +7,7 @@
 import { setImmediate as realImmediate } from 'node:timers/promises';
 import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FLAG_SETUP_MAPS, OVER_CLOSE_MS, sha256Hex, validateConfig, type AdvisorMsg, type AdvisorScope, type ServerMsg, type Seat } from '@lions/net';
+import { FLAG_SETUP_MAPS, OVER_CLOSE_MS, WIN_MODE_FAIR_MAPS, sha256Hex, validateConfig, type AdvisorMsg, type AdvisorScope, type ServerMsg, type Seat } from '@lions/net';
 import type { D1Like, Env } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
@@ -1669,7 +1669,8 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
       [{ winMode: 'rally' }, 400], [{ winMode: 'camp' }, 200], [{ winMode: 'camp', map: 'wadi_tarfan_l' }, 200], [{ winMode: 'camp', map: 'tel_marum' }, 400],
       // GH-976 P4: tel_marum plays the points race and the flag raid in the mirror now; KDF against Sarim plays no mode anywhere
       // (the review removed the one cell), and the room asks the same question the route does.
-      [{ winMode: 'points', map: 'tel_marum' }, 200], [{ winMode: 'flag', map: 'milh_flats_l' }, 200],
+      // GH-1139: flag is out of every lobby until CTF v2 lands (WP9), so the room refuses it on a map it once offered.
+      [{ winMode: 'points', map: 'tel_marum' }, 200], [{ winMode: 'flag', map: 'milh_flats_l' }, 400], [{ winMode: 'flag', map: 'wadi_tarfan_l' }, 400],
       [{ winMode: 'points', matchup: 'sarim' }, 400], [{ winMode: 'points', matchup: 'kdf' }, 400], [{ winMode: 'flag', matchup: 'kdf' }, 400],
       [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'points', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
       [{ winMode: 'flag', map: 'wadi_tarfan_l', matchup: 'kdf' }, 400], [{ winMode: 'flag', map: 'wadi_tarfan_l', matchup: 'sarim' }, 400],
@@ -1703,6 +1704,11 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
 
 describe('capture the flag v2 (GH-976 WP4): the room mints flagSetup from FLAG_SETUP_MAPS and its own winMode, never from a client', () => {
   const FLAG = { mode: 'versus', map: 'wadi_tarfan', winMode: 'flag' };
+  // GH-1139: flag is out of the lobby until WP9 relists it; these tests of the minting stand the two maps they open back in.
+  const flagList = WIN_MODE_FAIR_MAPS.flag as string[];
+  const SHIPPED = [...flagList];
+  beforeEach(() => { flagList.push('wadi_tarfan', 'milh_flats'); });
+  afterEach(() => { flagList.splice(0, flagList.length, ...SHIPPED); });
   /** Stands `wadi_tarfan` in the list for one test (the list is a const array, read at call time). */
   const listed = async (fn: () => Promise<void>): Promise<void> => {
     const list = FLAG_SETUP_MAPS as string[];
