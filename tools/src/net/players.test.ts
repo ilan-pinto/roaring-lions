@@ -128,7 +128,7 @@ function viewOf(units: { id: number; tile: [number, number]; flags: string[] }[]
     tick: 120, clock: '00:06', side: 0, faction: 'kdf', map: MAP, size: [48, 48], camp: [24, 44], enemyCamp: [28, 16],
     units: units.map((u) => ({ ...u, type: 'inf_squad', hp: 100, stance: 'free' as const })),
     contacts: contacts.map((c) => ({ ...c, type: 'inf_squad', hp: 100, inSight: true as const, seenTick: 120 })),
-    casualties: { mine: [], theirs: [] }, held: [], stances: ['hold', 'ambush', 'patrol'], score: { mine: NO_SCORE, theirs: NO_SCORE }, mode: 'annihilation', result: null, by: null,
+    casualties: { mine: [], theirs: [] }, held: [], stances: ['hold', 'ambush', 'patrol'], score: { mine: NO_SCORE, theirs: NO_SCORE }, mode: 'annihilation', win: '', result: null, by: null,
   };
 }
 

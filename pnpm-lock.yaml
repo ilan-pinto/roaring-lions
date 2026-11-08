@@ -56,6 +56,9 @@ importers:
       '@lions/data':
         specifier: workspace:*
         version: link:../data
+      '@lions/economy':
+        specifier: workspace:*
+        version: link:../economy
       '@lions/net':
         specifier: workspace:*
         version: link:../net
@@ -71,6 +74,15 @@ importers:
         version: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(tsx@4.23.15)
 
   packages/data: {}
+
+  packages/economy:
+    dependencies:
+      '@lions/data':
+        specifier: workspace:*
+        version: link:../data
+      '@lions/sim':
+        specifier: workspace:*
+        version: link:../sim
 
   packages/net:
     dependencies:
@@ -98,6 +110,9 @@ importers:
       '@lions/data':
         specifier: workspace:*
         version: link:../data
+      '@lions/economy':
+        specifier: workspace:*
+        version: link:../economy
       '@lions/net':
         specifier: workspace:*
         version: link:../net

@@ -7,9 +7,9 @@
  * seat's fog, not a copy. A pure read: it never writes to the sim.
  */
 import { flagBlockOf, versusModes } from '@lions/data';
-import type { Faction, WinMode } from '@lions/net';
+import { matchCapMinutesOf, type Faction, type WinMode } from '@lions/net';
 import { campOf } from '../../../packages/app/src/net/versus-force';
-import { flagViewOf, type FlagView } from '../../../packages/app/src/net/flag-view';
+import { flagViewOf, type FlagLine, type FlagView } from '../../../packages/app/src/net/flag-view';
 import { pointsViewOf, type PointsView } from '../../../packages/app/src/net/points-view';
 import type { MatchWorld } from '../../../packages/app/src/net/match-world';
 import { scoreFor, scoreOf, type SideScore } from '../../../packages/app/src/net/scoreboard';
@@ -18,6 +18,7 @@ import { unitIsObserved } from '../../../packages/render/src/three/units/observe
 import { fx, FM_DUTY_WAIT, WOUND_DOWN, WOUND_NONE, WOUND_STABILISED, type Command } from '@lions/sim';
 import { isIdle } from '../../../packages/app/src/ui/idle';
 import { economyView, type EconomyView } from './economy-view';
+import { winConditionOf } from './win-rule';
 import type { FogTracker } from './fog-tracker';
 
 /** What `setStance` takes: `Command['kind']`'s own union, so a stance the sim adds is a compile error here. */
@@ -95,10 +96,41 @@ export interface SideView {
   points?: PointsView;
   /** A flag raid only (GH-976 P3): where each flag stands, how long the hold is, and how each raid is going. PUBLIC by design (see
    *  `net/flag-view.ts`): both flags' state is read by both seats; the units in the zones stay behind the fog. */
-  flags?: FlagView;
+  flags?: FlagBoard;
+  /** How THIS match is won, in words, from the room's own rules (GH-1139): the mode, its numbers, the fallback at the limit. */
+  win: string;
   result: string | null;
   /** How the match was decided, once it has been (`annihilation`, `objective`, `stalemate`, `time`, `mutual`, `surrender`, `left`, `forfeit`); null while it runs. */
   by: string | null;
+}
+
+/** Who a flag line's raid or hold belongs to, from the reading seat's chair. */
+export type FlagParty = 'you' | 'enemy';
+/**
+ * One flag as `observe` lists it (GH-1139): `flag-view.ts`'s line, the board the browser draws, with three facts it
+ * leaves to the label and a model could not recover. A `state` of `raiding` on `mine` is the ENEMY's raid, so both lines
+ * read `raiding` while each side raids the other, and the lead's bot took both counts for its own.
+ *  - `raider`: whose raid this line is (`enemy` on `mine`, `you` on `theirs`), constant;
+ *  - `holder`: whose count is running now: the raider while `raiding` or once `captured`, null while `open` or `contested`;
+ *  - `secondsLeft`: seconds until the running raid wins (0 once captured), null when no count runs.
+ * Derived from the line alone: nothing new is read from the world, so the fog rule of `flag-view.ts` holds unchanged.
+ */
+export interface FlagBoardLine extends FlagLine { raider: FlagParty; holder: FlagParty | null; secondsLeft: number | null }
+export interface FlagBoard { holdSeconds: number; mine: FlagBoardLine; theirs: FlagBoardLine }
+
+function boardLine(line: FlagLine, raider: FlagParty, holdSeconds: number): FlagBoardLine {
+  const counting = line.state === 'raiding' || line.state === 'captured';
+  return {
+    ...line,
+    raider,
+    holder: counting ? raider : null,
+    secondsLeft: line.state === 'captured' ? 0 : line.state === 'raiding' ? Math.max(0, holdSeconds - line.held) : null,
+  };
+}
+
+/** The flag board `observe` lists, from the browser's own `FlagView`. */
+export function flagBoardOf(v: FlagView): FlagBoard {
+  return { holdSeconds: v.holdSeconds, mine: boardLine(v.mine, 'enemy', v.holdSeconds), theirs: boardLine(v.theirs, 'you', v.holdSeconds) };
 }
 
 const TICKS_PER_SECOND = 20;
@@ -203,7 +235,15 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
   const points = pointsRules !== undefined && w.runtime !== null ? pointsViewOf(w.runtime, pointsRules, side) : undefined;
   // GH-976 R0.22: the flag block through the one reader; a set-up room (`w.setup`) reads the staged block.
   const flagFile = w.winMode === 'flag' ? versusModes[w.mapJson.id] : undefined;
-  const flags = flagFile !== undefined && w.runtime !== null ? flagViewOf(w.runtime, flagBlockOf(flagFile, w.setup !== null), side, w.endOfSide[side]) : undefined;
+  const flagView = flagFile !== undefined && w.runtime !== null ? flagViewOf(w.runtime, flagBlockOf(flagFile, w.setup !== null), side, w.endOfSide[side]) : undefined;
+  const flags = flagView === undefined ? undefined : flagBoardOf(flagView);
+  const mode = w.winMode ?? 'annihilation';
+  const win = winConditionOf({
+    mode,
+    capMinutes: matchCapMinutesOf({ map: w.mapJson.id, winMode: w.winMode ?? undefined, flagSetup: w.setup !== null ? true : undefined }),
+    ...(flags === undefined ? {} : { holdSeconds: flags.holdSeconds, groundOnly: w.setup !== null }),
+    ...(points === undefined ? {} : { pointsTarget: points.target }),
+  });
   return {
     tick: sim.tickCount,
     clock: clockOf(sim.tickCount),
@@ -220,9 +260,10 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
     stances: [...STANCES],
     ...(economy === null ? {} : { economy }),
     score: scoreFor(scoreOf(sim), side),
-    mode: w.winMode ?? 'annihilation',
+    mode,
     ...(points === undefined ? {} : { points }),
     ...(flags === undefined ? {} : { flags }),
+    win,
     result,
     by,
   };
