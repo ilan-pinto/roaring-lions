@@ -2,6 +2,8 @@
 import type { Env } from '../d1';
 import { accountGuard, accountJson } from './http';
 import { accountsOpen } from './member';
+import { me } from './profile';
+import { clearedSessionCookie, requireSession, sessionJson } from './session';
 
 export interface AccountDeps { fetch(url: string, init: RequestInit): Promise<Response> }
 
@@ -28,6 +30,27 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
     handler: async (ctx) => {
       const db = ctx.env.ACCOUNTS;
       return accountJson(200, { open: db !== undefined && (await accountsOpen(db)) });
+    },
+  },
+  { method: 'GET', pattern: 'me', handler: me },
+  {
+    method: 'POST',
+    pattern: 'logout',
+    handler: async (ctx) => {
+      const got = await requireSession(ctx);
+      if (got instanceof Response) return got;
+      await ctx.env.ACCOUNTS?.prepare('DELETE FROM session WHERE token_hash = ?1').bind(got.session.tokenHash).run();
+      return accountJson(200, { ok: true }, { 'set-cookie': clearedSessionCookie() });
+    },
+  },
+  {
+    method: 'POST',
+    pattern: 'logout-all',
+    handler: async (ctx) => {
+      const got = await requireSession(ctx);
+      if (got instanceof Response) return got;
+      await ctx.env.ACCOUNTS?.prepare('DELETE FROM session WHERE member_id = ?1').bind(got.session.memberId).run();
+      return sessionJson(200, { ok: true }, clearedSessionCookie());
     },
   },
 ];
