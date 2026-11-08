@@ -32,6 +32,7 @@ export {
   payMission,
   buyUnlock,
   buyUpgrade,
+  buyUpgradeRun,
   startCampaign,
   redeemCoupon,
 } from '@lions/economy';
