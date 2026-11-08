@@ -35,7 +35,7 @@ import { AgentClient } from './agent-client';
 import type { ArenaPlayer } from './players';
 import type { GameRecord } from './arena-score';
 import { startLocalRelay } from './local-relay';
-import type { TransportStatus } from '@lions/net';
+import { FLAG_SETUP_MAPS, type TransportStatus } from '@lions/net';
 import { capOutcome } from './cap';
 import { MATCH_CAP_TICKS, type MatchResult, type OutcomeGoals, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 
@@ -175,6 +175,22 @@ describe('pnpm arena', () => {
     expect(parseArgs(['--a', 'rush', '--b', 'passive', '--seeds', '0'])).toHaveProperty('error');
     expect(parseArgs(['--a', 'rush', '--b', 'passive', '--matchup', 'both'])).toHaveProperty('error');
     expect(parseArgs(['--a', 'rush', '--b', 'nobody'])).toHaveProperty('error');
+  });
+
+  it('GH-976 v2 R0.8: a mode game\'s default cap is the ROOM\'s: 30 minutes for a flag room on a map in FLAG_SETUP_MAPS, else the map\'s', () => {
+    const list = FLAG_SETUP_MAPS as string[];
+    const before = [...list]; // restored below, never cleared
+    const argv = ['--a', 'rush', '--b', 'passive', '--map', 'rujm_sawda', '--mode', 'flag'];
+    expect(parseArgs(argv)).toMatchObject({ capTicks: 42_000 });
+    list.push('rujm_sawda');
+    try {
+      expect(parseArgs(argv)).toMatchObject({ capTicks: 36_000 });
+      // The ceiling follows the room too: 40,000 is past 30 minutes.
+      expect(parseArgs([...argv, '--cap-ticks', '40000'])).toHaveProperty('error');
+      expect(parseArgs([...argv, '--cap-ticks', '36000'])).toMatchObject({ capTicks: 36_000 });
+      // Another mode on the same map is not a set-up room.
+      expect(parseArgs(['--a', 'rush', '--b', 'passive', '--map', 'rujm_sawda', '--mode', 'points'])).toMatchObject({ capTicks: 42_000 });
+    } finally { list.splice(0, list.length, ...before); }
   });
 
   it('reads --gate as a flag that takes no value, off by default', () => {

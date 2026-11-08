@@ -228,6 +228,8 @@ export interface VersusModeObjectiveJson {
   target?: string;
   /** A `capture`'s hold (GH-976 P3). */
   seconds?: number;
+  /** GH-976 v2: only a man on the ground holds or contests (the runtime's `ObjectiveJson.ground_only`). Set by a set-up flag room alone. */
+  ground_only?: boolean;
   score?: { zones: { zone: string; per_min: number }[]; per_value_destroyed: number; target: number };
 }
 
@@ -259,12 +261,15 @@ export function flagZone(end: 'friendly' | 'hostile'): string {
  *   points: side s runs the file's score block.
  *   flag:   side s holds the flag zone of the OTHER side's end (`capture`, `hold_s` seconds, alone: a contact or a
  *           step out resets the count). A raid -- there is no carried flag (GH-976 P3).
+ *   flag with `opts.setup` (GH-976 v2): the same, from the staged `flag_setup` block (`flagBlockOf`), and each objective carries
+ *   `ground_only: true`, so only a man on the ground holds or contests. Without it the rows are today's, byte for byte.
  * Throws on a mode the file does not carry, or `camp` with no `camps` / `flag` with no `flags`, which `validate:data` refused.
  */
 export function versusModeMissionOf(
   file: VersusModeFileJson,
   mode: WinModeId,
   sideAt: { friendly: 0 | 1; hostile: 0 | 1 },
+  opts: { setup?: boolean } = {},
 ): { mission: VersusModeMissionJson; zones: Record<string, number[]> } {
   const mission: VersusModeMissionJson = {
     id: `versus:${file.map}:${mode}`,
@@ -291,11 +296,12 @@ export function versusModeMissionOf(
     }
   } else if (mode === 'flag') {
     // GH-976 R0.22: the rules come through the one reader. v1 rooms read today's block (setup false) until the per-map relist.
-    const { flags, holdS } = flagBlockOf(file, false);
+    const setup = opts.setup === true;
+    const { flags, holdS } = flagBlockOf(file, setup);
     const endOf = (side: 0 | 1): 'friendly' | 'hostile' => (sideAt.friendly === side ? 'friendly' : 'hostile');
     for (const end of ['friendly', 'hostile'] as const) zones[flagZone(end)] = [flags[end].at[0], flags[end].at[1], flags[end].size[0], flags[end].size[1]];
     for (const side of sides) {
-      mission.objectives.push({ id: `raid_flag_${side}`, type: 'capture', primary: true, side, target: flagZone(endOf(side === 0 ? 1 : 0)), seconds: holdS });
+      mission.objectives.push({ id: `raid_flag_${side}`, type: 'capture', primary: true, side, target: flagZone(endOf(side === 0 ? 1 : 0)), seconds: holdS, ...(setup ? { ground_only: true } : {}) });
     }
   } else {
     const p = file.modes.points;

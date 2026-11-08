@@ -92,7 +92,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MATCHUPS, factionsOfMatchup, matchCapTicks, matchupAllowed, versusMapAllowed, winModeRequest, type MatchConfig, type Matchup, type TransportStatus, type WinMode } from '@lions/net';
+import { MATCHUPS, factionsOfMatchup, flagSetupFor, matchCapTicksOf, matchupAllowed, versusMapAllowed, winModeRequest, type CapConfig, type MatchConfig, type Matchup, type TransportStatus, type WinMode } from '@lions/net';
 import { goalsOf, productionOf, type MatchResult, type OutcomeGoals, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 import { scoreOf, type MatchScore } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
@@ -218,7 +218,9 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
   const roundWallMs = intIn('round-wall-ms', got.get('round-wall-ms'), 120_000, 1000, 600_000);
   // GH-976 P2: a points game runs about 13.6k-14.8k ticks on average, so the 12,000 default would end many on the cap rule
   // (surviving force) with the HUD showing the other side ahead: with a mode named, the default is the map's own cap.
-  const mapCap = matchCapTicks(got.get('map') ?? 'tel_marum');
+  // GH-976 R0.8: the cap of the ROOM this run opens (30 minutes in a flag room on a set-up map), minted as the Worker mints it.
+  const capMap = got.get('map') ?? 'tel_marum';
+  const mapCap = matchCapTicksOf({ map: capMap, winMode: winMode ?? undefined, flagSetup: flagSetupFor(capMap, winMode) });
   const capTicks = intIn('cap-ticks', got.get('cap-ticks'), modeValue !== undefined && winMode !== null ? mapCap : 12_000, 1, mapCap);
   const watch = flags.has('watch');
   const tickMs = intIn('tick-ms', got.get('tick-ms'), watch ? WATCH_TICK_MS : 2, 1, 1000);
@@ -429,7 +431,7 @@ export function judge(
   seats: readonly [SeatSnapshot | null, SeatSnapshot | null],
   sides: readonly [0 | 1, 0 | 1],
   capTicks: number,
-  map?: string,
+  room?: string | CapConfig,
 ): { outcome: GameRecord['outcome']; by: string } {
   const live = seats.filter((c): c is SeatSnapshot => c !== null);
   for (const c of live) {
@@ -449,7 +451,7 @@ export function judge(
   }
   const referee = seats[0] ?? seats[1];
   if (referee !== null && referee.sim !== null && live.every((c) => c.tick === capTicks)) {
-    const atCap = capOutcome(referee.sim, referee.production, map, referee.goals);
+    const atCap = capOutcome(referee.sim, referee.production, room, referee.goals);
     // A goal completed by the cap is the objective's win, not the cap's (GH-976 P2).
     return toOutcome(atCap, atCap.kind === 'won' && atCap.by === 'objective' ? 'objective' : 'cap');
   }
@@ -640,7 +642,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, promptDigest: 
     for (const r of running) await r.stop();
     const reports = await Promise.all(running.map((r) => r.done)) as [PlayerReport, PlayerReport];
     const sides: [0 | 1, 0 | 1] = [config.seats[0].side as 0 | 1, config.seats[1].side as 0 | 1];
-    const verdict = timedOut ? { outcome: 'void' as const, by: 'timeout' } : judge(seen, sides, a.capTicks, a.map);
+    const verdict = timedOut ? { outcome: 'void' as const, by: 'timeout' } : judge(seen, sides, a.capTicks, { map: a.map, winMode: a.winMode, flagSetup: flagSetupFor(a.map, a.winMode ?? null) });
     const sim = referee.world()?.sim;
     if (sim === undefined) throw new Error('the reading seat never built its world');
     // The referee's numbers for both seats (GH-973): a read of the reading seat's sim, after the verdict, written to nothing.
