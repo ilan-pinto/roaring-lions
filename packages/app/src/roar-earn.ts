@@ -57,7 +57,11 @@ export function settleVictory(
   const owed = earned !== null && earned.awards.length > 0 ? earned : null;
   const write = store.recordVictory({ ledger: v.ledger, account: v.account, roar: owed !== null ? owed.wallet : null, win: v.win, start: v.start });
   if (write !== 'saved' || owed === null) return { write, awards: [], total: 0, balance: spendable(before) };
-  return { write, awards: owed.awards, total: owed.total, balance: spendable(owed.wallet) };
+  // The balance is what the store holds AFTER the write: a server-backed store with no `start` nonce queues a victory
+  // that moves no coin (§0.48), so the local `roarEarn` must not be reported as paid. A guest's read equals `owed.wallet`.
+  const after = spendable(store.readRoar());
+  if (after <= spendable(before)) return { write, awards: [], total: 0, balance: after };
+  return { write, awards: owed.awards, total: owed.total, balance: after };
 }
 
 /* `roarBackfill` moved to @lions/economy (GH-1075 A0); see the re-export above. */
