@@ -379,7 +379,7 @@
               "destroy_all",
               "raze"
             ],
-            "description": "destroy_all exists but should be rare. Layered objectives are what make a level a level. raze: every structure inside the zone named by `target` is destroyed. The set is snapshotted at mission start, so a zone holding no structures is an authoring error rather than an instant win. collapse: every tunnel route whose MOUTH lies inside the zone named by `target` is brought down; a route that merely passes under the zone does not count. The set is snapshotted at mission start, so a zone holding no mouths can never complete and is an authoring error. A primary collapse must declare `seconds`, for the same reason a primary raze must: losing every unit that can work a charge makes it permanently impossible, and without a deadline to fail on the mission is unwinnable and unlosable at once."
+            "description": "destroy_all exists but should be rare. Layered objectives are what make a level a level. raze: every structure inside the zone named by `target` is destroyed. The set is snapshotted at mission start, so a zone holding no structures is an authoring error rather than an instant win. collapse: every tunnel route whose MOUTH lies inside the zone named by `target` is brought down; a route that merely passes under the zone does not count. The set is snapshotted at mission start, so a zone holding no mouths can never complete and is an authoring error. A primary collapse must declare `seconds`, for the same reason a primary raze must: losing every unit that can work a charge makes it permanently impossible, and without a deadline to fail on the mission is unwinnable and unlosable at once. escort: `target` is a tag on the player's own `starting_force` placements and `zone` is the destination. It fails the tick any tagged unit is dead or taken, and completes the first tick every tagged unit is alive, on the surface, standing and inside the zone; a unit carried by a transport counts where the carrier stands. A tag that starts inside the zone is an authoring error."
           },
           "primary": {
             "type": "boolean"
@@ -404,6 +404,10 @@
           },
           "target": {
             "type": "string"
+          },
+          "zone": {
+            "type": "string",
+            "description": "escort only: the destination zone, a name in the map's zones. `target` names the escorted units. Any other type refuses it."
           },
           "count": {
             "type": "integer",
