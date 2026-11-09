@@ -47,4 +47,13 @@ describe('viewOf', () => {
     const del: OutboxOp = { kind: 'slot.delete', opId: 'd', slotId: 's1' };
     expect(viewOf(confirmed, [put, del], world).slots.map((s) => s.id)).toEqual(['s2']);
   });
+
+  it('confirmed_paid_coins_survive_a_queued_win', () => {
+    const confirmed = confirmedState();
+    confirmed.wallet = { ...confirmed.wallet, paid: 50 as unknown as 0 }; // the wire type is the literal 0 until paid coins exist
+    const win: OutboxOp = { kind: 'victory', opId: 'v1', missionId: mission, stars: 2, start: 'nonce', campaign: null };
+    const v = viewOf(confirmed, [win], world);
+    expect(v.wallet.free).toBeGreaterThan(0); // the win paid, so the wallet was rebuilt
+    expect(v.wallet.paid).toBe(50);
+  });
 });

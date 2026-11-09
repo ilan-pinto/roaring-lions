@@ -27,8 +27,8 @@ export interface AccountStoreOptions {
   world: ParsedWorld;
   onChange: () => void;
   newOpId: () => string;
-  /** This tab's id (§0.38); the outbox key is `lions.account.outbox.<tabId>`. Task 2.10 supplies the real one. */
-  tabId?: string;
+  /** This tab's id (§0.38), required: the outbox key is `lions.account.outbox.<tabId>`. `tabIdOf` (tab-id.ts) mints it. */
+  tabId: string;
 }
 
 export type AccountLedgerStore = LedgerStore & {
@@ -41,12 +41,21 @@ export type AccountLedgerStore = LedgerStore & {
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
-  const tabId = o.tabId ?? 'tab';
+  const tabId = o.tabId;
   const pendingSpends = new Set<string>();
   let ops: OutboxOp[] = readOutbox(o.storage, tabId);
+  // The view is memoised on the identity of the confirmed state AND the ops. The sync loop (Task 2.10) refreshes by
+  // REPLACING `cache.confirmed` with a new object (never mutating it in place); no explicit refresh call is needed.
   let cached: ServerState | null = null;
+  let cachedFor: ServerState | null = null;
 
-  const view = (): ServerState => (cached ??= viewOf(o.cache.confirmed, ops, o.world));
+  const view = (): ServerState => {
+    if (cached === null || cachedFor !== o.cache.confirmed) {
+      cached = viewOf(o.cache.confirmed, ops, o.world);
+      cachedFor = o.cache.confirmed;
+    }
+    return cached;
+  };
   const push = (op: OutboxOp): void => {
     ops = coalesce(ops, op);
     writeOutbox(o.storage, tabId, ops); // a refused write keeps the memory copy

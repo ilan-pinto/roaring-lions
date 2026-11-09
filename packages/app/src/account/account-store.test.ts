@@ -117,7 +117,7 @@ describe('accountLedgerStore', () => {
     const boom = (): never => {
       throw new Error('quota');
     };
-    const store = accountLedgerStore({ storage: { getItem: () => null, setItem: boom, removeItem: boom }, cache: cacheOf(), world, onChange: () => {}, newOpId: opIds() });
+    const store = accountLedgerStore({ storage: { getItem: () => null, setItem: boom, removeItem: boom }, cache: cacheOf(), world, onChange: () => {}, newOpId: opIds(), tabId: 'T' });
     store.writeAccount({ ...emptyAccount(), balance: 3 });
     expect(store.readAccount().balance).toBe(3);
     expect(store.outboxSize()).toBe(1);
@@ -135,5 +135,20 @@ describe('accountLedgerStore', () => {
     store.writeAccount({ ...emptyAccount(), balance: 2 });
     store.readAccount().balance = 500;
     expect(store.readAccount().balance).toBe(2);
+  });
+
+  it('a_replaced_confirmed_state_shows_through_with_the_queued_op_on_top (A2-17, second half)', () => {
+    const cache = cacheOf();
+    const storage = memStorage();
+    const store = accountLedgerStore({ storage, cache, world, onChange: () => {}, newOpId: opIds(), tabId: 'T' });
+    store.writeAccount({ ...emptyAccount(), unlocks: ['purchase_b'] });
+    expect(store.view().campaign?.brigade.unlocks).toEqual(['purchase_b']); // memoised
+    const fresh = confirmedState();
+    fresh.campaign = { ...fresh.campaign!, revision: 9 };
+    fresh.wallet = { ...fresh.wallet, free: 77 };
+    cache.confirmed = fresh; // what the sync loop does after a response
+    expect(store.view().campaign?.revision).toBe(9);
+    expect(store.view().wallet.free).toBe(77);
+    expect(store.view().campaign?.brigade.unlocks).toEqual(['purchase_b']);
   });
 });

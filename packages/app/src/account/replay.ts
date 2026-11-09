@@ -11,8 +11,9 @@ export function walletOf(v: WalletView): RoarWallet {
   return { version: ROAR_VERSION, coins: { free: v.free, paid: v.paid }, entitlements: v.entitlements, earn: v.earn, receipts: v.receipts };
 }
 
-function viewOfWallet(w: RoarWallet, revision: number): WalletView {
-  return { free: w.coins.free, paid: 0, entitlements: w.entitlements, earn: w.earn, receipts: w.receipts, revision };
+/** `paid` is the confirmed wallet's own (its wire type is the literal 0 today), never a constant written here. */
+function viewOfWallet(w: RoarWallet, revision: number, paid: WalletView['paid']): WalletView {
+  return { free: w.coins.free, paid, entitlements: w.entitlements, earn: w.earn, receipts: w.receipts, revision };
 }
 
 const byteLength = (s: unknown): number => new TextEncoder().encode(JSON.stringify(s)).length;
@@ -40,7 +41,7 @@ export function viewOf(confirmed: ServerState, outbox: readonly OutboxOp[], worl
         const ledger = campaign?.ledger ?? {};
         // The earn record rides in the wallet, so a second queued win of one mission awards nothing.
         const earned = roarEarn(walletOf(wallet), { missionId: op.missionId, stars: op.stars, ledger }, world, at);
-        if (earned.awards.length > 0) wallet = viewOfWallet(earned.wallet, wallet.revision);
+        if (earned.awards.length > 0) wallet = viewOfWallet(earned.wallet, wallet.revision, wallet.paid);
       }
     } else if (op.kind === 'slot.put') {
       slots = [...slots.filter((s) => s.id !== op.slotId), putMeta(op)];

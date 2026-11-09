@@ -8,6 +8,7 @@ import type { ParsedWorld } from '@lions/economy';
 import type { StorageLike } from '../brigade-account';
 import { blockedLedgerStore, browserLedgerStore, type LedgerStore, type RoarBackfill } from '../ledger-store';
 import { accountLedgerStore } from './account-store';
+import { tabIdOf } from './tab-id';
 import { readBinding } from './binding';
 import { readCache } from './cache';
 import { accountsEnabled } from './enabled';
@@ -22,8 +23,17 @@ export interface SelectOptions {
   world: ParsedWorld;
   /** Called after every queued write (the sync loop, Task 2.10). */
   onChange?: () => void;
+  /** Overrides the tab id (tests); else `tabIdOf(sessionStorage)`. */
   tabId?: string;
   newOpId?: () => string;
+}
+
+function sessionStorageOrNull(): StorageLike | null {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
+  } catch {
+    return null;
+  }
 }
 
 export function selectLedgerStore(query: URLSearchParams, storage: StorageLike | null, backfill: RoarBackfill, o: SelectOptions): SelectedStore {
@@ -39,7 +49,7 @@ export function selectLedgerStore(query: URLSearchParams, storage: StorageLike |
     world: o.world,
     onChange: o.onChange ?? ((): void => {}),
     newOpId: o.newOpId ?? ((): string => crypto.randomUUID()),
-    ...(o.tabId !== undefined ? { tabId: o.tabId } : {}),
+    tabId: o.tabId ?? tabIdOf(sessionStorageOrNull()),
   });
   return { store, signedIn: true, needsState: false };
 }
