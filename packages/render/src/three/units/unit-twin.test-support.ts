@@ -113,7 +113,7 @@ export function builderRenderer(d: UnitDeps): InstanceType<W['WebGPURenderer']> 
 }
 
 /** The programs three builds for `material` drawing `mesh`. */
-export function compile(d: UnitDeps, mesh: THREE.Object3D, material: THREE.Material): Built {
+export function compile(d: UnitDeps, mesh: THREE.Object3D, material: THREE.Material, camera: THREE.Camera = new THREE.OrthographicCamera()): Built {
   const builder = new d.W.GLSLNodeBuilder(mesh, builderRenderer(d)) as unknown as {
     scene: THREE.Scene;
     camera: THREE.Camera;
@@ -125,7 +125,7 @@ export function compile(d: UnitDeps, mesh: THREE.Object3D, material: THREE.Mater
     updateBeforeNodes: unknown[];
   };
   builder.scene = new THREE.Scene();
-  builder.camera = new THREE.OrthographicCamera();
+  builder.camera = camera;
   builder.material = material;
   builder.build();
   const nodesOf = (list: Array<{ node: unknown }>): Set<unknown> => {

@@ -18,7 +18,7 @@ import { RG_PROGRAM_KEY, runningGearMaterial } from './running-gear-material';
 import { parseRunningGear, type RunningGearSpec } from './running-gear';
 import { VehicleScarMaterials } from './vehicle-damage';
 import { beginMeshDeathFade, setMeshDeathOpacity } from './mesh-death';
-import { RAIN_RIM_PROGRAM_KEY, applyRainRim } from './rain-rim';
+import { RAIN_RIM_PROGRAM_KEY } from './rain-rim';
 import { WOUNDED_FLOOR_PROGRAM_KEY } from './wounded-read';
 import { SOOT_PROGRAM_KEY } from '../world-materials';
 import { UNIT_HOOK_SEGMENTS } from '../material-names';
@@ -61,9 +61,9 @@ describe('the term order is the legacy chain order, pinned to the legacy keys', 
     expect([SOOT_SEGMENT, RUNNING_GEAR_SEGMENT, TEAM_MARK_SEGMENT]).toEqual([SOOT_PROGRAM_KEY, RG_PROGRAM_KEY, TEAM_MASK_PROGRAM_KEY]);
   });
 
-  it('the three ported segments are on PORTED_MATERIAL_KEYS (read per segment); the rim and the floor are not', () => {
-    for (const k of [TEAM_MASK_PROGRAM_KEY, RG_PROGRAM_KEY, SOOT_PROGRAM_KEY]) expect(PORTED_MATERIAL_KEYS.has(k), k).toBe(true);
-    for (const k of [RAIN_RIM_PROGRAM_KEY, WOUNDED_FLOOR_PROGRAM_KEY]) expect(PORTED_MATERIAL_KEYS.has(k), k).toBe(false);
+  it('every unit segment is on PORTED_MATERIAL_KEYS (read per segment)', () => {
+    for (const k of UNIT_HOOK_SEGMENTS) expect(PORTED_MATERIAL_KEYS.has(k), k).toBe(true);
+    for (const k of [TEAM_MASK_PROGRAM_KEY, RG_PROGRAM_KEY, SOOT_PROGRAM_KEY, RAIN_RIM_PROGRAM_KEY, WOUNDED_FLOOR_PROGRAM_KEY]) expect(PORTED_MATERIAL_KEYS.has(k), k).toBe(true);
   });
 });
 
@@ -216,21 +216,7 @@ describe('G9: a texture that lands after adoption is the image the twin samples'
   });
 });
 
-describe('the segments T3 does not draw are named, and drawn without', () => {
-  it('a rain-rim figure (T4\'s) gets a twin that lists `rl-unit: rl-unit-rain-rim`, which the census reports as partial', async () => {
-    const d = await unitDeps();
-    const fig = new THREE.MeshStandardMaterial({ color: 0x808080 });
-    applyRainRim(fig);
-    const mesh = new THREE.Mesh(taggedGeometry(0), fig);
-    adoptAll(d, [mesh]);
-    const twin = mesh.material as THREE.Material;
-    expect(bindingsOf(twin).applied).toEqual([]);
-    expect((twin.userData as Record<string, unknown>)[UNPORTED_TERMS_KEY]).toEqual(['rl-unit: rl-unit-rain-rim']);
-    expect(censusUnported(mesh.parent as THREE.Object3D)).toEqual([{ kind: 'partial', key: 'rl-unit: rl-unit-rain-rim', objects: 1 }]);
-    // The legacy material never carries the twin's terms.
-    expect((fig.userData as Record<string, unknown>)[UNPORTED_TERMS_KEY]).toBeUndefined();
-  });
-
+describe('every unit segment is drawn, so a unit twin names nothing as unported', () => {
   it('a fully ported twin (team + running gear) has no unported term, and the node census names nothing for it', async () => {
     const d = await unitDeps();
     const variant = new VehicleTeamMaterials(slotsOf()).materialFor(laviMaterial(), 0) as THREE.MeshStandardMaterial;

@@ -63,8 +63,11 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   // GH-943 P3 (T7): the decal pools and the crater rim (`decal-pool.node.ts`), on the one scenario that stamps them. `decals` is
   // `loose` (filtered control B tap, branch-free kinds); `crater-rims` is `ao`: lighting- and shadow-dependent (the rim reads the
   // scene's sun, sky and the sun's node shadow).
-  { scenario: 'aftermath', layer: 'decals', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T7: both decal pools, the kinds over the road-mixed ground tone' },
-  { scenario: 'aftermath', layer: 'crater-rims', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T7: the rim relit by the sun, sky and node shadow; uRimGain by reference' },
+  // r0 and node floors from ci.yml run 42630404599 attempts 1-3 (head 1a78c22d6, SwiftShader): every reading bit-identical across the
+  // three, node decals 3.5672 (wgl2) / 3.5456 (wgpu), rims 0.6268 / 0.6234; floor = a third, rounded DOWN to 4 places. Before T7 the
+  // L-matched arm hid both pools, so neither row could be judged.
+  { scenario: 'aftermath', layer: 'decals', band: 'loose', r0: { wgl2: 1.0084, wgpu: 1.0023 }, nodeFloor: { wgl2: 1.189, wgpu: 1.1818 }, note: 'P3 T7: both decal pools, the kinds over the road-mixed ground tone' },
+  { scenario: 'aftermath', layer: 'crater-rims', band: 'ao', r0: { wgl2: 1.0092, wgpu: 1.0036 }, nodeFloor: { wgl2: 0.2089, wgpu: 0.2078 }, note: 'P3 T7: the rim relit by the sun, sky and node shadow; uRimGain by reference' },
   { scenario: 'vehicle', layer: 'selection-ring', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: the team rings, analytic coverage, no textures' },
   // GH-943 P3 (T3): the node unit twin (`units/unit-material.node.ts`): the team mark, the running gear and the soot on the hooked unit
   // materials, the per-entity fields per object. `loose`: textured. r0 and the node floors from this PR's `visual-parity` runs.
