@@ -2,7 +2,7 @@
  * `budgetedOp` (GH-1075 A2): the one wrapper every account write goes through. Its order is the contract:
  *   1. a malformed op id is a 400;
  *   2. a stored answer comes back as stored, before any budget (a retry spends nothing: §0.3);
- *   3. the optional extra check, then the member's day budget, then the extra bump: any refusal is a 429 `limit`;
+ *   3. the optional extra check, then the member's day budget, then the extra bump: any refusal is a 429 `limit` (the bump is a guarded UPSERT, so two racing claims cannot both take the last unit);
  *   4. `withOp`, up to `CAS_TRIES` times while its batch fails a CHECK and a re-read shows a wallet or campaign
  *      revision moved (§0.32, §0.35). Each attempt re-runs `build`, which re-reads. The budget is charged ONCE.
  *   5. a CHECK failure with no revision moved is a real bug and answers 500, never the lost-race 409. Exhausted
@@ -21,7 +21,9 @@ export interface OpSpec {
   opId: unknown;
   kind: string;
   /** A read (the claim's `acct-claim` count) before the member's budget, and the bump after it. */
-  extra?: { check: (db: D1Like) => Promise<boolean>; bump: (db: D1Like) => Promise<void> };
+  extra?: { check: (db: D1Like) => Promise<boolean>; bump: (db: D1Like) => Promise<boolean> };
+  /** R24: a tripped slot guard re-runs `build` (within `CAS_TRIES`) instead of answering 409 `cap`; the re-read decides. */
+  retryOnCap?: boolean;
   /** The error a tripped cap guard answers; `cap` unless a route says otherwise (`claim_cap`). */
   capError?: string;
   /** The error a tripped DEVICE guard (`member.created_at`) answers: `claim_cap` for the claim; `cap` by default. */
@@ -51,7 +53,7 @@ export async function budgetedOp(ctx: AccountCtx, s: OpSpec, build: () => Promis
   if (hit !== null) return hit;
   if (s.extra !== undefined && !(await s.extra.check(db))) return { status: 429, body: { error: 'limit' } };
   if (!(await opBudget(db, s.memberId, ctx.now))) return { status: 429, body: { error: 'limit' } };
-  if (s.extra !== undefined) await s.extra.bump(db);
+  if (s.extra !== undefined && !(await s.extra.bump(db))) return { status: 429, body: { error: 'limit' } };
   for (let attempt = 0; attempt < CAS_TRIES; attempt++) {
     const seen = await revisions(db, s.memberId);
     try {
@@ -59,6 +61,7 @@ export async function budgetedOp(ctx: AccountCtx, s: OpSpec, build: () => Promis
     } catch (err) {
       if (err instanceof OpReject) return { status: err.status, body: err.body };
       if (isDeviceCapFailure(err)) return { status: 409, body: { error: s.deviceCapError ?? 'cap' } };
+      if (isCapFailure(err) && s.retryOnCap === true) continue;
       if (isCapFailure(err)) return { status: 409, body: { error: s.capError ?? 'cap' } };
       if (!isCasFailure(err)) throw err;
       if ((await revisions(db, s.memberId)) === seen) {

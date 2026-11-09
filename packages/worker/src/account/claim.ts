@@ -57,10 +57,6 @@ const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const MAX_SLOTS = 32;
 const MAX_COUPONS = 16;
 const ID_MAX = 128;
-/** At most this many entitlement asks are priced in one claim (each ask re-derives the Stores' items). */
-const ASKS_MAX = 48;
-/** At most this many tiers of one track are asked for. */
-const TIERS_MAX = 12;
 
 interface ClaimIn {
   opId: string;
@@ -122,7 +118,7 @@ function askOrder(device: RoarWallet, knownUnits: ReadonlySet<string>, trackLen:
     const held = device.entitlements.upgrades[unitId]?.[name]?.tier ?? 0;
     const len = trackLen.get(`${unitId}\u0000${name}`);
     if (len === undefined) return;
-    for (let t = 1; t <= Math.min(held, upTo, len, TIERS_MAX); t++) push({ item: 'tier', unitId, track: name, tier: t });
+    for (let t = 1; t <= Math.min(held, upTo, len); t++) push({ item: 'tier', unitId, track: name, tier: t });
   };
   for (const r of device.receipts) {
     if (r.kind === 'unit') unit(r.unitId);
@@ -130,9 +126,9 @@ function askOrder(device: RoarWallet, knownUnits: ReadonlySet<string>, trackLen:
   }
   for (const id of Object.keys(device.entitlements.units).sort()) unit(id);
   for (const id of Object.keys(device.entitlements.upgrades).sort()) {
-    for (const name of Object.keys(device.entitlements.upgrades[id] ?? {}).sort()) track(id, name, TIERS_MAX);
+    for (const name of Object.keys(device.entitlements.upgrades[id] ?? {}).sort()) track(id, name, Infinity);
   }
-  return out.slice(0, ASKS_MAX);
+  return out;
 }
 
 const owns = (w: RoarWallet, a: CoinAskWire): boolean =>
@@ -161,10 +157,10 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
       // §0.48: the claim budget is read first and bumped only after the member's day budget passes.
       extra: {
         check: async (d: D1Like) => (await countToday(d, 'acct-claim', memberId, ctx.now)) < CLAIMS_PER_DAY,
-        bump: async (d: D1Like) => {
-          await bump(d, 'acct-claim', memberId, ctx.now, CLAIMS_PER_DAY);
-        },
+        bump: (d: D1Like) => bump(d, 'acct-claim', memberId, ctx.now, CLAIMS_PER_DAY),
       },
+      // R24: a racing slot guard re-reads (the overflow becomes `rejected: cap`) and answers 200, never 409 `cap`.
+      retryOnCap: true,
     },
     async () => {
       // 1. This device claimed before: its stored result, nothing else.
@@ -274,10 +270,19 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
       const credits = d.coins + couponCoins;
       const ledger = sentBody?.ledger ?? serverCamp?.body.ledger ?? {};
       const brigade = sentBody?.brigade ?? serverCamp?.body.brigade ?? emptyAccount();
-      let scratch: RoarWallet = { ...asRoar(wallet, []), coins: { free: credits, paid: 0 } };
+      let scratch: RoarWallet = { ...asRoar(wallet, []), coins: { free: credits, paid: 0 }, };
+      // The Stores' items are rebuilt only after a purchase (a refusal leaves the scratch wallet unchanged).
+      const itemsOf = (w: RoarWallet) => {
+        const it = storeItems(storeInputFor({ ledger, brigade, roar: w }));
+        return {
+          units: new Map(it.units.map((u) => [u.id, u] as const)),
+          tiers: new Map(it.tiers.map((t) => [`${t.unitId}\u0000${t.track}\u0000${t.next?.tier ?? 0}`, t] as const)),
+        };
+      };
       const input0 = storeInputFor({ ledger, brigade, roar: scratch });
       const trackLen = new Map(storeItems(input0).tiers.map((t) => [`${t.unitId}\u0000${t.track}`, t.length] as const));
       const asks = askOrder(device, new Set(input0.units.map((u) => u.id)), trackLen);
+      let items = itemsOf(scratch);
       const carried: CoinAskWire[] = [];
       const notCarried: { ask: CoinAskWire; reason: 'coins' | 'closed' | 'owned' }[] = [];
       const entries: JournalEntry[] = [];
@@ -287,20 +292,23 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
           notCarried.push({ ask, reason: 'owned' });
           continue;
         }
-        const input = storeInputFor({ ledger, brigade, roar: scratch });
         const coinAsk = ask.item === 'unit' ? ({ kind: 'unit', unitId: ask.unitId } as const) : ({ kind: 'tier', unitId: ask.unitId, track: ask.track, tier: ask.tier } as const);
-        const bought = buyWithCoins(input, scratch, coinAsk, ctx.now);
+        const item = coinAsk.kind === 'unit' ? items.units.get(coinAsk.unitId) : items.tiers.get(`${coinAsk.unitId}\u0000${coinAsk.track}\u0000${coinAsk.tier}`);
+        const cost = item === undefined ? null : coinCost(item);
+        // Short of the price: refused without pricing it through the Stores again.
+        if (cost !== null && cost > 0 && spendable(scratch) < cost) {
+          notCarried.push({ ask, reason: 'coins' });
+          continue;
+        }
+        const bought = buyWithCoins(storeInputFor({ ledger, brigade, roar: scratch }), scratch, coinAsk, ctx.now);
         if (!bought.ok) {
-          const items = storeItems(input);
-          const item =
-            coinAsk.kind === 'unit' ? items.units.find((u) => u.id === coinAsk.unitId) : items.tiers.find((t) => t.unitId === coinAsk.unitId && t.track === coinAsk.track && t.next?.tier === coinAsk.tier);
-          const cost = item === undefined ? null : coinCost(item);
-          notCarried.push({ ask, reason: cost !== null && cost > 0 && spendable(scratch) < cost ? 'coins' : 'closed' });
+          notCarried.push({ ask, reason: 'closed' });
           continue;
         }
         const price = scratch.coins.free - bought.account.coins.free;
         charged += price;
         scratch = bought.account;
+        items = itemsOf(scratch);
         carried.push(ask);
         entries.push({
           kind: coinAsk.kind,
@@ -317,7 +325,12 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
       const claimEntry: JournalEntry = {
         kind: devices === 0 ? 'backfill' : 'claim',
         delta: net + charged,
-        receipt: null,
+        // R23 (§0.4): the claim's own coins appear on the Receipts shelf. The id cannot collide with the scratch
+        // receipts' `<at>-<n>` ids.
+        receipt:
+          net + charged > 0
+            ? { kind: 'earn', id: `${ctx.now}-claim`, at: ctx.now, coins: { free: net + charged, paid: 0 }, source: 'backfill' }
+            : null,
         detail: { earned: d.coins, couponCoins, coupons: couponRows, ceilingCut: credits - charged - net },
         opId: body.opId,
         at: ctx.now,
@@ -336,8 +349,8 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
         } else {
           const c = await conflictSlot(db, memberId, sentBody, ctx.now, 'claim');
           if ('slot' in c.answer) {
-            statements.push(...c.statements.slice(0, -1));
-            guards.push(...c.statements.slice(-1));
+            statements.push(...c.insert);
+            guards.push(...c.guard);
             const slot: SlotMetaView = c.answer.slot;
             campaignItem = { deviceId: 'campaign', status: 'stored', serverId: slot.id, digest: await digestOf(sentText) };
           } else campaignItem = { deviceId: 'campaign', status: 'rejected', reason: 'cap' };

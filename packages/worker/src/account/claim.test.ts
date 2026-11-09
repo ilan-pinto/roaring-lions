@@ -1,4 +1,4 @@
-import { canonicalCampaign, canonicalSlot, claimEvidence, coinPrice, migrateRoar, emptyAccount, parseWorld, SAVE_VERSION, sha256Hex, worldMissionIds, type SaveSlot } from '@lions/economy';
+import { canonicalCampaign, canonicalSlot, claimEvidence, coinPrice, migrateRoar, emptyAccount, parseWorld, SAVE_VERSION, sha256Hex, storeInputFor, storeItems, worldMissionIds, type SaveSlot } from '@lions/economy';
 import { coupons, units, world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import type { D1Like, D1Stmt } from '../d1';
@@ -30,15 +30,35 @@ const slotOf = (id: string, savedAt: number, wins: [string, number][] = []) => (
   version: SAVE_VERSION, id, name: `slot ${id}`, savedAt, build: 'b1', ledger: ledgerOf(wins), account: emptyAccount(), tutorialDone: false,
 });
 
-interface Opts { race?: number; hook?: (db: D1Like) => Promise<void>; free?: number }
+interface Opts { race?: number; hook?: (db: D1Like) => Promise<void>; free?: number; claimCountBarrier?: boolean }
 function setup(opts: Opts = {}) {
   let racing: ReturnType<typeof racingD1> | undefined;
   const clock = { t: 0 };
+  // Holds every `acct-claim` count read until two have been made, so both requests see the same count before either bumps.
+  let arrived = 0;
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => { release = r; });
+  const barrier = (inner: D1Like): D1Like => {
+    const wrap = (st: D1Stmt, sql: string, bound: unknown[]): D1Stmt => ({
+      ...st,
+      bind: (...v) => wrap(st.bind(...v), sql, v),
+      first: async <R>() => {
+        const row = await st.first<R>();
+        if (/^SELECT n FROM rate_day/.test(sql) && bound[0] === 'acct-claim') {
+          if (++arrived >= 2) release();
+          await gate;
+        }
+        return row;
+      },
+    });
+    return { ...inner, prepare: (q: string) => wrap(inner.prepare(q), q, []) };
+  };
   const h = accountHarness({
     now: T0,
     handler: (req, env, at) => {
       if (opts.race !== undefined) racing ??= racingD1(env.ACCOUNTS, opts.race, { arrivals: true });
       let db: D1Like = racing ?? env.ACCOUNTS;
+      if (opts.claimCountBarrier === true) db = barrier(db);
       const hook = opts.hook;
       if (hook !== undefined) {
         const inner = db;
@@ -58,7 +78,7 @@ const claim = (s: S, cookie: string, b: Body, n = 1) => s.h.call('POST', '/api/a
 interface Result {
   coins: number; earned: number; coupons: { id: string; credited: number; capped: boolean }[]; carried: unknown[]; notCarried: { ask: unknown; reason: string }[];
   campaign: { status: string; serverId?: string; digest?: string; reason?: string } | null; slots: { deviceId: string; status: string; serverId?: string; reason?: string }[];
-  state: { wallet: { free: number; paid: number; entitlements: unknown; earn: { missions: Record<string, unknown> } }; slots: { id: string; origin: string }[]; campaign: unknown };
+  state: { wallet: { free: number; paid: number; entitlements: unknown; earn: { missions: Record<string, unknown> }; receipts: { kind: string; id: string; coins: { free: number; paid: number }; source?: string }[] }; slots: { id: string; origin: string }[]; campaign: unknown };
 }
 const ok = async (r: Response): Promise<Result> => { expect(r.status).toBe(200); return (await r.json()) as Result; };
 
@@ -176,7 +196,7 @@ describe('POST claim', () => {
   it('a stored slot is canonical, with the body savedAt and build, digest of exactly what is stored', async () => {
     const s = setup();
     const cookie = await member(s);
-    const r = await ok(await claim(s, cookie, { slots: [{ id: 'a', slot: slotOf('a', 77) }, { id: 'bad', slot: { nope: 1 } }, { id: 'huge', slot: { ...slotOf('huge', 5), name: 'x', ledger: { 'campaign.completed_missions': ['a'], pad: 'x'.repeat(300_000) } } }] }));
+    const r = await ok(await claim(s, cookie, { slots: [{ id: 'a', slot: slotOf('a', 77) }, { id: 'bad', slot: { nope: 1 } }, { id: 'huge', slot: { ...slotOf('huge', 5), name: 'x', ledger: { 'campaign.completed_missions': Array.from({ length: 30_000 }, (_, i) => `mission_${i}_padding`) } } }] }));
     const a = r.slots[0];
     expect(a?.status).toBe('stored');
     const row = await one<{ body: string; saved_at: number }>(s, `SELECT body, saved_at FROM save_slot WHERE slot_id = '${a?.serverId}'`);
@@ -185,7 +205,7 @@ describe('POST claim', () => {
     expect(row.saved_at).toBe(T0);
     expect((r.slots[0] as { digest?: string }).digest).toBe(await digestOf(canonicalSlot(stored)));
     expect(r.slots[1]).toEqual({ deviceId: 'bad', status: 'rejected', reason: 'invalid' });
-    expect(r.slots[2]?.status === 'rejected' && ['size', 'invalid'].includes(r.slots[2].reason ?? '')).toBe(true);
+    expect(r.slots[2]).toEqual({ deviceId: 'huge', status: 'rejected', reason: 'size' });
   });
 
   it('no_repay_after_a_reset (A2-20)', async () => {
@@ -265,25 +285,48 @@ describe('POST claim', () => {
   it('a_claim_carries_what_it_can', async () => {
     const s = setup();
     const cookie = await member(s);
-    // 135 earned; breach_team is 85 coins and dozer_d9 60: the first fits, the second does not.
+    // 135 earned; dozer_d9 is 60 coins and breach_team 85. The receipts name dozer FIRST (not alphabetical), so the
+    // dozer is carried (75 left) and the breach team (85) is not. The device balance, 300, is above what is left.
     const receipt = (id: string, unitId: string, credits: number) => ({ kind: 'unit', id, at: 1, coins: { free: 0, paid: 0 }, unitId, credits });
     const wallet = {
-      coins: { free: 50, paid: 0 },
+      coins: { free: 300, paid: 0 },
       entitlements: { units: { dozer_d9: { free: true }, breach_team: { free: true } }, upgrades: {} },
-      receipts: [receipt('r1', 'breach_team', 850), receipt('r2', 'dozer_d9', 560)],
+      receipts: [receipt('r1', 'dozer_d9', 560), receipt('r2', 'breach_team', 850)],
     };
     const r = await ok(await claim(s, cookie, { wallet, campaign: campaignOf([[M1, 1], [M2, 2]]) }));
-    expect(r.carried).toEqual([{ item: 'unit', unitId: 'breach_team' }]);
-    expect(r.notCarried).toEqual([{ ask: { item: 'unit', unitId: 'dozer_d9' }, reason: 'coins' }]);
-    expect(r.coins).toBe(50);
-    expect(await freeOf(s)).toBe(50);
-    expect(r.state.wallet.entitlements).toEqual({ units: { breach_team: { free: true } }, upgrades: {} });
+    expect(r.carried).toEqual([{ item: 'unit', unitId: 'dozer_d9' }]);
+    expect(r.notCarried).toEqual([{ ask: { item: 'unit', unitId: 'breach_team' }, reason: 'coins' }]);
+    expect(r.coins).toBe(75);
+    expect(await freeOf(s)).toBe(75);
+    expect(r.state.wallet.entitlements).toEqual({ units: { dozer_d9: { free: true } }, upgrades: {} });
     const rows = (await s.h.db.prepare('SELECT kind, free_delta AS d FROM coin_journal ORDER BY id').all<{ kind: string; d: number }>()).results;
-    expect(rows.slice(-2)).toEqual([{ kind: 'backfill', d: 50 + 85 }, { kind: 'unit', d: -85 }]);
-    expect(await sumOf(s)).toBe(50);
+    expect(rows.slice(-2)).toEqual([{ kind: 'backfill', d: 75 + 60 }, { kind: 'unit', d: -60 }]);
+    expect(await sumOf(s)).toBe(75);
+    // R23: the claim's own coins are on the Receipts shelf, before the carried unit's receipt.
+    expect(r.state.wallet.receipts.map((x) => [x.kind, x.coins.free, x.source ?? null])).toEqual([['earn', 135, 'backfill'], ['unit', 60, null]]);
     // A server-held unit is `owned`, and a unit off the Stores is not asked at all.
-    const again = await ok(await claim(s, cookie, { wallet: { ...wallet, entitlements: { units: { breach_team: { free: true }, nonsense: { free: true } }, upgrades: {} } } }, 2));
-    expect(again.notCarried).toEqual([{ ask: { item: 'unit', unitId: 'breach_team' }, reason: 'owned' }]);
+    const again = await ok(await claim(s, cookie, { wallet: { ...wallet, entitlements: { units: { dozer_d9: { free: true }, nonsense: { free: true } }, upgrades: {} } } }, 2));
+    expect(again.notCarried).toEqual([{ ask: { item: 'unit', unitId: 'dozer_d9' }, reason: 'owned' }]);
+  });
+
+  it('a claim with no coins credited writes no receipt', async () => {
+    const s = setup();
+    const cookie = await member(s);
+    const r = await ok(await claim(s, cookie, {}));
+    expect([r.coins, r.state.wallet.receipts]).toEqual([0, []]);
+  });
+
+  it('every entitlement is carried or not carried: none is dropped past 48 asks', async () => {
+    const s = setup();
+    const cookie = await member(s);
+    const items = storeItems(storeInputFor({ ledger: {}, brigade: emptyAccount(), roar: migrateRoar({}) }));
+    const upgrades: Record<string, Record<string, { tier: number; paidTiers: number }>> = {};
+    for (const t of items.tiers) (upgrades[t.unitId] ??= {})[t.track] = { tier: t.length, paidTiers: 0 };
+    const unitsHeld = Object.fromEntries(items.units.map((u) => [u.id, { free: true }]));
+    const asks = items.units.length + items.tiers.reduce((n, t) => n + t.length, 0);
+    expect(asks).toBeGreaterThan(48);
+    const r = await ok(await claim(s, cookie, { wallet: { ...RICH, entitlements: { units: unitsHeld, upgrades } }, campaign: campaignOf([[M1, 1]]) }));
+    expect(r.carried.length + r.notCarried.length).toBe(asks);
   });
 
   it('second_device_campaign_becomes_a_slot', async () => {
@@ -413,7 +456,7 @@ describe('POST claim', () => {
       expect(await freeOf(s)).toBe(0);
     });
 
-    it('a racing slot guard answers cap, never claim_cap', async () => {
+    it('a racing slot guard re-reads: the overflow is rejected cap and the claim answers 200 (R24)', async () => {
       // Six player slots land after the claim read none: 8 + 6 > 12.
       const s = setup({
         hook: async (db) => {
@@ -422,13 +465,35 @@ describe('POST claim', () => {
       });
       const cookie = await member(s);
       const slots = Array.from({ length: 8 }, (_, i) => ({ id: `d${i}`, slot: slotOf(`d${i}`, i + 1) }));
-      const r = await claim(s, cookie, { slots, campaign: campaignOf([[M1, 1]]) });
-      const body = (await r.json()) as { error: string };
-      expect([r.status, body.error]).toEqual([409, 'cap']);
-      expect(await count(s, "save_slot WHERE origin = 'player'")).toBe(6);
+      const r = await ok(await claim(s, cookie, { slots, campaign: campaignOf([[M1, 1]]) }));
+      // Six rooms are left: the newest six are stored, the two oldest are rejected cap.
+      expect(r.slots.filter((x) => x.status === 'stored')).toHaveLength(6);
+      expect(r.slots.filter((x) => x.status === 'rejected').map((x) => [x.deviceId, x.reason]).sort()).toEqual([['d0', 'cap'], ['d1', 'cap']]);
+      expect(await count(s, "save_slot WHERE origin = 'player'")).toBe(12);
+      expect(await count(s, 'device_claim')).toBe(1);
+      expect(await freeOf(s)).toBe(115);
+      // The claim budget was charged once, not once per attempt.
+      expect((await one<{ n: number }>(s, "SELECT n FROM rate_day WHERE scope = 'acct-claim'")).n).toBe(1);
+    });
+
+    it('two claims racing at acct-claim 4: one takes the last unit, the other is 429 (the bump is a guard)', async () => {
+      const s = setup({ claimCountBarrier: true });
+      const cookie = await member(s);
+      await s.h.db.prepare("INSERT INTO rate_day (scope, key, day, n) VALUES ('acct-claim', 'm1', ?1, 4)").bind(Math.floor(T0 / DAY)).run();
+      const [a, b] = await Promise.all([claim(s, cookie, {}, 1), claim(s, cookie, {}, 2)]);
+      expect([a.status, b.status].sort()).toEqual([200, 429]);
+      expect((await one<{ n: number }>(s, "SELECT n FROM rate_day WHERE scope = 'acct-claim'")).n).toBe(5);
+      expect(await count(s, 'device_claim')).toBe(1);
+    });
+
+    it('acct-claim is bumped only after the member budget passes', async () => {
+      const s = setup();
+      const cookie = await member(s);
+      await s.h.db.prepare("INSERT INTO rate_day (scope, key, day, n) VALUES ('acct-ops', 'm1', ?1, 100000)").bind(Math.floor(T0 / DAY)).run();
+      const r = await claim(s, cookie, {});
+      expect(r.status).toBe(429);
+      expect(await count(s, "rate_day WHERE scope = 'acct-claim'")).toBe(0);
       expect(await count(s, 'device_claim')).toBe(0);
-      expect(await freeOf(s)).toBe(0);
-      expect(await count(s, 'campaign_state')).toBe(0);
     });
 
     it('two claims of one member from two devices pay the earn once (the wallet guard serialises them)', async () => {
