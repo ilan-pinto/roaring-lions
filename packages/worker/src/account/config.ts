@@ -20,6 +20,9 @@ export const TOMB_TTL_S = 7_776_000;
 
 export const NEW_PER_IP = 5;
 export const NEW_ALL = 500;
+/** Day budgets for POST steam/start (it writes an auth_challenge row): per address, and overall. */
+export const START_PER_IP = 50;
+export const START_ALL = 5000;
 export const OPS_PER_MEMBER = 400;
 export const OPS_ALL = 20_000;
 

@@ -17,7 +17,7 @@ import { ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupF
 import { callsignField, kitField, mapField, paceField, seatKindField, seatSpecialsField, seatTiersField, textField } from './room-fields';
 
 /** A size bound on the request bodies of create, join and the advisor ticket (hardening). */
-// largest legitimate body measured 1944 bytes (full brigade claim plus every Store special, GH-1102; was 1737 after demo_tzav, GH-274, and 1698 after heli_yanshuf, GH-698); cap ≈ 1.8×
+// largest legitimate body measured 2358 bytes (full brigade claim plus every Store special, with the nine's tracks, GH-1077; was 1944 before them, GH-1102; was 1737 after demo_tzav, GH-274, and 1698 after heli_yanshuf, GH-698); cap ≈ 1.5× (the cap is unchanged)
 export const MATCH_BODY_MAX_BYTES = 3584;
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
