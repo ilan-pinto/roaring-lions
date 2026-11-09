@@ -1217,7 +1217,7 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'GH-943 P3 T5 Step A (branch 1 held): hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the vehicle frame ' +
           'moves 306 px / 0.0142 on all three fresh-process `visual` readings, bit-identical (ci.yml run 42584225531, attempts 1-3, linux-x64-swiftshader, ' +
           '1400x900, targetTick 140). Floors are a third of the smallest, rounded down (102, 0.0047). `fogged` read 144 px / 0.0068 (< 200 px) and carries no check. ' +
-          'FALSIFICATION: see the PR body (forcing `uOutlineWidth` to 0 in the legacy material, one pushed run, reverted).',
+          'WATCHED GOING RED: forcing the legacy `uOutlineWidth` uniform to 0 (a pushed run, ci.yml 42611764482, commit a11abd304, since reverted) reads 0 px / 0.0000 here, under both floors: FAIL.',
       },
     ],
     rationale:
@@ -1328,7 +1328,7 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'GH-943 P3 T5 Step A (branch 1 held): hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the kitted frame ' +
           'moves 306 px / 0.0142 on all three fresh-process `visual` readings, bit-identical (ci.yml run 42584225531, attempts 1-3, linux-x64-swiftshader, ' +
           '1400x900, targetTick 140). Floors are a third of the smallest, rounded down (102, 0.0047). `fogged` read 144 px / 0.0068 (< 200 px) and carries no check. ' +
-          'FALSIFICATION: see the PR body (forcing `uOutlineWidth` to 0 in the legacy material, one pushed run, reverted).',
+          'WATCHED GOING RED: forcing the legacy `uOutlineWidth` uniform to 0 (a pushed run, ci.yml 42611764482, commit a11abd304, since reverted) reads 0 px / 0.0000 here, under both floors: FAIL.',
       },
     ],
     rationale:
@@ -1455,7 +1455,7 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'GH-943 P3 T5 Step A (branch 1 held): hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the graded frame ' +
           'moves 306 px / 0.0124 on all three fresh-process `visual` readings, bit-identical (ci.yml run 42584225531, attempts 1-3, linux-x64-swiftshader, ' +
           '1400x900, targetTick 140). Floors are a third of the smallest, rounded down (102, 0.0041). `fogged` read 144 px / 0.0068 (< 200 px) and carries no check. ' +
-          'FALSIFICATION: see the PR body (forcing `uOutlineWidth` to 0 in the legacy material, one pushed run, reverted).',
+          'WATCHED GOING RED: forcing the legacy `uOutlineWidth` uniform to 0 (a pushed run, ci.yml 42611764482, commit a11abd304, since reverted) reads 0 px / 0.0000 here, under both floors: FAIL.',
       },
     ],
     rationale:
