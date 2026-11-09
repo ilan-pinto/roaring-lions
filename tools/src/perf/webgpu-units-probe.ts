@@ -65,6 +65,8 @@ const ROOT = path.resolve(TOOLS, '..');
 const KIND = arg('kind', '') as ProbeKind;
 const HW = arg('hw', 'swiftshader');
 const ARMS = arg('arms', 'L,F,G').split(',') as ProbeArm[];
+const FRAME_STEPS_OVERRIDE = arg('frame-steps', ''); // DEBUG ONLY, `n:dtMs`: replaces every moment's frameSteps (never used by CI)
+const QUIET = arg('quiet', 'particles').split(',').filter((l) => l.length > 0); // layers hidden on every unit subject (noise sources)
 const ONLY = arg('only', '').split(',').filter((s) => s.length > 0);
 const OUT = path.resolve(arg('out-dir', ''));
 const VIEWPORT = { width: 1000, height: 640 } as const;
@@ -116,17 +118,52 @@ const PROBE_HELPERS = `(() => {
     },
     // Wait (frames only) until every id holds a real mesh; a GLB fetch needs wall time, hence the sleep.
     meshes: async (ids, vehicle) => {
-      const deadline = performance.now() + 240000;
+      const deadline = performance.now() + 60000;
       for (;;) {
         const missing = ids.filter((id) => (vehicle ? !R.vehicleMeshEntities.has(id) : !(R.meshUnitEntities.get(id) && R.meshUnitEntities.get(id).actions.size > 0)));
         if (missing.length === 0) return ids.length;
         if (performance.now() > deadline) throw new Error('probe: no mesh arrived for ' + missing.join(','));
         if (node) await raf();
+        // A unit spawned mid-mission is SEEDED BY snapshot() (CLAUDE.md); a frame alone never instantiates its mesh.
+        R.snapshot();
         R.frame(1, 100);
         await new Promise((r) => setTimeout(r, 200));
       }
     },
+    // No combat in a unit subject: a fight keeps the infantry's poses changing between two zero-time repaints (a squad firing is not a
+    // fixed frame), so every hostile is taken off the field (\`removeFromPlay\`, the blast harness's own hook) before the setup.
+    peace: () => {
+      let n = 0;
+      for (let e = 0; e < L.sim.entityCount; e++) if (L.sim.state.alive[e] === 1 && L.sim.state.side[e] === 1) { L.sim.removeFromPlay(e); n++; }
+      return n;
+    },
+    // Takes the sandbox's foot squads (except \`keep\`) off the field: two zero-time repaints of a frame with a squad in it differ (its pose
+    // is not a fixed function of the tick and the alpha), so a subject that is not about infantry has none.
+    clearFoot: (keep) => {
+      let n = 0;
+      for (let e = 0; e < L.sim.entityCount; e++) {
+        if (L.sim.state.alive[e] !== 1 || L.sim.state.side[e] !== 0 || keep.includes(e)) continue;
+        const t = L.sim.unitTypes[L.sim.state.typeIdx[e]].id;
+        if (t === 'inf_squad' || t === 'at_team' || t === 'mortar_team') { L.sim.removeFromPlay(e); n++; }
+      }
+      return n;
+    },
+    // The spoil a digger leaves (\`Sim.stampTrail\`): a pre-dug route digs nothing, so the trail is stamped along it, tile by tile, with the
+    // density \`stampTrail\` writes (TRAIL_MAX). A probe instrument on a throwaway sim; nothing reads the page back.
+    stampTrail: (route) => {
+      const len = L.sim.tnLength[route] / F;
+      let n = 0;
+      for (let d = 0; d <= len; d += 0.5) {
+        const p = L.sim.tunnelPointAt(route, Math.round(d * F));
+        const tx = p[0] >> 16, ty = p[1] >> 16;
+        if (tx >= 0 && ty >= 0 && tx < L.sim.width && ty < L.sim.height) { L.sim.trail[ty * L.sim.width + tx] = 255; n++; }
+      }
+      // The trail mesh rebuilds on the renderer's 5 Hz fog cadence (every fourth snapshot).
+      for (let i = 0; i < 4; i++) R.snapshot();
+      return n;
+    },
     // A splash of \`frac\` of each unit's hull on that unit alone (the dev hook the sandbox has), checked: a probe that damaged nothing throws.
+    // Soft targets only: a splash does nothing to a hard hull.
     damage: (ids, frac) => {
       for (const id of ids) {
         const type = L.sim.unitTypes[L.sim.state.typeIdx[id]];
@@ -188,6 +225,18 @@ interface PartialReading {
   notRestored: ReadingArm[];
 }
 
+/** Where a node arm's visible ShaderMaterial objects stand at four points of one moment (the Review Focus 5 triage). */
+interface ShaderDiagnosis {
+  moment: string;
+  arm: ProbeArm;
+  /** After setup, before the backend's census. */
+  beforeCensus: string[];
+  /** Straight after the backend's own census (`nodeBackend.prepare`), no frame yet. */
+  afterCensus: string[];
+  /** After the settle repaints, i.e. the state the photograph sees. */
+  afterRepaint: string[];
+}
+const shaderDiagnoses: ShaderDiagnosis[] = [];
 const readings = new Map<string, PartialReading>();
 const backends: BackendReading[] = [];
 const failures: string[] = [];
@@ -203,7 +252,7 @@ function readingOf(s: ProbeSubject): PartialReading {
 }
 
 /** The scripted-moment tags, replayed by import. A raw statement run is flushed before each tag so the order is the subject's. */
-async function runSetup(page: Page, s: ProbeSubject, arm: ProbeArm): Promise<void> {
+async function runSetup(page: Page, s: ProbeSubject): Promise<void> {
   let raw: string[] = [];
   const flush = async (): Promise<void> => {
     if (raw.length === 0) return;
@@ -241,7 +290,6 @@ async function runSetup(page: Page, s: ProbeSubject, arm: ProbeArm): Promise<voi
     await page.evaluate(`window.__probe.goto(${cx}, ${cy}, ${s.camera.zoom})`);
   }
   await flush();
-  void arm;
 }
 
 /** The E6 beam moment (`e6-captures.ts` `beam_sequence`, acquisition to mid-dwell), through its own exported `PAGE_API`. */
@@ -255,10 +303,11 @@ async function runE6Beam(page: Page): Promise<void> {
   api.clear();
   const carrier = api.spawn('aa_remetz', 0, 4, 3);
   api.spawn('drone_swarm', 1, ${4 + BEAM_GAP_TILES}, 3);
-  const deadline = performance.now() + 240000;
+  const deadline = performance.now() + 60000;
   while (!api.meshReady(carrier) || !api.swarmReady()) {
     if (performance.now() > deadline) throw new Error('e6: the carrier mesh never arrived');
     if (node) await raf();
+    R.snapshot();
     R.frame(1, 100);
     await new Promise((r) => setTimeout(r, 200));
   }
@@ -324,21 +373,40 @@ async function probeMoment(browser: Browser, port: number, arm: ProbeArm, group:
   return L.sim.tickCount;
 })()`);
     await page.evaluate(PROBE_HELPERS);
+    if (KIND === 'units' && !first.setup.some((x) => x.includes('NEEDS_HOSTILE'))) await page.evaluate('window.__probe.peace()');
     await page.evaluate(`window.__lions.renderer.setDebugLayerVisible('rain', false)`);
 
-    await runSetup(page, first, arm);
-    if (first.frameSteps !== undefined) await page.evaluate(stepsScript(first.frameSteps.n, first.frameSteps.dtMs, arm));
+    await runSetup(page, first);
+    const steps = FRAME_STEPS_OVERRIDE === '' ? first.frameSteps : { n: Number(FRAME_STEPS_OVERRIDE.split(':')[0]), dtMs: Number(FRAME_STEPS_OVERRIDE.split(':')[1]) };
+    if (steps !== undefined && steps.n > 0) await page.evaluate(stepsScript(steps.n, steps.dtMs, arm));
+    // The unit subjects measure one layer on a QUIET frame: the ambient dust and exhaust particles are re-emitted by every frame, so two
+    // zero-time repaints differ by them and the delta would contain the noise. Hidden on every arm, for every unit subject.
+    if (KIND === 'units') for (const q of QUIET) if (q !== first.layer) await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(q)}, false)`);
 
     const node = arm !== 'L';
+    const listShaders = async (): Promise<string[]> => (await page.evaluate(`(${String(visibleShaderObjects)})(window.__lions.renderer.scene)`)) as string[];
+    const diag: ShaderDiagnosis = { moment: first.id, arm, beforeCensus: [], afterCensus: [], afterRepaint: [] };
     if (node) {
+      diag.beforeCensus = await listShaders();
       // The backend's OWN census, through its own entry, so a ShaderMaterial object made since boot is hidden as the backend hides it.
       await page.evaluate('window.__lions.renderer.nodeBackend.prepare(window.__lions.renderer.scene, window.__lions.renderer.viewCamera)');
+      diag.afterCensus = await listShaders();
     }
     const rect = (await page.evaluate(() => {
       const r = document.querySelector('canvas')?.getBoundingClientRect();
       return { x: r?.x ?? 0, y: r?.y ?? 0, width: r?.width ?? 0, height: r?.height ?? 0 };
     })) as Rect;
     const grab = async (): Promise<Frame> => toFrame(await page.screenshot({ clip: rect }));
+    const same = (a: Frame, b: Frame): boolean => a.data.length === b.data.length && a.data.every((v, i) => v === b.data[i]);
+    // Settle: the capture protocol's rule (two zero-time repaints byte-identical), a few tries; what never settles is reported by its control.
+    for (let i = 0; i < 6; i++) {
+      await page.evaluate(repaintScript(arm));
+      const a = await grab();
+      await page.evaluate(repaintScript(arm));
+      if (same(a, await grab())) break;
+    }
+    if (node) diag.afterRepaint = await listShaders();
+    if (node) shaderDiagnoses.push(diag);
 
     const phases: ReadingArm[] = arm === 'L' ? ['L', 'Lm'] : [arm];
     for (const phase of phases) {
@@ -352,25 +420,32 @@ async function probeMoment(browser: Browser, port: number, arm: ProbeArm, group:
         await page.evaluate(repaintScript(arm));
         const again = await grab();
         const unstable = unstableMask(base, again);
-        if (phase !== 'Lm') rd.controlPx[arm] = abDelta(base, again, null).changed;
-        if (node && phase === arm) {
-          const names = (await page.evaluate(`(${String(visibleShaderObjects)})(window.__lions.renderer.scene)`)) as string[];
-          rd.visibleShaders[arm as 'F' | 'G'] = names;
+        const region = s.crop === undefined ? undefined : { x: s.crop[0], y: s.crop[1], w: s.crop[2], h: s.crop[3] };
+        if (phase !== 'Lm') rd.controlPx[arm] = abDelta(base, again, null, region).changed;
+        if (phase !== 'Lm' && (rd.controlPx[arm] ?? 0) > 0) {
+          // Where the unsettled pixels are: the bounding box and the frame itself, so the noise's source can be named.
+          let x0 = base.w, y0 = base.h, x1 = -1, y1 = -1;
+          for (let y = 0; y < base.h; y++) for (let x = 0; x < base.w; x++) {
+            const i = (y * base.w + x) * 4;
+            if (base.data[i] !== again.data[i] || base.data[i + 1] !== again.data[i + 1] || base.data[i + 2] !== again.data[i + 2]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+          }
+          console.log(`[units-probe] ${s.id} ${phase} unsettled bbox x ${x0}..${x1}, y ${y0}..${y1}`);
+          writeFrame(again, path.join(OUT, `${fileSafe(s.id)}-${phase}-control-again.png`));
         }
+        if (node && phase === arm) rd.visibleShaders[arm as 'F' | 'G'] = await listShaders();
         const objects = (await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(s.layer)}, false)`)) as number;
         await page.evaluate(repaintScript(arm));
         const hid = await grab();
         await page.evaluate(`window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(s.layer)}, true)`);
         await page.evaluate(repaintScript(arm));
         const back = await grab();
-        const region = s.crop === undefined ? undefined : { x: s.crop[0], y: s.crop[1], w: s.crop[2], h: s.crop[3] };
         const d = abDelta(base, hid, unstable, region);
         rd.deltas[phase] = { meanAbsChannelDelta: d.meanAbs, changedPixels: d.changed };
         rd.objects[phase] = objects;
         if (abDelta(base, back, unstable, region).changed !== 0) rd.notRestored.push(phase);
         writeFrame(base, path.join(OUT, `${fileSafe(s.id)}-${phase}-shown.png`));
         writeFrame(hid, path.join(OUT, `${fileSafe(s.id)}-${phase}-hidden.png`));
-        console.log(`[units-probe] ${s.id} ${phase}: ${s.layer} objects ${objects}, delta ${d.meanAbs.toFixed(4)} (${d.changed} px of ${d.pixels}); control ${rd.controlPx[arm] ?? '-'} px${rd.visibleShaders[arm as 'F' | 'G'] ? `; ${rd.visibleShaders[arm as 'F' | 'G']?.length} visible ShaderMaterial` : ''}`);
+        console.log(`[units-probe] ${s.id} ${phase}: ${s.layer} objects ${objects}, delta ${d.meanAbs.toFixed(4)} (${d.changed} px of ${d.pixels}); control ${rd.controlPx[arm] ?? '-'} px${rd.notRestored.includes(phase) ? '; NOT RESTORED' : ''}${rd.visibleShaders[arm as 'F' | 'G'] ? `; ${rd.visibleShaders[arm as 'F' | 'G']?.length} visible ShaderMaterial` : ''}`);
       }
     }
     const bad = errors.filter((l) => /GPUValidationError|Destroyed texture|uploaded again/i.test(l));
@@ -419,7 +494,7 @@ try {
 
 const final: SubjectReading[] = subjects.map((s) => {
   const r = readingOf(s);
-  return { id: r.id, layer: r.layer, band: r.band, deltas: r.deltas, controlPx: r.controlPx, visibleShaders: r.visibleShaders };
+  return { id: r.id, layer: r.layer, band: r.band, deltas: r.deltas, controlPx: r.controlPx, visibleShaders: r.visibleShaders, hidObjects: r.objects, notRestored: r.notRestored };
 });
 const refusals = [...allRefusals(KIND, subjects, final, backends), ...failures.map((f) => `a moment failed: ${f}`)];
 const conditions = `${KIND}: ${VIEWPORT.width}x${VIEWPORT.height} DPR 1, quality high, music off, reduced motion, hw=${HW}, arms ${ARMS.join(',')}, rain hidden on every arm; L = plain legacy, L-matched = the node census on the legacy scene; ${backends.map((b) => `${b.arm}=${b.backendKind} on ${b.gpu}`).filter((v, i, a) => a.indexOf(v) === i).join('; ')}`;
@@ -442,12 +517,21 @@ const md = [
   '',
   ...[...readings.values()].map((r) => `- ${r.id} (${r.layer}): ${Object.entries(r.objects).map(([k, v]) => `${k} ${v}`).join(', ')}${r.notRestored.length > 0 ? `; NOT RESTORED on ${r.notRestored.join(', ')}` : ''}`),
   '',
+  '## ShaderMaterial triage (Review Focus 5): visible ShaderMaterial objects on a node arm, by point',
+  '',
+  'before = after setup, before the backend census; census = straight after `nodeBackend.prepare`; repaint = after the settle repaints (the photographed state).',
+  '',
+  '| moment | arm | before census | after census | after repaint |',
+  '|---|---|---|---|---|',
+  ...shaderDiagnoses.map((d) => `| ${d.moment} | ${d.arm} | ${d.beforeCensus.length} | ${d.afterCensus.length} | ${d.afterRepaint.length} |`),
+  '',
+  ...shaderDiagnoses.filter((d) => d.afterRepaint.length > 0).flatMap((d) => [`### ${d.moment} (${d.arm}) after repaint`, '', ...[...new Set(d.afterRepaint)].slice(0, 12).map((n) => `- ${n}`), '']),
   '## Refusals',
   '',
   ...(refusals.length === 0 ? ['none'] : refusals.map((r) => `- ${r}`)),
 ];
 writeFileSync(path.join(OUT, `${KIND}-probe.md`), md.join('\n') + '\n');
-writeFileSync(path.join(OUT, `${KIND}-probe.json`), JSON.stringify({ startedAt, kind: KIND, hw: HW, conditions, readings: final, backends, notes, failures, refusals }, null, 2));
+writeFileSync(path.join(OUT, `${KIND}-probe.json`), JSON.stringify({ startedAt, kind: KIND, hw: HW, conditions, readings: final, backends, notes, failures, refusals, shaderDiagnoses }, null, 2));
 console.log(md.join('\n'));
 if (refusals.length > 0) refuse(`${refusals.length} refusal(s); the table above is what was read`);
 process.exit(0);
