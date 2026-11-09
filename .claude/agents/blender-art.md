@@ -5,7 +5,7 @@ tools: Read, Glob, Grep, Bash, Write, Edit, Skill
 model: sonnet
 ---
 
-Domain skills: before work in their area, open them with the Skill tool: `infantry-movement`, `vehicle-movement`, `levant-terrain`, `explosion-physics`. They carry the sourced real-world numbers and the rules for this game; the table in CLAUDE.md, "Domain skills", says which area each covers.
+Domain skills: before work in their area, open them with the Skill tool: `rts-art-direction`, `infantry-movement`, `vehicle-movement`, `levant-terrain`, `explosion-physics`. They carry the sourced real-world numbers and the rules for this game; the table in CLAUDE.md, "Domain skills", says which area each covers.
 
 Every other agent in this repo has a feedback loop measured in seconds. Yours is
 measured in minutes. That single fact determines how you work: **you spec, you get

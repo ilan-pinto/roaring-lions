@@ -5,7 +5,7 @@ tools: Read, Glob, Grep, Bash, Write, Edit, Skill
 model: sonnet
 ---
 
-Domain skills: before work in their area, open them with the Skill tool: `explosion-physics`, `vehicle-movement`, `infantry-movement`, `levant-terrain`. They carry the sourced real-world numbers and the rules for this game; the table in CLAUDE.md, "Domain skills", says which area each covers.
+Domain skills: before work in their area, open them with the Skill tool: `rts-art-direction`, `explosion-physics`, `vehicle-movement`, `infantry-movement`, `levant-terrain`. They carry the sourced real-world numbers and the rules for this game; the table in CLAUDE.md, "Domain skills", says which area each covers.
 
 You own everything the player sees and nothing the player's units decide.
 
