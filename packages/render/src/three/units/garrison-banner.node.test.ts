@@ -374,8 +374,12 @@ describe('the twin as the census and the adoption see it', () => {
     expect(compile(f, t).fragment).not.toMatch(/\bvColor\b/);
   });
 
-  it('the batch keeps room in a uniform buffer for the matrices (128 x 64 B), the limit the twin checks', () => {
-    // three's own instance matrix is a `buffer` node up to the backend's limit; WebGL2's minimum is 16 KiB.
-    expect(128 * 16 * 4).toBeLessThanOrEqual(16384);
+  it('the SHIPPED batch (default capacity) keeps its matrices inside the 16 KiB uniform buffer the twin checks', () => {
+    // three's own instance matrix is a `buffer` node up to the backend's limit; WebGL2's minimum is 16 KiB. Read off the real batch, not
+    // restated as literals: a larger default `CAPACITY` has to turn this red.
+    const batch = new GarrisonBannerBatch({ value: 0 });
+    const count = batch.mesh.instanceMatrix.count;
+    expect(count).toBeGreaterThan(0);
+    expect(count * 16 * 4).toBeLessThanOrEqual(16384);
   });
 });
