@@ -172,11 +172,12 @@ TEAMS = {
     # Meshy pilot f1 (1 Nov 2026): the skinned figure's own 2048 x 2048 bake (retinted olive / dark brown / tan), its
     # texels found by `_coord/inf-meshy-pilot/tools/find_texels.py` (solid 5 x 5 blocks nearest each key; dE 0.4-4.5)
     "inf_squad": Team("inf_squad", ALL, LEADER, ALL, (2048, 2048), {
-        "coyote": (105, 1475),         # dust.5   #806032  dE 4.46
-        "coyote_shade": (795, 540),    # dust.6   #6B4F29  dE 3.17
-        "olive": (1731, 1997),         # olive.2  #4E5433  dE 0.97
-        "olive_dark": (998, 1567),     # olive.3  #333821  dE 1.06
-        "glass": (1468, 1412),         # shadow.0 #23241F  dE 0.36
+        # re-found 9 Nov (round 3) by `tools/inf_kit_texels.py inf_squad` after the vest and sleeve retints
+        "coyote": (449, 208),          # dust.5   #806032  dE 0.06
+        "coyote_shade": (799, 590),    # dust.6   #6B4F29  dE 3.33 (inside the 6.0 cap)
+        "olive": (1680, 987),          # olive.2  #4E5433  dE 0.49
+        "olive_dark": (1740, 125),     # olive.3  #333821  dE 0.75
+        "glass": (1467, 1413),         # shadow.0 #23241F  dE 0.17
     },
                       bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned"), clear_pouches=True, dense_keys=True, flip_deg=120.0,
                       # what the Meshy bake already shows (9 Nov, the step-9 re-fit): a helmet with an NVG shroud and mount
@@ -184,8 +185,10 @@ TEAMS = {
                       # carrier the wraps fit to, as the Demolition squad's do. No deltoid or sleeve armour: a skinned upper
                       # arm is welded to the ribs, so its surface by dominant bone is shoulder AND chest wall, and the arm
                       # wraps came out as flat slabs standing off the shoulder (9 Nov render) -- the lead's ruling for the
-                      # Demolition squad (30 Oct), applied here by the controller, for the lead to confirm
-                      drop=("nvg_mount", "deltoid", "sleeve"), baked_mount=True, helmet_front_trim=60.0, torso_vest_lum=0.15, torso_ring_cap=True),
+                      # Demolition squad (30 Oct), applied here (the lead accepted it for this figure on 9 Nov)
+                      drop=("nvg_mount", "deltoid", "sleeve"), baked_mount=True, helmet_front_trim=60.0, torso_ring_cap=True),
+                      # (no `torso_vest_lum`: since 9 Nov the bake's vest is retinted to the carrier's coyote, so it is no
+                      # longer the near-black texels the wraps used to find it by; the wraps fit the whole spine zone)
     # Demolition squad (GH-826, seven-teams spec 4.3). Two standing figures on the standard rig:
     # demo_a is unarmed (he works the charge), demo_b carries the carbines. The helmets carry a baked NVG
     # shroud and mount, so `nvg_mount` is not added twice. The weapon primitive has no UVs (palette), so

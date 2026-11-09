@@ -86,10 +86,14 @@ ISLAND_FOLLOW_VERTS = 150     # an island smaller than this (not the gun, not a 
 #: The fists and forearms to real size (the review of 9 Nov, the lead's ruling the same day). Meshy sculpted the closed
 #: fists 0.157-0.183 m long and the firing forearm 0.32-0.35 m (elbow to wrist): about 1.4x a gloved fist (~0.115-0.12,
 #: ANSUR II hand length 0.19 closed to ~0.6) and past the 99th percentile forearm (radiale-stylion ~0.153 S, 0.27 at 1.78).
-FIST_SCALE = 0.80             # each fist shrinks about the part of the gun it holds, so it stays closed on it
+FIST_SCALE = {"R": 0.80, "L": 0.86}   # by anatomical side: each fist shrinks about the part of the gun it holds, so it stays
+                              # closed on it. The SUPPORT fist (L) 0.86: at 0.80 it showed in 3 of 8 game-camera facings
+                              # in idle (the lead's real-size bar is 4) and measured 0.134-0.146 long; at 0.86 it is
+                              # 0.144-0.157, inside the 0.115-0.16 band
 FIST_GRIP_REACH_M = 0.05      # the gun vertices within this of the fist's centre are what it holds (the scale's centre)
 FOREARM_F = 0.153             # elbow to wrist as a fraction of stature: the elbow joint is placed there along the forearm
 FOREARM_MOVE_MAX_M = 0.06     # ...and moves at most this far from where the sleeve's bend was measured
+FIRING_FIST_OUT_M = 0.010     # the firing fist stands this far off the grip it was sculpted fused into (review, 9 Nov)
 DEBRIS_GAP_M = 0.03           # a small island this far from everything at rest is Meshy's loose debris: deleted       # a separate shell piece smaller than this near the bore is the gun's (a loop, a buckle)
 ISLAND_NEAR_BORE_M = 0.14     # ...within this of the bore: the stock's rear loop sat 0.10 off it and stayed at the chest in fire
 GUN_L, GUN_C_MAX = (9.0, 28.0), 7.0
@@ -100,7 +104,7 @@ BOOT_C_MIN, BOOT_Z_MAX, BOOT_TOP_M = 25.0, 0.27, 0.20
 KNEE_F, ANKLE_M, BELT_ABOVE_CROTCH = 0.285, 0.09, 0.13
 SHOULDER_Z, SHOULDER_IN = 1.42, 0.055
 WRIST_BACK_M = 0.06           # the wrist crease sits this far behind the closed fist's centre (ANSUR: hand 0.19, fist ~0.11)
-CUFF_BLEND_M = 0.03           # hand -> forearm blend behind the wrist plane
+CUFF_BLEND_M = 0.06           # hand -> forearm blend behind the wrist plane (0.03 tore at the cuff when the support fist rolled round the handguard: review, 9 Nov, N1)
 CUFF_HAND_MAX = 0.45          # the hand's weight at the wrist plane: the cuff stays forearm-dominant
 GUN_NEAR_M = 0.075            # a gun-coloured vertex this close to the bore is the gun
 GUN_BODY_SIDE_M = 0.028       # across the bore toward the torso: past this a vertex is the vest the gun lies on
@@ -226,41 +230,58 @@ def _measure(co, cls, S, seeds):
     return J
 
 
-def _real_size_hands(src, co, cls, J):
-    """Fists to FIST_SCALE about the gun they hold, and each elbow joint placed FOREARM_F x S from its wrist. Geometry of
-    the SOURCE shell (every figure is a scaling of it) and its joints, in place; returns the new coordinates.
-
-    A fist's vertices (the glove blob ahead of the wrist plane, as `_fix_weights` reads it) scale about G, the centroid
-    of the gun-coloured vertices within FIST_GRIP_REACH_M of the fist's centre: the fist closes in on its own grip, so it
-    stays ON the gun (its inner surface goes ~4 mm deeper into a 2 cm grip). The cuff blends from FIST_SCALE at the wrist
-    plane to 1 at CUFF_BLEND_M behind it, so the sleeve meets the smaller glove with no step."""
-    out = co.copy()
+def _real_size_hands(co, cls, J):
+    """The fists to real size, the JOINTS half: each fist's new centre and wrist (FIST_SCALE about the part of the gun it
+    holds), each elbow placed FOREARM_F x S from its wrist, and the scale's pivot kept as J["fist_pivot"]. The geometry is
+    scaled later, per figure, by each vertex's own HAND-bone weight (`_shrink_fists`): a colour mask left glove vertices
+    outside it at full size, and the faces between them tore into slivers once the fist rolled (review, 9 Nov, N1)."""
+    J["fist_pivot"] = {}
     for side in ("R", "L"):
         fist, wr = J["fist"][side], J["wrist"][side]
         d = (fist - wr) / np.linalg.norm(fist - wr)
-        t = (co - wr) @ d
         dist = np.linalg.norm(co - fist, axis=1)
         gm = cls["gun"] & (dist < FIST_GRIP_REACH_M)
-        G = co[gm].mean(0) if gm.sum() >= 8 else fist
-        blob = ((dist < 0.12) & cls["brown"]) | (dist < FIST_CORE_M)
-        blob &= ~(cls["gun"] & (dist < FIST_GRIP_REACH_M + 0.03))
-        k = np.where(t > 0.0, FIST_SCALE, FIST_SCALE + (1.0 - FIST_SCALE) * np.clip(-t / CUFF_BLEND_M, 0.0, 1.0))
-        m = blob & (t > -CUFF_BLEND_M)
-        out[m] = G + (co[m] - G) * k[m, None]
-        old_len = float(np.ptp((co[blob & (t > 0)] - wr) @ d)) if (blob & (t > 0)).any() else 0.0
-        J["fist"][side] = G + (fist - G) * FIST_SCALE
-        J["wrist"][side] = J["fist"][side] - d * WRIST_BACK_M * FIST_SCALE
-        # the elbow: FOREARM_F x S from the new wrist, along the measured forearm
+        G = co[gm].mean(0) if gm.sum() >= 8 else fist.copy()
+        J["fist_pivot"][side] = G
+        J["fist"][side] = G + (fist - G) * FIST_SCALE[side]
+        J["wrist"][side] = J["fist"][side] - d * WRIST_BACK_M * FIST_SCALE[side]
         e0 = J["elbow"][side]; u = (e0 - J["wrist"][side]) / np.linalg.norm(e0 - J["wrist"][side])
         e1 = J["wrist"][side] + u * FOREARM_F * J["S"]
         mv = e1 - e0
         if np.linalg.norm(mv) > FOREARM_MOVE_MAX_M:
             e1 = e0 + mv / np.linalg.norm(mv) * FOREARM_MOVE_MAX_M
         J["elbow"][side] = e1
-        log(f"  real-size hands {side}: fist {int(m.sum())} verts x{FIST_SCALE} about the grip {np.round(G, 3)} "
-            f"(fist depth {old_len:.3f} -> {old_len * FIST_SCALE:.3f} m along the hand); elbow moved {np.linalg.norm(e1 - e0) * 100:.1f} cm, "
+        log(f"  real-size hands {side}: pivot {np.round(G, 3)}; elbow moved {np.linalg.norm(e1 - e0) * 100:.1f} cm, "
             f"forearm {np.linalg.norm(e0 - wr):.3f} -> {np.linalg.norm(e1 - J['wrist'][side]):.3f} m")
-    src.data.vertices.foreach_set("co", out.reshape(-1)); src.data.update()
+
+
+def _shrink_fists(ob, prefix, J, W, names, roles, co):
+    """The fists to real size, the GEOMETRY half: every vertex moves toward its side's pivot by (1 - FIST_SCALE) x its
+    weight on that hand bone, so the rigid fist scales by FIST_SCALE and the cuff's blend scales in proportion: no
+    vertex of a glove is left at full size beside a scaled neighbour. The firing fist then stands FIRING_FIST_OUT_M off the
+    gun's rigid surface it holds (along the gun-to-fist direction): the sculpted grip faces kept on the hand had the
+    gun 16.7-21.4 mm inside the fist (review, 9 Nov). Returns the new coordinates (written to the mesh)."""
+    gi = {n: i for i, n in enumerate(names)}
+    out = co.copy()
+    gun = roles["gun"]
+    for side in ("R", "L"):
+        col = gi.get(f"{prefix}_hand_{RIG_SIDE[side]}")
+        if col is None:
+            continue
+        w = W[:, col]
+        G = J["fist_pivot"][side]
+        k = 1.0 - (1.0 - FIST_SCALE[side]) * w
+        out = out + 0.0
+        out[w > 0] = G + (out[w > 0] - G) * k[w > 0, None]
+        if side == "R" and FIRING_FIST_OUT_M > 0:
+            fist = J["fist"][side]
+            near = gun & (np.linalg.norm(co - fist, axis=1) < 0.08)
+            if near.sum() >= 8:
+                n_ = fist - co[near].mean(0); n_ /= np.linalg.norm(n_)
+                out[w > 0] += np.outer(w[w > 0], n_ * FIRING_FIST_OUT_M)
+                log(f"{prefix}: firing fist stood {FIRING_FIST_OUT_M * 1000:.0f} mm off the gun ({int(near.sum())} gun vertices it holds)")
+        log(f"{prefix}: fist {side} scaled x{FIST_SCALE[side]} by hand weight ({int((w > 0.999).sum())} rigid + {int(((w > 0) & (w < 0.999)).sum())} blended vertices)")
+    ob.data.vertices.foreach_set("co", out.reshape(-1)); ob.data.update()
     return out
 
 
@@ -273,7 +294,7 @@ def _scale_joints(J, sz, sxy):
     for k in ("S", "crotch", "belt", "knee", "ankle", "chin", "neck"):
         out[k] = J[k] * sz
     out["head_xy"] = s(J["head_xy"])
-    for k in ("leg", "ankle_xy", "fist", "shoulder", "elbow", "wrist"):
+    for k in ("leg", "ankle_xy", "fist", "shoulder", "elbow", "wrist") + (("fist_pivot",) if "fist_pivot" in J else ()):
         out[k] = {side: s(v) for side, v in J[k].items()}
     g = J["gun"]
     out["gun"] = dict(butt=s(g["butt"]), muzzle=s(g["muzzle"]))
@@ -1002,7 +1023,9 @@ def _islands_follow_body(part, prefix):
     for t in polys:
         parent[find(t[0])] = find(t[1]); parent[find(t[1])] = find(t[2])
     comp = np.array([find(i) for i in range(n)]); sizes = np.bincount(comp)
-    body = np.nonzero((sizes[comp] >= BODY_ISLAND_VERTS) & ~dom_hand)[0]
+    # the body an island may follow includes the fists: a scrap on a glove that followed the nearest SLEEVE vertex stayed
+    # with the forearm when the fist rolled round the handguard, a sliver between them (review, 9 Nov, N1)
+    body = np.nonzero(sizes[comp] >= BODY_ISLAND_VERTS)[0]
     if len(body) == 0:
         return
     moved = pieces = 0
@@ -1163,12 +1186,23 @@ RETINT = {
     # dark brown, every glove texel (the baked-dark inside of the fist too: with those left out the hand read L* 19-26)
     # (the validator reads the hand's vertex texels ~5 L* under this mask mean: at 34 it read 28-31 and dE 12-15)
     # a brown, not a pink: hue toward yellow (b over a); dE 17.5 to the olive; reads L* 31-33 at the hand's own texels
-    "glove": dict(target=(37.0, 11.0, 18.0), keep=0.25, orange_only=False),
+    # 9 Nov (round 3): the vest is now the carrier's coyote (Lab ~43, 7, 31), 9-13 dE from a (37, 11, 18) glove; a darker,
+    # less yellow dark brown keeps 15+ from the coyote AND from the olive sleeve, inside the L* 30-48 band and the C* cap
+    "glove": dict(target=(34.0, 14.0, 6.0), keep=0.25, orange_only=False),
     "boot": dict(target=(50.0, 12.0, 26.0), keep=0.7, orange_only=True),       # tan leather, from Meshy's orange
     # the CUFFS (the lead's ruling, round 3): the sleeve within CUFF_RETINT_M of a wrist, where Meshy bled the glove's
     # orange, goes to the sleeve's olive, every texel -- so the dark-brown glove reads against an olive sleeve
     "cuff": dict(target=(36.0, -6.0, 14.0), keep=0.3, orange_only=False),
+    # ...and the glove's orange Meshy bled further up the sleeves, ORANGE texels only, to the olive: the salmon streaks
+    # along the forearms (review, 9 Nov), 6-8 cm bands once the fists were real size
+    "sleeve_bleed": dict(target=(36.0, -6.0, 14.0), keep=0.5, orange_only=True),
+    # The baked black plate carrier, toward the kit carrier's coyote (dust.5, #806032) (the lead, 9 Nov): a 2-3 cm kit
+    # carrier over it can never show black through a gap. Texture only, as the glove's; the vest's own pouches and straps
+    # keep part of their variation.
+    "vest": dict(target=None, rgb=(0x80, 0x60, 0x32), keep=0.35, orange_only=False),
 }
+SLEEVE_BLEED_M = 0.30         # the forearm's sleeve: uniform within this of a wrist
+VEST_L_MAX, VEST_C_MAX = 14.0, 8.0   # a vest texel: near-black and neutral (the bake's carrier, its pouches and straps)
 CUFF_RETINT_M = 0.10
 ORANGE_C_MIN, ORANGE_HUE = 18.0, (15.0, 75.0)
 GLOVE_L_CLAMP = (28.0, 46.0)
@@ -1213,7 +1247,8 @@ def _retint(image, src, uv, masks):
             continue
         lab = _lab(px[mask][:, :3].astype(np.float64))
         mean = lab.mean(0)
-        new = np.array(spec["target"]) + spec["keep"] * (lab - mean)
+        target = spec["target"] if spec.get("target") is not None else _lab(np.array([spec["rgb"]], np.float64) / 255.0)[0]
+        new = np.array(target) + spec["keep"] * (lab - mean)
         if name == "glove":
             new[:, 0] = np.clip(new[:, 0], *GLOVE_L_CLAMP)
         rgb = _lab_to_rgb(new)
@@ -1252,7 +1287,7 @@ def build_team(team_id, out_path=None):
     lab, uv = _vertex_lab(src, image)
     cls0 = _classes(co0, lab)
     J0 = _measure(co0, cls0, cfg["stature"], cfg["seeds"])
-    co0 = _real_size_hands(src, co0, cls0, J0)
+    _real_size_hands(co0, cls0, J0)
     g = J0["gun"]
     log(f"{team_id}: joints -- crotch {J0['crotch']:.3f} knee {J0['knee']:.3f} chin {J0['chin']:.3f} head_xy {np.round(J0['head_xy'], 3)}")
     for side in ("R", "L"):
@@ -1295,11 +1330,12 @@ def build_team(team_id, out_path=None):
         Jt = dict(J)   # joints at the figure's slot
         shift = np.array([spec["x"], spec["y"], 0.0])
         Jt["gun"] = dict(J["gun"], butt=J["gun"]["butt"] + shift, muzzle=J["gun"]["muzzle"] + shift, centre=J["gun"]["centre"] + shift)
-        for k in ("fist", "wrist", "elbow", "shoulder"):
+        for k in ("fist", "wrist", "elbow", "shoulder", "fist_pivot"):
             Jt[k] = {s: v + shift for s, v in J[k].items()}
         Jt["leg"] = {s: v + shift[:2] for s, v in J["leg"].items()}
         _auto_weights(shell, arm_obj)
         names, W, roles = _fix_weights(shell, p, Jt, cls0, co)
+        co = _shrink_fists(shell, p, Jt, W, names, roles, co)
         _census(shell, p, W, names)
         cap_idx, cap_cls = _cut_seams(shell, p, Jt, roles, co, uv, cls0)
         # the shell grew: extend the per-vertex arrays the split reads (caps take their side's class)
@@ -1354,11 +1390,23 @@ def build_team(team_id, out_path=None):
         for side_ in ("R", "L"):
             cuff |= np.linalg.norm(co0 - J0["wrist"][side_], axis=1) < CUFF_RETINT_M
         cuff &= ~glove & ~skin & ~gun_mask_f1[:n0]
+        sleeve = np.zeros(n0, bool)
+        for side_ in ("R", "L"):
+            sleeve |= np.linalg.norm(co0 - J0["wrist"][side_], axis=1) < SLEEVE_BLEED_M
+        sleeve &= ~glove & ~skin & ~gun_mask_f1[:n0] & ~cls0["boot"][:n0]
+        # the vest: near-black neutral texels of the trunk between the belt and the shoulders, inside the chest's width,
+        # not the gun, the fists, the skin or the boots
+        sxy0 = (J0["leg"]["R"] + J0["leg"]["L"]) / 2
+        vest = ((cls0["L"][:n0] <= VEST_L_MAX) & (cls0["C"][:n0] < VEST_C_MAX) & (co0[:, 2] > J0["belt"] - 0.06)
+                & (co0[:, 2] < SHOULDER_Z + 0.06) & (np.abs(co0[:, 1] - sxy0[1]) < TORSO_HALF_W)
+                & ~glove & ~skin & ~gun_mask_f1[:n0] & ~cls0["boot"][:n0])
         _retint(image, src_for_uv, uv, {
             "glove": glove,
             "boot": cls0["boot"][:n0] & ~glove & ~skin,
             "uniform": cls0["khaki"][:n0] & ~glove & ~skin & (co0[:, 2] > BOOT_Z_MAX),
             "cuff": cuff,
+            "sleeve_bleed": sleeve,
+            "vest": vest,
         })
     bpy.data.objects.remove(src_for_uv, do_unlink=True)
     rig.export_glb(arm_obj, path, materials=True, jpeg_quality=JPEG_QUALITY)

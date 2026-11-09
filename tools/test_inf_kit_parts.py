@@ -62,7 +62,7 @@ def main():
                 bad.append(f"{tid}: weapon part {p.name} on an unarmed figure")
         if set(team.texels) != set(kp.PALETTE_KEY):
             bad.append(f"{tid}: texel names")
-        if tid != "inf_squad":
+        if True:   # every team, the Rifle Squad included since its atlas is the Meshy bake (9 Nov 2026)
             try:
                 import inf_kit_texels as tx
             except ImportError:
@@ -75,7 +75,10 @@ def main():
                     if found[name]["dE76"] > tx.DE_CAP or abs(found[name]["dHue_deg"]) > tx.HUE_CAP:
                         bad.append(f"{tid}: texel {name} outside the deviation cap")
     kp.use_team("inf_squad")
-    if base_parts != [(p.name, p.figs, p.role) for p in kp.PARTS]:
+    # the Rifle Squad's table is the template less what its own bake shows (since the Meshy figure, 9 Nov 2026: the
+    # helmet's NVG mount, and no deltoid or sleeve armour on a skinned arm)
+    want = [t for t in base_parts if t[0] not in kp.TEAMS["inf_squad"].drop]
+    if want != [(p.name, p.figs, p.role) for p in kp.PARTS]:
         bad.append("use_team('inf_squad') does not restore the Rifle Squad table")
     rig = open(os.path.join(HERE, "units", "rig.py")).read()
     if not re.search(r"from inf_kit_parts import KIT_PART_BONE", rig) or "PART_BONE[_suffix] = _bone" not in rig:
