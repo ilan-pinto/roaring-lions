@@ -207,6 +207,15 @@ describe('the table', () => {
     }
   });
 
+  it('GH-943 P3 (T8): damaged-zone, route and trail are ported subjects, so their L-matched ratio is live, not pre-port', () => {
+    const row = { band: 'tight' as const, node: d(2), legacyMatched: d(2) };
+    for (const id of ['damaged-zone', 'route', 'trail']) {
+      expect(PORTED_PROBE_SUBJECTS.has(id), id).toBe(true);
+      expect(nodeCell(id, row), id).not.toContain('pre-port');
+      expect(nodeCell(id, row), id).toContain('r 1.000 in');
+    }
+  });
+
   it('one line per reading, with the header', () => {
     const t = probeTable([reading(), reading({ id: 't2' })]);
     expect(t).toHaveLength(4);

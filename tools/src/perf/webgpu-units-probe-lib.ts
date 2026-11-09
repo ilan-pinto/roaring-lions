@@ -331,6 +331,10 @@ export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
   'atgm', // missiles: tracer body, halo and core particles
   'beam-swarm', // the beam
   'beam-swarm/swarm', // the rotor blur
+  // GH-943 P3 (T8): the overlay batch with the zone band, the supply route, the tunnel trail.
+  'damaged-zone',
+  'route',
+  'trail',
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------------------------

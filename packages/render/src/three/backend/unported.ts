@@ -48,6 +48,8 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   'rl-selection-ring',
   // GH-943 P3 (T11): the simple FX families (`units/fx.node.ts`, `rim-fade.node.ts`, `beam-batch.node.ts`, `swarm-batch.node.ts`).
   'rl-fx-particle', 'rl-fx-particle-hot', 'rl-fx-tracer', 'rl-fx-mesh', 'rl-smoke-plume', 'rl-collapse-shroud', 'rl-beam', 'rl-swarm-rotors',
+  // GH-943 P3 (T8): the overlay batch, the zone band, the supply route and the tunnel trail.
+  'rl-overlay', 'rl-zone-band', 'rl-supply-route', 'rl-trail',
 ]);
 
 /** `userData` key on a node twin: the terms of its legacy material it does NOT draw (`['rl-ground: wet terms']`). */

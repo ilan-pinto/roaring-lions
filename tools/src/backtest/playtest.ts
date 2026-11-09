@@ -3632,7 +3632,14 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // move by 0.1 to 0.2 min on the seed-424242 run line; the SLOWEST of the 30 seeds moves more, and only because it is one tail seed:
 // Beit Sahwan III 2.9 -> 3.7 min (its clinic at (38,25); with the placement removed the sweep reads 2.9 again) and Khan Rafid III
 // 3.9 -> 2.0 min (the clinic at (22,15) alone gives 2.0; with both placements removed 3.9). Neither tail was traced seed by seed. Every plan still wins 30 of 30, every passive control still loses, no star or gate moved.
-const LADDER_CREDITS = 7007;
+// 2026-11-08, first_contact means the two combat sides meeting (mission.ts `isEnemyFire`/`isEnemyContact`): 7007 -> 6997, -10, read off the
+// printed per-mission credits. Was 7007. Exactly one mission moved: Beit Sahwan Breach 190 -> 180 (stars 2, ROE 100, 30 of 30 wins, 5.0 min and
+// roster out 5 all unchanged). Its two first-contact replies used to fire at tick 400, when a militiaman first spotted a villager; they now
+// fire at tick 608, when the plan's squad first sees the militia, so the south village's ring is committed later in the run. Every other
+// mission's credits line is byte-identical, and so is every star and gate. Khan Rafid III is the one mission whose plan would have lost a star
+// (2 -> 1, ROE 90 -> 66, 1.5 -> 3.4 min, and the star ladder 68 -> 67, which closes the scout_shachaf gate at 29 stars): its rocket team spawned at
+// tick 2 only because of the old rule, so that trigger is now an explicit 0.1 s timer and the mission plays as it did. See docs/agent-notes/mission-findings.md.
+const LADDER_CREDITS = 6997;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

@@ -32,6 +32,8 @@ import type { ParticleMaths } from '../units/fx.node';
 import type { RimFadeMaths } from '../units/rim-fade.node';
 import type { BeamMaths } from '../units/beam-batch.node';
 import type { RotorMaths } from '../units/swarm-batch.node';
+import type { ZoneBandMaths } from '../units/zone-band.node';
+import type { SupplyRouteMaths } from '../supply-route.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -101,8 +103,9 @@ export interface MaterialMaths {
   readonly backdrop: null;
   readonly decal: null;
   readonly overlay: null;
-  readonly zoneBand: null;
-  readonly supplyRoute: null;
+  /** T8: the overlay batch and the trail are passthroughs (no shared maths); the zone band's hatch and the route's dash are values. */
+  readonly zoneBand: ZoneBandMaths;
+  readonly supplyRoute: SupplyRouteMaths;
   readonly trail: null;
   readonly xray: null;
   /** T11: the particle disc's coverage and `HDR_GAINS.sparks` (`units/fx.node.ts`). The tracer and flat-colour FX mesh need no maths. */
