@@ -233,7 +233,7 @@ on `high` only. Any new gain (for example `shockRing: 1.6`) goes in `HDR_GAINS`.
 chunk shows its occlusion outline for a few frames. That is correct.
 
 **Keeping the fight visible (all checked in §4).**
-- No chunk is bigger than 0.35 t (22 px at zoom 1).
+- No chunk is bigger than 0.35 t (16 px at zoom 1).
 - Settled rubble stands no higher than 0.12 t, below an infantryman's knee.
 - Hit dust peaks at alpha 0.55. The outer pressure wave and its skirt stay ≤ 0.35. After 0.6 s every
   presentation dust stays ≤ 0.45, under the smoke screen's 0.72. Dust is not cover in the sim, so it
@@ -298,23 +298,69 @@ debris; real holes; a two-part ring.
 5. **Accept that AO does not see holes** (recommended unless the mock shows a halo), rather than routing
    AO through the hole hook.
 
-**Mocks at game zoom 1** (a tile is 64 x 32 px on the ground; height is about 39 px a tile).
+**Word pictures at game zoom 1.** Scale: a ground distance of one tile spans 45 px along the screen
+(the tile's diamond is 64 x 32 px), and one tile of height spans 39 px. The pixel figures in revision 1
+were computed at 64 px a tile, which is the diamond's width rather than a distance, so every one of them
+was √2 too large. They are corrected here.
 
 A. 82 mm and 155 mm landing 6 tiles apart, at 300 ms:
 ```
    82 mm                                   155 mm
      .  *  .                                 ,(@@@@),       column climbs to ~157 px by 2 s
-   ( ##### )   fireball r 36 px            (@@@@@@@@@@)     fireball r 77 px
- -----O-----   inner ring 128 x 64 px  ::::------O------::::  inner 154 x 77 px (the 2.4 t that hurts)
-  ::     ::    outer 160 x 80, faint   outer pressure wave 246 x 123 px at alpha 0.2 (3.84 t, no damage)
-                                         crater r 61 px, scorch r 92 px; 4 px shake for 360 ms
+   ( ##### )   fireball r 25 px            (@@@@@@@@@@)     fireball r 54 px
+ -----O-----   inner ring 90 x 45 px   ::::------O------::::  inner 109 x 54 px (the 2.4 t that hurts)
+  ::     ::    outer 113 x 57, faint   outer pressure wave 174 x 87 px at alpha 0.2 (3.84 t, no damage)
+                                         crater r 43 px, scorch r 65 px; 4 px shake for 360 ms
 ```
-B. A Lavi's HE round on a house from the east, hit 3 of 6. Three ragged holes on the EAST face, r 19 px,
-the first grown to 24 px. Through them, a near-black interior with the floor catching a sliver of sun.
-Each has a pale masonry lip and a char halo. About 20 chunks of ≤ 22 px each land within 102 px of the
-face, and 6 dust billows (alpha ≤ 0.55) are gone by 3 s. The west face is clean.
+B. A Lavi's HE round on a house from the east, hit 3 of 6. Three ragged holes on the EAST face, r 14 px,
+the first grown to 17 px. Through them is a dark interior. About 20 chunks, each ≤ 16 px, land within
+72 px of the face, and 6 dust billows (alpha ≤ 0.55) are gone by 3 s. The west face is clean.
 
-C. An apartment hit by a 155 round on the roof: a 32 px roof hole and the dark storey below it. At its
-collapse, today's tan shroud swallows the block for 0.84 s while 40 chunks arc out of it, 96-190 px. By
-3 s the shroud is thinning over the wreck, with chunks scattered on the rubble decal, ≤ 5 px tall. At
-90 s they fade into the decal.
+C. An apartment hit on the roof by a 155 round: a 23 px roof hole. At its collapse, today's shroud
+swallows the block for 0.84 s while chunks arc out 68-136 px. By 3 s the chunks lie on the rubble decal,
+≤ 5 px tall. At 90 s they fade into it.
+
+## 6. The mock (9 Nov, after the lead approved the revision-2 numbers)
+
+**Files.** Kept outside the repo, in `/Users/ilpinto/dev/roaring-lions-ep/_coord/gh1197-mock/`, with the
+script `gh1197_mock.py` (one headless Blender 5.2 session, Eevee, 960x640) and `relight.py`. Each frame
+has its raw render and a `_lit` copy.
+
+- **Framing** is the game's at zoom 1: orthographic, elevation 30°, azimuth 45°, a tile at 45 px along
+  the screen. The sun is `SUN_DIRECTION`, and the house is `art/meshes/buildings/house.glb` at
+  `MESH_SCALE`.
+- **Colour.** Every authored colour is a `data/palette.json` key; the house keeps its own Meshy bake.
+- **Noise** is the hand-rolled lattice hash from `bake_flipbook_atlases.py`, never `mathutils.noise`.
+- **Calibration.** The raw renders are 1.4 EV too dark: the sun strength forgot Blender's 1/π. The
+  `_lit` copies take one gamma-correct gain, measured so the bare ground matches `limestone.2`, and the
+  annotation pixels are left alone. **Judge the `_lit` frames.** No second Blender session was run.
+
+| Frame | What it shows (the approved numbers) |
+|---|---|
+| `a_155_blast_early_lit.png` | The 155 at 260 ms: fireball r 1.2 t, inner shock at its 2.4 t reach, the outer wave just leaving it, 36 clods + 18 chunks in flight (throw 2.4 t, apex 3.0 t), scorch r 1.44 t. Dashed reference marks at 2.4 t and 3.84 t |
+| `b_155_blast_3s_lit.png` | 3 s: a column of 14 billows to 4.0 t at alpha 0.42, a skirt of 12 billows out to 3.84 t at alpha 0.3, crater r 0.96 t, scorch r 1.44 t, 54 pieces at rest within 2.4 t |
+| `c1_house_holes_lit.png`, `c1_house_holes_z2_lit.png` | `house.glb` at zoom 1 and 2. A roof hole of 0.5 t (indirect, roof axis), a +X wall hole of 0.3 t, a -Y wall hole of 0.375 t (0.3 grown 25%), 0.6 t deep. Interior = back faces shaded as `limestone.8` mixed 0.6 toward `gunmetal.2`. Lip 0.06 t `limestone.2`, char halo 0.15 t `gunmetal.3` at 0.7 |
+| `c2_house_collapse_lit.png` | Mid-collapse at the 420 ms swap: today's shroud (cover 1.25, spill 1.1 t sideways and 1.0 t up, `dust.1`/`dust.2`/`dust.4`) with the flying chunks, ≤ 0.35 t, thrown 1.5-3.0 t, apex 2-4 t |
+
+**What the mock found** (the reason for a mock), each for the lead:
+
+1. **The 5-lobe sine edge reads as a cartoon star**, at both zooms. Recommended: a hand-rolled fbm edge
+   at ±15% with at least 3 octaves, rather than `sin(5θ)` at ±25%. The numbers are unchanged, only the
+   edge function.
+2. **The `limestone.2` lip reads as a bright outline drawn round each hole.** Recommended: halve it to
+   0.03 t and draw it one key DARKER than the wall (`limestone.4`), or drop it. The char halo hardly
+   shows on the house's dark bake. The dark interior works: through the roof hole the far walls read as
+   a room.
+3. **The approved alpha curve hides the inner ring at its own reach.** A linear fade from 0.6 to 0 over
+   260 ms leaves the ring near alpha 0.05 when it reaches 2.4 t. The still therefore draws it at 0.4, as
+   a composite, and was taken at 260 ms rather than 150 ms (at 150 ms the ease-out ring is at 1.97 t).
+   Recommended: hold alpha 0.6 to 70% of the growth, then fade.
+4. **The outer wave at alpha 0.2 barely reads on light ground in a still.** Judge it in motion before
+   raising it. 0.3 is the most it should take and stay "not damage".
+5. **The skirt's 12 billows read as a necklace of puffs.** Recommended: 20 smaller overlapping billows
+   (the flipbook's soft billows will help in game).
+6. **The house throws 70 chunks.** "40 for a 3x3, scaled by footprint" gives 70 on the house's 15.8 tiles,
+   and the shroud hides most of them. Recommended: cap at 48 a building.
+7. **The fireball is flat spheres in this mock.** The game draws it with the flipbook, so judge its SIZE
+   (54 px) here, not its look.
+8. **AO is not modelled** (Eevee AO off), so the halo question stays open until the P4 capture.
