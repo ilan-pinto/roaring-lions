@@ -587,7 +587,7 @@ export function createMeshSilhouetteMaterial(color: string): THREE.MeshBasicMate
   (material.userData as Record<string, unknown>)[SILHOUETTE_OUTLINE_UNIFORM_KEY] = outlineWidth;
   (material.userData as Record<string, unknown>)[SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY] = depthBias;
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uOutlineWidth = outlineWidth;
+    shader.uniforms.uOutlineWidth = { value: 0 }; // FALSIFICATION (T5 Step A): legacy width forced to 0; revert next commit
     shader.uniforms.uSilhouetteDepthBias = depthBias;
     // three.js's own generated prefix defines `attribute` as `in` under
     // GLSL ES 3.00, so this one declaration is correct on both targets.
