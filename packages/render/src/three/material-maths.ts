@@ -13,11 +13,20 @@ import type { MaterialMaths } from './backend/backend';
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
 import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
 import { foliageLeanOps } from './terrain/wind';
+import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
+import { SELECTION_RING } from './units/readability';
+import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
   ground: null,
   // T6, T7: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
   foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE, disturbSlotPushOps, disturbBendOps, disturbMax: DISTURB_MAX },
-  ring: null,
+  ring: {
+    fragmentOps: ringFragmentOps,
+    outputOps: ringOutputOps,
+    polygonOffsetFactor: DECAL_POLYGON_OFFSET_FACTOR,
+    polygonOffsetUnits: DECAL_POLYGON_OFFSET_UNITS,
+    halfExtraTiles: SELECTION_RING.haloTiles + SELECTION_RING.featherTiles,
+  },
 };

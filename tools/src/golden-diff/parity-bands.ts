@@ -43,6 +43,7 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   // `vehicle` scenario's layer checks. The legacy floors are small and were measured on Metal (25 px / 0.0015 and 15 px / 0.0008), so the band is `ao`.
   { scenario: 'vehicle', layer: 'disturb', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T7: vehicle bend, tick-built capsules, uDisturbAmp by reference' },
   { scenario: 'vehicle', layer: 'wash', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T7: rotor wash flatten and thrash, sim clock' },
+  { scenario: 'vehicle', layer: 'selection-ring', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: the team rings, analytic coverage, no textures' },
   // GH-943 P1 (T5): bloom adds exactly 0 wherever nothing exceeds linear luminance 1.0 (a ZERO check on every quiet gated scenario).
   ...['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'].map(
     (scenario): ParityRow => ({ scenario, layer: 'bloom', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: bloom adds +0 on a frame with nothing over 1.0' })

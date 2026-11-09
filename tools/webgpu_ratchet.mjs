@@ -24,6 +24,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/capture-view.node.ts',
   // GH-943 P2 (T6): the swaying foliage and trunk (the wind). Its legacy twin (terrain/decor-mesh.ts) keeps its splice until P7.
   'packages/render/src/three/terrain/decor-mesh.node.ts',
+  // GH-943 P2 (T5): the selection, team and wound rings. Its legacy twin (units/selection-ring.ts) keeps its GLSL until P8.
+  'packages/render/src/three/units/selection-ring.node.ts',
 ];
 
 /**
@@ -46,6 +48,8 @@ export const TWINS = Object.freeze({
   [`${THREE}terrain/wind.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
   // GH-943 P2 (T7): the disturbers (N2 vehicles, N3 rotor wash) are the same twin's second term; disturb.ts feeds the legacy chunk too.
   [`${THREE}terrain/disturb.ts`]: `${THREE}terrain/decor-mesh.node.ts`,
+  // GH-943 P2 (T5)
+  [`${THREE}units/selection-ring.ts`]: `${THREE}units/selection-ring.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */

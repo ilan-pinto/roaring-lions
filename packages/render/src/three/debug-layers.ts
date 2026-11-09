@@ -545,6 +545,9 @@ export const DEBUG_LAYERS = [
   // disturber build reads every frame (a helicopter takes no slot while hidden), so a repaint cannot undo it, and the vehicles'
   // `disturb` bend stays. The dust ring is not this layer's. Witnessed by the gated `vehicle` scenario's layer check.
   'wash',
+  // GH-943 P2 (T5): the ground rings only (selection, team, wound), on both paths. The GROUP is hidden, never a mesh: `endFrame` rewrites each
+  // mesh's `visible` every frame. Witnessed by the gated `vehicle` scenario's layer check (its own team rings).
+  'selection-ring',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

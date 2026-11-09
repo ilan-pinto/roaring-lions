@@ -11,7 +11,7 @@
 // that the grenades ignore part of the cover bonus; Phase 3 added the `cover_ignore` weapon
 // field, retuned the staged grenadier (gl_40 cover_ignore 0.75, suppression 120 -> 300), and
 // re-froze probe 9's bands from that run (numbers.md, "Phase 3"). The claim now MEETS.
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   clusterClaims,
   clusterTable,
@@ -29,6 +29,14 @@ import {
   OBSERVERS,
   q11Note,
   stagedUnit,
+  NINE,
+  attackerFor,
+  main,
+  parseSwitches,
+  statsOf,
+  trackClaims,
+  trackRow,
+  trackTable,
   TANK_MODES,
   tunnelClaims,
   tunnelTable,
@@ -348,5 +356,110 @@ describe('SU probe 11: spg_cluster, the lead\'s four claims (E3)', () => {
 describe('SU probes: deferred units', () => {
   it('lists exactly the three that need E1 (units 4 and 11 are measured now, Phase 7)', () => {
     expect(DEFERRED.map((d) => d.unit).sort()).toEqual(['air_medevac_heli', 'inf_medic_squad', 'veh_ambulance'].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GH-1144: the --max-tier switch and probe 12 (the nine bought-only units' tracks at max tier, REPORT ONLY).
+// ---------------------------------------------------------------------------
+describe('GH-1144: the --max-tier switch', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = 0;
+  });
+
+  it('parses --max-tier, defaults to off, and throws on anything else (a switch must never be silently ignored)', () => {
+    expect(parseSwitches([])).toEqual({ maxTier: false });
+    expect(parseSwitches(['--max-tier'])).toEqual({ maxTier: true });
+    expect(parseSwitches(['--', '--max-tier']), 'pnpm passes its own -- through').toEqual({ maxTier: true });
+    expect(() => parseSwitches(['--max-teir'])).toThrow(/unknown switch "--max-teir"/);
+    expect(() => parseSwitches(['--max-tier', '--seeds=9'])).toThrow(/unknown switch/);
+  });
+
+  it('bakes every one of the nine at a higher hp and a different unit; a unit with no track is returned as it is', () => {
+    expect(NINE).toHaveLength(9);
+    for (const id of NINE) {
+      const base = stagedUnit(id);
+      // Snapshotted BEFORE the max-tier call: a landed unit is the registered object itself, so a bake that leaked into it in place would
+      // change `base` too, and a lazy `JSON.stringify(base)` taken afterwards would still equal the leaked default.
+      const baseJson = JSON.stringify(base);
+      const baseHp = statsOf(base).hp;
+      const max = stagedUnit(id, { maxTier: true });
+      expect(JSON.stringify(max), `${id}: --max-tier changed nothing`).not.toBe(baseJson);
+      expect(statsOf(max).hp, `${id} hp at max tier`).toBeGreaterThan(baseHp);
+      expect(JSON.stringify(stagedUnit(id)), `${id}: the default is untouched`).toBe(baseJson);
+    }
+    expect(JSON.stringify(stagedUnit('sarim_rifles', { maxTier: true }))).toBe(JSON.stringify(stagedUnit('sarim_rifles')));
+  });
+
+  it('reaches the probes: the CLI with --max-tier prints its header and a different camo-Lavi row, and fails nothing it did not before', () => {
+    const lines = (argv: string[]): { out: string[]; fails: string[] } => {
+      const out: string[] = [];
+      vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => void out.push(a.join(' ')));
+      const fails = main(argv);
+      vi.restoreAllMocks();
+      return { out, fails };
+    };
+    const plain = lines([]);
+    const max = lines(['--max-tier']);
+    expect(plain.out.some((l) => l.includes('MAX TIER'))).toBe(false);
+    expect(max.out.some((l) => l.includes('su probes at MAX TIER'))).toBe(true);
+    const camoRows = (o: string[]) => o.filter((l) => /^\S+\s+\S+\s+mbt_lavi_camo\s/.test(l));
+    expect(camoRows(plain.out).length).toBeGreaterThan(0);
+    expect(camoRows(max.out), 'the probe-1 camo rows are the same with and without the switch: it was ignored').not.toEqual(camoRows(plain.out));
+    expect(plain.fails).toEqual([]);
+    expect(max.fails).toEqual([]);
+  }, 120_000);
+});
+
+describe('SU probe 12 (GH-1144): the nine at max tier against base, report only', () => {
+  const rows = trackTable(NINE); // the CLI's own seed count: 8 seeds cannot separate the camo Lavi's gun (1131.25 both tiers)
+  const claims = trackClaims(rows);
+
+  it('has a row for each of the nine, with the staged tracks and an attacker read from the unit\'s data', () => {
+    expect(rows.map((r) => r.id)).toEqual([...NINE]);
+    for (const r of rows) {
+      expect(r.tracks, r.id).toEqual(expect.arrayContaining(['armour', 'sensors']));
+      expect(r.stats.max.hp).toBeGreaterThan(r.stats.base.hp);
+    }
+    const attacker = (id: string) => rows.find((r) => r.id === id)?.attacker;
+    expect(attacker('air_medevac_heli')).toBe('manpad_team'); // air domain
+    expect(attacker('inf_medic_squad')).toBe('gun_truck'); // soft hull
+    expect(attacker('mbt_lavi_camo')).toBe('atgm_cell'); // hard hull
+    expect(attackerFor(stagedUnit('veh_ambulance'))).toBe('atgm_cell');
+  });
+
+  it('the three armed units with a firepower track deal more damage at max tier, and no other unit has a fire reading', () => {
+    for (const r of rows) {
+      if (['at_nlos_team', 'inf_grenadier', 'mbt_lavi_camo'].includes(r.id)) {
+        expect(r.fire, r.id).not.toBeNull();
+        expect(r.fire!.max, `${r.id} firepower`).toBeGreaterThan(r.fire!.base);
+      } else expect(r.fire, r.id).toBeNull();
+    }
+  });
+
+  it('reports claims but never fails the run: the misses are printed and the CLI returns no failures', () => {
+    expect(claims.length).toBeGreaterThan(40);
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => void out.push(a.join(' ')));
+    const fails = main(['--max-tier']);
+    vi.restoreAllMocks();
+    process.exitCode = 0;
+    expect(out.some((l) => l.startsWith('probe 12 (report only, never fails the run)'))).toBe(true);
+    expect(fails.filter((f) => /probe 12|armour gain|sensors gain|firepower gain/.test(f))).toEqual([]);
+    expect(fails).toEqual([]);
+  }, 120_000);
+
+  it('can see a bad track: a worse hull, blinder sensors and a crippled gun each produce a miss', () => {
+    type Editable = { hull: { hp: number }; sensors: { sight_tiles: number; optics: number }; weapons: { accuracy: number }[] };
+    const worse = (id: string, edit: (j: Editable) => void) => {
+      const base = stagedUnit(id);
+      const max = JSON.parse(JSON.stringify(stagedUnit(id, { maxTier: true }))) as typeof base;
+      edit(max as unknown as Editable);
+      return trackClaims([trackRow(id, base, max, 8)]).filter((c) => !c.ok).map((c) => c.claim);
+    };
+    expect(worse('spg_long_range', (j) => { j.hull.hp = 700; }), 'a howitzer with HALF its hp').toContain('tracks apply');
+    expect(worse('ugv_recon_dog', (j) => { j.sensors.sight_tiles = 2; j.sensors.optics = 0.2; }), 'a dog that can barely see').toContain('sensors 10t');
+    expect(worse('at_nlos_team', (j) => { j.weapons[0].accuracy = 0.001; }), 'an NLOS gun that cannot hit').toContain('firepower');
   });
 });
