@@ -17,7 +17,8 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { buildDecorMesh, type SwayUniforms, type SwayingFoliageMaterial } from './decor-mesh';
 import { makeWindUniforms } from './wind-uniforms';
-import { createFoliageTwinFactory, nodeFoliageBindings, FOLIAGE_UNPORTED_TERMS, type FoliageBindings } from './decor-mesh.node';
+import { makeDisturbUniforms } from './disturb-uniforms';
+import { createFoliageTwinFactory, nodeDisturbBindings, nodeFoliageBindings, type DisturbBindings, type FoliageBindings } from './decor-mesh.node';
 import { MATERIAL_MATHS } from '../material-maths';
 import { UNPORTED_TERMS_KEY, censusUnported } from '../backend/unported';
 import { legacyTwinSlot } from '../node-material-adoption';
@@ -35,12 +36,14 @@ interface Fixture {
 }
 
 /** A foliage (or trunk) batch as the renderer builds it, two instances off the origin, and the twin the backend's factory makes. */
-async function fixture(opts: { wet?: boolean; role?: 'foliage' | 'trunk' } = {}): Promise<Fixture> {
+async function fixture(opts: { wet?: boolean; role?: 'foliage' | 'trunk'; slots?: number } = {}): Promise<Fixture> {
   const W = await import('three/webgpu');
   const TSL = await import('three/tsl');
   const role = opts.role ?? 'foliage';
   const parts = new Map([['tree_0', [{ role, geometry: new THREE.BoxGeometry() }]]]);
-  const sway: SwayUniforms = { time: { value: 3.25 }, amp: { value: 1 }, wind: makeWindUniforms() };
+  const disturb = makeDisturbUniforms();
+  if (opts.slots !== undefined) disturb.slots = opts.slots;
+  const sway: SwayUniforms = { time: { value: 3.25 }, amp: { value: 1 }, wind: makeWindUniforms(), disturb };
   const group = buildDecorMesh(
     [
       { family: 'tree', variant: 0, x: 4.5, z: 7.25, y: 0.5, yawTurns: 0.125, scale: 1.2 },
@@ -65,6 +68,8 @@ async function fixture(opts: { wet?: boolean; role?: 'foliage' | 'trunk' } = {})
 interface Built {
   readonly vertex: string;
   readonly used: ReadonlySet<unknown>;
+  /** The program's name for each uniform node. */
+  readonly names: ReadonlyMap<unknown, string>;
 }
 
 /** The vertex program three builds for `material` drawing `mesh`. */
@@ -75,13 +80,17 @@ function compile(f: Fixture, material: THREE.Material): Built {
     material: unknown;
     build(): void;
     vertexShader: string;
-    uniforms: { vertex: Array<{ node: unknown }> };
+    uniforms: { vertex: Array<{ node: unknown; name: string }> };
   };
   builder.scene = new THREE.Scene();
   builder.camera = new THREE.OrthographicCamera();
   builder.material = material;
   builder.build();
-  return { vertex: builder.vertexShader, used: new Set(builder.uniforms.vertex.map((u) => u.node)) };
+  return {
+    vertex: builder.vertexShader,
+    used: new Set(builder.uniforms.vertex.map((u) => u.node)),
+    names: new Map(builder.uniforms.vertex.map((u) => [u.node, u.name])),
+  };
 }
 
 const mainOf = (src: string): string => src.slice(src.indexOf('void main()'));
@@ -231,19 +240,19 @@ describe('the record drives the twin (the legacy objects, by reference)', () => 
 });
 
 describe('the twin as the census and the adoption see it', () => {
-  it('is a node material named rl-node-material-*, never taken for a legacy foliage material, and declares the disturbers it does not draw', async () => {
+  it('is a node material named rl-node-material-*, never taken for a legacy foliage material, and, with the disturbers drawn (T7), declares no unported term', async () => {
     const f = await fixture();
     expect(f.twin.name).toBe('rl-node-material-foliage-sway');
     expect(legacyTwinSlot(f.legacy)).toBe('foliage');
     expect(legacyTwinSlot(f.twin)).toBeNull();
-    expect((f.twin.userData as Record<string, unknown>)[UNPORTED_TERMS_KEY]).toEqual(['rl-foliage-sway: disturb']);
-    expect(FOLIAGE_UNPORTED_TERMS).toEqual(['rl-foliage-sway: disturb']);
+    // Falsify: put `userData[UNPORTED_TERMS_KEY] = ['rl-foliage-sway: disturb']` back on the twin.
+    expect((f.twin.userData as Record<string, unknown>)[UNPORTED_TERMS_KEY]).toBeUndefined();
     // The legacy material never carries the twin's terms.
     expect((f.legacy.userData as Record<string, unknown>)[UNPORTED_TERMS_KEY]).toBeUndefined();
     const root = new THREE.Group();
     f.mesh.material = f.twin;
     root.add(f.mesh);
-    expect(censusUnported(root)).toEqual([{ kind: 'partial', key: 'rl-foliage-sway: disturb', objects: 1 }]);
+    expect(censusUnported(root)).toEqual([]);
   });
 
   it('carries the ramp look of its legacy material: the colour (shared), roughness, metalness, and is a standard material for the env registry', async () => {
@@ -277,5 +286,177 @@ describe('the twin as the census and the adoption see it', () => {
     expect(wet).toContain('( 3.0 - 1.0 )');
     expect(dry).not.toContain('( 3.0 - 1.0 )');
     expect(wet).toContain('* 2.2 )');
+  });
+});
+
+describe('the disturbers (T7), compiled into the twin', () => {
+  /** The slot loop's text: from its `for` to the matching close of the loop body. */
+  const loopOf = (main: string): string => {
+    const at = main.indexOf('for ( int i = 0;');
+    if (at < 0) return '';
+    let depth = 0;
+    for (let k = main.indexOf('{', at); k < main.length; k++) {
+      if (main[k] === '{') depth++;
+      if (main[k] === '}' && --depth === 0) return main.slice(at, k + 1);
+    }
+    return '';
+  };
+  const bound = (main: string): number | null => {
+    const m = /for \( int i = 0; i < (\d+); i \+\+ \)/.exec(main);
+    return m === null ? null : Number(m[1]);
+  };
+
+  it('the preset\'s slot budget compiles into the loop bound: 24, 16 and 8', async () => {
+    // Falsify: hard-code `DISTURB_MAX` as the bound in `createNodeFoliageMaterial` (the 16 and 8 specs go red).
+    for (const slots of [24, 16, 8]) {
+      const f = await fixture({ slots });
+      expect(bound(mainOf(compile(f, f.twin).vertex)), `slots ${slots}`).toBe(slots);
+    }
+  });
+
+  it('a zero-slot preset compiles no loop at all', async () => {
+    const f = await fixture({ slots: 0 });
+    expect(mainOf(compile(f, f.twin).vertex)).not.toContain('for ( int i');
+  });
+
+  it('the loop breaks at the live count and sits inside the count, layer and bounding-box early-outs', async () => {
+    // Falsify: drop `.and(inZ)` (the box spec goes red) / the `Break` (the count spec goes red).
+    const f = await fixture({ slots: 24 });
+    const main = mainOf(compile(f, f.twin).vertex);
+    const loopAt = main.indexOf('for ( int i');
+    const head = main.slice(main.lastIndexOf('if (', loopAt - 1), loopAt);
+    // count x layer > 0.5, then x in (box.x, box.z) and z in (box.y, box.w).
+    expect(head).toMatch(/\( nodeUniform\d+ \* nodeUniform\d+ \) > 0\.5/);
+    for (const edge of ['x > nodeUniform\\d+\\.x', 'x < nodeUniform\\d+\\.z', 'z > nodeUniform\\d+\\.y', 'z < nodeUniform\\d+\\.w']) {
+      expect(head, edge).toMatch(new RegExp(edge.replace(/\\\\/g, '\\')));
+    }
+    expect(main.slice(loopAt)).toMatch(/if \( \( float\( i \) >= nodeUniform\d+ \) \) \{\s*break;/);
+  });
+
+  it('the loop SUMS the pushes as signed vectors (an accumulator per push component, no magnitude)', async () => {
+    // Falsify: `px.addAssign(T.abs(p.px))` -> the abs spec goes red.
+    const f = await fixture({ slots: 24 });
+    const body = loopOf(mainOf(compile(f, f.twin).vertex));
+    expect(body).toMatch(/(nodeVar\d+) = \( \1 \+ \(/);
+    const sums = [...body.matchAll(/(nodeVar\d+) = \( \1 \+ /g)];
+    expect(sums.length).toBe(3); // px, pz, wash
+    expect(body).not.toMatch(/abs\(/);
+  });
+
+  it('the rest-pose programs (shadow, AO override) carry no disturbers', async () => {
+    const f = await fixture();
+    expect(mainOf(compile(f, f.twin).vertex)).toContain('for ( int i'); // anti-vacuity
+    const shadow = new f.W.NodeMaterial() as unknown as THREE.Material & { isShadowPassMaterial: boolean; positionNode: unknown };
+    shadow.isShadowPassMaterial = true;
+    shadow.positionNode = f.twin.positionNode;
+    const picked = (f.renderer as unknown as { _getShadowNodes(m: THREE.Material): { positionNode: unknown } })._getShadowNodes(f.twin);
+    if (picked.positionNode !== null) shadow.positionNode = picked.positionNode;
+    expect(mainOf(compile(f, shadow).vertex)).not.toContain('for ( int i');
+    const TSL = await import('three/tsl');
+    const normal = new f.W.NodeMaterial() as THREE.Material & { fragmentNode: unknown; positionNode: unknown };
+    normal.name = 'rl-node-ao-normal';
+    normal.fragmentNode = TSL.vec4(TSL.normalView, 1);
+    normal.positionNode = f.twin.positionNode;
+    expect(mainOf(compile(f, normal).vertex)).not.toContain('for ( int i');
+  });
+
+  it('every disturbance node reaches the program, and the four twins of one record share them', async () => {
+    const f = await fixture();
+    const d = nodeDisturbBindings(f.twin);
+    if (d === null) throw new Error('spec: no disturbance bindings');
+    const { used } = compile(f, f.twin);
+    for (const name of ['uDisturbBox', 'uDisturbN', 'uDisturbAmp', 'uDisturbSpring'] as const) {
+      expect(used.has(d[name]), `${name} is bound but the program never reads it`).toBe(true);
+    }
+    // The slot arrays are buffers; the program indexes them.
+    expect(mainOf(compile(f, f.twin).vertex)).toMatch(/buffer\d+\[ i \]\.x/);
+    const wet = await fixture({ wet: true });
+    expect(nodeDisturbBindings(wet.twin)).not.toBe(d); // a different record is a different set...
+    const make = createFoliageTwinFactory({ W: f.W, TSL: await import('three/tsl'), maths: MATERIAL_MATHS.foliage });
+    expect(nodeDisturbBindings(make(f.legacy))).toBe(d); // ...and the same record is one set
+  });
+
+  it('the slot arrays copy the record\'s flat arrays on the render update (the record points at the field AFTER the twin exists)', async () => {
+    // Falsify: drop the `onRenderUpdate` of `uDisturbA` (red: the twin keeps zeros).
+    const f = await fixture();
+    const d = nodeDisturbBindings(f.twin) as DisturbBindings;
+    const rec = f.legacy.rlSway.disturb;
+    rec.a.value = new Float32Array(96).map((_, k) => k + 0.5);
+    rec.b.value = new Float32Array(72).map((_, k) => k + 0.25);
+    for (const n of [d.uDisturbA, d.uDisturbB]) {
+      const node = n as unknown as { value: unknown; update(): void; array: unknown[] };
+      node.value = new Float32Array(node.array.length * 4);
+      node.update();
+    }
+    expect([d.uDisturbA.array[2].x, d.uDisturbA.array[2].w]).toEqual([8.5, 11.5]);
+    expect([d.uDisturbB.array[5].x, d.uDisturbB.array[5].z]).toEqual([15.25, 17.25]);
+    // ...and the buffer three uploads is the same numbers, padded to vec4 (b: 3 floats + 1 pad).
+    const buf = (d.uDisturbB as unknown as { value: Float32Array }).value;
+    expect(Array.from(buf.subarray(20, 23))).toEqual([15.25, 16.25, 17.25]);
+  });
+});
+
+describe('graph wiring, per input, on program text (ruling R12)', () => {
+  // The twin's position graph assembles the wind's and the bend's inputs from the batched position, the instance origin, rlNature and the
+  // record. The field maths is gated on numbers; THESE gates pin which program value each input is read from. Each names its mutation.
+  const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  async function program(): Promise<{ main: string; rest: string; origin: string; nat: string; time: string; spring: string; dir: string; disturb: string }> {
+    const f = await fixture({ slots: 8 });
+    const built = compile(f, f.twin);
+    const main = mainOf(built.vertex);
+    const d = nodeDisturbBindings(f.twin) as DisturbBindings;
+    const name = (n: unknown): string => built.names.get(n) as string;
+    const rest = /(nodeVar\d+) = \( nodeUniform\d+ \* vec4\( positionLocal, 1\.0 \) \)\.xyz;/.exec(main)?.[1];
+    const origin = /(nodeVar\d+) = \( nodeUniform\d+ \* vec4\( nodeVar\d+\.xyz, 1\.0 \) \)\.xyz;/.exec(main)?.[1];
+    const nat = /(nodeVar\d+) = rlNature;/.exec(main)?.[1];
+    if (rest === undefined || origin === undefined || nat === undefined) throw new Error('spec: the program no longer has the rest/origin/nature vars');
+    // The disturber section: from the loop to the end of the block that holds it.
+    const at = main.indexOf('for ( int i');
+    const open = main.lastIndexOf('if (', at);
+    let depth = 0;
+    let end = at;
+    for (let k = main.indexOf('{', open); k < main.length; k++) {
+      if (main[k] === '{') depth++;
+      if (main[k] === '}' && --depth === 0) {
+        end = k;
+        break;
+      }
+    }
+    return { main, rest, origin, nat, time: name(f.bound.uSwayTime), spring: name(d.uDisturbSpring), dir: name(f.bound.uWindDir), disturb: main.slice(open, end) };
+  }
+
+  it('the bend subtracts the instance origin on all three axes from the REST position', async () => {
+    // Falsify: relH = restWorld.y (no origin y) / relX = restWorld.x (no origin x) / relZ without origin z.
+    const p = await program();
+    for (const axis of ['x', 'y', 'z']) expect(p.disturb, axis).toContain(`( ${p.rest}.${axis} - ${p.origin}.${axis} )`);
+  });
+
+  it('the bend reads class from rlNature.y and the height lane from rlNature.x, in that order', async () => {
+    // Falsify: cls = v.nature.x (swapped lanes).
+    const p = await program();
+    expect(p.disturb).toContain(`${p.nat}.y < 0.5`);
+    expect(p.disturb).toContain(`clamp( ${p.nat}.x, 0.0, 1.0 )`);
+    expect(p.disturb).not.toContain(`${p.nat}.x < 0.5`);
+    expect(p.disturb).not.toContain(`clamp( ${p.nat}.y, 0.0, 1.0 )`);
+  });
+
+  it('the thrash runs on the sim clock uniform and is scaled by the spring uniform', async () => {
+    // Falsify: tSec = float(0) / spring = float(1) in the bend call.
+    const p = await program();
+    expect(p.disturb).toContain(`( ${p.time} / 0.4 )`);
+    expect(p.disturb).toMatch(new RegExp(`sin\\([^\\n]*\\) \\* ${esc(p.spring)} \\);`));
+    expect(p.disturb).not.toMatch(/\* 1\.0 \);/);
+  });
+
+  it('the wind: worldH is the rest height over the ORIGIN, hN and class are the nature lanes, the heading feeds the gust phase as (x, z)', async () => {
+    // Falsify (T6's gaps): worldH = restWorld.y (no origin) / hN: v.nature.y / cls: v.nature.x / dirX: uWindDir.y or dirZ: uWindDir.x.
+    const p = await program();
+    expect(p.main).toMatch(new RegExp(`= \\( \\( ${esc(p.rest)}\\.y - ${esc(p.origin)}\\.y \\) / [0-9.]+ \\);`));
+    expect(p.main).toContain(`= ${p.nat}.x;`);
+    expect(p.main).not.toContain(`= ${p.nat}.y;`);
+    expect(p.main).toContain(`${p.nat}.y < 0.5`);
+    expect(p.main).not.toContain(`${p.nat}.x < 0.5`);
+    expect(p.main).toContain(`( ( ${p.origin}.x * ${p.dir}.x ) + ( ${p.origin}.z * ${p.dir}.y ) )`);
   });
 });

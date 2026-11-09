@@ -22,6 +22,11 @@ export interface DisturbUniformSet {
   readonly amp: { value: number };
   /** 1 plays the spring; 0 (reduced motion) a monotone fall: a static displacement. */
   readonly spring: { value: number };
+  /**
+   * The preset's slot budget (`NatureQuality.slots`): the node twin compiles it into the loop bound. The legacy program loops to
+   * `DISTURB_MAX` and breaks at `n`, which is the same draw (`n` never exceeds this). Set once, before any twin is built.
+   */
+  slots: number;
 }
 
 /** A set bound to a `DisturbField`'s arrays, count 0 until the first frame fills it. */
@@ -33,6 +38,7 @@ export function makeDisturbUniforms(a?: Float32Array, b?: Float32Array): Disturb
     n: { value: 0 },
     amp: { value: 1 },
     spring: { value: 1 },
+    slots: DISTURB_MAX,
   };
 }
 

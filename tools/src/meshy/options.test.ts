@@ -5,7 +5,13 @@ import {
   asTaskKind,
   asTextureResolution,
   asTopology,
+  assertModelPairing,
   assertPolycountInRange,
+  assertTopologyForModel,
+  defaultAiModel,
+  MODEL_TYPES,
+  SMART_TOPOLOGY_AI_MODELS,
+  STANDARD_AI_MODELS,
   assertPromptLength,
   defaultPolycount,
   parseTargetFormats,
@@ -14,13 +20,20 @@ import {
 } from './options';
 
 describe('polycountRange / assertPolycountInRange', () => {
-  it('is 100-300000 for standard and lowpoly', () => {
+  it('is 100-300000 for standard', () => {
     expect(polycountRange('standard')).toEqual({ min: 100, max: 300000 });
-    expect(polycountRange('lowpoly')).toEqual({ min: 100, max: 300000 });
+    expect(polycountRange('standard', 'meshy-6-lite')).toEqual({ min: 100, max: 300000 });
   });
 
-  it('is 100-15000 for smart-topology', () => {
+  it('is 100-15000 for smart-topology with no model named, and for meshy-t2', () => {
     expect(polycountRange('smart-topology')).toEqual({ min: 100, max: 15000 });
+    expect(polycountRange('smart-topology', 'meshy-t2')).toEqual({ min: 100, max: 15000 });
+  });
+
+  it('is 100-30000 for meshy-t2.5', () => {
+    expect(polycountRange('smart-topology', 'meshy-t2.5')).toEqual({ min: 100, max: 30000 });
+    expect(() => assertPolycountInRange(30000, 'smart-topology', 'meshy-t2.5')).not.toThrow();
+    expect(() => assertPolycountInRange(30001, 'smart-topology', 'meshy-t2.5')).toThrow(/out of range/);
   });
 
   it('accepts the documented boundaries', () => {
@@ -48,9 +61,45 @@ describe('polycountRange / assertPolycountInRange', () => {
 
 describe('defaultPolycount', () => {
   it('is inside range for every model type', () => {
-    for (const mt of ['standard', 'smart-topology', 'lowpoly'] as const) {
+    for (const mt of MODEL_TYPES) {
       expect(() => assertPolycountInRange(defaultPolycount(mt), mt)).not.toThrow();
+      expect(() => assertPolycountInRange(defaultPolycount(mt), mt, defaultAiModel(mt))).not.toThrow();
     }
+  });
+});
+
+describe('the model lists (pricing and text-to-3d pages, 2026-11-09)', () => {
+  it('has no retired lowpoly model type', () => {
+    expect(MODEL_TYPES).toEqual(['standard', 'smart-topology']);
+    expect(() => asModelType('lowpoly')).toThrow(/model-type/);
+  });
+
+  it('accepts every current ai_model id', () => {
+    for (const m of ['meshy-6-lite', 'meshy-6', 'meshy-7.1', 'meshy-7', 'latest', 'meshy-t2', 'meshy-t2.5']) {
+      expect(asAiModel(m)).toBe(m);
+    }
+  });
+
+  it('pairs each model with exactly one model type', () => {
+    for (const m of STANDARD_AI_MODELS) {
+      expect(() => assertModelPairing('standard', m)).not.toThrow();
+      expect(() => assertModelPairing('smart-topology', m)).toThrow(/not a smart-topology model/);
+    }
+    for (const m of SMART_TOPOLOGY_AI_MODELS) {
+      expect(() => assertModelPairing('smart-topology', m)).not.toThrow();
+      expect(() => assertModelPairing('standard', m)).toThrow(/not a standard model/);
+    }
+  });
+
+  it('defaults each model type to a model of its own', () => {
+    expect(defaultAiModel('standard')).toBe('meshy-6');
+    expect(defaultAiModel('smart-topology')).toBe('meshy-t2.5');
+  });
+
+  it('refuses quad under smart-topology only', () => {
+    expect(() => assertTopologyForModel('smart-topology', 'quad')).toThrow(/triangles only/);
+    expect(() => assertTopologyForModel('smart-topology', 'triangle')).not.toThrow();
+    expect(() => assertTopologyForModel('standard', 'quad')).not.toThrow();
   });
 });
 

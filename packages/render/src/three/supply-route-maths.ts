@@ -27,6 +27,7 @@
  */
 import type { SupplyRouteView } from '../api';
 import { DECAL_LIFT_CAP } from './decal-maths';
+import type { Ops } from './fog-ops';
 
 /** Half the ribbon's width, in tiles: a thin line, 0.14 tile across. */
 export const SUPPLY_ROUTE_HALF_WIDTH_TILES = 0.07;
@@ -39,6 +40,18 @@ export const SUPPLY_ROUTE_LIFT = DECAL_LIFT_CAP;
  *  of each period drawn. */
 export const SUPPLY_ROUTE_DASH_TILES = 0.5;
 export const SUPPLY_ROUTE_DASH_DUTY = 0.55;
+/**
+ * GH-943 P3 (T8): whether a fragment of the route is DRAWN (1) or cut away by the dash (0), the fragment shader's
+ * `cut && fract(dist / DASH) > DUTY` discard written ONCE against `Ops<T>` (the node twin gets it as a value, `material-maths.ts`).
+ * Only the cut stretch dashes; the open line is solid. The comparison is strict, as the shader's `>`: a fragment exactly at the
+ * duty is kept.
+ */
+export function dashOps<T>(o: Ops<T>, dist: T, cut: T): T {
+  const isCut = o.selectLt(o.lit(0.5), cut, o.lit(1), o.lit(0));
+  const inGap = o.selectLt(o.lit(SUPPLY_ROUTE_DASH_DUTY), o.fract(o.div(dist, o.lit(SUPPLY_ROUTE_DASH_TILES))), o.lit(1), o.lit(0));
+  return o.sub(o.lit(1), o.mul(isCut, inGap));
+}
+
 /** A mitre never reaches past this many half-widths (a hairpin would spike). */
 const MITRE_LIMIT = 2;
 

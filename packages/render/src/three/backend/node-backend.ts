@@ -22,7 +22,12 @@ import { createFogStageFactory } from '../fog-pass.node';
 import { createNodeBloom, type BloomMaths } from '../bloom.node';
 import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment.node';
 import { captureNodeView, photographNodeGround, type NodeCaptureDeps, type ReadbackMaths } from '../capture-view.node';
+import { createNodeOverlayMaterial } from '../units/overlays.node';
+import { createNodeZoneBandMaterial } from '../units/zone-band.node';
+import { createNodeSupplyRouteMaterial, type SupplyRouteUniformRecord } from '../supply-route.node';
+import { createNodeTrailMaterial, type TrailUniformRecord } from '../trail-mesh.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
+import { createNodeOutlineMaterial } from '../units/silhouette.node';
 import type { RingStyle } from '../units/selection-ring';
 import { censusUnadopted, censusUnported, unportedWarnings, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
@@ -151,6 +156,35 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   // GH-943 P2 (T5): the selection, team and wound rings. The legacy material keeps the uniform record the batch writes and carries its style.
   materials.ring = (legacy) => {
     const twin = createNodeRingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.ring }, legacy.userData[RING_STYLE_KEY] as RingStyle, legacy.uniforms as unknown as RingUniformRecord);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T5): the occlusion outline, the smoke outline and the hit flash's outline (every `rl-silhouette-outline` material). The
+  // legacy material keeps its two uniform records (written once a frame by `setSilhouetteOutlineZoom`) and its colour object.
+  materials.outline = (legacy) => {
+    const twin = createNodeOutlineMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.outline }, legacy);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T8): the overlay batch, the zone band, the supply route and the tunnel trail. Each legacy material keeps its record.
+  const batchDeps = { W, TSL: TSL as never };
+  materials.overlay = (legacy) => {
+    const twin = createNodeOverlayMaterial(batchDeps);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  materials.zoneBand = (legacy) => {
+    const twin = createNodeZoneBandMaterial({ ...batchDeps, maths: opts.materialMaths.zoneBand });
+    markTwin(twin, legacy);
+    return twin;
+  };
+  materials.supplyRoute = (legacy) => {
+    const twin = createNodeSupplyRouteMaterial({ ...batchDeps, maths: opts.materialMaths.supplyRoute }, legacy.uniforms as unknown as SupplyRouteUniformRecord);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  materials.trail = (legacy) => {
+    const twin = createNodeTrailMaterial(batchDeps, legacy.uniforms as unknown as TrailUniformRecord);
     markTwin(twin, legacy);
     return twin;
   };
