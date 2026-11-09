@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StorageLike } from '../brigade-account';
-import { ACCOUNT_BINDING_KEY, clearBinding, readBinding, writeBinding } from './binding';
+import { ACCOUNT_BINDING_KEY, clearBinding, clearDeviceId, readBinding, writeBinding } from './binding';
 
 function mem(): StorageLike & { map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -44,5 +44,14 @@ describe('binding (A2)', () => {
     expect(readBinding(s)).toEqual({ version: 1, publicId: 'p1' });
     s.map.set(ACCOUNT_BINDING_KEY, JSON.stringify({ version: 1, publicId: 'p1', deviceId: 7, claimedAt: '5' }));
     expect(readBinding(s)).toEqual({ version: 1, publicId: 'p1' });
+  });
+
+  it('clearDeviceId forgets the device id and the claim mark and keeps the member (§0.16)', () => {
+    const s = mem();
+    writeBinding(s, { version: 1, publicId: 'pub1', deviceId: '0b5f6d3e-1c2a-4f7b-9d8e-123456789abc', claimedAt: 4 });
+    clearDeviceId(s);
+    expect(readBinding(s)).toEqual({ version: 1, publicId: 'pub1' });
+    clearDeviceId(mem()); // no binding: nothing happens
+    expect(() => clearDeviceId(throwing)).not.toThrow();
   });
 });
