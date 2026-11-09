@@ -77,9 +77,9 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
       return { error: 'network', status: 0 };
     }
   }
-  async function signOut(path: string): Promise<'ok' | AccountError> {
+  async function signOut(path: string, goneIsOk: boolean): Promise<'ok' | AccountError> {
     const r = await okOrError('POST', path);
-    return r !== 'ok' && r.status === 401 ? 'ok' : r;
+    return goneIsOk && r !== 'ok' && r.status === 401 ? 'ok' : r;
   }
   return {
     enabled: o.enabled,
@@ -116,9 +116,10 @@ export function createAccountClient(o: { enabled: boolean; fetch: typeof fetch; 
         return { error: 'network', status: 0 };
       }
     },
-    // A 401 means the session is already gone, which is what the caller wanted; anything else is a failure to surface.
-    logout: () => signOut('logout'),
-    logoutAll: () => signOut('logout-all'),
+    // For logout a 401 means this session is already gone, which is what the caller wanted. For logoutAll it means
+    // nothing was ended (the other sessions are still live), so it stays a failure.
+    logout: () => signOut('logout', true),
+    logoutAll: () => signOut('logout-all', false),
     patchProfile: (p) => okOrError('PATCH', 'profile', { op_id: o.newOpId(), ...p }),
     deleteIdentity: (id) => okOrError('DELETE', `identity/${encodeURIComponent(id)}`, { op_id: o.newOpId() }),
     async exportData() {

@@ -45,7 +45,7 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 <body>
 <main>
 <h1>How your data is kept</h1>
-<p>Playing as a guest creates no account and stores no personal details on our server. Anonymous play statistics and rate limiting are described below. This page is mainly about what happens if you choose to sign in.</p>
+<p>Playing as a guest creates no account and stores no personal details on our server, unless you choose to send feedback with contact details. Anonymous play statistics and rate limiting are described below. This page is mainly about what happens if you choose to sign in.</p>
 
 <h2>What is stored for a signed-in player</h2>
 <ul>
