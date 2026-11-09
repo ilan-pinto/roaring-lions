@@ -11,7 +11,7 @@
  *    were dropped would still load, still draw, and just never show up in the
  *    garage or the field -- `owes` is the check, and it is run below on a
  *    mutated copy that must fail it;
- *  - the budgets (<= 2,700 drawn per figure at max kit, <= 8,100 per file; 1,200 and 5,000 before 9 Nov 2026);
+ *  - the budgets (<= 7,200 drawn per figure at max kit, <= 23,200 per file; 2,700 and 8,100, and 1,200 and 5,000 before);
  *  - the part table matches the vertices: every part id on a vertex is a row
  *    of `rl_kit.parts`, and every row has its triangles;
  *  - the Blender source and the mesh agree: `rl_kit_base` (the hash of the
@@ -50,7 +50,11 @@ const TEAMS: Readonly<
   inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_961_376 },
   demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform'], leader: 'demo_b', preKitEncodedBytes: 1_018_964 },
 };
-const GROWTH_BUDGET_BYTES = 64 * 1024;
+// 9 Nov 2026 (the v7 set, GH-746, lead-approved 7,200 triangles a figure): the encoded kit now adds 110,104 bytes (107.5 KiB) to the
+// Rifle Squad's pre-kit file (it was inside 64 KiB at about 2,700 triangles a figure). The budget is the measured growth rounded
+// up to 128 KiB, not a free pass: the encoded kit still has to stay within a fixed amount of the body it rides on, and at 64 KiB
+// this test goes red on the shipped bytes (run before the change, 110,104 > 65,536).
+const GROWTH_BUDGET_BYTES = 128 * 1024;
 
 type Packed = InfantryKitTag & { name: string; tris: number };
 

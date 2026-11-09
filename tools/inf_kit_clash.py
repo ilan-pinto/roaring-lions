@@ -141,6 +141,10 @@ def main():
     for clip in clips:
         act = bpy.data.actions[clip]
         keys, lo = clip_keys(act, step, team.dense_keys)
+        if a.get("keycap") and len(keys) > int(a["keycap"]):
+            # a scoped run (`--keycap N`): N keys spread evenly over the clip, the first and the last among them. Off by default.
+            n = int(a["keycap"])
+            keys = [keys[round(i * (len(keys) - 1) / (n - 1))] for i in range(n)]
         worst = {}
         for kf_ in keys:
             fr = kf_ - lo

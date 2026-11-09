@@ -2211,3 +2211,21 @@ preview gate and the spend log: `_coord/inf-meshy-pilot/` in the coordination fo
 | File | Draws as | Source | Notes |
 |---|---|---|---|
 | `art/meshes/inf_squad.glb` (and its Draco mirror `assets/meshes/inf_squad.glb`) | `inf_squad` (Rifle Squad, KDF) | Meshy text-to-3D preview `01a19787-765a-76f3-bdd4-0d668a3d1f23`, refine `01a1979f-ddee-74c0-bd28-518e149fff14` (8k), remesh `01a197a3-c729-7075-a09d-0b4f0949c88b` at 10,000 (10,405 tris); `art/meshy/inf-squad-f1-20261101-01a197a3/`, its task.json and thumbnail tracked, the 86 MB `model.glb` (8k bake embedded) git-ignored and backed up off-repo | **Textured**, **skinned** (the one importer that does not bind rigidly): `tools/units/import_meshy_skinned_team.py` normalises the remesh to 1.78 m, measures the joints on the shell, weights it to `rig.py`'s bones by bone heat plus coded corrections (the gun rigid, the fists rigid on `hand_*`, no arm weight on the torso), keeps Meshy's own 0.79 m carbine, and retints the 2048 atlas (olive uniform, dark-brown gloves, tan boots, the cuff to sleeve olive). f0 and f2 are measured scalings of the same body (1.84 m x0.98, 1.72 m x1.08). Clips: `rig.build_clips` (the mocap retarget), `pnpm motion:meshes`, `pnpm gait:meshes`; the upgrade kit re-fitted by the skinned fitter (`export_infantry_kit.py --team inf_squad`, `pnpm kit:meshes -- --teams`). Source beside the GLB: `art/src/units/inf_squad.blend`, the importer's own output scene. Shipped Draco 1.89 MiB (the rigid figure: 1.60). |
+
+## Rifle Squad kit parts, v7 set (GH-746 / GH-826, 9 Nov 2026)
+
+The 21 approved parts the Meshy Rifle Squad's upgrade kit is fitted from: `art/parts/inf_kit/v7/<part>.glb` with the
+`.blend` that made it (`kit_parts_report.json` beside them carries each part's mount, size and triangles). Raw Meshy
+outputs for provenance: `meshy-models/art/meshy/inf-squad-kit-*` (task folders dated 20261109). Each part was
+remeshed/cut/sealed headless in Blender 5.2; "built" parts are modelled in Blender from primitives. Licence: as the
+supplied Meshy assets above (item 1 of the open list applies to the Meshy-derived rows).
+
+| Part | Made from | Tool | AI | Licence |
+|---|---|---|---|---|
+| `carrier` (`art/parts/inf_kit/v7/carrier.glb`, 2,299 tris) and `carrier_src` (the 2,474-tri approved part, kept beside it) | Meshy K1 (`inf-squad-kit-k1-m71-20261109-01a1c08b`, remeshed); the shipped `carrier` is `carrier_src` through a Blender Decimate (collapse, ratio 0.9301) to hold 7,200 per figure | Meshy web export, Blender | **Yes** | As the Meshy assets |
+| `mag_pouch`, `radio_pouch`, `grenade_pouch` | Meshy K2 (`inf-squad-kit-k2-20261109-01a1c032`) | Meshy web export, Blender | **Yes** | As the Meshy assets |
+| `radio_panel`, `radio_pack` | Meshy K3 (`inf-squad-kit-k3-20261109-01a1c033`) | Meshy web export, Blender | **Yes** | As the Meshy assets |
+| `red_dot` | Meshy K6a (`inf-squad-kit-k6a-20261109-01a1c005`) | Meshy web export, Blender | **Yes** | As the Meshy assets |
+| `scope` | Meshy K6b (`inf-squad-kit-k6b-20261109-01a1c005`) | Meshy web export, Blender | **Yes** | As the Meshy assets |
+| `nvg_mono` | Meshy tube (`inf-squad-kit-nvg-mono-20261109-01a1c042`) + a built J-arm | Meshy web export, Blender | **Yes** | As the Meshy assets |
+| `throat_protector`, `groin_apron`, `battle_belt`, `phone_case`, `laser`, `suppressor`, `weapon_light`, `nvg_bino`, `headset_l_built`, `headset_r_built`, `counterweight`, `ir_strobe` | built from primitives | Blender 5.2, headless | No | Ships (project licence) |

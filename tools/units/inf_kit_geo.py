@@ -96,17 +96,17 @@ class Piece:
         except ValueError:
             return None
         f[self.layer] = self._tex(tex)
-        f[self.hlayer] = 1 if hint else 0
+        f[self.hlayer] = int(hint)       # 0 closed volume, 1 oriented by `outward`, 2 keeps the winding it was given (a placed mesh part)
         return f
 
     # -- finishing ----------------------------------------------------------
     def finish(self, name):
         bm = self.bm
-        closed = [f for f in bm.faces if not f[self.hlayer]]
+        closed = [f for f in bm.faces if f[self.hlayer] == 0]
         if closed:
             bmesh.ops.recalc_face_normals(bm, faces=closed)
         for f in bm.faces:
-            if f[self.hlayer] and self.outward is not None:
+            if f[self.hlayer] == 1 and self.outward is not None:
                 if f.normal.dot(self.outward(f.calc_center_median())) < 0:
                     f.normal_flip()
         bmesh.ops.triangulate(bm, faces=bm.faces[:])

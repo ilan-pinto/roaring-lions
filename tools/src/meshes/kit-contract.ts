@@ -82,10 +82,50 @@ export const INFANTRY_KIT_HOSTS: readonly string[] = ['uniform', 'weapon'];
 /** Budgets (spec 26 Oct, section 5.1). */
 // The lead, 9 Nov 2026 (GH-746): the kitted figure's budget rises to about 2,700 kit triangles per body, for the Meshy
 // kit parts (stage 1: the carrier and the optics). The file cap is three bodies' worth. Was 1,200 / 5,000.
-export const INFANTRY_KIT_FIGURE_TRIS = 2700; // one figure, every part it DRAWS at max kit
-export const INFANTRY_KIT_FILE_TRIS = 8100; // every kit node in the file
+//
+// 9 Nov 2026, the v7 set (GH-746): the lead's cap is 7,200 per figure worst case. The file holds every tier including the
+// superseded ones (a red dot AND the LPVO, the panel AND the pack), so "3 x a figure" never held for it: it is the
+// measured Rifle Squad file total (23,177: three figures, 20 v7 parts, the carrier decimated to 2,299) rounded up to 100.
+export const INFANTRY_KIT_FIGURE_TRIS = 7200; // one figure, every part it DRAWS at max kit
+export const INFANTRY_KIT_FILE_TRIS = 23200; // every kit node in the file
 /** A part may not exceed this multiple of its approved size (the vehicle rule). */
 export const INFANTRY_KIT_PART_SLACK = 1.1;
+
+/**
+ * A team's OWN per-node limits, for the parts it fits from the approved v7 mesh set (`art/parts/inf_kit/v7`, one node's
+ * triangles = that part's source count, per side for a sided part). The graft refuses a node over
+ * `INFANTRY_KIT_PART_SLACK` times its row here, and falls back to `INFANTRY_KIT_PART_TRIS` for a part the team's row does not
+ * name (the helmet cover, the yoke, the foregrip and the whips stay procedural), so `demo_squad` keeps its own limits.
+ * `tools/src/meshes/kit-contract.test.ts` pins this table to `kit_parts_report.json` and to `inf_kit_parts.py`.
+ */
+export const INFANTRY_KIT_TEAM_PART_TRIS: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+  inf_squad: {
+    battle_belt: 556,
+    carrier: 2299, // the v7 carrier decimated from 2,474 (Blender Decimate collapse, `carrier_src.glb` beside it)
+    counterweight: 140,
+    eud: 240,
+    grenade_pouches: 392, // two pouches in one node
+    groin: 220,
+    headset: 280, // one node per side
+    ir_strobe: 116,
+    laser_box: 192,
+    lpvo: 326,
+    mag_pouches: 592, // two pouches in one node
+    nvg_bino: 336,
+    nvg_mono: 348,
+    radio_pack: 514,
+    radio_panel: 386,
+    radio_pouch: 346,
+    red_dot: 198,
+    suppressor: 140,
+    throat: 188,
+    weapon_light: 216,
+  },
+};
+
+/** The approved triangles for one node of `part` in `team`'s kit: the team's own row, else the shared table. */
+export const infantryKitPartTris = (team: string, part: string): number | undefined =>
+  INFANTRY_KIT_TEAM_PART_TRIS[team]?.[part] ?? INFANTRY_KIT_PART_TRIS[part];
 
 /** The node name a skinned kit part may carry. */
 export const infantryKitNodeName = (

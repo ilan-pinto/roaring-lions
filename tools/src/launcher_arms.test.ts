@@ -60,8 +60,9 @@ const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, numbe
   // The skinned Meshy Rifle Squad (GH-746, 9 Nov) holds the SAME ceilings where it meets them: idle and
   // move 141 / 90 / 235 (f0 / f1 / f2; 190 / 56 / 331 in idle), under the rigid arms' 423 and 555. Its aimed clips are an exemption below.
   ['inf_squad.glb', 'f0', { idle: 430, move: 580 }],
-  ['inf_squad.glb', 'f1', { idle: 430, move: 580 }],
-  ['inf_squad.glb', 'f2', { idle: 430, move: 580 }],
+  // 9 Nov (the v7 kit): f1 and f2 kneelIn now read 457 / 514, under the rigid figure's 540, so the exemption below demoted itself (its own rule) and the ceiling is back here.
+  ['inf_squad.glb', 'f1', { idle: 430, move: 580, kneelIn: 540 }],
+  ['inf_squad.glb', 'f2', { idle: 430, move: 580, kneelIn: 540 }],
 ];
 
 /**
@@ -73,9 +74,9 @@ const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, numbe
  * for rigid parts; whether it is arm through chest or the weld's blend is the infantry review's question, and the lead's.
  */
 const ARMS_EXEMPT: readonly (readonly [string, string, string, number])[] = ['f0', 'f1', 'f2'].flatMap((f) =>
-  (['fire', 'moveFire', 'kneel', 'kneelIn', 'kneelOut', 'pinned'] as const).map(
-    (c) => ['inf_squad.glb', f, c, { fire: 300, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }[c]] as const
-  )
+  (['fire', 'moveFire', 'kneel', 'kneelIn', 'kneelOut', 'pinned'] as const)
+    .filter((c) => !(c === 'kneelIn' && f !== 'f0')) // demoted 9 Nov: see the GUNNERS rows
+    .map((c) => ['inf_squad.glb', f, c, { fire: 300, moveFire: 300, kneel: 260, kneelIn: 540, kneelOut: 400, pinned: 260 }[c]] as const)
 );
 
 describe("a launcher gunner's arms stay out of his own chest", () => {

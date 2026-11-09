@@ -213,11 +213,11 @@ describe('applyInfantryKitGraft', () => {
   });
 
   describe('refusals leave the target exactly as it was', () => {
-    const refuses = async (build: (t: Document) => Promise<Document>, why: RegExp, opts: Parameters<typeof applyInfantryKitGraft>[3] = {}) => {
+    const refuses = async (build: (t: Document) => Promise<Document>, why: RegExp, opts: Parameters<typeof applyInfantryKitGraft>[3] = {}, team = 'sq') => {
       const t = await makeTeam();
       const before = await bytesOf(t);
       const src = await build(t);
-      expect(() => applyInfantryKitGraft(t, src, 'sq', opts)).toThrow(why);
+      expect(() => applyInfantryKitGraft(t, src, team, opts)).toThrow(why);
       expect(await bytesOf(t)).toBe(before);
     };
 
@@ -269,25 +269,33 @@ describe('applyInfantryKitGraft', () => {
     it('a part with no approved size', () =>
       refuses((t) => makeSource(t, [{ track: 'armour', tier: 2, part: 'cape', figure: 'f0', bone: 'spine' }]), /no approved triangle count/));
 
-    it('a figure that draws more than 2,700 triangles at maximum kit', () => {
+    // 9 Nov 2026 (the v7 set): the lead's cap is 7,200 per figure; the file holds every tier, superseded ones too, so its
+    // cap is the measured Rifle Squad total (23,177) rounded up. Both are reached through the Rifle Squad's own part rows
+    // (the v7 carrier, 2,299 a node, is the only node big enough to get there in a dozen nodes).
+    const carriers = (figures: string[], tris = 2299): PartSpec[] => {
       const many: PartSpec[] = [];
-      for (const track of ['armour', 'sensors', 'firepower']) for (const tier of [1, 2, 3]) for (const side of ['L', 'R'] as const) {
-        many.push({ track, tier, part: 'carrier', figure: 'f0', bone: 'spine', side, tris: 200 });
+      for (const figure of figures) for (const track of ['armour', 'sensors', 'firepower']) for (const tier of [1, 2, 3]) for (const side of ['L', 'R'] as const) {
+        many.push({ track, tier, part: 'carrier', figure, bone: 'spine', side, tris });
       }
-      return refuses((t) => makeSource(t, many), /figure f0 draws 3600 kit triangles/);
-    });
+      return many;
+    };
 
-    it('a file that carries more than 8,100 kit triangles', () => {
-      const many: PartSpec[] = [];
-      for (const figure of ['f0', 'f1']) for (const track of ['armour', 'sensors', 'firepower']) for (const tier of [1, 2, 3]) for (const side of ['L', 'R'] as const) {
-        many.push({ track, tier, part: 'carrier', figure, bone: 'spine', side, tris: 200 });
-      }
-      // 54 x 200 = 10,800, over the 8,100 file cap (each node inside its own 1.10 x 190)
-      for (const track of ['armour', 'sensors', 'firepower']) for (const tier of [1, 2, 3]) for (const side of ['L', 'R'] as const) {
-        many.push({ track, tier, part: 'carrier', figure: 'f2', bone: 'spine', side, tris: 200 });
-      }
-      return refuses((t) => makeSource(t, many), /over the 8,100 a team file may carry/);
-    });
+    it('a figure that draws more than 7,200 triangles at maximum kit', () =>
+      // one figure: 6 carriers x 2,299 = 13,794, over 7,200 and under the file cap
+      refuses((t) => makeSource(t, carriers(['f0']).slice(0, 6)), /figure f0 draws 13794 kit triangles at maximum kit, over the 7200 a figure may/, {}, 'inf_squad'));
+
+    it('a file that carries more than 23,200 kit triangles', () =>
+      // 2 figures x 6 carriers x 2,299 = 27,588 (the file check runs before the figure check)
+      refuses((t) => makeSource(t, [...carriers(['f0']).slice(0, 6), ...carriers(['f1']).slice(0, 6)]), /over the 23,200 a team file may carry/, {}, 'inf_squad'));
+
+    it('a v7 part over 1.10x its own count on the Rifle Squad', () =>
+      refuses((t) => makeSource(t, [{ track: 'armour', tier: 1, part: 'carrier', figure: 'f0', bone: 'spine', tris: Math.floor(2299 * 1.1) + 1 }]), /over 1.1x the approved 2299 for "carrier"/, {}, 'inf_squad'));
+
+    it('demo_squad still reads the shared per-part limit (the v7 override is the Rifle Squad\'s alone)', () =>
+      refuses((t) => makeSource(t, [{ track: 'armour', tier: 1, part: 'carrier', figure: 'f0', bone: 'spine', tris: 2299 }]), /over 1.1x the approved 190 for "carrier"/, {}, 'demo_squad'));
+
+    it('the Rifle Squad inherits the shared limit for a part v7 does not carry (the yoke)', () =>
+      refuses((t) => makeSource(t, [{ track: 'armour', tier: 3, part: 'yoke', figure: 'f0', bone: 'spine', tris: Math.floor(32 * 1.1) + 1 }]), /over 1.1x the approved 32 for "yoke"/, {}, 'inf_squad'));
   });
 });
 

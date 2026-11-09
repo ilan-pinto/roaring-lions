@@ -163,10 +163,23 @@ class Team:
     pack_box: bool = False             # the T3 radio pack is a flat-sided box with a lid, not a pad conformed to the back
     baked_mount: bool = False    # the helmet already carries an NVG shroud and mount: the tubes ride it, `nvg_mount` is not built
     dense_keys: bool = False     # sample every keyframe of a short clip and the clip's last frame (not a stride alone)
+    v7: bool = False             # the approved v7 mesh parts (art/parts/inf_kit/v7, `inf_kit_v7.py`) stand in for the procedural builders
+    part_tris: dict = field(default_factory=dict)   # this team's own per-NODE triangle rows (the graft's 1.10x limit); a part not named reads the shared table in kit-contract.ts
     notes: str = ""
 
 
 _BASE_ALL, _BASE_LEADER, _BASE_RIFLEMEN = ALL, LEADER, RIFLEMEN
+
+#: The Rifle Squad's per-NODE triangle rows for the v7 parts (a sided part is one node per side; the mag and grenade pouches are
+#: two pouches in one node). Pinned to `art/parts/inf_kit/v7/kit_parts_report.json` by `test_inf_kit_parts.py` and to
+#: `INFANTRY_KIT_TEAM_PART_TRIS` in `tools/src/meshes/kit-contract.ts` by `kit-contract.test.ts`. The carrier is the v7 part
+#: decimated 2,474 -> 2,299 to hold the lead's 7,200 per figure (9 Nov, GH-746).
+V7_PART_TRIS = {
+    "battle_belt": 556, "carrier": 2299, "counterweight": 140, "eud": 240, "grenade_pouches": 392, "groin": 220,
+    "headset": 280, "ir_strobe": 116, "laser_box": 192, "lpvo": 326, "mag_pouches": 592, "nvg_bino": 336, "nvg_mono": 348,
+    "radio_pack": 514, "radio_panel": 386, "radio_pouch": 346, "red_dot": 198, "suppressor": 140, "throat": 188,
+    "weapon_light": 216,
+}
 
 TEAMS = {
     # Meshy pilot f1 (1 Nov 2026): the skinned figure's own 2048 x 2048 bake (retinted olive / dark brown / tan), its
@@ -186,7 +199,9 @@ TEAMS = {
                       # arm is welded to the ribs, so its surface by dominant bone is shoulder AND chest wall, and the arm
                       # wraps came out as flat slabs standing off the shoulder (9 Nov render) -- the lead's ruling for the
                       # Demolition squad (30 Oct), applied here (the lead accepted it for this figure on 9 Nov)
-                      drop=("nvg_mount", "deltoid", "sleeve"), baked_mount=True, helmet_front_trim=60.0, torso_ring_cap=True),
+                      drop=("nvg_mount", "deltoid", "sleeve"), baked_mount=True, helmet_front_trim=60.0, torso_ring_cap=True,
+                      # the lead (9 Nov, GH-746): the approved v7 kit set is fitted to this figure
+                      v7=True, part_tris=V7_PART_TRIS),
                       # (no `torso_vest_lum`: since 9 Nov the bake's vest is retinted to the carrier's coyote, so it is no
                       # longer the near-black texels the wraps used to find it by; the wraps fit the whole spine zone)
     # Demolition squad (GH-826, seven-teams spec 4.3). Two standing figures on the standard rig:

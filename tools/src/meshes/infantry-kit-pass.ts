@@ -52,7 +52,7 @@
  *
  * **Budgets are refused here, not discovered later.** A node over 1.10x its
  * approved triangles (`INFANTRY_KIT_PART_TRIS`), a figure drawing more than
- * 2,700 at maximum kit, a file carrying more than 8,100 (the lead, 9 Nov 2026; was 1,200 and 5,000).
+ * 7,200 at maximum kit, a file carrying more than 23,200 (the lead, 9 Nov 2026; was 2,700 and 8,100, and 1,200 and 5,000 before).
  *
  * Idempotent: it strips every `kit_*` node first, so a second run writes the
  * same bytes.
@@ -69,7 +69,7 @@ import {
   INFANTRY_KIT_FILE_TRIS,
   INFANTRY_KIT_HOSTS,
   INFANTRY_KIT_PART_SLACK,
-  INFANTRY_KIT_PART_TRIS,
+  infantryKitPartTris,
   INFANTRY_KIT_TEAMS,
   KIT_MAX_TIER,
   KIT_PREFIX,
@@ -318,8 +318,8 @@ function checkPart(part: SourcePart, host: Host, team: string, sourceJoints: rea
   }
   const idx = src.getIndices();
   if (idx && !idx.getArray()) throw new Error(`${where}: its indices have no data`);
-  const limit = INFANTRY_KIT_PART_TRIS[tag.part];
-  if (limit === undefined) throw new Error(`${where}: part "${tag.part}" has no approved triangle count in INFANTRY_KIT_PART_TRIS`);
+  const limit = infantryKitPartTris(team, tag.part);
+  if (limit === undefined) throw new Error(`${where}: part "${tag.part}" has no approved triangle count in INFANTRY_KIT_PART_TRIS or the team's INFANTRY_KIT_TEAM_PART_TRIS`);
   if (part.tris > Math.floor(limit * INFANTRY_KIT_PART_SLACK)) {
     throw new Error(`${where}: ${part.tris} triangles is over ${INFANTRY_KIT_PART_SLACK}x the approved ${limit} for "${tag.part}"`);
   }

@@ -28,18 +28,18 @@ const GLB = readFileSync(new URL('../../../../../art/meshes/inf_squad.glb', impo
 /** The shipped figure before the kit: boot, face, uniform, weapon. */
 const BASE = { boot: 3792, face: 519, uniform: 24818, weapon: 3826 };
 
-/** [label, tiers, triangles per role mesh] */
+/** [label, tiers, triangles per role mesh]. Re-counted 9 Nov 2026 from the v7 kit bytes (GH-746): the kit is 21,125 triangles over three figures. */
 const STATES: [string, Record<string, number>, Partial<typeof BASE>][] = [
-  ['armour 1', { armour: 1 }, { uniform: 25628 }],
-  ['armour 2', { armour: 2 }, { uniform: 25772 }],
-  ['armour 3', { armour: 3 }, { uniform: 25848 }],
-  ['sensors 1', { sensors: 1 }, { weapon: 4066 }],
-  ['sensors 2', { sensors: 2 }, { uniform: 25014, weapon: 4226 }],
-  ['sensors 3', { sensors: 3 }, { uniform: 25046, weapon: 4424 }],
-  ['firepower 1', { firepower: 1 }, { uniform: 25178, weapon: 4036 }],
-  ['firepower 2', { firepower: 2 }, { uniform: 25178, weapon: 4372 }],
-  ['firepower 3', { firepower: 3 }, { uniform: 25298, weapon: 4504 }],
-  ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 26556, weapon: 5102 }],
+  ['armour 1', { armour: 1 }, { uniform: 31901 }],
+  ['armour 2', { armour: 2 }, { uniform: 33125 }],
+  ['armour 3', { armour: 3 }, { uniform: 33201 }],
+  ['sensors 1', { sensors: 1 }, { weapon: 5854 }],
+  ['sensors 2', { sensors: 2 }, { uniform: 26316, weapon: 6926 }],
+  ['sensors 3', { sensors: 3 }, { uniform: 26444, weapon: 7610 }],
+  ['firepower 1', { firepower: 1 }, { uniform: 28262, weapon: 4510 }],
+  ['firepower 2', { firepower: 2 }, { uniform: 28262, weapon: 6118 }],
+  ['firepower 3', { firepower: 3 }, { uniform: 29438, weapon: 6538 }],
+  ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 39447, weapon: 10322 }],
 ];
 
 /**
@@ -90,10 +90,10 @@ describe('inf_squad through the real loader', () => {
     }
   });
 
-  it('full kit draws 3,014 kit triangles: 978 + 1,054 + 982 per figure, superseded parts dropped', async () => {
+  it('full kit draws 21,125 kit triangles: 6,975 + 7,171 + 6,979 per figure, superseded parts dropped', async () => {
     const { meshes } = await build({ armour: 3, sensors: 3, firepower: 3 });
     const all = Object.values(meshes).reduce((n, m) => n + tris(m), 0);
-    expect(all - 32955).toBe(978 + 1054 + 982);
+    expect(all - 32955).toBe(6975 + 7171 + 6979);
   });
 
   it('the kit rides the team\'s bones: kit vertices are skinned at weight 1 to bones of the shared skeleton', async () => {
@@ -154,7 +154,7 @@ describe('the shipped switch (INFANTRY_KIT_ENABLED, GH-826)', () => {
     const maxed = (await build(FULL)).meshes;
     expect(Object.keys(maxed).sort()).toEqual(Object.keys(tier0).sort());
     // Literals, not a recomputation of the part table: the full-kit state.
-    const FULL_KIT = { ...BASE, uniform: 26556, weapon: 5102 };
+    const FULL_KIT = { ...BASE, uniform: 39447, weapon: 10322 };
     for (const name of Object.keys(tier0)) {
       expect(tris(tier0[name]), `${name} tier 0`).toBe(BASE[name as keyof typeof BASE]);
       expect(tris(maxed[name]), `${name} max`).toBe(FULL_KIT[name as keyof typeof FULL_KIT]);

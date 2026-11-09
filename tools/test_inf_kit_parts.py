@@ -75,6 +75,24 @@ def main():
                     if found[name]["dE76"] > tx.DE_CAP or abs(found[name]["dHue_deg"]) > tx.HUE_CAP:
                         bad.append(f"{tid}: texel {name} outside the deviation cap")
     kp.use_team("inf_squad")
+    # the Rifle Squad's per-node rows for the v7 parts are the v7 report's own triangle counts (a sided part: one node per side; the
+    # pouches: two in one node), and no other team has any (demo_squad keeps the shared limits)
+    import json
+    rep = json.load(open(os.path.join(HERE, "..", "art", "parts", "inf_kit", "v7", "kit_parts_report.json")))
+    src_of = {"throat": ["throat_protector"], "groin": ["groin_apron"], "mag_pouches": ["mag_pouch"] * 2, "grenade_pouches": ["grenade_pouch"] * 2,
+              "eud": ["phone_case"], "lpvo": ["scope"], "laser_box": ["laser"], "headset": ["headset_l_built"]}
+    for name, rows in kp.TEAMS["inf_squad"].part_tris.items():
+        srcs = src_of.get(name, [name])
+        want = sum(rep[s]["tris"] for s in srcs)
+        if rows != want:
+            bad.append(f"inf_squad part_tris[{name}] = {rows}, the v7 report's {srcs} gives {want}")
+    if {p.name for p in kp.PARTS} - set(kp.TEAMS["inf_squad"].part_tris) != {"helmet_cover", "yoke", "foregrip", "whip_short", "whip_long"}:
+        bad.append("inf_squad part_tris: the parts left procedural are not exactly the helmet cover, yoke, foregrip and whips")
+    if kp.TEAMS["demo_squad"].part_tris:
+        bad.append("demo_squad has per-part triangle rows: it must keep the shared limits")
+    # the table is the shipped part files' own counts
+    if rep["carrier"]["tris"] != 2299:
+        bad.append("kit_parts_report.json: the carrier is not the decimated 2,299")
     # the Rifle Squad's table is the template less what its own bake shows (since the Meshy figure, 9 Nov 2026: the
     # helmet's NVG mount, and no deltoid or sleeve armour on a skinned arm)
     want = [t for t in base_parts if t[0] not in kp.TEAMS["inf_squad"].drop]

@@ -1019,6 +1019,9 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
     arm.data.pose_position = "REST"
     bpy.context.view_layer.update()
     use = [pf for pf in kp.ALL if figs is None or pf in figs]
+    v7 = None
+    if kp.TEAM.v7:
+        import inf_kit_v7 as v7            # the approved v7 mesh parts, fitted (a team opts in; the others stay procedural)
     fits = {p: kf.Fit(arm, meshes, p) for p in use}
     bank = kf.PoseBank(arm, meshes, fits)
     for p in use:
@@ -1036,7 +1039,8 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
                 continue
             for suf, _base in kp.object_suffixes(part):
                 side = suf[-1] if suf[-2] == "_" and suf[-1] in "LR" else None
-                piece = BUILDERS[part.name](fits[pf], side)
+                builder = v7.V7_BUILDERS[part.name] if v7 is not None and part.name in v7.V7_BUILDERS else BUILDERS[part.name]
+                piece = builder(fits[pf], side)
                 oname = f"{pf}_{suf}"
                 open_thick = piece.open_thick
                 me, tris = piece.finish(oname)

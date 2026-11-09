@@ -31,18 +31,19 @@ export interface Reading {
  *  32,976; round 4: 33,085 and 32,962. */
 export const ENCODED_BASE_TRIS = 32962;
 
+// 9 Nov 2026 (GH-746): the v7 kit, re-counted from the art file's bytes (21,125 triangles over three figures at full kit; was 3,014).
 export const STATES: readonly State[] = [
   { id: 'T0', label: 'tier 0', tiers: {}, kitTris: 0 },
-  { id: 'A1', label: 'armour 1', tiers: { armour: 1 }, kitTris: 810 },
-  { id: 'A2', label: 'armour 2', tiers: { armour: 2 }, kitTris: 954 },
-  { id: 'A3', label: 'armour 3', tiers: { armour: 3 }, kitTris: 1030 },
-  { id: 'S1', label: 'sensors 1', tiers: { sensors: 1 }, kitTris: 240 },
-  { id: 'S2', label: 'sensors 2', tiers: { sensors: 2 }, kitTris: 596 },
-  { id: 'S3', label: 'sensors 3', tiers: { sensors: 3 }, kitTris: 826 },
-  { id: 'F1', label: 'firepower 1', tiers: { firepower: 1 }, kitTris: 570 },
-  { id: 'F2', label: 'firepower 2', tiers: { firepower: 2 }, kitTris: 906 },
-  { id: 'F3', label: 'firepower 3', tiers: { firepower: 3 }, kitTris: 1158 },
-  { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 3014 },
+  { id: 'A1', label: 'armour 1', tiers: { armour: 1 }, kitTris: 7083 },
+  { id: 'A2', label: 'armour 2', tiers: { armour: 2 }, kitTris: 8307 },
+  { id: 'A3', label: 'armour 3', tiers: { armour: 3 }, kitTris: 8383 },
+  { id: 'S1', label: 'sensors 1', tiers: { sensors: 1 }, kitTris: 2028 },
+  { id: 'S2', label: 'sensors 2', tiers: { sensors: 2 }, kitTris: 4598 },
+  { id: 'S3', label: 'sensors 3', tiers: { sensors: 3 }, kitTris: 5410 },
+  { id: 'F1', label: 'firepower 1', tiers: { firepower: 1 }, kitTris: 4128 },
+  { id: 'F2', label: 'firepower 2', tiers: { firepower: 2 }, kitTris: 5736 },
+  { id: 'F3', label: 'firepower 3', tiers: { firepower: 3 }, kitTris: 7332 },
+  { id: 'full', label: 'full kit', tiers: { armour: 3, sensors: 3, firepower: 3 }, kitTris: 21125 },
 ];
 
 /**

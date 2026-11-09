@@ -2108,8 +2108,8 @@ def check_kit_collisions(kit_masks, mesh_masks):
 # track alone at tier 3 -- then held against every OTHER unit at `IOU_LIMIT`,
 # `inf_grenadier` included.
 INFANTRY_KIT_HOSTS = ("uniform", "weapon")
-INFANTRY_KIT_FIGURE_TRIS = 2700   # the lead, 9 Nov 2026 (GH-746): about 2,700 per kitted body (was 1,200)
-INFANTRY_KIT_FILE_TRIS = 8100     # three bodies' worth (was 5,000)
+INFANTRY_KIT_FIGURE_TRIS = 7200   # the lead, 9 Nov 2026 (GH-746): the v7 set, 7,200 per kitted body worst case (was 2,700, and 1,200)
+INFANTRY_KIT_FILE_TRIS = 23200    # the measured Rifle Squad file total (23,177: every tier, superseded ones too) rounded up to 100 (was 8,100)
 INFANTRY_KIT_TAG_ATTR = "_RL_KIT"
 TEAM_KIT_PREFIX = "teamkit_"
 
