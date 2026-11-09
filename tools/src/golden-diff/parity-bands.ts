@@ -52,6 +52,15 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   // GH-943 P2 (T6): the node foliage's wind (`terrain/decor-mesh.node.ts`). `quiet`'s `repaint-control` row above must stay 0 with it live.
   { scenario: 'quiet', layer: 'wind', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T6: the foliage sway, sim clock, uSwayAmp by reference' },
   { scenario: 'vehicle', layer: 'selection-ring', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: the team rings, analytic coverage, no textures' },
+  // GH-943 P3 (T3): the node unit twin (`units/unit-material.node.ts`): the team mark, the running gear and the soot on the hooked unit
+  // materials, the per-entity fields per object. `loose`: textured. r0 and the node floors from this PR's `visual-parity` runs.
+  ...['vehicle', 'kitted', 'fogged', 'graded'].map(
+    (scenario): ParityRow => ({ scenario, layer: 'units', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: every unit, the hooked ones through the unit twin' })
+  ),
+  { scenario: 'vehicle', layer: 'team-mask', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: the Lavi team mark (rl-team-mark-2), slot colour by reference' },
+  { scenario: 'vehicle', layer: 'unit-surface', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: per-role roughness/metalness, per object on the twin' },
+  { scenario: 'kitted', layer: 'unit-surface', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3' },
+  { scenario: 'kitted', layer: 'kit', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T3: the grafted kit parts (excluded from the mark by their UVs)' },
   // GH-943 P1 (T5): bloom adds exactly 0 wherever nothing exceeds linear luminance 1.0 (a ZERO check on every quiet gated scenario).
   ...['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'].map(
     (scenario): ParityRow => ({ scenario, layer: 'bloom', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: bloom adds +0 on a frame with nothing over 1.0' })

@@ -46,6 +46,8 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   'rl-foliage-sway', 'rl-foliage-sway-wet', 'rl-trunk-sway', 'rl-trunk-sway-wet',
   // GH-943 P2 (T5): the selection, team and wound rings (all three styles share the one material name).
   'rl-selection-ring',
+  // GH-943 P3 (T3): the vehicle hooks of the unit twin (`units/unit-material.node.ts`), read per segment.
+  'rl-team-mark-2', 'rl-running-gear-1', 'rl-soot',
 ]);
 
 /** `userData` key on a node twin: the terms of its legacy material it does NOT draw (`['rl-ground: wet terms']`). */

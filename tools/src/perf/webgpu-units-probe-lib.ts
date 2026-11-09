@@ -321,7 +321,11 @@ function fxMoment(blastId: string, layer: string, tag = '@blast'): Pick<ProbeSub
  * Subjects whose node side is LIVE: a port task adds its subject id here in the same PR. Until then a non-DEAD node delta is labelled
  * `pre-port`. The set is read by `rowStatus` only.
  */
-export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>();
+export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
+  // GH-943 P3 (T3): the running gear and the wreck soot on the node unit twin.
+  'moving-lavi',
+  'wreck-lavi',
+]);
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // The verdict.

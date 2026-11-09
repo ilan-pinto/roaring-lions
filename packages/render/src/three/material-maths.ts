@@ -18,6 +18,10 @@ import { foliageLeanOps } from './terrain/wind';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
+import { teamHookOf, teamMarkOps } from './units/team-mask';
+import { RG_MAX_WHEELS, rgBarOps, rgNormalOps, rgPhaseOps, rgVertexOps } from './units/running-gear';
+import { RG_TRACK_GEOMETRY_ATTR, RG_WHEEL_GEOMETRY_ATTR, runningGearUniformsOf } from './units/running-gear-material';
+import { sootOps } from './world-materials';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
@@ -32,8 +36,25 @@ export const MATERIAL_MATHS: MaterialMaths = {
     polygonOffsetUnits: DECAL_POLYGON_OFFSET_UNITS,
     halfExtraTiles: SELECTION_RING.haloTiles + SELECTION_RING.featherTiles,
   },
-  // GH-943 P3 (T1): every P3 slot, null until its task fills it.
-  unit: null,
+  // GH-943 P3 (T3): the vehicle hooks of the unit twin (`units/unit-material.node.ts`): the team mark, the running gear and the soot.
+  // T4 fills the rain rim and the wounded floor.
+  unit: {
+    team: { teamMarkOps, teamHookOf },
+    rg: {
+      rgVertexOps,
+      rgNormalOps,
+      rgPhaseOps,
+      rgBarOps,
+      uniformsOf: runningGearUniformsOf,
+      maxWheels: RG_MAX_WHEELS,
+      wheelAttribute: RG_WHEEL_GEOMETRY_ATTR,
+      trackAttribute: RG_TRACK_GEOMETRY_ATTR,
+    },
+    soot: { sootOps },
+    rim: null,
+    floor: null,
+  },
+  // GH-943 P3 (T1): every other P3 slot, null until its task fills it.
   outline: null,
   banner: null,
   backdrop: null,

@@ -28,6 +28,7 @@ import type { GroundMaterial } from '../terrain/mesh';
 import type { GroundMaths } from '../terrain/mesh.node';
 import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
+import type { UnitMaths } from '../units/unit-material.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -90,8 +91,9 @@ export interface MaterialMaths {
   readonly ground: GroundMaths;
   readonly foliage: FoliageMaths;
   readonly ring: RingMaths;
+  /** GH-943 P3 (T3): the unit twin's terms (team mark, running gear, soot; T4 the rim and the floor). */
+  readonly unit: UnitMaths;
   /** GH-943 P3 (T1): one slot per `MaterialKit` P3 slot, each `null` until its task gives it the type its twin declares. */
-  readonly unit: null;
   readonly outline: null;
   readonly banner: null;
   readonly backdrop: null;
