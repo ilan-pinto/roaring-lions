@@ -40,5 +40,54 @@
   "abilities": [
     "mark_target",
     "mark_tunnel"
-  ]
+  ],
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 75,
+          "patch": {
+            "hull.hp": 11
+          }
+        },
+        {
+          "price": 115,
+          "patch": {
+            "hull.hp": 24
+          }
+        },
+        {
+          "price": 160,
+          "patch": {
+            "hull.hp": 40
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 65,
+          "patch": {
+            "sensors.optics": 0.13,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 95,
+          "patch": {
+            "sensors.optics": 0.24,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 135,
+          "patch": {
+            "sensors.optics": 0.4,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  }
 }

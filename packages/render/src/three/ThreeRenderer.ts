@@ -4690,6 +4690,9 @@ export class ThreeRenderer implements Renderer {
         this.disturbU.amp.value = next;
         return changed;
       }
+      case 'selection-ring':
+        // The GROUP, not the meshes: each batch's `endFrame` rewrites its own mesh's `visible` every frame (an empty one costs no draw).
+        return setObjectsVisible(visible, this.selectionRingGroup);
       case 'wash': {
         // The helicopters' slots, taken away and given back: `updateDisturbers` reads the flag every frame, so a repaint cannot undo it.
         const changed = this.washLayerOn === visible ? 0 : 1;
@@ -4901,14 +4904,7 @@ export class ThreeRenderer implements Renderer {
         // re-asserts it the way fog visibility re-asserts a mesh unit's
         // `root.visible` every frame.
         // The selection ring's GROUP, not its mesh: see `selectionRing`.
-        const batchCount = setObjectsVisible(
-          visible,
-          this.overlayBatch.mesh,
-          this.numeralBatch.mesh,
-          this.chevronBatch.mesh,
-          this.selectionRingGroup,
-          this.zoneBandGroup
-        );
+        const batchCount = setObjectsVisible(visible, ...this.overlayLayerObjects());
         // The occlusion silhouette (band 6, `units/silhouette.ts`) is a
         // SEPARATE subsystem folded into this same name -- see
         // `debug-layers.ts`'s own comment for why a key-art tool asking to
@@ -5509,6 +5505,11 @@ export class ThreeRenderer implements Renderer {
     return camera;
   }
 
+  /** The scene objects the `overlays` debug layer switches: ONE list, read by that layer and by `hideForGroundPhoto`'s restore. */
+  private overlayLayerObjects(): THREE.Object3D[] {
+    return [this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh, this.selectionRingGroup, this.zoneBandGroup];
+  }
+
   /**
    * Hides what a ground photograph must not show (units, overlays, the rain) and takes the map-wide shadow box, and returns the
    * function that puts every one back to what it WAS. Shared by `photographGround` (legacy, synchronous) and
@@ -5524,10 +5525,18 @@ export class ThreeRenderer implements Renderer {
    */
   private hideForGroundPhoto(): () => void {
     const unitsWereVisible = !this.unitsDebugHidden;
-    const overlaysWereVisible = this.overlayBatch.mesh.visible;
+    // The overlays layer's own state is its flag (`smokeOutlinesHidden`, which only that layer writes), and each of its scene
+    // objects goes back to ITS OWN `visible`, never to one sample of the layer. A node boot's census hides the unported overlay
+    // batches (ShaderMaterials) and leaves the ring and zone-band groups shown, so reading `overlayBatch.mesh.visible` as the
+    // layer's state put every ring back HIDDEN after the first minimap photograph, for the rest of the mission (GH-943 P2 T5:
+    // the node `selection-ring` A/B read 0 px). Restoring the layer to `true` instead would un-hide what the census hid.
+    const overlaysWereVisible = !this.smokeOutlinesHidden;
+    const overlayObjects = this.overlayLayerObjects();
+    const overlayObjectsWere = overlayObjects.map((o) => o.visible);
     const rainWasVisible = this.rain?.mesh.visible ?? false;
     const restore = (): void => {
       this.setDebugLayerVisible('overlays', overlaysWereVisible);
+      overlayObjects.forEach((o, k) => (o.visible = overlayObjectsWere[k] ?? o.visible));
       this.setDebugLayerVisible('units', unitsWereVisible);
       if (this.rain !== null) this.rain.mesh.visible = rainWasVisible;
     };

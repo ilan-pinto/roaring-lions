@@ -49,5 +49,63 @@
         "heal_cap": 1.0
       }
     ]
+  },
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 130,
+          "patch": {
+            "hull.hp": 56,
+            "hull.armor.front": 0,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 200,
+          "patch": {
+            "hull.hp": 120,
+            "hull.armor.front": 0,
+            "hull.armor.side": 3,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 280,
+          "patch": {
+            "hull.hp": 200,
+            "hull.armor.front": 0,
+            "hull.armor.side": 5,
+            "hull.armor.rear": 4
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 110,
+          "patch": {
+            "sensors.optics": 0.09,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 165,
+          "patch": {
+            "sensors.optics": 0.17,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 230,
+          "patch": {
+            "sensors.optics": 0.28,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
   }
 }
