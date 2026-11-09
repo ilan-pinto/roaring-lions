@@ -80,7 +80,9 @@ FIST_CORE_M = 0.05            # within this of the fist's centre is the fist, wh
 WRIST_FREE_M = 0.07           # the sleeve within this of a wrist is a smooth blend to the hand, never a cut seam
 CAP_INSET_M = 0.015           # a gun's or a fist's collar goes this deep into its own side
 CAP_INSET_BODY_M = 0.025      # the body's collar goes this deep into the vest
-SMALL_ISLAND_VERTS = 80       # a separate shell piece smaller than this near the bore is the gun's (a loop, a buckle)
+SMALL_ISLAND_VERTS = 80
+BODY_ISLAND_VERTS = 1500      # an island this big is the body (a figure's shell is ~5,000 welded vertices)
+DEBRIS_GAP_M = 0.03           # a small island this far from everything at rest is Meshy's loose debris: deleted       # a separate shell piece smaller than this near the bore is the gun's (a loop, a buckle)
 ISLAND_NEAR_BORE_M = 0.14     # ...within this of the bore: the stock's rear loop sat 0.10 off it and stayed at the chest in fire
 GUN_L, GUN_C_MAX = (9.0, 28.0), 7.0
 KHAKI_L, KHAKI_C, KHAKI_HUE = (26.0, 48.0), (12.0, 26.0), (60.0, 100.0)
@@ -91,6 +93,7 @@ KNEE_F, ANKLE_M, BELT_ABOVE_CROTCH = 0.285, 0.09, 0.13
 SHOULDER_Z, SHOULDER_IN = 1.42, 0.055
 WRIST_BACK_M = 0.06           # the wrist crease sits this far behind the closed fist's centre (ANSUR: hand 0.19, fist ~0.11)
 CUFF_BLEND_M = 0.03           # hand -> forearm blend behind the wrist plane
+CUFF_HAND_MAX = 0.45          # the hand's weight at the wrist plane: the cuff stays forearm-dominant
 GUN_NEAR_M = 0.075            # a gun-coloured vertex this close to the bore is the gun
 GUN_BODY_SIDE_M = 0.028       # across the bore toward the torso: past this a vertex is the vest the gun lies on
 STOCK_POCKET_M = 0.12         # the rear of the stock whose vest pocket goes with it
@@ -468,6 +471,23 @@ def _fix_weights(ob, prefix, J, cls, co):
         cuff = blob & (t <= 0.0) & (t > -CUFF_BLEND_M)
         hands[side] = (hand, cuff, t)
         gun &= ~hand & ~cuff
+    # Meshy's loose debris: a small island that touches nothing at rest (a strap's end, a scrap of the stock's pocket),
+    # 3.5-6 cm off the body in the bind pose and swinging with the spine in fire (12-69 vertices each, the census of
+    # 1 Nov: three in idle, twelve in fire). Not the gun's, not a fist's: the role split deletes it.
+    hand_any = np.zeros(len(co), bool)
+    for h_, c_, _t in hands.values():
+        hand_any |= h_ | c_
+    debris = np.zeros(len(co), bool)
+    body_co = co[~small & ~gun & ~hand_any]
+    for c_id in np.unique(comp[small & ~gun & ~hand_any]):
+        idx = np.nonzero(comp == c_id)[0]
+        if gun[idx].any() or hand_any[idx].any():
+            continue
+        gap = min(np.sqrt(((body_co[None] - co[idx[i:i + 32], None]) ** 2).sum(-1)).min() for i in range(0, len(idx), 32))
+        if gap > DEBRIS_GAP_M:
+            debris[idx] = True
+    if debris.any():
+        log(f"{prefix}: {int(debris.sum())} vertices of {len(np.unique(comp[debris]))} loose islands (over {DEBRIS_GAP_M * 100:.0f} cm from the body at rest) marked as debris")
     if W.shape[1] < len(names):
         W = np.pad(W, ((0, 0), (0, len(names) - W.shape[1])))
     # the gun: everything on forearm_R (the motion pass rebinds it to the weapon bone)
@@ -478,7 +498,9 @@ def _fix_weights(ob, prefix, J, cls, co):
         r = RIG_SIDE[side]
         hb, fb = gi[f"{prefix}_hand_{r}"], gi[f"{prefix}_forearm_{r}"]
         W[hand, :] = 0.0; W[hand, hb] = 1.0
-        k = 0.5 + 0.5 * np.clip((t[cuff] + CUFF_BLEND_M) / CUFF_BLEND_M, 0.0, 1.0)   # 0.5 at the sleeve end, 1 at the wrist: the glove stays the hand's
+        # 0 at the sleeve end, just under a half at the wrist plane: the cuff is the SLEEVE's (olive, round 3), and the
+        # hand-dominant surface -- what the glove gate samples as the glove -- is the glove alone
+        k = CUFF_HAND_MAX * np.clip((t[cuff] + CUFF_BLEND_M) / CUFF_BLEND_M, 0.0, 1.0)
         W[cuff, :] = 0.0; W[cuff, hb] = k; W[cuff, fb] = 1.0 - k
     # the torso: no arm or hand weight on the vest and the chest. Bone heat leaks through the welded armpit and
     # under the forearm that lies on the vest; posed, that tore the plate carrier into shards (pose probe, 1 Nov).
@@ -573,7 +595,10 @@ def _fix_weights(ob, prefix, J, cls, co):
     log(f"{prefix}: weights fixed -- gun {int(gun.sum())} verts rigid on forearm_R, hands "
         f"{' / '.join(f'{s}:{int(h[0].sum())}+{int(h[1].sum())} cuff' for s, h in hands.items())}, torso core cleared of arm weight on "
         f"{int(core.sum())} verts, {int(orphan.sum())} orphans to the spine")
-    roles = dict(gun=gun, hand={s: h[0] | h[1] for s, h in hands.items()})
+    # `glove` is the hand proper (ahead of the wrist plane): the texels that go dark brown. The cuff behind it is the
+    # sleeve's, olive (the lead's ruling, round 3), so the hand-dominant surface the glove gate samples is all glove and
+    # the forearm-dominant surface behind the wrist is all sleeve.
+    roles = dict(gun=gun, hand={s: h[0] | h[1] for s, h in hands.items()}, glove={s: h[0].copy() for s, h in hands.items()}, debris=debris)
     me = ob.data
     polys = np.empty(len(me.polygons) * 3, np.int64); me.polygons.foreach_get("vertices", polys); polys = polys.reshape(-1, 3)
     roles["hand_tris"] = {s: int((h[0][polys].sum(1) >= 2).sum()) for s, h in hands.items()}
@@ -806,11 +831,45 @@ def _split_roles(ob, prefix, cls, roles, co):
     any_gun = (fc == 0).any(1); all_gun = (fc == 0).all(1)
     # the body roles: the majority of a face's NON-gun vertices
     body_major = np.array([np.bincount(f[f != 0], minlength=4).argmax() if (f != 0).any() else 0 for f in fc])
+    # The cut's leavings: a small island on the BODY side that the seam cut set loose (a scrap of the stock's pocket, a
+    # strap's end on the fist) sits on the gun or the fist at rest, 3.5-6 cm from the body it is skinned to, and swings
+    # with the spine when the rifle leaves (the census of 1 Nov: 12-69 vertices each, three in idle, twelve in fire).
+    loose = roles["debris"].copy()
+    parent = list(range(nV))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]; a = parent[a]
+        return a
+    weld = {}
+    for i, pos in enumerate(np.round(co, 5)):
+        k = tuple(pos)
+        if k in weld:
+            parent[find(i)] = find(weld[k])
+        else:
+            weld[k] = i
+    for t in polys:
+        parent[find(t[0])] = find(t[1]); parent[find(t[1])] = find(t[2])
+    comp = np.array([find(i) for i in range(nV)]); sizes = np.bincount(comp)
+    hand_any_ = np.zeros(nV, bool)
+    for h_ in roles["hand"].values():
+        hand_any_ |= h_
+    big_co = co[(sizes[comp] >= BODY_ISLAND_VERTS) & (vclass != 0) & ~hand_any_]   # the body: not the gun the scrap lies on
+    for c_id in np.unique(comp[(sizes[comp] < SMALL_ISLAND_VERTS) & (vclass != 0) & ~hand_any_]):
+        idx = np.nonzero(comp == c_id)[0]
+        if gun[idx].any() or hand_any_[idx].any():
+            continue
+        gap = min(np.sqrt(((big_co[None] - co[idx[i:i + 32], None]) ** 2).sum(-1)).min() for i in range(0, len(idx), 32))
+        if gap > DEBRIS_GAP_M:
+            loose[idx] = True
+    if loose.any():
+        log(f"{prefix}: {int(loose.sum())} vertices of {len(np.unique(comp[loose]))} loose islands (over {DEBRIS_GAP_M * 100:.0f} cm from the body at rest) deleted")
+    live = ~loose[polys].any(1)          # loose debris goes to no role: deleted
     sets = {
-        "weapon": np.nonzero(any_gun)[0],
-        "boot": np.nonzero(~all_gun & (body_major == 1))[0],
-        "face": np.nonzero(~all_gun & (body_major == 2))[0],
-        "uniform": np.nonzero(~all_gun & (body_major == 3))[0],
+        "weapon": np.nonzero(any_gun & live)[0],
+        "boot": np.nonzero(~all_gun & live & (body_major == 1))[0],
+        "face": np.nonzero(~all_gun & live & (body_major == 2))[0],
+        "uniform": np.nonzero(~all_gun & live & (body_major == 3))[0],
     }
     gun_bone = f"{prefix}_forearm_R"
     parts = []
@@ -1006,25 +1065,47 @@ RETINT = {
     # dark brown, every glove texel (the baked-dark inside of the fist too: with those left out the hand read L* 19-26)
     # (the validator reads the hand's vertex texels ~5 L* under this mask mean: at 34 it read 28-31 and dE 12-15)
     # a brown, not a pink: hue toward yellow (b over a); dE 17.5 to the olive; reads L* 31-33 at the hand's own texels
-    "glove": dict(target=(37.0, 11.0, 18.0), keep=0.35, orange_only=False),
+    "glove": dict(target=(37.0, 11.0, 18.0), keep=0.25, orange_only=False),
     "boot": dict(target=(50.0, 12.0, 26.0), keep=0.7, orange_only=True),       # tan leather, from Meshy's orange
-    # Meshy's bake bled the glove's orange onto the cuffs and the sleeves: whatever orange is left on the uniform's
-    # faces goes to the olive
-    "bleed": dict(target=(36.0, -6.0, 14.0), keep=0.5, orange_only=True),
+    # the CUFFS (the lead's ruling, round 3): the sleeve within CUFF_RETINT_M of a wrist, where Meshy bled the glove's
+    # orange, goes to the sleeve's olive, every texel -- so the dark-brown glove reads against an olive sleeve
+    "cuff": dict(target=(36.0, -6.0, 14.0), keep=0.3, orange_only=False),
 }
+CUFF_RETINT_M = 0.10
 ORANGE_C_MIN, ORANGE_HUE = 18.0, (15.0, 75.0)
 GLOVE_L_CLAMP = (28.0, 46.0)
 
 
+RETINT_PAD_PX = 4             # the bake's island padding is re-tinted with its island: a vertex's texel sits on it
+
+
+def _dilate(mask, r):
+    """`mask` grown by `r` texels (a square), clipped at the atlas edge."""
+    out = mask.copy()
+    H_, W_ = mask.shape
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if dx == 0 and dy == 0:
+                continue
+            sl = out[max(dy, 0):H_ + min(dy, 0), max(dx, 0):W_ + min(dx, 0)]
+            sl |= mask[max(-dy, 0):H_ + min(-dy, 0), max(-dx, 0):W_ + min(-dx, 0)]
+    return out
+
+
 def _retint(image, src, uv, masks):
-    """Shift the bake's texels per class (`RETINT`). Texture only: no vertex moves. Logs each class's mean before/after."""
+    """Shift the bake's texels per class (`RETINT`). Texture only: no vertex moves. Logs each class's mean before/after.
+
+    Each class's face mask is grown by RETINT_PAD_PX: Meshy unwraps the bake per face with padding that repeats the
+    face's edge colour, and a vertex's own UV (a face's corner) lands on that padding as often as inside the face. The
+    glove gate samples the atlas at vertex UVs; with the padding left in the bake's colour, an olive cuff read 23-53%
+    orange at its vertices (round 3). Later classes overwrite earlier ones where the grown masks overlap."""
     W_, H_ = image.size
     px = np.empty(W_ * H_ * 4, np.float32); image.pixels.foreach_get(px); px = px.reshape(H_, W_, 4)
     out = px.copy()
     me = src.data
     for name, vmask in masks.items():
         spec = RETINT[name]
-        mask = _face_mask(me, uv, vmask, W_, H_)
+        mask = _dilate(_face_mask(me, uv, vmask, W_, H_), RETINT_PAD_PX)
         if spec["orange_only"]:
             lab_all = _lab(px[..., :3].astype(np.float64))
             C_ = np.hypot(lab_all[..., 1], lab_all[..., 2]); hue_ = np.degrees(np.arctan2(lab_all[..., 2], lab_all[..., 1]))
@@ -1126,8 +1207,9 @@ def build_team(team_id, out_path=None):
         co = np.empty(len(shell.data.vertices) * 3); shell.data.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
         n_new = len(cap_idx)
         cls_sh = {k: np.concatenate([v, np.zeros(n_new, v.dtype)]) for k, v in cls0.items()}
-        roles = dict(roles, gun=np.concatenate([roles["gun"], cap_cls == 0]),
-                     hand={s_: np.concatenate([h, np.zeros(n_new, bool)]) for s_, h in roles["hand"].items()})
+        roles = dict(roles, gun=np.concatenate([roles["gun"], cap_cls == 0]), debris=np.concatenate([roles["debris"], np.zeros(n_new, bool)]),
+                     hand={s_: np.concatenate([h, np.zeros(n_new, bool)]) for s_, h in roles["hand"].items()},
+                     glove={s_: np.concatenate([h, np.zeros(n_new, bool)]) for s_, h in roles["glove"].items()})
         for s_ in ("R", "L"):
             # a fist cap belongs to the fist it closes
             pass
@@ -1135,9 +1217,10 @@ def build_team(team_id, out_path=None):
         cls0_fig = cls_sh
         if glove_texel is None:
             # the source's own uv (the caps are appended after it): the firing fist's vertices of the source shell
-            glove_texel = _glove_texel(uv, roles["hand"]["R"][: len(uv)], TEXTURE_PX, TEXTURE_PX)
+            glove_texel = _glove_texel(uv, roles["glove"]["R"][: len(uv)], TEXTURE_PX, TEXTURE_PX)
             hand_tris = roles["hand_tris"]
-            hand_masks_f1 = {k: v.copy() for k, v in roles["hand"].items()}
+            hand_masks_f1 = {k: v.copy() for k, v in roles["glove"].items()}
+            gun_mask_f1 = roles["gun"].copy()
         ps = _split_roles(shell, p, cls0_fig, roles, co)
         gun_tris = max(gun_tris, next(len(o.data.polygons) for o in ps if o["rl_role"] == "weapon"))
         parts += ps
@@ -1160,11 +1243,23 @@ def build_team(team_id, out_path=None):
         glove = np.zeros(n0, bool)
         for h in hand_masks_f1.values():
             glove |= h[:n0]
+        # cloth only: the skin (face, neck, any bare hand) keeps the bake's own tones (round 2's bleed pass had tinted
+        # the face olive)
+        # The skin is where skin is: the face and the neck, above the shoulders. The colour class alone also matches the
+        # glove's orange bled onto the cuffs (L* 22, a* 14), which is cloth -- a gloved figure has no skin at the wrist.
+        hx, hy = J0["head_xy"]
+        skin = cls0["skin"][:n0] & ~glove & (co0[:, 2] > SHOULDER_Z - 0.12) & (np.hypot(co0[:, 0] - hx, co0[:, 1] - hy) < 0.25)
+        # by GEOMETRY, every colour: a class mask leaves the faces that straddle a class edge untouched, and the gate's
+        # sleeve sample (forearm-dominant, 6 cm behind the wrist) read 19-37% orange texels through those gaps
+        cuff = np.zeros(n0, bool)
+        for side_ in ("R", "L"):
+            cuff |= np.linalg.norm(co0 - J0["wrist"][side_], axis=1) < CUFF_RETINT_M
+        cuff &= ~glove & ~skin & ~gun_mask_f1[:n0]
         _retint(image, src_for_uv, uv, {
             "glove": glove,
-            "boot": cls0["boot"][:n0] & ~glove,
-            "uniform": cls0["khaki"][:n0] & ~glove & (co0[:, 2] > BOOT_Z_MAX),
-            "bleed": ~glove & ~cls0["boot"][:n0] & (co0[:, 2] > BOOT_Z_MAX),
+            "boot": cls0["boot"][:n0] & ~glove & ~skin,
+            "uniform": cls0["khaki"][:n0] & ~glove & ~skin & (co0[:, 2] > BOOT_Z_MAX),
+            "cuff": cuff,
         })
     bpy.data.objects.remove(src_for_uv, do_unlink=True)
     rig.export_glb(arm_obj, path, materials=True, jpeg_quality=JPEG_QUALITY)

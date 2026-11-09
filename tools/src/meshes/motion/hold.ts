@@ -146,7 +146,10 @@ export const HANDS_RIFLE_POCKET: V3 = [0.015, 0.16, 0.05];
  *  rigs' +0.16 over their armpit cut also lands), a little forward, in toward the chest. Measured with the capture's
  *  own 44 deg fire lean kept: at 0.0 above the eye sat AT the bore, at 0.06 five cm under it, and the cheek weld
  *  pitched the head 39 deg back looking for it; so a rest carry aims `fire` from an UPRIGHT torso (apply-hold.ts). */
-export const REST_CARRY_RIFLE_POCKET: V3 = [0.03, 0.02, 0.04];
+export const REST_CARRY_RIFLE_POCKET: V3 = [0.03, 0.02, 0.09];
+/** A rest carry's head goes ONTO the stock: the butt sits 0.09 in from a real humeral head, so the cheek needs more
+ *  tilt than the cut rigs' 10 deg to meet it (round 3: the eye sat 0.15 m inboard of the bore). */
+export const REST_CARRY_CHEEK_TILT_DEG = 22;
 export const HANDS_READY_POCKET: V3 = [0.0, 0.12, 0.06];
 /** The support shoulder reaching for the handguard: the scapula slides
  *  forward and in (protraction), metres in the figure's frame. The cut
@@ -541,7 +544,7 @@ function solveHoldOnce(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: Ho
       rotateWorld(rig, pose, neck, qaxis(lateral, -step * 0.5));
       rotateWorld(rig, pose, head, qaxis(lateral, -step * 0.5));
     }
-    rotateWorld(rig, pose, head, qaxis([1, 0, 0], deg(10) * st.aim));
+    rotateWorld(rig, pose, head, qaxis([1, 0, 0], deg(h.restCarry ? REST_CARRY_CHEEK_TILT_DEG : 10) * st.aim));
     const eye = carry(rig, W, h.eyeJoint, h.eye);
     const along = dot(sub(eye, butt), dir);
     eyeAboveBore = eye[1] - add(butt, scale(dir, along))[1];

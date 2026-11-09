@@ -6,7 +6,7 @@ pose (the armature in REST), so a part follows each figure's own build.
 import math
 
 import numpy as np
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Vector, Quaternion
 from mathutils.bvhtree import BVHTree
 
 import inf_kit_geo as geo
@@ -94,7 +94,12 @@ class Fit:
         self.O = np.array(bones[f"{pf}_root"].head_local)
         self.O[2] = 0.0
         co, W, dom, tris = _base(meshes)
-        self.co, self.W, self.tris = co, W, tris
+        self.co, self.W, self.tris, self.dom = co, W, tris, dom
+        import bpy
+        # A skinned body (`extras.rl_skinned`, the Meshy pilot) has no "0.95 surface": every vertex of it blends, and a
+        # spine >= 0.95 torso zone read nothing (`build_radio_pouch`, 1 Nov). Its zones go by the DOMINANT influence.
+        self.skinned = bool(bpy.context.scene.get("rl_skinned"))
+        self.rl_hands = bpy.context.scene.get("rl_hands").to_dict() if self.skinned and bpy.context.scene.get("rl_hands") is not None else None
         mine = np.array([isinstance(d, str) and d.startswith(pf + "_") for d in dom])
         self.mine = mine
         tri_mine = mine[tris].all(1)
@@ -113,40 +118,43 @@ class Fit:
                 self.pts[name] = np.concatenate([vs, (a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
             return geo.bvh_from(co, t)
         w = lambda b: W[f"{pf}_{b}"]
+
+        def wz(b, thr):
+            """`bone`'s zone: weight >= thr on a rigid rig; the dominant influence on a skinned one."""
+            return (dom == f"{pf}_{b}") if self.skinned else (w(b) >= thr)
+        self.wz = wz
         z = co[:, 2]
         self.zone_all = zone(mine)
-        self.zone_torso = zone(w("spine") >= 0.95, "torso")
+        self.zone_torso = zone(wz("spine", 0.95), "torso")
         self.zone_torso_all = self.zone_torso
         if kp.TEAM.torso_vest_lum is not None:
             # the wraps fit the BAKED VEST (near-black texels on the spine), not the whole spine zone: that zone also carries
             # cloth tatters and spine-bound hands, which make the outermost-hit sampler draw a shapeless drape around the arms
             lum = _tri_luminance(meshes["uniform"])
-            ok = (w("spine")[tris] >= 0.5).all(1) & tri_mine & (lum < kp.TEAM.torso_vest_lum)
+            ok = wz("spine", 0.5)[tris].all(1) & tri_mine & (lum < kp.TEAM.torso_vest_lum)
             t = tris[ok]
             a, b, c = co[t[:, 0]], co[t[:, 1]], co[t[:, 2]]
             vs = co[np.unique(t)]
             self.pts["torso_all"] = self.pts["torso"]       # the whole spine zone: the collar and yoke sit above the vest
             self.pts["torso"] = np.concatenate([vs, (a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
             self.zone_torso = geo.bvh_from(co, t)
-        self.zone_helmet = zone((w("head") >= 0.5) & (z >= HELMET_Z0), "helmet")
-        self.zone_arm = {s: zone(w(f"upperarm_{s}") >= 0.95, f"arm{s}") for s in "LR"}
-        self.zone_arm_any = {s: zone(w(f"upperarm_{s}") >= 0.5) for s in "LR"}
-        self.zone_pelvis = zone(((w("pelvis") + w("spine")) >= 0.9) & (z < 1.02) & (z > 0.80), "pelvis")
-        self.zone_head = zone(w("head") >= 0.5)
+        self.zone_helmet = zone(wz("head", 0.5) & (z >= HELMET_Z0), "helmet")
+        self.zone_arm = {s: zone(wz(f"upperarm_{s}", 0.95), f"arm{s}") for s in "LR"}
+        self.zone_arm_any = {s: zone(wz(f"upperarm_{s}", 0.5)) for s in "LR"}
+        trunk = (wz("pelvis", 1.0) | wz("spine", 1.0)) if self.skinned else ((w("pelvis") + w("spine")) >= 0.9)
+        self.zone_pelvis = zone(trunk & (z < 1.02) & (z > 0.80), "pelvis")
+        self.zone_head = zone(wz("head", 0.5))
         arms = np.zeros(len(co), bool)
         for b in ("upperarm_L", "upperarm_R", "forearm_L", "forearm_R"):
-            arms |= (w(b) >= 0.5)
+            arms |= wz(b, 0.5)
         self.zone_arms = zone(arms)
         armw = sum(w(b) for b in ("upperarm_L", "upperarm_R", "forearm_L", "forearm_R"))
-        self.zone_lower = zone((armw < 0.3) & (z < 1.02), "lower")
+        self.zone_lower = zone((~arms if self.skinned else (armw < 0.3)) & (z < 1.02), "lower")
         # arm vertex cloud (any weight >= 0.5 on either arm / forearm) for clearance queries
-        arm_any = np.zeros(len(co), bool)
-        for b in ("upperarm_L", "upperarm_R", "forearm_L", "forearm_R"):
-            arm_any |= (w(b) >= 0.5)
-        self.arm_any_idx = np.nonzero(arm_any & mine)[0]
+        self.arm_any_idx = np.nonzero(arms & mine)[0]
 
         # --- helmet
-        hm = (w("head") >= 0.5) & (z >= HELMET_Z0) & mine
+        hm = wz("head", 0.5) & (z >= HELMET_Z0) & mine
         hel = co[hm] - self.O
         # a baked mount stands 5 cm proud of the shell at the front and would drag the helmet's centre (and every wrap's axis)
         # forward: measure the shell without the front-most cluster
@@ -158,7 +166,7 @@ class Fit:
         self.hel_top = float(hel[:, 2].max())
         self.hel_bot = float(np.percentile(hel[:, 2], 1))
         # --- torso
-        sm = (w("spine") >= 0.95) & mine
+        sm = wz("spine", 0.95) & mine
         sp = co[sm] - self.O
         ch = sp[(sp[:, 2] >= 1.28) & (sp[:, 2] <= 1.40)]
         self.chest_x = (float(np.percentile(ch[:, 0], 1)), float(np.percentile(ch[:, 0], 99)))
@@ -175,15 +183,31 @@ class Fit:
         Wm = meshes["weapon"]
         wco, wdom = _co(Wm), _dominant(Wm)
         wv_ = wco[wdom == f"{pf}_weapon"]
-        c = wv_.mean(0)
-        u = np.linalg.svd(wv_ - c, full_matrices=False)[2][0]
-        if u[0] < 0:
-            u = -u
-        u = Vector(u).normalized()
-        v = (Vector((0, 0, 1)) - u * u.z).normalized()
-        wvec = v.cross(u).normalized()
-        proj = (wv_ - c) @ np.array(u)
-        muz = wv_[proj >= proj.max() - 0.02].mean(0)
+        if self.rl_hands is not None and pf in self.rl_hands.get("weapons", {}):
+            # the weapon's OWN frame, as the hold stamped it (`rl_hands.weapons[pf]`: x to the muzzle, y up, the origin
+            # at the bore's centre, the butt at `part.butt_x`), glTF (x, y, z) -> Blender (x, -z, y). An SVD of a
+            # Meshy gun's whole mesh (magazine, stock pocket, the skirt it was sculpted against) is not its bore.
+            wp = self.rl_hands["weapons"][pf]
+            gl = lambda a: Vector((float(a[0]), -float(a[2]), float(a[1])))
+            qx, qy, qz, qw = (float(x) for x in wp["q"])
+            R = Quaternion((qw, qx, qy, qz)).to_matrix()
+            u = gl(R @ Vector((1.0, 0.0, 0.0))).normalized()
+            v = gl(R @ Vector((0.0, 1.0, 0.0))).normalized()
+            c = gl(wp["origin"])
+            half = -float(self.rl_hands["part"]["butt_x"])
+            muz = np.array(c + u * half)
+            wvec = v.cross(u).normalized()
+            proj = (wv_ - np.array(c)) @ np.array(u)
+        else:
+            c = wv_.mean(0)
+            u = np.linalg.svd(wv_ - c, full_matrices=False)[2][0]
+            if u[0] < 0:
+                u = -u
+            u = Vector(u).normalized()
+            v = (Vector((0, 0, 1)) - u * u.z).normalized()
+            wvec = v.cross(u).normalized()
+            proj = (wv_ - c) @ np.array(u)
+            muz = wv_[proj >= proj.max() - 0.02].mean(0)
         self.wM = Vector(muz)
         self.wu, self.ww, self.wv = u, wvec, v
         self.wlen = float(proj.max() - proj.min())
@@ -281,7 +305,7 @@ class Fit:
 
     def section(self, zlo, zhi, bone="spine", thr=0.95):
         """(x0, x1, y0, y1) of the zone's vertices in a z slab, figure-relative."""
-        m = (self.W[f"{self.prefix}_{bone}"] >= thr) & self.mine & (self.co[:, 2] >= zlo) & (self.co[:, 2] <= zhi)
+        m = self.wz(bone, thr) & self.mine & (self.co[:, 2] >= zlo) & (self.co[:, 2] <= zhi)
         p = self.co[m] - self.O
         if len(p) == 0:
             return None
