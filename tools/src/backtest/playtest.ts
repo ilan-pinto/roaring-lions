@@ -9,11 +9,15 @@ import {
   type LedgerData,
   type MissionResult,
   type Stars,
+  type UnitTypeJson,
 } from '@lions/sim';
 import {
+  applyUpgrades,
+  maxTiers,
   units,
   missions,
   world,
+  type UpgradableUnit,
 } from '@lions/data';
 // `tools` importing a pure module out of `packages/app` is the established
 // pattern (`tools/src/meshes/gait-pass.ts` imports `RIGGED_UNIT_MESHES` from
@@ -29,7 +33,9 @@ import { emptyAccount, startCampaign, type BrigadeAccount } from '../../../packa
 import { parseWorld } from '../../../packages/app/src/campaign';
 import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
-import { run, runLog, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
+import { NINE } from './special-units-probes';
+import { aloneAtMax, judge as judgeTracks, orphanExemptions, trackChecks, tracksOf } from './bought-tracks';
+import { registeredUnits, run, runLog, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
 import { censusViolations, populationLine } from './population-census';
 import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
 import { reportIntel, seedsNotSpent } from './intel-gate';
@@ -3031,6 +3037,121 @@ for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
   maxTierCredits.set(probe.id, measured.credits);
 }
 console.log(`max tier: ${maxTierHeld} of ${maxTierProbes.length} plain victories hold`);
+
+// --- GH-1144: every upgrade track of the nine bought-only units -------------
+//
+// The replay above patches the KDF units a plain winning run FIELDS, and of the nine units GH-1077 made upgradable only the medic squad is on any
+// plan's roster (it is loaned into every campaign mission but the tutorial); the other eight were never in a playtest run, so none of their tracks
+// was exercised. Two checks (`bought-tracks.ts`), each track on its own so a dead one cannot hide behind a live sibling:
+//
+//   drills   each track baked alone at its top tier against the unit at base tier, on the same 30 seeds, in the drill that track bears on
+//            (armour: seconds survived against one fixed attacker; sensors: the tick a standing target is identified at 6/10/14 tiles; firepower:
+//            damage dealt). A tie fails, except the three named armour ties (`EXEMPT`, GH-560: a penetration costs a share of max hp), and a named
+//            tie that starts to gain fails until its exemption is deleted.
+//   replays  the unit bought and fielded in Umm Zeitoun IV with its tracks at base, one track alone at max, and all at max, the mission's own plan
+//            unchanged. The purchase is asked for every 5 s from the first tick until the build is accepted (the camo Lavi costs 960 against 600 in
+//            hand). The run must be a VICTORY at no fewer stars than the plain line, the unit must have been built and fielded. The label
+//            `<id> (bought <unit> <variant>)` is not the mission id, so `missionStars`, `missionCredits`, `maxTierProbes` and both ladders never see
+//            these runs; whether they move the clock or the credits is PRINTED against the plain line, never tuned.
+if (!PLAN_CHILD) {
+  const checks = trackChecks();
+  const verdicts = judgeTracks(checks);
+  let gains = 0;
+  let exempt = 0;
+  for (const v of verdicts) {
+    const tag = v.state === 'ok' ? 'gains' : v.state === 'exempt' ? 'EXEMPT TIE' : v.state === 'stale' ? 'STALE EXEMPTION' : 'NO GAIN';
+    console.log(`bought track ${v.check.id}.${v.check.track} (${v.check.drill}): ${v.check.detail} -- ${tag}`);
+    if (v.state === 'ok') gains++;
+    else if (v.state === 'exempt') exempt++;
+    else if (v.state === 'stale') {
+      console.error(`bought track ${v.check.id}.${v.check.track}: FAILED — the named tie now gains; delete its entry in bought-tracks.ts EXEMPT`);
+      process.exitCode = 1;
+    } else {
+      console.error(`bought track ${v.check.id}.${v.check.track}: FAILED — the track buys nothing its drill can see (${v.check.detail})`);
+      process.exitCode = 1;
+    }
+  }
+  for (const k of orphanExemptions(checks)) {
+    console.error(`bought track ${k}: FAILED — EXEMPT names a unit/track no check covers`);
+    process.exitCode = 1;
+  }
+  console.log(`bought tracks: ${gains} of ${checks.length} gain, ${exempt} exempt tie(s), over ${NINE.length} units`);
+
+  const HOST = 'umm_zeitoun_4_clearance';
+  const hostStars = missionStars.get(HOST);
+  const hostCredits = missionCredits.get(HOST);
+  const hostRoe = missionRoe.get(HOST);
+  if (hostStars === undefined || hostCredits === undefined || hostRoe === undefined) {
+    console.error(`bought tracks: FAILED — no plain '${HOST}' winning line to compare against`);
+    process.exitCode = 1;
+  } else {
+    let held = 0;
+    let total = 0;
+    for (const unitId of NINE) {
+      const json = (units as Record<string, UnitTypeJson | undefined>)[unitId];
+      if (json === undefined) throw new Error(`bought tracks: ${unitId} is not registered in @lions/data`);
+      const own = tracksOf(json);
+      const variants: { name: string; tiers: { unit: string; tracks: readonly string[] } | undefined }[] = [
+        { name: 'base', tiers: undefined },
+        ...own.map((t) => ({ name: t, tiers: { unit: unitId, tracks: [t] } })),
+        { name: 'all tracks', tiers: { unit: unitId, tracks: own } },
+      ];
+      for (const variant of variants) {
+        total++;
+        const label = `${HOST} (bought ${unitId} ${variant.name}) (track replay)`;
+        const seen = { accepted: false, at: -1, blocked: null as string | null | undefined, fielded: false, aliveAtEnd: 0 };
+        let idsOf: ((t: string) => number[]) | undefined;
+        const plan: Plan = (sim, rt, ids, at) => {
+          idsOf = ids;
+          uz4Plan(sim, rt, ids, at);
+          for (let when = 0; when <= 600; when += 5) {
+            at(when, () => {
+              if (!seen.accepted) {
+                seen.blocked = rt.buildBlockedReason(unitId);
+                seen.accepted = rt.requestBuild(unitId);
+                if (seen.accepted) seen.at = when;
+              }
+              if (ids(unitId).length > 0) seen.fielded = true;
+            });
+          }
+        };
+        const measured = { result: 'ongoing' as 'ongoing' | 'victory' | 'defeat', stars: 0 as Stars, roeScore: 0, credits: 0, minutes: 0 };
+        run(HOST, plan, ledUZ3, 'victory', label, hostStars, undefined, new Set([unitId]), undefined, variant.tiers, measured);
+        seen.aliveAtEnd = idsOf ? idsOf(unitId).length : 0;
+        // The tier asked for is the tier the sim was handed: the registered JSON must equal the unit baked independently here (base: raw; one track:
+        // `aloneAtMax`; all: every track at its top tier), or a harness that dropped the tier would replay the base unit under a track's name.
+        const expected =
+          variant.tiers === undefined
+            ? json
+            : variant.tiers.tracks.length === own.length
+              ? (applyUpgrades(json as unknown as UpgradableUnit & UnitTypeJson, maxTiers(json as unknown as UpgradableUnit)) as UnitTypeJson)
+              : aloneAtMax(json, variant.tiers.tracks[0]);
+        const registeredAsAsked = JSON.stringify(registeredUnits.get(unitId)) === JSON.stringify(expected);
+        const ok = registeredAsAsked && seen.accepted && seen.fielded && measured.result === 'victory' && measured.stars >= hostStars;
+        console.log(
+          `${label}: build ${seen.accepted ? `ACCEPTED at ${seen.at} s` : `REFUSED${seen.blocked ? ` (${seen.blocked})` : ''}`}, fielded ${seen.fielded ? 'yes' : 'NO'}, alive at end ${seen.aliveAtEnd}; ` +
+            `${measured.result.toUpperCase()} ${measured.minutes.toFixed(1)} min, stars ${measured.stars} (plain ${hostStars}), ROE ${measured.roeScore} (plain ${hostRoe}), credits ${measured.credits} (plain ${hostCredits})`
+        );
+        if (ok) held++;
+        else {
+          console.error(
+            `${label}: FAILED — ${
+              !registeredAsAsked
+                ? 'the sim was not handed the tier this replay asked for'
+                : seen.accepted
+                  ? seen.fielded
+                    ? 'the run lost stars or the mission'
+                    : 'the unit never stood on the field'
+                  : 'the build was never accepted'
+            }`
+          );
+          process.exitCode = 1;
+        }
+      }
+    }
+    console.log(`bought track replays: ${held} of ${total} hold in ${HOST}`);
+  }
+}
 
 // --- Task 7: the harness proves the gates open where the ladder says -------
 //

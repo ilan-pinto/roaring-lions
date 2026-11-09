@@ -935,12 +935,12 @@ export function sightDrill(json: UnitTypeJson, range: number, seed: number): num
 }
 
 /** Damage the unit deals to a standing, unarmed, 30000-hp sarim_rifles 8 tiles away in 20 s. */
-export function fireDrill(json: UnitTypeJson, seed: number): number {
+export function fireDrill(json: UnitTypeJson, seed: number, dist = 8): number {
   const sim = new Sim({ seed: seed + SEED0, width: 24, height: 16, capacity: 4 });
   const shooter = sim.addUnitType(json);
   const dummy = sim.addUnitType({ ...units.sarim_rifles, weapons: [], hull: { ...units.sarim_rifles.hull, hp: 30000 } });
   sim.spawn(shooter, 0, fx.from(4.5), fx.from(8.5));
-  const id = sim.spawn(dummy, 1, fx.from(12.5), fx.from(8.5), WEST);
+  const id = sim.spawn(dummy, 1, fx.from(4.5 + dist), fx.from(8.5), WEST);
   const hp0 = sim.state.hp[id];
   runBattle(sim, FIRE_CAP_TICKS);
   return (hp0 - sim.state.hp[id]) / 65536; // hp is Q16.16
