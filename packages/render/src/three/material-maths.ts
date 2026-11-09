@@ -15,6 +15,7 @@ import { ROAD_DISTANCE_RANGE_TILES } from './terrain/control-map';
 import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
 import { foliageLeanOps } from './terrain/wind';
+import { backdropFadeOps } from './terrain/backdrop';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
@@ -36,7 +37,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
   unit: null,
   outline: null,
   banner: null,
-  backdrop: null,
+  // T10: the valley backdrop's distance fade (`terrain/backdrop.node.ts`).
+  backdrop: { fadeOps: backdropFadeOps },
   decal: null,
   overlay: null,
   zoneBand: null,

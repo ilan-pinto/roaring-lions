@@ -28,6 +28,7 @@ import type { GroundMaterial } from '../terrain/mesh';
 import type { GroundMaths } from '../terrain/mesh.node';
 import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
+import type { BackdropMaths } from '../terrain/backdrop.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -94,7 +95,7 @@ export interface MaterialMaths {
   readonly unit: null;
   readonly outline: null;
   readonly banner: null;
-  readonly backdrop: null;
+  readonly backdrop: BackdropMaths;
   readonly decal: null;
   readonly overlay: null;
   readonly zoneBand: null;

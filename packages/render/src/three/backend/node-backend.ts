@@ -27,6 +27,7 @@ import type { RingStyle } from '../units/selection-ring';
 import { censusUnadopted, censusUnported, unportedWarnings, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
+import { createNodeBackdropMaterial } from '../terrain/backdrop.node';
 import { markTwin } from '../twin-identity';
 
 /** How often (frames) the scene is re-walked for new GLSL-only materials: units spawn mid-run. */
@@ -151,6 +152,12 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
   // GH-943 P2 (T5): the selection, team and wound rings. The legacy material keeps the uniform record the batch writes and carries its style.
   materials.ring = (legacy) => {
     const twin = createNodeRingMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.ring }, legacy.userData[RING_STYLE_KEY] as RingStyle, legacy.uniforms as unknown as RingUniformRecord);
+    markTwin(twin, legacy);
+    return twin;
+  };
+  // GH-943 P3 (T10): the valley backdrop's distance fade, an output term over the stock lit material (all five materials, one factory).
+  materials.backdrop = (legacy) => {
+    const twin = createNodeBackdropMaterial({ W, TSL: TSL as never, maths: opts.materialMaths.backdrop }, legacy);
     markTwin(twin, legacy);
     return twin;
   };
