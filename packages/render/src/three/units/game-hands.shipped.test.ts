@@ -49,6 +49,19 @@ const VIEWPORT = 640;
 const MIN_PIXELS = 3;
 const FACINGS = 8;
 const FACINGS_NEEDED = 6;
+/**
+ * The lead, 9 Nov 2026 (GH-746): a figure with REAL-SIZE fists -- the Meshy figure, its fists scaled to ANSUR size
+ * (`rl_hands.source` "meshy") -- must show each hand in 4 of 8 facings, not 6. At the zoom ceiling a real fist is 1-2 px
+ * from more facings than the 1.4x fists the bar of 6 was set on; the bar still holds a hand that is not there (below).
+ */
+const FACINGS_NEEDED_REAL_SIZE = 4;
+const realSizeFists = (id: string): boolean => {
+  const b = readFileSync(new URL(`${id}.glb`, DIR));
+  const jl = b.readUInt32LE(12);
+  const js = JSON.parse(b.subarray(20, 20 + jl).toString('utf8')) as { scenes?: { extras?: { rl_hands?: { source?: string } } }[] };
+  return js.scenes?.[0]?.extras?.rl_hands?.source === 'meshy';
+};
+const facingsNeeded = (id: string): number => (realSizeFists(id) ? FACINGS_NEEDED_REAL_SIZE : FACINGS_NEEDED);
 const CLAW_REACH_M = 0.12;
 const FULL_KIT = { armour: 3, sensors: 3, firepower: 3 } as const;
 const HELD_OR_WORN = new Set(['weapon', 'metal', 'charge', 'wood', 'webbing', 'face']);
@@ -194,7 +207,8 @@ async function violations(id: string, opts: Parameters<typeof readHands>[2] = {}
       continue;
     }
     if (hands.length === 0) out.push(`${clip}: no figure drawn`);
-    for (const h of hands) if (h.facings < FACINGS_NEEDED) out.push(`${clip} ${h.hand} (${h.kind}): ${h.facings} of ${FACINGS} facings`);
+    const need = facingsNeeded(id);
+    for (const h of hands) if (h.facings < need) out.push(`${clip} ${h.hand} (${h.kind}): ${h.facings} of ${FACINGS} facings`);
   }
   return out;
 }
@@ -213,11 +227,7 @@ const HAND_VISIBILITY_EXEMPT: Readonly<Record<string, string>> = {
   // read 0 in idle. Its palette rifle (role weapon, on demo_b_weapon) still occludes.
   digger_crew: 'both hands 0 of 8: the arm is fused into the torso (and the team has no fire clip)',
   inf_grenadier: 'gre0 and gre2 R 0 of 8: the launcher hides the support claw; gre1 R 4',
-  // the Meshy pilot after the real-size fists (9 Nov, the lead's ruling: fists x0.8): with the torso looked through, idle
-  // f0_L 4, f1_L 4 (the firing fists at the low ready, behind their own arm and the magazine), fire f0_L 5, f0_R 5,
-  // f1_L 4, f1_R 5, f2_R 5; counted 3-6. At 1.4x size (before) every hand read 6-8: the smaller fist is under 3 px at the
-  // zoom ceiling from more facings. Open, for the lead: real size and visibility pull against each other here.
-  inf_squad: 'real-size fists: firing fists 4 of 8 in idle, 4-5 of 8 in fire (at 1.4x size they read 6-8)',
+  // inf_squad (the Meshy pilot, real-size fists) is held to its own bar of 4 (FACINGS_NEEDED_REAL_SIZE), no exemption.
   inf_medic_squad: 'med_a R 5, med_b R 5 and 4 (block hands)',
   manpad_team: 'mpd_fire L shows in 4 of 8 facings',
   militia_cell: 'every hand 5 of 8 in idle',
@@ -275,6 +285,12 @@ describe('G4 can fail (constructed inputs)', () => {
     const v = await violations('officer_infantry', { occluder: 'maya_L' });
     expect(v.join(' | ')).toMatch(/maya_L/);
   }, 120_000);
+  it('the real-size bar of 4 still fails a hand that is not there: inf_squad with f0\'s firing forearm scaled away', async () => {
+    expect(realSizeFists('inf_squad')).toBe(true);
+    expect(await violations('inf_squad')).toEqual([]);
+    const v = await violations('inf_squad', { hide: ['f0_forearm_L'] });
+    expect(v.join(' | ')).toMatch(/f0_L/);
+  }, 240_000);
   it('the self-occlusion exclusion does work: counted, a figure\'s own torso hides a hand it otherwise shows', async () => {
     // demo_squad in idle (9 Nov): demo_b's firing claw reads 0 of 8 counted and 6 with its own torso looked through
     const worst = (r: HandReading[] | null) => Math.min(...(r ?? []).map((h) => h.facings));

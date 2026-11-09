@@ -1482,7 +1482,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // so the NVG tubes clear the support hand), the face sits forward of the head joint again, and a bearing can be read.
     // GH-746 Meshy pilot (9 Nov): - 6, inf_squad's move and moveFire heads now read under the lever floor (listed by
     // name in the short-lever test below): the skinned figure's head joint sits over its own face in the run's lean.
-    expect(rows).toHaveLength(307); // B7: 21 GLBs, every one with a face mesh now
+    // GH-746 round 3 (9 Nov): + 3, inf_squad's moveFire heads read again (the rest carry walks moveFire upright).
+    expect(rows).toHaveLength(310); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1702,10 +1703,7 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'inf_squad.glb move f0_head 0.0263',
       'inf_squad.glb move f1_head 0.0272',
       'inf_squad.glb move f2_head 0.0286',
-      // (moveFire re-read 9 Nov after the 12 deg cheek tilt: 0.0176 / 0.0146 / 0.0093 before)
-      'inf_squad.glb moveFire f0_head 0.0245',
-      'inf_squad.glb moveFire f1_head 0.0214',
-      'inf_squad.glb moveFire f2_head 0.0191',
+      // (the three moveFire heads left this list on 9 Nov, round 3: walked upright, their faces are read and gated)
       'inf_grenadier.glb pinned gre0_head 0.0231',
       'inf_grenadier.glb pinned gre1_head 0.0206',
       'inf_grenadier.glb pinned gre2_head 0.0278',
@@ -1809,7 +1807,7 @@ const WEAPON_RIGS: readonly {
   // GH-746 Meshy pilot (9 Nov): Meshy's own gun, not kdf_carbine, so not HANDS_CARBINE_AXIS_BIAS_DEG. Its cloud's
   // principal axis sits 3.65 / 4.28 / 4.86 deg above the level bore per body (the bodies are anisotropic scalings of
   // one sculpt, so the same gun's shape tilts differently), read on the bytes: per joint, literals.
-  { file: 'inf_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: { f0_weapon: 5.6, f1_weapon: 6.17, f2_weapon: 1.04 } }, // re-read 9 Nov (pocket 0.05, real-size fists): was 3.65 / 4.28 / 4.86
+  { file: 'inf_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: { f0_weapon: 0.82, f1_weapon: 3.9, f2_weapon: 4.2 } }, // re-read 9 Nov round 3 (moveFire upright, fists by weight); round 2 5.6 / 6.17 / 1.04, before 3.65 / 4.28 / 4.86
   { file: 'sarim_rifles.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   // GH-709 phase 3 (22 Oct): two revolving launchers and the leader's carbine,
   // every one a `rifle`-kind hold, so the same 0 deg aim and -30 deg low ready.
@@ -2016,9 +2014,10 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   // 1 Nov ("idle good"). Was -30 + the kdf_carbine bias (-24.13) for the cut body.
   // Re-read 9 Nov after the real-size fists and forearms (the elbows and wrists moved; the gun did not): -43.51 / -41.38 /
   // -37.55 before.
-  'inf_squad.glb f0_weapon': -41.59,
-  'inf_squad.glb f1_weapon': -39.51,
-  'inf_squad.glb f2_weapon': -41.38,
+  // Round 3 (9 Nov: the fists by hand weight, the firing fist 10 mm off the gun): -41.59 / -39.51 / -41.38 before.
+  'inf_squad.glb f0_weapon': -46.35,
+  'inf_squad.glb f1_weapon': -41.77,
+  'inf_squad.glb f2_weapon': -38.22,
   'inf_grenadier.glb gre0_weapon': -30,
   'inf_grenadier.glb gre1_weapon': -30,
   'inf_grenadier.glb gre2_weapon': -30,

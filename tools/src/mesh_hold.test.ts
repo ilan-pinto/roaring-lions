@@ -64,7 +64,7 @@ const EYE_AT_SPIKE: readonly [number, number] = [-0.1, 0.0];
  * -0.019..0.004 by its own measure): the cheek leaves the stock in the run. Fire, kneel and pinned read 0.063-0.084.
  */
 const EYE_OPEN_DEFECT: Readonly<Record<string, string>> = {
-  'inf_squad f2 moveFire': 'eye 0.018 m over the bore at its lowest (band from 0.02): the run keeps its lean and the cheek leaves the stock',
+  // (inf_squad f2 moveFire left on 9 Nov, round 3: a rest carry walks its moveFire upright, the eye 0.069-0.087 over the bore)
 };
 
 const HELD = Object.entries(MOTION_TEAMS).flatMap(([team, spec]) =>

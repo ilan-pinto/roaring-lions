@@ -339,7 +339,11 @@ export function strayClawReport(glb: GlbFile): StrayReport {
     const near = (c: V3): boolean => hands.some((h) => Math.hypot(h[0] - c[0], h[1] - c[1], h[2] - c[2]) <= STRAY_NEAR_HAND_M);
     const claw = hs.some((h) => h.kind === 'claw');
     if (hands.length === 0 && !isTwin(p, builds)) blind.push(p);
-    const tones: V3[] = [...LEGACY_CLAW_TONES];
+    // The legacy claw tones (KDF orange, the crews' pink) describe CLAWS. A build whose hands are modelled gloves with
+    // their own texel (`rl_hands.glove`) and no claw is read by that texel (`painted` below), not by them: the Meshy Rifle
+    // Squad's vest is the kit carrier's coyote by the lead's ruling (9 Nov 2026), Lab (43, 7, 31), 10.8 dE from the
+    // legacy (42, 18, 33), and its pouches beside the fists read as six "claw" pieces on the spine.
+    const tones: V3[] = glove !== null && !claw ? [] : [...LEGACY_CLAW_TONES];
     if (claw) {
       const labs = handTris.filter((t) => hs.some((h) => h.kind === 'claw' && h.tris.includes(t))).map((t) => triLab(tex, t)).filter((l): l is V3 => l !== null);
       if (labs.length > 0) {

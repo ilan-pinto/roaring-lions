@@ -144,11 +144,13 @@ const FUSED_HAND_OPEN: Readonly<Record<string, readonly string[]>> = {
   // for the elbow; the firing fists (_L) read 0.161-0.162 long (0.16) and 0.070-0.083 across the palm (0.085: the closed
   // fist round the pistol grip is narrow once scaled); every hung elbow reads 0.641-0.651 of stature (0.605-0.625): Meshy's
   // upper arm is short (0.288-0.304) and the shoulder joint sits at the humeral head; f2's firing forearm reads 0.300.
-  'inf_squad f0_L': ['hand length', 'palm breadth', 'hung elbow height over stature'],
+  // round 3 (fists by hand weight; firing x0.80, support x0.86): firing fists 0.152-0.153 long on f0 / f1 (in band),
+  // f2's 0.170; the firing palms 0.068-0.070 across; the support fists in band but for the elbow
+  'inf_squad f0_L': ['palm breadth', 'hung elbow height over stature'],
   'inf_squad f0_R': ['hung elbow height over stature'],
-  'inf_squad f1_L': ['hand length', 'palm breadth', 'hung elbow height over stature'],
+  'inf_squad f1_L': ['palm breadth', 'hung elbow height over stature'],
   'inf_squad f1_R': ['hung elbow height over stature'],
-  'inf_squad f2_L': ['palm breadth', 'visible forearm', 'hung elbow height over stature'],
+  'inf_squad f2_L': ['hand length', 'palm breadth', 'visible forearm', 'hung elbow height over stature'],
   'inf_squad f2_R': ['hung elbow height over stature'],
 };
 
