@@ -24,6 +24,11 @@
  *   5. the weapon bone pushed 10 mm into both gloves in `fire` (4 mm moves the support reading by under 1 mm: its deepest point is
  *      where the fingers close on the handguard, not where the weapon is): the per-clip depth ceilings go red;
  *   6. the old first-vertex-and-centroid sampler on the same shipped bytes: 2.0 mm where the dense reading is 9.0.
+ *
+ * GH-746 (9 Nov): the shipped squad is a FUSED Meshy figure (see FUSED below). Inputs 2, 3 and 4 run on it (its station
+ * and axis are read against the fist's sculpted place on the gun); 5 and 6 run on the frozen rigid squad whose procedural
+ * hands their ceilings were measured on, and a fused twin of 5 runs on the shipped bytes. Its open readings are named in
+ * FUSED_GRIP_OPEN, each with a demotion.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,9 +36,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { measureGrip, readGlb, type GlbFile } from './mesh_gait';
+import { isFusedHands } from './mesh_hand_source';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 const SQUAD = `${MESHES}inf_squad.glb`;
+/**
+ * GH-746 Meshy pilot: the shipped Rifle Squad may be a FUSED figure (`rl_hands.source` "meshy"): fists Meshy sculpted on
+ * its own 0.79 m gun, skinned rigidly to the hand bones. Then (measureGrip) the station is where the fist was sculpted on
+ * the gun (its centroid in the weapon's bind space) and the axis its bone's turn from its bind orientation against the
+ * weapon's; the limits are the same literals. The readings calibrated on the procedural hand (the weapon-in-glove
+ * ceilings, the old sampler) are falsified on the frozen rigid squad they were measured on (`RIGID`).
+ */
+const FUSED = isFusedHands(SQUAD);
+const RIGID = FUSED ? fileURLToPath(new URL('./fixtures/inf_squad_rigid_592ebbb19.glb', import.meta.url)) : SQUAD;
 const FIGURES = ['f0', 'f1', 'f2'] as const;
 const CLIPS = ['idle', 'move', 'fire', 'moveFire', 'kneel', 'kneelIn', 'kneelOut', 'pinned'] as const;
 const hzOf = (clip: string): number => (clip === 'kneelIn' || clip === 'kneelOut' ? 120 : 60);
@@ -46,8 +61,17 @@ const WRIST_OVER_DEG = 0.5;
 /** Where the hand's centroid sits along the weapon, butt 0 to muzzle 1: re-derived on the reshaped carbine (the spec's
  *  bands, 0.36-0.42 and 0.62-0.72, were read off the Meshy rifle; the grip is at u 0.263 and the handguard station at
  *  u 0.54 of the 0.845 m part, and the hand's centroid reads 0.28 and 0.65). Measured 0.280-0.289 and 0.646-0.660. */
-const GRIP_S: readonly [number, number] = [0.26, 0.31];
-const SUPPORT_S: readonly [number, number] = [0.62, 0.68];
+const GRIP_S_CARBINE: readonly [number, number] = [0.26, 0.31];
+const SUPPORT_S_CARBINE: readonly [number, number] = [0.62, 0.68];
+/** The same reading on the fused figure's own gun (Meshy's, kept with the fists sculpted on it; GH-746), measured on the
+ *  9 Nov bytes: firing 0.375 / 0.375 / 0.401 (f0 / f1 / f2; f2's body is a 0.966 x 1.08 scaling, which moves the same
+ *  fist along the same gun's cloud), support 0.752 / 0.754 / 0.757. Bands 0.05 wide, as narrow as the carbine's. The
+ *  cloud is longer than the bore (0.82-0.86 m against 0.79: the vest pocket that went with the stock), so these are the
+ *  instrument's s, not the bore's. The support fist is a C-clamp further forward on the handguard than the carbine's. */
+const GRIP_S_FUSED: readonly [number, number] = [0.36, 0.41];
+const SUPPORT_S_FUSED: readonly [number, number] = [0.73, 0.78];
+const GRIP_S = FUSED ? GRIP_S_FUSED : GRIP_S_CARBINE;
+const SUPPORT_S = FUSED ? SUPPORT_S_FUSED : SUPPORT_S_CARBINE;
 /** The review's own definition, against which the shipped Meshy claws are red: the hand's centroid to the grip's
  *  centroid (firing), and to the nearest handguard vertex (support). Measured here 0.025-0.029 and 0.027-0.033. */
 const REVIEW_FIRE_MAX_M = 0.035;
@@ -79,12 +103,48 @@ const WEAPON_IN_HAND_CEILING_M: Readonly<Record<(typeof CLIPS)[number], readonly
   kneel: [0.004, 0.0105], kneelIn: [0.0095, 0.0105], kneelOut: [0.0095, 0.0105], pinned: [0.004, 0.0105],
 };
 
+/**
+ * Readings of the FUSED figure that fail for a named reason, per `${figure} ${reading}` (the fist is locked to the gun, so
+ * each reads the same in every clip). Each must still fail, or the entry is deleted (the demotion); every other reading
+ * of the fused figure keeps every limit. Read 9 Nov 2026 on the round-3 bytes.
+ */
+const FUSED_GRIP_OPEN: Readonly<Record<string, string>> = FUSED ? {
+  // An INSTRUMENT limit: readWeaponFrame's pistol-grip finder takes the first protrusion under the cloud between s 0.12
+  // and 0.75, and Meshy's gun carries the vest pocket that went with the stock (18-23 cm under the butt), so its "grip"
+  // is that pocket at s ~0.2, 16-20 cm from the fist. The fist's place on the gun is read by the station, s and contact.
+  'f0 review fire': 'firing review gap 0.192 m: the grip finder reads the stock pocket, not the pistol grip',
+  'f1 review fire': 'firing review gap 0.165 m: the grip finder reads the stock pocket, not the pistol grip',
+  'f2 review fire': 'firing review gap 0.205 m: the grip finder reads the stock pocket, not the pistol grip',
+  // A DEFECT: the sculpted grip faces kept on the hand bones (the importer parts the fused fingers from the gun) leave the
+  // gun's surface 16.7 / 20.7 / 19.8 mm inside the firing fist (ceilings 4-9.5); the support fist reads 0.9-9.3, inside.
+  'f0 depth fire': 'the gun 16.7 mm inside the firing fist (ceiling 4-9.5): the parted fused grip',
+  'f1 depth fire': 'the gun 20.7 mm inside the firing fist (ceiling 4-9.5): the parted fused grip',
+  'f2 depth fire': 'the gun 19.8 mm inside the firing fist (ceiling 4-9.5): the parted fused grip',
+  // A DEFECT: rl_hands carries ONE station table, measured on one body; f2 is a 0.966 x 1.08 scaling of it, so the hold
+  // puts his fists on the shared stations, 23.4 mm (firing) off where they were sculpted on his own gun (f1 5.0, f0 0.0).
+  'f2 station fire': 'firing fist 23.4 mm off its sculpted station (limit 20): one station table for three scaled bodies',
+} : {};
+
 const readings = new Map<string, ReturnType<typeof measureGrip>>();
 function read(fig: string, clip: string): ReturnType<typeof measureGrip> {
   const k = `${fig} ${clip}`;
   let r = readings.get(k);
   if (!r) { r = measureGrip(SQUAD, clip, fig, { hz: hzOf(clip) }); readings.set(k, r); }
   return r;
+}
+const rigidReadings = new Map<string, ReturnType<typeof measureGrip>>();
+function readRigid(fig: string, clip: string): ReturnType<typeof measureGrip> {
+  if (!FUSED) return read(fig, clip);
+  const k = `${fig} ${clip}`;
+  let r = rigidReadings.get(k);
+  if (!r) { r = measureGrip(RIGID, clip, fig, { hz: hzOf(clip) }); rigidReadings.set(k, r); }
+  return r;
+}
+/** `expect(v).toBeLessThanOrEqual(limit)`, or, for a named open reading, the demotion: it must still be over. */
+function within(fig: string, what: string, v: number, limit: number, label: string): void {
+  const key = `${fig} ${what}`;
+  if (key in FUSED_GRIP_OPEN) expect(v, `${label}: inside the limit now, delete FUSED_GRIP_OPEN "${key}"`).toBeGreaterThan(limit);
+  else expect(v, label).toBeLessThanOrEqual(limit);
 }
 
 describe('the Rifle Squad holds the carbine in every clip', () => {
@@ -93,7 +153,7 @@ describe('the Rifle Squad holds the carbine in every clip', () => {
       it(`${fig} ${clip}: both hands on their stations, axes true, palms on, wrists in range`, () => {
         const r = read(fig, clip);
         expect(r.instants, 'instants with the weapon drawn').toBeGreaterThan(10);
-        expect(r.fire.stationGapM!, 'firing hand to the grip station').toBeLessThanOrEqual(FIRE_STATION_M);
+        within(fig, 'station fire', r.fire.stationGapM!, FIRE_STATION_M, 'firing hand to the grip station');
         expect(r.support.stationGapM!, 'support hand to the handguard station').toBeLessThanOrEqual(SUPPORT_STATION_M);
         expect(r.fire.axisDeg!, 'firing hand axis').toBeLessThanOrEqual(AXIS_DEG);
         expect(r.support.axisDeg!, 'support hand axis').toBeLessThanOrEqual(AXIS_DEG);
@@ -105,13 +165,21 @@ describe('the Rifle Squad holds the carbine in every clip', () => {
         expect(r.fire.sMax, 'firing hand along the weapon, highest').toBeLessThanOrEqual(GRIP_S[1]);
         expect(r.support.sMin, 'support hand along the weapon, lowest').toBeGreaterThanOrEqual(SUPPORT_S[0]);
         expect(r.support.sMax, 'support hand along the weapon, highest').toBeLessThanOrEqual(SUPPORT_S[1]);
-        expect(r.fire.reviewGapM, 'review reading, firing').toBeLessThanOrEqual(REVIEW_FIRE_MAX_M);
+        within(fig, 'review fire', r.fire.reviewGapM, REVIEW_FIRE_MAX_M, 'review reading, firing');
         expect(r.support.reviewGapM, 'review reading, support').toBeLessThanOrEqual(REVIEW_SUPPORT_MAX_M);
-        expect(r.fire.depthM!, 'weapon inside the firing glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip][0]);
+        within(fig, 'depth fire', r.fire.depthM!, WEAPON_IN_HAND_CEILING_M[clip][0], 'weapon inside the firing glove');
         expect(r.support.depthM!, 'weapon inside the support glove').toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M[clip][1]);
       }, 120_000);
     }
   }
+
+  it('every open fused reading names a figure and a reading this file gates, with a reason', () => {
+    for (const [k, why] of Object.entries(FUSED_GRIP_OPEN)) {
+      expect(FIGURES as readonly string[], k).toContain(k.split(' ')[0]);
+      expect(['station fire', 'review fire', 'depth fire'], k).toContain(k.split(' ').slice(1).join(' '));
+      expect(why.length, 'a reason, not a name').toBeGreaterThan(20);
+    }
+  });
 
   it('reads the population it says it reads: 3 figures x 8 clips', () => {
     expect(FIGURES.length * CLIPS.length).toBe(24);
@@ -134,9 +202,9 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 let nextFile = 0;
 
 /** A copy of the shipped GLB with every key of `node`'s `prop` track in `clip` passed through `edit`, written to scratch. */
-function patched(clip: string, node: string, prop: 'rotation' | 'translation', edit: (v: number[]) => number[]): string {
-  const raw = readFileSync(SQUAD);
-  const glb = readGlb(SQUAD);
+function patched(clip: string, node: string, prop: 'rotation' | 'translation', edit: (v: number[]) => number[], src = SQUAD): string {
+  const raw = readFileSync(src);
+  const glb = readGlb(src);
   const bin = Buffer.from(glb.bin);
   const nodes = glb.json.nodes ?? [];
   const ni = nodes.findIndex((n) => n.name === node);
@@ -182,18 +250,28 @@ describe('the instrument can fail', () => {
 });
 
 describe('the weapon-in-glove ceiling can fail (constructed failing input 5)', () => {
+  // Both on the procedural hand these ceilings were measured on: the shipped squad, or the frozen rigid one while it ships fused.
   it('the weapon bone pushed 10 mm into both gloves in fire reads past the ceilings it holds (firing 5.3, support 12.0), and the unpatched file does not', () => {
-    const file = patched('fire', 'f1_weapon', 'translation', (v) => [v[0], v[1] - 0.01, v[2]]);
+    const file = patched('fire', 'f1_weapon', 'translation', (v) => [v[0], v[1] - 0.01, v[2]], RIGID);
     const r = measureGrip(file, 'fire', 'f1', { hz: 60 });
     expect(r.fire.depthM!, 'firing glove').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.fire[0]);
     expect(r.support.depthM!, 'support glove').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.fire[1]);
-    expect(read('f1', 'fire').fire.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.fire[0]);
+    expect(readRigid('f1', 'fire').fire.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.fire[0]);
+    expect(readRigid('f1', 'fire').support.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.fire[1]);
+  }, 60_000);
+
+  it('on the fused figure too: the weapon bone pushed 10 mm into the fists in fire takes the support fist past its ceiling, and the shipped bytes do not', () => {
+    if (!FUSED) return;
+    // (the firing fist's depth is an open reading, FUSED_GRIP_OPEN, held by its demotion; this push moves it 0.7 mm only)
+    const file = patched('fire', 'f1_weapon', 'translation', (v) => [v[0], v[1] - 0.01, v[2]]);
+    const r = measureGrip(file, 'fire', 'f1', { hz: 60 });
+    expect(r.support.depthM!, 'support fist').toBeGreaterThan(WEAPON_IN_HAND_CEILING_M.fire[1]);
     expect(read('f1', 'fire').support.depthM!).toBeLessThanOrEqual(WEAPON_IN_HAND_CEILING_M.fire[1]);
   }, 60_000);
 
   it('the old sampler (each weapon triangle\'s first vertex and centroid) reads the SAME bytes at 2 mm in the support hand where the dense one reads 9 (constructed failing input 6)', () => {
-    const dense = read('f1', 'fire');
-    const sparse = measureGrip(SQUAD, 'fire', 'f1', { hz: 60, sparseWeaponSamples: true });
+    const dense = readRigid('f1', 'fire');
+    const sparse = measureGrip(RIGID, 'fire', 'f1', { hz: 60, sparseWeaponSamples: true });
     expect(sparse.support.depthM!, 'sparse sampling, support glove').toBeLessThan(0.004);
     expect(dense.support.depthM!, 'dense sampling, support glove').toBeGreaterThan(0.008);
     // ...and a ceiling set from the sparse reading would have passed a hand sunk 9 mm into the handguard
@@ -216,7 +294,8 @@ describe('recoil and lean keep the grip', () => {
   for (const fig of FIGURES) {
     it(`${fig}: both arms, both hands, the finger and the weapon descend from the spine`, () => {
       const set = under(glb, `${fig}_spine`);
-      for (const b of ['weapon', 'upperarm_L', 'forearm_L', 'hand_L', 'finger_L', 'upperarm_R', 'forearm_R', 'hand_R']) {
+      // a fused figure has no trigger finger (Meshy sculpted the fist closed; mesh_arm_pops asserts the bone skins nothing)
+      for (const b of ['weapon', 'upperarm_L', 'forearm_L', 'hand_L', ...(FUSED ? [] : ['finger_L']), 'upperarm_R', 'forearm_R', 'hand_R']) {
         expect(set.has(`${fig}_${b}`), `${fig}_${b} under ${fig}_spine`).toBe(true);
       }
     });

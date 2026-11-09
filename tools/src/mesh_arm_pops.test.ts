@@ -22,11 +22,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { measureJointPoses, readAccessor, readGlb, rotationDeltaDeg } from './mesh_gait';
+import { isFusedHands, jointVertexCount } from './mesh_hand_source';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 const FILE = `${MESHES}inf_squad.glb`;
 const FIGURES = ['f0', 'f1', 'f2'];
-const BONES = ['upperarm_L', 'forearm_L', 'hand_L', 'upperarm_R', 'forearm_R', 'hand_R', 'finger_L'];
+/** The trigger finger is the hands pass's (a library hand part on its own bone). A FUSED figure (`rl_hands.source`
+ *  "meshy", GH-746: Meshy sculpted the fist closed round the trigger) has the bone in its rig but no track and no
+ *  vertex on it; it is left out only on such a file, and the test below asserts that it skins nothing there. */
+const FUSED = isFusedHands(FILE);
+const BONES = ['upperarm_L', 'forearm_L', 'hand_L', 'upperarm_R', 'forearm_R', 'hand_R', ...(FUSED ? [] : ['finger_L'])];
 const CLIPS = ['idle', 'move', 'fire', 'moveFire', 'kneel', 'kneelIn', 'kneelOut', 'pinned'];
 /** Degrees a second: 20 degrees in one 120 Hz step. */
 const MAX_TURN_DEG_PER_S = 2400;
@@ -116,6 +121,15 @@ describe('a looping clip closes its loop (the last key meets the first)', () => 
     const bad = withLastKey(FILE, 'moveFire', 'f1_upperarm_R', ([x, y, z, w]) => [w * s + x * c, y * c + z * s, z * c - y * s, w * c - x * s]);
     expect(seamTurnDeg(bad, 'moveFire', 'f1_upperarm_R')).toBeGreaterThan(MAX_SEAM_DEG);
     expect(seamTurnDeg(FILE, 'moveFire', 'f1_upperarm_R')).toBeLessThanOrEqual(MAX_SEAM_DEG);
+  });
+});
+
+describe('a fused hand has no finger to pop', () => {
+  it('on a fused-hands file the trigger finger bone skins no vertex (so leaving it out of the rate hides nothing)', () => {
+    if (!FUSED) return;
+    for (const fig of FIGURES) expect(jointVertexCount(FILE, `${fig}_finger_L`), `${fig}_finger_L`).toBe(0);
+    // ...and the counter can see a bone that does skin: the fist is on the hand bone
+    for (const fig of FIGURES) expect(jointVertexCount(FILE, `${fig}_hand_L`), `${fig}_hand_L`).toBeGreaterThan(200);
   });
 });
 
