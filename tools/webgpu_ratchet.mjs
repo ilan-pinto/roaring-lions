@@ -34,6 +34,8 @@ export const PORTED_FILES = [
   'packages/render/src/three/units/rim-fade.node.ts',
   'packages/render/src/three/units/beam-batch.node.ts',
   'packages/render/src/three/units/swarm-batch.node.ts',
+  // GH-943 P3 (T5): the occlusion and smoke outline. Its legacy twin (units/silhouette.ts) keeps its GLSL until P8.
+  'packages/render/src/three/units/silhouette.node.ts',
   // GH-943 P3 (T8): the overlay batch, zone band, supply route and tunnel trail. Their legacy twins keep their GLSL until P8.
   'packages/render/src/three/units/overlays.node.ts',
   'packages/render/src/three/units/zone-band.node.ts',
@@ -42,6 +44,8 @@ export const PORTED_FILES = [
   // GH-943 P3 (T12): the flipbook and the smoke screen. Their legacy twins keep their GLSL until P8.
   'packages/render/src/three/units/flipbook-fx.node.ts',
   'packages/render/src/three/smoke-mesh.node.ts',
+  // GH-943 P3 (T7): the decal pools and the crater rim. Its legacy twin (decal-pool.ts) keeps its GLSL until P8.
+  'packages/render/src/three/decal-pool.node.ts',
 ];
 
 /**
@@ -76,6 +80,8 @@ export const TWINS = Object.freeze({
   [`${THREE}units/collapse-shroud.ts`]: `${THREE}units/rim-fade.node.ts`,
   [`${THREE}units/beam-batch.ts`]: `${THREE}units/beam-batch.node.ts`,
   [`${THREE}units/swarm-batch.ts`]: `${THREE}units/swarm-batch.node.ts`,
+  // GH-943 P3 (T5)
+  [`${THREE}units/silhouette.ts`]: `${THREE}units/silhouette.node.ts`,
   // GH-943 P3 (T8). supply-route-maths.ts holds the dash the route twin shares (a change to it must touch the twin too, intended).
   [`${THREE}units/overlays.ts`]: `${THREE}units/overlays.node.ts`,
   [`${THREE}units/zone-band.ts`]: `${THREE}units/zone-band.node.ts`,
@@ -85,6 +91,9 @@ export const TWINS = Object.freeze({
   // GH-943 P3 (T12). The shared billow noise (units/vfx-noise.ts) has no GLSL; both legacy files pin their own copy to it by test.
   [`${THREE}units/flipbook-fx.ts`]: `${THREE}units/flipbook-fx.node.ts`,
   [`${THREE}smoke-mesh.ts`]: `${THREE}smoke-mesh.node.ts`,
+  // GH-943 P3 (T7). decal-maths.ts holds the kinds and the rim the decal twin shares (a change to it must touch the twin too, intended).
+  [`${THREE}decal-pool.ts`]: `${THREE}decal-pool.node.ts`,
+  [`${THREE}decal-maths.ts`]: `${THREE}decal-pool.node.ts`,
 });
 
 /** The identifiers that mean "this file still carries GLSL" (also scanned for as text by the test). */

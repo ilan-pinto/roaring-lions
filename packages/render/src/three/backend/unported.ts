@@ -26,8 +26,9 @@ export interface UnportedHook {
   objects: number;
 }
 
-/** Hooked materials that draw WRONG (not just plainer) without their hook, so the node backend hides them. */
-export const HIDE_WITHOUT_HOOK: ReadonlySet<string> = new Set(['rl-silhouette-outline']);
+/** Hooked materials that draw WRONG (not just plainer) without their hook, so the node backend hides them. GH-943 P3 (T5): EMPTY. The
+ *  occlusion outline (`rl-silhouette-outline`), its only entry, has a node twin (`units/silhouette.node.ts`) and draws on node. */
+export const HIDE_WITHOUT_HOOK: ReadonlySet<string> = new Set<string>([]);
 
 /**
  * GH-943 P2 (T1): the legacy material keys (as `censusUnported` names them) that have a node twin. Each port task APPENDS its key
@@ -52,6 +53,10 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   'rl-overlay', 'rl-zone-band', 'rl-supply-route', 'rl-trail',
   // GH-943 P3 (T12): the flipbook's smoke and fire passes, and the smoke screen (`units/flipbook-fx.node.ts`, `smoke-mesh.node.ts`).
   'rl-flipbook-smoke', 'rl-flipbook-fire', 'rl-smoke-screen',
+  // GH-943 P3 (T5): the occlusion outline, the smoke outline and the hit flash's outline (`units/silhouette.node.ts`).
+  'rl-silhouette-outline',
+  // GH-943 P3 (T7): the decal pools and the crater rim (dry and wet share the name; node draws a wet owner dry, `rl-decal: wet terms`).
+  'rl-decal',
 ]);
 
 /** `userData` key on a node twin: the terms of its legacy material it does NOT draw (`['rl-ground: wet terms']`). */

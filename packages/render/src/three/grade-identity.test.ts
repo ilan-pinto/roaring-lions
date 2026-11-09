@@ -40,11 +40,15 @@ const outputOf = (chain: ReturnType<typeof newChain>) =>
 const SLIGHTLY_SATURATED: ResolvedGrade = { ...IDENTITY_GRADE, saturation: 1.01 };
 
 describe('an identity grade builds no pass (spec section 8, grade-identity)', () => {
-  it('null, the identity, and day (no grade) leave the output shader byte for byte as the vignette fold made it', () => {
+  it('null, the identity, and day (no grade) leave the output shader as the dither-only fold: no lookup, the dither always', () => {
     const chain = newChain();
     const out = outputOf(chain);
     const stock = out.material.fragmentShader;
     expect(stock).not.toContain('uGradeLut');
+    // T8: a day map has no grade and still dithers. Falsify: guard DITHER_GLSL with `if (uGradeOn > 0.5)` again.
+    expect(stock).toContain('gradeNoise(gl_FragCoord.xy)');
+    expect(stock).not.toContain('uGradeOn >');
+    expect(chain.grade.uniforms.uGradeDither.value).toBe(1);
     expect(chain.grade.active).toBe(false);
     expect(chain.grade.apply(null)).toBe(false);
     expect(chain.grade.apply(IDENTITY_GRADE)).toBe(false);
@@ -75,7 +79,7 @@ describe('an identity grade builds no pass (spec section 8, grade-identity)', ()
     chain.dispose();
   });
 
-  it('removing a grade restores the stock shader exactly, and the debug layer is a uniform that zeroes the lookup', () => {
+  it('removing a grade restores the dither-only shader exactly, and the debug layer is a uniform that zeroes the lookup', () => {
     const chain = newChain();
     const out = outputOf(chain);
     const stock = out.material.fragmentShader;
@@ -119,6 +123,13 @@ describe('the lookup is folded where the spec puts it', () => {
     expect(lookup).toBeGreaterThan(encode);
     expect(vignette).toBeGreaterThan(lookup);
     expect(dither).toBeGreaterThan(vignette);
+  });
+
+  it('the dither-only fold carries the dither and no lookup, and the dither is unguarded', () => {
+    const dOnly = foldGradeShader(fragment, false);
+    expect(dOnly).not.toContain('uGradeLut');
+    expect(dOnly).toContain('fragColor.rgb += (gradeNoise(gl_FragCoord.xy) + gradeNoise(gl_FragCoord.xy + vec2(47.0, 113.0)) - 1.0)');
+    expect(folded).toContain('fragColor.rgb += (gradeNoise(gl_FragCoord.xy) + gradeNoise(gl_FragCoord.xy + vec2(47.0, 113.0)) - 1.0)');
   });
 
   it('declares sampler3D precision (a raw-shader material gets no default for it)', () => {
