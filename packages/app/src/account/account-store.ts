@@ -219,3 +219,6 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
     },
   };
 }
+
+/** True for the server-backed store (the only `LedgerStore` with a sync handle); a guest's or a blocked store is never one. */
+export const isAccountStore = (s: LedgerStore): s is AccountLedgerStore => 'pendingSpends' in s && 'sync' in s;
