@@ -320,3 +320,21 @@ was already dead, or not yet spawned, the tick they fired. The shapes, so the ne
 - `group_in_zone { group, zone }` (G5) is the enemy-side twin of `zone_entered` and waits for a wave's group to exist.
   EQ I uses it; the regression test is `plans.test.ts`'s "each re-keyed beat fires, and with its group alive".
 - A plan that wins at 156 s sees a 150 s wave for six seconds: a beat on that wave can only fire as it arrives.
+
+## A side never cuts a structure it owns (8 Nov 2026)
+
+`selectBreachTarget` (a unit stopped against a wall, or standing beside one, cuts it) skipped garrisonable buildings and protected sites but never asked
+who OWNS the wall. Two shipped missions had a side-1 unit standing within `BREACH_TILES` of its own side's authored militia work, and shot it down in a
+passive run: Wadi Halam V's `militia_weapons_workshop` (a gun truck, destroyed at tick 127 of every seed: it is the eighth `raze` target, so the player
+had been getting it free) and Beit Sahwan III's `militia_field_clinic` (an ATGM cell, first shot at tick 405, destroyed at tick 2014). The guard is one
+line, `stOwner[s] === side[i]`, the same rule the auto-demolisher scan already carries ("razing your own works is an order"). `tools/src/backtest/
+structure-fire-probe.ts` prints, over every mission and seed, each shot at a structure by who owns it: 6 own rows before, 0 after.
+
+Cost: Wadi Halam V pays 200, not 220 (the plan now levels the eighth building itself, in the same five minutes), and the plan's target list swaps its last
+two entries so the gate-open run keeps winning seed 22. The ladder pin is 6987.
+
+**Not changed, and worth the lead's look**: the same scan lets any side-1 unit that is NOT human-held cut a NEUTRAL wall near it with no order and no goal
+(`moving 0`), so an enemy squad parked beside a compound wall starts shooting it in the first seconds of a passive run, and by tick 6000 the wall is destroyed in 14 of the 15 seed-1 rows, in about a dozen missions (45
+(mission, seed, shooter, structure) rows over seeds 1-3, up to 4,000 shots: Ein Qasab I-III, Khan Rafid I and III, Umm Zeitoun II-IV, Deir Amun II,
+Beit Sahwan III and IV, Wadi Halam V). The function's own comment says a defender holding his compound never fires on his own fence; the code only
+gates that on `moving`. It is long-standing and every plan was tuned with it, so it is a design call, not a bug fix made here.
