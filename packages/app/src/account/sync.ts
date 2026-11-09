@@ -90,6 +90,10 @@ export interface SyncHandle {
   flush(): Promise<void>;
   /** `GET state`, then the slot bodies whose change token differs from the cache's, then any held campaign that now fits. */
   refresh(): Promise<void>;
+  /** `refresh`, and says what it did for the held list: the ids of the held campaigns now waiting in the outbox for a system slot (queued by this call or earlier), empty when none could be queued. */
+  release(): Promise<readonly string[]>;
+  /** Whether `release` could ever upload this held item: a `held` campaign of the cached member, with a digest. */
+  canRelease(item: HeldItem): boolean;
   barrier<T>(fn: () => Promise<T>): Promise<T | 'offline' | 'syncing'>;
   spend(ask: CoinAskWire): Promise<BarrierOutcome<{ wallet: WalletView }>>;
   coupon(code: string): Promise<BarrierOutcome<CouponAnswer>>;
@@ -265,19 +269,24 @@ export function startSync(o: SyncOptions): SyncHandle {
   };
 
   // ---- refresh ---------------------------------------------------------------------------------------------------
-  async function releaseHeld(): Promise<void> {
+  const releasable = (item: HeldItem): boolean =>
+    item.kind === 'campaign' && item.reason === 'held' && item.publicId === cache.publicId && item.digest !== undefined;
+
+  async function releaseHeld(): Promise<string[]> {
     const queued = api.ops();
     const queuedPuts = new Set(queued.filter((x): x is SlotPutOp => x.kind === 'slot.put' && x.origin === 'conflict').map((x) => x.slotId));
     let free = SYSTEM_SLOTS - cache.confirmed.slots.filter((s) => s.origin !== 'player').length - queuedPuts.size;
     const add: OutboxOp[] = [];
+    const waiting: string[] = readHeld(storage).filter((i) => releasable(i) && queuedPuts.has(i.id)).map((i) => i.id);
     for (const item of readHeld(storage)) {
       if (free <= 0) break;
-      if (item.kind !== 'campaign' || item.reason !== 'held' || item.publicId !== cache.publicId || item.digest === undefined || queuedPuts.has(item.id)) continue;
+      if (!releasable(item) || queuedPuts.has(item.id)) continue;
       let campaign: CampaignBody;
       try {
         campaign = JSON.parse(item.text) as CampaignBody;
         const slot = slotFromCampaign(campaign, item.id, 'conflict', item.at);
         add.push({ kind: 'slot.put', opId: newId(), slotId: item.id, slot, origin: 'conflict' });
+        waiting.push(item.id);
         free--;
       } catch {
         /* an unreadable held entry stays where it is */
@@ -287,20 +296,21 @@ export function startSync(o: SyncOptions): SyncHandle {
       api.setOps([...api.ops(), ...add]);
       kick();
     }
+    return waiting;
   }
 
-  async function doRefresh(): Promise<void> {
+  async function doRefresh(): Promise<string[]> {
     const r = await client.state();
-    if (stopped) return;
+    if (stopped) return [];
     if (r.status === 401) {
       await recheck();
-      return;
+      return [];
     }
-    if (!r.ok) return; // keep what the device has
+    if (!r.ok) return []; // keep what the device has
     const next = r.body;
     const prev = cache.confirmed;
     // Never move backwards: a state older than the cache's campaign is a slow answer, not the server's present.
-    if (next.campaign !== null && prev.campaign !== null && next.campaign.revision < prev.campaign.revision) return;
+    if (next.campaign !== null && prev.campaign !== null && next.campaign.revision < prev.campaign.revision) return [];
     pinBase(); // a refresh never raises the base of what is queued (R12)
     cache.confirmed = { campaign: next.campaign, wallet: next.wallet, slots: next.slots };
     persist();
@@ -314,14 +324,14 @@ export function startSync(o: SyncOptions): SyncHandle {
         continue;
       }
       const got = await client.slot(meta.id);
-      if (stopped) return;
+      if (stopped) return [];
       if (got.ok) bodies[meta.id] = got.body.body;
       else if (have !== undefined) bodies[meta.id] = have; // keep what we hold when the fetch failed
     }
     cache.bodies = bodies;
     persist();
     changed();
-    await releaseHeld();
+    return releaseHeld();
   }
 
   // ---- one op ----------------------------------------------------------------------------------------------------
@@ -682,7 +692,11 @@ export function startSync(o: SyncOptions): SyncHandle {
 
   return {
     flush,
-    refresh: () => locked(doRefresh),
+    refresh: async () => {
+      await locked(doRefresh);
+    },
+    release: () => locked(doRefresh),
+    canRelease: releasable,
     barrier,
     spend: (ask) => viaBarrier(() => client.spend(ask), spendKey(ask)),
     coupon: (code) => viaBarrier(() => client.coupon(code)),

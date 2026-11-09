@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { memStorage } from './fixtures';
-import { markNever, markShown, promptDue, PROMPT_KEY } from './prompt';
+import { parseWorld } from '@lions/economy';
+import worldJson from '../../../../data/campaign/world.json';
+import tutorial from '../../../../data/missions/beit_sahwan_0_tutorial.json';
+import { markNever, markShown, promptDue, PROMPT_KEY, saveMoment } from './prompt';
 
 const base = { enabled: true, open: true, signedIn: false, moment: 'firstVictory' as const, tutorial: false, pageShown: false };
 const due = (storage: Parameters<typeof promptDue>[0]['storage'], over: Partial<Parameters<typeof promptDue>[0]> = {}): boolean =>
@@ -63,5 +66,54 @@ describe('the prompt under throwing storage (A1-12, prompt half)', () => {
   it('still honours the other rules', () => {
     expect(due(refusing, { moment: null })).toBe(false);
     expect(due(refusing, { signedIn: true })).toBe(false);
+  });
+});
+
+describe('a setItem that throws while getItem works', () => {
+  const quota = (): Parameters<typeof promptDue>[0]['storage'] => ({ getItem: () => null, setItem: boom, removeItem: boom });
+  it('markShown reports the failure, and the prompt then shows once per page, not on every load', () => {
+    const s = quota();
+    expect(due(s)).toBe(true);
+    const kept = markShown(s);
+    expect(kept).toBe(false);
+    expect(due(s, { pageShown: true, unpersisted: !kept })).toBe(false);
+    expect(due(s, { pageShown: false, unpersisted: !kept })).toBe(true);
+  });
+  it('a working storage reports true', () => {
+    expect(markShown(memStorage())).toBe(true);
+  });
+});
+
+describe('saveMoment (A2-13): which moment a victory is', () => {
+  const world = parseWorld(worldJson);
+  const marj = world.regions[0]!;
+  const beit = marj.towns[0]!; // 5 missions
+  const khan = marj.towns[1]!; // 3 missions, same region
+  const led = (ids: readonly string[]) => ({ 'campaign.completed_missions': [...ids] });
+  const win = (town: string | undefined, before: readonly string[], add: string, campaign = true, victory = true) =>
+    saveMoment(world, town, campaign, victory, led(before), led([...before, add]));
+
+  it('the first campaign mission won is firstVictory', () => {
+    expect(win('beit_sahwan', [], beit.missions[0]!)).toBe('firstVictory');
+  });
+  it('a later win in an unfinished town is nothing', () => {
+    expect(win('beit_sahwan', [beit.missions[0]!], beit.missions[1]!)).toBeNull();
+  });
+  it('the first town finished is firstTown, at the town and not at the end of its region', () => {
+    expect(win('beit_sahwan', beit.missions.slice(0, -1), beit.missions.at(-1)!)).toBe('firstTown');
+    // Beit is done, the region (Marj) is not: finishing the next town is NOT "the first" again.
+    expect(win('khan_rafid', [...beit.missions, ...khan.missions.slice(0, -1)], khan.missions.at(-1)!)).toBeNull();
+  });
+  it('the last mission of the war is campaignDone, checked first', () => {
+    const all = world.regions.flatMap((r) => r.towns.flatMap((t) => [...t.missions]));
+    expect(win('wadi_halam', all.slice(0, -1), all.at(-1)!)).toBe('campaignDone');
+  });
+  it('is null for a defeat, a non-campaign mission and the tutorial', () => {
+    expect(win('beit_sahwan', [], beit.missions[0]!, true, false)).toBeNull();
+    expect(win('beit_sahwan', [], beit.missions[0]!, false)).toBeNull();
+    // The tutorial produces nothing: it does not write completed_missions, so it cannot count toward firstVictory.
+    const produces = (tutorial as { ledger: { produces: string[] } }).ledger.produces;
+    expect(produces).not.toContain('campaign.completed_missions');
+    expect(saveMoment(world, 'beit_sahwan', produces.length > 0, true, led([]), led([]))).toBeNull();
   });
 });

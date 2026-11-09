@@ -44,7 +44,6 @@ import {
   creditInputFrom,
   MAX_PATROL_WAYPOINTS,
   unitTypeFromJson,
-  type LedgerData,
   type MissionEvent,
   type MissionJson,
   type SimEvent,
@@ -370,8 +369,6 @@ import {
   promotionAfter,
   villainState,
   regionForTown,
-  regionProgress,
-  type ParsedWorld,
   villainPortrait,
   possibleStars,
 } from './campaign';
@@ -383,8 +380,8 @@ import { isAccountStore } from './account/account-store';
 import type { SpendFlow } from './account/spend-flow';
 import { garageServerMode, serverControls } from './account/garage-server';
 import { opIdsOf, requestMissionStart, victoryCoinLine } from './account/mission-flow';
-import { markNever, markShown, promptDue, type PromptMoment } from './account/prompt';
-import { readHeld } from './account/local-held';
+import { markNever, markShown, promptDue, saveMoment } from './account/prompt';
+import { readHeld, type HeldItem } from './account/local-held';
 import { newCampaign, type CampaignLedger, type LedgerStore, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
@@ -442,21 +439,10 @@ function safeStorage(): Storage | null {
 
 /** The save prompt has been drawn on this page load: all the answer there is when storage is blocked (`account/prompt.ts`). */
 let savePromptShownOnPage = false;
+/** `markShown` could not keep the count (a refused write): the page alone limits the prompt. */
+let savePromptUnpersisted = false;
 /** `?accounts` is on for this page (set once by `main()`): the save prompt and the held list exist only then. */
 let accountsOnPage = false;
-
-/** Which moment a victory is, for the guest's save prompt: the first campaign win, the first finished town (its region went
- *  complete), or the end of the war. Null for a tutorial, a replay or any other win. */
-function saveMoment(worldData: ParsedWorld, campaign: boolean, region: ReturnType<typeof regionForTown>, before: LedgerData | undefined, after: LedgerData | undefined): PromptMoment | null {
-  if (!campaign) return null;
-  if (campaignComplete(worldData, after) && !campaignComplete(worldData, before)) return 'campaignDone';
-  if (region !== undefined && regionProgress(region, after).status === 'complete' && regionProgress(region, before).status !== 'complete') return 'firstTown';
-  const done = (l: LedgerData | undefined): number => {
-    const d = l?.['campaign.completed_missions'];
-    return Array.isArray(d) ? d.length : 0;
-  };
-  return done(before) === 0 && done(after) > 0 ? 'firstVictory' : null;
-}
 
 /** The app's one door to the campaign ledger, the brigade account and the save
  *  slots (`ledger-store.ts`). One per page, because it is a handle on the
@@ -1193,7 +1179,7 @@ async function main(): Promise<void> {
       ...(spendFlowRef !== null ? { frozen: () => spendFlowRef?.gate.campaignFrozen() ?? false, subscribe: spendFlowRef.gate.subscribe } : {}),
       // The work this device holds that the server did not take; "Save to my account" is the sync loop's own refresh.
       ...(accountsOn ? { heldItems: () => readHeld(safeStorage()) } : {}),
-      ...(syncHandle !== null ? { releaseHeld: () => syncHandle?.refresh() ?? Promise.resolve() } : {}),
+      ...(syncHandle !== null ? { releaseHeld: () => syncHandle?.release() ?? Promise.resolve([]), canReleaseHeld: (item: HeldItem) => syncHandle?.canRelease(item) ?? false } : {}),
     };
     return showSaves(host, deps);
   }
@@ -6453,7 +6439,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               // this screen does not ask twice.
               // GH-1075 A2 (A2-13): the guest's "Save your progress", at the first campaign victory, the first finished town and the
               // end of the war; at most three showings, and never in the tutorial or on a menu.
-              const moment = mev.result === 'victory' && missionId ? saveMoment(worldData, mission.ledger.produces.length > 0, enemyRegion, ledger, updatedLedger) : null;
+              const moment = mev.result === 'victory' && missionId ? saveMoment(worldData, missionTown, mission.ledger.produces.length > 0, true, ledger, updatedLedger) : null;
               const savePrompt =
                 moment !== null &&
                 promptDue({
@@ -6464,11 +6450,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   moment,
                   tutorial: mission.ledger.produces.length === 0,
                   pageShown: savePromptShownOnPage,
+                  unpersisted: savePromptUnpersisted,
                 })
                   ? {
                       onShown: () => {
                         savePromptShownOnPage = true;
-                        markShown(safeStorage());
+                        savePromptUnpersisted = !markShown(safeStorage());
                       },
                       onSave: () => req.navigate(routes.profile()),
                       onNever: () => markNever(safeStorage()),

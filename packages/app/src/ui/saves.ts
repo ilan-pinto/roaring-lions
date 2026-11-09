@@ -48,8 +48,11 @@ export interface SavesDeps {
   frozen?: () => boolean;
   /** The work this device holds that the server did not take (`account/local-held.ts`), re-read on every draw. Absent for a guest. */
   heldItems?: () => readonly HeldItem[];
-  /** Signed in: asks the sync loop to try again (its `refresh`, which uploads a held campaign when a system slot frees). Absent for a guest. */
-  releaseHeld?: () => Promise<void>;
+  /** Signed in: asks the sync loop to try again (its `release`, which queues a held campaign's upload when a system slot is free) and answers
+   *  the ids of the held items now waiting in the outbox. An id missing from the answer was not queued (no system slot is free). Absent for a guest. */
+  releaseHeld?: () => Promise<readonly string[]>;
+  /** Whether `releaseHeld` could ever upload this item (same member as the cache, has a digest). Defaults to true when absent. */
+  canReleaseHeld?: (item: HeldItem) => boolean;
   /** Told when `frozen` may have changed; returns the unsubscribe. */
   subscribe?: (cb: () => void) => () => void;
 }
@@ -228,6 +231,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   // The "On this device only" list: each item with the reason it is here and an Export. Its text is shown to nobody and parsed
   // by nothing: a filed victory op is a `campaign` item whose text is the whole op, so only a `held` campaign (a campaign body
   // the sync loop uploads) is offered "Save to my account", and that goes through the sync loop's own release.
+  const queuedHeld = new Set<string>();
   const renderHeld = (): void => {
     heldBox.replaceChildren();
     const items = deps.heldItems?.() ?? [];
@@ -267,14 +271,20 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
         b.addEventListener('click', onClick);
         actions.appendChild(b);
       };
-      button(t('saves.slot.export'), 'export', () => deps.download(`held-${item.id}.json`, item.text));
-      if (deps.releaseHeld !== undefined && item.kind === 'campaign' && item.reason === 'held') {
+      button(t('saves.slot.export'), 'export', () => deps.download(`held-${item.id.replace(/[^\w.-]/g, '_')}.json`, item.text));
+      if (queuedHeld.has(item.id)) {
+        sub.textContent = t('saves.held.queued');
+      } else if (deps.releaseHeld !== undefined && item.kind === 'campaign' && item.reason === 'held' && (deps.canReleaseHeld?.(item) ?? true)) {
         const release = deps.releaseHeld;
         button(t('saves.held.save'), 'release', () => {
           void release().then(
-            () => {
+            (queued) => {
+              // "Full" is said only when nothing could be queued; the item leaves the list when its upload is acked (the sync loop's change).
+              if (queued.includes(item.id)) {
+                queuedHeld.add(item.id);
+                say(t('saves.held.queued'));
+              } else say(t('saves.held.stillFull'));
               renderHeld();
-              say((deps.heldItems?.() ?? []).some((x) => x.id === item.id) ? t('saves.held.stillFull') : '');
             },
             () => say(t('saves.held.stillFull')),
           );

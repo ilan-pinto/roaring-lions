@@ -122,6 +122,26 @@ describe('A2-18 held_before_adopt', () => {
     expect(readHeld(r.storage)).toEqual([]);
   });
 
+  it('release() names the held ids it queued: [] while every system slot is full, the id once one frees (and again while it waits)', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const r = rig({ server, cacheFrom: confirmedState() });
+    r.store.writeLedger(led(2));
+    await r.sync.flush();
+    const item = readHeld(r.storage)[0] as NonNullable<ReturnType<typeof readHeld>[number]>;
+    expect(r.sync.canRelease(item)).toBe(true);
+    expect(r.sync.canRelease({ ...item, digest: undefined })).toBe(false);
+    expect(r.sync.canRelease({ ...item, publicId: 'someone-else' })).toBe(false);
+    expect(await r.sync.release()).toEqual([]);
+    r.server.slots.delete([...r.server.slots.keys()][0] as string);
+    expect(await r.sync.release()).toEqual([item.id]);
+    expect(readHeld(r.storage)).toHaveLength(1); // still listed: the ack removes it, not the call
+    expect(await r.sync.release()).toEqual([item.id]); // queued already, still reported
+    await r.sync.flush();
+    expect(readHeld(r.storage)).toEqual([]);
+  });
+
   it('a digest that is not its own leaves the item in the list (as refused: never uploaded twice)', async () => {
     const server = new FakeServer();
     server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7' };

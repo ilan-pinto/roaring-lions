@@ -438,20 +438,50 @@ describe('the "On this device only" list (A2, held items)', () => {
   it('an unsent victory (kind campaign, reason refused, the whole op) is listed with Export only, never read as a campaign', () => {
     const op = JSON.stringify({ kind: 'victory', opId: 'x', missionId: 'm', stars: 3, start: null, campaign: null });
     const stage = document.createElement('div');
-    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-x', { reason: 'refused', text: op })], releaseHeld: async () => {} }));
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-x', { reason: 'refused', text: op })], releaseHeld: async () => [] }));
     const row = stage.querySelector<HTMLElement>('.rl-saves__held-row')!;
     expect(row.querySelector('button[data-action="export"]')).not.toBeNull();
     expect(row.querySelector('button[data-action="release"]')).toBeNull();
   });
 
-  it('"Save to my account" goes through the sync refresh, and says so when the slots are still full', async () => {
+  it('"Save to my account" says "queued" when the upload was queued, though the item is still listed until the ack', async () => {
     let calls = 0;
+    const items = [held('h-1')];
     const stage = document.createElement('div');
-    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1')], releaseHeld: async () => void calls++ }));
+    // A sync handle whose release queues and removes the item only later (the ack), never at once.
+    showSaves(stage, deps(memStore(), { heldItems: () => items, releaseHeld: async () => (calls++, ['h-1']) }));
     stage.querySelector<HTMLButtonElement>('button[data-action="release"]')!.click();
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toBe(1);
+    const msg = stage.querySelector('.rl-saves__msg')?.textContent ?? '';
+    expect(msg).toContain('Saving to your account');
+    expect(msg).not.toContain('still full');
+    // The queued item stays listed, without a second button, until the ack removes it.
+    expect(stage.querySelector('.rl-saves__held-row')).not.toBeNull();
+    expect(stage.querySelector('button[data-action="release"]')).toBeNull();
+  });
+
+  it('says "still full" only when nothing was queued', async () => {
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1')], releaseHeld: async () => [] }));
+    stage.querySelector<HTMLButtonElement>('button[data-action="release"]')!.click();
+    await new Promise((r) => setTimeout(r, 0));
     expect(stage.querySelector('.rl-saves__msg')?.textContent).toContain('still full');
+  });
+
+  it('offers the button only for items the sync loop can upload', () => {
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('h-1', { digest: undefined })], releaseHeld: async () => [], canReleaseHeld: (i) => i.digest !== undefined }));
+    expect(stage.querySelector('button[data-action="release"]')).toBeNull();
+    expect(stage.querySelector('button[data-action="export"]')).not.toBeNull();
+  });
+
+  it('an export filename carries no colon or other odd character from the item id', () => {
+    const downloads: string[] = [];
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore(), { heldItems: () => [held('claim:2', { kind: 'slot', reason: 'size' })], download: (n) => downloads.push(n) }));
+    stage.querySelector<HTMLButtonElement>('button[data-action="export"]')!.click();
+    expect(downloads).toEqual(['held-claim_2.json']);
   });
 
   it('a guest screen (no release) offers no "Save to my account"', () => {
