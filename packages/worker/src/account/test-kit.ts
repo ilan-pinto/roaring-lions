@@ -226,6 +226,16 @@ export async function seedWalletMember(db: D1Like, id: string, now: number, opts
   return { memberId: id, cookie: `${SESSION_COOKIE}=${s.token}` };
 }
 
+/** A `claim` journal row carrying `detail.coupons` (Task 2.7 writes this shape), with the wallet raised to match so
+ *  the journal still balances. Tests only: no production path writes the journal outside coin.ts. */
+export async function seedClaimCoupons(db: D1Like, memberId: string, now: number, coupons: { id: string; credited: number; capped: boolean }[], kind: 'claim' | 'backfill' = 'claim'): Promise<void> {
+  const total = coupons.reduce((n, c) => n + c.credited, 0);
+  await db.batch([
+    db.prepare("UPDATE wallet SET free = free + ?2, revision = revision + 1 WHERE member_id = ?1").bind(memberId, total),
+    db.prepare("INSERT INTO coin_journal (member_id, at, kind, free_delta, detail, op_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(memberId, now, kind, total, JSON.stringify({ coupons }), `seed-${kind}-${now}-${coupons.length}`),
+  ]);
+}
+
 /** A handler context for calling `budgetedOp` and the writers directly, with no route in between. */
 export function ctxFor(env: Env, now: number): AccountCtx {
   return {

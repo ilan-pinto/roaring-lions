@@ -87,6 +87,9 @@ const BUDGETED: BudgetRow[] = [
   { key: 'DELETE identity/:id', call: (h, cookie) => h.call('DELETE', '/api/account/identity/ip', { cookie, body: { op_id: op(51) } }) },
   { key: 'POST mission/start', call: (h, cookie) => h.call('POST', '/api/account/mission/start', { cookie, body: { op_id: op(52), missionId: M1 } }) },
   { key: 'POST victory', call: (h, cookie) => h.call('POST', '/api/account/victory', { cookie, body: { op_id: op(53), missionId: M1, stars: 1, start: null, base: 0, campaign: null } }) },
+  { key: 'POST spend', call: (h, cookie) => h.call('POST', '/api/account/spend', { cookie, body: { op_id: op(54), item: 'unit', unitId: 'dozer_d9' } }) },
+  { key: 'POST coupon', call: (h, cookie) => h.call('POST', '/api/account/coupon', { cookie, body: { op_id: op(55), code: 'x' } }) },
+  { key: 'POST reset-free', call: (h, cookie) => h.call('POST', '/api/account/reset-free', { cookie, body: { op_id: op(56) } }) },
 ];
 // Not budgeted, by name. `DELETE identity/:id` is NOT here: it is budgeted (plan §0.48), so it is in the table above.
 const EXEMPT = new Set(['POST delete', 'POST gone', 'POST logout', 'POST logout-all', 'POST steam/start']);

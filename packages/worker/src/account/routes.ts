@@ -9,6 +9,7 @@ import { exportAccount } from './export';
 import { getState } from './campaign';
 import { me, patchProfile } from './profile';
 import { getSlot } from './slots';
+import { coupon, resetFreeRoute, spend } from './spend';
 import { missionStart, victory } from './victory';
 import { steamReturn, steamStart } from './steam';
 import { clearedSessionCookie, requireSession, sessionJson } from './session';
@@ -17,6 +18,8 @@ export interface AccountDeps {
   fetch(url: string, init: RequestInit): Promise<Response>;
   /** The victory's win floors (R4); default `minWinSeconds` from @lions/data. A test sets one. */
   minWinSeconds?: Readonly<Record<string, number>>;
+  /** The coupon table `POST coupon` matches (default `coupons` from @lions/data). A test sets one with a known code's hash. */
+  coupons?: readonly { id: string; sha256: string; credits?: number; coins?: number }[];
 }
 
 export interface AccountCtx {
@@ -56,6 +59,9 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
   { method: 'POST', pattern: 'gone', handler: gone },
   { method: 'POST', pattern: 'mission/start', handler: missionStart },
   { method: 'POST', pattern: 'victory', handler: victory },
+  { method: 'POST', pattern: 'spend', handler: spend },
+  { method: 'POST', pattern: 'coupon', handler: coupon },
+  { method: 'POST', pattern: 'reset-free', handler: resetFreeRoute },
   { method: 'POST', pattern: 'steam/start', handler: steamStart },
   { method: 'GET', pattern: 'steam/return', handler: steamReturn },
   {
