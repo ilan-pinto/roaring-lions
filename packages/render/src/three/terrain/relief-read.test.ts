@@ -4,6 +4,7 @@
  * constant cannot move its test with it.
  */
 import { describe, expect, it } from 'vitest';
+import { NUMBER_OPS } from '../fog-ops';
 import {
   RELIEF_ALBEDO_GLSL,
   RELIEF_CONTOUR_STRENGTH,
@@ -15,6 +16,9 @@ import {
   contourFactor,
   exaggerateNormal,
   reliefTint,
+  contourFactorOps,
+  reliefTiltOps,
+  reliefTintRampOps,
 } from './relief-read';
 
 const deg = (r: number) => (r * 180) / Math.PI;
@@ -60,6 +64,32 @@ describe('exaggerateNormal (slope light)', () => {
   it('is the identity at gain 1 (the debug layer\'s hidden state)', () => {
     const n = fromTilt(14, 200);
     exaggerateNormal(n, 1).forEach((v, i) => expect(v).toBeCloseTo(n[i]!, 12));
+  });
+});
+
+describe('the scalar parts, written once against Ops<T> (GH-943 P2 T4: the node ground runs the same bodies)', () => {
+  const MAX = (38 * Math.PI) / 180;
+  it('a 10 degree slope tilts to 19.4254 degrees at gain 2 (a literal: atan(2 tan 10deg))', () => {
+    const t = (10 * Math.PI) / 180;
+    const { s, c } = reliefTiltOps(NUMBER_OPS, Math.sin(t), Math.cos(t), 2, MAX);
+    // The rebuilt normal for an azimuth-0 slope is (s * h, c, 0) with h = sin(10deg): its tilt from vertical.
+    expect(deg(Math.atan2(s * Math.sin(t), c))).toBeCloseTo(19.4254, 3);
+  });
+  it('a 30 degree slope stops at the 38 degree cap, not 49.1', () => {
+    const t = (30 * Math.PI) / 180;
+    const { s, c } = reliefTiltOps(NUMBER_OPS, Math.sin(t), Math.cos(t), 2, MAX);
+    expect(deg(Math.atan2(s * Math.sin(t), c))).toBeCloseTo(38, 4);
+  });
+  it('a flat map: a contour at a whole level draws nothing, the median tints nothing', () => {
+    // Flat ground stands on whole levels; the rate is small there, so the line is a full pixel-widths away.
+    for (const lv of [0, 1, 3, 7]) expect(contourFactorOps(NUMBER_OPS, lv, 0.01, 0.18, 1.4)).toBe(1);
+    const ramp = reliefTintRampOps(NUMBER_OPS, 3, 3, 1);
+    expect([ramp.t, ramp.k]).toEqual([0, 0]);
+  });
+  it('the tint ramp: 2 levels above a median of 1 over a span of 4 is t 0.25 (k 0.25 x amp)', () => {
+    const r = reliefTintRampOps(NUMBER_OPS, 3, 1, 0.5);
+    expect(r.t).toBeCloseTo(0.5, 12);
+    expect(r.k).toBeCloseTo(0.25, 12);
   });
 });
 

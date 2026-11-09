@@ -97,7 +97,7 @@
       "say": { "speaker": "idit", "text": "He is out of the hall and moving into the souk. He was not going to leave for us; he left because there was nobody left in the block for him to hold it with." } },
     { "id": "a_rocket_team_moves_into_the_east_lane",
       "label": "RPG team moves into the east lane",
-      "on": { "kind": "first_contact" },
+      "on": { "kind": "timer_s", "value": 0.1 },
       "do": { "kind": "spawn", "units": [{ "unit": "rpg_team", "count": 1, "marker": "east_lane" }] },
       "say": { "speaker": "shai", "text": "Rocket team into the east lane, the one the east orchard opens onto. Nothing moves along it on wheels until somebody clears that." } }
   ],

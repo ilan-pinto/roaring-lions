@@ -12,6 +12,16 @@
 import type { MaterialMaths } from './backend/backend';
 import { GROUND_SLOTS, slotUniforms } from './terrain/mesh';
 import { ROAD_DISTANCE_RANGE_TILES } from './terrain/control-map';
+import {
+  RELIEF_CONTOUR_STRENGTH,
+  RELIEF_CONTOUR_WIDTH_PX,
+  RELIEF_SLOPE_MAX_TILT_RAD,
+  RELIEF_TINT_HIGH,
+  RELIEF_TINT_LOW,
+  contourFactorOps,
+  reliefTiltOps,
+  reliefTintRampOps,
+} from './terrain/relief-read';
 import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
 import { foliageLeanOps } from './terrain/wind';
@@ -26,7 +36,19 @@ import { sootOps } from './world-materials';
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
   // T3: the node ground (`terrain/mesh.node.ts`).
-  ground: { slots: GROUND_SLOTS, slotUniforms, roadDistanceRangeTiles: ROAD_DISTANCE_RANGE_TILES, roadBands, heightBiased, rescaleWeights, macroDecode, macroFactor, groundBlend },
+  ground: { slots: GROUND_SLOTS, slotUniforms, roadDistanceRangeTiles: ROAD_DISTANCE_RANGE_TILES, roadBands, heightBiased, rescaleWeights, macroDecode, macroFactor, groundBlend,
+    // T4: the relief read.
+    relief: {
+      tilt: reliefTiltOps,
+      contour: contourFactorOps,
+      tintRamp: reliefTintRampOps,
+      maxTiltRad: RELIEF_SLOPE_MAX_TILT_RAD,
+      contourStrength: RELIEF_CONTOUR_STRENGTH,
+      contourWidthPx: RELIEF_CONTOUR_WIDTH_PX,
+      tintLow: RELIEF_TINT_LOW,
+      tintHigh: RELIEF_TINT_HIGH,
+    },
+  },
   // T6: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
   foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE },
   ring: {
