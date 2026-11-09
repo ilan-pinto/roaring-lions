@@ -128,7 +128,10 @@ export function estimateCredits(kind: EstimateKind, opts: EstimateOptions = {}):
     case 'text-preview': {
       const lite = isLiteTier(opts);
       let credits: number = lite ? PRICING.textPreviewSmartTopology : PRICING.textPreviewStandard;
-      if (opts.ultra && !lite) credits += PRICING.textPreviewUltraSurcharge;
+      // Conservative (review, 2026-11-09): only Smart Topology is documented as having no ultra tier, so only it skips
+      // the surcharge; a standard lite-tier model with ultra (refused by the parsers anyway) is over-, never under-stated.
+      const smartTopology = opts.aiModel !== undefined ? opts.aiModel === 'meshy-t2' || opts.aiModel === 'meshy-t2.5' : opts.modelType === 'smart-topology';
+      if (opts.ultra && !smartTopology) credits += PRICING.textPreviewUltraSurcharge;
       return credits;
     }
     case 'text-refine':

@@ -42,6 +42,16 @@ export function assertModelPairing(modelType: ModelType, aiModel: AiModel): void
   }
 }
 
+/** The models `ultra_mode` (= `geometry_resolution: "2k"`) is documented for; any other answers 400 (text-to-3d page,
+ *  2026-11-09). */
+export const ULTRA_AI_MODELS: readonly AiModel[] = ['meshy-7.1', 'meshy-7', 'latest'];
+
+export function assertUltraForModel(ultra: boolean, aiModel: AiModel): void {
+  if (ultra && !ULTRA_AI_MODELS.includes(aiModel)) {
+    throw new Error(`--ultra is not supported by --ai-model ${aiModel} -- only by: ${ULTRA_AI_MODELS.join(', ')}`);
+  }
+}
+
 /** Smart Topology accepts only triangle output (the API answers 400 to `quad` with `meshy-t2` / `meshy-t2.5`). */
 export function assertTopologyForModel(modelType: ModelType, topology: 'quad' | 'triangle'): void {
   if (modelType === 'smart-topology' && topology !== 'triangle') {

@@ -514,3 +514,26 @@ describe('model-type / ai-model pairing (2026-11-09, GH-746)', () => {
     ).toThrow(/out of range/);
   });
 });
+
+describe('--ultra and meshy-6-lite texture limits (review, 2026-11-09)', () => {
+  it('accepts --ultra only on meshy-7.1, meshy-7 and latest', () => {
+    for (const m of ['meshy-7.1', 'meshy-7', 'latest']) {
+      expect(parseTextArgs(['p', '--ai-model', m, '--ultra', '--yes'], NO_TTY).ultra).toBe(true);
+    }
+    for (const m of ['meshy-6', 'meshy-6-lite']) {
+      expect(() => parseTextArgs(['p', '--ai-model', m, '--ultra', '--yes'], NO_TTY)).toThrow(/--ultra is not supported/);
+      expect(() => parseEstimateTextArgs(['--ai-model', m, '--ultra'])).toThrow(/--ultra is not supported/);
+    }
+    expect(() => parseImageArgs(['a.png', '--model-type', 'smart-topology', '--ultra', '--yes'], NO_TTY)).toThrow(
+      /--ultra is not supported/
+    );
+    expect(() => parseEstimateImageArgs(['--ultra'])).toThrow(/--ultra is not supported/);
+  });
+
+  it('refuses a meshy-6-lite image texture above 2k, and allows it mesh-only', () => {
+    expect(() => parseImageArgs(['a.png', '--ai-model', 'meshy-6-lite', '--tex', '8k', '--yes'], NO_TTY)).toThrow(/2k only/);
+    expect(() => parseImageArgs(['a.png', '--ai-model', 'meshy-6-lite', '--tex', '4k', '--yes'], NO_TTY)).toThrow(/2k only/);
+    expect(parseImageArgs(['a.png', '--ai-model', 'meshy-6-lite', '--tex', '8k', '--no-texture', '--yes'], NO_TTY).noTexture).toBe(true);
+    expect(parseImageArgs(['a.png', '--ai-model', 'meshy-6-lite', '--yes'], NO_TTY).textureResolution).toBe('2k');
+  });
+});

@@ -24,6 +24,7 @@ import {
   assertPolycountInRange,
   assertPromptLength,
   assertTopologyForModel,
+  assertUltraForModel,
   defaultAiModel,
   defaultPolycount,
   parseTargetFormats,
@@ -227,6 +228,7 @@ function parseGenerateCommon(options: ReadonlyMap<string, string>): GenerateComm
   assertPolycountInRange(polycount, modelType, aiModel);
   const topology = options.has('topology') ? asTopology(options.get('topology') as string) : 'triangle';
   assertTopologyForModel(modelType, topology);
+  assertUltraForModel(options.get('ultra') === 'true', aiModel);
   const pose = options.has('pose') ? asPoseFlag(options.get('pose') as string) : 'none';
   const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
   const formats = options.has('formats') ? parseTargetFormats(options.get('formats') as string) : (['glb'] as const);
@@ -290,8 +292,13 @@ export function parseImageArgs(argv: readonly string[], ctx: { readonly isTTY: b
     throw new Error(`image: unexpected extra argument(s): ${positionals.slice(1).join(' ')}`);
   }
   const common = parseGenerateCommon(options);
+  const noTexture = options.get('no-texture') === 'true';
+  // meshy-6-lite image-to-3d textures at 2K only (pricing page, 2026-11-09: 4K and 8K "Not supported")
+  if (common.aiModel === 'meshy-6-lite' && !noTexture && common.textureResolution !== '2k') {
+    throw new Error(`--tex ${common.textureResolution} is not supported by meshy-6-lite image-to-3d -- it textures at 2k only`);
+  }
   assertYesOrInteractive(common.yes, ctx.isTTY);
-  return { ...common, pathOrUrl: positionals[0], noTexture: options.get('no-texture') === 'true' };
+  return { ...common, pathOrUrl: positionals[0], noTexture };
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +326,7 @@ export function parseEstimateTextArgs(argv: readonly string[]): EstimateTextOpti
   });
   if (positionals.length > 0) throw new Error(`estimate text: unexpected argument(s): ${positionals.join(' ')}`);
   const { modelType, aiModel } = parseModelPair(options);
+  assertUltraForModel(options.get('ultra') === 'true', aiModel);
   const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
   return {
     modelType,
@@ -349,6 +357,7 @@ export function parseEstimateImageArgs(argv: readonly string[]): EstimateImageOp
   });
   if (positionals.length > 0) throw new Error(`estimate image: unexpected argument(s): ${positionals.join(' ')}`);
   const { modelType, aiModel } = parseModelPair(options);
+  assertUltraForModel(options.get('ultra') === 'true', aiModel);
   const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
   return {
     modelType,

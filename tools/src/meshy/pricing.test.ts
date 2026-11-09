@@ -36,7 +36,8 @@ describe('estimateCredits', () => {
       }
     });
     it('lets the named ai_model decide the tier over the model type', () => {
-      expect(estimateCredits('text-preview', { modelType: 'standard', aiModel: 'meshy-6-lite', ultra: true })).toBe(5);
+      expect(estimateCredits('text-preview', { modelType: 'standard', aiModel: 'meshy-6-lite', ultra: true })).toBe(10);
+      expect(estimateCredits('text-preview', { modelType: 'smart-topology', aiModel: 'meshy-t2.5', ultra: true })).toBe(5);
       expect(estimateCredits('text-preview', { modelType: 'standard', aiModel: 'latest', ultra: true })).toBe(25);
     });
   });

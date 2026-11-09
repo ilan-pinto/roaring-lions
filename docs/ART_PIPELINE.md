@@ -228,6 +228,14 @@ ranges are:
 A mesh-only preview costs **5** credits on `meshy-6-lite`, `meshy-t2` and `meshy-t2.5`, and **20** on the rest. The
 estimate keys on the `ai_model` sent.
 
+Image-to-3D on those three models is:
+- 5 mesh only;
+- 15 textured at 2K/4K;
+- 20 at 8K.
+
+That compares with 20, 30 and 35 on the others. `meshy-6-lite` textures at 2K only, so `--tex 4k|8k` on it is refused.
+`--ultra` is refused except on `meshy-7.1`, `meshy-7` and `latest`, the only models the API documents it for.
+
 **`remesh` retopologizes a model already on Meshy's side** — a flat 5
 credits, regardless of target polycount or topology, per
 [the pricing page](https://docs.meshy.ai/en/api/pricing). It takes the
