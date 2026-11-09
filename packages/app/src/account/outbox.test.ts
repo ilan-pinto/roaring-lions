@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emptyAccount } from '@lions/economy';
 import type { CampaignBody } from '@lions/economy';
-import { appendOp, coalesce, heartbeatKey, orphanedOutboxes, outboxKey, outboxOwner, outboxTabs, readOutbox, type OutboxOp } from './outbox';
+import { appendOp, writeOutbox, coalesce, heartbeatKey, orphanedOutboxes, outboxKey, outboxOwner, outboxTabs, readBase, readOutbox, type OutboxOp } from './outbox';
 import { memStorage, slotOf } from './fixtures';
 
 const body = (n: number): CampaignBody => ({ ledger: { 'campaign.slots_issued': n }, brigade: emptyAccount(), tutorialDone: false });
@@ -11,6 +11,13 @@ const boom = (): never => {
 };
 
 describe('outbox', () => {
+  it('appendOp carries a pinned send base through the write', () => {
+    const s = memStorage();
+    writeOutbox(s, 'tabA', [camp(1)], 'pub1', 5);
+    appendOp(s, 'tabA', camp(2), 'pub1');
+    expect(readBase(s, 'tabA')).toBe(5);
+  });
+
   it('adjacent_campaign_ops_coalesce: thirty appends leave the last', () => {
     const s = memStorage();
     for (let i = 0; i < 30; i++) appendOp(s, 'tabA', camp(i), 'pub1');

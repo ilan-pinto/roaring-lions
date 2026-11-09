@@ -143,7 +143,7 @@ export function coalesce(ops: readonly OutboxOp[], op: OutboxOp, sent: ReadonlyS
 /** Append to THIS tab's key only (§0.38), coalescing. Returns the new queue even when the write was refused. */
 export function appendOp(storage: StorageLike | null, tabId: string, op: OutboxOp, publicId: string, sent: ReadonlySet<string> = new Set()): OutboxOp[] {
   const next = coalesce(readOutbox(storage, tabId), op, sent);
-  writeOutbox(storage, tabId, next, publicId);
+  writeOutbox(storage, tabId, next, publicId, readBase(storage, tabId)); // the pinned send base travels with the queue
   return next;
 }
 

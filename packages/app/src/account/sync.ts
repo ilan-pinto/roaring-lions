@@ -16,7 +16,7 @@
  *  - one flusher at a time across tabs, under `lions.account.flush`; this tab's heartbeat is written before any
  *    orphaned outbox is looked for (§0.38);
  *  - R12, the SEND BASE: a queued campaign snapshot is only safe on the revision it was built on, so this tab's send base (kept in its own outbox value, never the shared cache)
- *    moves ONLY through this queue's own acks. `GET state` (a replay's refresh, a conflict, boot) refreshes `confirmed`
+ *    is pinned at QUEUE time (R17: the revision the snapshot was built on) and moves ONLY through this queue's own acks. `GET state` (a replay's refresh, a conflict, boot) refreshes `confirmed`
  *    and the view but never raises it while campaign-carrying ops are queued: those ops go out on their old base,
  *    answer 409, and resolve as conflicts. With no campaign op queued the base simply follows `confirmed`. An orphan's
  *    campaign snapshot is adopted like a 409's: kept as a conflict slot (or held), never PUT; an adopted victory goes
@@ -24,7 +24,8 @@
  *  - R13: an orphaned outbox is adopted only by a tab of the member who wrote it (the stored value carries the
  *    `publicId`); sign-out and a deleted account file and clear every outbox and heartbeat key of that member;
  *  - R14/R16: the 5-strike wedge counts every answer that is not a network failure, 401, 429, 502/503/504 or a handled
- *    409 (stale, conflict, cap, claim_cap): 500, 403, `busy`, an unknown 409, other 4xx, and a malformed 200. A 404 on
+ *    409 (stale, conflict, claim_cap, and `cap` on a slot.put; a `cap` on a campaign or victory op is transient: the
+ *    retry reads `held`): 500, 403, `busy`, an unknown 409, other 4xx, and a malformed 200. A 404 on
  *    `slot.delete` is success. Network failures, 429 and 502/503/504 back off and never file. A filed op keeps the WHOLE op as its held text.
  *
  * A rejected `signOut` (the unsent work could not be kept on this device) leaves this loop STOPPED: nothing is
@@ -46,7 +47,7 @@ export const FLUSH_DEBOUNCE_MS = 2000;
 export const BACKOFF_START_MS = 2000;
 export const BACKOFF_MAX_MS = 60_000;
 export const HEARTBEAT_MS = 10_000;
-/** Consecutive 5xx or `busy` answers to one op before it is filed as `refused` and dropped. */
+/** Consecutive counted answers (R16: 500, 403, `busy`, an unknown 409, other 4xx, a malformed 200) to one op before it is filed as `refused` and dropped. */
 export const WEDGE_AFTER = 5;
 export const SIGN_OUT_LIMIT_MS = 5000;
 export const FLUSH_LOCK = 'lions.account.flush';
@@ -489,6 +490,7 @@ export function startSync(o: SyncOptions): SyncHandle {
         removeOp(op.opId);
         return 'next';
       }
+      if (err === 'cap') return failOp(op, false); // a campaign or victory op that lost the race for the cap: retry, no strike
       return failOp(op, true); // busy and an unknown 409 count toward the wedge (R16)
     }
     if (r.status === 404 && op.kind === 'slot.delete') return onOk(op, { ok: true }); // already gone: success (R16)

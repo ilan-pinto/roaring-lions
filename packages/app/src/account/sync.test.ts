@@ -515,11 +515,73 @@ describe('R12 the send base (C1)', () => {
     await t1.sync.refresh(); // T1 pins base 3
     const t2 = rig({ server, storage, sched, cache: readCache(storage) as NonNullable<ReturnType<typeof readCache>>, tabId: 'T2' });
     t2.store.writeLedger(led(2)); // T2 has its own op, built on revision 6
-    expect(t2.store.sync.base()).toBeUndefined();
     await t2.sync.flush();
     expect(server.count('PUT campaign').map((c) => c.base)).toEqual([6]);
     expect(markOf(server.campaign)).toBe(2);
     t1.sync.stop();
+  });
+
+  it('P3 (R17): tab 2 acks while tab 1 has an unsent op; tab 1 reloads and does not overwrite tab 2', async () => {
+    const server = new FakeServer();
+    const storage = memStorage();
+    const sched = makeScheduler();
+    const t1 = rig({ server, storage, sched, tabId: 'T1' });
+    t1.store.writeLedger(led(1)); // queued on revision 3, not flushed (debounce not advanced)
+    const t2 = rig({ server, storage, sched, cache: readCache(storage) as NonNullable<ReturnType<typeof readCache>>, tabId: 'T2' });
+    t2.store.writeLedger(led(2));
+    await t2.sync.flush(); // server revision 4, mark 2; the shared cache is now revision 4
+    expect(readCache(storage)?.confirmed.campaign?.revision).toBe(4);
+    t1.sync.stop();
+    const t1b = rig({ server, storage, sched, cache: readCache(storage) as NonNullable<ReturnType<typeof readCache>>, tabId: 'T1' });
+    await t1b.sync.flush();
+    expect(server.count('PUT campaign').map((c) => c.base)).toEqual([3, 3]); // tab 1 sent on the revision it was built on
+    expect(markOf(server.campaign)).toBe(2); // tab 2's write was not overwritten
+    expect([...server.slots.values()].filter((x) => x.meta.origin === 'conflict').map((x) => markOf(x.body))).toEqual([1]);
+    t2.sync.stop();
+  });
+
+  it('R16: a 409 cap on a campaign op is transient: retried, never a strike', async () => {
+    const r = rig();
+    r.store.sync.setOps([camp('X', 1)]);
+    const real = clientFor(r.server);
+    let puts = 0;
+    const client = { ...real, putCampaign: () => (puts++, Promise.resolve({ ok: false as const, status: 409, body: { error: 'cap' } })) };
+    const sync = startSync({ store: r.store, client, storage: r.storage, now: r.sched.now, schedule: r.sched.schedule });
+    await sync.flush();
+    for (let i = 0; i < 8; i++) {
+      await r.sched.advance(60_000);
+      await sync.idle();
+    }
+    expect(puts).toBeGreaterThan(5);
+    expect(readHeld(r.storage)).toEqual([]);
+    expect(r.store.outboxSize()).toBe(1);
+    sync.stop();
+  });
+
+  it('resolveConflict held retry leaves ONE held entry', async () => {
+    const server = new FakeServer();
+    server.campaign = { ...(server.campaign as NonNullable<typeof server.campaign>), revision: 7, digest: 'd7', ledger: led(9) };
+    for (let i = 0; i < 4; i++) server.addSystemSlot();
+    const storage = memStorage();
+    const sched = makeScheduler();
+    const t = rig({ server, storage, sched, cache: cacheOf(confirmedState()), tabId: 'T1' });
+    t.store.writeLedger(led(2));
+    const set = storage.setItem.bind(storage);
+    let n = 0;
+    storage.setItem = (k: string, v: string) => {
+      if (k === HELD_KEY) {
+        n++;
+        if (n === 1) { t.store.writeLedger(led(42)); set(k, v); return; } // lap 0 lands, a newer op arrives
+        if (n === 2) throw new Error('quota'); // lap 1 refused: 'wait'
+      }
+      set(k, v);
+    };
+    await t.sync.flush();
+    await sched.advance(60_000); await t.sync.idle();
+    await sched.advance(60_000); await t.sync.idle();
+    expect(readHeld(storage)).toHaveLength(1);
+    expect(markOf(JSON.parse(readHeld(storage)[0]!.text))).toBe(42);
+    t.sync.stop();
   });
 
   it('with no campaign op queued the send base follows confirmed: a refresh to a newer revision is not a conflict', async () => {
