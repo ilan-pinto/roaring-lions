@@ -176,7 +176,7 @@ import { applySettings, loadSettings, saveSettings, settingsBus, type Settings }
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
 import { buyUnlock } from './brigade-account';
 import { buyTierWithCredits } from './credit-buy';
-import { storeInputFor } from '@lions/economy';
+import { coinHalfFor, storeInputFor } from '@lions/economy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
@@ -1187,7 +1187,7 @@ async function main(): Promise<void> {
       return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
     };
     /** Which part of the single-player account came from coins. */
-    const coinHalf = (): CoinHalf => storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() }).coin as CoinHalf;
+    const coinHalf = (): CoinHalf => coinHalfFor({ brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() });
     return showBrigade(host, {
       units: kdfUnits,
       ledger: ledgerStore.readLedger(),
