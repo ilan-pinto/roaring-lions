@@ -854,6 +854,8 @@ function createSmokeMaterial(fxDetail: 0 | 1 | 2): THREE.ShaderMaterial {
   const [r, g, b] = hexToLinear(paletteHex(SMOKE_LIT_KEY));
   const [sr, sg, sb] = hexToLinear(paletteHex(SMOKE_SHADE_KEY));
   return new THREE.ShaderMaterial({
+    // GH-943 P3 (T1): the legacy name the node twin table and the census key it by (`material-names.ts`); no program moves.
+    name: 'rl-smoke-screen',
     defines: { FX_DETAIL: fxDetail },
     uniforms: {
       uLit: { value: new THREE.Vector3(r, g, b) },
