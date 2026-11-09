@@ -42,6 +42,11 @@ export interface SavesDeps {
    *  whichever future screen needs to react to a slot changing under it
    *  without polling. */
   onChanged(): void;
+  /** Signed in (GH-1075 A2, §0.39): a coupon or a reset is in flight. Saving a slot and loading one write or read the campaign
+   *  the server is about to replace, so both are off with `stores.pending` until it answers. Absent for a guest. */
+  frozen?: () => boolean;
+  /** Told when `frozen` may have changed; returns the unsubscribe. */
+  subscribe?: (cb: () => void) => () => void;
 }
 
 function randomId(): string {
@@ -86,7 +91,8 @@ type SlotAction = 'load' | 'export' | 'delete';
 
 function slotRow(
   meta: SlotMeta,
-  actions: { onLoad(): void; onExport(): void; onDelete(): void }
+  actions: { onLoad(): void; onExport(): void; onDelete(): void },
+  frozen = false
 ): HTMLElement {
   const row = document.createElement('div');
   row.className = 'rl-saves__row';
@@ -116,6 +122,10 @@ function slotRow(
     b.className = 'rl-btn';
     b.dataset.action = action;
     b.textContent = label;
+    if (action === 'load' && frozen) {
+      b.disabled = true;
+      b.title = t('stores.pending');
+    }
     b.addEventListener('click', onClick);
     btnRow.appendChild(b);
   };
@@ -206,6 +216,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
     (target ?? nameInput).focus();
   };
 
+  const frozenNow = (): boolean => deps.frozen?.() ?? false;
   const renderList = (): void => {
     list.replaceChildren();
     const slots = listSlots(deps.store);
@@ -218,12 +229,13 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
       list.appendChild(
         slotRow(meta, {
           onLoad: () => {
+            if (frozenNow()) return;
             void confirmDialog(stage, {
               title: t('saves.load.confirm.title'),
               body: t('saves.load.confirm.body'),
               confirm: t('saves.load.confirm.action'),
             }).answer.then((ok) => {
-              if (!ok) return;
+              if (!ok || frozenNow()) return;
               const slot = loadSlot(deps.store, meta.id);
               if (!slot) return;
               // I2: `writeActive` writes three keys in sequence with no
@@ -273,7 +285,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
               deps.onChanged();
             });
           },
-        })
+        }, frozenNow())
       );
     }
     damaged.forEach((meta, i) => {
@@ -335,8 +347,14 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   saveBtn.textContent = t('saves.form.save');
   markConfirm(saveBtn);
   form.append(nameInput, saveBtn);
+  const syncFrozen = (): void => {
+    saveBtn.disabled = frozenNow();
+    saveBtn.title = frozenNow() ? t('stores.pending') : '';
+  };
+  syncFrozen();
   form.addEventListener('submit', (e) => {
     e.preventDefault();
+    if (frozenNow()) return;
     const name = nameInput.value.trim() || defaultName();
     // Same hole as `onLoad` above, one level down: `saveSlot` -> `writeAll` ->
     // `setItem`, and the saves blob is the biggest thing this app writes, so
@@ -391,8 +409,15 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   p.el.appendChild(foot.el);
 
   renderList();
+  const unsubscribe = deps.subscribe?.(() => {
+    syncFrozen();
+    renderList();
+  });
 
   stagger(wrap);
   stage.appendChild(wrap);
-  return () => wrap.remove();
+  return () => {
+    unsubscribe?.();
+    wrap.remove();
+  };
 }

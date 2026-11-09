@@ -79,6 +79,8 @@ export interface SyncOptions {
   onForeignMember?: () => void;
   /** The view changed (a response landed): the screens re-read. Not the store's `onChange`, which means "an op was queued". */
   onChange?: () => void;
+  /** A victory op was answered (its coins are the server's, Review Focus 4): the debrief corrects its provisional line from `answer`. */
+  onVictory?: (opId: string, answer: VictoryAnswer) => void;
   /** Connection state; defaults to `navigator.onLine`. */
   online?: () => boolean;
   newId?: () => string;
@@ -411,6 +413,7 @@ export function startSync(o: SyncOptions): SyncHandle {
       }
       case 'victory': {
         const b = body as VictoryAnswer;
+        o.onVictory?.(op.opId, b);
         if (b.conflict !== undefined) {
           const out = await resolveConflict(op, op.campaign, b.conflict, b.campaign, b.wallet);
           if (out === 'next') removeOp(op.opId);

@@ -45,6 +45,24 @@ export interface ReportSpeaker {
   speaker: string;
 }
 
+/**
+ * A signed-in victory's coin line (GH-1075 A2, §0.9). The server alone moves coins, so the figure the report opens on is
+ * PROVISIONAL (the local earn table, read against the start nonce), and it is corrected in place when the server's arrives:
+ *  - `provisional`: the win is queued; the line is the local estimate;
+ *  - `saved`: the server answered; `coins` and `balance` are ITS figures (the floor may pay less than the estimate, even 0);
+ *  - `willSync`: the win is kept on this device and goes up when the connection does.
+ */
+export interface CoinLineState {
+  coins: number;
+  balance: number;
+  phase: 'provisional' | 'saved' | 'willSync';
+}
+export interface DebriefCoins {
+  initial: CoinLineState;
+  /** Calls `cb` with each newer state; returns the unsubscribe. The report keeps ONE node and rewrites its text. */
+  subscribe: (cb: (s: CoinLineState) => void) => () => void;
+}
+
 export interface DebriefOptions {
   result: 'victory' | 'defeat';
   stars: Stars;
@@ -63,6 +81,8 @@ export interface DebriefOptions {
   ground?: { map: PreviewMap; tones: PreviewTones; marks: readonly GroundMark[]; photo?: ImageData | null };
   next?: { id: string; name: string; villainLine?: string };
   missionId: string;
+  /** A signed-in victory's server-backed coin line; absent for a guest, whose awards ride in `report.changed`. */
+  coins?: DebriefCoins;
   /** The rating prompt (GH-464), mounted in the foot above the nav. Built and
    *  disposed by the caller; this only places it. */
   prompt?: HTMLElement;
@@ -235,6 +255,28 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
     }
     changedExtra.push(pr);
   }
+  let unsubscribeCoins: (() => void) | null = null;
+  if (o.coins) {
+    const line = el('p', 'rl-aar__coins');
+    line.setAttribute('aria-live', 'polite');
+    const n = el('span', 'rl-aar__coins-n');
+    const status = el('small', 'rl-aar__coins-status');
+    const total = el('span', 'rl-aar__coins-total');
+    line.append(n, status, total);
+    const draw = (s: CoinLineState): void => {
+      const coins = Math.max(0, s.coins);
+      const balance = Math.max(0, s.balance);
+      line.dataset.phase = s.phase;
+      n.dataset.value = String(coins);
+      n.textContent = t('debrief.coins.earned', { n: coins });
+      status.textContent = t(s.phase === 'saved' ? 'debrief.coins.saved' : s.phase === 'willSync' ? 'debrief.coins.willSync' : 'debrief.coins.provisional');
+      total.dataset.value = String(balance);
+      total.textContent = t('debrief.coins.total', { n: balance });
+    };
+    draw(o.coins.initial);
+    unsubscribeCoins = o.coins.subscribe(draw);
+    changedExtra.push(line);
+  }
   if (won && o.next?.villainLine) changedExtra.push(el('div', 'rl-debrief__villain rl-aar__villain', o.next.villainLine));
   grid.append(
     column('well', t('aar.col.well'), r.well, wellExtra),
@@ -283,6 +325,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   // chips -- invisible and live. One trap, released with the report.
   const releaseTrap = focusTrap(p.el);
   return () => {
+    unsubscribeCoins?.();
     releaseTrap();
     p.el.remove();
     backdrop.remove();

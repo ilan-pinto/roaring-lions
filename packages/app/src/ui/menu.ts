@@ -71,6 +71,8 @@ export interface MenuOptions {
    *  campaign ledger" read like plumbing and said nothing about what it
    *  spared. */
   newCampaign?: () => void;
+  /** Signed in (GH-1075 A2, §0.39): a coupon or a reset is in flight; New campaign is off with `stores.pending` until it answers. */
+  newCampaignFrozen?: () => boolean;
   /**
    * What stands behind the column -- the scene host (`ui/scene-host.ts`), in
    * the shell. Called once the column is in the stage, so the host can
@@ -89,6 +91,9 @@ export interface MenuOptions {
   /** The account chip (GH-1075 A1): drawn only when `enabled`. `name` resolves to the signed-in display name, or
    *  null for a guest; until it does the chip reads as a guest's. */
   account?: { enabled: boolean; name?: Promise<string | null> };
+  /** A claimed device with no cache whose `GET state` timed out (GH-1075 A2, §0.11): the campaign cannot be read, so its
+   *  entries (Continue, the tutorial, Campaign, Brigade) are off, and the column says `account.unreachable`. */
+  unreachable?: boolean;
 }
 
 export interface CampaignOptions {
@@ -131,11 +136,19 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
 
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav';
-  const add = (label: string, href: string, kind = ''): void => {
+  const add = (label: string, href: string, kind = '', campaign = true): void => {
     const a = document.createElement('a');
     a.textContent = label;
-    a.href = href;
     a.className = 'rl-btn rl-menu__item';
+    if (opts.unreachable === true && campaign) {
+      // No campaign to read: the entry stays visible, but is not a link (§0.11).
+      a.setAttribute('aria-disabled', 'true');
+      a.title = t('account.unreachable');
+      if (kind) a.dataset.kind = kind;
+      nav.appendChild(a);
+      return;
+    }
+    a.href = href;
     if (kind) a.dataset.kind = kind;
     // Continue is the menu's one primary action (A8).
     if (kind === 'primary') markConfirm(a);
@@ -165,7 +178,14 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   add(t('menu.nav.campaign'), routes.campaign(), 'secondary');
   add(t('menu.nav.brigade'), routes.brigade(), 'secondary');
   // Play with a friend (N1b): host or join a room, by its code.
-  add(t('menu.nav.versus'), routes.versus(), 'secondary');
+  add(t('menu.nav.versus'), routes.versus(), 'secondary', false);
+  if (opts.unreachable === true) {
+    const note = document.createElement('p');
+    note.className = 'rl-menu__unreachable rl-dim';
+    note.setAttribute('role', 'status');
+    note.textContent = t('account.unreachable');
+    wrap.appendChild(note);
+  }
   wrap.appendChild(nav);
 
   const aside = document.createElement('nav');
@@ -205,7 +225,12 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   newCampaignBtn.className = 'rl-btn rl-menu__item';
   newCampaignBtn.dataset.kind = 'aside';
   newCampaignBtn.textContent = t('menu.newCampaign.button');
+  if (opts.newCampaignFrozen?.() === true) {
+    newCampaignBtn.disabled = true;
+    newCampaignBtn.title = t('stores.pending');
+  }
   newCampaignBtn.addEventListener('click', () => {
+    if (opts.newCampaignFrozen?.() === true) return;
     void confirmDialog(stage, {
       title: t('menu.newCampaign.confirm.title'),
       // Not "brigade account and tutorial completion are erased" -- the

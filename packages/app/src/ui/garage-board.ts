@@ -26,6 +26,7 @@ import { emblemSvg } from './kit-emblems';
 import { nextTierPrice, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
 import { t } from '../i18n/t';
 import type { CreditAsk } from '../upgrade-pay';
+import { blockText, type CreditBlock } from './spend-gate';
 import { previewDeltas } from './garage-stats';
 import { formatBenefit, upgradeBenefits, type BenefitLine } from './upgrade-benefit';
 
@@ -123,6 +124,9 @@ export interface TrackDeps {
      *  Buy off `owned`, the shape every caller had before the run (R0.1, R3). */
     readonly ask?: CreditAsk | null;
     readonly onBuy: (tier: number, price: number, asked: string) => void;
+    /** Signed in (GH-1142, §0.39): why the Buy is held although the credits cover it (`spend-gate.ts`); drawn disabled with
+     *  that reason. Absent for a guest. */
+    readonly block?: CreditBlock | null;
   };
   /** F7: the unit is not in the brigade -- never unlocked, or re-locked by a
    *  gate it no longer clears -- so this track is read-only. Tiers it owns
@@ -338,8 +342,14 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
           // Named by the TRACK, not the tier, so the next tier's Buy after a
           // purchase answers to the same key and `restoreFocus` finds it.
           buy.dataset.focusKey = `buy:${trackName}`;
-          buy.disabled = credits < price;
+          const block = deps.buy.block ?? null;
+          buy.disabled = credits < price || block !== null;
+          if (block !== null) {
+            buy.title = blockText(block);
+            buy.dataset.block = block;
+          }
           buy.addEventListener('click', () => {
+            if (buy.disabled) return;
             buy.disabled = true; // one purchase per render; the caller's answer redraws
             onBuy(tier, price, `buy:${trackName}`);
           });
