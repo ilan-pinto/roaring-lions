@@ -29,6 +29,7 @@ import { foliageLeanOps } from './terrain/wind';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
+import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_ATTRIBUTE, SILHOUETTE_OUTLINE_UNIFORM_KEY } from './units/silhouette';
 import { zoneHatchOps } from './units/zone-band';
 import { dashOps } from './supply-route-maths';
 import { SUPPLY_ROUTE_ALPHA } from './supply-route';
@@ -60,7 +61,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
   },
   // GH-943 P3 (T1): every P3 slot, null until its task fills it.
   unit: null,
-  outline: null,
+  // GH-943 P3 (T5): the outline's expansion (rigid and skinned), and the names of its attribute and uniform records.
+  outline: { expandOps: outlineExpandOps, expandAttribute: SILHOUETTE_EXPAND_ATTRIBUTE, widthKey: SILHOUETTE_OUTLINE_UNIFORM_KEY, biasKey: SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY },
   banner: null,
   backdrop: null,
   decal: null,

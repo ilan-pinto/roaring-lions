@@ -61,6 +61,11 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   { scenario: 'vehicle', layer: 'disturb', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T7: vehicle bend, tick-built capsules, uDisturbAmp by reference' },
   { scenario: 'vehicle', layer: 'wash', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T7: rotor wash flatten and thrash, sim clock' },
   { scenario: 'vehicle', layer: 'selection-ring', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: the team rings, analytic coverage, no textures' },
+  // GH-943 P3 (T5) Step A: the occlusion and smoke outline (`units/silhouette.node.ts`), flat colour, untextured: `tight`. One row per
+  // scenario whose `outline` check holds (Step A branch 1: `fogged` read 144 px < 200 and left).
+  ...['vehicle', 'kitted', 'graded'].map(
+    (scenario): ParityRow => ({ scenario, layer: 'outline', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P3 T5: the occlusion outline (Step A)' })
+  ),
   // GH-943 P1 (T5): bloom adds exactly 0 wherever nothing exceeds linear luminance 1.0 (a ZERO check on every quiet gated scenario).
   ...['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'].map(
     (scenario): ParityRow => ({ scenario, layer: 'bloom', band: 'zero', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: bloom adds +0 on a frame with nothing over 1.0' })
