@@ -10,7 +10,7 @@
  * An `OpReject` thrown by `build` answers its status and body and writes nothing.
  */
 import type { D1Like, D1Stmt } from '../d1';
-import { isCapFailure, isCasFailure } from './coin';
+import { isCapFailure, isCasFailure, isDeviceCapFailure } from './coin';
 import { CAS_TRIES } from './config';
 import { opBudget } from './limits';
 import { OpReject, storedAnswer, validOpId, withOp, type OpAnswer } from './op';
@@ -24,6 +24,8 @@ export interface OpSpec {
   extra?: { check: (db: D1Like) => Promise<boolean>; bump: (db: D1Like) => Promise<void> };
   /** The error a tripped cap guard answers; `cap` unless a route says otherwise (`claim_cap`). */
   capError?: string;
+  /** The error a tripped DEVICE guard (`member.created_at`) answers: `claim_cap` for the claim; `cap` by default. */
+  deviceCapError?: string;
 }
 
 export interface BuiltOp {
@@ -56,6 +58,7 @@ export async function budgetedOp(ctx: AccountCtx, s: OpSpec, build: () => Promis
       return await withOp(db, s.memberId, s.opId, s.kind, ctx.now, build);
     } catch (err) {
       if (err instanceof OpReject) return { status: err.status, body: err.body };
+      if (isDeviceCapFailure(err)) return { status: 409, body: { error: s.deviceCapError ?? 'cap' } };
       if (isCapFailure(err)) return { status: 409, body: { error: s.capError ?? 'cap' } };
       if (!isCasFailure(err)) throw err;
       if ((await revisions(db, s.memberId)) === seen) {
