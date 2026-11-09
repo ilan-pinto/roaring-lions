@@ -325,6 +325,10 @@ export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
   // GH-943 P3 (T3): the running gear and the wreck soot on the node unit twin.
   'moving-lavi',
   'wreck-lavi',
+  // GH-943 P3 (T8): the overlay batch with the zone band, the supply route, the tunnel trail.
+  'damaged-zone',
+  'route',
+  'trail',
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------------------------

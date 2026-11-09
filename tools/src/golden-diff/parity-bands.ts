@@ -56,6 +56,10 @@ export const PARITY_ROWS: readonly ParityRow[] = [
   { scenario: 'aftermath', layer: 'height-contours', band: 'loose', r0: UNREAD, nodeFloor: { wgl2: 0.1333, wgpu: 0.1328 }, note: 'P2 T4' },
   // GH-943 P2 (T6): the node foliage's wind (`terrain/decor-mesh.node.ts`). `quiet`'s `repaint-control` row above must stay 0 with it live.
   { scenario: 'quiet', layer: 'wind', band: 'loose', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T6: the foliage sway, sim clock, uSwayAmp by reference' },
+  // GH-943 P2 (T7): the vehicles' bend and the rotor wash on the node foliage (`disturb.ts` -> `decor-mesh.node.ts`), witnessed by the
+  // `vehicle` scenario's layer checks. The legacy floors are small and were measured on Metal (25 px / 0.0015 and 15 px / 0.0008), so the band is `ao`.
+  { scenario: 'vehicle', layer: 'disturb', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T7: vehicle bend, tick-built capsules, uDisturbAmp by reference' },
+  { scenario: 'vehicle', layer: 'wash', band: 'ao', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'P2 T7: rotor wash flatten and thrash, sim clock' },
   { scenario: 'vehicle', layer: 'selection-ring', band: 'tight', r0: UNREAD, nodeFloor: NO_FLOOR, note: 'T5: the team rings, analytic coverage, no textures' },
   // GH-943 P3 (T3): the node unit twin (`units/unit-material.node.ts`): the team mark, the running gear and the soot on the hooked unit
   // materials, the per-entity fields per object. `loose`: textured. r0 and the node floors from this PR's `visual-parity` runs.

@@ -24,6 +24,7 @@ import {
 } from './terrain/relief-read';
 import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, roadBands } from './terrain/ground-maths';
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
+import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
 import { foliageLeanOps } from './terrain/wind';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
 import { SELECTION_RING } from './units/readability';
@@ -32,6 +33,9 @@ import { teamHookOf, teamMarkOps } from './units/team-mask';
 import { RG_MAX_WHEELS, rgBarOps, rgNormalOps, rgPhaseOps, rgVertexOps } from './units/running-gear';
 import { RG_TRACK_GEOMETRY_ATTR, RG_WHEEL_GEOMETRY_ATTR, runningGearUniformsOf } from './units/running-gear-material';
 import { sootOps } from './world-materials';
+import { zoneHatchOps } from './units/zone-band';
+import { dashOps } from './supply-route-maths';
+import { SUPPLY_ROUTE_ALPHA } from './supply-route';
 
 export const MATERIAL_MATHS: MaterialMaths = {
   marker: 'rl-material-maths',
@@ -49,8 +53,8 @@ export const MATERIAL_MATHS: MaterialMaths = {
       tintHigh: RELIEF_TINT_HIGH,
     },
   },
-  // T6: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
-  foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE },
+  // T6, T7: the wind's lean (mode 1) and the reduced-motion sway (mode 0), one body (`wind.ts`), and the attribute it reads.
+  foliage: { foliageLeanOps, natureAttribute: NATURE_ATTRIBUTE, disturbSlotPushOps, disturbBendOps, disturbMax: DISTURB_MAX },
   ring: {
     fragmentOps: ringFragmentOps,
     outputOps: ringOutputOps,
@@ -82,8 +86,9 @@ export const MATERIAL_MATHS: MaterialMaths = {
   backdrop: null,
   decal: null,
   overlay: null,
-  zoneBand: null,
-  supplyRoute: null,
+  // T8: the zone band's hatch (`units/zone-band.node.ts`) and the supply route's dash and alpha (`supply-route.node.ts`).
+  zoneBand: { hatchOps: zoneHatchOps },
+  supplyRoute: { dashOps, alpha: SUPPLY_ROUTE_ALPHA },
   trail: null,
   xray: null,
   particle: null,
