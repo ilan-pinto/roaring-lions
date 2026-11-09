@@ -60,6 +60,7 @@ import type { Ops } from '../fog-ops';
 import { paletteHex } from '../palette-hex';
 import { WORLD_RENDER_ORDER } from '../units/render-order';
 import { BACKDROP_HOOK_KEY } from '../material-names';
+import { legacyOf } from '../twin-identity';
 import { assembleKit, floorSurface, LOD1_BELOW_ZOOM, type BackdropPiece, type KitSource, type PlacedKit, type Taper } from './backdrop-kit';
 
 /** A map's `backdrop` block (map.schema.json), as the renderer reads it. */
@@ -528,7 +529,11 @@ export function disposeBackdrop(b: Backdrop): void {
     if (o instanceof THREE.Mesh) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {
-        if (m instanceof THREE.MeshStandardMaterial && o.name === 'backdrop-ground') m.map?.dispose();
+        // GH-943 P3 (T10): on a node boot `o.material` is the NodeMaterial TWIN, which is not a `MeshStandardMaterial`, so the floor
+        // texture is read off the LEGACY material the twin stands for (`legacyOf` is the identity on a legacy boot).
+        const legacy = legacyOf(m, o);
+        if (legacy instanceof THREE.MeshStandardMaterial && o.name === 'backdrop-ground') legacy.map?.dispose();
+        if (legacy !== m) legacy.dispose();
         m.dispose();
       }
     }

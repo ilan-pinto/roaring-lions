@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { NUMBER_OPS } from '../fog-ops';
 import { MATERIAL_MATHS } from '../material-maths';
-import { backdropFadeOps, BACKDROP_FADE_KEY as LEGACY_KEY, buildBackdrop, type BackdropSpec, type LoadedBackdropKit } from './backdrop';
+import { backdropFadeOps, BACKDROP_FADE_KEY as LEGACY_KEY, buildBackdrop, disposeBackdrop, type BackdropSpec, type LoadedBackdropKit } from './backdrop';
 import { BACKDROP_BOUND_KEY, BACKDROP_FADE_KEY, createNodeBackdropMaterial, NODE_BACKDROP_MATERIAL_NAME, type BackdropTwinBound } from './backdrop.node';
 import { adoptMaterials, createTwinCache, legacyTwinSlot, NULL_P3_SLOTS } from '../node-material-adoption';
 import { censusUnported, PORTED_MATERIAL_KEYS } from '../backend/unported';
@@ -220,5 +220,25 @@ describe('the seam', () => {
     expect((mesh.material as THREE.Material).name).toBe(NODE_BACKDROP_MATERIAL_NAME);
     // The twin carries no legacy hook of its own.
     expect(censusUnported(g, {})).toEqual([]);
+  });
+});
+
+describe('disposeBackdrop under a node twin', () => {
+  it('frees the floor texture of the LEGACY material the twin stands for (the twin is not a MeshStandardMaterial)', async () => {
+    const W = await import('three/webgpu');
+    const TSL = await import('three/tsl');
+    const b = buildBackdrop(SPEC, loadedKit(), () => 0, 48, 32, '#33261a');
+    const floor = b.group.getObjectByName('backdrop-ground') as THREE.Mesh;
+    const legacy = floor.material as THREE.MeshStandardMaterial;
+    expect(legacy.map, 'the floor carries a texture to free').toBeTruthy();
+    let floorTexDisposed = false;
+    (legacy.map as THREE.Texture).addEventListener('dispose', () => (floorTexDisposed = true));
+    const maths = MATERIAL_MATHS.backdrop;
+    const n = adoptMaterials(b.group, { ...NULL_P3_SLOTS, ground: null, foliage: null, ring: null, backdrop: (l) => createNodeBackdropMaterial({ W, TSL: TSL as never, maths }, l) }, createTwinCache());
+    expect(n).toBeGreaterThan(0);
+    expect(floor.material, 'the floor is on a twin now').not.toBe(legacy);
+    expect(floor.material instanceof THREE.MeshStandardMaterial).toBe(false);
+    disposeBackdrop(b);
+    expect(floorTexDisposed).toBe(true);
   });
 });
