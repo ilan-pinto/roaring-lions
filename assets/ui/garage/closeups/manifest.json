@@ -10,6 +10,26 @@
     "gpu": "ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)"
   },
   "closeups": {
+    "air_medevac_heli_armour": {
+      "file": "air_medevac_heli_armour.jpg",
+      "unit": "air_medevac_heli",
+      "track": "armour",
+      "subject": "role",
+      "yawDeg": 225,
+      "elevationDeg": 18,
+      "distance": 2.521,
+      "glb_sha256": "2c1c2daaffcffe97a8ecbf3a17e15f9ebdbe0ff95168c9a07e00ef5180a025d0"
+    },
+    "air_medevac_heli_sensors": {
+      "file": "air_medevac_heli_sensors.jpg",
+      "unit": "air_medevac_heli",
+      "track": "sensors",
+      "subject": "whole",
+      "yawDeg": 225,
+      "elevationDeg": 18,
+      "distance": 2.521,
+      "glb_sha256": "2c1c2daaffcffe97a8ecbf3a17e15f9ebdbe0ff95168c9a07e00ef5180a025d0"
+    },
     "apc_eitan_armour": {
       "file": "apc_eitan_armour.jpg",
       "unit": "apc_eitan",
@@ -289,6 +309,36 @@
       "distance": 3.516,
       "glb_sha256": "8083617af883445c4a65c172d2d5feff9534991dc2f40aeabd90eafdd36d64b9"
     },
+    "mbt_lavi_camo_armour": {
+      "file": "mbt_lavi_camo_armour.jpg",
+      "unit": "mbt_lavi_camo",
+      "track": "armour",
+      "subject": "role",
+      "yawDeg": 45,
+      "elevationDeg": 18,
+      "distance": 3.482,
+      "glb_sha256": "b13f49f812a177ab4c7f95eebe3dc60ebcd6bdcedbe2212c3ef6097de555e8cd"
+    },
+    "mbt_lavi_camo_firepower": {
+      "file": "mbt_lavi_camo_firepower.jpg",
+      "unit": "mbt_lavi_camo",
+      "track": "firepower",
+      "subject": "role",
+      "yawDeg": 0,
+      "elevationDeg": 18,
+      "distance": 2.849,
+      "glb_sha256": "b13f49f812a177ab4c7f95eebe3dc60ebcd6bdcedbe2212c3ef6097de555e8cd"
+    },
+    "mbt_lavi_camo_sensors": {
+      "file": "mbt_lavi_camo_sensors.jpg",
+      "unit": "mbt_lavi_camo",
+      "track": "sensors",
+      "subject": "whole",
+      "yawDeg": 45,
+      "elevationDeg": 18,
+      "distance": 3.728,
+      "glb_sha256": "b13f49f812a177ab4c7f95eebe3dc60ebcd6bdcedbe2212c3ef6097de555e8cd"
+    },
     "mbt_lavi_firepower": {
       "file": "mbt_lavi_firepower.jpg",
       "unit": "mbt_lavi",
@@ -356,6 +406,66 @@
       "elevationDeg": 18,
       "distance": 1.551,
       "glb_sha256": "9930880e9a6316d20e66608c3e1b1252aee73af2d3b30d7fa52847b0a1746394"
+    },
+    "spg_cluster_armour": {
+      "file": "spg_cluster_armour.jpg",
+      "unit": "spg_cluster",
+      "track": "armour",
+      "subject": "role",
+      "yawDeg": 90,
+      "elevationDeg": 18,
+      "distance": 3.459,
+      "glb_sha256": "fca876d73baabce5564c041e98f394155e2110d3e1eb964644fbdaf974ed3de8"
+    },
+    "spg_cluster_sensors": {
+      "file": "spg_cluster_sensors.jpg",
+      "unit": "spg_cluster",
+      "track": "sensors",
+      "subject": "whole",
+      "yawDeg": 180,
+      "elevationDeg": 18,
+      "distance": 5.433,
+      "glb_sha256": "fca876d73baabce5564c041e98f394155e2110d3e1eb964644fbdaf974ed3de8"
+    },
+    "spg_long_range_armour": {
+      "file": "spg_long_range_armour.jpg",
+      "unit": "spg_long_range",
+      "track": "armour",
+      "subject": "role",
+      "yawDeg": 90,
+      "elevationDeg": 18,
+      "distance": 3.511,
+      "glb_sha256": "b2f732726f4cc8896b5445a468ece7faf71cafd76b26e462a6dcdbaed8a87a0f"
+    },
+    "spg_long_range_sensors": {
+      "file": "spg_long_range_sensors.jpg",
+      "unit": "spg_long_range",
+      "track": "sensors",
+      "subject": "whole",
+      "yawDeg": 180,
+      "elevationDeg": 18,
+      "distance": 4.775,
+      "glb_sha256": "b2f732726f4cc8896b5445a468ece7faf71cafd76b26e462a6dcdbaed8a87a0f"
+    },
+    "veh_ambulance_armour": {
+      "file": "veh_ambulance_armour.jpg",
+      "unit": "veh_ambulance",
+      "track": "armour",
+      "subject": "role",
+      "yawDeg": 90,
+      "elevationDeg": 18,
+      "distance": 4.047,
+      "glb_sha256": "4a98d6e79481e71f8e221d5a240cddc4332bf2cb95c724b97a1dd6451f4438f0"
+    },
+    "veh_ambulance_sensors": {
+      "file": "veh_ambulance_sensors.jpg",
+      "unit": "veh_ambulance",
+      "track": "sensors",
+      "subject": "role",
+      "yawDeg": 45,
+      "elevationDeg": 18,
+      "distance": 1.934,
+      "glb_sha256": "4a98d6e79481e71f8e221d5a240cddc4332bf2cb95c724b97a1dd6451f4438f0"
     }
   }
 }
