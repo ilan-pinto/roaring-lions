@@ -169,6 +169,23 @@ describe('the other refusals', () => {
   });
 });
 
+describe('the ported subjects', () => {
+  it('GH-943 P3 (T11): the simple FX subjects are live, every one names a real fx subject, and the T12 ones (flipbook, smoke screen) are not', () => {
+    const fxIds = new Set(PROBE_SUBJECTS.fx.map((s) => s.id));
+    const live = ['mortar-impact', 'mortar-impact/muzzle-burst', 'vehicle-death/smoke-plume', 'collapse', 'tracers', 'atgm', 'beam-swarm', 'beam-swarm/swarm'];
+    for (const id of live) {
+      expect(fxIds.has(id), id).toBe(true);
+      expect(PORTED_PROBE_SUBJECTS.has(id), id).toBe(true);
+    }
+    for (const id of ['mortar-impact/flipbook', 'vehicle-death', 'smoke-screen']) {
+      expect(fxIds.has(id), id).toBe(true);
+      expect(PORTED_PROBE_SUBJECTS.has(id), id).toBe(false);
+    }
+    // Nothing is live that is not a subject (a typo would flip nothing).
+    for (const id of PORTED_PROBE_SUBJECTS) expect([...fxIds, ...PROBE_SUBJECTS.units.map((s) => s.id)], id).toContain(id);
+  });
+});
+
 describe('the table', () => {
   it('prints n/a (unported) when the plain arm moved and the matched one did not', () => {
     expect(matchedCell(d(3), d(0))).toBe('n/a (unported)');

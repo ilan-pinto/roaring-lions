@@ -54,8 +54,12 @@ describe('twin-check (the same-PR rule)', () => {
       expect(existsSync(path.resolve(__dirname, '../../..', r.legacy)), r.legacy).toBe(true);
       // GH-943 P2: a legacy file whose maths a twin of ANOTHER file carries (T6 `wind.ts`, T7 `disturb.ts`, T4 `relief-read.ts`) points
       // at that twin, which must be the name-paired twin of some other row: no row may point at a twin nobody owns.
+      // GH-943 P3 (T11): or the twin is ONE recipe for several legacy files (`rim-fade.node.ts` serves the plume and the shroud, which
+      // have no name-paired twin of their own): then at least two rows must point at it.
       if (r.twin !== own(r.legacy)) {
-        expect(rows.some((o) => o.legacy !== r.legacy && o.twin === r.twin && own(o.legacy) === o.twin), `${r.legacy} -> ${r.twin}`).toBe(true);
+        const namePaired = rows.some((o) => o.legacy !== r.legacy && o.twin === r.twin && own(o.legacy) === o.twin);
+        const oneRecipe = rows.filter((o) => o.twin === r.twin).length >= 2;
+        expect(namePaired || oneRecipe, `${r.legacy} -> ${r.twin}`).toBe(true);
         shared++;
       }
       expect(twinVerdict([r.legacy], [r], () => true).violations).toHaveLength(1);

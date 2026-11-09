@@ -321,7 +321,17 @@ function fxMoment(blastId: string, layer: string, tag = '@blast'): Pick<ProbeSub
  * Subjects whose node side is LIVE: a port task adds its subject id here in the same PR. Until then a non-DEAD node delta is labelled
  * `pre-port`. The set is read by `rowStatus` only.
  */
-export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>();
+export const PORTED_PROBE_SUBJECTS: Set<string> = new Set<string>([
+  // GH-943 P3 (T11): the simple FX families. `flipbook`, `vehicle-death` (flipbook) and `smoke-screen` stay off until T12.
+  'mortar-impact', // particles
+  'mortar-impact/muzzle-burst', // the flat-colour flash zones
+  'vehicle-death/smoke-plume',
+  'collapse', // the shroud
+  'tracers',
+  'atgm', // missiles: tracer body, halo and core particles
+  'beam-swarm', // the beam
+  'beam-swarm/swarm', // the rotor blur
+]);
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // The verdict.

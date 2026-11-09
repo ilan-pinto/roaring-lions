@@ -8331,6 +8331,8 @@ export class ThreeRenderer implements Renderer {
     // reload that fails must leave the type with the batch it had, not with none.
     const batch = new SwarmBatch(this.scene, extractSwarmParts(template, unitTypeId));
     batch.setWrecksDebugHidden(this.swarmWrecksDebugHidden);
+    // GH-943 P3 (T11): a batch is built per mission, after `init`: its rotor blur draws through the twin from its first frame.
+    this.queueNodeAdoption(batch.rotors);
     this.adoptEnvironment(batch.envMaterials(), 'unitDielectric');
     const old = this.swarmBatches.get(unitTypeId);
     this.swarmBatches.set(unitTypeId, batch);
@@ -8905,6 +8907,8 @@ export class ThreeRenderer implements Renderer {
   async loadMuzzleFlashMesh(glbUrl: string): Promise<void> {
     const meshes = await this.muzzleFlashes.load(glbUrl);
     this.scene.add(...meshes);
+    // GH-943 P3 (T11): built after `init`, so the node adoption at init never saw them.
+    for (const m of meshes) this.queueNodeAdoption(m);
   }
 
   /**
@@ -8919,7 +8923,10 @@ export class ThreeRenderer implements Renderer {
    */
   async loadExplosionBurstMesh(glbUrl: string): Promise<void> {
     const template = await loadExplosionBurstTemplate(glbUrl);
-    this.scene.add(...this.explosionBursts.adopt(template), ...this.collapseFlashBursts.adopt(template));
+    const burstMeshes = [...this.explosionBursts.adopt(template), ...this.collapseFlashBursts.adopt(template)];
+    this.scene.add(...burstMeshes);
+    // GH-943 P3 (T11): built after `init`, so the node adoption at init never saw them.
+    for (const m of burstMeshes) this.queueNodeAdoption(m);
   }
 
   /**
@@ -8935,6 +8942,8 @@ export class ThreeRenderer implements Renderer {
   async loadSmokePlumeMesh(glbUrl: string): Promise<void> {
     const meshes = await this.smokePlumes.load(glbUrl);
     this.scene.add(...meshes);
+    // GH-943 P3 (T11): built after `init`, so the node adoption at init never saw them.
+    for (const m of meshes) this.queueNodeAdoption(m);
   }
 
   /**

@@ -32,6 +32,7 @@
  * here reads or writes the sim; positions come in, instances go out.
  */
 import * as THREE from 'three';
+import type { Ops } from '../fog-ops';
 import { MESH_SCALE } from './mesh-anim';
 import type { VehicleMeshTemplate } from './mesh-vehicle';
 import { CHARRED_RAMP, rampForVehicleRole } from './vehicle-mesh-role';
@@ -233,6 +234,48 @@ export const ROTOR_ALPHA_HUB = 0.15;
 export const ROTOR_ALPHA_RIM = 0.45;
 export const ROTOR_STREAK_ALPHA = 0.25;
 
+/** The blade streak: `pow(|cos(2 (ang - spin))|, ROTOR_STREAK_POWER)`, faded in clear of the hub over [ROTOR_STREAK_FADE_IN]. */
+export const ROTOR_STREAK_POWER = 18;
+export const ROTOR_STREAK_FADE_IN: readonly [number, number] = [0.2, 0.75];
+/** Below this disc radius the angle is pinned to 0: `atan(0, 0)` is undefined (NaN on some drivers). */
+export const ROTOR_HUB_EPS = 1e-4;
+
+/** Each hub is offset by this many radians times its index, so no two blur in step. */
+export const ROTOR_HUB_PHASE_STEP = 1.7;
+
+/**
+ * GH-943 WebGPU P3 (T11): the per-hub spin the vertex stage derives from the batch's SIM-clock phase (`aPhase`) and the hub index:
+ * `phase * (hub even ? 1 : -1) + hub * 1.7`. Neighbouring rotors turn opposite ways.
+ */
+export function rotorSpinOps<T>(o: Ops<T>, phase: T, hub: T): T {
+  const two = o.lit(2);
+  const parity = o.sub(hub, o.mul(o.floor(o.div(hub, two)), two));
+  const dir = o.selectLt(parity, o.lit(0.5), o.lit(1), o.lit(-1));
+  return o.add(o.mul(phase, dir), o.mul(hub, o.lit(ROTOR_HUB_PHASE_STEP)));
+}
+
+/**
+ * GH-943 WebGPU P3 (T11): the rotor blur's coverage maths, written ONCE against `Ops<T>` (`swarm-batch.node.ts` is handed it as a
+ * value; the legacy GLSL keeps its own text). The fragment is DISCARDED where `r > 1`.
+ *
+ *   `r      = |disc|`
+ *   `base   = mix(HUB, RIM, smoothstep(0, 1, r))`
+ *   `ang    = r < ROTOR_HUB_EPS ? 0 : atan2(disc.y, disc.x)`         the hub guard
+ *   `streak = pow(|cos(2 (ang - spin))|, 18) * smoothstep(0.2, 0.75, r)`    two blades
+ *   `alpha  = min(1, base + STREAK_ALPHA * streak)`
+ *
+ * `spin` is the per-hub phase the vertex stage derives from the batch's SIM-clock `aPhase`; nothing here reads a clock.
+ */
+export function rotorBlurOps<T>(o: Ops<T>, i: { readonly discX: T; readonly discY: T; readonly spin: T }): { readonly r: T; readonly ang: T; readonly streak: T; readonly alpha: T } {
+  const r = o.length2(i.discX, i.discY);
+  const base = o.mix(o.lit(ROTOR_ALPHA_HUB), o.lit(ROTOR_ALPHA_RIM), o.smoothstep(o.lit(0), o.lit(1), r));
+  const ang = o.selectLt(r, o.lit(ROTOR_HUB_EPS), o.lit(0), o.atan2(i.discY, i.discX));
+  const blades = o.pow(o.abs(o.cos(o.mul(o.lit(2), o.sub(ang, i.spin)))), o.lit(ROTOR_STREAK_POWER));
+  const streak = o.mul(blades, o.smoothstep(o.lit(ROTOR_STREAK_FADE_IN[0]), o.lit(ROTOR_STREAK_FADE_IN[1]), r));
+  const alpha = o.min(o.lit(1), o.add(base, o.mul(o.lit(ROTOR_STREAK_ALPHA), streak)));
+  return { r, ang, streak, alpha };
+}
+
 export function createRotorBlurMaterial(): THREE.ShaderMaterial {
   const tone = new THREE.Color(paletteHex('shadow.0'));
   return new THREE.ShaderMaterial({
@@ -248,7 +291,7 @@ export function createRotorBlurMaterial(): THREE.ShaderMaterial {
       void main() {
         vDisc = aDisc;
         // Neighbouring rotors turn opposite ways, each offset so no two blur in step.
-        vSpin = aPhase * (mod(aHub, 2.0) < 0.5 ? 1.0 : -1.0) + aHub * 1.7;
+        vSpin = aPhase * (mod(aHub, 2.0) < 0.5 ? 1.0 : -1.0) + aHub * ${ROTOR_HUB_PHASE_STEP.toFixed(1)};
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
       }
     `,
@@ -262,8 +305,8 @@ export function createRotorBlurMaterial(): THREE.ShaderMaterial {
         float a = mix(${ROTOR_ALPHA_HUB.toFixed(2)}, ${ROTOR_ALPHA_RIM.toFixed(2)}, smoothstep(0.0, 1.0, r));
         // Two blades: |cos(2 theta)| peaks twice a turn. Faint, and clear of the hub.
         // atan(0, 0) is undefined: at the hub the angle is pinned (the streak is smoothstepped to 0 there).
-        float ang = r < 1e-4 ? 0.0 : atan(vDisc.y, vDisc.x);
-        float streak = pow(abs(cos(2.0 * (ang - vSpin))), 18.0) * smoothstep(0.2, 0.75, r);
+        float ang = r < ${ROTOR_HUB_EPS.toExponential(0)} ? 0.0 : atan(vDisc.y, vDisc.x);
+        float streak = pow(abs(cos(2.0 * (ang - vSpin))), ${ROTOR_STREAK_POWER.toFixed(1)}) * smoothstep(${String(ROTOR_STREAK_FADE_IN[0])}, ${String(ROTOR_STREAK_FADE_IN[1])}, r);
         gl_FragColor = vec4(uColor, min(1.0, a + ${ROTOR_STREAK_ALPHA.toFixed(2)} * streak));
       }
     `,

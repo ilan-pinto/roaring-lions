@@ -28,6 +28,10 @@ import type { GroundMaterial } from '../terrain/mesh';
 import type { GroundMaths } from '../terrain/mesh.node';
 import type { FoliageMaths } from '../terrain/decor-mesh.node';
 import type { RingMaths } from '../units/selection-ring.node';
+import type { ParticleMaths } from '../units/fx.node';
+import type { RimFadeMaths } from '../units/rim-fade.node';
+import type { BeamMaths } from '../units/beam-batch.node';
+import type { RotorMaths } from '../units/swarm-batch.node';
 
 /**
  * GH-943 P2 (T1): the material seam, the `PostKit` shape for scene materials. Each factory takes a LEGACY material (the object
@@ -101,12 +105,16 @@ export interface MaterialMaths {
   readonly supplyRoute: null;
   readonly trail: null;
   readonly xray: null;
-  readonly particle: null;
+  /** T11: the particle disc's coverage and `HDR_GAINS.sparks` (`units/fx.node.ts`). The tracer and flat-colour FX mesh need no maths. */
+  readonly particle: ParticleMaths;
   readonly tracer: null;
   readonly vfxMesh: null;
-  readonly rimFade: null;
-  readonly beam: null;
-  readonly rotor: null;
+  /** T11: the plume's and the shroud's rim fade (`units/rim-fade.node.ts`). */
+  readonly rimFade: RimFadeMaths;
+  /** T11: the beam's kind-branch alpha (`units/beam-batch.node.ts`). */
+  readonly beam: BeamMaths;
+  /** T11: the rotor blur's coverage and spin (`units/swarm-batch.node.ts`). */
+  readonly rotor: RotorMaths;
   readonly flipbook: null;
   readonly smokeScreen: null;
 }

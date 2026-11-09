@@ -24,6 +24,7 @@ import { createNodePmremHost, type NodePmremGeneratorCtor } from '../environment
 import { captureNodeView, photographNodeGround, type NodeCaptureDeps, type ReadbackMaths } from '../capture-view.node';
 import { createNodeRingMaterial, RING_STYLE_KEY, type RingUniformRecord } from '../units/selection-ring.node';
 import type { RingStyle } from '../units/selection-ring';
+import { fxTwinFactories } from '../units/fx-twins.node';
 import { censusUnadopted, censusUnported, unportedWarnings, type UnportedHook } from './unported';
 import { createNodeGroundMaterial } from '../terrain/mesh.node';
 import { createFoliageTwinFactory } from '../terrain/decor-mesh.node';
@@ -154,6 +155,8 @@ export async function createNodeBackend(opts: NodeBackendOptions): Promise<{ bac
     markTwin(twin, legacy);
     return twin;
   };
+  // GH-943 P3 (T11): the simple FX families (particle, tracer, flat-colour mesh, rim fade, beam, rotor), wired once in `fx-twins.node.ts`.
+  Object.assign(materials, fxTwinFactories({ W, TSL: TSL as never, maths: opts.materialMaths }));
   const DEFAULT_QUALITY = { ao: true, smaa: true, bloom: 'quarter' } as const;
   const seen = new Set<string>();
   const hooks = new Map<string, UnportedHook>();

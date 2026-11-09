@@ -37,6 +37,7 @@
  * Nothing here reads or writes the sim.
  */
 import * as THREE from 'three';
+import type { Ops } from '../fog-ops';
 import { VIEW_DIRECTION } from '../camera';
 import { hexToLinear } from '../terrain/shared';
 import { FX_RENDER_ORDER } from './render-order';
@@ -51,12 +52,35 @@ export const BEAM_CAPACITY = 16;
 export const BEAM_QUADS_PER_BEAM = 5;
 
 /** The shape kinds the fragment shader branches on (`aShape.z`). */
-const KIND_SHEATH = 0;
-const KIND_CORE = 1;
-const KIND_DISC = 2;
+export const KIND_SHEATH = 0;
+export const KIND_CORE = 1;
+export const KIND_DISC = 2;
 
 /** The target's hot centre is this fraction of its glow radius. */
 const TARGET_CENTRE_FRACTION = 0.5;
+
+/** The glow disc's soft rim starts here (`smoothstep(DISC_FEATHER_FROM, 1, r)`). */
+export const BEAM_DISC_FEATHER_FROM = 0.35;
+
+/**
+ * GH-943 WebGPU P3 (T11): the beam fragment's alpha, written ONCE against `Ops<T>` and BRANCH-FREE (`beam-batch.node.ts` is handed it as
+ * a value; the legacy GLSL keeps its `if`s). `kind` is `aShape.z`, one of 0 (sheath), 1 (core) or 2 (disc), so the thresholds 0.5 and
+ * 1.5 are exact:
+ *
+ *   sheath: `alpha * (1 - x^2)`        disc: `alpha * (1 - smoothstep(0.35, 1, r))`        core: `alpha`
+ *
+ * The legacy disc `discard`s where `r > 1`; there the factor is already 0, so the blended pixel is unchanged and the twin has no
+ * discard (normal blending, depth write off).
+ */
+export function beamShapeOps<T>(o: Ops<T>, i: { readonly alpha: T; readonly shapeX: T; readonly shapeY: T; readonly kind: T }): { readonly alpha: T; readonly isSheath: T; readonly isDisc: T } {
+  const isSheath = o.sub(o.lit(1), o.step(o.lit(0.5), i.kind));
+  const isDisc = o.step(o.lit(1.5), i.kind);
+  const sheath = o.sub(o.lit(1), o.mul(i.shapeX, i.shapeX));
+  const r = o.length2(i.shapeX, i.shapeY);
+  const disc = o.sub(o.lit(1), o.smoothstep(o.lit(BEAM_DISC_FEATHER_FROM), o.lit(1), r));
+  const factor = o.mix(o.mix(o.lit(1), sheath, isSheath), disc, isDisc);
+  return { alpha: o.mul(i.alpha, factor), isSheath, isDisc };
+}
 
 const VERTEX = /* glsl */ `
 attribute vec3 aColor;
@@ -88,7 +112,7 @@ void main() {
     // A glow disc: solid at the centre, soft at the rim.
     float r = length(vShape.xy);
     if (r > 1.0) discard;
-    a *= 1.0 - smoothstep(0.35, 1.0, r);
+    a *= 1.0 - smoothstep(${BEAM_DISC_FEATHER_FROM.toFixed(2)}, 1.0, r);
   }
   // The core is a solid, hard-edged hot line: alpha as authored.
   gl_FragColor = vec4(vColor, a);
