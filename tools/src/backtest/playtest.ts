@@ -3639,7 +3639,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // mission's credits line is byte-identical, and so is every star and gate. Khan Rafid III is the one mission whose plan would have lost a star
 // (2 -> 1, ROE 90 -> 66, 1.5 -> 3.4 min, and the star ladder 68 -> 67, which closes the scout_shachaf gate at 29 stars): its rocket team spawned at
 // tick 2 only because of the old rule, so that trigger is now an explicit 0.1 s timer and the mission plays as it did. See docs/agent-notes/mission-findings.md.
-const LADDER_CREDITS = 6997;
+// 2026-11-09, Khan Rafid III gets a real first contact (GH-1173): 6997 -> 6975, -22, read off the printed per-mission credits. Was 6997. Exactly one
+// mission moved: Khan Rafid III 260 -> 238 (stars 2, ROE 90 -> 78, 1.5 -> 2.5 min on 424242, roster out 10 -> 10). Its rocket team spawned at tick 2 only
+// because of the old rule and was held there by a 0.1 s timer (GH-1170); the trigger is `first_contact` again, which now fires at tick 176 (the
+// plan's drone identifies the souk's militia cell). Unchanged, the plan read 1 star (ROE 66, 3.4 min) on 424242 and 2 stars on every other seed (200 of
+// 200 on seeds 1..200). The one placed change is the east-lane rocket team, one tile, (34, 15) -> (35, 14). See docs/agent-notes/mission-findings.md.
+const LADDER_CREDITS = 6975;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

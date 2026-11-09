@@ -339,9 +339,14 @@ an enemy. `packages/sim/src/first-contact.test.ts` is the rule; `tools/src/first
 `tools/src/backtest/first-contact-probe.ts` prints, per trigger and seed, the tick it fires under the passive plan with the old and the new
 reading side by side and the world at that tick.
 
-**Khan Rafid III is deliberately left as it plays.** Its rocket team (`a_rocket_team_moves_into_the_east_lane`) spawned at tick 2 only because
-of the old rule, and the mission was tuned and playtested with it there. With a real first contact the scripted plan wins in 3.4 min with 1
-star (ROE 66, 9 out) instead of 1.5 min with 2 (ROE 90, 10 out), which also takes the star ladder from 68 to 67 and closes the `scout_shachaf`
-gate (29 stars where 30 are pinned). So the trigger is an explicit `timer_s` of 0.1 s (tick 2, the same tick) and the mission is unchanged.
-To get the on-contact ambush the label says, put `first_contact` back and retune the plan: that is a balance decision, not made here.
+**Khan Rafid III has a real first contact again (GH-1173, 9 Nov).** GH-1170 left its rocket team (`a_rocket_team_moves_into_the_east_lane`) on an
+explicit 0.1 s timer because, on a real first contact, the scripted plan read 1 star on the pinned seed 424242 (ROE 66, 3.4 min, 9 out) instead of
+2 (ROE 90, 1.5 min, 10 out), which took the star ladder from 68 to 67 and closed the `scout_shachaf` gate. The trigger is `first_contact` again; it
+fires at tick 176 on the pinned seed (the plan's drone at (24, 30) identifies the souk's militia cell at (30, 23)). Finding: the 1-star read was one
+seed. On seeds 1..200 the unchanged plan wins 200 of 200 at 2 stars (ROE min 75, mean 89.8), with or without the timer. On 424242 the east-orchard
+Eitan stopped at (33, 18) beside the placed lane team at (34, 15), was killed at 82 s, the sixth family came in at 207 s and the longer fight cost a
+field clinic (-12) and four danger-close hits (-3 each). The fix is one tile: the placed east-lane rocket team (`kr_lane_east`) moves from (34, 15)
+to (35, 14). 424242 then reads 2 stars, ROE 78, 2.5 min, 238 credits (was 90, 1.5 min, 260); seeds 1..200 read 200 of 200 at 2 stars, ROE min 75,
+mean 89.7. Many one-tile moves land 424242 on ROE 78 and others on 66: it is a branch point of the run, not a tuned margin, so ROE 78 is 8 over the
+70 bar and `LADDER_CREDITS` and `CAMPAIGN_CREDITS` moved 6997 -> 6975 (-22). The star ladder stays 68, so the `scout_shachaf` gate keeps its 30 stars. Full `pnpm playtest` (idle machine, 4 min): exit 0, credit ladder 6975, star ladder 68, Khan Rafid III 30 of 30 wins, slowest 2.5 min.
 The passive plan reaches contact late in the other four (Beit Sahwan I 2021, Breach 608, Khan Rafid III 5352 ticks; Wadi Halam IV and V never).

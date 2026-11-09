@@ -69,7 +69,7 @@
       { "unit": "militia_cell", "count": 1, "at": [20, 14], "group": "souk", "stance": { "kind": "garrison", "building": [20, 14] } },
       { "unit": "militia_cell", "count": 1, "at": [28, 22], "group": "souk", "stance": { "kind": "garrison", "building": [28, 22] } },
       { "unit": "rpg_team", "count": 1, "at": [24, 13], "group": "souk", "stance": { "kind": "ambush", "tiles": 3 } },
-      { "unit": "rpg_team", "count": 1, "at": [34, 15], "tag": "kr_lane_east", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "rpg_team", "count": 1, "at": [35, 14], "tag": "kr_lane_east", "stance": { "kind": "ambush", "tiles": 3 } },
       { "unit": "atgm_cell", "count": 1, "at": [44, 27], "tag": "kr_watch", "stance": { "kind": "ambush", "tiles": 6 } },
       { "unit": "charge_squad", "count": 1, "at": [18, 5] },
       { "unit": "militia_cell", "count": 2, "at": [19, 3], "group": "store", "stance": { "kind": "garrison", "building": [19, 3] } },
@@ -97,7 +97,7 @@
       "say": { "speaker": "idit", "text": "He is out of the hall and moving into the souk. He was not going to leave for us; he left because there was nobody left in the block for him to hold it with." } },
     { "id": "a_rocket_team_moves_into_the_east_lane",
       "label": "RPG team moves into the east lane",
-      "on": { "kind": "timer_s", "value": 0.1 },
+      "on": { "kind": "first_contact" },
       "do": { "kind": "spawn", "units": [{ "unit": "rpg_team", "count": 1, "marker": "east_lane" }] },
       "say": { "speaker": "shai", "text": "Rocket team into the east lane, the one the east orchard opens onto. Nothing moves along it on wheels until somebody clears that." } }
   ],
