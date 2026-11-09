@@ -95,6 +95,44 @@ function isPorted(m: THREE.Material, o: THREE.Object3D, ported: ReadonlySet<stri
   return ported.has(materialKey(m, o));
 }
 
+/** The objects a census hid (GH-943 P3 T2b, ruling P3-R13): the set `reassertCensusHides` holds hidden every node frame. */
+export type CensusHides = Set<THREE.Object3D>;
+
+/** True when the census would hide `o` today: a non-ported `ShaderMaterial`, or a non-ported `HIDE_WITHOUT_HOOK` hook. */
+function censusWouldHide(o: THREE.Object3D, ported: ReadonlySet<string> | undefined): boolean {
+  const mat = (o as DrawLike).material;
+  if (!mat) return false;
+  for (const m of Array.isArray(mat) ? mat : [mat]) {
+    if ((m as THREE.ShaderMaterial).isShaderMaterial === true) {
+      if (!isPorted(m, o, ported)) return true;
+    } else if (m.onBeforeCompile !== STOCK_ON_BEFORE_COMPILE && HIDE_WITHOUT_HOOK.has(censusKey(m, o)) && !isPorted(m, o, ported)) return true;
+  }
+  return false;
+}
+
+/**
+ * GH-943 P3 (T2b, ruling P3-R13): puts back the hide the census made. A per-frame writer (the tunnel x-ray, the flipbook meshes, a
+ * layer's plain `visible` write) re-shows a census-hidden object between two censuses, and a node frame then draws an empty node
+ * material. Called before every node render, node only. An object is re-hidden only while the census would STILL hide it (a mesh
+ * adopted since, whose material is now a twin, is released and drawn), and one that left `root` is dropped. Returns the count re-hidden.
+ */
+export function reassertCensusHides(hides: CensusHides, root: THREE.Object3D, opts: CensusOptions = {}): number {
+  let n = 0;
+  for (const o of hides) {
+    let up: THREE.Object3D | null = o;
+    while (up !== null && up !== root) up = up.parent;
+    if (up === null || !censusWouldHide(o, opts.portedKeys)) {
+      hides.delete(o);
+      continue;
+    }
+    if (o.visible) {
+      o.visible = false;
+      n++;
+    }
+  }
+  return n;
+}
+
 /**
  * Walks `root` and reports every GLSL-only feature the WebGPU path cannot honour. Mutates the scene in
  * exactly two ways, both only meaningful because the WebGL path has stopped drawing it: a `ShaderMaterial`
@@ -105,7 +143,7 @@ function isPorted(m: THREE.Material, o: THREE.Object3D, ported: ReadonlySet<stri
  * GH-943 P2 (T1): a node twin that draws only part of its legacy material lists the rest in `userData.rlUnportedTerms`, and each
  * term is reported as a `partial` hook. `opts.portedKeys` (OFF by default; see `PORTED_MATERIAL_KEYS`) exempts listed legacy keys.
  */
-export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}): UnportedHook[] {
+export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}, hides?: CensusHides): UnportedHook[] {
   const ported = opts.portedKeys;
   const found = new Map<string, UnportedHook>();
   const note = (kind: UnportedKind, key: string): void => {
@@ -125,6 +163,7 @@ export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}): 
         if (isPorted(m, o, ported)) continue;
         note('shader-material', censusKey(m, o));
         o.visible = false;
+        hides?.add(o);
         continue;
       }
       if (m.onBeforeCompile !== STOCK_ON_BEFORE_COMPILE) {
@@ -132,7 +171,10 @@ export function censusUnported(root: THREE.Object3D, opts: CensusOptions = {}): 
         if (!isPorted(m, o, ported)) {
           note('on-before-compile', key);
           // The occlusion outline is a depth-fail trick in GLSL; as a stock material it would paint every unit a flat colour.
-          if (HIDE_WITHOUT_HOOK.has(key)) o.visible = false;
+          if (HIDE_WITHOUT_HOOK.has(key)) {
+            o.visible = false;
+            hides?.add(o);
+          }
         }
       }
       // GLB bitmaps are closed after their first upload (`units/gltf-loader.ts`); WebGPU uploads more than once and would

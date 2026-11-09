@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { censusKey, censusUnadopted, censusUnported, PORTED_MATERIAL_KEYS, UNPORTED_TERMS_KEY, unportedWarnings } from './unported';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { censusKey, censusUnadopted, censusUnported, reassertCensusHides, type CensusHides, PORTED_MATERIAL_KEYS, UNPORTED_TERMS_KEY, unportedWarnings } from './unported';
 
 describe('censusUnported: no hook is dropped silently', () => {
   it('names a ShaderMaterial, hides it, and names an onBeforeCompile material without hiding it', () => {
@@ -184,5 +187,53 @@ describe('the unadopted census', () => {
     const lines = unportedWarnings([{ kind: 'unadopted', key: 'rl-running-gear-1', objects: 1 }], new Set());
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/^\[lions\] UNADOPTED "rl-running-gear-1" \(1 object\): /);
+  });
+});
+
+describe('T2b (P3-R13): a census hide holds against a per-frame writer', () => {
+  const geo = new THREE.BufferGeometry();
+  it('G1: a writer re-shows a census-hidden mesh, and the re-assert hides it again', () => {
+    const root = new THREE.Group();
+    const xray = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-xray-tube' }));
+    root.add(xray);
+    const hides: CensusHides = new Set();
+    censusUnported(root, {}, hides);
+    expect(xray.visible).toBe(false);
+    xray.visible = true; // the per-frame writer (tunnel x-ray, flipbook)
+    expect(reassertCensusHides(hides, root)).toBe(1);
+    expect(xray.visible).toBe(false);
+  });
+  it('G2: an object adopted since (its material is now a twin) and one the census never hid are not hidden', () => {
+    const root = new THREE.Group();
+    const ported = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-ported' }));
+    const adopted = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-fx-particle' }));
+    const bystander = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-ported' }));
+    root.add(ported, adopted, bystander);
+    const hides: CensusHides = new Set();
+    // The census on a scene where 'rl-ported' is a ported key hides neither of those; only the unported one is hidden.
+    censusUnported(root, { portedKeys: new Set(['rl-ported']) }, hides);
+    expect([ported.visible, adopted.visible, bystander.visible]).toEqual([true, false, true]);
+    adopted.material = new THREE.MeshBasicMaterial(); // its twin is adopted: drawn
+    adopted.visible = true;
+    expect(reassertCensusHides(hides, root, { portedKeys: new Set(['rl-ported']) })).toBe(0);
+    expect([ported.visible, adopted.visible, bystander.visible]).toEqual([true, true, true]);
+    expect(hides.has(adopted)).toBe(false);
+  });
+  it('G3: an object that left the scene is dropped from the set', () => {
+    const root = new THREE.Group();
+    const m = new THREE.Mesh(geo, new THREE.ShaderMaterial({ name: 'rl-xray-tube' }));
+    root.add(m);
+    const hides: CensusHides = new Set();
+    censusUnported(root, {}, hides);
+    root.remove(m);
+    reassertCensusHides(hides, root);
+    expect(hides.size).toBe(0);
+  });
+  it('G4: the node backend re-asserts the hides at the top of render, before its census', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'node-backend.ts'), 'utf8');
+    const render = src.slice(src.indexOf('    render(scene, camera) {'));
+    expect(render.indexOf('reassertCensusHides(censusHides, scene)')).toBeGreaterThan(-1);
+    expect(render.indexOf('reassertCensusHides(censusHides, scene)')).toBeLessThan(render.indexOf('runCensus(scene)'));
+    expect(src).toMatch(/censusUnported\(scene, \{\}, censusHides\)/);
   });
 });
