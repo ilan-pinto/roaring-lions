@@ -400,8 +400,8 @@ const COMMAND_FIELDS: { readonly [K in Command['kind']]: { readonly [F in KeysOf
   attackMove: { ids: 'ids', x: 'int', y: 'int', append: { opt: 'bool' }, exact: { opt: 'bool' }, sweep: { opt: 'bool' }, formation: { opt: 'str' } },
   halt: { ids: 'ids' },
   setStance: { ids: 'ids', stance: ['hold', 'ambush', 'patrol'], radius: { opt: 'int' }, waypoints: { opt: 'waypoints' } },
-  garrison: { ids: 'ids', structure: 'int' },
-  load: { ids: 'ids', carrier: 'int' },
+  garrison: { ids: 'ids', structure: 'int', spread: { opt: 'bool' } },
+  load: { ids: 'ids', carrier: 'int', carriers: { opt: 'ids' } },
   unload: { ids: 'ids' },
   reveal: { side: 'int', x: 'int', y: 'int' },
   callStrike: { caller: 'int', x: 'int', y: 'int', profile: { opt: 'int' } },
@@ -421,6 +421,9 @@ const COMMAND_FIELDS: { readonly [K in Command['kind']]: { readonly [F in KeysOf
   cancelConstruct: { site: 'int' },
   raiseWorks: { side: 'int', works: 'str', x: 'int', y: 'int', ids: 'ids' },
   cancelWorks: { side: 'int', site: 'int' },
+  setupReady: { side: 'int' },
+  fortify: { side: 'int', kit: 'int', x: 'int', y: 'int' },
+  unfortify: { side: 'int', x: 'int', y: 'int' },
 };
 
 /** The seven kinds the sim sets aside for the runtime (`RuntimeCommand`); a `Record` so it too is exhaustive both ways. */

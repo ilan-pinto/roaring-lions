@@ -30,6 +30,8 @@ const SYNTHETIC = new Set([
   'packages/sim/src/golden-worlds.test-helper.ts',
   // The sink world: a 48x32 synthetic mission whose road is a row of tiles laid by hand.
   'packages/sim/src/runtime-sink-world.test-helper.ts',
+  // The forward-camp world (GH-277): a 48x32 synthetic mission, no map and no road.
+  'packages/sim/src/runtime-forward-world.test-helper.ts',
 ]);
 
 describe('the road mask reaches every mission runtime (C-R4)', () => {
@@ -38,13 +40,15 @@ describe('the road mask reaches every mission runtime (C-R4)', () => {
     .map((p) => relative(ROOT, p))
     .sort();
 
-  it('the thirteen sites are the ones on the tree', () => {
+  it('the fourteen sites are the ones on the tree', () => {
     expect(sites).toEqual([
       'packages/app/src/mission-start.ts',
       // N3 Task 3: a KDF-v-Sarim room's economy runtime.
       'packages/app/src/net/match-world.ts',
       // Net snapshot S1 Task 1: the golden economy replay's world, importable (synthetic, no map).
       'packages/sim/src/golden-worlds.test-helper.ts',
+      // GH-277 forward camp: the world with a production work raised and its line opened (synthetic, no map, no road).
+      'packages/sim/src/runtime-forward-world.test-helper.ts',
       // Net snapshot S2 Task 3: the sink world, a small synthetic mission with its own hand-laid road (no map).
       'packages/sim/src/runtime-sink-world.test-helper.ts',
       'tools/src/backtest/enemy-production-probe.ts',

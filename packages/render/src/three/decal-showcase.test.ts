@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildTerrainSurface } from './terrain/surface';
 import { DECOR_ROAD } from './terrain/shared';
 import type { TerrainInput } from './terrain/types';
+import { isFadingKind } from './decal-maths';
 import { decalShowcase, SHOWCASE_CLEAR_TILES, SHOWCASE_POWERS, showcaseAnchor, showcaseSites } from './decal-showcase';
 
 function world(): TerrainInput {
@@ -78,11 +79,22 @@ describe('showcaseAnchor', () => {
 describe('decalShowcase', () => {
   const stamps = decalShowcase([{ kind: 'flat', x: 5, y: 5 }, { kind: 'road', x: 12, y: 8 }, { kind: 'relief', x: 22, y: 12 }]);
   it('stamps every kind at every site, three sizes each', () => {
-    expect(stamps).toHaveLength(3 * (12 + 12));
+    expect(stamps).toHaveLength(3 * (12 + 12 + 3));
     for (const kind of ['crater', 'scorch', 'oil', 'rubble'] as const) expect(stamps.filter((s) => s.kind === kind)).toHaveLength(9);
     expect(stamps.filter((s) => s.kind === 'tread')).toHaveLength(18);
     expect(stamps.filter((s) => s.kind === 'tyre')).toHaveLength(18);
     expect(SHOWCASE_POWERS).toEqual([0.3, 0.45, 1]);
+  });
+  it('stamps churn (GH-984 N2): three sizes a site, in the fading pool, outside the lattice, so the aftermath frame witnesses it', () => {
+    const churn = stamps.filter((s) => s.kind === 'churn');
+    expect(churn).toHaveLength(9);
+    // The first site's three, a column one tile west of the lattice's west edge (x = 5.5 - 2), 0.3 / 0.45 / 0.6 tiles.
+    expect(churn.slice(0, 3).map((s) => s.halfLength)).toEqual([0.3, 0.45, 0.6]);
+    expect(new Set(churn.slice(0, 3).map((s) => s.x))).toEqual(new Set([3.5]));
+    expect(churn.slice(0, 3).map((s) => s.z)).toEqual([4.5, 5.5, 6.5]);
+    expect(isFadingKind('churn')).toBe(true);
+    // And no earlier mark moved: the churn is appended after the runs.
+    expect(stamps.slice(0, 24).every((s) => s.kind !== 'churn')).toBe(true);
   });
   it('dates every stamp at 0 ms, so a capture at a pinned tick repeats (R-14)', () => {
     expect(new Set(stamps.map((s) => s.simMs))).toEqual(new Set([0]));

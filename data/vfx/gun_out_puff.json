@@ -1,0 +1,22 @@
+{
+  "id": "gun_out_puff",
+  "trigger": "firepower_kill",
+  "layer": "above_units",
+  "budget_priority": 3,
+  "particles": [
+    {
+      "sprite": "smoke_puff",
+      "count": [2, 3],
+      "lifetime_ms": [900, 1500],
+      "emit_over_ms": 120,
+      "speed_tiles_s": [0.25, 0.5],
+      "cone_deg": 40,
+      "gravity_tiles_s2": -0.7,
+      "drag": 0.7,
+      "size_px": [9, 14],
+      "size_over_life": [0.6, 1.5, 2.4],
+      "color_over_life": ["gunmetal.3", "gunmetal.2", "gunmetal.1"],
+      "alpha_over_life": [0.7, 0.45, 0.0]
+    }
+  ]
+}

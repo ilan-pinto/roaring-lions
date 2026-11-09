@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runArena } from './arena';
 import type { GameRecord } from './arena-score';
-import { externalPlayer, parseTemplate, renderTemplate, tempRoot, tokensOf, type SpawnFn } from './external-player';
+import { externalPlayer, parseTemplate, renderTemplate, tempRoot, tokensOf, usageOf, type SpawnFn } from './external-player';
 import { startLocalRelay, type LocalRelay } from './local-relay';
 import { inProcess, passive, type ArenaPlayer, type RunningPlayer } from './players';
 
@@ -113,6 +113,18 @@ describe('the template parser', () => {
     expect(tokensOf('{"usage":{"input_tokens":"5","output_tokens":1}}')).toBeNull();
     expect(tokensOf('done')).toBeNull();
     expect(tokensOf('')).toBeNull();
+  });
+  // GH-954 W2 (D-W7): the cache counts and the client's own cost, beside the tokens. Literals, not recomputed.
+  it('usageOf reads the cache counts and total_cost_usd where the line has them, null where it does not, and never guesses', () => {
+    const line = '{"type":"result","total_cost_usd":0.4321,"usage":{"input_tokens":100,"output_tokens":20,"cache_creation_input_tokens":3000,"cache_read_input_tokens":45000}}';
+    expect(usageOf(line)).toEqual({ inputTokens: 100, outputTokens: 20, cacheCreationInputTokens: 3000, cacheReadInputTokens: 45000, costUsd: 0.4321 });
+    expect(tokensOf(line)).toBe(120);
+    expect(usageOf('{"usage":{"input_tokens":7,"output_tokens":1}}')).toEqual({ inputTokens: 7, outputTokens: 1, cacheCreationInputTokens: null, cacheReadInputTokens: null, costUsd: null });
+    // A malformed optional is null (not 0, not NaN), and the required pair still decides whether there is a usage at all.
+    expect(usageOf('{"total_cost_usd":"1.2","usage":{"input_tokens":7,"output_tokens":1,"cache_read_input_tokens":-5,"cache_creation_input_tokens":null}}')).toEqual({ inputTokens: 7, outputTokens: 1, cacheCreationInputTokens: null, cacheReadInputTokens: null, costUsd: null });
+    expect(usageOf('{"total_cost_usd":1.5,"usage":{"cache_read_input_tokens":9}}')).toBeNull();
+    expect(usageOf('[]')).toBeNull();
+    expect(usageOf('null')).toBeNull();
   });
 });
 
@@ -246,18 +258,40 @@ describe('an external player\'s process (stand-in children)', () => {
     // A clean exit with no usage line: no tokens, no error.
     expect(report).toEqual({ tokens: null, timeouts: 0, errors: [] });
   }, 30_000);
+
+  // GH-954 W2: a stream that ENDS on what could still have become the token (a prefix of it) holds those characters
+  // back; the end of the stream must release them, or the log loses its last words. Only `flush()` does.
+  it('case 6: a child that ends its output on a prefix of the injected value still has that prefix in its log (the final flush)', async () => {
+    const relay = await relayOf();
+    const { code, tickets } = await room(relay);
+    const logs = tempDir('ext-flush-');
+    const log = join(logs, 'flush.log');
+    const VALUE = 'abcdefghij-0123456789';
+    const p = externalPlayer('flush', `cmd:node -e "process.stdout.write('out-tail ' + process.env.PROBE_VALUE.slice(0, 6)); process.stderr.write('err-tail ' + process.env.PROBE_VALUE.slice(0, 6))"`, { env: { PROBE_VALUE: VALUE } });
+    const r = await started(p, relay, code, tickets[0], log);
+    await r.done;
+    await r.stop();
+    const text = readFileSync(log, 'utf8');
+    // Both streams end on `abcdef`: held back as a possible start of the value, released by the end of the stream.
+    expect(text).toContain('out-tail ');
+    expect(text).toContain('err-tail ');
+    expect(text.match(/abcdef/g) ?? []).toHaveLength(2);
+    expect(text).not.toContain(VALUE);
+  }, 30_000);
 });
 
 describe('a model over MCP, end to end (the stand-in client, no model, no key)', () => {
   it('case 1: cmd:<test-mcp-client> playing rush through observe/order/end_round beats passive from both seats', async () => {
     const out = tempDir('ext-e2e-');
     const fake = `cmd:${TSX} ${CLIENT} {mcp}`;
-    const r = await runArena(['--a', fake, '--b', 'passive', '--seeds', '1', '--first-seed', '14', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], quiet);
+    const r = await runArena(['--a', fake, '--b', 'passive', '--seeds', '1', '--first-seed', '2', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], quiet);
     expect(r.code).toBe(0);
     const g: GameRecord[] = r.games;
     expect(g).toHaveLength(2);
-    // Game 1: the fake on seat 0; game 2: on seat 1. It wins both on seed 111866
-    // (`--first-seed 14`: cap on seat 0, annihilation at 1960 ticks on seat 1).
+    // Game 1: the fake on seat 0; game 2: on seat 1. It wins both on seed 16838 (`--first-seed 2`).
+    // Re-seeded 2026-11-03 for GH-982 (the Spike reloads in 12 s and engages aircraft): was seed 111866
+    // (`--first-seed 14`: cap on seat 0, annihilation at 1960 ticks on seat 1), which the stand-in no longer wins
+    // from both seats. Of seedOf(0..11) at pace 40 and cap 6,000 it wins both seats on 2, 3 and 9; this is the first.
     // Re-seeded 2026-10-25 from seed 1000 (`--first-seed 0`) under movers-only vehicle
     // avoidance (GH-421 Stage 2): on 1000 passive beats the stand-in on seat 0. The stand-in
     // is weaker than the in-process rush (which wins both seats on seeds 0-3 and 11 of 0-11),
@@ -270,7 +304,9 @@ describe('a model over MCP, end to end (the stand-in client, no model, no key)',
     expect(g[0].reports[0].tokens).toBe(0);
     expect(g[1].reports[1].tokens).toBe(0);
     expect(g[0].reports[0].errors).toEqual([]);
-    expect(r.tally?.get(fake)?.score).toBe(1);
+    // The tally's key is the display name: a command line is never a name (GH-954 W3).
+    expect(r.tally?.get('Player A')?.score).toBe(1);
+    expect(r.tally?.get(fake)).toBeUndefined();
     // One log per game and seat, under --out; and the harness each client ran is gone.
     const logs = readdirSync(out).filter((f) => f.endsWith('.log')).sort();
     expect(logs).toHaveLength(2);

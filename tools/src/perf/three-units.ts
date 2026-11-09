@@ -95,8 +95,8 @@ export interface WorldSetup {
  *  never reuses a dead slot (CLAUDE.md), so it must cover every unit that
  *  will ever be spawned across every checkpoint, not merely the peak living
  *  count. */
-export function buildWorld(capacity: number): WorldSetup {
-  const map = parseMap(maps[MAP_ID]);
+export function buildWorld(capacity: number, mapId: keyof typeof maps = MAP_ID): WorldSetup {
+  const map = parseMap(maps[mapId]);
   const config: SimConfig = { seed: SEED, width: map.width, height: map.height, capacity };
   const sim = new Sim(config);
   applyTerrain(map, sim);
@@ -485,7 +485,7 @@ function aridTerrainTones(): TerrainTones {
   };
 }
 
-function buildRendererOptions(): RendererOptions {
+export function buildRendererOptions(): RendererOptions {
   return {
     background: paletteColor('shadow.1'),
     teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor(CIVILIAN_COLOR_KEY)],
@@ -512,7 +512,7 @@ function buildRendererOptions(): RendererOptions {
   };
 }
 
-function createHost(): HTMLElement {
+export function createHost(): HTMLElement {
   const host = document.createElement('div');
   host.id = 'three-units-perf-host';
   host.style.position = 'fixed';
@@ -559,7 +559,7 @@ interface MeshCapableRenderer {
  *  under `vite.config.ts`'s `publicDir`, and this file does not share
  *  `main.ts`'s module location, so `new URL(relative, import.meta.url)`
  *  would resolve somewhere else. */
-async function loadAllMeshes(renderer: Renderer, map: ParsedMap): Promise<void> {
+export async function loadAllMeshes(renderer: Renderer, map: ParsedMap): Promise<void> {
   const meshBase = `/@fs${repoRootFromModuleUrl()}/art/meshes/`;
   const r = renderer as unknown as MeshCapableRenderer;
   await Promise.all(

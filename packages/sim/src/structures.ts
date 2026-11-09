@@ -55,6 +55,13 @@ export interface StructureTypeJson {
   /** Field works (#277, spec §3): what a COMPLETE structure owned by side 0 or 1 does to its
    *  own side's units. Absent = nothing (every shipped type today). */
   aura?: StructureAuraJson;
+  /** GH-277 follow-on: a constructible production building. On completion it opens a second F4
+   *  serial line (`MissionRuntime.appendLine`) where the player placed it. `roles`, when given,
+   *  is the subset of unit roles that line builds (absent = the whole menu); `build_time_mult`
+   *  (1.0..2.0, default 1.0) scales the build time of every item on that line. Distinct from
+   *  `produces_for`: this type is NEVER the convoy rear and earns no income. Requires `buildable`
+   *  and owner 0 (validate_works.mjs). */
+  production?: { roles?: string[]; build_time_mult?: number };
   /** GH-707: an aid post. A carried wounded unloaded within `admit_radius` tiles is admitted
    *  and treated for `treat_s`; idle friendly medics within `dispatch_radius` tiles are sent
    *  to wounded within that radius of the post. Absent = not an aid post (every shipped type). */
@@ -150,6 +157,14 @@ export interface StructureAura {
   sensor: StructureSensor | null;
 }
 
+/** A parsed `production` block (GH-277 follow-on), fixed at load. */
+export interface StructureProduction {
+  /** The unit roles this type's line builds, or null = the whole menu. */
+  roles: readonly string[] | null;
+  /** Build-time multiplier, Q16.16, ONE by default. Items on the line take `ceil(base x mult)` ticks. */
+  buildMult: Fx;
+}
+
 export interface StructureType {
   /**
    * Which side this structure builds units for, or -1 for none.
@@ -194,6 +209,8 @@ export interface StructureType {
   floors: number;
   /** Field works: the parsed `aura`, null when the type has none. */
   aura: StructureAura | null;
+  /** GH-277 follow-on: the parsed `production` block, null when completing this type opens no line. */
+  production: StructureProduction | null;
   /** GH-707: the parsed `aid` block, null when the type is not an aid post. */
   aid: StructureAid | null;
   /** A linear run whose tiles are each their own structure -- walls, fences.
@@ -229,6 +246,17 @@ function aidFromJson(json: StructureTypeJson, ticksPerSecond: number): Structure
   const treatTicks = fx.toInt(fx.mul(fx.from(a.treat_s), fx.fromInt(ticksPerSecond)));
   if (treatTicks < 1) throw new Error(`structure type ${json.id}: aid treat_s ${a.treat_s} is under one tick`);
   return { admitRadiusSq: fx.mul(admit, admit), treatTicks, dispatchRadiusSq: fx.mul(dispatch, dispatch) };
+}
+
+/** Parse a `production` block (GH-277 follow-on). The multiplier crosses into fixed point once, here. */
+function productionFromJson(json: StructureTypeJson): StructureProduction | null {
+  const p = json.production;
+  if (p === undefined) return null;
+  if (json.buildable === undefined) throw new Error(`structure type ${json.id}: production needs a buildable block`);
+  const mult = fx.from(p.build_time_mult ?? 1);
+  if (mult < ONE || mult > 2 * ONE) throw new Error(`structure type ${json.id}: production build_time_mult ${p.build_time_mult}, expected 1.0..2.0`);
+  if (p.roles !== undefined && p.roles.length === 0) throw new Error(`structure type ${json.id}: production roles is empty (omit it for the whole menu)`);
+  return { roles: p.roles === undefined ? null : [...p.roles], buildMult: mult };
 }
 
 /** See StructureType.buildable. */
@@ -369,6 +397,7 @@ export function structureTypeFromJson(json: StructureTypeJson, ticksPerSecond: n
     garrisonCover: json.garrison_cover ?? 3,
     floors: json.floors ?? 1,
     aura: auraFromJson(json, ticksPerSecond),
+    production: productionFromJson(json),
     aid: aidFromJson(json, ticksPerSecond),
     ...(json.wall_tone !== undefined ? { wallTone: json.wall_tone } : {}),
     ...(json.wall_self_lit !== undefined ? { wallSelfLit: json.wall_self_lit } : {}),

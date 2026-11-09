@@ -20,6 +20,7 @@
 import * as THREE from 'three';
 import { freezeStatic } from '../static-matrix';
 import { chunkCount, chunkGridFor, chunksTouching, sliceChunk, type ChunkGrid } from './chunks';
+import { srgbToLinearByte, type GeometryOptions } from './mesh';
 import type { TiledMeshData } from './tiled-mesh';
 import type { MeshData } from './types';
 
@@ -42,7 +43,7 @@ export class ChunkedMeshLayer {
     name: string,
     private readonly material: THREE.Material,
     private readonly receiveShadow: boolean,
-    private readonly toGeo: (data: MeshData) => THREE.BufferGeometry,
+    private readonly toGeo: (data: MeshData, opts?: GeometryOptions) => THREE.BufferGeometry,
     /** Which grid a map gets; the game's rule unless a spec or the census says otherwise. */
     private readonly gridFor: (width: number, height: number) => ChunkGrid | null = (w, h) => chunkGridFor(w, h, 'ground')
   ) {
@@ -89,7 +90,7 @@ export class ChunkedMeshLayer {
       this.built = { width: tiled.width, height: tiled.height };
       this.parent.add(this.container);
       this.meshes = new Array<THREE.Mesh | null>(chunkCount(grid)).fill(null);
-      for (let c = 0; c < this.meshes.length; c++) this.meshes[c] = this.place(sliceChunk(tiled, grid, c), this.container);
+      for (let c = 0; c < this.meshes.length; c++) this.meshes[c] = this.place(sliceChunk(tiled, grid, c, srgbToLinearByte), this.container, true);
       return this.meshes.length;
     }
     const touched = chunksTouching(grid, dirty);
@@ -99,7 +100,7 @@ export class ChunkedMeshLayer {
         this.container.remove(old);
         old.geometry.dispose();
       }
-      this.meshes[c] = this.place(sliceChunk(tiled, grid, c), this.container);
+      this.meshes[c] = this.place(sliceChunk(tiled, grid, c, srgbToLinearByte), this.container, true);
     }
     return touched.length;
   }
@@ -120,9 +121,10 @@ export class ChunkedMeshLayer {
     this.parent.remove(this.container);
   }
 
-  private place(data: MeshData | null, into: THREE.Object3D): THREE.Mesh | null {
+  /** `linear`: `data.colors` was sliced straight into linear (`sliceChunk`'s `mapColor`), so the geometry wraps it. */
+  private place(data: MeshData | null, into: THREE.Object3D, linear = false): THREE.Mesh | null {
     if (data === null) return null;
-    const mesh = freezeStatic(new THREE.Mesh(this.toGeo(data), this.material));
+    const mesh = freezeStatic(new THREE.Mesh(this.toGeo(data, linear ? { colorsLinear: true } : undefined), this.material));
     mesh.receiveShadow = this.receiveShadow;
     into.add(mesh);
     return mesh;

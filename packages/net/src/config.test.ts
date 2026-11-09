@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { endOfSeat, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, type MatchConfig } from './config';
+import { FLAG_SETUP_CAP_MINUTES, FLAG_SETUP_MAPS, flagSetupFor, flagSetupRoom, matchCapMinutesOf, matchCapTicksOf, MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, endOfSeat, matchCapMinutes, matchCapTicks, maxLogCmdChars, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, winModeAllowed, winModeOpen, winModeRequest, winModesOffered, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -25,6 +25,12 @@ describe('validateConfig', () => {
     expect(validateConfig({ ...CONFIG, seed: 1.5 })).toBeNull();
     expect(validateConfig({ ...CONFIG, mode: 'coop' })).toBeNull();
     expect(validateConfig({ ...CONFIG, seats: [CONFIG.seats[0], { ...CONFIG.seats[1], faction: 'ashwar' }] })).toBeNull();
+  });
+  it("GH-1102: a seat's unlocks are at most 32 strings (SPECIALS_MAX, literal), so a stored config is bounded as the body is", () => {
+    const withUnlocks = (unlocks: unknown[]) => ({ ...CONFIG, seats: [{ ...CONFIG.seats[0], unlocks }, CONFIG.seats[1]] });
+    expect(validateConfig(withUnlocks(Array.from({ length: 32 }, (_, i) => `u${i}`)))).not.toBeNull();
+    expect(validateConfig(withUnlocks(Array.from({ length: 33 }, (_, i) => `u${i}`)))).toBeNull();
+    expect(validateConfig(withUnlocks(['demo_tzav', 7]))).toBeNull();
   });
 });
 
@@ -121,14 +127,16 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
     expect(isFactionPair('kdf,sarim')).toBe(false);
   });
 
-  it('KDF vs Sarim is Tel Marum and Wadi Tarfan only; the mirror plays anywhere (the lead, 2026-10-14)', () => {
-    expect([...FACTION_MATCHUP_MAPS]).toEqual(['tel_marum', 'wadi_tarfan']);
-    for (const map of ['tel_marum', 'wadi_tarfan']) {
+  it('KDF vs Sarim is Tel Marum, Wadi Tarfan and Wadi Tarfan (large) only; the mirror plays anywhere (the lead, 2026-10-14)', () => {
+    // Was ['tel_marum', 'wadi_tarfan']: Wadi Tarfan (large) joined at GH-920 B7 (both faction cells inside 60/40 at its seats).
+    expect([...FACTION_MATCHUP_MAPS]).toEqual(['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']);
+    for (const map of ['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']) {
       expect(matchupAllowed('sarim', map), map).toBe(true);
       expect(matchupAllowed('kdf', map), map).toBe(true);
     }
     // Milh Flats is mirror-only: Sarim on its west seat lost 33 of 48 in the probe.
-    for (const map of ['beit_sahwan_outskirts', 'milh_flats', 'qarn_hadid', '']) {
+    // Rujm Sawda (GH-913 L8) is mirror-only too: its KDF-v-Sarim cells read KDF 66-74% and the tunnels cell ~96%.
+    for (const map of ['beit_sahwan_outskirts', 'milh_flats', 'rujm_sawda', 'qarn_hadid', '']) {
       expect(matchupAllowed('kdf', map)).toBe(false);
       expect(matchupAllowed('sarim', map)).toBe(false);
       expect(matchupAllowed('mirror', map)).toBe(true);
@@ -136,7 +144,8 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
   });
 
   it('a versus room is offered only on the maps measured close to even (the lead, 2026-10-14, #561)', () => {
-    expect([...VERSUS_FAIR_MAPS]).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats']);
+    // Was five maps; Wadi Tarfan (large) is the sixth and Milh Flats (large) the seventh (GH-920 B7). The faction list below stays at three.
+    expect([...VERSUS_FAIR_MAPS]).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']);
     for (const map of VERSUS_FAIR_MAPS) expect(versusMapAllowed(map)).toBe(true);
     // Every other shipped map, a tile study, and things that are not a map id at all.
     for (const map of ['qarn_hadid', 'wadi_halam_basin', 'deir_amun', 'umm_zeitoun', 'khan_rafid', 'marj_perimeter', 'tel_marum_3', 'tile_road', 'tutorial_ground', '', '__proto__', 'Tel_Marum']) {
@@ -146,6 +155,29 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
 
   it('a map KDF can face Sarim on is a fair map too: the narrower rule sits inside the wider one', () => {
     for (const map of FACTION_MATCHUP_MAPS) expect(VERSUS_FAIR_MAPS).toContain(map);
+  });
+});
+
+describe('the per-map match cap (GH-913 L8)', () => {
+  it('is 25 minutes on every map but the three large ones, Rujm Sawda, Wadi Tarfan (large) and Milh Flats (large), which get 35', () => {
+    expect(MATCH_CAP_MINUTES_DEFAULT).toBe(25);
+    // Was { rujm_sawda: 35 }: Wadi Tarfan (large) is 35 minutes too (GH-920 B3, the lead's ruling of 2 Nov: the seats are as far apart).
+    expect({ ...MAP_CAP_MINUTES }).toEqual({ rujm_sawda: 35, wadi_tarfan_l: 35, milh_flats_l: 35 }); // milh_flats_l: GH-920 B3, the same seat distance
+    for (const map of ['tel_marum', 'wadi_tarfan', 'milh_flats', 'beit_sahwan_outskirts', '', '__proto__', 'constructor', 'toString']) expect(matchCapMinutes(map), map).toBe(25);
+    expect(matchCapMinutes(null)).toBe(25);
+    expect(matchCapMinutes(undefined)).toBe(25);
+    expect(matchCapMinutes('rujm_sawda')).toBe(35);
+    expect(matchCapMinutes('wadi_tarfan_l')).toBe(35);
+    expect(matchCapMinutes('milh_flats_l')).toBe(35);
+  });
+  it('in 20 Hz ticks: 30,000 by default, 42,000 on Rujm Sawda', () => {
+    expect(matchCapTicks('tel_marum')).toBe(30_000);
+    expect(matchCapTicks('rujm_sawda')).toBe(42_000);
+  });
+  it('scales the command-log character cap with it: 2,000,000 at 25 minutes, 2,800,000 at 35', () => {
+    expect(maxLogCmdChars('tel_marum', 2_000_000)).toBe(2_000_000);
+    expect(maxLogCmdChars('rujm_sawda', 2_000_000)).toBe(2_800_000);
+    expect(maxLogCmdChars(undefined, 2_000_000)).toBe(2_000_000);
   });
 });
 
@@ -173,5 +205,136 @@ describe('snapshotEveryTicks (snapshot S3)', () => {
     expect(isSnapshotTick(0, 1200)).toBe(false);
     expect(isSnapshotTick(1199, 0)).toBe(false);
     expect(isSnapshotTick(-1, 1200)).toBe(false);
+  });
+});
+
+describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', () => {
+  const versus = (map: string, matchup: 'mirror' | 'kdf' | 'sarim' = 'mirror') => ({ mode: 'versus' as const, map, matchup });
+  // The oracle is a literal, not a read of the tables under test (GH-976 P4): the seven open maps, and what each plays in each pairing.
+  const CAMP_MAPS = ['wadi_tarfan', 'milh_flats', 'wadi_tarfan_l'];
+  const SEVEN = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+  it('offers points on all seven open maps in the mirror (GH-976 P4), the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, and nothing else anywhere', () => {
+    for (const map of SEVEN) expect(winModesOffered(map), map).toEqual(CAMP_MAPS.includes(map) ? ['camp', 'points'] : ['points']);
+    // camp failed the passive-seat bar at its first camps; moved forward it passes on milh_flats (GH-976) and, with wipe after_camp, on wadi_tarfan and wadi_tarfan_l (5 Nov; config.ts); milh_flats_l, rujm_sawda and tel_marum stay out; a map that is not open has no mode file
+    for (const map of ['qarn_hadid', 'tel_marum_1', 'tutorial_ground', 'nowhere', '']) expect(winModesOffered(map), map).toEqual([]);
+    for (const map of SEVEN) expect(winModeAllowed('camp', map), map).toBe(CAMP_MAPS.includes(map));
+  });
+  /** Runs `fn` with one faction cell added to the table, and takes it out again, also on a throw. The table is empty today
+   *  (GH-976 P4 review), so the mechanism is exercised with a cell the test adds. */
+  const withCell = <T,>(mode: 'points' | 'flag', map: string, hosts: ('kdf' | 'sarim')[], fn: () => T): T => {
+    const cells = WIN_MODE_FAIR_FACTION_CELLS[mode] as Record<string, readonly ('kdf' | 'sarim')[]>;
+    cells[map] = hosts;
+    try { return fn(); } finally { delete cells[map]; }
+  };
+  it('GH-976 P4: KDF against Sarim is offered nothing on any map today: no cell passed the review', () => {
+    expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: {}, points: {}, flag: {} });
+    for (const map of SEVEN) for (const matchup of ['kdf', 'sarim'] as const) expect(winModesOffered(map, matchup), `${map} ${matchup}`).toEqual([]);
+    // A key that merely exists on every object is not a map: the faction table is read as own data.
+    for (const map of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+      expect(winModeAllowed('points', map, 'kdf'), map).toBe(false);
+      expect(winModeAllowed('flag', map, 'sarim'), map).toBe(false);
+    }
+  });
+  it('GH-976 P4: a cell in the faction table is offered to the hosts it names and to no one else', () => {
+    withCell('points', 'wadi_tarfan_l', ['kdf'], () => {
+      expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual(['points']);
+      expect(winModesOffered('wadi_tarfan_l', 'sarim')).toEqual([]);
+      expect(winModesOffered('wadi_tarfan', 'kdf')).toEqual([]);
+      expect(winModeAllowed('flag', 'wadi_tarfan_l', 'kdf')).toBe(false);
+      expect(winModeAllowed('points', 'wadi_tarfan_l')).toBe(true);   // the mirror table is its own
+      expect(winModeRequest('points', versus('wadi_tarfan_l', 'kdf'))).toEqual({ mode: 'points' });
+      expect(winModeRequest('points', versus('wadi_tarfan_l', 'sarim')).refused).toBe('win mode not offered on this map for this matchup');
+    });
+    expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual([]);   // and it is out again
+  });
+  it('GH-1139: flag is out of every lobby until CTF v2 lands (WP9): offered on no map in any pairing, and the Worker refuses it', () => {
+    // Literals, not the table: the seven open maps, every map a mode file exists for, and both faction hosts.
+    expect(WIN_MODE_FAIR_MAPS.flag).toEqual([]);
+    for (const map of [...SEVEN, 'qarn_hadid', 'tel_marum_1']) {
+      for (const matchup of ['mirror', 'kdf', 'sarim'] as const) {
+        expect(winModesOffered(map, matchup), `${map} ${matchup}`).not.toContain('flag');
+        expect(winModeAllowed('flag', map, matchup), `${map} ${matchup}`).toBe(false);
+        expect(winModeRequest('flag', versus(map, matchup)).refused, `${map} ${matchup}`).toMatch(/^win mode not offered on this map/);
+      }
+    }
+    // The other modes are untouched by it.
+    expect(winModeRequest('points', versus('wadi_tarfan_l'))).toEqual({ mode: 'points' });
+    // And a tool that is told a mode (`pnpm bot --mode`) hears that no room plays it.
+    expect([winModeOpen('flag'), winModeOpen('points'), winModeOpen('camp')]).toEqual([false, true, true]);
+  });
+  it('a request is annihilation (no mode), a mode on a fair map in a fair pairing, or a reason', () => {
+    for (const none of [undefined, null, 'annihilation']) expect(winModeRequest(none, versus('tel_marum', 'kdf'))).toEqual({ mode: undefined });
+    expect(winModeRequest('points', versus('milh_flats'))).toEqual({ mode: 'points' });
+    expect(winModeRequest('points', versus('tel_marum'))).toEqual({ mode: 'points' });
+    expect(winModeRequest('flag', versus('milh_flats_l')).refused).toBe('win mode not offered on this map');   // GH-1139: out until WP9
+    expect(winModeRequest('rally', versus('milh_flats')).refused).toBe('unknown win mode');
+    expect(winModeRequest('', versus('milh_flats')).refused).toBe('unknown win mode');
+    expect(winModeRequest('camp', versus('milh_flats'))).toEqual({ mode: 'camp' });
+    expect(winModeRequest('camp', versus('wadi_tarfan'))).toEqual({ mode: 'camp' });
+    expect(winModeRequest('camp', versus('wadi_tarfan_l'))).toEqual({ mode: 'camp' });
+    for (const out of ['milh_flats_l', 'rujm_sawda', 'tel_marum']) expect(winModeRequest('camp', versus(out)).refused, out).toBe('win mode not offered on this map');
+    expect(winModeRequest('points', versus('qarn_hadid')).refused).toBe('win mode not offered on this map');
+    expect(winModeRequest('points', { ...versus('wadi_tarfan'), mode: 'sandbox' }).refused).toBe('win mode is for versus rooms');
+  });
+  it('GH-976 P4: the Worker\'s question for a KDF-v-Sarim room is the faction table: every one of the 42 cells is refused today', () => {
+    const why = 'win mode not offered on this map for this matchup';
+    for (const map of SEVEN) for (const matchup of ['kdf', 'sarim'] as const) for (const mode of ['camp', 'points', 'flag']) {
+      expect(winModeRequest(mode, versus(map, matchup)).refused, `${mode} ${map} ${matchup}`).toBe(why);
+    }
+    // The reasons the mirror and a sandbox give are unchanged.
+    expect(winModeRequest('flag', versus('qarn_hadid')).refused).toBe('win mode not offered on this map');
+    expect(winModeRequest('points', { ...versus('wadi_tarfan_l', 'kdf'), mode: 'sandbox' }).refused).toBe('win mode is for versus rooms');
+  });
+  it('a config carries a mode in a versus room only, and one of the known modes', () => {
+    const versusConfig = { ...CONFIG, mode: 'versus' as const };
+    expect(validateConfig({ ...versusConfig, winMode: 'points' })?.winMode).toBe('points');
+    expect(validateConfig({ ...versusConfig, winMode: 'rally' })).toBeNull();
+    expect(validateConfig({ ...CONFIG, winMode: 'points' })).toBeNull();
+  });
+});
+
+describe('capture the flag v2: flagSetup, FLAG_SETUP_MAPS and the cap twin (GH-976 WP4, R0.8, R0.25)', () => {
+  const flagRoom = (extra: Record<string, unknown> = {}, map = 'rujm_sawda') => ({ ...CONFIG, mode: 'versus', map, winMode: 'flag', ...extra });
+  it('FLAG_SETUP_MAPS is empty until WP9, so no room is minted flagSetup', () => {
+    expect(FLAG_SETUP_MAPS).toEqual([]);
+    expect(flagSetupFor('rujm_sawda', 'flag')).toBeUndefined();
+  });
+  it('flagSetupFor mints true only for a FLAG room on a listed map (read at call time)', () => {
+    const list = FLAG_SETUP_MAPS as string[];
+    const before = [...list]; // restored below, never cleared
+    list.push('wadi_tarfan');
+    try {
+      expect(flagSetupFor('wadi_tarfan', 'flag')).toBe(true);
+      expect(flagSetupFor('wadi_tarfan', 'points')).toBeUndefined();
+      expect(flagSetupFor('wadi_tarfan', null)).toBeUndefined();
+      expect(flagSetupFor('milh_flats', 'flag')).toBeUndefined();
+    } finally { list.splice(0, list.length, ...before); }
+  });
+  it('the cap: 30 minutes (36,000 ticks) in a set-up room on rujm_sawda, 35 without it', () => {
+    expect(FLAG_SETUP_CAP_MINUTES).toBe(30);
+    expect(matchCapTicksOf({ map: 'rujm_sawda', winMode: 'flag', flagSetup: true })).toBe(36000);
+    expect(matchCapTicksOf({ map: 'rujm_sawda', winMode: 'flag' })).toBe(42000);
+    expect(matchCapTicksOf({ map: 'rujm_sawda' })).toBe(matchCapTicks('rujm_sawda'));
+    // The field alone is not a set-up room: it needs the flag mode as well.
+    expect(flagSetupRoom({ winMode: 'points', flagSetup: true })).toBe(false);
+    expect(flagSetupRoom({ flagSetup: true })).toBe(false);
+    expect(flagSetupRoom({ winMode: 'flag' })).toBe(false);
+    expect(flagSetupRoom({ winMode: 'flag', flagSetup: true })).toBe(true);
+    expect(matchCapMinutesOf({ map: 'wadi_tarfan_l', winMode: 'flag', flagSetup: true })).toBe(30);
+  });
+  it('maxLogCmdChars scales by the room\'s cap: 2,400,000 at 30 minutes, 2,800,000 at 35', () => {
+    expect(maxLogCmdChars({ map: 'rujm_sawda', winMode: 'flag', flagSetup: true }, 2_000_000)).toBe(2_400_000);
+    expect(maxLogCmdChars({ map: 'rujm_sawda', winMode: 'flag' }, 2_000_000)).toBe(2_800_000);
+    expect(maxLogCmdChars('rujm_sawda', 2_000_000)).toBe(2_800_000);
+  });
+  it('validateConfig accepts flagSetup: true in a flag room and keeps it', () => {
+    expect(validateConfig(flagRoom({ flagSetup: true }))?.flagSetup).toBe(true);
+    expect(validateConfig(flagRoom())?.flagSetup).toBeUndefined();
+  });
+  it('validateConfig refuses flagSetup without winMode flag, and anything but strictly true (R0.25)', () => {
+    expect(validateConfig({ ...CONFIG, mode: 'versus', flagSetup: true })).toBeNull();
+    expect(validateConfig(flagRoom({ flagSetup: true, winMode: 'points' }))).toBeNull();
+    expect(validateConfig({ ...CONFIG, flagSetup: true, winMode: 'flag' })).toBeNull();
+    for (const bad of [1, 'true', false, null, {}, [true]]) expect(validateConfig(flagRoom({ flagSetup: bad })), String(bad)).toBeNull();
   });
 });

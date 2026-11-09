@@ -36,8 +36,10 @@ describe('versusCapacityOf', () => {
 });
 
 describe('the shipped capacities (literals)', () => {
-  it('rujm_sawda is 512 and every other rules file is the default 256', () => {
+  it('rujm_sawda, wadi_tarfan_l and milh_flats_l are 512 and every other rules file is the default 256', () => {
     expect(roomCapacity('rujm_sawda')).toBe(512);
+    expect(roomCapacity('wadi_tarfan_l')).toBe(512); // GH-920 B3
+    expect(roomCapacity('milh_flats_l')).toBe(512); // GH-920 B3 (Milh Flats (large))
     for (const map of ['tel_marum', 'wadi_tarfan', 'beit_sahwan_outskirts', 'milh_flats']) expect(roomCapacity(map), map).toBe(256);
   });
 });
@@ -46,10 +48,14 @@ describe('a 256 room builds the world it always built', () => {
   // LITERALS measured on the build before this change (and so on the default path now): world hash and
   // runtime digest at tick 0, seed 1234. Nothing here may move with a capacity field that is absent.
   it('capacity 256, and the same tick-0 digest for each shipped matchup', () => {
+    // wadi_tarfan re-pinned for GH-945 (seats (11,11)/(36,36) -> (10,10)/(37,37), every tunnel route at capacity 3; the seats and the
+    // route state are hashed, the runtime digest is not). Was 886210996 (kdf/kdf) and 2315748974 (kdf/sarim); the digests did not move.
+    // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so a room that registers the KDF roster turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old values read back (watched). Was 181436852 (wadi kdf/kdf), 1484097134 (wadi kdf/sarim) and 3335901607 (tel kdf/sarim); the digests did not move.
+    // wadi_tarfan kdf/sarim re-pinned for GH-884 (7 Nov 2026): route A's vents moved one tile and route geometry is hashed (the world hash moved, the runtime digest did not). Was 2779631274. With the two points put back by hand the old value reads back.
     const pins: [string, ['kdf' | 'sarim', 'kdf' | 'sarim'], number, number][] = [
-      ['wadi_tarfan', ['kdf', 'kdf'], 886210996, 0],
-      ['wadi_tarfan', ['kdf', 'sarim'], 2315748974, 3577900654],
-      ['tel_marum', ['kdf', 'sarim'], 3736181609, 733838646],
+      ['wadi_tarfan', ['kdf', 'kdf'], 2929583402, 0],
+      ['wadi_tarfan', ['kdf', 'sarim'], 1531252083, 3577900654],
+      ['tel_marum', ['kdf', 'sarim'], 4290301113, 733838646],
     ];
     for (const [map, f, hash, digest] of pins) {
       const w = buildMatchWorld(config(map, f));

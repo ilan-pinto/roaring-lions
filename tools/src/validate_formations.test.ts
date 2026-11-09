@@ -126,7 +126,9 @@ describe('i18n keys', () => {
     expect(call[0]).toContain('on_call "casualty" has no en.json key hud.formation.call.casualty');
     const { 'hud.formation.call.contact': _k, ...noContact } = en;
     void _k;
-    expect(run(variant('attack', () => undefined), noContact)).toHaveLength(1);
+    // (The Attack leaves its aircraft out and so has no contact call of its own: the Column and the Ambush have one.)
+    expect(run(variant('attack', () => undefined), noContact)).toEqual([]);
+    expect(run(variant('column', () => undefined), noContact)).toHaveLength(1);
     // The tooltip's other side of the rule: a catalogue with every line passes (the shipped files above).
     expect(run(shipped)).toEqual([]);
   });
@@ -201,6 +203,38 @@ describe('shapes', () => {
     );
     expect(out).toHaveLength(1);
     expect(out[0]).toContain('2 ring elements');
+  });
+});
+
+describe('exclude (the classes a formation leaves out)', () => {
+  const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
+  const ajv = new (Ajv2020 as unknown as new (o: object) => { compile: (s: object) => (d: unknown) => boolean })({ allErrors: true, strict: false });
+  const schema = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data', 'schemas', 'formation.schema.json'), 'utf8')) as object);
+  /** The shipped Attack, deep-copied, with `mutate` applied. */
+  const attack = (mutate: (d: Doc) => void): Doc => variant('attack', mutate)[0].doc;
+
+  it('the shipped Attack leaves the aircraft out, validates, and names no aircraft element', () => {
+    const a = shipped.find((f) => f.doc.id === 'attack') as F;
+    expect(a.doc.exclude).toEqual(['aircraft']);
+    expect(schema(a.doc)).toBe(true);
+    expect(run([a])).toEqual([]);
+  });
+  it('the schema takes any placed class and refuses rest, a repeat, an empty list, an unknown name and a non-array', () => {
+    for (const c of ['armour', 'light_vehicle', 'recon', 'infantry', 'support_weapon', 'medic', 'aircraft']) {
+      expect(schema(attack((d) => ((d.exclude = [c]), (d.elements = d.elements.filter((e) => !(e.classes as string[]).includes(c)))))), c).toBe(true);
+    }
+    expect(schema(attack((d) => (d.exclude = ['rest'])))).toBe(false);
+    expect(schema(attack((d) => (d.exclude = ['aircraft', 'aircraft'])))).toBe(false);
+    expect(schema(attack((d) => (d.exclude = [])))).toBe(false);
+    expect(schema(attack((d) => (d.exclude = ['tank'])))).toBe(false);
+    expect(schema(attack((d) => (d.exclude = 'aircraft' as unknown as string[])))).toBe(false);
+  });
+  it('refuses a class that is both excluded and named by an element, naming the element', () => {
+    const out = run(variant('attack', (d) => (d.exclude = ['infantry'])));
+    expect(out).toEqual(['data/formations/attack.json: element 2 names "infantry", which the formation excludes']);
+  });
+  it('passes a file with no exclude at all (column, ambush)', () => {
+    expect(run(shipped.filter((f) => f.doc.id !== 'attack'))).toEqual([]);
   });
 });
 

@@ -87,6 +87,7 @@ import { symbolBody } from './symbol';
 import type { AlertTier } from './alerts';
 import type { Tone } from './hud-model';
 import { prefersReducedMotion } from './motion';
+import { t } from '../i18n/t';
 import { WOUND_DOWN, WOUND_STABILISED } from '@lions/sim';
 
 /**
@@ -96,6 +97,19 @@ import { WOUND_DOWN, WOUND_STABILISED } from '@lions/sim';
  * the failure is a visibly soft minimap rather than a silently cropped one.
  */
 export const MINIMAP_SIZE = 210;
+
+/**
+ * The box on a map above 48 tiles a side (GH-920): 280 px, 17.5rem, where a 96-tile map is 2.92 px a
+ * tile instead of 2.19. `theme.css` states it again under `[data-minimap='large']`, which this
+ * component sets on its host, and a test reads the two against each other.
+ */
+export const MINIMAP_SIZE_LARGE = 280;
+
+/** The box a `w`x`h` map gets: `MINIMAP_SIZE` up to 48 a side (every map shipped before the big
+ *  versus ones, unchanged), `MINIMAP_SIZE_LARGE` above. */
+export function minimapSizeFor(w: number, h: number): number {
+  return Math.max(w, h) > 48 ? MINIMAP_SIZE_LARGE : MINIMAP_SIZE;
+}
 
 /** A point in tile space. */
 export interface MinimapPoint {
@@ -171,6 +185,8 @@ export interface MinimapDeps {
    *  mission with no income zones. A thunk like `objectives`; optional, and
    *  absent draws nothing. */
   income?: () => IncomeView | null;
+  /** GH-1103: the ground a points race pays for, each with its pay a minute. Optional; absent draws nothing. */
+  payZones?: () => readonly PayZone[];
   /**
    * Where the families walk to, in tiles, while an evacuation objective is
    * still being scored -- null otherwise (GH-279). A thunk for the same
@@ -428,6 +444,12 @@ export function minimapProjection(w: number, h: number, size: number): MinimapPr
   return { scale, ox: (size - w * scale) / 2, oy: (size - h * scale) / 2 };
 }
 
+/** CSS pixels on screen to box pixels: `size / shown`, where `shown` is the width the box really has on
+ *  screen (1 where the platform reports none, so a missing measurement is no scaling and never a NaN). */
+export function scaleToBox(size: number, shown: number): number {
+  return shown > 0 ? size / shown : 1;
+}
+
 /** Tile point → box pixel. */
 export function tileToBox(p: MinimapProjection, tx: number, ty: number): MinimapPoint {
   return { x: p.ox + tx * p.scale, y: p.oy + ty * p.scale };
@@ -648,6 +670,25 @@ export interface ObjectiveMark {
   /** Income ground (S-F F2, Z-B): the logistics symbol is drawn in the mark's
    *  corner. Absent on an objective. */
   glyph?: boolean;
+  /** GH-1103: what holding this ground pays, written in the zone's corner ("+40/min"). */
+  label?: string;
+}
+
+/** A points-race zone as the minimap is told of it (GH-1103): its rectangle, its pay, and who holds it. */
+export interface PayZone {
+  readonly rect: readonly [number, number, number, number];
+  readonly perMin: number;
+  readonly state: ZoneState;
+}
+
+/** The marks for ground that pays by the minute: the zone's own look in its state, labelled with its pay. */
+export function payMarks(zones: readonly PayZone[]): ObjectiveMark[] {
+  return zones.map((z) => ({
+    state: z.state,
+    rect: z.rect,
+    at: { x: z.rect[0] + z.rect[2] / 2, y: z.rect[1] + z.rect[3] / 2 },
+    label: t('versus.points.zone', { n: z.perMin }),
+  }));
 }
 
 /** One supply route as tile-centre polylines: the open stretches and the cut one. */
@@ -962,8 +1003,20 @@ export function flashAlpha(ageMs: number): number {
  */
 export const PING_MS = 2500;
 
-/** Dot edge, in box pixels. 6px filled, from the spec's own inline style. */
+/** Dot edge, in box pixels. 6px filled, from the spec's own inline style. This is the edge on a
+ *  48-tile map (4.375 px a tile) and on anything smaller; a bigger map shrinks it, `unitDotPx`. */
 const DOT = 6;
+/** The smallest unit dot, box pixels. Under 3 a filled mark is a speck and loses its colour. */
+const DOT_MIN = 3;
+/**
+ * The unit dot's edge for a minimap drawn at `scale` box pixels a tile (GH-920). The dot is tied to
+ * the tile, not to the box: a 6 px mark is 1.4 tiles across on a 48 map and 2.7 on a 96 one (2.19 px
+ * a tile), where a squad one tile apart is one blob. So it shrinks in proportion to the scale, never
+ * below `DOT_MIN`, and never above `DOT`: a 48 map, and every smaller one, keeps its 6 px exactly.
+ */
+export function unitDotPx(scale: number): number {
+  return Math.min(DOT, Math.max(DOT_MIN, Math.round((DOT * scale) / (MINIMAP_SIZE / 48))));
+}
 /** Diamond edge before the 45-degree turn, in box pixels. Spec: 8px stroked. */
 const DIAMOND = 8;
 /** The objective zone mark (VR-36): 2 px edge on a 4 px keyline, a 3/2 dash
@@ -982,6 +1035,8 @@ export const ROUTE_CUT_DASH: readonly number[] = [3, 2];
  *  top-left corner (the centre is under the holders' unit dots), on a 1.4 px
  *  `--mark-edge` outline. */
 export const GLYPH_PX = 11;
+/** A zone pay label's size, in box pixels (GH-1103). */
+const LABEL_PX = 9;
 export const GLYPH_INSET = 3;
 const GLYPH_EDGE = 1.4;
 
@@ -1064,6 +1119,9 @@ export class Minimap {
   private dragMoved = false;
   /** Every listener this component owns, cut in one call by `destroy()`. */
   private readonly listeners = new AbortController();
+  /** The box, CSS pixels: `minimapSizeFor` the map. */
+  private readonly size: number;
+  private readonly host: HTMLElement;
 
   constructor(
     host: HTMLElement,
@@ -1071,15 +1129,20 @@ export class Minimap {
   ) {
     this.chrome = resolveChrome(host);
     this.teamColors = deps.teamColors;
-    this.proj = minimapProjection(deps.map.width, deps.map.height, MINIMAP_SIZE);
+    this.size = minimapSizeFor(deps.map.width, deps.map.height);
+    this.proj = minimapProjection(deps.map.width, deps.map.height, this.size);
+    // The panel's CSS size is the `--minimap` token, which the group bar and the centred rows also
+    // read; a big map raises it for all of them at once through this attribute (theme.css).
+    this.host = host;
+    if (this.size !== MINIMAP_SIZE) host.dataset.minimap = 'large';
     // Cap at 2: past that the backing store grows quadratically for a gain
     // nobody can see on a 210px box.
     this.dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
 
     this.el = document.createElement('canvas');
     this.el.className = 'rl-minimap';
-    this.el.width = MINIMAP_SIZE * this.dpr;
-    this.el.height = MINIMAP_SIZE * this.dpr;
+    this.el.width = this.size * this.dpr;
+    this.el.height = this.size * this.dpr;
     // Deliberately NOT pointer-events:none, and since Task 10 the reason has
     // changed rather than gone away. It used to be that a click falling
     // through would issue an order on ground the player did not aim at, so
@@ -1169,6 +1232,15 @@ export class Minimap {
   redrawGround(): void {
     this.draw(this.lastDrawMs, true);
   }
+  /**
+   * A full draw at the CURRENT clock and state, unlike `redrawGround`, which freezes the clock at the last draw. A debug hook for
+   * the visual gate's NODE arms (`__lions.redrawMinimap(true)`): after the wall-clock rings (`FLASH_MS`, `PING_MS`) have run
+   * out, one fresh draw paints the minimap with none of them, so a photograph does not depend on how long the capture step took.
+   * Exact while the sim is frozen, which is the only place it is called from.
+   */
+  redrawFresh(): void {
+    this.draw(performance.now());
+  }
   /** What the last full draw showed, for `redrawGround`. */
   private lastDrawMs = 0;
   private lastDots: MinimapDot[] | null = null;
@@ -1237,6 +1309,7 @@ export class Minimap {
     // nothing holds it.
     this.listeners.abort();
     this.el.remove();
+    delete this.host.dataset.minimap;
   }
 
   /**
@@ -1250,16 +1323,19 @@ export class Minimap {
    * anchored bottom-RIGHT, so its rect starts roughly 1200px in, and a raw
    * client coordinate would clamp every click to the far corner of the map.
    *
-   * No DPR term -- the backing store is `MINIMAP_SIZE * dpr` but the CSS box
-   * is `MINIMAP_SIZE`, and both `getBoundingClientRect` and `boxToTile` work
-   * in CSS pixels.
+   * No DPR term -- the backing store is `size * dpr` but the CSS box is `size` rem-scaled, and both
+   * `getBoundingClientRect` and `boxToTile` work in CSS pixels, brought to box pixels by `scaleToBox`.
    */
   private pointAt(ev: MouseEvent): MinimapPoint {
     const rect = this.el.getBoundingClientRect();
+    // The CSS box is in rem, so it is `size` px only at a 16 px root: at a 1.4 UI scale it is 294 and a raw
+    // offset read a click at the far edge as 1.4x too far (14 tiles off at the centre on a 48 map). Ask
+    // for the box's real width; jsdom has none, and there the box is taken as `size`.
+    const k = scaleToBox(this.size, this.el.clientWidth);
     return boxToTile(
       this.proj,
-      ev.clientX - rect.left,
-      ev.clientY - rect.top,
+      (ev.clientX - rect.left) * k,
+      (ev.clientY - rect.top) * k,
       this.deps.map.width,
       this.deps.map.height
     );
@@ -1409,7 +1485,7 @@ export class Minimap {
    *  `FLASH_MS`. */
   private draw(nowMs: number = performance.now(), replay = false): void {
     const { ctx, proj } = this;
-    const s = MINIMAP_SIZE;
+    const s = this.size;
     // Before anything is laid down: the ground is the bottom of the stack,
     // and a refresh after the blit would show the new picture one redraw
     // late for no gain.
@@ -1465,6 +1541,9 @@ export class Minimap {
     for (const m of incomeMarks(this.deps.income?.() ?? null, activeObjectiveZoneNames(objectives))) {
       this.objectiveMark(m, nowMs);
     }
+    for (const m of payMarks(this.deps.payZones?.() ?? [])) {
+      this.objectiveMark(m, nowMs);
+    }
     this.drawTunnels();
     this.drawHeld();
     const markers =
@@ -1499,7 +1578,7 @@ export class Minimap {
   }
 
   /**
-   * One unit mark, `DOT` box pixels tall whichever silhouette it wears.
+   * One unit mark, `unitDotPx` box pixels tall whichever silhouette it wears.
    *
    * The square keeps its rounded integer rect -- a 6px axis-aligned fill on a
    * half-pixel boundary is a blurred 7px one, and the player's own units are
@@ -1514,6 +1593,7 @@ export class Minimap {
    */
   private dot(at: MinimapPoint, shape: DotShape): void {
     const { ctx } = this;
+    const edge = unitDotPx(this.proj.scale);
     if (shape === 'hollow') {
       // VR-36: a suspected contact, the world's hollow diamond in miniature --
       // the colour the fill would have had, as a stroke over the keyline.
@@ -1558,22 +1638,22 @@ export class Minimap {
       return;
     }
     if (shape === 'square') {
-      ctx.fillRect(Math.round(at.x - DOT / 2), Math.round(at.y - DOT / 2), DOT, DOT);
+      ctx.fillRect(Math.round(at.x - edge / 2), Math.round(at.y - edge / 2), edge, edge);
       return;
     }
     if (shape === 'circle') {
       ctx.beginPath();
-      ctx.arc(at.x, at.y, DOT / 2, 0, Math.PI * 2);
+      ctx.arc(at.x, at.y, edge / 2, 0, Math.PI * 2);
       ctx.fill();
       return;
     }
-    // Equilateral, `DOT` tall, apex up. The centroid sits one third of the
+    // Equilateral, `edge` tall, apex up. The centroid sits one third of the
     // height above the base, so the apex is 2/3 up and the base 1/3 down.
-    const half = DOT / Math.sqrt(3);
+    const half = edge / Math.sqrt(3);
     ctx.beginPath();
-    ctx.moveTo(at.x, at.y - (DOT * 2) / 3);
-    ctx.lineTo(at.x + half, at.y + DOT / 3);
-    ctx.lineTo(at.x - half, at.y + DOT / 3);
+    ctx.moveTo(at.x, at.y - (edge * 2) / 3);
+    ctx.lineTo(at.x + half, at.y + edge / 3);
+    ctx.lineTo(at.x - half, at.y + edge / 3);
     ctx.closePath();
     ctx.fill();
   }
@@ -1801,7 +1881,26 @@ export class Minimap {
     outline();
     ctx.stroke();
     ctx.restore();
+    if (m.label !== undefined) this.zoneLabel(m.label, x0, y0, x1, y1, color);
     if (m.glyph === true) this.logisticsGlyph(x0 + GLYPH_INSET, y0 + GLYPH_INSET, color);
+  }
+
+  /** A zone's pay, centred in its box on a `--mark-edge` outline so it holds on pale sand (GH-1103). */
+  private zoneLabel(text: string, x0: number, y0: number, x1: number, y1: number, color: string): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+    ctx.font = `600 ${LABEL_PX}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = this.chrome.markEdge;
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, (x0 + x1) / 2, (y0 + y1) / 2);
+    ctx.fillStyle = color;
+    ctx.fillText(text, (x0 + x1) / 2, (y0 + y1) / 2);
+    ctx.restore();
   }
 
   /** The strip's own `logistics` symbol (`symbol.ts`), GLYPH_PX square at

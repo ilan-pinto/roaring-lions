@@ -25,6 +25,7 @@
 import { emblemSvg } from './kit-emblems';
 import { nextTierPrice, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
 import { t } from '../i18n/t';
+import type { CreditAsk } from '../upgrade-pay';
 import { previewDeltas } from './garage-stats';
 import { formatBenefit, upgradeBenefits, type BenefitLine } from './upgrade-benefit';
 
@@ -59,15 +60,18 @@ export interface TrackSummary {
   readonly next: number | null;
 }
 
-export function trackSummary(track: UpgradeTrack, owned: number): TrackSummary {
+/** `spent` is credits actually PAID: only the tiers the account earned (`earned`, default `owned`), never a tier
+ *  the coin path holds, which cost coins. `toMax` and `next` follow `owned`, the single-player tier. */
+export function trackSummary(track: UpgradeTrack, owned: number, earned: number = owned): TrackSummary {
   const length = track.tiers.length;
   const clamped = Math.min(Math.max(owned, 0), length);
+  const paid = Math.min(Math.max(earned, 0), clamped);
   let spent = 0;
   let toMax = 0;
   track.tiers.forEach((tier, i) => {
     // `i` is 0-based; tier `i + 1` is owned exactly when `i < clamped`.
-    if (i < clamped) spent += tier.price;
-    else toMax += tier.price;
+    if (i < paid) spent += tier.price;
+    if (i >= clamped) toMax += tier.price;
   });
   return { owned: clamped, length, spent, toMax, next: clamped < length ? clamped + 1 : null };
 }
@@ -104,6 +108,8 @@ export interface TrackDeps {
   readonly unitId: string;
   readonly unitName: string;
   readonly owned: number;
+  /** The account's own tier (credits paid), at most `owned`; absent reads as `owned`. */
+  readonly earned?: number;
   /** Present only when the caller supplied both a balance and a purchase
    *  callback -- the rule `showBrigade` has always followed for a Buy
    *  control anywhere on this screen. `asked` is the focus key a purchase
@@ -112,6 +118,10 @@ export interface TrackDeps {
    *  sees the one spelling. */
   readonly buy?: {
     readonly credits: number;
+    /** What a credit Buy on this track costs and ends on (`creditAsk`): `null` when the
+     *  single-player tier is at the top, whoever paid for it. Absent reads as the one-tier
+     *  Buy off `owned`, the shape every caller had before the run (R0.1, R3). */
+    readonly ask?: CreditAsk | null;
     readonly onBuy: (tier: number, price: number, asked: string) => void;
   };
   /** F7: the unit is not in the brigade -- never unlocked, or re-locked by a
@@ -168,7 +178,7 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   // mark and a kit total that all read the account and said otherwise.
   const locked = deps.locked === true;
 
-  const summary = trackSummary(track, deps.owned);
+  const summary = trackSummary(track, deps.owned, deps.earned);
 
   const trackWrap = el('div', 'rl-garage__track');
   trackWrap.dataset.track = trackName;
@@ -295,31 +305,46 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
         rung.appendChild(el('div', 'rl-garage__track-lock', t('garage.locked.unlockFirst')));
       } else if (deps.buy) {
         const { credits, onBuy } = deps.buy;
-        const price = nextTierPrice(deps.unit, trackName, deps.owned);
+        const single = nextTierPrice(deps.unit, trackName, deps.owned);
         // `tier === deps.owned + 1 <= track.tiers.length` here by
         // construction, so `nextTierPrice` disagreeing about the track's own
         // length would be a programming error, not data to fall through
         // silently for.
-        if (price === null) {
+        if (single === null) {
           throw new Error(`trackEl: ${deps.unitId} has no tier ${tier} on track "${trackName}"`);
         }
-        const buy = document.createElement('button');
-        buy.type = 'button';
-        buy.className = 'rl-btn rl-garage__buy-tier';
-        buy.textContent = t('garage.rung.buy', { tier, price });
-        buy.setAttribute(
-          'aria-label',
-          t('garage.rung.buy.aria', { name: deps.unitName, track: trackLabel, tier, price })
-        );
-        // Named by the TRACK, not the tier, so the next tier's Buy after a
-        // purchase answers to the same key and `restoreFocus` finds it.
-        buy.dataset.focusKey = `buy:${trackName}`;
-        buy.disabled = credits < price;
-        buy.addEventListener('click', () => {
-          buy.disabled = true; // one purchase per render; the caller's answer redraws
-          onBuy(tier, price, `buy:${trackName}`);
-        });
-        rung.appendChild(buy);
+        // The credit Buy asks `creditAsk`, not the rung: its tier is `ask.to` (this rung) and
+        // its price is the whole run, which fills the earned path below it (R3). A `null` ask
+        // on a track that still has a next rung only happens for a caller that opted out.
+        const ask = deps.buy.ask === undefined ? { from: tier, to: tier, price: single, again: 0 } : deps.buy.ask;
+        if (ask !== null && ask.to === tier) {
+          const price = ask.price;
+          const runArgs = { to: ask.to, price, from: ask.from, last: ask.to - 1, name: deps.unitName, track: trackLabel };
+          const buy = document.createElement('button');
+          buy.type = 'button';
+          buy.className = 'rl-btn rl-garage__buy-tier';
+          if (ask.again > 0) {
+            // The run label states the run (R0.1): "Tier 3 · 740 credits (pays for tiers 1-2 again, on credits)".
+            const one = ask.again === 1;
+            buy.textContent = t(one ? 'garage.buy.run1' : 'garage.buy.run', runArgs);
+            buy.setAttribute('aria-label', t(one ? 'garage.buy.run1.aria' : 'garage.buy.run.aria', runArgs));
+          } else {
+            buy.textContent = t('garage.rung.buy', { tier, price });
+            buy.setAttribute(
+              'aria-label',
+              t('garage.rung.buy.aria', { name: deps.unitName, track: trackLabel, tier, price })
+            );
+          }
+          // Named by the TRACK, not the tier, so the next tier's Buy after a
+          // purchase answers to the same key and `restoreFocus` finds it.
+          buy.dataset.focusKey = `buy:${trackName}`;
+          buy.disabled = credits < price;
+          buy.addEventListener('click', () => {
+            buy.disabled = true; // one purchase per render; the caller's answer redraws
+            onBuy(tier, price, `buy:${trackName}`);
+          });
+          rung.appendChild(buy);
+        }
       }
     } else {
       // A read-only line: the full text lives on `title` (a hover a mouse

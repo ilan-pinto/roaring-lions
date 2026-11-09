@@ -1161,6 +1161,16 @@ describe('bottom-centre controls hint', () => {
     expect(hint.textContent).toContain('order row above');
   });
 
+  // GH-920: the hint is ellipsised at narrow widths, so its title carries the whole line.
+  it('titles the hint with its full text, and clears it when there is no line', () => {
+    const plain = rig(mission(), { getSelection: () => [] }).host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(plain.title).toContain('click/drag select');
+    const fed = rig(mission(), { getSelection: () => [0], hint: () => ({ key: 'hud.hint.selected' }) }).host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(fed.title).toContain('order row above');
+    const none = rig(mission(), { getSelection: () => [0], hint: () => null }).host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(none.title).toBe('');
+  });
+
   // WP-P5 (PA-16): `hintFor` answers null once the order-row line has
   // retired, and an empty plate over the battlefield is still a plate.
   it('draws no line at all when the hint dep answers null', () => {
@@ -4085,6 +4095,14 @@ describe('the strip with no mission (PA-25)', () => {
         : 'You command the KDF — destroy their force · Escape for the menu');
     }
     expect(rig(null, { placeName: 'Tel Marum' }).stripEl().querySelector('[data-versus]')).toBeNull();
+  });
+  it('GH-976 P2: a win-mode room says how it is won, and an annihilation room keeps its line byte for byte', () => {
+    const line = (mode?: 'camp' | 'points' | 'flag') =>
+      rig(null, { placeName: 'Wadi Tarfan', versusFaction: 'kdf', ...(mode === undefined ? {} : { versusMode: mode }) }).stripEl().querySelector<HTMLElement>('[data-versus]')?.textContent;
+    expect(line('points')).toBe('You command the KDF — win the points race · Escape for the menu');
+    expect(line('camp')).toBe('You command the KDF — destroy their camp · Escape for the menu');
+    expect(line('flag')).toBe('You command the KDF — capture their flag · Escape for the menu');
+    expect(line()).toBe('You command the KDF — destroy their force · Escape for the menu');
   });
   // N3 Task 6: an economy room's purse is the viewer's side's; Conduct is the KDF seat's
   // only (LD7); no versus room shows an intel figure (LD5).

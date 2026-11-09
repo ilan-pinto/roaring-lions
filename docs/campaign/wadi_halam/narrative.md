@@ -641,7 +641,7 @@ touched."* It is not touched. The only edit is in the first sentence.
 
 | beat | speaker | line | chars |
 |---|---|---|---|
-| 1 | **Shai** | Seven structures inside **Hallaq's** depot, one unarmed bulldozer, and a choice of route. Mind which one you take. | 110 |
+| 1 | **Shai** | Eight structures inside **Hallaq's** depot, one unarmed bulldozer, and a choice of route. Mind which one you take. | 110 |
 | 2 | **Shai** | The straight line east runs through the village, and a D9 levels whatever it halts beside — the houses will come down one at a time with nobody ordering it, and each one is judged. | 221 |
 | 3 | **Shai** | The road south of the village costs you a little time and nothing else. The D9 cannot defend itself and it is the slowest thing on the map — escort it, do not race it. | 167 |
 | 4 | **Idit** | An RPG team holds the gate gap and three gun trucks sit inside the wire; a second RPG team is dug in dead centre of the depot. | 126 |
@@ -685,7 +685,7 @@ him, and it is the last objective the campaign gives the player.
 `raze_depot.say` is the line that closes all three acts and it is Idit's, because
 the road was her question from the first `locate` in the Marj:
 
-> **Idit** — 203 chars — *"Seven buildings, and everything in them came through
+> **Idit** — 203 chars — *"Eight buildings, and everything in them came through
 > here first. The charges under Beit Sahwan came up this road. So did the rockets
 > that fell on the north for a week before anybody could say from where."*
 
@@ -718,7 +718,7 @@ that he did not.
 **This is the last text on the last screen of the campaign, and it is deliberately
 not an ending.** The end screen prints `debrief` above `ROE 81 · 4 unit(s)
 walking out`, so the debrief's only job is to tell the player what that 81 is:
-`raze_depot` requires seven structures down and those seven are worth exactly
+`raze_depot` requires eight structures down and those eight are worth exactly
 nineteen points (`design.md` §1, measured). **Break the Depot cannot be played
 above 81, and that number is the point.** The ending itself is the `aftermath`
 (§5.6), which is where the campaign's last *line* belongs — not to Shai, not to
@@ -794,7 +794,7 @@ him the trigger and leaves the death to Shai, for three reasons:
 
 1. **He is a logistician, and a logistician's last word is about freight, not
    about himself.** The line says the road outlives the depot, which is true —
-   `raze_depot` levels seven buildings and does not touch a tile of road.
+   `raze_depot` levels eight buildings and does not touch a tile of road.
 2. **A villain who makes a speech as he dies is a different genre.** Adhal was
    given the same treatment in Act II for the same reason
    (`tel_marum/narrative.md` §7.5): he speaks before anybody has found him and
@@ -825,7 +825,7 @@ labelled ENEMY (§10 G-F). Cheapest unrealised story surface in the tree.
 | mission start | `brief` | Shai / Idit | beats 1–8, §5.2 | **applied this pass** | live |
 | mission start | `dispatch` | — | **none.** The act's dispatch is mission I's | authorial silence | live |
 | `objective(raze_depot, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Raze the depot inside five minutes` | shipped | live |
-| `objective(raze_depot, complete)` | `radio` | **Idit** | §5.4 — "Seven buildings, and everything in them came through here first. The charges under Beit Sahwan came up this road. So did the rockets that fell on the north for a week before anybody could say from where." | `objectives[].say`; **the line that closes all three acts** | live |
+| `objective(raze_depot, complete)` | `radio` | **Idit** | §5.4 — "Eight buildings, and everything in them came through here first. The charges under Beit Sahwan came up this road. So did the rockets that fell on the north for a week before anybody could say from where." | `objectives[].say`; **the line that closes all three acts** | live |
 | `objective(raze_depot, failed)` @300 s | `toast` | system | `OBJECTIVE FAILED — Raze the depot inside five minutes` | the only way to lose V today; loses it | live |
 | `objective(raze_depot, failed)` @300 s | `radio` | **Shai** | "Five minutes, and the depot is standing. Whatever we brought to bring it down is not going to bring it down now." | `objectives[].say_on_fail`; states the real failure — a dead D9 and a dead `demo_squad` make the primary impossible | live |
 | `objective(kill_gate_rpg, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Kill or capture whoever is holding the gate` | shipped, verbatim | live |
@@ -876,7 +876,7 @@ unavailable for the whole town and why three of Act III's failable primaries are
 | the south hide | `hide_south [22,38]` | `radio` | Idit | "Southern hide, three tiles of ambush laid on the cattle track. It is the one position in this basin that appears in two different missions." | engine |
 | the village | zone `village [25,15,9,18]` | `radio` | Idit | "Four houses, two sheds and a lane, and people in all of it. Nobody in there chose which side of a corridor to be born on." | engine |
 | the mosque block | zone `mosque_block [28,22,4,4]`, 9 tiles of `m` | `radio` | Shai | "Thirty points, and it is the only structure on this map the demolishers will refuse on their own. Everything else here comes down if something halts beside it." | engine |
-| the depot wall | 41 `wall` tiles, x34 / x42 / y16 / y31 | `radio` | Idit | "Forty-one tiles of wall and every one of them is worth nothing. The wall is not the depot — the seven buildings inside it are." | engine |
+| the depot wall | 41 `wall` tiles, x34 / x42 / y16 / y31 | `radio` | Idit | "Forty-one tiles of wall and every one of them is worth nothing. The wall is not the depot — the eight buildings inside it are." | engine |
 | the depot | zone `depot [35,17,7,14]`, `depot_gate [34,24]` | `radio` | Idit | "Three warehouses, two concrete stores and two sheds. Nineteen points of restraint, and the mission's own orders spend all of it." | **void** — since 2026-10-07 the raze target costs no Conduct |
 | the east road | zone `east_road [42,22,6,4]` | `radio` | Idit | "The track east of the depot is the only piece of this map nothing has ever been asked to do anything about. It is where the corridor goes." | engine |
 | the Rif approaches | `rif_north [44,9]`, `rif_east [44,24]`, `rif_south [44,39]` | `radio` | Idit | "Three approaches off the eastern edge and they have used all three in one afternoon. There is no fourth, and they have never needed one." | engine |

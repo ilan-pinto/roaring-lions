@@ -1,0 +1,37 @@
+{
+  "id": "wadi_tarfan_l",
+  "map": "wadi_tarfan_l",
+  "camps": {
+    "friendly": { "at": [26, 30], "size": [2, 2], "exit": [25, 29] },
+    "hostile": { "at": [68, 64], "size": [2, 2], "exit": [70, 66] }
+  },
+  "flags": {
+    "friendly": { "at": [54, 54], "size": [5, 5] },
+    "hostile": { "at": [37, 37], "size": [5, 5] }
+  },
+  "flag_setup": {
+    "flags": {
+      "friendly": { "at": [16, 10], "size": [5, 5] },
+      "hostile": { "at": [75, 81], "size": [5, 5] }
+    },
+    "hold_s": 45,
+    "setup": { "seconds": 180, "band_tiles": 12, "kit": { "hesco": 12, "sandbag_post": 4, "t_wall": 2 } }
+  },
+  "modes": {
+    "camp": { "wipe": "after_camp" },
+    "flag": { "hold_s": 30 },
+    "points": {
+      "zones": [
+        { "zone": "centre_ford", "per_min": 40 },
+        { "zone": "ne_ford", "per_min": 20 },
+        { "zone": "sw_ford", "per_min": 20 },
+        { "zone": "bluff_near_0", "per_min": 10 },
+        { "zone": "bluff_near_1", "per_min": 10 },
+        { "zone": "farm_near_0", "per_min": 10 },
+        { "zone": "farm_near_1", "per_min": 10 }
+      ],
+      "per_value_destroyed": 1,
+      "target": 600
+    }
+  }
+}

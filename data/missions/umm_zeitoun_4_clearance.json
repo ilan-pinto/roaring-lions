@@ -49,6 +49,9 @@
     { "unit": "recon_drone", "count": 1, "at": [24, 43] },
     { "unit": "inf_medic_squad", "count": 1, "at": [23, 43] }
   ],
+  "field_works": {
+    "kdf_forward_camp": 1
+  },
   "resources": {
     "logistics_start": 600,
     "logistics_rate_per_min": 100,
@@ -61,6 +64,9 @@
       { "zone": "hamlet", "rate_per_min": 8 }
     ]
   },
+  "structures": [
+    { "type": "militia_observation_post", "at": [36, 21], "size": [1, 1] }
+  ],
   "objectives": [
     {
       "id": "raze_the_stockpile",

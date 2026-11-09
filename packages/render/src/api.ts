@@ -17,9 +17,11 @@ import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { Camera } from './project';
 import type { EmitterSpec } from './vfx';
 import type { RenderQuality } from './quality';
+import type { BackendInfo, GpuRequest } from './gpu';
 // A type from a three-FREE module beside `lighting.ts` (it imports nothing),
 // so this file still reaches neither backend's library.
 import type { LightOverride, TimeOfDay } from './three/time-of-day';
+import type { GradeJson } from './three/grade-maths';
 import type { BackdropSpec } from './three/terrain/backdrop';
 // Three-free too (`three/units/building-fit.ts` imports nothing).
 import type { SupportAirPlan } from './three/support-air';
@@ -401,6 +403,14 @@ export interface RendererOptions {
    */
   weather?: 'clear' | 'rain';
   /**
+   * GH-984 N1: the wind a mission draws under -- the map's `wind` block, else its theme's
+   * `TERRAIN_WIND`. `strength` 0..2 scales every lean; `side` is the screen side it blows toward and
+   * `skewDeg` (clamped to +-30) turns that heading. Presentation only: the sim never reads it.
+   * Absent is strength 1 toward the screen's east, which is the sway the game always had.
+   * Reduced motion ignores all of it and plays today's sway. Three-only.
+   */
+  wind?: { readonly strength: number; readonly side: 'east' | 'west'; readonly skewDeg: number };
+  /**
    * GH-469: the drawing buffer's pixel ratio is `min(devicePixelRatio, this)`
    * -- `PIXEL_RATIO_CAP` (2) when absent. Three-only. The menu's backdrop
    * passes a lower one: every full-screen target scales with its square.
@@ -456,6 +466,33 @@ export interface RendererOptions {
    * is the preset unchanged, to the bit. First Light is the only author.
    */
   lightOverride?: LightOverride;
+  /**
+   * Look uplift L1 (GH-943): the scene's sky environment (a PMREM built from the
+   * time-of-day palette keys), handed per material class
+   * (`three/environment-classes.ts`), with the hemisphere set per preset to match
+   * and the unit metal cap lifted from 0.45 to 0.7. **ON by default**; only an
+   * explicit `false` draws the pre-L1 frame (the app's `&envlight=0` debug
+   * switch, an A/B tool). Three-only. Presentation only: nothing here is read by
+   * the sim.
+   */
+  environmentLight?: boolean;
+  /**
+   * GH-943 WebGPU-primary migration, P0: which renderer draws. `legacy` (and absent) is today's WebGLRenderer plus
+   * EffectComposer, to the bit. `webgpu` / `webgl2` / `auto` draw through three's WebGPURenderer on its WebGPU or its own WebGL2
+   * backend (`three/backend/node-backend.ts`, a second dynamic import); P0 draws the bare scene pass there, and the rest of the
+   * look arrives P1-P5. The app reads it from `&gpu=` (sandbox only until P7). `backendInfo()` says what actually draws.
+   * Three-only. Presentation only: nothing here is read by the sim.
+   */
+  gpu?: GpuRequest;
+  /**
+   * Look uplift L2 (GH-943): a colour grade, folded into the output pass between the tone map and the
+   * vignette (`three/output-grade.ts`, maths in `three/grade-maths.ts`). `json` is a `data/grades/<id>.json`
+   * file; `strength` scales every deviation from identity (1 = as authored, 0 = identity, default 1).
+   * Absent, or an identity grade, builds NO pass: the frame is today's, bit for bit. Day ships no grade.
+   * The app reads it (`gradeOf`, beside `timeOfDayOf`); it is ON by default for dawn and dusk
+   * (`&grade=0` is the A/B switch). Three-only. Presentation only: nothing here is read by the sim.
+   */
+  grade?: { readonly json: GradeJson; readonly strength?: number };
   /**
    * How each building mesh is scaled to its footprint (lead ruling 7 Oct,
    * "fit buildings to their plots"; `three/units/building-fit.ts` holds the
@@ -675,6 +712,13 @@ export interface Renderer {
   /** E6 chunk C: how many heat-shimmer sites the fog pass was handed last frame (0 with no beam). */
   beamShimmerSites(): number;
   isVisible(wx: number, wy: number): boolean;
+  /**
+   * GH-954 W1, a spectator's choice of eyes: `0` or `1` draws exactly what that side's seat draws (its fog, the
+   * units it may see, the fire it may see), and `'all'` draws both sides with no veil and no draw gate, so
+   * `isVisible` answers true for every tile on the map. Presentation only: nothing the sim owns is read or
+   * written, and team colours do not follow it. A player's screen never calls it.
+   */
+  setViewer(v: 0 | 1 | 'all'): void;
   /** Living units whose screen position falls inside a screen-space rect.
    *  Box-select is a projection question, so only the renderer can answer it. */
   unitsInScreenRect(x0: number, y0: number, x1: number, y1: number): number[];
@@ -722,6 +766,14 @@ export interface Renderer {
    * different buffer, is always readable, and is unaffected by it.
    */
   captureGroundAlbedo?(sizePx: number): ImageData | null;
+  /**
+   * GH-943 P1 (T8): `captureGroundAlbedo`, awaited -- the briefing's call. The node backends' photograph is ASYNC (a WebGPU
+   * readback is), so the synchronous method answers null there until the memo has filled; this resolves with the photograph.
+   * Same pixel layout (rows BOTTOM-UP), same null on anything it cannot do. Resolves null if the ground changed while it flew.
+   */
+  captureGroundAlbedoAsync?(sizePx: number): Promise<ImageData | null>;
+  /** GH-943 P1 (T8): resolves when no ground photograph is in flight (the visual gate awaits it before redrawing the minimap). */
+  groundPhotoSettled?(): Promise<void>;
 
   /**
    * The world as the player sees it, for a feedback note's picture (GH-464):
@@ -738,6 +790,20 @@ export interface Renderer {
    * with no post chain has nothing to offer here.
    */
   captureView?(maxWidth: number): ImageData | null;
+  /** GH-943 P1 (T8): `captureView`, awaited -- the feedback picture's call; the node backends cannot read synchronously. */
+  captureViewAsync?(maxWidth: number): Promise<ImageData | null>;
+  /**
+   * GH-943 P0: which backend ACTUALLY draws (`legacy-gl`, `node-webgpu`, `node-webgl2`), the adapter, and the reason when it is
+   * not what `RendererOptions.gpu` asked for. Read by the harness (never from the URL), the log line, feedback and settings.
+   */
+  backendInfo(): BackendInfo;
+  /**
+   * GH-943 P0: the node backend's census of GLSL-only hooks it could not draw (`kind`, a greppable `key`, an object count).
+   * Always empty on `legacy-gl`. The zero-unported gate reads it; each of P1-P5 shrinks it.
+   */
+  unportedHooks(): readonly { readonly kind: string; readonly key: string; readonly objects: number }[];
+  /** GH-943 P0: resolves when the GPU has finished every submitted command (node), or at once (legacy). */
+  whenGpuIdle(): Promise<void>;
 
   /**
    * Re-resolve every team colour mid-mission (VR-01, lead 8 Oct): the

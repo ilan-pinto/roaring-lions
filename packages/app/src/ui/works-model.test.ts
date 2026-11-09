@@ -16,10 +16,12 @@ import {
 
 // Oracles are literals read off data/structures.json (radius 4 medic and
 // workshop, sight 10 and tunnel radius 10 intel centre), never imported.
-const MEDIC: WorksShape = { fw: 2, fh: 2, area: [{ radius: 4 }], sensor: null };
-const INTEL: WorksShape = { fw: 2, fh: 2, area: [], sensor: { sight: 10, tunnelRadius: 10 } };
-const WORKSHOP: WorksShape = { fw: 2, fh: 2, area: [{ radius: 4 }, { radius: 4 }], sensor: null };
-const OUTPOST: WorksShape = { fw: 2, fh: 2, area: [], sensor: null };
+const MEDIC: WorksShape = { fw: 2, fh: 2, area: [{ radius: 4 }], sensor: null, contest: null };
+const INTEL: WorksShape = { fw: 2, fh: 2, area: [], sensor: { sight: 10, tunnelRadius: 10 }, contest: null };
+const WORKSHOP: WorksShape = { fw: 2, fh: 2, area: [{ radius: 4 }, { radius: 4 }], sensor: null, contest: null };
+const OUTPOST: WorksShape = { fw: 2, fh: 2, area: [], sensor: null, contest: null };
+// The forward camp: the medic's foot area and the workshop's vehicle area (both radius 4, drawn once) and the contest radius, 6 tiles.
+const FORWARD: WorksShape = { fw: 2, fh: 2, area: [{ radius: 4 }, { radius: 4 }], sensor: null, contest: 6 };
 
 describe('worksPreview', () => {
   it('the intel centre draws a dashed sight ring and a dotted tunnel ring, both at 10', () => {
@@ -56,6 +58,32 @@ describe('worksPreview', () => {
   });
 });
 
+describe('the forward camp draws its contest ring (treatment B: footprint outline, dashed rings, no fill, no world status mark)', () => {
+  it('a placement preview carries the aura ring at 4 and a second dashed ring at 6, centred on the footprint', () => {
+    const p = worksPreview(FORWARD, 5, 7, null);
+    expect(p.rings).toEqual([
+      { cx: 6, cy: 8, radius: 4, style: 'dashed' },
+      { cx: 6, cy: 8, radius: 6, style: 'dashed' },
+    ]);
+    expect(Object.keys(p.pad).sort()).toEqual(['h', 'valid', 'w', 'x', 'y']);
+    for (const ring of p.rings) expect(Object.keys(ring).sort()).toEqual(['cx', 'cy', 'radius', 'style']);
+  });
+
+  it('a standing forward camp (hover or selection) draws the same two rings; a contest radius equal to an area radius draws once', () => {
+    expect(worksRings(FORWARD, 12, 9)).toEqual([
+      { cx: 12, cy: 9, radius: 4, style: 'dashed' },
+      { cx: 12, cy: 9, radius: 6, style: 'dashed' },
+    ]);
+    expect(worksRings({ ...FORWARD, area: [{ radius: 6 }] }, 0, 0)).toEqual([{ cx: 0, cy: 0, radius: 6, style: 'dashed' }]);
+  });
+
+  it('only a production type gets the legend line that names the outer ring', () => {
+    expect(worksLegendKeys(FORWARD)).toEqual(['dock.works.legend.contest']);
+    expect(worksLegendKeys({ ...INTEL, contest: 6 })).toEqual(['dock.works.legend.sight', 'dock.works.legend.tunnel', 'dock.works.legend.contest']);
+    expect(worksLegendKeys(MEDIC)).toEqual([]);
+  });
+});
+
 describe('refusalKey', () => {
   it('names every refusal the runtime can return', () => {
     const all: Record<WorksRefusal, string> = {
@@ -64,6 +92,7 @@ describe('refusalKey', () => {
       locked: 'works.refuse.locked',
       unaffordable: 'works.refuse.unaffordable',
       needs_engineers: 'works.refuse.needs_engineers',
+      no_line_slot: 'works.refuse.no_line_slot',
       off_map: 'works.refuse.off_map',
       blocked: 'works.refuse.blocked',
       no_footing: 'works.refuse.no_footing',
@@ -84,16 +113,22 @@ describe('worksShapeOf', () => {
         sensor: { sight: fx.from(10), tunnelRadiusSq: fx.from(100) },
       },
     } as unknown as StructureType;
-    expect(worksShapeOf(type)).toEqual({ fw: 2, fh: 2, area: [{ radius: 4 }], sensor: { sight: 10, tunnelRadius: 10 } });
+    expect(worksShapeOf(type)).toEqual({ fw: 2, fh: 2, area: [{ radius: 4 }], sensor: { sight: 10, tunnelRadius: 10 }, contest: null });
+  });
+
+  it('a production type carries the contest radius, 6 tiles (36 tile^2, rooted); a type with none carries null', () => {
+    const type = { buildable: { fw: 2, fh: 2 }, aura: { area: [{ radiusSq: fx.from(16) }], sensor: null }, production: { roles: null } } as unknown as StructureType;
+    expect(worksShapeOf(type).contest).toBe(6);
+    expect(worksShapeOf({ buildable: { fw: 2, fh: 2 }, aura: null, production: null } as unknown as StructureType).contest).toBeNull();
   });
 });
 
 describe('worksMarkSvg', () => {
-  it('draws five distinct currentColor marks with no colour literal', async () => {
+  it('draws six distinct currentColor marks with no colour literal', async () => {
     const { worksMarkSvg, WORKS_MARK_IDS } = await import('./mark');
-    expect(WORKS_MARK_IDS).toEqual(['kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_aid_post', 'kdf_workshop']);
+    expect(WORKS_MARK_IDS).toEqual(['kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_aid_post', 'kdf_forward_camp', 'kdf_workshop']);
     const svgs = WORKS_MARK_IDS.map((id) => worksMarkSvg(id, 16));
-    expect(new Set(svgs).size).toBe(5);
+    expect(new Set(svgs).size).toBe(6);
     for (const svg of svgs) {
       expect(svg).toContain('stroke="currentColor"');
       expect(svg).not.toMatch(/#[0-9a-fA-F]{3,6}|rgb/);

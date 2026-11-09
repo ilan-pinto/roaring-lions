@@ -29,8 +29,30 @@ const ID_ARGS = new Set(['id', 'ids']);
 
 /** A key whose value genuinely needs a denied word, and why. */
 const ALLOWED: Readonly<Record<string, string>> = {
-  // Empty at WP-P2: every hit the sweep found was reworded rather than
-  // exempted. Add `key: 'reason'` here for a use a player genuinely needs.
+  // Every hit the WP-P2 sweep found was reworded rather than exempted; the one entry below is the operator strip's.
+  // Add `key: 'reason'` here for a use a player genuinely needs.
+  'arena.strip.clock': 'GH-954 W1: the arena watch strip is an operator view, dev-only (the route does not exist in a production build); it names the room clock\'s tick beside the match time because a run is compared by tick',
+  'arena.setup.pace': 'GH-954 W2: the arena setup screen is an operator view, dev-only (the route does not exist in a production build); the round length is the sim\'s own unit, the tick, which the CLI (--pace) and the results name',
+  'arena.setup.cap': 'GH-954 W2: the same operator view; the cap is a tick count (--cap-ticks), compared by tick like the watch strip\'s clock',
+  'arena.results.digest.agree': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
+  'arena.results.digest.differ': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
+  'arena.replay.progress': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
+  'arena.replay.digest.same': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
+  'arena.replay.digest.differs': 'GH-954 W3: the arena results and replay screens are operator views, dev-only (the routes do not exist in a production build); a replay is compared with the referee by tick',
+  'arena.results.terms': 'GH-954 P1: the arena results screen is an operator view, dev-only (the route does not exist in a production build); a run\'s pace and cap are tick counts (--pace, --cap-ticks), the terms two records are compared by',
+  'profile.publicId': 'GH-1075 A1: the player\'s own public account id, shown on their profile so they can quote it when they ask for help; the copy is the spec\'s',
+  'profile.identity.steam': 'GH-1075 A1: the linked Steam account is named by its SteamID on the profile, the number a player knows from Steam; the copy is the spec\'s',
+  'versus.win.flag': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.win.flag.hint': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.room.win.value': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.end.objective.won': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.end.objective.lost': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.end.mutual.mode': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.flag.label': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.flag.title': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.flag.theirs': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'versus.flag.mine': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
+  'hud.strip.versus': 'GH-976 P3: "flag" here is the game mode\'s own name, Capture the flag, a banner a player carries off, not a setting',
 };
 
 /** Every reason a value would read as developer language, or [] if none. */

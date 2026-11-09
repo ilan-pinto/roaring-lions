@@ -16,22 +16,16 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * Wounds are ON in versus (the lead, 23 Oct 2026, after the versus-wounds probe):
  * every infantry type a room registers keeps `hull.wounds` and `hull.figures`, and
  * `wounded_kdf` / `wounded_sarim` are registered, so a man who falls wounded goes
- * down instead of dying. Rescue stays OUT (next paragraph): a man down in a room
- * bleeds out or is overrun, nobody carries him. Both wounded types take population
- * 0 (`cost.population`), so a side's own wounded never block its builds.
+ * down instead of dying. Both wounded types take population 0 (`cost.population`),
+ * so a side's own wounded never block its builds.
  *
- * `veh_ambulance` and `air_medevac_heli` (GH-709), and `inf_medic_squad` (GH-707
- * P2): on no doctrine menu, so no versus side can field them, and each turns the
- * sim's wound hash fold on (`can_carry`, `rescue`; the medevac is an AIR carrier,
- * which turns the air fold on besides). Held with the Yanshuf until the rescue loop
- * opens to versus: only the KDF has a rescue unit.
- *
- * The medic team was opened to the KDF versus menu and held again the same day (the lead, 30 Oct
- * 2026, PR 907). The probe now has a rescue arm and the camp is a drop-off (`versus_aid`), but the
- * fairness gate cannot judge rescue yet: the ruled buy rule delivers 0.0 medic teams a game (the
- * opening purse is spent at tick 0), and the `opening` reading, which buys one, leaves 60/40 on
- * Tel Marum Sarim friendly. `pnpm versus:probe -- --rescue-buy=...` and the rescue tests put the
- * medic in a room in memory (`medic-room.test-helper.ts`); nothing shipped does.
+ * Rescue is ON for the Nemala medic team only (the lead, 3 Nov 2026): `inf_medic_squad` is on the KDF camp menu
+ * (`data/doctrines/kdf.json`) and a room registers it. It was opened on 30 Oct and held out again the same day
+ * (PR 907: the probe's buy rule never bought one, and the one reading that did left 60/40 on Tel Marum
+ * Sarim friendly, with no rescue completing); GH-707's follow-up gave the probe a buy that happens and a
+ * rescue that completes, and re-gated it (production-numbers.md section 6). `veh_ambulance` and
+ * `air_medevac_heli` (GH-709) stay held: on no doctrine menu, `can_carry` turns the sim's wound hash fold
+ * on, and the medevac is an AIR carrier, which turns the air fold on besides.
  *
  * `mbt_lavi_camo` and `spg_long_range` (GH-709 Phase 2), and `spg_cluster` (Phase 7):
  * credit-only store units, on no
@@ -39,6 +33,12 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * roster-count and hash pins for nothing, so they are held the same way until a versus
  * design gives a special unit a seat. `ugv_recon_dog` (Phase 8) joins them for the same
  * reason. So does `at_nlos_team` (Phase 7), and `demo_tzav` (GH-274, bought-only).
+ *
+ * GH-1102 (the lead, 7 Nov 2026): those Store specials stay out of the BASE roster, but a
+ * brigade room registers each one a seat brings (`versus-specials.ts`), only in that room and
+ * AFTER every roster type and side 1's kit copies, so no type index here moves and a room in
+ * which nobody brings one registers exactly this roster. `veh_ambulance`, `air_medevac_heli`
+ * and `spg_cluster` are refused even there (`@lions/net`'s `VERSUS_REFUSED_SPECIALS`).
  *
  * `drone_swarm` (E6, GH-274 chunk A1): a Sarim campaign enemy (E6 Q10) that no doctrine menu
  * builds and no seat fields, and one entity standing for twelve drones, which a lockstep
@@ -55,7 +55,6 @@ export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
   'heli_yanshuf',
   'veh_ambulance',
   'air_medevac_heli',
-  'inf_medic_squad',
   'mbt_lavi_camo',
   'spg_cluster',
   'spg_long_range',

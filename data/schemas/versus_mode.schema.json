@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/versus_mode.schema.json",
+  "title": "Versus win modes",
+  "description": "The win modes of one versus map (GH-976, design versus-maps-design section 6): what a room that picks a mode plays for, beside the default annihilation. One file per map, data/versus/modes/<map>.json. Read by @lions/data's `versusModeMissionOf`, which turns the chosen mode into the objective rows (each with a `side`) and the camps a goals-only MissionRuntime takes -- no income, production, trigger or wave, and `checkEnd` never ends it, so `outcome.ts` decides the match ('won by objective', the mode named). `camp`: destroy the enemy camp (a `raze` on the camp's footprint, no `seconds`: the match cap is its clock). `points`: a points race (a `score` objective per side, built on the zone holder rule income uses). `flag`: capture the flag, v1 a RAID (GH-976 P3): a side wins by holding a `capture` on the enemy end's flag zone, alone, for `hold_s` seconds; an enemy unit inside the zone, or nobody of the side there, resets the hold. There is no carried flag. A mode file is NOT a rules file: it carries its own camps, because a mirror room has no rules file and no economy. `pnpm validate:data` (tools/validate_versus_modes.mjs) holds the cross-file rules the schema cannot see.",
+  "type": "object",
+  "required": ["id", "map", "modes"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "The map id (one file per map)." },
+    "map": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "A map in data/maps that a versus room is offered on." },
+    "camps": {
+      "type": "object",
+      "required": ["friendly", "hostile"],
+      "additionalProperties": false,
+      "description": "Where each END's camp stands in a room that plays the `camp` mode (the structure type `camp`, which is not authored): top-left tile and footprint, by END like the rules files. Required when `modes.camp` is present. Which SIDE stands at an end is the room's call.",
+      "properties": {
+        "friendly": { "$ref": "#/$defs/camp" },
+        "hostile": { "$ref": "#/$defs/camp" }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "required": ["friendly", "hostile"],
+      "additionalProperties": false,
+      "description": "Where each END's flag zone stands in a room that plays the `flag` mode (the zones `flag_friendly` and `flag_hostile`, which the loader adds to the map's): top-left tile and footprint, by END like `camps`. Required when `modes.flag` is present. The side at an end defends its flag; the other side raids it.",
+      "properties": {
+        "friendly": { "$ref": "#/$defs/camp" },
+        "hostile": { "$ref": "#/$defs/camp" }
+      }
+    },
+    "flag_setup": {
+      "type": "object",
+      "required": ["flags", "hold_s", "setup"],
+      "additionalProperties": false,
+      "description": "Capture the flag v2 (GH-976), STAGED: a defended flag 6-12 path tiles behind its own seat, and a set-up before the fighting. Read only by a room whose config carries `flagSetup`, through @lions/data's `flagBlockOf(file, true)`; the shipped `flags` and `modes.flag` are untouched and a room without `flagSetup` never reads this. Only on a point-symmetric map that also carries `modes.flag`. `pnpm validate:data` (tools/validate_versus_modes.mjs) holds the placement rules (G-ratio, G-depth, G-edge, the point mirror) and the set-up rules (S2-S4), the fixed kit and the fixed 180 seconds.",
+      "properties": {
+        "flags": {
+          "type": "object",
+          "required": ["friendly", "hostile"],
+          "additionalProperties": false,
+          "description": "Where each END's flag zone stands in a set-up room: a 5x5 top-left tile, by END, the hostile one the point mirror of the friendly one.",
+          "properties": {
+            "friendly": { "$ref": "#/$defs/camp" },
+            "hostile": { "$ref": "#/$defs/camp" }
+          }
+        },
+        "hold_s": { "type": "integer", "minimum": 30, "maximum": 60, "description": "Seconds a side must hold the enemy flag zone alone, in one go." },
+        "setup": {
+          "type": "object",
+          "required": ["seconds", "band_tiles", "kit"],
+          "additionalProperties": false,
+          "properties": {
+            "seconds": { "type": "integer", "minimum": 60, "maximum": 600, "description": "The set-up length. The lead fixed it at 180; validate:data holds the file to it." },
+            "band_tiles": { "type": "integer", "minimum": 2, "maximum": 24, "description": "Width of the no-man's band across the seat bisector: 8 on a 48x48 map, 12 on an 80x80 or 96x96 map." },
+            "kit": {
+              "type": "object",
+              "required": ["hesco", "sandbag_post", "t_wall"],
+              "additionalProperties": false,
+              "description": "Pieces each side may place in the set-up. The lead fixed it at 12 / 4 / 2; validate:data holds the file to it.",
+              "properties": {
+                "hesco": { "type": "integer", "minimum": 0, "maximum": 32 },
+                "sandbag_post": { "type": "integer", "minimum": 0, "maximum": 32 },
+                "t_wall": { "type": "integer", "minimum": 0, "maximum": 32 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "modes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "flag": {
+          "type": "object",
+          "required": ["hold_s"],
+          "additionalProperties": false,
+          "description": "Capture the flag, v1 a raid: each side holds the other end's flag zone alone for `hold_s` seconds. Both sides play the same number.",
+          "properties": {
+            "hold_s": { "type": "integer", "minimum": 5, "maximum": 120, "description": "Seconds a side must hold the enemy flag zone uncontested, in one go (a contact, or leaving, restarts the count)." }
+          }
+        },
+        "camp": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Destroy the camp: each side razes the other end's camp. `wipe` (GH-976) says what a wiped side means: `ends` (the default) is today's rule, a side with no armed unit loses at once; `after_camp` keeps the match going while the wiped side's camp stands, so the survivor must still raze it, and at the cap or a stalemate a side with no armed unit loses (a mutual wipe stays a draw).",
+          "properties": {
+            "wipe": { "type": "string", "enum": ["ends", "after_camp"] }
+          }
+        },
+        "points": {
+          "type": "object",
+          "required": ["zones", "per_value_destroyed", "target"],
+          "additionalProperties": false,
+          "description": "Points race: first to `target` points wins. Both sides play the same numbers.",
+          "properties": {
+            "zones": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "description": "Zones that pay `per_min` points a minute to whichever side holds them alone (a contested or empty zone pays nobody). Each names a zone in the map's zones, or (with `at` and `size`) declares its own ground.",
+              "items": {
+                "type": "object",
+                "required": ["zone", "per_min"],
+                "additionalProperties": false,
+                "dependentRequired": { "at": ["size"], "size": ["at"] },
+                "properties": {
+                  "zone": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+                  "per_min": { "type": "integer", "minimum": 1, "maximum": 120 },
+                  "at": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 }, "description": "GH-976 P4: top-left tile of a ground this mode DECLARES (the loader adds it to the map's zones, as it does a flag's). Absent: `zone` names a zone the map already declares. A map whose own zones sit unevenly between the seats (a campaign map) gets its scoring ground from the mode file, and the campaign map is left alone." },
+                  "size": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 1 }, "description": "Width and height of a declared ground, in tiles. With `at`, both or neither." }
+                }
+              }
+            },
+            "per_value_destroyed": { "type": "integer", "minimum": 0, "maximum": 20, "description": "Points per 100 of unit value destroyed (a unit's cost.logistics): 1 is one point for every 100 of the enemy's value that dies. 0 turns it off." },
+            "target": { "type": "integer", "minimum": 100, "maximum": 5000, "description": "Points that win the race." }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "camp": {
+      "type": "object",
+      "required": ["at", "size"],
+      "additionalProperties": false,
+      "properties": {
+        "at": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 } },
+        "size": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 1 } },
+        "exit": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 }, "description": "GH-976: the tile (index, like `at`) where units leave this camp, an open ring tile of its footprint. Absent: the sim's row-major NW scan, which is NOT point-symmetric. On a point-symmetric map the two camps' exits must be point mirrors (validate:data). Camps only; a flag ignores it." }
+      }
+    }
+  }
+}

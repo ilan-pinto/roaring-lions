@@ -99,6 +99,10 @@ function makeOpts(extra: Partial<RendererOptions> = {}): RendererOptions {
     flashColor: '#F2E8D5',
     nearMissColor: '#6E7449',
     interceptColor: '#8E9491',
+    // L1 (GH-943) is ON by default; the tests below pin the preset, override and haze
+    // machinery against the PRE-L1 lights (hemisphere 0.9 / 0.75 / 0.7), so they ask for the
+    // `&envlight=0` path. The default path's lights are `ThreeRenderer.environment.test.ts`'s.
+    environmentLight: false,
     ...extra,
   };
 }

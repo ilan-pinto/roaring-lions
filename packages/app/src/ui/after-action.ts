@@ -11,6 +11,7 @@
 import type { Stars } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { MissionLog } from '../mission-log';
+import type { EarnAward } from '../roar-earn';
 import type { InvoiceLine } from './conduct-invoice';
 import type { GroundPin } from './ground-view';
 
@@ -66,6 +67,9 @@ export interface AfterActionInputs {
   /** Hostile units still alive at the end (victory only). */
   withdrew?: number;
   credits?: { paid: number; balance: number };
+  /** GH-317: what this win paid in Roar coins (`roar-earn.ts`), one row each, and the
+   *  balance after. Absent when it paid none (a replay, the tutorial, a refused write). */
+  coins?: { awards: readonly EarnAward[]; balance: number };
   /** KS-12: the victory write was refused (`writeVictory` answered
    *  `'refused'`), so nothing from this win was kept. */
   unsaved?: boolean;
@@ -82,6 +86,23 @@ export interface AfterActionInputs {
   marked?: number;
   /** A unit type's display name. */
   typeName(type: string): string;
+}
+
+/** One Roar-coin payout as the report words it. A function, never a table resolved at
+ *  module load (the catalogue is not ready then). */
+export function coinAwardText(a: EarnAward): string {
+  switch (a.source) {
+    case 'welcome':
+      return t('debrief.coins.welcome');
+    case 'first_win':
+      return t('debrief.coins.firstWin');
+    case 'star':
+      return t('debrief.coins.star', { stars: a.stars ?? 0 });
+    case 'campaign':
+      return t('debrief.coins.campaign');
+    case 'backfill':
+      return t('debrief.coins.backfill');
+  }
 }
 
 export type ItemTone = 'good' | 'bad' | 'commend' | 'plain';
@@ -246,6 +267,12 @@ export function afterAction(i: AfterActionInputs): AfterAction {
           ? { mark: `+${i.credits.paid}`, tone: 'commend', text: t('aar.changed.credits', { n: i.credits.balance }), sub: t('aar.changed.creditsSub') }
           : { mark: '+0', tone: 'plain', text: t('aar.changed.creditsNone', { n: i.credits.balance }) }
       );
+    }
+    if (i.coins) {
+      for (const a of i.coins.awards) {
+        changed.push({ mark: `+${a.coins}`, tone: 'commend', text: coinAwardText(a) });
+      }
+      changed.push({ mark: '', tone: 'plain', text: t('debrief.coins.total', { n: i.coins.balance }), sub: t('debrief.coins.totalSub') });
     }
     for (const p of i.promotions) {
       changed.push({

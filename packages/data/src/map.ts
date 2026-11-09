@@ -91,6 +91,9 @@ export interface MapJson {
   grove?: string;
   /** PROTOTYPE: valley walls beyond the edge. Presentation only. */
   backdrop?: MapBackdropJson;
+  /** The wind this map blows (GH-984 N1). Presentation only; every field is optional and an absent one
+   *  takes the theme's default (`TERRAIN_WIND`, app). */
+  wind?: MapWindJson;
   /** Per-tile elevation, one digit 0-9 per tile, same dimensions as `rows`.
    *  Absent means every tile is height 0, which is every map authored before
    *  the elevation milestone. Orthogonal to the terrain symbol on purpose:
@@ -184,10 +187,34 @@ export interface MapBackdrop {
   pieces: MapBackdropPiece[];
 }
 
+/** `map.schema.json`'s `wind` block, as a JSON module types it. */
+export interface MapWindJson {
+  strength?: number;
+  side?: string;
+  skew_deg?: number;
+}
+
+/** A map's wind block, checked: any field it leaves out stays undefined and takes the theme's default. */
+export interface MapWind {
+  /** 0..2, a multiplier on every lean. */
+  strength?: number;
+  /** The screen side the wind blows toward. */
+  side?: 'east' | 'west';
+  /** Degrees, clockwise on screen, at most `WIND_SKEW_MAX_DEG` either side of the screen side. */
+  skewDeg?: number;
+}
+
+/** The skew bound (design GH-984 §3: a heading further off the screen's horizontal reads as nothing). The
+ *  renderer clamps to the same number (`terrain/wind.ts`); `map.schema.json` and `parseMap` both refuse more. */
+export const WIND_SKEW_MAX_DEG = 30;
+export const WIND_STRENGTH_MAX = 2;
+
 export interface ParsedMap {
   /** The map's valley backdrop, or null. Presentation only -- read by the
    *  app and the renderer, never given to Sim. */
   backdrop?: MapBackdrop | null;
+  /** The map's own wind, or null (the theme's default). Presentation only -- never given to Sim. */
+  wind?: MapWind | null;
   id: string;
   width: number;
   height: number;
@@ -356,6 +383,28 @@ function parseBackdrop(json: MapJson): MapBackdrop | null {
   return { valley: b.valley as 'ns' | 'ew', crest: b.crest, seed: b.seed, kit: b.kit, pieces };
 }
 
+function parseWind(json: MapJson): MapWind | null {
+  const w = json.wind;
+  if (!w) return null;
+  const bad = (what: string): never => {
+    throw new Error(`map ${json.id}: wind ${what}`);
+  };
+  const out: MapWind = {};
+  if (w.strength !== undefined) {
+    if (!(Number.isFinite(w.strength) && w.strength >= 0 && w.strength <= WIND_STRENGTH_MAX)) bad(`strength must be 0-${WIND_STRENGTH_MAX}, got ${w.strength}`);
+    out.strength = w.strength;
+  }
+  if (w.side !== undefined) {
+    if (w.side !== 'east' && w.side !== 'west') bad(`side must be 'east' or 'west', got '${w.side}'`);
+    out.side = w.side as 'east' | 'west';
+  }
+  if (w.skew_deg !== undefined) {
+    if (!(Number.isFinite(w.skew_deg) && Math.abs(w.skew_deg) <= WIND_SKEW_MAX_DEG)) bad(`skew_deg must be within ${WIND_SKEW_MAX_DEG} of the screen side, got ${w.skew_deg}`);
+    out.skewDeg = w.skew_deg;
+  }
+  return out;
+}
+
 export function parseMap(json: MapJson): ParsedMap {
   const { width, height, rows } = json;
   const terrain = json.terrain ?? 'arid';
@@ -492,7 +541,7 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, backdrop: parseBackdrop(json), blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
+  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, backdrop: parseBackdrop(json), wind: parseWind(json), blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
 }
 
 /**

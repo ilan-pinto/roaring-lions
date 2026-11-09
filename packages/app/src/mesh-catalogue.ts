@@ -353,17 +353,28 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
 
 /** Structure types drawing a building mesh: standing plus its wreck sibling. */
 export const BUILDING_MESHES: Readonly<
-  Record<string, { readonly idle: string; readonly wreck: string; readonly construction?: string }>
+  Record<
+    string,
+    {
+      readonly idle: string;
+      readonly wreck: string;
+      readonly construction?: string;
+      /** GH-974: a lower-detail twin of `idle`, drawn below `STRUCTURE_LOD1_BELOW_ZOOM` by the instanced
+       *  per-tile path. NOT a structure or a unit id: it is a file of its own type's entry. It ships zero
+       *  materials and a UV0 into `idle`'s bake, and the renderer draws it with `idle`'s own material. */
+      readonly lod1?: string;
+    }
+  >
 > = {
   shanty: { idle: 'buildings/shanty.glb', wreck: 'buildings/shanty_wreck.glb' },
-  house: { idle: 'buildings/house.glb', wreck: 'buildings/house_wreck.glb' },
+  house: { idle: 'buildings/house.glb', wreck: 'buildings/house_wreck.glb', lod1: 'buildings/house_lod1.glb' },
   warehouse: { idle: 'buildings/warehouse.glb', wreck: 'buildings/warehouse_wreck.glb' },
   apartment: { idle: 'buildings/apartment.glb', wreck: 'buildings/apartment_wreck.glb' },
   clinic: { idle: 'buildings/clinic.glb', wreck: 'buildings/clinic_wreck.glb' },
   fence: { idle: 'buildings/fence.glb', wreck: 'buildings/fence_wreck.glb' },
   concrete: { idle: 'buildings/concrete.glb', wreck: 'buildings/concrete_wreck.glb' },
   hall: { idle: 'buildings/hall.glb', wreck: 'buildings/hall_wreck.glb' },
-  wall: { idle: 'buildings/wall.glb', wreck: 'buildings/wall_wreck.glb' },
+  wall: { idle: 'buildings/wall.glb', wreck: 'buildings/wall_wreck.glb', lod1: 'buildings/wall_lod1.glb' },
   // The KDF field camp a mission places (`structures[]` in
   // mission.schema.json) and produces from -- the one building type that
   // reaches the map from mission JSON rather than from a map symbol.
@@ -417,6 +428,12 @@ export const BUILDING_MESHES: Readonly<
     wreck: 'buildings/kdf_aid_post_wreck.glb',
     construction: 'buildings/kdf_aid_post_construction.glb',
   },
+  // GH-277 forward camp (4 Nov 2026): its own Meshy-7 base finished in Blender (zero materials, role split), lead-approved.
+  kdf_forward_camp: {
+    idle: 'buildings/kdf_forward_camp.glb',
+    wreck: 'buildings/kdf_forward_camp_wreck.glb',
+    construction: 'buildings/kdf_forward_camp_construction.glb',
+  },
   militia_field_clinic: { idle: 'buildings/militia_field_clinic.glb', wreck: 'buildings/militia_field_clinic_wreck.glb' },
   militia_firing_position: { idle: 'buildings/militia_firing_position.glb', wreck: 'buildings/militia_firing_position_wreck.glb' },
   militia_observation_post: { idle: 'buildings/militia_observation_post.glb', wreck: 'buildings/militia_observation_post_wreck.glb' },
@@ -458,6 +475,15 @@ export const DECOR_MESHES: Readonly<Record<DecorFamilyName, readonly string[]>> 
   // `decor-place.ts` pins every placement to variant 0 for it; listing
   // `ditch_1`/`ditch_2` here would 404 on every boot of a map with a ditch.
   ditch: ['decor/ditch_0.glb'],
+};
+
+/**
+ * GH-974: a decor family's lower-detail TWIN, drawn instead of `<family>_0` below `STRUCTURE_LOD1_BELOW_ZOOM`
+ * (`terrain/decor-textured-mesh.ts`, `stepTexturedDecorLod`). Keyed `<family>_lod1`, never a variant: it ships zero
+ * materials and a UV0 into `<family>_0`'s bake, and the loader gives it that map. Only a TEXTURED family may have one.
+ */
+export const DECOR_LOD1: Readonly<Partial<Record<DecorFamilyName, string>>> = {
+  ditch: 'decor/ditch_lod1.glb',
 };
 
 /** The three shared VFX meshes (mesh-unit-contract's VFX asset class). Not
@@ -555,7 +581,7 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 /**
  * Art that has landed AHEAD of the type that will draw it -- the opposite
  * of retirement. Two batches hold files here today (the GH-277 field works
- * left at Task 13 and now live in `BUILDING_MESHES`): GH-298's four officers
+ * and the forward camp now live in `BUILDING_MESHES`): GH-298's four officers
  * (spec `2026-09-30-field-commanders-design.md` §7, §8.2 E1), whose unit
  * types arrive at Stage 5 (which moves each file into `RIGGED_UNIT_MESHES`
  * / `VEHICLE_UNIT_MESHES`, runs `pnpm gait:meshes` on the teams -- it is
@@ -637,8 +663,10 @@ export function claimedMeshFiles(): Set<string> {
     out.add(b.idle);
     out.add(b.wreck);
     if (b.construction !== undefined) out.add(b.construction);
+    if (b.lod1 !== undefined) out.add(b.lod1);
   }
   for (const files of Object.values(DECOR_MESHES)) for (const f of files) out.add(f);
+  for (const f of Object.values(DECOR_LOD1)) out.add(f);
   for (const f of Object.values(VFX_MESHES)) out.add(f);
   for (const f of Object.values(CAMPAIGN_MESHES)) out.add(f);
   for (const f of Object.values(BACKDROP_MESHES)) out.add(f);
@@ -706,7 +734,7 @@ export function meshPlanFor(
 export interface MeshManifest {
   readonly rigged: readonly { id: string; urls: readonly string[]; faction: MeshFactionName }[];
   readonly vehicles: readonly { id: string; url: string }[];
-  readonly buildings: readonly { id: string; url: string; construction?: string }[];
+  readonly buildings: readonly { id: string; url: string; construction?: string; lod1?: string }[];
   readonly decor: ReadonlyMap<string, string>;
   readonly props: ReadonlyMap<PropKindName, string>;
   /** The backdrop kit's served URL, or null. A kit id with no entry in `BACKDROP_MESHES` is null too: the
@@ -723,14 +751,20 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
     })),
     vehicles: [...plan.vehicles].map((id) => ({ id, url: meshUrl(VEHICLE_UNIT_MESHES[id]) })),
     buildings: [...plan.buildings].map((id) => {
-      const construction = BUILDING_MESHES[id].construction;
-      return construction === undefined
-        ? { id, url: meshUrl(BUILDING_MESHES[id].idle) }
-        : { id, url: meshUrl(BUILDING_MESHES[id].idle), construction: meshUrl(construction) };
+      const { idle, construction, lod1 } = BUILDING_MESHES[id];
+      return {
+        id,
+        url: meshUrl(idle),
+        ...(construction === undefined ? {} : { construction: meshUrl(construction) }),
+        ...(lod1 === undefined ? {} : { lod1: meshUrl(lod1) }),
+      };
     }),
     decor: new Map(
       [...plan.decor].flatMap((fam) =>
-        DECOR_MESHES[fam].map((file, v): [string, string] => [`${fam}_${v}`, meshUrl(file)])
+        [
+          ...DECOR_MESHES[fam].map((file, v): [string, string] => [`${fam}_${v}`, meshUrl(file)]),
+          ...(DECOR_LOD1[fam] === undefined ? [] : [[`${fam}_lod1`, meshUrl(DECOR_LOD1[fam] as string)] as [string, string]]),
+        ]
       )
     ),
     props: new Map([...plan.props].map((kind): [PropKindName, string] => [kind, meshUrl(PROP_MESHES[kind])])),

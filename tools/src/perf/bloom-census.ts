@@ -61,6 +61,11 @@
  * is near the limit. That is a finding for the lead, not a reason to move the
  * ceiling or the frame.
  *
+ * ARMS (GH-943 P1 T5). `--gpu=legacy|webgl2|webgpu` (default `legacy`) reads the same census through the shipping renderer or
+ * either node backend (`debugPreBloomLuminanceAsync`, which draws the bloom stage's INPUT node into a HalfFloat target and reads
+ * it back; `--hw=metal|swiftshader` picks the hardware then). `--gpu=metal|swiftshader` keeps meaning the hardware of the legacy
+ * arm. The page's `backendInfo()` must match the arm or the run is refused.
+ *
  * Conditions: Playwright Chromium, Metal by default on macOS
  * (`ui-review/gpu.ts`), 1440x900 at DPR 1, music off
  * (`musicOffInitScript`), its own dev server on `--port` (default 5186,
@@ -71,9 +76,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { capture, devServerStopper, ensureDevServer, readUnmaskedRenderer } from '../golden-diff/browser';
-import { AFTERMATH_SCENARIO, CAPTURE_VIEWPORT, captureScript, threeUrl } from '../golden-diff/capture-protocol';
+import { AFTERMATH_SCENARIO, CAPTURE_VIEWPORT, bootFreezeScriptFor, captureScript, threeUrl } from '../golden-diff/capture-protocol';
 import { musicOffInitScript } from '../ui-review/music-off';
-import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
+import { resolveCensusGpu } from './bloom-census-args';
+import { backendRefusal, urlGpuParam, type GpuArm } from '../golden-diff/backend';
 import { claimPort } from '../ui-review/port';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -158,7 +164,8 @@ async function aftermathReads(
   port: number,
   stride: number,
   quality: Quality,
-  dpr: number
+  dpr: number,
+  arm: GpuArm
 ): Promise<{ tick: number; reads: { fog: string; census: Census }[] }> {
   const page = await browser.newPage({ viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: dpr });
   try {
@@ -167,12 +174,12 @@ async function aftermathReads(
     const dir = path.join(REPO_ROOT, '.superpowers', 'art-captures', 'bloom-census');
     fs.mkdirSync(dir, { recursive: true });
     const shot = path.join(dir, `aftermath-${quality}-dpr${dpr}.png`);
-    const result = await capture(page, threeUrl(port, AFTERMATH_SCENARIO), captureScript(AFTERMATH_SCENARIO), shot, `bloom-census aftermath ${quality} dpr${dpr}`);
+    const result = await capture(page, threeUrl(port, AFTERMATH_SCENARIO, arm), captureScript(AFTERMATH_SCENARIO, arm), shot, `bloom-census aftermath ${quality} dpr${dpr}`, false, arm);
     if (result.tick !== AFTERMATH_SCENARIO.targetTick) {
       throw new Error(`aftermath captured at tick ${result.tick}, not ${AFTERMATH_SCENARIO.targetTick}`);
     }
     const reads = (await page.evaluate(
-      ({ s }) => {
+      async ({ s, arm: a }) => {
         const r = (
           window as unknown as {
             __lions: {
@@ -180,19 +187,35 @@ async function aftermathReads(
                 frame(alpha: number, dtMs: number): void;
                 setDebugLayerVisible(name: string, visible: boolean): number;
                 debugPreBloomLuminance?(stride: number): unknown;
+                debugPreBloomLuminanceAsync?(stride: number): Promise<unknown>;
+                whenGpuIdle?(): Promise<void>;
+                backendInfo?(): { kind: string; adapter: string };
               };
             };
           }
         ).__lions.renderer;
-        if (typeof r.debugPreBloomLuminance !== 'function') throw new Error('renderer has no debugPreBloomLuminance');
+        const node = a !== 'legacy';
+        if (node ? typeof r.debugPreBloomLuminanceAsync !== 'function' : typeof r.debugPreBloomLuminance !== 'function') {
+          throw new Error(`renderer has no ${node ? 'debugPreBloomLuminanceAsync' : 'debugPreBloomLuminance'}`);
+        }
+        // GH-943 P1 (T5): a node arm repaints, waits one NATIVE rAF (the pipeline redraws once per frame id) and the GPU, then reads
+        // asynchronously. The legacy arm's reads are untouched.
+        const repaint = async (): Promise<void> => {
+          r.frame(1, 0);
+          if (node) {
+            await new Promise<void>((res) => window.requestAnimationFrame(() => res()));
+            await r.whenGpuIdle?.();
+          }
+        };
+        const read = (): Promise<unknown> | unknown => (node ? r.debugPreBloomLuminanceAsync?.(s) : r.debugPreBloomLuminance?.(s));
         const out: { fog: string; census: unknown }[] = [];
         // Zero elapsed time throughout: the gate's own repaint, so the frame
         // read is the frame the gate photographs.
-        r.frame(1, 0);
-        out.push({ fog: 'gate', census: r.debugPreBloomLuminance(s) });
+        await repaint();
+        out.push({ fog: 'gate', census: await read() });
         r.setDebugLayerVisible('fog', false);
-        r.frame(1, 0);
-        out.push({ fog: 'revealed', census: r.debugPreBloomLuminance(s) });
+        await repaint();
+        out.push({ fog: 'revealed', census: await read() });
         r.setDebugLayerVisible('fog', true);
         // ATTRIBUTION, not a verdict: the same frame with the pooled flash
         // lights hidden. Printed so a red aftermath line says whether the hot
@@ -200,13 +223,13 @@ async function aftermathReads(
         // ground at the frame's edge (it does not). Never consulted by the
         // exit code -- the frame the gate photographs is the one judged.
         r.setDebugLayerVisible('blast-light', false);
-        r.frame(1, 0);
-        out.push({ fog: 'gate, flash lights hidden (attribution only)', census: r.debugPreBloomLuminance(s) });
+        await repaint();
+        out.push({ fog: 'gate, flash lights hidden (attribution only)', census: await read() });
         r.setDebugLayerVisible('blast-light', true);
-        r.frame(1, 0);
+        await repaint();
         return out;
       },
-      { s: stride }
+      { s: stride, arm }
     )) as { fog: string; census: Census | null }[];
     for (const x of reads) if (x.census === null) throw new Error(`debugPreBloomLuminance returned null (${x.fog})`);
     return { tick: result.tick, reads: reads as { fog: string; census: Census }[] };
@@ -239,19 +262,21 @@ async function main(): Promise<number> {
   for (const m of maps) if (!allMaps.includes(m)) throw new Error(`--only=${m} names no map in data/maps/`);
   const aftermath = arg('aftermath', 'on');
   if (!['on', 'off', 'only'].includes(aftermath)) throw new Error('--aftermath must be on, off or only');
-  const backend = resolveGpuBackend(process.argv.slice(2), process.platform);
+  // GH-943 P1 (T5): `--gpu=` is an ARM (legacy | webgl2 | webgpu) or, as before, the hardware (metal | swiftshader).
+  const gpu = resolveCensusGpu(process.argv.slice(2), process.platform);
+  const arm = gpu.arm;
 
   const port = await claimPort('bloom-census', 'BLOOM_CENSUS_PORT', DEFAULT_PORT);
   const stop = devServerStopper(await ensureDevServer(port, REPO_ROOT, 'bloom-census'), 'bloom-census');
   const browser = await chromium.launch({
     headless: true,
-    args: gpuLaunchArgs(backend),
+    args: gpu.launchArgs,
   });
   const failures: string[] = [];
   const harnessErrors: string[] = [];
   try {
     const gl = await readUnmaskedRenderer(browser);
-    console.log(`[bloom-census] gpu=${gl} maps=${maps.length} quality=${qualities.join(',')} stride=${stride} ceiling=${threshold}`);
+    console.log(`[bloom-census] arm=${arm} hardware=${gpu.hardware} gpu=${gl} maps=${maps.length} quality=${qualities.join(',')} stride=${stride} ceiling=${threshold}`);
     console.log('map | quality | view (x,y,zoom) | samples | p50 | p99 | max | frac>1.0');
     for (const quality of aftermath === 'only' ? [] : qualities) {
       for (const map of maps) {
@@ -267,6 +292,8 @@ async function main(): Promise<number> {
           // tsx's esbuild `keepNames` wraps inner functions in `__name(...)`,
           // which does not exist in the page.
           await page.addInitScript('window.__name = (f) => f;');
+          // A node arm freezes through the app's own flag (never a stubbed global rAF: WebGPURenderer wants the native one).
+          if (arm !== 'legacy') await page.addInitScript(bootFreezeScriptFor(arm));
           // Freeze the app's frame loop AT TICK 0, or reload and try again.
           // The sim ticks only from that loop, so a frame frozen at tick 0
           // has fired nothing, killed nothing and identified nothing: it is
@@ -280,20 +307,20 @@ async function main(): Promise<number> {
           let tick = -1;
           for (let attempt = 1; attempt <= MAX_BOOT_ATTEMPTS; attempt++) {
             try {
-              await page.goto(`http://localhost:${port}/?sandbox=${map}&tod=day`, { waitUntil: 'load', timeout: BOOT_TIMEOUT_MS });
+              await page.goto(`http://localhost:${port}/?sandbox=${map}&tod=day${urlGpuParam(arm)}`, { waitUntil: 'load', timeout: BOOT_TIMEOUT_MS });
               // The freeze happens INSIDE the predicate, on the first poll that
               // sees the battlefield, so no app frame can run between "booted"
               // and "frozen".
               await page.waitForFunction(
-                () => {
+                (a: string) => {
                   const w = window as unknown as {
                     __lions?: { renderer?: unknown };
                   };
                   if (!w.__lions?.renderer) return false;
-                  window.requestAnimationFrame = () => 0;
+                  if (a === 'legacy') window.requestAnimationFrame = () => 0;
                   return true;
                 },
-                null,
+                arm,
                 { timeout: BOOT_TIMEOUT_MS, polling: 50 }
               );
               tick = await page.evaluate(() => {
@@ -327,7 +354,7 @@ async function main(): Promise<number> {
           await page.waitForLoadState('networkidle', { timeout: BOOT_TIMEOUT_MS }).catch(() => undefined);
           await page.waitForTimeout(LOAD_SETTLE_MS);
           const readings = (await page.evaluate(
-            ({ stride: s }) => {
+            async ({ stride: s, arm: a }) => {
               type Census = {
                 samples: number;
                 p50: number;
@@ -347,12 +374,18 @@ async function main(): Promise<number> {
                       frame(alpha: number, dtMs: number): void;
                       setDebugLayerVisible(name: string, visible: boolean): number;
                       debugPreBloomLuminance?(stride: number): Census | null;
+                      debugPreBloomLuminanceAsync?(stride: number): Promise<Census | null>;
+                      whenGpuIdle?(): Promise<void>;
+                      backendInfo?(): { kind: string; adapter: string };
                     };
                   };
                 }
               ).__lions;
               const r = L.renderer;
-              if (typeof r.debugPreBloomLuminance !== 'function') throw new Error('renderer has no debugPreBloomLuminance');
+              const node = a !== 'legacy';
+              if (node ? typeof r.debugPreBloomLuminanceAsync !== 'function' : typeof r.debugPreBloomLuminance !== 'function') {
+                throw new Error(`renderer has no ${node ? 'debugPreBloomLuminanceAsync' : 'debugPreBloomLuminance'}`);
+              }
               r.setDebugLayerVisible('fog', false);
               const force = L.units();
               const boot =
@@ -373,15 +406,24 @@ async function main(): Promise<number> {
                 r.camera.zoom = zoom;
                 // Zero elapsed time: lay the scene out for this camera
                 // (meshes stood up, fog read) without advancing any clock.
-                for (let i = 0; i < 3; i++) r.frame(1, 0);
-                const c = r.debugPreBloomLuminance(s);
+                for (let i = 0; i < 3; i++) {
+                  r.frame(1, 0);
+                  if (node) {
+                    await new Promise<void>((res) => window.requestAnimationFrame(() => res()));
+                    await r.whenGpuIdle?.();
+                  }
+                }
+                const c = node ? await r.debugPreBloomLuminanceAsync?.(s) : r.debugPreBloomLuminance?.(s);
                 if (c === null) throw new Error('debugPreBloomLuminance returned null');
                 out.push({ view, x, y, zoom, ...c });
               }
-              return { tick: L.sim.tickCount, out };
+              return { tick: L.sim.tickCount, out, backend: r.backendInfo?.() };
             },
-            { stride }
-          )) as unknown as { tick: number; out: ViewReading[] };
+            { stride, arm }
+          )) as unknown as { tick: number; out: ViewReading[]; backend?: { kind: string; adapter: string } };
+          // The backend is the PAGE's word, never the URL's: a fallback is evidence about the fallback.
+          const refusal = backendRefusal(arm, readings.backend);
+          if (refusal !== null) throw new Error(refusal);
           for (const v of readings.out) {
             const line = `${map} | ${quality} | ${v.view} (${v.x.toFixed(1)},${v.y.toFixed(1)},${v.zoom}) | ${v.samples} | ${v.p50.toFixed(4)} | ${v.p99.toFixed(4)} | ${v.max.toFixed(4)} | ${v.fracOverThreshold.toFixed(6)}`;
             console.log(line);
@@ -405,7 +447,7 @@ async function main(): Promise<number> {
       );
       for (const { quality, dpr } of AFTERMATH_CONDITIONS) {
         try {
-          const { reads } = await aftermathReads(browser, port, stride, quality, dpr);
+          const { reads } = await aftermathReads(browser, port, stride, quality, dpr, arm);
           const unlit = reads.find((x) => x.fog.includes('attribution'))?.census;
           for (const { fog, census: v } of reads) {
             const line = `aftermath | ${quality} | dpr ${dpr} | fog ${fog} | ${v.width}x${v.height} | ${v.samples} | ${v.p50.toFixed(4)} | ${v.p99.toFixed(4)} | ${v.max.toFixed(4)} | ${v.fracOverThreshold.toFixed(6)}`;

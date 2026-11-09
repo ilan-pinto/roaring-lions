@@ -6,11 +6,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
+import { NOT_ON_LINE } from '@lions/sim';
 import {
   LINE_QUEUE_CHIPS,
   MAX_TAGS,
   RALLY_FLASH_MS,
   buildLine,
+  lineName,
   lineView,
   linesShown,
   rallyMarks,
@@ -101,7 +103,6 @@ describe('doctrineTags', () => {
       'demolish',
       'breach',
       'garrison',
-      'hidden_setup',
       'mark_target',
     ]);
     expect(tags).toHaveLength(MAX_TAGS);
@@ -429,5 +430,59 @@ describe('worksTileState (#277)', () => {
     for (const [reason, state] of cases) {
       expect(worksTileState(offer, reason)).toEqual({ typeId: 'kdf_medic_station', state, left: 1, max: 2, logistics: 250 });
     }
+  });
+});
+
+// GH-277 forward camp.
+describe('a unit off a line\'s menu', () => {
+  it('reads the named line and words the runtime\'s code; unpinned it asks the plain question', () => {
+    const asked: string[] = [];
+    const v = view({
+      buildBlockedReason: (id) => {
+        asked.push(`plain:${id}`);
+        return null;
+      },
+      buildBlockedReasonOn: (id, line) => {
+        asked.push(`on:${id}@${line}`);
+        return line === 1 ? NOT_ON_LINE : null;
+      },
+    });
+    // unpinned: the plain walk, open
+    expect(tileState(unit(), v).lock).toBeNull();
+    // pinned to line 1: the line's walk answers with the code, and the tile words it with the line's name
+    const t = tileState(unit(), v, undefined, undefined, { index: 1, label: 'Forward 1' });
+    expect(t.lock).toEqual({ short: 'not here', full: 'Forward 1 does not build this unit' });
+    expect(t.capped).toBeNull();
+    // pinned to line 0: open
+    expect(tileState(unit(), v, undefined, undefined, { index: 0, label: 'Camp 1' }).lock).toBeNull();
+    expect(asked).toEqual(['plain:inf_squad', 'on:inf_squad@1', 'on:inf_squad@0']);
+  });
+
+  it('a view that predates the forward camp (no buildBlockedReasonOn) judges a pinned tile by the plain walk', () => {
+    expect(tileState(unit(), view(), undefined, undefined, { index: 1, label: 'Forward 1' }).lock).toBeNull();
+  });
+});
+
+describe('the forward camp\'s row', () => {
+  const l = (appended?: boolean): LineSnapshot => ({
+    exit: [0, 0], current: null, items: [], progress: 0, ticksLeft: 0, contested: false, rally: null, alive: true,
+    ...(appended === undefined ? {} : { appended }),
+  });
+  it('is "Forward n", n counting forward lines only, while a camp keeps "Camp index+1"', () => {
+    const lines = [l(), l(), l(true), l(true)];
+    expect(lineName(lines, 0)).toEqual({ key: 'dock.camp', n: 1 });
+    expect(lineName(lines, 1)).toEqual({ key: 'dock.camp', n: 2 });
+    expect(lineName(lines, 2)).toEqual({ key: 'dock.line.forward', n: 1 });
+    expect(lineName(lines, 3)).toEqual({ key: 'dock.line.forward', n: 2 });
+  });
+  it('a lone idle appended line is shown; a lone idle camp is not', () => {
+    expect(linesShown([l(true)])).toBe(true);
+    expect(linesShown([l()])).toBe(false);
+    expect(linesShown([l(false)])).toBe(false);
+  });
+  it('the works tile of a type with no free line slot is its own state', () => {
+    const offer = { typeId: 'kdf_forward_camp', name: 'Forward Camp', max: 1, left: 1, logistics: 350, intel: 0 };
+    expect(worksTileState(offer, 'no_line_slot').state).toBe('no_line_slot');
+    expect(worksTileState(offer, null).state).toBe('ready');
   });
 });

@@ -23,6 +23,7 @@ import { isHostileSide } from '@lions/render';
 import { resolveMoveOrder, resolvePointer, type IntentWorld, type Resolution } from './intents';
 import { badgeFor, cursorFor, cursorKey, type CursorHints, type CursorName } from './cursor';
 import { resolveFormationOrder } from './formation';
+import type { FormationClosedReason } from '../net/versus-formations';
 import type { FormationId } from '../ui/formation-model';
 import { formationClassOfUnit } from '../ui/formation-sim';
 import { roleBucket } from '../ui/role';
@@ -63,6 +64,8 @@ export function simIntentWorld(sim: Sim, inFlaggedZone: (x: number, y: number) =
     // sim's refusal cannot drift (R-8). Read-only queries.
     canFocus: (i, target) => sim.canFocus(i, target),
     focusHurts: (i, target) => sim.focusHurts(i, target),
+    // The lead's ruling of 4 Nov: the sim's own component flag, the one the card's "Gun out" reads.
+    gunOut: (i) => sim.state.firepowerKilled[i] === 1,
     // In a versus room only your own side's wounded are a target (the lead, 30 Oct 2026): the receiver drops the
     // rest on both machines (`validateCommand`), so the click must not offer it.
     canRescue: (i, target) => sim.canRescue(i, target) && (!versusRoom || sim.state.side[target] === sim.state.side[i]),
@@ -283,7 +286,7 @@ export interface CursorContext {
    *  `formationIds`-filtered selection) and whether formations are open in this room
    *  (`formationsOpenIn`). The cursor reads `resolveFormationOrder`, the click's own resolver.
    *  Absent or null: not armed. */
-  readonly armedFormation?: { readonly id: FormationId; readonly ids: number[]; readonly open: boolean } | null;
+  readonly armedFormation?: { readonly id: FormationId; readonly ids: number[]; readonly open: boolean; readonly reason?: FormationClosedReason } | null;
 }
 
 export interface CursorRead {
@@ -311,7 +314,7 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
   // An armed formation spends the click as a march: the plain move's ground, the formation's verb.
   const formation = ctx.armed === null && rallyAt === null && patrolAt === null ? (ctx.armedFormation ?? null) : null;
   const res = formation !== null
-    ? resolveFormationOrder(world, { ids: formation.ids, formation: formation.id, x: p.x, y: p.y, append: false, formationsOpen: formation.open, classOf: (i) => formationClassOfUnit(sim, i) })
+    ? resolveFormationOrder(world, { ids: formation.ids, formation: formation.id, x: p.x, y: p.y, append: false, formationsOpen: formation.open, closedReason: formation.reason, classOf: (i) => formationClassOfUnit(sim, i) })
     : armedMove
     ? resolveMoveOrder(world, { ids, x: p.x, y: p.y, append: false })
     : resolvePointer(world, {

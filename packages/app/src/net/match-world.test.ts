@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { doctrines, units, versusRules } from '@lions/data';
+import { doctrines, maps, structures, units, versusRules } from '@lions/data';
 import { matchDigest, sidesOfFactions, validateConfig, type MatchConfig, type SeatConfig } from '@lions/net';
 import type { MissionEvent } from '@lions/sim';
 import { campOf } from './versus-force';
@@ -39,7 +39,8 @@ describe('buildMatchWorld', () => {
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 (beit) and 792859212 (tel).
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
     // beit re-pinned 28 Oct 2026 for its seat 0 at (4,22) (GH-560 Task 7B): the spawn moved and nothing else. Was 823410040 (here and in the two kit pins below).
-    for (const [map, pin] of [['beit_sahwan_outskirts', 1075203618], ['tel_marum', 4263437644]] as const) {
+    // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so a room that registers the KDF roster turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old values read back (watched). Was 1075203618 (beit) and 682632360 (tel).
+    for (const [map, pin] of [['beit_sahwan_outskirts', 701662394], ['tel_marum', 2541694446]] as const) {
       const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 20260727));
       for (let i = 0; i < 200; i++) w.sim.tick();
       expect(w.sim.hash()).toBe(pin);
@@ -142,10 +143,11 @@ function brigade(map: string, tiers: [Tiers, Tiers], opts: { factions?: ['kdf' |
 /** LITERALS, never read from the code under test (CLAUDE.md). The roster
  *  registers MATCHED_TYPES types in a matched room (was 36: wounded_kdf and wounded_sarim
  *  joined it when wounds opened to versus, 23 Oct 2026; 39 for a few hours of 30 Oct 2026, while
- *  `inf_medic_squad` was in the room roster, and 38 again once the lead held it out, PR 907); a mbt_lavi's hull.hp is
+ *  `inf_medic_squad` was in the room roster, and 38 again once the lead held it out, PR 907; 39 from 3 Nov 2026, when the
+ *  lead put the medic team on the KDF camp menu for good); a mbt_lavi's hull.hp is
  *  3000 and its armour tier 1 adds 210 (data/units/kdf/mbt_lavi.json), so in
  *  Q16.16 a base Lavi reads 3000 * 65536 and a tier-1 Lavi 3210 * 65536. */
-const MATCHED_TYPES = 38;
+const MATCHED_TYPES = 39; // Was 38.
 const LAVI_BASE_HP = 196608000;
 const LAVI_ARMOUR1_HP = 210370560;
 const LAVI1: Tiers = { mbt_lavi: { armour: 1 } };
@@ -281,7 +283,8 @@ describe("a matched room, and a brigade room with equal claims, build today's by
   // LITERALS: the same two pins the first describe holds (seed 20260727, 200 ticks).
   // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 / 792859212.
   // beit re-pinned 28 Oct 2026 for its seat 0 at (4,22) (GH-560 Task 7B). Was 823410040.
-  const PINS = [['beit_sahwan_outskirts', 1075203618], ['tel_marum', 4263437644]] as const;
+  // Re-pinned for GH-884 (5 Nov 2026), see the first describe's note: the apsStockLive fold. Was 1075203618 (beit) and 682632360 (tel).
+  const PINS = [['beit_sahwan_outskirts', 701662394], ['tel_marum', 2541694446]] as const;
   const SEED = 20260727;
 
   it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {
@@ -360,7 +363,10 @@ describe('the economy runtime (N3 Task 3)', () => {
 
   it('versusUnitInfo: the asking side\'s menu only, its cost from the unit JSON, no unlock and no intel', () => {
     const info = versusUnitInfo([doctrines.kdf.menu, doctrines.sarim.menu]);
-    expect(info('mbt_lavi', 0)).toEqual({ logistics: units.mbt_lavi.cost.logistics, buildTimeS: expect.any(Number), population: expect.any(Number) });
+    expect(info('mbt_lavi', 0)).toEqual({ logistics: units.mbt_lavi.cost.logistics, buildTimeS: expect.any(Number), population: expect.any(Number), role: 'mbt' });
+    // GH-277: the role rides along, so a production work with `production.roles` can judge a room's menu too (a literal, not read back)
+    expect(info('inf_squad', 0)?.role).toBe('infantry');
+    expect(info('atgm_cell', 1)?.role).toBe('at_team');
     expect(info('mbt_lavi', 1)).toBeNull();
     expect(info('atgm_cell', 1)).not.toBeNull();
     expect(info('atgm_cell', 0)).toBeNull();
@@ -435,7 +441,10 @@ describe('the economy runtime (N3 Task 3)', () => {
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was -1498380144 (tel_marum) and -1972637780 (wadi_tarfan).
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): so the Sarim spawn moved; the north routes this room registers are unchanged. Was -502812528.
     // tel_marum re-pinned 28 Oct 2026 for its friendly camp at (21,46) (GH-560 Task 7B): the camp moved and the room's world follows it. Was 750746188. wadi_tarfan (955375532) did not move.
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -87577684], ['wadi_tarfan', 955375532]] as const;
+    // wadi_tarfan re-pinned for GH-945 (seats (11,11)/(36,36) -> (10,10)/(37,37), every route at capacity 3). Was 955375532.
+    // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so the KDF host's room turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old values read back (watched). Was -1979138290 (tel_marum) and -1823744084 (wadi_tarfan).
+    // wadi_tarfan re-pinned for GH-884 (7 Nov 2026): route A's vents moved one tile (hostile (25,32) -> (25,33), friendly (22,15) -> (22,14)), and route geometry is hashed. Was -1264532616. Nothing in the sim moved; with the two points put back by hand the old value reads back.
+    const VERSUS_ECONOMY_PINS =[['tel_marum', -848995620], ['wadi_tarfan', -1432633581]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
@@ -444,14 +453,34 @@ describe('the economy runtime (N3 Task 3)', () => {
   });
 });
 
+describe('the authored camp exits of an economy room (GH-976)', () => {
+  // LITERALS: [map, host factions, friendly camp at, its exit, hostile camp at, its exit] in tile indices. The
+  // exits are point mirrors; the NW scan the sim falls back to puts the hostile one 3 tiles per axis closer to the centre.
+  const EXITS = [
+    ['milh_flats_l', ['kdf', 'sarim'], [14, 75], [13.5, 74.5], [80, 19], [82.5, 21.5]],
+    ['rujm_sawda', ['kdf', 'sarim'], [8, 8], [7.5, 7.5], [70, 70], [72.5, 72.5]],
+    ['wadi_tarfan', ['kdf', 'sarim'], [7, 7], [6.5, 6.5], [39, 39], [41.5, 41.5]],
+    ['wadi_tarfan_l', ['kdf', 'sarim'], [17, 17], [16.5, 16.5], [77, 77], [79.5, 79.5]],
+  ] as const;
+  it.each(EXITS)('%s: structureExit answers the authored exit of each camp, the mirror of the other', (map, factions, fAt, fExit, hAt, hExit) => {
+    // milh_flats_l and rujm_sawda are mirror-only maps (no shipped room is an economy room there), so the config is
+    // built on wadi_tarfan and re-pointed: this holds the wiring and the file, not an offered room.
+    const w = buildMatchWorld({ ...config('wadi_tarfan', [factions[0], factions[1]], 7), map });
+    const answer = (at: readonly number[]): number[] => w.sim.structureExit(w.sim.structureAt(at[0], at[1])).map((v) => v / 65536);
+    expect(answer(fAt)).toEqual([...fExit]);
+    expect(answer(hAt)).toEqual([...hExit]);
+  });
+});
+
 describe('the Sarim seat\'s routes (GH-681, T3)', () => {
   // [map, host factions, the END the Sarim side stands at, that end's route ids, each route's capacity (LITERALS)]
   // wadi_tarfan re-priced 28 Oct 2026 (GH-560 Task 7B): wt_h_south 2 -> 1, wt_f_west 1 -> 2. Was [2, 3] and [1, 1].
   const CASES = [
     ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], [4, 4]],
-    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], [4, 4]],
-    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], [1, 3]],
-    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], [1, 2]],
+    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], [3, 3]], // Was [4, 4] until GH-990 (3 Nov),
+    // GH-945: every Wadi route at capacity 3. Was [1, 3] (hostile) and [1, 2] (friendly).
+    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], [3, 3]],
+    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], [3, 3]],
   ] as const;
   it.each(CASES)('%s, host %j: exactly the Sarim end\'s routes, owned by the Sarim side, pre-dug, at the capacity the file authors', (map, factions, end, ids, capacity) => {
     const w = buildMatchWorld(config(map, [factions[0], factions[1]], 7));
@@ -503,3 +532,68 @@ describe('doctrine menus and the room roster (Task 3 review, M-a)', () => {
   });
 });
 
+
+describe('buildMatchWorld: the flag set-up (GH-976 v2 WP4)', () => {
+  /** A KDF mirror flag room; `flagSetup` is what the Worker would mint for a listed map. */
+  function flagRoom(map: string, flagSetup: boolean, seed = 1234): MatchConfig {
+    const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+    const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed, map, mode: 'versus', seats: [seat(0), seat(1)], pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0, winMode: 'flag', ...(flagSetup ? { flagSetup: true } : {}) });
+    if (c === null) throw new Error('bad fixture');
+    return c;
+  }
+  /** The objective rows the runtime was built from (private to the runtime; the test reads the mission it holds). */
+  const rowsOf = (w: MatchWorld): { id: string; seconds?: number; ground_only?: boolean }[] =>
+    (w.runtime as unknown as { mission: { objectives: { id: string; seconds?: number; ground_only?: boolean }[] } }).mission.objectives;
+
+  it('a flagSetup world rings at 3600, with a 45 s hold that only the ground can serve', () => {
+    const w = buildMatchWorld(flagRoom('wadi_tarfan', true));
+    expect(w.sim.setupBellTick).toBe(3600);
+    expect(w.sim.setupActive).toBe(true);
+    expect(rowsOf(w).map((o) => [o.id, o.seconds, o.ground_only])).toEqual([['raid_flag_0', 45, true], ['raid_flag_1', 45, true]]);
+    expect(w.setup).not.toBeNull();
+    expect(w.setup?.bandTiles).toBe(8);
+    expect(w.setup?.kit.map((k) => [k.piece, k.allowance])).toEqual([['hesco', 12], ['sandbag_post', 4], ['t_wall', 2]]);
+    // The sim holds the allowance too: a placement is the sim's, the room only fed it.
+    expect([0, 1, 2].map((k) => w.sim.setupKitLeft(0, k))).toEqual([12, 4, 2]);
+  });
+  it('a v1 flag world is what it was: no set-up, a 30 s hold, no ground_only, and the same hash at tick 600', () => {
+    const w = buildMatchWorld(flagRoom('wadi_tarfan', false));
+    expect(w.sim.setupBellTick).toBe(-1);
+    expect(w.sim.setupActive).toBe(false);
+    expect(w.setup).toBeNull();
+    expect(rowsOf(w).map((o) => [o.id, o.seconds, o.ground_only])).toEqual([['raid_flag_0', 30, undefined], ['raid_flag_1', 30, undefined]]);
+    // LITERALS, read from the unmodified base (WP3's head, bec54b9e8, in its own worktree) before this PR's wiring existed, seed 1234, 600 ticks of matchTick.
+    // The game-level witness is FLAG_V1_GAME_PIN (tools/src/backtest/versus-modes.test.ts), read at tick 1000.
+    for (const [map, hash, digest] of [['wadi_tarfan', 883726690, 1894957395], ['rujm_sawda', 2708009709, 4064746163]] as const) {
+      const v1 = buildMatchWorld(flagRoom(map, false));
+      for (let i = 0; i < 600; i++) matchTick(v1);
+      expect([v1.sim.hash(), v1.runtime?.digest()], map).toEqual([hash, digest]);
+    }
+  });
+  it('a set-up room that is not a flag room (no winMode) gets none of it', () => {
+    const c = flagRoom('wadi_tarfan', true);
+    expect(buildMatchWorld(c).setup, 'the fixture really is a set-up room').not.toBeNull();
+    expect(buildMatchWorld({ ...c, winMode: undefined }).setup).toBeNull();
+    expect(buildMatchWorld({ ...c, winMode: 'points' }).setup).toBeNull();
+  });
+  it('R0.24: the kit types are always registered, on a map whose rows hold no hesco, sandbag or t_wall symbol, and a rebuilt world resolves the same indices', () => {
+    const kitSymbols = ['hesco', 'sandbag_post', 't_wall'].map((id) => structures[id as keyof typeof structures].symbol as string);
+    const bare = ['wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'].filter((m) => !maps[m as keyof typeof maps].rows.some((r) => kitSymbols.some((sym) => r.includes(sym))));
+    expect(bare.length, 'a map with no kit symbol to test on').toBeGreaterThan(0);
+    for (const map of bare) {
+      const a = buildMatchWorld(flagRoom(map, true));
+      const b = buildMatchWorld(flagRoom(map, true));
+      const want = ['hesco', 'sandbag_post', 't_wall'].map((id) => Object.keys(structures).indexOf(id));
+      expect(a.setup?.kit.map((k) => k.structType), map).toEqual(want);
+      expect(b.setup?.kit.map((k) => k.structType), map).toEqual(want);
+      // And they work: a hesco goes down on an own-region tile that the sim accepts.
+      const tile = Array.from({ length: a.sim.width * a.sim.height }, (_, t) => [t % a.sim.width, Math.floor(t / a.sim.width)]).find(([x, y]) => a.sim.fortifyReason(0, 0, x, y) === null);
+      expect(tile, map).toBeDefined();
+      if (tile === undefined) continue;
+      const before = a.sim.structureCount;
+      a.sim.queueCommand({ kind: 'fortify', side: 0, kit: 0, x: tile[0], y: tile[1] });
+      a.sim.tick();
+      expect(a.sim.structureCount, map).toBe(before + 1);
+    }
+  });
+});

@@ -75,7 +75,15 @@ const tierPatch = (id: string, track: string, path: string): number =>
  *    reads plate off the TARGET's own type index (`presentedArmor`), so the
  *    gain only makes a difference observable, it changes no path. */
 const PLATE_GAIN = 20;
-type Variant = 'base' | 'identity' | 'armour' | 'kit' | 'plates';
+/** `gunnery`: `armour`'s registrations plus the firepower track's tier-1 deltas
+ *  scaled by `FIRE_GAIN`, for the same reason as `PLATE_GAIN`: with the Spike at
+ *  5 a minute and engaging aircraft (GH-982) the 90 s fight is decided early, and
+ *  the real tier-1 deltas (+0.03 accuracy, a few points of penetration) flip no
+ *  roll in it: measured, the unscaled `kit` fate reads equal to `armour`'s at every
+ *  checkpoint from 30 s to 90 s. The sim reads the SHOOTER's own type index, so the
+ *  gain only makes a difference observable, it changes no path. */
+const FIRE_GAIN = 10;
+type Variant = 'base' | 'identity' | 'armour' | 'kit' | 'plates' | 'gunnery';
 function side1Types(variant: Exclude<Variant, 'base'>): RosterUnit[] {
   switch (variant) {
     case 'identity':
@@ -84,6 +92,19 @@ function side1Types(variant: Exclude<Variant, 'base'>): RosterUnit[] {
       return upgradePrepass(kdf, tiersFor(['armour'])).registered;
     case 'kit':
       return upgradePrepass(kdf, KIT).registered;
+    case 'gunnery':
+      return kdf.map((u) => {
+        const fp = u.upgrades?.firepower;
+        const armour = u.upgrades?.armour;
+        if (!fp) return applyUpgrades(u, armour ? { armour: 1 } : {});
+        const patch: Record<string, number> = {};
+        for (const [path, d] of Object.entries(fp.tiers[0].patch)) patch[path] = d * FIRE_GAIN;
+        const tiers = [{ ...fp.tiers[0], patch }, ...fp.tiers.slice(1)];
+        return applyUpgrades(
+          { ...u, upgrades: { ...u.upgrades, firepower: { ...fp, tiers } } },
+          armour ? { armour: 1, firepower: 1 } : { firepower: 1 },
+        );
+      });
     case 'plates':
       return kdf.map((u) => {
         const armour = u.upgrades?.armour;
@@ -175,7 +196,8 @@ describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
     // sized on them. Re-pinned when wounds opened to versus (23 Oct 2026: the wounded types
     // join the roster and the wound block is in the hash). Was 580559085.
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 1696120804.
-    expect(run('beit_sahwan_outskirts', 200, 'base').sim.hash()).toBe(1311563748);
+    // Re-pinned for GH-884 (5 Nov 2026): mbt_lavi gained hull.aps.reserve, so a room that registers the KDF roster turns apsStockLive on and folds its marker word and two columns; with that fold disabled the old value reads back (watched). Was 1311563748.
+    expect(run('beit_sahwan_outskirts', 200, 'base').sim.hash()).toBe(2458018554);
   });
 
   it("side 1's KDF units carry the patched HP and weapon; side 0's carry the base", () => {
@@ -251,10 +273,10 @@ describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
     });
 
     it('side 1 fires its OWN patched weapon: firepower moves the fight from an identical tick 0', () => {
-      const kit = kitRun();
+      const gunnery = run('beit_sahwan_outskirts', BATTLE_TICKS, 'gunnery', true);
       const armour = run('beit_sahwan_outskirts', BATTLE_TICKS, 'armour', true);
-      expect(armour.hash0).toBe(kit.hash0);
-      expect(fate(kit)).not.toEqual(fate(armour));
+      expect(armour.hash0).toBe(gunnery.hash0);
+      expect(fate(gunnery)).not.toEqual(fate(armour));
     });
 
     it('hits on side 1 read its OWN patched armour: plates move the fight from an identical tick 0', () => {

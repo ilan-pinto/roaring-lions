@@ -56,10 +56,12 @@ function room(c: RouteCase) {
 const tile = (p: readonly [number, number]): [number, number] => [fx.from(p[0] + 0.5), fx.from(p[1] + 0.5)];
 
 describe('versus routes: a buried unit is contained on every authored route (GH-681, spec §7.5)', () => {
-  it('reads the strawman routes from the rules files: eight on the matchup maps, six on the large map', () => {
+  it('reads the strawman routes from the rules files: eight on the matchup maps, six on Rujm Sawda, four on Wadi Tarfan (large)', () => {
+    // Was the same list without the four wtl_ routes of the large Wadi Tarfan (GH-920 B3).
     expect(CASES.map((c) => c.id).sort()).toEqual([
       'rs_f_centre', 'rs_f_tell', 'rs_f_well', 'rs_h_centre', 'rs_h_tell', 'rs_h_well',
       'tm_n_east', 'tm_n_west', 'tm_s_east', 'tm_s_west', 'wt_f_north', 'wt_f_west', 'wt_h_east', 'wt_h_south',
+      'wtl_f_north', 'wtl_f_west', 'wtl_h_north', 'wtl_h_west',
     ]);
   });
 

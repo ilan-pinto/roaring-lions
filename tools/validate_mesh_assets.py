@@ -177,6 +177,7 @@ import glob
 import itertools
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -227,6 +228,10 @@ TEXTURED_BUILDING_EXEMPT = {
     # GH-66 field works (2026-10-15): the HESCO bastion run, the same
     # exporter and the same kind of bake (8k refine shipped at 2048).
     "hesco",
+    # GH-974: the house's LOD1 twin ships its OWN 512 px bake (baked from house.glb by Cycles selected-to-active,
+    # tools/buildings/author_house_lod1.py), so it is a textured building. A FILE id, not a structure type: it is
+    # let off the palette check exactly like the full house, and the silhouette IoU (LOD_TWINS) still runs on it.
+    "house_lod1",
 }
 
 # 2026-09-07: the identical override, extended by the project lead to six
@@ -503,9 +508,55 @@ def load_mesh_masks(out_dir, palette_path):
     return failures, masks, exempt, wreck_masks
 
 
-def check_collisions(mesh_masks):
+# GH-974: LOD twins. A twin is a lower-detail copy of a standing building mesh that the renderer
+# draws INSTEAD of it below a zoom (`STRUCTURE_LOD1_BELOW_ZOOM`, units/structure-instances.ts),
+# so by construction it has the same silhouette as the mesh it stands in for: wall vs wall_lod1 is
+# IoU 0.946 against the 0.88 limit, and that collision is the point of the asset. Each twin names
+# the one mesh it may collide with. The exemption is NOT a threshold change: the twin is still held
+# to IOU_LIMIT against every other mesh, and the exemption exists only while BOTH of these hold,
+# each checked here (and with a constructed failing input in tools/test_lod_twin_gate.py):
+#   1. it is wired: `mesh-catalogue.ts` names it as the `lod1` of the full mesh's own entry, so it
+#      is really swapped in and not a stray file hiding behind an exemption;
+#   2. it is a twin: its silhouette still matches the full mesh's at or above LOD_TWIN_MIN_IOU, so
+#      an asset that drifted into a different shape cannot ride on the exemption.
+LOD_TWINS = {"wall_lod1": "wall", "house_lod1": "house"}
+LOD_TWIN_MIN_IOU = 0.90
+MESH_CATALOGUE_TS = os.path.join(REPO, "packages", "app", "src", "mesh-catalogue.ts")
+
+
+def lod_twin_wired(full_id, twin_id, catalogue_text):
+    """True when the catalogue's `full_id` entry carries `lod1: 'buildings/<twin_id>.glb'`."""
+    pat = r"\b%s:\s*\{[^}]*?\blod1:\s*'buildings/%s\.glb'" % (re.escape(full_id), re.escape(twin_id))
+    return re.search(pat, catalogue_text) is not None
+
+
+def check_lod_twins(mesh_masks, catalogue_text, twins=None):
+    """Failures for every named twin that is not wired, not rendered, or no longer a twin."""
     failures = []
+    for twin_id, full_id in sorted((LOD_TWINS if twins is None else twins).items()):
+        if twin_id not in mesh_masks or full_id not in mesh_masks:
+            failures.append(f"lod twin: {twin_id} (twin of {full_id}) has no render -- a named twin must be on disk")
+            continue
+        if not lod_twin_wired(full_id, twin_id, catalogue_text):
+            failures.append(
+                f"lod twin: {twin_id} is exempt from the silhouette collision with {full_id} but "
+                f"mesh-catalogue.ts does not name it as {full_id}'s `lod1` -- an unwired twin has no excuse to collide"
+            )
+        score = va.iou(mesh_masks[twin_id], mesh_masks[full_id])
+        if score < LOD_TWIN_MIN_IOU:
+            failures.append(
+                f"lod twin: {twin_id} vs {full_id} IoU={score:.3f} (floor {LOD_TWIN_MIN_IOU:.2f}) -- "
+                f"it no longer reads as the same mesh, so it is not a twin and has no exemption"
+            )
+    return failures
+
+
+def check_collisions(mesh_masks, twins=None):
+    failures = []
+    exempt = {frozenset((t, f)) for t, f in (LOD_TWINS if twins is None else twins).items()}
     for (ua, ma), (ub, mb) in itertools.combinations(mesh_masks.items(), 2):
+        if frozenset((ua, ub)) in exempt:
+            continue  # a LOD twin and its full mesh: see LOD_TWINS, held by check_lod_twins
         score = va.iou(ma, mb)
         if score > va.IOU_LIMIT:
             failures.append(
@@ -770,6 +821,20 @@ DECOR_ROLES = {"foliage", "trunk", "rock", "sand"}
 # or texture. The gate is not weakened for all of decor to admit one family.
 TEXTURED_DECOR_EXEMPT = {"ditch"}
 
+# GH-974: a textured decor family's LOD1 twin. It is the ONE kind of file in an exempt family that ships NO texture:
+# zero materials, zero images, zero textures, and a UV0 into its full mesh's bake (the renderer pairs it with
+# `<family>_0`'s map, `loadDecorMeshes`). The exemption is a table of named files, not a rule about "_lod1": a file
+# is let off the one-texture contract only while (1) the table names it, (2) its full mesh is on disk beside it,
+# (3) `mesh-catalogue.ts`'s DECOR_LOD1 wires it (a stray file does not hide behind the table), and (4) it still
+# declares `rl_textured`, the flag the runtime reads. Every other family's decor still fails on any texture.
+DECOR_LOD1_TWINS = {"ditch_lod1.glb": "ditch_0.glb"}
+
+
+def decor_lod1_wired(twin_name, catalogue_text):
+    """True when the catalogue's DECOR_LOD1 table names `decor/<twin_name>`."""
+    block = re.search(r"DECOR_LOD1[^=]*=\s*\{([^}]*)\}", catalogue_text)
+    return block is not None and ("'decor/%s'" % twin_name) in block.group(1)
+
 
 # The closed campaign-map node vocabulary. `region` is ground a campaign
 # region is played over and the runtime may tint; `scenery` is everything the
@@ -823,7 +888,7 @@ def _read_glb_json(path):
     raise ValueError(f"{path}: no JSON chunk found -- not a valid glb")
 
 
-def check_decor_meshes(decor_root):
+def check_decor_meshes(decor_root, twins=None, catalogue_text=None):
     """Every `art/meshes/decor/*.glb` carries zero materials/images/textures
     and every mesh-bearing node's `extras.rl_role` is inside the closed decor
     set -- checked directly against the raw GLB bytes, never rendered (see
@@ -844,6 +909,10 @@ def check_decor_meshes(decor_root):
     """
     failures = []
     textured_names = []
+    twins = DECOR_LOD1_TWINS if twins is None else twins
+    if catalogue_text is None:
+        with open(MESH_CATALOGUE_TS, encoding="utf-8") as fh:
+            catalogue_text = fh.read()
     for path in sorted(glob.glob(os.path.join(decor_root, "*.glb"))):
         name = os.path.basename(path)
         family = decor_family_of(name)
@@ -852,7 +921,16 @@ def check_decor_meshes(decor_root):
         n_mat = len(glb_json.get("materials", []))
         n_img = len(glb_json.get("images", []))
         n_tex = len(glb_json.get("textures", []))
-        if exempt:
+        if exempt and name in twins:
+            if (n_mat, n_img, n_tex) != (0, 0, 0):
+                failures.append(f"{name}: a LOD1 twin ships zero materials/images/textures (it is drawn with {twins[name]}'s bake), "
+                                f"but carries {n_mat}/{n_img}/{n_tex}")
+            if not os.path.exists(os.path.join(decor_root, twins[name])):
+                failures.append(f"{name}: its full mesh {twins[name]} is not beside it -- a twin of nothing")
+            if not decor_lod1_wired(name, catalogue_text):
+                failures.append(f"{name}: named in DECOR_LOD1_TWINS but mesh-catalogue.ts's DECOR_LOD1 does not wire it -- "
+                                f"an unwired twin has no excuse to ship without a texture")
+        elif exempt:
             if (n_mat, n_img, n_tex) != (1, 1, 1):
                 failures.append(
                     f"{name}: family {family!r} is in TEXTURED_DECOR_EXEMPT and must ship "
@@ -1223,6 +1301,232 @@ def _jpeg_size(data):
             continue
         i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
     return None
+
+
+# ---------------------------------------------------------------------------
+# L3 (GH-943): the TEXTURE BUDGET per asset class, and the roster census.
+#
+# Unit textures are the memory that scales with the roster: the heaviest mission
+# holds 882 of 1,015 MiB (`perf:memory`). Until L3 the only thing between a
+# 2048 map and a 4096 one was the contributor's care, and the first L3 cut
+# of the Lavi (normal and ORM maps) added 42.7 MiB on its own before the lead dropped it. So each class has a ceiling, set at TODAY'S MAXIMUM as a
+# RATCHET: it may be lowered, never raised to let an asset in. Raising one is a
+# lead decision, like `IOU_LIMIT`.
+#
+# What counts: LOGICAL bytes read from the image HEADERS (never decoded): width
+# x height x 4 bytes x the mip-chain factor, summed over every `images[]` entry
+# of one GLB. An image two texture slots share is ONE image and counts
+# once, which is what the GPU uploads. A KTX2 image counts the bytes of its
+# stored levels, which is what its transcoded form costs.
+MIB = 1024 * 1024
+#: A full mip chain adds a third (1 + 1/4 + 1/16 + ...). A literal-pinned oracle
+#: (`texture-budget.test.ts`) fails if this constant moves.
+MIP_CHAIN_FACTOR = 4.0 / 3.0
+TEXEL_BYTES = 4
+
+#: class -> (max logical MiB per GLB, max edge in texels). Today's maxima.
+#: The infantry edge is 3072, not the 2048 the L3 proposal wrote: `inf_grenadier`, `mortar_team` and
+#: `rpg_team` ship a 3072x1024 figure atlas (16 MiB), so 3072 is today's maximum edge. The MiB ceilings
+#: (80 / 64 / 32) are exactly the proposal's, and are reached by `apc_eitan`, `camp` and `moto_rpg`.
+TEXTURE_BUDGET = {
+    "vehicle": (80.0, 2560),
+    "building": (64.0, 2048),
+    "infantry": (32.0, 3072),
+}
+
+#: The roster census compares unit textures per mission with this ceiling. REPORT-ONLY:
+#: `pnpm perf:memory` is the real gate; this prints where a mission stands against it.
+MISSION_MEMORY_CEILING_MIB = 1015.0
+
+
+def _image_size(data):
+    """(width, height, logical bytes) of an embedded PNG / JPEG / KTX2, from its header alone."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        w, h = struct.unpack(">II", data[16:24])
+        return w, h, int(w * h * TEXEL_BYTES * MIP_CHAIN_FACTOR)
+    jpg = _jpeg_size(data)
+    if jpg is not None:
+        return jpg[0], jpg[1], int(jpg[0] * jpg[1] * TEXEL_BYTES * MIP_CHAIN_FACTOR)
+    if data[:12] == b"\xabKTX 20\xbb\r\n\x1a\n":
+        w, h = struct.unpack("<II", data[20:28])
+        levels = max(1, struct.unpack("<I", data[40:44])[0])
+        stored = sum(struct.unpack("<Q", data[80 + 24 * i + 8:80 + 24 * i + 16])[0] for i in range(levels))
+        return w, h, stored
+    raise ValueError("an image that is neither PNG, JPEG nor KTX2")
+
+
+def glb_images(path):
+    """`[(name, width, height, logical bytes)]` for every `images[]` entry of a GLB (stdlib only)."""
+    js, bin_ = _read_glb_chunks(path)
+    out = []
+    for i, im in enumerate(js.get("images", [])):
+        if "bufferView" not in im:
+            raise ValueError(f"{path}: image {i} is not embedded; the texture budget reads embedded images")
+        bv = js["bufferViews"][im["bufferView"]]
+        off = bv.get("byteOffset", 0)
+        w, h, size = _image_size(bin_[off:off + bv["byteLength"]])
+        out.append((im.get("name") or f"image{i}", w, h, size))
+    return out
+
+
+def glb_texture_bytes(path):
+    """The logical GPU bytes of one GLB's images."""
+    return sum(size for _n, _w, _h, size in glb_images(path))
+
+
+def texture_class_roots(meshes_root, vehicles_dir=None):
+    """class -> the directory it lives in. Infantry is the top level of `art/meshes/`
+    (a team), so its glob is `*.glb` there and nowhere deeper."""
+    return {
+        "vehicle": vehicles_dir or os.path.join(meshes_root, "vehicles"),
+        "building": os.path.join(meshes_root, "buildings"),
+        "infantry": meshes_root,
+    }
+
+
+def check_texture_budget(roots, budget=None):
+    """(failures, rows). A GLB over its class's MiB ceiling, or with an image wider than its class's
+    edge, is a failure. `rows` is `(class, id, MiB, max edge)` for every file, for the report."""
+    budget = TEXTURE_BUDGET if budget is None else budget
+    failures, rows = [], []
+    for cls, root in sorted(roots.items()):
+        if cls not in budget:
+            failures.append(f"texture budget: class {cls!r} has no budget entry")
+            continue
+        max_mib, max_edge = budget[cls]
+        for path in sorted(glob.glob(os.path.join(root, "*.glb"))):
+            name = os.path.basename(path)[:-4]
+            try:
+                images = glb_images(path)
+            except ValueError as e:
+                failures.append(f"texture budget: {name}: {e}")
+                continue
+            mib = sum(size for *_x, size in images) / MIB
+            edge = max([max(w, h) for _n, w, h, _s in images], default=0)
+            rows.append((cls, name, mib, edge))
+            if mib > max_mib + 1e-9:
+                failures.append(
+                    f"texture budget: {cls} {name} holds {mib:.1f} MiB of textures "
+                    f"({', '.join(f'{n} {w}x{h}' for n, w, h, _s in images)}), over the {cls} ceiling of {max_mib:g} MiB"
+                )
+            if edge > max_edge:
+                failures.append(
+                    f"texture budget: {cls} {name} has a {edge}-px image, over the {cls} limit of {max_edge} px"
+                )
+    return failures, rows
+
+
+def texture_census(meshes_root, missions_dir, vehicles_dir=None):
+    """REPORT ONLY: per mission, the unit-texture MiB of every mesh type its JSON names (by id string),
+    worst first. A type's cost is its GLB's logical bytes, paid once however many units of it stand."""
+    cost = {}
+    for cls, root in texture_class_roots(meshes_root, vehicles_dir).items():
+        for path in glob.glob(os.path.join(root, "*.glb")):
+            cost[os.path.basename(path)[:-4]] = glb_texture_bytes(path) / MIB
+    rows = []
+    for mpath in sorted(glob.glob(os.path.join(missions_dir, "*.json"))):
+        text = open(mpath, encoding="utf-8").read()
+        ids = sorted(k for k in cost if cost[k] > 0 and f'"{k}"' in text)
+        rows.append((sum(cost[k] for k in ids), os.path.basename(mpath)[:-5], ids))
+    rows.sort(reverse=True)
+    return rows, cost
+
+
+# ---------------------------------------------------------------------------
+# L3 (GH-943): the TEAM MARK. A vehicle's hull and turret may declare `material.extras.rl_team_mark`: two boxes
+# in the mesh-local frame (a roof recognition panel and a flank band) the fragment shader tests. Not a texture.
+# The kit is merged INTO the host geometry at runtime and its parts have no UVs of their own (the kit pass pins
+# every one onto one of three bake texels), so the shader excludes a fragment whose UV is within
+# `exclude_radius` of a pin: every kit UV in the file must lie inside one.
+MARK_FRACTION_BAND = (0.015, 0.025)
+#: The vehicles that MUST carry a mark: the Lavi (the pilot) and the two variants cut from its hull (the lead, 2 Nov:
+#: the camo Lavi and the officer tank; 3 Nov: the Namer, Eitan and Kipod). Pinned against `MARK_RECIPES` (mark-contract.ts) by `mark-pass.test.ts`.
+MARK_REQUIRED = ("mbt_lavi", "mbt_lavi_camo", "officer_armour", "ifv_namer", "apc_eitan", "apc_kipod")
+#: The marked vehicles that KEEP their shipped normal map (the carriers': real baked detail, GLTFLoader binds it). The rest
+#: of the marked fleet ships base colour alone. Pinned against `MARK_RECIPES[id].keepNormal` (mark-contract.ts) by
+#: `mark-pass.test.ts`. The metal-roughness map is dropped everywhere: it was flat.
+MARK_KEEPS_NORMAL = ("ifv_namer", "apc_eitan", "apc_kipod")
+
+
+def check_team_marks(vehicles_root, required=MARK_REQUIRED):
+    """(failures, lines) over every uncompressed vehicle GLB whose material declares `rl_team_mark`, and over every
+    id in `required`, which fails if its GLB is missing or carries no mark (a vehicle silently losing its mark
+    would otherwise just stop being checked)."""
+    failures, lines = [], []
+    for name in required:
+        path = os.path.join(vehicles_root, f"{name}.glb")
+        if not os.path.exists(path):
+            failures.append(f"mark: {name}: no GLB at {path}, but it must carry a team mark")
+            continue
+        js, _ = _read_glb_chunks(path)
+        if not any("rl_team_mark" in (m.get("extras") or {}) for m in js.get("materials", [])):
+            failures.append(f"mark: {name} carries no rl_team_mark, but it must (MARK_REQUIRED)")
+    for path in sorted(glob.glob(os.path.join(vehicles_root, "*.glb"))):
+        name = os.path.basename(path)[:-4]
+        js, bin_ = _read_glb_chunks(path)
+        marked = [m for m in js.get("materials", []) if "rl_team_mark" in (m.get("extras") or {})]
+        if not marked:
+            continue
+        if len(marked) != 1:
+            failures.append(f"mark: {name} must have exactly one material with rl_team_mark, has {len(marked)}")
+            continue
+        mark = marked[0]["extras"]["rl_team_mark"]
+        try:
+            fraction = mark["team_fraction"]
+            for key in ("roof", "band"):
+                if mark[key]["x"][0] >= mark[key]["x"][1] or mark[key]["y"][0] >= mark[key]["y"][1]:
+                    failures.append(f"mark: {name}: the {key} box is empty or inside out")
+            if not mark["luma"] > 0:
+                failures.append(f"mark: {name}: rl_team_mark.luma must be positive")
+            pins = [tuple(uv) for uv in mark["exclude_uv"]]
+            radius = mark["exclude_radius"]
+        except (KeyError, IndexError, TypeError) as e:
+            failures.append(f"mark: {name}: rl_team_mark is malformed ({e!r})")
+            continue
+        if not (MARK_FRACTION_BAND[0] <= fraction <= MARK_FRACTION_BAND[1]):
+            failures.append(f"mark: {name}: the mark covers {fraction * 100:.2f}% of the surface, outside "
+                            f"{MARK_FRACTION_BAND[0] * 100:g}-{MARK_FRACTION_BAND[1] * 100:g}%")
+        stray = [uv for uv in sorted(_kit_uvs(js, bin_))
+                 if min(((uv[0] - p[0]) ** 2 + (uv[1] - p[1]) ** 2) ** 0.5 for p in pins) >= radius]
+        for uv in stray:
+            failures.append(f"mark: {name}: a kit part is pinned at uv {uv}, which no exclusion pin covers: the mark would paint it")
+        extra = [t.get("name") for t in js.get("images", []) if t.get("name") in ("normal", "orm", "metallic_roughness")]
+        keeps = name in MARK_KEEPS_NORMAL
+        if keeps and not any(t.get("name") == "normal" for t in js.get("images", [])):
+            failures.append(f"mark: {name} has lost its normal map, which it must keep (MARK_KEEPS_NORMAL: real baked detail)")
+        extra = [n for n in extra if not (keeps and n == "normal")]
+        if extra:
+            failures.append(f"mark: {name} carries {extra}: it ships {'its normal map and ' if keeps else ''}base colour alone (the other maps were dropped)")
+        real = [p for p in pins if all(0.0 <= c <= 1.0 for c in p)]  # a kit-less vehicle's pins are NO_PIN (UV -1,-1)
+        basis = mark.get("team_fraction_basis", "texel")
+        lines.append(f"{name}: team mark {fraction * 100:.2f}% of the {basis}-measured surface, {len(real)} kit pin(s) excluded, no texture of its own"
+                     f"{', normal map kept' if keeps else ''}")
+    return failures, lines
+
+
+def _kit_uvs(js, bin_):
+    """The distinct TEXCOORD_0 values (rounded to 5 places) of every `kit_*` node of an UNCOMPRESSED GLB."""
+    import numpy as np
+
+    ctype = {5126: "<f4", 5123: "<u2", 5125: "<u4"}
+    ncomp = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
+    seen = set()
+    for node in js["nodes"]:
+        if not node.get("name", "").startswith(KIT_NODE_PREFIX) or "mesh" not in node:
+            continue
+        for prim in js["meshes"][node["mesh"]]["primitives"]:
+            acc = js["accessors"][prim["attributes"]["TEXCOORD_0"]]
+            bv = js["bufferViews"][acc["bufferView"]]
+            off = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
+            n = ncomp[acc["type"]]
+            stride = bv.get("byteStride") or 4 * n
+            if stride == 4 * n:
+                arr = np.frombuffer(bin_, dtype=ctype[acc["componentType"]], count=acc["count"] * n, offset=off).reshape(-1, n)
+            else:
+                arr = np.stack([np.frombuffer(bin_, dtype="<f4", count=n, offset=off + i * stride) for i in range(acc["count"])])
+            for uv in np.unique(np.round(arr.astype(float), 5), axis=0):
+                seen.add((float(uv[0]), float(uv[1])))
+    return seen
 
 
 def check_backdrop_meshes(backdrop_root):
@@ -2825,6 +3129,8 @@ def main():
         failures.extend(image_failures)
 
         failures.extend(check_collisions(mesh_masks))
+        with open(MESH_CATALOGUE_TS, encoding="utf-8") as fh:
+            failures.extend(check_lod_twins(mesh_masks, fh.read()))
 
         # The wreck's own two checks, on the SECOND render every vehicle now
         # produces. Both use the masks above, so they cost no extra Blender
@@ -2941,6 +3247,31 @@ def main():
         print(f"  running gear: {len(rg_lines)} vehicle(s), from the GLB bytes --")
         for line in rg_lines:
             print(f"    {line}")
+
+        # L3 (GH-943): the texture budget per class, the team mark, and the roster census.
+        meshes_root = os.path.join(REPO, "art", "meshes")
+        tex_failures, tex_rows = check_texture_budget(
+            texture_class_roots(meshes_root, vehicles_dir if args.vehicles_dir else None))
+        failures.extend(tex_failures)
+        print("  texture budget (logical MiB per GLB, from image headers; a ratchet at today's maxima) --")
+        for cls in sorted(TEXTURE_BUDGET):
+            mine = [r for r in tex_rows if r[0] == cls]
+            if mine:
+                top = max(mine, key=lambda r: r[2])
+                print(f"    {cls}: heaviest {top[1]} {top[2]:.1f} MiB (ceiling {TEXTURE_BUDGET[cls][0]:g}), "
+                      f"widest image {max(r[3] for r in mine)} px (limit {TEXTURE_BUDGET[cls][1]})")
+        mark_failures, mark_lines = check_team_marks(vehicles_dir)
+        failures.extend(mark_failures)
+        print(f"  team mark: {len(mark_lines)} vehicle(s) carry one --")
+        for line in mark_lines:
+            print(f"    {line}")
+        census, _cost = texture_census(meshes_root, os.path.join(REPO, "data", "missions"),
+                                       vehicles_dir if args.vehicles_dir else None)
+        if census:
+            print(f"  roster census (REPORT ONLY; `pnpm perf:memory` is the gate; whole-mission ceiling "
+                  f"{MISSION_MEMORY_CEILING_MIB:g} MiB) -- unit textures of the five heaviest rosters:")
+            for total, mission, ids in census[:5]:
+                print(f"    {mission}: {total:.1f} MiB over {len(ids)} mesh type(s)")
 
         damage_report = []
         wreck_failures, wreck_counts = check_vehicle_wrecks((

@@ -10,11 +10,14 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import type { FormationJson } from './formation-template';
-import { RIFLES, TANK } from './golden-worlds.test-helper';
+import { RIFLES, TANK, attackHoldingAir } from './golden-worlds.test-helper';
 import { BRACE_DROPPING, BRACE_KNEELING, Sim, type SimEvent, type UnitTypeJson } from './sim';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const loadFormation = (id: string): FormationJson => JSON.parse(readFileSync(join(ROOT, 'data', 'formations', `${id}.json`), 'utf8')) as FormationJson;
+// GH-859: the shipped Attack leaves its aircraft out, so the tests of the contact call and the sortie run on the Attack as it was
+// before the field (`attackHoldingAir`, under its old id): same verb, drill, march and aircraft element, so every literal below holds.
+const loadFormation = (id: string): FormationJson =>
+  id === 'attack' ? { ...attackHoldingAir(), id: 'attack' } : (JSON.parse(readFileSync(join(ROOT, 'data', 'formations', `${id}.json`), 'utf8')) as FormationJson);
 
 // ---- unit types (all test-local) ----------------------------------------------------------
 /** An unarmed light vehicle: it can be hit and cannot fire, so a contact on a Column of jeeps and riflemen is a hit. */

@@ -168,6 +168,10 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'ambushRadiusSq', cls: 'state', kind: typed('Int32Array', 'capacity') },
   { name: 'garrisonedIn', cls: 'state', kind: typed('Int32Array', 'capacity') },
   { name: 'garrisonGoal', cls: 'state', kind: typed('Int32Array', 'capacity') },
+  { name: 'spreadGoal', cls: 'state', kind: typed('Uint8Array', 'capacity') },
+  { name: 'spreadLive', cls: 'state', kind: SCALAR },
+  { name: 'ledReserved', cls: 'scratch', kind: typed('Int32Array', 'any') },
+  { name: 'ledHeld', cls: 'scratch', kind: typed('Int8Array', 'any') },
   { name: 'displaced', cls: 'state', kind: typed('Uint8Array', 'capacity') },
   { name: 'aimTurned', cls: 'scratch', kind: typed('Uint8Array', 'capacity') },
   { name: 'aimDesired', cls: 'scratch', kind: typed('Int32Array', 'capacity') },
@@ -211,6 +215,9 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'stMaxHp', cls: 'state', kind: typed('Int32Array', { fixed: 256 }) },
   { name: 'stTypeIdx', cls: 'state', kind: typed('Uint16Array', { fixed: 256 }) },
   { name: 'stProducesFor', cls: 'state', kind: typed('Int8Array', { fixed: 256 }) },
+  // GH-976: the authored exit override (-1 = none). Unhashed static setup data like stProducesFor, but state: a restore into a world built without it would answer the NW scan.
+  { name: 'stExitX', cls: 'state', kind: typed('Int16Array', { fixed: 256 }) },
+  { name: 'stExitY', cls: 'state', kind: typed('Int16Array', { fixed: 256 }) },
   { name: 'stOccupants', cls: 'state', kind: typed('Uint8Array', { fixed: 256 }) },
   { name: 'stChargeTicks', cls: 'state', kind: typed('Int32Array', { fixed: 256 }) },
   { name: 'stChargeBy', cls: 'state', kind: typed('Int32Array', { fixed: 256 }) },
@@ -371,8 +378,29 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'fmHomeX', cls: 'state', kind: typed('Int32Array', 'capacity') },
   { name: 'fmHomeY', cls: 'state', kind: typed('Int32Array', 'capacity') },
   { name: 'fmLive', cls: 'state', kind: SCALAR },
+  // GH-884 APS stock, APPENDED: the reserve and the quiet clock (per-unit state) and the `apsStockLive` hash latch.
+  // Encoded even when empty, so the format pin moves by exactly these three rows.
+  { name: 'apsReserveLeft', cls: 'state', kind: typed('Int32Array', 'capacity') },
+  { name: 'apsRearmClock', cls: 'state', kind: typed('Int32Array', 'capacity') },
+  { name: 'apsStockLive', cls: 'state', kind: SCALAR },
+  // GH-884 APS stock, APPENDED: the reserve and the quiet clock (per-unit state) and the `apsStockLive` hash latch.
+  // Encoded even when empty, so the format pin moves by exactly these three rows.
   // Compiled formation files, registered by the match config (like `unitTypes`).
   { name: 'formationTypes', cls: 'config', kind: obj('array') },
+  // GH-976 capture-the-flag v2 set-up, APPENDED: the latch, the bell tick and the Ready bits (state), and the region mask
+  // (config: a room's `buildMatchWorld` rebuilds it through `beginSetup`; it is hashed all the same, behind `setupLive`).
+  // The three state rows are encoded even when empty, so the format pin moves by exactly them.
+  { name: 'setupLive', cls: 'state', kind: SCALAR },
+  { name: 'setupUntil', cls: 'state', kind: SCALAR },
+  { name: 'readyMask', cls: 'state', kind: SCALAR },
+  { name: 'setupRegion', cls: 'config', kind: typed('Int8Array', 'cells') },
+  // GH-976 WP3, APPENDED: the set-up kit. kitLeft (side x 3 + slot), kitPlaced (per side) and stKit (per structure) are state; the
+  // slot's structure type and the ban rects are config (a room's setup rebuilds them through setSetupKit; hashed behind setupLive).
+  { name: 'kitLeft', cls: 'state', kind: typed('Int16Array', { fixed: 6 }) },
+  { name: 'kitPlaced', cls: 'state', kind: typed('Int16Array', { fixed: 2 }) },
+  { name: 'stKit', cls: 'state', kind: typed('Int8Array', { fixed: 256 }) },
+  { name: 'kitStructType', cls: 'config', kind: typed('Int16Array', { fixed: 3 }) },
+  { name: 'kitBans', cls: 'config', kind: obj('array') },
 ];
 
 /** `Rng`'s only own property: one mulberry32 word per entity slot. */

@@ -4,6 +4,9 @@ import {
   ORDERS_SEED,
   RELIEF_SEED,
   RUN_SEED,
+  SETUP_SEED,
+  setupDrive,
+  setupSetup,
   ordersDrive,
   formationDrive,
   formationSetup,
@@ -69,6 +72,17 @@ const GOLDEN: readonly Golden[] = [
     poisonAt: [50, 300, 600],
     poisonsPool: false,
   },
+  {
+    // GH-976: the set-up replay (SETUP_WORLD_PIN's world). Ready at 20 and 40 arms the early bell at 140: the only replay in
+    // which `setupUntil` and `readyMask` move, with the region clamp and weapons tight holding units at every cut before it.
+    name: 'the set-up replay (800 ticks)',
+    // The pinned replay is 600; the fork loop wants more than ten cuts of 200 ticks, so the fight just goes on to 800.
+    ticks: 800,
+    build: () => setupSetup(SETUP_SEED),
+    drive: (w, t) => setupDrive(w.sim, t, (w as ReturnType<typeof setupSetup>).ids),
+    poisonAt: [30, 100, 139],
+    poisonsPool: false,
+  },
 ];
 
 function fork(g: Golden, T: number, extra: { poison?: boolean; afterRestore?: (b: World, a: World) => void; mutate?: (b: World, a: World) => void } = {}): ForkVerdict<World> {
@@ -93,6 +107,24 @@ describe('fork witness: restore at T, step 200 ticks, hash and encoding equal', 
       expect(forks).toBeGreaterThan(10);
     }, 60_000);
   }
+});
+
+describe('fork witness: the set-up replay, cut at every edge of the clock (GH-976)', () => {
+  // 21: after side 1's Ready (20), before side 0's. 41: after both (the bell is armed for 140). 139 and 140: the tick before the
+  // bell and the bell tick. 141: the first tick after it. Each restore must ring the bell on the same tick as the source.
+  const set = GOLDEN[3];
+  for (const T of [0, 19, 21, 41, 97, 139, 140, 141]) {
+    it(`T=${T}: restored, the hash agrees every 20 ticks and the encodings agree at the end`, () => {
+      expectClean(fork(set, T, { poison: true }), `set-up T=${T}`);
+    });
+  }
+
+  it('after the cut the restored world has the same bell tick and Ready bits as the source', () => {
+    const v = fork(set, 41, { poison: true });
+    expect(v.b.sim.setupBellTick).toBe(140);
+    expect(v.b.sim.setupReady(0)).toBe(true);
+    expect(v.b.sim.setupReady(1)).toBe(true);
+  });
 });
 
 describe('fork witness: scratch and unkeyed pool slots poisoned after the restore', () => {
@@ -403,7 +435,30 @@ describe('snapshot format pin', () => {
     // fmHomeY), encoded even when empty; this world orders no formation. With those fourteen rows cut from
     // snapshot-schema.ts the same run reads 3512584427 again, so the move is exactly the new rows. 128788725 is
     // read off a fresh run.
-    expect(h >>> 0).toBe(128788725);
+    // Was 128788725. GH-972 (group orders that spread) appended one `state` column (spreadGoal) and the
+    // `spreadLive` scalar after `garrisonGoal`, encoded even when empty; this world gives no spread order. With
+    // those two rows cut from snapshot-schema.ts the same run reads 128788725 again, so the move is exactly the
+    // new rows. 3624532085 is read off a fresh run.
+    // Was 3624532085. GH-972 review: the group-order ledger became two reusable scratch buffers (ledReserved,
+    // ledHeld, `scratch` rows after spreadLive), and the format digest covers scratch rows too. With those two
+    // rows cut the same run reads 3624532085 again. 3423221345 is read off a fresh run.
+    // Was 3423221345. GH-976 camp exits appended two `state` columns (stExitX, stExitY, Int16Array x 256, the authored
+    // structure exit override, -1 = none; unhashed static setup data), encoded even when no exit is set. With those two
+    // rows cut from snapshot-schema.ts the same run reads 3423221345 again, so the move is exactly the new rows.
+    // 166735965 is read off a fresh run.
+    // Was 166735965. GH-884 (APS stock) appended three `state` rows (apsReserveLeft, apsRearmClock, Int32Array x capacity,
+    // and the `apsStockLive` scalar), encoded even when no type carries a reserve. With those three rows cut from
+    // snapshot-schema.ts the same run reads 166735965 again (watched), so the move is exactly the new rows. 355222469 is
+    // read off a fresh run. The golden hash did not move: nothing folds the columns until a type declares `reserve`.
+    // Was 355222469. GH-976 (capture the flag v2 set-up) appended three `state` rows (setupLive, setupUntil, readyMask,
+    // scalars) and one `config` row (setupRegion, Int8Array x cells; the format digest covers it), present even when no world begins a set-up. With those
+    // four rows cut from snapshot-schema.ts the same run reads 355222469 again (watched), so the move is exactly the new
+    // rows. 1873871182 is read off a fresh run. The golden hash did not move: nothing folds the block until `beginSetup`.
+    // Was 1873871182. GH-976 WP3 (the set-up kit) appended three `state` rows (kitLeft Int16Array x 6, kitPlaced Int16Array x 2,
+    // stKit Int8Array x 256) and two `config` rows (kitStructType Int16Array x 3, kitBans, an array), present even when no world
+    // sets a kit. With those five rows cut from snapshot-schema.ts the same run reads 1873871182 again (watched), so the move is
+    // exactly the new rows. 3026783768 is read off a fresh run. The golden hash did not move: nothing folds the kit until `beginSetup`.
+    expect(h >>> 0).toBe(3026783768);
   });
 });
 

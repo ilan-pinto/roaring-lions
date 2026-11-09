@@ -3,6 +3,7 @@ import {
   ACCOUNT_KEY,
   buyUnlock,
   buyUpgrade,
+  buyUpgradeRun,
   emptyAccount,
   loadAccount,
   migrateAccount,
@@ -23,6 +24,8 @@ const store = (): StorageLike & { box: Map<string, string> } => {
     removeItem: (k) => void box.delete(k),
   };
 };
+
+const TIERS = [300, 400] as const;
 
 describe('brigade account', () => {
   it('starts empty and round-trips through storage under its own key', () => {
@@ -154,7 +157,7 @@ describe('brigade account', () => {
 
   it('buys tier 1 of a track: deducts the price, records the tier, without a grant', () => {
     const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
-    const { account, ok } = buyUpgrade(funded, 'inf_squad', 'armour', 1, 300);
+    const { account, ok } = buyUpgrade(funded, 'inf_squad', 'armour', 1, TIERS);
     expect(ok).toBe(true);
     expect(account.balance).toBe(700);
     expect(account.upgrades.inf_squad?.armour).toBe(1);
@@ -165,9 +168,9 @@ describe('brigade account', () => {
 
   it('buys tier 2 after tier 1', () => {
     const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
-    const tier1Result = buyUpgrade(funded, 'inf_squad', 'armour', 1, 300);
+    const tier1Result = buyUpgrade(funded, 'inf_squad', 'armour', 1, TIERS);
     expect(tier1Result.ok).toBe(true);
-    const tier2Result = buyUpgrade(tier1Result.account, 'inf_squad', 'armour', 2, 400);
+    const tier2Result = buyUpgrade(tier1Result.account, 'inf_squad', 'armour', 2, TIERS);
     expect(tier2Result.ok).toBe(true);
     expect(tier2Result.account.balance).toBe(300);
     expect(tier2Result.account.upgrades.inf_squad?.armour).toBe(2);
@@ -175,44 +178,44 @@ describe('brigade account', () => {
 
   it('refuses tier 2 when at 0 (not the next tier)', () => {
     const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
-    const { account, ok } = buyUpgrade(funded, 'inf_squad', 'armour', 2, 400);
+    const { account, ok } = buyUpgrade(funded, 'inf_squad', 'armour', 2, TIERS);
     expect(ok).toBe(false);
     expect(account).toBe(funded); // same object by identity
   });
 
   it('refuses tier 1 when already at tier 1 (not the next tier)', () => {
     const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
-    const tier1 = buyUpgrade(funded, 'inf_squad', 'armour', 1, 300).account;
-    const { account, ok } = buyUpgrade(tier1, 'inf_squad', 'armour', 1, 300);
+    const tier1 = buyUpgrade(funded, 'inf_squad', 'armour', 1, TIERS).account;
+    const { account, ok } = buyUpgrade(tier1, 'inf_squad', 'armour', 1, TIERS);
     expect(ok).toBe(false);
     expect(account).toBe(tier1); // same object by identity
   });
 
   it('refuses tier 0 (not the next tier)', () => {
     const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
-    const { account, ok } = buyUpgrade(funded, 'inf_squad', 'armour', 0, 300);
+    const { account, ok } = buyUpgrade(funded, 'inf_squad', 'armour', 0, TIERS);
     expect(ok).toBe(false);
     expect(account).toBe(funded);
   });
 
   it('refuses when the balance is short', () => {
     const funded = payMission(emptyAccount(), 'm1', 100, 1).account;
-    const { account, ok } = buyUpgrade(funded, 'inf_squad', 'armour', 1, 300);
+    const { account, ok } = buyUpgrade(funded, 'inf_squad', 'armour', 1, TIERS);
     expect(ok).toBe(false);
     expect(account).toBe(funded); // same object by identity
   });
 
   it('refuses when the price is not a positive integer', () => {
     const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
-    expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, 0).ok).toBe(false);
-    expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, 2.5).ok).toBe(false);
-    expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, -1).ok).toBe(false);
+    expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [0]).ok).toBe(false);
+    expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [2.5]).ok).toBe(false);
+    expect(buyUpgrade(funded, 'inf_squad', 'armour', 1, [-1]).ok).toBe(false);
   });
 
   it('preserves other units and tracks when upgrading one', () => {
     const funded = payMission(emptyAccount(), 'm1', 2000, 1).account;
-    const step1 = buyUpgrade(funded, 'inf_squad', 'armour', 1, 300).account;
-    const step2 = buyUpgrade(step1, 'mbt_lavi', 'firepower', 1, 400).account;
+    const step1 = buyUpgrade(funded, 'inf_squad', 'armour', 1, TIERS).account;
+    const step2 = buyUpgrade(step1, 'mbt_lavi', 'firepower', 1, TIERS).account;
     expect(step2.upgrades.inf_squad?.armour).toBe(1);
     expect(step2.upgrades.mbt_lavi?.firepower).toBe(1);
   });
@@ -220,16 +223,26 @@ describe('brigade account', () => {
   it('round-trips an upgrade through storage', () => {
     const s = store();
     const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
-    saveAccount(s, buyUpgrade(funded, 'inf_squad', 'armour', 1, 300).account);
+    saveAccount(s, buyUpgrade(funded, 'inf_squad', 'armour', 1, TIERS).account);
     const loaded = loadAccount(s);
     expect(loaded.upgrades.inf_squad?.armour).toBe(1);
     expect(loaded.balance).toBe(700);
   });
 
+  it('buys a run of tiers at once: one price, earned = to, no grant', () => {
+    const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
+    const { account, ok } = buyUpgradeRun(funded, 'spg_long_range', 'armour', 1, 3, [160, 240, 340]);
+    expect(ok).toBe(true);
+    expect(account.balance).toBe(260);
+    expect(account.upgrades.spg_long_range?.armour).toBe(3);
+    expect(account.grants).toEqual(funded.grants);
+    expect(account.earned_total).toBe(1000);
+  });
+
   it('resetAccount clears upgrades (existing behaviour)', () => {
     const s = store();
     const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
-    const upgraded = buyUpgrade(funded, 'inf_squad', 'armour', 1, 300).account;
+    const upgraded = buyUpgrade(funded, 'inf_squad', 'armour', 1, TIERS).account;
     saveAccount(s, upgraded);
     expect(resetAccount(s).upgrades).toEqual({});
   });

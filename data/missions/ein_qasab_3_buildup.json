@@ -98,6 +98,9 @@
       ]
     }
   ],
+  "field_works": {
+    "kdf_forward_camp": 1
+  },
   "resources": {
     "logistics_start": 400,
     "logistics_rate_per_min": 150,

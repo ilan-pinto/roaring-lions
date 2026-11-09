@@ -12,6 +12,8 @@
 // The schema cannot say any of these (it holds no map, catalogue or unit files). Its own module
 // because validate_data.mjs runs its whole sweep at import time and exits.
 
+import { productionWorksCount } from './validate_works.mjs';
+
 /** Mirrors tuning.ts MAX_PRODUCTION_LINES; a test pins the two together. */
 export const MAX_PRODUCTION_LINES = 4;
 
@@ -82,9 +84,18 @@ export function productionRuleFailures(mission, map, catalogue, enemyUnits, file
     counts[side] += n;
     if (side === 1) sideOneCamps += n;
   }
+  // GH-277 follow-on: each production work in `field_works` may open a side-0 line on completion, so the count is
+  // authored camps PLUS the works the mission lists (the runtime refuses the request that would pass the cap, but a
+  // mission that can never use a work it lists is an authoring fault).
+  const works = productionWorksCount(mission, catalogue);
+  // A side with no camp at all gets one `player_start` line at runtime (D2): that line counts too.
+  if (counts[0] === 0 && map?.player_start !== undefined) counts[0] = 1;
+  counts[0] += works;
   for (const side of [0, 1]) {
     if (counts[side] > MAX_PRODUCTION_LINES) {
-      out.push(`${file}: ${id} has ${counts[side]} production structures for side ${side}, at most ${MAX_PRODUCTION_LINES}`);
+      out.push(
+        `${file}: ${id} has ${counts[side]} production structures for side ${side}${side === 0 && works > 0 ? ` (${works} of them production works in field_works)` : ''}, at most ${MAX_PRODUCTION_LINES}`
+      );
     }
   }
 

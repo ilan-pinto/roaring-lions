@@ -8,6 +8,9 @@ import {
   buildableOwnerFailures,
   fieldWorksKeyFailures,
   fieldWorksCarrierReport,
+  productionPlacementFailures,
+  productionTypeFailures,
+  productionWorksCount,
   tunnelSensorFailures,
   worksSymbolFailures,
 } from '../validate_works.mjs';
@@ -16,6 +19,7 @@ const ROOT = join(__dirname, '..', '..');
 const readJson = (p: string) => JSON.parse(readFileSync(join(ROOT, p), 'utf8'));
 const catalogue = readJson('data/structures.json') as { types: Record<string, Record<string, unknown>> };
 
+const medic = { id: 'medic', symbol: 'M', owner: 0, buildable: { cost: { logistics: 1 }, build_time_s: 5 } };
 const cat = {
   types: {
     medic: { id: 'medic', symbol: 'M', owner: 0, buildable: { cost: { logistics: 1 }, build_time_s: 5 } },
@@ -111,6 +115,71 @@ describe('rule 5: work symbols are not terrain and not on any map row', () => {
   });
 });
 
+describe('GH-277 forward camp: production works', () => {
+  const build = { cost: { logistics: 1 }, build_time_s: 5 };
+  const kdfRoles = new Set(['infantry', 'at_team', 'sniper', 'engineer', 'support', 'drone', 'recon', 'mbt']);
+  const fwd = (extra: Record<string, unknown>) => ({ types: { fwd: { id: 'fwd', symbol: 'K', owner: 0, buildable: build, production: {}, ...extra } } });
+
+  it('passes a plain production work, one with a role subset, and a catalogue without any', () => {
+    expect(productionTypeFailures(fwd({}), kdfRoles, 'f')).toEqual([]);
+    expect(productionTypeFailures(fwd({ production: { roles: ['infantry', 'drone'], build_time_mult: 1.25 } }), kdfRoles, 'f')).toEqual([]);
+    expect(productionTypeFailures(cat, kdfRoles, 'f')).toEqual([]);
+  });
+
+  it('RED FIXTURE production_not_buildable: a production block on a type the player cannot raise is refused', () => {
+    const t = { types: { x: { id: 'x', symbol: 'X', owner: 0, production: {} } } };
+    const out = productionTypeFailures(t, kdfRoles, 'f');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('is not buildable');
+  });
+
+  it('RED FIXTURE production_owned_by_enemy: a production block with owner 1, or none, is refused (D7: the enemy never builds it)', () => {
+    expect(productionTypeFailures(fwd({ owner: 1 }), kdfRoles, 'f').some((m) => m.includes('owner 1'))).toBe(true);
+    const neutral = { types: { x: { id: 'x', symbol: 'X', buildable: build, production: {} } } };
+    expect(productionTypeFailures(neutral, kdfRoles, 'f').some((m) => m.includes('owner -1'))).toBe(true);
+  });
+
+  it('RED FIXTURE production_is_the_rear: produces_for beside production would make it the convoy rear, and is refused', () => {
+    const out = productionTypeFailures(fwd({ produces_for: 0 }), kdfRoles, 'f');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('convoy rear');
+  });
+
+  it('RED FIXTURE production_opens_a_unit: a role no KDF unit has, an empty list and a repeat are refused', () => {
+    const open = productionTypeFailures(fwd({ production: { roles: ['gunship'] } }), kdfRoles, 'f');
+    expect(open).toHaveLength(1);
+    expect(open[0]).toContain('"gunship"');
+    expect(productionTypeFailures(fwd({ production: { roles: [] } }), kdfRoles, 'f')).toHaveLength(1);
+    expect(productionTypeFailures(fwd({ production: { roles: ['infantry', 'infantry'] } }), kdfRoles, 'f')).toHaveLength(1);
+  });
+
+  it('RED FIXTURE production_placed_by_a_mission: a structures[] placement of a production type is refused, a camp is not', () => {
+    const t = { types: { ...fwd({}).types, camp: { id: 'camp', symbol: 'c', produces_for: 0 } } };
+    const out = productionPlacementFailures({ structures: [{ type: 'fwd', at: [1, 1] }] }, t, 'm');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('"fwd"');
+    expect(productionPlacementFailures({ structures: [{ type: 'camp', at: [1, 1] }] }, t, 'm')).toEqual([]);
+    expect(productionPlacementFailures({}, t, 'm')).toEqual([]);
+  });
+
+  it('counts the production works a mission lists, and only those', () => {
+    const t = { types: { ...fwd({}).types, medic } };
+    expect(productionWorksCount({ field_works: { fwd: 2, medic: 2 } }, t)).toBe(2);
+    expect(productionWorksCount({}, t)).toBe(0);
+  });
+
+  it('the shipped kdf_forward_camp passes every rule against the shipped KDF roles', () => {
+    const roles = new Set<string>();
+    for (const f of readdirSync(join(ROOT, 'data/units/kdf')).filter((n) => n.endsWith('.json'))) roles.add(readJson(`data/units/kdf/${f}`).role as string);
+    expect(productionTypeFailures(catalogue, roles, 'structures.json')).toEqual([]);
+    const t = catalogue.types.kdf_forward_camp as Record<string, unknown>;
+    // sets neither optional field (lead, 4 Nov 2026): the whole menu at the whole speed
+    expect(t.production).toEqual({});
+    expect(t.owner).toBe(0);
+    expect(t.produces_for).toBeUndefined();
+  });
+});
+
 describe('the shipped data', () => {
   it('every shipped rule passes on the real catalogue', () => {
     expect(buildableOwnerFailures(catalogue, 'structures.json')).toEqual([]);
@@ -120,20 +189,28 @@ describe('the shipped data', () => {
     const terrain = new Set(['.', '1', '2', '3', 'r', 'o', 'n', '^', 'b', 'd']);
     expect(worksSymbolFailures(catalogue, maps, terrain)).toEqual([]);
   });
-  it('the field works are present, and exactly the five KDF ones are buildable', () => {
+  it('the field works are present, and exactly the six KDF ones are buildable (the forward camp joined, GH-277)', () => {
     const ids = Object.keys(catalogue.types);
     for (const id of [
-      'kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop', 'kdf_aid_post',
+      'kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop', 'kdf_aid_post', 'kdf_forward_camp',
       'militia_field_clinic', 'militia_firing_position', 'militia_observation_post', 'militia_weapons_workshop',
     ]) expect(ids).toContain(id);
     const buildable = Object.values(catalogue.types).filter((t) => t.buildable !== undefined).map((t) => t.id);
-    expect(buildable.sort()).toEqual(['kdf_aid_post', 'kdf_intel_centre', 'kdf_medic_station', 'kdf_outpost', 'kdf_workshop']);
+    expect(buildable.sort()).toEqual(['kdf_aid_post', 'kdf_forward_camp', 'kdf_intel_centre', 'kdf_medic_station', 'kdf_outpost', 'kdf_workshop']);
   });
-  it('exactly one shipped mission lists field_works: Ein Qasab II, the first campaign use (GH-912 G8; the rest are the lead\'s, L4/L5)', () => {
+  it('exactly these ten shipped missions list field_works: Ein Qasab II (GH-912), the seven allow lists of spec 5, Ein Qasab III\'s forward camp (GH-277 Task 15) and Umm Zeitoun IV\'s (GH-277 second wave)', () => {
     const withWorks = readdirSync(join(ROOT, 'data/missions'))
       .filter((f) => f.endsWith('.json'))
       .filter((f) => readJson(`data/missions/${f}`).field_works !== undefined);
-    expect(withWorks).toEqual(['ein_qasab_2_foothold.json']);
+    expect(withWorks).toEqual([
+      'beit_sahwan_2_foothold.json', 'deir_amun_2_foothold.json', 'ein_qasab_2_foothold.json', 'ein_qasab_3_buildup.json',
+      'khan_rafid_2_foothold.json', 'qarn_hadid_2_foothold.json', 'tel_marum_2_foothold.json', 'umm_zeitoun_2_buildup.json',
+      'umm_zeitoun_4_clearance.json', 'wadi_halam_2_laager.json',
+    ]);
     expect(readJson('data/missions/ein_qasab_2_foothold.json').field_works).toEqual({ kdf_outpost: 1 });
+    expect(readJson('data/missions/ein_qasab_3_buildup.json').field_works).toEqual({ kdf_forward_camp: 1 });
+    expect(readJson('data/missions/umm_zeitoun_4_clearance.json').field_works).toEqual({ kdf_forward_camp: 1 });
+    // Umm Zeitoun II was measured with the camp and left without it (+28.1% median, probes.md).
+    expect(readJson('data/missions/umm_zeitoun_2_buildup.json').field_works.kdf_forward_camp).toBeUndefined();
   });
 });

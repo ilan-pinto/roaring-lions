@@ -45,3 +45,31 @@ def unscale_imported(log=print):
     bpy.context.view_layer.update()
     log(f"[rescale] imported file was rescaled x{factor}: divided back to its authored frame")
     return factor
+
+
+#: The scene marker and the material extras key `pnpm mark:meshes` writes (`tools/src/meshes/mark-contract.ts`).
+MARK_SCENE_KEY = "rl_team_mark_pass"
+MARK_MATERIAL_KEY = "rl_team_mark"
+
+
+def drop_imported_mark(log=print):
+    """Drop a team mark the imported SHIPPED Lavi carries (L3, GH-943).
+
+    The command Lavi and the Ambush Tank are cut from the shipped `mbt_lavi.glb`, which now carries the Lavi's own
+    mark (`rl_team_mark` on its material, `rl_team_mark_pass` on its scene). Each variant gets its own boxes from
+    `pnpm mark:meshes` AFTER this export; carried through Blender, the Lavi's boxes would ride in on the variant's
+    material (placed for a hull this one does not have) and the pass would refuse the file as already marked.
+    Returns how many entries it dropped.
+    """
+    n = 0
+    for scene in bpy.data.scenes:
+        if MARK_SCENE_KEY in scene:
+            del scene[MARK_SCENE_KEY]
+            n += 1
+    for mat in bpy.data.materials:
+        if MARK_MATERIAL_KEY in mat:
+            del mat[MARK_MATERIAL_KEY]
+            n += 1
+    if n:
+        log(f"[mark] dropped {n} imported team-mark entr{'y' if n == 1 else 'ies'}: the variant is marked by its own pass")
+    return n

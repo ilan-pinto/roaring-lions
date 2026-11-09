@@ -1,0 +1,35 @@
+{
+  "id": "gun_out_fire",
+  "trigger": "firepower_kill",
+  "layer": "above_units",
+  "budget_priority": 2,
+  "particles": [
+    {
+      "sprite": "soft_dot",
+      "count": [1, 1],
+      "lifetime_ms": [300, 520],
+      "speed_tiles_s": [0.05, 0.15],
+      "cone_deg": 30,
+      "gravity_tiles_s2": -0.9,
+      "drag": 0.5,
+      "size_px": [3, 4.5],
+      "size_over_life": [0.9, 1.1, 0.3],
+      "color_over_life": ["vfx.fire", "vfx.ember", "gunmetal.3"],
+      "alpha_over_life": [0.85, 0.55, 0.0]
+    },
+    {
+      "sprite": "spark",
+      "count": [1, 1],
+      "lifetime_ms": [300, 620],
+      "speed_tiles_s": [0.3, 0.8],
+      "cone_deg": 50,
+      "gravity_tiles_s2": -1.4,
+      "drag": 0.4,
+      "size_px": [1.5, 2.5],
+      "size_over_life": [1.0, 0.4],
+      "color_over_life": ["vfx.fire", "vfx.ember"],
+      "alpha_over_life": [0.9, 0.0],
+      "additive": true
+    }
+  ]
+}

@@ -39,9 +39,10 @@
  * DOM through `textContent` only, never through markup (the lobby chat is
  * `NetChat`, which keeps to that too).
  */
-import { maps } from '@lions/data';
-import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, versusMapAllowed, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
+import { flagBlockOf, maps, units, versusModes } from '@lions/data';
+import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, specialRefusal, versusMapAllowed, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
+import { pointsExplainer } from './points-explainer';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
 import { isTextEntry } from '../shell/escape-back';
@@ -125,6 +126,36 @@ export function advisorCommand(origin: string, code: string, scope: AdvisorScope
   return `pnpm --silent agent -- --server ${origin} --code ${code} --scope ${scope} --ticket-file ${ADVISOR_TICKET_FILE}`;
 }
 
+/** A unit's name, as its JSON gives it (data, like the Garage's names); the id when it has none. */
+const unitNameOf = (id: string): string => (units as Readonly<Record<string, { name?: string } | undefined>>)[id]?.name ?? id;
+
+/**
+ * GH-1102: the line-up one seat brings into a brigade room, as the room said (`SeatState.specials`):
+ * the Store specials that join its force, and those a versus room refuses, each with its reason, so
+ * nothing the player owns is left out unseen. A seat with none (a bot, a Sarim seat, a player who
+ * owns no special) reads "Standard force". Resolved at draw time, never at module load.
+ */
+export function lineUp(s: Pick<SeatState, 'specials'>): HTMLElement {
+  const box = document.createElement('div');
+  box.className = 'rl-versus__lineup';
+  const owned = s.specials ?? [];
+  const coming = owned.filter((id) => specialRefusal(id) === null);
+  const out = owned.filter((id) => specialRefusal(id) !== null);
+  const line = (cls: string, text: string): void => {
+    const p = document.createElement('p');
+    p.className = cls;
+    p.textContent = text;
+    box.appendChild(p);
+  };
+  if (coming.length === 0) line('rl-versus__lineup-none', t('versus.room.specials.none'));
+  else line('rl-versus__lineup-brings', t('versus.room.specials.brings', { list: coming.map(unitNameOf).join(', ') }));
+  if (out.length > 0) {
+    const list = out.map((id) => t('versus.room.specials.why', { name: unitNameOf(id), why: specialRefusal(id) ?? 'other' })).join(', ');
+    line('rl-versus__lineup-out', t('versus.room.specials.out', { list }));
+  }
+  return box;
+}
+
 /** A room between `/versus` and the start. */
 interface Room {
   readonly code: string;
@@ -136,6 +167,8 @@ interface Room {
   factions: [Faction, Faction];
   /** The room's kit rule (per-seat kit), shown to both seats. */
   kit: LobbyKit;
+  /** The room's win mode (GH-976 P2), shown to both seats; null is annihilation. */
+  winMode: WinMode | null;
   /** `closed`: this tab left (and said `bye`). `ended`: the room ended under it. */
   phase: 'lobby' | 'started' | 'ended' | 'closed';
   /** An i18n key for a refusal the room sent after the lobby opened. */
@@ -195,16 +228,18 @@ function startedElsewhere(err: unknown, deps: VersusDeps): boolean {
 function adopt(o: OpenedRoom, deps: VersusDeps): Room {
   const room: Room = {
     code: o.code, seat: o.seat, transport: o.transport,
-    seats: o.lobby.seats, map: o.lobby.map, factions: o.lobby.factions, kit: o.lobby.kit,
+    seats: o.lobby.seats, map: o.lobby.map, factions: o.lobby.factions, kit: o.lobby.kit, winMode: o.lobby.winMode ?? null,
     phase: 'lobby', error: null, repaint: null, chat: null, advisors: [null, null],
   };
   o.transport.setHooks({
-    onLobby: (seats, _you, map, factions, kit) => {
+    onLobby: (seats, _you, map, factions, kit, winMode) => {
       room.seats = seats;
       room.map = map;
       if (factions !== undefined) room.factions = factions;
       // The room names the rule only when it is `brigade`; silence is matched.
       room.kit = kit ?? 'matched';
+      // Likewise a win mode: silence is annihilation.
+      room.winMode = winMode ?? null;
       room.repaint?.();
     },
     onStart: (config) => {
@@ -495,6 +530,8 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   let side: Matchup = 'mirror';
   let map = deps.maps.some((m) => m.id === DEFAULT_MAP) ? DEFAULT_MAP : (deps.maps[0]?.id ?? '');
   let kit = false;
+  // GH-976 P2: null is annihilation, the default; a mode is offered only where it was read fair (`winModesOffered`).
+  let winMode: WinMode | null = null;
   // KDF vs Sarim plays only on `FACTION_MATCHUP_MAPS` (the lead, 2026-10-14;
   // the room refuses it anywhere else). A build that ships none of them
   // offers the mirror alone.
@@ -546,6 +583,18 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   matchupNote.id = nextId('matchup-note');
   matchupNote.textContent = t('versus.matchup.economy');
   sides.appendChild(matchupNote);
+  // GH-976 P4: a win mode on a faction pairing plays the two PLACED forces with no economy (`economyRoom` is false for a mode
+  // room), so the line above would be untrue; `syncWin` swaps it for this one while a mode is picked.
+  const placedNote = document.createElement('p');
+  placedNote.className = 'rl-versus__matchup-note';
+  placedNote.id = nextId('placed-note');
+  placedNote.textContent = t('versus.matchup.placed');
+  placedNote.hidden = true;
+  sides.appendChild(placedNote);
+  const describeFaction = (): void => {
+    const id = placedNote.hidden ? matchupNote.id : placedNote.id;
+    for (const [m, radio] of sideRadios) if (m !== 'mirror' && !radio.disabled) radio.setAttribute('aria-describedby', id);
+  };
   for (const [m, radio] of sideRadios) if (m !== 'mirror') radio.setAttribute('aria-describedby', matchupNote.id);
   for (const [m, radio] of sideRadios) {
     if (m === 'mirror' || offered.length > 0) continue;
@@ -641,7 +690,67 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   const paintGround = (): void => {
     const label = deps.maps.find((m) => m.id === map)?.label;
     cardSlot.replaceChildren(...(label === undefined ? [] : [mapCard(map, label, 0)]));
+    syncWin();
   };
+
+  // --- how to win: annihilation, or a mode read fair on this ground (GH-976 P2) --
+  // Same segmented radio group as the side. Only the modes `winModesOffered` lists for the picked ground and side are
+  // in the DOM at all (a mode nobody measured is not hidden, it is absent); with none offered the whole group is hidden.
+  const win = document.createElement('fieldset');
+  win.className = 'rl-versus__sides rl-versus__win';
+  const winLegend = document.createElement('legend');
+  winLegend.className = 'rl-versus__label';
+  winLegend.textContent = t('versus.host.win.pick');
+  const winName = nextId('win');
+  const winOptions = document.createElement('span');
+  winOptions.className = 'rl-versus__win-options';
+  const winHint = document.createElement('p');
+  winHint.className = 'rl-versus__matchup-note rl-versus__win-hint';
+  winHint.id = nextId('win-hint');
+  win.append(winLegend, winOptions, winHint);
+  body.appendChild(win);
+  function syncWin(): void {
+    const offered = winModesOffered(map, side);
+    if (winMode !== null && !offered.includes(winMode)) winMode = null;
+    win.hidden = offered.length === 0;
+    // Nothing offered, nothing drawn: not even Annihilation (every room plays it, so there is nothing to pick).
+    const choices: (WinMode | null)[] = offered.length === 0 ? [] : [null, ...offered];
+    winOptions.replaceChildren(...choices.map((id) => {
+      const key = id ?? 'annihilation';
+      const label = document.createElement('label');
+      label.className = 'rl-versus__side';
+      label.dataset.win = key;
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.className = 'rl-versus__side-radio';
+      radio.name = winName;
+      radio.value = key;
+      radio.checked = id === winMode;
+      radio.setAttribute('aria-describedby', winHint.id);
+      radio.addEventListener('change', () => {
+        if (!radio.checked) return;
+        winMode = id;
+        syncWin();
+      });
+      const name = document.createElement('span');
+      name.className = 'rl-versus__side-name';
+      name.textContent = t(`versus.win.${key}`);
+      label.append(radio, name);
+      return label;
+    }));
+    // The economy line is for annihilation on a faction pairing; a mode there is the placed forces (see `placedNote`).
+    const narrowed = side !== 'mirror';
+    matchupNote.hidden = !narrowed || winMode !== null;
+    placedNote.hidden = !narrowed || winMode === null;
+    describeFaction();
+    const target = winMode === 'points' ? versusModes[map]?.modes.points?.target ?? 0 : 0;
+    // GH-976 R0.22: through the one reader, for the rules a room on this map would play (the Worker mints `flagSetup` from the same list).
+    const flagFile = winMode === 'flag' ? versusModes[map] : undefined;
+    const hold = flagFile === undefined || flagFile.modes.flag === undefined ? 0 : flagBlockOf(flagFile, flagSetupRoom({ winMode: 'flag', flagSetup: flagSetupFor(map, 'flag') })).holdS;
+    const pointsRules = winMode === 'points' ? versusModes[map]?.modes.points : undefined;
+    // GH-1103: a points race explains its own scoring, from the map's mode data.
+    winHint.textContent = pointsRules !== undefined ? pointsExplainer(pointsRules) : t(`versus.win.${winMode ?? 'annihilation'}.hint`, { target, hold });
+  }
 
   // --- bring your brigade: a switch, and its one-line hint ------------------
   // HOST only, off by default, friends-only: the room cannot check a claim
@@ -797,7 +906,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       },
     );
   };
-  openBtn.addEventListener('click', () => start({ kind: 'create', map, matchup: side, kit: kit ? 'brigade' : 'matched', callsign: callsignOrDefault(callsign.input.value) }, false));
+  openBtn.addEventListener('click', () => start({ kind: 'create', map, matchup: side, kit: kit ? 'brigade' : 'matched', ...(winMode === null ? {} : { winMode }), callsign: callsignOrDefault(callsign.input.value) }, false));
   const join = (): void => {
     if (code.value.length !== CODE_LENGTH) return;
     start({ kind: 'join', code: code.value, callsign: callsignOrDefault(callsign.input.value) }, true);
@@ -937,6 +1046,15 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     const kitValue = document.createElement('span');
     kitValue.className = 'rl-versus__kit-name';
     kitLine.append(kitLabel, kitValue);
+    // The room's win mode (GH-976 P2), the same line for both seats.
+    const winLine = document.createElement('p');
+    winLine.className = 'rl-versus__room-kit rl-versus__room-win';
+    const winLabel = document.createElement('span');
+    winLabel.className = 'rl-versus__label';
+    winLabel.textContent = t('versus.room.win');
+    const winValue = document.createElement('span');
+    winValue.className = 'rl-versus__kit-name';
+    winLine.append(winLabel, winValue);
     const status = messageLine('rl-versus__status');
     const ready = stamp(t('versus.room.ready'), 'rl-versus__ready');
     ready.setAttribute('aria-pressed', 'false');
@@ -947,7 +1065,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       r.transport.ready();
       paint();
     });
-    side.append(kitLine, ready, status);
+    side.append(kitLine, winLine, ready, status);
     lower.append(mapSlot, side);
     // The lobby chat (N1b task 9, R-B10): docked, so its input is always there.
     const chat = document.createElement('div');
@@ -1006,6 +1124,8 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
         who.appendChild(you);
       }
       el.append(who, factionArt(r.factions[n], 'rl-versus__art--big'), force);
+      // GH-1102: in a brigade room, the line-up this seat brings, before Ready.
+      if (r.kit === 'brigade') el.appendChild(lineUp(s));
       if (s.ready) el.dataset.ready = '1';
       state.textContent = t(s.ready ? 'versus.room.ready' : 'versus.room.notReady');
       el.appendChild(state);
@@ -1048,6 +1168,8 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       }
       kitLine.dataset.kit = r.kit;
       kitValue.textContent = t('versus.room.kit.value', { kit: r.kit });
+      winLine.dataset.win = r.winMode ?? 'annihilation';
+      winValue.textContent = t('versus.room.win.value', { mode: r.winMode ?? 'annihilation' });
       const me = r.seats.find((x) => x.seat === r.seat);
       const pressed = readySent || me?.ready === true;
       ready.setAttribute('aria-pressed', pressed ? 'true' : 'false');

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { doctrines, formations, maps, structures, units, versusRules } from '@lions/data';
+import { doctrines, formations, maps, structures, units, versusModes, versusRules } from '@lions/data';
 import { canonicalJson, contentDigest, shippedContent, shippedContentDigest, type Content } from './content-digest';
 
 const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -44,9 +44,35 @@ describe('contentDigest (L4)', () => {
     expect(d | 0).toBe(d);
   });
 
-  it('the shipped digest covers units, structures, maps, doctrines, versus rules and formations, as they are shipped', () => {
-    expect(shippedContent()).toEqual({ units, structures, maps, doctrines, versusRules, formations });
-    expect(shippedContentDigest()).toBe(contentDigest({ units, structures, maps, doctrines, versusRules, formations }));
+  it('the shipped digest covers units, structures, maps, doctrines, versus rules, versus modes and formations, as they are shipped', () => {
+    expect(shippedContent()).toEqual({ units, structures, maps, doctrines, versusRules, versusModes, formations });
+    expect(shippedContentDigest()).toBe(contentDigest({ units, structures, maps, doctrines, versusRules, versusModes, formations }));
+  });
+
+  it('GH-976 P3: a flag zone and the flag hold count (the hold 30 -> 31, the friendly flag one tile over), and put back it is the same', () => {
+    const shipped = shippedContent();
+    const file = versusModes.wadi_tarfan;
+    const withFile = (over: Partial<typeof file>): Content => ({ ...shipped, versusModes: { ...versusModes, wadi_tarfan: { ...file, ...over } } });
+    expect(file.modes.flag!.hold_s).toBe(30); // literal: the shipped hold
+    expect(contentDigest(withFile({ modes: { ...file.modes, flag: { hold_s: 31 } } }))).not.toBe(shippedContentDigest());
+    expect(contentDigest(withFile({ flags: { ...file.flags!, friendly: { ...file.flags!.friendly, at: [file.flags!.friendly.at[0] + 1, file.flags!.friendly.at[1]] } } }))).not.toBe(shippedContentDigest());
+    expect(contentDigest(withFile({}))).toBe(shippedContentDigest());
+  });
+
+  it('GH-976 P2: one win-mode value counts (the points target 600 -> 601), and put back it is the same', () => {
+    const shipped = shippedContent();
+    const file = versusModes.wadi_tarfan;
+    const withTarget = (target: number): Content => ({
+      ...shipped,
+      versusModes: { ...versusModes, wadi_tarfan: { ...file, modes: { ...file.modes, points: { ...file.modes.points!, target } } } },
+    });
+    expect(file.modes.points!.target).toBe(600); // literal: the shipped target
+    expect(contentDigest(withTarget(601))).not.toBe(shippedContentDigest());
+    expect(contentDigest(withTarget(600))).toBe(shippedContentDigest());
+    // and a whole file dropped counts too
+    const rest = Object.fromEntries(Object.entries(versusModes).filter(([id]) => id !== 'wadi_tarfan'));
+    expect(Object.keys(rest)).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'milh_flats_l', 'rujm_sawda', 'tel_marum', 'wadi_tarfan_l']);   // GH-976 P4: the six others
+    expect(contentDigest({ ...shipped, versusModes: rest })).not.toBe(shippedContentDigest());
   });
 
   it('is key-sorted: the same content in a different insertion order digests the same', () => {
@@ -57,6 +83,7 @@ describe('contentDigest (L4)', () => {
       maps: reversed(shipped.maps) as Content['maps'],
       doctrines: reversed(shipped.doctrines) as Content['doctrines'],
       versusRules: reversed(shipped.versusRules) as Content['versusRules'],
+      versusModes: reversed(shipped.versusModes) as Content['versusModes'],
       // key order inside each formation, NOT the order of the list (that is content, tested below)
       formations: (shipped.formations as unknown[]).map(reversed),
     };

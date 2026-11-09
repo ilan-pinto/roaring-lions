@@ -177,6 +177,11 @@
           ],
           "default": "day"
         },
+        "grade": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "description": "Look uplift L2 (GH-943): the id of a colour grade in data/grades/ this mission is drawn with, which wins over the sandbox's &grade=. App-read only, never by the sim (the same path time_of_day took). validate:data checks the file exists. No shipped mission names one; absent, the map's time-of-day grade (dawn, dusk; day has none) draws. &grade=0 is the A/B switch."
+        },
         "light": {
           "type": "object",
           "additionalProperties": false,
@@ -386,6 +391,13 @@
           "hostages": {
             "type": "boolean",
             "description": "This evacuate_before brings back people the enemy took. On completion its count is written to the ledger key civ.hostages_recovered for this mission, and the campaign board's account of the taken moves. Legal ONLY on evacuate_before, and enforced -- the runtime counts a completed hostages objective's `count` and nothing else, so the flag on any other type is a silent no-op that reads in the JSON as though the mission recovers people."
+          },
+          "side": {
+            "enum": [
+              0,
+              1
+            ],
+            "description": "GH-976: the side this objective belongs to. Absent is side 0, the player, as every mission has always read it. Read by capture and hold_for (that side's units hold the ground and the other side's contest it), raze (who the razing wins for) and, in a versus win-mode room, score. Any other type refuses it at construction. No shipped mission authors one: it exists for data/versus/modes/*.json, whose rows become objectives."
           },
           "text": {
             "type": "string"

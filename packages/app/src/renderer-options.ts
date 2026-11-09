@@ -18,7 +18,7 @@ import { paletteColor, paletteTeamColors, variantAwareResolver, type ParsedMap }
 import { QUALITY_PRESETS, type RendererOptions } from '@lions/render';
 import { dracoDecoderPath } from './mesh-catalogue';
 import type { ColorVision, Quality } from './settings';
-import { TERRAIN_GROUND_TEXTURE, TERRAIN_SLOT_TEXTURES, TERRAIN_WEATHER, terrainTonesFor } from './terrain-themes';
+import { TERRAIN_GROUND_TEXTURE, TERRAIN_SLOT_TEXTURES, TERRAIN_WEATHER, TERRAIN_WIND, terrainTonesFor } from './terrain-themes';
 
 /** The slice of the player's settings a `RendererOptions` is built from.
  *  Named rather than passed as the whole `Settings` object so a caller with
@@ -126,5 +126,18 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
     // GH-871 R-3: the weather seam. Present only when the theme rains, so a
     // shipped theme's options object gains no key (G-3). Nothing reads it in P2.
     ...(TERRAIN_WEATHER[map.terrain] === 'rain' ? { weather: 'rain' as const } : {}),
+    // GH-984 N1: the wind. The map's own block wins field by field over its theme's default; the sim
+    // never sees either. Reduced motion ignores it renderer-side.
+    wind: windFor(map),
+  };
+}
+
+/** The wind this map blows: its `wind` block, each field falling back to the theme's `TERRAIN_WIND`. */
+export function windFor(map: ParsedMap): NonNullable<RendererOptions['wind']> {
+  const theme = TERRAIN_WIND[map.terrain];
+  return {
+    strength: map.wind?.strength ?? theme.strength,
+    side: map.wind?.side ?? theme.side,
+    skewDeg: map.wind?.skewDeg ?? theme.skewDeg,
   };
 }

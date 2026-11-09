@@ -145,6 +145,12 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: '<locale id> — override the saved language for this load, without changing the setting',
   },
   {
+    name: 'gpu',
+    // GH-943 P0. A value flag like `tod`, sandbox-only like it, and not a SANDBOX_FLAGS boolean, so the Free play picker
+    // does not offer it. `gpu-flag.ts` reads it; absent is legacy, to the bit.
+    blurb: 'auto | webgpu | webgl2 | legacy — which renderer draws (GH-943; default legacy; node backends draw a bare scene pass until P1; a fallback is logged)',
+  },
+  {
     name: 'tod',
     // A value flag like `lang`, not a SANDBOX_FLAGS boolean --
     // `dawn | day | dusk | night` are values, not an on/off switch, so
@@ -161,6 +167,19 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // compare the two in the game. A mission never reads it -- it plays each
     // loop's own `pick` in data/audio.json (`engines-flag.ts`).
     blurb: 'a | b — which engine-loop candidate every vehicle plays (GH-35); a mission uses data/audio.json’s picks',
+  },
+  {
+    name: 'envlight',
+    // Look uplift L1 (GH-943), ON by default since 2 Nov. Not a SANDBOX_FLAGS entry: it works on a
+    // mission too and it is presentation only. `=0` is the A/B switch.
+    blurb: '=0 draws the pre-L1 frame: no sky environment, the shipped hemisphere, the 0.45 metal cap (GH-943; on by default)',
+  },
+  {
+    name: 'grade',
+    // Look uplift L2 (GH-943), ON by default since 2 Nov 2026; `=0` is the A/B switch. A value flag like `tod`, not a
+    // SANDBOX_FLAGS boolean, and a SANDBOX flag like it: a mission never reads it (N-23). `time-of-day.ts`'s `gradeOf`
+    // reads it. Day is the identity grade and has no file, so `auto` on a day map is today's frame.
+    blurb: '<id>[:<strength 0-2>] | auto | 0 — the sandbox’s colour grade (GH-943; on by default): dawn, dusk, or auto for the time of day, =0 ungraded; a mission uses its own',
   },
   {
     name: 'fitbuildings',
@@ -184,10 +203,10 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   },
   {
     name: 'testcoins',
-    // GH-317, the lead's go-ahead on 2 Oct. A TEST TOOL, live on every build:
-    // anyone with the link can unlock things free. Remove or gate it before
-    // release. Not a SANDBOX_FLAGS entry: it belongs to the garage.
-    blurb: '<n> — TEST Roar coins in the garage Stores (seeds n once, Grant adds n); buys unlock locally, packs stay disabled',
+    // GH-317: the TEST wallet this seeded is gone (every player has a free,
+    // earned wallet now). Still listed so an old link does not trip
+    // `unknownParams` as a typo. Not a SANDBOX_FLAGS entry.
+    blurb: 'accepted, no effect — Roar coins are earned in the campaign now; the test wallet was removed',
   },
   ...SANDBOX_FLAGS,
 ];

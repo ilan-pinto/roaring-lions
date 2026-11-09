@@ -10,7 +10,7 @@
 // centroid, re-ordered every 20 s, until the real outcome rule decides
 // (`outcomeOf`, packages/app/src/net/outcome.ts: annihilation, mutual, stalemate)
 // or a 10-minute cap, which is decided on surviving unit value by that same
-// rule (`outcomeOf` asked at `MATCH_CAP_TICKS`) -- not a copy of it. The forces
+// rule (`outcomeOf` asked at the map's own cap, `matchCapTicks(map)`: 25 minutes, 35 on Rujm Sawda) -- not a copy of it. The forces
 // are the ones a room spawns (`versusSpawns`, packages/app/src/net/versus-force.ts),
 // on the room's own seats (`versusAnchors`), in a `Sim` built the way a room builds it.
 // The seed varies the RNG streams and nothing else: 1000 + 7919 * n, so the same
@@ -94,8 +94,9 @@
 //   pnpm versus:probe -- --tunnels                    the tunnel arm's four cells, both rules-file maps
 //   flags: --maps=<id,id|all>  --arr=<kdf/kdf,kdf/sarim,sarim/kdf>  --seeds=<n>  --cap=<seconds>
 //          --rules=<room|default>  --economy  --tunnels  --start=<k>/<s>  --pop-cap=<k>/<s>  --rate-scale=<percent>
-//          --formation=<id>  --formation-end=<friendly|hostile>  --rescue-buy=<after|before|save|opening|off>
+//          --formation=<id>  --formation-end=<friendly|hostile>  --rescue-buy=<reserve|after|before|save|opening|off>
 //          --seed-from=<n>  --tunnel-cell=<off|noAnswer|answer|turtle>  --per-seed=<file>
+//          --mode=<camp|points|flag|all>  the win-mode arm (GH-976, versus-modes.ts): its own flags, --maps  --seeds  --seed-from  --passive=<on|off>
 //
 // Seed sets, one tunnel cell, per-seed files (GH-859 P1b Task 7; the instruments of the S4 gate, `s4-gate.ts`).
 // `--seed-from=<n>` plays seeds n .. n+seeds-1 (`seedOf` is unchanged: `seedOf(n)` is the n-th game), so set A
@@ -106,15 +107,29 @@
 // cell and per seed, the winning END, how the game ended and its ticks, as JSON (`per-seed.ts` is the
 // schema); it is written only after the self-check passed. Stdout is unchanged without these flags.
 //
-// The rescue arm (GH-707, the lead, 30 Oct 2026). REPORT-ONLY: the medic team is HELD out of versus (the lead, 30 Oct
-// 2026, PR 907), so a `--rescue-buy=<mode>` run (any mode but `off`) puts it on the KDF menu IN MEMORY for that run, and
-// without the flag the medic is not in the room at all. A rescue unit (the Nemala medic team) is not "armed" to the plan
-// (its carbines do not make it a combat unit), so the combat rebuild never buys one. `planRescueBuy` buys one only when
-// its side has a man lying wounded and none living or queued: `after` the combat purchases of the round (the default,
-// and only if the purse still covers it), `before` them, or `off`. `rescueRound` orders each idle medic, every second,
-// to the nearest of its side's men down (`canRescue`); the engine treats, lifts and carries him to the side's own camp,
-// which is the room's drop-off (`versus_aid`). A medic is left out of the attack-move. Sarim's menu has no rescue unit.
-// The economy table's `med/rej` is the mean per game of medic teams delivered / men sent back to a squad.
+// The rescue arm (GH-707, the lead, 30 Oct and 3 Nov 2026). A rescue unit (the Nemala medic team) is not "armed" to the plan
+// (its carbines do not make it a combat unit), so the combat rebuild never buys one; the KDF seat's rescue plan is its own
+// and is what `--rescue-buy=<mode>` picks. The default is `opening`, the model of a player who wants his wounded treated
+// (wounded treatment is a match-scoring criterion, GH-973):
+//   opening  buy the medic team FIRST, in the first round, with the opening purse (the only purse a side has; income is
+//            about 1 logistic a second and a medic costs 295), then only with a man down and none living or queued;
+//   reserve  the literal "buy one when a man is down": hold the medic's price back from the combat purchases for the first
+//            RESCUE_RESERVE_SECONDS (60), buy it at the round a man is down (rounds are 20 s apart), release the reserve at
+//            the end of the window. It buys, and it is late: the serial line makes it the last of the opening queue, it
+//            is built at about 90 s, the casualties of a probe game fall in its first 90 s and bleed out in 60, so it
+//            returns almost no one (production-numbers.md section 6);
+//   before / save  as in PR 907 (a man down, before the combat purchases / and hold the round's purchases for it);
+//   after    the ruled rule of 30 Oct (a man down, AFTER the combat purchases, if the purse still covers it): it never buys
+//            (byte-identical to main), the control;
+//   off      never buys one (the medic is on the menu and unbought): the same game as `after`.
+// What a bought medic does is the same in every arm (`rescueRound`, every second): it walks to its STATION, 5 tiles behind
+// the centroid of the side's standing armed units toward its camp (a player keeps his medic with the army and a little behind
+// it; left at the camp it is 30 tiles from the fight and every man is dead before it arrives), and from there the engine's
+// own pick takes a man down within its 8 tiles (or the camp's 12). It is ORDERED to a man further off only when no armed
+// enemy stands within 10 tiles of him, or the front has moved past him (one of his own side's armed units stands more than
+// 3 tiles nearer that enemy than he does). A medic is left out of the attack-move. Sarim's menu has no rescue unit. The
+// economy table's `med/adm/rej` is the mean per game of medic teams delivered / men admitted at the camp / men sent back to
+// a squad (admitted men whose squad is gone are evacuated and not counted as rejoined).
 //
 // The formation arm (GH-859 P1a, spec 8.7). `--formation=attack` puts `formation: 'attack'` on every
 // attack-move both ends send (the verb must be the formation's own: `attack` is the one shipped
@@ -162,15 +177,15 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Sim, WOUND_DOWN, WOUND_STABILISED, MED_IDLE, fx, type SimEvent } from '@lions/sim';
 import { applyTerrain, doctrines, formations, maps, parseMap, units, versusCapacityOf, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
-import { VERSUS_FAIR_MAPS, seatRules, sidesOfFactions, validateConfig, type Faction, type MatchConfig, type SpawnEnd } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, matchCapTicks, seatRules, sidesOfFactions, validateConfig, type Faction, type MatchConfig, type SpawnEnd } from '@lions/net';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { versusForceOf, versusSpawns } from '../../../packages/app/src/net/versus-force';
-import { MATCH_CAP_TICKS, outcomeOf, productionOf, unitCost, type MatchResult, type OutcomeProduction } from '../../../packages/app/src/net/outcome';
+import { outcomeOf, productionOf, unitCost, type MatchResult, type OutcomeProduction } from '../../../packages/app/src/net/outcome';
 import { versusRoster } from '../../../packages/app/src/net/versus-roster';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
+import { modeMain } from './versus-modes';
 import { PER_SEED_SCHEMA, type PerSeedCell, type PerSeedFile } from './per-seed';
-import { withMedicInRoom } from '../../../packages/app/src/net/medic-room.test-helper';
 
 /** 20 Hz, like the sim. */
 const TICKS_PER_SECOND = 20;
@@ -218,9 +233,10 @@ export interface EconomyRead {
   built: [number, number];
   /** Each faction's purse when the game was decided, in logistics. */
   purse: [number, number];
-  /** The rescue arm (GH-707): medic teams the KDF's lines delivered, and men they got back into a squad
-   *  (`woundRejoined`: carried to the camp, admitted, treated). Absent in a game that did not count. */
-  rescue?: [number, number];
+  /** The rescue arm (GH-707): medic teams the KDF's lines delivered, men admitted at a camp (`woundAdmitted`: carried
+   *  there and taken in), and men they got back into a squad (`woundRejoined`: treated, then back in a standing squad).
+   *  Absent in a game that did not count. */
+  rescue?: [number, number, number];
 }
 
 export interface Played {
@@ -264,17 +280,24 @@ export interface PlayOptions {
   tunnels?: TunnelCell;
   /** GH-859 P1a: the formation arm. Absent is the baseline game. */
   formation?: FormationArm;
-  /** The rescue arm (GH-707, the lead, 30 Oct 2026): when the production plan buys a rescue unit. `after` (the default)
-   *  buys one only once the side has a man down and its combat purchases are made, if the purse still covers it; `before`
-   *  buys it ahead of them; `save` is `before` that also HOLDS the round's combat purchases while the side has a man down,
-   *  no medic, and cannot yet afford one (a player saving up for it); `opening` is NOT the lead's rule: it buys one ahead of
-   *  the combat purchases whether or not a man is down, so it is bought with the starting purse (the only purse a side
-   *  ever has to spend; see the PR); `off` never buys one (the medic is on the menu and unbought). */
+  /** The rescue arm (GH-707): when the KDF seat's plan buys a rescue unit. `opening` (the default, `RESCUE_BUY_DEFAULT`) buys
+   *  it first, in the first round; `reserve` holds its price back and buys it when a man is down, inside the first minute;
+   *  `before` buys it ahead of the combat purchases once a man is down; `save` is `before` that also HOLDS the round's
+   *  combat purchases while it is wanted and unaffordable; `after` (the ruled rule of 30 Oct) buys it after the combat
+   *  purchases, if the purse covers it, which it never does; `off` never buys one. The header says what each reads. */
   rescueBuy?: RescueBuy;
 }
 
 /** See `PlayOptions.rescueBuy`. */
-export type RescueBuy = 'after' | 'before' | 'save' | 'opening' | 'off';
+export type RescueBuy = 'reserve' | 'after' | 'before' | 'save' | 'opening' | 'off';
+
+/** The reading arm: what the probe's KDF player does about a medic when `--rescue-buy` is not given (GH-707, 3 Nov 2026). */
+export const RESCUE_BUY_DEFAULT: RescueBuy = 'opening';
+
+/** `reserve`: how long a side holds the medic's price back from its combat purchases, waiting for the first man down. A
+ *  man is nearly always down inside the first minute of a game (the fighting starts in the first 10 to 30 s), so a
+ *  minute is the window in which a player decides he needs a medic; a side with nobody down by then spends the reserve. */
+export const RESCUE_RESERVE_SECONDS = 60;
 
 /** A versus room's config for a cell, as a room mints it (LD1: the side
  *  follows the faction, the end the seat; the host, seat 0, stands friendly). */
@@ -404,6 +427,7 @@ export function loneSurvivorOf(ids: readonly number[], roleOf: (id: number) => s
 export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts: PlayOptions = {}): Played {
   if (opts.economy === true || opts.tunnels !== undefined) return playEconomy(mapId, arrangement, seed, opts);
   const capTicks = opts.capTicks ?? CAP_TICKS_DEFAULT;
+  const roomCap = matchCapTicks(mapId);
   const { sim, typeOf, map } = world(mapId, seed, humanHeldOf(opts.rules ?? 'room', mapId, arrangement, seed));
   const { sideOfEnd, factions, ends } = layoutOf(arrangement);
   const force = versusSpawns(sim, typeOf, versusAnchors(map), factions, ends);
@@ -416,13 +440,13 @@ export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts:
     if (t % ORDER_EVERY_TICKS === 0) order(sim, (side) => force.bySide[side], sideOfEnd, opts.formation);
     sim.tick();
     if (sim.tickCount % DECIDE_EVERY_TICKS === 0) {
-      const o = outcomeOf(sim, sim.tickCount);
+      const o = outcomeOf(sim, sim.tickCount, unitCost, undefined, roomCap);
       if (o.kind !== 'ongoing') return finish(o, sim.tickCount, sideOfEnd);
     }
   }
   // The cap: the real rule, asked as if the real cap had come -- the higher
   // surviving value wins, equal values draw. Never 'ongoing' there.
-  const o = outcomeOf(sim, MATCH_CAP_TICKS);
+  const o = outcomeOf(sim, roomCap, unitCost, undefined, roomCap);
   if (o.kind === 'ongoing') throw new Error('the cap rule left a game ongoing');
   return finish(o, sim.tickCount, sideOfEnd);
 }
@@ -503,14 +527,19 @@ export function forceMixOf(faction: Faction): Map<string, number> {
  * -- called between ticks, just before the `matchTick` that would drain such
  * a command. Returns the units queued this round, in order.
  */
-export function planRound(runtime: NonNullable<MatchWorld['runtime']>, sim: Sim, menu: readonly string[], mix: ReadonlyMap<string, number>, side: 0 | 1, rescueBuy: RescueBuy = 'after'): string[] {
+export function planRound(runtime: NonNullable<MatchWorld['runtime']>, sim: Sim, menu: readonly string[], mix: ReadonlyMap<string, number>, side: 0 | 1, rescueBuy: RescueBuy = RESCUE_BUY_DEFAULT): string[] {
   const queued: string[] = [];
-  if (rescueBuy === 'before' || rescueBuy === 'save' || rescueBuy === 'opening') {
-    const r = planRescueBuy(runtime, sim, menu, side, rescueBuy === 'opening');
+  if (rescueBuy === 'before' || rescueBuy === 'save' || rescueBuy === 'opening' || rescueBuy === 'reserve') {
+    // `reserve` buys the medic ahead of the combat purchases the round a man is down (that is what it kept the price for).
+    // `opening` buys it in the first round whether or not a man is down (the opening purse is the only purse a side has);
+    // after that, like `before`: only with a man down and none living or queued.
+    const r = planRescueBuy(runtime, sim, menu, side, rescueBuy === 'opening' && sim.tickCount < ORDER_EVERY_TICKS);
     if (r !== null) queued.push(r);
     // `save`: the medic is wanted and not yet affordable (not for want of room under the cap): spend nothing else this round.
     else if (rescueBuy === 'save' && wantsRescue(runtime, sim, menu, side)) return queued;
   }
+  // `reserve`: until the window closes, the combat purchases leave the medic's price in the purse.
+  const hold = rescueBuy === 'reserve' ? reserveOf(runtime, sim, menu, side) : 0;
   const cands = menu.filter(armed);
   const have = new Map<string, number>(cands.map((id) => [id, 0]));
   const bump = (id: string): void => {
@@ -530,7 +559,7 @@ export function planRound(runtime: NonNullable<MatchWorld['runtime']>, sim: Sim,
     // Lowest have/weight first (compared by cross-multiplication, whole numbers
     // only), ties by doctrine menu order: `cands` is in menu order and the sort is stable.
     const order = [...cands].sort((a, b) => (have.get(a) ?? 0) * weight(b) - (have.get(b) ?? 0) * weight(a));
-    const pick = order.find((id) => runtime.requestBuild(id, undefined, side));
+    const pick = order.find((id) => (hold === 0 || runtime.logisticsOf(side) - priceOf(id) >= hold) && runtime.requestBuild(id, undefined, side));
     if (pick === undefined) break;
     bump(pick);
     queued.push(pick);
@@ -571,40 +600,93 @@ function wantsRescue(runtime: NonNullable<MatchWorld['runtime']>, sim: Sim, menu
   return medic !== null && !runtime.popCapped(medic, side) && runtime.productionLines(side).some((l) => l.alive);
 }
 
+/** A menu unit's price in whole logistics (`cost.logistics`). */
+const priceOf = (id: string): number => (units as Record<string, { cost: { logistics: number } } | undefined>)[id]?.cost.logistics ?? 0;
+
+/**
+ * `reserve` (GH-707, 3 Nov 2026): what a side holds back from its combat purchases this round. While the game is inside
+ * `RESCUE_RESERVE_SECONDS`, the side's menu has a rescue unit, and none is living or queued, it is that unit's price:
+ * the player who keeps a team's worth in hand, to buy a medic when the first man falls. Zero otherwise, so the reserve
+ * is released at the end of the window (and a side that has bought its medic, or has none on its menu, spends freely).
+ */
+export function reserveOf(runtime: NonNullable<MatchWorld['runtime']>, sim: Sim, menu: readonly string[], side: 0 | 1): number {
+  if (sim.tickCount >= RESCUE_RESERVE_SECONDS * TICKS_PER_SECOND) return 0;
+  const medic = wantedRescue(runtime, sim, menu, side, true);
+  return medic === null ? 0 : priceOf(medic);
+}
+
 /** How near an enemy armed unit may stand to a man down before the plan will not send a medic to him: the medic's own
  *  search radius (`rescue.radius_tiles`, 8) and a margin. A player does not walk a stretcher team into a firefight. */
 export const RESCUE_SAFE_TILES = 10;
 
-/** Whether a living armed unit of the other side stands within `RESCUE_SAFE_TILES` of wounded man `w`. */
-function underFire(sim: Sim, side: 0 | 1, w: number): boolean {
-  const limit = RESCUE_SAFE_TILES * RESCUE_SAFE_TILES;
+/** The armed, standing (not wounded), non-rescue units of `side`: the line a medic works behind. */
+function lineOf(sim: Sim, side: 0 | 1): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < sim.entityCount; i++) {
+    if (sim.state.alive[i] !== 1 || sim.state.side[i] !== side || sim.state.woundState[i] !== 0) continue;
+    const t = sim.unitTypes[sim.state.typeIdx[i]];
+    if (t === undefined || t.weapons.length === 0 || t.rescue != null) continue;
+    out.push(i);
+  }
+  return out;
+}
+
+const tilesBetween = (sim: Sim, a: number, b: number): number => Math.hypot((sim.state.posX[a] - sim.state.posX[b]) / 65536, (sim.state.posY[a] - sim.state.posY[b]) / 65536);
+
+/**
+ * Whether man `w` of `side` lies where a medic may go to him: no armed enemy within `RESCUE_SAFE_TILES` of him, OR the
+ * front has moved past him (GH-707, 3 Nov 2026): for every such enemy, one of his own side's standing armed units is
+ * nearer that enemy than he is, so the fight is ahead of him and his own line stands between. A player does not walk
+ * a stretcher team into a firefight; he does send it to a man his own line has already passed.
+ */
+function safeToReach(sim: Sim, side: 0 | 1, w: number): boolean {
+  const limit = RESCUE_SAFE_TILES;
+  let line: number[] | null = null;
   for (let i = 0; i < sim.entityCount; i++) {
     if (sim.state.alive[i] !== 1 || sim.state.side[i] === side || sim.state.woundState[i] !== 0) continue;
     if ((sim.unitTypes[sim.state.typeIdx[i]]?.weapons.length ?? 0) === 0) continue;
-    const dx = (sim.state.posX[i] - sim.state.posX[w]) / 65536;
-    const dy = (sim.state.posY[i] - sim.state.posY[w]) / 65536;
-    if (dx * dx + dy * dy <= limit) return true;
+    const dw = tilesBetween(sim, i, w);
+    if (dw > limit) continue;
+    line ??= lineOf(sim, side);
+    // The line is ahead of him: a standing armed unit of his side that is nearer this enemy by more than a tile.
+    if (!line.some((f) => tilesBetween(sim, f, i) < dw - RESCUE_FRONT_MARGIN_TILES)) return false;
   }
-  return false;
+  return true;
 }
 
+/** How much nearer an enemy one of the side's own armed units must stand than the wounded man, for the front to count
+ *  as past him: more than a stride, so the two are not merely in the same firing line. */
+export const RESCUE_FRONT_MARGIN_TILES = 3;
+
+/** How far behind the line's centroid (toward its own camp) an idle medic stands, in tiles: out of the rifles' reach
+ *  (a rifle squad's effective range is under 10 tiles) and close enough that a man down is inside the medic's own 8. */
+export const MEDIC_STATION_BACK_TILES = 5;
+
+/** A medic stands his station again when he is further than this from it. */
+export const MEDIC_STATION_SLACK_TILES = 4;
+
 /**
- * The rescue half of the orders (GH-707): every second, each IDLE living rescue unit of `side` with no man aboard is
- * ordered to the nearest of the side's men lying wounded that the sim's own `canRescue` accepts. What follows is the
- * engine's: treat, lift, carry to the camp (the room's drop-off), admit. A medic is left out of the attack-move
- * (`order`'s caller filters it), or the next re-order would take it off the job. Returns the orders given.
+ * The rescue half of the orders (GH-707): every second, each IDLE living rescue unit of `side` with no man aboard
+ *  1. is ordered to the nearest of the side's men lying wounded that the sim's own `canRescue` accepts and
+ *     `safeToReach` allows. What follows is the engine's: treat, lift, carry to the camp (the room's drop-off), admit;
+ *  2. else, given the side's camp (`camp`, tiles), walks to his station: `MEDIC_STATION_BACK_TILES` behind the centroid of
+ *     the side's standing armed units on the line toward the camp. A player keeps his medic with the army and a little
+ *     behind it; a medic left at the camp, 30 tiles from the fight, never gets to a man in time. Once there he is idle,
+ *     and the engine's own pick takes a man down within his 8 tiles (or the camp's 12) by itself.
+ * A medic is left out of the attack-move (`order`'s caller filters it), or the next re-order would take it off the job.
+ * Returns the orders given (rescues and station walks).
  */
-export function rescueRound(sim: Sim, side: 0 | 1): number {
+export function rescueRound(sim: Sim, side: 0 | 1, camp?: readonly [number, number]): number {
   let given = 0;
   const down = woundedOf(sim, side);
-  if (down.length === 0) return 0;
+  let station: [number, number] | null | undefined;
   for (let m = 0; m < sim.entityCount; m++) {
     if (sim.state.alive[m] !== 1 || sim.state.side[m] !== side || !isRescue(sim, m)) continue;
     if (sim.state.medState[m] !== MED_IDLE || carries(sim, m)) continue;
     let best = -1;
     let bestD = 0;
     for (const w of down) {
-      if (!sim.canRescue(m, w) || underFire(sim, side, w)) continue;
+      if (!sim.canRescue(m, w) || !safeToReach(sim, side, w)) continue;
       const dx = sim.state.posX[w] - sim.state.posX[m];
       const dy = sim.state.posY[w] - sim.state.posY[m];
       const d = (dx / 65536) ** 2 + (dy / 65536) ** 2;
@@ -612,11 +694,40 @@ export function rescueRound(sim: Sim, side: 0 | 1): number {
       best = w;
       bestD = d;
     }
-    if (best < 0) continue;
-    sim.queueCommand({ kind: 'rescue', ids: [m], target: best });
+    if (best >= 0) {
+      sim.queueCommand({ kind: 'rescue', ids: [m], target: best });
+      given++;
+      continue;
+    }
+    if (camp === undefined || sim.state.moving[m] !== 0) continue;
+    if (station === undefined) station = stationOf(sim, side, camp);
+    if (station === null) continue;
+    const mx = sim.state.posX[m] / 65536;
+    const my = sim.state.posY[m] / 65536;
+    if (Math.hypot(station[0] - mx, station[1] - my) <= MEDIC_STATION_SLACK_TILES) continue;
+    sim.queueCommand({ kind: 'move', ids: [m], x: fx.from(station[0]), y: fx.from(station[1]) });
     given++;
   }
   return given;
+}
+
+/** The medic's station (tiles): behind the centroid of `side`'s standing armed units, toward `camp`. Null with no line. */
+function stationOf(sim: Sim, side: 0 | 1, camp: readonly [number, number]): [number, number] | null {
+  const line = lineOf(sim, side);
+  if (line.length === 0) return null;
+  let cx = 0;
+  let cy = 0;
+  for (const i of line) {
+    cx += sim.state.posX[i] / 65536;
+    cy += sim.state.posY[i] / 65536;
+  }
+  cx /= line.length;
+  cy /= line.length;
+  const dx = camp[0] - cx;
+  const dy = camp[1] - cy;
+  const len = Math.hypot(dx, dy);
+  if (len <= MEDIC_STATION_BACK_TILES) return [camp[0], camp[1]];
+  return [cx + (dx / len) * MEDIC_STATION_BACK_TILES, cy + (dy / len) * MEDIC_STATION_BACK_TILES];
 }
 
 /** One economy game: a room's world for the cell (`buildMatchWorld` of
@@ -627,6 +738,7 @@ export function rescueRound(sim: Sim, side: 0 | 1): number {
 export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number, opts: PlayOptions = {}): Played {
   if (arrangement[0] === arrangement[1]) throw new Error('versus probe: --economy plays a KDF-against-Sarim cell only (a mirror room has no economy)');
   const capTicks = opts.capTicks ?? CAP_TICKS_DEFAULT;
+  const roomCap = matchCapTicks(mapId);
   const w = buildMatchWorld(roomConfig(mapId, arrangement, seed));
   const runtime = w.runtime;
   if (runtime === null) throw new Error(`versus probe: ${mapId} built no economy runtime`);
@@ -651,8 +763,8 @@ export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number
   const menus = [doctrines[w.factions[0]].menu, doctrines[w.factions[1]].menu] as const;
   const mixes = [forceMixOf(w.factions[0]), forceMixOf(w.factions[1])] as const;
   const builtBySide: [number, number] = [0, 0];
-  const rescue: [number, number] = [0, 0]; // KDF medic teams delivered, men back in a squad
-  const rescueBuy = opts.rescueBuy ?? 'after';
+  const rescue: [number, number, number] = [0, 0, 0]; // KDF medic teams delivered, men admitted to the camp, men back in a squad
+  const rescueBuy = opts.rescueBuy ?? RESCUE_BUY_DEFAULT;
   // The tunnel arm (GH-681): null outside it, and for its `off` cell a plan
   // that orders nothing and only counts, so `off` plays the economy arm's game.
   const tp = opts.tunnels !== undefined ? new TunnelPlan(w, opts.tunnels) : null;
@@ -661,7 +773,7 @@ export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number
     const sarim = kdf === 0 ? 1 : 0;
     return {
       ...finish(o, w.sim.tickCount, sideOfEnd),
-      econ: { built: [builtBySide[kdf], builtBySide[sarim]], purse: [runtime.logisticsOf(kdf), runtime.logisticsOf(sarim)], rescue: [rescue[0], rescue[1]] },
+      econ: { built: [builtBySide[kdf], builtBySide[sarim]], purse: [runtime.logisticsOf(kdf), runtime.logisticsOf(sarim)], rescue: [rescue[0], rescue[1], rescue[2]] },
       ...(tp ? { tun: tp.read() } : {}),
     };
   };
@@ -675,19 +787,22 @@ export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number
       // A rescue unit is left out of the attack-move (`rescueRound` is its only orderer), or the next re-order would take it off the job.
       order(w.sim, (side) => marchersOf(w.sim, side, tp === null ? undefined : (id) => tp.holds(id)), sideOfEnd, opts.formation);
     }
-    if (rescueBuy !== 'off' && t % DECIDE_EVERY_TICKS === 0) for (const side of sideOfEnd) rescueRound(w.sim, side);
+    if (rescueBuy !== 'off' && t % DECIDE_EVERY_TICKS === 0) for (const side of sideOfEnd) rescueRound(w.sim, side, w.anchors[w.endOfSide[side]]);
     if (tp !== null && t % DECIDE_EVERY_TICKS === 0) tp.second(t);
     tp?.beforeTick();
     const ev = matchTick(w);
     tp?.after(ev.sim);
     for (const e of ev.mission) if (e.kind === 'built') { builtBySide[e.side]++; if (isRescueId(e.unit)) rescue[0]++; }
-    for (const e of ev.sim) if (e.kind === 'woundRejoined') rescue[1]++;
+    for (const e of ev.sim) {
+      if (e.kind === 'woundAdmitted') rescue[1]++;
+      else if (e.kind === 'woundRejoined') rescue[2]++;
+    }
     if (w.sim.tickCount % DECIDE_EVERY_TICKS === 0) {
-      const o = outcomeOf(w.sim, w.sim.tickCount, unitCost, production);
+      const o = outcomeOf(w.sim, w.sim.tickCount, unitCost, production, roomCap);
       if (o.kind !== 'ongoing') return read(o);
     }
   }
-  const o = outcomeOf(w.sim, MATCH_CAP_TICKS, unitCost, production);
+  const o = outcomeOf(w.sim, roomCap, unitCost, production, roomCap);
   if (o.kind === 'ongoing') throw new Error('the cap rule left a game ongoing');
   return read(o);
 }
@@ -1134,12 +1249,12 @@ export function tally(games: readonly Played[]): Tally {
     t.by[g.by]++;
     t.ticks += g.ticks;
     if (g.econ) {
-      t.econ ??= { built: [0, 0], purse: [0, 0], rescue: [0, 0] };
+      t.econ ??= { built: [0, 0], purse: [0, 0], rescue: [0, 0, 0] };
       for (const k of [0, 1] as const) {
         t.econ.built[k] += g.econ.built[k];
         t.econ.purse[k] += g.econ.purse[k];
-        if (t.econ.rescue !== undefined && g.econ.rescue !== undefined) t.econ.rescue[k] += g.econ.rescue[k];
       }
+      if (t.econ.rescue !== undefined && g.econ.rescue !== undefined) for (const k of [0, 1, 2] as const) t.econ.rescue[k] += g.econ.rescue[k];
     }
   }
   return t;
@@ -1280,6 +1395,8 @@ export function parsePair(name: string, raw: string): [number, number] {
 
 /** Prints the report and returns the exit code: 0 for any reading, 2 when the self-check fails. */
 export function main(args: readonly string[] = process.argv.slice(2), playFn: PlayFn = play): number {
+  // GH-976: `--mode=<camp|points|flag|all>` is the win-mode arm (`versus-modes.ts`), a room's own world and not this file's.
+  if (flag(args, 'mode') !== undefined) return modeMain(args);
   const tunnels = args.includes('--tunnels');
   const economy = tunnels || args.includes('--economy');
   const rulesArg = flag(args, 'rules') ?? 'room';
@@ -1287,9 +1404,10 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   const rules: SeatTable = rulesArg;
   if (economy && rules !== 'room') throw new Error('--economy plays a room\'s world, on the room\'s seat table: --rules=default does not apply');
   const mapArg = flag(args, 'maps');
-  // The default economy table is the OFFERED maps that have rules files; a rules-only map (rujm_sawda, GH-913)
-  // is read on request: `--economy --maps=rujm_sawda`.
-  const mapIds = mapArg === 'all' ? candidateMaps() : (mapArg?.split(',') ?? (economy ? Object.keys(versusRules).filter((id) => VERSUS_FAIR_MAPS.includes(id)) : VERSUS_FAIR_MAPS)) as MapId[];
+  // The default economy table is the maps where KDF MEETS Sarim (FACTION_MATCHUP_MAPS) that have rules files;
+  // a mirror-only map with a rules file (rujm_sawda, GH-913 L8: its KDF-v-Sarim cells are unoffered) is read on
+  // request: `--economy --maps=rujm_sawda`.
+  const mapIds = mapArg === 'all' ? candidateMaps() : (mapArg?.split(',') ?? (economy ? Object.keys(versusRules).filter((id) => FACTION_MATCHUP_MAPS.includes(id)) : VERSUS_FAIR_MAPS)) as MapId[];
   for (const id of mapIds) if (!(id in maps)) throw new Error(`--maps: "${id}" is not a shipped map`);
   if (economy) for (const id of mapIds) if (!Object.hasOwn(versusRules, id)) throw new Error(`--maps: "${id}" has no versus rules file, so no economy room can be hosted on it`);
   const arrangements = parseArrangements(flag(args, 'arr') ?? (economy ? 'kdf/sarim,sarim/kdf' : 'kdf/kdf,kdf/sarim,sarim/kdf'));
@@ -1329,15 +1447,14 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   // The arm rides on the game function, so every cell and control plays it: the placed-force, economy and
   // tunnel games all pass their options through here.
   const rescueArg = flag(args, 'rescue-buy');
-  if (rescueArg !== undefined && rescueArg !== 'after' && rescueArg !== 'before' && rescueArg !== 'save' && rescueArg !== 'opening' && rescueArg !== 'off') throw new Error(`--rescue-buy: "${rescueArg}" is not after, before, save, opening or off`);
+  if (rescueArg !== undefined && rescueArg !== 'reserve' && rescueArg !== 'after' && rescueArg !== 'before' && rescueArg !== 'save' && rescueArg !== 'opening' && rescueArg !== 'off') throw new Error(`--rescue-buy: "${rescueArg}" is not reserve, after, before, save, opening or off`);
   if (rescueArg !== undefined && !economy) throw new Error('--rescue-buy buys a medic team: it needs --economy');
   const withFormation: PlayFn = formation === undefined ? playFn : (m, a, sd, o) => playFn(m, a, sd, { ...o, formation });
   const armed: PlayFn = rescueArg === undefined ? withFormation : (m, a, sd, o) => withFormation(m, a, sd, { ...o, rescueBuy: rescueArg });
   if (formation !== undefined) console.log(`formation arm: ${formation.id} on ${endArg === undefined ? 'both ends' : `the ${endArg} end only`}`);
   const run = (): number => withOverrides(overrides, () => report({ economy, tunnels, rules, mapIds, arrangements, seeds, seedFrom, tunnelCell, perSeed, formation, capTicks, overrides, playFn: armed }));
-  // The medic team is HELD out of versus (the lead, 30 Oct 2026): a rescue reading puts it on the KDF menu IN MEMORY, for this run only.
-  if (rescueArg !== undefined && rescueArg !== 'off') console.log(`rescue arm: ${rescueArg}; the medic team is put on the KDF menu in memory (shipped: held out of versus), report-only`);
-  return rescueArg !== undefined && rescueArg !== 'off' ? withMedicInRoom(run) : run();
+  if (rescueArg !== undefined) console.log(`rescue arm: ${rescueArg} (the default is ${RESCUE_BUY_DEFAULT})`);
+  return run();
 }
 
 interface ReportArgs {
@@ -1408,7 +1525,7 @@ function report(r: ReportArgs): number {
     : `self-check: ${mapIds.length} map(s), 2 controls and a repeat each -- passed`);
   if (r.tunnels) return tunnelReport(r);
 
-  console.log(`${pad('map', 24)}${pad('cell', 16)}${pad('west', 6)}${pad('east', 6)}${pad('draw', 6)}${pad('annih/stale/cap/mutual', 24)}${pad('mean min', 10)}${economy ? `${pad('built K/S', 14)}${pad('purse K/S', 14)}${pad('med/rej', 10)}` : ''}reading`);
+  console.log(`${pad('map', 24)}${pad('cell', 16)}${pad('west', 6)}${pad('east', 6)}${pad('draw', 6)}${pad('annih/stale/cap/mutual', 24)}${pad('mean min', 10)}${economy ? `${pad('built K/S', 14)}${pad('purse K/S', 14)}${pad('med/adm/rej', 14)}` : ''}reading`);
   const perSeedCells: PerSeedCell[] = [];
   for (const id of mapIds) {
     for (const arr of arrangements) {
@@ -1421,7 +1538,7 @@ function report(r: ReportArgs): number {
       const lean = rd.leader === null ? 'level' : `${rd.leader} ${rd.leaderPercent}%`;
       const mean = (x: number) => (x / seeds).toFixed(1);
       const econ = economy && t.econ
-        ? `${pad(`${mean(t.econ.built[0])}/${mean(t.econ.built[1])}`, 14)}${pad(`${Math.round(t.econ.purse[0] / seeds)}/${Math.round(t.econ.purse[1] / seeds)}`, 14)}${pad(`${mean(t.econ.rescue?.[0] ?? 0)}/${mean(t.econ.rescue?.[1] ?? 0)}`, 10)}`
+        ? `${pad(`${mean(t.econ.built[0])}/${mean(t.econ.built[1])}`, 14)}${pad(`${Math.round(t.econ.purse[0] / seeds)}/${Math.round(t.econ.purse[1] / seeds)}`, 14)}${pad(`${mean(t.econ.rescue?.[0] ?? 0)}/${mean(t.econ.rescue?.[1] ?? 0)}/${mean(t.econ.rescue?.[2] ?? 0)}`, 14)}`
         : '';
       console.log(
         `${pad(id, 24)}${pad(cellName(arr), 16)}${pad(t.wins[0], 6)}${pad(t.wins[1], 6)}${pad(t.draws, 6)}` +

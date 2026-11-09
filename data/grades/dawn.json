@@ -1,0 +1,13 @@
+{
+  "id": "dawn",
+  "lift": { "tint": "water.1", "amount": 0.02, "level": 0 },
+  "gamma": { "tint": "limestone.1", "amount": 0, "value": 1 },
+  "gain": { "tint": "dust.0", "amount": 0.06, "value": 1 },
+  "saturation": 1.08,
+  "warmth": 0.3,
+  "split_tone": {
+    "shadows": { "tint": "water.1", "amount": 0.025 },
+    "highlights": { "tint": "dust.0", "amount": 0.03 },
+    "balance": 0
+  }
+}

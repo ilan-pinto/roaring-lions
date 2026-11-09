@@ -14,6 +14,7 @@ const world: SeatWorld = {
   tunnelOwner: (id) => (id === 0 ? 1 : -1),
   versus: false,
   economy: false,
+  setupRoom: false,
   // Formations by literal: `column` for both seats, `sarim_only` for seat 1 alone.
   formationAllowed: (seat, id) => id === 'column' || (id === 'sarim_only' && seat === 1),
 };
@@ -55,6 +56,13 @@ describe('validateCommand', () => {
     expect(validateCommand({ kind: 'callStrike', caller: 12, x: 0, y: 0 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'reveal', side: 1, x: 0, y: 0 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'reveal', side: 0, x: 0, y: 0 }, 0, world)).toBe(true);
+  });
+  it('GH-972: a group load names only the seat\'s own carriers, and a group garrison passes as a garrison', () => {
+    expect(validateCommand({ kind: 'load', ids: [1], carrier: 2, carriers: [2, 3] }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'load', ids: [1], carrier: 2, carriers: [2, 12] }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'load', ids: [1], carrier: 2, carriers: [2, 999999] }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'garrison', ids: [1, 2], structure: 3, spread: true }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'garrison', ids: [1, 12], structure: 3, spread: true }, 0, world)).toBe(false);
   });
   it('#559 F1: drops every callStrike and reveal in versus, and only those kinds', () => {
     const versus = { ...world, versus: true };
@@ -315,5 +323,39 @@ describe('versus tunnels (GH-681)', () => {
     const vs: SeatWorld = { ...world, versus: true };
     expect(validateCommand({ kind: 'enterTunnel', ids: [11], tunnel: 0 }, 1, vs)).toBe(true);
     expect(validateCommand({ kind: 'vent', ids: [11], mode: 'exit' }, 1, vs)).toBe(true);
+  });
+});
+
+describe('validateCommand: the set-up commands (GH-976 v2, R0.9)', () => {
+  const setup: SeatWorld = { ...world, versus: true, setupRoom: true };
+  const ready0: Command = { kind: 'setupReady', side: 0 };
+  const fort = (side: number, kit = 0, x = 5, y = 6): Command => ({ kind: 'fortify', side, kit, x, y });
+  const unfort = (side: number, x = 5, y = 6): Command => ({ kind: 'unfortify', side, x, y });
+  it('pass in a set-up room for the seat\'s own side', () => {
+    expect(validateCommand(ready0, 0, setup)).toBe(true);
+    expect(validateCommand({ kind: 'setupReady', side: 1 }, 1, setup)).toBe(true);
+    expect(validateCommand(fort(0), 0, setup)).toBe(true);
+    expect(validateCommand(fort(1, 2, 47, 47), 1, setup)).toBe(true);
+    expect(validateCommand(unfort(0), 0, setup)).toBe(true);
+    expect(validateCommand(unfort(1, 0, 0), 1, setup)).toBe(true);
+  });
+  it('drop with the other side\'s name on them', () => {
+    expect(validateCommand({ kind: 'setupReady', side: 1 }, 0, setup)).toBe(false);
+    expect(validateCommand(fort(1), 0, setup)).toBe(false);
+    expect(validateCommand(unfort(0), 1, setup)).toBe(false);
+  });
+  it('drop in a non-set-up flag room, in an economy room and in single-player', () => {
+    const plainFlag: SeatWorld = { ...world, versus: true, setupRoom: false };
+    const economy: SeatWorld = { ...world, versus: true, economy: true, setupRoom: false };
+    for (const w of [plainFlag, economy, world]) {
+      for (const c of [ready0, fort(0), unfort(0)]) expect(validateCommand(c, 0, w), `${c.kind}`).toBe(false);
+    }
+  });
+  it('fortify: the kit slot is 0..2 and the tile is an integer on the map', () => {
+    for (const kit of [-1, 3, 1.5, NaN]) expect(validateCommand(fort(0, kit), 0, setup), `kit ${kit}`).toBe(false);
+    for (const [x, y] of [[-1, 0], [0, -1], [48, 0], [0, 48], [1.5, 2], [2, 1.5], [NaN, 0]]) {
+      expect(validateCommand(fort(0, 0, x, y), 0, setup), `${x},${y}`).toBe(false);
+      expect(validateCommand(unfort(0, x, y), 0, setup), `unfortify ${x},${y}`).toBe(false);
+    }
   });
 });

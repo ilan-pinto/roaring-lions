@@ -28,10 +28,12 @@ import worldJson from '../../../../data/campaign/world.json';
 import en from '../i18n/en.json';
 
 // The shipped maps the picker lists. The Ein Qasab town's maps are held out until
-// P3's art (GH-871, GH-912) and Rujm Sawda until the lead opens it (GH-913 L4):
-// LITERALS, so these specs do not read the answer off the code under test. Delete
+// P3's art (GH-871, GH-912); Rujm Sawda was held out until the lead opened it and L8 did (GH-913), so it
+// is a card now. LITERALS, so these specs do not read the answer off the code under test. Delete
 // them here with the entries in menu.ts's UNLISTED_MAP_IDS.
-const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'rujm_sawda'];
+// Wadi Tarfan (large) was held out too, unopened (GH-920 B3), and left this list when B7 opened it. Milh Flats (large) is held out, unopened (GH-920 B3).
+// Milh Flats (large) was held out too, unopened (GH-920 B3), and left this list when B7 opened it.
+const HELD_OUT: readonly string[] = ['ein_qasab', 'ein_qasab_3', 'jebel_matar'];
 const listedIds = (): string[] => Object.keys(maps).filter((id) => !HELD_OUT.includes(id));
 
 const render = (): HTMLElement => {
@@ -69,13 +71,13 @@ describe('the map list', () => {
     expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(listedIds().sort());
   });
 
-  it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912), and Rujm Sawda until the lead opens it (GH-913)", () => {
-    // 39 maps ship; the picker lists 35. Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(39);
+  it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
+    // 41 maps ship (Was 40: Milh Flats (large), GH-920 B3); the picker lists 38 (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(41);
     for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
-    expect(links).toHaveLength(35);
+    expect(links).toHaveLength(38);
     for (const id of HELD_OUT) {
       expect(links.map((a) => a.dataset.map)).not.toContain(id);
       // Nothing on the screen links to it either, by any spelling of the route.
@@ -84,9 +86,42 @@ describe('the map list', () => {
     }
   });
 
-  it('pins the unlisted set to exactly the Ein Qasab town maps and Rujm Sawda', () => {
-    // Delete each pin with its entry: the town's when P3 ships, Rujm Sawda when the lead opens it.
-    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'rujm_sawda']);
+  it('pins the unlisted set to exactly the Ein Qasab town maps', () => {
+    // Delete the pin with the entries when P3 ships. Rujm Sawda left the set when the lead opened it (GH-913 L8), and
+    // Wadi Tarfan (large) and Milh Flats (large) did when their B7s opened them (GH-920): it was
+    // ['ein_qasab', 'ein_qasab_3', 'jebel_matar', 'milh_flats_l'] before this one.
+    expect([...UNLISTED_MAP_IDS]).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
+  });
+
+  it('lists Milh Flats (large) (GH-920 B7): a card with its name and an honest "large 96 by 96" line, linking to its free-play route', () => {
+    const stage = render();
+    const card = stage.querySelector('a[data-map="milh_flats_l"]');
+    expect(card).not.toBeNull();
+    expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe(maps.milh_flats_l.name);
+    expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe('Milh Flats (large) — Bir Milh'); // the name is DATA, read the same in every locale
+    expect(card?.querySelector('.rl-mapcard__desc')?.textContent).toMatch(/\bA large 96 by 96 map\b/);
+    expect(hrefOf(stage, 'milh_flats_l')).toContain('milh_flats_l');
+    expect(card?.getAttribute('href')).toBe('/free-play/milh_flats_l');
+  });
+
+  it('lists Wadi Tarfan (large) (GH-920 B7): a card with its name and an honest "large 96 by 96" line, linking to its free-play route', () => {
+    const stage = render();
+    const card = stage.querySelector('a[data-map="wadi_tarfan_l"]');
+    expect(card).not.toBeNull();
+    expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe(maps.wadi_tarfan_l.name);
+    expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe('Wadi Tarfan (large) — The Three Fords'); // the name is DATA, read the same in every locale
+    expect(card?.querySelector('.rl-mapcard__desc')?.textContent).toMatch(/\bA large 96 by 96 map\b/);
+    expect(hrefOf(stage, 'wadi_tarfan_l')).toContain('wadi_tarfan_l');
+    expect(card?.getAttribute('href')).toBe('/free-play/wadi_tarfan_l');
+  });
+
+  it('lists Rujm Sawda (GH-913 L8): a card with its name and an honest "large" line, linking to its free-play route', () => {
+    const stage = render();
+    const card = stage.querySelector('a[data-map="rujm_sawda"]');
+    expect(card).not.toBeNull();
+    expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe(maps.rujm_sawda.name);
+    expect(card?.querySelector('.rl-mapcard__desc')?.textContent).toMatch(/\blarge\b/i);
+    expect(hrefOf(stage, 'rujm_sawda')).toContain('rujm_sawda');
   });
 
   it('every unlisted id names a shipped map, so the set cannot go stale silently', () => {
@@ -148,6 +183,20 @@ describe('the map cards (PA-25)', () => {
       // One line: a sentence that ends and does not run on.
       expect(line!.length, id).toBeLessThanOrEqual(90);
       expect(line, id).not.toContain('\n');
+    }
+  });
+
+  it('GH-920 B7: a large map\'s line says it is large and gives its real size, held or listed (the number is read off the map, not typed here)', () => {
+    // Rujm Sawda is 80 by 80, Wadi Tarfan (large) and Milh Flats (large) 96 by 96. The line is written by hand, so a map resized
+    // without it (or a line copied from the other) is red here whether or not the card is on the picker yet. The 90-character
+    // bound is the one line of the card: Milh's first line ran to 113 and only this loop would have said so once it was listed.
+    for (const id of ['rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l']) {
+      const m = (maps as Record<string, MapJson>)[id];
+      const line = cat[`freePlay.map.${id}`];
+      expect(line, id).toMatch(/^A large \d+ by \d+ map/);
+      expect(line, id).toContain(`${m.width} by ${m.height}`);
+      expect(m.width, id).toBeGreaterThan(48);
+      expect(line!.length, id).toBeLessThanOrEqual(90);
     }
   });
 

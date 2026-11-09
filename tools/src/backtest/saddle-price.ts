@@ -51,6 +51,14 @@ const MISSION = 'tel_marum_3_clearance';
 const SEEDS_10 = [424242, 7, 1009, 31337, 65521, 99991, 123456, 2024, 555, 8888];
 /** `--seeds=30` runs `main`'s 30-seed set (`passive-sweep.ts`) instead of the probe's own ten. */
 const SEEDS = process.argv.includes('--seeds=30') ? SWEEP_SEEDS : SEEDS_10;
+/** `--op=x,y`: one militia observation post, for the field-works probe `fw-op-saddle` (`field-works-probes.ts`). */
+const OP_TILE: [number, number] | null = (() => {
+  const a = process.argv.find((x) => x.startsWith('--op='));
+  if (a === undefined) return null;
+  const [x, y] = a.slice(5).split(',').map(Number);
+  if (!Number.isInteger(x) || !Number.isInteger(y)) throw new Error(`--op expects x,y, got ${a}`);
+  return [x, y];
+})();
 /** The defile is every `b` (boulder) tile: the ground a flanker is exposed on. Read off the map. */
 const DEFILE = new Set<number>();
 {
@@ -79,6 +87,13 @@ function walk(seed: number, foot: 'pass' | 'defile', perfectEyes: boolean, footK
     if (ti === undefined) throw new Error(`unknown structure type ${b.type}`);
     sim.addStructure(ti, b.tiles);
   }
+  // GH-277 Task 14, probe `fw-op-saddle`: `--op=x,y` stands a militia observation post (1x1, sight 9, optics 1.2) on that
+  // tile. Absent, this function builds exactly the world it always built.
+  if (OP_TILE !== null) {
+    const op = structIdx.get('militia_observation_post');
+    if (op === undefined) throw new Error('data/structures.json has no militia_observation_post');
+    sim.addStructure(op, [OP_TILE[1] * map.width + OP_TILE[0]]);
+  }
   const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map((t) => ({
     id: t.id, points: t.points, dig_tiles_per_s: t.digTilesPerS, pre_dug: t.preDug,
   }));
@@ -89,9 +104,9 @@ function walk(seed: number, foot: 'pass' | 'defile', perfectEyes: boolean, footK
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers, zones: map.zones, roadMask: roadMaskOf(map), tunnels: tunnelRoutes, ledger: {},
     unitInfo: (u) => {
-      const d = (units as Record<string, { faction: string; cost: { logistics: number; build_time_s?: number; population?: number } } | undefined>)[u];
+      const d = (units as Record<string, { faction: string; role?: string; cost: { logistics: number; build_time_s?: number; population?: number } } | undefined>)[u];
       if (!d || d.faction !== 'kdf') return null;
-      return { logistics: d.cost.logistics, buildTimeS: d.cost.build_time_s ?? 20, population: d.cost.population ?? 1 };
+      return { logistics: d.cost.logistics, buildTimeS: d.cost.build_time_s ?? 20, population: d.cost.population ?? 1, ...(d.role === undefined ? {} : { role: d.role }) };
     },
   });
   rt.start();

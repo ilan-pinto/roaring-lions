@@ -302,25 +302,80 @@ describe('seatWorldFor', () => {
     expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, wb)).toBe(true);
   });
   it('GH-859 P1a (W3): a versus room fields NO formation while the gate is closed, for every shipped id and either seat', () => {
+    // (see the shipped-default test below: the gate ships open, on the maps S4 covered)
     const sim = fakeSim();
     const cfg = config({ mode: 'versus' });
     cfg.seats[1] = { ...cfg.seats[1], side: 1, faction: 'sarim' };
-    const w = seatWorldFor(cfg, sim);
+    // The gate is injected closed: it ships OPEN since S4 passed (GH-859, 1 Nov), and the closed path is still the guard a re-closing would need.
+    const w = seatWorldFor(cfg, sim, false);
     for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);
     // ... so a forced or stale client's formation order vanishes at the ownership check, and the same order without the field passes it
     expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, w)).toBe(false);
     expect(validateCommand({ kind: 'attackMove', ids: [4], x: 0, y: 0, formation: 'attack' }, 1, w)).toBe(false);
     expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0 }, 1, w)).toBe(true);
   });
+  it('GH-859 (1 Nov): the SHIPPED gate is open on a Tel Marum, Beit Sahwan, Milh Flats, Wadi Tarfan (GH-945), Rujm Sawda, Milh Flats (large) (3 Nov) or Wadi Tarfan (large) (7 Nov) room', () => {
+    const sim = fakeSim();
+    for (const map of ['tel_marum', 'beit_sahwan_outskirts', 'milh_flats', 'wadi_tarfan', 'rujm_sawda', 'milh_flats_l', 'wadi_tarfan_l']) {
+      const cfg = config({ mode: 'versus', map });
+      expect(seatWorldFor(cfg, sim).formationAllowed(0, 'attack'), map).toBe(true);
+    }
+  });
+  it('GH-859 (5 Nov): a Tel Marum ECONOMY room refuses a formation order at the receiver; a Tel Marum mirror room, a Tel Marum placed room and a Wadi Tarfan economy room accept it', () => {
+    const sim = fakeSim();
+    const rooms = (map: string, faction1: 'kdf' | 'sarim', winMode?: 'camp'): MatchConfig => {
+      const cfg = config({ mode: 'versus', map, ...(winMode === undefined ? {} : { winMode }) });
+      cfg.seats[1] = { ...cfg.seats[1], side: 1, faction: faction1 };
+      return cfg;
+    };
+    // the shipped gate (open), the order as a stale or forged client sends it
+    const order: Command = { kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' };
+    const refused = seatWorldFor(rooms('tel_marum', 'sarim'), sim);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(refused.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);
+    expect(validateCommand(order, 1, refused)).toBe(false);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0 }, 1, refused)).toBe(true); // the same order without the field passes
+    for (const [name, cfg] of [
+      ['tel_marum mirror', rooms('tel_marum', 'kdf')],
+      ['tel_marum placed (win mode)', rooms('tel_marum', 'sarim', 'camp')],
+      ['wadi_tarfan economy', rooms('wadi_tarfan', 'sarim')],
+    ] as const) {
+      const w = seatWorldFor(cfg, sim);
+      expect(w.formationAllowed(0, 'attack'), name).toBe(true);
+      expect(validateCommand(order, 1, w), name).toBe(true);
+    }
+  });
   it('GH-859 P1a: with the gate open (P1b\'s path) a versus room runs the TABLE logic, by the seat\'s faction', () => {
     const sim = fakeSim();
-    const cfg = config({ mode: 'versus' });
+    // Was the fixture's default map, tel_marum: a Sarim seat 1 makes that a Tel Marum ECONOMY room, which the lead closed on 5 Nov (GH-859,
+    // `formations_closed_in` in data/versus/tel_marum.json), so this table check runs on Wadi Tarfan, an economy room that stays open.
+    const cfg = config({ mode: 'versus', map: 'wadi_tarfan' });
     cfg.seats[1] = { ...cfg.seats[1], side: 1, faction: 'sarim' };
     const w = seatWorldFor(cfg, sim, true);
     expect([w.formationAllowed(0, 'column'), w.formationAllowed(1, 'column'), w.formationAllowed(1, 'nosuch')]).toEqual([true, true, false]);
     expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, w)).toBe(true);
     // single-player ignores the versus gate either way
     expect(seatWorldFor(null, sim, false).formationAllowed(0, 'column')).toBe(true);
+  });
+  it('GH-859 (7 Nov): with the gate OPEN a Wadi Tarfan (large) room fields the formations, and the receiver accepts the order (it was closed from 3 Nov)', () => {
+    const sim = fakeSim();
+    const rujm = config({ mode: 'versus', map: 'wadi_tarfan_l' });
+    rujm.seats[1] = { ...rujm.seats[1], side: 1 };
+    const w = seatWorldFor(rujm, sim, true);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(true);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'column' }, 1, w)).toBe(true);
+    // ...and with the gate shut it is shut there too (the control that makes the gate, not the map, the cause)
+    expect(seatWorldFor(rujm, sim, false).formationAllowed(0, 'column')).toBe(false);
+  });
+  it('GH-945: Wadi Tarfan follows the gate like any other map (it was closed like Rujm Sawda, 1 Nov, until its Sarim lean was settled)', () => {
+    const sim = fakeSim();
+    const wadi = config({ mode: 'versus', map: 'wadi_tarfan' });
+    wadi.seats[1] = { ...wadi.seats[1], side: 1 };
+    const w = seatWorldFor(wadi, sim, true);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(w.formationAllowed(seat, id), `${seat} ${id}`).toBe(true);
+    expect(validateCommand({ kind: 'move', ids: [4], x: 0, y: 0, formation: 'attack' }, 1, w)).toBe(true);
+    // ...and with the gate shut it is shut there too (the control that makes the gate, not the map, the cause)
+    const shut = seatWorldFor(wadi, sim, false);
+    for (const seat of [0, 1] as const) for (const id of ['column', 'attack', 'ambush']) expect(shut.formationAllowed(seat, id), `${seat} ${id}`).toBe(false);
   });
   it('GH-859 P1a: the faction clause bites on a table that has a faction-gated formation', () => {
     const table = [{ id: 'both', factions: ['kdf', 'sarim'] }, { id: 'kdf_only', factions: ['kdf'] }];

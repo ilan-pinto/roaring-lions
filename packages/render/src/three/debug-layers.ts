@@ -170,6 +170,14 @@
  * frame with an HDR effect in it (`blast:capture`), never a gated golden
  * scenario.
  *
+ * `ao`, ADDED FOR GH-943 P1 T7 (`./post-chain.ts` `WorldGTAOPass`, `./post-chain.node.ts`
+ * `createNodeAoStage`): the ambient-occlusion pass, on BOTH paths. Legacy: the
+ * pass's own `enabled`, `bloom`'s shape. Node: the backend's `AoControl`, which
+ * zeroes the blend uniform and skips the pre-pass. Neither is re-asserted per
+ * frame (`applyZoomFade` re-enables a pass only if it held it off), so it
+ * holds across the repaint. Absent on `low` and `medium` (`quality.ao` false
+ * builds no pass), where it toggles 0 objects.
+ *
  * `overlays`, ADDED FOR TASK 10'S KEY-ART PLATE (not the visual gate -- the
  * Phase 0 capture tool that added it was its only caller, and retired with
  * the key-art plate it drew (scene-host plan Task 7); no capture tool calls
@@ -288,6 +296,32 @@
  *                 `update` never overrides. Returns 1. No `layerChecks`
  *                 entry: no gated scenario lays smoke. `blast:capture`'s
  *                 `smoke_eitan` subject votes it.
+ *
+ * ONE FOR LOOK UPLIFT L1 (GH-943), behind the `&envlight` flag:
+ * - `environment` the sky environment (`environment.ts`) on every material that
+ *                 carries it: hiding strips `envMap` from the registered
+ *                 materials (units, buildings, props) so the frame is lit by
+ *                 the hemisphere and the sun alone; showing hands it back. A
+ *                 material-field write nothing per-frame re-asserts, so it
+ *                 holds across the gate's repaint. Returns how many live
+ *                 materials it wrote: 0 while the flag is off (there is no
+ *                 environment), the honest reading for a check to fail on.
+ *                 NO `layerChecks` entry yet, deliberately: with the flag off
+ *                 on main the layer writes nothing, so a gated check would
+ *                 read 0 px. It is witnessed by `tools/src/perf/look-l1-captures.ts`
+ *                 and its entry lands with the ship PR, beside its scenario.
+ *
+ * ONE FOR LOOK UPLIFT L2 (GH-943), on by default for dawn and dusk (`&grade=0` is the A/B switch):
+ * - `grade`       the colour grade (`output-grade.ts`), toggled by its own `enabled`:
+ *                 `vignette`'s shape exactly, a uniform inside `OutputPass`'s shader
+ *                 that no per-frame path re-asserts, so it holds across the gate's
+ *                 repaint. Hidden is the ungraded output, bit for bit. Returns 1 when
+ *                 it changed something and 0 with no grade compiled in (day, no
+ *                 `&grade`, an identity), the honest reading for a check to fail on.
+ *                 Witnessed by the `graded` scenario's `grade` layer check
+ *                 (`BASELINES.graded`, dusk preset, the dusk grade on by default): hidden
+ *                 reads 0 px / 0.0000 against a measured 186 px / 5.0668. Day and every
+ *                 other gated scenario draw no grade, so none of them carries the check.
  *
  * ONE MORE FOR GH-471, the `missiles` rule again:
  * - `tunnel-xray` the x-ray of an identified tunnel (`../tunnel-xray.ts`):
@@ -436,6 +470,7 @@ export const DEBUG_LAYERS = [
   'units',
   'vignette',
   'bloom',
+  'ao',
   'skirt',
   'backdrop',
   'overlays',
@@ -494,7 +529,51 @@ export const DEBUG_LAYERS = [
   // GH-871 P4 T8: the falling rain's mesh (`units/rain-batch.ts`), behind a flag the per-frame
   // visibility write consults. 0 on a map that does not rain. P5's `wet` scenario votes it.
   'rain',
+  // Look uplift L1 (GH-943): the sky environment on units, buildings and props. See the doc entry.
+  'environment',
+  // Look uplift L2 (GH-943): the colour grade folded into OutputPass. See the doc entry.
+  'grade',
+  // Look uplift L3 (GH-943): the team mark on a vehicle's hull and turret. Writes the one strength every hooked
+  // material shares to 0 and back (`units/team-mask.ts`): a uniform write nothing per-frame re-asserts. Witnessed
+  // by the gated `vehicle` scenario's layer check.
+  'team-mask',
+  // GH-984 N2: the vehicles' disturbance of the grass and bushes (`terrain/disturb.ts`). `uDisturbAmp` to 0 and back,
+  // the `wind` shape: the frame writes the slot count and the arrays, never the amplitude, and skips its own work
+  // while the amplitude is 0, so a repaint cannot undo it. Witnessed by the gated `vehicle` scenario's layer check.
+  'disturb',
+  // GH-984 N3: the helicopters' rotor wash on the vegetation (the flatten and the thrash; `terrain/disturb.ts`). A flag the frame's
+  // disturber build reads every frame (a helicopter takes no slot while hidden), so a repaint cannot undo it, and the vehicles'
+  // `disturb` bend stays. The dust ring is not this layer's. Witnessed by the gated `vehicle` scenario's layer check.
+  'wash',
+  // GH-943 P2 (T5): the ground rings only (selection, team, wound), on both paths. The GROUP is hidden, never a mesh: `endFrame` rewrites each
+  // mesh's `visible` every frame. Witnessed by the gated `vehicle` scenario's layer check (its own team rings).
+  'selection-ring',
+  // GH-943 P3 (T2): the layers no gated scenario shows, so the units/fx probe (`tools/src/perf/webgpu-units-probe.ts`) can read them.
+  // Every one is a FLAG that `ThreeRenderer.writeFxLayerVisibility` consults on EVERY frame (the `unitsDebugHidden` pattern), because
+  // the managers behind them rewrite their own meshes each frame. A bare `visible = false` would hold only until the next repaint.
+  // `trail`          the tunnel trail's instanced mesh (`trail-mesh.ts`).
+  // `wreck-soot`     the `WRECK_` twins of the vehicle meshes (`rl_wreck`), the charred textured wreck.
+  // `particles`      the four authored-particle instancers (below/above, plain/additive).
+  // `tracers`        the tracer batch (`units/fx.ts`'s `TracerBatch`), not the shells.
+  // `muzzle-burst`   the modelled muzzle-flash zones and the explosion-burst zones (the collapse flash included).
+  // `smoke-plume`    the modelled smoke-plume zones.
+  // `collapse-shroud` the building-collapse dust shroud.
+  'trail',
+  'wreck-soot',
+  'particles',
+  'tracers',
+  'muzzle-burst',
+  'smoke-plume',
+  'collapse-shroud',
 ] as const;
+
+/** The layers `ThreeRenderer.writeFxLayerVisibility` holds hidden every frame. */
+export const FX_FLAG_LAYERS = ['trail', 'wreck-soot', 'particles', 'tracers', 'muzzle-burst', 'smoke-plume', 'collapse-shroud'] as const;
+export type FxFlagLayer = (typeof FX_FLAG_LAYERS)[number];
+
+export function isFxFlagLayer(name: string): name is FxFlagLayer {
+  return (FX_FLAG_LAYERS as readonly string[]).includes(name);
+}
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];
 

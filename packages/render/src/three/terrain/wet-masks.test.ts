@@ -35,7 +35,13 @@ function flatInput(patch: Partial<TerrainInput> = {}): TerrainInput {
 }
 
 function fieldFor(input: TerrainInput): WetField {
-  return buildWetField(input, buildRoadGraph(input));
+  return buildWetField(input, buildRoadGraph(input), buildTerrainSurface(input));
+}
+
+/** The same field with the water table far BELOW the ground, so no road counts as low and the ford (GH-940) is off:
+ *  the rut-puddle and never-water tests are about the ruts alone. */
+function rutsOnly(input: TerrainInput): WetField {
+  return { ...fieldFor(input), waterLevel: -100 };
 }
 
 /** A surface that is NOT flat (so terraces and slopes are expressed), with
@@ -171,7 +177,7 @@ describe('puddleTexel -- there is no puddle on open ground', () => {
 describe('puddleTexel -- each never-water rule, on a constructed road tile', () => {
   const input = roadInput();
   const surface = buildTerrainSurface(input); // flat
-  const field = fieldFor(input);
+  const field = rutsOnly(input);
   const [px, pz] = aPuddleTexel(input, surface, field);
   const tx = Math.floor(px);
   const tz = Math.floor(pz);
@@ -192,7 +198,7 @@ describe('puddleTexel -- each never-water rule, on a constructed road tile', () 
     const crown = new Uint8Array(W * W);
     crown[ti] = 1;
     const i2 = roadInput({ crown });
-    expect(puddleTexel(i2, buildTerrainSurface(i2), fieldFor(i2), px, pz)).toBe(0);
+    expect(puddleTexel(i2, buildTerrainSurface(i2), rutsOnly(i2), px, pz)).toBe(0);
   });
 
   it('a terrace top on the drawn surface: G = 0', () => {
@@ -240,7 +246,7 @@ describe('marshTexel', () => {
 describe('puddleTexel -- the road term', () => {
   const road = roadInput();
   const surface = buildTerrainSurface(road);
-  const field = fieldFor(road);
+  const field = rutsOnly(road);
   const at = (d: number, x: number) => puddleTexel(road, surface, field, x, 8.5 + d);
 
   it('holds puddles inside the rut band, none on the crown of the road or on its verge', () => {
@@ -254,7 +260,8 @@ describe('puddleTexel -- the road term', () => {
       expect(at(0.0, x)).toBeLessThan(0.5); // the crown between the ruts
       expect(at(0.33, x)).toBeLessThan(0.5); // the verge
     }
-    // the pass rate is the rut fill (0.56), not 1 and not 0
+    // the pass rate follows the rut fill (0.62 since GH-940, it was 0.56; the soft edge and the band's own edges
+    // read about 0.51 here), not 1 and not 0
     expect(inBand / band).toBeGreaterThan(0.4);
     expect(inBand / band).toBeLessThan(0.75);
   });
@@ -265,5 +272,141 @@ describe('puddleTexel -- the road term', () => {
     while (at(0.17, x) < 0.5) x += 1 / 16;
     expect(puddleTexel(road, planeSurface(rise(9)), field, x, 8.67)).toBeGreaterThanOrEqual(0.5);
     expect(puddleTexel(road, planeSurface(rise(11)), field, x, 8.67)).toBe(0);
+  });
+});
+
+describe('lowness, the flood margin and the ford (GH-940)', () => {
+  const MARSH = 6; // DECOR_MARSH, as the marshTexel test above writes it
+  /** A 16x16 flat map with a marsh block over tiles 6..9 (a 4x4 block, edges at 6 and 10). */
+  function marshInput(patch: Partial<TerrainInput> = {}): TerrainInput {
+    const decor = new Uint8Array(W * W);
+    for (let y = 6; y < 10; y++) for (let x = 6; x < 10; x++) decor[y * W + x] = MARSH;
+    return flatInput({ decor, ...patch });
+  }
+
+  it('lowness is 1 at or under the table plus 0.6 and 0 from 1.1 above it, 0.5 half way (literals)', () => {
+    expect(masks.lowness(-3, 0)).toBe(1);
+    expect(masks.lowness(0.6, 0)).toBe(1);
+    expect(masks.lowness(0.85, 0)).toBeCloseTo(0.5, 12);
+    expect(masks.lowness(1.1, 0)).toBe(0);
+    expect(masks.lowness(7, 0)).toBe(0);
+    expect(masks.lowness(5.85, 5)).toBeCloseTo(0.5, 12);
+  });
+
+  it('marshEdgeDistance is 0 inside a marsh tile, the gap to its edge outside, and Infinity past 3 tiles', () => {
+    const input = marshInput();
+    expect(masks.marshEdgeDistance(input, 7.5, 7.5)).toBe(0);
+    expect(masks.marshEdgeDistance(input, 5.5, 7.5)).toBeCloseTo(0.5, 12);
+    expect(masks.marshEdgeDistance(input, 11.25, 7.5)).toBeCloseTo(1.25, 12);
+    expect(masks.marshEdgeDistance(input, 2.5, 7.5)).toBe(Infinity);
+    // a corner is the hypotenuse
+    expect(masks.marshEdgeDistance(input, 11, 11)).toBeCloseTo(Math.SQRT2, 12);
+    expect(masks.marshEdgeDistance(flatInput(), 7.5, 7.5)).toBe(Infinity);
+  });
+
+  it('the pool is zero inside the marsh and past the 2 tile reach, whatever the noise, and the share falls with the distance', () => {
+    const input = marshInput();
+    const surface = buildTerrainSurface(input);
+    const field = fieldFor(input);
+    expect(field.waterLevel, 'a flat map has no relief to be above the table').toBe(0);
+    const share = (lo: number, hi: number): number => {
+      let n = 0;
+      let on = 0;
+      for (let z = 0; z < W; z += 1 / N) {
+        for (let x = 0; x < W; x += 1 / N) {
+          const px = x + 0.5 / N;
+          const pz = z + 0.5 / N;
+          const d = masks.marshEdgeDistance(input, px, pz);
+          if (!(d > lo && d <= hi)) continue;
+          n++;
+          if (masks.poolTexel(input, surface, field, px, pz) >= 0.5) on++;
+        }
+      }
+      return on / n;
+    };
+    for (const [px, pz] of [[7.5, 7.5], [6.2, 8.1], [9.9, 9.9]] as const) expect(masks.poolTexel(input, surface, field, px, pz)).toBe(0);
+    expect(share(2, 3), 'nothing past the reach').toBe(0);
+    const near = share(0, 0.5);
+    const mid = share(0.5, 1.2);
+    const far = share(1.2, 2);
+    // the fill is 0.85 x (1 - d / 2): about 0.7 at 0.3, 0.5 at 0.85, 0.2 at 1.6 (the soft edge and the finite sample move it a little)
+    expect(near).toBeGreaterThan(0.55);
+    expect(near).toBeLessThan(0.85);
+    expect(mid).toBeGreaterThan(0.3);
+    expect(mid).toBeLessThan(0.62);
+    expect(far).toBeGreaterThan(0.04);
+    expect(far).toBeLessThan(0.3);
+    expect(near).toBeGreaterThan(mid);
+    expect(mid).toBeGreaterThan(far);
+  });
+
+  it('is zero above the water table: the same margin on ground 2 levels higher holds nothing (the control is not vacuous)', () => {
+    const input = marshInput();
+    const flat = buildTerrainSurface(input);
+    // the water table is the marsh's own level; a plane that rises 0.5 a tile puts the far side of the margin over 0.6 above it
+    const level = new Uint8Array(W * W);
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) level[y * W + x] = x < 10 ? 2 : 4;
+    const high = buildTerrainSurface(marshInput({ elevation: level }));
+    expect(high.flat).toBe(false);
+    const fieldFlat = fieldFor(input);
+    const fieldHigh = buildWetField(marshInput({ elevation: level }), buildRoadGraph(input), high);
+    expect(fieldHigh.waterLevel, 'the table is the marsh tiles` own level').toBe(2);
+    let flatOn = 0;
+    let eastOn = 0;
+    let westOn = 0;
+    for (let z = 4; z < 12; z += 1 / N) {
+      for (let x = 10.05; x < 12; x += 1 / N) {
+        if (masks.poolTexel(input, flat, fieldFlat, x, z) >= 0.5) flatOn++;
+        if (masks.poolTexel(marshInput({ elevation: level }), high, fieldHigh, x, z) >= 0.5) eastOn++;
+      }
+      for (let x = 4.05; x < 5.95; x += 1 / N) if (masks.poolTexel(marshInput({ elevation: level }), high, fieldHigh, x, z) >= 0.5) westOn++;
+    }
+    expect(flatOn, 'on flat ground the east margin floods').toBeGreaterThan(100);
+    expect(westOn, 'the west margin is at the marsh`s own level and floods').toBeGreaterThan(100);
+    expect(eastOn, 'the east margin is 2 levels above the table and does not').toBe(0);
+  });
+
+  it('is zero on a grove, a building pad or a rock top beside the marsh, and a map with no marsh has no pool', () => {
+    const input = marshInput();
+    const surface = buildTerrainSurface(input);
+    const field = fieldFor(input);
+    let px = 0;
+    let pz = 0;
+    for (let z = 5; z < 6 && px === 0; z += 1 / N) for (let x = 6; x < 10; x += 1 / N) if (masks.poolTexel(input, surface, field, x, z) >= 0.5) { px = x; pz = z; break; }
+    expect(px, 'a pool texel beside the marsh to turn off').toBeGreaterThan(0);
+    for (const kind of ['grove', 'knoll', 'pad', 'rock'] as const) expect(masks.poolTexel(input, surface, { ...field, kindAt: () => kind }, px, pz), kind).toBe(0);
+    expect(masks.poolTexel(input, surface, { ...field, kindAt: () => 'scrub' }, px, pz)).toBeGreaterThanOrEqual(0.5);
+    const dry = flatInput();
+    expect(masks.poolTexel(dry, buildTerrainSurface(dry), fieldFor(dry), px, pz)).toBe(0);
+  });
+
+  it('the ford floods a road in low ground across its whole width in stretches, and not a road above the table', () => {
+    const road = roadInput();
+    const surface = buildTerrainSurface(road);
+    const field = fieldFor(road);
+    expect(field.waterLevel).toBe(0);
+    let on = 0;
+    let total = 0;
+    let crown = 0;
+    let verge = 0;
+    let offRoad = 0;
+    for (let x = 1; x < 15; x += 1 / 16) {
+      total++;
+      if (masks.puddleTexel(road, surface, field, x, 8.5 + 0.45) > 0) offRoad++;
+      if (masks.puddleTexel(road, surface, field, x, 8.5) >= 0.5) crown++;
+      if (masks.puddleTexel(road, surface, field, x, 8.5 + 0.33) >= 0.5) verge++;
+      if (masks.puddleTexel(road, surface, field, x, 8.5 + 0.17) >= 0.5) on++;
+    }
+    // The crown of the road holds water exactly where the ford passes (the ruts never reach it): about half of it
+    expect(crown / total).toBeGreaterThan(0.25);
+    expect(crown / total).toBeLessThan(0.75);
+    expect(verge / total, 'the ford reaches the verge (0.33 is inside the road`s 0.36 half width)').toBeGreaterThan(0.2);
+    expect(offRoad, 'and stops at the road: 0.45 off the centreline is grass').toBe(0);
+    expect(on / total).toBeGreaterThan(0.5);
+    // The same road with the water table 5 levels under it: ruts only, no crown water.
+    const high = rutsOnly(road);
+    let crownHigh = 0;
+    for (let x = 1; x < 15; x += 1 / 16) if (masks.puddleTexel(road, surface, high, x, 8.5) >= 0.5) crownHigh++;
+    expect(crownHigh).toBe(0);
   });
 });

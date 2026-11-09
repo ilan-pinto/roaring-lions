@@ -6,7 +6,7 @@
 Writes `art/meshes/vehicles/mbt_lavi.glb` at the 6.32 m EXPORT frame; then
 `pnpm rescale:meshes -- --id=mbt_lavi` (x1.18, 2026-10-15) before running-gear.
 
-SOURCE: art/blend/KDF/tank/Meshy_AI_A_3D_low_poly_futuris_0829201559_texture.blend
+SOURCE: art/src/vehicles/mbt_lavi.blend (the supplied Meshy file, tracked since GH-943 L3)
 -- AI-generated (Meshy), single mesh object `mesh_node`, 3,906 verts, one
 material with three packed 2048^2 textures. Disclosed per CONTRIBUTING.md;
 see this task's report (`.superpowers/f-meshy-tank-report.md`) for the full
@@ -133,10 +133,10 @@ REPO = os.path.dirname(TOOLS)
 #: lived at "art/blend/KDF/tank/...". Harmless before now because nothing
 #: reachable from a worktree ran this far enough to notice; see `_resolve`
 #: below for why it still runs from a worktree at all.
-SRC = os.path.join(
-    REPO, "art", "blend", "KDF", "tank",
-    "Meshy_AI_A_3D_low_poly_futuris_0829201559_texture.blend",
-)
+#: 2 Nov 2026 (GH-943 L3): the supplied Meshy file is now TRACKED, copied byte for
+#: byte from art/blend/KDF/tank/Meshy_AI_A_3D_low_poly_futuris_0829201559_texture.blend,
+#: so this GLB has a source in git (CLAUDE.md: no mesh without its .blend).
+SRC = os.path.join(REPO, "art", "src", "vehicles", "mbt_lavi.blend")
 #: The .blend files are gitignored and live only in the MAIN checkout, not
 #: in a worktree -- same fallback convention `export_meshy_paramotor.py`'s
 #: `_resolve` and `export_meshy_rocket_battery.py`'s `SRC_FALLBACK` already

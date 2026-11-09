@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
-import { emptyRoarTest, couponReceived, grantCouponCoins, networkView, singlePlayerView } from '../roar-test';
+import { emptyRoar, grantCouponCoins, networkView, singlePlayerView } from '../roar-wallet';
 import { emptyAccount } from '../brigade-account';
 import type { LedgerData, MissionResult, UnlockGate } from '@lions/sim';
 import {
   COIN_PACKS,
   buyEnabled,
-  buyWithTestCoins,
+  buyWithCoins,
   CAMPAIGN_CREDITS,
+  PREVIEW_WALLET,
+  coinCost,
   coinPrice,
   meanPay,
   packBonusPercent,
@@ -200,32 +202,57 @@ describe('item states', () => {
   });
 });
 
-describe('buyEnabled: no Buy without ?testcoins, whatever the wallet holds', () => {
-  it('a non-TEST wallet enables nothing, even one rich enough for everything', () => {
+describe('G-P1: a live wallet enables a Buy exactly when it covers the price; packs never', () => {
+  it('for every item, at one coin short, exact and one over', () => {
     const items = storeItems(input({ credits: 0 }));
     const all = [...items.units, ...items.tiers];
-    const rich = { test: false, coins: 1_000_000 };
-    expect(all.length).toBeGreaterThan(40);
-    expect(all.filter((i) => buyEnabled(i, rich))).toEqual([]);
-    // ...while the same wallet as TEST does enable some: the guard is not vacuous.
-    expect(all.filter((i) => buyEnabled(i, { ...rich, test: true })).length).toBeGreaterThan(10);
+    let enabled = 0;
+    for (const item of all) {
+      const cost = coinCost(item);
+      for (const coins of [0, 1, (cost ?? 1) - 1, cost ?? 1, (cost ?? 1) + 1, 1_000_000]) {
+        const want = cost !== null && cost > 0 && coins >= cost;
+        expect(buyEnabled(item, { live: true, coins }), `${item.kind}:${'id' in item ? item.id : item.unitId} at ${coins} coins`).toBe(want);
+        if (want) enabled++;
+      }
+    }
+    expect(enabled).toBeGreaterThan(100); // the sweep is not vacuous
   });
 
-  it('a pack is never enabled by a TEST wallet', () => {
-    for (const pack of COIN_PACKS) expect(buyEnabled(pack, { test: true, coins: 1_000_000 })).toBe(false);
+  it('a pack stays disabled for a live wallet however rich, and for the preview', () => {
+    expect(COIN_PACKS.length).toBe(4);
+    for (const pack of COIN_PACKS) {
+      expect(buyEnabled(pack, { live: true, coins: 1_000_000 })).toBe(false);
+      expect(buyEnabled(pack, PREVIEW_WALLET)).toBe(false);
+    }
+  });
+});
+
+describe('buyEnabled: no Buy without a live wallet, whatever it holds', () => {
+  it('a preview wallet enables nothing, even one rich enough for everything', () => {
+    const items = storeItems(input({ credits: 0 }));
+    const all = [...items.units, ...items.tiers];
+    const rich = { live: false, coins: 1_000_000 };
+    expect(all.length).toBeGreaterThan(40);
+    expect(all.filter((i) => buyEnabled(i, rich))).toEqual([]);
+    // ...while the same wallet, live, does enable some: the guard is not vacuous.
+    expect(all.filter((i) => buyEnabled(i, { ...rich, live: true })).length).toBeGreaterThan(10);
+  });
+
+  it('a pack is never enabled by the free wallet', () => {
+    for (const pack of COIN_PACKS) expect(buyEnabled(pack, { live: true, coins: 1_000_000 })).toBe(false);
   });
 });
 
 // The lead (25 Oct): the special (credit-priced, bought-only) units can be bought with
 // Roar coins. The store already prices them in coins (`coinPrice` of `unlock.price`), so
-// this walks the real flow: a coupon fills the TEST wallet, the wallet buys.
+// this walks the real flow: a coupon fills the wallet, the wallet buys.
 describe('special units are bought with coins (single-player)', () => {
   const SPECIAL = ['mbt_lavi_camo', 'spg_long_range', 'at_nlos_team', 'veh_ambulance', 'air_medevac_heli', 'inf_medic_squad', 'inf_grenadier', 'ugv_recon_dog', 'spg_cluster'];
-  const funded = () => grantCouponCoins(emptyRoarTest(), 100000, ['lead_roar_coins_100k'], 1);
+  const funded = () => grantCouponCoins(emptyRoar(), 100000, ['lead_roar_coins_100k'], 1);
 
   it('every special unit is a bought-only card with a coin price, and buyable from a coupon-funded wallet', () => {
     const items = storeItems(input({ credits: 0 })).units;
-    const wallet = { test: true, coins: funded().coins };
+    const wallet = { live: true, coins: funded().coins.free };
     for (const id of SPECIAL) {
       const item = items.find((u) => u.id === id);
       expect(item?.specialForces, id).toBe(true);
@@ -236,11 +263,11 @@ describe('special units are bought with coins (single-player)', () => {
 
   it('buying spends coins only, opens the unit for single-player, and not for co-op or skirmish', () => {
     const before = funded();
-    const { account, ok } = buyWithTestCoins(input({ credits: 0 }), before, { kind: 'unit', unitId: 'spg_long_range' }, 9);
+    const { account, ok } = buyWithCoins(input({ credits: 0 }), before, { kind: 'unit', unitId: 'spg_long_range' }, 9);
     expect(ok).toBe(true);
-    expect(account.coins).toBe(100000 - coinPrice(6500));
-    expect(account.coins).toBe(100000 - 650);
-    expect(account.receipts.at(-1)).toMatchObject({ kind: 'unit', unitId: 'spg_long_range', coins: 650, credits: 6500 });
+    expect(account.coins.free).toBe(100000 - coinPrice(6500));
+    expect(account.coins.free).toBe(100000 - 650);
+    expect(account.receipts.at(-1)).toMatchObject({ kind: 'unit', unitId: 'spg_long_range', coins: { free: 650, paid: 0 }, credits: 6500 });
     const brigade = emptyAccount();
     expect(singlePlayerView(brigade, account).boughtUnits.has('spg_long_range')).toBe(true);
     expect(networkView(brigade, account).boughtUnits.has('spg_long_range')).toBe(false);
@@ -253,14 +280,14 @@ describe('special units are bought with coins (single-player)', () => {
   });
 
   it('an unfunded wallet buys nothing, and 100,000 coins is enough for all nine', () => {
-    expect(buyWithTestCoins(input({ credits: 0 }), emptyRoarTest(), { kind: 'unit', unitId: 'spg_long_range' }, 1).ok).toBe(false);
+    expect(buyWithCoins(input({ credits: 0 }), emptyRoar(), { kind: 'unit', unitId: 'spg_long_range' }, 1).ok).toBe(false);
     let wallet = funded();
     for (const id of SPECIAL) {
-      const r = buyWithTestCoins(input({ credits: 0 }), wallet, { kind: 'unit', unitId: id }, 1);
+      const r = buyWithCoins(input({ credits: 0 }), wallet, { kind: 'unit', unitId: id }, 1);
       expect(r.ok, id).toBe(true);
       wallet = r.account;
     }
-    expect(wallet.coins).toBeGreaterThan(0);
-    expect(couponReceived(wallet)).toBe(true);
+    expect(wallet.coins.free).toBeGreaterThan(0);
+    expect(wallet.receipts[0].kind).toBe('coupon');
   });
 });

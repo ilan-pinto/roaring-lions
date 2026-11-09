@@ -82,6 +82,10 @@ export const COVER_HIT = new Int32Array([65536, 24576, 9011, 5898]); // 1, .375,
  *  (docs/superpowers/plans/2026-10-14-garrison-overhaul.md): §5.7 identical for
  *  both; +2 broke two more missions and two unlock gates. */
 export const GARRISON_RANGE_BONUS = 65536; // 1 tile
+/** GH-972: how far a group order may spill past the building the player named, to the nearest one with room
+ *  (measured centroid to centroid from that building). 10 tiles squared, in the
+ *  `distSqFx` scale (a tile is 256 units, so a tile squared is 65536), the shape of `LOAD_RANGE_SQ`. */
+export const SPREAD_REACH_SQ = 6553600;
 export const TARGET_MOTION_MOD = 45875; // 0.7
 export const MOVING_STANCE_MOD = 36045; // 0.55
 /** k in accuracy_mult = 1 / (1 + k * S). */
@@ -544,6 +548,13 @@ export const BUILD_HP_FRAC = 58982; // 0.9
 export const AIR_LAND_TICKS = 40; // 2 s
 /** Air carriers: ticks from LANDED back to AIRBORNE through AIR_LIFTING. */
 export const AIR_LIFT_TICKS = 20; // 1 s
+/** GH-1007 R3: ticks a carrier stays on the ground after unloading before a move may lift it. 0 is
+ *  byte-identical to before; revisit at 20/40 after the air-assault probe. */
+// R3 caveat: a move ordered while LANDED with airTimer > 0 is DROPPED (moving cleared), not queued.
+// Decide that before raising this above 0.
+export const AIR_GROUND_MIN_TICKS = 0;
+/** GH-1007 R2: the landing search reaches this many tiles (Chebyshev) from the asked-for point. */
+export const LZ_SEARCH_TILES = 6;
 /** Air carrier flight state (`airState`). AIRBORNE is the spawn default; only LANDING and LANDED
  *  are ground targets (Q-C, 21 Oct). */
 export const AIR_AIRBORNE = 0;
@@ -624,3 +635,12 @@ export const MAX_FORMATION_TYPES = 255;
  *  full-map walk). It is an order-time cost, never a per-tick one (`formation-template.ts`'
  *  `compileFormation` computes each file's own extent under it). */
 export const FORMATION_WALK_CAP = 24;
+
+/** Capture the flag v2 set-up (GH-976). Ticks from the moment BOTH sides have pressed Ready to the bell: 100 ticks
+ *  = 5 s at 20 Hz. A plain tick count, not Q16.16. The bell is never later than the set-up clock's `untilTick`. */
+export const SETUP_BELL_DELAY_TICKS = 100;
+
+/** Capture the flag v2 set-up kit (GH-976): the most `fortify` placements one side may have accepted over a set-up, twice
+ *  the kit (12 + 4 + 2 = 18). `unfortify` refunds the allowance but not the placement, because structure ids are never
+ *  reused (`MAX_STRUCTURES` 256) and unlimited churn would exhaust the table (R0.10). A plain count, not Q16.16. */
+export const SETUP_PLACEMENTS_PER_SIDE = 36;

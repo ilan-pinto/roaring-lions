@@ -47,7 +47,7 @@ describe('applyIntent', () => {
     applyIntent(s, { kind: 'order', verb: 'attackMove', ids: [1], x: 48, y: -0.5, append: false }, MAP);
     applyIntent(s, { kind: 'order', verb: 'move', ids: [1], x: 47.99, y: 0, append: false }, { width: 48, height: 30 });
     // ...so the ownership check keeps every one of them.
-    const world = { sideOfSeat: () => 0, sideOfEntity: () => 0, width: 48, height: 48, structureExists: () => true, tunnelExists: () => true, factionOfSeat: () => 'kdf' as const, tunnelOwner: () => -1, versus: false, economy: false, formationAllowed: () => true };
+    const world = { sideOfSeat: () => 0, sideOfEntity: () => 0, width: 48, height: 48, structureExists: () => true, tunnelExists: () => true, factionOfSeat: () => 'kdf' as const, tunnelOwner: () => -1, versus: false, economy: false, setupRoom: false, formationAllowed: () => true };
     expect(s.out.slice(0, 2).map((c) => validateCommand(c, 0, world))).toEqual([true, true]);
     expect(s.out).toMatchObject([
       { kind: 'move', x: 0, y: 48 * F - 1 },
@@ -64,6 +64,22 @@ describe('applyIntent', () => {
     applyIntent(s, { kind: 'overlay', on: true }, MAP);
     applyIntent(s, { kind: 'group', slot: 2, action: 'recall' }, MAP);
     expect(s.out).toEqual([]);
+  });
+
+  it('GH-972: a mount that names several carriers sends them, and one that names none sends none', () => {
+    const s = sink();
+    applyIntent(s, { kind: 'mount', riders: [5, 6], carrier: 9, carriers: [9, 10, 11] }, MAP);
+    expect(s.out).toEqual([{ kind: 'load', ids: [5, 6], carrier: 9, carriers: [9, 10, 11] }]);
+  });
+
+  it('GH-972: a garrison of two or more is a spread order, of one is the plain order', () => {
+    const s = sink();
+    applyIntent(s, { kind: 'garrison', ids: [5, 6], structure: 3 }, MAP);
+    applyIntent(s, { kind: 'garrison', ids: [5], structure: 3 }, MAP);
+    expect(s.out).toEqual([
+      { kind: 'garrison', ids: [5, 6], structure: 3, spread: true },
+      { kind: 'garrison', ids: [5], structure: 3 },
+    ]);
   });
 
   it('loads riders into the carrier on a mount intent', () => {

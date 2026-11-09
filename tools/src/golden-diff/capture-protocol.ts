@@ -105,6 +105,8 @@
  *  (where playwright must not be imported) to check that `RELIEF_SCENARIO`'s
  *  camera still frames the boulder corridor. `browser.ts` re-exports it, so
  *  every existing importer is unaffected. */
+import { urlGpuParam, type GpuArm } from './backend';
+
 export const CAPTURE_VIEWPORT = { width: 1400, height: 900 } as const;
 
 export interface Scenario {
@@ -444,6 +446,56 @@ export const KITTED_SCENARIO: Scenario = {
   targetTick: VEHICLE_SCENARIO.targetTick,
 };
 
+/** `vehicle`'s own map and tick, pulled out to zoom 0.5 and panned east of the force so the frame
+ *  carries what `vehicle` does not: the fog-of-war shroud, the dust haze and the off-map fade, with
+ *  the force's mesh vehicles (metal and painted hulls) standing in them. Look uplift L1 (GH-943).
+ *
+ *  WHY IT EXISTS. The fog pass and the haze read the LIT frame, so an environment term that is
+ *  counted twice (once in the material, once in the lights the haze radiance is derived from) shows
+ *  up where the lit frame meets them, not on the open ground `vehicle` frames. `tools/src/perf/
+ *  env-doublecount.ts` doubles every environment intensity on this frame and reads how far it
+ *  moves: that number, against this scenario's ceilings, is the falsifier. The `environment`,
+ *  `fog` and `haze` layer checks say the frame really holds all three.
+ *
+ *  GATED FROM BIRTH, with no baseline committed in the same change: the first `fogged` entry in an
+ *  existing environment's manifest comes from the post-merge bless, so until then CI's `visual`
+ *  job is red (exit 1) -- the `aftermath` and `kitted` precedent, and intended. */
+export const FOGGED_SCENARIO: Scenario = {
+  id: 'fogged',
+  description:
+    "vehicle's own map and tick (beit_sahwan_outskirts sandbox force, tick 140) at zoom 0.5, panned " +
+    'east of the force: shroud, haze and the off-map fade with mesh vehicles in them (L1, GH-943).',
+  sandboxMap: VEHICLE_SCENARIO.sandboxMap,
+  cameraTile: [12.5, 22.5],
+  zoom: 0.5,
+  ticks: VEHICLE_SCENARIO.ticks,
+  targetTick: VEHICLE_SCENARIO.targetTick,
+};
+
+/** `vehicle`'s own map, camera and tick under the dusk preset: the same mesh vehicles, lit by the dusk sun and DRAWN THROUGH
+ *  THE DUSK COLOUR GRADE (look uplift L2, GH-943; on by default, so no flag is needed). Deliberately not a new framing, for
+ *  the reason `DUSK_SCENARIO` gives: the useful comparison is the SAME shot under one more thing.
+ *
+ *  WHY IT EXISTS. `dusk` and `combat` are captured REPORT-ONLY, so a dusk look is covered by no baseline at all (spec
+ *  section 8). Without a gated frame that carries the grade, deleting the lookup from `OutputPass` would leave the gate
+ *  green. Its `grade` layer check asks whether the lookup contributes pixels (reference-free, so it votes before this
+ *  scenario has a baseline), and its ceilings hold the graded frame still against a stored picture.
+ *
+ *  GATED FROM BIRTH, with no baseline committed in the same change: the first `graded` entry in an existing environment's
+ *  manifest comes from the post-merge bless, so until then CI's `visual` job is red (exit 1) -- the `fogged` precedent,
+ *  and intended. Do not bless it from the branch. */
+export const GRADED_SCENARIO: Scenario = {
+  id: 'graded',
+  description:
+    "vehicle's own map, camera and tick (beit_sahwan_outskirts sandbox force's mbt_lavi tile, tick 140) under " +
+    'the dusk preset, drawn through the dusk colour grade -- the only gated frame carrying a grade (L2, GH-943).',
+  sandboxMap: VEHICLE_SCENARIO.sandboxMap,
+  sandboxFlags: ['tod=dusk'],
+  cameraTile: VEHICLE_SCENARIO.cameraTile,
+  ticks: VEHICLE_SCENARIO.ticks,
+  targetTick: VEHICLE_SCENARIO.targetTick,
+};
+
 /** Real combat: `beit_sahwan_3_clearance`'s own opening roster, ordered to
  *  fight. Closes the gap named in `docs/superpowers/specs/2026-08-29-phase-d-todo.md`
  *  #8 -- `.superpowers/d-combat-diff-report.md` measured 2.133%-3.395% on
@@ -670,6 +722,8 @@ export const SCENARIOS: readonly Scenario[] = [
   OPEN_GROUND_SCENARIO,
   VEHICLE_SCENARIO,
   KITTED_SCENARIO,
+  FOGGED_SCENARIO,
+  GRADED_SCENARIO,
   RELIEF_SCENARIO,
   AFTERMATH_SCENARIO,
   DUSK_SCENARIO,
@@ -704,8 +758,9 @@ function sceneParam(scenario: Scenario): string {
 
 /** The scenario's URL. It carried `&renderer=three` until WP-A3.3, when
  *  the backend choice was retired (`?renderer=` is accepted and ignored). */
-export function threeUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO): string {
-  return `${baseUrl(port)}/?${sceneParam(scenario)}`;
+export function threeUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO, arm: GpuArm = 'legacy'): string {
+  // GH-943 P0: `urlGpuParam('legacy')` is the empty string, so a legacy URL is byte-identical to what it always was.
+  return `${baseUrl(port)}/?${sceneParam(scenario)}${urlGpuParam(arm)}`;
 }
 
 /** Statements (not an expression) that stop the app's own rAF frame loop.
@@ -879,6 +934,28 @@ export const BOOT_FREEZE_INIT_SCRIPT = `
 })();
 `.trim();
 
+/**
+ * GH-943 P0 (design section 4): the boot freeze for the NODE backends, in place of the global rAF stub.
+ *
+ * `BOOT_FREEZE_INIT_SCRIPT` wraps `window.requestAnimationFrame` (dropping the loop's first arm), and the legacy
+ * `FREEZE_FRAME_LOOP_STATEMENTS` replaces it with a stub that returns 0. WebGPURenderer and the browser's presentation path want a
+ * NATIVE rAF, and the L5 trial's invalid rows ("CPU render 0") ran under the stub. This installs nothing on the global: it raises
+ * the app's own flag (`packages/app/src/frame-freeze.ts`) before the app boots, so `loop()` re-arms through the native rAF and runs
+ * no tick and draws no frame. `__lionsCaptureFrozen` makes `FREEZE_FRAME_LOOP_STATEMENTS` a no-op. The legacy path does not use
+ * this and is unchanged, to the bit.
+ */
+export const NODE_BOOT_FREEZE_INIT_SCRIPT = `
+(function () {
+  window.__lionsFreezeLoop = true;
+  window.__lionsCaptureFrozen = true;
+})();
+`.trim();
+
+/** The init script an arm's pages get. Legacy keeps the rAF-dropping script, untouched. */
+export function bootFreezeScriptFor(arm: GpuArm): string {
+  return arm === 'legacy' ? BOOT_FREEZE_INIT_SCRIPT : NODE_BOOT_FREEZE_INIT_SCRIPT;
+}
+
 /** Presentation milliseconds each `BOOT_SETTLE_SCRIPT` frame is handed. The
  *  renderer's own `FRAME_DT_CEILING_MS`, i.e. what a frame on a slow runner
  *  was clamped to under the old protocol. */
@@ -971,6 +1048,44 @@ export const REPAINT_SCRIPT = `(async () => {
   return JSON.stringify({ tick: window.__lions.sim.tickCount });
 })()`;
 
+/**
+ * GH-943 P0: the HUD's wall-clock animations must have RUN OUT before a node arm photographs. The minimap's alert ring
+ * (`FLASH_MS` 1400) and ping (`PING_MS` 2500, `packages/app/src/ui/minimap.ts`) fade on WALL time and are drawn only on a sim tick,
+ * so the phase a photograph catches is however long the capture step happened to take: on CI's wgpu arm 5 fresh-page captures of
+ * `quiet` gave 4 distinct pictures, every difference a 36 x 36 px faint ring on the minimap (443-459 px, max channel delta 11-26).
+ * The legacy protocol photographs promptly and was never exposed; the node arms take two extra photographs for the settled-frame
+ * check, so they wait the animations out and then ask for the minimap's ground (T8: the node photograph is ASYNC, so `groundPhotoSettled()` is awaited, or the first fresh redraw would paint the painted terrain) and redraw the minimap FRESH once (`redrawMinimap(true)`: `redrawGround` would keep the clock of the last draw, ring included), which paints it with no ring. Chrome, not the world:
+ * nothing here reaches the renderer or the sim.
+ */
+export const HUD_WALL_CLOCK_SETTLE_MS = 2600;
+const NODE_HUD_SETTLE_STATEMENTS = `await new Promise(function (r) { setTimeout(r, ${HUD_WALL_CLOCK_SETTLE_MS}); });
+window.__lions.redrawMinimap();
+await window.__lions.renderer.groundPhotoSettled?.();
+window.__lions.redrawMinimap(true);
+`;
+
+/** The node backends' zero-time repaint: the same `frame(1, 0)`, then wait for the GPU to finish the submitted work
+ *  (`onSubmittedWorkDone`), so the next screenshot cannot catch a frame still in flight. Legacy keeps `REPAINT_SCRIPT`. */
+export const NODE_REPAINT_SCRIPT = `(async () => {
+  window.__lions.renderer.frame(1, 0);
+  await window.__lions.renderer.whenGpuIdle();
+  return JSON.stringify({ tick: window.__lions.sim.tickCount });
+})()`;
+
+export function repaintScriptFor(arm: GpuArm): string {
+  return arm === 'legacy' ? REPAINT_SCRIPT : NODE_REPAINT_SCRIPT;
+}
+
+/**
+ * GH-943 P1 T1: on a node arm, one NATIVE rAF between the toggle and the zero-time repaint. The node backend's `PassNode` redraws at
+ * most once per `frameId`, and `frameId` advances on the renderer's own rAF, so a `frame(1, 0)` issued in the same task as the toggle
+ * is a stale repaint: the "hidden" photograph would show the "shown" frame and every layer would read as contributing nothing. The
+ * frame loop is frozen by the app flag on a node arm (never a stubbed global rAF), so this rAF is the real one. Legacy has no such
+ * seam and keeps its script byte-identical.
+ */
+export const NODE_NATIVE_RAF_STATEMENT = `  await new Promise(function (r) { window.requestAnimationFrame(function () { r(); }); });
+`;
+
 /** Switches one named draw layer off (`visible: false`) or back on, then
  *  repaints with `REPAINT_SCRIPT`'s own zero-time `frame(1, 0)`.
  *
@@ -989,11 +1104,11 @@ export const REPAINT_SCRIPT = `(async () => {
  *
  *  Returns the object count `setDebugLayerVisible` reports, for the log line
  *  only. The gate's verdict comes from the two SCREENSHOTS. */
-export function layerToggleScript(layer: string, visible: boolean): string {
+export function layerToggleScript(layer: string, visible: boolean, arm: GpuArm = 'legacy', opts: CaptureScriptOptions = {}): string {
   return `(async () => {
   const objects = window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(layer)}, ${visible});
-  window.__lions.renderer.frame(1, 0);
-${layer === 'crown' ? '  window.__lions.redrawMinimap();\n' : ''}  return JSON.stringify({ layer: ${JSON.stringify(layer)}, visible: ${visible}, objects, tick: window.__lions.sim.tickCount });
+${arm === 'legacy' ? '' : NODE_NATIVE_RAF_STATEMENT}  window.__lions.renderer.frame(1, 0);
+${arm === 'legacy' ? '' : '  await window.__lions.renderer.whenGpuIdle();\n'}${layer === 'crown' ? '  window.__lions.redrawMinimap();\n' : ''}${opts.matchNodeRoot !== undefined ? matchNodeStatements(opts.matchNodeRoot) : ''}  return JSON.stringify({ layer: ${JSON.stringify(layer)}, visible: ${visible}, objects, tick: window.__lions.sim.tickCount });
 })()`;
 }
 
@@ -1009,7 +1124,58 @@ ${layer === 'crown' ? '  window.__lions.redrawMinimap();\n' : ''}  return JSON.s
  *  `FREEZE_FRAME_LOOP_STATEMENTS`, which awaits a real frame. Playwright
  *  awaits a promise an evaluated expression returns, and so does devtools'
  *  console. */
-export function captureScript(scenario: Scenario = QUIET_SCENARIO): string {
+/**
+ * GH-943 P1 T1: the `--match-node` legacy arm. The node backend draws less than the shipping legacy chain (its census hides every
+ * `ShaderMaterial` object and the occlusion outline), so a parity ratio against SHIPPED legacy would measure that gap, not the
+ * effect. This statement runs the node backend's own `censusUnported` on the LEGACY scene (the same function, loaded from the dev
+ * server by its `/@fs/` path so the module instance is the page's own), then repaints, so the legacy frame is "what the node chain
+ * draws". Presentation only: it touches scene visibility, never the sim. Legacy arm only (a node arm needs no matching, it IS the
+ * node chain).
+ *
+ * GH-943 P2 (T1): it passes `{ portedKeys: PORTED_MATERIAL_KEYS }`, and it is the ONLY caller that does
+ * (`match-node-ported-keys.test.ts`): a legacy material whose twin the node chain now draws stays visible here, so the ported
+ * layer's legacy delta is real and its parity ratio measures something. The node backend's own census never passes it.
+ *
+ * The AO pass stays ON. P0 had no node AO, so this used to switch the legacy GTAO off; T7 (`createNodeAoStage`) ported it, and with
+ * the line still here the parity job compared an AO-less L against node arms that draw AO. Whatever the quality preset turns on for
+ * the node chain, it turns on for legacy too, so nothing else needs matching.
+ */
+export function matchNodeStatements(repoRoot: string): string {
+  return `{
+${matchNodeCensusStatements(repoRoot)}  _r.frame(1, 0);
+}
+`;
+}
+
+/** The matched census itself (declares `_r`, `_u`, `_found`): the ONE place the `portedKeys` call is written, shared by
+ *  `matchNodeStatements` and `matchNodeCensusScript`. */
+function matchNodeCensusStatements(repoRoot: string): string {
+  const unported = `/@fs${repoRoot}/packages/render/src/three/backend/unported.ts`;
+  return `  const _r = window.__lions.renderer;
+  const _u = await import(${JSON.stringify(unported)});
+  const _found = _u.censusUnported(_r.scene, { portedKeys: _u.PORTED_MATERIAL_KEYS });
+  if (!Array.isArray(_found)) throw new Error('match-node: censusUnported returned no list');
+`;
+}
+
+/** GH-943 P2 (T9): the matched census as a page expression that returns the list it left as JSON and does NOT repaint (the P2
+ *  sheet's L arm reads the list, then repaints on its own schedule). Same statement as `matchNodeStatements`, so the ported-key
+ *  option keeps one caller (`match-node-ported-keys.test.ts`). */
+export function matchNodeCensusScript(repoRoot: string): string {
+  return `(async () => {
+${matchNodeCensusStatements(repoRoot)}  return JSON.stringify(_found);
+})()`;
+}
+
+export interface CaptureScriptOptions {
+  /** Run `matchNodeStatements` before the camera is read (legacy arm only; the gate's `--match-node`). */
+  readonly matchNodeRoot?: string;
+}
+
+export function captureScript(scenario: Scenario = QUIET_SCENARIO, arm: GpuArm = 'legacy', opts: CaptureScriptOptions = {}): string {
+  if (opts.matchNodeRoot !== undefined && arm !== 'legacy') {
+    throw new Error('captureScript: --match-node is a legacy-arm option (a node arm already draws the node chain)');
+  }
   if (scenario.cameraMarker === undefined && scenario.cameraTile === undefined) {
     throw new Error(`captureScript: scenario "${scenario.id}" sets neither cameraMarker nor cameraTile`);
   }
@@ -1045,10 +1211,12 @@ ${HIDE_ALERT_FEED_STATEMENTS}
 ${gotoLine}
 ${zoomLine}${ordersLine}${parkLine}${stepLine}
 ${CAPTURE_PRECONDITION_STATEMENTS}
-const c = window.__lions.renderer.camera;
+${opts.matchNodeRoot !== undefined ? matchNodeStatements(opts.matchNodeRoot) : ''}${arm === 'legacy' ? '' : NODE_HUD_SETTLE_STATEMENTS + 'await window.__lions.renderer.whenGpuIdle();\n'}const c = window.__lions.renderer.camera;
 const canvas = window.__lions.renderer.canvas;
 const r = canvas.getBoundingClientRect();
+const bi = window.__lions.renderer.backendInfo();
 return JSON.stringify({
+  backend: { kind: bi.kind, adapter: bi.adapter },
   tick,
   camera: { x: c.x, y: c.y, zoom: c.zoom },
   rect: { x: r.x, y: r.y, w: r.width, h: r.height },

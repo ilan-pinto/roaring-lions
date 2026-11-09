@@ -287,8 +287,9 @@ describe('air carriers land to load and unload (GH-698 Task 3)', () => {
     expect(squads.map((s) => sim.state.carriedBy[s] === heli)).toEqual([true, true, true, true, true, true, false]);
   });
 
-  // The LZ, for a HELI at (20.5,20.5) over a vehicle-blocked tile (20,20): the
-  // ring-1 scan runs row-major from (19,19), which is open -> LZ (19,19).
+  // The LZ, for a HELI at (20.5,20.5) over a vehicle-blocked tile (20,20). GH-1007 R2: an LZ is a
+  // 3x3 footprint, so every centre within Chebyshev 1 of (20,20) is out; the ring-2 scan runs
+  // row-major from (18,18), whose footprint is clear -> LZ (18,18). (Before R2 it was (19,19).)
   const obstacles: Array<[string, (sim: Sim) => void]> = [
     [
       '#',
@@ -307,8 +308,8 @@ describe('air carriers land to load and unload (GH-698 Task 3)', () => {
       sim.queueCommand({ kind: 'unload', ids: [heli] });
       run(sim, 100);
       expect(sim.state.airState[heli]).toBe(AIR_LANDED);
-      expect(tileOf(sim, heli)).toEqual([19, 19]);
-      expect(sim.blockedVehicle[19 * 40 + 19]).toBe(0);
+      expect(tileOf(sim, heli)).toEqual([18, 18]);
+      expect(sim.blockedVehicle[18 * 40 + 18]).toBe(0);
       const tiles = new Set<number>();
       for (const s of squads) {
         expect(sim.state.carriedBy[s]).toBe(-1);
@@ -551,7 +552,11 @@ describe('air carriers land to load and unload (GH-698 Task 3)', () => {
       const [tx, ty] = tileOf(sim, car);
       expect(sim.blockedVehicle[ty * 40 + tx]).toBe(0);
     }
-    expect(tileOf(sim, a.heli)).toEqual(tileOf(sim, b)); // stacked LZ is tolerated
+    // GH-1007 R2: two carriers never share a footprint (it was a tolerated stack before). It holds
+    // because the first carrier already has its `want` and goal set when the second asks.
+    const [ax, ay] = tileOf(sim, a.heli);
+    const [bx, by] = tileOf(sim, b);
+    expect(Math.max(Math.abs(ax - bx), Math.abs(ay - by))).toBeGreaterThanOrEqual(3);
     for (const s of [...a.squads, ...bSquads]) {
       expect(sim.state.carriedBy[s]).toBe(-1);
       const [tx, ty] = tileOf(sim, s);

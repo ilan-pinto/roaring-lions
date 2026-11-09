@@ -300,6 +300,14 @@ yours; each one records what the next phase inherits.
   different clock and would put the fireball where the bomb visibly is not.
   Note `screen_shake` in `vfx_emitter.schema.json` is still read by nothing —
   `emitters.ts` types it and no backend consumes it.
+- **A hostile DIRECT round (bolt, rifle, mg) is the hostile TEAM colour, lifted to its own kind's own-side
+  luminance (GH-941).** `shellStreakHex` (`units/fx.ts`) draws `teamColors[HOSTILE_COLOR_SLOT]` (red, and the
+  player's colour-vision variant of it) for the other army instead of the pair's `vfx.ember`. Bloom thresholds
+  LINEAR LUMINANCE, so a red at the 4x gain sits under 1.0 and drew with no glow while the lime own tracer
+  bloomed: `hostileStreakGain` (`units/hdr-gains.ts`) scales the hostile colour to the own tracer's luminance.
+  The kind gain (rifle 0.45, mg 0.6) multiplies both sides afterwards, so every kind matches its own kind's
+  own-side streak. Arcing rounds (mortar, rocket, grenade) keep ember (GH-149); the flat tracer is unused by any
+  shipped unit. Witnesses: `tools/src/perf/aa-tracer-capture.ts` (`--pair=aa|mg`).
 - **Overlays scale with zoom, and that is faithful.** HP bars look enormous
   zoomed in, as they did on the retired Pixi backend, which scaled its whole
   `world` container by `camera.zoom` (verified side by side before it went).
@@ -371,35 +379,42 @@ never calls into `three/weather.ts`, so a shipped map's light, haze, shadow map 
 - **The rain is ONE instanced draw** (`units/rain-batch.ts`, `units/rain-maths.ts`), built lazily by the first `frame()` after the terrain
   exists, only under rain and only when the preset's `drops > 0`. Each instance owns a static seed (`dropSeed`) and the vertex shader ages
   it from a time uniform; the base geometry holds a STREAK quad and a SPLASH quad, so a drop and its ring are one instance. The shader is a
-  GLSL copy of `rain-maths.ts` built from the same exported constants, never retyped literals. Fall 4.0 wu/s through 6 wu, slanted 12
-  degrees down-wind on the foliage sway's axis; a streak is 0.42 wu long, `RAIN_STREAK_CSS_PX` 1.5 CSS px wide at every zoom
-  (`streakWidthWorld`, rewritten per frame from zoom and DPR), alpha 0.28; the splash ring grows 0.04 -> 0.10 wu over 150 ms, alpha 0.35
-  -> 0, floating 0.04 above the ground. Colour is `overcast.0` (streak) and `overcast.1` (splash) linear x `hazeRadiance`: the largest
+  GLSL copy of `rain-maths.ts` built from the same exported constants, never retyped literals. Fall 4.0 wu/s through 6 wu, slanted 14
+  degrees in a breeze (GH-940; it was 12) down-wind on the foliage sway's axis, and gusted (the wind bullet below); a streak is 0.42 wu long, `RAIN_STREAK_CSS_PX` 1.5 CSS px wide at every zoom
+  (`streakWidthWorld`, rewritten per frame from zoom and DPR), alpha 0.28; the splash ring grows 0.05 -> 0.20 wu over 260 ms, alpha 0.5
+  -> 0, floating 0.04 above the ground, with a bright impact core for the first 35% of its life (GH-940: it was 0.04 -> 0.10 over 150 ms at
+  0.35, a 4 px speck at zoom 1 that the lead could not see). Colour is `overcast.0` (streak) and `overcast.1` (splash) linear x `hazeRadiance`: the largest
   channel is 0.4331 on day, under `RAIN_COLOUR_CEILING` 0.9, so it never blooms and `hdr-gains.ts` has no entry.
 - **The time is the SIM clock.** `uFall = mod(4.0 x presentationSimMs/1000, 6)`; nothing in the rain or ripple path reads
   `performance.now()`, `Date.now()` or accumulated `dtMs`. A repaint at zero elapsed time reads the same uniforms and a pause freezes the
   rain mid-air. A drop lands on ONE fixed point and repeats it every 1.5 s (the spec's formula); a re-hash per cycle is a GLSL change if
   a pattern ever shows.
-- **The lattice period is CONTINUOUS and the density is held by a keep fraction.** (R-7 said the period snapped to {8, 16, 32, 64} and "a P
-  step reshuffles": both are SUPERSEDED by S-L2 ruling 2.) A drop's landing point is world-anchored modulo `P`:
-  `x = lo + mod(seed.x P - lo, P)`, inside a `P` window centred on the box of landing points the screen can see. `P` is the side of the
-  UNCLIPPED footprint box (`footprintExtent`: zoom, viewport and the map's highest ground only, grown toward the camera by
-  `rainReach(maxGround)`, `(6 + g) / tan(elevation)`, and by the slant offset), clamped to `[RAIN_PERIOD_MIN 8, RAIN_PERIOD_MAX 64]`,
-  `RAIN_PERIOD_PAD` 1. **It is never a function of the pan** (a pan slides the window and moves no drop; the clipped box only places the
-  window); computing it from the clipped box once made every drop jump near a map edge. A zoom now SLIDES the pattern (`s x P` moves
-  with `P`) where R-7 reshuffled it in one step; never seen in a browser. A pure per-instance keep seed (`dropKeepSeed`, tile-hash streams
-  9973/16183) and `uKeep = min(1, F x P^2 / A)` (`rainKeep`; `A` = `footprintAreaOnMap`, the mean over 8 heights of the fall of the
-  footprint on the map, memoised by `RainKeepCache`) hold the on-screen count at `RAIN_DENSITY_FRACTION` 0.22 of the preset total at every
-  zoom: the shader collapses an instance whose `aKeep >= uKeep` FIRST, with every varying written before the exit. `uKeep` comes from the
-  zoom, the viewport and the map alone, so the pan neither changes it nor the period. Measured at the map centre on flat ground: high
-  1,273-1,373 over zoom 0.35-2.5 (it was 3,365 / 1,726 / 709 / 1,114 before), medium 741-800; low was retuned at 525 drops to the
-  lead's 1,400 scaled by its total, 98-147. The count is the geometry's, not a pixel readback. Lowest-zoom limit: a map wider than 48 tiles
-  thins at its far corners, and `RAIN_PERIOD_PAD` 1.02 failed the 2.3 wu band at zoom 2.5, so it stays 1.
-- **The map edge is a LANDING-point cull.** The vertex shader removes a drop whose landing point is outside `[0, W] x [0, H]` and fades
-  one within `RAIN_EDGE_FADE` (0.5 tile) inside it with a smoothstep; the splash follows its drop (`mapEdgeFade` is the pure mirror). **The
-  cull tests the landing point, not the streak**, so up to `6 x tan(12 degrees)` = 1.28 tiles of rain can overhang the void on the west and
-  south edges and lose its upper air on the east and north: S-L2 saw rain over the black void above the top-left edge at `kdf_start`
-  (about 1.9% of void pixels). The lead approved it as is.
+- **The lattice period is CONTINUOUS, the window is never clipped to the map, and the density is held by a keep fraction.** (R-7 said the
+  period snapped to {8, 16, 32, 64} and "a P step reshuffles": both are SUPERSEDED by S-L2 ruling 2; the map clip is SUPERSEDED by GH-940.)
+  A drop's landing point is world-anchored modulo `P`: `x = lo + mod(seed.x P - lo, P)`, inside a `P` window centred on the box of landing
+  points the screen can see (`windowLow`). `P` is the side of the box (`footprintExtent`: zoom, viewport and the map's highest ground only,
+  grown toward the camera by `rainReach(maxGround)`, `(6 + g) / tan(elevation)`, and on the two sides the slant reaches toward (+x, -z) by
+  the strongest gust's head offset `RAIN_SLANT_OFFSET x sqrt(1/2)`), clamped to `[RAIN_PERIOD_MIN 8, RAIN_PERIOD_MAX 320]`, `RAIN_PERIOD_PAD` 1.
+  **It is never a function of the pan** (a pan slides the window and moves no drop). **No term reads the map** (GH-940): the box is not
+  clipped to it and `rainKeep` has no map argument. Until GH-940 the box was clipped to the map plus 8 tiles, the period capped at 64, and the
+  shader removed every drop whose landing point was off `[0, W] x [0, H]`: a dimetric map is a diamond, so the corners of the screen are off
+  the map at EVERY focus at game zoom, and the lead saw Ein Qasab II's corners and its backdrop dry (the cause was found by a before
+  capture, and `rain-coverage.test.ts` is the guard). A zoom SLIDES the pattern (`s x P` moves with `P`). A pure per-instance keep seed
+  (`dropKeepSeed`, tile-hash streams 9973/16183) and `uKeep = min(1, F x P^2 / A)` (`rainKeep`; `A` = `footprintAreaInView`, the mean over 8
+  heights of the fall of the footprint's area, clipped only to the period window, memoised by `RainKeepCache`) hold the on-screen count at
+  `RAIN_DENSITY_FRACTION` 0.22 of the preset total at every zoom AND every focus: the shader collapses an instance whose `aKeep >= uKeep` FIRST,
+  with every varying written before the exit. `A / P^2` is scale-free, so the count is the same at the 0.35 floor as at 2.5 (about 1,320 at
+  high, with the same 0.184-0.225 ceiling at the highest zoom over raised ground). A screen wider than about 2,600 CSS px at the 0.35 floor
+  would meet the 320 cap and thin at its far corners.
+- **The splash stops at the map edge, the streak does not.** The vertex shader removes a SPLASH whose landing point is outside
+  `[0, W] x [0, H]` and fades one within `RAIN_EDGE_FADE` (0.5 tile) inside it (`mapEdgeFade` is the pure mirror): a ring needs ground to lie on, and
+  past the map the height texture is clamped to its edge. A STREAK is drawn wherever it lands, falling to the clamped edge height (hidden by the
+  depth test where the backdrop rises above it).
+- **The wind (GH-940), presentation only, on the sim clock.** `rainWindScale(t)` (`rain-maths.ts`) multiplies the slant's TANGENT: 1 + a slow
+  meander of +-0.2 over 8.3 s + up to 0.9 at the peak of a gust, so the slant runs 11 to 28 degrees (0.8x to 2.1x of tan 14). The gust is the
+  FOLIAGE'S OWN (`sway.ts` `gustFactor(t, true)`, every 11 s, 2.5 s wide), so the reeds lean hardest while the rain slants hardest. The batch writes
+  it as `uWind` once a frame from `presentationSimMs / 1000`; the shader derives the path's sine and cosine from the scaled tangent. The wet sway
+  amplitude is x2.2 (was 1.5) and its gust 3.0 (was 1.8). Reduced motion stills the rain and leaves the sway rule as it was.
 - **The draw (S-5).** `RAIN_RENDER_ORDER` is a named ALIAS of `FX_RENDER_ORDER_ABOVE` (band 3, the decal-band pattern): over units and decals,
   under overlays (4), smoke (5) and the silhouette (6). Transparent, `depthTest` ON (a roof in front of a drop hides it; the fog pass
   shrouds a streak by the ground behind it), `depthWrite` OFF, `castShadow` false, NO `normal` attribute. It is out of the AO pre-pass and
@@ -486,3 +501,114 @@ never calls into `three/weather.ts`, so a shipped map's light, haze, shadow map 
   drops (<= 0.4), before the unmeasured 525 step. An earlier run at load 18-77 had read medium inside budget; the quiet machine did
   not reproduce it. Do not take a ladder step to fix it: the standing wet GROUND program is the dominant row (-0.6 / -0.7 / -1.0 ms on
   medium) and the rain row cannot close the gap. The options are the lead's (spec section 14.6).
+
+## Look uplift L1: environment lighting (GH-943), SHIPPED ON 2 Nov 2026
+
+Spec: `docs/superpowers/specs/2026-11-01-look-uplift-design.md` §2 and §7. The lead judged the mock on 2 Nov (`_coord/look-l1/mock/sheet.png`, three columns: today | census-solved | approved starting hemisphere) and shipped the **middle** column. **ON by default.** `&envlight=0` (app: `environment-flag.ts`; renderer: `RendererOptions.environmentLight === false`) draws the pre-L1 frame and stays as an A/B tool: no registry, the shipped hemisphere, the shipped surface tables by identity.
+
+- `EnvironmentRegistry` (`three/environment.ts`): a CPU sky gradient from the preset's palette keys (sky key overhead, sun key at the horizon, `dust.4` below, no sun disc), through `PMREMGenerator.fromEquirectangular`, painted again into the SAME render target when the preset changes (so a clone cut earlier sees the new sky).
+- **Per material, never `scene.environment`.** In three 0.186.1 a material with no `envMap` and a scene environment reads one global `environmentIntensity`. The registry sets `material.envMap` and `envMapIntensity` per CLASS (`environment-classes.ts`: one table, `envSpecFor` throws on a class it does not list). Ground, decals, smoke, FX and the backdrop never get one: an exact zero. Producers tag a class in `material.userData.rlEnvClass` (rides `clone()`; only written when the surface table is an environment table, so a flag-off clone is untouched); `ThreeRenderer.adoptEnvironment` hands each template's materials over. Untagged materials take their template's fallback class. `decor-sand` (flat ground litter) is `ground`: given an environment it washed pale beside a ground that has none.
+- Values: unit metal 0.6, dielectric 0.3, building 0.2 (approved); glass 0.6 and prop 0.3 (my picks, shipped with the middle column). Metal cap 0.45 -> 0.7 (`withMetalCap`, memoised per base table so loaders compare by identity). Hemisphere per preset is `ENV_HEMISPHERE_INTENSITY`, SOLVED by the quiet-frame luminance census, not set by eye: with the ground exempt the ground-dominated frame needs **0.70 / 0.82 / 0.65** (was 0.75 / 0.9 / 0.7), NOT the approved starting 0.5 / 0.6 / 0.47 (`ENV_HEMISPHERE_START`), which darken the frame 9 / 3 / 10%. The haze, rain, water and smoke read `resolvedLights.hemiIntensity`, so they follow the scaled value (haze tint -2.6% on day).
+- **Gates** (`tools/src/golden-diff/baseline.ts`): an `environment` layer check on `quiet`, `open-ground`, `vehicle`, `kitted`, `relief` and `aftermath`, and a new gated scenario `fogged` (`FOGGED_SCENARIO`: `vehicle`'s map and tick at zoom 0.5, panned into the shroud, haze and off-map fade) with `environment`, `fog`, `haze` and `units` checks. Floors are a third of the smallest of three bit-identical runs of `relief-read-signal.ts --layers=environment`, each watched red with `EnvironmentRegistry.setEnabled` made a no-op (0 px / 0.0000). `fogged`'s falsifier is `tools/src/perf/env-doublecount.ts`: every `envMapIntensity` doubled moves it 87 px / 0.3183 against ceilings of 40 px / 0.004. **`fogged` has no baseline yet**: CI's `visual` job is red (exit 1) until the post-merge bless, like `aftermath` and `kitted`. Do not bless from the branch.
+- **Known gaps** (untagged, so no environment): the garage view, the campaign board and menu diorama materials built outside `ThreeRenderer`'s template path, tunnel props, garrison banners, proxy boxes, and the field-works. Support aircraft (`SupportAircraftManager.materials()`) and swarm drones (`SwarmBatch.envMaterials()`) are adopted under `unitDielectric` throughout, so their metal parts do not get the metal class.
+- **N3, a known gap of the `environment` debug layer.** It toggles only REGISTERED materials. Scar, running-gear, wounded and death-fade clones are cut with `Material.clone()` and are not in the registry's live set, so they keep their `envMap` while the layer is hidden, and a clone cut while it is hidden never regains it on show. Debug-only, and the gated frames hold none of those clones; but a hide is partial on a frame with them in it.
+- **The haze half of the `fogged` falsifier** (`env-doublecount.ts --mode=haze`): the haze, rain, water and smoke read `resolvedLights.hemiIntensity`, which L1 scales. Feeding the haze the unscaled lights moves `fogged` 0 px / 0.0681, every pixel under pixelmatch's threshold, so the MAGNITUDE ceiling (0.004) is what sees it, 17x over. `scene.environment` is held null by `environment-leak.test.ts` (a source scan; the renderer tests are GL-free, so the texture is null there and a runtime check cannot see the leak).
+- The menu scene host is a stock `ThreeRenderer` and takes L1 too (its day hemisphere drops 0.9 to 0.82); `assets/ui/menu_host_plate.jpg` was re-photographed with `pnpm plate:host` on 2 Nov so the plate and the live host agree.
+- The theme-identity `program` digests did not move (the ground shader is byte-identical); `scene` moved with the 0.45 -> 0.7 cap and `light` with the hemisphere and haze (`tools/src/theme-identity.test.ts` lists the Was values).
+- Instruments: `tools/src/perf/look-l1-captures.ts` (mock, census, probe, layer) and `tools/look_l1_sheet.py`. Frame cost, 2 Nov, `perf:fx --breakdown`: +0.1 to +0.3 ms on high and medium, draw calls and triangles identical.
+
+## Per-tile structures draw instanced (GH-974)
+
+`units/structure-instances.ts` (`StructureInstances`, `ThreeRenderer.structureInstances`). A `per_tile` type (wall, fence, HESCO, T-wall, sandbag wall and post) used to stand up one `template.root.clone(true)` per tile: two primitives each, drawn in the colour, shadow and AO passes. Now one `InstancedMesh` per (type, template mesh, scar state, 16-tile chunk of the map) draws them, and every other building keeps its clone.
+
+- **Facts that cost thinking.**
+  - The materials are the template's own and the memoised scar clones (`BuildingScarMaterials`), so colour, environment class and the cold-texture decode reach the instanced draw untouched. `renderOrder` is `WORLD_RENDER_ORDER`, shadows are cast and received, as on the clone.
+  - Sets are packed densely (swap-remove, `count` is what is drawn): a destroyed tile is REMOVED from the standing set and added to the wreck set, never hidden by a zero-scale matrix. A scarred tile moves to the set of its band; bands 8-6 share the clean set (`scarMixForBand`), so a full-HP map mints no scar set.
+  - **Chunks, not one map-wide set.** A set's culling sphere spans its instances, so a single set per type would draw every wall of a 96x96 map from the seats and cost 1.5 M triangles for walls nobody sees. 16-tile chunks (`STRUCTURE_CHUNK_TILES`) recovered all of it on Milh (centre z1 high: 8,876k triangles unchunked, 8,431k chunked, the clones' own figure). Per-instance culling (the decor BatchedMesh finding) was not added.
+  - An instance is the template ROOT's matrix, which is what the clone's world matrix was: that holds only when every mesh of the template sits at the root's frame, so `instanceableTemplate` checks it (all six shipped per-tile GLBs pass) and a template that fails keeps the clone path. A part off the root frame under a non-uniform fit would shear its lighting (three derives an instance's normal matrix per axis).
+  - A type with a construction mesh keeps clones (a clip plane is per material, not per instance). The wreck settle (`BUILDING_SETTLE_SECONDS`) rewrites the one instance's Y scale per frame (`instancedSettling`).
+  - The facing is `perTileYaw` as before, read once when the tile is stood up.
+- **Not bit-identical to the clones, and that is stated, not widened.** A clone's modelView is multiplied on the CPU in double, an instance's on the GPU in float32, so a few silhouette-edge pixels land on the other side of a tie. `pnpm perf:instancing` (`tools/src/perf/instancing-ab.ts`) photographs the same frame instanced and as clones (`ThreeRenderer.debugPerTileInstancing(false)`, the A/B switch; `fx-cost.ts --no-instancing` is the same arm): 0 to 4,807 of 5.18 M pixels differ (mean absolute channel delta 0.0000-0.0006, over 98% of them by 1-3 levels, a handful by tens), pixelmatch 0-23. A 0.05-unit lift on every instance reads 152,290 px and mean 0.72 at 1x, so the line is easy to see. The gated scenarios frame no per-tile structure (`aftermath`'s 12 wall tiles on `qarn_hadid` are 22 tiles from its camera). `combat` (report-only; `beit_sahwan_3`, 27 wall tiles 6-12 tiles from its camera at zoom 1.5) does, and the instanced-vs-clone diff has not been run there; a report-only drift on `combat` is this change's, not noise.
+- **What it bought, and what it did not (Milh Flats (large) redo, 4 Nov, M3 Pro, ANGLE Metal, 1440x900 @2x, music off, :5186).** Draw calls 1,106 -> 386 and JS heap 154.3 -> 153.9 MiB, but the town view at z1 on `high` fell only +3.70 -> +3.40 ms against the 48x48 (this tree's own before arm; +3.85 in PR 996 under load 250), paired in-page 21.2 -> 20.8 ms. **The design predicted -2.9 ms from draw calls, and that attribution was wrong**: the 172 walls cost about 1.4-2.1 ms with walls hidden entirely and nothing like the 0.0005 ms a call the call count implied. The cost is triangles: 3,010 a wall tile x 172 x three passes (shadow, colour, AO) = 1.59 M, and hiding the walls drops exactly 1,593k triangles. Removing a wall from the shadow pass or from AO alone (-531k triangles each) moved the frame by under 0.2 ms, so it is the sum of three passes at about 1 ns a triangle, not one pass. Where the rest goes: the whole redo adds 5.2 M triangles over the 48x48 for +3.4 ms, about 0.65 ns a triangle.
+- **LOD1 twin of the compound wall (GH-974, `wall_lod1`).** Below `STRUCTURE_LOD1_BELOW_ZOOM` 2.0 (hysteresis 0.05: the twin holds until 2.05) the instanced wall draws a 310-triangle twin, not the 3,087-triangle Meshy remesh. The twin is a file of the wall's own `BUILDING_MESHES` entry (`lod1:`), not an entry, a unit or a structure id. It ships zero materials and a UV0 that samples the FULL wall's bake (one projected texel a face, `tools/buildings/author_wall_lod1.py`: the bake is ~600 small islands with black gaps, so a continuous mapping would smear), and the renderer draws it with the full template's own material, paired by `rl_role`: +0 materials, +0 textures. The swap is at frame level (`StructureInstances.setZoom`): a clean standing tile is in both its full set and its twin set and one of the two is visible, so draws stay one per set. A scarred tile and a wreck keep the full geometry. `debugStructureLod1(false)` and `pnpm perf:instancing -- --toggle=lod1` are the A/B. `validate:meshes` names the pair in `LOD_TWINS` (wall vs wall_lod1 is IoU 0.946 against 0.88, which is the point) and holds the exemption to the twin being wired in the catalogue and still a twin (IoU >= 0.90 against its full mesh).
+- **LOD1 twins of the house and the ditch (GH-974, `house_lod1`, `ditch_lod1`).** Same band as the wall (`STRUCTURE_LOD1_BELOW_ZOOM` 2.0, held to 2.05, `lod1Active`), same rule for colour (zero materials, UV0 into the full mesh's bake), different seams. The house is a CLONE-drawn building: `BUILDING_MESHES.house.lod1`, a second clone per standing house kept in `buildingMeshLod1Entities`, drawn with its OWN 512 px base-colour bake of the house (Cycles selected-to-active from `house.glb`; a textured building, `house_lod1` in `TEXTURED_BUILDING_TYPES`/`TEXTURED_BUILDING_EXEMPT`), because patches of one texel a cell read as plaster at zoom 1.6 (`units/building-lod.ts` holds the clean-band rule); `stepLod1` (end of `updateBuildingMeshes`) shows one of the two, and a scarred house keeps its full art. The ditch is a textured decor, not a structure: `DECOR_LOD1.ditch` loads as the key `ditch_lod1` (never a variant), the loader hands it `ditch_0`'s map, `buildTexturedDecorMesh` adds ONE twin InstancedMesh per chunk beside each full one (`userData.lod1`), and `stepTexturedDecorLod` flips which is visible, so a chunk is still one draw. A group with no twin (load failure) keeps the full ditch at every zoom. The gate: `LOD_TWINS` has `house_lod1`; the ditch twin is the one zero-texture file of the textured decor family, named in `DECOR_LOD1_TWINS` and held by `check_decor_meshes` (wired in `DECOR_LOD1`, full beside it, still `rl_textured`); `tools/test_lod_twin_gate.py` has a constructed failing input for each. `debugStructureLod1(false)` switches all three twins off together. The visual gate may move below zoom 2.0; do not bless from the branch.
+- **The lever that is left is triangles, not calls**: a wall LOD (about 300 triangles below a zoom, as the kit and backdrop LODs do), or fewer, cheaper houses. Both change pixels and one is art; neither is done.
+
+## The wind (GH-984 N1)
+
+`terrain/wind.ts` is the one three-free field every swaying thing reads (grass, reeds, shrubs, crowns, TRUNKS, the held-building banners, the
+rain's slant); `sway.ts` keeps only the legacy maths, which is what reduced motion plays (`windU.mode` 0: the old shader branch, crowns only,
+the periodic 11 s gust on the fixed axis; a trunk holds still). Facts that cost thinking:
+
+- **`rlNature` (vec2: height, class) is normalised to the box of ALL the foliage and trunk parts of one `<family>_<variant>` key**, not to the
+  part's own box (design section 3 said "the geometry's own bbox"): a bush's foliage starts half way up its trunk, and per-part
+  normalisation would give the halves of one bush different bend curves. A tree uses WORLD height over `SWAY_TOP` squared, so trunk and
+  crown at one height move identically and "trunk follows crown" is exact where they meet.
+- **The GLSL `rlWindLean` / `rlWindGust` are written in a scalar subset and `wind.test.ts` transpiles and RUNS them** against `windLean` /
+  `windGust` (the hash from its own text, in BigInt `uint`). A constant-search alone passes a shader that computes the wrong thing.
+- **A gust is travelling value noise** (`s = t - dot(p, dir) / 3 tiles/s`, lattice 3 s, `smoothstep(0.5, 0.85)`): median 11.8 s between
+  gusts at a point (p10 5.9 s). A gust also leans the stand downwind by `WIND_GUST_LEAN` x amp (an addition to the design; one constant).
+- **Map data** is `wind: { strength 0-2, side east|west, skew_deg -30..30 }` (`map.schema.json`, `parseMap`), each field optional and falling
+  back to `TERRAIN_WIND[theme]` in the app; `RendererOptions.wind` carries it and the sim never reads it. The rain uses the heading and the
+  travelling gust under the camera focus; `strength` scales foliage only (the rain's culling bounds assume `RAIN_WIND_MAX`).
+- **`reducedMotion` is now asked every frame on every map** (the wind plays on dry maps), shared with the wet writes: a dry renderer asks twice
+  a frame (wound ring + wind), a wet one still twice.
+- Shadow and AO passes keep the rest pose (unchanged from the old sway). Instrument: `pnpm wind:capture` (the mock clip sheets).
+
+## Vehicles bend the vegetation (GH-984 N2)
+
+`terrain/disturb.ts` (three-free) is a uniform array of DISTURBERS the foliage and trunk vertex shader loops over: option A of the design, the
+lead's pick, +0 draw calls and +0 programs (the chunk rides the wind's, after it). `terrain/disturb-uniforms.ts` is the three-side uniform set, shared
+by reference like the wind's. Facts that cost thinking:
+
+- **A disturber is `a = (ax, az, bx, bz)` and `b = (radius, strength, kind)`** (`kind` 1 is a rotor wash, N3; three floats a slot, `DISTURB_B_STRIDE`). A moving hull is a capsule from where it is now (`lerp(prev, cur, alpha)` of
+  the sim, never the drawn hull: its weight lag is per frame) back to where it was 30 ticks (1.5 s) ago; a parked one is the same capsule with no length,
+  a disc of its `RADIUS_BY_TYPE` ring radius (full push inside 0.55 of it, gone at 1.25). A wake shorter than 0.3 tile blends to the disc, so a hull that has
+  just stopped is not a streak. Infantry are discs at 0.25 strength, `high` only. A helicopter is N3's rotor wash (next section).
+- **The wake is built from the TICK ring and nothing a frame can reach.** `WakeRing` holds 8 samples per entity at ticks that are multiples of 5;
+  `ThreeRenderer.snapshot()` (via `stepVehicleNature`) writes it once per sim tick, re-seeding a newcomer or a hull that jumped more than a tile (the tracks'
+  own teleport rule). `ThreeRenderer.disturb-clock.test.ts` proves two frame cadences reaching one tick leave every disturber uniform bit-identical, and that a
+  renderer whose `snapshot()` never runs has no ring. Recording the ring from `frame()` instead turns it red.
+- **The bend** rotates a vertex about its instance's foot, away from the summed pushes (vectors, so two hulls either side cancel), by `amount x
+  (family-box height)^stiffness x thetaMax(class)`; `thetaMax = acos(1 - cap)`, grass 0.8, reed 0.7, shrub 0.35, tree 0.01 (the lead's 0.8 and 0.35; reed and
+  tree are mine). The profile along the wake is a damped spring (1.1 Hz, zeta 0.45, about 20% overshoot toward the track); under reduced motion it is a
+  monotone fall, a static displacement with no spring (`uDisturbSpring` 0). The GLSL is a scalar subset the test transpiles and RUNS against the TS mirror.
+- **Slots by preset** (`RenderQuality.nature`): high 24 with foot, medium 16 with wakes and no foot, low 8 discs. Vehicles first, ranked by distance to the camera
+  focus, culled beyond the view's ground footprint. A uniform bounding box of every slot's reach lets most vertices skip the loop. Absent reads `high`.
+  The cost run steps a preset down 24/16/8/0 if it is over budget (`DISTURB_LADDER`).
+- **The `disturb` debug layer** drives `uDisturbAmp` to 0 and back (the `wind` shape); the frame skips its own work while it is 0. Its gate check is on the
+  `vehicle` scenario (`baseline.ts`): 25 px / 0.0015, measured on Metal, so the floor must be re-measured from CI at the bless.
+- **Churn and clods.** `stepChurn` (`units/ground-churn.ts`) reads each tick's ground speed and heading change: a PIVOT is one tracked hull's side reversing
+  (`|yaw| x halfGauge >= speed`, at 0.05 turn/s or more, held 4 ticks, one scuff per 10), a LAUNCH the first tick out of a halt of 6 ticks or more. Each lays a
+  `churn` decal (DecalKind 6, the FADING pool, tread's colour, 120 s fade, dated at the tick) under each track or behind each driven wheel, and records a clod
+  EVENT (two deep per entity). `updateVehicleClods` spawns it once, from the first frame that presents its tick, seeded by (entity, tick) and aged by sim
+  time (the rotor wash's way): none on a zero-time repaint, none under reduced motion or `fxDetail` 0, none for an event seen more than 0.6 s late.
+  `data/vfx/vehicle_clods.json` must stay registered in `@lions/data`'s `vfxEmitters`. `churn` is in the decal showcase (a column west of the lattice), so
+  `aftermath`'s `decals` layer witnesses it.
+- Shadow and AO keep the rest pose (as for the wind). Instrument: `pnpm nature:capture` (the mock sheets, the layer signal and the frame-cost A/B in one Metal
+  browser, port 5182 by default, 5177 refused).
+
+## Rotor wash on the vegetation (GH-984 N3)
+
+A helicopter (an air type that is not `isSoft`: the rule `updateRotorWash` has always used, so every drone and the paramotor still throw nothing) takes a
+slot of kind `DISTURB_KIND_AIR` in N2's array. +0 draw calls, +0 programs; the chunk is N2's with a second accumulator. Facts that cost thinking:
+
+- **The curve was on its flat top.** `rotorWashStrength` was 1.0 from 0.6 wu down, and the renderer draws every air unit at `AIR_LIFT_PX` = 14 px =
+  **0.357 wu** (a landing brings it down over `airLiftFrac`), so a hover and a touchdown threw identical dust and "peaks on a landing" was impossible. The
+  full point is now the ground (0 wu), the none-height 1.5 wu (was 3.0): hover 0.76, touchdown 1.0. `rotor-wash.test.ts` pins strength strictly rising
+  as `airLiftFrac` falls through a landing (mutation: invert the height term).
+- **The slot** is a disc (head = tail, no wake) at `lerp(prev, cur, alpha)`, strength `rotorWashStrength(airLiftY(i, alpha), entitySpeed[i])` (both pure in the
+  tick and alpha; the dust keeps reading the DRAWN height), reach `R0 x (1.5 + hNorm)` tiles with R0 = 1.2 and `hNorm` the height over the curve's span.
+  `b.x` holds the reach over `DISTURB_REACH`, because the falloff is written in ring radii. No slot under `ROTOR_WASH_MIN_STRENGTH`.
+- **Flatten is N2's push**, radial because a disc pushes away from its centre: grass and reeds lie down outward.
+- **Thrash** is `min(wash, 1) x weight x thrashMax(class) x sin(2 pi (uSwayTime / 0.4 + phase))` added to the lean's angle, `wash` the sum of the pushes of the
+  wash slots only (`b.z`), `phase = fract(0.7361 x ox + 0.4219 x oz)` per instance, `uSwayTime` the wind's SIM clock. Shrub 0.06 and crown 0.02 of their height
+  each way (mine, for the sheets to judge); grass and reed 0. The GLSL evaluates it only where `rlDWash > 0.0001`, so N2 pays for no `sin`/`pow`.
+  `uDisturbSpring` 0 (reduced motion) drops it and leaves the flatten static.
+- **Dust.** `ParticleSystem.spawn` takes a trailing `speedScale` (default 1, applied after the speed is drawn so the random stream is unchanged); the wash passes
+  `rotorWashPuffSpeed(strength)` = 0.5 + 0.5 x strength. Count and size already followed the strength (the magnitude argument).
+- **The `wash` debug layer** is a flag (`washLayerOn`) the frame's disturber build reads every frame: hidden, helicopters take no slot. The dust ring is not its.
+  Gate check on the `vehicle` scenario (`baseline.ts`): hiding it moves only 15 px / 0.0008 (one parked `heli_peten`, little foliage in reach), floor 0 px / 0.0002, measured
+  on Metal, so re-measure from CI at the bless. No new scenario was added.
+- Instrument: `pnpm nature:capture` defaults to `--phase=wash-sheets,signal,cost --layer=wash` (`--layer=disturb` reproduces N2, `--phase=sheets` is N2's sheets).
+  The sheet arms are two page loads (the dust is dated by slot).

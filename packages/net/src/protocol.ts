@@ -4,8 +4,9 @@
  * position: the only battle facts here are `Command`s and hashes.
  */
 import { AMBUSH_RADIUS_MAX, FIRE_SUPPORT, MAX_PATROL_WAYPOINTS, FIRE_SUPPORT_KINDS, MAX_LINE_QUEUE, MAX_PRODUCTION_LINES, type Command } from '@lions/sim';
-import { isFactionPair, validateConfig, type Faction, type MatchConfig, type Seat } from './config';
+import { isFactionPair, validateConfig, winModeField, type Faction, type MatchConfig, type Seat, type WinMode } from './config';
 import type { Frame, Stamped } from './frames';
+import { SPECIALS_MAX } from './specials';
 import { ADVISOR_SCOPES, cleanAdvisorMsg, type AdvisorMsg, type AdvisorScope } from './advisor';
 
 export const MAX_MESSAGE_BYTES = 4096;
@@ -36,6 +37,7 @@ export const COMMAND_KINDS = [
   'build', 'support', 'cancelBuild', 'setRally', 'clearRally',
   'construct', 'cancelConstruct', 'raiseWorks', 'cancelWorks',
   'enterTunnel', 'vent',
+  'setupReady', 'fortify', 'unfortify', // GH-976 v2: the set-up commands, open on the wire since WP4 (a set-up room only: `validateCommand`)
 ] as const satisfies readonly Command['kind'][];
 
 /** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
@@ -47,7 +49,11 @@ type MissingCommandKind = Exclude<Command['kind'], (typeof COMMAND_KINDS)[number
 const COMMAND_KINDS_COMPLETE: [MissingCommandKind] extends [never] ? true : { missingFromCOMMAND_KINDS: MissingCommandKind } = true;
 void COMMAND_KINDS_COMPLETE;
 
-export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean }
+/** `specials` (GH-1102): the Store specials this seat brings, as the room cleaned its claim
+ *  (`seatSpecialsField`), refused ones included so the lobby can list them
+ *  (`VERSUS_REFUSED_SPECIALS`). Named only in a brigade versus room, and `[]` for a bot or a
+ *  Sarim seat there; absent everywhere else, which is every room before it. */
+export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean; specials?: string[] }
 
 export type ClientMsg =
   /** `from` (snapshot S3, D6): the first frame tick this client lacks; the
@@ -86,8 +92,10 @@ export type ServerMsg =
   /** `factions`, by seat: what the host picked (KDF vs Sarim, or the mirror).
    *  Absent from a room made before it existed, which is the mirror.
    *  `kit`: the room's kit rule (per-seat kit); the room names it only when it
-   *  is `brigade`, so absent is `matched`, which every older room was. */
-  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string; factions?: [Faction, Faction]; kit?: LobbyKit }
+   *  is `brigade`, so absent is `matched`, which every older room was.
+   *  `winMode` (GH-976 P2): the win mode the host picked; the room names it only when there is one, so absent is
+   *  annihilation, which every older room was. */
+  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string; factions?: [Faction, Faction]; kit?: LobbyKit; winMode?: WinMode }
   | { t: 'start'; config: MatchConfig }
   | { t: 'frame'; tick: number; cmds: Stamped[] }
   | { t: 'stall'; reason: StallReason; seat: Seat }
@@ -120,7 +128,9 @@ export type ServerMsg =
   | { t: 'advisor'; from: 'human' | 'advisor'; a: AdvisorMsg }
   /** Which advisor scope each seat has seated, or null: the badge both seats see (decision D1). */
   | { t: 'advisors'; present: [AdvisorScope | null, AdvisorScope | null] }
-  | { t: 'error'; code: ErrorCode };
+  /** `build`: on a `build_mismatch`, the build the ROOM runs, so a refused client can name it (GH-954).
+   *  Sent only after the hello's ticket verified, and the string is the one the client bundle already carries. */
+  | { t: 'error'; code: ErrorCode; build?: string };
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 /** A frame tick on the wire: an integer in 0..0x7fffffff. */
@@ -190,11 +200,20 @@ export function cleanCommand(v: unknown): Command | null {
     case 'halt':
     case 'unload':
       return ids === null ? null : { kind, ids };
-    case 'garrison':
     case 'demolish':
       return ids === null || !isInt(c.structure) ? null : { kind, ids, structure: c.structure };
-    case 'load':
-      return ids === null || !isInt(c.carrier) ? null : { kind, ids, carrier: c.carrier };
+    case 'garrison':
+      // GH-972: `spread` rides the wire, or a versus seat's group order would be a plain one on every machine
+      // but the sender's. A non-boolean voids the order, as `append` does.
+      if (ids === null || !isInt(c.structure) || !optBool(c.spread)) return null;
+      return c.spread === undefined ? { kind, ids, structure: c.structure } : { kind, ids, structure: c.structure, spread: c.spread as boolean };
+    case 'load': {
+      if (ids === null || !isInt(c.carrier)) return null;
+      if (c.carriers === undefined) return { kind, ids, carrier: c.carrier };
+      // GH-972: the other carriers of a group load, cleaned as ids are.
+      const carriers = cleanIds(c.carriers);
+      return carriers === null ? null : { kind, ids, carrier: c.carrier, carriers };
+    }
     case 'chargeTunnel':
     case 'enterTunnel':
       return ids === null || !isInt(c.tunnel) ? null : { kind, ids, tunnel: c.tunnel };
@@ -272,6 +291,14 @@ export function cleanCommand(v: unknown): Command | null {
         : { kind, side: c.side, works: c.works, x: c.x, y: c.y, ids };
     case 'cancelWorks':
       return isInt(c.side) && isInt(c.site) ? { kind, side: c.side, site: c.site } : null;
+    case 'setupReady':
+      // GH-976 v2: rebuilt from `side` alone. Whether the room plays a set-up and whose side it is are `validateCommand`'s.
+      return isInt(c.side) ? { kind, side: c.side } : null;
+    case 'fortify':
+      // `kit` is a slot of `Sim.setSetupKit` and (x, y) an integer TILE, not Q16.16; their ranges are `validateCommand`'s (it knows the map).
+      return isInt(c.side) && isInt(c.kit) && isInt(c.x) && isInt(c.y) ? { kind, side: c.side, kit: c.kit, x: c.x, y: c.y } : null;
+    case 'unfortify':
+      return isInt(c.side) && isInt(c.x) && isInt(c.y) ? { kind, side: c.side, x: c.x, y: c.y } : null;
     default: {
       const unreachable: never = kind;
       return unreachable;
@@ -337,7 +364,8 @@ function isFrame(v: unknown): v is Frame {
 function isSeatState(v: unknown): v is SeatState {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
-  return isSeat(s.seat) && isStr(s.callsign) && typeof s.connected === 'boolean' && typeof s.ready === 'boolean';
+  return isSeat(s.seat) && isStr(s.callsign) && typeof s.connected === 'boolean' && typeof s.ready === 'boolean' &&
+    (s.specials === undefined || (Array.isArray(s.specials) && s.specials.length <= SPECIALS_MAX && s.specials.every(isStr)));
 }
 
 /** `log` and `lobby` are the two messages that can exceed the client cap (a
@@ -370,8 +398,10 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       if (c === null && m.config !== null && m.config !== undefined) return null;
       if (m.factions !== undefined && !isFactionPair(m.factions)) return null;
       if (m.kit !== undefined && m.kit !== 'matched' && m.kit !== 'brigade') return null;
+      if (m.winMode !== undefined && winModeField(m.winMode) === undefined) return null;
+      const winMode = winModeField(m.winMode);
       return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you) && isStr(m.map)
-        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}), ...(m.kit !== undefined ? { kit: m.kit } : {}) } : null;
+        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}), ...(m.kit !== undefined ? { kit: m.kit } : {}), ...(winMode !== undefined ? { winMode } : {}) } : null;
     }
     case 'start': { const c = validateConfig(m.config); return c ? { t: 'start', config: c } : null; }
     case 'frame': return isInt(m.tick) && Array.isArray(m.cmds) && m.cmds.every(isStamped) ? { t: 'frame', tick: m.tick, cmds: m.cmds } : null;
@@ -410,7 +440,12 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       const ok = (v: unknown): v is AdvisorScope | null => v === null || (ADVISOR_SCOPES as readonly unknown[]).includes(v);
       return Array.isArray(p) && p.length === 2 && ok(p[0]) && ok(p[1]) ? { t: 'advisors', present: [p[0], p[1]] } : null;
     }
-    case 'error': return (ERROR_CODES as readonly unknown[]).includes(m.code) ? { t: 'error', code: m.code as ErrorCode } : null;
+    case 'error': {
+      if (!(ERROR_CODES as readonly unknown[]).includes(m.code)) return null;
+      const code = m.code as ErrorCode;
+      // A build is a short printable string; anything else is dropped, never trusted.
+      return typeof m.build === 'string' && /^[\x20-\x7e]{1,80}$/.test(m.build) ? { t: 'error', code, build: m.build } : { t: 'error', code };
+    }
     default: return null;
   }
 }

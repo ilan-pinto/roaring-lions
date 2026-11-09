@@ -2635,6 +2635,13 @@ body[data-outcome-beat] .rl-aar {
      paragraph lying on the map -- measured at 1440 with the longer key list
      this used to carry. */
   white-space: nowrap;
+  /* Bounded like the rows beside it (.rl-orders, .rl-cluster): the same room between the dock and the
+     minimap. Without it a nowrap line ran 100 to 200 px under the minimap at a 1.4 UI scale on 1280x720
+     (GH-920), and the line only exists to be read, so past the bound it ends in an ellipsis. */
+  box-sizing: border-box; /* the bound is the plate's outer edge, padding and border included */
+  max-width: calc(100vw - 2 * var(--minimap) - 4 * var(--s2) - 2 * var(--hud-centre-offset));
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* --- minimap ---------------------------------------------------------- */
@@ -2685,6 +2692,13 @@ body[data-outcome-beat] .rl-aar {
   cursor: crosshair;
   touch-action: none;
   z-index: 5;
+}
+
+/* A map above 48 tiles a side (GH-920) gets a larger box: minimap.ts sets this attribute on its host
+   and its backing store is MINIMAP_SIZE_LARGE. It is the token, not the canvas rule, that changes, so
+   the group bar and the centred rows' max-width calc follow it. 17.5rem is 280 px at a 16 px root. */
+[data-minimap='large'] {
+  --minimap: 17.5rem;
 }
 
 /* --- the control-group bar (Task 11) ----------------------------------- */
@@ -6219,8 +6233,8 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-body);
   color: var(--ink);
 }
-/* The head: the balance, Grant (TEST) and the compact "Get Roar coins" row
-   beside them -- never above the items (the lead's declutter, 2 Oct). */
+/* The head: the balance and the compact "Get Roar coins" row
+   beside it -- never above the items (the lead's declutter, 2 Oct). */
 .rl-stores__head {
   display: flex;
   flex-wrap: wrap;
@@ -6291,6 +6305,36 @@ button.rl-menu__item[data-kind='aside'] {
   border-left: 3px solid var(--roar);
   font-size: var(--t-band);
   color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__earn {
+  margin: 0;
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__earn-h {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 600;
+}
+.rl-menu--garage .rl-stores__earn-list {
+  margin: var(--s2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.rl-menu--garage .rl-stores__earn-row {
+  display: flex;
+  gap: var(--s3);
+  padding: var(--s1) 0;
+}
+.rl-menu--garage .rl-stores__earn-n {
+  min-width: 4ch;
+  font-family: var(--font-display);
+  color: var(--roar);
+}
+.rl-menu--garage .rl-stores__earn-none {
+  margin: var(--s2) 0 0;
+  max-width: 80ch;
 }
 .rl-stores__bar {
   display: flex;
@@ -6501,27 +6545,123 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-stores__card[data-state='coins'] {
   border-color: var(--roar);
 }
-/* The TEST wallet (GH-317): labelled TEST wherever its balance shows. */
-.rl-menu--garage .rl-stores__test {
-  padding: 0 var(--s2);
+/* "What it adds" (GH-1076): one control per unit card, one panel under that card's grid row. `dense` lets the
+   cards after the open one fill its row, so the full-width panel sits directly below. Semantic tokens and
+   .rl-good/.rl-bad only. */
+.rl-stores__cards {
+  grid-auto-flow: row dense;
+}
+.rl-menu--garage .rl-stores__adds-open {
+  padding: var(--s1) var(--s3);
   font-family: var(--font-display);
   font-size: var(--t-band);
   letter-spacing: var(--track-label);
-  color: var(--roar-ink);
-  background: var(--warn);
-}
-.rl-menu--garage .rl-stores__grant {
-  padding: var(--s1) var(--s3);
-  font-family: var(--font-body);
-  font-size: var(--t-band);
-  font-weight: 600;
-  color: var(--ink);
-  background: var(--tile-bg);
-  border: 1px dashed var(--warn);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
   cursor: pointer;
 }
-.rl-stores[data-test='1'] .rl-stores__notice {
-  border-left-color: var(--warn);
+.rl-stores__adds-open[aria-expanded='true'] {
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-stores__adds {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: var(--s4);
+  background: var(--well);
+  border: 1px solid var(--selected);
+  /* Never taller than the shell's Stores region can show: the panel scrolls inside itself past this, so its
+     last block is always reachable at 1280x720 as at 1920x1080. */
+  max-height: calc(100vh - 2 * var(--s6) - 12rem); /* px-ok */
+  overflow-y: auto;
+}
+.rl-menu--garage .rl-stores__adds-h {
+  margin: 0 0 var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  font-weight: 800;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-stores__adds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: var(--s4);
+}
+.rl-stores__adds-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+.rl-menu--garage .rl-stores__adds-bh {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-stores__adds-list,
+.rl-stores__adds-stats {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-stores__adds-item,
+.rl-stores__adds-note,
+.rl-stores__adds-role,
+.rl-stores__adds-purpose {
+  margin: 0;
+  font-size: var(--t-band);
+  color: var(--ink);
+}
+.rl-stores__adds-item[hidden] {
+  display: none;
+}
+.rl-stores__adds-note {
+  color: var(--ink-mute);
+}
+.rl-stores__adds-role {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.rl-stores__adds-purpose {
+  flex-basis: 100%;
+  color: var(--ink-dim);
+}
+.rl-stores__adds-stat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--s3);
+  font-size: var(--t-band);
+}
+.rl-stores__adds-stat-n {
+  color: var(--ink-dim);
+}
+.rl-stores__adds-stat-v,
+.rl-stores__adds-stat-d {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.rl-menu--garage .rl-stores__adds-more {
+  align-self: flex-start;
+  padding: 0;
+  font-size: var(--t-band);
+  color: var(--ink-dim);
+  background: transparent;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
 }
 .rl-stores__receipts-wrap {
   overflow-x: auto;
@@ -6579,9 +6719,7 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-body);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 /* No ellipsis, deliberately. The chip carries `gateShort`'s REQUIREMENT
    (`Locked · Conduct 55`, `Locked · 12★`), which fits; the first cut put the
@@ -6590,10 +6728,12 @@ button.rl-menu__item[data-kind='aside'] {
    floor of 35 and one of 75. A rule that hides the only part of a string that
    differs is worse than no rule. The sentence is on the card's `title` and in
    the bay. */
+/* GH-1145: it wraps rather than clips. Wrapping hides nothing (an ellipsis did), and in a 16rem rail
+   a longer string -- the pseudo-locale's, or a translation's -- otherwise ran past the card's edge. */
 .rl-garage__card-chip {
   font-size: var(--t-band);
   color: var(--ink-dim);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .rl-garage__card[data-status='earned'] .rl-garage__card-chip,
 .rl-garage__card[data-status='bought'] .rl-garage__card-chip {
@@ -6934,6 +7074,16 @@ button.rl-menu__item[data-kind='aside'] {
   text-transform: uppercase;
   color: var(--ink-dim);
   white-space: nowrap;
+}
+/* GH-1145: on a rail card the tag sits in a flex column whose width is what is left of a 16rem
+   rail after the art and the kit grid. `nowrap` + `fit-content` let "Special forces" (and far
+   more so its pseudo-locale form) push past the card's edge at 1280. The card's tag may
+   shrink to the column and wrap; the bay's own tag (`.rl-garage__tag`) has the room and keeps one line. */
+.rl-garage__card-tag {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* Visually hidden, still read by assistive tech. */
 .rl-sr-only {
@@ -7406,6 +7556,13 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__buy-tier {
   align-self: flex-start;
   color: var(--commend);
+  /* D: the run label ("Tier 3 · 740 credits (pays for tiers 1-2 again, on credits)") is long on purpose, and in
+     the board column it wraps. Allowed: it reads as two balanced lines, left-aligned, inside the button's own
+     padding, rather than one line breaking at the box edge. */
+  max-width: 100%;
+  text-align: left;
+  text-wrap: balance;
+  line-height: 1.3;
 }
 .rl-garage__track-max {
   font-size: var(--t-body);
@@ -7927,6 +8084,13 @@ fieldset.rl-versus__maps {
   color: var(--ink-mute);
 }
 .rl-versus__side-note { text-align: left; grid-column: 1 / -1; }
+/* GH-976 P2: the win-mode group is the side group's twin; its options sit in a span that dissolves into the flex row. */
+.rl-versus__win-options {
+  display: contents;
+}
+.rl-versus__win[hidden] {
+  display: none;
+}
 .rl-versus__side-reason[hidden],
 .rl-versus__matchup-note[hidden],
 .rl-versus__side-note[hidden] {
@@ -8445,6 +8609,18 @@ fieldset.rl-versus__maps {
 .rl-versus__seat[data-ready='1'] .rl-versus__state {
   color: var(--good);
 }
+/* GH-1102: the Store specials a seat brings into a brigade room, and the ones that stay out. */
+.rl-versus__lineup {
+  display: grid;
+  gap: 0.15rem;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink);
+  text-align: center;
+}
+.rl-versus__lineup p { margin: 0; }
+.rl-versus__lineup-none,
+.rl-versus__lineup-out { color: var(--ink-mute); }
 .rl-versus__dot {
   flex: none;
   width: 0.6rem;
@@ -9486,6 +9662,85 @@ fieldset.rl-versus__maps {
 .rl-net-score__advisor[data-row='mine'] .rl-net-score__who {
   color: var(--good);
 }
+/* The points race (ui/net-points.ts, GH-976 P2): both sides' points against the target, top LEFT of the field (the
+   status line takes the top centre while the room waits or stalls, and the scoreboard the top right), click-through. */
+.rl-net-points {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s3));
+  left: var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 18rem;
+  padding: var(--s1) var(--s3);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  color: var(--ink);
+  font: 600 var(--t-s) var(--font-body);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 19;
+}
+.rl-net-points[hidden] {
+  display: none;
+}
+.rl-net-points__title,
+.rl-net-points__explain,
+.rl-net-points__ground {
+  margin: 0;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+.rl-net-points__explain {
+  max-width: 34em;
+  white-space: normal;
+}
+.rl-net-points__explain[hidden] {
+  display: none;
+}
+.rl-net-points__title {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.rl-net-points__row {
+  display: grid;
+  grid-template-columns: 6rem 1fr 3rem 6.5rem;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-net-points__who {
+  max-width: 6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rl-net-points__row[data-row='mine'] .rl-net-points__who {
+  color: var(--good);
+}
+.rl-net-points__bar {
+  position: relative;
+  height: 0.5rem;
+  background: color-mix(in srgb, var(--ink) 15%, transparent);
+}
+.rl-net-points__fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--ink-dim);
+}
+.rl-net-points__row[data-row='mine'] .rl-net-points__fill {
+  background: var(--good);
+}
+.rl-net-points__row[data-row='theirs'] .rl-net-points__fill {
+  background: var(--bad);
+}
+.rl-net-points__n {
+  text-align: right;
+}
+.rl-net-points__rate {
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
 .rl-net-board {
   border-collapse: collapse;
   color: var(--ink);
@@ -9514,10 +9769,294 @@ fieldset.rl-versus__maps {
   color: var(--good);
 }
 /* KDF vs Sarim (2026-10-14): which force this seat commanded, under the reason. */
-.rl-net-end__played {
+.rl-net-end__played,
+.rl-net-end__points {
   color: var(--ink-dim);
 }
 .rl-net-end .rl-net-board {
   margin: var(--s3) auto 0;
   font-size: var(--t-m);
+}
+
+/* GH-954 W1: the arena watch strip (dev-only route). Over the top of the battlefield, clear of the HUD strip. */
+.rl-arena-strip {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s2));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s4);
+  max-width: calc(100vw - var(--s6));
+  padding: var(--s1) var(--s3);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  color: var(--ink);
+  font: 600 var(--t-s) var(--font-body);
+  z-index: 40;
+}
+.rl-arena-strip span[hidden] {
+  display: none;
+}
+.rl-arena-strip__players {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.rl-arena-strip__status {
+  color: var(--ink-mute);
+}
+.rl-arena-strip__verdict {
+  color: var(--good);
+}
+.rl-arena-strip__views {
+  display: inline-flex;
+  gap: var(--s1);
+}
+.rl-arena-strip__view,
+.rl-arena-strip__stop {
+  padding: var(--s1) var(--s2);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.rl-arena-strip__view[aria-checked='true'] {
+  border-color: var(--selected);
+  color: var(--selected);
+}
+
+/* GH-954 W1: one stage per watched game, under the strip. */
+.rl-arena-stage {
+  position: absolute;
+  inset: 0;
+}
+
+/* GH-954 W2: the arena setup screen (dev-only route). */
+.rl-arena-setup {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: var(--s5) var(--s4);
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  font: 500 var(--t-m) var(--font-body);
+}
+.rl-arena-setup > * {
+  max-width: 60rem;
+  margin-inline: auto;
+}
+.rl-arena-setup__title {
+  margin-block: 0 var(--s2);
+  font: 600 var(--t-l) var(--font-body);
+  color: var(--title-accent);
+}
+.rl-arena-setup__blurb,
+.rl-arena-setup__hint {
+  color: var(--ink-mute);
+}
+.rl-arena-setup__hint {
+  font-size: var(--t-s);
+}
+.rl-arena-setup__message {
+  min-height: 1.5em;
+  margin-block: var(--s2);
+}
+.rl-arena-setup__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--s3) var(--s4);
+}
+.rl-arena-setup__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-arena-setup__label {
+  font-weight: 600;
+  color: var(--ink-label);
+}
+.rl-arena-setup__control {
+  padding: var(--s1) var(--s2);
+  background: var(--well);
+  border: 1px solid var(--panel-frame);
+  color: var(--ink);
+  font: inherit;
+}
+.rl-arena-setup__control:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-arena-setup__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-block: var(--s4);
+}
+.rl-arena-setup__start,
+.rl-arena-setup__stop,
+.rl-arena-setup__watch {
+  padding: var(--s2) var(--s4);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.rl-arena-setup__start {
+  border-color: var(--selected);
+  color: var(--selected);
+}
+.rl-arena-setup__start:disabled,
+.rl-arena-setup__stop:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-arena-setup__status[hidden],
+.rl-arena-setup__watch[hidden],
+.rl-arena-setup__error[hidden] {
+  display: none;
+}
+.rl-arena-setup__table {
+  width: 100%;
+  margin-block: var(--s2);
+  border-collapse: collapse;
+  font-size: var(--t-s);
+}
+.rl-arena-setup__table th,
+.rl-arena-setup__table td {
+  padding: var(--s1) var(--s2);
+  border-bottom: 1px solid var(--panel-rule);
+  text-align: left;
+}
+
+/* GH-954 W3: the arena results list and the replay controls (dev-only routes). */
+.rl-arena-results__runtitle {
+  margin-block: var(--s4) var(--s1);
+  font: 600 var(--t-m) var(--font-body);
+  color: var(--ink-label);
+}
+.rl-arena-results__runcost,
+.rl-arena-results__terms {
+  margin-block: 0 var(--s2);
+  color: var(--ink-mute);
+}
+.rl-arena-results__replay {
+  color: var(--selected);
+}
+.rl-arena-results__norecord {
+  color: var(--ink-mute);
+}
+.rl-arena-results__criteria summary {
+  cursor: pointer;
+}
+.rl-arena-results__criteria ul {
+  margin: var(--s1) 0 0;
+  padding-left: var(--s4);
+}
+.rl-arena-replay {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s3);
+}
+.rl-arena-replay__pause[aria-pressed='true'] {
+  border-color: var(--selected);
+  color: var(--selected);
+}
+.rl-arena-replay__progress {
+  color: var(--ink-mute);
+}
+.rl-arena-replay__actual {
+  color: var(--bad-text);
+}
+.rl-arena-replay__actual[hidden],
+.rl-arena-replay__digest[hidden] {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Profile (ui/profile.ts)                                                */
+/* ---------------------------------------------------------------------- */
+
+.rl-menu--profile .rl-panel {
+  text-align: left;
+}
+.rl-profile__status {
+  margin: 0 0 var(--s2);
+  color: var(--ink);
+}
+.rl-profile__status:empty {
+  display: none;
+}
+.rl-profile__status.rl-bad {
+  color: var(--bad-text);
+}
+.rl-profile__guest,
+.rl-profile__signed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.rl-profile__privacy,
+.rl-profile__last {
+  margin: 0;
+  color: var(--ink-mute);
+}
+.rl-profile__name {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-end;
+}
+.rl-profile__name label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--s1);
+  color: var(--ink);
+}
+.rl-profile__name input[type='text'] {
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+.rl-profile__identities {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-profile__identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.rl-profile__identity-label,
+.rl-profile__public-id {
+  margin: 0;
+  color: var(--ink);
+}
+.rl-profile__verbs,
+.rl-profile__danger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-profile__telemetry {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--ink);
+}
+.rl-profile__delete {
+  border-color: var(--bad);
+  color: var(--bad-text);
 }

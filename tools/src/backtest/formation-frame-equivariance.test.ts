@@ -7,6 +7,7 @@
 // only thing imported from the code under test is the world it builds. Falsified by restoring `fx.toInt` inside the
 // template sum in sim.ts (the commit message quotes the counts).
 import { describe, expect, it } from 'vitest';
+import { formations } from '@lions/data';
 import { humanHeldOf, layoutOf, order, seedOf, world } from './versus-probe';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { versusSpawns } from '../../../packages/app/src/net/versus-force';
@@ -21,6 +22,18 @@ interface Twin { members: number; positionMismatches: number; pathMismatches: nu
 /** Order both ends once (the probe's own `order()`, the Attack formation on both), tick once, and compare every
  *  east path with its west twin rotated through the map's centre. Values are raw Q16.16, compared exactly. */
 function readTwins(mapId: (typeof MAPS)[number], seed: number): Twin {
+  // The shipped Attack has no checkpoints since the lead's 1 Nov ruling (GH-859), and the fix this test guards shows in the checkpoints
+  // (the route's start), so the Attack is read with them put back, for this one read, and restored (the data array is shared).
+  const attack = formations.find((f) => f.id === 'attack') as unknown as { march: { legs: boolean } };
+  const was = attack.march.legs;
+  attack.march.legs = true;
+  try {
+    return readTwinsOf(mapId, seed);
+  } finally {
+    attack.march.legs = was;
+  }
+}
+function readTwinsOf(mapId: (typeof MAPS)[number], seed: number): Twin {
   const arr = ['kdf', 'kdf'] as const;
   const { sim, typeOf, map } = world(mapId, seed, humanHeldOf('room', mapId, arr, seed));
   const { sideOfEnd, factions, ends } = layoutOf(arr);

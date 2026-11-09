@@ -19,7 +19,7 @@
  * WebKit are compared on the real data by CI's `net:engines` job
  * (`tools/src/net/two-engine.ts`, reading `__lions.contentDigest()`).
  */
-import { doctrines, formations, maps, structures, units, versusRules } from '@lions/data';
+import { doctrines, formations, maps, structures, units, versusModes, versusRules } from '@lions/data';
 import { fnv1a32 } from '@lions/net';
 
 /** What the digest covers. Plain JSON values, keyed as `@lions/data` keys them. */
@@ -31,6 +31,9 @@ export interface Content {
   readonly doctrines: Readonly<Record<string, unknown>>;
   /** N3: the versus rules files (camps, income zones), keyed by map id. */
   readonly versusRules: Readonly<Record<string, unknown>>;
+  /** GH-976 P2: the versus WIN-MODE files (camps, the points race's zones, rates and target), keyed by map id. Two clients
+   *  whose mode files differ would play two different races: the digest catches it on the first hash tick. */
+  readonly versusModes: Readonly<Record<string, unknown>>;
   /** GH-859 P1a: the combat formations, in the ORDER a world registers them (`buildMatchWorld`). A group
    *  row keeps its formation as an index into that table, so two peers that registered the same files
    *  in a different order would decode the same bytes against different formations: the order is content,
@@ -64,13 +67,14 @@ export function contentDigest(content: Content): number {
       maps: content.maps,
       structures: content.structures,
       units: content.units,
+      versusModes: content.versusModes,
       versusRules: content.versusRules,
     }));
 }
 
 /** The content this build ships. */
 export function shippedContent(): Content {
-  return { units, structures, maps, doctrines, versusRules, formations };
+  return { units, structures, maps, doctrines, versusRules, versusModes, formations };
 }
 
 let shipped: number | null = null;

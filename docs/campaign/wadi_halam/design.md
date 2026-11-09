@@ -52,7 +52,7 @@ already ship:
   building** — 4 houses (−6 each) + 4 shanties (−2) + 3 warehouses (−3) + 2
   concrete (−3) + 1 mosque (−30). Measured from the parsed map this session.
 - **The mission's own orders cost restraint.** `wadi_halam_5_depot`'s `raze_depot`
-  primary requires all **seven** depot structures down, and those seven are worth
+  primary requires all **eight** depot structures down, and those eight are worth
   exactly **−19**. Measured: a clean, sanctioned, optimal demolition ends on
   **ROE 81**. **Break the Depot cannot be played above 81.** The last mission of
   the war bills the player nineteen points for obeying it.

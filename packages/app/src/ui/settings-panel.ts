@@ -24,6 +24,7 @@
  */
 import type { AudioGains } from '@lions/render';
 import { t } from '../i18n/t';
+import { shortCommit } from '../build-commit';
 import { footBack, screenFoot } from './foot';
 import type { Locale } from '../i18n/locales';
 import type { Disposer } from '../shell/router';
@@ -56,6 +57,10 @@ export interface SettingsDeps {
   keymap: KeymapDeps | null;
   /** `__APP_BUILD__`, printed at the foot of the table. */
   build: string;
+  /** `__APP_COMMIT__` (the full hex commit, or '' when the build had none).
+   *  The foot prints its short form beside the build, so a tester can match a
+   *  checkout to the build a room runs (`shortCommit`, `build-commit.ts`). */
+  commit: string;
   /** Fires after every `set()`, with the settings it was called with. */
   onChange(fn: (s: Settings) => void): Disposer;
   /** "Replay intro". Absent (undefined) draws no row: the pause menu's mount
@@ -440,7 +445,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
 
   const foot = document.createElement('p');
   foot.className = 'rl-settings__hint';
-  foot.textContent = t('common.build', { build: deps.build });
+  foot.textContent = t('settings.buildCommit', { build: deps.build, commit: shortCommit(deps.commit) });
   p.body.appendChild(foot);
 
   host.appendChild(p.el);

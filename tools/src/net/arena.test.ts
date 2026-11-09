@@ -3,7 +3,14 @@
 // arena starts it closes itself; the test's own `--out` is a temp directory,
 // removed after each test.
 //
-// The recorded run (seed 56433 = seedOf(7), `--first-seed 7`, tel_marum,
+// Re-seeded 2026-11-05 for GH-884 (the Lavi's APS holds a finite stock, mbt_lavi reserve 9 / rearm 30 s): on seed 8919 passive beat rush on seat 0; of
+// seedOf(0..11) at pace 40 cap 6000 on tel_marum, rush wins from both seats on seedOf(9) = 72271 alone (`--first-seed 9`).
+// Re-seeded 2026-11-03 (again) for GH-990 (tel_marum's friendly seat (27,45) -> (26,45), its camp (21,46) -> (20,46)): on seed 1000 rush no longer
+// won from both seats; of seedOf(0..11) at pace 40 cap 6000 seedOf(1) = 8919 is, and at pace 60 cap 12000 too (the seed players.test.ts uses); `--first-seed 1`.
+// Re-seeded 2026-11-03 for GH-982 (the Spike reloads in 12 s and engages aircraft): was seed 56433 (seedOf(7), `--first-seed 7`),
+// after which rush no longer won from both seats on it. Of seedOf(0..3) at pace 40 cap 6000, seedOf(0) = 1000 is won by rush from
+// both seats, and at pace 60 cap 12000 too (the seed players.test.ts uses); `--first-seed 0`.
+// The recorded run before that (seed 56433 = seedOf(7), `--first-seed 7`, tel_marum,
 // pace 40, cap 6,000, tick 1 ms) is a regression pin, not evidence of a rate:
 // rush's rate against passive is not 1.0. This seed is one rush wins from both
 // seats. Re-seeded 2026-10-28 from 48514 (seedOf(6)) for GH-560 (HP alone ends a vehicle): under the new
@@ -24,12 +31,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { bySeat, judge, parseArgs, refusalOf, resolvePlayer, runArena, untrusted, type SeatSnapshot } from './arena';
-import type { AgentClient } from './agent-client';
+import { AgentClient } from './agent-client';
 import type { ArenaPlayer } from './players';
 import type { GameRecord } from './arena-score';
 import { startLocalRelay } from './local-relay';
-import type { TransportStatus } from '@lions/net';
-import { MATCH_CAP_TICKS, type MatchResult, type OutcomeSim } from '../../../packages/app/src/net/outcome';
+import { FLAG_SETUP_MAPS, type TransportStatus } from '@lions/net';
+import { capOutcome } from './cap';
+import { MATCH_CAP_TICKS, type MatchResult, type OutcomeGoals, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -49,7 +57,7 @@ describe('pnpm arena', () => {
   it('plays a seed twice with the seats swapped, writes two records and scores rush 1.0 on this seed', async () => {
     const out = outDir();
     const printed: string[] = [];
-    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], { ...quiet, print: (l) => { printed.push(l); } });
+    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '9', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], { ...quiet, print: (l) => { printed.push(l); } });
     expect(r.code).toBe(0);
     // A over B, one-sided: printed with or without --gate, and without --gate never a verdict.
     expect(printed).toContain('  rush over passive: n=2  score=1.000  p=0.2500 (one-sided exact binomial, draws half)');
@@ -65,7 +73,7 @@ describe('pnpm arena', () => {
     // Game 1 has A on seat 0; game 2 has B there. Same seed, same map.
     expect(records[0].players).toEqual(['rush', 'passive']);
     expect(records[1].players).toEqual(['passive', 'rush']);
-    expect(records.map((g) => g.seed)).toEqual([56433, 56433]);
+    expect(records.map((g) => g.seed)).toEqual([72271, 72271]);
     expect(records.map((g) => g.factions)).toEqual([['kdf', 'kdf'], ['kdf', 'kdf']]);
     for (const g of records) {
       expect(g.outcome).not.toBe('void');
@@ -119,7 +127,7 @@ describe('pnpm arena', () => {
     expect(r.code).toBe(1);
     expect(lines.some((l) => l.includes('a game could not be played') && l.includes('seed 1, not 1000'))).toBe(true);
     expect(r.games).toEqual([]);
-    const jsonl = readdirSync(out).find((f) => f.endsWith('.jsonl'));
+    const jsonl = readdirSync(out).find((f) => f.endsWith('.jsonl') && !f.endsWith('.frames.jsonl'));
     expect(readFileSync(join(out, jsonl ?? ''), 'utf8')).toBe('');
   }, 30_000);
 
@@ -169,6 +177,22 @@ describe('pnpm arena', () => {
     expect(parseArgs(['--a', 'rush', '--b', 'nobody'])).toHaveProperty('error');
   });
 
+  it('GH-976 v2 R0.8: a mode game\'s default cap is the ROOM\'s: 30 minutes for a flag room on a map in FLAG_SETUP_MAPS, else the map\'s', () => {
+    const list = FLAG_SETUP_MAPS as string[];
+    const before = [...list]; // restored below, never cleared
+    const argv = ['--a', 'rush', '--b', 'passive', '--map', 'rujm_sawda', '--mode', 'flag'];
+    expect(parseArgs(argv)).toMatchObject({ capTicks: 42_000 });
+    list.push('rujm_sawda');
+    try {
+      expect(parseArgs(argv)).toMatchObject({ capTicks: 36_000 });
+      // The ceiling follows the room too: 40,000 is past 30 minutes.
+      expect(parseArgs([...argv, '--cap-ticks', '40000'])).toHaveProperty('error');
+      expect(parseArgs([...argv, '--cap-ticks', '36000'])).toMatchObject({ capTicks: 36_000 });
+      // Another mode on the same map is not a set-up room.
+      expect(parseArgs(['--a', 'rush', '--b', 'passive', '--map', 'rujm_sawda', '--mode', 'points'])).toMatchObject({ capTicks: 42_000 });
+    } finally { list.splice(0, list.length, ...before); }
+  });
+
   it('reads --gate as a flag that takes no value, off by default', () => {
     expect(parseArgs(['--a', 'rush', '--b', 'passive'])).toMatchObject({ gate: false });
     expect(parseArgs(['--a', 'rush', '--gate', '--b', 'passive', '--seeds', '20'])).toMatchObject({ a: 'rush', b: 'passive', seeds: 20, gate: true, firstSeed: 0 });
@@ -191,7 +215,7 @@ describe('pnpm arena', () => {
   it('--gate judges rush over passive and exits 3 on FAIL: one seed is two games, p 0.25 at best', async () => {
     const out = outDir();
     const printed: string[] = [];
-    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--gate', '--out', out], { log: () => {}, print: (l) => { printed.push(l); } });
+    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '9', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--gate', '--out', out], { log: () => {}, print: (l) => { printed.push(l); } });
     expect(r.code).toBe(3);
     expect(r.gate).toMatchObject({ n: 2, score: 1, p: 0.25, pass: false });
     expect(printed).toContain('gate: FAIL  rush over passive  n=2  score=1.000  p=0.2500');
@@ -275,6 +299,15 @@ describe('judge', () => {
     expect(judge([client(won(1)), client(won(1))], SIDES, 6000)).toEqual({ outcome: 'seat1', by: 'annihilation' });
     expect(judge([client({ kind: 'draw', by: 'mutual' }), client({ kind: 'draw', by: 'mutual' })], SIDES, 6000)).toEqual({ outcome: 'draw', by: 'mutual' });
   });
+  it('GH-976 P2: at the cap, a goal one side completed decides it (by objective), not the surviving value', () => {
+    const goals: OutcomeGoals = { mode: 'points', sideWon: (side) => side === 1, scoreUnitsOf: () => 0, scoreOf: () => 0, completeTickOf: (side) => (side === 1 ? 4000 : -1) };
+    const atCap = (g?: OutcomeGoals): SeatSnapshot => ({ ...client(null, { tick: 6000 }), ...(g !== undefined ? { goals: g } : {}) });
+    // side 0 is ahead on forces (a Lavi against a squad) and the control is the old cap verdict
+    expect(judge([atCap(), atCap()], SIDES, 6000)).toEqual({ outcome: 'seat0', by: 'cap' });
+    // the goal side 1 completed wins the cap, and the record names the objective, not 'cap'
+    expect(judge([atCap(goals), atCap(goals)], SIDES, 6000)).toEqual({ outcome: 'seat1', by: 'objective' });
+    expect(capOutcome(capSim, undefined, undefined, goals)).toEqual({ kind: 'won', side: 1, by: 'objective', mode: 'points' });
+  });
   it('voids a game whose two sims report different results', () => {
     // `disagree`, not `desync`: the arena caught it, not the room.
     expect(judge([client(won(0)), client(won(1))], SIDES, 6000)).toEqual({ outcome: 'void', by: 'disagree' });
@@ -316,4 +349,145 @@ describe('bySeat (LD1)', () => {
     expect(bySeat([a, b], [0, 1])).toEqual([a, b]);
     expect(bySeat([a, b], [1, 0])).toEqual([b, a]);
   });
+});
+
+// GH-954 W1: watching a run must be invisible to it. A watcher is a third socket that the room ignores after its
+// hello, so the same seed must give the same record with none and with two; and the room's clock (`--tick-ms`) is
+// a recorded parameter that must not change a result.
+describe('GH-954 W1: --watch', () => {
+  /** A stand-in for the arena server: no Vite, no socket; remembers what it was told. */
+  function stubServe(): { start: (o: { port?: number }) => Promise<import('./arena-serve').ArenaServe>; told: string[]; origins: string[] } {
+    const told: string[] = [];
+    const origins = ['http://127.0.0.1:5001', 'http://localhost:5001'];
+    return {
+      told, origins,
+      start: async () => ({
+        origin: origins[0], origins, port: 5001, address: '127.0.0.1', token: 't', url: (p: string) => `${origins[0]}${p}#k=t`,
+        beginRun: () => {}, gameStarted: (i) => { told.push(`start ${i.n}/${i.of}`); }, gameEnded: (r) => { told.push(`end ${r.outcome}`); }, runFinished: () => { told.push('finished'); }, close: async () => { told.push('closed'); },
+      }),
+    };
+  }
+  const BASE = ['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'tel_marum', '--pace', '40', '--cap-ticks', '400'];
+
+  it('reads --watch and --serve: watch implies serve and defaults --tick-ms to 50, an explicit one wins, --serve alone is only the server', () => {
+    const plain = parseArgs(['--a', 'rush', '--b', 'passive']);
+    expect(plain).toMatchObject({ watch: false, serve: false, servePort: 0, tickMs: 2 });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--watch'])).toMatchObject({ watch: true, serve: true, tickMs: 50 });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--watch', '--tick-ms', '2'])).toMatchObject({ watch: true, serve: true, tickMs: 2 });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--serve'])).toMatchObject({ watch: false, serve: true, tickMs: 2 });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--serve-port', '5184'])).toMatchObject({ servePort: 5184 });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--serve-port', '70000'])).toHaveProperty('error');
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--watch=1'])).toHaveProperty('error');
+  });
+
+  it('starts the server before the first relay, allows its origins on every relay, turns watch and the 5 s linger on, and tells it each game', async () => {
+    const out = outDir();
+    const serve = stubServe();
+    const seen: Parameters<NonNullable<Parameters<typeof runArena>[1]>['startRelay'] & ((o: never) => unknown)>[0][] = [];
+    const printed: string[] = [];
+    const starts: number[] = [];
+    const ends: string[] = [];
+    const r = await runArena([...BASE, '--tick-ms', '1', '--watch', '--out', out], {
+      log: () => {}, print: (l) => { printed.push(l); },
+      startServe: serve.start,
+      startRelay: (o) => { seen.push(o as never); return startLocalRelay({ ...o, lingerMs: 50 }); },
+      onGameStart: (i) => { starts.push(i.n); expect(i.of).toBe(2); expect(i.seatTicket.length).toBeGreaterThan(10); },
+      onGameEnd: (e) => { ends.push(`${e.n}:${e.record.outcome}:${e.referee.tick}`); },
+    });
+    expect(r.code).toBe(0);
+    expect(printed).toContain('arena: watch: http://127.0.0.1:5001/arena/watch#k=t');
+    expect(seen).toHaveLength(2);
+    for (const o of seen) expect(o).toMatchObject({ watch: true, lingerMs: 5000, allowOrigins: serve.origins });
+    expect(starts).toEqual([1, 2]);
+    expect(ends).toHaveLength(2);
+    expect(serve.told.filter((t) => t.startsWith('start'))).toEqual(['start 1/2', 'start 2/2']);
+    expect(serve.told.at(-2)).toBe('finished');
+    expect(serve.told.at(-1)).toBe('closed');
+  }, 60_000);
+
+  it('without --watch no relay is asked for watch, linger or origins, and no server starts', async () => {
+    const out = outDir();
+    const seen: unknown[] = [];
+    let served = 0;
+    const r = await runArena([...BASE, '--tick-ms', '1', '--out', out], {
+      ...quiet, startServe: async () => { served++; throw new Error('no'); },
+      startRelay: (o) => { seen.push(o); return startLocalRelay(o); },
+    });
+    expect(r.code).toBe(0);
+    expect(served).toBe(0);
+    for (const o of seen) { expect(o).not.toHaveProperty('watch'); expect(o).not.toHaveProperty('lingerMs'); expect(o).not.toHaveProperty('allowOrigins'); }
+  }, 60_000);
+
+  it('a hook that throws costs the watch, never the game; a server that will not start is exit 1 before any room', async () => {
+    const out = outDir();
+    const lines: string[] = [];
+    const r = await runArena([...BASE, '--tick-ms', '1', '--watch', '--out', out], {
+      log: (l) => { lines.push(l); }, print: () => {}, startServe: stubServe().start,
+      startRelay: (o) => startLocalRelay({ ...o, lingerMs: 0 }),
+      onGameStart: () => { throw new Error('boom'); },
+      onGameEnd: () => { throw new Error('bang'); },
+    });
+    expect(r.code).toBe(0);
+    expect(r.games).toHaveLength(2);
+    expect(lines.some((l) => l.includes('onGameStart hook failed: boom'))).toBe(true);
+    expect(lines.some((l) => l.includes('onGameEnd hook failed: bang'))).toBe(true);
+    let relays = 0;
+    const bad = await runArena([...BASE, '--watch', '--out', outDir()], { ...quiet, startServe: async () => { throw new Error('port in use'); }, startRelay: (o) => { relays++; return startLocalRelay(o); } });
+    expect(bad.code).toBe(1);
+    expect(relays).toBe(0);
+  }, 60_000);
+
+  it('the same seed gives an equal record with 0 and with 2 watchers, and each watcher\'s digest equals the referee\'s at the end', async () => {
+    const plain = await runArena([...BASE, '--tick-ms', '1', '--out', outDir()], quiet);
+    expect(plain.code).toBe(0);
+
+    const watchers: { client: AgentClient; n: number }[] = [];
+    const timers: ReturnType<typeof setInterval>[] = [];
+    const refs = new Map<number, { tick: number; hash: number }>();
+    const watched = await runArena([...BASE, '--tick-ms', '1', '--watch', '--out', outDir()], {
+      log: () => {}, print: () => {}, startServe: stubServe().start,
+      startRelay: (o) => startLocalRelay({ ...o, lingerMs: 1500 }),
+      onGameStart: (info) => {
+        void (async () => {
+          const res = await fetch(`${info.relay.url}/api/match/${info.code}/watch`, { method: 'POST', headers: { origin: info.relay.origin, 'content-type': 'application/json' }, body: JSON.stringify({ ticket: info.seatTicket }) });
+          const { ticket } = (await res.json()) as { ticket: string };
+          for (let i = 0; i < 2; i++) {
+            const client = new AgentClient({ server: info.relay.url, code: info.code, ticket, build: info.build, role: 'watch', seat: 0, log: () => {} });
+            watchers.push({ client, n: info.n });
+            timers.push(setInterval(() => { if (client.tick() < info.capTicks) client.pump(Math.min(50, info.capTicks - client.tick())); }, 1));
+          }
+        })();
+      },
+      onGameEnd: (e) => { refs.set(e.n, e.referee); },
+    });
+    expect(watched.code).toBe(0);
+    // Let the watchers drain what the linger let them receive, then stop them.
+    await new Promise((r) => setTimeout(r, 1500));
+    for (const t of timers) clearInterval(t);
+    for (const w of watchers) w.client.close();
+
+    expect(watchers).toHaveLength(4);
+    expect(watched.games).toEqual(plain.games);
+    for (const w of watchers) {
+      const ref = refs.get(w.n);
+      expect(ref).toBeDefined();
+      // A real game: past the first rounds, so an empty comparison cannot pass.
+      expect(ref?.tick).toBeGreaterThan(100);
+      const sim = w.client.world()?.sim;
+      expect(sim).toBeDefined();
+      // The watcher ran the SAME frames to the same tick, so its sim is the referee's, bit for bit.
+      expect(w.client.tick()).toBe(ref?.tick);
+      expect(sim?.hash()).toBe(ref?.hash);
+    }
+  }, 120_000);
+
+  it('the room\'s clock does not change a result: one seed at --tick-ms 2 and 50 gives equal records', async () => {
+    const SHORT = ['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'tel_marum', '--pace', '20', '--cap-ticks', '100'];
+    const fast = await runArena([...SHORT, '--tick-ms', '2', '--out', outDir()], quiet);
+    const slow = await runArena([...SHORT, '--tick-ms', '50', '--out', outDir()], quiet);
+    expect(fast.code).toBe(0);
+    expect(slow.code).toBe(0);
+    expect(slow.games).toHaveLength(2);
+    expect(slow.games).toEqual(fast.games);
+  }, 120_000);
 });

@@ -12,8 +12,11 @@
 //   data/tutorial/** against data/schemas/tutorial.schema.json
 //   data/doctrines/** against data/schemas/doctrine.schema.json, plus the
 //                    menu and budget rules in tools/validate_doctrine.mjs
-//   data/versus/**   against data/schemas/versus_rules.schema.json, plus the camp,
+//   data/versus/modes/** against data/schemas/versus_mode.schema.json (GH-976), plus the camp, zone and
+//                    anchor rules in tools/validate_versus_modes.mjs
+//   data/versus/*    against data/schemas/versus_rules.schema.json, plus the camp,
 //                    zone and one-per-matchup-map rules in tools/validate_versus_rules.mjs
+//   data/grades/**   against data/schemas/grade.schema.json, plus the palette-key rules (GH-943 L2)
 //   data/formations/** against data/schemas/formation.schema.json, plus the
 //                    cross-file rules in tools/validate_formations.mjs (GH-859)
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
@@ -24,7 +27,7 @@
 //   one contributor quietly breaks the contrast rule for the whole game.
 
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
-import { join, dirname, relative } from 'node:path';
+import { join, dirname, relative, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { elevationFailures } from './validate_map_grid.mjs';
@@ -38,12 +41,16 @@ import { incomeFailures } from './validate_income.mjs';
 import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
+import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
+import { arenaResultsFailures } from './validate_arena_results.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
   buildableOwnerFailures,
   fieldWorksCarrierReport,
   fieldWorksKeyFailures,
+  productionPlacementFailures,
+  productionTypeFailures,
   tunnelSensorFailures,
   worksSymbolFailures,
 } from './validate_works.mjs';
@@ -135,19 +142,22 @@ function rel(p) {
   return relative(ROOT, p);
 }
 
-function jsonFilesIn(dir) {
+// `skipDirs` names sub-directories of `dir` to leave out: data/versus/modes/ holds the win-mode files (GH-976),
+// a second kind of document under the rules files' directory, with its own schema and its own sweep below.
+function jsonFilesIn(dir, skipDirs = []) {
   if (!existsSync(dir)) return [];
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
     if (entry.isFile() && entry.name.endsWith('.json')) {
+      if (skipDirs.includes(relative(dir, entry.parentPath).split(sep)[0])) continue;
       out.push(join(entry.parentPath, entry.name));
     }
   }
   return out.sort();
 }
 
-function validateDir(dir, validate, schemaName) {
-  const files = jsonFilesIn(dir);
+function validateDir(dir, validate, schemaName, skipDirs = []) {
+  const files = jsonFilesIn(dir, skipDirs);
   for (const file of files) {
     const doc = loadJson(file);
     if (doc === null) continue;
@@ -195,15 +205,19 @@ const schemas = {
   structure: loadJson(join(ROOT, 'data/schemas/structure.schema.json')),
   doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
   versus: loadJson(join(ROOT, 'data/schemas/versus_rules.schema.json')),
+  versusMode: loadJson(join(ROOT, 'data/schemas/versus_mode.schema.json')),
   formation: loadJson(join(ROOT, 'data/schemas/formation.schema.json')),
+  grade: loadJson(join(ROOT, 'data/schemas/grade.schema.json')),
   coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
+  arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
+  arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
 };
 
 let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.formation && schemas.coupons
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.arenaResults && schemas.arenaPlayers
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -220,8 +234,12 @@ if (
     structure: ajv.compile(schemas.structure),
     doctrine: ajv.compile(schemas.doctrine),
     versus: ajv.compile(schemas.versus),
+    versusMode: ajv.compile(schemas.versusMode),
     formation: ajv.compile(schemas.formation),
+    grade: ajv.compile(schemas.grade),
     coupons: ajv.compile(schemas.coupons),
+    arenaResults: ajv.compile(schemas.arenaResults),
+    arenaPlayers: ajv.compile(schemas.arenaPlayers),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -229,8 +247,10 @@ if (
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
   checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema');
-  checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema');
+  checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema', ['modes']);
+  checked += validateDir(join(ROOT, 'data/versus/modes'), validators.versusMode, 'versus_mode.schema');
   checked += validateDir(join(ROOT, 'data/formations'), validators.formation, 'formation.schema');
+  checked += validateDir(join(ROOT, 'data/grades'), validators.grade, 'grade.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
   // is generated geometry, commander.json is hand-authored. Each gets its own schema.
@@ -242,6 +262,15 @@ if (
   checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
   checked += validateFile(join(ROOT, 'data/structures.json'), validators.structure, 'structure.schema');
   checked += validateFile(join(ROOT, 'data/coupons.json'), validators.coupons, 'coupons.schema');
+  // GH-954 public-arena P2: the publisher's allow-list is always there; results.json exists only once the lead has
+  // published (P4), and when it does it must pass its closed schema, its deny scan and its digest (G2, G3, G14).
+  checked += validateFile(join(ROOT, 'data/arena/public-players.json'), validators.arenaPlayers, 'arena-public-players.schema');
+  const arenaResultsFile = join(ROOT, 'data/arena/results.json');
+  if (existsSync(arenaResultsFile)) {
+    checked += validateFile(arenaResultsFile, validators.arenaResults, 'arena-results.schema');
+    const arenaDoc = loadJson(arenaResultsFile);
+    if (arenaDoc !== null) failures.push(...arenaResultsFailures(arenaDoc));
+  }
   // The schema cannot see these: a duplicate id makes a coupon unreachable or
   // double-spendable. A hash MAY repeat (one code, several grants: each entry is redeemed
   // once on its own id), but two entries under one hash may not grant the same kind, or the
@@ -1034,6 +1063,8 @@ const garrisonableSymbols = new Set(
       warnings.push(...report.warnings);
     }
     failures.push(...tunnelSensorFailures(mi, structureCatalogue, rel(file)));
+    // GH-277 follow-on: a production work is raised by the player, never placed.
+    failures.push(...productionPlacementFailures(mi, structureCatalogue, rel(file)));
   }
 }
 
@@ -1366,8 +1397,11 @@ const garrisonableSymbols = new Set(
     const m = loadJson(file);
     if (m?.id) mapsById.set(m.id, m);
   }
-  const rulesFiles = jsonFilesIn(join(ROOT, 'data/versus')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  const rulesFiles = jsonFilesIn(join(ROOT, 'data/versus'), ['modes']).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...versusRulesFailures(rulesFiles, mapsById));
+  // GH-976: the win-mode files (data/versus/modes/), their own cross-file rules.
+  const modeFiles = jsonFilesIn(join(ROOT, 'data/versus/modes')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...versusModeFailures(modeFiles, mapsById));
 }
 
 // --- formations (GH-859): the rules formation.schema.json cannot see ---------
@@ -1417,6 +1451,15 @@ for (const [sym, id] of structureSymbols) {
 // Field works (#277 Task 8): rule 1 (buildable needs owner 0) and rule 5 (a work's symbol is
 // neither terrain nor drawn into any shipped map).
 failures.push(...buildableOwnerFailures(structureCatalogue, 'data/structures.json'));
+// GH-277 follow-on: the production works (a `production` block). `kdfRoles`: the roles of the units the start lines can build.
+{
+  const kdfRoles = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.role && rel(file).startsWith('data/units/kdf/')) kdfRoles.add(u.role);
+  }
+  failures.push(...productionTypeFailures(structureCatalogue, kdfRoles, 'data/structures.json'));
+}
 failures.push(
   ...worksSymbolFailures(
     structureCatalogue,
@@ -1545,6 +1588,40 @@ if (palette) {
         failures.push(`${rel(file)}: ${path} references unknown palette key "${ref}"`);
       }
     }
+  }
+}
+
+// --- grade palette keys (look uplift L2, GH-943) ------------------------------
+// Every `tint` in data/grades/*.json is a palette key, and a ramp key must name a step that exists:
+// the renderer resolves it at boot (`paletteHex` throws on an unknown key). The reserved vfx and team
+// bands are runtime-only, so a grade may not lean on one either. The filename is the id.
+if (palette) {
+  const gradeIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/grades'))) {
+    const doc = loadJson(file);
+    if (!doc) continue;
+    const walk = (node, at) => {
+      if (Array.isArray(node)) return node.forEach((v, i) => walk(v, `${at}[${i}]`));
+      if (node && typeof node === 'object') {
+        for (const [k, v] of Object.entries(node)) {
+          if (k === 'tint' && typeof v === 'string') {
+            if (!paletteKeys.has(v)) failures.push(`${rel(file)}: ${at}.${k} names unknown palette key "${v}"`);
+            else if (/^(vfx|team|group)\./.test(v)) failures.push(`${rel(file)}: ${at}.${k} "${v}" is a runtime-only reserved band; a grade is built from the ramps`);
+          } else walk(v, `${at}.${k}`);
+        }
+      }
+    };
+    walk(doc, '');
+    if (`${doc.id}.json` !== basename(file)) failures.push(`${rel(file)}: id "${doc.id}" must match the filename`);
+    if (doc.id === 'day') failures.push(`${rel(file)}: day is the identity grade and ships no file`);
+    if (gradeIds.has(doc.id)) failures.push(`${rel(file)}: duplicate grade id "${doc.id}"`);
+    gradeIds.add(doc.id);
+  }
+  // A mission's `map.grade` must name a shipped grade.
+  for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
+    const doc = loadJson(file);
+    const g = doc?.map?.grade;
+    if (g !== undefined && !gradeIds.has(g)) failures.push(`${rel(file)}: map.grade "${g}" is not a file in data/grades/`);
   }
 }
 

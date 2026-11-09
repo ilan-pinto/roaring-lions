@@ -999,8 +999,8 @@ export const FM_MORTAR: UnitTypeJson = { ...RIFLES, id: 'fm_mortar', role: 'arti
 /** GH-859 P1b Task 3: the Column's slow member. 0.7 tiles a second against the rifles' 0.9 and the tank's 1.1, so the
  *  Column's pace is this unit's step. It stands behind the others, so a dress waits for it. */
 export const FM_SLOW_MORTAR: UnitTypeJson = { ...RIFLES, id: 'fm_mortar_slow', role: 'artillery', mobility: { speed_tiles_s: 0.7 } };
-/** GH-859 P1b Task 5: the Attack's calls. A strike helicopter (an armed air type with no seats) and a spot drone (unarmed)
- *  answer the group's contact call; both stand 13 tiles behind the lead rank. */
+/** GH-859 P1b Task 5: the aircraft calls. A strike helicopter (an armed air type with no seats) and a spot drone (unarmed)
+ *  answer the group's contact call; both stand behind the lead rank. (Since the Attack leaves its aircraft out, they ride the Ambush.) */
 export const FM_HELI: UnitTypeJson = {
   id: 'fm_heli',
   hull: { hp: 400, armor: { front: 5, side: 5, rear: 5 } },
@@ -1049,12 +1049,35 @@ export interface FormationWorldIds {
   atk: number[];
   amb: number[];
   foe: number[];
+  /** Two unarmed squads and a drone ordered with the shipped Attack: the drone is left out of the formation. */
+  lean: number[];
 }
 /** The shipped formation files, read off the data directory (this helper is test support: node is fine). */
 export function shippedFormations(): FormationJson[] {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'formations');
   return ['column', 'attack', 'ambush'].map((id) => JSON.parse(readFileSync(join(root, `${id}.json`), 'utf8')) as FormationJson);
 }
+/** The Attack as it was before it left its aircraft out (GH-859): the shipped file with the field removed and the aircraft element
+ *  put back, copied from the file as it stood (a standoff of 13, on call for contact). A test-local formation under the id
+ *  `attack_air`, so the witnesses built on the Attack's aircraft sortie keep the behaviour they were written for. The call machinery is
+ *  unchanged, and the Column and the Ambush still ship it. */
+export function attackHoldingAir(): FormationJson {
+  const attack = shippedFormations().find((f) => f.id === 'attack') as FormationJson;
+  const { exclude: _left, ...rest } = attack;
+  void _left;
+  return {
+    ...rest,
+    id: 'attack_air',
+    // The Attack as it was also marched in 8-tile legs with a 3 s dress (the shipped file has `legs: false` since the lead's 1 Nov ruling).
+    march: { legs: true, leg_tiles: 8, pace: 'none', dress_s: 3 },
+    elements: [
+      ...attack.elements,
+      { classes: ['aircraft'], shape: { kind: 'rank', spacing: 2, max_lateral: 2, rank_depth: 2 }, gap: 1, standoff: 13, on_call: 'contact' },
+    ],
+  };
+}
+/** An unarmed rifle squad: infantry by class, and it starts no fight. */
+export const FM_UNARMED: UnitTypeJson = { ...RIFLES, id: 'fm_unarmed', weapons: [] };
 export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds } {
   const sim = new Sim({ seed, width: 48, height: 48, capacity: 96 });
   const mbt = sim.addUnitType(FM_MBT);
@@ -1072,6 +1095,7 @@ export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds
   const medic = sim.addUnitType(FM_MEDIC);
   const ambulance = sim.addUnitType(FM_AMBULANCE);
   for (const f of shippedFormations()) sim.addFormationType(f);
+  sim.addFormationType(attackHoldingAir());
   // Good cover one step outside the ring tile of the fifth ring member (see the pin test's literal).
   sim.setCover(36, 22, 3);
   const put = (type: number, side: number, x: number, y: number): number => sim.spawn(type, side, fx.from(x + 0.5), fx.from(y + 0.5));
@@ -1086,15 +1110,21 @@ export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds
   // medic and an ambulance join the Column, three tiles behind it with the slow mortar.
   atk.push(put(heli, 0, 24, 44), put(drone, 0, 24, 44));
   col.push(put(medic, 0, 8, 47), put(ambulance, 0, 8, 47));
-  return { sim, ids: { col, atk, amb, foe } };
+  // GH-859 (the shipped Attack leaves aircraft out): the group above is ordered with `attack_air`, the Attack as it was before the
+  // field (see `attackHoldingAir`), so the contact call, the sortie and every witness built on them are as they were. This second
+  // little group is ordered with the SHIPPED Attack: two unarmed squads and a drone, which the Attack leaves out and flies the plain order.
+  const unarmed = sim.addUnitType(FM_UNARMED);
+  const lean = [put(unarmed, 0, 30, 44), put(unarmed, 0, 30, 44), put(drone, 0, 30, 44)];
+  return { sim, ids: { col, atk, amb, foe, lean } };
 }
 export function formationDrive(sim: Sim, t: number, ids: FormationWorldIds): void {
   const at = (n: number): number => fx.from(n + 0.5);
   if (t === 0) sim.queueCommand({ kind: 'move', ids: ids.col, x: at(8), y: at(30), formation: 'column' });
   // `sweep` is what a player's right-click sends: it makes the queued checkpoints carry the flag (wpSweep).
-  if (t === 40) sim.queueCommand({ kind: 'attackMove', ids: ids.atk, x: at(24), y: at(26), sweep: true, formation: 'attack' });
+  if (t === 40) sim.queueCommand({ kind: 'attackMove', ids: ids.atk, x: at(24), y: at(26), sweep: true, formation: 'attack_air' });
   if (t === 60) sim.queueCommand({ kind: 'move', ids: [ids.col[4]], x: at(12), y: at(34) });
   if (t === 80) sim.queueCommand({ kind: 'move', ids: ids.amb, x: at(40), y: at(24), formation: 'ambush' });
+  if (t === 90) sim.queueCommand({ kind: 'attackMove', ids: ids.lean, x: at(30), y: at(30), formation: 'attack' });
   if (t === 150) sim.queueCommand({ kind: 'move', ids: ids.foe, x: at(40), y: at(16), formation: 'column' });
   // GH-859 P1b Task 5: a stray round (a splash with no shooter, so it is no contact) drops one man of the Column's second
   // riflemen squad while the group marches: the casualty call. The Column's medic (ids.col[6]) is the nearest free one.
@@ -1104,3 +1134,116 @@ export function formationDrive(sim: Sim, t: number, ids: FormationWorldIds): voi
   }
 }
 export const FM_CASUALTY_TICK = 180;
+
+// ---------------------------------------------------------------------------------------------
+// The set-up world (GH-976, WP2): SETUP_WORLD_PIN's replay. A 32x32 open map, seats at (6,6) and (25,25), a band of 4, a
+// set-up of 200 ticks. Side 0 orders its squad across the line at tick 1 (the clamp holds it), side 1 presses Ready at 20
+// and side 0 at 40 (the early bell at 140), and after the bell both sides attack-move on each other's centroid. 600 ticks.
+// WP3 adds the kit: at tick 0 side 0 places six hesco and a sandbag post (and one hesco across the line, refused
+// `outside_region`), side 1 two t-walls and two hesco; at tick 2 side 0 takes one hesco down, and at tick 3 one rifleman is
+// ordered into the post. Structure ids follow the order of acceptance (the map has none): hesco 0-5, the post 6, side 1's 7-10.
+
+export const SETUP_SEED = 976;
+export const SETUP_SIZE = 32;
+export const SETUP_UNTIL_TICKS = 200;
+export const SETUP_BAND_TILES = 4;
+export const SETUP_ANCHORS = [[6, 6], [25, 25]] as const;
+export const SETUP_TICKS = 600;
+
+/**
+ * The region of a map, by the perpendicular bisector of two seats: 0 on the first seat's side, 1 on the other's, -1 for a
+ * tile whose centre lies less than `band / 2` from the bisector. Plain integer maths, in half-tile units so every term is an
+ * integer (a tile centre is 2x + 1): with s = (c - m) . (b - a) in those units, s = 4 d L for a centre at distance d from the
+ * bisector and seats L apart, so d < band / 2 is s * s < 4 band^2 L^2 (L^2 in tiles^2). Inline on purpose: the sim package must
+ * not import `@lions/data`, so this is not the shipped region helper.
+ */
+export function setupRegionOf(size: number, a: readonly [number, number], b: readonly [number, number], band: number): Int8Array {
+  const out = new Int8Array(size * size);
+  const a2x = 2 * a[0] + 1;
+  const a2y = 2 * a[1] + 1;
+  const b2x = 2 * b[0] + 1;
+  const b2y = 2 * b[1] + 1;
+  const m2x = (a2x + b2x) / 2;
+  const m2y = (a2y + b2y) / 2;
+  const l2 = ((b2x - a2x) * (b2x - a2x) + (b2y - a2y) * (b2y - a2y)) / 4;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const s = (2 * x + 1 - m2x) * (b2x - a2x) + (2 * y + 1 - m2y) * (b2y - a2y);
+      out[y * size + x] = s * s < 4 * band * band * l2 ? -1 : s < 0 ? 0 : 1;
+    }
+  }
+  return out;
+}
+
+/** The kit's pieces, as the data package's JSON states them (the sim package imports nothing, so inline), in SETUP_KIT_PIECES order. */
+const SETUP_KIT_TYPES = [
+  { id: 'hesco', name: 'HESCO Bastion', hp_per_tile: 600, garrison_slots: 0, rubble_cover: 2, low_profile: true, standing_cover: 3 },
+  { id: 'sandbag_post', name: 'Sandbag Post', hp_per_tile: 120, garrison_slots: 1, garrison_cover: 1, floors: 1, rubble_cover: 1, low_profile: true, standing_cover: 2 },
+  { id: 't_wall', name: 'T-Wall', hp_per_tile: 900, garrison_slots: 0, rubble_cover: 2 },
+] as const;
+/** Side 0's six hesco (kit 0), its post (kit 1) and the tile it takes back down; side 1's t-walls (kit 2) and hesco. All own-region, none under a unit. */
+export const SETUP_HESCO_0: readonly (readonly [number, number])[] = [[8, 4], [10, 5], [12, 6], [14, 7], [6, 10], [7, 12]];
+export const SETUP_POST_0 = [10, 9] as const;
+export const SETUP_UNFORTIFY_0 = [14, 7] as const;
+export const SETUP_REFUSED_0 = [22, 22] as const; // side 1's ground: refused outside_region
+export const SETUP_TWALL_1: readonly (readonly [number, number])[] = [[20, 24], [22, 23]];
+export const SETUP_HESCO_1: readonly (readonly [number, number])[] = [[24, 21], [26, 20]];
+export const SETUP_POST_ID = 6;
+
+export interface SetupWorldIds {
+  readonly squad0: number[];
+  readonly tank0: number;
+  readonly squad1: number[];
+  readonly tank1: number;
+}
+
+export function setupSetup(seed: number): { sim: Sim; ids: SetupWorldIds } {
+  const sim = new Sim({ seed, width: SETUP_SIZE, height: SETUP_SIZE, capacity: 32 });
+  sim.beginSetup({
+    untilTick: SETUP_UNTIL_TICKS,
+    region: setupRegionOf(SETUP_SIZE, SETUP_ANCHORS[0], SETUP_ANCHORS[1], SETUP_BAND_TILES),
+  });
+  const rifles = sim.addUnitType(RIFLES);
+  const tank = sim.addUnitType(TANK);
+  const [hesco, post, twall] = SETUP_KIT_TYPES.map((j) => sim.addStructureType(j));
+  sim.setSetupKit([{ structType: hesco, allowance: 12 }, { structType: post, allowance: 4 }, { structType: twall, allowance: 2 }], [[1, 1, 2, 2]]);
+  const put = (type: number, side: number, x: number, y: number): number => sim.spawn(type, side, fx.from(x + 0.5), fx.from(y + 0.5));
+  const squad0 = [put(rifles, 0, 11, 11), put(rifles, 0, 10, 12), put(rifles, 0, 12, 10)];
+  const tank0 = put(tank, 0, 9, 9);
+  const squad1 = [put(rifles, 1, 20, 20), put(rifles, 1, 21, 19), put(rifles, 1, 19, 21)];
+  const tank1 = put(tank, 1, 22, 22);
+  return { sim, ids: { squad0, tank0, squad1, tank1 } };
+}
+
+/** The mean position of `ids` (Q16.16, truncating integer division), for the post-bell attack-move. */
+function centroidOf(sim: Sim, ids: readonly number[]): [number, number] {
+  let sx = 0;
+  let sy = 0;
+  for (const id of ids) {
+    sx += sim.state.posX[id];
+    sy += sim.state.posY[id];
+  }
+  return [(sx - (sx % ids.length)) / ids.length, (sy - (sy % ids.length)) / ids.length];
+}
+
+export function setupDrive(sim: Sim, t: number, ids: SetupWorldIds): void {
+  const at = (n: number): number => fx.from(n + 0.5);
+  if (t === 0) {
+    for (const [x, y] of SETUP_HESCO_0) sim.queueCommand({ kind: 'fortify', side: 0, kit: 0, x, y });
+    sim.queueCommand({ kind: 'fortify', side: 0, kit: 1, x: SETUP_POST_0[0], y: SETUP_POST_0[1] });
+    sim.queueCommand({ kind: 'fortify', side: 0, kit: 0, x: SETUP_REFUSED_0[0], y: SETUP_REFUSED_0[1] });
+    for (const [x, y] of SETUP_TWALL_1) sim.queueCommand({ kind: 'fortify', side: 1, kit: 2, x, y });
+    for (const [x, y] of SETUP_HESCO_1) sim.queueCommand({ kind: 'fortify', side: 1, kit: 0, x, y });
+  }
+  if (t === 1) sim.queueCommand({ kind: 'move', ids: ids.squad0, x: at(27), y: at(27) });
+  if (t === 2) sim.queueCommand({ kind: 'unfortify', side: 0, x: SETUP_UNFORTIFY_0[0], y: SETUP_UNFORTIFY_0[1] });
+  if (t === 3) sim.queueCommand({ kind: 'garrison', ids: [ids.squad0[0]], structure: SETUP_POST_ID });
+  if (t === 20) sim.queueCommand({ kind: 'setupReady', side: 1 });
+  if (t === 40) sim.queueCommand({ kind: 'setupReady', side: 0 });
+  if (t === 141) {
+    const [x1, y1] = centroidOf(sim, [...ids.squad1, ids.tank1]);
+    const [x0, y0] = centroidOf(sim, [...ids.squad0, ids.tank0]);
+    sim.queueCommand({ kind: 'attackMove', ids: [...ids.squad0, ids.tank0], x: x1, y: y1 });
+    sim.queueCommand({ kind: 'attackMove', ids: [...ids.squad1, ids.tank1], x: x0, y: y0 });
+  }
+}

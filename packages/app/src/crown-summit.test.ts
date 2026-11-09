@@ -89,6 +89,7 @@ const SUMMITS: Partial<Record<MapId, number>> = {
   deir_amun_3: 1,
   jebel_matar: 3, // (10,10), (40,11) and the dyke segment at (36,36); GH-912, by a Python flood fill of the rows
   milh_flats: 2,
+  milh_flats_l: 2, // the two tells' 4-tile rocks, kept at their native footprint on a knoll (a 2x2-block copy would be a 16-tile rock, past CROWN_MAX_TILES, and crown nothing); GH-920 B3, by a Python flood fill of the rows and levels
   qarn_hadid: 1,
   qarn_hadid_3: 4,
   rujm_sawda: 6, // the four 8-tile rocks plus the black cairn and its twin (4 tiles each); GH-913 look pass, by a Python flood fill of the rows
@@ -127,7 +128,7 @@ describe('crown summits on the shipped maps', () => {
     tally.rejected += rejected;
   });
 
-  it('29 summits in all, and none of the other 45 small clusters', () => {
+  it('31 summits in all, and none of the other 51 small clusters', () => {
     // Jebel Matar (GH-912) adds 3 summits and 4 rejected clusters (7 small ones); Ein Qasab III has none.
     // Rujm Sawda (GH-913 L4) adds 4: its four 8-tile rocks (both mesa crowns, both tells) are all
     // summits by an independent flood fill over its rows and elevation, and its two corner ridges
@@ -135,7 +136,16 @@ describe('crown summits on the shipped maps', () => {
     // rock crown on a one-tile shoulder of knoll at its own level, and its half-turn twin. Both are
     // summits by the same flood fill (no neighbouring ^, no building, nothing higher), so Rujm Sawda
     // reads 6 and the other small clusters stay 45.
-    expect(tally).toEqual({ summits: 29, rejected: 45 });
+    // Wadi Tarfan (large) (GH-920 B3) adds 4 rejected clusters and no summit: its four `^` blocks, 2x2 each (one per source
+    // cell, two a half), and the two of a half touch corner to corner, so every one has a blocked 8-neighbour; by a Python
+    // flood fill of its rows. Was 45.
+    // Its fairness pass (GH-920 B4) adds 2 more: the pump-house plinth, the three tiles of the 2x2 cell block beside
+    // each of the two pump houses, an L of 3 `^` with the pump house in the fourth corner. A Python flood fill of the
+    // rows reads 4 clusters by 8-neighbour (the two 8-tile diagonal pairs and the two 3-tile Ls), 6 by 4-neighbour;
+    // the Ls are too small to be a crown and touch nothing, so no summit. Was 49.
+    // Milh Flats (large) (GH-920 B3) adds 2 summits and no rejected cluster: its two tell rocks are 4 tiles each, as the original's
+    // are, with no neighbouring `^`, no building and nothing higher (a Python flood fill). Was 29.
+    expect(tally).toEqual({ summits: 31, rejected: 51 });
   });
 
   it('lifts a crown by exactly the sim\'s BLOCK_RISE -- the lift at which what the player sees is what blocks sight', () => {

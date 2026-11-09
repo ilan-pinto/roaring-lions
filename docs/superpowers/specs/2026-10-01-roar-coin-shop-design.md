@@ -399,6 +399,13 @@ The noun always sits beside the number, so a bare figure is never a price.
 
 ### 2.7 Before the account is server-held (ST5–ST7)
 
+> **Amended 4 Nov 2026 (GH-317, the lead): every player has a free Roar-coin wallet, earned in the campaign,
+> and the Stores sell for it, in production, before ST5–ST7.** The Stores tab is live whenever browser
+> storage is; with none it is the zero-balance preview below. Real-money packs stay disabled
+> (`PURCHASES_OPEN` false). The wallet is `lions.roar` (`roar-wallet.ts`); how coins are earned and
+> why they stay honest for the day paid coins arrive: `2026-11-04-roar-coin-wallet-design.md`. ST8 Q2
+> ("coins are unearnable in play") is superseded for FREE coins only; paid coins arrive with ST7.
+
 - **Production builds show no Stores tab and no coin anywhere** until the server account
   answers. A client-side coin balance "is a suggestion, not a balance" (ST6), and ST8 Q2 makes
   coins unearnable in play.
@@ -553,7 +560,7 @@ is earned-only) are taken as settled. These remain open:
 | 7 | **Where the shop lives** | **A garage tab, "Stores"** (Brigade, Cosmetics, Receipts); no main-menu button |
 | 8 | **The emblem** | **B, Hex Seal**: a profile lion roaring on a hexagon, in the terracotta ramp (`--roar` = `terracotta.0`) |
 | 9 | **Refunds** | **Opt in to Steam's 48 h for unspent packs; a coin purchase is refundable for 48 h until fielded or played; chargebacks revoke unspent coins first, then coin entitlements newest-first, and never touch earned ones** |
-| 10 | **Before ST5–ST7** | **No Stores tab in production; a `&shop=mock` dev view with a zero balance and disabled coin buttons** |
+| 10 | **Before ST5–ST7** | ~~No Stores tab in production; a `&shop=mock` dev view with a zero balance and disabled coin buttons~~ **Superseded 4 Nov 2026 (GH-317): a free, earned wallet and a live Stores for everyone; packs disabled until ST7; versus pays and spends nothing (see §2.7)** |
 | 11 | **The purchase sound's source** | a recorded or synthesised copper strike with a low growl tail, with explicit redistribution rights; the lead names the source |
 | 12 | **3D coin** | **Blender from the SVG, 0 credits**; Meshy (≈ 30 credits, cap 60) only for a sculpted relief |
 

@@ -22,9 +22,11 @@
  * target) and, on a metal class only, drops it for metalness, since a factor
  * cannot lift a map that reads 0.
  *
- * Metalness is capped at 0.45 (`gunmetal`): a unit material has no
- * environment map (`envMapIntensity = 0`), so a metal surface keeps only the
- * sun's specular lobe and no diffuse term. Higher draws near-black.
+ * Metalness is capped at 0.45 (`gunmetal`) in THESE tables, which are used only
+ * when the scene has no environment (`&envlight=0`): a metal surface then keeps
+ * only the sun's specular lobe and no diffuse term, and higher draws near-black.
+ * With the sky environment (L1, GH-943, on by default) `withMetalCap` lifts the
+ * cap to 0.7 and tags each clone with its environment class (`environment.ts`).
  *
  * The `unit-surface` debug layer writes every clone back to today's values
  * (and the pass back on). The registry holds clones WEAKLY, and a clone's
@@ -49,6 +51,7 @@
  */
 import * as THREE from 'three';
 import { applyRainRim, setRainRimPass } from './rain-rim';
+import { ENV_CLASS_OF_SURFACE, ENV_METAL_CAP, ENV_USERDATA_KEY } from '../environment-classes';
 
 export interface SurfaceParams {
   readonly roughness: number;
@@ -98,6 +101,15 @@ export type SurfaceTable = Readonly<Record<SurfaceClass, SurfaceParams>> & {
 };
 
 /**
+ * L1 (GH-943): the tables built for a scene that HAS an environment (`withMetalCap`).
+ * A clone cut from one is tagged with its environment class; one cut from a shipped
+ * table is exactly today's. A set, not a field on the table, so `SurfaceTable`'s shape
+ * (and everything that destructures it) is untouched.
+ */
+const environmentTables = new WeakSet<object>();
+const capped = new WeakMap<SurfaceTable, Map<number, SurfaceTable>>();
+
+/**
  * The wet table (GH-871 P4, T5): what a unit's surface answers under rain.
  * Rain films every surface, so cloth, armour and plate lose 0.12-0.22 of their
  * roughness and a barrel's 0.10. EVERY other class and EVERY metalness is the
@@ -124,10 +136,43 @@ export function figureRimFor(table: SurfaceTable, faction: string): boolean {
   return faction === 'kdf' && table.kdfRim === true;
 }
 
+/**
+ * Look uplift L1 (GH-943): a table with the metal cap lifted to `cap`
+ * (`ENV_METAL_CAP`, 0.7) on every class that is metal at all (`gunmetal`, the
+ * only class with metalness above 0.1). Only ever applied when the scene HAS an
+ * environment to reflect: without one, higher metal draws near-black (the 0.45
+ * note above). Roughness, the other classes and the `kdfRim` switch are copied.
+ * Absent the flag, `surfaceTableFor` never calls this, so the shipped objects
+ * are returned by identity.
+ */
+export function withMetalCap(table: SurfaceTable, cap: number = ENV_METAL_CAP): SurfaceTable {
+  // One table per (base, cap): a renderer and the loaders it hands the table to compare by identity.
+  const memo = capped.get(table);
+  const hit = memo?.get(cap);
+  if (hit) return hit;
+  const out: Record<string, SurfaceParams> = {};
+  for (const cls of Object.keys(SURFACE_PARAMS) as SurfaceClass[]) {
+    const p = table[cls];
+    out[cls] = p.metalness > 0.1 ? { roughness: p.roughness, metalness: cap } : p;
+  }
+  const made: SurfaceTable = {
+    ...(out as Record<SurfaceClass, SurfaceParams>),
+    ...(table.kdfRim ? { kdfRim: true as const } : {}),
+  };
+  environmentTables.add(made);
+  const into = memo ?? new Map<number, SurfaceTable>();
+  into.set(cap, made);
+  capped.set(table, into);
+  return made;
+}
+
 /** The table a renderer built with `weather` uses: `'rain'` is the wet one,
- *  anything else (absent, `'clear'`) is the shipped one. */
-export function surfaceTableFor(weather: 'clear' | 'rain' | undefined): SurfaceTable {
-  return weather === 'rain' ? WET_SURFACE_PARAMS : SURFACE_PARAMS;
+ *  anything else (absent, `'clear'`) is the shipped one. `environment` (L1,
+ *  GH-943, default off) lifts the metal cap; off returns the shipped tables
+ *  themselves. */
+export function surfaceTableFor(weather: 'clear' | 'rain' | undefined, environment = false): SurfaceTable {
+  const base = weather === 'rain' ? WET_SURFACE_PARAMS : SURFACE_PARAMS;
+  return environment ? withMetalCap(base) : base;
 }
 
 const TEAM_ROLE_CLASS: Readonly<Record<string, SurfaceClass>> = {
@@ -222,9 +267,11 @@ const clones = new WeakMap<THREE.Material, Map<string, THREE.MeshStandardMateria
 
 /** `class/roughness/metalness`: the clone memo's key (the table is part of it).
  *  A rim clone appends `/rim`; an unrimmed one keeps today's key. */
-function cacheKey(cls: SurfaceClass, p: SurfaceParams, rim: boolean): string {
+function cacheKey(cls: SurfaceClass, p: SurfaceParams, rim: boolean, env: boolean): string {
   const base = `${cls}/${p.roughness}/${p.metalness}`;
-  return rim ? `${base}/rim` : base;
+  const keyed = rim ? `${base}/rim` : base;
+  // An environment clone carries a class tag a plain one does not, so the two never share a memo slot.
+  return env ? `${keyed}/env` : keyed;
 }
 
 /**
@@ -253,7 +300,7 @@ export function surfaceMaterialFor(
     clones.set(base, perClass);
   }
   const p = table[cls];
-  const key = cacheKey(cls, p, rim);
+  const key = cacheKey(cls, p, rim, environmentTables.has(table));
   const hit = perClass.get(key);
   if (hit) {
     // A second template built from the same loaded original (whose first
@@ -266,6 +313,12 @@ export function surfaceMaterialFor(
     return hit;
   }
   const mat = std.clone();
+  // L1 (GH-943): with an environment, the class this surface belongs to, for the
+  // registry (`environment.ts`). userData rides `clone()`, so a scar, running-gear
+  // or wounded copy keeps it. Only when the table asks: a flag-off clone is today's.
+  if (environmentTables.has(table)) {
+    mat.userData = { ...(mat.userData as Record<string, unknown>), [ENV_USERDATA_KEY]: ENV_CLASS_OF_SURFACE[cls] };
+  }
   const mapped = mat.roughnessMap !== null;
   const entry: SurfaceEntry = {
     mat,

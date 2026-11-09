@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "players": {},
+  "scripted": {
+    "passive": { "label": "Scripted: passive" },
+    "rush": { "label": "Scripted: rush" }
+  }
+}

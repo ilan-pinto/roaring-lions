@@ -10,10 +10,10 @@
     { "classes": ["light_vehicle", "recon"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 6, "rank_depth": 3 }, "gap": 2 },
     { "classes": ["infantry"], "shape": { "kind": "rank", "spacing": 1, "max_lateral": 3, "rank_depth": 1 }, "gap": 1 },
     { "classes": ["support_weapon"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 2, "rank_depth": 1 }, "gap": 3 },
-    { "classes": ["medic"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 2, "rank_depth": 2 }, "gap": 1, "standoff": 11, "on_call": "casualty" },
-    { "classes": ["aircraft"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 2, "rank_depth": 2 }, "gap": 1, "standoff": 13, "on_call": "contact" }
+    { "classes": ["medic"], "shape": { "kind": "rank", "spacing": 2, "max_lateral": 2, "rank_depth": 2 }, "gap": 1, "standoff": 11, "on_call": "casualty" }
   ],
-  "march": { "legs": true, "leg_tiles": 8, "pace": "none", "dress_s": 3 },
+  "exclude": ["aircraft"],
+  "march": { "legs": false, "leg_tiles": 8, "pace": "none", "dress_s": 3 },
   "arrival": { "face": "front", "stance": "none" },
   "contact": { "drill": "press", "call_radius_tiles": 12, "quiet_s": 10 }
 }

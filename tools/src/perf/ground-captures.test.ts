@@ -615,43 +615,45 @@ describe('halfToFloat and the height sampler', () => {
 
 describe('the on-screen drop count (the per-frame density label)', () => {
   const flat = (): number => 0;
-  const at = (x: number, y: number, zoom: number, low: number, period: number, mapW = 48) =>
-    onScreenDropCount({ drops: 6000, low: { x: low, z: low }, period, keep: 1, fall: 0, mapW, mapH: mapW, view: { x, y, zoom, width: 1400, height: 900 }, ground: flat });
+  const at = (x: number, y: number, zoom: number, low: number, period: number) =>
+    onScreenDropCount({ drops: 6000, low: { x: low, z: low }, period, keep: 1, fall: 0, view: { x, y, zoom, width: 1400, height: 900 }, ground: flat });
   // Hand check. 6,000 drops over a 64 x 64 window is 1.46 a tile^2. At zoom 1.6 the 1400x900 canvas
   // shows 1400/(64 * 1.6 * sqrt 2) * 2 = 19.3 across and 900 * sin 30 / (32 * 1.6 * sqrt 2) * 2 = 12.4 up
-  // the screen, a ground diamond of 19.3 x 24.8 = 479 tiles^2: about 700 drops. At zoom 0.35 the whole
-  // 48 x 48 map (2,304 tiles^2) is on screen: 2,304 / 4,096 * 6,000 = 3,375.
+  // the screen, a ground diamond of 19.3 x 24.8 = 479 tiles^2: about 700 drops. At zoom 0.35 the screen is
+  // larger than the whole 64 window (10,000 tiles^2 against 4,096), so every drop in it is on screen: about 6,000
+  // (the map does not clip the count since GH-940: a drop off the map is a drop on screen).
   it('at zoom 1.6 mid-map is about 700, within a literal band', () => {
     const n = at(24, 24, 1.6, -4.3258, 64);
     expect(n).toBeGreaterThan(650);
     expect(n).toBeLessThan(770);
   });
-  it('at zoom 0.35 the whole map is on screen: about 3,375', () => {
+  it('at zoom 0.35 the whole window is on screen: about 6,000 of 6,000', () => {
     const n = at(24, 24, 0.35, -8, 64);
-    expect(n).toBeGreaterThan(3200);
-    expect(n).toBeLessThan(3500);
+    expect(n).toBeGreaterThan(5900);
+    expect(n).toBeLessThanOrEqual(6000);
   });
   it('differs between zoom 0.35 and zoom 1.6 (the density the lead reads each frame by)', () => {
     expect(at(24, 24, 0.35, -8, 64)).toBeGreaterThan(4 * at(24, 24, 1.6, -4.3258, 64));
   });
-  it('drops landing off the map are not counted: at the (44,44) corner far fewer than mid-map, and fewer than with no edge', () => {
+  it('drops landing off the map ARE counted (GH-940): the (44,44) corner, whose window reaches past the 48 map, holds the mid-map count', () => {
     const corner = at(44, 44, 1.6, 9.5498, 64);
-    expect(corner).toBeGreaterThan(150);
-    expect(corner).toBeLessThan(280);
-    // the same window on a map 1,000 wide has no edge to cull at: the count is the open-ground one
-    expect(at(44, 44, 1.6, 9.5498, 64, 1000)).toBeGreaterThan(2 * corner);
+    const mid = at(24, 24, 1.6, -4.3258, 64);
+    expect(corner).toBeGreaterThan(650);
+    expect(corner).toBeLessThan(770);
+    // The old cull took this to under 280 (the 48 map's edge), and the number the lead read was the void's share.
+    expect(corner).toBeGreaterThan(0.9 * mid);
   });
   it('a keep fraction of 0 draws nothing and 0.5 about half (the instances whose keep seed is under it)', () => {
     const count = (keep: number): number =>
-      onScreenDropCount({ drops: 6000, low: { x: -8, z: -8 }, period: 64, keep, fall: 0, mapW: 48, mapH: 48, view: { x: 24, y: 24, zoom: 0.35, width: 1400, height: 900 }, ground: flat });
+      onScreenDropCount({ drops: 6000, low: { x: -8, z: -8 }, period: 64, keep, fall: 0, view: { x: 24, y: 24, zoom: 0.35, width: 1400, height: 900 }, ground: flat });
     expect(count(0)).toBe(0);
     const whole = count(1);
-    expect(whole).toBeGreaterThan(3200);
+    expect(whole).toBeGreaterThan(5900);
     expect(count(0.5)).toBeGreaterThan(whole * 0.45);
     expect(count(0.5)).toBeLessThan(whole * 0.55);
   });
   it('a drop count of 0 is 0', () => {
-    expect(onScreenDropCount({ drops: 0, low: { x: 0, z: 0 }, period: 64, keep: 1, fall: 0, mapW: 48, mapH: 48, view: { x: 24, y: 24, zoom: 1, width: 1400, height: 900 }, ground: flat })).toBe(0);
+    expect(onScreenDropCount({ drops: 0, low: { x: 0, z: 0 }, period: 64, keep: 1, fall: 0, view: { x: 24, y: 24, zoom: 1, width: 1400, height: 900 }, ground: flat })).toBe(0);
   });
 });
 

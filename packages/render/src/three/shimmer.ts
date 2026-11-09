@@ -36,14 +36,32 @@ export const SHIMMER_NORM = Math.sqrt(1 + SHIMMER_VERTICAL * SHIMMER_VERTICAL);
 /** One site, as the shader's `uShimmer[i]` reads it: `[u, v, radiusInUvY, amplitude]`. */
 export type ShimmerSite = readonly [number, number, number, number];
 
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
+import { NUMBER_OPS, type Ops } from './fog-ops';
+
+/** The falloff across the disc, written once against `Ops` (GH-943 P1 T4): 1 at the centre, 0 at and beyond the rim, smoothstep between. */
+export function shimmerWeightOps<T>(o: Ops<T>, distOverRadius: T): T {
+  const f = o.sub(o.lit(1), o.clamp01(distOverRadius));
+  return o.mul(o.mul(f, f), o.sub(o.lit(3), o.mul(o.lit(2), f)));
 }
 
 /** The falloff across the disc: 1 at the centre, 0 at and beyond the rim, smoothstep between. */
 export function shimmerWeight(distOverRadius: number): number {
-  const f = 1 - clamp01(distOverRadius);
-  return f * f * (3 - 2 * f);
+  return shimmerWeightOps(NUMBER_OPS, distOverRadius);
+}
+
+/**
+ * The sample offset, in CSS pixels, at disc-normalised position (`dx`, `dy`), written once against `Ops`: the TSL graph in
+ * `fog-pass.node.ts` and `shimmerOffsetPx` are this one body.
+ */
+export function shimmerOffsetOps<T>(o: Ops<T>, dx: T, dy: T, amp: T, timeSec: T): [T, T] {
+  const weight = shimmerWeightOps(o, o.length2(dx, dy));
+  const w1 = o.sin(o.add(o.mul(dy, o.lit(SHIMMER_K1)), o.mul(timeSec, o.lit(SHIMMER_W1))));
+  const w2 = o.sin(o.add(o.sub(o.mul(dy, o.lit(SHIMMER_K2)), o.mul(timeSec, o.lit(SHIMMER_W2))), o.mul(dx, o.lit(SHIMMER_KX))));
+  const a = o.div(o.mul(o.mul(amp, weight), o.lit(SHIMMER_MAX_OFFSET_PX)), o.lit(SHIMMER_NORM));
+  return [
+    o.mul(o.div(o.add(w1, o.mul(o.lit(0.5), w2)), o.lit(1.5)), a),
+    o.mul(o.mul(o.lit(SHIMMER_VERTICAL), w2), a),
+  ];
 }
 
 /**
@@ -52,11 +70,7 @@ export function shimmerWeight(distOverRadius: number): number {
  * `timeSec`. The shader's expression.
  */
 export function shimmerOffsetPx(dx: number, dy: number, amp: number, timeSec: number): [number, number] {
-  const weight = shimmerWeight(Math.hypot(dx, dy));
-  const w1 = Math.sin(dy * SHIMMER_K1 + timeSec * SHIMMER_W1);
-  const w2 = Math.sin(dy * SHIMMER_K2 - timeSec * SHIMMER_W2 + dx * SHIMMER_KX);
-  const a = (amp * weight * SHIMMER_MAX_OFFSET_PX) / SHIMMER_NORM;
-  return [((w1 + 0.5 * w2) / 1.5) * a, SHIMMER_VERTICAL * w2 * a];
+  return shimmerOffsetOps(NUMBER_OPS, dx, dy, amp, timeSec);
 }
 
 /**

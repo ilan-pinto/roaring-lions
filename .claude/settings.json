@@ -1,0 +1,10 @@
+{
+  "deniedMcpServers": [
+    { "serverName": "claude.ai Interactive_Brokers_IBKR" },
+    { "serverName": "Interactive_Brokers_IBKR" }
+  ],
+  "crossSessionInbound": "accept",
+  "permissions": {
+    "allow": ["Bash(gh api repos/ilan-pinto/roaring-lions/issues/*/comments*)"]
+  }
+}

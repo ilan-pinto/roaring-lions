@@ -1,22 +1,22 @@
 {
   "beit_sahwan_outskirts": {
     "program": "770e1d732910550af4113b91ad6f285e7b00f32edd6f731e4a11dc28a70130dd",
-    "scene": "e1e5a131703987d33fdc6f9a73df8b2e6943e1bc5784791bca36b15f9c205006",
-    "light": "25bf8031d5ff002a08f504fc80e19f2e124399dca4122f81c7f07864a26da5d5"
+    "scene": "1d42154a4fa52fbce951e13ee5ac788b4f808515f6709329f1aa90bce604cedd",
+    "light": "9453d06f9c681dd794bb8d445897bafc980ef8ceafe4dfe36bc4cdba25f31465"
   },
   "wadi_halam_basin": {
     "program": "770e1d732910550af4113b91ad6f285e7b00f32edd6f731e4a11dc28a70130dd",
-    "scene": "e1e5a131703987d33fdc6f9a73df8b2e6943e1bc5784791bca36b15f9c205006",
-    "light": "a1d7cdfd7f49fdf1fa62365525c03add483eb126ccc6015b56247a1ff2cebfed"
+    "scene": "1d42154a4fa52fbce951e13ee5ac788b4f808515f6709329f1aa90bce604cedd",
+    "light": "e65f15a8268c45d273b6f43e766c4e5a316afb6f9fa07a65825a54d677ffe92b"
   },
   "tel_marum": {
     "program": "770e1d732910550af4113b91ad6f285e7b00f32edd6f731e4a11dc28a70130dd",
-    "scene": "e1e5a131703987d33fdc6f9a73df8b2e6943e1bc5784791bca36b15f9c205006",
-    "light": "8c3d8a18f47808aedea55b7dd9db4f45cd13de9a97edbdd5851745ea9fb1b76b"
+    "scene": "1d42154a4fa52fbce951e13ee5ac788b4f808515f6709329f1aa90bce604cedd",
+    "light": "0e3068ca202e6daaca9e9abc322a91c3e02c98558c47b27d86121932d2f5d745"
   },
   "wetland": {
     "program": "0ce466f4749bc380781cacfb8345ac9bc7b369eb5d71a4b6ad3e22e5f1708a6a",
-    "scene": "b6ccf90bd9ec069d3b9b77578afcc79b0f13a8772aeeddf50db2e81f79a11b9c",
-    "light": "a62c229f4269bd819dbf8b55d30ba835b1f299408a540ae8389961443cd9823b"
+    "scene": "0f264f473907fa745a7c158deeccb487f68ee5832d3d90706f6f4188c9ff5ac8",
+    "light": "de5c90a2d67a505ac8bcb1f9d82fec3eb5adb70a31980f5bbbbb6b0784b7be17"
   }
 }

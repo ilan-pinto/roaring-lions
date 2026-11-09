@@ -215,12 +215,17 @@ describe('the keep fraction (S-L2 ruling 2)', () => {
     const h = harness();
     const batch = new RainBatch(h.scene, { drops: 100, mapWidth: 48, mapHeight: 48 });
     const u = batch.mesh.material.uniforms;
-    // A 48-tile map at zoom 1.6: 481 tiles on screen, P 41.15, so 0.22 x 41.15^2 / 481 = 0.7745 of the instances.
+    // Zoom 1.6: 481 tiles on screen, P 40.82, so 0.22 x 40.82^2 / 481 = 0.7627 of the instances (the map
+    // does not enter into it since GH-940: the whole frame rains).
     batch.update({ simSec: 0, view: { x: 24, y: 24, zoom: 1.6, width: 1400, height: 900 }, dpr: 1 });
     expect(u.uKeep.value).toBe(batch.keep);
-    expect(batch.keep).toBeCloseTo(0.7745, 2);
-    // A 24-tile map is smaller than the lattice at every zoom: all of its instances are kept.
+    expect(batch.keep).toBeCloseTo(0.7627, 2);
+    // ...and a 24-tile map keeps the same fraction at the same view: the keep is not a function of the map.
     const small = setUp().batch;
+    small.update({ simSec: 0, view: { x: 12, y: 12, zoom: 1.6, width: 1400, height: 900 }, dpr: 1 });
+    expect(small.keep).toBe(batch.keep);
+    // Over the highest ground the highest zoom cannot hold the count: every instance is kept.
+    small.bakeHeights(() => 2.3);
     small.update({ simSec: 0, view: { x: 12, y: 12, zoom: 2.5, width: 1400, height: 900 }, dpr: 1 });
     expect(small.keep).toBe(1);
   });
@@ -229,12 +234,12 @@ describe('the keep fraction (S-L2 ruling 2)', () => {
     expect(RAIN_VERTEX_SHADER).toContain('attribute float aKeep;');
     expect(RAIN_VERTEX_SHADER).toContain('uniform float uKeep;');
     expect(RAIN_VERTEX_SHADER).toContain('if (aKeep >= uKeep) {');
-    // Collapsed off-screen like the map-edge cull, so the splash follows its drop, and before the
-    // landing point and the edge cull are even computed.
+    // Collapsed off-screen like the splash's edge cull, so the splash follows its drop, and before the
+    // landing point and the edge fade are even computed.
     const i = RAIN_VERTEX_SHADER.indexOf('if (aKeep >= uKeep) {');
-    expect(RAIN_VERTEX_SHADER.slice(i, i + 140)).toContain('gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
+    expect(RAIN_VERTEX_SHADER.slice(i, i + 200)).toContain('gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
     expect(i).toBeLessThan(RAIN_VERTEX_SHADER.indexOf('vec2 land = vec2('));
-    expect(i).toBeLessThan(RAIN_VERTEX_SHADER.indexOf('if (edgeFade <= 0.0)'));
+    expect(i).toBeLessThan(RAIN_VERTEX_SHADER.indexOf('float edgeFade'));
   });
 
   it('every varying is written before the first exit, so a collapsed instance leaves none undefined', () => {
@@ -308,8 +313,9 @@ describe('the frame feeds the lattice and the streak width', () => {
     expect(u.uPeriod.value).toBe(batch.period);
     expect(w25).toBeCloseTo(streakWidthWorld(2.5, 1) / 2, 12);
     expect(u.uStreakHalfWidth.value as number).toBeCloseTo(streakWidthWorld(0.35, 2) / 2, 12);
-    // A 24-tile map is 40 across with its 8-tile skirts: 64 covers it, 32 does not.
-    expect(batch.period).toBe(64);
+    // The 0.35 floor: the box itself, 152.43 tiles, whatever the map's size (GH-940: it was the map plus its
+    // 8-tile skirts, 64, which left the rest of the screen dry).
+    expect(batch.period).toBeCloseTo(152.427, 2);
   });
 });
 
@@ -388,21 +394,22 @@ describe('the GLSL carries the maths` constants (G-6)', () => {
       ['RAIN_H', 6],
       ['RAIN_V', 4],
       ['RAIN_LEN', 0.42],
-      ['RAIN_TAN', Math.tan((12 * Math.PI) / 180)],
-      ['RAIN_SIN', Math.sin((12 * Math.PI) / 180)],
-      ['RAIN_COS', Math.cos((12 * Math.PI) / 180)],
+      ['RAIN_TAN', Math.tan((14 * Math.PI) / 180)],
       ['RAIN_STREAK_A', 0.28],
-      ['RAIN_SPLASH_A', 0.35],
-      ['RAIN_SPLASH_MS', 150],
-      ['RAIN_SPLASH_R0', 0.04],
-      ['RAIN_SPLASH_R1', 0.1],
+      ['RAIN_SPLASH_A', 0.5],
+      ['RAIN_SPLASH_MS', 260],
+      ['RAIN_SPLASH_R0', 0.05],
+      ['RAIN_SPLASH_R1', 0.2],
       ['RAIN_SPLASH_LIFT', 0.04],
       ['RAIN_SPLASH_QUAD', 1.25],
+      ['RAIN_SPLASH_CORE_LIFE', 0.35],
     ] as const) {
       expect(RAIN_VERTEX_SHADER, name).toContain(`const float ${name} = ${v.toFixed(8)};`);
     }
-    // The wind is the foliage sway's axis (0.70710678, -0.70710678).
-    expect(RAIN_VERTEX_SHADER).toContain('const vec2 RAIN_WIND = vec2(0.70710678, -0.70710678);');
+    // GH-984 N1: the wind is a uniform now (the map's heading), no longer a compiled constant.
+    expect(RAIN_VERTEX_SHADER).not.toContain('RAIN_WIND');
+    expect(RAIN_VERTEX_SHADER).toContain('uniform vec2 uWindDir;');
+    expect(RAIN_VERTEX_SHADER).toContain('land.x - tanS * h * uWindDir.x');
     expect(RAIN_FRAGMENT_SHADER).toContain('const float RAIN_SPLASH_QUAD = 1.25000000;');
     expect(RAIN_SPLASH_QUAD).toBe(1.25);
     expect(glslFloat(0.42)).toBe('0.42000000');
@@ -419,43 +426,56 @@ describe('the GLSL carries the maths` constants (G-6)', () => {
   });
 });
 
-describe('the map edge (GH-871 P4 T12 fix)', () => {
-  it('the shader culls a drop that lands off the map and fades one landing near the edge', () => {
+describe('the map edge (GH-871 P4 T12 fix, GH-940): the splash stops there, the streak does not', () => {
+  /** The vertex shader's streak branch (`position.z < 0.5`) and its splash branch, as source. */
+  const streakBranch = RAIN_VERTEX_SHADER.slice(RAIN_VERTEX_SHADER.indexOf('if (position.z < 0.5) {'), RAIN_VERTEX_SHADER.indexOf('} else {'));
+  const splashBranch = RAIN_VERTEX_SHADER.slice(RAIN_VERTEX_SHADER.indexOf('} else {'));
+
+  it('the splash culls a drop that lands off the map and fades one landing near the edge', () => {
     // The mirror's constant, as a fixed-point literal, and the shape of the cull.
     expect(RAIN_VERTEX_SHADER).toContain('const float RAIN_EDGE_FADE = 0.50000000;');
-    expect(RAIN_VERTEX_SHADER).toContain('float edge = min(min(land.x, uMapSize.x - land.x), min(land.y, uMapSize.y - land.y));');
-    expect(RAIN_VERTEX_SHADER).toContain('float edgeFade = smoothstep(0.0, RAIN_EDGE_FADE, edge);');
-    expect(RAIN_VERTEX_SHADER).toContain('if (edgeFade <= 0.0) {');
-    // The cull comes BEFORE the streak/splash split, so a splash follows its drop's landing point.
-    expect(RAIN_VERTEX_SHADER.indexOf('if (edgeFade <= 0.0)')).toBeLessThan(RAIN_VERTEX_SHADER.indexOf('if (position.z < 0.5)'));
-    // Both alphas carry the fade.
-    expect(RAIN_VERTEX_SHADER).toContain('RAIN_STREAK_A * edgeFade');
-    expect(RAIN_VERTEX_SHADER).toContain('* edgeFade);');
+    expect(splashBranch).toContain('float edge = min(min(land.x, uMapSize.x - land.x), min(land.y, uMapSize.y - land.y));');
+    expect(splashBranch).toContain('float edgeFade = smoothstep(0.0, RAIN_EDGE_FADE, edge);');
+    expect(splashBranch).toContain('edgeFade <= 0.0');
+    expect(splashBranch).toContain('* edgeFade);');
   });
 
-  it('a 48x48 map at focus (44,44), zoom 1.6: some drops are culled and some are whole (not vacuous)', () => {
+  it('the STREAK carries no map-edge term at all: an off-map drop rains (the lead saw the corners of Ein Qasab II dry)', () => {
+    expect(streakBranch.length, 'the branch was found').toBeGreaterThan(300);
+    expect(streakBranch).not.toContain('edgeFade');
+    expect(streakBranch).not.toContain('uMapSize');
+    // The alpha is the constant's, nothing multiplied in.
+    expect(streakBranch).toContain('vColor = vec4(uStreakColor, RAIN_STREAK_A);');
+    // ...and nothing before the branch removes an off-map drop either: the only early exits are the keep fraction.
+    const before = RAIN_VERTEX_SHADER.slice(0, RAIN_VERTEX_SHADER.indexOf('if (position.z < 0.5) {'));
+    expect(before.split('gl_Position = vec4(2.0, 2.0, 2.0, 1.0);').length - 1).toBe(1);
+    expect(before).not.toContain('uMapSize.x - land.x');
+  });
+
+  it('a 48x48 map at focus (44,44), zoom 1.6: a real share of the drops land off the map, and every one of them is drawn', () => {
     const h = harness();
     const batch = new RainBatch(h.scene, { drops: 6000, mapWidth: 48, mapHeight: 48 });
     batch.update({ simSec: 0, view: { x: 44, y: 44, zoom: 1.6, width: 1400, height: 900 }, dpr: 1 });
     const u = batch.mesh.material.uniforms;
     const lo = u.uLow.value as THREE.Vector2;
     const seeds = batch.mesh.geometry.getAttribute('aSeed');
-    let gone = 0;
+    let off = 0;
     let whole = 0;
     let partial = 0;
     for (let i = 0; i < seeds.count; i++) {
       const land = dropLanding([seeds.getX(i), seeds.getY(i), seeds.getZ(i)], { x: lo.x, z: lo.y }, u.uPeriod.value as number);
       const f = mapEdgeFade(land.x, land.z, 48, 48);
-      if (f === 0) gone++;
+      if (f === 0) off++;
       else if (f === 1) whole++;
       else partial++;
     }
-    expect(gone).toBeGreaterThan(0);
+    expect(off).toBeGreaterThan(0);
     expect(whole).toBeGreaterThan(0);
     expect(partial).toBeGreaterThan(0);
-    expect(gone + whole + partial).toBe(6000);
-    // The window at this edge reaches past the map: a real share of the drops is off it.
-    expect(gone).toBeGreaterThan(600);
+    expect(off + whole + partial).toBe(6000);
+    // The window at this edge reaches past the map: a real share of the drops lands off it. Their SPLASHES
+    // are what the fade removes; their streaks are all drawn (the shader test above).
+    expect(off).toBeGreaterThan(600);
   });
 });
 
@@ -469,5 +489,19 @@ describe('dispose', () => {
     batch.dispose();
     expect(disposed).toBe(3);
     expect(h.scene.children).not.toContain(batch.mesh);
+  });
+});
+
+describe('the wind uniforms (GH-984 N1)', () => {
+  it('uWindDir follows the view`s heading and uWind the travelling gust handed in', () => {
+    const { batch } = setUp();
+    const u = batch.mesh.material.uniforms;
+    expect((u.uWindDir.value as THREE.Vector2).toArray()).toEqual([Math.SQRT1_2, -Math.SQRT1_2]);
+    batch.update({ simSec: 1.25, gust: 1, view: { x: 12, y: 12, zoom: 1, width: 1400, height: 900, windX: -0.6, windZ: 0.8 }, dpr: 1 });
+    expect((u.uWindDir.value as THREE.Vector2).toArray()).toEqual([-0.6, 0.8]);
+    expect(u.uWind.value).toBeCloseTo(1 + 0.2 * Math.sin((2 * Math.PI * 1.25) / 8.3) + 0.9, 12);
+    batch.update({ simSec: 1.25, gust: 0, view: { x: 12, y: 12, zoom: 1, width: 1400, height: 900 }, dpr: 1 });
+    expect(u.uWind.value).toBeCloseTo(1 + 0.2 * Math.sin((2 * Math.PI * 1.25) / 8.3), 12);
+    expect((u.uWindDir.value as THREE.Vector2).toArray()).toEqual([Math.SQRT1_2, -Math.SQRT1_2]);
   });
 });

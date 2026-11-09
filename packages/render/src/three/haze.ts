@@ -25,6 +25,8 @@
  * all. Ground above the reference gets none either; the term only adds.
  */
 
+import { NUMBER_OPS, type Ops } from './fog-ops';
+
 /** Tiles ahead of the focus plane at which the far haze reaches `hazeFar`. */
 export const HAZE_RAMP_TILES = 20;
 /** The most the low-lying term adds (N-18: "+6% below 2 levels"). */
@@ -45,14 +47,21 @@ export function aheadOf(px: number, pz: number, focusX: number, focusZ: number):
   return (px - focusX) * HAZE_FORWARD[0] + (pz - focusZ) * HAZE_FORWARD[1];
 }
 
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
+/**
+ * The haze mix, written once against `Ops` (GH-943 P1 T4): `fog-pass.node.ts` runs it with TSL ops, `hazeAmount` below with plain
+ * numbers. `low` is the low-lying term's strength (`HAZE_LOW`, or a raining map's `hazeLow`).
+ */
+export function hazeAmountOps<T>(o: Ops<T>, aheadTiles: T, levelsBelowRef: T, far: T, low: T): T {
+  return o.add(
+    o.mul(far, o.clamp01(o.div(aheadTiles, o.lit(HAZE_RAMP_TILES)))),
+    o.mul(low, o.clamp01(o.div(levelsBelowRef, o.lit(HAZE_LOW_LEVELS))))
+  );
 }
 
 /** The haze mix at a point `aheadTiles` beyond the focus plane and
  *  `levelsBelowRef` levels below the reference. The shader's expression. */
-export function hazeAmount(aheadTiles: number, levelsBelowRef: number, far: number): number {
-  return far * clamp01(aheadTiles / HAZE_RAMP_TILES) + HAZE_LOW * clamp01(levelsBelowRef / HAZE_LOW_LEVELS);
+export function hazeAmount(aheadTiles: number, levelsBelowRef: number, far: number, low: number = HAZE_LOW): number {
+  return hazeAmountOps(NUMBER_OPS, aheadTiles, levelsBelowRef, far, low);
 }
 
 /**

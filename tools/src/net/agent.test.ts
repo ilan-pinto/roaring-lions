@@ -3,11 +3,12 @@
 // and every stdout line a JSON-RPC frame) is in `local-relay.test.ts` (N4b
 // task 11), against a room the child reaches on 127.0.0.1.
 import { describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { exitCodeFor, parseArgs, readTicketFile, ticketClaims, type AgentArgs } from './agent';
+import { spawnSync } from 'node:child_process';
+import { exitCodeFor, joinRoom, JoinRefused, parseArgs, readTicketFile, ticketClaims, type AgentArgs } from './agent';
 
 const base = ['--server', 'https://game.test', '--code', 'ABC123'];
 const parsed = (argv: string[]): AgentArgs => {
@@ -41,6 +42,12 @@ describe('parseArgs', () => {
   });
   it('--join seats a bot, so it is for command scope only', () => {
     expect(refused([...base, '--scope', 'advise', '--join'])).toMatch(/--join is for --scope command/);
+  });
+  it('--score-file (GH-973, pnpm bot) is for a seat that plays; an advisor is never asked to score', () => {
+    expect(parsed([...base, '--scope', 'command', '--ticket-file', '/tmp/t', '--score-file', '/r/s.json']).scoreFile).toBe('/r/s.json');
+    expect(parsed([...base, '--scope', 'command', '--ticket-file', '/tmp/t']).scoreFile).toBeUndefined();
+    expect(refused([...base, '--scope', 'assist', '--ticket-file', '/tmp/t', '--score-file', '/r/s.json'])).toMatch(/--score-file is for --scope command/);
+    expect(refused([...base, '--scope', 'command', '--ticket-file', '/tmp/t', '--score-file'])).toMatch(/--score-file needs a value/);
   });
   it('--scope is checked', () => {
     expect(refused([...base, '--scope', 'overlord', '--join'])).toMatch(/--scope is advise, assist or command/);
@@ -157,5 +164,65 @@ describe('stdout purity (static)', () => {
       const src = readFileSync(file, 'utf8');
       expect(src, file).not.toMatch(STDOUT);
     }
+  });
+});
+
+describe('--log-file and joinRoom (GH-954)', () => {
+  it('--log-file is parsed, and absent when not given', () => {
+    expect(parsed([...base, '--scope', 'command', '--ticket-file', '/tmp/t', '--log-file', '/tmp/bot.log']).logFile).toBe('/tmp/bot.log');
+    expect('logFile' in parsed([...base, '--scope', 'command', '--ticket-file', '/tmp/t'])).toBe(false);
+    expect(refused([...base, '--scope', 'command', '--join', '--log-file'])).toMatch(/--log-file needs a value/);
+  });
+  it('the real harness appends its log lines, stamped and 0600, to the file it was given (a bad ticket file ends it at once)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agent-logfile-'));
+    try {
+      const here = dirname(fileURLToPath(import.meta.url));
+      const tsx = join(resolve(here, '../..'), 'node_modules/.bin/tsx');
+      const ticket = join(dir, 'ticket');
+      writeFileSync(ticket, 'not a ticket');
+      const logFile = join(dir, 'bot.log');
+      const r = spawnSync(tsx, [join(here, 'agent.ts'), '--server', 'http://127.0.0.1:1', '--code', 'ABC234', '--scope', 'command', '--ticket-file', ticket, '--log-file', logFile], { encoding: 'utf8' });
+      expect(r.status).toBe(1);
+      const text = readFileSync(logFile, 'utf8');
+      expect(text).toMatch(/^\S+Z har the ticket file holds no ticket$/m);
+      expect(statSync(logFile).mode & 0o777).toBe(0o600);
+      expect(r.stderr).toContain('the ticket file holds no ticket');   // stderr still has it
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+  it('joinRoom posts a bot join and returns the seat and ticket; any refusal is a JoinRefused with its status', async () => {
+    const seen: { url: string; body: Record<string, unknown>; origin: string }[] = [];
+    const answer = (status: number): typeof fetch => async (input, init) => {
+      seen.push({ url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown>, origin: (init?.headers as Record<string, string>).origin });
+      return status === 200 ? Response.json({ seat: 1, ticket: 'tkt' }) : new Response('', { status });
+    };
+    expect(await joinRoom('https://g.test/x', 'ABC 234', 'Rex', 'https://g.test', answer(200))).toEqual({ seat: 1, ticket: 'tkt' });
+    expect(seen[0].url).toBe('https://g.test/api/match/ABC%20234/join');
+    expect(seen[0].body).toMatchObject({ callsign: 'Rex', kind: 'bot' });
+    expect(typeof seen[0].body.player).toBe('string');
+    expect(seen[0].origin).toBe('https://g.test');
+    for (const status of [404, 409, 410]) {
+      const e = await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', answer(status)).catch((err: unknown) => err);
+      expect(e).toBeInstanceOf(JoinRefused);
+      expect((e as JoinRefused).status).toBe(status);
+      expect((e as JoinRefused).message).toBe(`the room refused the join: HTTP ${status}`);
+    }
+    await expect(joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', async () => Response.json({ seat: 2 }))).rejects.toThrow(/no seat and ticket/);
+  });
+  it('joinRoom names its build, and a 412 carries the room\'s (only a short printable one)', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const answer = (res: () => Response): typeof fetch => async (_input, init) => { bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>); return res(); };
+    const e = await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', answer(() => Response.json({ error: 'build_mismatch', build: '0.1.0+abc1234' }, { status: 412 })), '0.2.0+def5678').catch((err: unknown) => err);
+    expect(bodies[0].build).toBe('0.2.0+def5678');
+    expect(e).toBeInstanceOf(JoinRefused);
+    expect((e as JoinRefused).status).toBe(412);
+    expect((e as JoinRefused).roomBuild).toBe('0.1.0+abc1234');
+    const junk = await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', answer(() => Response.json({ build: 'a\nb' }, { status: 412 })), 'x').catch((err: unknown) => err);
+    expect((junk as JoinRefused).roomBuild).toBeNull();
+    const none = await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', answer(() => new Response('', { status: 412 })), 'x').catch((err: unknown) => err);
+    expect((none as JoinRefused).roomBuild).toBeNull();
+    await joinRoom('https://g.test', 'ABC234', 'Rex', 'https://g.test', answer(() => Response.json({ seat: 1, ticket: 't' }))).catch(() => {});
+    expect('build' in bodies[bodies.length - 1]).toBe(false);   // not named: not sent
   });
 });

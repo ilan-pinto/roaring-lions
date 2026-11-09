@@ -1347,7 +1347,7 @@ const VIEWPORT = { width: 1400, height: 900 } as const;
 /** The establishing still, then the ladder. The lead's figure for the ladder
  *  is 2.5, which is the top of `main.ts`'s own 0.35-2.5 camera clamp. */
 const ESTABLISH_ZOOM = 1.0;
-const LADDER_ZOOM = 2.5;
+export const LADDER_ZOOM = 2.5;
 /** The bottom of the same clamp. The probe reads the shake at both ends
  *  because `amplitude_px` is authored in SCREEN pixels and the conversion into
  *  camera tiles divides by zoom -- so a number that moves between these two is
@@ -1384,7 +1384,7 @@ const LAYERS: readonly string[] = Object.keys(LAYER_FLOORS);
 const STILL_ATTEMPTS = 8;
 const STILL_WAIT_MS = 250;
 /** The map the three comparison subjects parade on. */
-const DEFAULT_MAP = 'beit_sahwan_outskirts';
+export const DEFAULT_MAP = 'beit_sahwan_outskirts';
 /** The window the per-frame probe records, for a subject that asks for one.
  *  Past the authored `screen_shake.duration_ms` (420) by a margin, so the
  *  probe covers the shake's whole life and its retirement. */
@@ -2040,7 +2040,7 @@ export function killedTargetMustSurvive(s: Pick<BlastSubject, 'targetSurvives'>,
   return s.targetSurvives === true && /\btarget KILLED\b/.test(found);
 }
 
-interface Placed {
+export interface Placed {
   subject: BlastSubject;
   /** The subject's own entity, for a `kill`. -1 for an `impact`, whose
    *  subject is a tile rather than a body. */
@@ -2057,7 +2057,7 @@ interface Placed {
   decoy?: number;
 }
 
-async function spawnSubjects(
+export async function spawnSubjects(
   page: import('playwright').Page,
   wanted: readonly BlastSubject[]
 ): Promise<Placed[]> {
@@ -2181,7 +2181,7 @@ async function spawnSubjects(
  *  `vehicleMeshEntities`; the mortar team is a rigged infantry rig and lands
  *  in `meshUnitEntities` with its clips bound. Steps ticks while it waits,
  *  which is safe precisely because no hostile is on the field yet. */
-async function waitForMeshes(page: import('playwright').Page, placed: readonly Placed[], notes: string[]): Promise<void> {
+export async function waitForMeshes(page: import('playwright').Page, placed: readonly Placed[], notes: string[]): Promise<void> {
   // Every subject is on the mesh path since the `&nomesh` subject was retired
   // (WP-A3.3), so every placed body is waited for.
   const meshy = placed;
@@ -2237,7 +2237,7 @@ interface Trigger {
  * mission calls -- no frame is presented at all, so rung zero is a true zero
  * and the freeze is still on the clock.
  */
-async function triggerKill(page: import('playwright').Page, p: Placed, stepJumpMs: number): Promise<Trigger> {
+export async function triggerKill(page: import('playwright').Page, p: Placed, stepJumpMs: number): Promise<Trigger> {
   const hand = p.subject.handTick === true;
   const fxBaseMs = await page.evaluate(
     ([e, byHand]) => {
@@ -2265,7 +2265,7 @@ async function triggerKill(page: import('playwright').Page, p: Placed, stepJumpM
  * light, shake and freeze are requested -- with no frame presented, so rung
  * zero is a true zero and the hit-stop is still on the clock.
  */
-async function triggerCollapse(page: import('playwright').Page, p: Placed): Promise<Trigger> {
+export async function triggerCollapse(page: import('playwright').Page, p: Placed): Promise<Trigger> {
   const fxBaseMs = await page.evaluate((structure) => {
     const L = (window as unknown as LionsWindow).__lions;
     L.sim.debugDestroyStructure(structure);
@@ -2300,7 +2300,7 @@ async function triggerCollapse(page: import('playwright').Page, p: Placed): Prom
  * a real 60 fps fight, where ten ticks span 500 ms of frames rather than nine
  * seconds of them.
  */
-async function stageFirefight(page: import('playwright').Page, p: Placed, notes: string[]): Promise<void> {
+export async function stageFirefight(page: import('playwright').Page, p: Placed, notes: string[]): Promise<void> {
   const result = await page.evaluate(
     ([x, y, pairs, gap, ticks, fixed]) => {
       const L = (window as unknown as LionsWindow).__lions;
@@ -2347,7 +2347,7 @@ async function stageFirefight(page: import('playwright').Page, p: Placed, notes:
  * `spawnShellImpactFx` runs on. The burst is spawned AFTER the managers step
  * in that same call, so rung zero is a true zero here.
  */
-async function triggerImpact(
+export async function triggerImpact(
   page: import('playwright').Page,
   p: Placed,
   notes: string[]
@@ -2423,7 +2423,7 @@ const TICK_FRAME_MS = 50;
  * event spawned has aged. NO NAMED FUNCTION EXPRESSIONS in the evaluate body
  * (see `spawnSubjects`).
  */
-async function triggerTriggerFx(page: import('playwright').Page, p: Placed, notes: string[]): Promise<Trigger | null> {
+export async function triggerTriggerFx(page: import('playwright').Page, p: Placed, notes: string[]): Promise<Trigger | null> {
   const result = await page.evaluate(
     ([row, friendly, decoy, ownEntity, fixed, cap, tickMs, frameMs]) => {
       const L = (window as unknown as LionsWindow).__lions;

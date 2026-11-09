@@ -55,8 +55,8 @@ const terrainOf = (id: MapId): string | undefined => (maps[id] as MapJson).terra
 const shipped = (Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) !== 'wetland');
 
 describe('no shipped map allocates control C', () => {
-  it('there are 36 non-wetland maps, and the wetland ones are the three Ein Qasab maps (GH-912)', () => {
-    expect(shipped.length).toBe(36);
+  it('there are 38 non-wetland maps, and the wetland ones are the three Ein Qasab maps (GH-912)', () => {
+    expect(shipped.length).toBe(38); // Was 37: Milh Flats (large), GH-920 B3 (36 before Wadi Tarfan (large))
     expect((Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) === 'wetland').sort()).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
   });
 
@@ -124,10 +124,46 @@ describe('control C on ein_qasab', () => {
     expect(s.marsh).toBeCloseTo(0.3119, 2);
   });
 
-  it('road puddles cover 0.25-0.35 of the road texels', () => {
+  it('road puddles and fords cover 0.33-0.42 of the road texels (0.25-0.35 until GH-940: the lead wanted puddles he could see; 0.3697 measured)', () => {
     const s = shares();
-    expect(s.road, `road ${s.road}`).toBeGreaterThanOrEqual(0.25);
-    expect(s.road).toBeLessThanOrEqual(0.35);
+    expect(s.road, `road ${s.road}`).toBeGreaterThanOrEqual(0.33);
+    expect(s.road).toBeLessThanOrEqual(0.42);
+    expect(s.road).toBeCloseTo(0.3697, 2);
+  });
+
+  it('the marsh floods the low ground around it (GH-940): about 6,000 texels of R outside the marsh tiles, all within 2 tiles of one, none on cover, a grove or a pad', () => {
+    let pooled = 0;
+    let farthest = 0;
+    let wrongTile = 0;
+    for (let j = 0; j < cm.height; j++) {
+      for (let i = 0; i < cm.width; i++) {
+        const o = (j * cm.width + i) * 4;
+        const tx = Math.floor(i / N);
+        const tz = Math.floor(j / N);
+        const t = tz * input.width + tx;
+        if (input.decor !== null && input.decor[t] === 6) continue;
+        if (c[o] < 128) continue;
+        pooled++;
+        // distance to the nearest marsh tile, searched 3 tiles round (restated; the oracle shares no code with the bake)
+        let best = Infinity;
+        for (let dz = -3; dz <= 3; dz++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            const nx = tx + dx;
+            const nz = tz + dz;
+            if (nx < 0 || nz < 0 || nx >= input.width || nz >= input.height || input.decor === null || input.decor[nz * input.width + nx] !== 6) continue;
+            const px = (i + 0.5) / N;
+            const pz = (j + 0.5) / N;
+            best = Math.min(best, Math.hypot(Math.max(nx - px, 0, px - (nx + 1)), Math.max(nz - pz, 0, pz - (nz + 1))));
+          }
+        }
+        farthest = Math.max(farthest, best);
+        if (input.blocked[t] !== 0 || input.cover[t] !== 0 || (input.decor !== null && input.decor[t] !== 0)) wrongTile++;
+      }
+    }
+    expect(pooled, 'pooled texels (6,018 measured)').toBeGreaterThan(4500);
+    expect(pooled).toBeLessThan(8000);
+    expect(farthest, 'the farthest pooled texel from a marsh tile, tiles').toBeLessThanOrEqual(2);
+    expect(wrongTile, 'pooled texels on cover, a wall, a grove, a road or a ridge tile').toBe(0);
   });
 
   it('open ground holds no puddle: not one of its texels reads G >= 128', () => {

@@ -30,6 +30,7 @@ const EXPECTED: Record<keyof typeof maps, AmbienceBed> = {
   jebel_matar: 'open',
   marj_perimeter: 'open',
   milh_flats: 'open',
+  milh_flats_l: 'open',
   qarn_hadid: 'ridge',
   qarn_hadid_2: 'ridge',
   qarn_hadid_3: 'ridge',
@@ -54,6 +55,7 @@ const EXPECTED: Record<keyof typeof maps, AmbienceBed> = {
   wadi_halam_4: 'town',
   wadi_halam_5: 'town',
   wadi_tarfan: 'open',
+  wadi_tarfan_l: 'open',
 };
 
 describe('the ambience bed a map plays (A11)', () => {

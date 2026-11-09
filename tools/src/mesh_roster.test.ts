@@ -137,14 +137,29 @@ describe('mesh roster precondition (every unit and structure has its mesh on dis
   });
 
   it('every structure type has a building GLB and a _wreck GLB', () => {
-    const missing = structures.flatMap((t) =>
-      [`${t}.glb`, `${t}_wreck.glb`]
-        .map((f) => path.join(MESHES, 'buildings', f))
-        .filter((f) => !existsSync(f))
-        .map(rel)
-    );
+    const missing = structures
+      .flatMap((t) =>
+        [`${t}.glb`, `${t}_wreck.glb`]
+          .map((f) => path.join(MESHES, 'buildings', f))
+          .filter((f) => !existsSync(f))
+          .map(rel)
+      );
     expect(missing, 'structure meshes missing').toEqual([]);
   });
+
+  it('a LOD twin (buildings/<type>_lod1.glb, GH-974) is neither a unit nor a structure id: it is a file of its own type', () => {
+    const dir = path.join(MESHES, 'buildings');
+    const twins = readdirSync(dir).filter((f) => f.endsWith('_lod1.glb')).map((f) => f.slice(0, -'.glb'.length));
+    expect(twins.length, 'reads the shipped twin (vacuity guard)').toBeGreaterThan(0);
+    for (const twin of twins) {
+      const base = twin.slice(0, -'_lod1'.length);
+      expect(structures, `${twin} is the twin of a structure type`).toContain(base);
+      expect(structures, `${twin} must not be a structure type`).not.toContain(twin);
+      expect(ids, `${twin} must not be a unit id`).not.toContain(twin);
+      expect(existsSync(path.join(dir, `${base}.glb`)) && existsSync(path.join(dir, `${base}_wreck.glb`))).toBe(true);
+    }
+  });
+
 });
 
 // GH-177's second half (contract v7): which vehicles carry running gear, as

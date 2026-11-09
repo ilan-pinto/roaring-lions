@@ -58,12 +58,12 @@ import {
   dropSeed,
   heightTexels,
   rainWindow,
+  windDirOf,
   RainKeepCache,
   posMod,
   RAIN_EDGE_FADE,
-  RAIN_SLANT_COS,
-  RAIN_SLANT_SIN,
   RAIN_SLANT_TAN,
+  rainWindScale,
   streakWidthWorld,
   toHalfFloat,
   type RainView,
@@ -77,12 +77,16 @@ export function glslFloat(v: number): string {
 
 /** The splash quad's half-size over its ring radius (room for the ring's soft edge). */
 export const RAIN_SPLASH_QUAD = 1.25;
+/** The share of a splash's life its impact core is drawn for (it fades to nothing over it). */
+export const RAIN_SPLASH_CORE_LIFE = 0.35;
 
 const VERTEX = /* glsl */ `
 attribute vec3 aSeed;
 attribute float aKeep;
 uniform float uKeep;
 uniform float uFall;
+uniform float uWind;
+uniform vec2 uWindDir;
 uniform vec2 uLow;
 uniform float uPeriod;
 uniform vec2 uMapSize;
@@ -93,13 +97,11 @@ uniform vec3 uSplashColor;
 varying vec4 vColor;
 varying vec2 vUv;
 varying float vKind;
+varying float vCore;
 const float RAIN_H = ${glslFloat(RAIN_FALL_HEIGHT)};
 const float RAIN_V = ${glslFloat(RAIN_FALL_SPEED)};
 const float RAIN_LEN = ${glslFloat(RAIN_STREAK_LENGTH)};
 const float RAIN_TAN = ${glslFloat(RAIN_SLANT_TAN)};
-const float RAIN_SIN = ${glslFloat(RAIN_SLANT_SIN)};
-const float RAIN_COS = ${glslFloat(RAIN_SLANT_COS)};
-const vec2 RAIN_WIND = vec2(${glslFloat(SWAY_DIR_X)}, ${glslFloat(SWAY_DIR_Z)});
 const float RAIN_STREAK_A = ${glslFloat(RAIN_STREAK_ALPHA)};
 const float RAIN_SPLASH_A = ${glslFloat(RAIN_SPLASH_ALPHA)};
 const float RAIN_SPLASH_MS = ${glslFloat(RAIN_SPLASH_MS)};
@@ -108,10 +110,12 @@ const float RAIN_SPLASH_R1 = ${glslFloat(RAIN_SPLASH_R1)};
 const float RAIN_SPLASH_LIFT = ${glslFloat(RAIN_SPLASH_LIFT)};
 const float RAIN_SPLASH_QUAD = ${glslFloat(RAIN_SPLASH_QUAD)};
 const float RAIN_EDGE_FADE = ${glslFloat(RAIN_EDGE_FADE)};
+const float RAIN_SPLASH_CORE_LIFE = ${glslFloat(RAIN_SPLASH_CORE_LIFE)};
 void main() {
   // Every varying is written before any exit, so a collapsed instance leaves none undefined.
   vKind = position.z;
   vUv = position.xy;
+  vCore = 0.0;
   vColor = vec4(0.0);
   // The keep fraction (S-L2 ruling 2): an instance whose static keep seed is at or above uKeep is
   // collapsed off-screen like the map-edge cull below, drop and splash together. uKeep is a
@@ -129,29 +133,29 @@ void main() {
   float ground = texture2D(uHeight, clamp(land / uMapSize, 0.0, 1.0)).r;
   // The fall phase in [0, H): 0 the instant the drop lands. uFall is mod(V * t, H), built on the CPU.
   float phase = mod(aSeed.y * RAIN_H + uFall, RAIN_H);
-  // The map edge: a drop whose LANDING point is off the map [0, W] x [0, H] is removed, and one
-  // within RAIN_EDGE_FADE tiles inside the edge thins out (the splash follows its drop).
-  float edge = min(min(land.x, uMapSize.x - land.x), min(land.y, uMapSize.y - land.y));
-  float edgeFade = smoothstep(0.0, RAIN_EDGE_FADE, edge);
-  if (edgeFade <= 0.0) {
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    vColor = vec4(0.0);
-    return;
-  }
   if (position.z < 0.5) {
     float h = RAIN_H - phase;
-    vec3 head = vec3(land.x - RAIN_TAN * h * RAIN_WIND.x, ground + h, land.y - RAIN_TAN * h * RAIN_WIND.y);
-    vec3 dirMove = vec3(RAIN_SIN * RAIN_WIND.x, -RAIN_COS, RAIN_SIN * RAIN_WIND.y);
+    // The wind (GH-940): uWind scales the slant's tangent (rainWindScale, the sim clock), so the path's
+    // sine and cosine are tan / sqrt(1 + tan^2) and 1 / sqrt(1 + tan^2).
+    float tanS = RAIN_TAN * uWind;
+    float invLen = inversesqrt(1.0 + tanS * tanS);
+    vec3 head = vec3(land.x - tanS * h * uWindDir.x, ground + h, land.y - tanS * h * uWindDir.y);
+    vec3 dirMove = vec3(tanS * invLen * uWindDir.x, -invLen, tanS * invLen * uWindDir.y);
     vec3 tail = head - dirMove * RAIN_LEN;
     // The strip faces the camera: its width axis is perpendicular to the path and the view.
     vec3 fwd = -vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
     vec3 side = normalize(cross(dirMove, fwd));
     vec3 p = mix(head, tail, position.y) + side * (position.x * uStreakHalfWidth);
-    vColor = vec4(uStreakColor, RAIN_STREAK_A * edgeFade);
+    // The streak is NOT faded at the map edge (GH-940): the whole frame rains, off-map margin included.
+    vColor = vec4(uStreakColor, RAIN_STREAK_A);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   } else {
     float ageMs = phase / RAIN_V * 1000.0;
-    if (ageMs >= RAIN_SPLASH_MS) {
+    // The splash needs ground under it: a ring whose drop lands off the map [0, W] x [0, H] is removed, and one
+    // within RAIN_EDGE_FADE tiles inside the edge thins out. (Past the map the height texture is clamped.)
+    float edge = min(min(land.x, uMapSize.x - land.x), min(land.y, uMapSize.y - land.y));
+    float edgeFade = smoothstep(0.0, RAIN_EDGE_FADE, edge);
+    if (ageMs >= RAIN_SPLASH_MS || edgeFade <= 0.0) {
       gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
       vColor = vec4(0.0);
       return;
@@ -160,6 +164,8 @@ void main() {
     float r = RAIN_SPLASH_R0 + (RAIN_SPLASH_R1 - RAIN_SPLASH_R0) * clamp(life, 0.0, 1.0);
     vec3 p = vec3(land.x, ground + RAIN_SPLASH_LIFT, land.y) + vec3(position.x, 0.0, position.y) * (r * RAIN_SPLASH_QUAD);
     vColor = vec4(uSplashColor, RAIN_SPLASH_A * (1.0 - life) * edgeFade);
+    // The impact: a bright core for the first third of the ring's life, before it opens out.
+    vCore = 1.0 - smoothstep(0.0, RAIN_SPLASH_CORE_LIFE, life);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
 }
@@ -169,13 +175,16 @@ const FRAGMENT = /* glsl */ `
 varying vec4 vColor;
 varying vec2 vUv;
 varying float vKind;
+varying float vCore;
 const float RAIN_SPLASH_QUAD = ${glslFloat(RAIN_SPLASH_QUAD)};
 void main() {
   float a = vColor.a;
   if (vKind > 0.5) {
-    // A ring: its distance from the centre in units of the ring's own radius.
+    // A ring: its distance from the centre in units of the ring's own radius, plus the impact's core.
     float d = length(vUv) * RAIN_SPLASH_QUAD;
-    a *= smoothstep(0.45, 0.7, d) * (1.0 - smoothstep(0.92, 1.0, d));
+    float ring = smoothstep(0.45, 0.7, d) * (1.0 - smoothstep(0.92, 1.0, d));
+    float core = (1.0 - smoothstep(0.2, 0.45, d)) * vCore;
+    a *= max(ring, core);
   }
   if (a <= 0.0) discard;
   gl_FragColor = vec4(vColor.rgb, a);
@@ -189,7 +198,7 @@ export const RAIN_FRAGMENT_SHADER = FRAGMENT;
 export interface RainBatchOptions {
   /** Instance count (`quality.rain.drops`). */
   readonly drops: number;
-  /** The map in tiles: the height texture's extent and the lattice's clip. */
+  /** The map in tiles: the height texture's extent and the splash's edge (the lattice is not clipped to it, GH-940). */
   readonly mapWidth: number;
   readonly mapHeight: number;
 }
@@ -198,6 +207,8 @@ export interface RainBatchOptions {
 export interface RainFrame {
   /** The SIM clock, seconds (`presentationSimMs / 1000`). */
   readonly simSec: number;
+  /** The travelling gust in [0, 1] under the camera's focus (`terrain/wind.ts`); absent is the old periodic bump. */
+  readonly gust?: number;
   readonly view: RainView;
   /** The drawing buffer's pixel ratio. */
   readonly dpr: number;
@@ -259,6 +270,9 @@ export class RainBatch {
     const material = new THREE.ShaderMaterial({
       uniforms: {
         uFall: { value: 0 },
+        uWind: { value: 1 },
+        // The heading (GH-984 N1): the map's wind, set every frame; SWAY_DIR until the first.
+        uWindDir: { value: new THREE.Vector2(SWAY_DIR_X, SWAY_DIR_Z) },
         uLow: { value: new THREE.Vector2() },
         uPeriod: { value: 8 },
         // Nothing thinned until the first `update` computes the fraction for the view.
@@ -328,13 +342,16 @@ export class RainBatch {
   }
 
   /**
-   * The per-frame uniforms: the fall offset (SIM clock), the window, the lattice
+   * The per-frame uniforms: the fall offset and the wind (SIM clock), the window, the lattice
    * period and the keep fraction, the streak's constant-pixel half width. Everything else is static.
    */
   update(frame: RainFrame): void {
     const u = this.mesh.material.uniforms;
     u.uFall.value = posMod(RAIN_FALL_SPEED * frame.simSec, RAIN_FALL_HEIGHT);
-    const { period, low: lo, keep } = rainWindow(frame.view, { width: this.mapWidth, height: this.mapHeight }, this.maxGround, this.keepCache);
+    u.uWind.value = rainWindScale(frame.simSec, frame.gust);
+    const heading = windDirOf(frame.view);
+    (u.uWindDir.value as THREE.Vector2).set(heading.x, heading.z);
+    const { period, low: lo, keep } = rainWindow(frame.view, this.maxGround, this.keepCache);
     this.periodNow = period;
     this.keepNow = keep;
     u.uKeep.value = keep;

@@ -31,9 +31,15 @@
 //
 // What the generator will not do is decide fairness. Seats, purses, rates and tunnel capacities
 // are provisional until L5 sweeps them at 96 seeds (docs: _coord/net-large-map/design.md 3.1).
-import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { halfTurn, halfTurnOf, hash, runCli, serialise, sortedByKey } from '../lib/common.mjs';
+import { farmAt, ringTiles, scatterPatches, shelfSteps, stampChain } from '../lib/shapes.mjs';
+
+// The helpers below this line's imports lived in this file until GH-920 B1 (the large-map library,
+// tools/maps/lib/). `node tools/maps/rujm_sawda/build.mjs --check` is the witness that moving them
+// changed no byte of the shipped map.
+export { serialise };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
@@ -171,30 +177,10 @@ export function cellSketch({ walledFarms = true, thickRoad = false } = {}) {
 
 // --- stage 2: tiles ----------------------------------------------------------------------------
 
-/** A small integer hash: the scatter below is a function of the tile, never of a random stream. */
-const hash = (x, y, salt) => {
-  let h = (Math.imul(x + 1, 73856093) ^ Math.imul(y + 1, 19349663) ^ Math.imul(salt + 1, 83492791)) >>> 0;
-  h = Math.imul(h ^ (h >>> 15), 2246822519) >>> 0;
-  h = Math.imul(h ^ (h >>> 13), 3266489917) >>> 0;
-  return (h ^ (h >>> 16)) >>> 0;
-};
-
 /** Each seat's opening formation, in tiles: x from -4 to +2, y from -9 to +9 round the seat (see
  *  packages/app/src/net/versus-force.ts), padded by one so nothing is dropped beside it. */
 const SEAT0 = [12, 12];
 const formationRect = ([sx, sy]) => ({ x0: sx - 5, x1: sx + 3, y0: sy - 10, y1: sy + 10 });
-
-/** A walled farm: a one-tile wall on the edge of an 8x8 box, two-tile gates, a 2-floor house. */
-function farmAt(t, x0, y0, house, gates) {
-  for (let y = y0; y < y0 + 8; y++) {
-    for (let x = x0; x < x0 + 8; x++) {
-      const edge = x === x0 || x === x0 + 7 || y === y0 || y === y0 + 7;
-      t[y][x] = edge ? '=' : '.';
-    }
-  }
-  for (const [gx, gy] of gates) t[gy][gx] = '.';
-  for (let y = house[1]; y < house[1] + 2; y++) for (let x = house[0]; x < house[0] + 2; x++) t[y][x] = 'h';
-}
 
 // --- stage 2b: the look stage, per tile ---------------------------------------------------------
 // plan.md section 2; proto/look.py is the reference. It works on rows 0..39 and the half-turn
@@ -252,12 +238,7 @@ function lookStage(t, el) {
     }
   }
   // 2. the shelves, one tile a step: 3 to x+y 41, 2 to 49, then 1; never under rock or a knoll
-  for (let y = 0; y < TOP; y++) {
-    for (let x = 0; x < T; x++) {
-      if (x + y > 52 || '^n'.includes(t[y][x])) continue;
-      el[y][x] = x + y <= 41 ? 3 : x + y <= 49 ? 2 : 1;
-    }
-  }
+  shelfSteps(t, el, TOP, T, { reach: 52, bands: [[41, 3], [49, 2]], rest: 1, skip: '^n' });
   // 3. the wadi: the floor at level 0, the low-flow line, and a five-tile gap at each ford
   for (let y = 0; y < TOP; y++) {
     for (let x = 0; x < T; x++) {
@@ -276,10 +257,7 @@ function lookStage(t, el) {
   for (let y = 18; y < 28; y++) road.push([7, y]);
   const [fx, fy] = markers.ford_ne;
   for (let k = -3; k < 7; k++) road.push([fx + k, fy + k]);
-  for (const [x, y] of road) {
-    if (!'.1'.includes(t[y][x])) throw new Error(`look stage: road tile ${x},${y} lands on ${t[y][x]}`);
-    t[y][x] = 'r';
-  }
+  stampChain(t, road, 'r', '.1');
   // keep-clear for everything drawn below
   const [sx, sy] = markers.versus_0;
   const form = formationRect([sx, sy]);
@@ -314,10 +292,7 @@ function lookStage(t, el) {
   }
   // 6. landmarks, all low, each with a twin: two sheepfolds, a cistern, the black cairn
   const fold = (x0, y0, w, h, gaps) => {
-    const ring = [];
-    for (let y = y0; y < y0 + h; y++) {
-      for (let x = x0; x < x0 + w; x++) if (x === x0 || x === x0 + w - 1 || y === y0 || y === y0 + h - 1) ring.push([x, y]);
-    }
+    const ring = ringTiles(x0, y0, w, h);
     if (!ring.every(([x, y]) => '.12'.includes(t[y][x]) && clear(x, y))) throw new Error(`look stage: sheepfold ${x0},${y0} blocked`);
     for (const [x, y] of ring) if (!gaps.some(([gx, gy]) => gx === x && gy === y)) t[y][x] = '=';
   };
@@ -356,13 +331,7 @@ function lookStage(t, el) {
     [20, 35], [28, 31], [36, 21], [44, 13], [52, 12], [24, 26], [58, 30],
     [66, 25], [56, 37], [64, 35], [73, 31], [75, 22], [47, 4], [30, 15],
   ];
-  for (const [cx, cy] of PATCHES) {
-    for (let y = cy - 3; y <= cy + 3; y++) {
-      for (let x = cx - 3; x <= cx + 3; x++) {
-        if (y >= 0 && y < TOP && Math.hypot(x - cx, y - cy) <= 2.6 && hash(x, y, 5) % 2 === 0) put(x, y, x === cx && y === cy ? '2' : '1');
-      }
-    }
-  }
+  scatterPatches(put, hash, PATCHES, { radius: 2.6, salt: 5, rows: TOP, symbol: '1', centreSymbol: '2' });
   const KNOLLS = [[[41, 30], [42, 30], [41, 31]], [[60, 21], [61, 21], [60, 22]]]; // L shapes, symmetric under transpose
   for (const k of KNOLLS) for (const [x, y] of k) put(x, y, 'n', 2, '.12');
   for (const [x, y] of [[33, 27], [17, 30], [50, 18], [70, 28], [62, 38]]) put(x, y, 'o', undefined, '.12');
@@ -402,18 +371,12 @@ export function tileMap() {
   }
   lookStage(t, el);
   // the half-turn, again, at tile resolution
-  for (let y = T / 2; y < T; y++) {
-    for (let x = 0; x < T; x++) {
-      t[y][x] = t[T - 1 - y][T - 1 - x];
-      el[y][x] = el[T - 1 - y][T - 1 - x];
-    }
-  }
+  halfTurn(t, el, T);
   return { t, el };
 }
 
 // --- stage 3: markers, zones, rules ------------------------------------------------------------
-const mirror = ([x, y]) => [SIZE - 1 - x, SIZE - 1 - y];
-const mirrorRect = ([x, y, w, h]) => [SIZE - x - w, SIZE - y - h, w, h];
+const { mirror, mirrorRect } = halfTurnOf(SIZE);
 
 /** [name, tile, twin's name]. A twin's name is its own: well_n_0 faces well_s_1.
  *  Three tiles differ from design.md 6.2, which put them on ground nothing can stand on: the
@@ -474,8 +437,8 @@ export function build() {
     width: SIZE,
     height: SIZE,
     terrain: 'arid',
-    markers: Object.fromEntries(Object.entries(markers).sort(([a], [b]) => (a < b ? -1 : 1))),
-    zones: Object.fromEntries(Object.entries(zones).sort(([a], [b]) => (a < b ? -1 : 1))),
+    markers: sortedByKey(markers),
+    zones: sortedByKey(zones),
     rows: t.map((r) => r.join('')),
     elevation: el.map((r) => r.join('')),
   };
@@ -484,9 +447,12 @@ export function build() {
     map: ID,
     // GH-913 L3: the large map's room holds 512 entities (design section 2.6).
     capacity: 512,
+    // GH-913 L8: a 35-minute match cap (design section 4); the Worker's command-log cap scales with it.
+    cap_minutes: 35,
     ends: {
-      friendly: { camp: { at: [8, 8], size: [2, 2] } },
-      hostile: { camp: { at: mirrorRect([8, 8, 2, 2]).slice(0, 2), size: [2, 2] } },
+      // GH-976: authored exits; the friendly one is the sim's NW scan, the hostile one its point mirror.
+      friendly: { camp: { at: [8, 8], size: [2, 2], exit: [7, 7] } },
+      hostile: { camp: { at: mirrorRect([8, 8, 2, 2]).slice(0, 2), size: [2, 2], exit: mirror([7, 7]) } },
     },
     tunnels: {
       friendly: ROUTES_FRIENDLY.map((r) => ({ ...r })),
@@ -501,46 +467,10 @@ export function build() {
   return { map, versus };
 }
 
-// --- output: arrays of numbers stay on one line, as in every other map file ---------------------
-function dump(v, indent = '') {
-  if (Array.isArray(v)) {
-    if (v.every((x) => typeof x === 'number')) return `[${v.join(', ')}]`;
-    if (v.length === 0) return '[]';
-    const inner = indent + '  ';
-    return `[\n${v.map((x) => inner + dump(x, inner)).join(',\n')}\n${indent}]`;
-  }
-  if (v && typeof v === 'object') {
-    const inner = indent + '  ';
-    const ents = Object.entries(v);
-    if (ents.length === 0) return '{}';
-    return `{\n${ents.map(([k, x]) => `${inner}${JSON.stringify(k)}: ${dump(x, inner)}`).join(',\n')}\n${indent}}`;
-  }
-  return JSON.stringify(v);
-}
-export const serialise = (doc) => dump(doc) + '\n';
-
 export const MAP_PATH = join(ROOT, 'data', 'maps', `${ID}.json`);
 export const VERSUS_PATH = join(ROOT, 'data', 'versus', `${ID}.json`);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { map, versus } = build();
-  const out = [[MAP_PATH, serialise(map)], [VERSUS_PATH, serialise(versus)]];
-  if (process.argv.includes('--check')) {
-    let bad = 0;
-    for (const [p, text] of out) {
-      let have = '';
-      try {
-        have = readFileSync(p, 'utf8');
-      } catch {
-        /* missing counts as different */
-      }
-      if (have !== text) {
-        console.error(`${p} differs from what tools/maps/rujm_sawda/build.mjs writes`);
-        bad++;
-      }
-    }
-    process.exit(bad ? 1 : 0);
-  }
-  for (const [p, text] of out) writeFileSync(p, text);
-  console.log(`wrote ${MAP_PATH}\nwrote ${VERSUS_PATH}`);
+  runCli(process.argv, [[MAP_PATH, serialise(map)], [VERSUS_PATH, serialise(versus)]], 'tools/maps/rujm_sawda/build.mjs');
 }

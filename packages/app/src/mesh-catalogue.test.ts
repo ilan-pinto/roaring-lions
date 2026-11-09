@@ -48,6 +48,7 @@ import {
   VEHICLE_UNIT_MESHES,
   BUILDING_MESHES,
   DECOR_MESHES,
+  DECOR_LOD1,
   type DecorFamilyName,
   VFX_MESHES,
   PROP_MESHES,
@@ -157,12 +158,45 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     expect(keys.filter((k) => !UNIT_IDS.has(k))).toEqual([]);
   });
 
+  it('wires the compound wall\'s LOD1 twin as a file of the wall\'s own entry, never an entry of its own (GH-974)', () => {
+    // Literals, not derived from the table under test.
+    expect(BUILDING_MESHES.wall).toEqual({
+      idle: 'buildings/wall.glb',
+      wreck: 'buildings/wall_wreck.glb',
+      lod1: 'buildings/wall_lod1.glb',
+    });
+    expect('wall_lod1' in BUILDING_MESHES).toBe(false);
+    expect(claimedMeshFiles().has('buildings/wall_lod1.glb')).toBe(true);
+    // The twins today: another is a deliberate act with its own source and its own gate exemption (LOD_TWINS).
+    expect(Object.entries(BUILDING_MESHES).filter(([, b]) => b.lod1 !== undefined).map(([id]) => id).sort()).toEqual(['house', 'wall']);
+    expect(BUILDING_MESHES.house.lod1).toBe('buildings/house_lod1.glb');
+    expect('house_lod1' in BUILDING_MESHES).toBe(false);
+    expect(claimedMeshFiles().has('buildings/house_lod1.glb')).toBe(true);
+    const houseManifest = meshManifestFor(meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set(), ['house']));
+    expect(houseManifest.buildings.find((b) => b.id === 'house')?.lod1).toBe(meshUrl('buildings/house_lod1.glb'));
+    // It reaches the loader, under the SHIPPED root.
+    const manifest = meshManifestFor(meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set(), ['wall']));
+    expect(manifest.buildings.find((b) => b.id === 'wall')?.lod1).toBe(meshUrl('buildings/wall_lod1.glb'));
+  });
+
+  it('wires the ditch\'s LOD1 twin as `ditch_lod1`, a key of its own and never a variant of the family (GH-974)', () => {
+    expect(DECOR_LOD1).toEqual({ ditch: 'decor/ditch_lod1.glb' });
+    expect(DECOR_MESHES.ditch).toEqual(['decor/ditch_0.glb']); // the placements still name variant 0 only
+    expect(claimedMeshFiles().has('decor/ditch_lod1.glb')).toBe(true);
+    const manifest = meshManifestFor({ ...meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set(), []), decor: new Set(['ditch']) } as ReturnType<typeof meshPlanFor>);
+    expect([...manifest.decor.keys()].sort()).toEqual(['ditch_0', 'ditch_lod1']);
+    expect(manifest.decor.get('ditch_lod1')).toBe(meshUrl('decor/ditch_lod1.glb'));
+    // a family with no twin gets no such key
+    const grass = meshManifestFor({ ...meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set(), []), decor: new Set(['grass']) } as ReturnType<typeof meshPlanFor>);
+    expect([...grass.decor.keys()].some((k) => k.endsWith('_lod1'))).toBe(false);
+  });
+
   it('keys every building-mesh entry by a real structure type id', () => {
     const known = new Set(Object.keys(structureCatalogue));
     expect(Object.keys(BUILDING_MESHES).filter((k) => !known.has(k))).toEqual([]);
   });
 
-  it('wires the eight GH-277 field works, and a construction state on the four KDF ones only', () => {
+  it('wires the nine GH-277 field works, and a construction state on the four KDF ones only', () => {
     // Literals, not derived from the table under test.
     const kdf = ['kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop', 'kdf_aid_post'];
     const militia = ['militia_field_clinic', 'militia_firing_position', 'militia_observation_post', 'militia_weapons_workshop'];
@@ -178,8 +212,19 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     for (const id of militia) {
       expect(BUILDING_MESHES[id]).toEqual({ idle: `buildings/${id}.glb`, wreck: `buildings/${id}_wreck.glb` });
     }
-    // None of the twenty is still held.
-    expect(Object.keys(HELD_MESH_FILES).filter((f) => /buildings\/(kdf|militia)_/.test(f))).toEqual([]);
+    // None of the nine is still held. By id, not by a `kdf_` prefix: the forward camp is a KDF
+    // building too, and has its own test below.
+    const wired = [...kdf, ...militia];
+    expect(Object.keys(HELD_MESH_FILES).filter((f) => wired.some((id) => f.startsWith(`buildings/${id}.glb`) || f.startsWith(`buildings/${id}_`)))).toEqual([]);
+  });
+
+  it('draws the forward camp (GH-277) with its own idle, wreck and construction GLBs, not the field camp\'s', () => {
+    expect(BUILDING_MESHES.kdf_forward_camp).toEqual({
+      idle: 'buildings/kdf_forward_camp.glb',
+      wreck: 'buildings/kdf_forward_camp_wreck.glb',
+      construction: 'buildings/kdf_forward_camp_construction.glb',
+    });
+    expect(BUILDING_MESHES.camp).toEqual({ idle: 'buildings/camp.glb', wreck: 'buildings/camp_wreck.glb' });
   });
 
   it('does not draw one unit type through both mesh paths', () => {
@@ -582,7 +627,7 @@ describe('meshManifestFor', () => {
     });
     expect(m.rigged).toEqual([{ id: 'civilians', urls: RIGGED_UNIT_MESHES.civilians.files.map(meshUrl), faction: 'civilian' }]);
     expect(m.vehicles).toEqual([{ id: 'mbt_lavi', url: meshUrl('vehicles/mbt_lavi.glb') }]);
-    expect(m.buildings).toEqual([{ id: 'house', url: meshUrl('buildings/house.glb') }]);
+    expect(m.buildings).toEqual([{ id: 'house', url: meshUrl('buildings/house.glb'), lod1: meshUrl('buildings/house_lod1.glb') }]);
     expect([...m.decor.entries()]).toEqual([
       ['rock_0', meshUrl('decor/rock_0.glb')],
       ['rock_1', meshUrl('decor/rock_1.glb')],

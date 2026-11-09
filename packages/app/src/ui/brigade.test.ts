@@ -890,7 +890,7 @@ describe('showBrigade — the wallet and the footer', () => {
     expect(btn?.textContent).toBe('Reset brigade account');
     btn?.click();
     expect(resets).toBe(0);
-    expect(btn?.textContent).toBe('Click again to reset — this cannot be undone');
+    expect(btn?.textContent).toBe('Click again to reset — this also clears your free Roar coins, free purchases and the record of what you earned, so you can earn them again. It cannot be undone');
     btn?.click();
     expect(resets).toBe(1);
     // The second click is the last one this control can fire: disabled before
@@ -1330,6 +1330,20 @@ describe('showBrigade — the bay carries the kit (§3.1, F4, F5)', () => {
   it('says what the kit on this unit cost', () => {
     const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1, sensors: 1 } } });
     expect(text(host, '.rl-garage__kit-total')).toBe('350 credits of kit');
+  });
+  it('GH-1143: the credits line prices only what credits paid, not a coin-held tier', () => {
+    const owned = { inf_squad: { armour: 1, sensors: 1 } };
+    const all = mount({ units, ledger: {}, possibleStars: 78, owned });
+    expect(text(all, '.rl-garage__kit-total')).toBe('350 credits of kit');
+    // Armour tier 1 is held by coins: only the sensors tier was paid for.
+    const mixed = mount({ units, ledger: {}, possibleStars: 78, owned, earned: { inf_squad: { armour: 0, sensors: 1 } } });
+    expect(text(mixed, '.rl-garage__kit-total')).toBe('150 credits of kit');
+    // A unit the account never bought for has NO entry in `earned`: still no credits line.
+    const absent = mount({ units, ledger: {}, possibleStars: 78, owned, earned: { other_unit: { armour: 1 } } });
+    expect(absent.querySelector('.rl-garage__kit-total')).toBeNull();
+    // Nothing paid in credits at all: no line.
+    const none = mount({ units, ledger: {}, possibleStars: 78, owned, earned: { inf_squad: { armour: 0, sensors: 0 } } });
+    expect(none.querySelector('.rl-garage__kit-total')).toBeNull();
   });
   // R-5: against a base-JSON maximum, the roster's strongest unit fills its
   // bar with base and has no room left to draw what it bought.
@@ -2193,7 +2207,7 @@ describe('showBrigade — redeem a code', () => {
 
   // Falsified by hand: dropping the `coins` branch of `redeemedLine` turns both red.
   it.each([
-    [{ coins: 100000 }, 'Code accepted: 100000 Roar coins added to the test wallet'],
+    [{ coins: 100000 }, 'Code accepted: 100000 Roar coins added to your wallet'],
     [{ credits: 10000, coins: 100000 }, 'Code accepted: 10000 credits and 100000 Roar coins added'],
     [{ credits: 1 }, 'Code accepted: 1 credit added'],
   ])('names every grant the code made: %o', (grant, words) => {

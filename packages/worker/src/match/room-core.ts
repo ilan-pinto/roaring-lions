@@ -7,7 +7,7 @@
  * `readLog`.
  */
 import {
-  canonicalOrder, cleanChat, FORFEIT_MS, isSnapshotTick, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS, snapshotEvery,
+  canonicalOrder, cleanChat, FORFEIT_MS, isSnapshotTick, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, maxLogCmdChars, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS, snapshotEvery,
   type ClientMsg, type EndedReason, type Faction, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
@@ -60,7 +60,7 @@ export interface RoomState {
   /** #559 F2: each seat's command budget, a token bucket (`CMD_BUDGET`), and when it was last topped up. */
   cmdTokens: [number, number];
   cmdTokensAtMs: [number, number];
-  /** #559 H-1: characters of command JSON stamped into frames so far, against `MAX_LOG_CMD_CHARS`. */
+  /** #559 H-1: characters of command JSON stamped into frames so far, against `logCmdCharsOf(room)`. */
   cmdChars: number;
   /** When the room ended, null while it lives: the room is wiped `PURGE_AFTER_MS` later (#559 H-1). */
   endedAtMs: number | null;
@@ -114,8 +114,16 @@ export const CMD_BUDGET = { burst: 20, perSecond: 20 } as const;
  * well under a minute. Past it the match is void, as a desync is: the room
  * will not store more, and a log the clients cannot all rejoin from is no
  * match. Empty frames are not counted; they are bounded by time (the TTL).
+ *
+ * This is the 25-minute cap's figure. A map with a longer match cap (`cap_minutes`, GH-913 L8: Rujm
+ * Sawda's 35) stores proportionally more, `maxLogCmdChars`, so a heavy pair cannot void a long match.
  */
 export const MAX_LOG_CMD_CHARS = 2_000_000;
+
+/** The command JSON characters this room may store: `MAX_LOG_CMD_CHARS` scaled by its map's match cap. */
+export function logCmdCharsOf(st: Pick<RoomState, 'map' | 'config'>): number {
+  return maxLogCmdChars(st.config ?? st.map, MAX_LOG_CMD_CHARS);
+}
 /** Hash ticks only one seat has reported, kept at most this many (forged ticks cannot grow the table). */
 const MAX_OPEN_HASHES = 16;
 
@@ -638,7 +646,7 @@ export function clockTick(st: RoomState, nowMs: number): Effect[] {
   const taken = [0, 0];
   for (const p of st.pending) (taken[p.seat]++ < MAX_CMDS_PER_SEAT_PER_FRAME ? take : wait).push(p);
   const chars = take.reduce((n, p) => n + JSON.stringify(p.cmd).length, 0);
-  if (st.cmdChars + chars > MAX_LOG_CMD_CHARS) {
+  if (st.cmdChars + chars > logCmdCharsOf(st)) {
     // #559 H-1: the room stores no more; the match is void.
     endRoom(st, 'void', nowMs);
     st.stall = null;

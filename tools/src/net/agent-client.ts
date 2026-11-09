@@ -19,8 +19,10 @@ import {
   type Seat,
   type SeatWorld,
   type SocketLike,
+  type WinMode,
 } from '@lions/net';
-import type { Command } from '@lions/sim';
+import type { Command, SimEvent } from '@lions/sim';
+import { versusModes } from '@lions/data';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { prepareRejoin, snapshotLink, type Prepared, type SnapshotLink } from '../../../packages/app/src/net/snapshot-link';
 import { SnapshotProducer, type ProducerStats } from '../../../packages/app/src/net/snapshot-producer';
@@ -29,6 +31,7 @@ import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-ste
 import { shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 import {
   decideOnHashTick,
+  goalsOf,
   productionOf,
   matchResult,
   reportOver,
@@ -37,6 +40,8 @@ import {
   type MatchResult,
 } from '../../../packages/app/src/net/outcome';
 import { FogTracker } from './fog-tracker';
+import { SeatMemory } from './seat-memory';
+import { RefereeTally, resultText, type RefereeStats } from './match-score';
 import { OrderDesk } from './order-desk';
 import { sideView, type SideView } from './view';
 import { nodeSocket } from './node-socket';
@@ -69,7 +74,8 @@ export interface AgentClientOptions {
   ticket: string;
   /** What the room checks on hello (`buildId()`). */
   build: string;
-  role: 'seat' | 'advisor';
+  /** `watch` (GH-954 W1) is a spectator's socket: it runs the match from the frames and says only hello. */
+  role: 'seat' | 'advisor' | 'watch';
   seat: Seat;
   /** Tests pass a fake; default `nodeSocket(<server>/api/match/<code>/ws, origin(server))`. */
   open?: () => SocketLike;
@@ -82,6 +88,12 @@ export interface AgentClientOptions {
   runtimeDigest?: () => number;
   /** Off by default: see `AgentSnapshotOptions`. */
   snapshots?: AgentSnapshotOptions;
+  /** GH-954 W3: keep every frame this client runs, in order (`framesRan()`), so the arena can record the referee's
+   *  game for replay. Off by default: a long-lived `pnpm agent` must not grow an array of its whole match. */
+  keepFrames?: boolean;
+  /** GH-976 P2: the win mode the prompt told this player the room plays (`null`: annihilation). When set, a room that
+   *  starts on another is refused before the player moves (`failed()` says why); absent, nothing is checked. */
+  expectWinMode?: WinMode | null;
 }
 
 /** The match's state, built at `start` (or the first `log`). */
@@ -95,6 +107,10 @@ interface Live {
   dataDigest: number;
   /** The snapshot producer, when this seat produces. */
   producer: SnapshotProducer | null;
+  /** The referee's running tally (GH-973): idle time, orders, a timeline. Reads the sim; writes nothing. */
+  tally: RefereeTally;
+  /** What this seat has seen and lost (the 4 Nov bot report): last-seen enemy tiles, own units' deaths. Reads the sim; writes nothing. */
+  memory: SeatMemory;
 }
 
 /** Where a room's socket lives, and the Origin to send it: the browser's own
@@ -102,6 +118,11 @@ interface Live {
 export function matchSocketTarget(server: string, code: string): { url: string; origin: string } {
   const origin = new URL(server).origin;
   return { url: `${origin.replace(/^http/, 'ws')}/api/match/${encodeURIComponent(code)}/ws`, origin };
+}
+
+/** How a result was reached, as `observe` and `status` name it (GH-976 P2): the outcome's own `by`. */
+export function byOf(r: MatchResult): string {
+  return r.by;
 }
 
 function resultLine(r: MatchResult, side: 0 | 1): string {
@@ -119,6 +140,18 @@ export function snapshotFetch(server: string, base?: typeof fetch): typeof fetch
     (base ?? globalThis.fetch)(input, { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), origin } })) as typeof fetch;
 }
 
+/**
+ * Why an `attack` the room accepted still changes nothing, or null (GH-973). The sim's `attack` branch skips
+ * every shooter `canFocus` refuses ("a refused id changes nothing"); when it refuses ALL of them the order
+ * did nothing, and calling it `applied` told a model its shot was ordered. Ownership (`validateCommand`) is
+ * the room's filter and is untouched; this is the sim's, asked with the sim's own predicate, not a copy.
+ */
+export function attackDropReason(cmd: Command, canFocus: (shooter: number, target: number) => boolean): string | null {
+  if (cmd.kind !== 'attack') return null;
+  const target = cmd.target;
+  return cmd.ids.some((id) => canFocus(id, target)) ? null : 'target not in sight (out of sight, dead or not attackable)';
+}
+
 export class AgentClient {
   readonly ready: Promise<MatchConfig>;
   readonly desk: OrderDesk;
@@ -129,8 +162,12 @@ export class AgentClient {
   private ending: { reason: string; seat?: Seat } | null = null;
   private drained = false;
   private closed = false;
+  private refusedBuild: string | null = null;
+  private underway = false;
   private failure: string | null = null;
   private outcome: RejoinOutcome | null = null;
+  /** The frames run, when `keepFrames` (GH-954 W3). */
+  private readonly kept: Frame[] = [];
   private readonly link: SnapshotLink | null;
   private readonly log: (line: string) => void;
 
@@ -190,9 +227,14 @@ export class AgentClient {
         }
         // A seat readies as soon as the room has it; a human seat's lobby
         // button is the browser's, and the room starts when both are ready.
-        if (o.role === 'seat' && seats.find((s) => s.seat === you)?.ready !== true) this.transport.ready();
+        // A seat that comes BACK to the lobby (an MCP client restarted the harness, GH-954) is still
+        // ready, and the other seat may have readied while it was away, when the room would not start:
+        // so it says ready again when every seat is ready and here yet the room has not started.
+        // The room starts on that very message, so this cannot repeat.
+        if (o.role === 'seat' && (seats.find((s) => s.seat === you)?.ready !== true || (seats.length === 2 && seats.every((s) => s.ready && s.connected)))) this.transport.ready();
       },
-      onStart: (config) => {
+      onStart: (config, fromLog) => {
+        this.underway = fromLog === true;
         try {
           this.begin(config);
         } catch (err) {
@@ -211,10 +253,12 @@ export class AgentClient {
         }
         resolve(config);
       },
-      onError: (code) => {
+      onError: (code, detail) => {
         if (code === 'build_mismatch') {
-          // The room does not say which build it runs, so only ours can be named.
-          const e = new Error(`the room refused build "${o.build}"; it runs a different build. Check out that build's commit, or pass --build`);
+          // The room names its own build in the refusal (GH-954); an older room does not.
+          this.refusedBuild = detail?.build ?? null;
+          const theirs = detail?.build === undefined ? 'a different build' : `build "${detail.build}"`;
+          const e = new Error(`the room refused build "${o.build}"; it runs ${theirs}. Check out that build's commit, or pass --build`);
           this.log(e.message);
           reject(e);
           this.close();
@@ -238,6 +282,12 @@ export class AgentClient {
 
   private begin(config: MatchConfig): void {
     if (this.live !== null) return;
+    // The prompt this player was given describes ONE way to win; a room that plays another would leave it
+    // optimising the wrong thing for a whole match.
+    const expected = this.o.expectWinMode;
+    if (expected !== undefined && (config.winMode ?? null) !== expected) {
+      throw new Error(`the room plays ${config.winMode ?? 'annihilation'}, but this player was told ${expected ?? 'annihilation'}: start it with --mode ${config.winMode ?? 'annihilation'}`);
+    }
     // A rejoin by snapshot boots on the restored world; any refusal is a fresh one and a restart from zero.
     // `restartFromZero` is deferred one microtask: onStart runs inside the transport's `log` handler, which resumes
     // after this returns and would push the old, trimmed log into the new clock (WsTransport.restartFromZero).
@@ -263,7 +313,12 @@ export class AgentClient {
           log: this.log,
         })
       : null;
-    this.live = { config, w, side, fog: new FogTracker(w.sim, side), seatWorld: seatWorldFor(config, w.sim), dataDigest: shippedContentDigest(), producer };
+    const fog = new FogTracker(w.sim, side);
+    this.live = { config, w, side, fog, seatWorld: seatWorldFor(config, w.sim), dataDigest: shippedContentDigest(), producer, tally: new RefereeTally(), memory: new SeatMemory(w.sim, side, fog) };
+    // GH-976 P2: a points race is read by the referee's tally too (points by source), from the runtime's own score.
+    const pointsRules = config.winMode === 'points' ? versusModes[config.map]?.modes.points : undefined;
+    if (pointsRules !== undefined && w.runtime !== null) this.live.tally.setPoints({ runtime: w.runtime, rules: pointsRules });
+    else if (config.winMode !== undefined) this.live.tally.setMode(config.winMode);
     this.log(`match ${config.code} started: ${config.map}, seat ${this.o.seat} (side ${side}, ${w.factions[side]})`);
   }
 
@@ -309,6 +364,12 @@ export class AgentClient {
     return this.ran;
   }
 
+  /** Every frame this client has run, oldest first: empty unless the client was built with `keepFrames` (GH-954 W3).
+   *  The frames are the room's own objects, never changed here. */
+  framesRan(): readonly Frame[] {
+    return this.kept;
+  }
+
   /** Why this client gave up on a match it could not play (a world this
    *  checkout cannot build), or null. */
   failed(): string | null {
@@ -319,26 +380,39 @@ export class AgentClient {
   pump(maxTicks: number): number {
     const live = this.live;
     if (live === null || this.decided !== null) return 0;
-    const { config, w, fog, seatWorld, dataDigest, producer } = live;
+    const { config, w, fog, seatWorld, dataDigest, producer, tally, memory } = live;
     const sim = w.sim;
     const seat = this.o.seat;
+    const sides: [0 | 1, 0 | 1] = [config.seats[0].side, config.seats[1].side];
+    const tick = harnessTick(w, fog, this.o.runtimeDigest, (ev) => { tally.onEvents(sim, ev); });
     const { ran } = runFrames({
       transport: this.transport,
       sim,
       seatWorld,
-      ...harnessTick(w, fog, this.o.runtimeDigest),
+      ...tick,
+      // The referee's tally samples after the tick has run (GH-973): a read of the sim, nothing written.
+      runTick: () => { tick.runTick(); tally.onTick(sim, sides); memory.onTick(); },
       config,
       dataDigest,
       ...(producer === null ? {} : { afterFrame: (tick: number, digest: number | null) => { producer.onFrame(tick, digest); } }),
       beforeFrame: (f: Frame) => {
+        if (this.o.keepFrames === true) this.kept.push(f);
+        tally.onFrame(f.tick, f.cmds);
         const own = canonicalOrder(f.cmds)
           .filter((s) => s.seat === seat)
-          .map((s) => ({ cmd: s.cmd, valid: validateCommand(s.cmd, s.seat, seatWorld) }));
+          .map((s) => {
+            const valid = validateCommand(s.cmd, s.seat, seatWorld);
+            // Ownership is not the whole of it (GH-973): an `attack` the sim will refuse for EVERY shooter -- the
+            // target left sight, died, or cannot be hurt -- changes nothing, and is not `applied`. The sim's own
+            // `canFocus` is the filter its `attack` branch uses; this is asked before the frame runs it.
+            const why = valid ? attackDropReason(s.cmd, (id, target) => sim.canFocus(id, target)) : null;
+            return why === null ? { cmd: s.cmd, valid } : { cmd: s.cmd, valid: false, reason: why };
+          });
         if (own.length > 0) this.desk.onOwnCommands(own, f.tick);
         this.desk.onTick(f.tick);
       },
       stopAfter: (tick) => {
-        this.decided = decideOnHashTick(this.decided, tick, config, sim, productionOf(w));
+        this.decided = decideOnHashTick(this.decided, tick, config, sim, productionOf(w), goalsOf(w));
         if (this.decided === null) return false;
         // As the browser does through its end panel: the sim's result, told once.
         reportOver(this.o.role === 'seat' ? this.transport : null, this.decided.result, this.decided);
@@ -351,12 +425,34 @@ export class AgentClient {
     return ran;
   }
 
+  /** What this seat has seen and lost: last-seen enemy tiles and own units' deaths, or null before the match has started. */
+  memory(): SeatMemory | null {
+    return this.live?.memory ?? null;
+  }
+
   /** What this seat may know: its own force, contacts in its fog, the score. */
   view(): SideView {
     const live = this.live;
     if (live === null) throw new Error('AgentClient.view: the match has not started');
     const r = this.result();
-    return sideView(live.w, live.side, live.fog, r === null ? null : resultLine(r, live.side));
+    return sideView(live.w, live.side, live.fog, r === null ? null : resultLine(r, live.side), r === null ? null : byOf(r));
+  }
+
+  /**
+   * The referee's end-of-match numbers for BOTH seats, read from this client's own sim (GH-973), or null before the
+   * match has started. Not fog-limited, so a caller shows them only once the match has a result. `result`: the match's
+   * outcome in words; default the client's own result, if it has one.
+   */
+  refereeStats(result?: string | null): RefereeStats | null {
+    const live = this.live;
+    if (live === null) return null;
+    const sides: [0 | 1, 0 | 1] = [live.config.seats[0].side, live.config.seats[1].side];
+    return live.tally.stats(live.w.sim, {
+      map: live.config.map,
+      sides,
+      factions: [live.config.seats[0].faction, live.config.seats[1].faction],
+      result: result !== undefined ? result : resultText(this.result(), sides),
+    });
   }
 
   /** The sim's own result; failing that, the room's ending once its frames are run. */
@@ -370,12 +466,29 @@ export class AgentClient {
     return matchResult(local, ending, this.drained);
   }
 
+  /** Whether this client joined a match already under way (the room answered its hello with the log), as a respawned harness does. */
+  joinedUnderway(): boolean {
+    return this.underway;
+  }
+
+  /** The build the room said it runs, when it refused ours (`build_mismatch`); null when it did not say. */
+  roomBuild(): string | null {
+    return this.refusedBuild;
+  }
+
   /** Closes WITHOUT a `bye`: this socket is not the seat it was meant to be,
    *  or the world it was handed could not be built. */
   private abort(): void {
     if (this.closed) return;
     this.closed = true;
     this.transport.detach();
+  }
+
+  /** Leaves WITHOUT a `bye`: the socket goes, the seat stays. For a harness whose MCP client
+   *  went away before it did anything (Claude CLI starts a server to probe it, closes it and
+   *  starts it again): the next hello with the same ticket is the same seat's rejoin. */
+  release(): void {
+    this.abort();
   }
 
   /** A seat quitting a match still in play says `bye` (the room reads it as a
@@ -401,9 +514,11 @@ export function harnessTick(
   w: Pick<MatchWorld, 'sim' | 'runtime'>,
   fog: { step(): void },
   runtimeDigest?: () => number,
+  /** The tick's sim events, read-only (the referee's tally, GH-973). Absent: dropped, as before. */
+  onEvents?: (events: readonly SimEvent[]) => void,
 ): { runTick: () => void; runtimeDigest: () => number } {
   return {
-    runTick: () => { matchTick(w); fog.step(); },
+    runTick: () => { const ev = matchTick(w); onEvents?.(ev.sim); fog.step(); },
     runtimeDigest: runtimeDigest ?? (() => w.runtime?.digest() ?? 0),
   };
 }

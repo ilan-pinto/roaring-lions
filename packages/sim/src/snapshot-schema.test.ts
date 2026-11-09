@@ -151,6 +151,10 @@ function show(v: unknown): string {
 const CONFIG = [
   'width', 'height', 'capacity', 'seed', 'unitTypes', 'structureTypes', 'boulder', 'hasBoulders', 'openGrid',
   'humanHeldBySide', 'tnPoints', 'tnTiles', 'state', 'structures', 'works', 'sepCols', 'formationTypes',
+  // GH-976: the set-up region mask (a room's buildMatchWorld rebuilds it through beginSetup; it is hashed behind setupLive).
+  'setupRegion',
+  // GH-976 WP3: the kit's structure types and ban rects (setSetupKit rebuilds them; hashed behind setupLive).
+  'kitStructType', 'kitBans',
 ];
 const DERIVED = ['fields'];
 const SCRATCH = [
@@ -158,6 +162,8 @@ const SCRATCH = [
   'detDistSq', 'aimTurned', 'aimDesired', 'aimFrom', 'braceWant', 'sealQueue', 'sealStamp', 'fieldLive',
   'approachField', 'snapX', 'snapY', 'presentedArc', 'engageDSq', 'engageOX', 'engageOY', 'eyeX', 'eyeY',
   'spreadTiles', 'sepHead', 'sepNext', 'sepCap', 'sepOut', 'sepHitStationary',
+  // GH-972: the group-order ledger, rebuilt by garrisonLedger before every read.
+  'ledReserved', 'ledHeld',
 ];
 
 describe('snapshot schema: completeness', () => {

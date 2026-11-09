@@ -1,0 +1,52 @@
+{
+  "id": "milh_flats_l",
+  "map": "milh_flats_l",
+  "capacity": 512,
+  "cap_minutes": 35,
+  "ends": {
+    "friendly": {
+      "camp": {
+        "at": [14, 75],
+        "size": [2, 2],
+        "exit": [13, 74]
+      }
+    },
+    "hostile": {
+      "camp": {
+        "at": [80, 19],
+        "size": [2, 2],
+        "exit": [82, 21]
+      }
+    }
+  },
+  "income_zones": [
+    {
+      "zone": "bir_milh",
+      "rate_per_min": 60
+    },
+    {
+      "zone": "tell_nw",
+      "rate_per_min": 40
+    },
+    {
+      "zone": "tell_se",
+      "rate_per_min": 40
+    },
+    {
+      "zone": "knoll_0",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "knoll_1",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "haven_0",
+      "rate_per_min": 20
+    },
+    {
+      "zone": "haven_1",
+      "rate_per_min": 20
+    }
+  ]
+}

@@ -2,13 +2,92 @@ import { defineConfig } from 'eslint/config';
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
+import { PORTED_FILES, portedFilesBlocks } from './tools/webgpu_ratchet.mjs';
+import { ROAR_FENCE, RENDER_DEP_SELECTOR, RATCHET_BASE } from './tools/webgpu_fences.mjs';
 
+const ECON_MSG = '@lions/economy imports @lions/sim and @lions/data only (GH-1075 A0, CLAUDE.md dependency direction).';
 const SIM_MSG =
   'Banned in @lions/sim (invariant 2, CLAUDE.md): the sim is Q16.16 fixed-point. ' +
   'Math.sin/cos/pow/exp are not bit-identical across JS engines. Use fx.* from packages/sim/src/fixed.ts.';
 
 const TIME_MSG =
   'Banned in @lions/sim (invariant 1, CLAUDE.md): the sim runs a fixed 20 Hz tick and never reads wall time.';
+
+// The standing bundle rule's restricted imports for packages/app (see the block that
+// applies them, below), named so the Roar-coin fence can extend them rather than
+// replace them: flat config keeps ONE `no-restricted-imports` option object per file.
+const APP_RESTRICTED = {
+  paths: [
+    {
+      name: '@lions/render/three',
+      message:
+        'ThreeRenderer must reach packages/app only via a dynamic import() (see main.ts) -- a static ' +
+        'import puts three.js in the main chunk. See CLAUDE.md\'s standing bundle rule.',
+    },
+    {
+      name: '@lions/render/three-campaign',
+      message:
+        'The campaign board is three.js. It must reach packages/app via a dynamic import() ' +
+        '(see ui/worldmap3d.ts) -- a static one puts three.js in the main chunk for every ' +
+        'player, including one with no WebGL2 who is served the flat PNG board instead ' +
+        'and will never draw it. Same rule as @lions/render/three above.',
+    },
+    {
+      name: '@lions/render/three-front',
+      message:
+        'The scene host is three.js. It must reach packages/app via a dynamic import() ' +
+        '(see ui/scene-host.ts) -- a static one puts three.js in the main chunk for every ' +
+        'player, including one with reduced motion who is shown the plate instead.',
+    },
+    {
+      name: '@lions/render/three-garage',
+      message:
+        'The garage\'s turnable model is three.js. It must reach packages/app via a dynamic import() ' +
+        '(see ui/garage-viewer.ts) -- a static one puts three.js in the main chunk for every ' +
+        'player, including one who never opens the brigade screen.',
+    },
+    {
+      name: '@lions/render/terrain',
+      message:
+        'The terrain barrel exists for specs (packages/render\'s own test suite above all) to ' +
+        'build real geometry from shipped map data -- production app code has no use for the pure ' +
+        'builders directly, and this path is also how ../camera and its three.js import used to leak in.',
+    },
+    {
+      name: '@lions/render/three-camera',
+      message:
+        'three/camera.ts is three.js-dependent. Production app code asks the renderer for projection ' +
+        '(Renderer.worldToScreen) rather than importing either backend\'s arithmetic directly.',
+    },
+    // `three` itself, which this list did not name until #574 step 3:
+    // CLAUDE.md says three.js may be imported only under
+    // packages/render/src/three/**, but the block below guarded only
+    // packages/render/src, so `import * as THREE from 'three'` in
+    // packages/app linted clean (measured on eslint 9 before the
+    // upgrade). Static or not, it is the same main-chunk leak.
+    {
+      name: 'three',
+      message:
+        'Only packages/render/src/three/** may import three.js. packages/app reaches it through ' +
+        'the dynamic-import doors above, never directly. See CLAUDE.md\'s standing bundle rule.',
+    },
+  ],
+  // Subpaths (`three/addons/...`, `three/webgpu`) are not matched by a
+  // `paths` entry, which compares the whole specifier.
+  patterns: [
+    {
+      group: ['three/*'],
+      message:
+        'Only packages/render/src/three/** may import three.js, subpaths included. See CLAUDE.md\'s standing bundle rule.',
+    },
+  ],
+};
+
+// GH-317 (gate G-V2): the Roar-coin wallet is single-player. Coin-bought units and tiers
+// never reach a versus room (G-V1), and the simulation never learns a coin exists
+// (invariant 4). These modules stay out of the sim, the renderer, the net package and
+// the app's versus plumbing (`packages/app/src/net/**`, `match-world.ts` above all): a
+// room's kit is a claim the shell hands it (`OpenDeps.tiers`), never a read of the wallet.
 
 export default defineConfig(
   {
@@ -145,6 +224,7 @@ export default defineConfig(
       'packages/sim/src/**/*.test.ts',
       'packages/sim/src/golden-worlds.test-helper.ts',
       'packages/sim/src/runtime-sink-world.test-helper.ts',
+      'packages/sim/src/runtime-forward-world.test-helper.ts',
       'packages/sim/src/snapshot-witness-worlds.test-helper.ts',
     ],
     rules: {
@@ -160,10 +240,7 @@ export default defineConfig(
     rules: {
       'no-restricted-syntax': [
         'error',
-        {
-          selector: 'ImportDeclaration[source.value=/^@lions\\u002F(app|data)/]',
-          message: '@lions/render may import @lions/sim only (CLAUDE.md dependency direction).',
-        },
+        RENDER_DEP_SELECTOR,
       ],
     },
   },
@@ -190,6 +267,43 @@ export default defineConfig(
         },
       ],
     },
+  },
+  {
+    files: ['packages/economy/src/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportDeclaration[source.value=/^@lions\\u002F(app|render|worker|net)/]',
+          message: ECON_MSG,
+        },
+        {
+          selector: 'ImportDeclaration[source.value=/\\u002F(app|render|worker|net)\\u002Fsrc\\u002F/]',
+          message: ECON_MSG,
+        },
+        {
+          selector: 'ExportNamedDeclaration[source.value=/^@lions\\u002F(app|render|worker|net)/]',
+          message: ECON_MSG,
+        },
+        {
+          selector: 'ExportNamedDeclaration[source.value=/\\u002F(app|render|worker|net)\\u002Fsrc\\u002F/]',
+          message: ECON_MSG,
+        },
+        {
+          selector: 'ExportAllDeclaration[source.value=/^@lions\\u002F(app|render|worker|net)/]',
+          message: ECON_MSG,
+        },
+        {
+          selector: 'ExportAllDeclaration[source.value=/\\u002F(app|render|worker|net)\\u002Fsrc\\u002F/]',
+          message: ECON_MSG,
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/worker/src/match/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [ROAR_FENCE] }] },
   },
   {
     files: ['packages/worker/src/**/*.ts'],
@@ -237,75 +351,7 @@ export default defineConfig(
     files: ['packages/app/src/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          paths: [
-            {
-              name: '@lions/render/three',
-              message:
-                'ThreeRenderer must reach packages/app only via a dynamic import() (see main.ts) -- a static ' +
-                'import puts three.js in the main chunk. See CLAUDE.md\'s standing bundle rule.',
-            },
-            {
-              name: '@lions/render/three-campaign',
-              message:
-                'The campaign board is three.js. It must reach packages/app via a dynamic import() ' +
-                '(see ui/worldmap3d.ts) -- a static one puts three.js in the main chunk for every ' +
-                'player, including one with no WebGL2 who is served the flat PNG board instead ' +
-                'and will never draw it. Same rule as @lions/render/three above.',
-            },
-            {
-              name: '@lions/render/three-front',
-              message:
-                'The scene host is three.js. It must reach packages/app via a dynamic import() ' +
-                '(see ui/scene-host.ts) -- a static one puts three.js in the main chunk for every ' +
-                'player, including one with reduced motion who is shown the plate instead.',
-            },
-            {
-              name: '@lions/render/three-garage',
-              message:
-                'The garage\'s turnable model is three.js. It must reach packages/app via a dynamic import() ' +
-                '(see ui/garage-viewer.ts) -- a static one puts three.js in the main chunk for every ' +
-                'player, including one who never opens the brigade screen.',
-            },
-            {
-              name: '@lions/render/terrain',
-              message:
-                'The terrain barrel exists for specs (packages/render\'s own test suite above all) to ' +
-                'build real geometry from shipped map data -- production app code has no use for the pure ' +
-                'builders directly, and this path is also how ../camera and its three.js import used to leak in.',
-            },
-            {
-              name: '@lions/render/three-camera',
-              message:
-                'three/camera.ts is three.js-dependent. Production app code asks the renderer for projection ' +
-                '(Renderer.worldToScreen) rather than importing either backend\'s arithmetic directly.',
-            },
-            // `three` itself, which this list did not name until #574 step 3:
-            // CLAUDE.md says three.js may be imported only under
-            // packages/render/src/three/**, but the block below guarded only
-            // packages/render/src, so `import * as THREE from 'three'` in
-            // packages/app linted clean (measured on eslint 9 before the
-            // upgrade). Static or not, it is the same main-chunk leak.
-            {
-              name: 'three',
-              message:
-                'Only packages/render/src/three/** may import three.js. packages/app reaches it through ' +
-                'the dynamic-import doors above, never directly. See CLAUDE.md\'s standing bundle rule.',
-            },
-          ],
-          // Subpaths (`three/addons/...`, `three/webgpu`) are not matched by a
-          // `paths` entry, which compares the whole specifier.
-          patterns: [
-            {
-              group: ['three/*'],
-              message:
-                'Only packages/render/src/three/** may import three.js, subpaths included. See CLAUDE.md\'s standing bundle rule.',
-            },
-          ],
-        },
-      ],
+      'no-restricted-imports': ['error', APP_RESTRICTED],
     },
   },
 
@@ -350,9 +396,24 @@ export default defineConfig(
               group: ['three/*'],
               message: 'Only packages/render/src/three/** may import three.js, subpaths included.',
             },
+            ROAR_FENCE,
           ],
         },
       ],
     },
-  }
+  },
+  // The same fence where nothing else restricts imports yet: three's own folder, the sim
+  // and the net package. (The app's `net/` folder extends the standing bundle rule's
+  // options, because a later block REPLACES an earlier one's `no-restricted-imports`.)
+  {
+    files: ['packages/render/src/three/**/*.ts', 'packages/sim/src/**/*.ts', 'packages/net/src/**/*.ts'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [ROAR_FENCE] }] },
+  },
+  {
+    files: ['packages/app/src/net/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: { 'no-restricted-imports': ['error', { ...APP_RESTRICTED, patterns: [...APP_RESTRICTED.patterns, ROAR_FENCE] }] },
+  },
+  // GH-943 P0: the GLSL ratchet. Empty until P1 ports a file; see tools/webgpu_ratchet.mjs.
+  ...portedFilesBlocks(PORTED_FILES, RATCHET_BASE)
 );

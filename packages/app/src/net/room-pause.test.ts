@@ -425,7 +425,7 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
 
   it('W1: a versus room delivers move and attackMove with NO formation key, and every other field intact', () => {
     const { sink, got } = collect();
-    const out = roomOrderSink(LIVE, sink, () => {}, 'versus');
+    const out = roomOrderSink(LIVE, sink, () => {}, 'versus', false); // the gate injected closed: it ships open since GH-859's S4 (1 Nov)
     // the orders DID carry a formation going in, so the strip is not vacuous
     expect('formation' in move() && 'formation' in attackMove()).toBe(true);
     out.queueCommand(move());
@@ -438,7 +438,7 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
 
   it('W1: the caller\'s command object is not mutated, and any other command passes through as the same object', () => {
     const { sink, got } = collect();
-    const out = roomOrderSink(LIVE, sink, () => {}, 'versus');
+    const out = roomOrderSink(LIVE, sink, () => {}, 'versus', false);
     const mv = move();
     out.queueCommand(mv);
     expect(mv).toEqual(move());
@@ -469,6 +469,47 @@ describe('roomOrderSink: formations in versus rooms (GH-859 P1a)', () => {
     o.queueCommand(move());
     o.queueCommand(attackMove());
     expect(open.got).toEqual([move(), attackMove()]);
+  });
+
+  it('GH-859 (7 Nov): with the gate open a Wadi Tarfan (large) room delivers the formation (the sender), like Rujm Sawda and Milh Flats (large) since 3 Nov; with the gate shut it strips it', () => {
+    const shut = collect();
+    roomOrderSink(LIVE, shut.sink, () => {}, 'versus', false, 'wadi_tarfan_l').queueCommand(move());
+    expect(shut.got).toEqual([{ kind: 'move', ids: [3, 4], x: 1 << 16, y: 2 << 16, append: true }]);
+    for (const map of ['rujm_sawda', 'milh_flats_l', 'wadi_tarfan_l']) {
+      const open = collect();
+      roomOrderSink(LIVE, open.sink, () => {}, 'versus', true, map).queueCommand(move());
+      expect(open.got, map).toEqual([move()]);
+    }
+    const tel = collect();
+    roomOrderSink(LIVE, tel.sink, () => {}, 'versus', true, 'tel_marum').queueCommand(move());
+    expect(tel.got).toEqual([move()]);
+  });
+  it('GH-859 (5 Nov): a Tel Marum ECONOMY room strips the formation (the sender); a Tel Marum mirror or placed room and a Wadi Tarfan economy room deliver it', () => {
+    const strip = collect();
+    roomOrderSink(LIVE, strip.sink, () => {}, 'versus', true, 'tel_marum', 'economy').queueCommand(move());
+    roomOrderSink(LIVE, strip.sink, () => {}, 'versus', undefined, 'tel_marum', 'economy').queueCommand(attackMove());
+    expect(strip.got).toEqual([
+      { kind: 'move', ids: [3, 4], x: 1 << 16, y: 2 << 16, append: true },
+      { kind: 'attackMove', ids: [3], x: 5 << 16, y: 6 << 16 },
+    ]);
+    for (const [map, kind] of [['tel_marum', 'mirror'], ['tel_marum', 'placed'], ['wadi_tarfan', 'economy']] as const) {
+      const open = collect();
+      roomOrderSink(LIVE, open.sink, () => {}, 'versus', true, map, kind).queueCommand(move());
+      expect(open.got, `${map} ${kind}`).toEqual([move()]);
+    }
+  });
+  it('GH-945: with the gate open a Wadi Tarfan room delivers the formation (it was stripped from 1 Nov until its Sarim lean was settled)', () => {
+    const wadi = collect();
+    roomOrderSink(LIVE, wadi.sink, () => {}, 'versus', true, 'wadi_tarfan').queueCommand(move());
+    expect(wadi.got).toEqual([move()]);
+  });
+
+  it('GH-913 L8: every main.ts consumer of the predicate passes the room\'s map (a call that drops it would open a room its map closes)', () => {
+    const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
+    // GH-859 (5 Nov): and the room's KIND (`roomKindOf`), which a map's rules file may close (Tel Marum economy). A call that drops it opens that room.
+    expect(main).toContain('formationsOpenIn(netConfig?.mode, undefined, netConfig?.map, roomKindOf(netConfig))');
+    expect(main.match(/netConfig\??\.mode, undefined, netConfig\??\.map, roomKindOf\(netConfig\)\)/g)).toHaveLength(4);
+    expect(main.match(/formationsOpenIn\(/g)).toHaveLength(1); // the one call (the import line has no paren)
   });
 
   it('W2: single-player has no room, so its sink is the transport itself and the order carries the formation', () => {

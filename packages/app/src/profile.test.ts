@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ACCOUNT_KEY, emptyAccount } from './brigade-account';
+import { ACCOUNT_KEY, buyUpgradeRun, emptyAccount } from './brigade-account';
+import { ROAR_KEY, emptyRoar, resetFree, type RoarWallet } from './roar-wallet';
 import { LEDGER_KEY, TUTORIAL_DONE_KEY } from './main-keys';
 import { memoryLedgerStore } from './ledger-store';
 import { DAMAGED_BLOB_ID, SAVES_KEY, SAVE_ERROR_NOT_A_SAVE, damagedRaw, deleteSlot, exportSlot, importSlot, listDamaged, listSlots, loadSlot, readActive, saveSlot, writeActive } from './profile';
@@ -21,6 +22,8 @@ const ledger = { 'campaign.completed_missions': ['beit_sahwan_1_recon'], 'roe.mi
 // round trip -- the grant entry here is what makes 120 the account's true,
 // stable balance rather than a number the very first read clips to zero.
 const account = { ...emptyAccount(), balance: 120, earned_total: 120, grants: [{ source: 'granted' as const, amount: 120, at: 1 }] };
+
+const PRICES = [160, 240, 340] as const;
 
 describe('profile slots', () => {
   it('a slot round-trips the ledger and the account byte for byte', () => {
@@ -143,5 +146,70 @@ describe('importSlot validates the ledger element by element (#559 F4)', () => {
     const slot = importSlot(json);
     expect(slot.ledger['campaign.completed_missions']).toEqual(['beit_sahwan_breach']);
     expect(slot.ledger['roster.surviving_units']).toEqual([{ type: 'inf_squad', veterancy: 1 }]);
+  });
+});
+
+// T21 (store/garage spec §2.5): where a bought unit's credit tiers and coin tiers live,
+// and what a reset or a slot load does to each. Credits live in the brigade account
+// (and so in a slot); coin tiers live in the wallet, which no slot ever holds.
+describe('T21 reset and slots with credit tiers and coin tiers', () => {
+  const funded = { ...emptyAccount(), balance: 2000, earned_total: 2000, grants: [{ source: 'granted' as const, amount: 2000, at: 1 }] };
+  const coinWallet = (): RoarWallet => ({
+    ...emptyRoar(),
+    coins: { free: 90, paid: 0 },
+    entitlements: { units: {}, upgrades: { spg_long_range: { armour: { tier: 2, paidTiers: 0 } } } },
+  });
+
+  it('resetAccount drops a bought unit\'s credit tiers, its unlock and the free coin tiers', () => {
+    const s = memStore();
+    const bought = buyUpgradeRun({ ...funded, unlocks: ['spg_long_range'] }, 'spg_long_range', 'armour', 1, 3, PRICES).account;
+    s.writeAccount(bought);
+    s.writeRoar(coinWallet());
+    expect(s.readAccount().upgrades.spg_long_range?.armour).toBe(3);
+    const after = s.resetAccount();
+    expect(after.upgrades).toEqual({});
+    expect(after.unlocks).toEqual([]);
+    expect(s.readAccount().upgrades).toEqual({});
+    expect(s.readRoar().entitlements.upgrades).toEqual({});
+  });
+
+  it('resetFree keeps a PAID coin tier and drops the free one', () => {
+    // Paid coins are unreachable through the app until ST7 (the loader clamps them), so
+    // the wallet is built by hand and the pure function is called directly.
+    const w: RoarWallet = {
+      ...emptyRoar(),
+      coins: { free: 10, paid: 5 },
+      entitlements: { units: {}, upgrades: { u: { armour: { tier: 2, paidTiers: 1 }, sensors: { tier: 1, paidTiers: 0 } } } },
+    };
+    const r = resetFree(w);
+    expect(r.entitlements.upgrades).toEqual({ u: { armour: { tier: 1, paidTiers: 1 } } });
+    expect(r.coins).toEqual({ free: 0, paid: 5 });
+  });
+
+  it('a slot load restores the earned tiers and leaves the coin tiers alone', () => {
+    const s = memStore();
+    const earned = buyUpgradeRun(funded, 'spg_long_range', 'armour', 1, 2, PRICES).account;
+    s.writeAccount(earned);
+    s.writeRoar(coinWallet());
+    const roarBytes = s.map.get(ROAR_KEY);
+    expect(roarBytes).toBeDefined();
+    const slot = saveSlot(s, 'a', 'Credits', readActive(s), '0.68.0', 1);
+    // The slot is the brigade account and the ledger. The wallet is in no slot.
+    expect(exportSlot(slot)).not.toContain('entitlements');
+    expect(exportSlot(slot)).not.toContain('paidTiers');
+    // Play on: spend more credits, buy another coin tier, then load the slot back.
+    const played = buyUpgradeRun(earned, 'spg_long_range', 'armour', 3, 3, PRICES);
+    expect(played.ok, 'the purchase after the slot was saved landed').toBe(true);
+    s.writeAccount(played.account);
+    expect(s.readAccount().upgrades.spg_long_range?.armour, 'play-on moved the tier before the load').toBe(3);
+    s.writeRoar({ ...coinWallet(), coins: { free: 1, paid: 0 } });
+    const newer = s.map.get(ROAR_KEY);
+    const loaded = loadSlot(s, 'a');
+    if (!loaded) throw new Error('slot missing');
+    writeActive(s, loaded);
+    expect(s.readAccount().upgrades.spg_long_range?.armour).toBe(2);
+    expect(s.readAccount().balance).toBe(earned.balance);
+    expect(s.map.get(ROAR_KEY)).toBe(newer);
+    expect(s.map.get(ROAR_KEY)).not.toBe(roarBytes);
   });
 });

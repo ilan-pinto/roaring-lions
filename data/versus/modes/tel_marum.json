@@ -1,0 +1,20 @@
+{
+  "id": "tel_marum",
+  "map": "tel_marum",
+  "flags": {
+    "friendly": { "at": [24, 26], "size": [5, 5] },
+    "hostile": { "at": [19, 35], "size": [5, 5] }
+  },
+  "modes": {
+    "flag": { "hold_s": 30 },
+    "points": {
+      "zones": [
+        { "zone": "approach_s", "per_min": 50, "at": [18, 25], "size": [7, 5] },
+        { "zone": "overwatch_west", "per_min": 30 },
+        { "zone": "valley_s", "per_min": 30, "at": [14, 36], "size": [8, 6] }
+      ],
+      "per_value_destroyed": 1,
+      "target": 600
+    }
+  }
+}

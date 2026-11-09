@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "592ebbb193e6aa64e85befffd024b2fd8f16f023",
-  "blessedAt": "2026-11-01T10:35:40.259Z",
-  "reason": "PR 924 (GH-826 step 2): Rifle Squad hands on the weapon. The vehicle and kitted scenarios show the new infantry figures (vehicle 373 px / 0.0242, kitted 385 px / 0.0266 on CI); every other scenario passes.",
+  "commit": "7b37c92559f5e902b8a15191a504fe0aa19ae44c",
+  "blessedAt": "2026-11-06T11:02:14.764Z",
+  "reason": "Rotor wash v2 (PR 1003, GH-984 N3): a hovering helicopter's wash flattens grass and thrashes shrubs within 3.5 tiles, and its dust ring is re-timed. Only vehicle, kitted and graded move, all in one box at the helicopter's plume (126/117/237 px).",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "07ea019faadaafd558e154408b6549b59871eab57ac15a65615fd193ce8a7f19"
+      "sha256": "410f2eda990fffc55321b5c3aac9205556514a1d255bfeb5762c587c0ce717bd"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "fdb46794715136520f48a3c7129f1ae7083b72a05c5b8a55ad0ec274d8b0551f"
+      "sha256": "d0a562bb2002e45d7bc0e5bbee8d1970784d2bfdbc6cdf590be255342ff90229"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b9a8c8530729046f6aed3cc4e45c071a9cf9f1e2a98161793f653a381b120a80"
+      "sha256": "b45352ab5c33b7014df173095f9ddd1a01e6072cc227f0fb5f0504471d0cd7e8"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,35 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c824bdaa1129282618f3f632b41267e7b9923d75c115e876cef4d2a954712647"
+      "sha256": "060c1f00040f47d32c437ee1393eb3c25705360268957573dfee462fa619b9d9"
+    },
+    "fogged": {
+      "tick": 140,
+      "camera": {
+        "x": 12.5,
+        "y": 22.5,
+        "zoom": 0.5
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": null,
+      "sha256": "7bfbcaa238844a3f215d2beec432b460be65ff8c0a74eff4a0ddd73f806e7ebb"
+    },
+    "graded": {
+      "tick": 140,
+      "camera": {
+        "x": 4.5,
+        "y": 20.5,
+        "zoom": 1
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": null,
+      "sha256": "39dbf59e76a61ba4f1deb6da8fbf7918cbddcadfa8ed14a55b09290c8a013553"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +109,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c01d67b82fc1127270abb13f255a7d23bfbc8ea8914807d7cbc6a57a85dff00f"
+      "sha256": "f795dc1f22bfa74000067fe9240a1cba7d0e49e1cf0440a2e0e4044842e216f3"
     },
     "aftermath": {
       "tick": 300,
@@ -95,7 +123,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "7d6e01991aec699d98a8a2845c24a200588cd890e3d4805528380385e76a7b21"
+      "sha256": "2b9e79c1f914018e0512d5d5d86939d48d83472c4c4f381366196a21134709e8"
     }
   }
 }

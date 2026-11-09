@@ -16,6 +16,7 @@ import { formationClassOfUnit, formationUnitFacts } from './formation-sim';
 import { formationRow } from './formation-model';
 import { alertsForTick, initAlertState, type AlertWorld } from './alerts';
 import { createFormationArming } from '../input/formation-arming';
+import { formationClosedReason } from '../net/versus-formations';
 import { cursorAt, simIntentWorld, type PointerPoint } from '../input/pointer';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -266,24 +267,24 @@ describe('the card: contact', () => {
     expect(cardLines(h.w.sim, h.heli)).toContain('Answering a call');
   });
 
-  it('an Attack pressing on reads "In contact — pressing on" and names no pace (GH-859 P1c: it marches at its members\' own speeds); the aircraft are answering', () => {
+  it('an Attack pressing on reads "In contact — pressing on" and names no pace (GH-859 P1c: it marches at its members\' own speeds); its aircraft are left out: no card line, no call', () => {
     const p = pressing();
-    step(p.w, 20); // tick 21: marching, checkpoint 1 of 4
-    expect(cardLines(p.w.sim, p.tank)).toContain('In attack formation — checkpoint 1 of 4');
+    step(p.w, 20); // tick 21: under way; the Attack ships without checkpoints (lead, 1 Nov), so no 'checkpoint N of M'
+    expect(cardLines(p.w.sim, p.tank).join(' | ')).not.toContain('checkpoint');
+    expect(cardLines(p.w.sim, p.tank)).toContain('In attack formation');
     expect(cardLines(p.w.sim, p.tank).join(' | ')).not.toContain('Pace'); // the Attack has no pace; the Column's cards above and below still do
-    expect(cardLines(p.w.sim, p.heli)).toContain('On call');
-    expect(cardLines(p.w.sim, p.drone)).toContain('On call');
-    step(p.w, 100); // tick 121: contact at 104 (was 113 under the pace), the aircraft called at 105
+    // The Attack leaves its aircraft out (GH-859): they fly the plain order, so they are on no call.
+    expect(cardLines(p.w.sim, p.heli)).not.toContain('On call');
+    expect(cardLines(p.w.sim, p.drone)).not.toContain('On call');
+    step(p.w, 100); // tick 121: contact at 104 (was 113 under the pace)
     expect(p.w.sim.formationStateOfGroup(0)).toBe(3);
     const tank = cardLines(p.w.sim, p.tank);
     expect(tank).toContain('In contact — pressing on');
     expect(tank.join(' | ')).not.toContain('Pace');
     expect(tank.join(' | ')).not.toContain('checkpoint');
     for (const id of [p.heli, p.drone]) {
-      expect(p.w.sim.formationDutyOf(id)).toBe(2);
-      expect(cardLines(p.w.sim, id), `aircraft ${id}`).toContain('Answering a call');
-      // An aircraft is not held to the ground pace.
-      expect(cardLines(p.w.sim, id).join(' | '), `aircraft ${id}`).not.toContain('Pace');
+      expect(p.w.sim.formationDutyOf(id), `aircraft ${id}`).toBe(0);
+      expect(cardLines(p.w.sim, id).join(' | '), `aircraft ${id}`).not.toContain('Answering a call');
     }
   });
 });
@@ -415,14 +416,12 @@ describe('the alerts: once per event, own side only', () => {
     expect(alertsOver(h.w, 1)).toEqual([]);
   });
 
-  it('an Attack pressing on raises no contact line (it does not halt), but its two aircraft answer the call: one line each', () => {
+  it('an Attack pressing on raises no contact line (it does not halt), and its aircraft, left out of the formation, answer nothing: no call line', () => {
     const p = pressing();
     step(p.w, 150);
     expect(p.w.events.filter((e) => e.kind === 'formationContact')).toHaveLength(1);
-    expect(alertsOver(p.w, 0).map((a) => [a.kind, (a.params as { unit?: string }).unit])).toEqual([
-      ['formationCall', 'Peten Gunship'],
-      ['formationCall', 'Recon Drone'],
-    ]);
+    expect(p.w.events.filter((e) => e.kind === 'formationCall')).toHaveLength(0);
+    expect(alertsOver(p.w, 0)).toEqual([]);
   });
 
   it('a medic\'s answer raises nothing', () => {
@@ -459,10 +458,10 @@ describe('the lines go through t(): bracketed under the pseudo-locale, and read 
     expect(spans(h.w.sim, h.heli)).toBeGreaterThanOrEqual(2);
     expect(unbracketed(h.w.sim, h.inf)).toBe('');
     expect(unbracketed(h.w.sim, h.heli)).toBe('');
-    // An Attack pressing on, and its two aircraft on a call.
+    // An Attack pressing on (its aircraft are left out and have no formation line to bracket).
     const p = pressing();
     step(p.w, 120);
-    for (const id of [p.tank, p.inf, p.heli, p.drone]) {
+    for (const id of [p.tank, p.inf]) {
       expect(spans(p.w.sim, id), `unit ${id}`).toBeGreaterThanOrEqual(2);
       expect(unbracketed(p.w.sim, id), `unit ${id}`).toBe('');
     }
@@ -516,9 +515,11 @@ describe('the lines go through t(): bracketed under the pseudo-locale, and read 
 // ---------------------------------------------------------------------------------------------
 describe('M10: the arming (inert keys, the arm note)', () => {
   /** Two gunships: Column and Attack are open to them, the Ambush is inert (no ground to ring the zone). */
-  function airRig(): { arming: ReturnType<typeof createFormationArming>; notes: string[]; retired: string[]; w: World } {
+  function airRig(squads = 0): { arming: ReturnType<typeof createFormationArming>; notes: string[]; retired: string[]; w: World } {
     const w = world();
     const sel = [0, 1].map((k) => spawn(w, w.t.heli, 0, 22 + k * 2, 40));
+    // GH-859: the Attack leaves aircraft out, so it needs two ground units of its own to be an active key.
+    for (let k = 0; k < squads; k++) sel.push(spawn(w, w.t.inf, 0, 22 + k * 2, 42));
     const notes: string[] = [];
     const retired: string[] = [];
     const sink: OrderSink = { dispatch: () => undefined, note: (text) => notes.push(text), marker: () => undefined, deny: () => undefined };
@@ -580,7 +581,7 @@ describe('M10: the arming (inert keys, the arm note)', () => {
     ];
     expect(cases).toHaveLength(5);
     for (const c of cases) {
-      const a = airRig();
+      const a = airRig(c.name === 'replaced' ? 2 : 0);
       a.arming.press('formationColumn' as never);
       expect(a.retired, c.name).toEqual([]);
       c.end(a);
@@ -626,6 +627,48 @@ describe('M5: the cursor and the click count classed units alike', () => {
       cursorAt(w.sim, world_, point(24.5, 20.5), { ids, armed: null, confirm: false, armedSmoke: false, armedFormation: { id: 'column', ids, open: true } }).res.intents[0];
     expect(read([squad, man])).not.toHaveProperty('formation');
     expect(read([squad, squad2])).toHaveProperty('formation', 'column');
+  });
+
+  // GH-859 (review of PR 1073): the room kind's reason must survive the two seams between main.ts and the resolver, the cursor's
+  // `armedFormation.reason` and the arming's `reason()`. The main.ts text pin cannot see a call inside either file drop it.
+  it('the cursor over an armed formation in a room its map closes reads the ROOM line; without a reason, the versus line', () => {
+    const w = world();
+    const a = spawn(w, w.t.inf, 0, 22, 40);
+    const b = spawn(w, w.t.inf, 0, 26, 40);
+    const world_ = simIntentWorld(w.sim, () => false);
+    const note = (reason?: ReturnType<typeof formationClosedReason>) =>
+      cursorAt(w.sim, world_, point(24.5, 20.5), { ids: [a, b], armed: null, confirm: false, armedSmoke: false, armedFormation: { id: 'column', ids: [a, b], open: false, ...(reason ? { reason } : {}) } }).res.note?.text;
+    expect(note(formationClosedReason('tel_marum', 'economy'))).toBe('Formations are off in economy rooms on this map');
+    expect(note()).toBe('Formations are not in versus rooms yet');
+  });
+
+  it('a spent arming in a room its map closes posts the ROOM line and sends nothing; without a reason, the versus line', () => {
+    const w = world();
+    const sel = [spawn(w, w.t.inf, 0, 22, 40), spawn(w, w.t.inf, 0, 26, 40)];
+    const run = (reason?: () => ReturnType<typeof formationClosedReason>) => {
+      const notes: string[] = [];
+      const sent: unknown[] = [];
+      const sink: OrderSink = { dispatch: (i) => sent.push(i), note: (text) => notes.push(text), marker: () => undefined, deny: () => undefined };
+      const arming = createFormationArming({
+        // the row is built open so the key arms; the SPEND asks `open()`, which is the closed room under test
+        row: (armed) => formationRow({ formationsOpen: true, units: formationUnitFacts(w.sim, sel) }, armed),
+        ids: () => sel,
+        world: simIntentWorld(w.sim, () => false),
+        sink,
+        open: () => false,
+        ...(reason ? { reason } : {}),
+        onArmed: () => undefined,
+        classOf: (i) => formationClassOfUnit(w.sim, i),
+        retire: () => undefined,
+      });
+      expect(arming.press('formationColumn' as never)).toBe('column');
+      arming.spend(24.5, 20.5, false);
+      return { notes, sent };
+    };
+    const room = run(() => formationClosedReason('tel_marum', 'economy'));
+    expect(room.sent).toEqual([]);
+    expect(room.notes.at(-1)).toBe('Formations are off in economy rooms on this map');
+    expect(run().notes.at(-1)).toBe('Formations are not in versus rooms yet');
   });
 
   it('main.ts wires the arming to the HUD\'s retireNote, the sim\'s class, and the routed filter', () => {

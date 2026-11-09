@@ -1,3 +1,5 @@
+import type { KVLike } from './account/kv';
+
 /** The slice of Cloudflare's D1 API this Worker uses. Declared here rather than
  *  imported from @cloudflare/workers-types: those redeclare Request/Response and
  *  collide with the DOM lib the repo's root typecheck runs under. */
@@ -20,6 +22,8 @@ export interface DurableObjectNamespaceLike {
   get(id: unknown): DurableObjectStubLike;
 }
 export interface Env {
+  /** GH-954 P3: any value but empty, `0` or `false` makes /arena-results and /arena-results.json answer 404, no deploy. */
+  ARENA_RESULTS_HIDDEN?: string;
   DB: D1Like;
   ASSETS: { fetch(request: Request): Promise<Response> };
   INGEST_LIMIT?: RateLimiter;
@@ -50,4 +54,18 @@ export interface Env {
   /** N0: signs seat tickets. Its own secret, never STATS_PASSWORD. Unset fails
    *  closed: every /api/match path answers 503. */
   TICKET_SECRET?: string;
+  /** GH-954 W1: "1" lets `POST /api/match/:code/watch` mint a spectator ticket. Set ONLY by the local
+   *  relay (`tools/src/net/local-relay.ts`), never in `wrangler.jsonc` and never as a secret: without it the
+   *  route answers 404 and the Worker cannot be watched. */
+  ARENA_WATCH?: string;
+  /** GH-1075 A1: the accounts database. Unbound answers 503 on every /api/account/* path. */
+  ACCOUNTS?: D1Like;
+  /** GH-1075: deletion tombstones (90 days). */
+  ACCOUNT_TOMBSTONES?: KVLike;
+  /** GH-1075: 10 a minute per IP. */
+  ACCOUNT_LIMIT?: RateLimiter;
+  /** GH-1075: 60 a minute per IP, for the cheap ops. */
+  ACCOUNT_OP_LIMIT?: RateLimiter;
+  /** GH-1075: comma-separated extra origins for WebAuthn client data and the Steam realm. A local relay needs this and ALLOWED_ORIGINS both set. */
+  ACCOUNT_ORIGINS?: string;
 }

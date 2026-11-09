@@ -18,20 +18,11 @@
  * Static text, never conditioned on the ledger (storyline.md D9).
  */
 import type { LedgerData } from '@lions/sim';
-import { regionProgress, type ParsedWorld } from './campaign';
+import { campaignComplete } from '@lions/economy';
+import type { ParsedWorld } from './campaign';
 import { t } from './i18n/t';
 
-/** Every region that has missions is finished, and there is at least one. */
-export function campaignComplete(world: ParsedWorld, ledger: LedgerData | undefined): boolean {
-  let any = false;
-  for (const region of world.regions) {
-    const p = regionProgress(region, ledger);
-    if (p.total === 0) continue;
-    if (p.status !== 'complete') return false;
-    any = true;
-  }
-  return any;
-}
+export { campaignComplete };
 
 export type ClosingSpeaker = 'idit' | 'shai';
 

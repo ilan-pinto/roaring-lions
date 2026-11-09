@@ -26,10 +26,20 @@
     { "unit": "jeep_shoded", "count": 1, "at": [22, 45] },
     { "unit": "ifv_namer", "count": 1, "at": [29, 45] },
     { "unit": "recon_drone", "count": 1, "at": [24, 44] },
-    { "unit": "inf_medic_squad", "count": 1, "at": [23, 44] }
+    { "unit": "inf_medic_squad", "count": 1, "at": [23, 44] },
+    { "unit": "demo_squad", "count": 1, "at": [25, 45] }
   ],
+  "field_works": {
+    "kdf_medic_station": 1,
+    "kdf_outpost": 1,
+    "kdf_workshop": 1,
+    "kdf_intel_centre": 1
+  },
   "resources": { "logistics_start": 400, "logistics_rate_per_min": 120 },
-  "structures": [{ "type": "camp", "at": [20, 38], "size": [2, 2] }],
+  "structures": [
+    { "type": "camp", "at": [20, 38], "size": [2, 2] },
+    { "type": "militia_firing_position", "at": [12, 18], "size": [2, 2] }
+  ],
   "objectives": [
     { "id": "hold_the_ward", "type": "hold_for", "primary": true, "target": "ward", "seconds": 240,
       "text": "Hold the ward for four minutes",
@@ -61,7 +71,7 @@
       { "unit": "militia_cell", "count": 1, "at": [23, 14], "group": "ward_push" },
       { "unit": "militia_cell", "count": 1, "at": [29, 14], "group": "ward_push" },
       { "unit": "rpg_team", "count": 1, "at": [22, 17], "group": "ward_push", "stance": { "kind": "ambush", "tiles": 3 } },
-      { "unit": "rpg_team", "count": 1, "at": [14, 18], "tag": "kr_lane_west", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "rpg_team", "count": 1, "at": [12, 18], "tag": "kr_lane_west", "stance": { "kind": "garrison", "building": [12, 18] } },
       { "unit": "rpg_team", "count": 1, "at": [34, 18], "tag": "kr_lane_east", "stance": { "kind": "ambush", "tiles": 3 } },
       { "unit": "militia_cell", "count": 1, "at": [24, 9], "tag": "kr_hvt_ward", "group": "ward_party" },
       { "unit": "militia_cell", "count": 2, "at": [34, 8], "stance": { "kind": "garrison", "building": [34, 8] } },

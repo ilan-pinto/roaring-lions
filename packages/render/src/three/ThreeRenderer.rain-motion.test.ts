@@ -242,7 +242,7 @@ describe('the answer is asked live, once a frame (R-9)', () => {
 });
 
 describe('a dry renderer does no new reduced-motion work (R-9)', () => {
-  it('asks reducedMotion once a frame for the wound ring only: a wet renderer asks once more, a dry one does not', () => {
+  it('asks reducedMotion once a frame for the wound ring and the wind: the wet writes add none (they share the wind`s)', () => {
     const asksPerFrame = (weather: 'rain' | 'clear'): number => {
       const spy = vi.fn(() => false);
       const sim = new Sim({ seed: 1, width: MAP, height: MAP, capacity: 4 });
@@ -255,8 +255,9 @@ describe('a dry renderer does no new reduced-motion work (R-9)', () => {
       r.dispose();
       return n;
     };
-    expect(asksPerFrame('clear'), 'dry: the wound ring`s own ask, nothing from the wet writes').toBe(1);
-    expect(asksPerFrame('rain'), 'wet: the wound ring plus the one shared wet ask').toBe(2);
+    // GH-984 N1: the wind plays on every map, so a dry renderer asks once for it as well; nothing from the wet writes.
+    expect(asksPerFrame('clear'), 'dry: the wound ring`s own ask plus the wind`s').toBe(2);
+    expect(asksPerFrame('rain'), 'wet: the wound ring plus the one ask the wind, the rain and the ripples share').toBe(2);
   });
 });
 

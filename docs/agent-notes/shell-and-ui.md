@@ -12,6 +12,13 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   `?telemetry` -- never from `pnpm dev`, tests or CI, because `pnpm ui:routes` fails on any
   console error. `?tester=<name>` labels a tester, `?notrack` opts out (persisted). Results
   are read from the terminal with `packages/worker/QUERIES.sql` (`npx wrangler d1 execute roaring-lions-telemetry --remote --file ...`), still available as an alternative; `/stats` is behind a password set with `npx wrangler secret put STATS_PASSWORD` -- make it long and random (e.g. `openssl rand -base64 24`), not a memorised phrase, since a captured session cookie hands over the signing key too -- and answers 403 until that secret is set. Spec: `docs/superpowers/specs/2026-09-24-telemetry-design.md`.
+- **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
+  `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
+  `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the
+  deployed build has it with no git), then `GITHUB_SHA` (GitHub Actions), then `git rev-parse HEAD`. With none of
+  them (no git, a tarball) the footer reads `dev`. It is the first 7 digits of the same full commit that the room's
+  build id carries (`${version}+${commit}`), so `pnpm bot` against a deployed room can be matched to a checkout.
+  Display only; never in a URL.
 - **In-game feedback (GH-464) is a PUBLIC write endpoint**, open to every player in v1 by the
   lead's ruling. `POST /api/feedback` (multipart: `meta` JSON against
   `data/schemas/feedback.schema.json`, whose Worker twin is `packages/worker/src/feedback-meta.ts`;
@@ -192,3 +199,48 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   same silent way. Two consequences worth knowing: a running browser now reloads by itself
   when a GLB lands, and the six watched directories are printed at `pnpm dev`
   boot, so "is my new mesh's directory covered?" is answered by the banner.
+
+## Coin rules live in @lions/economy (GH-1075 A0)
+
+The pure coin and brigade rules (wallet, brigade account, sha256, the campaign
+world and gate, campaign close, the earn table, the Stores model) moved from
+`packages/app` into `packages/economy` (`@lions/economy`), which imports `sim`
+and `data` only so the Worker can share them. The old app paths stay as thin
+re-export modules, so no call site moved: `roar-wallet`, `brigade-account`,
+`sha256`, `campaign`, `gate-sentence`, `campaign-close`, `roar-earn` and
+`ui/stores-model`. The G-V2 fence (`ROAR_FENCE`, GH-317) now also covers
+`@lions/economy` and `packages/worker/src/match/**`, so neither the sim, the
+renderer, the net package nor the match code can import the wallet. The tests
+stay in the app (the app is where the behaviour is driven); `parseWorld` lives
+in `packages/economy/src/world.ts`.
+
+## Stores: What it adds, and credit runs (GH-1076, GH-1077)
+
+Plan: `docs/superpowers/plans/2026-11-07-store-garage.md` (its Conflicts and R0.x rulings win). Landed as
+PR 1114 (`creditAsk`/`buyUpgradeRun`), 1115 (`unitAdds`), 1117 (threat table), 1118 (balance fit), 1119 (Garage
+credit Buy), 1120 (the panel), 1122 (Stores tier-row credit Buy). PR 1123 (the nine tracks plus the 11 close-ups) was still open when this was written.
+
+- **`unitAdds`** (`packages/app/src/ui/stores-adds.ts`, drawn by `stores-adds-view.ts`) is one pure model behind the
+  Stores' "What it adds" panel. The versus line follows PR 1110: a bought-only unit with `specialRefusal(id) === null`
+  shows `brigadeRoom`; `campaignOnly` shows whenever neither `brigadeRoom` nor a versus line applies (`!brigadeRoom && !versus` in `stores-adds.ts`), so a unit that gets `brigadeRoom` (bought-only and not refused, such as `spg_long_range`) never shows it, even if the versus room holds it out. What shows it is the refused three, and every other unit that is held out of versus without being bought-only (`heli_yanshuf` has an earned `roe_rating_min` gate). The refusal is injected
+  (`AddsInput.refusal`), the app keeps no copy of the list.
+- **The Hurt-by table is generated.** `pnpm store:threats` (`tools/src/store/threat-table.ts`) asks a headless
+  `Sim`'s own `focusHurts` and writes `threat-table.json`. `tools/src/store_threat_table.test.ts` goes red on any
+  roster or tuning change until it is regenerated: regenerate the JSON, never hand-edit it. The test's own literal
+  assertions (R0.10, for example which enemy appears in which unit's list) are different: they are the maintainers' to
+  update by hand when a roster change legitimately changes them. The generator throws if a type's `isAirborne` does not
+  match its domain (R0.9); the side plate (facing 16384 reads `presentedArc` 1, facing 0 reads 0) is asserted by the
+  test, not the generator, so run `store_threat_table.test.ts` after every regeneration. `wounded_sarim` is excluded by
+  `role`, never by id.
+- **R3 with R0.1.** `creditAsk(prices, earned, owned)` (`upgrade-pay.ts`) prices a credit run: credits fill the earned
+  path below the tier they buy. It returns `null` when the single-player tier is already the top, whoever paid for it.
+  There is no "Count online" run (R0.1, ruled by the lead). `owned` is `max(earned, coins)`; no caller reads the wallet
+  to price a credit Buy. `buyUpgradeRun` writes only `balance` and `upgrades`, so `ACCOUNT_VERSION` stays 2.
+  **`buyUpgradeRun` prices itself** (GH-1146): it takes the track's tier price table, never a total, and charges
+  the sum for `from..to`. `credit-buy.ts` still recomputes `creditAsk` to refuse a STALE `to`/`price` from the button.
+- **A2 requirement (stale cache).** `creditAsk` reads the coin tier through the cache. A coin spend still in the
+  outbox can leave the cache one tier low, and a credit run would re-buy a tier coins already own (R4). When A2
+  makes coin spends server-authoritative, DISABLE the credit Buy on a track with a pending coin spend for that
+  track. Tracked in GH-1142. `buyUpgradeRun` itself is GH-1146.
+- **Known gaps left open** (each has an issue): `pnpm playtest` only exercises the medic's track, not the other eight (GH-1144); possible
+  existing overflows at 1280 on the Garage cards and at 1920 on pseudo card text (GH-1145).

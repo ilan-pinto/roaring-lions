@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { resolveIdentity, readOptOut, safeStorage, type StorageLike } from './identity';
 
@@ -14,6 +16,12 @@ describe('resolveIdentity', () => {
     const id = resolveIdentity(s, q(), () => ID);
     expect(id).toEqual({ player: ID, returning: false, optedOut: false });
     expect(s.data['lions.telemetry.player']).toBe(ID);
+  });
+
+  it('the telemetry player id comes from crypto.randomUUID, never from the account or a SteamID (A1 follow-up 4)', () => {
+    const src = readFileSync(join(__dirname, 'index.ts'), 'utf8');
+    expect(src).toContain('resolveIdentity(storage, query, () => crypto.randomUUID())');
+    expect(src.toLowerCase()).not.toContain('steam');
   });
 
   it('reuses a stored id and reports a returning player', () => {

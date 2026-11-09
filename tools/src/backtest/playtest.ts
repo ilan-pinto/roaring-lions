@@ -41,7 +41,9 @@ import { firstLightPlan } from './plans/beit_sahwan';
 import { EIN_QASAB_PLANS } from './plans/ein_qasab';
 import { playOrderOf } from './play-order';
 import { telMarum3Plan } from './plans/tel_marum';
-import { e6Remetz, countBeams, isRemetz, remetzReport } from './plans/e6-remetz';
+import { uz2Plan } from './plans/umm_zeitoun';
+import { forwardCampPlan, FORWARD_CAMP_SPECS } from './plans/forward_camp';
+import { countBeams, remetzReport } from './plans/e6-remetz';
 
 
 /**
@@ -393,6 +395,8 @@ const wh2 = run('wadi_halam_2_laager', wadiHalam2Plan, wh1);
 // starts (the force spawns at x2-4, `pasture` begins at x13) -- nothing else
 // on the map can end a passive run.
 passiveAcrossSeeds('wadi_halam_2_laager', 'wadi_halam_2_laager (no orders)', 'defeat', wh1);
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('wadi_halam_2_laager', 'wadi_halam_2_laager (medic only)', 'defeat', wh1, SWEEP_SEEDS, 'medic');
 
 const wh3 = run(
   'wadi_halam_3_counterraid',
@@ -482,6 +486,12 @@ passiveAcrossSeeds('ein_qasab_2_foothold', 'ein_qasab_2_foothold (no orders)', '
 const eq3 = run('ein_qasab_3_buildup', EIN_QASAB_PLANS.ein_qasab_3_buildup, eq2, 'victory', 'ein_qasab_3_buildup', 2);
 passiveAcrossSeeds('ein_qasab_3_buildup', 'ein_qasab_3_buildup (no orders)', 'defeat', eq2);
 run('ein_qasab_3_buildup', EIN_QASAB_PLANS.ein_qasab_3_buildup, { ...eq2, 'intel.marked_positions': [] }, 'victory', 'ein_qasab_3_buildup (no marks)', 2);
+// GH-277 (4 Nov 2026): the same plan with a forward camp at the south landing, ordered at 0:00. Gates at the end of this file.
+{
+  const camp = forwardCampPlan(EIN_QASAB_PLANS.ein_qasab_3_buildup, FORWARD_CAMP_SPECS.ein_qasab_3_buildup);
+  run('ein_qasab_3_buildup', camp.plan, eq2, 'victory', 'ein_qasab_3_buildup (forward camp)', 2,
+    undefined, undefined, undefined, undefined, undefined, undefined, camp.onEvents);
+}
 void eq3;
 
 // Report only: the same three plans entered from Wadi Halam V's ledger, the "after the whole of Wadi Halam" order
@@ -827,6 +837,8 @@ run(
 );
 
 passiveAcrossSeeds('khan_rafid_2_foothold', 'khan_rafid_2_foothold (passive control)', 'defeat');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('khan_rafid_2_foothold', 'khan_rafid_2_foothold (medic only)', 'defeat', {}, SWEEP_SEEDS, 'medic');
 
 // KR II (GH-382: the ward stands on a mound in a market plain, ring road at its foot) -- clear
 // the ward with the hold force (rifles + one Eitan, both under the 0.3 structural-collateral
@@ -1182,6 +1194,8 @@ run(
 );
 
 passiveAcrossSeeds('deir_amun_2_foothold', 'deir_amun_2_foothold (passive control)', 'defeat');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('deir_amun_2_foothold', 'deir_amun_2_foothold (medic only)', 'defeat', {}, SWEEP_SEEDS, 'medic');
 
 // DA II -- both Yahalom teams charge `da_tn_pump` together the moment the
 // hold force clears the yard's one gate, then pull straight back out: their
@@ -1515,6 +1529,8 @@ run(
 // fails. `checkEnd` returns DEFEAT on that clock regardless of the
 // hold/HVT pair. Measured (this session): DEFEAT at 5.00 min.
 passiveAcrossSeeds('tel_marum_2_foothold', 'tel_marum_2_foothold (passive control)', 'defeat');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('tel_marum_2_foothold', 'tel_marum_2_foothold (medic only)', 'defeat', {}, SWEEP_SEEDS, 'medic');
 
 run(
   'tel_marum_2_foothold',
@@ -1725,6 +1741,8 @@ const ledQH1 = run(
 // `hold_the_gates` never starts on a passive run either (`livingIn` needs a
 // player unit physically present), but the raze deadline ends it first.
 passiveAcrossSeeds('qarn_hadid_2_foothold', 'qarn_hadid_2_foothold (passive control)', 'defeat');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('qarn_hadid_2_foothold', 'qarn_hadid_2_foothold (medic only)', 'defeat', {}, SWEEP_SEEDS, 'medic');
 
 const ledQH2 = run(
   'qarn_hadid_2_foothold',
@@ -2165,55 +2183,13 @@ const ledUZ1 = run(
 // and nothing in the light 90s/180s/210s/300s cadence closes on the empty
 // start line on its own.
 passiveAcrossSeeds('umm_zeitoun_2_buildup', 'umm_zeitoun_2_buildup (no orders)', 'defeat');
+// GH-277 Task 15: the same passive player, who orders ONE medic station at 1 s and does nothing else, must be beaten too.
+passiveAcrossSeeds('umm_zeitoun_2_buildup', 'umm_zeitoun_2_buildup (medic only)', 'defeat', {}, SWEEP_SEEDS, 'medic');
 
-// The whole force clears the knoll TOGETHER before anything splits off to
-// hold. A first version sent the demo squad in with only two rifle squads as
-// escort while the rest dug in on the crest line immediately -- it survived,
-// but the two escorting `inf_squad` did not, and UZ III's own `from_ledger`
-// draw for `inf_squad` (a fresh mission's own precondition per the design
-// draft) came up empty against that roster, spawning one fresh body where
-// three were expected. `hold_for` has no deadline of its own and does not
-// reset on a contest (only pauses), so nothing is lost by holding off the
-// crest line until the ground that can see it is cleared first -- only the
-// 300s `raze` deadline is a hard clock, and it is reached with room to
-// spare either way.
+// The whole force clears the knoll together first: the plan is `uz2Plan` (plans/umm_zeitoun.ts), moved there verbatim.
 const ledUZ2 = run(
   'umm_zeitoun_2_buildup',
-  (sim, _rt, ids, at) => {
-    e6Remetz(sim, _rt, ids, at, 'umm_zeitoun_2_buildup', [24, 31]);
-    const demo = ids('demo_squad');
-    const strike = [...ids('apc_eitan'), ...ids('mbt_lavi'), ...ids('mortar_team'), ...ids('at_team'), ...ids('inf_squad')];
-    at(1, () => {
-      // Everyone but the demo squad clears the ground around the shed first.
-      sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 24) });
-      // GH-382: the knoll is 22 tiles up the slope now, and a demo squad that walks it unescorted
-      // arrives under the picket's rifle ahead of everyone (three seeds of twelve lost the post
-      // that way). It waits on the crest line and is sent when the ground is being cleared.
-      sim.queueCommand({ kind: 'move', ids: demo, ...M(24, 33) });
-    });
-    // Starts charges the moment it is within 2 tiles and the ground around it is unshaken; re-sent
-    // every 25 s until the shed is down, because a squad that halts to fight drops the order.
-    for (let when = 30; when <= 290; when += 25)
-      at(when, () => {
-        const shed = sim.structureAt(22, 23);
-        if (shed >= 0) sim.queueCommand({ kind: 'demolish', ids: demo, structure: shed });
-      });
-    // Once the knoll is down, the whole strike force pulls back onto the
-    // crest line and digs in for the hold. Re-anchored periodically after
-    // that: attackMove does not mean "stand here", and the 180s/300s waves
-    // both march straight into the zone (`rim_crest` sits inside
-    // `crest_line`).
-    at(100, () => sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 31) }));
-    for (let when = 140; when <= 420; when += 40) {
-      at(when, () => {
-        const cur: number[] = [];
-        for (let i = 0; i < sim.entityCount; i++) {
-          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !demo.includes(i) && !isRemetz(sim, i)) cur.push(i);
-        }
-        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(24, 31) });
-      });
-    }
-  },
+  uz2Plan,
   ledUZ1,
   'victory',
   'umm_zeitoun_2_buildup',
@@ -2713,6 +2689,12 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   });
 };
 run('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'victory', 'umm_zeitoun_4_clearance');
+// GH-277 second wave: the same plan with a forward camp, ordered at 0:00. Gates 10 and 11 at the end of this file.
+{
+  const camp = forwardCampPlan(uz4Plan, FORWARD_CAMP_SPECS.umm_zeitoun_4_clearance);
+  run('umm_zeitoun_4_clearance', camp.plan, ledUZ3, 'victory', 'umm_zeitoun_4_clearance (forward camp)', undefined,
+    undefined, undefined, undefined, undefined, undefined, undefined, camp.onEvents);
+}
 
 // --- E5 special forces Task 5: the `(bought)` probes ---------------------------
 //
@@ -3628,10 +3610,46 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // in at 90 s), III 150 -> 195 (ROE 70 -> 85, 6.2 -> 6.0 min: Hallaq's man runs at 15 s and is stopped on the lip, so the
 // head is clear of his truck earlier), I unchanged at 250. Every other mission's run line is byte-identical to the tree
 // before the change. Every plan still wins 30 of 30; no star or gate moved; ROSTER_MAX stays 30.
-const LADDER_CREDITS = 6979;
+// 2026-11-04, GH-277 Task 15 (field works in the campaign): 6979 -> 6994, +15, read off the printed per-mission credits. Seven
+// missions list `field_works` (the five `*_2_foothold`, Umm Zeitoun II and Wadi Halam II); the three that fielded no
+// `demo_squad` (Beit Sahwan II, Deir Amun II, Khan Rafid II: plan L4, option (a)) are lent one, because a foothold with an
+// allow list and nobody to build is dead content. The plans do not use it. Beit Sahwan II 210 -> 220 (roster out 15 -> 16:
+// the squad comes home), Khan Rafid II 235 -> 240 (roster out 8, ROE 100 -> 95 on 424242: one more body shifts every later entity id
+// and so the wave streams; over the 30 sweep seeds the plan's mean ROE is 95.33 without the lent squad and 95.17 with it, 26 and 25
+// seeds under 100, so 424242 was the lucky seed and the mean did not drop), Deir Amun II pays what it paid (its gate-open probe, a
+// report-only breach_team variant, reads 247 -> 217 and roster out 10 -> 8 for the same cause, an id shift in the later waves; its
+// own run line and its ROE 97 on all 30 seeds are unchanged). Every plan still wins 30 of 30, every passive control
+// still loses 30 of 30, and the new medic-only control (a station ordered at 1 s, nothing else) loses on 30 of 30 in each
+// of the six missions that have a no-orders control; no star or gate moved.
+// 2026-11-04, GH-277 Task 15 (the militia works): 6994 -> 7007, +13, read off the printed per-mission credits. Eight missions
+// gain an authored militia work (a `structures[]` entry on side 1): Qarn Hadid II (observation post + firing position),
+// Khan Rafid II (firing position), Umm Zeitoun III and IV (observation post), Khan Rafid III (clinic + post), Beit Sahwan III
+// (clinic), Wadi Halam III and V (weapons workshop). Only two pay differently: Wadi Halam V 210 -> 220 (the workshop is the
+// eighth `raze` target, the plan levels it too, and the win comes at 5.0 min and not 5.3: `no_bleed` is still open when the last
+// primary falls, stars unchanged at 2) and Umm Zeitoun IV 259 -> 262 (ROE 94 -> 97 on 424242: traced with a temporary `roe` event
+// print. Main bills two `heavy ordnance danger-close to civilians` hits, -3 each, at ticks 1604 and 1737; with the post on the ramp the
+// plan's ordnance lands elsewhere and only one is billed, at 2486. Nothing else in the run moved Conduct). Every other run line keeps its credits; Beit Sahwan III, Khan Rafid III and Umm Zeitoun III
+// move by 0.1 to 0.2 min on the seed-424242 run line; the SLOWEST of the 30 seeds moves more, and only because it is one tail seed:
+// Beit Sahwan III 2.9 -> 3.7 min (its clinic at (38,25); with the placement removed the sweep reads 2.9 again) and Khan Rafid III
+// 3.9 -> 2.0 min (the clinic at (22,15) alone gives 2.0; with both placements removed 3.9). Neither tail was traced seed by seed. Every plan still wins 30 of 30, every passive control still loses, no star or gate moved.
+const LADDER_CREDITS = 7007;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
+  process.exitCode = 1;
+}
+
+// GH-317: the Roar-coin earn table pays 5 coins a new star, and `roar_earn.test.ts` walks the
+// ladder's stars to prove one campaign's coins buy the dearest unit in the Stores (gate G-E2).
+// The sum of the winning plans' stars over `missionOrder`, pinned here and read as TEXT by that
+// test (this harness is a CLI that cannot be imported). Re-pin in the same commit as the change
+// that moved a star, and re-run `roar_earn.test.ts`.
+let ladderStars = 0;
+for (const missionId of missionOrder) ladderStars += missionStars.get(missionId) ?? 0;
+const LADDER_STARS = 68;
+console.log(`star ladder: ${ladderStars} over ${missionOrder.length} missions`);
+if (ladderStars !== LADDER_STARS) {
+  console.error(`star ladder: FAILED — expected ${LADDER_STARS}, got ${ladderStars}`);
   process.exitCode = 1;
 }
 
@@ -3879,7 +3897,9 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // (Ein Qasab I 160, II 278, III 288 intel at seed 424242) and the Ein Qasab III run with no marks (312). The one short
 // plan is still `beit_sahwan_2_foothold` (112), so "40 of 41". The report-only chain from `wadi_halam_5_depot` is taken
 // out of `runLog` and is not counted.
-const INTEL_WINNERS_ONE_SWEEP = 40;
+// 2026-11-04, GH-277: 40 -> 41. Was 40. The Ein Qasab III run with a forward camp is a winning plan and earns its sweep (302 intel).
+// 2026-11-05, GH-277: 41 -> 42. Was 41. The Umm Zeitoun IV run with a forward camp is a winning plan and earns its sweep (316 intel).
+const INTEL_WINNERS_ONE_SWEEP = 42;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
@@ -3992,5 +4012,69 @@ const BUILDING_PLANS = ['beit_sahwan_2_foothold', 'deir_amun_2_foothold', 'wadi_
   }
   for (const [id, q] of largest) {
     if (q > 0 || BUILDING_PLANS.includes(id)) console.log(`largest queue ${id}: ${q} (max over ${SWEEP_SEEDS.length} seeds, report only)`);
+  }
+}
+
+// --- GH-277 gates 10 and 11 of the producing-buildings design: the forward camp is interesting, not dominant -------------
+//
+// Gate 10 is ONE-SIDED: it catches a camp that is a trap (a median that rises past +15%, as Umm Zeitoun II's did) and not a dominant one
+// (cost 0 left Ein Qasab III at +0.3%; the design's build_time_mult 0.5 is refused by the parser, which takes 1.0..2.0).
+// Gate 10. In each of the two Build-up missions the plan with the camp wins on all 30 seeds (the plan sweep above holds
+// that: its label is a victory label), the passive control still loses (the no-orders control above), and its MEDIAN win
+// falls within +-15% of the same plan without the camp, seed for seed. A median that fell further would say the camp is
+// dominant (cost 0 or a build time of half would show here); one that rose further, that it is a trap.
+// Gate 11. Ordered at 0:00, the camp has stood by 2:00 on every seed.
+// The bands are the design's and are fixed here, not tuned against a reading.
+// Umm Zeitoun II is NOT here: measured with the camp its median win moved +28.1% (5.38 min against 4.20), outside the band,
+// so it ships without the camp (docs/campaign/field_works/probes.md).
+const FORWARD_CAMP_MISSIONS = ['ein_qasab_3_buildup', 'umm_zeitoun_4_clearance'] as const;
+const FORWARD_CAMP_MEDIAN_BAND = 0.15;
+const FORWARD_CAMP_BY_S = 120;
+// Gate 11 also asks the camp's line to produce wherever the spec buys on it (`spec.buys`, derived from FORWARD_CAMP_SPECS);
+// Ein Qasab III buys at the rear door, so its line is not asked to.
+{
+  const median = (xs: number[]): number => {
+    const s = [...xs].sort((a, b) => a - b);
+    return s.length === 0 ? NaN : s.length % 2 === 1 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+  };
+  for (const id of FORWARD_CAMP_MISSIONS) {
+    const base: number[] = [];
+    const built: number[] = [];
+    const stood: number[] = [];
+    const fromCamp: number[] = [];
+    let seedsSeen = 0;
+    for (const runs of planRunsBySeed.values()) {
+      const b = runs.find((r) => r.label === id && r.expect === 'victory');
+      const f = runs.find((r) => r.label === `${id} (forward camp)`);
+      if (b === undefined || f === undefined) continue;
+      seedsSeen++;
+      if (b.result === 'victory') base.push(b.minutes);
+      if (f.result === 'victory') built.push(f.minutes);
+      stood.push(f.notes?.forwardCampDoneS ?? -1);
+      fromCamp.push(f.notes?.forwardCampFromCamp ?? -1);
+    }
+    const slowest = Math.max(...stood);
+    const delta = (median(built) - median(base)) / median(base);
+    console.log(
+      `forward camp ${id}: ${built.length}/${seedsSeen} wins with the camp against ${base.length}/${seedsSeen} without, median ${median(built).toFixed(2)} min ` +
+        `against ${median(base).toFixed(2)} (${(delta * 100).toFixed(1)}%), camp stood by ${slowest.toFixed(0)} s at the latest, ordered at 0:00`
+    );
+    if (seedsSeen !== SWEEP_SEEDS.length || built.length !== seedsSeen || base.length !== seedsSeen) {
+      console.error(`forward camp ${id}: FAILED — ${seedsSeen} of ${SWEEP_SEEDS.length} seeds ran both plans, ${built.length} won with the camp, ${base.length} without`);
+      process.exitCode = 1;
+    }
+    if (!(Math.abs(delta) <= FORWARD_CAMP_MEDIAN_BAND)) {
+      console.error(`forward camp ${id}: FAILED — the median win moved ${(delta * 100).toFixed(1)}%, outside +-${FORWARD_CAMP_MEDIAN_BAND * 100}% (gate 10)`);
+      process.exitCode = 1;
+    }
+    console.log(`forward camp ${id}: bodies out of the camp's line per seed: ${fromCamp.join(', ')}`);
+    if ((FORWARD_CAMP_SPECS[id]?.buys?.length ?? 0) > 0 && fromCamp.some((n) => !(n > 0))) {
+      console.error(`forward camp ${id}: FAILED — the camp's line produced nothing on a seed (${fromCamp.join(', ')}), gate 11 needs bodies out of its door on every seed`);
+      process.exitCode = 1;
+    }
+    if (stood.some((s) => s < 0) || !(slowest < FORWARD_CAMP_BY_S)) {
+      console.error(`forward camp ${id}: FAILED — ordered at 0:00 the camp stood by ${slowest} s (a -1 is a seed where it never stood), gate 11 is ${FORWARD_CAMP_BY_S} s`);
+      process.exitCode = 1;
+    }
   }
 }

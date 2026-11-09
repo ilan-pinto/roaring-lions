@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps, paletteTeamColors } from '@lions/data';
-import { VERSUS_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, FLAG_SETUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
 import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
 import { isDialogOpen } from './confirm';
 import { AdvisorRefused } from '../net/connect';
-import { missingKeys } from '../i18n/t';
+import { missingKeys, setCatalogue } from '../i18n/t';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
 
 /** The methods the screens call on a transport, recorded. */
 function fakeTransport() {
@@ -36,6 +38,16 @@ const MAPS = [
   { id: 'tel_marum', label: 'Tel Marum' },
   { id: 'wadi_tarfan', label: 'Wadi Tarfan — The Three Fords' },
 ];
+/** Wadi Tarfan (large), a map KDF against Sarim plays: added to a lobby by the tests that need it. */
+const WADI_TARFAN_L = { id: 'wadi_tarfan_l', label: 'Wadi Tarfan (large) — The Three Fords' };
+/** Runs `fn` with a points cell for Wadi Tarfan (large) in the faction table and takes it out again, also on a throw. The table is
+ *  empty (GH-976 P4 review: the one cell that passed was a kill race), so the lobby's handling of a faction cell is exercised with
+ *  a cell the test adds. */
+async function withFactionPoints(hosts: ('kdf' | 'sarim')[], fn: () => Promise<void>): Promise<void> {
+  const cells = WIN_MODE_FAIR_FACTION_CELLS.points as Record<string, readonly ('kdf' | 'sarim')[]>;
+  cells.wadi_tarfan_l = hosts;
+  try { await fn(); } finally { delete cells.wadi_tarfan_l; }
+}
 
 function deps(overrides: Partial<VersusDeps> = {}): VersusDeps & { saved: string[]; navigated: [string, { replace?: boolean } | undefined][] } {
   const saved: string[] = [];
@@ -242,7 +254,7 @@ describe('showVersus (/versus)', () => {
     const { transport } = fakeTransport();
     const open = vi.fn().mockResolvedValue(opened(transport));
     const stage = mountPick(deps({ open }));
-    const radios = [...stage.querySelectorAll<HTMLInputElement>('input.rl-versus__side-radio')];
+    const radios = [...stage.querySelectorAll<HTMLInputElement>('.rl-versus__sides:not(.rl-versus__win) input.rl-versus__side-radio')];
     expect(radios.map((r) => r.value)).toEqual(['kdf', 'sarim', 'mirror']);
     expect(radios.map((r) => r.type)).toEqual(['radio', 'radio', 'radio']);
     expect(radios.map((r) => r.closest('label')?.textContent)).toEqual(['KDF', 'Sarim', 'Mirror']);
@@ -273,7 +285,8 @@ describe('showVersus (/versus)', () => {
     expect(describedBy(mapRadio(stage, 'tel_marum'))).toBe('KDF or Sarim');
     expect(checkedMap(stage)).toBe('tel_marum');
     expect(note.hidden).toBe(false);
-    expect(note.textContent).toBe('KDF against Sarim is played on Tel Marum and Wadi Tarfan only');
+    // Was 'Tel Marum and Wadi Tarfan only': Wadi Tarfan (large) is a faction-matchup map from GH-920 B7.
+    expect(note.textContent).toBe('KDF against Sarim is played on Tel Marum, Wadi Tarfan and Wadi Tarfan (large) only');
     stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
     await flush();
     expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', map: 'tel_marum', matchup: 'sarim' });
@@ -281,6 +294,71 @@ describe('showVersus (/versus)', () => {
     expect(enabledMaps(stage)).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'tel_marum', 'wadi_tarfan']);
     expect(describedBy(mapRadio(stage, 'milh_flats'))).toBe('Mirror only');
     expect(note.hidden).toBe(true);
+  });
+
+  it('GH-913 L8: Rujm Sawda is a mirror-only map with a lobby card: 80 x 80, "Mirror only", greyed out for a faction pick', () => {
+    const rujm = { id: 'rujm_sawda', label: (maps as Record<string, { name: string }>).rujm_sawda!.name };
+    const stage = mountPick(deps({ maps: [...MAPS, rujm] }));
+    expect(enabledMaps(stage)).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'tel_marum', 'wadi_tarfan', 'rujm_sawda']);
+    expect(describedBy(mapRadio(stage, 'rujm_sawda'))).toBe('Mirror only');
+    pick(mapRadio(stage, 'rujm_sawda'));
+    const card = stage.querySelector<HTMLElement>('.rl-versus__mapcard')!;
+    expect(card.querySelector('.rl-versus__mapcard-name')?.textContent).toBe('Rujm Sawda');
+    expect(card.querySelector('.rl-versus__mapcard-desc')?.textContent).toMatch(/\blarge\b/i);
+    expect(card.textContent).toContain('80 × 80 tiles');
+    expect(card.querySelector('.rl-versus__chip[data-kind="quiet"]')?.textContent).toBe('Mirror only');
+    expect(card.querySelector('.rl-versus__pic-canvas, .rl-versus__pic')).not.toBeNull();
+    pick(sideRadio(stage, 'sarim'));
+    expect(enabledMaps(stage)).toEqual(['tel_marum', 'wadi_tarfan']);
+    expect(mapRadio(stage, 'rujm_sawda').disabled).toBe(true);
+    expect(describedBy(mapRadio(stage, 'rujm_sawda'))).toBe('Mirror only: pick Mirror to play here');
+  });
+
+  it('GH-920 B7: Wadi Tarfan (large) is a map for BOTH faction cells with a lobby card: 96 x 96, "KDF or Sarim", enabled for a faction pick', () => {
+    const large = { id: 'wadi_tarfan_l', label: (maps as Record<string, { name: string }>).wadi_tarfan_l!.name };
+    const stage = mountPick(deps({ maps: [...MAPS, large] }));
+    expect(enabledMaps(stage)).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']);
+    expect(describedBy(mapRadio(stage, 'wadi_tarfan_l'))).toBe('KDF or Sarim');
+    pick(mapRadio(stage, 'wadi_tarfan_l'));
+    const card = stage.querySelector<HTMLElement>('.rl-versus__mapcard')!;
+    expect(card.querySelector('.rl-versus__mapcard-name')?.textContent).toBe('Wadi Tarfan (large)');
+    expect(card.querySelector('.rl-versus__mapcard-desc')?.textContent).toMatch(/^A large 96 by 96 map/);
+    expect(card.textContent).toContain('96 × 96 tiles');
+    expect(card.querySelector('.rl-versus__chip[data-kind="quiet"]')).toBeNull(); // not "Mirror only"
+    pick(sideRadio(stage, 'sarim'));
+    expect(enabledMaps(stage)).toEqual(['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']);
+    expect(mapRadio(stage, 'wadi_tarfan_l').disabled).toBe(false);
+    expect(checkedMap(stage)).toBe('wadi_tarfan_l'); // a faction pick keeps ground it plays on
+  });
+
+  it('GH-920 B7: Milh Flats (large) is a MIRROR-ONLY map with a lobby card: 96 x 96, "Mirror only", greyed out for a faction pick', () => {
+    const large = { id: 'milh_flats_l', label: (maps as Record<string, { name: string }>).milh_flats_l!.name };
+    const stage = mountPick(deps({ maps: [...MAPS, large] }));
+    expect(enabledMaps(stage)).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'tel_marum', 'wadi_tarfan', 'milh_flats_l']);
+    expect(describedBy(mapRadio(stage, 'milh_flats_l'))).toBe('Mirror only');
+    pick(mapRadio(stage, 'milh_flats_l'));
+    const card = stage.querySelector<HTMLElement>('.rl-versus__mapcard')!;
+    expect(card.querySelector('.rl-versus__mapcard-name')?.textContent).toBe('Milh Flats (large)');
+    expect(card.querySelector('.rl-versus__mapcard-desc')?.textContent).toMatch(/^A large 96 by 96 map/);
+    expect(card.textContent).toContain('96 × 96 tiles');
+    expect(card.querySelector('.rl-versus__chip[data-kind="quiet"]')?.textContent).toBe('Mirror only');
+    expect(card.querySelector('.rl-versus__pic-canvas, .rl-versus__pic')).not.toBeNull();
+    pick(sideRadio(stage, 'sarim'));
+    expect(enabledMaps(stage)).toEqual(['tel_marum', 'wadi_tarfan']);
+    expect(mapRadio(stage, 'milh_flats_l').disabled).toBe(true);
+    expect(describedBy(mapRadio(stage, 'milh_flats_l'))).toBe('Mirror only: pick Mirror to play here');
+  });
+
+  it('GH-920 B7: the side note names every KDF-v-Sarim map by its name (it is a catalogue string, so a map added to the list without it is red)', () => {
+    const stage = mountPick(deps());
+    const note = stage.querySelector<HTMLElement>('.rl-versus__side-note')!.textContent!;
+    for (const id of FACTION_MATCHUP_MAPS) {
+      const full = (maps as Record<string, { name: string }>)[id]!.name;
+      // The catalogue spells the map's short name: "Wadi Tarfan (large) — The Three Fords" -> "Wadi Tarfan (large)".
+      expect(note, id).toContain(full.split(' — ')[0]);
+    }
+    // 'Wadi Tarfan' is a substring of 'Wadi Tarfan (large)', so the loop alone cannot see the plain map dropped.
+    expect(note).toBe('KDF against Sarim is played on Tel Marum, Wadi Tarfan and Wadi Tarfan (large) only');
   });
 
   it('N3 Task 6: the KDF-v-Sarim options say the economy is on; the mirror says nothing of it', () => {
@@ -300,7 +378,7 @@ describe('showVersus (/versus)', () => {
 
   it('a build that ships neither faction map offers the mirror alone, and says why on the greyed sides', () => {
     const stage = mountPick(deps({ maps: [MAPS[0]!] }));
-    const radios = [...stage.querySelectorAll<HTMLInputElement>('input.rl-versus__side-radio')];
+    const radios = [...stage.querySelectorAll<HTMLInputElement>('.rl-versus__sides:not(.rl-versus__win) input.rl-versus__side-radio')];
     expect(radios.filter((r) => !r.disabled).map((r) => r.value)).toEqual(['mirror']);
     expect(describedBy(sideRadio(stage, 'kdf'))).toBe('No ground for KDF against Sarim in this build');
   });
@@ -479,7 +557,7 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
     expect(describedBy(sw)).toBe('Both sides field the standard kit');
     sw.click();
     expect(sw.getAttribute('aria-checked')).toBe('true');
-    expect(describedBy(sw)).toBe('Friends only: each of you fields the upgrades you bought');
+    expect(describedBy(sw)).toBe('Friends only: each player brings the upgrades and the Store special units they own. A bot fields the standard force');
     sw.click();
     expect(sw.getAttribute('aria-checked')).toBe('false');
     expect(stage.querySelectorAll('.rl-versus__kit-toggle')).toHaveLength(1);
@@ -519,7 +597,7 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
       stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
       await flush();
       const line = stage.querySelector('.rl-versus__room-kit');
-      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, kit).toBe(kit === 'brigade' ? 'Brigades (friends only)' : 'Standard kit for both');
+      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, kit).toBe(kit === 'brigade' ? 'Brigades: upgrades and Store specials (friends only)' : 'Standard kit for both');
       expect(line?.getAttribute('data-kit')).toBe(kit);
     }
     expect(missingKeys()).toEqual([]);
@@ -531,6 +609,256 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
     fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum', ['kdf', 'kdf'], 'brigade');
     expect(stage.querySelector('.rl-versus__room-kit')?.getAttribute('data-kit')).toBe('brigade');
     expect(stage.querySelector('.rl-versus__room-kit')?.innerHTML).not.toMatch(/<(?!\/?span)/);
+  });
+});
+
+// GH-1102: in a brigade room each seat's card shows the Store specials it brings, before Ready.
+describe("bring your brigade: both line-ups in the lobby (GH-1102)", () => {
+  const SEATS_SPECIALS: SeatState[] = [
+    { seat: 0, callsign: 'Ari', connected: true, ready: false, specials: ['mbt_lavi_camo', 'spg_cluster', 'veh_ambulance'] },
+    { seat: 1, callsign: 'Bo', connected: true, ready: false, specials: [] },
+  ];
+  const joined = async (kit: 'brigade' | 'matched', seats: SeatState[] = SEATS_SPECIALS) => {
+    const { transport } = fakeTransport();
+    const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats, map: 'tel_marum', factions: ['kdf', 'kdf'], kit } }));
+    const stage = document.createElement('div');
+    room(stage, 'ABCDEF', deps({ open }));
+    stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+    await flush();
+    return stage;
+  };
+  const cardOf = (stage: ParentNode, seat: 0 | 1) => stage.querySelector<HTMLElement>(`.rl-versus__fcard[data-seat="${seat}"]`)!;
+
+  it("each seat's card names what joins its force and what stays out, with the reason; a seat with none reads Standard force", async () => {
+    const stage = await joined('brigade');
+    const host = cardOf(stage, 0);
+    // Names are the unit JSON's `name` (data), in the order the room sent them.
+    expect(host.querySelector('.rl-versus__lineup-brings')?.textContent).toBe('Brings: Lavi Ambush Tank');
+    expect(host.querySelector('.rl-versus__lineup-out')?.textContent).toBe(
+      "Stays out of versus: Te'o Cluster Howitzer (its price is Conduct, and a versus room has no civilians), Pered Armoured Ambulance (rescue is not in versus yet)");
+    expect(cardOf(stage, 1).querySelector('.rl-versus__lineup-none')?.textContent).toBe('Standard force');
+    expect(cardOf(stage, 1).querySelector('.rl-versus__lineup-brings')).toBeNull();
+    expect(missingKeys()).toEqual([]);
+  });
+  it('a matched room shows no line-up at all', async () => {
+    const stage = await joined('matched', SEATS_TWO);
+    expect(stage.querySelector('.rl-versus__lineup')).toBeNull();
+  });
+  it('?pseudo=1: every line-up string is bracketed, so none bypassed t()', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const stage = await joined('brigade');
+      const shown = [...stage.querySelectorAll('.rl-versus__lineup p')].map((e) => e.textContent ?? '');
+      expect(shown.length).toBe(3);
+      for (const text of shown) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
+    } finally {
+      setCatalogue('en', en);
+    }
+  });
+});
+
+// GH-976 P2: the host picks how the match is won; the lobby offers a mode only where it was read fair.
+describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => {
+  // GH-1139: flag is out of the lobby until CTF v2 lands (WP9, `WIN_MODE_FAIR_MAPS.flag` is empty). The flag lobby path is still
+  // code that WP9 turns back on, so these tests stand the seven v1 maps back in for their own run; the test that reads what
+  // the lobby offers TODAY takes them out first.
+  const V1_FLAG_MAPS = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];
+  const flagList = WIN_MODE_FAIR_MAPS.flag as string[];
+  const SHIPPED = [...flagList];
+  const asShipped = (): void => { flagList.splice(0, flagList.length, ...SHIPPED); };
+  beforeEach(() => { flagList.push(...V1_FLAG_MAPS.filter((m) => !flagList.includes(m))); });
+  afterEach(asShipped);
+  const winRadios = (stage: ParentNode) => [...stage.querySelectorAll<HTMLInputElement>('.rl-versus__win input.rl-versus__side-radio')];
+  const winGroup = (stage: ParentNode) => stage.querySelector<HTMLElement>('fieldset.rl-versus__win')!;
+  const created = async (stage: HTMLElement, open: ReturnType<typeof vi.fn>): Promise<RoomRequest> => {
+    stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    // The room opened here is parked for its lobby; mounting it takes it, as the router would.
+    room(document.createElement('div'), 'ABCDEF', deps());
+    return (open.mock.calls[0] as [RoomRequest])[0];
+  };
+  const mount = (extra: { id: string; label: string }[] = []) => {
+    const { transport } = fakeTransport();
+    const open = vi.fn().mockResolvedValue(opened(transport));
+    return { open, stage: mountPick(deps({ open, maps: [...MAPS, ...extra] })) };
+  };
+
+  it('is hidden where no mode was read fair (KDF against Sarim on Tel Marum), and a create from there says nothing of a mode', async () => {
+    const { open, stage } = mount();
+    expect(checkedMap(stage)).toBe('tel_marum');
+    // GH-976 P4: the mirror on Tel Marum offers both modes now; the pairing with Sarim was read and offers none.
+    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points', 'flag']);
+    pick(sideRadio(stage, 'kdf'));
+    expect(checkedMap(stage)).toBe('tel_marum');
+    expect(winGroup(stage).hidden).toBe(true);
+    expect(winRadios(stage)).toEqual([]);
+    expect('winMode' in (await created(stage, open))).toBe(false);
+  });
+
+  it('on a fair map it is Annihilation (the default), Points race and Capture the flag, in one labelled group with a hint', async () => {
+    const { open, stage } = mount();
+    pick(mapRadio(stage, 'tel_marum'));
+    expect(winGroup(stage).hidden).toBe(false);
+    expect(winGroup(stage).querySelector('legend')?.textContent).toBe('How to win');
+    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points', 'flag']);
+    expect(winRadios(stage).map((r) => r.closest('label')?.textContent)).toEqual(['Annihilation', 'Points race', 'Capture the flag']);
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
+    expect(describedBy(winRadios(stage)[0]!)).toBe('Destroy every enemy combat unit');
+    expect('winMode' in (await created(stage, open))).toBe(false);   // the default asks for no mode at all
+  });
+
+  it('picking Points race says its target and the create carries it', async () => {
+    const { open, stage } = mount();
+    pick(mapRadio(stage, 'milh_flats'));
+    pick(winRadios(stage).find((r) => r.value === 'points')!);
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('points');
+    expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('First to 600. Hold a zone alone to earn its points every minute (10 to 50 a minute)');
+    expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'milh_flats', matchup: 'mirror', winMode: 'points' });
+  });
+
+  it('GH-976 P3: picking Capture the flag says its hold and the create carries it', async () => {
+    const { open, stage } = mount();
+    pick(mapRadio(stage, 'wadi_tarfan'));
+    pick(winRadios(stage).find((r) => r.value === 'flag')!);
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('flag');
+    expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('for 30 seconds');
+    expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan', matchup: 'mirror', winMode: 'flag' });
+  });
+
+  it('GH-976 v2 R0.22: the lobby reads the hold through flagBlockOf: 45 seconds on a map in FLAG_SETUP_MAPS, 30 on every other', () => {
+    const listed = FLAG_SETUP_MAPS as string[];
+    const before = [...listed]; // restored below, never left cleared
+    listed.splice(0, listed.length, 'wadi_tarfan'); // exactly one map listed, whatever ships, so 'every other' is true
+    try {
+      const { stage } = mount();
+      pick(mapRadio(stage, 'wadi_tarfan'));
+      pick(winRadios(stage).find((r) => r.value === 'flag')!);
+      expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('for 45 seconds');
+      pick(mapRadio(stage, 'milh_flats'));
+      pick(winRadios(stage).find((r) => r.value === 'flag')!);
+      expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('for 30 seconds');
+    } finally { listed.splice(0, listed.length, ...before); }
+  });
+
+  it('a pick that the next pairing does not offer is dropped, not carried to a cell it was never read fair on', async () => withFactionPoints(['kdf'], async () => {
+    const { open, stage } = mount([WADI_TARFAN_L]);
+    pick(mapRadio(stage, 'wadi_tarfan_l'));
+    pick(winRadios(stage).find((r) => r.value === 'flag')!);
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('flag');
+    // KDF against Sarim is offered the points race alone on this map (a cell the test adds): the flag pick is dropped, annihilation is the default again.
+    pick(sideRadio(stage, 'kdf'));
+    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
+    pick(winRadios(stage).find((r) => r.value === 'points')!);
+    // ...and a map the pairing was not read fair on drops the points pick too: absent from the DOM, not merely hidden.
+    pick(mapRadio(stage, 'tel_marum'));
+    expect(winGroup(stage).hidden).toBe(true);
+    expect(winRadios(stage)).toEqual([]);
+    const req = await created(stage, open);
+    expect(req).toMatchObject({ matchup: 'kdf', map: 'tel_marum' });
+    expect('winMode' in req).toBe(false);
+  }));
+
+  it('a faction pick on a map KDF-against-Sarim was not read fair on offers no mode and drops the pick', async () => {
+    const { open, stage } = mount();
+    pick(mapRadio(stage, 'wadi_tarfan'));
+    pick(winRadios(stage).find((r) => r.value === 'points')!);
+    pick(sideRadio(stage, 'sarim'));
+    expect(checkedMap(stage)).toBe('wadi_tarfan');   // a map KDF-v-Sarim plays, so the ground stays
+    expect(winRadios(stage)).toEqual([]);
+    const req = await created(stage, open);
+    expect(req).toMatchObject({ matchup: 'sarim' });
+    expect('winMode' in req).toBe(false);
+    // and back to the mirror: Annihilation again, not the dropped Points race
+    pick(sideRadio(stage, 'mirror'));
+    expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
+  });
+
+  it('GH-976 P4: a faction cell in the table is offered, the create carries it, and the economy line gives way to the placed-forces one', async () => withFactionPoints(['kdf', 'sarim'], async () => {
+    for (const side of ['kdf', 'sarim'] as const) {
+      const { open, stage } = mount([WADI_TARFAN_L]);
+      const economy = stage.querySelector<HTMLElement>('.rl-versus__matchup-note:not([id*="placed"])')!;
+      const placed = [...stage.querySelectorAll<HTMLElement>('.rl-versus__matchup-note')].find((n) => n.textContent === 'Both forces start on the field; nothing is built or bought')!;
+      pick(mapRadio(stage, 'wadi_tarfan_l'));
+      pick(sideRadio(stage, side));
+      expect(checkedMap(stage)).toBe('wadi_tarfan_l');
+      expect(winGroup(stage).hidden).toBe(false);
+      expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+      // Annihilation on a faction pairing is the economy room: the economy line shows and the placed-forces line does not.
+      expect(economy.hidden).toBe(false);
+      expect(placed.hidden).toBe(true);
+      expect(describedBy(sideRadio(stage, side))).toBe('Camps, income and production on');
+      pick(winRadios(stage).find((r) => r.value === 'points')!);
+      expect(describedBy(winRadios(stage).find((r) => r.checked)!)).toContain('First to 600. Hold a zone alone to earn its points every minute (10 to 40 a minute)');
+      // A mode on a faction pairing is the placed forces with no economy, so the economy line would be untrue.
+      expect(economy.hidden).toBe(true);
+      expect(placed.hidden).toBe(false);
+      expect(describedBy(sideRadio(stage, side))).toBe('Both forces start on the field; nothing is built or bought');
+      expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan_l', matchup: side, winMode: 'points' });
+    }
+  }));
+
+  it('offers exactly the modes WIN_MODE_FAIR_MAPS lists, on every map of the lobby: Destroy the camp on wadi_tarfan, milh_flats and wadi_tarfan_l, and never Capture the flag (GH-1139)', () => {
+    asShipped();   // the table as it ships
+    const stage = mountPick(deps({ maps: [...MAPS, WADI_TARFAN_L] }));
+    const offered: Record<string, string[]> = {};
+    for (const m of [...MAPS, WADI_TARFAN_L]) {
+      pick(mapRadio(stage, m.id));
+      offered[m.id] = winRadios(stage).map((r) => r.value);
+    }
+    expect(offered).toEqual({
+      beit_sahwan_outskirts: ['annihilation', 'points'], milh_flats: ['annihilation', 'camp', 'points'], tel_marum: ['annihilation', 'points'],
+      wadi_tarfan: ['annihilation', 'camp', 'points'], wadi_tarfan_l: ['annihilation', 'camp', 'points'],
+    });
+  });
+
+  it('the room screen names the win mode to the host and the guest alike, and a lobby repaint moves it', async () => {
+    for (const mode of ['points', 'flag', undefined] as const) {
+      const { transport } = fakeTransport();
+      const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'wadi_tarfan', factions: ['kdf', 'kdf'], kit: 'matched', ...(mode === undefined ? {} : { winMode: mode }) } }));
+      const stage = document.createElement('div');
+      room(stage, 'ABCDEF', deps({ open }));
+      stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+      await flush();
+      const line = stage.querySelector('.rl-versus__room-win');
+      expect(line?.querySelector('.rl-versus__label')?.textContent).toBe('How to win');
+      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, String(mode)).toBe(mode === 'points' ? 'Points race' : mode === 'flag' ? 'Capture the flag' : 'Annihilation');
+    }
+    const { fake, stage } = await hostedRoom();
+    expect(stage.querySelector('.rl-versus__room-win .rl-versus__kit-name')?.textContent).toBe('Annihilation');
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'wadi_tarfan', ['kdf', 'kdf'], 'matched', 'points');
+    expect(stage.querySelector('.rl-versus__room-win .rl-versus__kit-name')?.textContent).toBe('Points race');
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'wadi_tarfan', ['kdf', 'kdf'], 'matched');
+    expect(stage.querySelector('.rl-versus__room-win .rl-versus__kit-name')?.textContent).toBe('Annihilation');
+  });
+
+  it('?pseudo=1: every string of the win group and of the room line is bracketed, so none bypassed t()', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const stage = mountPick(deps());
+      pick(mapRadio(stage, 'tel_marum'));
+      pick(winRadios(stage).find((r) => r.value === 'points')!);
+      const shown = [
+        winGroup(stage).querySelector('legend')!.textContent!,
+        ...[...winGroup(stage).querySelectorAll('.rl-versus__side-name, .rl-versus__win-hint')].map((e) => e.textContent!),
+      ];
+      expect(shown.length).toBe(5);   // the legend, three options, the hint
+      for (const text of shown) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
+      // the room line, for both modes
+      const { transport } = fakeTransport();
+      const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'wadi_tarfan', factions: ['kdf', 'kdf'], kit: 'matched', winMode: 'points' } }));
+      const roomStage = document.createElement('div');
+      room(roomStage, 'ABCDEF', deps({ open }));
+      roomStage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+      await flush();
+      for (const sel of ['.rl-versus__room-win .rl-versus__label', '.rl-versus__room-win .rl-versus__kit-name']) {
+        const text = roomStage.querySelector(sel)!.textContent!;
+        expect(text, sel).toMatch(/^⟦[\s\S]*⟧$/);
+      }
+      expect(missingKeys()).toEqual([]);
+    } finally {
+      setCatalogue('en', en);
+    }
   });
 });
 

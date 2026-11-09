@@ -50,6 +50,16 @@
       "enum": ["olive", "desert", "cedar"],
       "description": "Which tree species this map's 'o' grove tiles draw, overriding the terrain theme's own (arid: desert, green: olive, highland: cedar). Presentation only. Absent means the theme's species. Umm Zeitoun sets 'olive': its groves are its olive terraces by name, while the rest of the highland around them grows cedar."
     },
+    "wind": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The wind this map blows (GH-984 N1). Presentation only: the app reads it into the renderer's options, the sim never does. Every field is optional and an absent one takes the terrain theme's default (arid 1.0, green 0.8, highland 1.3, wetland 1.0, all toward the screen's east). 'strength' scales every lean (0 is still air, 2 a gale). The heading is the screen side the wind blows toward ('east' = screen right, 'west' = screen left) turned 'skew_deg' degrees clockwise as seen on screen, and the skew is capped at 30 either way: a lean along the view axis (toward or away from the viewer) reads as nothing on this fixed camera, so the data may not ask for one. Reduced motion ignores the block and plays the old fixed sway.",
+      "properties": {
+        "strength": { "type": "number", "minimum": 0, "maximum": 2 },
+        "side": { "type": "string", "enum": ["east", "west"] },
+        "skew_deg": { "type": "number", "minimum": -30, "maximum": 30 }
+      }
+    },
     "backdrop": {
       "type": "object",
       "additionalProperties": false,

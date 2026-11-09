@@ -26,18 +26,29 @@
  * count was 1,417 at zoom 1, 645 at 1.6 and 1,200 at 2.5, and nearly doubled at the step
  * 64 -> 32 (a pop). The lead's ruling: hold the density steady across zoom. Two parts:
  *
- *  - `P` is now the box itself, clamped to [8, 64] (`latticePeriod`): a pure function of the zoom,
+ *  - `P` is now the box itself, clamped to [8, `RAIN_PERIOD_MAX`] (`latticePeriod`): a pure function of the zoom,
  *    the viewport and the ground, never of the pan, and never smaller than the box (the
  *    coverage guarantee). A zoom now SLIDES the drops (`s * P` moves with `P`) where it used to
  *    reshuffle them in one step; accepted, continuity beats a pop. There is no step any more.
  *  - Each instance owns a static `seedKeep` in `[0,1)` (`dropKeepSeed`, a fresh tile-hash
  *    stream) and the shader removes an instance whose seed is `>= uKeep`. `rainKeep` computes
  *    `uKeep = min(1, F * P^2 / A)` on the CPU, with `F = RAIN_DENSITY_FRACTION` and `A` the
- *    ground area a screen centred on the map shows (`footprintAreaOnMap`). The lattice holds
+ *    ground area a screen shows (`footprintAreaInView`). The lattice holds
  *    `N * A_screen / P^2` drops on screen at keep 1, so the kept count is `N * F` wherever `A / P^2`
  *    is at least `F`, and falls short of it only where the screen is too small to hold that many
  *    (the highest zoom over the highest ground, 8% short). Because `uKeep` falls out of the zoom,
- *    the viewport and the map alone, a pan neither changes it nor the period.
+ *    the viewport alone, a pan neither changes it nor the period.
+ *
+ * ## The whole frame, not the map (GH-940)
+ *
+ * The window is never clipped to the map and a drop landing off the map is NOT removed: the lead saw
+ * Ein Qasab II's screen corners and its off-map margin (the backdrop's valley walls, the void) dry,
+ * because the lattice was clipped to the map plus 8 tiles and the shader removed every drop whose
+ * landing point lay outside `[0, W] x [0, H]`. A dimetric map is a diamond, so at game zoom the
+ * corners of the screen are off the map at every focus. The period is now the unclipped box
+ * (`footprintExtent`), capped at `RAIN_PERIOD_MAX`, and the keep fraction counts the whole footprint
+ * (`footprintAreaInView`), so the on-screen count is the same N x F at every zoom and every focus.
+ * The splash, which needs ground under it, still stops at the map edge (`mapEdgeFade`).
  *
  * ## The fall
  *
@@ -45,11 +56,11 @@
  * landing point, `t` the SIM clock in seconds. It lands when the mod wraps; the
  * splash then lives 150 ms, and the same drop starts again at the top. The path
  * is slanted `RAIN_SLANT_DEG` from the vertical, down-wind (the foliage sway's
- * axis), so at height `h` the drop sits `h * tan(slant)` UPWIND of its landing.
+ * axis), so at height `h` the drop sits `h * tan(slant) * rainWindScale(t)` UPWIND of its landing.
  */
 import { ELEVATION, TILE_H, TILE_W } from '../../project';
 import { tileHash } from '../../tile-hash';
-import { SWAY_DIR_X, SWAY_DIR_Z } from '../terrain/sway';
+import { RAIN_SWAY_GUST, SWAY_DIR_X, SWAY_DIR_Z, gustFactor } from '../terrain/sway';
 import {
   RAIN_COLOUR_CEILING,
   RAIN_DENSITY_FRACTION,
@@ -65,12 +76,14 @@ import {
   RAIN_SPLASH_R0,
   RAIN_SPLASH_R1,
   RAIN_STREAK_CSS_PX,
+  RAIN_WIND_GUST,
+  RAIN_WIND_MEANDER,
+  RAIN_WIND_MEANDER_PERIOD_S,
 } from '../weather';
 
-/** `tan` / `sin` / `cos` of the slant. */
+/** `tan` of the breeze's slant (`rainWindScale` multiplies it; the shader derives the sine and cosine of the
+ *  gusted slant from the scaled tangent). */
 export const RAIN_SLANT_TAN = Math.tan((RAIN_SLANT_DEG * Math.PI) / 180);
-export const RAIN_SLANT_SIN = Math.sin((RAIN_SLANT_DEG * Math.PI) / 180);
-export const RAIN_SLANT_COS = Math.cos((RAIN_SLANT_DEG * Math.PI) / 180);
 
 /** CSS pixels per world unit at zoom 1: the dimetric camera frames `vp.width /
  *  (TILE_W * zoom * sqrt 2)` view units across `vp.width` pixels (`silhouette.ts`'s
@@ -78,20 +91,17 @@ export const RAIN_SLANT_COS = Math.cos((RAIN_SLANT_DEG * Math.PI) / 180);
  *  the same derivation; `rain-maths.test.ts` pins all three equal). */
 export const RAIN_PX_PER_WORLD_UNIT = (TILE_W * Math.SQRT2) / 2;
 
-/** The map's margin the rain still covers beyond its edge, tiles: the skirt and the
- *  fade the ground ends in. A box is clipped to the map plus this. */
-export const RAIN_MAP_MARGIN = 8;
-
-/** The soft fade over which rain thins to nothing at the map's edge, tiles: a drop landing this
- *  far INSIDE the edge or more is whole, one landing on the edge or beyond it is gone. */
+/** The soft fade over which a SPLASH thins to nothing at the map's edge, tiles: a drop landing this
+ *  far INSIDE the edge or more is whole, one landing on the edge or beyond it leaves no ring. */
 export const RAIN_EDGE_FADE = 0.5;
 
 /**
- * The map-edge fade of a drop, `0..1`, from its LANDING point (so a splash and the streak that
- * made it agree): `smoothstep(0, RAIN_EDGE_FADE, d)` with `d` the signed distance, in tiles, from
- * the landing point to the nearest edge of the map rectangle `[0, W] x [0, H]` (positive inside).
- * Rain stops at the edge of the world the sim has, and does not pop. The GLSL in `rain-batch.ts`
- * is a copy; both read `RAIN_EDGE_FADE`.
+ * The map-edge fade of a SPLASH, `0..1`, from its drop's landing point: `smoothstep(0, RAIN_EDGE_FADE,
+ * d)` with `d` the signed distance, in tiles, from the landing point to the nearest edge of the map
+ * rectangle `[0, W] x [0, H]` (positive inside). A splash needs ground to lie on, and past the map
+ * the height texture is clamped to the edge, so a ring there would float or sink. The STREAK is not
+ * faded (GH-940: the whole frame rains). The GLSL in `rain-batch.ts` is a copy; both read
+ * `RAIN_EDGE_FADE`.
  */
 export function mapEdgeFade(landX: number, landZ: number, mapW: number, mapH: number): number {
   const d = Math.min(Math.min(landX, mapW - landX), Math.min(landZ, mapH - landZ));
@@ -106,6 +116,16 @@ export interface RainView {
   readonly zoom: number;
   readonly width: number;
   readonly height: number;
+  /** The wind's heading on the ground plane (`terrain/wind.ts`, GH-984 N1): a unit vector, world x
+   *  and z. Absent is the foliage's old fixed axis, `SWAY_DIR`, so a view that never heard of the
+   *  wind is exactly what it was. */
+  readonly windX?: number;
+  readonly windZ?: number;
+}
+
+/** The rain's heading for `view`: its wind, else `SWAY_DIR`. */
+export function windDirOf(view: Pick<RainView, 'windX' | 'windZ'>): { x: number; z: number } {
+  return { x: view.windX ?? SWAY_DIR_X, z: view.windZ ?? SWAY_DIR_Z };
 }
 
 /** A box on the ground plane, world x and z. */
@@ -128,8 +148,23 @@ export const RAIN_REACH = RAIN_FALL_HEIGHT / Math.tan(ELEVATION);
 export function rainReach(maxGround: number): number {
   return (RAIN_FALL_HEIGHT + Math.max(0, maxGround)) / Math.tan(ELEVATION);
 }
-/** How far a drop's head sits from its landing point horizontally, at most. */
-export const RAIN_SLANT_OFFSET = RAIN_FALL_HEIGHT * RAIN_SLANT_TAN;
+/** The largest `rainWindScale`: the breeze, the meander at its crest and a gust at its peak. */
+export const RAIN_WIND_MAX = 1 + RAIN_WIND_MEANDER + RAIN_WIND_GUST;
+/** How far a drop's head sits from its landing point horizontally, at most (the strongest gust). */
+export const RAIN_SLANT_OFFSET = RAIN_FALL_HEIGHT * RAIN_SLANT_TAN * RAIN_WIND_MAX;
+
+/**
+ * The wind (GH-940): the factor on the slant's tangent at sim time `tSec`, in `[0.8, RAIN_WIND_MAX]`.
+ * A slow meander plus the foliage's own gust (`sway.ts` `gustFactor`, rescaled to a 0..1 bump), so a
+ * gust slants the rain exactly while the reeds lean hardest. The sim clock only: the caller passes
+ * `presentationSimMs / 1000`. `rain-batch.ts` writes it as `uWind` once a frame.
+ */
+export function rainWindScale(tSec: number, gust?: number): number {
+  // GH-984 N1: the renderer passes the TRAVELLING gust under the camera's focus (`terrain/wind.ts`,
+  // `windGust`, already in [0, 1]); a caller with none gets the old periodic bump.
+  const bump = gust ?? (gustFactor(tSec, true) - 1) / (RAIN_SWAY_GUST - 1);
+  return 1 + RAIN_WIND_MEANDER * Math.sin((2 * Math.PI * tSec) / RAIN_WIND_MEANDER_PERIOD_S) + RAIN_WIND_GUST * bump;
+}
 
 /** The camera's ground footprint, half-extents in tiles: `a` along `(1,-1)/sqrt2` (screen right)
  *  and `b` along `(-1,-1)/sqrt2` (up the screen). A function of the zoom and the viewport. */
@@ -146,49 +181,41 @@ export function footprintHalfExtents(view: Pick<RainView, 'zoom' | 'width' | 'he
  * footprint -- a rectangle of half-extents `a` along `(1,-1)/sqrt2` and `b` along
  * `(-1,-1)/sqrt2`, whose axis-aligned box has half-side `(a + b)/sqrt2` -- grown
  * toward the camera by `RAIN_REACH` (a landing point just below the bottom edge
- * still shows its drop up the screen) and on every side by the slant offset, then
- * clipped to the map plus `RAIN_MAP_MARGIN` when `map` is given.
+ * still shows its drop up the screen) and on every side by the slant offset.
+ * NOT clipped to the map (GH-940): the screen's corners are off the map.
  */
-export function footprintBox(
-  view: RainView,
-  map?: { readonly width: number; readonly height: number },
-  maxGround = 0
-): GroundBox {
+export function footprintBox(view: RainView, maxGround = 0): GroundBox {
   const { a, b } = footprintHalfExtents(view);
   const half = (a + b) / Math.SQRT2;
   const reach = rainReach(maxGround) / Math.SQRT2;
-  let minX = view.x - half - RAIN_SLANT_OFFSET;
-  let maxX = view.x + half + reach + RAIN_SLANT_OFFSET;
-  let minZ = view.y - half - RAIN_SLANT_OFFSET;
-  let maxZ = view.y + half + reach + RAIN_SLANT_OFFSET;
-  if (map !== undefined) {
-    const lx = Math.max(minX, -RAIN_MAP_MARGIN);
-    const hx = Math.min(maxX, map.width + RAIN_MAP_MARGIN);
-    const lz = Math.max(minZ, -RAIN_MAP_MARGIN);
-    const hz = Math.min(maxZ, map.height + RAIN_MAP_MARGIN);
-    // A focus far off the map leaves nothing to clip to on that axis: keep the box.
-    if (lx <= hx) {
-      minX = lx;
-      maxX = hx;
-    }
-    if (lz <= hz) {
-      minZ = lz;
-      maxZ = hz;
-    }
-  }
-  return { minX, maxX, minZ, maxZ };
+  // A landing point is its head moved DOWN-wind by the slant offset (`+SWAY_DIR_X`, `+SWAY_DIR_Z` of it), so the
+  // box grows only on the sides that move reaches toward: +x and -z. (Growing all four sides by the full offset,
+  // as before GH-940, made the period 6 tiles wider at the highest zoom than the coverage needs and thinned
+  // the rain there.)
+  const wind = windDirOf(view);
+  const slantX = RAIN_SLANT_OFFSET * wind.x;
+  const slantZ = RAIN_SLANT_OFFSET * wind.z;
+  return {
+    minX: view.x - half + Math.min(0, slantX),
+    maxX: view.x + half + reach + Math.max(0, slantX),
+    minZ: view.y - half + Math.min(0, slantZ),
+    maxZ: view.y + half + reach + Math.max(0, slantZ),
+  };
 }
 
 /**
- * The side of the UNCLIPPED box (`footprintBox` without a map), computed from the zoom, the viewport
+ * The side of the box (`footprintBox`), computed from the zoom, the viewport
  * and the ground alone. It is the box's `maxX - minX` written out, because that difference taken
  * from the box itself carries the focus's rounding (1e-15 tiles), and a period that follows the pan
  * at the 15th digit is a period that follows the pan.
  */
-export function footprintExtent(view: Pick<RainView, 'zoom' | 'width' | 'height'>, maxGround = 0): number {
+export function footprintExtent(
+  view: Pick<RainView, 'zoom' | 'width' | 'height' | 'windX' | 'windZ'>,
+  maxGround = 0
+): number {
   const { a, b } = footprintHalfExtents(view);
   const half = (a + b) / Math.SQRT2;
-  return 2 * half + rainReach(maxGround) / Math.SQRT2 + 2 * RAIN_SLANT_OFFSET;
+  return 2 * half + rainReach(maxGround) / Math.SQRT2 + RAIN_SLANT_OFFSET * Math.abs(windDirOf(view).x);
 }
 
 /**
@@ -216,36 +243,33 @@ export function windowLow(box: GroundBox, period: number): { x: number; z: numbe
 
 /**
  * The area, in tiles squared, of the camera's ground footprint moved by `(shiftX, shiftZ)` and
- * clipped to the map and to the `period` square about the map's centre (the part of a very wide map
- * the lattice can fill). The footprint is a `2a x 2b` rectangle turned 45 degrees
- * (`footprintHalfExtents`) centred on the middle of the MAP: this function never sees where the
- * camera actually is, which is what keeps `rainKeep` independent of the pan.
+ * clipped to the `period` square the lattice fills (the part of a very wide screen the lattice can
+ * cover when the period hits `RAIN_PERIOD_MAX`). The footprint is a `2a x 2b` rectangle turned 45
+ * degrees (`footprintHalfExtents`) centred on the origin plus the shift, the window a `period` square
+ * centred on the origin: this function never sees where the camera is, which is what keeps `rainKeep`
+ * independent of the pan. Sutherland-Hodgman against the four sides of an axis-aligned rectangle,
+ * then the shoelace formula.
  *
- * The model also centres the `period` window on the map's middle. The real window is centred on the
- * (clipped) box, which sits toward the camera of the focus by half the reach, so where the 64 cap
- * clips the footprint (zooms under about 1 on a map wider than the window) the real window is
- * offset from the model's by a few tiles: a measured effect of about 3% on the count, inside the
- * band and not worth a pan-dependent term (the keep must not see the pan). Sutherland-Hodgman
- * against the four sides of an axis-aligned rectangle, then the shoelace formula.
+ * The real window is centred on the box, which sits toward the camera of the focus by half the
+ * reach, so where the cap clips the footprint the real window is offset from this model's by a few
+ * tiles: about 3% on the count, inside the band and not worth a pan-dependent term (the keep must
+ * not see the pan).
  */
-export function clippedFootprintArea(
+export function footprintAreaInWindow(
   view: Pick<RainView, 'zoom' | 'width' | 'height'>,
-  map: { readonly width: number; readonly height: number },
   period: number,
   shiftX = 0,
   shiftZ = 0
 ): number {
   const { a, b } = footprintHalfExtents(view);
-  const cx = map.width / 2 + shiftX;
-  const cz = map.height / 2 + shiftZ;
   const u = Math.SQRT1_2;
   // A corner is `sa` right-halves and `sb` up-halves from the centre: right (u, -u), up (-u, -u).
-  const corner = (sa: number, sb: number): [number, number] => [cx + u * (sa * a - sb * b), cz - u * (sa * a + sb * b)];
+  const corner = (sa: number, sb: number): [number, number] => [shiftX + u * (sa * a - sb * b), shiftZ - u * (sa * a + sb * b)];
   let poly: Array<[number, number]> = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];
-  const x0 = Math.max(0, map.width / 2 - period / 2);
-  const x1 = Math.min(map.width, map.width / 2 + period / 2);
-  const z0 = Math.max(0, map.height / 2 - period / 2);
-  const z1 = Math.min(map.height, map.height / 2 + period / 2);
+  const x0 = -period / 2;
+  const x1 = period / 2;
+  const z0 = -period / 2;
+  const z1 = period / 2;
   // Each plane keeps `nx * x + nz * z >= d`.
   const planes: ReadonlyArray<readonly [number, number, number]> = [
     [1, 0, x0],
@@ -278,38 +302,31 @@ export function clippedFootprintArea(
   return Math.abs(twice) / 2;
 }
 
-/** The heights, evenly through the fall, `footprintAreaOnMap` averages over (midpoint rule). */
+/** The heights, evenly through the fall, `footprintAreaInView` averages over (midpoint rule). */
 export const RAIN_AREA_SAMPLES = 8;
 
 /**
- * The ground area, in tiles squared, whose drops a screen centred on the middle of the map has in
- * view at one instant: the mean over the fall of the landing points whose HEAD is on screen.
+ * The ground area, in tiles squared, whose drops are in view at one instant: the mean over the
+ * fall of the landing points whose HEAD is on screen.
  *
  * A head `h` above its landing point shows where a ground point `h / tan(elevation)` further from
  * the camera would, and sits `h * tan(slant)` up-wind of where it lands, so the landing points seen
  * at height `h` are the footprint moved by `h * ((1,1) / (sqrt2 tan(elevation)) + tan(slant) *
  * wind)`. A drop is at every height of its fall equally often (the phase is uniform), so the count
- * on screen is the lattice density times the MEAN of those moved footprints' area on the map. Where
- * the footprint sits inside the map the shift changes nothing; where it is cut by the map (zooms
- * below about 1.3 on a 48 map) the moved footprints lose area to the edge, and the plain footprint
- * overstates what is seen by up to 25% (measured: 140 drops where 180 were asked, at zoom 0.9).
+ * on screen is the lattice density times the MEAN of those moved footprints' area. With no map to
+ * clip to (GH-940) the shift changes nothing until the period caps; it is kept because the cap
+ * still clips a very wide screen.
  */
-export function footprintAreaOnMap(
-  view: Pick<RainView, 'zoom' | 'width' | 'height'>,
-  map: { readonly width: number; readonly height: number },
+export function footprintAreaInView(
+  view: Pick<RainView, 'zoom' | 'width' | 'height' | 'windX' | 'windZ'>,
   period: number
 ): number {
   const towards = 1 / (Math.SQRT2 * Math.tan(ELEVATION));
+  const wind = windDirOf(view);
   let sum = 0;
   for (let k = 0; k < RAIN_AREA_SAMPLES; k++) {
     const h = ((k + 0.5) / RAIN_AREA_SAMPLES) * RAIN_FALL_HEIGHT;
-    sum += clippedFootprintArea(
-      view,
-      map,
-      period,
-      h * (towards + RAIN_SLANT_TAN * SWAY_DIR_X),
-      h * (towards + RAIN_SLANT_TAN * SWAY_DIR_Z)
-    );
+    sum += footprintAreaInWindow(view, period, h * (towards + RAIN_SLANT_TAN * wind.x), h * (towards + RAIN_SLANT_TAN * wind.z));
   }
   return sum / RAIN_AREA_SAMPLES;
 }
@@ -317,33 +334,24 @@ export function footprintAreaOnMap(
 /**
  * The keep fraction `uKeep` in `(0, 1]`: an instance whose `dropKeepSeed` is below it is drawn. At a
  * lattice `period` the window holds every drop spread over `period^2` tiles, so a screen showing
- * `A = footprintAreaOnMap` tiles of the map holds `N * A / period^2` of them; keeping the share
+ * `A = footprintAreaInView` tiles holds `N * A / period^2` of them; keeping the share
  * `RAIN_DENSITY_FRACTION * period^2 / A` leaves `N * RAIN_DENSITY_FRACTION` on screen at every zoom
  * (S-L2 ruling 2). Never above 1: a screen too small to hold that many keeps every drop it has.
- * A pure function of the zoom, the viewport, the map and the period -- never the pan.
+ * A pure function of the zoom, the viewport and the period -- never the pan, and never the map.
  */
-export function rainKeep(
-  view: Pick<RainView, 'zoom' | 'width' | 'height'>,
-  map: { readonly width: number; readonly height: number },
-  period: number,
-  cache?: RainKeepCache
-): number {
-  if (cache !== undefined) return cache.get(view, map, period);
-  return rainKeepUncached(view, map, period);
+export function rainKeep(view: Pick<RainView, 'zoom' | 'width' | 'height' | 'windX' | 'windZ'>, period: number, cache?: RainKeepCache): number {
+  if (cache !== undefined) return cache.get(view, period);
+  return rainKeepUncached(view, period);
 }
 
-function rainKeepUncached(
-  view: Pick<RainView, 'zoom' | 'width' | 'height'>,
-  map: { readonly width: number; readonly height: number },
-  period: number
-): number {
-  const area = footprintAreaOnMap(view, map, period);
+function rainKeepUncached(view: Pick<RainView, 'zoom' | 'width' | 'height' | 'windX' | 'windZ'>, period: number): number {
+  const area = footprintAreaInView(view, period);
   if (area <= 0) return 1;
   return Math.min(1, (RAIN_DENSITY_FRACTION * period * period) / area);
 }
 
 /**
- * A one-entry memo of `rainKeep` on its inputs (zoom, viewport, map, period; the ground reaches it
+ * A one-entry memo of `rainKeep` on its inputs (zoom, viewport, period; the ground reaches it
  * through the period). `RainBatch.update` runs every frame and the inputs change only when the
  * player zooms or resizes, so a still or panning camera clips the footprint 8 times once, not 8
  * times a frame. The cached value is bit-identical to the uncached one. `hits` and `misses` are
@@ -355,39 +363,33 @@ export class RainKeepCache {
   private key: readonly number[] | null = null;
   private value = 1;
 
-  get(
-    view: Pick<RainView, 'zoom' | 'width' | 'height'>,
-    map: { readonly width: number; readonly height: number },
-    period: number
-  ): number {
-    const key = [view.zoom, view.width, view.height, map.width, map.height, period];
+  get(view: Pick<RainView, 'zoom' | 'width' | 'height' | 'windX' | 'windZ'>, period: number): number {
+    const wind = windDirOf(view);
+    const key = [view.zoom, view.width, view.height, period, wind.x, wind.z];
     if (this.key !== null && this.key.every((v, i) => v === key[i])) {
       this.hits++;
       return this.value;
     }
     this.misses++;
     this.key = key;
-    this.value = rainKeepUncached(view, map, period);
+    this.value = rainKeepUncached(view, period);
     return this.value;
   }
 }
 
 /**
  * The production choice, in one place: the lattice period, the window's low corner and the keep
- * fraction for a view on a map whose highest drawn ground is `maxGround`.
+ * fraction for a view over ground whose highest drawn point is `maxGround`.
  */
 export function rainWindow(
   view: RainView,
-  map: { readonly width: number; readonly height: number },
   maxGround = 0,
   keepCache?: RainKeepCache
 ): { period: number; low: { x: number; z: number }; keep: number } {
-  // The period from the UNCLIPPED box, so it is a property of the zoom, the viewport and the
-  // ground and never of the pan: choosing it from the box clipped to the map made P drop a step
-  // near a map edge with no zoom change (every drop jumping, density per tile 4x). The clipped
-  // box only places the window, and it is never wider than the unclipped one, so it still fits.
+  // The period from the box, so it is a property of the zoom, the viewport and the ground and never
+  // of the pan (the box's side does not see the focus).
   const period = latticePeriodFor(footprintExtent(view, maxGround));
-  return { period, low: windowLow(footprintBox(view, map, maxGround), period), keep: rainKeep(view, map, period, keepCache) };
+  return { period, low: windowLow(footprintBox(view, maxGround), period), keep: rainKeep(view, period, keepCache) };
 }
 
 /** A modulus that stays in `[0, m)` for a negative `a` (JS `%` does not). */
@@ -443,15 +445,17 @@ export function dropPosition(
   lo: { readonly x: number; readonly z: number },
   period: number,
   tSec: number,
-  groundY: number
+  groundY: number,
+  windScale = 1,
+  wind: { readonly x: number; readonly z: number } = { x: SWAY_DIR_X, z: SWAY_DIR_Z }
 ): { x: number; y: number; z: number; landX: number; landZ: number; height: number; phase: number } {
   const land = dropLanding(seed, lo, period);
   const phase = dropPhase(seed[1], tSec);
   const height = RAIN_FALL_HEIGHT - phase;
   return {
-    x: land.x - RAIN_SLANT_TAN * height * SWAY_DIR_X,
+    x: land.x - RAIN_SLANT_TAN * windScale * height * wind.x,
     y: groundY + height,
-    z: land.z - RAIN_SLANT_TAN * height * SWAY_DIR_Z,
+    z: land.z - RAIN_SLANT_TAN * windScale * height * wind.z,
     landX: land.x,
     landZ: land.z,
     height,

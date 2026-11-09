@@ -155,6 +155,63 @@ describe('startLocalRelay', () => {
     expect((await post(plain, '/api/match', body, dev)).status).toBe(403);
   });
 
+  it('allowOrigins (GH-954 W1) is extraOrigins by another name for the arena server, and the two together are both accepted', async () => {
+    const page = 'http://127.0.0.1:5994';
+    const relay = await relayOf({ allowOrigins: [page], extraOrigins: ['http://127.0.0.1:5993'] });
+    const body = { player: 'p', build: BUILD, map: MAP, mode: 'versus' };
+    expect((await post(relay, '/api/match', body, page)).status).toBe(201);
+    expect((await post(relay, '/api/match', body, 'http://127.0.0.1:5993')).status).toBe(201);
+    expect((await post(relay, '/api/match', body, 'http://127.0.0.1:5992')).status).toBe(403);
+  });
+
+  describe('GH-954 W1: watch and linger', () => {
+    const botRoom = async (relay: LocalRelay): Promise<{ code: string; tickets: string[] }> => {
+      const body = { player: 'host-id', callsign: 'Host', build: BUILD, map: MAP, mode: 'versus', kind: 'bot' };
+      const { code, ticket } = (await (await post(relay, '/api/match', body)).json()) as { code: string; ticket: string };
+      const joined = (await (await post(relay, `/api/match/${code}/join`, { player: 'guest-id', callsign: 'Guest', kind: 'bot' })).json()) as { ticket: string };
+      return { code, tickets: [ticket, joined.ticket] };
+    };
+
+    it('the watch ticket route is 404 on a relay started without watch (as production), 200 on one with it, and 403 for a human seat', async () => {
+      const plain = await relayOf();
+      const r0 = await botRoom(plain);
+      expect((await post(plain, `/api/match/${r0.code}/watch`, { ticket: r0.tickets[0] })).status).toBe(404);
+      const watching = await relayOf({ watch: true });
+      const r1 = await botRoom(watching);
+      const res = await post(watching, `/api/match/${r1.code}/watch`, { ticket: r1.tickets[0] });
+      expect(res.status).toBe(200);
+      expect(typeof ((await res.json()) as { ticket: string }).ticket).toBe('string');
+      const human = await versusRoom(watching);
+      expect((await post(watching, `/api/match/${human.code}/watch`, { ticket: human.tickets[0] })).status).toBe(403);
+    });
+
+    it('lingerMs keeps the relay serving after close() is called; close({now:true}) cuts it short; without it close() is prompt', async () => {
+      const relay = await startLocalRelay({ log: () => {}, lingerMs: 600 });
+      let done = false;
+      const closing = relay.close().then(() => { done = true; });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(done).toBe(false);
+      // Still answering during the linger.
+      expect((await post(relay, '/api/match', { player: 'p', build: BUILD, map: MAP, mode: 'versus' })).status).toBe(201);
+      const t0 = Date.now();
+      await relay.close({ now: true });
+      await closing;
+      expect(Date.now() - t0).toBeLessThan(400);
+      expect(done).toBe(true);
+      const prompt = await startLocalRelay({ log: () => {} });
+      const t1 = Date.now();
+      await prompt.close();
+      expect(Date.now() - t1).toBeLessThan(400);
+    }, 20_000);
+
+    it('close({now:true}) first skips the linger altogether', async () => {
+      const relay = await startLocalRelay({ log: () => {}, lingerMs: 5000 });
+      const t0 = Date.now();
+      await relay.close({ now: true });
+      expect(Date.now() - t0).toBeLessThan(1500);
+    }, 20_000);
+  });
+
   it('snapshotEveryTicks is minted into a versus room\'s config: 0 turns snapshots off, 40 is kept, and unset is the room\'s default 1,200 (snapshot S4 T1B)', async () => {
     const cadenceOf = async (o: Parameters<typeof startLocalRelay>[0]): Promise<number> => {
       const relay = await relayOf({ tickMs: 5, ...o });

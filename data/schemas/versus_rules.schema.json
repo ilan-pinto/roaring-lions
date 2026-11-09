@@ -2,19 +2,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/versus_rules.schema.json",
   "title": "Versus rules",
-  "description": "The skirmish rules of one KDF-v-Sarim matchup map (network design §2.2, §2.3; N3 plan Task 1): where each END of the map has its camp, and which zones pay logistics to whoever holds them. Read by @lions/data's `versusMissionOf`, which maps it field for field into the MissionJson shape the runtime already takes -- no objective, trigger, wave or civilian is authored, so `checkEnd` can never end the runtime and the network rule (outcome.ts) decides the match. `ends` are the two anchors `versusAnchors` returns (friendly = seat 0's end, hostile = seat 1's), NOT sides: which faction, and so which side, stands at an end is the room's. `pnpm validate:data` (tools/validate_versus_rules.mjs) holds the cross-file rules the schema cannot see: camp tiles on open ground inside the map and within 6 tiles of the end's anchor, every income zone declared by the map or by this file, no zone name clashing with the map's, exactly one file per faction-matchup map, and a rules-only map listed in RULES_ONLY_MAPS.",
+  "description": "The skirmish rules of one KDF-v-Sarim matchup map (network design §2.2, §2.3; N3 plan Task 1): where each END of the map has its camp, and which zones pay logistics to whoever holds them. Read by @lions/data's `versusMissionOf`, which maps it field for field into the MissionJson shape the runtime already takes -- no objective, trigger, wave or civilian is authored, so `checkEnd` can never end the runtime and the network rule (outcome.ts) decides the match. `ends` are the two anchors `versusAnchors` returns (friendly = seat 0's end, hostile = seat 1's), NOT sides: which faction, and so which side, stands at an end is the room's. `pnpm validate:data` (tools/validate_versus_rules.mjs) holds the cross-file rules the schema cannot see: camp tiles on open ground inside the map and within 6 tiles of the end's anchor, every income zone declared by the map or by this file, no zone name clashing with the map's, exactly one file per faction-matchup map, and a mirror-only map listed in MIRROR_RULES_MAPS.",
   "type": "object",
   "required": ["id", "map", "ends", "income_zones"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "The map id (one file per map)." },
-    "map": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "A map id in data/maps; one of the faction-matchup maps (@lions/net FACTION_MATCHUP_MAPS), or a rules-only map that no room offers yet (RULES_ONLY_MAPS in tools/validate_versus_rules.mjs; the large map of GH-913)." },
+    "map": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "A map id in data/maps; one of the faction-matchup maps (@lions/net FACTION_MATCHUP_MAPS), a mirror-only map (MIRROR_RULES_MAPS in tools/validate_versus_rules.mjs; the large map of GH-913, offered for KDF v KDF and Sarim v Sarim only), or a rules-only map that no room offers yet (RULES_ONLY_MAPS there; the large Wadi Tarfan of GH-920)." },
     "capacity": {
       "type": "integer",
       "minimum": 256,
       "maximum": 1024,
       "default": 256,
       "description": "The room's entity capacity (GH-913 L3). `spawn` never reuses a dead slot, so this budgets everyone who ever enters the match, wounded men included. Absent means 256. A larger map raises it (rujm_sawda: 512, measured at about 5% on the tick and +1.4 KiB on a gzipped snapshot). Read by buildMatchWorld through @lions/data's `versusCapacityOf`; a snapshot restore builds from the same config, so it follows. Never below 256."
+    },
+    "formations_closed_in": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["mirror", "placed", "economy"] },
+      "description": "Room kinds on this map in which combat formations stay CLOSED even with the versus gate open (GH-859, the lead's ruling of 5 Nov): a room of that kind sends no `formation` on a move or attack-move and drops one it receives, exactly as a closed gate does. `economy` is a KDF-v-Sarim room on the skirmish economy (`economyRoom`), `placed` a KDF-v-Sarim win-mode room (two placed forces, no economy), `mirror` a same-faction room. Absent means open in all three. Set only where S4 (`pnpm s4:gate`) tripped a cell of that kind. Read by packages/app/src/net/versus-formations.ts; folded into the content digest with the rest of the file."
+    },
+    "cap_minutes": {
+      "type": "integer",
+      "minimum": 25,
+      "maximum": 60,
+      "default": 25,
+      "description": "The match cap in minutes (GH-913 L8): at this many minutes a match with both ends standing is decided on surviving unit value, as outcomeOf does at 25. Absent means 25. A larger map lengthens it (rujm_sawda: 35, a long march on 80x80). The Worker scales its command-log character cap with it (packages/net matchCapMinutes, maxLogCmdChars), and packages/net holds a twin table that tools/src/validate_versus_rules.test.ts pins against every rules file. Never below 25."
     },
     "ends": {
       "type": "object",
@@ -96,7 +109,8 @@
           "description": "The end's camp (structure type `camp`, which is not authored): top-left tile and footprint.",
           "properties": {
             "at": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 } },
-            "size": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 1 } }
+            "size": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 1 } },
+            "exit": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 }, "description": "GH-976: the tile (index, like `at`) where units leave this camp, an open ring tile of its footprint. Absent: the sim's row-major NW scan, which is NOT point-symmetric. On a point-symmetric map the two camps' exits must be point mirrors (validate:data). Read by an economy room's production delivery, contest check, rally exit and rear sync." }
           }
         }
       }

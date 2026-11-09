@@ -463,15 +463,24 @@ will get wrong.
   theme id never reaches the renderer: `TERRAIN_WEATHER` (app) turns `wetland` into `rain`, and a renderer built with
   `weather: 'clear'` gets the dry path whatever the theme (the shipped three pin it). Never key a wet term on the theme, on "the map has a `~`" or on a map id.
 - **Control C is a third control texture, RGBA8 at `CONTROL_TEXELS_PER_TILE` 8, and exists only when `TerrainInput.wet` is true AND a
-  `TerrainSurface` was given** (`terrain/control-map.ts`, `terrain/wet-masks.ts`). **R is the marsh water weight**: `marshWaterAt` at the
-  texel CENTRE, as is. The reed placer rejects a centre where that function reads `>= 0.5`, so the POINT contract holds (see the reed-agreement rule below: it is not strict on the texels). **G is the road puddles ONLY**: a band of unsigned road distance
-  `PUDDLE_RUT_HALF_BAND` (0.12 tile) either side of `RUT_OFFSET`, where a per-texel rut noise passes (`PUDDLE_RUT_FILL` 0.56, stream
-  14011/14153, mapped through its own empirical CDF so a share is a share). **B and A are spare, written 0.** The lead removed the
-  open-ground puddle term and the low-ground boost at S-L1 (30 Oct): the plan's 4-8% open-ground share and the +6% bowl boost are gone,
-  `G == 0` on every texel off a road, and `RenderQuality.rain` has no `openPuddles`. Both masks are SOFT, with the 0.5 crossing at the rule's
-  edge; a share is the fraction of texels with `>= 0.5`. Measured on `ein_qasab`: marsh 0.3119 (band 0.25-0.35), road puddles 0.2948
-  (band 0.25-0.35; the first bake read 0.4005 at fill 0.75 and the S-3 gate took the second round). The bake is about 205 ms on
-  `ein_qasab`, wet only. One predicate, `neverWater`, zeroes G: a pad, a `^` top, a crown, a terrace top, a slope over 10 degrees.
+  `TerrainSurface` was given** (`terrain/control-map.ts`, `terrain/wet-masks.ts`). **R is the marsh water weight AND the flood margin around it
+  (GH-940)**: `max(marshWaterAt, poolTexel)` at the texel CENTRE. Inside a `~` tile it is `marshWaterAt`, as is. The reed placer rejects a
+  centre where that function reads `>= 0.5`, so the POINT contract holds (see the reed-agreement rule below: it is not strict on the texels).
+  Outside one it is the pool term: **the marsh spills onto the low ground around it** in irregular blobs (`poolTerm`: `uniformNoise` at 0.7
+  cycles a tile, stream 15601/15733, pass share `POOL_FILL_NEAR` 0.85 at the marsh's edge falling linearly to 0 at `POOL_REACH_TILES` 2), only
+  on `open` or `scrub` tiles that pass `neverWater`, and only where the ground is at or under the WATER TABLE (`WetField.waterLevel`: the mean
+  integer level of the marsh's own tiles, else the lowest non-terrace level, else 0; ground `POOL_LEVEL_SLACK` 0.6 level over it is still low,
+  ramping off over 0.5). It rides in R so a pool takes the marsh's reflectance, ripples, rim and `marsh` debug layer with NO shader term; on a
+  map with no marsh it is zero. **G is the road puddles ONLY**, two terms, the larger wins: the RUT puddle is a band of unsigned road distance
+  `PUDDLE_RUT_HALF_BAND` (0.14 tile; 0.12 until GH-940) either side of `RUT_OFFSET`, where a per-texel rut noise passes (`PUDDLE_RUT_FILL` 0.62; 0.56
+  until GH-940, stream 14011/14153, mapped through its own empirical CDF so a share is a share), and the FORD (GH-940) is a road in LOW ground
+  flooded across its whole width where a coarse noise passes (`FORD_FILL` 0.3, 0.45 cycles a tile, stream 15811/15907). **B and A are spare, written 0.** The lead removed the
+  open-ground puddle term and the low-ground boost at S-L1 (30 Oct) and **GH-940 kept that**: `G == 0` on every texel off a road, and the flood
+  margin is the marsh's own edge, not a puddle on the grass. Both masks are SOFT, with the 0.5 crossing at the rule's edge; a share is the fraction of
+  texels with `>= 0.5`. Measured on `ein_qasab`: marsh 0.3119 inside the marsh tiles (band 0.25-0.35, unchanged), road puddles and fords 0.3697
+  (band 0.33-0.42; it was 0.2948 in 0.25-0.35, and a first cut at rut fill 0.7 and ford fill 0.5 read 0.4443 and flooded a whole road in a
+  capture), 6,018 pooled texels outside the marsh (94 tile-equivalents, +30% of the marsh's 311 tiles). The bake is about 200 ms on `ein_qasab`
+  (the pool adds a 7x7 tile search to texels on tiles within 3 of a marsh tile only), wet only. One predicate, `neverWater`, zeroes G (and the pool): a pad, a `^` top, a crown, a terrace top, a slope over 10 degrees.
 - **Control C's splice has its own margin and reads the surface.** `WET_SPLICE_MARGIN_TEXELS` is 16 (two tiles at 8 texels, the Catmull-Rom
   stencil `incremental.ts` derives `SPLICE_RADIUS_TILES` 2 from), a second constant beside `CONTROL_SPLICE_MARGIN_TEXELS` 4 on purpose:
   A and B read no surface, and raising theirs would loosen a margin `terrain-splice.test.ts` pins tight. `changedControlTiles` marks
@@ -535,7 +544,7 @@ will get wrong.
   version needs a placer change, which moves P2's reed set and P3's.
 - **The wetland map stays out of the 35 terrain digests**, and the `wetland` `theme-identity` entry moves deliberately with a `Was` in the
   commit (`program` 770e1d73 -> 0ce466f4 at T4; `scene` eight times; `light` once; the Was values are in the spec's section 14). A shipped entry moving is a bug, not a bless.
-- **Do not re-add an open-ground or low-ground puddle without the lead.** The share tests assert `G == 0` off a road.
+- **Do not re-add an open-ground or low-ground puddle without the lead.** The share tests assert `G == 0` off a road. The flood margin (GH-940) is R and hugs the marsh; to let it reach plain grass anywhere, the lead has to say so (`poolTerm` would drop its marsh-distance reach).
 - **Wet GLSL changes need a GPU compile.** There is no GLSL validator in the test run; the first real compile was S-L1's capture. After
   touching a wet block, read it for ES 3.00 by hand and take one `ground:capture` view (the house browser rules apply).
 - **A new control-C reader must use the texel CENTRE** (`(i + 0.5) / N`), as `marshTexel` and `puddleTexel` do.

@@ -2,7 +2,7 @@
   "unit": "mortar_crew",
   "variant": "team",
   "source": "assets/meshes/mortar_crew.glb",
-  "source_sha256": "a712de834471bbbb39e75186be27c4e5efddbd0855c01122632814bfd9d1a262",
+  "source_sha256": "d2aa7ae41f3a73835fc628c187f471136b6ac558102a98ba245abc0b5520656f",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
@@ -11,13 +11,13 @@
     0.88
   ],
   "ndc_box": [
-    0.1265,
-    0.8735,
     0.06,
-    0.94
+    0.94,
+    0.1603,
+    0.8397
   ],
   "materials": {
-    "baked": 4,
-    "flat": 2
+    "baked": 5,
+    "flat": 0
   }
 }

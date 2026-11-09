@@ -1,14 +1,14 @@
 // The Stores: the garage's second tab (GH-317, spec 2026-10-01 §2).
 //
-// Without `?testcoins` it is a PREVIEW: the balance reads 0, every coin Buy
-// and every pack is disabled (`buyEnabled`, the one predicate they all ask),
-// and one line says purchases open when online accounts arrive.
+// Every player has a free Roar-coin wallet (`roar-wallet.ts`, GH-317), earned in
+// the campaign. A Buy sells for coins what credits also buy, at 1 coin = 10
+// credits. This screen only ASKS (`onBuy`); the caller writes `lions.roar` and
+// redraws it. Real-money packs stay disabled (`buyEnabled`, the one predicate
+// every Buy and pack control asks).
 //
-// With `?testcoins` (the lead's go-ahead, 2 Oct) a local TEST wallet buys
-// what credits buy, at 1 coin = 10 credits. This screen only ASKS (`onBuy`,
-// `onGrant`); the caller writes `lions.roar.test` and redraws it. Real-money
-// packs stay disabled either way. A TEST TOOL: anyone with the link can
-// unlock things free on the live site, so it goes before release.
+// With no durable storage there is no wallet to hold coins in: the screen is the
+// PREVIEW it was (a zero balance, every Buy and pack disabled, and one line
+// saying so).
 //
 // The lead's declutter (2 Oct, "the store is too dense"):
 //   * the default view lists only what can be bought; owned items sit behind
@@ -25,7 +25,8 @@
 // returned disposer removes the lot. Nothing goes on `document.body` or
 // `window`.
 import { t } from '../i18n/t';
-import type { RoarReceipt } from '../roar-test';
+import { EARN } from '../roar-earn';
+import type { RoarReceipt } from '../roar-wallet';
 import type { Disposer } from '../shell/router';
 import {
   COIN_PACKS,
@@ -34,6 +35,7 @@ import {
   coinCost,
   packBonusPercent,
   storeItems,
+  unitItem,
   type CoinAsk,
   type CoinWallet,
   type Honest,
@@ -42,6 +44,8 @@ import {
   type UnitItem,
 } from './stores-model';
 import { rovingStep } from './garage-model';
+import { creditAsk, type CreditAsk } from '../upgrade-pay';
+import { addsAvailable, buildAddsPanel } from './stores-adds-view';
 
 export type StoresShelf = 'early' | 'cosmetics' | 'receipts';
 const SHELVES: readonly StoresShelf[] = ['early', 'cosmetics', 'receipts'];
@@ -61,22 +65,31 @@ export interface StoresOptions extends StoreInput {
   showOwned?: boolean;
   /** Told when the "Show owned" toggle flips, so a redraw keeps it. */
   onShowOwned?: (on: boolean) => void;
-  /** The TEST wallet (`?testcoins`, `roar-test.ts`). Absent: the preview,
-   *  with a zero balance and every Buy disabled. */
-  test?: StoresTestWallet;
-  /** A Buy pressed with TEST coins. The caller buys, saves, and redraws the
+  /** The wallet (`roar-wallet.ts`). Absent: the preview, with a zero balance
+   *  and every Buy disabled (no durable storage). */
+  wallet?: StoresWallet;
+  /** A Buy pressed with coins. The caller buys, saves, and redraws the
    *  Stores; this screen only asks. */
   onBuy?: (ask: CoinAsk) => void;
-  /** The TEST "Grant" control. The caller adds coins and redraws. */
-  onGrant?: () => void;
+  /** A "Buy with credits" pressed on a unit card: the Garage's own purchase
+   *  (`buyUnlock`), at the unit's credit price. Absent: no such button. */
+  onBuyCredits?: (unitId: string, credits: number) => void;
+  /** A "Buy with credits" pressed on a tier row (D5): the unit, the track, the tier the
+   *  run ENDS on and the run's total (`creditAsk`). The caller recomputes the ask from a
+   *  fresh read (`buyTierWithCredits`); the price is checked there, never trusted. Absent:
+   *  no such button. */
+  onBuyTierCredits?: (unitId: string, track: string, to: number, price: number) => void;
   /** The `data-buy`/`data-focus` key of the control to focus after a redraw. */
   focusKey?: string;
+  /** The unit whose "What it adds" panel is open (GH-1076), kept through redraws like `shelf`. */
+  adds?: string;
+  /** Told when a panel opens (its unit id) or closes (`null`), so a redraw can reopen it. */
+  onAdds?: (id: string | null) => void;
 }
 
-export interface StoresTestWallet {
+export interface StoresWallet {
+  /** Coins a Buy may spend (`spendable`). */
   readonly coins: number;
-  /** What one press of the Grant button adds (the `?testcoins` amount). */
-  readonly grant: number;
   readonly receipts: readonly RoarReceipt[];
 }
 
@@ -158,30 +171,41 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
   const root = el('section', 'rl-stores');
   root.setAttribute('aria-label', t('stores.tab'));
 
-  // The wallet every Buy is asked against: the TEST one, or the preview's 0.
-  const coinWallet: CoinWallet = opts.test !== undefined ? { test: true, coins: opts.test.coins } : PREVIEW_WALLET;
-  const ctx: Ctx = { opts, wallet: coinWallet };
-  if (opts.test !== undefined) root.dataset.test = '1';
+  // The wallet every Buy is asked against: the stored one, or the preview's 0.
+  const coinWallet: CoinWallet = opts.wallet !== undefined ? { live: true, coins: opts.wallet.coins } : PREVIEW_WALLET;
+  // "What it adds" (GH-1076): at most one panel, under the open card's grid row. The panel carries no Buy and
+  // reads no wallet, so a purchase's focus restore is untouched.
+  const addsCards = new Map<string, { card: HTMLElement; btn: HTMLButtonElement }>();
+  let addsOpen: string | null = opts.adds ?? null;
+  let addsPanel: HTMLElement | null = null;
+  const addsHook: AddsHook = {
+    available: addsAvailable,
+    register: (id, card, btn) => {
+      addsCards.set(id, { card, btn });
+      btn.addEventListener('click', () => setAdds(addsOpen === id ? null : id, true));
+    },
+  };
+  const ctx: Ctx = {
+    opts,
+    wallet: coinWallet,
+    adds: addsHook,
+    unitOpen: (unitId) => {
+      const u = opts.units.find((x) => x.id === unitId);
+      if (u === undefined) return false;
+      const state = unitItem(u, opts).state;
+      return state === 'earned' || state === 'coins';
+    },
+  };
+  if (opts.wallet !== undefined) root.dataset.live = '1';
 
-  // --- head: the balance, Grant (TEST), and "Get Roar coins" beside them ----
+  // --- head: the balance, and "Get Roar coins" beside it --------------------
   const head = el('div', 'rl-stores__head');
   const wallet = el('div', 'rl-stores__wallet');
   wallet.appendChild(coinImg(opts.coinSrc(48), 48, 'rl-stores__wallet-coin'));
   const walletN = el('span', 'rl-stores__wallet-n', String(coinWallet.coins));
   walletN.dataset.value = String(coinWallet.coins);
   wallet.append(walletN, el('span', 'rl-stores__wallet-word', t('stores.wallet.word', { n: coinWallet.coins })));
-  if (opts.test !== undefined) wallet.appendChild(el('span', 'rl-stores__test', t('stores.test.badge')));
   head.appendChild(wallet);
-  if (opts.test !== undefined && opts.onGrant !== undefined) {
-    const grant = document.createElement('button');
-    grant.type = 'button';
-    grant.className = 'rl-stores__grant';
-    grant.dataset.buy = 'grant';
-    grant.textContent = t('stores.test.grant', { n: opts.test.grant });
-    const onGrant = opts.onGrant;
-    grant.addEventListener('click', () => onGrant());
-    head.appendChild(grant);
-  }
 
   // Packs: compact chips, all real money, all disabled.
   const packs = el('div', 'rl-stores__packs');
@@ -207,9 +231,17 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
   head.appendChild(packs);
   root.appendChild(head);
 
-  const notice = el('p', 'rl-stores__notice', opts.test !== undefined ? t('stores.test.notice') : t('stores.offline'));
-  notice.setAttribute('role', 'note');
-  root.appendChild(notice);
+  if (opts.wallet === undefined) {
+    const notice = el('p', 'rl-stores__notice', t('stores.offline'));
+    notice.setAttribute('role', 'note');
+    root.appendChild(notice);
+  } else {
+    // The honest line (GH-317): what the coins are, said once, with the numbers read
+    // from the table `roar-earn.ts` pays by. Then "How to earn", from the same table.
+    const about = el('p', 'rl-stores__notice rl-stores__about', t('stores.about', EARN));
+    about.setAttribute('role', 'note');
+    root.append(about, earnPanel());
+  }
 
   // --- shelves: a tablist, Left/Right/Home/End, the garage's F8 pattern ----
   const bar = el('div', 'rl-stores__bar');
@@ -349,16 +381,54 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
       anyVisible ||= on;
     }
     if (nothing !== null) nothing.hidden = anyVisible;
+    syncAdds();
+  }
+
+  /** Opens `id`'s panel (closing the other) or closes it. `byUser` moves focus: to the panel's heading on
+   *  open, back to the control on close. */
+  function setAdds(id: string | null, byUser: boolean): void {
+    const was = addsOpen;
+    addsOpen = id;
+    opts.onAdds?.(id);
+    syncAdds();
+    if (!byUser) return;
+    if (id !== null) {
+      // The Stores scroll inside the shell's one `1fr` row, so a panel opened below the fold is clipped until it
+      // is scrolled to. `preventScroll` keeps the heading focus from fighting this; `nearest` never moves a
+      // panel that is already fully on screen. jsdom has no scrollIntoView, hence the optional call.
+      addsPanel?.querySelector<HTMLElement>('.rl-stores__adds-h')?.focus({ preventScroll: true });
+      addsPanel?.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
+    } else if (was !== null) addsCards.get(was)?.btn.focus();
+  }
+  /** Draws the open panel and nothing else. A card that is not on the shelf (owned, with the toggle off) has no
+   *  panel: it closes, so a purchase that moves the card takes its panel with it. */
+  function syncAdds(): void {
+    addsPanel?.remove();
+    addsPanel = null;
+    for (const [id, e] of addsCards) e.btn.setAttribute('aria-expanded', id === addsOpen ? 'true' : 'false');
+    if (addsOpen === null) return;
+    const entry = addsCards.get(addsOpen);
+    const section = entry?.card.closest<HTMLElement>('.rl-stores__group') ?? null;
+    if (entry === undefined || entry.card.hidden || section === null || section.hidden) {
+      addsOpen = null;
+      opts.onAdds?.(null);
+      for (const e of addsCards.values()) e.btn.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    const panel = buildAddsPanel(addsOpen, opts, opts.missionName, `rl-stores-adds-${addsOpen}`, `rl-stores-adds-h-${addsOpen}`);
+    if (panel === null) return;
+    entry.card.after(panel);
+    addsPanel = panel;
   }
 
   // --- Cosmetics and Receipts ----------------------------------------------
   panelEls.get('cosmetics')?.appendChild(el('p', 'rl-stores__empty', t('stores.empty.cosmetics')));
   const receiptsPanel = panelEls.get('receipts');
   if (receiptsPanel !== undefined) {
-    const receipts = opts.test?.receipts ?? [];
+    const receipts = opts.wallet?.receipts ?? [];
     if (receipts.length === 0) {
       receiptsPanel.appendChild(
-        el('p', 'rl-stores__empty', opts.test !== undefined ? t('stores.empty.receipts.test') : t('stores.empty.receipts'))
+        el('p', 'rl-stores__empty', opts.wallet !== undefined ? t('stores.empty.receipts.live') : t('stores.empty.receipts'))
       );
     } else {
       receiptsPanel.appendChild(receiptsTable(receipts, opts));
@@ -378,7 +448,15 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
       [...root.querySelectorAll<HTMLElement>('[data-buy], [data-focus]')].find(
         (e) => (e.dataset.buy ?? e.dataset.focus) === k && usable(e)
       );
-    const unit = key.startsWith('unit:') ? key.slice(5) : key.startsWith('tier:') ? key.slice(5).split('.')[0] : null;
+    // `unit:<id>`, `tier:<id>.<track>.<n>` and `credits:<id>[.<track>]` all name a unit; once the press has
+    // bought its last rung the control is gone and focus falls to that unit's card, never the shelf tab.
+    const unit = key.startsWith('unit:')
+      ? key.slice(5)
+      : key.startsWith('tier:')
+        ? key.slice(5).split('.')[0]
+        : key.startsWith('credits:')
+          ? key.slice(8).split('.')[0]
+          : null;
     const target =
       byKey(key) ?? (unit !== null ? (byKey(`card:${unit}`) ?? byKey(`card:tiers:${unit}`)) : undefined) ?? tabEls.get(shelf);
     target?.focus();
@@ -388,9 +466,58 @@ export function showStores(host: HTMLElement, opts: StoresOptions): Disposer {
   };
 }
 
+/** "How to earn": every payout, from `EARN`, and the things that pay nothing. A
+ *  function, so every string resolves when the screen is drawn, not at module load. */
+function earnPanel(): HTMLElement {
+  const panel = document.createElement('details');
+  panel.className = 'rl-stores__earn';
+  panel.appendChild(el('summary', 'rl-stores__earn-h', t('stores.earn.title')));
+  const list = el('ul', 'rl-stores__earn-list');
+  const rows: [string, number][] = [
+    ['welcome', EARN.welcome],
+    ['firstWin', EARN.firstWin],
+    ['star', EARN.star],
+    ['campaign', EARN.campaign],
+  ];
+  for (const [key, n] of rows) {
+    const li = el('li', 'rl-stores__earn-row');
+    li.dataset.earn = key;
+    li.appendChild(el('span', 'rl-stores__earn-n', t('stores.earn.plus', { n })));
+    li.appendChild(el('span', 'rl-stores__earn-what', t(`stores.earn.${key}`)));
+    list.appendChild(li);
+  }
+  panel.appendChild(list);
+  panel.appendChild(el('p', 'rl-stores__earn-none', t('stores.earn.nothing')));
+  return panel;
+}
+
 interface Ctx {
   readonly opts: StoresOptions;
   readonly wallet: CoinWallet;
+  readonly adds: AddsHook;
+  /** Whether a unit is open (earned or coin-bought): `TierItem.state` cannot say, since `locked` also means short of credits. */
+  readonly unitOpen: (unitId: string) => boolean;
+}
+
+/** The "What it adds" control's seam into the screen (GH-1076): which cards have one, and where it registers. */
+interface AddsHook {
+  available: (unitId: string) => boolean;
+  register: (unitId: string, card: HTMLElement, btn: HTMLButtonElement) => void;
+}
+
+/** A card's "What it adds" control: `data-focus="adds:<id>"`, `aria-expanded`, `aria-controls`. */
+function addsControl(item: UnitItem, card: HTMLElement, ctx: Ctx): HTMLButtonElement | null {
+  if (!ctx.adds.available(item.id)) return null;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'rl-stores__adds-open';
+  btn.dataset.focus = `adds:${item.id}`;
+  btn.textContent = t('stores.adds.open');
+  btn.setAttribute('aria-label', t('stores.adds.open.aria', { name: item.name }));
+  btn.setAttribute('aria-expanded', 'false');
+  btn.setAttribute('aria-controls', `rl-stores-adds-${item.id}`);
+  ctx.adds.register(item.id, card, btn);
+  return btn;
 }
 
 /** ONE price line: coins first, credits small beside them. */
@@ -419,9 +546,61 @@ function coinBuy(coins: number, label: string, enabled: boolean, ctx: Ctx, key: 
   return buy;
 }
 
+/** Whether a unit card offers "Buy with credits": the unit is for sale by
+ *  credits (`affordable`: the earned credits on hand cover its price), the
+ *  account is live (`credits` is defined), and the caller can buy. Credits and
+ *  coins never mix: this never reads the coin wallet. */
+export function creditBuyEnabled(item: UnitItem, credits: number | undefined, canBuy: boolean): boolean {
+  return canBuy && item.state === 'affordable' && item.credits !== undefined && credits !== undefined && credits >= item.credits;
+}
+
+function creditBuy(item: UnitItem, ctx: Ctx): HTMLButtonElement | null {
+  const onBuyCredits = ctx.opts.onBuyCredits;
+  const price = item.credits;
+  if (price === undefined || !creditBuyEnabled(item, ctx.opts.credits, onBuyCredits !== undefined)) return null;
+  const buy = document.createElement('button');
+  buy.type = 'button';
+  buy.className = 'rl-stores__buy rl-stores__buy--credits';
+  buy.dataset.buy = `credits:${item.id}`;
+  buy.textContent = t('stores.buy.credits', { n: price });
+  buy.setAttribute('aria-label', t('stores.buy.credits.aria', { name: item.name, n: price }));
+  buy.addEventListener('click', () => onBuyCredits?.(item.id, price));
+  return buy;
+}
+
+/** Whether a tier row offers "Buy with credits": the ASK is stated (the track is not
+ *  maxed), the unit is open, the caller can buy, and the earned credits cover the whole
+ *  ASK, which is the run when coins have run ahead, not the one rung (R0.4). Credits
+ *  alone: this never reads the coin wallet and never `TierItem.state`. */
+export function tierCreditBuyEnabled(ask: CreditAsk | null, credits: number | undefined, unitOpen: boolean, canBuy: boolean): boolean {
+  return canBuy && unitOpen && ask !== null && credits !== undefined && credits >= ask.price;
+}
+
+function tierCreditBuy(item: TierItem, ask: CreditAsk, ctx: Ctx): HTMLButtonElement | null {
+  const onBuy = ctx.opts.onBuyTierCredits;
+  if (!tierCreditBuyEnabled(ask, ctx.opts.credits, ctx.unitOpen(item.unitId), onBuy !== undefined)) return null;
+  const track = t(`garage.track.${item.track}`);
+  const args = { to: ask.to, price: ask.price, from: ask.from, last: ask.to - 1, name: item.unitName, track, n: ask.price, tier: ask.to };
+  const buy = document.createElement('button');
+  buy.type = 'button';
+  buy.className = 'rl-stores__buy rl-stores__buy--credits';
+  buy.dataset.buy = `credits:${item.unitId}.${item.track}`;
+  if (ask.again > 0) {
+    // The run label states the run: "Tier 3 · 740 credits (pays for tiers 1-2 again, on credits)".
+    const one = ask.again === 1;
+    buy.textContent = t(one ? 'stores.buy.tier.run1' : 'stores.buy.tier.run', args);
+    buy.setAttribute('aria-label', t(one ? 'stores.buy.tier.run1.aria' : 'stores.buy.tier.run.aria', args));
+  } else {
+    buy.textContent = t('stores.buy.tier.credits', args);
+    buy.setAttribute('aria-label', t('stores.buy.tier.credits.aria', args));
+  }
+  buy.addEventListener('click', () => onBuy?.(item.unitId, item.track, ask.to, ask.price));
+  return buy;
+}
+
 /** The aria label's last clause: why a Buy cannot be pressed, or nothing. */
 function buyNote(cost: number | null, ctx: Ctx): string {
-  if (!ctx.wallet.test) return t('stores.buy.note.preview');
+  if (!ctx.wallet.live) return t('stores.buy.note.preview');
   if (cost !== null && ctx.wallet.coins < cost) return t('stores.buy.note.short');
   return '';
 }
@@ -440,7 +619,7 @@ function portraitEl(unitId: string, opts: StoresOptions): HTMLElement {
   return img;
 }
 
-/** Receipts, newest first. Every row is a TEST purchase or grant. */
+/** Receipts, newest first: coins earned or redeemed, and coins spent. */
 function receiptsTable(receipts: readonly RoarReceipt[], opts: StoresOptions): HTMLElement {
   const wrap = el('div', 'rl-stores__receipts-wrap');
   const table = document.createElement('table');
@@ -461,17 +640,18 @@ function receiptsTable(receipts: readonly RoarReceipt[], opts: StoresOptions): H
     const tr = document.createElement('tr');
     tr.dataset.receipt = r.kind;
     const when = new Date(r.at);
+    const incoming = r.kind === 'earn' || r.kind === 'coupon';
     const cells: string[] = [
       `${when.toLocaleDateString()} ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      r.kind === 'grant'
-        ? t('stores.receipt.grant')
+      r.kind === 'earn'
+        ? t(`stores.receipt.earn.${r.source}`)
         : r.kind === 'coupon'
           ? t('stores.receipt.coupon')
           : r.kind === 'unit'
             ? name(r.unitId)
             : t('stores.receipt.tier', { name: name(r.unitId), track: t(`garage.track.${r.track}`), tier: r.tier }),
-      r.kind === 'grant' || r.kind === 'coupon' ? t('stores.receipt.plus', { n: r.coins }) : String(r.coins),
-      r.kind === 'grant' || r.kind === 'coupon' ? t('stores.receipt.none') : t('stores.price.credits', { n: r.credits }),
+      incoming ? t('stores.receipt.plus', { n: r.coins.free + r.coins.paid }) : String(r.coins.free + r.coins.paid),
+      incoming ? t('stores.receipt.none') : t('stores.price.credits', { n: r.credits }),
     ];
     for (const c of cells) tr.appendChild(el('td', '', c));
     body.appendChild(tr);
@@ -503,9 +683,13 @@ function unitCard(item: UnitItem, ctx: Ctx): HTMLElement {
   if (forSale(item.state) && item.coins !== undefined) {
     const label = t('stores.buy.aria', { name: item.name, n: item.coins, note: buyNote(coinCost(item), ctx) });
     body.appendChild(coinBuy(item.coins, label, buyEnabled(item, ctx.wallet), ctx, `unit:${item.id}`, { kind: 'unit', unitId: item.id }));
+    const byCredits = creditBuy(item, ctx);
+    if (byCredits !== null) body.appendChild(byCredits);
   } else {
     body.appendChild(el('span', `rl-stores__state rl-stores__state--${item.state}`, t(`stores.state.${item.state}`)));
   }
+  const adds = addsControl(item, card, ctx);
+  if (adds !== null) body.appendChild(adds);
   card.appendChild(body);
   return card;
 }
@@ -542,7 +726,11 @@ function tierCard(list: readonly TierItem[], ctx: Ctx, ownedEls: HTMLElement[]):
     head.appendChild(pips);
     row.appendChild(head);
     if (item.next !== null && forSale(item.state)) {
-      row.appendChild(priceLine(item.next.credits, item.next.coins, opts));
+      // The credit figure follows the ASK: while coins hold tiers the earned path lacks, the Buy is a
+      // run and the figure beside it is the run's total (the button and the figure never disagree).
+      const prices = (opts.units.find((x) => x.id === item.unitId)?.upgrades?.[item.track]?.tiers ?? []).map((x) => x.price);
+      const ask = creditAsk(prices, item.earned, item.owned);
+      row.appendChild(priceLine(ask !== null && ask.again > 0 ? ask.price : item.next.credits, item.next.coins, opts));
       const label = t('stores.buy.tier.aria', {
         name: item.unitName,
         track: t(`garage.track.${item.track}`),
@@ -550,10 +738,12 @@ function tierCard(list: readonly TierItem[], ctx: Ctx, ownedEls: HTMLElement[]):
         n: item.next.coins,
         note: buyNote(coinCost(item), ctx),
       });
-      const ask: CoinAsk = { kind: 'tier', unitId: item.unitId, track: item.track, tier: item.next.tier };
+      const coinAsk: CoinAsk = { kind: 'tier', unitId: item.unitId, track: item.track, tier: item.next.tier };
       row.appendChild(
-        coinBuy(item.next.coins, label, buyEnabled(item, ctx.wallet), ctx, `tier:${item.unitId}.${item.track}.${item.next.tier}`, ask)
+        coinBuy(item.next.coins, label, buyEnabled(item, ctx.wallet), ctx, `tier:${item.unitId}.${item.track}.${item.next.tier}`, coinAsk)
       );
+      const byCredits = ask === null ? null : tierCreditBuy(item, ask, ctx);
+      if (byCredits !== null) row.appendChild(byCredits);
     } else {
       row.appendChild(el('span', `rl-stores__state rl-stores__state--${item.state}`, t(`stores.state.${item.state}`)));
     }
