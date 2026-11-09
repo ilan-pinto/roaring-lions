@@ -1211,16 +1211,13 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'outline',
-        // GH-943 P3 (T5) Step A: NO FLOOR YET, on purpose. Hiding the occlusion and smoke outlines on this frame, to learn whether
-        // an existing gated scenario shows an outline (>= 200 px on all 3 CI runs). If it does, the floor is a third of the smallest
-        // of three fresh-process CI readings; if no scenario does, this check leaves and the `occluded` scenario (ruling 3) takes it.
-        // Until then this check cannot pass, and the `visual` job is red on this branch. The reading it prints is the number to take.
-        minDiffPixels: Number.POSITIVE_INFINITY,
-        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        minDiffPixels: 102,
+        minMeanAbsChannelDelta: 0.0047,
         rationale:
-          'GH-943 P3 T5 Step A: hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the vehicle frame. ' +
-          'Floor NOT YET MEASURED: take it from this branch\'s CI `visual` readings. Falsified by forcing `uOutlineWidth` to 0 in the legacy ' +
-          'material (the shell then lies inside the body\'s own stencil stamp and draws nothing): FAIL.',
+          'GH-943 P3 T5 Step A (branch 1 held): hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the vehicle frame ' +
+          'moves 306 px / 0.0142 on all three fresh-process `visual` readings, bit-identical (ci.yml run 42584225531, attempts 1-3, linux-x64-swiftshader, ' +
+          '1400x900, targetTick 140). Floors are a third of the smallest, rounded down (102, 0.0047). `fogged` read 144 px / 0.0068 (< 200 px) and carries no check. ' +
+          'FALSIFICATION: see the PR body (forcing `uOutlineWidth` to 0 in the legacy material, one pushed run, reverted).',
       },
     ],
     rationale:
@@ -1325,16 +1322,13 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'outline',
-        // GH-943 P3 (T5) Step A: NO FLOOR YET, on purpose. Hiding the occlusion and smoke outlines on this frame, to learn whether
-        // an existing gated scenario shows an outline (>= 200 px on all 3 CI runs). If it does, the floor is a third of the smallest
-        // of three fresh-process CI readings; if no scenario does, this check leaves and the `occluded` scenario (ruling 3) takes it.
-        // Until then this check cannot pass, and the `visual` job is red on this branch. The reading it prints is the number to take.
-        minDiffPixels: Number.POSITIVE_INFINITY,
-        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        minDiffPixels: 102,
+        minMeanAbsChannelDelta: 0.0047,
         rationale:
-          'GH-943 P3 T5 Step A: hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the kitted frame. ' +
-          'Floor NOT YET MEASURED: take it from this branch\'s CI `visual` readings. Falsified by forcing `uOutlineWidth` to 0 in the legacy ' +
-          'material (the shell then lies inside the body\'s own stencil stamp and draws nothing): FAIL.',
+          'GH-943 P3 T5 Step A (branch 1 held): hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the kitted frame ' +
+          'moves 306 px / 0.0142 on all three fresh-process `visual` readings, bit-identical (ci.yml run 42584225531, attempts 1-3, linux-x64-swiftshader, ' +
+          '1400x900, targetTick 140). Floors are a third of the smallest, rounded down (102, 0.0047). `fogged` read 144 px / 0.0068 (< 200 px) and carries no check. ' +
+          'FALSIFICATION: see the PR body (forcing `uOutlineWidth` to 0 in the legacy material, one pushed run, reverted).',
       },
     ],
     rationale:
@@ -1405,19 +1399,6 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'Proves the vehicles are really in frame: hiding every unit body moves 9036 px / 0.6724. A small share of the ' +
           'frame at zoom 0.5 by design; the shroud is the rest.',
       },
-      {
-        layer: 'outline',
-        // GH-943 P3 (T5) Step A: NO FLOOR YET, on purpose. Hiding the occlusion and smoke outlines on this frame, to learn whether
-        // an existing gated scenario shows an outline (>= 200 px on all 3 CI runs). If it does, the floor is a third of the smallest
-        // of three fresh-process CI readings; if no scenario does, this check leaves and the `occluded` scenario (ruling 3) takes it.
-        // Until then this check cannot pass, and the `visual` job is red on this branch. The reading it prints is the number to take.
-        minDiffPixels: Number.POSITIVE_INFINITY,
-        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
-        rationale:
-          'GH-943 P3 T5 Step A: hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the fogged frame. ' +
-          'Floor NOT YET MEASURED: take it from this branch\'s CI `visual` readings. Falsified by forcing `uOutlineWidth` to 0 in the legacy ' +
-          'material (the shell then lies inside the body\'s own stencil stamp and draws nothing): FAIL.',
-      },
     ],
     rationale:
       'whole frame: shroud, haze, the off-map fade and the force\'s mesh vehicles at zoom 0.5. 40 px / 0.004, ' +
@@ -1468,16 +1449,13 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'outline',
-        // GH-943 P3 (T5) Step A: NO FLOOR YET, on purpose. Hiding the occlusion and smoke outlines on this frame, to learn whether
-        // an existing gated scenario shows an outline (>= 200 px on all 3 CI runs). If it does, the floor is a third of the smallest
-        // of three fresh-process CI readings; if no scenario does, this check leaves and the `occluded` scenario (ruling 3) takes it.
-        // Until then this check cannot pass, and the `visual` job is red on this branch. The reading it prints is the number to take.
-        minDiffPixels: Number.POSITIVE_INFINITY,
-        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        minDiffPixels: 102,
+        minMeanAbsChannelDelta: 0.0041,
         rationale:
-          'GH-943 P3 T5 Step A: hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the graded frame. ' +
-          'Floor NOT YET MEASURED: take it from this branch\'s CI `visual` readings. Falsified by forcing `uOutlineWidth` to 0 in the legacy ' +
-          'material (the shell then lies inside the body\'s own stencil stamp and draws nothing): FAIL.',
+          'GH-943 P3 T5 Step A (branch 1 held): hiding the occlusion outline (the three team silhouette materials) and the smoke outline on the graded frame ' +
+          'moves 306 px / 0.0124 on all three fresh-process `visual` readings, bit-identical (ci.yml run 42584225531, attempts 1-3, linux-x64-swiftshader, ' +
+          '1400x900, targetTick 140). Floors are a third of the smallest, rounded down (102, 0.0041). `fogged` read 144 px / 0.0068 (< 200 px) and carries no check. ' +
+          'FALSIFICATION: see the PR body (forcing `uOutlineWidth` to 0 in the legacy material, one pushed run, reverted).',
       },
     ],
     rationale:

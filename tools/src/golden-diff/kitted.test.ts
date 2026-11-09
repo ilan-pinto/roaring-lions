@@ -48,7 +48,7 @@ describe('the kitted scenario (GH-238 K8)', () => {
     expect(spec.maxMeanAbsChannelDelta).toBe(BASELINES.vehicle.maxMeanAbsChannelDelta);
     expect(spec.repaintControl).toBeUndefined();
     // GH-943 P1 (T5): the trailing `bloom` is the ZERO check every quiet gated scenario carries.
-    // GH-943 P3 (T5) Step A: `outline` while its readings are pending (it stays only if this frame shows an outline).
+    // GH-943 P3 (T5) Step A: `outline` (branch 1 held: 306 px / 0.0142 on this frame, three CI readings).
     expect((spec.layerChecks ?? []).map((c) => c.layer)).toEqual(['environment', 'units', 'kit', 'unit-surface', 'outline', 'bloom']);
     const units = spec.layerChecks?.find((c) => c.layer === 'units');
     const vehicleUnits = BASELINES.vehicle.layerChecks?.find((c) => c.layer === 'units');
