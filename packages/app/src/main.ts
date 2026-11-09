@@ -1568,6 +1568,10 @@ async function main(): Promise<void> {
               query: req.query,
               telemetryPlayer: () => telemetry().ids()?.player ?? null,
               navigate: (href) => window.location.assign(href),
+              // A guest boot only: a claimed device has the server-backed store and nothing to claim.
+              claim: selectedStore.signedIn
+                ? undefined
+                : { guest: ledgerStore, download: downloadFile, onClaimed: () => window.location.assign(routes.menu()) },
             })
           );
         },

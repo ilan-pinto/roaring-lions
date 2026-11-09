@@ -39,7 +39,7 @@ import { clearBinding, clearDeviceId, readBinding, writeBinding } from './bindin
 import { ACCOUNT_CACHE_KEY, writeCache } from './cache';
 import type { AccountClient, CallResult, CampaignOp, CouponAnswer, ResetFreeAnswer, SlotPutOp, VictoryAnswer, VictoryOp } from './client';
 import { addHeld, readHeld, removeHeld, type HeldItem } from './local-held';
-import { clearTab, heartbeatKey, orphanedOutboxes, outboxOwner, outboxTabs, readOutbox, type OutboxOp } from './outbox';
+import { carriesCampaign, clearTab, heartbeatKey, orphanedOutboxes, outboxOwner, outboxTabs, readOutbox, type OutboxOp } from './outbox';
 import { resolveSignedIn, sha256Hex } from './signed-in';
 
 /** Campaign and slot ops wait this long to coalesce; a victory goes at once. */
@@ -127,8 +127,6 @@ export function heldFromOp(op: OutboxOp, publicId: string, at: number): HeldItem
       return null;
   }
 }
-
-const carriesCampaign = (op: OutboxOp): boolean => op.kind === 'campaign' || (op.kind === 'victory' && op.campaign !== null);
 
 export function startSync(o: SyncOptions): SyncHandle {
   const { store, client, storage } = o;

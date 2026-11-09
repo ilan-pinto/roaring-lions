@@ -9,6 +9,7 @@ import type { StorageLike } from '../brigade-account';
 import { blockedLedgerStore, browserLedgerStore, type LedgerStore, type RoarBackfill } from '../ledger-store';
 import { accountLedgerStore } from './account-store';
 import { tabIdOf } from './tab-id';
+import { dropOrphanClaiming, finishInterruptedClaim } from './claim';
 import { readBinding } from './binding';
 import { readCache } from './cache';
 import { accountsEnabled } from './enabled';
@@ -37,12 +38,14 @@ function sessionStorageOrNull(): StorageLike | null {
 }
 
 export function selectLedgerStore(query: URLSearchParams, storage: StorageLike | null, backfill: RoarBackfill, o: SelectOptions): SelectedStore {
-  const guest: SelectedStore = { store: browserLedgerStore(backfill), signedIn: false, needsState: false };
+  dropOrphanClaiming(storage); // a claim marker with no binding behind it would lock the guest store for good
+  const guest: SelectedStore = { store: browserLedgerStore(backfill, { refuseWhileClaiming: accountsEnabled(query) }), signedIn: false, needsState: false };
   if (!accountsEnabled(query)) return guest;
   const binding = readBinding(storage);
   if (binding === null || binding.claimedAt === undefined) return guest;
   const cache = readCache(storage);
   if (cache === null || cache.publicId !== binding.publicId) return { store: blockedLedgerStore(), signedIn: true, needsState: true };
+  finishInterruptedClaim(storage); // a tab that died between the last two writes of a claim left guest keys behind
   const store = accountLedgerStore({
     storage,
     cache,

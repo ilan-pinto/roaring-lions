@@ -6,7 +6,11 @@
  * and a late promise (`me()`, a PATCH, an export) is ignored once `disposed` is set.
  */
 import type { StorageLike } from '../brigade-account';
-import { clearBinding } from '../account/binding';
+import { SAVE_VERSION } from '@lions/economy';
+import { clearBinding, readBinding } from '../account/binding';
+import { claimQuietly, hasGuestProgress, readClaiming, runClaim, type ClaimOutcome } from '../account/claim';
+import type { LedgerStore } from '../ledger-store';
+import { exportSlot, readActive } from '../profile';
 import { readReturnCode, type AccountClient, type AccountError, type IdentityView, type MeResult } from '../account/client';
 import { resolveSignedIn, type SignedInResult } from '../account/signed-in';
 import { t } from '../i18n/t';
@@ -24,6 +28,11 @@ export interface ProfileDeps {
   telemetryPlayer: () => string | null;
   /** Leaves the page for `href`: Steam's login URL is another origin, so main.ts passes a real page load. */
   navigate: (href: string) => void;
+  /**
+   * The guest-to-account claim (GH-1075 A2). Given only on a guest boot (`?accounts`, no claimed binding): `guest` is the
+   * device's own store, `download` saves a file, `onClaimed` re-enters the app so the server-backed store is chosen.
+   */
+  claim?: { guest: LedgerStore; download: (name: string, json: string) => void; onClaimed: () => void; now?: () => number };
 }
 
 const NAME_MIN = 3;
@@ -229,11 +238,71 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
     return box;
   };
 
+  /** The claim panel: shown when signed in, the binding has no `claimedAt` and the guest keys hold progress (§0.41: with none, the device claims quietly). */
+  const mountClaim = async (): Promise<void> => {
+    const c = deps.claim;
+    const store = deps.store;
+    const b = readBinding(store);
+    if (c === undefined || store === null || b === null || b.claimedAt !== undefined) return;
+    if (readClaiming(store) === null && !hasGuestProgress(c.guest)) {
+      if (await claimQuietly(deps.client, store, c.now)) {
+        if (!disposed) c.onClaimed();
+      }
+      return;
+    }
+    if (disposed) return;
+    const box = document.createElement('div');
+    box.className = 'rl-profile__claim';
+    const note = line('rl-profile__claim-lead', t('account.claim.lead'));
+    const state = line('rl-profile__claim-state', readClaiming(store) === null ? '' : t('account.claim.moving'));
+    state.setAttribute('role', 'status');
+    const copy = button(t('account.claim.download'), () => {
+      const a = readActive(c.guest);
+      const name = t('account.claim.copyName');
+      c.download(`${name}.lions-save.json`, exportSlot({ version: SAVE_VERSION, id: 'before-claim', name, savedAt: (c.now ?? Date.now)(), build: '', ledger: a.ledger, account: a.account, tutorialDone: a.tutorialDone }));
+    });
+    const move = button(t('account.claim.move'), () => void go());
+    const later = button(t('account.claim.notNow'), () => box.remove());
+    const verdict = (o: ClaimOutcome): void => {
+      if (o === 'moved') {
+        state.textContent = t('account.claim.done');
+        box.replaceChildren(state);
+        c.onClaimed();
+      } else if (o === 'kept') {
+        state.textContent = t('account.claim.kept');
+        state.classList.add('rl-bad');
+        move.hidden = true;
+        move.disabled = true;
+      } else {
+        state.textContent = t('account.claim.error');
+        state.classList.add('rl-bad');
+        move.textContent = t('account.claim.retry');
+      }
+    };
+    const go = async (): Promise<void> => {
+      move.disabled = true;
+      later.disabled = true;
+      state.classList.remove('rl-bad');
+      state.textContent = t('account.claim.moving');
+      const o = await runClaim({ client: deps.client, guest: c.guest, storage: store as StorageLike, now: c.now });
+      if (disposed) return;
+      verdict(o);
+      move.disabled = false;
+      later.disabled = o === 'retry' || o === 'blocked' || o === 'failed' ? readClaiming(store) !== null : false;
+    };
+    const row = document.createElement('div');
+    row.className = 'rl-profile__claim-verbs';
+    row.append(copy, move, later);
+    box.append(note, state, row);
+    content.prepend(box);
+  };
+
   const render = (res: SignedInResult): void => {
     content.replaceChildren();
     if (res.kind === 'signedIn' && res.me.kind === 'signedIn') {
       const me = res.me;
       content.appendChild(signedInBlock(me, load, () => render({ kind: 'signedOut', publicId: me.publicId })));
+      void mountClaim();
     } else if (res.kind === 'deleted') {
       content.append(line('rl-profile__deleted', t('profile.deleted')), guestBlock());
     } else if (res.kind === 'signedOut') {
