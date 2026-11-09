@@ -808,3 +808,24 @@ export function createDecalMaterial(
     side: THREE.DoubleSide,
   });
 }
+
+/**
+ * GH-943 P3 (T7): the `userData` key the decal material carries its scene's LIGHT OBJECTS under, for the node twin
+ * (`decal-pool.node.ts`). The legacy material reads the scene's lights through three's `lights: true` uniforms, which hold
+ * values, not objects; the twin reads the objects themselves (colour, intensity and matrix every render, the sun's shadow through
+ * its node shadow), so `ThreeRenderer` hands them over here once, right after `createSceneLights`. Non-enumerable, like
+ * `twin-identity.ts`'s records, so a `clone()` or a `toJSON` never carries a light. Presentation only; legacy never reads it.
+ */
+export const DECAL_LIGHTS_KEY = 'rlDecalLights';
+
+/** The scene's lights as the legacy material sees them: `directionalLights[0]`, `hemisphereLights[0]`, every ambient light. */
+export interface DecalLights {
+  readonly sun: THREE.DirectionalLight | null;
+  readonly hemisphere: THREE.HemisphereLight | null;
+  readonly ambient: readonly THREE.AmbientLight[];
+}
+
+/** Records `lights` on the decal material (`DECAL_LIGHTS_KEY`), replacing any earlier record. */
+export function setDecalLights(material: THREE.Material, lights: DecalLights): void {
+  Object.defineProperty(material.userData, DECAL_LIGHTS_KEY, { value: lights, enumerable: false, configurable: true, writable: true });
+}

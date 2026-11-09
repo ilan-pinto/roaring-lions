@@ -26,7 +26,17 @@ import { groundBlend, heightBiased, macroDecode, macroFactor, rescaleWeights, ro
 import { NATURE_ATTRIBUTE } from './terrain/decor-mesh';
 import { disturbBendOps, disturbSlotPushOps, DISTURB_MAX } from './terrain/disturb';
 import { foliageLeanOps } from './terrain/wind';
-import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS } from './decal-pool';
+import { DECAL_LIGHTS_KEY, DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS, DECAL_WET_DEFINE } from './decal-pool';
+import {
+  craterGradOps,
+  DECAL_PALETTE_ORDER,
+  decalAlphaOps,
+  decalGroundToneOps,
+  decalKindOps,
+  decalMultiplierOps,
+  decalOutRatioOps,
+  decalRimRatioOps,
+} from './decal-maths';
 import { SELECTION_RING } from './units/readability';
 import { ringFragmentOps, ringOutputOps } from './units/selection-ring';
 import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_ATTRIBUTE, SILHOUETTE_OUTLINE_UNIFORM_KEY } from './units/silhouette';
@@ -65,7 +75,20 @@ export const MATERIAL_MATHS: MaterialMaths = {
   outline: { expandOps: outlineExpandOps, expandAttribute: SILHOUETTE_EXPAND_ATTRIBUTE, widthKey: SILHOUETTE_OUTLINE_UNIFORM_KEY, biasKey: SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY },
   banner: null,
   backdrop: null,
-  decal: null,
+  // T7: the decal kinds, the road under them, the albedo ratio and the crater rim (`decal-pool.node.ts`).
+  decal: {
+    kindOps: decalKindOps,
+    alphaOps: decalAlphaOps,
+    groundToneOps: decalGroundToneOps,
+    multiplierOps: decalMultiplierOps,
+    craterGradOps,
+    rimRatioOps: decalRimRatioOps,
+    outRatioOps: decalOutRatioOps,
+    roadRangeTiles: ROAD_DISTANCE_RANGE_TILES,
+    paletteSize: DECAL_PALETTE_ORDER.length,
+    wetDefine: DECAL_WET_DEFINE,
+    lightsKey: DECAL_LIGHTS_KEY,
+  },
   overlay: null,
   // T8: the zone band's hatch (`units/zone-band.node.ts`) and the supply route's dash and alpha (`supply-route.node.ts`).
   zoneBand: { hatchOps: zoneHatchOps },
