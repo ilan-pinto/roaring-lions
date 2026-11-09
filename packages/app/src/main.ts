@@ -373,7 +373,8 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
+import { selectLedgerStore } from './account/select-store';
+import { newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
@@ -432,7 +433,9 @@ function safeStorage(): Storage | null {
  *  slots (`ledger-store.ts`). One per page, because it is a handle on the
  *  browser's own store rather than a snapshot of anything -- every read below
  *  still goes to storage at the moment it is made. */
-const ledgerStore = browserLedgerStore((w, l) => roarBackfill(w, l, parseWorld(world), Date.now()));
+// Task 2.12 reads `selectedStore.needsState` and awaits `GET state` before the first screen; until then a claimed device with no cache gets a blocked store.
+const selectedStore = selectLedgerStore(new URLSearchParams(window.location.search), safeStorage(), (w, l) => roarBackfill(w, l, parseWorld(world), Date.now()), { world: parseWorld(world) });
+const ledgerStore = selectedStore.store;
 // Settle the one-time Store back-pay before any slot or import can swap the ledger (G-E3).
 settleRoarAtBoot(ledgerStore);
 
@@ -6039,6 +6042,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   : null,
               world: parseWorld(world),
               at: Date.now(),
+              start: null, // Task 2.12 passes the mission/start answer here
             });
             const victoryWrite = coinsSettle.write;
             const ledgerSaved = victoryWrite === 'saved';

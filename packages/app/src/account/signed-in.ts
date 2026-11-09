@@ -16,7 +16,9 @@ export async function sha256Hex(text: string): Promise<string> {
 export async function resolveSignedIn(client: AccountClient, store: StorageLike | null): Promise<SignedInResult> {
   const me = await client.me();
   if (me.kind === 'signedIn') {
-    writeBinding(store, { version: 1, publicId: me.publicId });
+    // The same member keeps the device id and the claim mark; a different member starts clean (§0.31).
+    const bound = readBinding(store);
+    writeBinding(store, bound !== null && bound.publicId === me.publicId ? { ...bound, publicId: me.publicId } : { version: 1, publicId: me.publicId });
     return { kind: 'signedIn', me };
   }
   const bound = readBinding(store);
