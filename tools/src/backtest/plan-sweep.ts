@@ -24,9 +24,12 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { missions } from '@lions/data';
 import { outcomeName, runLog, type RunRecord } from './playtest-run';
-import { limitHeadroom, type WinTime } from './time-limit';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { missions, minWinSeconds, world } from '@lions/data';
+import { worldMissionIds } from '../../../packages/economy/src';
+import { parseWorld } from '../../../packages/app/src/campaign';
+import { fastestWins, limitHeadroom, MIN_WIN_DIVISOR, type WinTime } from './time-limit';
 import { SWEEP_SEEDS } from './passive-sweep';
 
 /** True inside a seed's child process. */
@@ -121,6 +124,56 @@ function reportLimitHeadroom(runSets: Iterable<readonly RunRecord[]>): void {
 }
 
 /**
+ * GH-1075 A2: the win floor. `--min-win` writes `data/accounts/min_win_seconds.json` as floor(fastest win / 4) per world
+ * mission; with or without it, every committed floor must sit at or below a quarter of the fastest win this run saw.
+ */
+function reportMinWin(runSets: Iterable<readonly RunRecord[]>, seeds: number): void {
+  const wins: WinTime[] = [];
+  for (const runs of runSets) {
+    for (const r of runs) if (r.result === 'victory') wins.push({ id: r.id, label: r.label, seconds: r.minutes * 60 });
+  }
+  const fastest = fastestWins(wins);
+  const ids = worldMissionIds(parseWorld(world));
+  if (process.argv.includes('--min-win')) {
+    if (process.env.PT_PLAN_SWEEP === '0') {
+      console.error('min_win_seconds: FAILED — --min-win needs the 30-seed sweep (PT_PLAN_SWEEP=0 is on); one seed would write too high a floor');
+      process.exitCode = 1;
+      return;
+    }
+    const out: Record<string, number> = {};
+    for (const id of ids) {
+      const f = fastest.get(id);
+      if (f === undefined) {
+        console.error(`min_win_seconds: ${id} FAILED — no winning run to take a floor from`);
+        process.exitCode = 1;
+        return;
+      }
+      out[id] = Math.floor(f.seconds / MIN_WIN_DIVISOR);
+    }
+    const dir = fileURLToPath(new URL('../../../data/accounts/', import.meta.url));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(dir + 'min_win_seconds.json', JSON.stringify({ min_win_seconds: out }, null, 2) + '\n');
+    console.log(`min_win_seconds: wrote ${ids.length} floors to data/accounts/min_win_seconds.json`);
+    return; // `minWinSeconds` below is the import from before the write; the next run checks the new file
+  }
+  let clean = 0;
+  for (const id of ids) {
+    const f = fastest.get(id);
+    const floor = (minWinSeconds as Readonly<Record<string, number>>)[id];
+    if (f === undefined || floor === undefined) {
+      console.error(`min_win_seconds: ${id} FAILED — ${f === undefined ? 'no winning run' : 'no floor in the file'}`);
+      process.exitCode = 1;
+      continue;
+    }
+    if (floor * MIN_WIN_DIVISOR > f.seconds) {
+      console.error(`min_win_seconds: ${id} floor ${floor} s is above a quarter of the fastest win (${f.seconds.toFixed(0)} s)`);
+      process.exitCode = 1;
+    } else clean++;
+  }
+  console.log(`min_win_seconds: ${clean} of ${ids.length} floors at or below a quarter of the fastest win over ${seeds} seeds`);
+}
+
+/**
  * Waits for every seed, then prints one line per winning plan and one per unlock gate.
  *
  * A winning plan must win on every seed, and every gate must open after the mission `playtest.ts`
@@ -136,6 +189,7 @@ export async function drainPlanSweeps(
   if (PLAN_CHILD) return new Map();
   if (process.env.PT_PLAN_SWEEP === '0') {
     reportLimitHeadroom([runLog]);
+    reportMinWin([runLog], 1);
     return new Map([[seeds[0], runLog.slice()]]);
   }
   if (pending > 0) await new Promise<void>((resolve) => (onIdle = resolve));
@@ -179,5 +233,6 @@ export async function drainPlanSweeps(
     }
   }
   reportLimitHeadroom(bySeed.values());
+  reportMinWin(bySeed.values(), seeds.length);
   return bySeed;
 }
