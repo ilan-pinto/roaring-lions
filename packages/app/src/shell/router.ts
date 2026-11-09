@@ -22,6 +22,7 @@
  */
 
 import { closeOpenDialog } from '../ui/confirm';
+import { ChunkLoadError } from './chunk';
 
 export type Disposer = () => void;
 
@@ -56,6 +57,10 @@ export interface RouterOptions {
   notFound: Mount;
   /** Crossfade length; 0 in tests. Reduced motion is honoured by the CSS, not here. */
   transitionMs?: number;
+  /** A route whose lazy chunk failed twice (`shell/chunk.ts`) would leave a blank stage. When this is given, the router mounts
+   *  what it returns in the route's place, as that route's own screen: the next navigation disposes it like any other. It is
+   *  only asked for a `ChunkLoadError`; every other error from a mount is rethrown as before. Absent: rethrown. */
+  chunkFailed?: (stage: HTMLElement, err: ChunkLoadError) => Disposer;
 }
 
 const DEFAULT_SANDBOX_MAP = 'beit_sahwan_outskirts';
@@ -200,6 +205,7 @@ export class Router {
   private readonly base: string;
   private readonly stage: HTMLElement;
   private readonly notFound: Mount;
+  private readonly chunkFailed: RouterOptions['chunkFailed'];
   private readonly transitionMs: number;
   private mounted: Mounted | null = null;
   /** The paths mounted so far, minus every one returned from: what tells a
@@ -221,6 +227,7 @@ export class Router {
     this.base = opts.base.endsWith('/') ? opts.base : `${opts.base}/`;
     this.stage = opts.stage;
     this.notFound = opts.notFound;
+    this.chunkFailed = opts.chunkFailed;
     this.transitionMs = opts.transitionMs ?? 200;
   }
 
@@ -379,7 +386,10 @@ export class Router {
     } catch (err) {
       if (this.inflight === abort) this.inflight = null;
       if (abort.signal.aborted || seq !== this.seq) return;
-      throw err;
+      if (!(err instanceof ChunkLoadError) || this.chunkFailed === undefined) throw err;
+      // The stage was emptied by `unmount()` above and nothing has mounted: the card IS this route's screen, so it is
+      // registered below like any other and the next navigation disposes it.
+      dispose = this.chunkFailed(this.stage, err);
     }
     if (this.inflight === abort) this.inflight = null;
     if (seq !== this.seq) {
