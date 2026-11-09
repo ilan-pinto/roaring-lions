@@ -1,8 +1,8 @@
 /**
  * GH-943 WebGPU P3 (T3): the NODE twin of every hooked unit material, the backend's `unit` factory. One `MeshStandardNodeMaterial`
  * composes a TERM per hook segment of the legacy material's program key (`hookSegments`): the soot (`world-materials.node.ts`),
- * the running gear (`running-gear.node.ts`) and the team mark (`team-mask.node.ts`) here; the rain rim and the wounded floor
- * (T4) plug into the same table. A segment with no term is drawn without it and named in `userData.rlUnportedTerms`
+ * the running gear (`running-gear.node.ts`), the team mark (`team-mask.node.ts`), the rain rim (`rain-rim.node.ts`) and the wounded
+ * floor (`wounded-read.node.ts`) here. A segment with no term is drawn without it and named in `userData.rlUnportedTerms`
  * (`rl-unit: <segment>`), the census's `partial` kind.
  *
  * **The chain order is the legacy one, whatever the key's order.** The legacy splices compose at fixed chunks: the soot replaces
@@ -39,23 +39,16 @@ import { legacyBaseOf, legacyMaterialOf, type HasUserData } from '../twin-identi
 import { teamMarkTerms, type TeamMarkMaths } from './team-mask.node';
 import { runningGearTerms, type RunningGearMaths } from './running-gear.node';
 import { sootTerms, type SootMaths } from '../world-materials.node';
-
-/** T4 replaces this with the rain rim's maths (`units/rain-rim.node.ts`); `null` until then. */
-export interface RimMaths {
-  readonly segment: 'rl-unit-rain-rim';
-}
-/** T4 replaces this with the wounded floor's maths (`units/wounded-read.node.ts`); `null` until then. */
-export interface FloorMaths {
-  readonly segment: 'rl-wounded-floor';
-}
+import { rimTerms, type RimMaths } from './rain-rim.node';
+import { floorTerms, type FloorMaths } from './wounded-read.node';
 
 /** The unit twin's shared maths, injected (`material-maths.ts`'s `MATERIAL_MATHS.unit`). */
 export interface UnitMaths {
   readonly team: TeamMarkMaths;
   readonly rg: RunningGearMaths;
   readonly soot: SootMaths;
-  readonly rim: RimMaths | null;
-  readonly floor: FloorMaths | null;
+  readonly rim: RimMaths;
+  readonly floor: FloorMaths;
 }
 
 export interface NodeUnitDeps {
@@ -81,6 +74,7 @@ export const unportedUnitTerm = (segment: string): string => `rl-unit: ${segment
 /** The slice of the node builder the position graph reads at build time. */
 interface BuilderLike {
   readonly material: (Material & { isShadowPassMaterial?: boolean }) | null;
+  readonly camera?: { readonly isOrthographicCamera?: boolean };
 }
 
 /** A frame as `onObjectUpdate` hands it over. */
@@ -122,6 +116,12 @@ export interface UnitTsl {
   readonly positionGeometry: UN;
   readonly normalGeometry: UN;
   readonly materialEmissive: UN;
+  /** The lit output (`outgoingLight` plus fog, as a vec4), what the OUTPUT slot's terms read. */
+  readonly output: UN;
+  readonly normalView: UN;
+  readonly positionViewDirection: UN;
+  dot(a: N, b: N): UN;
+  normalize(a: N): UN;
 }
 
 /**
@@ -176,8 +176,8 @@ export function unitTermTable(maths: UnitMaths): ReadonlyArray<readonly [UnitSeg
     ['rl-soot', sootTerms(maths.soot)],
     ['rl-running-gear-1', runningGearTerms(maths.rg)],
     ['rl-team-mark-2', teamMarkTerms(maths.team)],
-    ['rl-unit-rain-rim', null],
-    ['rl-wounded-floor', null],
+    ['rl-unit-rain-rim', rimTerms(maths.rim)],
+    ['rl-wounded-floor', floorTerms(maths.floor)],
   ];
 }
 

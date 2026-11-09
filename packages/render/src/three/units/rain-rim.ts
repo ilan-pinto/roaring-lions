@@ -54,6 +54,7 @@
  */
 import * as THREE from 'three';
 import { paletteHex } from '../palette-hex';
+import { NUMBER_OPS, type Ops } from '../fog-ops';
 import { RAIN_KDF_CONTRAST, RAIN_KDF_EXPOSURE, RAIN_KDF_RIM_GAIN, RAIN_KDF_RIM_KEY, RAIN_KDF_RIM_POWER } from '../weather';
 
 /** The program cache key of a rim clone (a constant: every figure shares one program). */
@@ -70,14 +71,59 @@ export const RAIN_RIM_GLSL =
   'diffuseColor.rgb = pow( max( diffuseColor.rgb, vec3( 0.0001 ) ), vec3( uRainContrast ) );\n' +
   'totalEmissiveRadiance += uRimColor * uRimGain * pow( 1.0 - saturate( dot( normalize( normal ), isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition ) ) ), uRimPower );';
 
+/** The floor of the contrast's `max` (the shader's `vec3( 0.0001 )`). */
+export const RAIN_CONTRAST_FLOOR = 0.0001;
+
+/**
+ * GH-943 P3 (T4): the exposure, `min(a * k, 1)`, written once against `Ops<T>`. `NUMBER_OPS` runs it in the tests (and
+ * `exposureCurve`); the node twin (`rain-rim.node.ts`) runs it on TSL nodes.
+ */
+export function exposureOps<T>(o: Ops<T>, albedo: T, k: T): T {
+  return o.min(o.mul(albedo, k), o.lit(1));
+}
+
+/** GH-943 P3 (T4): the whole albedo treatment of one channel: the exposure FIRST, then the contrast gamma (`max` floor as the shader's). */
+export function treatedOps<T>(o: Ops<T>, albedo: T, exposure: T, contrast: T): T {
+  return o.pow(o.max(exposureOps(o, albedo, exposure), o.lit(RAIN_CONTRAST_FLOOR)), contrast);
+}
+
+/** GH-943 P3 (T4): the rim factor `pow(1 - saturate(n.v), power)` from the dot product the caller took (a graph choice: the view vector). */
+export function rimFactorOps<T>(o: Ops<T>, nDotV: T, power: T): T {
+  return o.pow(o.sub(o.lit(1), o.clamp01(nDotV)), power);
+}
+
+/** What the rain rim reads, as `Ops<T>` inputs (`nDotV` = `dot(normalize(normal), v)`, `v` the view vector). */
+export interface RimInput<T> {
+  readonly diffuse: readonly [T, T, T];
+  readonly exposure: T;
+  readonly contrast: T;
+  readonly rimColor: readonly [T, T, T];
+  readonly gain: T;
+  readonly power: T;
+  readonly nDotV: T;
+}
+
+/**
+ * GH-943 P3 (T4): `RAIN_RIM_GLSL`, written once against `Ops<T>`: the treated albedo (exposure, then contrast, before lighting) and
+ * the rim emission `rimColor * gain * factor`.
+ */
+export function rimOps<T>(o: Ops<T>, i: RimInput<T>): { rgb: [T, T, T]; emissive: [T, T, T] } {
+  const t = (c: T): T => treatedOps(o, c, i.exposure, i.contrast);
+  const f = o.mul(i.gain, rimFactorOps(o, i.nDotV, i.power));
+  return {
+    rgb: [t(i.diffuse[0]), t(i.diffuse[1]), t(i.diffuse[2])],
+    emissive: [o.mul(i.rimColor[0], f), o.mul(i.rimColor[1], f), o.mul(i.rimColor[2], f)],
+  };
+}
+
 /** The TS mirror of the exposure: `min(a * k, 1)` per channel, `k` = 1 the identity (an albedo is never above 1). */
 export function exposureCurve(albedo: number, k: number): number {
-  return Math.min(albedo * k, 1);
+  return exposureOps(NUMBER_OPS, albedo, k);
 }
 
 /** The TS mirror of the whole albedo treatment: exposure, then the contrast gamma (`max` floor as the shader's). */
 export function treatedAlbedo(albedo: number, exposure: number, contrast: number): number {
-  return Math.pow(Math.max(exposureCurve(albedo, exposure), 0.0001), contrast);
+  return treatedOps(NUMBER_OPS, albedo, exposure, contrast);
 }
 
 /**
@@ -96,7 +142,7 @@ export function rimFactor(
   const v: readonly [number, number, number] = orthographic ? [0, 0, 1] : viewPosition;
   const vl = orthographic ? 1 : len(v);
   const nv = (normal[0] * v[0] + normal[1] * v[1] + normal[2] * v[2]) / (nl * vl);
-  return Math.pow(1 - Math.min(1, Math.max(0, nv)), power);
+  return rimFactorOps(NUMBER_OPS, nv, power);
 }
 
 function replaceOnce(src: string, find: string, by: string): string {

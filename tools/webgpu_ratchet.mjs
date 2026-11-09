@@ -33,6 +33,9 @@ export const PORTED_FILES = [
   'packages/render/src/three/units/team-mask.node.ts',
   'packages/render/src/three/units/running-gear.node.ts',
   'packages/render/src/three/world-materials.node.ts',
+  // GH-943 P3 (T4): the rain rim and the wounded floor terms of the same twin.
+  'packages/render/src/three/units/rain-rim.node.ts',
+  'packages/render/src/three/units/wounded-read.node.ts',
   // GH-943 P3 (T8): the overlay batch, zone band, supply route and tunnel trail. Their legacy twins keep their GLSL until P8.
   'packages/render/src/three/units/overlays.node.ts',
   'packages/render/src/three/units/zone-band.node.ts',
@@ -71,6 +74,9 @@ export const TWINS = Object.freeze({
   [`${THREE}units/running-gear.ts`]: `${THREE}units/running-gear.node.ts`,
   [`${THREE}units/running-gear-material.ts`]: `${THREE}units/running-gear.node.ts`,
   [`${THREE}world-materials.ts`]: `${THREE}world-materials.node.ts`,
+  // GH-943 P3 (T4)
+  [`${THREE}units/rain-rim.ts`]: `${THREE}units/rain-rim.node.ts`,
+  [`${THREE}units/wounded-read.ts`]: `${THREE}units/wounded-read.node.ts`,
   // GH-943 P3 (T8). supply-route-maths.ts holds the dash the route twin shares (a change to it must touch the twin too, intended).
   [`${THREE}units/overlays.ts`]: `${THREE}units/overlays.node.ts`,
   [`${THREE}units/zone-band.ts`]: `${THREE}units/zone-band.node.ts`,

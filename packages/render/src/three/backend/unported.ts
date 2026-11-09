@@ -48,6 +48,8 @@ export const PORTED_MATERIAL_KEYS: ReadonlySet<string> = new Set<string>([
   'rl-selection-ring',
   // GH-943 P3 (T3): the vehicle hooks of the unit twin (`units/unit-material.node.ts`), read per segment.
   'rl-team-mark-2', 'rl-running-gear-1', 'rl-soot',
+  // GH-943 P3 (T4): the rain rim and the wounded floor.
+  'rl-unit-rain-rim', 'rl-wounded-floor',
   // GH-943 P3 (T8): the overlay batch, the zone band, the supply route and the tunnel trail.
   'rl-overlay', 'rl-zone-band', 'rl-supply-route', 'rl-trail',
 ]);
