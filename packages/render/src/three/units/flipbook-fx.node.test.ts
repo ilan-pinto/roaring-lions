@@ -367,7 +367,9 @@ describe('G4: a late atlas is sampled', () => {
     const tex = texturesOf(twin);
     const fireTaps = tex.uFireAtlas?.taps ?? [];
     const smokeTaps = tex.uSmokeAtlas?.taps ?? [];
-    expect(fireTaps.length + smokeTaps.length).toBe(4);
+    // Each list on its own: a sum could hide an atlas with no tap, and the loops below would then run zero times.
+    expect(fireTaps).toHaveLength(2);
+    expect(smokeTaps).toHaveLength(2);
     // Two DIFFERENT placeholders: three shares one binding between taps of the same texture, so one placeholder for both atlases
     // would compile them into one sampler.
     expect(fireTaps[0]?.value).toBe(tex.uFireAtlas?.placeholder);
